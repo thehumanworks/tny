@@ -1,0 +1,22 @@
+---
+description: Agent-friendly CLI and Unix-shell TUI
+globs: "src/{cli,tui}/**/*.{c,h}"
+alwaysApply: false
+---
+
+# CLI and TUI
+
+CLI: every input is a flag or stdin. Missing values fail immediately with a correct example. `--help` on every subcommand includes Examples. `--json` on ask/status/doctor/sessions. stdout is data; stderr is progress.
+
+```text
+# ❌ BAD
+tny ask
+? Select backend (use arrow keys)
+
+# ✅ GOOD
+tny --backend openai ask --json "summarize src/"
+```
+
+TUI: ANSI shell (transcript + composer + footer). No ncurses. `/` `@` `$` palettes; disable them during approvals. Esc/Ctrl-C interrupts a turn.
+
+Do not initialize a backend until the user submits a turn, except `doctor`.

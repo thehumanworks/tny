@@ -1,0 +1,19 @@
+---
+description: tny product goal, backends, and research-first workflow
+alwaysApply: true
+---
+
+# Product goal
+
+tny is a tiny C11 TUI+CLI agent harness. Beat vercel-labs/fx (Zig, ~7.8 MiB) on size and speed. Keep fx's Unix-shell functionality. Do not start a different product.
+
+Required backends: Cursor SDK Bridge (`sdk.v1` Connect), Codex `app-server` WebSockets, ACP for other agents, OpenAI-compatible HTTP with a native tool loop.
+
+Read `docs/README.md` before adding code. Follow `docs/implementation-plan.md` phase order. Update docs when behavior changes.
+
+```text
+# ❌ BAD — new language, bundled Node, or skipping docs
+# ✅ GOOD — C11, spawn host binaries, implement the next phase gate
+```
+
+Host processes stay external. Never embed `cursor-sdk-bridge` or `codex` in the tny binary. Never log tokens or ready-line JSON.

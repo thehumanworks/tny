@@ -1,0 +1,23 @@
+---
+description: Isolate Cursor, Codex, ACP, and OpenAI backends
+globs: "src/backends/**/*.{c,h}"
+alwaysApply: false
+---
+
+# Backends
+
+Each backend implements connect, send, cancel, permission reply, disconnect. Map wire events to the shared core event set. The TUI must not include protocol headers.
+
+| Flag | Transport | Do not confuse with |
+| --- | --- | --- |
+| `cursor` | Spawn `cursor-sdk-bridge`, Connect HTTP/1.1 | `agent acp` |
+| `codex` | WebSocket JSON-RPC (no `jsonrpc` field) | Codex ACP adapter |
+| `acp` | JSON-RPC 2.0 JSONL stdio client | `tny acp` server |
+| `openai` | `POST /v1/chat/completions` SSE | Host tool loops |
+
+```c
+/* ❌ BAD — TUI paints Connect frames */
+/* ✅ GOOD — backend emits TNY_EV_TEXT_DELTA / TNY_EV_PERM_REQ */
+```
+
+Drain host stderr. Shutdown: RPC/EOF, wait, kill. Pin protos and Codex schema to a release tag. Details: `docs/backends/`.

@@ -1,0 +1,34 @@
+# Build
+/build/
+/out/
+/zig-out/
+*.o
+*.a
+*.so
+*.dylib
+*.dSYM/
+compile_commands.json
+.cache/
+
+# Editor / OS
+.DS_Store
+*.swp
+*~
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+auth-token
+**/auth-token
+
+# Generated protocol artifacts (regenerate from pinned tags)
+/gen/
+/third_party/cursor-sdk-bridge/bin/
+
+# Test / coverage
+*.gcda
+*.gcno
+coverage/

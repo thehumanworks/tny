@@ -1,0 +1,26 @@
+---
+description: C11 coding standards for tny
+globs: "**/*.{c,h}"
+alwaysApply: false
+---
+
+# C11
+
+- C11 only. No C++ files, no `new`/`std::`, no exceptions.
+- `-Wall -Wextra -Werror`. No VLAs. Check every `malloc`/`fopen`/`read`.
+- One concern per file, keep units under ~500 lines.
+- Errors: return a `tny_err` with a stable code and message; do not swallow.
+
+```c
+/* ❌ BAD */
+char *p = malloc(n);
+memcpy(p, src, n);
+
+/* ✅ GOOD */
+char *p = malloc(n);
+if (!p)
+    return tny_err_oom("session buffer");
+memcpy(p, src, n);
+```
+
+Vendor only the libraries in `docs/language-and-runtime.md` (yyjson, wslay, nanopb, tiny HTTP). No libuv, ncurses, protobuf C++, or gRPC.
