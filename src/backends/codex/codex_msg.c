@@ -108,6 +108,7 @@ static void cx_notification(cx_impl *o, const char *method, yyjson_val *params) 
         if (!type) return;
         const char *id = cx_first_str(item, CX_ITEM_ID_KEYS);
         if (!id) id = cx_first_str(params, CX_ITEM_ID_KEYS);
+        if (cx_item_is_user_echo(type, item)) return;
         if (cx_type_is_message(type)) {
             if (done && !streamed_seen(o, id)) {
                 char *t = cx_item_text(item);

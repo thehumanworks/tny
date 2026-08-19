@@ -64,6 +64,7 @@ void     tny_ctx_free(tny_ctx *ctx);
 
 /* Resolve backend per docs/cli.md when no --backend flag was given. */
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value);
+bool tny_codex_auth_present(void); /* codex login (auth.json) on this machine */
 
 /* Persist a top-level string into ~/.tny/settings.json (e.g. last backend,
  * model). Creates the file if missing. Returns 0 on success. */

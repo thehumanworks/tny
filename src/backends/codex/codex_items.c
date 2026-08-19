@@ -141,7 +141,18 @@ char *cx_item_detail(const char *type, yyjson_val *item) {
 
 bool cx_type_is_message(const char *type) {
     return strcmp(type, "agentMessage") == 0 || strcmp(type, "assistantMessage") == 0 ||
-           strcmp(type, "userMessage") == 0 || strcmp(type, "message") == 0;
+           strcmp(type, "message") == 0;
+}
+
+/* The host replays the prompt as a userMessage item; rendering it would echo
+ * the user's own words back into the transcript. */
+bool cx_item_is_user_echo(const char *type, yyjson_val *item) {
+    if (strcmp(type, "userMessage") == 0) return true;
+    if (strcmp(type, "message") == 0) {
+        const char *r = jget_str(item, "role");
+        return r && strcmp(r, "user") == 0;
+    }
+    return false;
 }
 
 bool cx_type_is_reasoning(const char *type) {

@@ -2,6 +2,7 @@
  * $HOME so nothing touches the real ~/.tny. */
 #include "greatest.h"
 #include "core/config.h"
+#include "core/backend.h"
 #include "core/perm.h"
 #include "core/session.h"
 #include "util/util.h"
@@ -269,7 +270,73 @@ TEST session_recovery_roundtrip(void) {
     PASS();
 }
 
+/* ---- default backend resolution ---- */
+
+static void codex_auth_write(bool present) {
+    char path[600];
+    snprintf(path, sizeof path, "%s/.codex", g_home);
+    mkdir_p(path);
+    snprintf(path, sizeof path, "%s/.codex/auth.json", g_home);
+    if (present) file_write_atomic(path, "{}", 2);
+    else unlink(path);
+}
+
+TEST backend_default_prefers_codex_login(void) {
+    ensure_env();
+    unsetenv("CODEX_HOME");
+    unsetenv("CURSOR_API_KEY");
+    write_settings("{}");
+
+    codex_auth_write(false);
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL)); /* nothing configured */
+    tny_ctx_free(ctx);
+
+    codex_auth_write(true);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(tny_codex_auth_present());
+    ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, NULL)); /* subscription wins */
+    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp"));  /* flag beats it */
+    tny_ctx_free(ctx);
+
+    setenv("OPENAI_API_KEY", "sk-test", 1); /* explicit key beats detection */
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    unsetenv("OPENAI_API_KEY");
+    tny_ctx_free(ctx);
+
+    write_settings("{\"last_backend\":\"openai\"}"); /* remembered choice beats it */
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    tny_ctx_free(ctx);
+
+    write_settings("{}");
+    codex_auth_write(false);
+    PASS();
+}
+
+TEST backend_default_cursor_key_from_env(void) {
+    ensure_env();
+    write_settings("{}");
+    codex_auth_write(false);
+    setenv("CURSOR_API_KEY", "key_test", 1);
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_CURSOR, tny_resolve_backend(ctx, NULL));
+    tny_ctx_free(ctx);
+
+    codex_auth_write(true); /* codex login outranks a cursor env key */
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, NULL));
+    tny_ctx_free(ctx);
+
+    unsetenv("CURSOR_API_KEY");
+    codex_auth_write(false);
+    PASS();
+}
+
 SUITE(core_suite) {
+    RUN_TEST(backend_default_prefers_codex_login);
+    RUN_TEST(backend_default_cursor_key_from_env);
     RUN_TEST(perm_defaults_ask_mode);
     RUN_TEST(perm_safe_tool_inside_workspace);
     RUN_TEST(perm_rules_last_match_wins);

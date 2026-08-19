@@ -37,7 +37,15 @@ tny -r                      # session picker (TUI)
 tny -c                      # resume last for this workspace
 ```
 
-`--backend` default: `openai` if `OPENAI_BASE_URL` or `OPENAI_API_KEY` is set, otherwise the last used backend in `~/.tny/settings.json`.
+## Backend selection
+
+`--backend` default, in order:
+
+1. `openai` if `OPENAI_BASE_URL` or `OPENAI_API_KEY` is set (an explicit key is an explicit choice)
+2. the last used backend in `~/.tny/settings.json` (`last_backend`)
+3. `codex` if a `codex login` exists (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`) — subscriptions need no API key
+4. `cursor` if `CURSOR_API_KEY` is set in the environment
+5. `openai` (its connect error explains how to configure a key)
 
 ## `tny ask` (scripts and CI)
 

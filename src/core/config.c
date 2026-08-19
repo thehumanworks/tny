@@ -149,6 +149,27 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     return ctx;
 }
 
+/* A `codex login` drops auth.json under $CODEX_HOME (default ~/.codex).
+ * Its presence means the user's ChatGPT subscription can drive the codex
+ * backend with no API key at all. */
+bool tny_codex_auth_present(void) {
+    char *dir;
+    const char *ch = getenv("CODEX_HOME");
+    if (ch && *ch) {
+        dir = xstrdup(ch);
+    } else {
+        char *home = path_home();
+        if (!home) return false;
+        dir = path_join(home, ".codex");
+        free(home);
+    }
+    char *p = path_join(dir, "auth.json");
+    free(dir);
+    bool ok = file_exists(p);
+    free(p);
+    return ok;
+}
+
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
     if (flag_value) {
         int id = tny_backend_from_name(flag_value);
@@ -163,6 +184,14 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
     if ((e1 && *e1) || (e2 && *e2)) { ctx->backend = TNY_BK_OPENAI; return ctx->backend; }
     const char *last = tny_settings_get_str(ctx, "last_backend");
     int id = last ? tny_backend_from_name(last) : -1;
+    /* No explicit choice anywhere: prefer subscription logins over raw keys
+     * (docs/cli.md "Backend selection"). Codex login first, then a Cursor
+     * key from the environment, then the openai backend's own error path. */
+    if (id < 0 && tny_codex_auth_present()) id = TNY_BK_CODEX;
+    if (id < 0) {
+        const char *ck = getenv("CURSOR_API_KEY");
+        if (ck && *ck) id = TNY_BK_CURSOR;
+    }
     ctx->backend = id >= 0 ? id : TNY_BK_OPENAI;
     return ctx->backend;
 }

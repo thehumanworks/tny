@@ -118,6 +118,7 @@ void        cx_append_words(buf_t *b, yyjson_val *v);
 char       *cx_item_text(yyjson_val *item);   /* caller frees */
 char       *cx_item_detail(const char *type, yyjson_val *item); /* caller frees */
 bool        cx_type_is_message(const char *type);
+bool        cx_item_is_user_echo(const char *type, yyjson_val *item);
 bool        cx_type_is_reasoning(const char *type);
 bool        cx_type_is_plan(const char *type);
 void        cx_emit_plan(cx_impl *o, yyjson_val *item);
