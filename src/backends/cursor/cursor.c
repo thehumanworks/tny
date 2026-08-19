@@ -54,14 +54,15 @@ void cu_end_turn(cu_impl *o, tny_stop_reason stop) {
 
 /* ---------- request bodies ---------- */
 
-/* AgentOptions: local agents need an explicit model and a cwd list
- * (docs/backends/cursor-bridge.md, "Services tny must call"). */
+/* AgentOptions (proto/sdk/v1/sdk_messages.proto): model is a ModelSelection
+ * ({"id":…}), local.cwd carries at most one entry, extra roots go in
+ * local.dirs. Local agents need an explicit model and a cwd. */
 static void append_options(cu_impl *o, buf_t *b) {
     buf_appends(b, "{");
     if (o->model) {
-        buf_appends(b, "\"model\":");
+        buf_appends(b, "\"model\":{\"id\":");
         jescape(b, o->model);
-        buf_appends(b, ",");
+        buf_appends(b, "},");
     }
     if (o->api_key) {
         buf_appends(b, "\"apiKey\":");
@@ -70,11 +71,16 @@ static void append_options(cu_impl *o, buf_t *b) {
     }
     buf_appends(b, "\"local\":{\"cwd\":[");
     jescape(b, o->ctx->cwd);
-    for (int i = 0; i < o->ctx->n_extra_dirs; i++) {
-        buf_appends(b, ",");
-        jescape(b, o->ctx->extra_dirs[i]);
+    buf_appends(b, "]");
+    if (o->ctx->n_extra_dirs) {
+        buf_appends(b, ",\"dirs\":[");
+        for (int i = 0; i < o->ctx->n_extra_dirs; i++) {
+            if (i) buf_appends(b, ",");
+            jescape(b, o->ctx->extra_dirs[i]);
+        }
+        buf_appends(b, "]");
     }
-    buf_appends(b, "]}}");
+    buf_appends(b, "}}");
 }
 
 static char *rpc(cu_impl *o, const char *svc, const char *method, const char *body,
@@ -110,8 +116,10 @@ static int resolve_model(cu_impl *o, char *err, size_t errlen) {
     buf_init(&body);
     buf_appends(&body, "{");
     if (o->api_key) {
-        buf_appends(&body, "\"apiKey\":");
+        /* catalog RPCs take CursorRequestOptions: {"options":{"apiKey":…}} */
+        buf_appends(&body, "\"options\":{\"apiKey\":");
         jescape(&body, o->api_key);
+        buf_appends(&body, "}");
     }
     buf_appends(&body, "}");
     char *res = rpc(o, CURSOR_SVC_CURSOR, "ListModels", body.data, err, errlen);
@@ -122,7 +130,8 @@ static int resolve_model(cu_impl *o, char *err, size_t errlen) {
     }
     yyjson_doc *doc = jparse(res, strlen(res));
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
-    yyjson_val *arr = jget(root, "models");
+    yyjson_val *arr = jget(root, "items"); /* ListModelsResponse.items */
+    if (!arr) arr = jget(root, "models");
     if (!arr) arr = jget(root, "data");
     yyjson_val *first = yyjson_arr_get_first(arr);
     const char *id = NULL;
@@ -247,12 +256,12 @@ static int cu_send(tny_backend *b, const char *prompt, const char **images,
     free(o->run_id);
     o->run_id = NULL;
 
-    /* SendRequest: agent id + prompt + SendOptions.enable_deltas. */
+    /* SendRequest: agent id + UserMessage `message` + SendOptions.enable_deltas. */
     buf_t body;
     buf_init(&body);
     buf_appends(&body, "{\"agentId\":");
     jescape(&body, o->agent_id);
-    buf_appends(&body, ",\"prompt\":{\"text\":");
+    buf_appends(&body, ",\"message\":{\"text\":");
     jescape(&body, prompt);
     buf_appends(&body, "},\"options\":{\"enableDeltas\":true}}");
     int rc = cursor_stream_start(&o->stream, CURSOR_SVC_AGENT, "Send", body.data,

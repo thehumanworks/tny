@@ -112,10 +112,14 @@ protojson camelCase. Written by `src/backends/cursor/cursor.c` only; readers
 accept camelCase *and* snake_case. Re-pin these against the release `.proto`s
 and smoke-test.md before shipping against a new bridge release.
 
-- `CreateAgent` → `{"options":{"model":M,"apiKey":K,"local":{"cwd":[cwd,…extraDirs]}}}`
-  (when `--model` is absent tny calls `ListModels` and uses the first id)
+- `CreateAgent` → `{"options":{"model":{"id":M},"apiKey":K,"local":{"cwd":[cwd],"dirs":[…extraDirs]}}}`
+  — `model` is a `ModelSelection`, `local.cwd` carries at most one entry
+  (when `--model` is absent tny calls `ListModels` and uses the first item id)
+- `ListModels` → `{"options":{"apiKey":K}}` (`CursorRequestOptions`; catalog
+  RPCs hard-require the per-call key), response models are in `items`
 - `ResumeAgent` → same options plus `"agentId"` (the stored host pointer)
-- `Send` (server-streaming) → `{"agentId":A,"prompt":{"text":T},"options":{"enableDeltas":true}}`
+- `Send` (server-streaming) → `{"agentId":A,"message":{"text":T},"options":{"enableDeltas":true}}`
+  — the field is `message` (a `UserMessage`), not `prompt`
 - `CancelRun` → `{"agentId":A,"runId":R}`
 - `Shutdown` → `{"graceSeconds":5}`
 

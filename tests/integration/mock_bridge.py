@@ -130,8 +130,11 @@ class Handler(BaseHTTPRequestHandler):
                          "runtime": "python-mock"})
 
     def list_models(self):
-        self._unary_in()
-        self._json(200, {"models": [{"id": MODEL}, {"id": "mock-cursor-model-2"}]})
+        req = self._unary_in()
+        # CursorRequestOptions: the per-call key is required for catalog RPCs
+        if not (req.get("options") or {}).get("apiKey"):
+            fail("ListModels: options.apiKey is missing")
+        self._json(200, {"items": [{"id": MODEL}, {"id": "mock-cursor-model-2"}]})
 
     def _check_options(self, req):
         who = self.path.rsplit("/", 1)[-1]
@@ -139,12 +142,17 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(opts, dict):
             fail(f"{who}: options is not an object")
             return
-        if opts.get("model") != MODEL:
-            fail(f"{who}: options.model is {opts.get('model')!r}, want {MODEL!r}")
+        model = opts.get("model") or {}
+        if not isinstance(model, dict) or model.get("id") != MODEL:
+            fail(f"{who}: options.model is {opts.get('model')!r}, "
+                 f"want ModelSelection {{'id': {MODEL!r}}}")
         local = opts.get("local") or {}
         cwd = local.get("cwd")
         if not isinstance(cwd, list) or not cwd:
             fail(f"{who}: options.local.cwd is {cwd!r}")
+        elif len(cwd) > 1:
+            fail(f"{who}: options.local.cwd has {len(cwd)} entries; "
+                 "send at most one (extras belong in local.dirs)")
         elif os.path.realpath(cwd[0]) != EXPECT_CWD:
             fail(f"{who}: options.local.cwd[0] is {cwd[0]!r}, want {EXPECT_CWD!r}")
         if not opts.get("apiKey"):
@@ -177,9 +185,9 @@ class Handler(BaseHTTPRequestHandler):
         agent = open(AGENT_PATH).read().strip() if os.path.exists(AGENT_PATH) else ""
         if req.get("agentId") != agent:
             fail(f"Send: agentId is {req.get('agentId')!r}, want {agent!r}")
-        prompt = req.get("prompt") or {}
-        if not isinstance(prompt, dict) or not prompt.get("text"):
-            fail(f"Send: no prompt text in {req!r}")
+        message = req.get("message") or {}
+        if not isinstance(message, dict) or not message.get("text"):
+            fail(f"Send: no message.text in {req!r}")
         if not (req.get("options") or {}).get("enableDeltas"):
             fail("Send: options.enableDeltas is not true")
 
