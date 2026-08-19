@@ -129,12 +129,25 @@ static void ev_cb(const tny_event *ev, void *ud) {
     tui *t = ud;
     char line[512];
 
+    /* reasoning streams on its own lines: break before anything else lands */
+    if (ev->kind != TNY_EV_THINKING && t->in_thinking) {
+        t->in_thinking = false;
+        tui_bol(t);
+    }
+
     switch (ev->kind) {
     case TNY_EV_TEXT_DELTA:
         tui_write(t, ev->text, ev->text_len);
         buf_append(&t->last_reply, ev->text, ev->text_len);
         break;
     case TNY_EV_THINKING:
+        if (!t->in_thinking) {
+            t->in_thinking = true;
+            tui_bol(t);
+            if (t->color) tui_write(t, "\x1b[2m", 4);
+            tui_write(t, "· ", 2);
+            if (t->color) tui_write(t, "\x1b[0m", 4);
+        }
         if (t->color) tui_write(t, "\x1b[2m", 4);
         tui_write(t, ev->text, ev->text_len);
         if (t->color) tui_write(t, "\x1b[0m", 4);
@@ -229,6 +242,9 @@ static bool ensure_backend(tui *t) {
     if (bk->id == TNY_BK_OPENAI)
         tny_backend_openai_bind(bk, t->session, t->perm, perm_hook, t);
     const char *hp = session_host_pointer(t->session);
+    /* a host pointer only means something to the provider that minted it */
+    const char *owner = session_backend(t->session);
+    if (hp && owner && strcmp(owner, tny_backend_name(bk->id)) != 0) hp = NULL;
     if (bk->create_or_resume && bk->create_or_resume(bk, hp, err, sizeof err) != 0) {
         tui_err(t, err);
         bk->disconnect(bk);

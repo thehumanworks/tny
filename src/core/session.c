@@ -154,6 +154,11 @@ void session_set_meta(tny_session *s, const char *backend, const char *model) {
     if (model) put_str(s, "model", model);
 }
 
+const char *session_backend(tny_session *s) {
+    yyjson_mut_val *v = yyjson_mut_obj_get(root_of(s), "backend");
+    return v ? yyjson_mut_get_str(v) : NULL;
+}
+
 void session_set_host_pointer(tny_session *s, const char *ptr) {
     put_str(s, "host_pointer", ptr);
 }

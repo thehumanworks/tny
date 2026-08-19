@@ -59,6 +59,7 @@ typedef struct tui {
     perm_engine *perm;
 
     bool turn_active, turn_done, want_cancel, quit, trace;
+    bool in_thinking; /* streaming reasoning: keep it on its own lines */
     int  exit_code;
     tny_stop_reason stop;
     int64_t in_tok, out_tok, cancel_ms, last_ctrlc_ms;

@@ -32,6 +32,7 @@ void session_bump_turns(tny_session *s);
 const char *session_title(tny_session *s);
 void session_set_title(tny_session *s, const char *title);
 void session_set_meta(tny_session *s, const char *backend, const char *model);
+const char *session_backend(tny_session *s); /* provider that owns the transcript */
 void session_set_host_pointer(tny_session *s, const char *ptr);
 const char *session_host_pointer(tny_session *s);
 void session_add_usage(tny_session *s, int64_t in_tok, int64_t out_tok);

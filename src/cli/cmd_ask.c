@@ -184,6 +184,9 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     if (bk->id == TNY_BK_OPENAI)
         tny_backend_openai_bind(bk, session, perm, NULL, NULL);
     const char *hp = session_host_pointer(session);
+    /* a host pointer only means something to the provider that minted it */
+    const char *owner = session_backend(session);
+    if (hp && owner && strcmp(owner, tny_backend_name(bk->id)) != 0) hp = NULL;
     if (bk->create_or_resume && bk->create_or_resume(bk, hp, err, sizeof err) != 0) {
         fprintf(stderr, "tny: %s\n", err);
         bk->destroy(bk);
