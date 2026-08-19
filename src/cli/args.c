@@ -102,7 +102,11 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     tny_ctx *ctx = tny_ctx_load(g->cwd);
     if (!ctx) return NULL;
 
-    if (g->model) { free(ctx->model); ctx->model = xstrdup(g->model); }
+    if (g->model) {
+        free(ctx->model);
+        ctx->model = xstrdup(g->model);
+        ctx->model_from_flag = true;
+    }
     if (g->perm_mode) {
         if (strcmp(g->perm_mode, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;
         else if (strcmp(g->perm_mode, "auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;

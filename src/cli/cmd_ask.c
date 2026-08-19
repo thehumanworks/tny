@@ -252,6 +252,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     case TNY_STOP_INTERRUPTED: exit_code = 130; break;
     default: exit_code = 2; break;
     }
+    if (st.stop == TNY_STOP_DONE)
+        tny_settings_remember_use(ctx); /* next launch defaults to this provider */
 
     if (json) {
         buf_t out;

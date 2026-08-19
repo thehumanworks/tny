@@ -57,11 +57,11 @@ $(BUILD)/tny: $(REL_OBJS)
 
 $(OBJ_REL)/%.o: %.c
 	@mkdir -p $(@D)
-	$(CC) $(REL_CFLAGS) $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
+	$(CC) $(REL_CFLAGS) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
 
 $(OBJ_DBG)/%.o: %.c
 	@mkdir -p $(@D)
-	$(CC) $(DBG_CFLAGS) $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
+	$(CC) $(DBG_CFLAGS) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
 
 $(BUILD)/tny-test: $(TEST_OBJS) $(TEST_SRC:%.c=$(OBJ_DBG)/%.o)
 	@mkdir -p $(@D)
@@ -81,3 +81,6 @@ bench: release
 
 clean:
 	rm -rf $(BUILD)
+
+# Header dependencies emitted by -MMD; a header edit rebuilds its users.
+-include $(REL_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(TEST_SRC:%.c=$(OBJ_DBG)/%.d)

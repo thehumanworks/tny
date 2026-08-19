@@ -81,10 +81,10 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     ctx->context_enabled = true;
     ctx->sandbox_mode = xstrdup("auto");
 
-    /* settings-level */
+    /* settings-level. Models are per-provider ("models" object, applied in
+     * tny_resolve_backend) — a global model would leak one provider's id
+     * into another's thread/start. */
     const char *s;
-    if ((s = jget_str(wso, "model")) || (s = jget_str(sroot, "model")))
-        ctx->model = xstrdup(s);
     if ((s = jget_str(wso, "permission_mode")) || (s = jget_str(sroot, "permission_mode"))) {
         if (strcmp(s, "auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
         else if (strcmp(s, "yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
@@ -111,10 +111,6 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     ctx->auth_header_prefix = xstrdup(ahp ? ahp : "Bearer ");
     const char *mtf = jget_str(oa, "max_tokens_field");
     ctx->max_tokens_field = mtf ? xstrdup(mtf) : NULL;
-    if (!ctx->model) {
-        const char *m = jget_str(oa, "model");
-        if (m) ctx->model = xstrdup(m);
-    }
 
     /* host backend knobs */
     ctx->bridge_bin = dup_or("CURSOR_SDK_BRIDGE_BIN", "cursor-sdk-bridge");
@@ -170,29 +166,54 @@ bool tny_codex_auth_present(void) {
     return ok;
 }
 
+const char *tny_settings_provider_model(tny_ctx *ctx, const char *provider) {
+    if (!ctx->settings) return NULL;
+    return jget_str(jget(yyjson_doc_get_root(ctx->settings), "models"), provider);
+}
+
+/* Once the provider is known, pick its model: --model beats the saved
+ * per-provider entry beats the openai object's model (openai only). */
+static void apply_provider_model(tny_ctx *ctx, int id) {
+    if (ctx->model_from_flag) return;
+    const char *m = tny_settings_provider_model(ctx, tny_backend_name(id));
+    if (!m && id == TNY_BK_OPENAI && ctx->settings)
+        m = jget_str(jget(yyjson_doc_get_root(ctx->settings), "openai"), "model");
+    if (m && *m) {
+        free(ctx->model);
+        ctx->model = xstrdup(m);
+    }
+}
+
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
+    int id = -1;
     if (flag_value) {
-        int id = tny_backend_from_name(flag_value);
+        id = tny_backend_from_name(flag_value);
         if (id < 0) {
-            fprintf(stderr, "tny: unknown backend '%s' (cursor|codex|acp|openai)\n", flag_value);
+            fprintf(stderr, "tny: unknown provider '%s' (cursor|codex|acp|openai)\n",
+                    flag_value);
             return -1;
         }
-        ctx->backend = id;
-        return id;
     }
-    const char *e1 = getenv("OPENAI_BASE_URL"), *e2 = getenv("OPENAI_API_KEY");
-    if ((e1 && *e1) || (e2 && *e2)) { ctx->backend = TNY_BK_OPENAI; return ctx->backend; }
-    const char *last = tny_settings_get_str(ctx, "last_backend");
-    int id = last ? tny_backend_from_name(last) : -1;
+    if (id < 0) { /* the provider (and model) last used wins over detection */
+        const char *last = tny_settings_get_str(ctx, "last_provider");
+        if (!last) last = tny_settings_get_str(ctx, "last_backend");
+        if (last) id = tny_backend_from_name(last);
+    }
+    if (id < 0) {
+        const char *e1 = getenv("OPENAI_BASE_URL"), *e2 = getenv("OPENAI_API_KEY");
+        if ((e1 && *e1) || (e2 && *e2)) id = TNY_BK_OPENAI;
+    }
     /* No explicit choice anywhere: prefer subscription logins over raw keys
-     * (docs/cli.md "Backend selection"). Codex login first, then a Cursor
+     * (docs/cli.md "Provider selection"). Codex login first, then a Cursor
      * key from the environment, then the openai backend's own error path. */
     if (id < 0 && tny_codex_auth_present()) id = TNY_BK_CODEX;
     if (id < 0) {
         const char *ck = getenv("CURSOR_API_KEY");
         if (ck && *ck) id = TNY_BK_CURSOR;
     }
-    ctx->backend = id >= 0 ? id : TNY_BK_OPENAI;
+    if (id < 0) id = TNY_BK_OPENAI;
+    ctx->backend = id;
+    apply_provider_model(ctx, id);
     return ctx->backend;
 }
 
@@ -238,6 +259,31 @@ static void edit_set_str(yyjson_mut_doc *doc, yyjson_mut_val *root, void *ud) {
 int tny_settings_set_str(tny_ctx *ctx, const char *key, const char *value) {
     struct kv kv = {key, value};
     return settings_edit(ctx, edit_set_str, &kv);
+}
+
+static void edit_remember_use(yyjson_mut_doc *doc, yyjson_mut_val *root, void *ud) {
+    struct kv *kv = ud; /* k = provider name, v = model or NULL */
+    yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "last_provider"),
+                       yyjson_mut_strcpy(doc, kv->k));
+    if (!kv->v) return;
+    yyjson_mut_val *models = yyjson_mut_obj_get(root, "models");
+    if (!models || !yyjson_mut_is_obj(models)) {
+        models = yyjson_mut_obj(doc);
+        yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "models"), models);
+    }
+    yyjson_mut_obj_put(models, yyjson_mut_strcpy(doc, kv->k),
+                       yyjson_mut_strcpy(doc, kv->v));
+}
+
+int tny_settings_remember_use(tny_ctx *ctx) {
+    const char *name = tny_backend_name(ctx->backend);
+    const char *last = tny_settings_get_str(ctx, "last_provider");
+    const char *saved = tny_settings_provider_model(ctx, name);
+    bool same_last = last && strcmp(last, name) == 0;
+    bool same_model = ctx->model ? (saved && strcmp(saved, ctx->model) == 0) : true;
+    if (same_last && same_model) return 0; /* nothing new to write */
+    struct kv kv = {name, ctx->model};
+    return settings_edit(ctx, edit_remember_use, &kv);
 }
 
 struct ws_edit { tny_ctx *ctx; const char *dir; int op; }; /* 0 add, 1 remove, 2 clear */
@@ -321,6 +367,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->codex_ws);
     free(ctx->codex_bin);
     free(ctx->ws_token_file);
+    free(ctx->service_tier);
     if (ctx->agent_argv) {
         for (char **p = ctx->agent_argv; *p; p++) free(*p);
         free(ctx->agent_argv);

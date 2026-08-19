@@ -20,6 +20,7 @@ typedef struct tny_ctx {
     /* selection */
     int    backend;         /* tny_backend_id, resolved */
     char  *model;
+    bool   model_from_flag; /* --model on the command line beats saved models */
     tny_perm_mode perm_mode;
     bool   json_out;
     bool   no_save;
@@ -38,6 +39,7 @@ typedef struct tny_ctx {
     char *codex_ws;
     char *codex_bin;
     char *ws_token_file;
+    char *service_tier;     /* codex thread/start serviceTier: priority|default */
     /* acp */
     char **agent_argv;      /* NULL-terminated, or NULL */
 
@@ -65,6 +67,12 @@ void     tny_ctx_free(tny_ctx *ctx);
 /* Resolve backend per docs/cli.md when no --backend flag was given. */
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value);
 bool tny_codex_auth_present(void); /* codex login (auth.json) on this machine */
+
+/* Persist the provider (and its model) that just ran, so the next launch
+ * defaults to them: settings last_provider + models.{provider}. */
+int tny_settings_remember_use(tny_ctx *ctx);
+/* Saved model for one provider (settings "models" object), or NULL. */
+const char *tny_settings_provider_model(tny_ctx *ctx, const char *provider);
 
 /* Persist a top-level string into ~/.tny/settings.json (e.g. last backend,
  * model). Creates the file if missing. Returns 0 on success. */

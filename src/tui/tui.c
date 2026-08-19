@@ -252,6 +252,7 @@ static bool ensure_backend(tui *t) {
         return false;
     }
     t->bk = bk;
+    tny_settings_remember_use(t->ctx); /* next launch defaults to this provider */
     return true;
 }
 

@@ -157,9 +157,17 @@ static int cx_start_thread(cx_impl *o, const char *resume, char *err, size_t err
     } else {
         method = "thread/start";
         buf_appends(&p, "{");
+        bool first = true;
         if (o->ctx->model && *o->ctx->model) {
             buf_appends(&p, "\"model\":");
             jescape(&p, o->ctx->model);
+            first = false;
+        }
+        /* "priority" is the paid fast tier; the host ignores unknown values */
+        if (o->ctx->service_tier && *o->ctx->service_tier) {
+            if (!first) buf_appends(&p, ",");
+            buf_appends(&p, "\"serviceTier\":");
+            jescape(&p, o->ctx->service_tier);
         }
         buf_appends(&p, "}");
     }

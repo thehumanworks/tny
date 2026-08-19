@@ -315,6 +315,42 @@ TEST backend_default_prefers_codex_login(void) {
     PASS();
 }
 
+TEST provider_last_used_and_scoped_models(void) {
+    ensure_env();
+    write_settings("{}");
+    codex_auth_write(true); /* codex detectable, but last-used must win */
+
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->backend = TNY_BK_CURSOR;
+    free(ctx->model);
+    ctx->model = xstrdup("grok-4.6");
+    ASSERT_EQ(0, tny_settings_remember_use(ctx));
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws); /* fresh launch: last provider + its model */
+    ASSERT_EQ(TNY_BK_CURSOR, tny_resolve_backend(ctx, NULL));
+    ASSERT(ctx->model);
+    ASSERT_STR_EQ("grok-4.6", ctx->model);
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws); /* another provider must not inherit the model */
+    ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, "codex"));
+    ASSERT_EQ(NULL, ctx->model);
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws); /* --model flag beats the saved entry */
+    free(ctx->model);
+    ctx->model = xstrdup("flag-model");
+    ctx->model_from_flag = true;
+    ASSERT_EQ(TNY_BK_CURSOR, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("flag-model", ctx->model);
+    tny_ctx_free(ctx);
+
+    write_settings("{}");
+    codex_auth_write(false);
+    PASS();
+}
+
 TEST backend_default_cursor_key_from_env(void) {
     ensure_env();
     write_settings("{}");
@@ -337,6 +373,7 @@ TEST backend_default_cursor_key_from_env(void) {
 SUITE(core_suite) {
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(backend_default_cursor_key_from_env);
+    RUN_TEST(provider_last_used_and_scoped_models);
     RUN_TEST(perm_defaults_ask_mode);
     RUN_TEST(perm_safe_tool_inside_workspace);
     RUN_TEST(perm_rules_last_match_wins);

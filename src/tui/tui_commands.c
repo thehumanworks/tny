@@ -28,8 +28,9 @@ static const struct { const char *name, *hint; } CMDS[] = {
     {"model",       "/model [ID]"},
     {"permissions", "/permissions [ask|auto|yolo]"},
     {"sandbox",     "show the sandbox mode"},
-    {"backend",     "/backend [openai|cursor|codex|acp]"},
-    {"status",      "backend, auth, workspace"},
+    {"provider",    "/provider [openai|cursor|codex|acp]"},
+    {"fast",        "/fast [fast|priority|default] — codex service tier"},
+    {"status",      "provider, auth, workspace"},
     {"usage",       "token usage for this workspace"},
     {"sessions",    "list sessions for this workspace"},
     {"mcp",         "list configured MCP servers"},
@@ -40,8 +41,8 @@ static const struct { const char *name, *hint; } CMDS[] = {
     {"copy",        "copy the last reply to the clipboard"},
     {"trace",       "toggle raw event tracing"},
     {"transcript",  "print the whole session transcript"},
-    {"login",       "auth for the active backend"},
-    {"logout",      "drop backend auth"},
+    {"login",       "auth for the active provider"},
+    {"logout",      "drop provider auth"},
     {"setup",       "write provider config (flags only)"},
 };
 #define N_CMDS ((int)(sizeof CMDS / sizeof *CMDS))
@@ -342,7 +343,7 @@ void tui_command(tui *t, const char *line) {
 
     /* commands that swap the session or backend must not race a live turn */
     static const char *LOCKED[] = {"new", "reset", "resume", "continue", "compact",
-                                   "backend", "undo", NULL};
+                                   "backend", "provider", "model", "fast", "undo", NULL};
     if (t->turn_active) {
         for (const char **l = LOCKED; *l; l++)
             if (strcmp(c, *l) == 0) {
@@ -394,7 +395,9 @@ void tui_command(tui *t, const char *line) {
         if (arg && *arg) {
             free(t->ctx->model);
             t->ctx->model = xstrdup(arg);
-            tny_settings_set_str(t->ctx, "model", arg);
+            t->ctx->model_from_flag = false; /* explicit choice, persist it */
+            tny_settings_remember_use(t->ctx); /* saved per provider */
+            drop_backend(t); /* rebind so the new model reaches the host */
             tui_sys(t, "model set");
         } else {
             tui_linef(t, "  model: %s", t->ctx->model ? t->ctx->model : "default");
@@ -414,20 +417,51 @@ void tui_command(tui *t, const char *line) {
     } else if (strcmp(c, "sandbox") == 0) {
         tui_linef(t, "  sandbox: %s%s", t->ctx->sandbox_mode,
                   strcmp(t->ctx->sandbox_mode, "os") == 0 ? " (unsupported: effective none)" : "");
-    } else if (strcmp(c, "backend") == 0) {
+    } else if (strcmp(c, "provider") == 0 || strcmp(c, "backend") == 0) {
         if (arg && *arg) {
             int id = tny_backend_from_name(arg);
-            if (id < 0) tui_err(t, "unknown backend (openai|cursor|codex|acp)");
+            if (id < 0) tui_err(t, "unknown provider (openai|cursor|codex|acp)");
             else {
                 if (t->turn_active) tui_sys(t, "finish the turn first");
                 else {
-                    t->ctx->backend = id;
+                    /* full resolve: also swaps in the provider's saved model */
+                    tny_resolve_backend(t->ctx, arg);
                     drop_backend(t);
-                    tui_sys(t, "backend switched");
+                    tny_settings_remember_use(t->ctx);
+                    tui_sys(t, "provider switched");
                 }
             }
         }
-        tui_linef(t, "  backend: %s", tny_backend_name((tny_backend_id)t->ctx->backend));
+        tui_linef(t, "  provider: %s (model %s)",
+                  tny_backend_name((tny_backend_id)t->ctx->backend),
+                  t->ctx->model ? t->ctx->model : "default");
+        t->dirty = true;
+    } else if (strcmp(c, "fast") == 0) {
+        /* codex service tier (thread/start serviceTier): fast|priority map to
+         * the paid "priority" tier (1.5x speed on gpt-5.6 models), default
+         * turns it off. No argument toggles. */
+        if (t->ctx->backend != TNY_BK_CODEX) {
+            tui_err(t, "/fast is a codex service tier — switch with /provider codex");
+        } else {
+            const char *cur = t->ctx->service_tier;
+            const char *next = NULL;
+            if (!arg || !*arg) next = cur && strcmp(cur, "priority") == 0
+                                          ? "default" : "priority";
+            else if (strcmp(arg, "fast") == 0 || strcmp(arg, "priority") == 0)
+                next = "priority";
+            else if (strcmp(arg, "default") == 0 || strcmp(arg, "off") == 0)
+                next = "default";
+            if (!next) {
+                tui_err(t, "usage: /fast [fast|priority|default]");
+            } else {
+                free(t->ctx->service_tier);
+                t->ctx->service_tier = xstrdup(next);
+                drop_backend(t); /* the tier rides on thread/start */
+                tui_linef(t, "  service tier: %s%s", next,
+                          strcmp(next, "priority") == 0
+                              ? " (fast: 1.5x speed, increased usage)" : "");
+            }
+        }
         t->dirty = true;
     } else if (strcmp(c, "status") == 0) {
         run_cli(t, cmd_status, 0, NULL);
