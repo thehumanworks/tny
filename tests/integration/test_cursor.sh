@@ -1,0 +1,107 @@
+#!/bin/sh
+# test_cursor.sh — end-to-end check of `--backend cursor` against the mock
+# SDK bridge: spawn + ready line + Ping + ListModels + CreateAgent + Send
+# stream + Shutdown, then a --resume run that must reuse the same agent id.
+#
+# Usage: tests/integration/test_cursor.sh [path/to/tny]   (default build-cursor/tny)
+set -eu
+
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+TNY=${1:-$ROOT/build-cursor/tny}
+MOCK=$ROOT/tests/integration/mock_bridge.py
+
+fail() { echo "FAIL: $*" >&2; exit 1; }
+
+[ -x "$TNY" ] || fail "no tny binary at $TNY (run: make BUILD=build-cursor release)"
+[ -f "$MOCK" ] || fail "missing $MOCK"
+command -v python3 >/dev/null 2>&1 || fail "python3 is required"
+chmod +x "$MOCK"
+
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/tny-cursor.XXXXXX")
+trap 'rm -rf "$TMP"' EXIT
+HOME=$TMP/home
+WS=$TMP/ws
+MOCK_DIR=$TMP/bridge
+mkdir -p "$HOME" "$WS" "$MOCK_DIR"
+echo "hello" > "$WS/README.md"
+
+export HOME
+export TNY_MOCK_DIR=$MOCK_DIR
+export TNY_MOCK_CWD=$WS
+export CURSOR_API_KEY=key_mock_deadbeef
+unset CURSOR_SDK_BRIDGE_BIN
+
+run() { # run <outfile> <errfile> <ask args...>
+    _out=$1; _err=$2; shift 2
+    set +e
+    "$TNY" --backend cursor --bridge-bin "$MOCK" --cwd "$WS" ask --json "$@" \
+        >"$_out" 2>"$_err"
+    _code=$?
+    set -e
+    return $_code
+}
+
+check_mock_assertions() {
+    if [ -s "$MOCK_DIR/failures.log" ]; then
+        cat "$MOCK_DIR/failures.log" >&2
+        fail "the mock bridge recorded protocol assertion failures"
+    fi
+}
+
+check_no_secret_leak() { # check_no_secret_leak <file>...
+    _tok=$(tr -d '\n' < "$MOCK_DIR/auth.token" 2>/dev/null || true)
+    for f in "$@"; do
+        if grep -q "cursor-sdk-bridge ready" "$f"; then
+            fail "the bridge ready line leaked into $f"
+        fi
+        if [ -n "$_tok" ] && grep -qF "$_tok" "$f"; then
+            fail "the bridge bearer token leaked into $f"
+        fi
+        if grep -qF "$CURSOR_API_KEY" "$f"; then
+            fail "CURSOR_API_KEY leaked into $f"
+        fi
+    done
+}
+
+# ---- run 1: fresh agent ----
+echo "== run 1: new session"
+if run "$TMP/1.out" "$TMP/1.err" "hi"; then :; else
+    cat "$TMP/1.err" >&2
+    fail "the first ask exited nonzero"
+fi
+cat "$TMP/1.err" >&2
+if ! grep -q "CURSOR-MOCK-OK" "$TMP/1.out"; then
+    cat "$TMP/1.out" >&2
+    fail "the first ask did not stream the mock answer"
+fi
+check_mock_assertions
+[ -f "$MOCK_DIR/agent.txt" ] || fail "the mock never saw CreateAgent"
+AGENT=$(cat "$MOCK_DIR/agent.txt")
+check_no_secret_leak "$TMP/1.out" "$TMP/1.err"
+
+SESSION=$(sed -n 's/.*"session_id":"\([^"]*\)".*/\1/p' "$TMP/1.out")
+[ -n "$SESSION" ] || fail "no session_id in the JSON output"
+STORED=$(cat "$HOME"/.tny/sessions/*/"$SESSION"/session.json 2>/dev/null | tr -d ' \n' |
+    sed -n 's/.*"host_pointer":"\([^"]*\)".*/\1/p')
+[ "$STORED" = "$AGENT" ] || fail "session stored host pointer '$STORED', want '$AGENT'"
+
+# ---- run 2: resume must reuse the same agent id ----
+echo "== run 2: --resume $SESSION"
+if run "$TMP/2.out" "$TMP/2.err" --resume "$SESSION" "again"; then :; else
+    cat "$TMP/2.err" >&2
+    fail "the resumed ask exited nonzero"
+fi
+cat "$TMP/2.err" >&2
+grep -q "CURSOR-MOCK-OK" "$TMP/2.out" || fail "the resumed ask did not stream the mock answer"
+check_mock_assertions
+[ -f "$MOCK_DIR/resumed.txt" ] || fail "the mock never saw ResumeAgent"
+[ "$(cat "$MOCK_DIR/resumed.txt")" = "$AGENT" ] || fail "ResumeAgent used a different agent id"
+check_no_secret_leak "$TMP/2.out" "$TMP/2.err"
+
+# ---- the host must not outlive tny ----
+if [ -f "$MOCK_DIR/pid.txt" ] && kill -0 "$(cat "$MOCK_DIR/pid.txt")" 2>/dev/null; then
+    kill -9 "$(cat "$MOCK_DIR/pid.txt")" 2>/dev/null || true
+    fail "the mock bridge survived tny exit"
+fi
+
+echo "PASS: cursor bridge backend (agent $AGENT reused on resume)"

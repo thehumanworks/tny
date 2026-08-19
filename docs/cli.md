@@ -75,11 +75,13 @@ JSON object (keep field names stable):
 | Backend | Flags / env |
 | --- | --- |
 | cursor | `--bridge-bin PATH`, `CURSOR_SDK_BRIDGE_BIN`, `CURSOR_API_KEY` (also pass through to RPCs) |
-| codex | `--codex-ws URL` (default `ws://127.0.0.1:4500` or spawn), `--codex-bin`, `--ws-token-file`, `CODEX_REMOTE_TOKEN` |
+| codex | `--codex-ws URL` to attach; without it tny spawns `codex app-server` on an ephemeral port (never a fixed port that could collide). `--codex-bin`, `--ws-token-file`, `CODEX_REMOTE_TOKEN` |
 | acp | `--agent CMD` plus extra args after `--`, e.g. `tny --backend acp --agent gemini -- acp` |
 | openai | `--base-url`, `--api-key-env NAME`, `OPENAI_BASE_URL`, `OPENAI_API_KEY` |
 
 `tny ask` never blocks on an approval. Unresolved permissions fail the run unless `--auto` reviews (native loop) or `--yolo`. Host backends must be pre-authorized or they fail closed.
+
+Backend caveats: `--backend cursor` runs Cursor's own headless loop — the bridge exposes no per-call approval RPC, so tny's permission mode does not apply (a status line says so); it also rejects `--image`. `--backend codex` ignores `--image` with a status line (no documented image input item).
 
 ## Help shape
 

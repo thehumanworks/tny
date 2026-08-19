@@ -1,0 +1,31 @@
+/* json.h — thin yyjson helpers so call sites stay short. */
+#ifndef TNY_JSON_H
+#define TNY_JSON_H
+
+#include <stdbool.h>
+#include <stdint.h>
+#include "yyjson.h"
+#include "util/util.h"
+
+/* Read helpers (immutable docs). All tolerate NULL nodes. */
+const char *jget_str(yyjson_val *obj, const char *key);       /* NULL if absent */
+int64_t     jget_int(yyjson_val *obj, const char *key, int64_t dflt);
+double      jget_num(yyjson_val *obj, const char *key, double dflt);
+bool        jget_bool(yyjson_val *obj, const char *key, bool dflt);
+yyjson_val *jget(yyjson_val *obj, const char *key);
+
+/* Parse a whole document; caller must yyjson_doc_free. NULL on error. */
+yyjson_doc *jparse(const char *data, size_t len);
+/* Parse file. */
+yyjson_doc *jparse_file(const char *path);
+
+/* Serialize a mutable doc to a malloc'd string (compact). */
+char *jwrite(yyjson_mut_doc *doc);
+char *jwrite_pretty(yyjson_mut_doc *doc);
+/* Serialize any immutable value. */
+char *jwrite_val(yyjson_val *val);
+
+/* Append a JSON string escape of s into b (with surrounding quotes). */
+void jescape(buf_t *b, const char *s);
+
+#endif

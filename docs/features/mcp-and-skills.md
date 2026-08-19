@@ -10,7 +10,7 @@ Keep fx names so prompts and muscle memory transfer:
 | --- | --- |
 | Files | `list_files`, `glob_files`, `grep_files`, `read_file`, `write_file`, `edit_file`, `delete_file`, `rename_file`, `copy_file`, `create_folder`, `file_info` |
 | Search | `semantic_search` (lexical, not embeddings), `open_file` |
-| Shell | `run_command` (foreground + background) |
+| Shell | `terminal` (fx runtime name; accept `run_command` as an alias) |
 | Web | `web_search` (optional provider), `web_fetch` |
 | Images | `vision` fallback |
 | Skills | `skill`, `install_skill` |

@@ -1,0 +1,390 @@
+/* codex.c — `codex app-server` over WebSockets (docs/backends/codex-app-server.md).
+ * tny is a protocol client here: the host owns tools, sandbox and planning;
+ * we own the transport, the approvals surface and the normalized event set.
+ * Nothing is spawned before connect(): --help/--version stay microseconds.
+ * Framing, the request queue and the pump live in codex_rpc.c. */
+#include "backends/codex/codex.h"
+
+#include <poll.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define CX_CONNECT_TIMEOUT_MS 15000 /* spawn -> listening */
+#define CX_ATTACH_TIMEOUT_MS  5000
+#define CX_RPC_TIMEOUT_MS     30000
+#define CX_CANCEL_GRACE_MS    3000
+
+/* ---------- connect ---------- */
+
+static void cx_load_token(cx_impl *o, char *err, size_t errlen, bool *failed) {
+    *failed = false;
+    if (o->ctx->ws_token_file && *o->ctx->ws_token_file) {
+        size_t len = 0;
+        char *data = file_slurp(o->ctx->ws_token_file, &len);
+        if (!data) {
+            snprintf(err, errlen, "codex: cannot read --ws-token-file %s",
+                     o->ctx->ws_token_file);
+            *failed = true;
+            return;
+        }
+        o->token = xstrdup(str_trim(data));
+        free(data);
+        return;
+    }
+    const char *env = getenv("CODEX_REMOTE_TOKEN");
+    if (env && *env) o->token = xstrdup(env);
+}
+
+static int cx_handshake(cx_impl *o, char *err, size_t errlen) {
+    buf_t p;
+    buf_init(&p);
+    buf_appends(&p, "{\"clientInfo\":{\"name\":\"tny\",\"title\":\"tny\",\"version\":\""
+                    TNY_VERSION "\"}}");
+    yyjson_doc *doc = cx_request_sync(o, "initialize", p.data, CX_RPC_TIMEOUT_MS,
+                                      err, errlen);
+    buf_free(&p);
+    if (!doc) return -1;
+    yyjson_doc_free(doc);
+    cx_notify(o, "initialized", NULL);
+    if (cx_flush(o) != 0) {
+        snprintf(err, errlen, "codex: connection lost after initialize");
+        return -1;
+    }
+    return 0;
+}
+
+static int cx_connect(tny_backend *b, char *errbuf, size_t errlen) {
+    cx_impl *o = b->impl;
+    if (o->ws) return 0;
+
+    bool failed = false;
+    cx_load_token(o, errbuf, errlen, &failed);
+    if (failed) return -1;
+
+    char err[256];
+    if (o->ctx->codex_ws && *o->ctx->codex_ws) {
+        o->ws_url = xstrdup(o->ctx->codex_ws);
+        o->ws = ws_connect(o->ws_url, o->token, CX_ATTACH_TIMEOUT_MS, err, sizeof err);
+        if (!o->ws) {
+            snprintf(errbuf, errlen, "codex: cannot attach to %s (%s). Is "
+                     "`codex app-server --listen` running?", o->ws_url, err);
+            return -1;
+        }
+    } else {
+        int port = cx_pick_port();
+        if (port <= 0) {
+            snprintf(errbuf, errlen, "codex: no free loopback port for the app-server");
+            return -1;
+        }
+        buf_t u;
+        buf_init(&u);
+        buf_appendf(&u, "ws://127.0.0.1:%d", port);
+        o->ws_url = buf_detach(&u);
+        if (cx_spawn(o, port, errbuf, errlen) != 0) return -1;
+        int64_t deadline = now_ms() + CX_CONNECT_TIMEOUT_MS;
+        while (now_ms() < deadline) {
+            cx_drain_child_stderr(o);
+            if (cx_child_gone(o)) {
+                snprintf(errbuf, errlen,
+                         "codex: `%s app-server` exited during startup (see codex: lines "
+                         "above; try `codex --version`)",
+                         o->ctx->codex_bin ? o->ctx->codex_bin : "codex");
+                cx_stop_child(o);
+                return -1;
+            }
+            o->ws = ws_connect(o->ws_url, NULL, 1000, err, sizeof err);
+            if (o->ws) break;
+            poll(NULL, 0, 150);
+        }
+        if (!o->ws) {
+            snprintf(errbuf, errlen, "codex: app-server did not accept a WebSocket on "
+                     "%s within %d s", o->ws_url, CX_CONNECT_TIMEOUT_MS / 1000);
+            cx_stop_child(o);
+            return -1;
+        }
+    }
+    if (cx_handshake(o, errbuf, errlen) != 0) {
+        ws_close(o->ws);
+        o->ws = NULL;
+        cx_stop_child(o);
+        return -1;
+    }
+    return 0;
+}
+
+static void cx_disconnect(tny_backend *b) {
+    cx_impl *o = b->impl;
+    if (o->ws) {
+        if (o->turn_active && o->thread_id && !o->dead) {
+            /* be polite: ask the host to stop before the socket goes away */
+            buf_t p;
+            buf_init(&p);
+            buf_appends(&p, "{\"threadId\":");
+            jescape(&p, o->thread_id);
+            if (o->turn_id) { buf_appends(&p, ",\"turnId\":"); jescape(&p, o->turn_id); }
+            buf_appends(&p, "}");
+            cx_request(o, "turn/interrupt", p.data, CXR_FREE);
+            buf_free(&p);
+            cx_flush(o);
+        }
+        ws_close(o->ws); /* sends the RFC6455 close frame */
+        o->ws = NULL;
+    }
+    o->turn_active = false;
+    cx_stop_child(o);
+}
+
+/* ---------- thread lifecycle ---------- */
+
+static const char *thread_id_of(yyjson_val *res) {
+    const char *tid = jget_str(jget(res, "thread"), "id");
+    if (!tid) tid = jget_str(res, "threadId");
+    if (!tid) tid = jget_str(res, "thread_id");
+    if (!tid) tid = jget_str(res, "id");
+    return tid;
+}
+
+static int cx_start_thread(cx_impl *o, const char *resume, char *err, size_t errlen) {
+    buf_t p;
+    buf_init(&p);
+    const char *method;
+    if (resume) {
+        method = "thread/resume";
+        buf_appends(&p, "{\"threadId\":");
+        jescape(&p, resume);
+        buf_appends(&p, "}");
+    } else {
+        method = "thread/start";
+        buf_appends(&p, "{");
+        if (o->ctx->model && *o->ctx->model) {
+            buf_appends(&p, "\"model\":");
+            jescape(&p, o->ctx->model);
+        }
+        buf_appends(&p, "}");
+    }
+    yyjson_doc *doc = cx_request_sync(o, method, p.data, CX_RPC_TIMEOUT_MS, err, errlen);
+    buf_free(&p);
+    if (!doc) return -1;
+    const char *tid = thread_id_of(jget(yyjson_doc_get_root(doc), "result"));
+    if (!tid || !*tid) {
+        snprintf(err, errlen, "codex: %s returned no thread id", method);
+        yyjson_doc_free(doc);
+        return -1;
+    }
+    free(o->thread_id);
+    o->thread_id = xstrdup(tid);
+    yyjson_doc_free(doc);
+    return 0;
+}
+
+static int cx_create_or_resume(tny_backend *b, const char *ptr, char *e, size_t el) {
+    cx_impl *o = b->impl;
+    if (!o->ws) { snprintf(e, el, "codex: not connected"); return -1; }
+    if (ptr && *ptr) {
+        if (cx_start_thread(o, ptr, e, el) == 0) return 0;
+        fprintf(stderr, "tny: %s; starting a fresh codex thread\n", e);
+    }
+    return cx_start_thread(o, NULL, e, el);
+}
+
+static char *cx_session_pointer(tny_backend *b) {
+    cx_impl *o = b->impl;
+    return o->thread_id ? xstrdup(o->thread_id) : NULL;
+}
+
+/* ---------- turn ---------- */
+
+static int cx_send(tny_backend *b, const char *prompt, const char **images,
+                   tny_event_cb cb, void *ud, char *errbuf, size_t errlen) {
+    cx_impl *o = b->impl;
+    o->cb = cb;
+    o->ud = ud;
+    if (!o->ws || o->dead) { snprintf(errbuf, errlen, "codex: not connected"); return -1; }
+    if (!o->thread_id) { snprintf(errbuf, errlen, "codex: no thread started"); return -1; }
+    if (images && images[0])
+        cx_emit_text(o, TNY_EV_STATUS,
+                     "codex backend: --image is not carried over app-server yet; "
+                     "the images were ignored");
+
+    buf_t p;
+    buf_init(&p);
+    buf_appends(&p, "{\"threadId\":");
+    jescape(&p, o->thread_id);
+    buf_appends(&p, ",\"input\":[{\"type\":\"text\",\"text\":");
+    jescape(&p, prompt ? prompt : "");
+    buf_appends(&p, ",\"text_elements\":[]}]}");
+
+    free(o->turn_id);
+    o->turn_id = NULL;
+    o->turn_active = true;
+    o->cancel_sent = false;
+    cx_request(o, "turn/start", p.data, CXR_TURN);
+    buf_free(&p);
+    if (cx_flush(o) != 0) {
+        o->turn_active = false;
+        snprintf(errbuf, errlen, "codex: failed to send turn/start");
+        return -1;
+    }
+    return 0;
+}
+
+static void cx_cancel(tny_backend *b) {
+    cx_impl *o = b->impl;
+    if (!o->turn_active || o->cancel_sent || !o->ws) return;
+    buf_t p;
+    buf_init(&p);
+    buf_appends(&p, "{\"threadId\":");
+    jescape(&p, o->thread_id ? o->thread_id : "");
+    if (o->turn_id) { buf_appends(&p, ",\"turnId\":"); jescape(&p, o->turn_id); }
+    buf_appends(&p, "}");
+    cx_request(o, "turn/interrupt", p.data, CXR_INTERRUPT);
+    buf_free(&p);
+    cx_flush(o);
+    o->cancel_sent = true;
+    o->cancel_deadline = now_ms() + CX_CANCEL_GRACE_MS;
+    cx_emit_text(o, TNY_EV_STATUS, "interrupting the codex turn…");
+}
+
+static void cx_respond_permission(tny_backend *b, const char *perm_id,
+                                  tny_perm_decision d) {
+    cx_impl *o = b->impl;
+    if (!perm_id) return;
+    for (int i = 0; i < CX_MAX_APPROVALS; i++) {
+        if (!o->approvals[i].id || strcmp(o->approvals[i].id, perm_id) != 0) continue;
+        const char *decision = d == TNY_PERM_DECISION_ALLOW          ? "accept"
+                               : d == TNY_PERM_DECISION_ALLOW_ALWAYS ? "acceptForSession"
+                                                                     : "decline";
+        buf_t r;
+        buf_init(&r);
+        buf_appendf(&r, "{\"decision\":\"%s\"}", decision);
+        cx_respond_result(o, o->approvals[i].id, r.data);
+        buf_free(&r);
+        free(o->approvals[i].id);
+        free(o->approvals[i].method);
+        o->approvals[i].id = NULL;
+        o->approvals[i].method = NULL;
+        cx_flush(o);
+        return;
+    }
+}
+
+/* ---------- loop integration ---------- */
+
+static int cx_pollfds(tny_backend *b, struct pollfd *fds, int max) {
+    cx_impl *o = b->impl;
+    int n = 0;
+    if (o->ws && n < max) {
+        fds[n].fd = ws_fd(o->ws);
+        fds[n].events = (short)(POLLIN | (ws_want_write(o->ws) ? POLLOUT : 0));
+        fds[n++].revents = 0;
+    }
+    if (o->child_err >= 0 && n < max) {
+        fds[n].fd = o->child_err;
+        fds[n].events = POLLIN;
+        fds[n++].revents = 0;
+    }
+    return n;
+}
+
+static int cx_dispatch(tny_backend *b, struct pollfd *fds, int n) {
+    (void)fds;
+    (void)n;
+    cx_impl *o = b->impl;
+    if (!o->ws) return 0;
+    cx_process_retries(o);
+    if (cx_pump_once(o, 0) != 0) {
+        cx_fail_turn(o, "codex app-server closed the connection mid-turn");
+        return -1;
+    }
+    if (cx_child_gone(o)) {
+        cx_fail_turn(o, "codex app-server exited mid-turn");
+        return -1;
+    }
+    if (o->turn_active && o->cancel_sent && now_ms() > o->cancel_deadline)
+        cx_end_turn(o, TNY_STOP_INTERRUPTED);
+    return 0;
+}
+
+/* ---------- doctor ---------- */
+
+static void first_line(char *s) {
+    char *nl = strpbrk(s, "\r\n");
+    if (nl) *nl = 0;
+}
+
+static int cx_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
+    if (ctx->codex_ws && *ctx->codex_ws) {
+        snprintf(line, linelen, "codex: attach to %.160s (no spawn)", ctx->codex_ws);
+        return 0;
+    }
+    char bin[512];
+    snprintf(bin, sizeof bin, "%s",
+             ctx->codex_bin && *ctx->codex_bin ? ctx->codex_bin : "codex");
+    char ver[256];
+    char *vargv[] = {bin, (char *)"--version", NULL};
+    if (cx_capture(vargv, ver, sizeof ver, 4000) != 0) {
+        snprintf(line, linelen,
+                 "codex: '%s' not runnable (install the Codex CLI, set TNY_CODEX_BIN "
+                 "or --codex-bin, or attach with --codex-ws)", bin);
+        return 1;
+    }
+    first_line(str_trim(ver));
+    char login[256];
+    char *largv[] = {bin, (char *)"login", (char *)"status", NULL};
+    int lrc = cx_capture(largv, login, sizeof login, 6000);
+    snprintf(line, linelen, "codex: %.120s, login %s", ver,
+             lrc == 0 ? "ok" : "required (run `codex login`)");
+    return 0;
+}
+
+/* ---------- lifecycle ---------- */
+
+static void cx_destroy(tny_backend *b) {
+    cx_impl *o = b->impl;
+    cx_disconnect(b);
+    for (int i = 0; i < o->n_out; i++) free(o->outq[i]);
+    free(o->outq);
+    for (int i = 0; i < CX_MAX_PENDING; i++) cx_pending_clear(&o->pending[i]);
+    for (int i = 0; i < CX_MAX_APPROVALS; i++) {
+        free(o->approvals[i].id);
+        free(o->approvals[i].method);
+    }
+    for (int i = 0; i < o->n_streamed; i++) free(o->streamed[i]);
+    if (o->wait_doc) yyjson_doc_free(o->wait_doc);
+    buf_free(&o->child_line);
+    free(o->thread_id);
+    free(o->turn_id);
+    free(o->ws_url);
+    if (o->token) {
+        memset(o->token, 0, strlen(o->token)); /* keep the bearer out of core dumps */
+        free(o->token);
+    }
+    free(o);
+    free(b);
+}
+
+tny_backend *tny_backend_codex_new(struct tny_ctx *ctx) {
+    tny_backend *b = calloc(1, sizeof *b);
+    cx_impl *o = calloc(1, sizeof *o);
+    if (!b || !o) { free(b); free(o); return NULL; }
+    o->ctx = ctx;
+    o->child_err = -1;
+    o->next_id = 1;
+    o->wait_id = -1;
+    buf_init(&o->child_line);
+    b->id = TNY_BK_CODEX;
+    b->impl = o;
+    b->connect = cx_connect;
+    b->disconnect = cx_disconnect;
+    b->create_or_resume = cx_create_or_resume;
+    b->session_pointer = cx_session_pointer;
+    b->send = cx_send;
+    b->cancel = cx_cancel;
+    b->respond_permission = cx_respond_permission;
+    b->pollfds = cx_pollfds;
+    b->dispatch = cx_dispatch;
+    b->doctor = cx_doctor;
+    b->destroy = cx_destroy;
+    return b;
+}

@@ -6,12 +6,12 @@ Research is done. Product code is **not** in this repository yet. When implement
 
 - Makefile, `src/main.c` printing `--version` / `--help`
 - `tny doctor --json` reports OS, libc, missing optional host binaries
-- Size: stripped binary already under 2 MiB (it should be tens of KB)
+- Size: stripped binary already under the 1.5 MiB Linux / 1.8 MiB macOS gate (it should be tens of KB)
 
 ## Phase 1 — CLI + OpenAI-compatible
 
 - `tny ask` non-stream then SSE
-- Tool loop with `read_file`, `list_files`, `run_command` behind `ask` permissions
+- Tool loop with `read_file`, `list_files`, `terminal` behind `ask` permissions
 - `--json`, exit codes 0/1/2/130
 - Session save/resume last
 
@@ -27,8 +27,8 @@ Research is done. Product code is **not** in this repository yet. When implement
 
 ## Phase 3 — ACP client
 
-- Spawn `--agent`, initialize, session/prompt, updates, cancel
-- Permission prompt mapping
+- Spawn `--agent`, ACP **v1** initialize, session/prompt (pending until stopReason), updates, cancel
+- Always answer `session/request_permission`; Cursor extras if the argv is `agent acp`
 
 **Gate:** scripted fake ACP agent (fixture) plus one real agent if installed.
 

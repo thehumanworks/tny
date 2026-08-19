@@ -2,9 +2,9 @@
 
 Canonical: [developers.openai.com/codex/app-server](https://developers.openai.com/codex/app-server), source `openai/codex` → `codex-rs/app-server`. Design essay: [Unlocking the Codex harness](https://openai.com/index/unlocking-the-codex-harness/).
 
-tny is a rich client of the same JSON-RPC surface the VS Code extension uses. Prefer **WebSocket** as required. stdio JSONL is the same messages and is useful for tests.
+tny is a rich client of the same JSON-RPC surface the VS Code extension uses. Prefer **WebSocket** as required. stdio JSONL is the same messages and is useful for tests. Pin the installed `codex` (research snapshot: `rust-v0.148.0`) and generate types from **that** binary. Leave `experimentalApi` **false**.
 
-OpenAI marks TCP WebSocket as **experimental**. Still implement it; default to loopback and require auth off-loopback.
+OpenAI marks TCP WebSocket as **experimental**. Still implement it; default to loopback. Current source **refuses non-loopback without `--ws-auth`**. Do not send an `Origin` header (403). There is **no default TCP port**.
 
 ## Start or attach
 
@@ -35,7 +35,7 @@ Auth flags for WS:
 --ws-auth signed-bearer-token --ws-shared-secret-file /abs/path
 ```
 
-Client handshake header: `Authorization: Bearer <token>`. Prefer token files over argv. Non-loopback listeners are unauthenticated by default during rollout — refuse to connect without a token unless host is loopback.
+Client handshake header: `Authorization: Bearer <token>` on the HTTP Upgrade (enforced before `initialize`). Prefer token files over argv. Official client will not put a bearer on non-loopback `ws://` (only `wss://` or loopback). Pass `--session-source cli` if the crate default would tag threads as `vscode`.
 
 Overloaded server: JSON-RPC error `-32001` `"Server overloaded; retry later."` — exponential backoff with jitter.
 
@@ -61,7 +61,7 @@ Response: `{ "id": 10, "result": { "thread": { "id": "thr_123" } } }`
 Error: `{ "id": 10, "error": { "code": 123, "message": "…" } }`
 Notification: `{ "method": "turn/started", "params": { "turn": { "id": "turn_456" } } }`
 
-Handle ping/pong and ignore binary frames. Cap frame size (Codex clients raise tungstenite's 16 MiB default for resume payloads).
+Handle ping/pong and ignore binary frames. Official remote client max frame: **128 MiB**. No reconnect — resume the `thread.id`.
 
 Unix-socket clients still send a dummy HTTP Upgrade URL such as `ws://localhost/rpc` on the UDS.
 
@@ -71,9 +71,13 @@ Unix-socket clients still send a dummy HTTP Upgrade URL such as `ws://localhost/
 2. `initialize` with `clientInfo` `{ name: "tny", title: "tny", version }`.
 3. Notification `initialized`.
 4. `thread/start` or `thread/resume` or `thread/fork`.
-5. `turn/start` with `threadId` and `input: [{ "type": "text", "text": "…" }]`.
-6. Read notifications until `turn/completed`.
-7. Optional `turn/steer` (append to in-flight turn), `turn/interrupt` (cancel).
+5. `account/read` then `turn/start` with `threadId` and `input: [{ "type": "text", "text": "…", "text_elements": [] }]`.
+6. Concatenate `item/agentMessage/delta` by `itemId` until `turn/completed` (`completed` \| `interrupted` \| `failed`).
+7. Optional `turn/steer` (in-flight only), `turn/interrupt` `{threadId, turnId}`.
+
+Wire enums from current Rust (docs examples can be stale): approval `"untrusted"` \| `"on-request"` \| `"never"`; sandbox `"read-only"` \| `"workspace-write"` \| `"danger-full-access"`.
+
+Must answer server requests or the turn hangs: `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, `item/permissions/requestApproval`, `item/tool/requestUserInput`, `mcpServer/elicitation/request`. Decisions include `accept` / `acceptForSession` / `decline` / `cancel`. Do not implement v1 `execCommandApproval` for a `turn/start` client.
 
 `initialize` is once per connection. Before it: `Not initialized`. Second call: `Already initialized`.
 

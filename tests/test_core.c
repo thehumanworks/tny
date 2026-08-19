@@ -1,0 +1,284 @@
+/* test_core.c — permission rules, sessions, compaction. Uses a throwaway
+ * $HOME so nothing touches the real ~/.tny. */
+#include "greatest.h"
+#include "core/config.h"
+#include "core/perm.h"
+#include "core/session.h"
+#include "util/util.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+static char g_home[512], g_ws[512];
+
+static void ensure_env(void) {
+    if (g_home[0]) return;
+    const char *t = getenv("TMPDIR");
+    if (!t || !*t) t = "/tmp";
+    snprintf(g_home, sizeof g_home, "%s/tny-test-home-XXXXXX", t);
+    if (!mkdtemp(g_home)) abort();
+    setenv("HOME", g_home, 1);
+    unsetenv("TNY_PERMISSION_MODE");
+    unsetenv("OPENAI_BASE_URL");
+    unsetenv("OPENAI_API_KEY");
+    snprintf(g_ws, sizeof g_ws, "%s/ws", g_home);
+    mkdir_p(g_ws);
+}
+
+static void write_settings(const char *json) {
+    char path[600];
+    snprintf(path, sizeof path, "%s/.tny", g_home);
+    mkdir_p(path);
+    snprintf(path, sizeof path, "%s/.tny/settings.json", g_home);
+    file_write_atomic(path, json, strlen(json));
+}
+
+/* ---- permissions ---- */
+
+TEST perm_defaults_ask_mode(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    perm_engine *p = perm_new(ctx);
+
+    ASSERT(perm_tool_is_safe("read_file"));
+    ASSERT_FALSE(perm_tool_is_safe("terminal"));
+    ASSERT_EQ(PERM_ALLOW, perm_check(p, "read_file", "relative/path.c"));
+    ASSERT_EQ(PERM_PROMPT, perm_check(p, "read_file", "/etc/passwd"));
+    ASSERT_EQ(PERM_PROMPT, perm_check(p, "terminal", "echo hi"));
+    ASSERT_EQ(PERM_PROMPT, perm_check(p, "write_file", "/somewhere/else.txt"));
+
+    perm_free(p);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST perm_safe_tool_inside_workspace(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    perm_engine *p = perm_new(ctx);
+    char *inside = path_join(ctx->cwd, "src/main.c");
+    ASSERT_EQ(PERM_ALLOW, perm_check(p, "read_file", inside));
+    free(inside);
+    perm_free(p);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST perm_rules_last_match_wins(void) {
+    ensure_env();
+    write_settings("{\"permission\":{\"bash\":{"
+                   "\"git *\":\"allow\",\"git push*\":\"deny\"}}}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    perm_engine *p = perm_new(ctx);
+    ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "git pull --rebase"));
+    ASSERT_EQ(PERM_DENY, perm_check(p, "terminal", "git push origin main"));
+    ASSERT_EQ(PERM_PROMPT, perm_check(p, "terminal", "ls -la"));
+    perm_free(p);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST perm_workspace_beats_global(void) {
+    ensure_env();
+    /* load once to learn the resolved workspace path used as the map key */
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    buf_t s;
+    buf_init(&s);
+    buf_appendf(&s,
+        "{\"permission\":{\"bash\":{\"git *\":\"deny\"}},"
+        "\"workspaces\":{\"%s\":{\"permission\":{\"bash\":{\"git *\":\"allow\"}}}}}",
+        ctx->cwd);
+    tny_ctx_free(ctx);
+    write_settings(s.data);
+    buf_free(&s);
+
+    ctx = tny_ctx_load(g_ws);
+    perm_engine *p = perm_new(ctx);
+    ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "git pull"));
+    perm_free(p);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST perm_session_grants(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    perm_engine *p = perm_new(ctx);
+    ASSERT_EQ(PERM_PROMPT, perm_check(p, "terminal", "npm install"));
+    perm_grant(p, "terminal", "npm install --save");
+    ASSERT_EQ(1, perm_grant_count(p));
+    /* grant covers the same leading program */
+    ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "npm run build"));
+    ASSERT_EQ(PERM_PROMPT, perm_check(p, "terminal", "yarn build"));
+    perm_free(p);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST perm_auto_mode_heuristics(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_AUTO;
+    perm_engine *p = perm_new(ctx);
+    ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "git status --short"));
+    ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "rg TODO src"));
+    ASSERT_EQ(PERM_PROMPT, perm_check(p, "terminal", "curl http://example.com"));
+    char *inside = path_join(ctx->cwd, "notes.txt");
+    ASSERT_EQ(PERM_ALLOW, perm_check(p, "write_file", inside));
+    free(inside);
+    ASSERT_EQ(PERM_PROMPT, perm_check(p, "write_file", "/etc/hosts"));
+    perm_free(p);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST perm_yolo_allows_everything(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    perm_engine *p = perm_new(ctx);
+    ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "make deploy"));
+    ASSERT_EQ(PERM_ALLOW, perm_check(p, "delete_file", "/anywhere"));
+    perm_free(p);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* ---- sessions ---- */
+
+TEST session_roundtrip(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session *s = session_new(ctx);
+    ASSERT(s);
+    session_add_text(s, "user", "hello");
+    session_add_assistant(s, "hi there", NULL);
+    session_set_title(s, "greeting");
+    session_set_meta(s, "openai", "mock-model");
+    session_set_host_pointer(s, "thread-abc");
+    session_add_usage(s, 10, 20);
+    session_add_usage(s, 5, 5);
+    session_bump_turns(s);
+    ASSERT_EQ(0, session_save(s));
+    char *id = xstrdup(s->id);
+    session_close(s);
+
+    s = session_open(ctx, id);
+    ASSERT(s);
+    ASSERT_STR_EQ("greeting", session_title(s));
+    ASSERT_STR_EQ("thread-abc", session_host_pointer(s));
+    ASSERT_EQ_FMT(1, session_turns(s), "%d");
+    int64_t in_tok = 0, out_tok = 0;
+    session_get_usage(s, &in_tok, &out_tok);
+    ASSERT_EQ_FMT((long long)15, (long long)in_tok, "%lld");
+    ASSERT_EQ_FMT((long long)25, (long long)out_tok, "%lld");
+    session_close(s);
+
+    char *latest = session_latest_id(ctx);
+    ASSERT(latest);
+    ASSERT_STR_EQ(id, latest);
+    free(latest);
+    free(id);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST session_result_handles(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session *s = session_new(ctx);
+    char *h = session_store_result(s, "0123456789", 10);
+    ASSERT(h);
+    size_t n = 0;
+    char *slice = session_read_result(s, h, 3, 4, &n);
+    ASSERT(slice);
+    ASSERT_EQ_FMT((size_t)4, n, "%zu");
+    ASSERT_STR_EQ("3456", slice);
+    free(slice);
+    /* path traversal in a handle must be rejected outright */
+    ASSERT_EQ(NULL, session_read_result(s, "../../etc/passwd", 0, 10, &n));
+    ASSERT_EQ(NULL, session_read_result(s, "ABCD", 0, 10, &n)); /* not lowercase hex */
+    slice = session_read_result(s, h, 100, 10, &n);
+    ASSERT(slice);
+    ASSERT_EQ_FMT((size_t)0, n, "%zu");
+    free(slice);
+    free(h);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST session_compaction(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session *s = session_new(ctx);
+    for (int i = 0; i < 9; i++) {
+        char q[64], a[64];
+        snprintf(q, sizeof q, "question %d", i);
+        snprintf(a, sizeof a, "answer %d", i);
+        session_add_text(s, "user", q);
+        session_add_assistant(s, a, NULL);
+        session_bump_turns(s);
+    }
+    const char *summary = NULL;
+    ASSERT_EQ_FMT(0, session_compact_boundary(s, &summary), "%d");
+
+    session_compact(s, false); /* 9 turns ≥ 8: keep last 4 verbatim */
+    int b = session_compact_boundary(s, &summary);
+    ASSERT_EQ_FMT(10, b, "%d"); /* 18 msgs, last 4 user turns start at 10 */
+    ASSERT(summary);
+    ASSERT(strstr(summary, "user asked") != NULL);
+    ASSERT(strstr(summary, "question 0") != NULL);
+    ASSERT(strstr(summary, "question 8") == NULL); /* kept verbatim */
+
+    session_compact(s, true); /* force: keep only the latest turn */
+    b = session_compact_boundary(s, &summary);
+    ASSERT_EQ_FMT(16, b, "%d");
+    ASSERT(strstr(summary, "question 7") != NULL);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST session_recovery_roundtrip(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session *s = session_new(ctx);
+    session_recovery_write(s, "partial answer text");
+    char *r = session_recovery_read(s);
+    ASSERT(r);
+    ASSERT_STR_EQ("partial answer text", r);
+    free(r);
+    session_recovery_clear(s);
+    ASSERT_EQ(NULL, session_recovery_read(s));
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+SUITE(core_suite) {
+    RUN_TEST(perm_defaults_ask_mode);
+    RUN_TEST(perm_safe_tool_inside_workspace);
+    RUN_TEST(perm_rules_last_match_wins);
+    RUN_TEST(perm_workspace_beats_global);
+    RUN_TEST(perm_session_grants);
+    RUN_TEST(perm_auto_mode_heuristics);
+    RUN_TEST(perm_yolo_allows_everything);
+    RUN_TEST(session_roundtrip);
+    RUN_TEST(session_result_handles);
+    RUN_TEST(session_compaction);
+    RUN_TEST(session_recovery_roundtrip);
+}

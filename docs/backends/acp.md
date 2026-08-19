@@ -1,6 +1,6 @@
 # ACP
 
-Canonical: [agentclientprotocol.com](https://agentclientprotocol.com/get-started/introduction), schema [v2](https://agentclientprotocol.com/protocol/v2/schema) / [v1](https://agentclientprotocol.com/protocol/v1/overview). Apache-licensed, originated at Zed.
+Canonical: [agentclientprotocol.com](https://agentclientprotocol.com/get-started/introduction). Pin wire **`protocolVersion: 1`** and schema [schema-v1.20.0](https://github.com/agentclientprotocol/agent-client-protocol/releases/tag/schema-v1.20.0). v2 is draft — keep a version switch, do not require it. Apache-2.0, Zed + JetBrains.
 
 tny implements **both** sides:
 
@@ -16,21 +16,25 @@ tny implements **both** sides:
 - v2 allows JSON-RPC batches; implement read-side batching even if tny sends single messages.
 - Input message size cap: 8 MiB (fx's published ACP limit — match it on `tny acp`).
 
-## Client lifecycle (v2 preferred, v1 fallback)
+## Client lifecycle (v1)
 
-1. `initialize` with `protocolVersion` (try `2`, accept agent's chosen version) plus `capabilities` and `info` `{ name: "tny", title: "tny", version }`.
-2. `auth/login` only if `authMethods` is non-empty. Cursor CLI advertises `cursor_login`; prefer pre-auth via `CURSOR_API_KEY` / `agent login` so TUI need not open a browser.
-3. `session/new` or `session/resume` / v1 `session/load`.
-4. `session/prompt` with text (and embedded resources if advertised).
-5. Agent replies once when the prompt is **accepted**, then streams `session/update`.
-6. Handle `session/request_permission` (and v2 elicitation) or the turn blocks.
-7. `session/cancel` to interrupt. Close with `session/close`.
+In v1, **`session/prompt` stays pending for the whole turn**. Completion is `{ "stopReason": "end_turn"|… }`. v2 acks `{}` and idles via `state_update` — ignore until negotiated.
+
+1. `initialize` with `protocolVersion: 1`, client capabilities, `clientInfo` `{ name: "tny", title: "tny", version }`. Accept the agent's chosen version.
+2. `authenticate` (v1 name) only if `authMethods` is non-empty. Cursor uses `methodId: "cursor_login"`; prefer pre-auth.
+3. `session/new` or `session/load` / `session/resume`.
+4. `session/prompt` with `ContentBlock[]`. Stream arrives as `session/update`.
+5. **Always** reply to `session/request_permission` or the agent hangs.
+6. `session/cancel` (notification), then wait for `stopReason: "cancelled"`.
+7. `session/close`.
+
+Do not advertise `fs` or `terminal` unless tny implements them. Do not multiplex MCP on the ACP pipes. Optional spawn table: [registry.json](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json).
 
 Absolute paths only. Line numbers 1-based. Property keys camelCase; discriminator strings snake_case.
 
 ## Methods (agent ← client)
 
-Baseline: `initialize`, `session/new`, `session/prompt`, `session/list`, `session/resume`, `session/close`, `session/cancel` (notification). Auth: `auth/login`, `auth/logout` iff advertised.
+Baseline: `initialize`, `session/new`, `session/prompt`, `session/cancel`. Auth: v1 `authenticate` / `logout` iff advertised (`auth/login` is v2). Reply to Cursor `cursor/ask_question` and `cursor/create_plan` or that agent stalls (they are not `_`-prefixed).
 
 fx's ACP server (v1, for parity on `tny acp`) also implements `session/load`, `session/set_config_option`, `session/set_mode`. Modes there: `ask` (approve sensitive tools), `code` (auto-review).
 

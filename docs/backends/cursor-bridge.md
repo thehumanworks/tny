@@ -2,7 +2,11 @@
 
 Canonical docs: [cursor.com/docs/sdk/bridge](https://cursor.com/docs/sdk/bridge), repo [cursor/sdk-bridge](https://github.com/cursor/sdk-bridge).
 
-The bridge is a **local Connect server** that embeds `@cursor/sdk` and exposes `sdk.v1` over **HTTP/1.1**. tny is an adapter: spawn (or attach), handshake, RPC, shutdown. Classic gRPC/HTTP2 will not connect.
+The bridge is a **local Connect server** that embeds `@cursor/sdk` and exposes `sdk.v1` over **HTTP/1.1**. Pin standalone + protos to **[v1.0.28](https://github.com/cursor/sdk-bridge/releases/tag/v1.0.28)** (or newer matching `manifest.json`). Host binary is ~23–43 MiB (Bun) — never link it. Classic gRPC/HTTP2 will not connect.
+
+JSON Connect uses **camelCase** (`apiKey`). Confirm with the [curl smoke test](https://github.com/cursor/sdk-bridge/blob/main/docs/smoke-test.md) before codegen.
+
+This path is **headless**: tools run unless sandbox / `auto_review` / hooks deny them. There is no Allow/Deny RPC. Per-call approvals are **ACP** (`agent acp`), a separate backend.
 
 ## Obtain the binary
 
@@ -100,3 +104,21 @@ Custom tools / custom stores invert the connection (tny hosts a loopback Connect
 ## Smoke
 
 Follow [smoke-test.md](https://github.com/cursor/sdk-bridge/blob/main/docs/smoke-test.md) with curl before debugging tny. First tny milestone: spawn → Ping → Me → CreateAgent (local) → Send → wait → Shutdown.
+
+## Implemented JSON shapes (v1 JSON codec — verify against release protos)
+
+tny's v1 uses the Connect **JSON** codec (nanopb deferred). Field names follow
+protojson camelCase. Written by `src/backends/cursor/cursor.c` only; readers
+accept camelCase *and* snake_case. Re-pin these against the release `.proto`s
+and smoke-test.md before shipping against a new bridge release.
+
+- `CreateAgent` → `{"options":{"model":M,"apiKey":K,"local":{"cwd":[cwd,…extraDirs]}}}`
+  (when `--model` is absent tny calls `ListModels` and uses the first id)
+- `ResumeAgent` → same options plus `"agentId"` (the stored host pointer)
+- `Send` (server-streaming) → `{"agentId":A,"prompt":{"text":T},"options":{"enableDeltas":true}}`
+- `CancelRun` → `{"agentId":A,"runId":R}`
+- `Shutdown` → `{"graceSeconds":5}`
+
+Permission mode is **not** wired into `CreateAgent`: the bridge is headless
+with no per-call approval RPC, so tny emits one status line when
+`perm_mode != yolo` pointing at `--backend acp` for per-call approvals.

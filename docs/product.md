@@ -11,7 +11,7 @@ Required backends (all first-class):
 3. **Other agents** via [ACP](https://agentclientprotocol.com/) (JSON-RPC over stdio).
 4. **OpenAI-compatible** HTTP providers (native tool loop owned by tny).
 
-fx is Zig, Apache-2.0, experimental, advertised at **7.8 MiB**, closer to a shell than an IDE-in-the-terminal ([README](https://github.com/vercel-labs/fx), [fx.sh/docs](https://fx.sh/docs)). tny is **C11** so the binary and cold start can go under that baseline.
+fx is Zig 0.16, Apache-2.0, experimental: **6.44 MiB** macOS arm64 and **11.12 MiB** static Linux in v0.0.3 ([fx.sh](https://fx.sh), [README](https://github.com/vercel-labs/fx) still says 7.8 MiB). Inference is Vercel AI Gateway (AI SDK LM spec v4), not public OpenAI-compat. tny is **C11** so the CLI can undercut those binaries and talk to BYOK providers plus host agents.
 
 ## What "keep the functionality" means
 
@@ -45,9 +45,9 @@ Measured on the same machine as a current `fx` release binary:
 
 | Metric | Target |
 | --- | --- |
-| Stripped `tny` binary (darwin-arm64 and linux-x64) | **< 2.0 MiB**, stretch **< 1.0 MiB** if TLS is dynamic |
-| Cold start to interactive prompt (no backend spawn) | **< 10 ms** |
-| `tny ask --help` | **< 5 ms** |
+| Stripped `tny` | **< 1.8 MiB macOS** / **< 1.5 MiB Linux musl**; must stay under fx’s 6.44 / 11.12 MiB |
+| Cold start to interactive prompt (no backend spawn) | **< 10 ms** (do not claim fx’s 10 µs bench hook) |
+| `tny --version` / `tny ask --help` | **< 5 ms** median, stretch **< 2 ms** |
 | First token display after backend stream starts | UI overhead **< 2 ms** |
 | Feature gate | Parity table in [features/parity-with-fx.md](features/parity-with-fx.md) is green for v1 rows |
 

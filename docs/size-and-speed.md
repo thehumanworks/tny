@@ -2,47 +2,40 @@
 
 ## fx baseline
 
-Source: [vercel-labs/fx README](https://github.com/vercel-labs/fx) (fetched 2026-08-18).
+Measured 2026-08-18 from [fx.sh](https://fx.sh), the [README](https://github.com/vercel-labs/fx), and v0.0.3 release tarballs. fx is Zig 0.16, Apache-2.0, zero Zig package deps. It is **not** Bun/Node.
 
-| Fact | Value |
+| Artifact | Size |
 | --- | --- |
-| Language | Zig 0.16+ |
-| Advertised binary | **7.8 MiB** |
-| License | Apache-2.0 |
-| Form | Unix-like CLI/shell, not a heavy TUI |
-| Extra artifacts | `fx-core.wasm`, `fx-term.wasm` (embed path; not our v1) |
-| Install | `curl -fsSL https://fx.sh/setup.sh \| bash` → `~/.local/bin/fx` |
+| Homepage claim | 6.39 MiB, “10 µs” cold start |
+| README claim | 7.8 MiB (internal PGSO ceiling 7.800 MiB macOS arm64) |
+| **v0.0.3 macOS arm64** | **6,748,416 B = 6.436 MiB** Mach-O |
+| **v0.0.3 Linux x86_64** | **11,661,624 B = 11.12 MiB** static stripped ELF |
+| `libfx` npm 0.0.3 unpacked | 34.8 MiB (WASM/NAPI — not in tny) |
+| CI CLI budget | **2.000 ms mean** on Linux for `fx`, `help`, `status --json`, … |
 
-Re-measure before claiming a win:
+The “10 µs” number is the `FX_BENCH=1` path (parse argv, exit before TTY). Do not publish a 10 µs claim. Beat **measured** `exec` + first paint, and beat **6.436 MiB macOS / 11.12 MiB static Linux**.
 
-```bash
-# after installing fx
-stat -f%z "$(command -v fx)"          # macOS bytes
-# or: wc -c "$(command -v fx)"
-/usr/bin/time -p fx --version
-/usr/bin/time -p fx ask --help
-```
-
-Record the fx version, sha256, and OS in the comparison table. Do not compare a debug tny against a ReleaseSafe fx.
+Re-measure the same fx version you compare against. Do not compare debug tny to ReleaseSafe fx.
 
 ## tny budgets
 
 These apply to the **tny executable only**. `cursor-sdk-bridge` is a Bun-packaged host (see its `manifest.json` `runtime` field). Codex is a separate Rust binary. Neither counts.
 
-| Build | Hard limit | Notes |
+| Build | Must | Stretch |
 | --- | --- | --- |
-| `tny` Release, stripped, macOS arm64 | 2.0 MiB | Fail CI if over |
-| `tny` Release, stripped, Linux x64 (glibc dynamic) | 2.0 MiB | Same |
-| `tny` musl static Linux (optional) | 3.0 MiB | TLS may force this higher; document if so |
-| Stretch default | 1.0 MiB | Only if TLS stays dynamic |
+| macOS arm64, stripped, libSystem + Security.framework | **< 1.8 MiB** | < 1.2 MiB |
+| Linux musl static, stripped | **< 1.5 MiB** | < 1.0 MiB |
+| Linux glibc dynamic | **< 1.5 MiB** | < 1.0 MiB |
+| Idle RSS after prompt | **< 4 MiB** | < 2 MiB |
+
+Those still beat fx by ~3–4× on macOS and ~7× on static Linux. CI fails the PR if the stripped binary exceeds the Must column.
 
 Startup (empty `HOME` override, no network):
 
-| Command | Budget |
-| --- | --- |
-| `tny --version` | 5 ms |
-| `tny ask --help` | 5 ms |
-| `tny` to first prompt (TUI, no spawn) | 10 ms |
+| Command | Must | Stretch |
+| --- | --- | --- |
+| `tny --version` / `tny ask --help` | **< 5 ms** median | < 2 ms (match fx’s 2 ms Linux CLI gate if we can) |
+| TUI first prompt (no spawn) | **< 10 ms** | < 5 ms |
 
 Do not initialize backends until the user sends a turn or `ask` starts. `doctor` may spawn.
 
@@ -50,10 +43,14 @@ Do not initialize backends until the user sends a turn or `ask` starts. `doctor`
 
 1. C11, no C++ stdlib, no Zig runtime extras.
 2. ANSI TUI, not a widget kit.
-3. yyjson + wslay + nanopb, vendored as .c files you can see in `nm`.
-4. System TLS, not a statically linked rustls/openssl.
-5. Lazy backend load: Cursor/Codex/ACP code paths stay cold until selected.
-6. No WASM, no bundled Node, no embedded Chromium.
+3. yyjson + picohttpparser + wslay, vendored as .c files you can see in `nm`.
+   (nanopb deferred: v1 speaks Connect with the JSON codec, no protobuf runtime.)
+4. macOS Security.framework, **dlopen'd at first TLS use** — eager framework
+   linking costs ~1.2 ms per launch and loses the startup race. Linux mbedTLS
+   client-only is a follow-up (v1 Linux: plain http works, https errors
+   cleanly). Never static OpenSSL.
+5. Lazy backend load: Cursor/Codex/ACP stay cold until selected. No upgrade/MCP/skill walk before first prompt.
+6. No WASM, NAPI, sounds, or bundled Node in the default CLI.
 
 ## Measurement recipe (when code exists)
 
@@ -64,4 +61,4 @@ wc -c build/tny
 hyperfine --warmup 3 './build/tny --version' 'fx --version'
 ```
 
-Publish the table in the root README once numbers are real. Until then, treat 7.8 MiB and the budgets above as the contract.
+Publish the table in the root README once numbers are real. Until then, beat **6.436 MiB macOS / 11.12 MiB static Linux** and the budgets above. Do not UPX.

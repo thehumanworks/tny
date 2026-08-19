@@ -1,0 +1,436 @@
+/* tui.c — the interactive shell: raw-mode terminal, one poll loop over stdin
+ * plus the backend fds, and lazy backend creation (nothing is spawned or
+ * connected until the first prompt is submitted). See docs/tui.md. */
+#include "tui/tui.h"
+#include "backends/openai/openai.h"
+#include "mcp/mcp.h"
+
+#include <errno.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termios.h>
+#include <unistd.h>
+
+/* ---- terminal ---- */
+
+static struct termios g_saved;
+static bool g_raw;
+static volatile sig_atomic_t g_winch, g_sigint;
+
+static void term_restore(void) {
+    if (!g_raw) return;
+    g_raw = false;
+    fputs("\x1b[0m\x1b[?25h", stdout);
+    fflush(stdout);
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &g_saved);
+}
+
+static void on_winch(int s) { (void)s; g_winch = 1; }
+static void on_sigint(int s) { (void)s; g_sigint = 1; }
+static void on_fatal(int s) { term_restore(); _exit(128 + s); }
+
+static void install(int sig, void (*fn)(int)) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_handler = fn;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0; /* no SA_RESTART: poll must return EINTR */
+    sigaction(sig, &sa, NULL);
+}
+
+static bool term_raw(void) {
+    if (tcgetattr(STDIN_FILENO, &g_saved) != 0) return false;
+    struct termios r = g_saved;
+    /* keep OPOST/ONLCR so plain printf from reused CLI commands still works */
+    r.c_iflag &= (tcflag_t)~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+    r.c_lflag &= (tcflag_t)~(ECHO | ICANON | IEXTEN | ISIG);
+    r.c_cc[VMIN] = 1;
+    r.c_cc[VTIME] = 0;
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &r) != 0) return false;
+    g_raw = true;
+    atexit(term_restore);
+    return true;
+}
+
+/* ---- helpers ---- */
+
+static void oneline(char *dst, size_t cap, const char *src) {
+    size_t j = 0;
+    for (size_t i = 0; src && src[i] && j + 1 < cap; i++) {
+        unsigned char c = (unsigned char)src[i];
+        dst[j++] = (c == '\n' || c == '\r' || c == '\t') ? ' ' : (char)c;
+    }
+    dst[j] = 0;
+}
+
+static void drop_backend(tui *t) {
+    if (!t->bk) return;
+    t->bk->disconnect(t->bk);
+    t->bk->destroy(t->bk);
+    t->bk = NULL;
+}
+
+/* ---- approvals ---- */
+
+tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
+    if (t->ctx->perm_mode == TNY_MODE_YOLO) return TNY_PERM_DECISION_ALLOW;
+
+    char line[512];
+    oneline(line, sizeof line, summary && *summary ? summary : tool);
+    tui_linef(t, "%s? %s%s", tui_c(t, "\x1b[1;33m"), line, tui_c(t, "\x1b[0m"));
+    if (!t->tty) {
+        tui_sys(t, "  not a terminal: denied");
+        return TNY_PERM_DECISION_DENY;
+    }
+
+    tui_pick_close(t);
+    t->approval = true;
+    t->dirty = true;
+    tny_perm_decision d = TNY_PERM_DECISION_DENY;
+    bool got = false;
+    while (!got && !t->quit) {
+        tui_render(t);
+        struct pollfd pf = {STDIN_FILENO, POLLIN, 0};
+        int pr = poll(&pf, 1, 200);
+        if (g_winch) { g_winch = 0; tui_size(t); t->dirty = true; }
+        if (g_sigint) { g_sigint = 0; t->want_cancel = true; break; }
+        if (pr <= 0) continue;
+        char b[64];
+        ssize_t n = read(STDIN_FILENO, b, sizeof b);
+        if (n <= 0) { if (n == 0) t->quit = true; break; }
+        for (ssize_t i = 0; i < n && !got; i++) {
+            switch (b[i]) {
+            case 'y': case 'Y': d = TNY_PERM_DECISION_ALLOW; got = true; break;
+            case 'a': case 'A': d = TNY_PERM_DECISION_ALLOW_ALWAYS; got = true; break;
+            case 'n': case 'N': case 27: d = TNY_PERM_DECISION_DENY; got = true; break;
+            case 3: d = TNY_PERM_DECISION_DENY; t->want_cancel = true; got = true; break;
+            default: break;
+            }
+        }
+    }
+    t->approval = false;
+    tui_sys(t, d == TNY_PERM_DECISION_ALLOW          ? "  allowed once"
+              : d == TNY_PERM_DECISION_ALLOW_ALWAYS  ? "  allowed for this session"
+                                                     : "  denied");
+    t->dirty = true;
+    return d;
+}
+
+static tny_perm_decision perm_hook(const char *tool, const char *summary, void *ud) {
+    return tui_ask_perm((tui *)ud, tool, summary);
+}
+
+/* ---- normalized event rendering ---- */
+
+static void ev_cb(const tny_event *ev, void *ud) {
+    tui *t = ud;
+    char line[512];
+
+    switch (ev->kind) {
+    case TNY_EV_TEXT_DELTA:
+        tui_write(t, ev->text, ev->text_len);
+        buf_append(&t->last_reply, ev->text, ev->text_len);
+        break;
+    case TNY_EV_THINKING:
+        if (t->color) tui_write(t, "\x1b[2m", 4);
+        tui_write(t, ev->text, ev->text_len);
+        if (t->color) tui_write(t, "\x1b[0m", 4);
+        break;
+    case TNY_EV_TOOL_START:
+        oneline(line, sizeof line, ev->tool_detail);
+        tui_linef(t, "%s⏺ %s%s %.100s", tui_c(t, "\x1b[36m"), ev->tool_name,
+                  tui_c(t, "\x1b[0m"), line);
+        break;
+    case TNY_EV_TOOL_END:
+        oneline(line, sizeof line, ev->tool_detail);
+        tui_linef(t, "  %s%s%s %s %.80s", tui_c(t, ev->tool_ok ? "\x1b[32m" : "\x1b[31m"),
+                  ev->tool_ok ? "✓" : "✗", tui_c(t, "\x1b[0m"), ev->tool_name, line);
+        break;
+    case TNY_EV_PERMISSION: {
+        tny_perm_decision d;
+        if (t->ctx->perm_mode == TNY_MODE_YOLO) {
+            d = TNY_PERM_DECISION_ALLOW;
+            tui_sys(t, "auto-approved (yolo)");
+        } else {
+            d = tui_ask_perm(t, "approval requested", ev->perm_summary);
+        }
+        if (d == TNY_PERM_DECISION_ALLOW_ALWAYS &&
+            !(ev->perm_options & TNY_PERM_ALLOW_ALWAYS))
+            d = TNY_PERM_DECISION_ALLOW;
+        if (t->bk && t->bk->respond_permission)
+            t->bk->respond_permission(t->bk, ev->perm_id, d);
+        break;
+    }
+    case TNY_EV_PLAN:
+        tui_bol(t);
+        tui_linef(t, "%s── plan ──%s", tui_c(t, "\x1b[2m"), tui_c(t, "\x1b[0m"));
+        tui_write(t, ev->text, ev->text_len);
+        tui_bol(t);
+        tui_linef(t, "%s──────────%s", tui_c(t, "\x1b[2m"), tui_c(t, "\x1b[0m"));
+        break;
+    case TNY_EV_USAGE:
+        t->in_tok += ev->in_tokens;
+        t->out_tok += ev->out_tokens;
+        t->dirty = true;
+        break;
+    case TNY_EV_STATUS:
+        snprintf(line, sizeof line, "%.*s", (int)ev->text_len, ev->text);
+        tui_note(t, "%s", line);
+        if (t->trace) tui_sys(t, line);
+        break;
+    case TNY_EV_ERROR:
+        snprintf(line, sizeof line, "%.*s", (int)ev->text_len, ev->text);
+        tui_err(t, line);
+        break;
+    case TNY_EV_TURN_END:
+        t->turn_active = false;
+        t->turn_done = true;
+        t->stop = ev->stop;
+        break;
+    }
+}
+
+/* ---- session / backend ---- */
+
+void tui_new_session(tui *t, bool clear_screen) {
+    if (t->turn_active) { tui_sys(t, "finish the turn first"); return; }
+    if (t->session) {
+        session_save(t->session);
+        session_close(t->session);
+        t->session = NULL;
+    }
+    drop_backend(t);
+    t->in_tok = t->out_tok = 0;
+    buf_clear(&t->last_reply);
+    if (clear_screen) {
+        tui_raw_begin(t);
+        fputs("\x1b[H\x1b[2J\x1b[3J", stdout);
+        tui_raw_end(t);
+    }
+    tui_sys(t, "new session");
+}
+
+static bool ensure_backend(tui *t) {
+    if (!t->session) t->session = session_new(t->ctx);
+    if (!t->session) { tui_err(t, "could not create a session"); return false; }
+    if (t->bk) return true;
+
+    char err[512];
+    tny_backend *bk = tny_backend_create((tny_backend_id)t->ctx->backend, t->ctx);
+    if (!bk) { tui_err(t, "could not create the backend"); return false; }
+    if (bk->connect(bk, err, sizeof err) != 0) {
+        tui_err(t, err);
+        bk->destroy(bk);
+        return false;
+    }
+    if (bk->id == TNY_BK_OPENAI)
+        tny_backend_openai_bind(bk, t->session, t->perm, perm_hook, t);
+    const char *hp = session_host_pointer(t->session);
+    if (bk->create_or_resume && bk->create_or_resume(bk, hp, err, sizeof err) != 0) {
+        tui_err(t, err);
+        bk->disconnect(bk);
+        bk->destroy(bk);
+        return false;
+    }
+    t->bk = bk;
+    return true;
+}
+
+static void after_turn(tui *t) {
+    if (t->session) {
+        if (t->bk && t->bk->session_pointer) {
+            char *ptr = t->bk->session_pointer(t->bk);
+            if (ptr) {
+                session_set_host_pointer(t->session, ptr);
+                free(ptr);
+            }
+        }
+        session_set_meta(t->session, tny_backend_name((tny_backend_id)t->ctx->backend),
+                         t->ctx->model);
+        if (!session_title(t->session) && t->prompt_text.len)
+            session_set_title(t->session, t->prompt_text.data);
+        session_save(t->session);
+    }
+    tui_bol(t);
+    switch (t->stop) {
+    case TNY_STOP_DONE: break;
+    case TNY_STOP_INTERRUPTED: tui_sys(t, "interrupted"); break;
+    case TNY_STOP_DENIED: tui_sys(t, "stopped: permission denied"); break;
+    case TNY_STOP_STEP_LIMIT: tui_sys(t, "stopped: step limit reached"); break;
+    case TNY_STOP_ERROR: tui_sys(t, "stopped: error"); break;
+    }
+    t->cancel_ms = 0;
+    buf_clear(&t->note);
+    t->dirty = true;
+}
+
+void tui_cancel_turn(tui *t) {
+    if (!t->turn_active || !t->bk) return;
+    if (t->cancel_ms) return;
+    t->cancel_ms = now_ms();
+    tui_note(t, "cancelling…");
+    t->bk->cancel(t->bk);
+}
+
+void tui_submit(tui *t, const char *text) {
+    const char *s = text;
+    while (*s == ' ' || *s == '\t') s++;
+    if (!*s) { t->dirty = true; return; }
+
+    if (*s == '/') {
+        tui_hist_add(t, s);
+        tui_bol(t);
+        tui_command(t, s);
+        t->dirty = true;
+        return;
+    }
+    if (t->turn_active) {
+        tui_sys(t, "a turn is already running — esc interrupts it");
+        return;
+    }
+
+    tui_hist_add(t, s);
+    tui_linef(t, "%s› %s%s", tui_c(t, "\x1b[1m"), s, tui_c(t, "\x1b[0m"));
+    buf_clear(&t->note);
+    if (!ensure_backend(t)) { t->dirty = true; return; }
+
+    buf_clear(&t->prompt_text);
+    buf_appends(&t->prompt_text, s);
+    buf_clear(&t->last_reply);
+
+    char err[512];
+    const char **imgs = t->n_images ? (const char **)t->images : NULL;
+    t->turn_done = false;
+    if (t->bk->send(t->bk, s, imgs, ev_cb, t, err, sizeof err) != 0) {
+        tui_err(t, err);
+        t->dirty = true;
+        return;
+    }
+    for (int i = 0; i < t->n_images; i++) { free(t->images[i]); t->images[i] = NULL; }
+    t->n_images = 0;
+    t->turn_active = true;
+    t->cancel_ms = 0;
+    t->dirty = true;
+}
+
+/* ---- run loop ---- */
+
+static void banner(tui *t) {
+    tui_linef(t, "%stny %s%s  %s  %s  %s", tui_c(t, "\x1b[1m"), TNY_VERSION,
+              tui_c(t, "\x1b[0m"), tny_backend_name((tny_backend_id)t->ctx->backend),
+              t->ctx->model ? t->ctx->model : "default model",
+              tny_perm_mode_name(t->ctx->perm_mode));
+    tui_sys(t, "/help for commands · @ files · $ skills · ctrl-c twice to exit");
+}
+
+static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
+    tui t;
+    memset(&t, 0, sizeof t);
+    t.ctx = ctx;
+    t.g = g;
+    buf_init(&t.out);
+    buf_init(&t.partial);
+    buf_init(&t.input);
+    buf_init(&t.note);
+    buf_init(&t.last_reply);
+    buf_init(&t.prompt_text);
+    t.perm = perm_new(ctx);
+    t.tty = isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
+    t.color = t.tty && !ctx->no_color && !getenv("NO_COLOR");
+    tui_size(&t);
+
+    if (t.tty && !term_raw()) t.tty = false;
+    install(SIGWINCH, on_winch);
+    install(SIGINT, on_sigint);
+    install(SIGTERM, on_fatal);
+    install(SIGHUP, on_fatal);
+    signal(SIGPIPE, SIG_IGN);
+
+    tui_hist_load(&t);
+    banner(&t);
+
+    if (session_id) {
+        t.session = session_open(ctx, session_id);
+        if (t.session) {
+            session_get_usage(t.session, &t.in_tok, &t.out_tok);
+            tui_linef(&t, "  resumed %s  %s", t.session->id,
+                      session_title(t.session) ? session_title(t.session) : "(untitled)");
+        } else {
+            tui_err(&t, "session not found; starting a new one");
+        }
+    } else if (g->resume_picker) {
+        tui_command(&t, "/sessions");
+    }
+
+    t.dirty = true;
+    while (!t.quit) {
+        tui_render(&t);
+
+        struct pollfd fds[9];
+        fds[0].fd = STDIN_FILENO;
+        fds[0].events = POLLIN;
+        fds[0].revents = 0;
+        int nb = 0;
+        if (t.turn_active && t.bk && t.bk->pollfds) nb = t.bk->pollfds(t.bk, fds + 1, 8);
+        int pr = poll(fds, (nfds_t)(1 + nb), t.turn_active ? 40 : 400);
+        if (pr < 0 && errno != EINTR) break;
+
+        if (g_winch) { g_winch = 0; tui_size(&t); t.dirty = true; }
+        if (g_sigint) {
+            g_sigint = 0;
+            if (t.turn_active) tui_cancel_turn(&t);
+            else { t.quit = true; t.exit_code = 130; }
+        }
+        if (pr > 0 && (fds[0].revents & (POLLIN | POLLHUP | POLLERR))) {
+            if (tui_read_input(&t) < 0) t.quit = true;
+        }
+        if (t.turn_active && t.bk && t.bk->dispatch) {
+            if (t.bk->dispatch(t.bk, fds + 1, nb) != 0 && t.turn_active) {
+                t.turn_active = false;
+                t.turn_done = true;
+                t.stop = TNY_STOP_ERROR;
+            }
+        }
+        if (t.want_cancel) { t.want_cancel = false; tui_cancel_turn(&t); }
+        if (t.turn_done) { t.turn_done = false; after_turn(&t); }
+        /* a host that never confirms the cancel must not wedge the shell */
+        if (t.turn_active && t.cancel_ms && now_ms() - t.cancel_ms > 5000) {
+            t.turn_active = false;
+            t.stop = TNY_STOP_INTERRUPTED;
+            after_turn(&t);
+        }
+    }
+
+    if (t.turn_active && t.bk) t.bk->cancel(t.bk);
+    tui_raw_begin(&t);
+    fflush(stdout);
+    term_restore();
+
+    if (t.session) {
+        session_save(t.session);
+        session_close(t.session);
+    }
+    drop_backend(&t);
+    mcp_shutdown_all();
+    perm_free(t.perm);
+    tui_items_clear(&t);
+    tui_files_free(&t);
+    tui_hist_free(&t);
+    for (int i = 0; i < t.n_images; i++) free(t.images[i]);
+    buf_free(&t.out);
+    buf_free(&t.partial);
+    buf_free(&t.input);
+    buf_free(&t.note);
+    buf_free(&t.last_reply);
+    buf_free(&t.prompt_text);
+    return t.exit_code;
+}
+
+int cmd_tui(tny_ctx *ctx, const cli_globals *g) { return tui_run(ctx, g, NULL); }
+
+int cmd_tui_resume(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
+    return tui_run(ctx, g, session_id);
+}

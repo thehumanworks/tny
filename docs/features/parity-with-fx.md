@@ -2,25 +2,38 @@
 
 fx sources: [README](https://github.com/vercel-labs/fx), [fx.sh/llms.txt](https://fx.sh/llms.txt). Baseline advertised 2026-08-18.
 
-## v1 must match
+## v1 must match — status as built (2026-08-19, all `make test` green)
 
-| Area | fx | tny |
-| --- | --- | --- |
-| Interactive shell | `fx` | `tny` |
-| One-shot | `fx ask`, stdin, `--json`, `--image`, `--resume`, `--no-save` | same shape |
-| Sessions | `~/.fx/sessions/`, `fx sessions`, `resume last`, compact after 8 turns, `/continue`, recover | `~/.tny/sessions/`, same UX |
-| Permissions | `ask` / `auto` / `yolo`, rules, session grants | same (native loop; map host approvals) |
-| Sandbox | `os` (macOS), `none`, `auto` | same intent; implement macOS seatbelt or document `none` until ready |
-| Tools | files, grep/glob, `run_command` + background, web_search/fetch, vision, memory, skill, subagent, MCP lazy select | same names where possible |
-| Skills | `SKILL.md`, `$`, multi-root discovery | same roots plus `~/.tny/skills/` |
-| MCP | trusted `~/.fx/mcp.json` only, stdio + HTTP + legacy SSE | `~/.tny/mcp.json`, same isolation |
-| Subagents | session-backed children, ctrl+x, `subagent` tool | native loop only |
-| ACP server | `fx acp` | `tny acp` |
-| Project instructions | `AGENTS.md` chain, target-scoped | same + `CLAUDE.md` alias |
-| Extra dirs | `--add-dir`, `/workspace` | same |
-| Models | catalog + `/model` | per-backend catalog |
-| Doctor / status / usage | yes | yes |
-| Undo last file tool | `/undo` | native loop |
+| Area | fx | tny | Status |
+| --- | --- | --- | --- |
+| Interactive shell | `fx` | `tny` | ✅ raw-termios ANSI shell, one poll loop, lazy backend, first paint ~4 ms |
+| One-shot | `fx ask`, stdin, `--json`, `--image`, `--resume`, `--no-save` | same shape | ✅ plus `--continue-recovery`; exit codes 0/1/2/130 |
+| Sessions | `~/.fx/sessions/`, `fx sessions`, `resume last`, compact after 8 turns, `/continue`, recover | `~/.tny/sessions/`, same UX | ✅ compact 8→keep 4, recovery checkpoints, `session recover` |
+| Permissions | `ask` / `auto` / `yolo`, rules, session grants | same (native loop; map host approvals) | ✅ rules last-match-wins, workspace>global; host approvals mapped (ACP, codex); cursor bridge is headless — no per-call approvals (documented) |
+| Sandbox | `os` (macOS), `none`, `auto` | `none` documented until seatbelt lands | ⚠️ deferred: `doctor` discloses "os sandbox not implemented in this build"; permission engine is the guard |
+| Tools | files, grep/glob, `terminal`, web_search/fetch, vision, memory, skill, subagent, MCP lazy select | same names where possible | ✅ 26 tools; `run_command` aliased to `terminal`; vision is a documented stub |
+| Skills | `SKILL.md`, `$`, multi-root discovery | same roots plus `~/.tny/skills/` | ✅ `.agents/.claude/.codex/.cursor/.opencode` roots, `$` picker in TUI |
+| MCP | trusted `~/.fx/mcp.json` only, stdio + HTTP + legacy SSE | `~/.tny/mcp.json`, same isolation | ✅ stdio JSONL, lazy select; HTTP/SSE transports deferred; disabled entirely in `tny acp` server mode |
+| Subagents | session-backed children, ctrl+x, `subagent` tool | native loop only | ✅ `subagent` tool spawns child `tny ask --json`; children cannot raise perm mode |
+| ACP server | `fx acp` | `tny acp` | ✅ initialize fails closed w/o credential, session/load replays history |
+| Project instructions | `AGENTS.md` chain, target-scoped | same + `CLAUDE.md` alias | ✅ ~/.tny → ancestors below $HOME → cwd |
+| Extra dirs | `--add-dir`, `/workspace` | same | ✅ persisted per-workspace in settings |
+| Models | catalog + `/model` | per-backend catalog | ✅ `models` + `/model` persists choice |
+| Doctor / status / usage | yes | yes | ✅ all three, `--json` variants |
+| Undo last file tool | `/undo` | native loop | ✅ one-deep undo (blob + metadata) |
+
+## Bake-off vs fx v0.0.3 (macOS arm64, same machine, hyperfine)
+
+| Metric | fx 0.0.3 | tny 0.1.0 | Result |
+| --- | --- | --- | --- |
+| Stripped binary | 6,748,416 B (6.4 MiB) | 392,384 B (0.37 MiB) | **17.2× smaller** (budget < 2.0 MiB) |
+| `--version` | 2.2 ms ± 0.3 | 1.9 ms ± 0.2 | **1.18× faster** |
+| Max RSS (`--version`) | 3.0 MiB | 2.1 MiB | **1.4× less memory** |
+| TUI first paint | — | 3.3–4.3 ms (pty-measured) | target < 10 ms met |
+
+Startup note: linking Security/CoreFoundation eagerly cost ~1.2 ms per launch
+and initially lost the race; SecureTransport is now `dlopen`'d at first TLS
+use (`src/net/stream.c`).
 
 ## tny extras (required)
 
@@ -29,7 +42,7 @@ fx sources: [README](https://github.com/vercel-labs/fx), [fx.sh/llms.txt](https:
 | Cursor SDK Bridge | no | `--backend cursor` |
 | Codex app-server WebSocket | no | `--backend codex` |
 | ACP client | no (fx *is* an agent) | `--backend acp` |
-| OpenAI-compatible BYOK | Gateway only | `--backend openai` |
+| OpenAI-compatible BYOK | Gateway-only; wire is **AI SDK LM spec v4**, custom URLs are loopback HTTP | `--backend openai` (`/v1/chat/completions`) |
 
 ## Explicit deferrals (not parity failures)
 

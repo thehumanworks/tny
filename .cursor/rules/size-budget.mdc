@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Size and speed
 
-Stripped `tny` must stay **under 2.0 MiB** (stretch 1.0 MiB with dynamic TLS). Cold `--version` / `ask --help` under 5 ms; TUI first prompt under 10 ms with no spawn.
+Stripped `tny` must stay **under 1.8 MiB on macOS** and **1.5 MiB on Linux musl** (stretch 1.0 MiB). That still beats measured fx v0.0.3 (6.44 MiB macOS / 11.12 MiB static Linux). Cold `--version` / `ask --help` under 5 ms; TUI first prompt under 10 ms with no spawn. Never static-link OpenSSL or libcurl.
 
 A new dependency is a budget change: update `docs/language-and-runtime.md` and `docs/size-and-speed.md` in the same change. Prefer system TLS and vendored .c files. Measure Release+strip, not debug.
 
