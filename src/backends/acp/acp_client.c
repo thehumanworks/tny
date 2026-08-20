@@ -102,10 +102,13 @@ static int ac_create_or_resume(tny_backend *b, const char *ptr, char *e, size_t 
             buf_free(&p);
             return 0;
         }
-        fprintf(stderr, "acp: session/load failed (%s); starting a new session\n", e);
+        /* may run on the TUI pre-warm thread: diagnostics stay off the tty */
+        if (tny_debug())
+            fprintf(stderr, "acp: session/load failed (%s); starting a new session\n", e);
     } else if (ptr && *ptr) {
-        fprintf(stderr, "acp: agent has no loadSession capability; "
-                        "starting a new session\n");
+        if (tny_debug())
+            fprintf(stderr, "acp: agent has no loadSession capability; "
+                            "starting a new session\n");
     }
 
     buf_clear(&p);

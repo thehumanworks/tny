@@ -192,8 +192,14 @@ int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     http_close(c);
 
     if (status != 200) {
-        fprintf(stderr, "tny: provider has no /models (HTTP %d); showing configured\n",
-                status);
+        if (status == 401 || status == 403)
+            fprintf(stderr, "tny: /models refused the credentials (HTTP %d): %s; "
+                    "showing configured\n", status,
+                    ctx->api_key ? "check the API key"
+                                 : "no API key in this environment");
+        else
+            fprintf(stderr, "tny: provider has no /models (HTTP %d); "
+                    "showing configured\n", status);
         buf_free(&body);
         return models_fallback(ctx, json);
     }

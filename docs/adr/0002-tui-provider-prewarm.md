@@ -25,11 +25,21 @@ Mechanics (`src/tui/tui_prewarm.c`):
   `connect()` — spawn + ready-wait + handshake — on a detached pthread.
 - The first turn *adopts* the connected backend (`tui_prewarm_take`). If the
   warm-up is still mid-connect, take blocks on a condvar — worst case equals
-  the old lazy behavior. `create_or_resume` (thread/start, CreateAgent,
-  session/new) stays on the main thread because it depends on model/tier
-  state the user can still change.
-- If the adopted host died while the shell sat idle, `create_or_resume`
-  fails once and `ensure_backend` retries through the ordinary lazy path.
+  the old lazy behavior.
+- **Amended 2026-08-20 (docs/adr/0004):** the thread also runs
+  `create_or_resume` (thread/start, CreateAgent, session/new) against a
+  resume pointer frozen at `tui_prewarm_start` — for cursor this removes a
+  ~300 ms cloud round trip from the Enter path. This is safe because every
+  ctx mutation that `create_or_resume` reads (model, tier, workspace dirs,
+  provider, session) already drops-and-rewarms; those command paths now call
+  `tui_prewarm_drop` *before* mutating, and drop waits out only the
+  create_or_resume window (connect stays fully async). A pending warm-up is
+  also invalidated when the resume pointer no longer matches the session.
+  Backends must not *write* ctx from `create_or_resume` (cursor's model
+  write-back moved to `send`).
+- If the adopted host died while the shell sat idle, that now surfaces at
+  `send()` instead of at `create_or_resume`: the first send on a
+  freshly-adopted backend retries once through the ordinary lazy path.
 - A pre-warm failure is **silent**; the error resurfaces on the lazy path at
   first prompt, exactly where it appeared before.
 - Abandonment (provider switch, quit) flags the warm-up; whoever finishes

@@ -12,6 +12,7 @@
 
 #define CX_CONNECT_TIMEOUT_MS 15000 /* spawn -> listening */
 #define CX_ATTACH_TIMEOUT_MS  5000
+#define CX_DISCOVER_TIMEOUT_MS 2000 /* opportunistic attach; refusal is instant */
 #define CX_RPC_TIMEOUT_MS     30000
 #define CX_CANCEL_GRACE_MS    3000
 
@@ -54,6 +55,35 @@ static int cx_handshake(cx_impl *o, char *err, size_t errlen) {
     return 0;
 }
 
+/* Attach to an already-running app-server if one is discoverable: the
+ * TNY_CODEX_WS env var, else ~/.tny/codex-host.json published by a live tny
+ * (a long-lived TUI keeps its host warm; one-shot asks reuse it and skip the
+ * ~1 s spawn+initialize). Any failure — dead port, refused upgrade, failed
+ * handshake — falls through silently to a fresh spawn, whose registry write
+ * then replaces the stale entry. Attached hosts are never ours to kill:
+ * o->child stays 0, so cx_stop_child and the pgroup sweep leave them alone. */
+static bool cx_try_discovered(cx_impl *o) {
+    char *url = NULL;
+    const char *env = getenv("TNY_CODEX_WS");
+    if (env && *env) url = xstrdup(env);
+    else if (cx_registry_load(&url, NULL) != 0) return false;
+    char err[256];
+    o->ws = ws_connect(url, o->token, CX_DISCOVER_TIMEOUT_MS, err, sizeof err);
+    if (o->ws && cx_handshake(o, err, sizeof err) != 0) {
+        ws_close(o->ws);
+        o->ws = NULL;
+    }
+    if (!o->ws) {
+        if (tny_debug())
+            fprintf(stderr, "tny: no reusable codex host at %s (%s); spawning\n",
+                    url, err);
+        free(url);
+        return false;
+    }
+    o->ws_url = url;
+    return true;
+}
+
 static int cx_connect(tny_backend *b, char *errbuf, size_t errlen) {
     cx_impl *o = b->impl;
     if (o->ws) return 0;
@@ -72,6 +102,7 @@ static int cx_connect(tny_backend *b, char *errbuf, size_t errlen) {
             return -1;
         }
     } else {
+        if (cx_try_discovered(o)) return 0; /* shared host; nothing spawned */
         int port = cx_pick_port();
         if (port <= 0) {
             snprintf(errbuf, errlen, "codex: no free loopback port for the app-server");
@@ -114,6 +145,10 @@ static int cx_connect(tny_backend *b, char *errbuf, size_t errlen) {
         cx_stop_child(o);
         return -1;
     }
+    /* the host is fully up: publish it so one-shot runs attach instead of
+     * spawning their own (best effort; a failed write just costs them that) */
+    if (o->child > 0 && cx_registry_write(o->ws_url, o->child) == 0)
+        o->wrote_registry = true;
     return 0;
 }
 

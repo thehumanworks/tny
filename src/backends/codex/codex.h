@@ -54,6 +54,7 @@ typedef struct {
     buf_t  child_line;     /* partial stderr line */
     buf_t  stderr_tail;    /* recent host stderr, shown only on failure */
     bool   child_reaped;
+    bool   wrote_registry; /* we published ~/.tny/codex-host.json for our child */
 
     int   next_id;
     char *thread_id;
@@ -134,5 +135,16 @@ bool cx_child_gone(cx_impl *o);
 void cx_stop_child(cx_impl *o);
 /* Run argv, capture up to outcap-1 bytes of stdout+stderr. Exit code or -1. */
 int  cx_capture(char *const argv[], char *out, size_t outcap, int timeout_ms);
+
+/* ---- codex_host.c: shared app-server registry (~/.tny/codex-host.json) ---- */
+char *cx_registry_path(void); /* malloc'd */
+/* Strict `ws://127.0.0.1:port` / `ws://localhost:port` check; the registry
+ * is untrusted data and must never send us off-loopback. */
+bool cx_ws_url_is_loopback(const char *url);
+int  cx_registry_write(const char *ws_url, pid_t pid);
+/* Unlink only while the file still names `pid` (never clobber a newer writer). */
+int  cx_registry_remove(pid_t pid);
+/* 0 with *ws_out malloc'd when the file names a loopback URL and a live pid. */
+int  cx_registry_load(char **ws_out, pid_t *pid_out);
 
 #endif

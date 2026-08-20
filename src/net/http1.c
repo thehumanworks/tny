@@ -41,6 +41,7 @@ struct http_conn {
     body_mode mode;
     size_t body_left;       /* BODY_LENGTH: bytes remaining */
     size_t chunk_left;      /* BODY_CHUNKED: bytes left in current chunk */
+    int   chunk_skip;       /* CRLF bytes after chunk data not yet arrived */
     bool  chunk_final;      /* saw 0-size chunk */
     bool  body_done;
 };
@@ -75,6 +76,19 @@ http_conn *http_open(const char *base_url, char *err, size_t errlen) {
     return c;
 }
 
+/* Wrap an already-connected fd (plain, no TLS). Unit-test seam for the
+ * response parser; also fits any future unix-socket provider. */
+http_conn *http_from_fd(int fd) {
+    nstream *s = nstream_from_fd(fd);
+    if (!s) return NULL;
+    http_conn *c = calloc(1, sizeof *c);
+    if (!c) { nstream_close(s); return NULL; }
+    c->s = s;
+    snprintf(c->base.host, sizeof c->base.host, "%s", "localhost");
+    buf_init(&c->in);
+    return c;
+}
+
 int http_request(http_conn *c, const char *method, const char *path,
                  const char **headers, const char *body, size_t body_len) {
     buf_t req;
@@ -94,6 +108,7 @@ int http_request(http_conn *c, const char *method, const char *path,
     c->n_hdrs = 0;
     c->mode = BODY_NONE;
     c->body_left = c->chunk_left = 0;
+    c->chunk_skip = 0;
     c->chunk_final = false;
     c->body_done = false;
     return rc;
@@ -170,6 +185,14 @@ const char *http_header(http_conn *c, const char *name) {
 static ssize_t chunked_read(http_conn *c, char *out, size_t cap) {
     size_t produced = 0;
     for (;;) {
+        /* the CRLF after chunk data may be split across reads (or not have
+         * arrived at all): skipping it must survive the boundary, or the
+         * leftover bytes parse as a 0-size line and truncate the stream */
+        while (c->chunk_skip > 0 && c->in.len > 0) {
+            buf_consume(&c->in, 1);
+            c->chunk_skip--;
+        }
+        if (c->chunk_skip > 0) return (ssize_t)produced;
         if (c->chunk_final) {
             /* after the 0-chunk line: either "\r\n" (no trailers) or
              * trailer lines ending with a blank line */
@@ -191,6 +214,9 @@ static ssize_t chunked_read(http_conn *c, char *out, size_t cap) {
             if (c->in.len == 0) return (ssize_t)produced;
             char *nl = memchr(c->in.data, '\n', c->in.len);
             if (!nl) return (ssize_t)produced;
+            if (!isxdigit((unsigned char)c->in.data[0]))
+                /* framing broke: fail rather than mistake it for the 0-chunk */
+                return produced ? (ssize_t)produced : -1;
             size_t linelen = (size_t)(nl - c->in.data) + 1;
             unsigned long sz = strtoul(c->in.data, NULL, 16);
             buf_consume(&c->in, linelen);
@@ -205,11 +231,7 @@ static ssize_t chunked_read(http_conn *c, char *out, size_t cap) {
         produced += take;
         c->chunk_left -= take;
         buf_consume(&c->in, take);
-        if (c->chunk_left == 0) {
-            /* trailing CRLF after chunk data */
-            if (c->in.len >= 2) buf_consume(&c->in, 2);
-            else if (c->in.len == 1 && c->in.data[0] == '\r') buf_consume(&c->in, 1);
-        }
+        if (c->chunk_left == 0) c->chunk_skip = 2; /* CRLF after chunk data */
         if (produced == cap) return (ssize_t)produced;
     }
 }
@@ -221,6 +243,7 @@ ssize_t http_body_read(http_conn *c, char *out, size_t cap) {
         if (c->mode == BODY_CHUNKED) {
             got = chunked_read(c, out, cap);
             if (got > 0) return got;
+            if (got < 0) return -1; /* broken framing */
             if (c->body_done) return 0;
         } else if (c->mode == BODY_LENGTH) {
             size_t take = c->body_left < c->in.len ? c->body_left : c->in.len;

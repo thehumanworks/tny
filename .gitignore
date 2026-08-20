@@ -33,3 +33,5 @@ auth-token
 *.gcda
 *.gcno
 coverage/
+
+.claude/worktrees

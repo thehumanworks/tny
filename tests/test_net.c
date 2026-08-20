@@ -4,6 +4,8 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 /* ---- collectors ---- */
 
@@ -206,6 +208,76 @@ TEST url_parse_forms(void) {
     PASS();
 }
 
+/* ---- chunked transfer decoding (http1.c) ---- */
+
+/* Feed a canned HTTP response through a socketpair in `slice`-byte writes,
+ * draining the parser between writes so every possible read boundary is
+ * exercised — including the CRLF-after-chunk-data split that once made the
+ * decoder mistake the leftover bytes for the terminating 0-chunk. */
+static int chunked_drive(const char *resp, size_t resp_len, int slice,
+                         buf_t *body) {
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return -1;
+    set_nonblock(sv[0], true);
+    http_conn *c = http_from_fd(sv[0]);
+    int status = -2;
+    int rc = 0;
+    for (size_t off = 0; off < resp_len && rc == 0;) {
+        size_t n = (size_t)slice < resp_len - off ? (size_t)slice : resp_len - off;
+        if (write(sv[1], resp + off, n) != (ssize_t)n) { rc = -1; break; }
+        off += n;
+        if (status == -2) {
+            status = http_read_response(c, 0);
+            if (status == -2) continue;
+            if (status != 200) { rc = -1; break; }
+        }
+        for (;;) {
+            char tmp[64];
+            ssize_t bn = http_body_read(c, tmp, sizeof tmp);
+            if (bn > 0) { buf_append(body, tmp, (size_t)bn); continue; }
+            if (bn == -2) break;      /* would-block: feed the next slice */
+            rc = bn == 0 ? 1 : -1;    /* 1 done, -1 framing error */
+            break;
+        }
+    }
+    http_close(c);
+    close(sv[1]);
+    return rc;
+}
+
+TEST chunked_survives_every_split_boundary(void) {
+    /* uppercase hex on purpose; body spells out the reassembled payload */
+    const char resp[] = "HTTP/1.1 200 OK\r\n"
+                        "Transfer-Encoding: chunked\r\n\r\n"
+                        "5\r\nhello\r\n"
+                        "A\r\n 0123456\r\n\r\n"
+                        "2\r\nok\r\n"
+                        "0\r\n\r\n";
+    for (int slice = 1; slice <= 7; slice++) {
+        buf_t body;
+        buf_init(&body);
+        int rc = chunked_drive(resp, sizeof resp - 1, slice, &body);
+        ASSERT_EQm("clean end-of-body at every slice size", 1, rc);
+        ASSERT_STR_EQ("hello 0123456\r\nok", body.data);
+        buf_free(&body);
+    }
+    PASS();
+}
+
+TEST chunked_garbage_size_line_is_an_error(void) {
+    const char resp[] = "HTTP/1.1 200 OK\r\n"
+                        "Transfer-Encoding: chunked\r\n\r\n"
+                        "5\r\nhello\r\n"
+                        "XYZ\r\n"; /* not hex: must fail, not end cleanly */
+    buf_t body;
+    buf_init(&body);
+    int rc = chunked_drive(resp, sizeof resp - 1, 3, &body);
+    ASSERT_EQ(-1, rc);
+    ASSERT_STR_EQ("hello", body.data); /* payload before the break survives */
+    buf_free(&body);
+    PASS();
+}
+
 SUITE(net_suite) {
     RUN_TEST(sse_single_event);
     RUN_TEST(sse_byte_by_byte);
@@ -217,4 +289,6 @@ SUITE(net_suite) {
     RUN_TEST(connect_keepalives_skipped);
     RUN_TEST(connect_oversized_rejected);
     RUN_TEST(url_parse_forms);
+    RUN_TEST(chunked_survives_every_split_boundary);
+    RUN_TEST(chunked_garbage_size_line_is_an_error);
 }

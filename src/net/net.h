@@ -45,6 +45,8 @@ typedef struct http_conn http_conn;
 
 /* base_url: http(s)://host[:port][/prefix] */
 http_conn *http_open(const char *base_url, char *err, size_t errlen);
+/* Wrap an already-connected fd (plain, no TLS); test seam for the parser. */
+http_conn *http_from_fd(int fd);
 /* headers: NULL-terminated array of "Name: value" strings (may be NULL). */
 int http_request(http_conn *c, const char *method, const char *path,
                  const char **headers, const char *body, size_t body_len);

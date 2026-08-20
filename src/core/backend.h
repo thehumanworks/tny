@@ -42,7 +42,10 @@ struct tny_backend {
     void (*disconnect)(tny_backend *b);
 
     /* Create a new backend session or resume from a stored pointer
-     * (session.json host alias, may be NULL for new). */
+     * (session.json host alias, may be NULL for new). May run on the TUI
+     * pre-warm thread (docs/adr/0002): must not print to the terminal, may
+     * read ctx (the TUI drops any pending warm-up before mutating the
+     * model/tier/workspace fields) but must not write it. */
     int (*create_or_resume)(tny_backend *b, const char *resume_pointer,
                             char *errbuf, size_t errlen);
     /* Serialized pointer for session storage; malloc'd, may return NULL. */

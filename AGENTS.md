@@ -13,21 +13,21 @@ tny is a **C11** TUI + CLI coding-agent harness. It must beat [vercel-labs/fx](h
 3. Other agents via **ACP**
 4. **OpenAI-compatible** HTTP (native tool loop)
 
-The current tree is **research and contract only**. There is no product source yet. Read [docs/README.md](docs/README.md) before writing C.
+The product source is live under `src/` with unit, integration, mutation, and latency-benchmark suites under `tests/`. [docs/](docs/README.md) is the contract; read it before writing C, and update it when behavior changes.
 
 ## Before you write code
 
 1. Read `docs/product.md`, `docs/architecture.md`, `docs/implementation-plan.md`.
 2. Follow the phase order. Do not start a TUI framework or add C++.
-3. Re-check primary URLs in `docs/sources.md` if a protocol field is unclear. Pin bridge protos and Codex JSON Schema to a **release**, not `main`.
+3. Re-check primary URLs in `docs/sources.md` if a protocol field is unclear. Pin the bridge `sdk.v1` schema and Codex JSON Schema to a **release**, not `main`.
 4. Do not commit secrets, ready-line tokens, or live API keys.
 
 ## Invariants
 
 - Language: C11 only. Vendored C libraries listed in `docs/language-and-runtime.md`.
 - Size: stripped `tny` **< 2.0 MiB**. Host binaries (`cursor-sdk-bridge`, `codex`, ACP agents) stay external.
-- Startup: the CLI spawns no backend before a turn; `--help` / `--version` stay microseconds-to-milliseconds. The interactive TUI **pre-warms** the selected provider's host after first paint (`docs/adr/0002`).
-- One event loop. Normalize every backend to the shared event set in `docs/architecture.md`. (The pre-warm thread runs only `connect()` and hands the backend back before any events flow.)
+- Startup: the CLI spawns no backend before a turn; `--help` / `--version` stay microseconds-to-milliseconds. The interactive TUI **pre-warms** the selected provider's host after first paint (`docs/adr/0002`); one-shot `tny ask` may overlap its `connect()` with reading the prompt from stdin and may attach to a registered live codex host (`docs/adr/0004`).
+- One event loop. Normalize every backend to the shared event set in `docs/architecture.md`. (The pre-warm thread runs only `connect()` + `create_or_resume()` and hands the backend back before any events flow; ctx mutations must `tui_prewarm_drop` first.)
 - Native loop owns tools/MCP/skills/permissions. Host backends own their own loops.
 - Permission mode defaults to **yolo** for every provider (`docs/adr/0001`); `ask`/`auto` are explicit opt-ins.
 - Decisions are recorded in `docs/adr/`; add a new ADR when you change one.
@@ -35,15 +35,15 @@ The current tree is **research and contract only**. There is no product source y
 - CLI is noninteractive-first: flags, stdin, `--json`, layered `--help` with examples (`docs/cli.md`).
 - TUI is a shell, not an IDE (`docs/tui.md`). No ncurses.
 
-## Layout when code exists
+## Layout
 
 ```text
 src/main.c
-src/cli/ src/tui/ src/core/
+src/cli/ src/tui/ src/core/ src/util/ src/json/
 src/backends/{cursor,codex,acp,openai}/
 src/net/ src/mcp/
-third_party/   # yyjson, wslay, nanopb — pinned VERSION files
-gen/           # generated nanopb; do not edit
+third_party/   # yyjson, picohttpparser, wslay, greatest — pinned VERSION files
+tests/         # unit (test_*.c), integration/ fixtures+mocks, mutation/, bench/
 docs/          # this contract; update when behavior changes
 ```
 
@@ -51,7 +51,10 @@ docs/          # this contract; update when behavior changes
 
 - `make test` (unit + protocol fixtures) before claiming a backend works.
 - Measure size with `wc -c` on a stripped Release binary.
+- Performance claims need before/after numbers: build the baseline from a pre-change commit (git worktree) and compare with `tests/bench/bench_ttft.py`; record results in the relevant ADR.
+- Mutation-test changes the unit suite might cover only nominally: `tests/mutation/mutate.py`.
 - Live Cursor/Codex calls need user-provided keys; default CI uses fixtures and the bridge curl smoke test.
+- Protocol mocks send whole frames per read — real transports split anywhere. Streaming parsers need split-boundary tests (see `chunked_survives_every_split_boundary` in `tests/test_net.c`).
 
 ## Security
 

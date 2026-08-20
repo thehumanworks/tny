@@ -26,8 +26,17 @@ import os
 import socket
 import struct
 import sys
+import time
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+
+def knob_delay(name):
+    """MOCK_INIT_DELAY_MS / MOCK_THREAD_DELAY_MS: latency injection for the
+    tny latency benchmarks. Default 0 keeps the test suite timing-neutral."""
+    ms = int(os.environ.get(name, "0"))
+    if ms:
+        time.sleep(ms / 1000.0)
 MARKER = "CODEX-MOCK-OK"
 THREAD_ID = "thr_mock_0001"
 APPROVAL_ID = 9001
@@ -294,6 +303,7 @@ def serve(conn, index):
                                                   "message": "Server overloaded; retry later."}})
             continue
         if method == "initialize":
+            knob_delay("MOCK_INIT_DELAY_MS")
             if initialized:
                 fail("initialize sent twice on one connection")
             info = (msg.get("params") or {}).get("clientInfo") or {}
@@ -307,11 +317,13 @@ def serve(conn, index):
         elif method == "initialized":
             note("initialized notification received")
         elif method == "thread/start":
+            knob_delay("MOCK_THREAD_DELAY_MS")
             if index == 2:
                 fail("connection 2 used thread/start instead of thread/resume")
             note("thread/start ok")
             ws.send_json({"id": req_id, "result": {"thread": {"id": THREAD_ID}}})
         elif method == "thread/resume":
+            knob_delay("MOCK_THREAD_DELAY_MS")
             got = (msg.get("params") or {}).get("threadId")
             if got != THREAD_ID:
                 fail("thread/resume threadId=%r, expected %r" % (got, THREAD_ID))

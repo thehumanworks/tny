@@ -443,11 +443,26 @@ def test_prewarm_spawns_acp_agent(home, ws):
         agents = [c for c in children_of(t.proc.pid) if "fake_acp_agent" in c[1]]
         assert len(agents) == 1, "prewarmed agent was not adopted: %r" % agents
         assert agents[0][0] == spawned[0][0], "agent was respawned for the turn"
+        # /new drops the bound backend and re-warms: a fresh agent must be
+        # up (with its session created) before the next prompt is typed
+        first_pid = agents[0][0]
+        t.send("/new\r")
+        t.expect("new session")
+        end = time.time() + 8
+        fresh = []
+        while time.time() < end:
+            fresh = [c for c in children_of(t.proc.pid)
+                     if "fake_acp_agent" in c[1] and c[0] != first_pid]
+            if fresh:
+                break
+            t.pump(0.2)
+        assert fresh, ("no re-warmed agent after /new; children: %r\n%s"
+                       % (children_of(t.proc.pid), clean(t.buf)))
         t.send("/quit\r")
         assert t.wait() == 0
     finally:
         t.close()
-    print("ok  acp host pre-warmed at startup and adopted by the first turn")
+    print("ok  acp host pre-warmed at startup, adopted, and re-warmed by /new")
 
 
 def test_version_fast_path():

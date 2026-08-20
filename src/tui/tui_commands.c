@@ -399,6 +399,7 @@ void tui_command(tui *t, const char *line) {
         run_cli(t, cmd_models, 0, NULL);
     } else if (strcmp(c, "model") == 0) {
         if (arg && *arg) {
+            tui_prewarm_drop(t); /* the warm-up thread reads ctx->model */
             free(t->ctx->model);
             t->ctx->model = xstrdup(arg);
             t->ctx->model_from_flag = false; /* explicit choice, persist it */
@@ -430,6 +431,7 @@ void tui_command(tui *t, const char *line) {
             else {
                 if (t->turn_active) tui_sys(t, "finish the turn first");
                 else {
+                    tui_prewarm_drop(t); /* resolve swaps ctx fields it reads */
                     /* full resolve: also swaps in the provider's saved model */
                     tny_resolve_backend(t->ctx, arg);
                     drop_backend(t);
@@ -460,6 +462,7 @@ void tui_command(tui *t, const char *line) {
             if (!next) {
                 tui_err(t, "usage: /fast [fast|priority|default]");
             } else {
+                tui_prewarm_drop(t); /* the warm-up thread reads the tier */
                 free(t->ctx->service_tier);
                 t->ctx->service_tier = xstrdup(next);
                 drop_backend(t); /* the tier rides on thread/start */
@@ -476,8 +479,10 @@ void tui_command(tui *t, const char *line) {
     } else if (strcmp(c, "workspace") == 0) {
         char *av[4];
         int ac = arg ? tokenize(arg, av, 4) : 0;
+        if (ac) tui_prewarm_drop(t); /* add/remove edit dirs the warm-up reads */
         run_cli(t, cmd_workspace, ac, av);
         tui_files_free(t);
+        if (ac && !t->bk) tui_prewarm_start(t);
     } else if (strcmp(c, "setup") == 0) {
         char *av[8];
         int ac = arg ? tokenize(arg, av, 8) : 0;

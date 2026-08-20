@@ -8,6 +8,7 @@
 #include "mcp/mcp.h"
 #include "util/util.h"
 
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,30 @@
 
 static volatile sig_atomic_t g_interrupted = 0;
 static void on_sigint(int sig) { (void)sig; g_interrupted = 1; }
+
+/* connect() run off the main thread while stdin drains (safe per backend.h:
+ * no terminal output, no ctx reads that anyone mutates meanwhile — same
+ * contract the TUI pre-warm relies on, docs/adr/0002). Always joined before
+ * rc/err are read. */
+typedef struct {
+    tny_backend *bk;
+    char err[512];
+    int rc;
+} connect_job;
+
+static void *connect_job_main(void *arg) {
+    connect_job *j = arg;
+    j->rc = j->bk->connect(j->bk, j->err, sizeof j->err);
+    return NULL;
+}
+
+/* Early-exit cleanup once the connect thread (if any) has been joined:
+ * never leak a spawned host process. */
+static void abort_backend(tny_backend *bk, bool connected) {
+    if (!bk) return;
+    if (connected) bk->disconnect(bk);
+    bk->destroy(bk);
+}
 
 typedef struct {
     buf_t output;
@@ -133,16 +158,31 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     ctx->no_save = no_save;
     ctx->json_out = json;
 
+    /* Piped stdin can be slow (upstream producer): overlap the host connect
+     * with the read. The argv-prompt path stays serial and untouched. */
+    tny_backend *bk = NULL;
+    connect_job job = {0};
+    pthread_t connect_th;
+    bool connecting = false;
     if (!prompt.len && (use_stdin || !isatty(0))) {
+        bk = tny_backend_create((tny_backend_id)ctx->backend, ctx);
+        if (bk) {
+            job.bk = bk;
+            if (pthread_create(&connect_th, NULL, connect_job_main, &job) == 0)
+                connecting = true;
+            /* pthread_create failed: fall back to the serial connect below */
+        }
         char tmp[8192];
         size_t n;
         while ((n = fread(tmp, 1, sizeof tmp, stdin)) > 0) buf_append(&prompt, tmp, n);
         while (prompt.len && (prompt.data[prompt.len - 1] == '\n' ||
                               prompt.data[prompt.len - 1] == '\r'))
             prompt.data[--prompt.len] = 0;
+        if (connecting) pthread_join(connect_th, NULL);
     }
     if (!prompt.len) {
         fprintf(stderr, "tny: ask needs a prompt\nExample: tny ask \"summarize this repository\"\n");
+        abort_backend(bk, connecting && job.rc == 0);
         buf_free(&prompt);
         return 1;
     }
@@ -153,6 +193,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         session = session_open(ctx, resume);
         if (!session) {
             fprintf(stderr, "tny: no session '%s' for this workspace\n", resume);
+            abort_backend(bk, connecting && job.rc == 0);
             buf_free(&prompt);
             return 1;
         }
@@ -169,11 +210,19 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         }
     }
 
-    /* backend */
-    tny_backend *bk = tny_backend_create((tny_backend_id)ctx->backend, ctx);
+    /* backend (already created — and its connect already joined — on the
+     * stdin path above) */
+    if (!bk) bk = tny_backend_create((tny_backend_id)ctx->backend, ctx);
     if (!bk) { buf_free(&prompt); session_close(session); return 1; }
     char err[512];
-    if (bk->connect(bk, err, sizeof err) != 0) {
+    int crc;
+    if (connecting) {
+        crc = job.rc;
+        if (crc != 0) snprintf(err, sizeof err, "%s", job.err);
+    } else {
+        crc = bk->connect(bk, err, sizeof err);
+    }
+    if (crc != 0) {
         fprintf(stderr, "tny: %s\n", err);
         bk->destroy(bk);
         session_close(session);

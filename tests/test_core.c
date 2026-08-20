@@ -5,11 +5,13 @@
 #include "core/backend.h"
 #include "core/perm.h"
 #include "core/session.h"
+#include "backends/codex/codex.h"
 #include "util/util.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 static char g_home[512], g_ws[512];
@@ -453,6 +455,89 @@ TEST backend_default_cursor_key_from_env(void) {
     PASS();
 }
 
+/* ---- codex host registry (shared app-server reuse) ---- */
+
+/* The registry is untrusted: only a bare ws:// loopback URL may pass. */
+TEST codex_registry_loopback_only(void) {
+    static const char *const ok[] = {
+        "ws://127.0.0.1:8080", "ws://localhost:1234", "ws://127.0.0.1:65535/",
+    };
+    static const char *const bad[] = {
+        "", "wss://127.0.0.1:443", "http://127.0.0.1:80",
+        "ws://127.0.0.1", "ws://127.0.0.1:", "ws://127.0.0.1:0",
+        "ws://127.0.0.1:65536", "ws://127.0.0.2:80", "ws://10.0.0.5:80",
+        "ws://localhost.evil.io:80", "ws://evil:80",
+        "ws://127.0.0.1:80/path", "ws://127.0.0.1:80x", "ws://[::1]:80",
+        "ws://user@127.0.0.1:80",
+    };
+    ASSERT(!cx_ws_url_is_loopback(NULL));
+    for (size_t i = 0; i < sizeof ok / sizeof ok[0]; i++)
+        ASSERTm(ok[i], cx_ws_url_is_loopback(ok[i]));
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++)
+        ASSERT_FALSEm(bad[i], cx_ws_url_is_loopback(bad[i]));
+    PASS();
+}
+
+TEST codex_registry_roundtrip(void) {
+    ensure_env();
+    ASSERT_EQ(0, cx_registry_write("ws://127.0.0.1:4242", getpid()));
+    char *path = cx_registry_path();
+    struct stat st;
+    ASSERT_EQ(0, stat(path, &st));
+    ASSERT_EQ(0, (int)(st.st_mode & 077)); /* private to the user */
+    char *ws = NULL;
+    pid_t pid = 0;
+    ASSERT_EQ(0, cx_registry_load(&ws, &pid));
+    ASSERT_STR_EQ("ws://127.0.0.1:4242", ws);
+    ASSERT_EQ(getpid(), pid);
+    free(ws);
+    /* a mismatched pid means a newer writer owns the file: leave it */
+    ASSERT(cx_registry_remove(getpid() + 1) != 0);
+    ASSERT(file_exists(path));
+    ASSERT_EQ(0, cx_registry_remove(getpid()));
+    ASSERT_FALSE(file_exists(path));
+    ASSERT(cx_registry_load(&ws, &pid) != 0); /* missing file */
+    ASSERT_EQ(NULL, ws);
+    free(path);
+    PASS();
+}
+
+static void codex_registry_raw(const char *json) {
+    char *dir = path_tny_dir();
+    mkdir_p(dir);
+    free(dir);
+    char *path = cx_registry_path();
+    if (json) file_write_atomic(path, json, strlen(json));
+    else unlink(path);
+    free(path);
+}
+
+TEST codex_registry_rejects_bad_entries(void) {
+    ensure_env();
+    char *ws = NULL;
+    char json[128];
+
+    codex_registry_raw("this is not json");
+    ASSERT(cx_registry_load(&ws, NULL) != 0);
+
+    codex_registry_raw("{\"ws\":\"ws://127.0.0.1:4242\"}"); /* no pid */
+    ASSERT(cx_registry_load(&ws, NULL) != 0);
+
+    snprintf(json, sizeof json, "{\"ws\":\"ws://10.0.0.5:4242\",\"pid\":%ld}",
+             (long)getpid());
+    codex_registry_raw(json); /* live pid but off-loopback: never attach */
+    ASSERT(cx_registry_load(&ws, NULL) != 0);
+
+    codex_registry_raw("{\"ws\":\"ws://127.0.0.1:4242\",\"pid\":99999999}");
+    ASSERT(cx_registry_load(&ws, NULL) != 0); /* dead pid is a stale host */
+
+    codex_registry_raw("{\"ws\":\"ws://127.0.0.1:4242\",\"pid\":-1}");
+    ASSERT(cx_registry_load(&ws, NULL) != 0);
+
+    codex_registry_raw(NULL);
+    PASS();
+}
+
 SUITE(core_suite) {
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(backend_default_cursor_key_from_env);
@@ -466,6 +551,9 @@ SUITE(core_suite) {
     RUN_TEST(perm_session_grants);
     RUN_TEST(perm_auto_mode_heuristics);
     RUN_TEST(perm_yolo_allows_everything);
+    RUN_TEST(codex_registry_loopback_only);
+    RUN_TEST(codex_registry_roundtrip);
+    RUN_TEST(codex_registry_rejects_bad_entries);
     RUN_TEST(session_roundtrip);
     RUN_TEST(session_result_handles);
     RUN_TEST(session_compaction);

@@ -57,16 +57,19 @@ static bool term_raw(void) {
 
 /* ---- helpers ---- */
 
+/* Tool detail is untrusted: flatten every control byte (ESC included) so no
+ * escape sequence reaches the transcript, whole or clipped in half. */
 static void oneline(char *dst, size_t cap, const char *src) {
     size_t j = 0;
     for (size_t i = 0; src && src[i] && j + 1 < cap; i++) {
         unsigned char c = (unsigned char)src[i];
-        dst[j++] = (c == '\n' || c == '\r' || c == '\t') ? ' ' : (char)c;
+        dst[j++] = (c < 0x20 || c == 0x7f) ? ' ' : (char)c;
     }
     dst[j] = 0;
 }
 
 void tui_drop_backend(tui *t) {
+    t->bk_adopted = false;
     if (!t->bk) return;
     t->bk->disconnect(t->bk);
     t->bk->destroy(t->bk);
@@ -145,7 +148,7 @@ static void ev_cb(const tny_event *ev, void *ud) {
             t->in_thinking = true;
             tui_bol(t);
             if (t->color) tui_write(t, "\x1b[2m", 4);
-            tui_write(t, "· ", 2);
+            tui_write(t, "· ", 3); /* "·" is 2 bytes of UTF-8 plus the space */
             if (t->color) tui_write(t, "\x1b[0m", 4);
         }
         if (t->color) tui_write(t, "\x1b[2m", 4);
@@ -259,24 +262,23 @@ static bool ensure_backend(tui *t) {
     char err[512];
     err[0] = 0;
     tny_backend *bk = tui_prewarm_take(t);
-    bool prewarmed = bk != NULL;
-    if (!bk) {
-        bk = fresh_backend(t, err, sizeof err);
-        if (!bk) { tui_err(t, err); return false; }
+    if (bk) {
+        /* the warm-up already ran create_or_resume; only the bind remains
+         * (openai is never pre-warmed, so this branch never needs it) */
+        if (bk->id == TNY_BK_OPENAI)
+            tny_backend_openai_bind(bk, t->session, t->perm, perm_hook, t);
+        t->bk = bk;
+        t->bk_adopted = true;
+        tny_settings_remember_use(t->ctx);
+        return true;
     }
+    bk = fresh_backend(t, err, sizeof err);
+    if (!bk) { tui_err(t, err); return false; }
     if (bind_and_resume(t, bk, err, sizeof err) != 0) {
         bk->disconnect(bk);
         bk->destroy(bk);
-        if (!prewarmed) { tui_err(t, err); return false; }
-        /* the pre-warmed host may have died while the shell sat idle:
-         * one clean retry through the ordinary lazy path */
-        bk = fresh_backend(t, err, sizeof err);
-        if (bk && bind_and_resume(t, bk, err, sizeof err) != 0) {
-            bk->disconnect(bk);
-            bk->destroy(bk);
-            bk = NULL;
-        }
-        if (!bk) { tui_err(t, err); return false; }
+        tui_err(t, err);
+        return false;
     }
     t->bk = bk;
     tny_settings_remember_use(t->ctx); /* next launch defaults to this provider */
@@ -339,21 +341,46 @@ void tui_submit(tui *t, const char *text) {
 
     tui_hist_add(t, s);
     tui_linef(t, "%s› %s%s", tui_c(t, "\x1b[1m"), s, tui_c(t, "\x1b[0m"));
-    buf_clear(&t->note);
-    if (!ensure_backend(t)) { t->dirty = true; return; }
+    /* connect/send below can block for a while: show the echoed prompt and a
+     * status note now so Enter never looks like a freeze */
+    tui_note(t, t->bk ? "sending…" : "starting %s…",
+             tny_backend_name((tny_backend_id)t->ctx->backend));
+    tui_render_force(t);
+    if (!ensure_backend(t)) {
+        buf_clear(&t->note);
+        t->dirty = true;
+        return;
+    }
 
     buf_clear(&t->prompt_text);
     buf_appends(&t->prompt_text, s);
     buf_clear(&t->last_reply);
 
+    tui_note(t, "sending…");
+    tui_render_force(t);
     char err[512];
     const char **imgs = t->n_images ? (const char **)t->images : NULL;
     t->turn_done = false;
-    if (t->bk->send(t->bk, s, imgs, ev_cb, t, err, sizeof err) != 0) {
+    int rc = t->bk->send(t->bk, s, imgs, ev_cb, t, err, sizeof err);
+    if (rc != 0 && t->bk_adopted) {
+        /* the pre-warmed, pre-resumed host may have died while the shell sat
+         * idle: one clean retry through the ordinary lazy path */
+        tui_drop_backend(t);
+        if (!ensure_backend(t)) {
+            buf_clear(&t->note);
+            t->dirty = true;
+            return;
+        }
+        rc = t->bk->send(t->bk, s, imgs, ev_cb, t, err, sizeof err);
+    }
+    if (rc != 0) {
+        buf_clear(&t->note);
         tui_err(t, err);
         t->dirty = true;
         return;
     }
+    t->bk_adopted = false;
+    buf_clear(&t->note); /* the spinner in the status row takes over */
     for (int i = 0; i < t->n_images; i++) { free(t->images[i]); t->images[i] = NULL; }
     t->n_images = 0;
     t->turn_active = true;
@@ -397,9 +424,6 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
 
     tui_hist_load(&t);
     banner(&t);
-    /* warm the provider's host now so the first prompt starts instantly;
-     * a failure stays silent here and resurfaces on the lazy path */
-    tui_prewarm_start(&t);
 
     if (session_id) {
         t.session = session_open(ctx, session_id);
@@ -413,6 +437,10 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     } else if (g->resume_picker) {
         tui_command(&t, "/sessions");
     }
+    /* warm the provider's host now — after the session is open, so a resumed
+     * session's host pointer rides along and the first prompt starts
+     * instantly; a failure stays silent and resurfaces on the lazy path */
+    tui_prewarm_start(&t);
 
     t.dirty = true;
     while (!t.quit) {
@@ -432,6 +460,11 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
             g_sigint = 0;
             if (t.turn_active) tui_cancel_turn(&t);
             else { t.quit = true; t.exit_code = 130; }
+        }
+        if (t.turn_active && now_ms() - t.spin_ms >= 120) {
+            t.spin_ms = now_ms();
+            t.spin = (t.spin + 1) % 10;
+            if (!t.note.len) t.dirty = true; /* an explicit note wins the row */
         }
         if (pr > 0 && (fds[0].revents & (POLLIN | POLLHUP | POLLERR))) {
             if (tui_read_input(&t) < 0) t.quit = true;

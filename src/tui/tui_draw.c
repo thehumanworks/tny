@@ -121,8 +121,11 @@ static void status_row(tui *t, buf_t *b, int maxw) {
         buf_appendf(&s, "  %lld/%lld tok", (long long)t->in_tok, (long long)t->out_tok);
     if (t->n_images) buf_appendf(&s, "  %d img", t->n_images);
     if (t->note.len) buf_appendf(&s, "  %s", t->note.data);
-    else if (t->turn_active) buf_appends(&s, "  working… (esc cancels)");
-    else buf_appendf(&s, "  %s", t->ctx->cwd);
+    else if (t->turn_active) {
+        static const char *frames[] = {"⠋", "⠙", "⠹", "⠸", "⠼",
+                                       "⠴", "⠦", "⠧", "⠇", "⠏"};
+        buf_appendf(&s, "  %s working… (esc cancels)", frames[t->spin % 10]);
+    } else buf_appendf(&s, "  %s", t->ctx->cwd);
 
     buf_appends(b, tui_c(t, "\x1b[7m"));
     int w = push_trunc(b, s.data, s.len, maxw);
@@ -280,7 +283,10 @@ void tui_render(tui *t) {
 
     if (t->partial.len) {
         row_sep(&b, &rows);
-        push_trunc(&b, t->partial.data, t->partial.len, maxw);
+        /* the streaming line carries SGR (thinking is dimmed): push_trunc
+         * would strip the ESC and print the "[2m"/"[0m" remainder literally */
+        tui_push_ansi(&b, t->partial.data, t->partial.len, maxw);
+        buf_appends(&b, tui_c(t, "\x1b[0m"));
     }
     if (t->overlay.len) overlay_rows(t, &b, &rows, maxw);
     if (t->pick != PICK_NONE && t->n_items > 0) popover_rows(t, &b, &rows, maxw);
@@ -329,7 +335,14 @@ void tui_raw_end(tui *t) {
 }
 
 void tui_write(tui *t, const char *s, size_t n) {
-    buf_append(&t->partial, s, n);
+    /* backend text can carry embedded NULs (JSON u+0000): never emit them */
+    size_t at = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (s[i] != '\0') continue;
+        buf_append(&t->partial, s + at, i - at);
+        at = i + 1;
+    }
+    buf_append(&t->partial, s + at, n - at);
     size_t cut = 0;
     for (size_t i = t->partial.len; i > 0; i--)
         if (t->partial.data[i - 1] == '\n') { cut = i; break; }

@@ -140,6 +140,12 @@ bool cx_child_gone(cx_impl *o) {
 }
 
 void cx_stop_child(cx_impl *o) {
+    if (o->wrote_registry) {
+        /* our host is going away; unpublish it unless a newer tny already
+         * wrote its own entry (cx_registry_remove checks the pid) */
+        if (o->child > 0) cx_registry_remove(o->child);
+        o->wrote_registry = false;
+    }
     if (o->child_err >= 0) {
         cx_drain_child_stderr(o);
         if (o->child_err >= 0) { close(o->child_err); o->child_err = -1; }

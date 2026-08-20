@@ -36,7 +36,7 @@ unset OPENAI_API_KEY CODEX_REMOTE_TOKEN 2>/dev/null
 token="s3cr3t-capability-token"
 printf '%s\n' "$token" > "$tmp/token"
 export MOCK_TOKEN="$token"
-export MOCK_CONNECTIONS=3
+export MOCK_CONNECTIONS=4
 export MOCK_BUSY_CONN=3   # connection 3 replies -32001 once per request kind
 
 "$PYTHON" "$here/mock_codex_ws.py" 0 > "$tmp/mock.out" 2> "$tmp/mock.err" &
@@ -95,14 +95,57 @@ if [ -n "$sid" ]; then
 fi
 
 # --- run 3: the host answers -32001 first; the client must back off ------
-HOME="$TNY_HOME" CODEX_REMOTE_TOKEN="$token" "$TNY" --cwd "$tmp/ws" --backend codex \
-       --codex-ws "$url" ask --json --yolo --no-save "busy" \
+# The prompt arrives on piped stdin: this also covers cmd_ask overlapping the
+# host connect with the stdin read.
+printf 'busy' | HOME="$TNY_HOME" CODEX_REMOTE_TOKEN="$token" "$TNY" --cwd "$tmp/ws" --backend codex \
+       --codex-ws "$url" ask --json --yolo --no-save \
        > "$tmp/run3.out" 2> "$tmp/run3.err"
 rc3=$?
 [ $rc3 -eq 0 ] && ok "run 3 exit 0 after -32001 backoff" || bad "run 3 exit $rc3"
 grep -q 'CODEX-MOCK-OK' "$tmp/run3.out" \
   && ok "run 3 recovered from -32001 on thread/start and turn/start" \
   || bad "run 3 did not recover from -32001"
+
+# --- run 4: ~/.tny/codex-host.json discovery attaches, no --codex-ws -----
+reg="$TNY_HOME/.tny/codex-host.json"
+mkdir -p "$TNY_HOME/.tny"
+printf '{"ws":"%s","pid":%d}\n' "$url" "$mock_pid" > "$reg"
+HOME="$TNY_HOME" CODEX_REMOTE_TOKEN="$token" "$TNY" --cwd "$tmp/ws" --backend codex \
+       ask --json --yolo --no-save "registry" > "$tmp/run4.out" 2> "$tmp/run4.err"
+rc4=$?
+[ $rc4 -eq 0 ] && ok "run 4 exit 0 via registry attach" || bad "run 4 exit $rc4"
+grep -q 'CODEX-MOCK-OK' "$tmp/run4.out" \
+  && ok "run 4 attached to the registered host" \
+  || bad "run 4 did not reach the registered host"
+grep -q "\"pid\":$mock_pid" "$reg" 2>/dev/null \
+  && ok "run 4 left the foreign host's registry entry alone" \
+  || bad "run 4 removed or rewrote a registry entry it does not own"
+
+# --- run 5: stale registry falls back to spawn (stub codex bin) ----------
+# The registry names a live pid but a dead port; tny must attach-fail fast,
+# spawn its own host (the stub wraps the mock), publish its entry, and
+# unpublish it on the way out.
+cat > "$tmp/codex-stub" <<EOF
+#!/bin/sh
+# fake codex CLI: expects app-server --listen ws://127.0.0.1:PORT.
+# Real HOME again: tny runs with the throwaway one, but python3 version
+# managers only resolve under the real home (see the mock note above).
+url="\$3"
+HOME="$HOME" MOCK_TOKEN= MOCK_CONNECTIONS=1 MOCK_BUSY_CONN=0 \
+  exec "$PYTHON" "$here/mock_codex_ws.py" "\${url##*:}"
+EOF
+chmod +x "$tmp/codex-stub"
+printf '{"ws":"ws://127.0.0.1:1","pid":%d}\n' "$$" > "$reg"
+HOME="$TNY_HOME" TNY_CODEX_BIN="$tmp/codex-stub" "$TNY" --cwd "$tmp/ws" --backend codex \
+       ask --json --yolo --no-save "spawnfall" > "$tmp/run5.out" 2> "$tmp/run5.err"
+rc5=$?
+[ $rc5 -eq 0 ] && ok "run 5 exit 0 after stale-registry fallback" || bad "run 5 exit $rc5"
+grep -q 'CODEX-MOCK-OK' "$tmp/run5.out" \
+  && ok "run 5 spawned its own host past the stale entry" \
+  || bad "run 5 did not fall back to a spawned host"
+[ ! -f "$reg" ] \
+  && ok "run 5 unpublished its registry entry on exit" \
+  || bad "run 5 left $(cat "$reg" 2>/dev/null) behind in the registry"
 
 # --- mock verdict --------------------------------------------------------
 wait "$mock_pid"
@@ -126,7 +169,7 @@ fi
 if [ $fails -ne 0 ]; then
   echo "--- mock log ---" >&2
   cat "$tmp/mock.err" >&2
-  for f in run1 run2 run3; do
+  for f in run1 run2 run3 run4 run5; do
     [ -f "$tmp/$f.err" ] || continue
     echo "--- $f stderr ---" >&2
     cat "$tmp/$f.err" >&2

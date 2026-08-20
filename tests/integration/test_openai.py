@@ -77,6 +77,25 @@ def main():
             # the API key must never leak into output
             for blob in (r.stdout, r.stderr, r2.stdout, r2.stderr):
                 assert b"test-key-not-real" not in blob, "api key leaked"
+
+            # piped stdin: the connect/stdin overlap path must still run a
+            # full turn end-to-end
+            r4 = subprocess.run(
+                [TNY, "--cwd", ws, "ask", "--json"],
+                input=b"list files in .", env=env,
+                capture_output=True, timeout=30)
+            assert r4.returncode == 0, f"exit {r4.returncode}: {r4.stderr.decode()}"
+            out4 = json.loads(r4.stdout)
+            assert "MOCK-OK" in out4["output"], out4
+            assert out4["steps"] == 2, out4
+
+            # empty stdin: exit 1 with the usage error, no hang, no half-open
+            # backend left behind
+            r5 = subprocess.run(
+                [TNY, "--cwd", ws, "ask"],
+                input=b"", env=env, capture_output=True, timeout=15)
+            assert r5.returncode == 1, f"exit {r5.returncode}: {r5.stderr.decode()}"
+            assert b"ask needs a prompt" in r5.stderr, r5.stderr
         print("test_openai: all assertions passed")
     finally:
         mock.terminate()

@@ -148,9 +148,6 @@ static int resolve_model(cu_impl *o, char *err, size_t errlen) {
         snprintf(err, errlen, "the bridge listed no models; pass --model");
         return -1;
     }
-    /* report the model that actually ran in `ask --json` and session meta */
-    free(o->ctx->model);
-    o->ctx->model = xstrdup(o->model);
     return 0;
 }
 
@@ -280,6 +277,13 @@ static char *cu_session_pointer(tny_backend *b) {
 static int cu_send(tny_backend *b, const char *prompt, const char **images,
                    tny_event_cb cb, void *ud, char *errbuf, size_t errlen) {
     cu_impl *o = b->impl;
+    /* report the model that actually ran (`ask --json`, session meta) —
+     * ctx is written here on the caller's thread, never from
+     * create_or_resume, which may run on the TUI pre-warm thread */
+    if (o->model && (!o->ctx->model || strcmp(o->ctx->model, o->model) != 0)) {
+        free(o->ctx->model);
+        o->ctx->model = xstrdup(o->model);
+    }
     o->cb = cb;
     o->ud = ud;
     if (!o->agent_id) {

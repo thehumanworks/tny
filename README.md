@@ -18,7 +18,7 @@ tny acp                      # serve tny's native loop to any ACP client
 | --- | --- | --- |
 | `openai` (default) | OpenAI-compatible `/v1/chat/completions`, SSE streaming, native tool loop | none — tny owns tools/MCP/skills/permissions |
 | `cursor` | [Cursor SDK Bridge](https://cursor.com/docs/sdk/bridge): Connect HTTP/1.1 (`sdk.v1`, JSON codec) | `cursor-sdk-bridge` (spawned, ready-line handshake) |
-| `codex` | WebSocket JSON-RPC (`codex app-server`) | `codex` (attach via `--codex-ws` or spawned on an ephemeral port) |
+| `codex` | WebSocket JSON-RPC (`codex app-server`) | `codex` (attach via `--codex-ws`, auto-attach to a registered live host, or spawned on an ephemeral port) |
 | `acp` | [ACP](https://agentclientprotocol.com/) over stdio JSONL | any ACP agent via `--agent CMD` |
 
 All four normalize onto one event set (text/thinking/tool/permission/plan/
@@ -29,17 +29,37 @@ usage/turn-end) rendered by the same TUI and CLI. See
 
 tny exists to beat [vercel-labs/fx](https://github.com/vercel-labs/fx) on size
 and startup while keeping its Unix-shell feature set. Measured against the real
-fx v0.0.3 binary, macOS arm64, hyperfine, same machine (2026-08-19):
+fx v0.0.3 binary, macOS arm64, hyperfine, same machine (fx 2026-08-19,
+tny 2026-08-20):
 
 | Metric | fx 0.0.3 | tny 0.1.0 | Result |
 | --- | --- | --- | --- |
-| Stripped binary | 6,748,416 B (6.4 MiB) | **392,384 B (0.37 MiB)** | 17.2× smaller |
-| `tny --version` | 2.2 ms ± 0.3 | **1.9 ms ± 0.2** | 1.18× faster |
+| Stripped binary | 6,748,416 B (6.4 MiB) | **426,792 B (0.41 MiB)** | 15.8× smaller |
+| `tny --version` | 2.2 ms ± 0.3 | **1.7 ms ± 0.2** | 1.3× faster |
 | Max RSS (`--version`) | 3.0 MiB | **2.1 MiB** | 1.4× less memory |
 | TUI first prompt | — | 3.3–4.3 ms | budget < 10 ms |
 
 Feature parity notes and deliberate deferrals:
 [docs/features/parity-with-fx.md](docs/features/parity-with-fx.md).
+
+## Time to first token
+
+Everything between Enter and the provider seeing the turn is pre-paid or
+overlapped (`docs/adr/0002`, `docs/adr/0004`): the TUI warms the host **and**
+creates/resumes the provider session in the background at startup, `tny ask`
+connects while it reads a piped prompt, and codex one-shots attach to an
+already-running app-server instead of spawning one. Measured with
+`tests/bench/bench_ttft.py` (medians, scripted codex host, 400 ms injected
+RPC delay):
+
+| Path | before | after |
+| --- | --- | --- |
+| TUI: Enter → first output | 411 ms | **6 ms** |
+| `ask` with piped stdin | 875 ms | **449 ms** |
+| codex one-shot (attach vs spawn) | 235 ms | **11 ms** |
+
+What remains is the model's own time to first token — client-side, tny is
+not the bottleneck.
 
 ## Build & test
 
@@ -48,6 +68,9 @@ make            # release build → build/tny (stripped, size printed)
 make test       # unit tests (greatest, ASan/UBSan) + fixture-driven
                 # integration tests for every backend — no live keys needed
 make bench      # hyperfine startup benchmark
+python3 tests/bench/bench_ttft.py --tny build/tny --repo . --bench tui
+                # time-to-first-token benches (tui, ask-stdin, ask-spawn,
+                # ask-attach) against the scripted codex host
 ```
 
 Requirements: a C11 compiler and make; python3 for the integration fixtures.

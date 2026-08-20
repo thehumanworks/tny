@@ -6,6 +6,7 @@
 #include "core/config.h"
 
 #include <poll.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -149,12 +150,27 @@ TEST overlay_linef_falls_back_without_a_tty(void) {
     PASS();
 }
 
+/* ---- transcript writes ---- */
+
+TEST write_strips_nul_bytes(void) {
+    tui t;
+    mk_tui(&t, 24);
+    tui_write(&t, "ab\0cd\nef", 8); /* embedded NUL must never reach stdout */
+    ASSERT_EQ(5, (int)t.out.len);
+    ASSERT(memcmp(t.out.data, "abcd\n", 5) == 0);
+    ASSERT_STR_EQ("ef", t.partial.data);
+    free_tui(&t);
+    PASS();
+}
+
 /* ---- pre-warm handoff ---- */
 
 typedef struct {
-    volatile int connects, disconnects, destroys;
-    int connect_rc;
+    volatile int connects, disconnects, destroys, resumes;
+    int connect_rc, resume_rc;
     int delay_ms;
+    char resume_ptr[128];     /* "(null)" when called with NULL */
+    pthread_t resume_thread;
 } stub_state;
 
 static int stub_connect(tny_backend *b, char *err, size_t errlen) {
@@ -163,6 +179,15 @@ static int stub_connect(tny_backend *b, char *err, size_t errlen) {
     s->connects++;
     if (s->connect_rc != 0) snprintf(err, errlen, "stub connect failed");
     return s->connect_rc;
+}
+
+static int stub_resume(tny_backend *b, const char *ptr, char *err, size_t errlen) {
+    stub_state *s = b->impl;
+    s->resume_thread = pthread_self();
+    snprintf(s->resume_ptr, sizeof s->resume_ptr, "%s", ptr ? ptr : "(null)");
+    s->resumes++;
+    if (s->resume_rc != 0) snprintf(err, errlen, "stub resume failed");
+    return s->resume_rc;
 }
 
 static void stub_disconnect(tny_backend *b) {
@@ -200,7 +225,7 @@ TEST prewarm_take_returns_connected_backend(void) {
 
     stub_state s = {0};
     s.delay_ms = 30;
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX));
+    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX, NULL));
     ASSERT(t.prewarm != NULL);
 
     tny_backend *bk = tui_prewarm_take(&t); /* blocks until connect() lands */
@@ -224,7 +249,7 @@ TEST prewarm_failed_connect_is_silent_and_discarded(void) {
 
     stub_state s = {0};
     s.connect_rc = -1;
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX));
+    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX, NULL));
     ASSERT(tui_prewarm_take(&t) == NULL); /* caller falls back to lazy path */
     ASSERT_EQ(1, s.connects);
     ASSERT_EQ(1, s.destroys);
@@ -241,7 +266,7 @@ TEST prewarm_drop_mid_connect_cleans_up_on_the_thread(void) {
 
     stub_state s = {0};
     s.delay_ms = 60;
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX));
+    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX, NULL));
     tui_prewarm_drop(&t); /* abandon while connect() is still sleeping */
     ASSERT(t.prewarm == NULL);
     wait_for(&s.destroys, 2000);
@@ -259,7 +284,7 @@ TEST prewarm_take_rejects_a_switched_provider(void) {
     ctx.backend = TNY_BK_CODEX;
 
     stub_state s = {0};
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX));
+    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX, NULL));
     ctx.backend = TNY_BK_OPENAI; /* /provider switch happened meanwhile */
     ASSERT(tui_prewarm_take(&t) == NULL);
     ASSERT(t.prewarm == NULL);
@@ -282,7 +307,7 @@ TEST prewarm_start_keeps_a_matching_warmup(void) {
     unsetenv("CURSOR_API_KEY");
 
     stub_state s = {0};
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CURSOR));
+    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CURSOR, NULL));
     tui_prewarm *kept = t.prewarm;
     tui_prewarm_start(&t);
     ASSERT_EQ(kept, t.prewarm); /* same pending warm-up, untouched */
@@ -290,6 +315,79 @@ TEST prewarm_start_keeps_a_matching_warmup(void) {
     tui_prewarm_drop(&t);
     wait_for(&s.destroys, 2000);
     ASSERT_EQ(1, s.destroys);
+    PASS();
+}
+
+TEST prewarm_runs_create_or_resume_on_the_thread(void) {
+    tui t;
+    struct tny_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    memset(&t, 0, sizeof t);
+    t.ctx = &ctx;
+    ctx.backend = TNY_BK_CODEX;
+
+    stub_state s = {0};
+    s.delay_ms = 20;
+    tny_backend *b = stub_backend(&s);
+    b->create_or_resume = stub_resume;
+    ASSERT_EQ(0, tui_prewarm_launch(&t, b, TNY_BK_CODEX, "thread-42"));
+
+    tny_backend *bk = tui_prewarm_take(&t); /* blocks until the warm-up lands */
+    ASSERT(bk != NULL);
+    ASSERT_EQ(1, s.connects);
+    ASSERT_EQ(1, s.resumes);
+    ASSERT_STR_EQ("thread-42", s.resume_ptr); /* the frozen pointer arrived */
+    ASSERT_FALSE(pthread_equal(pthread_self(), s.resume_thread));
+    bk->disconnect(bk);
+    bk->destroy(bk);
+    ASSERT_EQ(1, s.destroys);
+    PASS();
+}
+
+TEST prewarm_failed_resume_is_silent_and_discarded(void) {
+    tui t;
+    struct tny_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    memset(&t, 0, sizeof t);
+    t.ctx = &ctx;
+    ctx.backend = TNY_BK_CODEX;
+
+    stub_state s = {0};
+    s.resume_rc = -1;
+    tny_backend *b = stub_backend(&s);
+    b->create_or_resume = stub_resume;
+    ASSERT_EQ(0, tui_prewarm_launch(&t, b, TNY_BK_CODEX, "thread-42"));
+    ASSERT(tui_prewarm_take(&t) == NULL); /* caller falls back to lazy path */
+    ASSERT_EQ(1, s.connects);
+    ASSERT_EQ(1, s.resumes);
+    ASSERT_EQ(1, s.disconnects);
+    ASSERT_EQ(1, s.destroys);
+    PASS();
+}
+
+TEST prewarm_start_restarts_on_a_stale_resume_pointer(void) {
+    /* /new after a resumed session (or a session switch) leaves the pending
+     * warm-up holding the wrong pointer: it must be dropped and re-kicked,
+     * never adopted stale. codex with an unspawnable binary keeps the
+     * restarted warm-up real but guarantees its connect() fails fast. */
+    tui t;
+    struct tny_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    memset(&t, 0, sizeof t);
+    t.ctx = &ctx;
+    ctx.backend = TNY_BK_CODEX;
+    ctx.codex_bin = "/nonexistent/codex";
+
+    stub_state s = {0};
+    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX, "thread-old"));
+    tui_prewarm *stale = t.prewarm;
+    tui_prewarm_start(&t); /* no session: the pending pointer is now stale */
+    ASSERT(t.prewarm != NULL);
+    ASSERT(t.prewarm != stale); /* the stub was dropped, a fresh warm-up runs */
+    wait_for(&s.destroys, 2000);
+    ASSERT_EQ(1, s.destroys);
+    ASSERT(tui_prewarm_take(&t) == NULL); /* fresh warm-up fails to connect */
+    ASSERT(t.prewarm == NULL);
     PASS();
 }
 
@@ -321,10 +419,14 @@ SUITE(tui_suite) {
     RUN_TEST(overlay_budget_accounts_for_the_block);
     RUN_TEST(overlay_linef_and_clear);
     RUN_TEST(overlay_linef_falls_back_without_a_tty);
+    RUN_TEST(write_strips_nul_bytes);
     RUN_TEST(prewarm_take_returns_connected_backend);
     RUN_TEST(prewarm_failed_connect_is_silent_and_discarded);
     RUN_TEST(prewarm_drop_mid_connect_cleans_up_on_the_thread);
     RUN_TEST(prewarm_take_rejects_a_switched_provider);
     RUN_TEST(prewarm_start_keeps_a_matching_warmup);
+    RUN_TEST(prewarm_runs_create_or_resume_on_the_thread);
+    RUN_TEST(prewarm_failed_resume_is_silent_and_discarded);
+    RUN_TEST(prewarm_start_restarts_on_a_stale_resume_pointer);
     RUN_TEST(prewarm_applicability);
 }

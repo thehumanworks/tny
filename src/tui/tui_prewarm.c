@@ -2,15 +2,21 @@
  *
  * The TUI's first prompt used to pay the whole host startup bill: spawn
  * `codex app-server` / `cursor-sdk-bridge` / the ACP agent, wait for its
- * ready signal, run the protocol handshake. Here that work starts the moment
- * the shell paints, on a detached pthread that runs exactly one backend
- * call — connect() — and then parks the connected backend for adoption.
+ * ready signal, run the protocol handshake, then create or resume the host
+ * session (for cursor a CreateAgent round trip to the cloud). Here that work
+ * starts the moment the shell paints, on a detached pthread that runs
+ * connect() and create_or_resume(), then parks the ready backend for
+ * adoption.
  *
  * Threading contract (keeps the one-event-loop invariant intact):
- *   - the thread touches only the backend it was handed and this struct;
+ *   - the thread touches only the backend it was handed and this struct; the
+ *     resume pointer is its own copy, frozen at start time;
  *   - no events flow before send(), so nothing ever crosses threads mid-turn;
- *   - connect() must not depend on ctx fields the TUI mutates (/model and
- *     /fast ride on create_or_resume, which stays on the main thread);
+ *   - create_or_resume reads ctx fields (/model, /fast, /workspace): every
+ *     command that mutates them calls tui_prewarm_drop first, and drop waits
+ *     out a create_or_resume already in flight;
+ *   - a pending warm-up whose provider or resume pointer no longer matches
+ *     the shell's state is dropped and restarted, never adopted stale;
  *   - whoever sees the handoff completed last cleans up: take() on the main
  *     thread, or the thread itself when the main thread abandoned the warm-up
  *     first (provider switch, shell exit).
@@ -29,14 +35,17 @@ struct tui_prewarm {
     pthread_cond_t  cv;
     tny_backend    *bk;
     int             backend_id;
-    bool            done;      /* connect() returned */
-    bool            ok;        /* ...and succeeded */
+    char           *resume_pointer; /* frozen at start; NULL for a new session */
+    bool            resuming;  /* create_or_resume in flight: it reads ctx */
+    bool            done;      /* connect() + create_or_resume() returned */
+    bool            ok;        /* ...and both succeeded */
     bool            abandoned; /* main thread gave up: thread owns cleanup */
 };
 
 static void prewarm_free(tui_prewarm *p) {
     pthread_mutex_destroy(&p->mu);
     pthread_cond_destroy(&p->cv);
+    free(p->resume_pointer);
     free(p);
 }
 
@@ -51,7 +60,18 @@ static void *prewarm_main(void *arg) {
     err[0] = 0;
     int rc = p->bk->connect(p->bk, err, sizeof err);
 
+    if (rc == 0 && p->bk->create_or_resume) {
+        pthread_mutex_lock(&p->mu);
+        /* abandoned mid-connect: ctx may already be mutating on the main
+         * thread, so the session must not be touched from here */
+        p->resuming = !p->abandoned;
+        pthread_mutex_unlock(&p->mu);
+        if (p->resuming)
+            rc = p->bk->create_or_resume(p->bk, p->resume_pointer, err, sizeof err);
+    }
+
     pthread_mutex_lock(&p->mu);
+    p->resuming = false;
     p->ok = rc == 0;
     p->done = true;
     bool abandoned = p->abandoned;
@@ -83,11 +103,13 @@ bool tui_prewarm_applicable(const struct tny_ctx *ctx, int backend_id) {
     }
 }
 
-int tui_prewarm_launch(tui *t, tny_backend *bk, int backend_id) {
+int tui_prewarm_launch(tui *t, tny_backend *bk, int backend_id,
+                       const char *resume_pointer) {
     tui_prewarm *p = calloc(1, sizeof *p);
     if (!p) { bk->destroy(bk); return -1; }
     p->bk = bk;
     p->backend_id = backend_id;
+    p->resume_pointer = resume_pointer ? xstrdup(resume_pointer) : NULL;
     pthread_mutex_init(&p->mu, NULL);
     pthread_cond_init(&p->cv, NULL);
 
@@ -106,15 +128,36 @@ int tui_prewarm_launch(tui *t, tny_backend *bk, int backend_id) {
     return 0;
 }
 
+static bool same_pointer(const char *a, const char *b) {
+    if (!a || !b) return a == b;
+    return strcmp(a, b) == 0;
+}
+
+/* The resume pointer the warm-up should replay: the session's host pointer,
+ * but only if the session belongs to the provider being warmed — the same
+ * owner check the lazy bind applies at Enter. */
+static const char *resume_pointer_for(tui *t) {
+    if (!t->session) return NULL;
+    const char *hp = session_host_pointer(t->session);
+    if (!hp) return NULL;
+    const char *owner = session_backend(t->session);
+    if (owner && strcmp(owner, tny_backend_name((tny_backend_id)t->ctx->backend)) != 0)
+        return NULL;
+    return hp;
+}
+
 void tui_prewarm_start(tui *t) {
+    const char *hp = resume_pointer_for(t);
     if (t->prewarm) {
-        if (t->prewarm->backend_id == t->ctx->backend) return; /* already warming */
-        tui_prewarm_drop(t);
+        if (t->prewarm->backend_id == t->ctx->backend &&
+            same_pointer(t->prewarm->resume_pointer, hp))
+            return; /* already warming exactly this */
+        tui_prewarm_drop(t); /* stale provider or session: never adopt it */
     }
     if (!tui_prewarm_applicable(t->ctx, t->ctx->backend)) return;
     tny_backend *bk = tny_backend_create((tny_backend_id)t->ctx->backend, t->ctx);
     if (!bk) return;
-    tui_prewarm_launch(t, bk, t->ctx->backend);
+    tui_prewarm_launch(t, bk, t->ctx->backend, hp);
 }
 
 tny_backend *tui_prewarm_take(tui *t) {
@@ -127,14 +170,14 @@ tny_backend *tui_prewarm_take(tui *t) {
     t->prewarm = NULL;
 
     pthread_mutex_lock(&p->mu);
-    while (!p->done) /* mid-connect: waiting here costs what lazy connect did */
+    while (!p->done) /* mid-warm-up: waiting here costs what the lazy path did */
         pthread_cond_wait(&p->cv, &p->mu);
     bool ok = p->ok;
     tny_backend *bk = p->bk;
     pthread_mutex_unlock(&p->mu);
     prewarm_free(p);
 
-    if (!ok) { /* silent: the caller re-connects synchronously and reports */
+    if (!ok) { /* silent: the caller rebuilds synchronously and reports */
         backend_discard(bk);
         return NULL;
     }
@@ -147,6 +190,16 @@ void tui_prewarm_drop(tui *t) {
     t->prewarm = NULL;
 
     pthread_mutex_lock(&p->mu);
+    if (p->resuming && !p->done) {
+        /* create_or_resume is reading ctx right now: outlast it so the
+         * caller may mutate model/tier/workspace state the moment we return */
+        while (!p->done)
+            pthread_cond_wait(&p->cv, &p->mu);
+        pthread_mutex_unlock(&p->mu); /* thread saw abandoned == false */
+        backend_discard(p->bk);
+        prewarm_free(p);
+        return;
+    }
     p->abandoned = true;
     bool done = p->done;
     pthread_mutex_unlock(&p->mu);
@@ -155,5 +208,6 @@ void tui_prewarm_drop(tui *t) {
         backend_discard(p->bk);
         prewarm_free(p);
     }
-    /* else: the thread sees abandoned when connect() returns and cleans up */
+    /* else: still in connect(); the thread sees abandoned before
+     * create_or_resume could touch ctx and cleans up on its own */
 }
