@@ -43,7 +43,7 @@ int ac_spawn_agent(ac_impl *o, char *errbuf, size_t errlen) {
     char **argv = o->ctx->agent_argv;
     if (!argv || !argv[0]) {
         snprintf(errbuf, errlen,
-                 "no ACP agent configured: tny --backend acp --agent CMD -- args…");
+                 "no ACP agent configured: tny --provider acp --agent CMD -- args…");
         return -1;
     }
     int inp[2], outp[2], errp[2];

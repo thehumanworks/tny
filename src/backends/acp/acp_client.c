@@ -271,7 +271,7 @@ static int ac_dispatch(tny_backend *b, struct pollfd *fds, int n) {
 static int ac_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
     if (!ctx->agent_argv || !ctx->agent_argv[0]) {
         snprintf(line, linelen,
-                 "acp: no agent configured (tny --backend acp --agent CMD -- args…)");
+                 "acp: no agent configured (tny --provider acp --agent CMD -- args…)");
         return 1;
     }
     if (!ac_on_path(ctx->agent_argv[0])) {

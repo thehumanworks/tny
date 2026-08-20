@@ -289,7 +289,7 @@ static int cu_send(tny_backend *b, const char *prompt, const char **images,
     if (images && images[0]) {
         snprintf(errbuf, errlen,
                  "the cursor backend has no image input yet; drop --image "
-                 "or use --backend openai");
+                 "or use --provider openai");
         return -1;
     }
 
@@ -319,7 +319,7 @@ static int cu_send(tny_backend *b, const char *prompt, const char **images,
         o->warned_headless = true;
         static const char note[] =
             "cursor: the bridge runs Cursor's own headless loop; tny cannot "
-            "approve individual tool calls (use --backend acp for per-call approvals)";
+            "approve individual tool calls (use --provider acp for per-call approvals)";
         cu_emit_text(o, TNY_EV_STATUS, note, sizeof note - 1);
     }
     return 0;

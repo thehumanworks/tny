@@ -369,7 +369,7 @@ static int oa_connect(tny_backend *b, char *errbuf, size_t errlen) {
                  "no API key: set OPENAI_API_KEY (or --api-key-env NAME; "
                  "local http:// providers may omit it)%s",
                  tny_codex_auth_present()
-                     ? ". A codex login exists — `tny --backend codex` uses it"
+                     ? ". A codex login exists — `tny --provider codex` uses it"
                      : "");
         return -1;
     }
