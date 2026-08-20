@@ -15,6 +15,19 @@
     if (saved === "light" || saved === "dark") applyTheme(saved);
   } catch (e) {}
 
+  document.querySelectorAll("[data-theme]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var next = document.documentElement.classList.contains("dark")
+        ? "light"
+        : document.documentElement.classList.contains("light")
+          ? "dark"
+          : window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "light"
+            : "dark";
+      applyTheme(next);
+    });
+  });
+
   function copyText(text, done) {
     function fallback() {
       var ta = document.createElement("textarea");

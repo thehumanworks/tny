@@ -40,27 +40,29 @@
   --radius: 0.125rem;
 }
 
-:root:not(.light) {
-  color-scheme: dark;
-  --background: #000;
-  --foreground: #ededed;
-  --card: #0a0a0a;
-  --card-foreground: #ededed;
-  --popover: #0a0a0a;
-  --popover-foreground: #ededed;
-  --muted: #161616;
-  --muted-foreground: #a1a1a1;
-  --secondary: #161616;
-  --secondary-foreground: #a1a1a1;
-  --border: #262626;
-  --ring: #666;
-  --glass: #0a0a0a8c;
-  --logo-divider: #666;
-  --logo-shimmer: #00000073;
-  --term-dim: #8a8a8a;
-  --term-bright: #eee;
-  --term-status: #8a8a8a;
-  --term-auto: #d0d0d0;
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    color-scheme: dark;
+    --background: #000;
+    --foreground: #ededed;
+    --card: #0a0a0a;
+    --card-foreground: #ededed;
+    --popover: #0a0a0a;
+    --popover-foreground: #ededed;
+    --muted: #161616;
+    --muted-foreground: #a1a1a1;
+    --secondary: #161616;
+    --secondary-foreground: #a1a1a1;
+    --border: #262626;
+    --ring: #666;
+    --glass: #0a0a0a8c;
+    --logo-divider: #666;
+    --logo-shimmer: #00000073;
+    --term-dim: #8a8a8a;
+    --term-bright: #eee;
+    --term-status: #8a8a8a;
+    --term-auto: #d0d0d0;
+  }
 }
 
 .dark {
@@ -222,9 +224,19 @@ svg {
   color: var(--foreground);
 }
 
-.install-cta {
+.theme-cta {
   display: none;
   margin-left: auto;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.theme-cta:hover {
+  color: var(--foreground);
+}
+
+.install-cta {
+  display: none;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
@@ -354,7 +366,7 @@ svg {
 }
 
 .term-wrap {
-  margin: 48px 0;
+  margin: 48px 0 56px;
   width: 100%;
   max-width: 680px;
   height: 320px;
@@ -815,6 +827,7 @@ svg {
     font-size: 14px;
   }
 
+  .theme-cta,
   .install-cta {
     display: inline-flex;
   }

@@ -99,6 +99,7 @@ def header(from_docs: bool, active: str | None) -> str:
     return f"""<header class="site-header">
   <a class="brand" href="{home}" aria-label="tny home">{svg_slash()}<span class="brand-word">tny</span></a>
   <nav class="nav">{"".join(items)}</nav>
+  <button type="button" class="theme-cta" data-theme aria-label="Toggle color theme">theme</button>
   <button type="button" class="install-cta" data-site-install aria-label="Copy install command">{svg_copy()}<span data-copy-status>install</span></button>
 </header>"""
 
@@ -197,6 +198,14 @@ def page_shell(
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="{prefix}favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="{prefix}assets/site.css">
+  <script>
+    (function () {{
+      try {{
+        var t = localStorage.getItem("theme");
+        if (t === "light" || t === "dark") document.documentElement.classList.add(t);
+      }} catch (e) {{}}
+    }})();
+  </script>
 </head>
 <body>
 {header(from_docs, active)}
