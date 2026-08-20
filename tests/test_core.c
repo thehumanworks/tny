@@ -76,6 +76,66 @@ TEST perm_ask_mode_opt_in(void) {
     PASS();
 }
 
+/* Every spelling of the override must land on the right mode: the settings
+ * key (global and per-workspace) and TNY_PERMISSION_MODE. */
+TEST perm_mode_overrides_parse(void) {
+    ensure_env();
+
+    write_settings("{\"permission_mode\":\"auto\"}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_MODE_AUTO, ctx->perm_mode);
+    tny_ctx_free(ctx);
+
+    write_settings("{\"permission_mode\":\"yolo\"}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_MODE_YOLO, ctx->perm_mode);
+    tny_ctx_free(ctx);
+
+    write_settings("{\"permission_mode\":\"garbage\"}"); /* unknown -> default */
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_MODE_YOLO, ctx->perm_mode);
+    tny_ctx_free(ctx);
+
+    /* the workspace-level key beats the global one */
+    write_settings("{\"permission_mode\":\"yolo\"}");
+    ctx = tny_ctx_load(g_ws);
+    buf_t s;
+    buf_init(&s);
+    buf_appendf(&s, "{\"permission_mode\":\"yolo\","
+                    "\"workspaces\":{\"%s\":{\"permission_mode\":\"ask\"}}}", ctx->cwd);
+    tny_ctx_free(ctx);
+    write_settings(s.data);
+    buf_free(&s);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_MODE_ASK, ctx->perm_mode);
+    tny_ctx_free(ctx);
+
+    /* the env var beats settings, for all three values */
+    write_settings("{\"permission_mode\":\"auto\"}");
+    setenv("TNY_PERMISSION_MODE", "ask", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_MODE_ASK, ctx->perm_mode);
+    tny_ctx_free(ctx);
+    setenv("TNY_PERMISSION_MODE", "yolo", 1);
+    write_settings("{\"permission_mode\":\"ask\"}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_MODE_YOLO, ctx->perm_mode);
+    tny_ctx_free(ctx);
+    setenv("TNY_PERMISSION_MODE", "auto", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_MODE_AUTO, ctx->perm_mode);
+    tny_ctx_free(ctx);
+    setenv("TNY_PERMISSION_MODE", "nonsense", 1); /* ignored, settings win */
+    write_settings("{\"permission_mode\":\"ask\"}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_MODE_ASK, ctx->perm_mode);
+    tny_ctx_free(ctx);
+
+    unsetenv("TNY_PERMISSION_MODE");
+    write_settings("{}");
+    PASS();
+}
+
 TEST perm_safe_tool_inside_workspace(void) {
     ensure_env();
     write_settings("{}");
@@ -399,6 +459,7 @@ SUITE(core_suite) {
     RUN_TEST(provider_last_used_and_scoped_models);
     RUN_TEST(perm_defaults_to_yolo);
     RUN_TEST(perm_ask_mode_opt_in);
+    RUN_TEST(perm_mode_overrides_parse);
     RUN_TEST(perm_safe_tool_inside_workspace);
     RUN_TEST(perm_rules_last_match_wins);
     RUN_TEST(perm_workspace_beats_global);

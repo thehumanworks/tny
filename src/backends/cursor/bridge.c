@@ -119,6 +119,7 @@ int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key,
         return -1;
     }
     if (pid == 0) {
+        setpgid(0, 0); /* own group so wrapper-forked descendants die with it */
         int devnull = open("/dev/null", O_RDONLY);
         if (devnull >= 0) { dup2(devnull, 0); close(devnull); }
         dup2(p[1], 1); /* host stdout must never reach tny stdout */
@@ -134,6 +135,7 @@ int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key,
         execvp(bin, argv);
         _exit(127);
     }
+    setpgid(pid, pid); /* both sides set it: closes the fork/exec race */
     close(p[1]);
     bp->pid = pid;
     bp->err_fd = p[0];
@@ -214,14 +216,17 @@ void cursor_bridge_pump(cursor_bridge *bp) {
 
 void cursor_bridge_stop(cursor_bridge *bp, int grace_ms) {
     if (bp->pid > 0) {
-        kill(bp->pid, SIGTERM);
+        if (kill(-bp->pid, SIGTERM) != 0) kill(bp->pid, SIGTERM);
         int waited = 0;
         for (;;) {
             int st = 0;
             pid_t w = waitpid(bp->pid, &st, WNOHANG);
-            if (w == bp->pid || (w < 0 && errno != EINTR)) break;
+            if (w == bp->pid || (w < 0 && errno != EINTR)) {
+                kill(-bp->pid, SIGKILL); /* sweep forked descendants */
+                break;
+            }
             if (waited >= grace_ms) {
-                kill(bp->pid, SIGKILL);
+                if (kill(-bp->pid, SIGKILL) != 0) kill(bp->pid, SIGKILL);
                 waitpid(bp->pid, &st, 0);
                 break;
             }

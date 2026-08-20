@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""Targeted mutation testing for tny (stdlib only).
+
+Generates single-token mutants inside a curated set of functions, rebuilds
+the debug test binary, and checks that some test notices:
+
+  1. `./build/tny-test`             (fast unit kill)
+  2. `tests/integration/test_tui.py` (pty integration, only for survivors)
+
+A mutant that compiles and passes BOTH stages is reported as SURVIVED and the
+run exits nonzero: either the mutant is equivalent (annotate it below) or a
+test is missing.
+
+Usage:  python3 tests/mutation/mutate.py [--fast] [--only FILE_SUBSTR]
+  --fast     skip the integration stage (report unit-survivors only)
+  --only S   restrict to target files whose path contains S
+
+Runtime is dominated by one `make debug` relink per mutant (~2-4 s each).
+"""
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# (file, [function names], line-must-match-regex)
+# — functions None means the whole file; regex None means every line.
+# The scope is the code THIS change touched: whole new files/functions, but
+# only the overlay branches inside the pre-existing key handler.
+TARGETS = [
+    ("src/tui/tui_prewarm.c", None, None),
+    ("src/tui/tui_draw.c", ["tui_push_ansi", "tui_overlay_budget", "overlay_rows",
+                            "tui_overlay_linef", "tui_overlay_clear"], None),
+    ("src/tui/tui.c", ["ensure_backend", "bind_and_resume", "fresh_backend",
+                       "tui_submit"], None),
+    ("src/tui/tui_input.c", ["do_key"], r"overlay"),
+    ("src/core/config.c", ["tny_ctx_load"], r"perm_mode|permission_mode"),
+]
+
+# operator substitutions applied to one site at a time
+OPS = [
+    (r"==", "!="), (r"!=", "=="),
+    (r"<=", "<"), (r">=", ">"),
+    (r"(?<![<>=!])<(?![<=])", "<="), (r"(?<![<>=!-])>(?![>=])", ">="),
+    (r"&&", "||"), (r"\|\|", "&&"),
+    (r"\btrue\b", "false"), (r"\bfalse\b", "true"),
+    (r"\breturn -1\b", "return 0"), (r"\breturn 0\b", "return -1"),
+    (r"\+ 1\b", "- 1"), (r"- 1\b", "+ 1"), (r"\+\+", "--"),
+    (r"\bTNY_MODE_YOLO\b", "TNY_MODE_ASK"),
+]
+
+# Sites where a mutant is *equivalent* (no observable behavior change) or
+# unobservable without heroics. Matched against "file:line-content".
+EQUIVALENT = [
+    "tui_prewarm.c:pthread_cond_signal",  # signal-vs-broadcast style details
+]
+
+
+def function_ranges(text, names):
+    """Byte ranges of the named function bodies (brace matching)."""
+    if names is None:
+        return [(0, len(text))]
+    spans = []
+    for name in names:
+        m = re.search(r"^[a-zA-Z_][^\n=;]*\b%s\(" % re.escape(name), text, re.M)
+        if not m:
+            continue
+        i = text.find("{", m.end())
+        if i < 0:
+            continue
+        depth, j = 0, i
+        while j < len(text):
+            if text[j] == "{":
+                depth += 1
+            elif text[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        spans.append((m.start(), j + 1))
+    return spans
+
+
+def in_spans(spans, pos):
+    return any(a <= pos < b for a, b in spans)
+
+
+def line_of(text, pos):
+    return text.count("\n", 0, pos) + 1
+
+
+def gen_mutants(path, names, line_re):
+    text = open(path).read()
+    spans = function_ranges(text, names)
+    lines = text.split("\n")
+    out = []
+    for pat, repl in OPS:
+        for m in re.finditer(pat, text):
+            if not in_spans(spans, m.start()):
+                continue
+            ln = line_of(text, m.start())
+            content = lines[ln - 1].strip()
+            if line_re and not re.search(line_re, content):
+                continue
+            if content.startswith("/*") or content.startswith("*") or content.startswith("//"):
+                continue
+            # skip matches inside a trailing comment on a code line
+            ls = m.start() - (len(text[:m.start()].split("\n")[-1]))
+            before = text[ls:m.start()]
+            if "//" in before or ("/*" in before and "*/" not in before.split("/*")[-1]):
+                continue
+            key = "%s:%s" % (os.path.basename(path), content)
+            if any(eq in key for eq in EQUIVALENT):
+                continue
+            mutated = text[:m.start()] + re.sub(pat, repl.replace("\\", "\\\\"),
+                                                m.group(0)) + text[m.end():]
+            out.append({"file": path, "line": ln, "op": "%s -> %s" % (m.group(0), repl),
+                        "content": content, "text": mutated})
+    return out
+
+
+def run(cmd, timeout, cwd=ROOT):
+    try:
+        r = subprocess.run(cmd, cwd=cwd, timeout=timeout,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        return r.returncode, r.stdout.decode("utf-8", "replace")
+    except subprocess.TimeoutExpired:
+        return -9, "(timeout after %ss)" % timeout
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--fast", action="store_true")
+    ap.add_argument("--only")
+    args = ap.parse_args()
+
+    mutants = []
+    for path, names, line_re in TARGETS:
+        if args.only and args.only not in path:
+            continue
+        mutants += gen_mutants(os.path.join(ROOT, path), names, line_re)
+    print("generated %d mutants" % len(mutants))
+
+    killed_unit = killed_int = invalid = 0
+    survivors = []
+    t0 = time.time()
+    for i, mu in enumerate(mutants):
+        orig = open(mu["file"]).read()
+        open(mu["file"], "w").write(mu["text"])
+        # ancient GNU make (3.81, macOS) has 1-second mtime granularity: a
+        # mutant written <1s after the previous restore would NOT rebuild
+        # and the tests would run against the original code. Force it.
+        now = time.time()
+        os.utime(mu["file"], (now + 2, now + 2))
+        tag = "%s:%d [%s]" % (os.path.relpath(mu["file"], ROOT), mu["line"], mu["op"])
+        try:
+            rc, out = run(["make", "debug"], 180)
+            if rc != 0:
+                invalid += 1
+                print("%3d/%d  invalid   %s" % (i + 1, len(mutants), tag))
+                continue
+            rc, out = run(["./build/tny-test"], 60)
+            if rc != 0:
+                killed_unit += 1
+                print("%3d/%d  killed:u  %s" % (i + 1, len(mutants), tag))
+                continue
+            if args.fast:
+                survivors.append(mu)
+                print("%3d/%d  SURVIVED(unit)  %s" % (i + 1, len(mutants), tag))
+                continue
+            rc, out = run(["make", "release"], 180)  # integration drives build/tny
+            if rc != 0:
+                invalid += 1
+                print("%3d/%d  invalid:r %s" % (i + 1, len(mutants), tag))
+                continue
+            rc, out = run([sys.executable, "tests/integration/test_tui.py",
+                           "./build/tny"], 420)
+            if rc != 0:
+                killed_int += 1
+                print("%3d/%d  killed:i  %s" % (i + 1, len(mutants), tag))
+            else:
+                survivors.append(mu)
+                print("%3d/%d  SURVIVED  %s" % (i + 1, len(mutants), tag))
+        finally:
+            open(mu["file"], "w").write(orig)
+            now = time.time()  # same granularity trap on the restore
+            os.utime(mu["file"], (now + 2, now + 2))
+    # restore builds to pristine state
+    run(["make", "debug"], 300)
+    run(["make", "release"], 300)
+
+    total = len(mutants) - invalid
+    print("\n== mutation results (%.0fs) ==" % (time.time() - t0))
+    print("valid mutants : %d (invalid/uncompilable: %d)" % (total, invalid))
+    print("killed by unit: %d" % killed_unit)
+    print("killed by int : %d" % killed_int)
+    print("survived      : %d" % len(survivors))
+    for mu in survivors:
+        print("  %s:%d  %s   | %s" % (os.path.relpath(mu["file"], ROOT),
+                                      mu["line"], mu["op"], mu["content"]))
+    if total:
+        print("kill ratio    : %.1f%%" % (100.0 * (killed_unit + killed_int) / total))
+    return 1 if survivors else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

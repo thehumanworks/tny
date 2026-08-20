@@ -57,6 +57,10 @@ int cx_spawn(cx_impl *o, int port, char *err, size_t errlen) {
         return -1;
     }
     if (pid == 0) {
+        setpgid(0, 0); /* own group: version-manager shims fork the real
+                        * binary, and a group kill is the only signal that
+                        * reaches it (an orphaned app-server otherwise
+                        * outlives tny) */
         int devnull = open("/dev/null", O_RDWR);
         if (devnull >= 0) {
             dup2(devnull, STDIN_FILENO);
@@ -72,6 +76,7 @@ int cx_spawn(cx_impl *o, int port, char *err, size_t errlen) {
         execvp(bin, argv);
         _exit(127);
     }
+    setpgid(pid, pid); /* both sides set it: closes the fork/exec race */
     close(pfd[1]);
     set_nonblock(pfd[0], true);
     o->child = pid;
@@ -141,7 +146,7 @@ void cx_stop_child(cx_impl *o) {
     }
     if (o->child <= 0) return;
     if (!o->child_reaped) {
-        kill(o->child, SIGTERM);
+        if (kill(-o->child, SIGTERM) != 0) kill(o->child, SIGTERM);
         int64_t deadline = now_ms() + 2000;
         for (;;) {
             int st = 0;
@@ -151,10 +156,13 @@ void cx_stop_child(cx_impl *o) {
             poll(NULL, 0, 20);
         }
         if (!o->child_reaped) {
-            kill(o->child, SIGKILL);
+            if (kill(-o->child, SIGKILL) != 0) kill(o->child, SIGKILL);
             int st = 0;
             while (waitpid(o->child, &st, 0) < 0 && errno == EINTR) { }
             o->child_reaped = true;
+        } else {
+            /* the direct child is gone; sweep any forked descendants */
+            kill(-o->child, SIGKILL);
         }
     }
     o->child = 0;

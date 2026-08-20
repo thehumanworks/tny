@@ -268,6 +268,31 @@ TEST prewarm_take_rejects_a_switched_provider(void) {
     PASS();
 }
 
+TEST prewarm_start_keeps_a_matching_warmup(void) {
+    /* /model, /fast and /resume drop the backend and re-kick the pre-warm;
+     * a pending warm-up for the SAME provider must be kept, not respawned.
+     * (cursor without a key: if the guard misfires and drops, no new warm-up
+     * can start, so t->prewarm going NULL exposes the bug.) */
+    tui t;
+    struct tny_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    memset(&t, 0, sizeof t);
+    t.ctx = &ctx;
+    ctx.backend = TNY_BK_CURSOR;
+    unsetenv("CURSOR_API_KEY");
+
+    stub_state s = {0};
+    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CURSOR));
+    tui_prewarm *kept = t.prewarm;
+    tui_prewarm_start(&t);
+    ASSERT_EQ(kept, t.prewarm); /* same pending warm-up, untouched */
+    ASSERT_EQ(0, s.destroys);
+    tui_prewarm_drop(&t);
+    wait_for(&s.destroys, 2000);
+    ASSERT_EQ(1, s.destroys);
+    PASS();
+}
+
 TEST prewarm_applicability(void) {
     struct tny_ctx ctx;
     memset(&ctx, 0, sizeof ctx);
@@ -300,5 +325,6 @@ SUITE(tui_suite) {
     RUN_TEST(prewarm_failed_connect_is_silent_and_discarded);
     RUN_TEST(prewarm_drop_mid_connect_cleans_up_on_the_thread);
     RUN_TEST(prewarm_take_rejects_a_switched_provider);
+    RUN_TEST(prewarm_start_keeps_a_matching_warmup);
     RUN_TEST(prewarm_applicability);
 }

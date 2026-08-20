@@ -24,6 +24,7 @@ static void fail_turn(ac_impl *o, const char *msg) {
 static void ac_disconnect(tny_backend *b) {
     ac_impl *o = b->impl;
     if (o->pid > 0) {
+        pid_t pgid = o->pid; /* the spawn made the agent its group leader */
         if (o->in_fd >= 0) close(o->in_fd);
         o->in_fd = -1;
         int status = 0;
@@ -34,10 +35,11 @@ static void ac_disconnect(tny_backend *b) {
             poll(&p, o->out_fd >= 0 ? 1 : 0, 10);
         }
         if (o->pid > 0) {
-            kill(o->pid, SIGTERM);
+            if (kill(-pgid, SIGTERM) != 0) kill(o->pid, SIGTERM);
             waitpid(o->pid, &status, 0);
             o->pid = 0;
         }
+        kill(-pgid, SIGKILL); /* sweep wrapper-forked descendants */
     }
     if (o->in_fd >= 0) { close(o->in_fd); o->in_fd = -1; }
     if (o->out_fd >= 0) { close(o->out_fd); o->out_fd = -1; }

@@ -66,6 +66,7 @@ int ac_spawn_agent(ac_impl *o, char *errbuf, size_t errlen) {
         return -1;
     }
     if (pid == 0) {
+        setpgid(0, 0); /* own group so wrapper-forked descendants die with it */
         dup2(inp[0], 0);
         dup2(outp[1], 1);
         dup2(errp[1], 2);
@@ -76,6 +77,7 @@ int ac_spawn_agent(ac_impl *o, char *errbuf, size_t errlen) {
         execvp(argv[0], argv);
         _exit(127);
     }
+    setpgid(pid, pid); /* both sides set it: closes the fork/exec race */
     close(inp[0]);
     close(outp[1]);
     close(errp[1]);
