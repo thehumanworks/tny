@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Backends — tny</title>
+  <meta name="description" content="Cursor bridge, Codex WebSocket, ACP, and the native OpenAI loop.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://thehumanworks.github.io/tny/docs/backends.html">
+  <meta property="og:title" content="Backends — tny">
+  <meta property="og:description" content="Cursor bridge, Codex WebSocket, ACP, and the native OpenAI loop.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../index.html" aria-label="tny home"><svg class="brand-slash" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="m4.02 15.4.3-.7 6-14 .29-.68 1.37.59-.3.69-6 14-.29.68z" fill="var(--logo-divider)"></path></svg><span class="brand-word">tny</span></a>
+  <nav class="nav"><a href="index.html" aria-current="page">docs</a><a href="cli.html">cli</a><a href="https://github.com/thehumanworks/tny" target="_blank" rel="noreferrer">source</a></nav>
+  <button type="button" class="install-cta" data-site-install aria-label="Copy install command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-copy-status>install</span></button>
+</header>
+<div class="docs-shell">
+  <div class="docs-mobile">
+    <button type="button" id="docs-open" aria-expanded="false" aria-controls="docs-drawer">Browse</button>
+  </div>
+  <div class="drawer" id="docs-drawer" aria-hidden="true">
+    <div class="drawer-backdrop" id="docs-backdrop"></div>
+    <div class="drawer-panel">
+      <button type="button" id="docs-close">Close</button>
+      <nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html" aria-current="page">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div></nav>
+    </div>
+  </div>
+  <main class="docs-layout">
+    <aside class="docs-sidebar"><nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html" aria-current="page">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div></nav></aside>
+    <article class="article"><h1>Backends</h1><p class="lede">A thin multiplexed frontend over host harnesses, plus one native loop.</p>
+<h2 id="kinds">Two kinds of backend</h2>
+<table>
+  <thead><tr><th>Kind</th><th>Backends</th><th>Who runs tools?</th></tr></thead>
+  <tbody>
+    <tr><td>Host</td><td>Cursor bridge, Codex app-server, ACP client</td><td>The host process</td></tr>
+    <tr><td>Native</td><td>OpenAI-compatible</td><td>tny</td></tr>
+  </tbody>
+</table>
+<p>Never leak host-specific types into the TUI. Every backend maps onto one event set: <code>text_delta</code>, <code>thinking</code>, <code>tool_start</code>, <code>tool_end</code>, <code>permission_request</code>, <code>plan</code>, <code>usage</code>, <code>turn_end</code>, <code>error</code>.</p>
+<h2 id="cursor">Cursor SDK Bridge</h2>
+<p>A local Connect server embedding <code>@cursor/sdk</code>, exposing <code>sdk.v1</code> over HTTP/1.1. Classic gRPC/HTTP2 will not connect. Pin standalone + protos to a release, not <code>main</code>.</p>
+<p>Auth is two secrets: <code>CURSOR_API_KEY</code> on the env and on RPC options, plus a per-process bearer from the ready line. Never log the ready-line JSON.</p>
+<p>This path is headless. There is no Allow/Deny RPC. Per-call approvals are ACP (<code>agent acp</code>), a different backend.</p>
+<h2 id="codex">Codex app-server</h2>
+<p>WebSocket JSON-RPC text frames, same surface the VS Code extension uses. The <code>"jsonrpc":"2.0"</code> header is omitted on the wire. Default to loopback; current Codex refuses non-loopback without <code>--ws-auth</code>. Do not send an <code>Origin</code> header.</p>
+<p>Attach with <code>--codex-ws</code>, inherit a TUI-registered live host, or spawn on an ephemeral port. Never a fixed port that could collide.</p>
+<h2 id="acp">ACP</h2>
+<p>JSON-RPC 2.0 over stdio, one message per line. tny implements both sides:</p>
+<table>
+  <thead><tr><th>Mode</th><th>Command</th><th>Role</th></tr></thead>
+  <tbody>
+    <tr><td>Client</td><td><code>tny --provider acp --agent &lt;exe&gt;</code></td><td>Drive other agents</td></tr>
+    <tr><td>Server</td><td><code>tny acp</code></td><td>Expose the native loop</td></tr>
+  </tbody>
+</table>
+<p>Always answer <code>session/request_permission</code> or the agent hangs. Cursor extras (<code>cursor/ask_question</code>, <code>cursor/create_plan</code>) are answered if the argv is Cursor's ACP — that is still <code>--provider acp</code>.</p>
+<h2 id="openai">OpenAI-compatible</h2>
+<p>Chat Completions + SSE. This is the only backend where tny executes tools itself. Stream lines are <code>data: {…}</code> then <code>data: [DONE]</code>. The agent loop assembles preamble + <code>AGENTS.md</code> + skill catalog + history, posts, executes tool calls, and repeats until final text, a step limit, cancel, or deny.</p>
+</article>
+    <aside class="toc"><p>on this page</p><a href="#kinds">Two kinds</a><a href="#cursor">Cursor</a><a href="#codex">Codex</a><a href="#acp">ACP</a><a href="#openai">OpenAI-compatible</a></aside>
+  </main>
+</div>
+<script src="../assets/site.js"></script>
+</body>
+</html>

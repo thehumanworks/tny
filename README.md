@@ -79,6 +79,9 @@ Vendored deps (yyjson, picohttpparser, wslay, greatest) are pinned in
 
 ## Docs
 
-The contract lives in [docs/](docs/README.md): product scope, architecture,
-CLI/TUI specs, per-backend protocol notes, sessions/permissions/skills/MCP
-behavior, and the size/speed budgets. Update the docs when behavior changes.
+Public site (Geist Mono, fx.sh-style): [thehumanworks.github.io/tny](https://thehumanworks.github.io/tny/).
+
+The implementation contract lives in [docs/](docs/README.md): product scope,
+architecture, CLI/TUI specs, per-backend protocol notes,
+sessions/permissions/skills/MCP behavior, and the size/speed budgets. Update
+both the contract and `site/` when behavior changes (`make site`).

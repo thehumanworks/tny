@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Providers — tny</title>
+  <meta name="description" content="Choose Cursor, Codex, ACP, or an OpenAI-compatible endpoint.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://thehumanworks.github.io/tny/docs/providers.html">
+  <meta property="og:title" content="Providers — tny">
+  <meta property="og:description" content="Choose Cursor, Codex, ACP, or an OpenAI-compatible endpoint.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../index.html" aria-label="tny home"><svg class="brand-slash" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="m4.02 15.4.3-.7 6-14 .29-.68 1.37.59-.3.69-6 14-.29.68z" fill="var(--logo-divider)"></path></svg><span class="brand-word">tny</span></a>
+  <nav class="nav"><a href="index.html" aria-current="page">docs</a><a href="cli.html">cli</a><a href="https://github.com/thehumanworks/tny" target="_blank" rel="noreferrer">source</a></nav>
+  <button type="button" class="install-cta" data-site-install aria-label="Copy install command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-copy-status>install</span></button>
+</header>
+<div class="docs-shell">
+  <div class="docs-mobile">
+    <button type="button" id="docs-open" aria-expanded="false" aria-controls="docs-drawer">Browse</button>
+  </div>
+  <div class="drawer" id="docs-drawer" aria-hidden="true">
+    <div class="drawer-backdrop" id="docs-backdrop"></div>
+    <div class="drawer-panel">
+      <button type="button" id="docs-close">Close</button>
+      <nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html" aria-current="page">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div></nav>
+    </div>
+  </div>
+  <main class="docs-layout">
+    <aside class="docs-sidebar"><nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html" aria-current="page">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div></nav></aside>
+    <article class="article"><h1>Providers</h1><p class="lede">Four backends, one event loop. Host processes stay external.</p>
+<h2 id="order">How a provider is chosen</h2>
+<p>Leading <code>--provider</code> (alias <code>--backend</code>) wins. Otherwise tny uses, in order:</p>
+<ol>
+  <li>the provider last used, recorded in <code>~/.tny/settings.json</code></li>
+  <li><code>openai</code> if <code>OPENAI_BASE_URL</code> or <code>OPENAI_API_KEY</code> is set</li>
+  <li><code>codex</code> if a Codex login exists (<code>~/.codex/auth.json</code>)</li>
+  <li><code>cursor</code> if <code>CURSOR_API_KEY</code> is set</li>
+  <li><code>openai</code>, whose connect error explains how to configure a key</li>
+</ol>
+<h2 id="openai">openai</h2>
+<p>Native loop. tny owns tools, MCP, skills, permissions, sessions, and <code>tny acp</code>.</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>export OPENAI_API_KEY=…</code></div><button type="button" data-copy="export OPENAI_API_KEY=…" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>export OPENAI_BASE_URL=https://openrouter.ai/api/v1   # optional</code></div><button type="button" data-copy="export OPENAI_BASE_URL=https://openrouter.ai/api/v1   # optional" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny --provider openai --model anthropic/claude-sonnet-4.6</code></div><button type="button" data-copy="tny --provider openai --model anthropic/claude-sonnet-4.6" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<p>Any OpenAI-compatible <code>/v1/chat/completions</code> endpoint works: OpenAI, OpenRouter, Groq, Together, DeepSeek, ollama, llama.cpp, vLLM, Azure (with a custom auth header).</p>
+<h2 id="cursor">cursor</h2>
+<p>Spawns <code>cursor-sdk-bridge</code> and speaks Connect <code>sdk.v1</code> over HTTP/1.1. This is Cursor's own headless loop, not <code>agent acp</code>.</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>export CURSOR_API_KEY=…</code></div><button type="button" data-copy="export CURSOR_API_KEY=…" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny --provider cursor</code></div><button type="button" data-copy="tny --provider cursor" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<p>Resolve the bridge from <code>CURSOR_SDK_BRIDGE_BIN</code> or <code>PATH</code>. The bridge is 23–43 MiB of Bun — that weight is why it is never linked into tny.</p>
+<h2 id="codex">codex</h2>
+<p>Attaches to a live <code>codex app-server</code> or spawns one on an ephemeral loopback port. Subscriptions need no API key; Codex's own login is enough.</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny --provider codex</code></div><button type="button" data-copy="tny --provider codex" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny --provider codex --codex-ws ws://127.0.0.1:4500</code></div><button type="button" data-copy="tny --provider codex --codex-ws ws://127.0.0.1:4500" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<p>Without <code>--codex-ws</code>, tny tries <code>TNY_CODEX_WS</code>, then a loopback host registered by a running tny TUI, then a spawn.</p>
+<h2 id="acp">acp</h2>
+<p>Drive any ACP agent as a client, or serve tny's native loop to an editor.</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny --provider acp --agent gemini -- --acp</code></div><button type="button" data-copy="tny --provider acp --agent gemini -- --acp" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny acp</code></div><button type="button" data-copy="tny acp" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<p><code>tny acp</code> is the server. It exposes only the native OpenAI-compatible loop. Cursor and Codex already have their own IDE surfaces.</p>
+</article>
+    <aside class="toc"><p>on this page</p><a href="#order">Selection order</a><a href="#openai">openai</a><a href="#cursor">cursor</a><a href="#codex">codex</a><a href="#acp">acp</a></aside>
+  </main>
+</div>
+<script src="../assets/site.js"></script>
+</body>
+</html>

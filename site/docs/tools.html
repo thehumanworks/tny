@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tools, MCP, skills — tny</title>
+  <meta name="description" content="Built-in tools, trusted MCP, skills, and subagents.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://thehumanworks.github.io/tny/docs/tools.html">
+  <meta property="og:title" content="Tools, MCP, skills — tny">
+  <meta property="og:description" content="Built-in tools, trusted MCP, skills, and subagents.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../index.html" aria-label="tny home"><svg class="brand-slash" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="m4.02 15.4.3-.7 6-14 .29-.68 1.37.59-.3.69-6 14-.29.68z" fill="var(--logo-divider)"></path></svg><span class="brand-word">tny</span></a>
+  <nav class="nav"><a href="index.html" aria-current="page">docs</a><a href="cli.html">cli</a><a href="https://github.com/thehumanworks/tny" target="_blank" rel="noreferrer">source</a></nav>
+  <button type="button" class="install-cta" data-site-install aria-label="Copy install command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-copy-status>install</span></button>
+</header>
+<div class="docs-shell">
+  <div class="docs-mobile">
+    <button type="button" id="docs-open" aria-expanded="false" aria-controls="docs-drawer">Browse</button>
+  </div>
+  <div class="drawer" id="docs-drawer" aria-hidden="true">
+    <div class="drawer-backdrop" id="docs-backdrop"></div>
+    <div class="drawer-panel">
+      <button type="button" id="docs-close">Close</button>
+      <nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html" aria-current="page">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div></nav>
+    </div>
+  </div>
+  <main class="docs-layout">
+    <aside class="docs-sidebar"><nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html" aria-current="page">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div></nav></aside>
+    <article class="article"><h1>Tools, MCP, skills</h1><p class="lede">The native loop owns tools. Host backends own theirs.</p>
+<h2 id="builtin">Built-in tools</h2>
+<p>Native loop only, unless noted. Names match fx where muscle memory transfers.</p>
+<table>
+  <thead><tr><th>Area</th><th>Tools</th></tr></thead>
+  <tbody>
+    <tr><td>Files</td><td><code>list_files</code>, <code>glob_files</code>, <code>grep_files</code>, <code>read_file</code>, <code>write_file</code>, <code>edit_file</code>, <code>delete_file</code>, <code>rename_file</code>, <code>copy_file</code>, <code>create_folder</code>, <code>file_info</code></td></tr>
+    <tr><td>Search</td><td><code>semantic_search</code> (lexical), <code>open_file</code></td></tr>
+    <tr><td>Shell</td><td><code>terminal</code> (<code>run_command</code> is an alias)</td></tr>
+    <tr><td>Web</td><td><code>web_search</code>, <code>web_fetch</code></td></tr>
+    <tr><td>Skills</td><td><code>skill</code>, <code>install_skill</code></td></tr>
+    <tr><td>Subagents</td><td><code>subagent</code></td></tr>
+    <tr><td>MCP</td><td>search, select, then namespaced tools</td></tr>
+    <tr><td>Runtime</td><td><code>ask_user_question</code>, <code>memory</code>, <code>read_tool_result</code></td></tr>
+  </tbody>
+</table>
+<p>Large results are a bounded preview plus a session handle. <code>memory</code> writes <code>~/.tny/memories.json</code> only when asked.</p>
+<h2 id="mcp">MCP</h2>
+<p>Trusted profile only: <code>~/.tny/mcp.json</code>. Repo-local MCP files are never loaded — cloning a repo must not start a server. Treat server output as untrusted data.</p>
+<p>v1 speaks stdio JSONL with lazy tool select. HTTP/SSE transports are deferred. <code>tny acp</code> uses only client-supplied <code>mcpServers</code>, not the user profile.</p>
+<h2 id="skills">Skills</h2>
+<p>A directory plus <code>SKILL.md</code> (YAML frontmatter <code>name</code>, <code>description</code>). Metadata is discovered at startup; the body loads only on invoke.</p>
+<p>Search order, workspace upward, stop before <code>$HOME</code>: <code>skills/</code>, <code>.agents/skills/</code>, <code>.claude/skills/</code>, <code>.codex/skills/</code>, <code>.cursor/skills/</code>, <code>.opencode/skills/</code>. Then <code>~/.tny/skills/</code> and the same hidden names under <code>$HOME</code>.</p>
+<h2 id="subagents">Subagents</h2>
+<p>Child native sessions. The parent does not dump the child transcript into its own context. Children cannot raise permission mode above the creator. Host backends do not get tny-spawned subagents.</p>
+<h2 id="agents-md">Project instructions</h2>
+<p>Load <code>AGENTS.md</code> (and <code>CLAUDE.md</code> if <code>AGENTS.md</code> is absent) from <code>~/.tny/</code>, launch ancestors, and the primary workspace. Extra dirs do not contribute instructions. <code>context: false</code> disables this.</p>
+</article>
+    <aside class="toc"><p>on this page</p><a href="#builtin">Built-in tools</a><a href="#mcp">MCP</a><a href="#skills">Skills</a><a href="#subagents">Subagents</a><a href="#agents-md">AGENTS.md</a></aside>
+  </main>
+</div>
+<script src="../assets/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quick start — tny</title>
+  <meta name="description" content="Install tny, run a first request, and learn the commands worth knowing.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://thehumanworks.github.io/tny/docs/">
+  <meta property="og:title" content="Quick start — tny">
+  <meta property="og:description" content="Install tny, run a first request, and learn the commands worth knowing.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../index.html" aria-label="tny home"><svg class="brand-slash" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="m4.02 15.4.3-.7 6-14 .29-.68 1.37.59-.3.69-6 14-.29.68z" fill="var(--logo-divider)"></path></svg><span class="brand-word">tny</span></a>
+  <nav class="nav"><a href="index.html" aria-current="page">docs</a><a href="cli.html">cli</a><a href="https://github.com/thehumanworks/tny" target="_blank" rel="noreferrer">source</a></nav>
+  <button type="button" class="install-cta" data-site-install aria-label="Copy install command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-copy-status>install</span></button>
+</header>
+<div class="docs-shell">
+  <div class="docs-mobile">
+    <button type="button" id="docs-open" aria-expanded="false" aria-controls="docs-drawer">Browse</button>
+  </div>
+  <div class="drawer" id="docs-drawer" aria-hidden="true">
+    <div class="drawer-backdrop" id="docs-backdrop"></div>
+    <div class="drawer-panel">
+      <button type="button" id="docs-close">Close</button>
+      <nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html" aria-current="page">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div></nav>
+    </div>
+  </div>
+  <main class="docs-layout">
+    <aside class="docs-sidebar"><nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html" aria-current="page">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div></nav></aside>
+    <article class="article"><h1>Quick start</h1><p class="lede">Build tny, run a first request, and learn the commands worth knowing.</p>
+<h2 id="install">Install and build</h2>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>git clone https://github.com/thehumanworks/tny &amp;&amp; cd tny &amp;&amp; make</code></div><button type="button" data-copy="git clone https://github.com/thehumanworks/tny &amp;&amp; cd tny &amp;&amp; make" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<p>A C11 compiler and <code>make</code> are enough. Vendored libraries (yyjson, picohttpparser, wslay) ship in the repo — nothing is downloaded at build time. The installer recipe is in <a href="install.html">Installation</a> if you want <code>~/.local/bin</code>.</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny doctor</code></div><button type="button" data-copy="tny doctor" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<p><code>doctor</code> reports OS, libc, and which optional host binaries are missing. It never needs a network key.</p>
+<h2 id="first-request">Run your first request</h2>
+<p>Start tny from the project you want to work on. The launch directory becomes the primary workspace:</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>cd path/to/project</code></div><button type="button" data-copy="cd path/to/project" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny</code></div><button type="button" data-copy="tny" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<p>Type a request that names real files or commands, then press enter. The model's reply streams into the transcript. Tool calls appear as they run. Escape or ctrl-c interrupts the turn; ctrl-o opens the full transcript.</p>
+<p>For scripts and CI, skip the shell:</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny ask --json &quot;list the public CLI&quot;</code></div><button type="button" data-copy="tny ask --json &quot;list the public CLI&quot;" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<h2 id="providers">Pick a provider</h2>
+<p>tny is a frontend. The default provider is the last one you used, then whatever credentials are already on the machine — an OpenAI-compatible key, a Codex login, or <code>CURSOR_API_KEY</code>. Override it:</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny --provider cursor ask &quot;explain this repo&quot;</code></div><button type="button" data-copy="tny --provider cursor ask &quot;explain this repo&quot;" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny --provider codex</code></div><button type="button" data-copy="tny --provider codex" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny --provider acp --agent gemini -- --acp</code></div><button type="button" data-copy="tny --provider acp --agent gemini -- --acp" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<p>See <a href="providers.html">Providers</a> for env vars and host binaries.</p>
+<h2 id="permissions">What tny asks before it acts</h2>
+<p>tny starts in <code>yolo</code> permission mode. Consenting to run an agent in a workspace is the approval. Host providers (Cursor, Codex, ACP) run their own loops; tny does not pretend to gate them.</p>
+<p><code>ask</code> and <code>auto</code> are explicit opt-ins on the native OpenAI-compatible loop. Listing, globbing, and reading files inside the workspace never need approval. Writes, shell, and paths outside the workspace do — when you opt in.</p>
+<p>Switch modes with <code>/permissions</code> or <code>--permission-mode</code>. Details in <a href="permissions.html">Permissions</a>.</p>
+<div class="note"><strong>Approve deliberately</strong><p>yolo disables tny permission checks and the command sandbox for that process. Use it in a workspace you are willing to lose. Host sandboxes, if any, still apply.</p></div>
+<h2 id="things">Things to know</h2>
+<p>In an interactive session, type <code>/</code> for commands, <code>@</code> for files, and <code>$</code> for skills.</p>
+<table>
+  <thead><tr><th>Need</th><th>Use</th></tr></thead>
+  <tbody>
+    <tr><td>Open commands</td><td>Type <code>/</code></td></tr>
+    <tr><td>Find a file</td><td>Type <code>@</code></td></tr>
+    <tr><td>Find a skill</td><td>Type <code>$</code></td></tr>
+    <tr><td>Inspect status</td><td><code>/status</code></td></tr>
+    <tr><td>Choose a model</td><td><code>/model</code></td></tr>
+    <tr><td>Change permissions</td><td><code>/permissions</code></td></tr>
+    <tr><td>New session</td><td><code>/new</code></td></tr>
+    <tr><td>One-shot from a script</td><td><code>tny ask --json "…"</code></td></tr>
+  </tbody>
+</table>
+</article>
+    <aside class="toc"><p>on this page</p><a href="#install">Install and build</a><a href="#first-request">First request</a><a href="#providers">Providers</a><a href="#permissions">Permissions</a><a href="#things">Things to know</a></aside>
+  </main>
+</div>
+<script src="../assets/site.js"></script>
+</body>
+</html>

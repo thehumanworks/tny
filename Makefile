@@ -1,5 +1,6 @@
 # tny — C11 TUI + CLI coding-agent harness.
-# Targets: make (release), make debug, make test, make size, make bench
+# Targets: make (release), make debug, make test, make size, make bench,
+#          make install, make site
 
 CC      ?= cc
 STD      = -std=c11
@@ -46,7 +47,9 @@ TEST_SRC := $(wildcard tests/*.c)
 TEST_DEPS := $(filter-out src/main.c,$(SRC)) $(TP)
 TEST_OBJS := $(TEST_DEPS:%.c=$(OBJ_DBG)/%.o)
 
-.PHONY: all release debug test size bench clean
+PREFIX ?= $(HOME)/.local
+
+.PHONY: all release debug test size bench clean install site
 
 all: release
 
@@ -81,6 +84,13 @@ size: release
 
 bench: release
 	hyperfine --warmup 5 -N './$(BUILD)/tny --version'
+
+install: release
+	mkdir -p $(DESTDIR)$(PREFIX)/bin
+	cp $(BUILD)/tny $(DESTDIR)$(PREFIX)/bin/tny
+
+site:
+	python3 scripts/site_build.py
 
 clean:
 	rm -rf $(BUILD)

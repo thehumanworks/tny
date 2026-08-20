@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Installation — tny</title>
+  <meta name="description" content="Build tny from source and install the stripped binary.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://thehumanworks.github.io/tny/docs/install.html">
+  <meta property="og:title" content="Installation — tny">
+  <meta property="og:description" content="Build tny from source and install the stripped binary.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../index.html" aria-label="tny home"><svg class="brand-slash" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="m4.02 15.4.3-.7 6-14 .29-.68 1.37.59-.3.69-6 14-.29.68z" fill="var(--logo-divider)"></path></svg><span class="brand-word">tny</span></a>
+  <nav class="nav"><a href="index.html" aria-current="page">docs</a><a href="cli.html">cli</a><a href="https://github.com/thehumanworks/tny" target="_blank" rel="noreferrer">source</a></nav>
+  <button type="button" class="install-cta" data-site-install aria-label="Copy install command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-copy-status>install</span></button>
+</header>
+<div class="docs-shell">
+  <div class="docs-mobile">
+    <button type="button" id="docs-open" aria-expanded="false" aria-controls="docs-drawer">Browse</button>
+  </div>
+  <div class="drawer" id="docs-drawer" aria-hidden="true">
+    <div class="drawer-backdrop" id="docs-backdrop"></div>
+    <div class="drawer-panel">
+      <button type="button" id="docs-close">Close</button>
+      <nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html" aria-current="page">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div></nav>
+    </div>
+  </div>
+  <main class="docs-layout">
+    <aside class="docs-sidebar"><nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html" aria-current="page">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div></nav></aside>
+    <article class="article"><h1>Installation</h1><p class="lede">Clone, make, strip. Host agents stay on PATH.</p>
+<h2 id="from-source">From source</h2>
+<p>tny is C11. There is no bundled Node, no package registry, and no download at compile time.</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>git clone https://github.com/thehumanworks/tny &amp;&amp; cd tny &amp;&amp; make</code></div><button type="button" data-copy="git clone https://github.com/thehumanworks/tny &amp;&amp; cd tny &amp;&amp; make" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<p>Requirements: a C11 compiler (<code>cc</code>) and GNU or BSD <code>make</code>. Python 3 is only needed for the integration fixtures.</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>make            # release build → build/tny (stripped)</code></div><button type="button" data-copy="make            # release build → build/tny (stripped)" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>make test       # unit + fixture-driven integration</code></div><button type="button" data-copy="make test       # unit + fixture-driven integration" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>make install    # copy build/tny to ~/.local/bin</code></div><button type="button" data-copy="make install    # copy build/tny to ~/.local/bin" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<p><code>make install</code> uses <code>PREFIX=$HOME/.local</code> by default. Add <code>~/.local/bin</code> to <code>PATH</code> if it is not already there.</p>
+<h2 id="script">setup.sh</h2>
+<p>The same recipe as a one-liner. Read it before piping to a shell.</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>curl -fsSL https://thehumanworks.github.io/tny/setup.sh | bash</code></div><button type="button" data-copy="curl -fsSL https://thehumanworks.github.io/tny/setup.sh | bash" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<h2 id="size">What you should see</h2>
+<p>A stripped Linux or macOS binary well under 2 MiB. Current measured size is 0.41mib on macOS arm64. <code>tny --version</code> and <code>tny ask --help</code> should return in a couple of milliseconds.</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny --version</code></div><button type="button" data-copy="tny --version" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny doctor --json</code></div><button type="button" data-copy="tny doctor --json" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<h2 id="hosts">Optional host binaries</h2>
+<p>The tny binary is the harness. Host agents stay on <code>PATH</code>:</p>
+<table>
+  <thead><tr><th>Provider</th><th>Host</th></tr></thead>
+  <tbody>
+    <tr><td><code>cursor</code></td><td><code>cursor-sdk-bridge</code> (never linked into tny)</td></tr>
+    <tr><td><code>codex</code></td><td><code>codex</code> CLI / <code>codex app-server</code></td></tr>
+    <tr><td><code>acp</code></td><td>whatever you pass to <code>--agent</code></td></tr>
+    <tr><td><code>openai</code></td><td>none — tny owns the loop</td></tr>
+  </tbody>
+</table>
+<p><code>tny doctor</code> tells you which of those are missing. Missing hosts are not a failed install.</p>
+</article>
+    <aside class="toc"><p>on this page</p><a href="#from-source">From source</a><a href="#script">setup.sh</a><a href="#size">What you should see</a><a href="#hosts">Optional hosts</a></aside>
+  </main>
+</div>
+<script src="../assets/site.js"></script>
+</body>
+</html>
