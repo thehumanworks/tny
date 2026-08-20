@@ -33,8 +33,11 @@ struct tny_backend {
     void *impl;
 
     /* Establish transport (spawn host, connect socket). 0 ok, -1 error
-     * (write a one-line reason into errbuf). Must be lazy: called only
-     * when a turn is about to start, never at CLI startup. */
+     * (write a one-line reason into errbuf). Never called during CLI
+     * startup: either lazily when a turn is about to start, or from the
+     * TUI pre-warm thread right after first paint (docs/adr/0002) — so it
+     * must not print to the terminal and must not read ctx fields the TUI
+     * mutates (model/tier ride on create_or_resume instead). */
     int (*connect)(tny_backend *b, char *errbuf, size_t errlen);
     void (*disconnect)(tny_backend *b);
 

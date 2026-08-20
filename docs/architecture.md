@@ -69,7 +69,7 @@ src/
   mcp/              # used by native loop and ACP server
 ```
 
-POSIX `poll`/`kqueue` only. No libuv, no threads-per-connection unless a host callback server requires it.
+POSIX `poll`/`kqueue` only. No libuv, no threads-per-connection unless a host callback server requires it. One deliberate exception: the TUI's pre-warm runs a single backend `connect()` on a detached pthread at startup ([ADR 0002](adr/0002-tui-provider-prewarm.md)); the connected backend is handed back before any turn starts, so all events still flow through the one event loop.
 
 ## ACP server vs ACP client
 

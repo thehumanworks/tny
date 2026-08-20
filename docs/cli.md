@@ -31,7 +31,7 @@ tny --provider cursor|codex|acp|openai [command]   # --backend is an alias
 tny --cwd DIR
 tny --model ID
 tny --add-dir DIR           # repeatable, process-only
-tny --permission-mode ask|auto|yolo
+tny --permission-mode ask|auto|yolo   # default: yolo (docs/adr/0001)
 tny --json                  # where listed
 tny -r                      # session picker (TUI)
 tny -c                      # resume last for this workspace

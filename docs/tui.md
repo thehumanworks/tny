@@ -29,6 +29,8 @@ Match fx's form: a **Unix shell**, not an IDE. Streaming transcript, a pinned co
 
 Disable `/` `@` `$` popovers while an approval or clarification is focused so paths like `/tmp/x` stay literal.
 
+Menus are **transient overlays** ([ADR 0003](adr/0003-transient-menu-overlay.md)): the palette and `/help` draw inside the redrawn bottom block, esc hides them, and the next submit clears them — they never enter the scrollback. Without a tty, menu output degrades to plain transcript lines.
+
 ## Slash commands (v1)
 
 Mirror fx names where they still make sense. Backend-specific commands degrade to "not available on this backend" instead of crashing.
@@ -51,6 +53,10 @@ Normalize before paint:
 - OpenAI SSE `choices[].delta` and `tool_calls`
 
 Ignore keepalives and unknown envelope cases. Never block the input loop on a parse error; show a one-line warning and keep the connection.
+
+## Startup
+
+First paint never waits on a backend, but the TUI **pre-warms** the selected provider's host right after the banner ([ADR 0002](adr/0002-tui-provider-prewarm.md)): `codex app-server`, the cursor bridge, or the ACP agent is spawned and initialized on a background thread so the first prompt adopts a live connection instead of paying seconds of startup. Pre-warm failures stay silent and resurface on the ordinary lazy path. One-shot CLI commands do not pre-warm.
 
 ## Permissions UI
 

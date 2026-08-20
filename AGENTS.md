@@ -26,9 +26,11 @@ The current tree is **research and contract only**. There is no product source y
 
 - Language: C11 only. Vendored C libraries listed in `docs/language-and-runtime.md`.
 - Size: stripped `tny` **< 2.0 MiB**. Host binaries (`cursor-sdk-bridge`, `codex`, ACP agents) stay external.
-- Startup: no backend spawn until a turn starts. `--help` / `--version` stay microseconds-to-milliseconds.
-- One event loop. Normalize every backend to the shared event set in `docs/architecture.md`.
+- Startup: the CLI spawns no backend before a turn; `--help` / `--version` stay microseconds-to-milliseconds. The interactive TUI **pre-warms** the selected provider's host after first paint (`docs/adr/0002`).
+- One event loop. Normalize every backend to the shared event set in `docs/architecture.md`. (The pre-warm thread runs only `connect()` and hands the backend back before any events flow.)
 - Native loop owns tools/MCP/skills/permissions. Host backends own their own loops.
+- Permission mode defaults to **yolo** for every provider (`docs/adr/0001`); `ask`/`auto` are explicit opt-ins.
+- Decisions are recorded in `docs/adr/`; add a new ADR when you change one.
 - `tny acp` serves the native loop only. `--provider acp` (alias `--backend`) is a client. `--provider cursor` is the bridge, not `agent acp`.
 - CLI is noninteractive-first: flags, stdin, `--json`, layered `--help` with examples (`docs/cli.md`).
 - TUI is a shell, not an IDE (`docs/tui.md`). No ncurses.
