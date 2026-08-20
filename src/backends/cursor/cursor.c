@@ -315,13 +315,8 @@ static int cu_send(tny_backend *b, const char *prompt, const char **images,
         o->active = false;
         return -1;
     }
-    if (o->ctx->perm_mode != TNY_MODE_YOLO && !o->warned_headless) {
-        o->warned_headless = true;
-        static const char note[] =
-            "cursor: the bridge runs Cursor's own headless loop; tny cannot "
-            "approve individual tool calls (use --provider acp for per-call approvals)";
-        cu_emit_text(o, TNY_EV_STATUS, note, sizeof note - 1);
-    }
+    /* The bridge runs Cursor's own headless loop; tny runs it yolo by design
+     * (docs/adr/0001) — no per-call approvals, and no warning about it. */
     return 0;
 }
 

@@ -41,6 +41,76 @@ def clean(s):
     return ANSI.sub("", s)
 
 
+class Screen:
+    """Tiny terminal emulator for the escape subset tny emits (tui_draw.c:
+    CR, LF, CUU, CUF, ED, SGR, cursor home, 2J/3J). Renders what a user
+    would actually SEE, which is the only way to assert that transient
+    blocks (popover, overlay) really left the screen."""
+
+    SEQ = re.compile(r"\x1b\[([0-9;?]*)([a-zA-Z])")
+
+    def __init__(self, rows=40, cols=100):
+        self.rows, self.cols = rows, cols
+        self.grid = [[" "] * cols for _ in range(rows)]
+        self.r = self.c = 0
+
+    def _put(self, ch):
+        if self.c >= self.cols:
+            self.c = 0
+            self._lf()
+        self.grid[self.r][self.c] = ch
+        self.c += 1
+
+    def _lf(self):
+        if self.r == self.rows - 1:
+            self.grid.pop(0)
+            self.grid.append([" "] * self.cols)
+        else:
+            self.r += 1
+
+    def feed(self, s):
+        i = 0
+        while i < len(s):
+            ch = s[i]
+            if ch == "\x1b":
+                m = self.SEQ.match(s, i)
+                if not m:
+                    i += 1
+                    continue
+                args, fin = m.group(1), m.group(2)
+                n = int(args.split(";")[0]) if args and args[0].isdigit() else None
+                if fin == "A":
+                    self.r = max(0, self.r - (n or 1))
+                elif fin == "C":
+                    self.c = min(self.cols, self.c + (n or 1))
+                elif fin == "J":
+                    if n in (None, 0):
+                        for j in range(self.c, self.cols):
+                            self.grid[self.r][j] = " "
+                        for rr in range(self.r + 1, self.rows):
+                            self.grid[rr] = [" "] * self.cols
+                    else:  # 2J / 3J
+                        self.grid = [[" "] * self.cols for _ in range(self.rows)]
+                elif fin == "H":
+                    self.r = self.c = 0
+                # SGR (m) and cursor-visibility are ignored
+                i = m.end()
+                continue
+            if ch == "\r":
+                self.c = 0
+            elif ch == "\n":
+                self.c = 0
+                self._lf()
+            elif ch == "\b":
+                self.c = max(0, self.c - 1)
+            elif ch >= " ":
+                self._put(ch)
+            i += 1
+
+    def text(self):
+        return "\n".join("".join(row).rstrip() for row in self.grid)
+
+
 def free_port():
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
@@ -89,6 +159,29 @@ class Term:
 
     def send(self, s):
         os.write(self.master, s.encode())
+
+    def screen(self):
+        s = Screen()
+        s.feed(self.buf)
+        return s.text()
+
+    def expect_on_screen(self, needle, timeout=10.0):
+        end = time.time() + timeout
+        while time.time() < end:
+            if needle in self.screen():
+                return
+            self.pump(0.25)
+        raise AssertionError("timed out waiting for %r on screen; screen:\n%s"
+                             % (needle, self.screen()))
+
+    def expect_gone_from_screen(self, needle, timeout=10.0):
+        end = time.time() + timeout
+        while time.time() < end:
+            if needle not in self.screen():
+                return
+            self.pump(0.25)
+        raise AssertionError("%r still on screen; screen:\n%s"
+                             % (needle, self.screen()))
 
     def wait(self, timeout=10.0):
         end = time.time() + timeout
@@ -223,13 +316,15 @@ class ApprovalHandler(BaseHTTPRequestHandler):
 
 
 def test_approval_ui(home, ws):
+    """Explicit --permission-mode ask still gets the y/a/n gate (opt-in since
+    docs/adr/0001 made yolo the default)."""
     srv = HTTPServer(("127.0.0.1", 0), ApprovalHandler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     env = base_env(home, {
         "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % srv.server_port,
         "OPENAI_API_KEY": "test-key-not-a-secret",
     })
-    t = Term([TNY], env, ws)
+    t = Term([TNY, "--permission-mode", "ask"], env, ws)
     try:
         t.expect("tny 0.1.0")
         t.send("write a note\r")
@@ -246,6 +341,113 @@ def test_approval_ui(home, ws):
         t.close()
         srv.shutdown()
     print("ok  approval prompt shown, 'n' denies and the turn continues")
+
+
+def test_yolo_default_auto_approves(home, ws):
+    """Out of the box tny runs yolo (docs/adr/0001): the sensitive tool runs
+    with no prompt and no 'auto-approved' chatter in the transcript."""
+    note = os.path.join(ws, "note.txt")
+    if os.path.exists(note):
+        os.unlink(note)
+    srv = HTTPServer(("127.0.0.1", 0), ApprovalHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    env = base_env(home, {
+        "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % srv.server_port,
+        "OPENAI_API_KEY": "test-key-not-a-secret",
+    })
+    t = Term([TNY], env, ws)
+    try:
+        t.expect("tny 0.1.0")
+        assert "yolo" in clean(t.buf), "banner does not show yolo:\n%s" % clean(t.buf)
+        t.send("write a note\r")
+        # the mock's completion marker; "approve?" must never have appeared
+        t.expect("DENIED-OK", 20.0, absent="approve?")
+        assert "auto-approved" not in clean(t.buf), clean(t.buf)
+        end = time.time() + 5
+        while time.time() < end and not os.path.exists(note):
+            time.sleep(0.1)
+        assert os.path.exists(note), "yolo did not run the write_file tool"
+        t.send("/quit\r")
+        assert t.wait() == 0
+    finally:
+        t.close()
+        srv.shutdown()
+    print("ok  default mode is yolo: sensitive tool ran silently, no prompt")
+
+
+def test_menu_overlay_transient(home, ws):
+    """The /help menu is an overlay: esc dismisses it, any submit clears it,
+    and nothing of it survives in the visible buffer (the report in
+    docs/adr/0003)."""
+    t = Term([TNY], base_env(home), ws)
+    try:
+        t.expect("tny 0.1.0")
+        t.send("/help\r")
+        t.expect_on_screen("(esc hides this menu)")
+        t.expect_on_screen("keys: enter submit")
+
+        t.send("\x1b")  # esc dismisses the menu...
+        t.expect_gone_from_screen("(esc hides this menu)")
+        assert "keys: enter submit" not in t.screen(), t.screen()
+        assert "tny 0.1.0" in t.screen(), "transcript was wiped:\n%s" % t.screen()
+
+        t.send("/help\r")  # ...and so does running the next command
+        t.expect_on_screen("(esc hides this menu)")
+        t.send("/sandbox\r")
+        t.expect_gone_from_screen("(esc hides this menu)")
+        t.expect_on_screen("sandbox:")
+        scr = t.screen()
+        assert "/workspace" not in scr, "menu rows left in the buffer:\n%s" % scr
+        assert "keys: enter submit" not in scr, scr
+        t.send("/quit\r")
+        assert t.wait() == 0
+        assert t.restored(), "terminal left in raw mode"
+    finally:
+        t.close()
+    print("ok  /help menu is transient: esc and the next command both clear it")
+
+
+def children_of(pid):
+    out = subprocess.run(["ps", "-ax", "-o", "pid=,ppid=,command="],
+                         capture_output=True, text=True).stdout
+    kids = []
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) == 3 and parts[1] == str(pid):
+            kids.append((int(parts[0]), parts[2]))
+    return kids
+
+
+def test_prewarm_spawns_acp_agent(home, ws):
+    """docs/adr/0002: with a host provider selected, the TUI spawns and
+    initializes the host right after the first paint — before any prompt."""
+    agent = os.path.join(HERE, "fake_acp_agent.py")
+    # resolve the real interpreter: the pty env overrides HOME, which breaks
+    # version-manager shims that `#!/usr/bin/env python3` would resolve to
+    t = Term([TNY, "--provider", "acp", "--agent", sys.executable, "--", agent],
+             base_env(home), ws)
+    try:
+        t.expect("tny 0.1.0")
+        end = time.time() + 8
+        spawned = []
+        while time.time() < end:
+            spawned = [c for c in children_of(t.proc.pid) if "fake_acp_agent" in c[1]]
+            if spawned:
+                break
+            t.pump(0.2)
+        assert spawned, ("agent not pre-warmed after startup; children: %r\n%s"
+                        % (children_of(t.proc.pid), clean(t.buf)))
+        # the warm host is adopted by the first turn, not respawned
+        t.send("hello\r")
+        t.expect("Hello from the fake ACP agent.", 20.0)
+        agents = [c for c in children_of(t.proc.pid) if "fake_acp_agent" in c[1]]
+        assert len(agents) == 1, "prewarmed agent was not adopted: %r" % agents
+        assert agents[0][0] == spawned[0][0], "agent was respawned for the turn"
+        t.send("/quit\r")
+        assert t.wait() == 0
+    finally:
+        t.close()
+    print("ok  acp host pre-warmed at startup and adopted by the first turn")
 
 
 def test_version_fast_path():
@@ -274,6 +476,9 @@ def main():
             test_turn_streams(home, ws, port)
             test_slash_palette(home, ws)
             test_approval_ui(home, ws)
+            test_yolo_default_auto_approves(home, ws)
+            test_menu_overlay_transient(home, ws)
+            test_prewarm_spawns_acp_agent(home, ws)
         finally:
             shutil.rmtree(home, ignore_errors=True)
             shutil.rmtree(ws, ignore_errors=True)

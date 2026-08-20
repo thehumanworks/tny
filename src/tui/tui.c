@@ -66,7 +66,7 @@ static void oneline(char *dst, size_t cap, const char *src) {
     dst[j] = 0;
 }
 
-static void drop_backend(tui *t) {
+void tui_drop_backend(tui *t) {
     if (!t->bk) return;
     t->bk->disconnect(t->bk);
     t->bk->destroy(t->bk);
@@ -165,8 +165,7 @@ static void ev_cb(const tny_event *ev, void *ud) {
     case TNY_EV_PERMISSION: {
         tny_perm_decision d;
         if (t->ctx->perm_mode == TNY_MODE_YOLO) {
-            d = TNY_PERM_DECISION_ALLOW;
-            tui_sys(t, "auto-approved (yolo)");
+            d = TNY_PERM_DECISION_ALLOW; /* silent: yolo is the normal mode */
         } else {
             d = tui_ask_perm(t, "approval requested", ev->perm_summary);
         }
@@ -215,7 +214,8 @@ void tui_new_session(tui *t, bool clear_screen) {
         session_close(t->session);
         t->session = NULL;
     }
-    drop_backend(t);
+    tui_drop_backend(t);
+    tui_prewarm_start(t); /* the next first prompt should not pay startup */
     t->in_tok = t->out_tok = 0;
     buf_clear(&t->last_reply);
     if (clear_screen) {
@@ -226,30 +226,57 @@ void tui_new_session(tui *t, bool clear_screen) {
     tui_sys(t, "new session");
 }
 
-static bool ensure_backend(tui *t) {
-    if (!t->session) t->session = session_new(t->ctx);
-    if (!t->session) { tui_err(t, "could not create a session"); return false; }
-    if (t->bk) return true;
-
-    char err[512];
+static tny_backend *fresh_backend(tui *t, char *err, size_t errlen) {
     tny_backend *bk = tny_backend_create((tny_backend_id)t->ctx->backend, t->ctx);
-    if (!bk) { tui_err(t, "could not create the backend"); return false; }
-    if (bk->connect(bk, err, sizeof err) != 0) {
-        tui_err(t, err);
-        bk->destroy(bk);
-        return false;
+    if (!bk) {
+        snprintf(err, errlen, "could not create the backend");
+        return NULL;
     }
+    if (bk->connect(bk, err, errlen) != 0) {
+        bk->destroy(bk);
+        return NULL;
+    }
+    return bk;
+}
+
+static int bind_and_resume(tui *t, tny_backend *bk, char *err, size_t errlen) {
     if (bk->id == TNY_BK_OPENAI)
         tny_backend_openai_bind(bk, t->session, t->perm, perm_hook, t);
     const char *hp = session_host_pointer(t->session);
     /* a host pointer only means something to the provider that minted it */
     const char *owner = session_backend(t->session);
     if (hp && owner && strcmp(owner, tny_backend_name(bk->id)) != 0) hp = NULL;
-    if (bk->create_or_resume && bk->create_or_resume(bk, hp, err, sizeof err) != 0) {
-        tui_err(t, err);
+    if (bk->create_or_resume && bk->create_or_resume(bk, hp, err, errlen) != 0)
+        return -1;
+    return 0;
+}
+
+static bool ensure_backend(tui *t) {
+    if (!t->session) t->session = session_new(t->ctx);
+    if (!t->session) { tui_err(t, "could not create a session"); return false; }
+    if (t->bk) return true;
+
+    char err[512];
+    err[0] = 0;
+    tny_backend *bk = tui_prewarm_take(t);
+    bool prewarmed = bk != NULL;
+    if (!bk) {
+        bk = fresh_backend(t, err, sizeof err);
+        if (!bk) { tui_err(t, err); return false; }
+    }
+    if (bind_and_resume(t, bk, err, sizeof err) != 0) {
         bk->disconnect(bk);
         bk->destroy(bk);
-        return false;
+        if (!prewarmed) { tui_err(t, err); return false; }
+        /* the pre-warmed host may have died while the shell sat idle:
+         * one clean retry through the ordinary lazy path */
+        bk = fresh_backend(t, err, sizeof err);
+        if (bk && bind_and_resume(t, bk, err, sizeof err) != 0) {
+            bk->disconnect(bk);
+            bk->destroy(bk);
+            bk = NULL;
+        }
+        if (!bk) { tui_err(t, err); return false; }
     }
     t->bk = bk;
     tny_settings_remember_use(t->ctx); /* next launch defaults to this provider */
@@ -293,6 +320,7 @@ void tui_cancel_turn(tui *t) {
 }
 
 void tui_submit(tui *t, const char *text) {
+    tui_overlay_clear(t); /* the menu interaction is over */
     const char *s = text;
     while (*s == ' ' || *s == '\t') s++;
     if (!*s) { t->dirty = true; return; }
@@ -351,6 +379,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     buf_init(&t.out);
     buf_init(&t.partial);
     buf_init(&t.input);
+    buf_init(&t.overlay);
     buf_init(&t.note);
     buf_init(&t.last_reply);
     buf_init(&t.prompt_text);
@@ -368,6 +397,9 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
 
     tui_hist_load(&t);
     banner(&t);
+    /* warm the provider's host now so the first prompt starts instantly;
+     * a failure stays silent here and resurfaces on the lazy path */
+    tui_prewarm_start(&t);
 
     if (session_id) {
         t.session = session_open(ctx, session_id);
@@ -430,7 +462,8 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         session_save(t.session);
         session_close(t.session);
     }
-    drop_backend(&t);
+    tui_prewarm_drop(&t);
+    tui_drop_backend(&t);
     mcp_shutdown_all();
     perm_free(t.perm);
     tui_items_clear(&t);
@@ -440,6 +473,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     buf_free(&t.out);
     buf_free(&t.partial);
     buf_free(&t.input);
+    buf_free(&t.overlay);
     buf_free(&t.note);
     buf_free(&t.last_reply);
     buf_free(&t.prompt_text);

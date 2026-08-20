@@ -16,11 +16,14 @@ DBG_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -O0 -g -fsanitize=address,undefined
 # SecureTransport is dlopen'd at first TLS use (src/net/stream.c) — do NOT
 # link the frameworks; eager loading costs ~1.2 ms at every launch.
 ifeq ($(UNAME_S),Darwin)
+  # pthreads live in libSystem; no extra flags needed
   REL_LDFLAGS = -Wl,-dead_strip
   DBG_LDFLAGS = -fsanitize=address,undefined
 else
-  REL_LDFLAGS = -Wl,--gc-sections
-  DBG_LDFLAGS = -fsanitize=address,undefined
+  REL_CFLAGS += -pthread
+  DBG_CFLAGS += -pthread
+  REL_LDFLAGS = -Wl,--gc-sections -pthread
+  DBG_LDFLAGS = -fsanitize=address,undefined -pthread
 endif
 
 BUILD    = build

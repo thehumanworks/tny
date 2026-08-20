@@ -293,11 +293,13 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         break;
     case K_ESC:
         if (popover) { tui_pick_close(t); t->dirty = true; break; }
+        if (t->overlay.len) { tui_overlay_clear(t); break; }
         if (t->turn_active) { tui_cancel_turn(t); break; }
         if (t->input.len) { set_input(t, NULL); t->dirty = true; }
         break;
     case K_CTRLC:
         if (popover) { tui_pick_close(t); t->dirty = true; break; }
+        if (t->overlay.len) { tui_overlay_clear(t); break; }
         if (t->turn_active) { tui_cancel_turn(t); break; }
         if (t->input.len) { set_input(t, NULL); t->dirty = true; break; }
         if (t->last_ctrlc_ms && now_ms() - t->last_ctrlc_ms < 3000) {

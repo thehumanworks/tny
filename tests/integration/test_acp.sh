@@ -28,9 +28,10 @@ field() {
     python3 -c 'import json,sys;print(json.loads(sys.stdin.read())[sys.argv[1]])' "$1"
 }
 
-# ---- turn 1: fresh session, ask-mode denies the agent's permission request ----
-OUT1=$("$TNY" --backend acp --agent "$AGENT" ask --json "hello" 2>"$TMP/err1") \
-    || fail "run 1 exited $? (stderr: $(cat "$TMP/err1"))"
+# ---- turn 1: fresh session, explicit ask-mode denies the agent's permission
+# request (ask is opt-in since docs/adr/0001; the default is yolo) ----
+OUT1=$("$TNY" --backend acp --agent "$AGENT" --permission-mode ask ask --json "hello" \
+       2>"$TMP/err1") || fail "run 1 exited $? (stderr: $(cat "$TMP/err1"))"
 echo "$OUT1" | python3 -c 'import json,sys; json.load(sys.stdin)' \
     || fail "run 1 did not print one JSON object: $OUT1"
 
@@ -60,6 +61,12 @@ contains "$TEXT2" "ALLOWED."
 [ "$(state loaded)" = "True" ] || fail "agent never loaded the session"
 [ "$(state last_prompt)" = "again" ] || fail "agent got prompt '$(state last_prompt)'"
 echo "ok  turn 2: session/load resumed fake-session-1, permission allowed"
+
+# ---- no mode flag at all: the default is yolo, so the request is allowed ----
+OUTD=$("$TNY" --backend acp --agent "$AGENT" ask --json "default mode" \
+       2>"$TMP/errd") || fail "default run exited $? (stderr: $(cat "$TMP/errd"))"
+contains "$(printf '%s' "$OUTD" | field output)" "ALLOWED."
+echo "ok  default permission mode is yolo (docs/adr/0001)"
 
 # ---- partial lines and several messages per read() ----
 OUT3=$(FAKE_ACP_CHUNKY=1 "$TNY" --backend acp --agent "$AGENT" ask --json --yolo \

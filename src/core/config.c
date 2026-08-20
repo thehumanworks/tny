@@ -73,9 +73,11 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     yyjson_val *wso = ws_obj(ctx);
     yyjson_val *rroot = ctx->repo_cfg ? yyjson_doc_get_root(ctx->repo_cfg) : NULL;
 
-    /* defaults */
+    /* defaults. yolo is deliberate: host providers run their own loops and
+     * never hand tny a real approval gate, so tny runs every agent in yolo
+     * unless the user explicitly opts into ask/auto (docs/adr/0001). */
     ctx->backend = -1;
-    ctx->perm_mode = TNY_MODE_ASK;
+    ctx->perm_mode = TNY_MODE_YOLO;
     ctx->max_steps = 24;
     ctx->max_tool_result_bytes = 32768;
     ctx->context_enabled = true;
@@ -88,6 +90,7 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     if ((s = jget_str(wso, "permission_mode")) || (s = jget_str(sroot, "permission_mode"))) {
         if (strcmp(s, "auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
         else if (strcmp(s, "yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
+        else if (strcmp(s, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;
     }
     const char *pm_env = getenv("TNY_PERMISSION_MODE");
     if (pm_env) {

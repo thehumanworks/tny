@@ -51,6 +51,36 @@ static int push_trunc(buf_t *b, const char *s, size_t n, int maxw) {
     return w;
 }
 
+int tui_push_ansi(buf_t *b, const char *s, size_t n, int maxw) {
+    int w = 0;
+    for (size_t i = 0; i < n;) {
+        unsigned char c = (unsigned char)s[i];
+        if (c == 0x1b) { /* pass SGR through at zero width, drop other escapes */
+            size_t j = i + 1;
+            if (j < n && s[j] == '[') {
+                j++;
+                while (j < n && !((unsigned char)s[j] >= 0x40 &&
+                                  (unsigned char)s[j] <= 0x7e)) j++;
+                if (j < n && s[j] == 'm') buf_append(b, s + i, j - i + 1);
+                i = j < n ? j + 1 : n;
+            } else {
+                i = j;
+            }
+            continue;
+        }
+        if (w >= maxw) { i++; continue; } /* keep scanning: a reset may follow */
+        if (c == '\n' || c == '\r') { i++; continue; }
+        if (c == '\t') { buf_appends(b, " "); w++; i++; continue; }
+        if (c < 0x20 || c == 0x7f) { i++; continue; }
+        size_t j = i + 1;
+        while (j < n && ((unsigned char)s[j] & 0xC0) == 0x80) j++;
+        buf_append(b, s + i, j - i);
+        w++;
+        i = j;
+    }
+    return w;
+}
+
 void tui_size(tui *t) {
     struct winsize ws;
     t->rows = 24;
@@ -114,6 +144,57 @@ static void popover_rows(tui *t, buf_t *b, int *rows, int maxw) {
                     t->items[i].hint ? t->items[i].hint : "");
         push_trunc(b, line.data, line.len, maxw);
         buf_free(&line);
+        buf_appends(b, tui_c(t, "\x1b[0m"));
+    }
+}
+
+/* The whole block must fit the screen or erase_block's cursor-up arithmetic
+ * breaks, so the overlay only gets the rows everything else leaves over. */
+int tui_overlay_budget(const tui *t) {
+    int used = 1 /* status */ + (t->partial.len ? 1 : 0) + 1 /* slack */;
+    if (t->approval) {
+        used += 1;
+    } else {
+        int nl = 1;
+        for (size_t i = 0; i < t->input.len; i++)
+            if (t->input.data[i] == '\n') nl++;
+        used += nl < TUI_COMP_ROWS ? nl : TUI_COMP_ROWS;
+    }
+    if (t->pick != PICK_NONE && t->n_items > 0)
+        used += t->n_items < TUI_POP_ROWS ? t->n_items : TUI_POP_ROWS;
+    int budget = t->rows - used;
+    return budget > 0 ? budget : 0;
+}
+
+static void overlay_rows(tui *t, buf_t *b, int *rows, int maxw) {
+    int budget = tui_overlay_budget(t);
+    if (budget <= 0) return;
+
+    int total = 0;
+    for (size_t i = 0; i < t->overlay.len; i++)
+        if (t->overlay.data[i] == '\n') total++;
+    int show = total <= budget ? total : budget - 1; /* keep a row for the "…" */
+    if (show < 0) show = 0;
+
+    const char *p = t->overlay.data;
+    const char *end = p + t->overlay.len;
+    for (int i = 0; i < show && p < end; i++) {
+        const char *nl = memchr(p, '\n', (size_t)(end - p));
+        size_t ll = nl ? (size_t)(nl - p) : (size_t)(end - p);
+        row_sep(b, rows);
+        tui_push_ansi(b, p, ll, maxw);
+        buf_appends(b, tui_c(t, "\x1b[0m"));
+        p = nl ? nl + 1 : end;
+    }
+    if (show < total) {
+        row_sep(b, rows);
+        buf_appends(b, tui_c(t, "\x1b[2m"));
+        buf_t m;
+        buf_init(&m);
+        buf_appendf(&m, "  … %d more rows (enlarge the window to see them)",
+                    total - show);
+        tui_push_ansi(b, m.data, m.len, maxw);
+        buf_free(&m);
         buf_appends(b, tui_c(t, "\x1b[0m"));
     }
 }
@@ -201,6 +282,7 @@ void tui_render(tui *t) {
         row_sep(&b, &rows);
         push_trunc(&b, t->partial.data, t->partial.len, maxw);
     }
+    if (t->overlay.len) overlay_rows(t, &b, &rows, maxw);
     if (t->pick != PICK_NONE && t->n_items > 0) popover_rows(t, &b, &rows, maxw);
     row_sep(&b, &rows);
     status_row(t, &b, maxw);
@@ -280,6 +362,32 @@ void tui_sys(tui *t, const char *s) {
 
 void tui_err(tui *t, const char *s) {
     tui_linef(t, "%stny: %s%s", tui_c(t, "\x1b[31m"), s, tui_c(t, "\x1b[0m"));
+}
+
+/* Menu-style output: transient on a terminal (cleared once the interaction
+ * ends), plain transcript lines when stdout is not a tty. */
+void tui_overlay_linef(tui *t, const char *fmt, ...) {
+    char line[4096];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    if (n < 0) return;
+    if (!t->tty) {
+        tui_bol(t);
+        tui_write(t, line, n < (int)sizeof line ? (size_t)n : sizeof line - 1);
+        tui_write(t, "\n", 1);
+        return;
+    }
+    buf_append(&t->overlay, line, n < (int)sizeof line ? (size_t)n : sizeof line - 1);
+    buf_appends(&t->overlay, "\n");
+    t->dirty = true;
+}
+
+void tui_overlay_clear(tui *t) {
+    if (!t->overlay.len) return;
+    buf_clear(&t->overlay);
+    t->dirty = true;
 }
 
 void tui_note(tui *t, const char *fmt, ...) {

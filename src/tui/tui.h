@@ -26,6 +26,8 @@ typedef enum { PICK_NONE = 0, PICK_CMD, PICK_FILE, PICK_SKILL } pick_kind;
 
 typedef struct { char *label, *hint; } pick_item;
 
+typedef struct tui_prewarm tui_prewarm; /* tui_prewarm.c */
+
 typedef struct tui {
     tny_ctx           *ctx;
     const cli_globals *g;
@@ -57,6 +59,7 @@ typedef struct tui {
     tny_backend *bk;
     tny_session *session;
     perm_engine *perm;
+    tui_prewarm *prewarm;   /* host connect running in the background */
 
     bool turn_active, turn_done, want_cancel, quit, trace;
     bool in_thinking; /* streaming reasoning: keep it on its own lines */
@@ -64,6 +67,9 @@ typedef struct tui {
     tny_stop_reason stop;
     int64_t in_tok, out_tok, cancel_ms, last_ctrlc_ms;
 
+    buf_t overlay;      /* transient menu block ('\n' lines, SGR allowed):
+                         * drawn above the status row, dropped after the
+                         * interaction ends — never enters the transcript */
     buf_t note;         /* transient status-line note */
     buf_t last_reply;   /* last assistant text, for /copy */
     buf_t prompt_text;  /* prompt that started the active turn */
@@ -81,6 +87,17 @@ void tui_submit(tui *t, const char *text);
 void tui_cancel_turn(tui *t);
 void tui_new_session(tui *t, bool clear_screen);
 tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary);
+void tui_drop_backend(tui *t);  /* disconnect + destroy the bound backend */
+
+/* tui_prewarm.c — spawn + connect the provider's host in the background so
+ * the first turn does not pay the startup cost (docs/adr/0002). */
+void tui_prewarm_start(tui *t);          /* warm ctx->backend if it applies */
+tny_backend *tui_prewarm_take(tui *t);   /* connected backend or NULL; consumes */
+void tui_prewarm_drop(tui *t);           /* abandon whatever is pending */
+bool tui_prewarm_applicable(const struct tny_ctx *ctx, int backend_id);
+/* Internal seam, exposed for the unit tests: adopt an already-created
+ * backend and run its connect() on the pre-warm thread. */
+int tui_prewarm_launch(tui *t, tny_backend *bk, int backend_id);
 
 /* tui_draw.c */
 void tui_size(tui *t);
@@ -95,6 +112,15 @@ void tui_sys(tui *t, const char *s);   /* dim system line */
 void tui_err(tui *t, const char *s);   /* red error line */
 const char *tui_c(const tui *t, const char *code);
 void tui_note(tui *t, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+void tui_overlay_linef(tui *t, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+void tui_overlay_clear(tui *t);
+/* Append at most maxw columns of s; SGR escapes pass through at zero width,
+ * other control bytes are dropped. Returns display columns written.
+ * Exposed for the unit tests. */
+int tui_push_ansi(buf_t *b, const char *s, size_t n, int maxw);
+/* Rows the overlay may use given everything else in the block. Exposed for
+ * the unit tests. */
+int tui_overlay_budget(const tui *t);
 
 /* tui_input.c */
 void tui_hist_load(tui *t);

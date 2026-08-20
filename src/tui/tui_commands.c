@@ -228,21 +228,27 @@ static void run_cli(tui *t, int (*fn)(tny_ctx *, const cli_globals *, int, char 
     tui_raw_end(t);
 }
 
+/* Rebinding commands drop the live backend; warming the (possibly new)
+ * provider right away keeps the next prompt as fast as the first one. */
 static void drop_backend(tui *t) {
-    if (!t->bk) return;
-    t->bk->disconnect(t->bk);
-    t->bk->destroy(t->bk);
-    t->bk = NULL;
+    tui_drop_backend(t);
+    tui_prewarm_start(t);
 }
 
+/* Rendered as a transient overlay: visible while the user reads it, gone
+ * from the buffer once they move on (esc dismisses, submit clears). */
 static void cmd_help(tui *t) {
-    tui_bol(t);
-    tui_sys(t, "keys: enter submit · \\ + enter or alt-enter newline · up/down history");
-    tui_sys(t, "      / commands · @ files · $ skills · tab complete · esc cancel turn");
-    tui_sys(t, "      ctrl-o transcript · ctrl-l redraw · ctrl-c interrupt (twice exits)");
+    const char *d = tui_c(t, "\x1b[2m"), *b = tui_c(t, "\x1b[1m"), *r = tui_c(t, "\x1b[0m");
+    tui_overlay_linef(t, "%skeys: enter submit · \\ + enter or alt-enter newline · "
+                         "up/down history%s", d, r);
+    tui_overlay_linef(t, "%s      / commands · @ files · $ skills · tab complete · "
+                         "esc cancel turn%s", d, r);
+    tui_overlay_linef(t, "%s      ctrl-o transcript · ctrl-l redraw · ctrl-c interrupt "
+                         "(twice exits)%s", d, r);
     for (int i = 0; i < N_CMDS; i++)
-        tui_linef(t, "  %s/%-12s%s %s", tui_c(t, "\x1b[1m"), CMDS[i].name,
-                  tui_c(t, "\x1b[0m"), CMDS[i].hint);
+        tui_overlay_linef(t, "  %s/%-12s%s %s", b, CMDS[i].name, r, CMDS[i].hint);
+    if (t->tty)
+        tui_overlay_linef(t, "%s(esc hides this menu)%s", d, r);
 }
 
 static void cmd_transcript(tui *t) {

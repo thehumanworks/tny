@@ -38,11 +38,30 @@ static void write_settings(const char *json) {
 
 /* ---- permissions ---- */
 
-TEST perm_defaults_ask_mode(void) {
+/* The out-of-the-box mode is yolo for every provider (docs/adr/0001):
+ * fresh settings, no env, no flags -> nothing ever prompts. */
+TEST perm_defaults_to_yolo(void) {
     ensure_env();
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
     ASSERT(ctx);
+    ASSERT_EQ(TNY_MODE_YOLO, ctx->perm_mode);
+    perm_engine *p = perm_new(ctx);
+    ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "echo hi"));
+    ASSERT_EQ(PERM_ALLOW, perm_check(p, "write_file", "/somewhere/else.txt"));
+    perm_free(p);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* An explicit opt-in ("ask" in settings, env, or --permission-mode) still
+ * restores the strict native-loop gate. */
+TEST perm_ask_mode_opt_in(void) {
+    ensure_env();
+    write_settings("{\"permission_mode\":\"ask\"}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ASSERT_EQ(TNY_MODE_ASK, ctx->perm_mode);
     perm_engine *p = perm_new(ctx);
 
     ASSERT(perm_tool_is_safe("read_file"));
@@ -61,6 +80,7 @@ TEST perm_safe_tool_inside_workspace(void) {
     ensure_env();
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_ASK; /* the rule engine under test */
     perm_engine *p = perm_new(ctx);
     char *inside = path_join(ctx->cwd, "src/main.c");
     ASSERT_EQ(PERM_ALLOW, perm_check(p, "read_file", inside));
@@ -75,6 +95,7 @@ TEST perm_rules_last_match_wins(void) {
     write_settings("{\"permission\":{\"bash\":{"
                    "\"git *\":\"allow\",\"git push*\":\"deny\"}}}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_ASK; /* the rule engine under test */
     perm_engine *p = perm_new(ctx);
     ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "git pull --rebase"));
     ASSERT_EQ(PERM_DENY, perm_check(p, "terminal", "git push origin main"));
@@ -100,6 +121,7 @@ TEST perm_workspace_beats_global(void) {
     buf_free(&s);
 
     ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_ASK; /* the rule engine under test */
     perm_engine *p = perm_new(ctx);
     ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "git pull"));
     perm_free(p);
@@ -111,6 +133,7 @@ TEST perm_session_grants(void) {
     ensure_env();
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_ASK; /* the rule engine under test */
     perm_engine *p = perm_new(ctx);
     ASSERT_EQ(PERM_PROMPT, perm_check(p, "terminal", "npm install"));
     perm_grant(p, "terminal", "npm install --save");
@@ -374,7 +397,8 @@ SUITE(core_suite) {
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(backend_default_cursor_key_from_env);
     RUN_TEST(provider_last_used_and_scoped_models);
-    RUN_TEST(perm_defaults_ask_mode);
+    RUN_TEST(perm_defaults_to_yolo);
+    RUN_TEST(perm_ask_mode_opt_in);
     RUN_TEST(perm_safe_tool_inside_workspace);
     RUN_TEST(perm_rules_last_match_wins);
     RUN_TEST(perm_workspace_beats_global);

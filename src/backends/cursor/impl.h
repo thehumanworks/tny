@@ -24,7 +24,6 @@ typedef struct {
     bool         got_text;   /* suppress duplicate text from `result` */
     bool         saw_error;
     bool         usage_sent;
-    bool         warned_headless;
     buf_t        last_status; /* failure text often lives on status.message */
     int64_t      in_tok, out_tok;
 } cu_impl;

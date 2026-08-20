@@ -86,7 +86,9 @@ static int cx_connect(tny_backend *b, char *errbuf, size_t errlen) {
         while (now_ms() < deadline) {
             cx_drain_child_stderr(o);
             if (cx_child_gone(o)) {
-                if (o->stderr_tail.len) /* surface what the host said before dying */
+                /* the host's last words help debugging but would scribble over
+                 * the TUI (and the pre-warm thread must stay silent) */
+                if (o->stderr_tail.len && tny_debug())
                     fwrite(o->stderr_tail.data, 1, o->stderr_tail.len, stderr);
                 snprintf(errbuf, errlen,
                          "codex: `%s app-server` exited during startup "
@@ -193,7 +195,7 @@ static int cx_create_or_resume(tny_backend *b, const char *ptr, char *e, size_t 
     if (!o->ws) { snprintf(e, el, "codex: not connected"); return -1; }
     if (ptr && *ptr) {
         if (cx_start_thread(o, ptr, e, el) == 0) return 0;
-        fprintf(stderr, "tny: %s; starting a fresh codex thread\n", e);
+        if (tny_debug()) fprintf(stderr, "tny: %s; starting a fresh codex thread\n", e);
     }
     return cx_start_thread(o, NULL, e, el);
 }
