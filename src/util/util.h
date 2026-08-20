@@ -55,6 +55,7 @@ uint64_t fnv1a(const void *data, size_t n);
 char  *gen_id(void);
 /* milliseconds since epoch */
 int64_t now_ms(void);
+bool tny_debug(void); /* TNY_DEBUG=1: pass host/protocol diagnostics through */
 /* ISO-8601 UTC "YYYY-MM-DDTHH:MM:SSZ"; caller frees */
 char  *now_iso8601(void);
 

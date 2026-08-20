@@ -80,10 +80,19 @@ int cx_spawn(cx_impl *o, int port, char *err, size_t errlen) {
     return 0;
 }
 
+/* Host stderr is startup/diagnostic noise ("listening on: ws://…").
+ * Forward it only under TNY_DEBUG; otherwise keep a short tail so a
+ * startup failure can still show what the host said. */
 static void cx_emit_stderr_line(cx_impl *o) {
     if (!o->child_line.data) { buf_clear(&o->child_line); return; }
     char *s = str_trim(o->child_line.data);
-    if (*s) fprintf(stderr, "codex: %.*s\n", CX_STDERR_LINE_MAX, s);
+    if (*s) {
+        if (tny_debug()) fprintf(stderr, "codex: %.*s\n", CX_STDERR_LINE_MAX, s);
+        if (o->stderr_tail.len > 2048) {
+            buf_clear(&o->stderr_tail); /* keep it a tail, not a log */
+        }
+        buf_appendf(&o->stderr_tail, "codex: %.*s\n", CX_STDERR_LINE_MAX, s);
+    }
     buf_clear(&o->child_line);
 }
 

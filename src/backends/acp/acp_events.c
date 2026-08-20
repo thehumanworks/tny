@@ -201,14 +201,17 @@ void ac_handle_update(ac_impl *o, yyjson_val *params) {
         update_plan(o, u);
         return;
     }
-    /* available_commands_update, current_mode_update, anything newer */
-    buf_t s;
-    buf_init(&s);
-    buf_appendf(&s, "%.80s", kind);
-    const char *mode = jget_str(u, "currentModeId");
-    if (mode) buf_appendf(&s, ": %.80s", mode);
-    ac_emit_text(o, TNY_EV_STATUS, s.data, s.len);
-    buf_free(&s);
+    /* available_commands_update, current_mode_update, anything newer:
+     * protocol chatter, not conversation — surface only under TNY_DEBUG */
+    if (tny_debug()) {
+        buf_t s;
+        buf_init(&s);
+        buf_appendf(&s, "%.80s", kind);
+        const char *mode = jget_str(u, "currentModeId");
+        if (mode) buf_appendf(&s, ": %.80s", mode);
+        ac_emit_text(o, TNY_EV_STATUS, s.data, s.len);
+        buf_free(&s);
+    }
 }
 
 /* ---------- agent → client requests ---------- */

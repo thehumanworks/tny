@@ -86,9 +86,11 @@ static int cx_connect(tny_backend *b, char *errbuf, size_t errlen) {
         while (now_ms() < deadline) {
             cx_drain_child_stderr(o);
             if (cx_child_gone(o)) {
+                if (o->stderr_tail.len) /* surface what the host said before dying */
+                    fwrite(o->stderr_tail.data, 1, o->stderr_tail.len, stderr);
                 snprintf(errbuf, errlen,
-                         "codex: `%s app-server` exited during startup (see codex: lines "
-                         "above; try `codex --version`)",
+                         "codex: `%s app-server` exited during startup "
+                         "(try `codex --version`)",
                          o->ctx->codex_bin ? o->ctx->codex_bin : "codex");
                 cx_stop_child(o);
                 return -1;
@@ -361,6 +363,7 @@ static void cx_destroy(tny_backend *b) {
     for (int i = 0; i < o->n_streamed; i++) free(o->streamed[i]);
     if (o->wait_doc) yyjson_doc_free(o->wait_doc);
     buf_free(&o->child_line);
+    buf_free(&o->stderr_tail);
     free(o->thread_id);
     free(o->turn_id);
     free(o->ws_url);
@@ -381,6 +384,7 @@ tny_backend *tny_backend_codex_new(struct tny_ctx *ctx) {
     o->next_id = 1;
     o->wait_id = -1;
     buf_init(&o->child_line);
+    buf_init(&o->stderr_tail);
     b->id = TNY_BK_CODEX;
     b->impl = o;
     b->connect = cx_connect;

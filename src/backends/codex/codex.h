@@ -52,6 +52,7 @@ typedef struct {
     pid_t  child;
     int    child_err;      /* read end of its stderr pipe, or -1 */
     buf_t  child_line;     /* partial stderr line */
+    buf_t  stderr_tail;    /* recent host stderr, shown only on failure */
     bool   child_reaped;
 
     int   next_id;

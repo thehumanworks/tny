@@ -170,8 +170,8 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
         const char *msg = jget_str(v, "message");
         if (msg) buf_appends(&t, msg);
         else collect_text(v, &t, 0);
-        if (!t.len && strcmp(type, "system") == 0) {
-            const char *sub = jget_str(v, "subtype");
+        if (!t.len && strcmp(type, "system") == 0 && tny_debug()) {
+            const char *sub = jget_str(v, "subtype"); /* lifecycle noise */
             buf_appendf(&t, "cursor session %s", sub ? sub : "started");
         }
         if (t.len) {

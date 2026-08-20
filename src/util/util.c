@@ -326,6 +326,15 @@ int64_t now_ms(void) {
     return (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
+bool tny_debug(void) {
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("TNY_DEBUG");
+        on = e && *e && strcmp(e, "0") != 0;
+    }
+    return on;
+}
+
 char *now_iso8601(void) {
     time_t t = time(NULL);
     struct tm tm;

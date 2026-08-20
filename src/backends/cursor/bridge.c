@@ -40,7 +40,7 @@ static void forward_line(cursor_bridge *bp, const char *line, size_t len, buf_t 
         if (leak) return;
     }
     if (capture && capture->len < 2048) buf_appendf(capture, "%.*s ", (int)len, line);
-    fprintf(stderr, "cursor-sdk-bridge: %.*s\n", (int)len, line);
+    if (tny_debug()) fprintf(stderr, "cursor-sdk-bridge: %.*s\n", (int)len, line);
 }
 
 /* Split accumulated bytes into lines. -1 if a ready line was malformed. */
