@@ -37,8 +37,8 @@ echo "$OUT1" | python3 -c 'import json,sys; json.load(sys.stdin)' \
 TEXT=$(printf '%s' "$OUT1" | field output)
 contains "$TEXT" "Hello from the fake ACP agent."
 contains "$TEXT" "DENIED."
-BACKEND=$(printf '%s' "$OUT1" | field backend)
-[ "$BACKEND" = "acp" ] || fail "backend field is '$BACKEND'"
+BACKEND=$(printf '%s' "$OUT1" | field provider)
+[ "$BACKEND" = "acp" ] || fail "provider field is '$BACKEND'"
 SID=$(printf '%s' "$OUT1" | field session_id)
 [ -n "$SID" ] || fail "no session_id in run 1 output"
 

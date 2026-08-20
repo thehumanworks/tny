@@ -20,19 +20,19 @@ void help_root(void) {
 "  acp                    Start an ACP server over stdio (native loop)\n"
 "  sessions               List saved sessions for this workspace\n"
 "  session <last|id>      Inspect one saved session\n"
-"  backends               List configured backends and doctor hints\n"
-"  models                 List available models for the active backend\n"
+"  providers              List configured providers and doctor hints\n"
+"  models                 List available models for the active provider\n"
 "  permissions            Show the permission mode and rules\n"
 "  workspace list|add|remove|clear\n"
 "                         Manage additional workspace directories\n"
 "  status                 Show configuration and runtime information\n"
 "  doctor                 Run local health and preflight checks\n"
 "  usage                  Show local token usage\n"
-"  login | logout | setup Backend-specific auth and provider config\n"
+"  login | logout | setup Provider-specific auth and configuration\n"
 "  help                   Show this help\n"
 "\n"
 "Global flags (leading, before the command):\n"
-"  --backend NAME         cursor | codex | acp | openai\n"
+"  --provider NAME        cursor | codex | acp | openai (--backend also works)\n"
 "  --cwd DIR              Primary workspace (default: current directory)\n"
 "  --model ID             Model for this run\n"
 "  --add-dir DIR          Extra workspace directory; repeatable, process-only\n"
@@ -43,18 +43,18 @@ void help_root(void) {
 "  --resume <last|id>     Resume the latest session or an exact id\n"
 "  -h, --help             Show help    -v, --version  Print the version\n"
 "\n"
-"Backend flags:\n"
+"Provider flags:\n"
 "  cursor: --bridge-bin PATH        (env CURSOR_SDK_BRIDGE_BIN, CURSOR_API_KEY)\n"
 "  codex:  --codex-ws URL --codex-bin PATH --ws-token-file PATH\n"
-"  acp:    --agent CMD -- args...   e.g. tny --backend acp --agent gemini -- --acp\n"
+"  acp:    --agent CMD -- args...   e.g. tny --provider acp --agent gemini -- --acp\n"
 "  openai: --base-url URL --api-key-env NAME (env OPENAI_BASE_URL, OPENAI_API_KEY)\n"
 "\n"
 "Examples:\n"
 "  tny                          Start a fresh interactive session\n"
 "  tny ask \"explain src/main.c\"  One request, Markdown on stdout\n"
 "  tny ask --json \"list the public CLI\"\n"
-"  tny --backend codex ask \"run the tests\"\n"
-"  tny --backend acp --agent gemini -- --acp\n",
+"  tny --provider codex ask \"run the tests\"\n"
+"  tny --provider acp --agent gemini -- --acp\n",
     stdout);
 }
 
@@ -83,7 +83,7 @@ static const char *ask_help =
 "  printf 'summarize src/\\n' | tny ask --stdin\n"
 "  tny ask --json --no-save \"list the public CLI\"\n"
 "  tny ask --resume last \"now add tests\"\n"
-"  tny --backend cursor ask --model composer-2 \"find the login bug\"\n";
+"  tny --provider cursor ask --model composer-2 \"find the login bug\"\n";
 
 static const char *sessions_help =
 "Usage: tny sessions [--json] [--all] [--limit N] [--cursor ID]\n"
@@ -160,19 +160,19 @@ bool help_for(const char *command) {
     else if (strcmp(command, "doctor") == 0) text = doctor_help;
     else if (strcmp(command, "resume") == 0) text = resume_help;
     else if (strcmp(command, "status") == 0)
-        text = "Usage: tny status [--json]\n\nShow backend, model, permissions, workspace, and session counts.\n";
+        text = "Usage: tny status [--json]\n\nShow provider, model, permissions, workspace, and session counts.\n";
     else if (strcmp(command, "models") == 0)
-        text = "Usage: tny models [--json]\n\nList models for the active backend (GET /models on openai).\n";
+        text = "Usage: tny models [--json]\n\nList models for the active provider (codex model/list, cursor ListModels, GET /models on openai).\n";
     else if (strcmp(command, "permissions") == 0)
         text = "Usage: tny permissions [--json]\n\nShow the permission mode and persistent rules.\n";
-    else if (strcmp(command, "backends") == 0)
-        text = "Usage: tny backends [--json]\n\nList the four backends with a one-line doctor hint each.\n";
+    else if (strcmp(command, "providers") == 0 || strcmp(command, "backends") == 0)
+        text = "Usage: tny providers [--json]\n\nList the four providers with a one-line doctor hint each.\n";
     else if (strcmp(command, "usage") == 0)
         text = "Usage: tny usage [--json]\n\nShow local token usage recorded from native-loop sessions.\n";
     else if (strcmp(command, "login") == 0)
-        text = "Usage: tny [--backend NAME] login\n\nDispatch auth to the active backend (Cursor key check, codex login, provider key hint).\n";
+        text = "Usage: tny [--provider NAME] login\n\nDispatch auth to the active provider (Cursor key check, codex login, API key hint).\n";
     else if (strcmp(command, "logout") == 0)
-        text = "Usage: tny [--backend NAME] logout\n\nBackend-specific logout. tny stores no provider secrets itself.\n";
+        text = "Usage: tny [--provider NAME] logout\n\nProvider-specific logout. tny stores no secrets itself.\n";
     if (!text) { help_root(); return true; }
     fputs(text, stdout);
     return true;

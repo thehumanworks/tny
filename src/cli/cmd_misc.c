@@ -42,7 +42,7 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_free(&b);
     } else {
         printf("tny v%s\n", TNY_VERSION);
-        printf("backend:    %s\n", bk);
+        printf("provider:   %s\n", bk);
         printf("model:      %s\n", model);
         printf("auth:       %s\n", auth ? "ok" : "missing (set OPENAI_API_KEY or run tny setup)");
         printf("permission: %s\n", tny_perm_mode_name(ctx->perm_mode));
@@ -265,7 +265,7 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = wants_json(g, argc, argv);
     buf_t b;
     buf_init(&b);
-    if (json) buf_appends(&b, "{\"kind\":\"backends\",\"backends\":[");
+    if (json) buf_appends(&b, "{\"kind\":\"providers\",\"providers\":[");
     for (int i = 0; i < TNY_BK_COUNT; i++) {
         tny_backend *bk = tny_backend_create((tny_backend_id)i, ctx);
         char line[256] = "unknown";

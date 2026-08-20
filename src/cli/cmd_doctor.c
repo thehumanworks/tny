@@ -75,7 +75,7 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_appendf(&b, "\"hosts\":{\"cursor_sdk_bridge\":%s,\"codex\":%s,\"acp_agents\":",
                     bridge ? "true" : "false", codex ? "true" : "false");
         jescape(&b, acp_found.len ? acp_found.data : "");
-        buf_appends(&b, "},\"backends\":[");
+        buf_appends(&b, "},\"providers\":[");
         for (int i = 0; i < TNY_BK_COUNT; i++) {
             if (i) buf_appends(&b, ",");
             buf_appendf(&b, "{\"name\":\"%s\",\"healthy\":%s,\"detail\":",
@@ -100,7 +100,7 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                codex ? ctx->codex_bin : "not on PATH");
         printf("%s ACP agents: %s\n", acp_found.len ? "ok " : "miss",
                acp_found.len ? acp_found.data : "none detected");
-        printf("\nbackends:\n");
+        printf("\nproviders:\n");
         for (int i = 0; i < TNY_BK_COUNT; i++)
             printf("  %s %s\n", health[i] == 0 ? "ok " : "warn", lines[i]);
     }

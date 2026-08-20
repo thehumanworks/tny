@@ -13,13 +13,13 @@ tny resume [last|<id>]      # interactive resume
 tny acp                     # ACP server (native loop only)
 tny sessions
 tny session last|<id>
-tny backends                # list configured backends and doctor hints
+tny providers               # list configured providers and doctor hints
 tny models
 tny permissions
 tny workspace list|add|remove|clear
 tny status
 tny doctor
-tny login                   # backend-specific; see --backend
+tny login                   # provider-specific; see --provider
 tny logout
 tny setup                   # write provider config from flags/env
 ```
@@ -27,7 +27,7 @@ tny setup                   # write provider config from flags/env
 Global flags are **leading**:
 
 ```text
-tny --backend cursor|codex|acp|openai [command]
+tny --provider cursor|codex|acp|openai [command]   # --backend is an alias
 tny --cwd DIR
 tny --model ID
 tny --add-dir DIR           # repeatable, process-only
@@ -37,12 +37,12 @@ tny -r                      # session picker (TUI)
 tny -c                      # resume last for this workspace
 ```
 
-## Backend selection
+## Provider selection
 
-`--backend` default, in order:
+`--provider` default, in order:
 
-1. `openai` if `OPENAI_BASE_URL` or `OPENAI_API_KEY` is set (an explicit key is an explicit choice)
-2. the last used backend in `~/.tny/settings.json` (`last_backend`)
+1. the provider (and its saved model) last used, recorded in `~/.tny/settings.json` (`last_provider`, `models.{provider}`)
+2. `openai` if `OPENAI_BASE_URL` or `OPENAI_API_KEY` is set
 3. `codex` if a `codex login` exists (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`) — subscriptions need no API key
 4. `cursor` if `CURSOR_API_KEY` is set in the environment
 5. `openai` (its connect error explains how to configure a key)
@@ -54,7 +54,7 @@ tny ask "summarize this repository"
 printf 'summarize src/\n' | tny ask --stdin
 tny ask --json --no-save "list the public CLI"
 tny ask --resume last "now add tests"
-tny ask --backend cursor --model composer-2 "find the login bug"
+tny ask --provider cursor --model composer-2 "find the login bug"
 tny ask --yolo --cwd /tmp/ws "run the test suite"
 ```
 
@@ -68,7 +68,7 @@ JSON object (keep field names stable):
 {
   "output": "…",
   "exit_code": 0,
-  "backend": "openai",
+  "provider": "openai",
   "model": "provider/model",
   "session_id": "…",
   "steps": 1,
@@ -78,18 +78,18 @@ JSON object (keep field names stable):
 
 `--json` is required on `ask`, `status`, `doctor`, `permissions`, `models`, `session`, `sessions`, `workspace`, `usage`.
 
-## Backend-specific flags
+## Provider-specific flags
 
-| Backend | Flags / env |
+| Provider | Flags / env |
 | --- | --- |
 | cursor | `--bridge-bin PATH`, `CURSOR_SDK_BRIDGE_BIN`, `CURSOR_API_KEY` (also pass through to RPCs) |
 | codex | `--codex-ws URL` to attach; without it tny spawns `codex app-server` on an ephemeral port (never a fixed port that could collide). `--codex-bin`, `--ws-token-file`, `CODEX_REMOTE_TOKEN` |
-| acp | `--agent CMD` plus extra args after `--`, e.g. `tny --backend acp --agent gemini -- acp` |
+| acp | `--agent CMD` plus extra args after `--`, e.g. `tny --provider acp --agent gemini -- acp` |
 | openai | `--base-url`, `--api-key-env NAME`, `OPENAI_BASE_URL`, `OPENAI_API_KEY` |
 
-`tny ask` never blocks on an approval. Unresolved permissions fail the run unless `--auto` reviews (native loop) or `--yolo`. Host backends must be pre-authorized or they fail closed.
+`tny ask` never blocks on an approval. Unresolved permissions fail the run unless `--auto` reviews (native loop) or `--yolo`. Host providers must be pre-authorized or they fail closed.
 
-Backend caveats: `--backend cursor` runs Cursor's own headless loop — the bridge exposes no per-call approval RPC, so tny's permission mode does not apply (a status line says so); it also rejects `--image`. `--backend codex` ignores `--image` with a status line (no documented image input item).
+Provider caveats: `--provider cursor` runs Cursor's own headless loop — the bridge exposes no per-call approval RPC, so tny's permission mode does not apply (a status line says so); it also rejects `--image`. `--provider codex` ignores `--image` with a status line (no documented image input item).
 
 ## Help shape
 
@@ -100,12 +100,12 @@ Options:
   --json          Write one JSON object to stdout
   --resume last   Continue the latest workspace session
   --no-save       Do not persist a session
-  --backend NAME  cursor | codex | acp | openai
+  --provider NAME cursor | codex | acp | openai (--backend also accepted)
 
 Examples:
   tny ask "explain src/main.c"
-  tny ask --json --backend openai "list exported symbols"
-  tny --backend cursor ask --model composer-2 "fix the leak"
+  tny ask --json --provider openai "list exported symbols"
+  tny --provider cursor ask --model composer-2 "fix the leak"
 ```
 
 Missing required values print the error, then a correct example, then exit 1. No timed prompts.

@@ -66,8 +66,8 @@ rc1=$?
 grep -q 'CODEX-MOCK-OK' "$tmp/run1.out" \
   && ok "run 1 streamed CODEX-MOCK-OK" \
   || bad "run 1 output did not contain CODEX-MOCK-OK"
-grep -q '"backend":"codex"' "$tmp/run1.out" \
-  && ok "run 1 reported the codex backend" \
+grep -q '"provider":"codex"' "$tmp/run1.out" \
+  && ok "run 1 reported the codex provider" \
   || bad "run 1 json did not report backend codex"
 grep -q 'commandExecution' "$tmp/run1.err" \
   && ok "run 1 rendered the commandExecution tool item" \

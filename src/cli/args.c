@@ -22,7 +22,7 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         const char *a = argv[i];
         if (a[0] != '-') break; /* subcommand */
         const char *v;
-        if (strcmp(a, "--backend") == 0) {
+        if (strcmp(a, "--provider") == 0 || strcmp(a, "--backend") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->backend = v;
         } else if (strcmp(a, "--cwd") == 0) {
@@ -91,7 +91,7 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else {
             fprintf(stderr,
                     "tny: unknown flag '%s'\nGlobal flags come before the command:\n"
-                    "  tny --backend openai ask \"hi\"\n", a);
+                    "  tny --provider codex ask \"hi\"\n", a);
             return -1;
         }
     }

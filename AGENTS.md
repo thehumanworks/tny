@@ -29,7 +29,7 @@ The current tree is **research and contract only**. There is no product source y
 - Startup: no backend spawn until a turn starts. `--help` / `--version` stay microseconds-to-milliseconds.
 - One event loop. Normalize every backend to the shared event set in `docs/architecture.md`.
 - Native loop owns tools/MCP/skills/permissions. Host backends own their own loops.
-- `tny acp` serves the native loop only. `--backend acp` is a client. `--backend cursor` is the bridge, not `agent acp`.
+- `tny acp` serves the native loop only. `--provider acp` (alias `--backend`) is a client. `--provider cursor` is the bridge, not `agent acp`.
 - CLI is noninteractive-first: flags, stdin, `--json`, layered `--help` with examples (`docs/cli.md`).
 - TUI is a shell, not an IDE (`docs/tui.md`). No ncurses.
 

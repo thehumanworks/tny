@@ -260,7 +260,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_init(&out);
         buf_appends(&out, "{\"output\":");
         jescape(&out, st.output.data ? st.output.data : "");
-        buf_appendf(&out, ",\"exit_code\":%d,\"backend\":\"%s\",\"model\":",
+        buf_appendf(&out, ",\"exit_code\":%d,\"provider\":\"%s\",\"model\":",
                     exit_code, tny_backend_name((tny_backend_id)ctx->backend));
         jescape(&out, ctx->model ? ctx->model : "default");
         buf_appends(&out, ",\"session_id\":");
