@@ -154,6 +154,50 @@ static int resolve_model(cu_impl *o, char *err, size_t errlen) {
     return 0;
 }
 
+/* Normalized model catalog: ListModelsResponse.items -> [{"id","name"},…]. */
+static int cu_list_models(tny_backend *b, char **out, char *e, size_t el) {
+    cu_impl *o = b->impl;
+    buf_t body;
+    buf_init(&body);
+    buf_appends(&body, "{");
+    if (o->api_key) {
+        buf_appends(&body, "\"options\":{\"apiKey\":");
+        jescape(&body, o->api_key);
+        buf_appends(&body, "}");
+    }
+    buf_appends(&body, "}");
+    char *res = rpc(o, CURSOR_SVC_CURSOR, "ListModels", body.data, e, el);
+    buf_free(&body);
+    if (!res) return -1;
+    yyjson_doc *doc = jparse(res, strlen(res));
+    free(res);
+    if (!doc) { snprintf(e, el, "cursor: ListModels returned junk"); return -1; }
+    yyjson_val *arr = jget(yyjson_doc_get_root(doc), "items");
+    buf_t j;
+    buf_init(&j);
+    buf_appends(&j, "[");
+    if (arr && yyjson_is_arr(arr)) {
+        size_t idx, max;
+        yyjson_val *m;
+        bool first = true;
+        yyjson_arr_foreach(arr, idx, max, m) {
+            const char *id = jget_str(m, "id");
+            if (!id || !*id) continue;
+            if (!first) buf_appends(&j, ",");
+            first = false;
+            buf_appends(&j, "{\"id\":");
+            jescape(&j, id);
+            const char *nm = jget_str(m, "displayName");
+            if (nm) { buf_appends(&j, ",\"name\":"); jescape(&j, nm); }
+            buf_appends(&j, "}");
+        }
+    }
+    buf_appends(&j, "]");
+    yyjson_doc_free(doc);
+    *out = buf_detach(&j);
+    return 0;
+}
+
 /* ---------- vtable ---------- */
 
 static int cu_connect(tny_backend *b, char *e, size_t el) {
@@ -460,6 +504,7 @@ tny_backend *tny_backend_cursor_new(struct tny_ctx *ctx) {
     b->respond_permission = cu_respond_permission;
     b->pollfds = cu_pollfds;
     b->dispatch = cu_dispatch;
+    b->list_models = cu_list_models;
     b->doctor = cu_doctor;
     b->destroy = cu_destroy;
     return b;

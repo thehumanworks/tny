@@ -316,6 +316,40 @@ static int cx_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     return 0;
 }
 
+/* Normalized model catalog: model/list result.data -> [{"id","name"},…].
+ * The host hides internal entries behind "hidden": skip them. */
+static int cx_list_models(tny_backend *b, char **out, char *err, size_t errlen) {
+    cx_impl *o = b->impl;
+    if (!o->ws) { snprintf(err, errlen, "codex: not connected"); return -1; }
+    yyjson_doc *doc = cx_request_sync(o, "model/list", "{}", CX_RPC_TIMEOUT_MS,
+                                      err, errlen);
+    if (!doc) return -1;
+    yyjson_val *data = jget(jget(yyjson_doc_get_root(doc), "result"), "data");
+    buf_t j;
+    buf_init(&j);
+    buf_appends(&j, "[");
+    if (data && yyjson_is_arr(data)) {
+        size_t idx, max;
+        yyjson_val *m;
+        bool first = true;
+        yyjson_arr_foreach(data, idx, max, m) {
+            const char *id = jget_str(m, "id");
+            if (!id || !*id || jget_bool(m, "hidden", false)) continue;
+            if (!first) buf_appends(&j, ",");
+            first = false;
+            buf_appends(&j, "{\"id\":");
+            jescape(&j, id);
+            const char *nm = jget_str(m, "displayName");
+            if (nm) { buf_appends(&j, ",\"name\":"); jescape(&j, nm); }
+            buf_appends(&j, "}");
+        }
+    }
+    buf_appends(&j, "]");
+    yyjson_doc_free(doc);
+    *out = buf_detach(&j);
+    return 0;
+}
+
 /* ---------- doctor ---------- */
 
 static void first_line(char *s) {
@@ -396,6 +430,7 @@ tny_backend *tny_backend_codex_new(struct tny_ctx *ctx) {
     b->respond_permission = cx_respond_permission;
     b->pollfds = cx_pollfds;
     b->dispatch = cx_dispatch;
+    b->list_models = cx_list_models;
     b->doctor = cx_doctor;
     b->destroy = cx_destroy;
     return b;

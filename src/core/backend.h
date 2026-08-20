@@ -65,6 +65,11 @@ struct tny_backend {
      * timeouts). Returns 0, or -1 on dead transport. */
     int (*dispatch)(tny_backend *b, struct pollfd *fds, int n);
 
+    /* List selectable models as malloc'd JSON [{"id":…,"name":…},…] into
+     * *out. Requires connect() first. Optional: NULL when the host offers
+     * no catalog. 0 ok, -1 error (reason in errbuf). */
+    int (*list_models)(tny_backend *b, char **out, char *errbuf, size_t errlen);
+
     /* One-line health check for `tny doctor`. 0 healthy. */
     int (*doctor)(struct tny_ctx *ctx, char *line, size_t linelen);
 

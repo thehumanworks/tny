@@ -77,15 +77,80 @@ int cmd_permissions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     return 0;
 }
 
+/* Print one normalized [{"id","name"},…] catalog. */
+static void models_print(tny_ctx *ctx, const char *json_arr, bool json) {
+    const char *name = tny_backend_name((tny_backend_id)ctx->backend);
+    if (json) {
+        printf("{\"kind\":\"models\",\"provider\":\"%s\",\"models\":%s}\n", name,
+               json_arr);
+        return;
+    }
+    yyjson_doc *doc = jparse(json_arr, strlen(json_arr));
+    yyjson_val *arr = doc ? yyjson_doc_get_root(doc) : NULL;
+    size_t idx, max, n = 0;
+    yyjson_val *m;
+    if (arr && yyjson_is_arr(arr)) {
+        yyjson_arr_foreach(arr, idx, max, m) {
+            const char *id = jget_str(m, "id");
+            const char *nm = jget_str(m, "name");
+            if (!id) continue;
+            n++;
+            bool active = ctx->model && strcmp(ctx->model, id) == 0;
+            printf("%s%s%s%s%s\n", id, nm ? "  —  " : "", nm ? nm : "",
+                   active ? "  (active)" : "", "");
+        }
+    }
+    if (!n) printf("%s\n", ctx->model ? ctx->model : "default");
+    yyjson_doc_free(doc);
+}
+
+/* Providers without a catalog still answer: the configured model or the
+ * host's default. */
+static int models_fallback(tny_ctx *ctx, bool json) {
+    if (json) {
+        buf_t j;
+        buf_init(&j);
+        buf_appends(&j, "[{\"id\":");
+        jescape(&j, ctx->model ? ctx->model : "default");
+        buf_appends(&j, "}]");
+        models_print(ctx, j.data, true);
+        buf_free(&j);
+    } else {
+        printf("%s (no catalog from the %s provider; use --model ID to override)\n",
+               ctx->model ? ctx->model : "default",
+               tny_backend_name((tny_backend_id)ctx->backend));
+    }
+    return 0;
+}
+
 int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = wants_json(g, argc, argv);
     if (ctx->backend != TNY_BK_OPENAI) {
-        if (json) printf("{\"kind\":\"models\",\"backend\":\"%s\",\"models\":[],"
-                         "\"note\":\"model catalog comes from the host backend\"}\n",
-                         tny_backend_name((tny_backend_id)ctx->backend));
-        else printf("model catalog for %s comes from the host; use --model ID\n",
-                    tny_backend_name((tny_backend_id)ctx->backend));
-        return 0;
+        tny_backend *bk = tny_backend_create((tny_backend_id)ctx->backend, ctx);
+        if (!bk) return 1;
+        if (!bk->list_models) {
+            bk->destroy(bk);
+            return models_fallback(ctx, json);
+        }
+        char err[512];
+        int rc = 1;
+        if (bk->connect(bk, err, sizeof err) != 0) {
+            fprintf(stderr, "tny: %s\n", err);
+            models_fallback(ctx, json);
+        } else {
+            char *arr = NULL;
+            if (bk->list_models(bk, &arr, err, sizeof err) == 0 && arr) {
+                models_print(ctx, arr, json);
+                free(arr);
+                rc = 0;
+            } else {
+                fprintf(stderr, "tny: %s\n", err);
+                models_fallback(ctx, json);
+            }
+            if (bk->disconnect) bk->disconnect(bk);
+        }
+        bk->destroy(bk);
+        return rc;
     }
     char err[256];
     http_conn *c = http_open(ctx->base_url, err, sizeof err);
@@ -127,15 +192,10 @@ int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     http_close(c);
 
     if (status != 200) {
-        if (json) printf("{\"kind\":\"models\",\"models\":[%s%s%s]}\n",
-                         ctx->model ? "\"" : "", ctx->model ? ctx->model : "",
-                         ctx->model ? "\"" : "");
-        else {
-            fprintf(stderr, "tny: provider has no /models (HTTP %d); showing configured\n", status);
-            if (ctx->model) printf("%s\n", ctx->model);
-        }
+        fprintf(stderr, "tny: provider has no /models (HTTP %d); showing configured\n",
+                status);
         buf_free(&body);
-        return 0;
+        return models_fallback(ctx, json);
     }
     yyjson_doc *doc = jparse(body.data, body.len);
     buf_free(&body);
