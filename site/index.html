@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tny — Tiny C11 coding-agent harness</title>
+  <meta name="description" content="Tiny, open, native coding-agent harness. A C11 CLI and TUI that drives Cursor, Codex, ACP, and OpenAI-compatible providers.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://thehumanworks.github.io/tny/">
+  <meta property="og:title" content="tny — Tiny C11 coding-agent harness">
+  <meta property="og:description" content="Tiny, open, native coding-agent harness. A C11 CLI and TUI that drives Cursor, Codex, ACP, and OpenAI-compatible providers.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("theme");
+        if (t === "light" || t === "dark") document.documentElement.classList.add(t);
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="index.html" aria-label="tny home"><svg class="brand-slash" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="m4.02 15.4.3-.7 6-14 .29-.68 1.37.59-.3.69-6 14-.29.68z" fill="var(--logo-divider)"></path></svg><span class="brand-word">tny</span></a>
+  <nav class="nav"><a href="docs/index.html">docs</a><a href="docs/cli.html">cli</a><a href="https://github.com/thehumanworks/tny" target="_blank" rel="noreferrer">source</a></nav>
+  <button type="button" class="theme-cta" data-theme aria-label="Toggle color theme">theme</button>
+  <button type="button" class="install-cta" data-site-install aria-label="Copy install command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-copy-status>install</span></button>
+</header>
+<main class="landing">
+  <div class="landing-hero">
+    <div>
+      <p class="tagline">Tiny C11 coding-agent harness.</p>
+      <p class="install-line">
+        <button type="button" data-copy="git clone https://github.com/thehumanworks/tny && cd tny && make" aria-label="Copy install command">
+          <span class="prompt">$ </span><code>git clone https://github.com/thehumanworks/tny && cd tny && make</code>
+          <span class="copy-hint" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.5"></rect><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></span>
+          <span class="copied-label" data-copy-status role="status">copied</span>
+        </button>
+      </p>
+      <p class="meta">
+        <span>v0.1.0</span>
+        <span aria-hidden="true"> · </span>
+        <span>0.41mib</span>
+        <span aria-hidden="true"> · </span>
+        status: <span class="status">experimental</span>
+        <span class="info">
+          <button type="button" aria-label="Stability note" aria-describedby="version-note">(i)</button>
+          <span class="tooltip" role="tooltip" id="version-note">use at your own risk. the binary is small; the protocols still move.</span>
+        </span>
+      </p>
+    </div>
+    <div class="term-wrap">
+      <div class="term" role="img" aria-label="tny interactive shell">
+        <div class="term-bar">
+          <div class="term-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="term-title">tny</div>
+        </div>
+        <pre class="term-body"><span class="bright">tny</span> 0.1.0 · Run /help for commands
+
+<span class="bar">┃</span>
+
+<span class="status-row"><span class="auto">yolo</span> · openai</span></pre>
+      </div>
+    </div>
+    <div class="prose">
+      <p><span class="name">tny</span> is a coding agent harness and CLI written in C11, built to beat <a href="https://fx.sh">fx</a> on size and startup while keeping a Unix-shell UI.</p>
+      <p>It focuses on a thin multiplexed frontend over host agents, plus a native OpenAI-compatible loop for BYOK providers. The stripped binary is 0.41mib.</p>
+      <p>For end users, the form factor aims to be closer to a Unix shell than a heavy "IDE in the terminal" TUI.</p>
+      <p>It's open source, model-agnostic, and suitable for local models, subscriptions, and cloud inference.</p>
+    </div>
+    <button type="button" class="scroll-hint" data-scroll="features" aria-label="Scroll to features">***</button>
+  </div>
+  <section class="features" id="features">
+    <div><h2>Tiny 0.41mb binary</h2><p>Fifteen times smaller than fx on macOS. Designed for instant installation and embedding in resource-constrained environments and agent sandboxes.</p></div><div><h2>Instant time to prompt</h2><p>The interactive shell first-paints in <span class="hi">3–4ms</span> and does no backend I/O before accepting input. Host processes are pre-warmed after first paint so Enter is not a spawn.</p></div><div><h2>Four first-class backends</h2><p>Cursor via the SDK Bridge, Codex via <code>app-server</code> WebSockets, other agents via <a href="docs/backends.html">ACP</a>, and a native OpenAI-compatible tool loop.</p></div><div><h2>Minimal memory footprint</h2><p>About 2.1 MiB RSS for <code>--version</code>. Pack many instances on one machine without dragging a runtime along.</p></div><div><h2>Shell-like UI and ergonomics</h2><p>A Unix shell, not an IDE in the terminal. Append-only transcript, a pinned composer, slash commands, and sparing use of paints.</p></div><div><h2>Context efficient</h2><p>Minimal system prompt and lazy tool catalogs, so token cost and time-to-first-token stay on the model — not the harness.</p></div><div><h2>Host processes stay external</h2><p><code>cursor-sdk-bridge</code> and <code>codex</code> are spawned or attached, never embedded. The tny binary does not ship Node, Bun, or Rust.</p></div><div><h2>Model and provider agnostic</h2><p>Local models, OpenRouter, Groq, Azure, Cursor, Codex subscriptions, or any <a href="docs/backends.html">ACP</a> agent.</p></div>
+  </section>
+</main>
+<script src="assets/site.js"></script>
+</body>
+</html>

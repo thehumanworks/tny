@@ -1,0 +1,4 @@
+{
+  "buildCommand": "python3 scripts/site_build.py",
+  "outputDirectory": "site"
+}
