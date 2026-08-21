@@ -315,9 +315,9 @@ TEST tls_to_plain_http_server_fails_cleanly(void) {
     ASSERT_EQ(NULL, s);
     ASSERT(err[0] != '\0');
 #if defined(__APPLE__) || defined(__linux__)
-    /* TLS is implemented here: this must be a handshake failure, never the
-     * "https not built on this platform" fallback. */
-    ASSERT_EQ(NULL, strstr(err, "not built"));
+    /* TLS is implemented here: this must be a real handshake failure, never
+     * the "https not built" fallback or a failed TLS-library load. */
+    ASSERT(strstr(err, "handshake") != NULL);
 #endif
     PASS();
 }

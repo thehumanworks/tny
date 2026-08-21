@@ -31,7 +31,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # — functions None means the whole file; regex None means every line.
 # The scope is the code THIS change touched: whole new files/functions, but
 # only the overlay branches inside the pre-existing key handler.
+# (path, function names or None, line regex or None[, integration test]) —
+# the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
+    ("src/net/stream.c", None, r"ossl|OSSL",
+     "tests/integration/test_https.py"),
     ("src/tui/tui_prewarm.c", None, None),
     ("src/tui/tui_draw.c", ["tui_push_ansi", "tui_overlay_budget", "overlay_rows",
                             "tui_overlay_linef", "tui_overlay_clear"], None),
@@ -139,10 +143,15 @@ def main():
     args = ap.parse_args()
 
     mutants = []
-    for path, names, line_re in TARGETS:
+    for spec in TARGETS:
+        path, names, line_re = spec[:3]
+        itest = spec[3] if len(spec) > 3 else "tests/integration/test_tui.py"
         if args.only and args.only not in path:
             continue
-        mutants += gen_mutants(os.path.join(ROOT, path), names, line_re)
+        ms = gen_mutants(os.path.join(ROOT, path), names, line_re)
+        for mu in ms:
+            mu["itest"] = itest
+        mutants += ms
     print("generated %d mutants" % len(mutants))
 
     killed_unit = killed_int = invalid = 0
@@ -177,8 +186,7 @@ def main():
                 invalid += 1
                 print("%3d/%d  invalid:r %s" % (i + 1, len(mutants), tag))
                 continue
-            rc, out = run([sys.executable, "tests/integration/test_tui.py",
-                           "./build/tny"], 420)
+            rc, out = run([sys.executable, mu["itest"], "./build/tny"], 420)
             if rc != 0:
                 killed_int += 1
                 print("%3d/%d  killed:i  %s" % (i + 1, len(mutants), tag))
