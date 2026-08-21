@@ -10,3 +10,4 @@ these as `docs/adr/NNNN`.
 | [0002](0002-tui-provider-prewarm.md) | The TUI pre-warms the provider's host at startup |
 | [0003](0003-transient-menu-overlay.md) | In-TUI menus are transient overlays, never transcript |
 | [0004](0004-time-to-first-token.md) | Resume on the warm-up thread; ask overlaps connect with stdin; codex one-shots attach to a live host |
+| [0005](0005-ci-build-targets.md) | CI builds Linux x86_64+aarch64 (glibc + musl static), Darwin arm64 only, Windows via MSYS2 |

@@ -26,9 +26,12 @@ These apply to the **tny executable only**. `cursor-sdk-bridge` is a Bun-package
 | macOS arm64, stripped, libSystem + Security.framework | **< 1.8 MiB** | < 1.2 MiB |
 | Linux musl static, stripped | **< 1.5 MiB** | < 1.0 MiB |
 | Linux glibc dynamic | **< 1.5 MiB** | < 1.0 MiB |
+| Windows x86_64 (MSYS-linked exe) | **< 2.0 MiB** | — |
 | Idle RSS after prompt | **< 4 MiB** | < 2 MiB |
 
-Those still beat fx by ~3–4× on macOS and ~7× on static Linux. CI fails the PR if the stripped binary exceeds the Must column.
+Those still beat fx by ~3–4× on macOS and ~7× on static Linux. The `ci`
+workflow runs `make size-check` on every target and fails the PR if the
+stripped binary exceeds the Must column ([ci.md](ci.md)).
 
 Startup (empty `HOME` override, no network):
 
