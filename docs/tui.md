@@ -11,7 +11,13 @@ Match fx's form: a **Unix shell**, not an IDE. Streaming transcript, a pinned co
 ```
 
 - Transcript is append-only with scrollback. Markdown-ish: headings, lists, fenced code, diffs as plain text with `+`/`-` coloring.
-- Composer supports multiline (`Shift-Enter` / `Alt-Enter` / `\\` then Enter).
+- Composer wraps at the terminal width and supports real newlines
+  (`Ctrl-J`, `Option-J` / `Alt-J`, `Alt-Enter`, kitty/CSI-u `Shift-Enter`
+  `\x1b[13;2u`, or `\\` then Enter). Plain Enter still submits.
+- `Ctrl-V` pastes a clipboard image when a helper is installed (`pngpaste` /
+  `osascript` on macOS, `wl-paste` / `xclip` on Linux): the file is written
+  under `/tmp` and a `[Image #N]` placeholder is inserted. Text is pasted
+  if the clipboard has no image. Helpers are spawned only on paste.
 - Status line is off-by-default extras (sandbox, context bytes) like fx.
 
 ## Input
@@ -24,6 +30,8 @@ Match fx's form: a **Unix shell**, not an IDE. Streaming transcript, a pinned co
 | `$` | skill picker (insert skill name, do not load until invoked) |
 | Up/Down at draft edge | prompt history |
 | Esc or Ctrl-C | interrupt current turn (second Ctrl-C exits if idle) |
+| Ctrl-J / Alt-J / Shift-Enter | insert a newline in the composer |
+| Ctrl-V | paste clipboard image (or text) |
 | Ctrl-O | full transcript / review |
 | Ctrl-X | subagent manager (native loop) |
 
@@ -40,6 +48,14 @@ Sessions: `/help` `/clear` `/new` `/reset` `/resume` `/continue` `/rename` `/com
 Runtime: `/models` `/model` `/permissions` `/sandbox` `/backend` `/status` `/usage`
 
 Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace`
+
+`/image PATH` and Ctrl-V queue files for the next prompt. The native loop
+sends them as `image_url` data URLs ([ADR 0008](adr/0008-native-loop-images.md)).
+The model can also call `read_image` on a path.
+
+Transcript spacing: one blank line between the echoed user prompt and the
+first agent output, and one blank line before the next model iteration
+after a tool batch.
 
 Auth: `/login` `/logout` `/setup` — dispatch to the active backend (Cursor key, Codex CLI login, provider key). No Vercel-only flow.
 

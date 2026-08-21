@@ -2,8 +2,8 @@
  * Layout is a scrolling transcript plus a redrawn bottom block:
  *   [committed transcript]  <- scrolls with the terminal
  *   [partial line][popover][status][composer]  <- erased and redrawn
- * Every block row is clamped to cols-1 columns so no row ever wraps and the
- * row arithmetic stays exact. */
+ * Every block row is clamped to cols-1 columns so the terminal never
+ * soft-wraps; the composer wraps itself onto extra rows. */
 #ifndef TNY_TUI_H
 #define TNY_TUI_H
 
@@ -84,7 +84,37 @@ typedef struct tui {
 
     char *images[TUI_MAX_IMAGES + 1];
     int   n_images;
+
+    /* Transcript gap: one blank line before the next agent start. */
+    int gap; /* 0 none, 1 before text or tools, 2 before text only */
 } tui;
+
+/* Key decoder (split-safe). Exposed for unit tests. */
+typedef enum {
+    TUI_K_NONE = 0, TUI_K_CHAR, TUI_K_ENTER, TUI_K_NEWLINE, TUI_K_BS, TUI_K_DEL,
+    TUI_K_LEFT, TUI_K_RIGHT, TUI_K_UP, TUI_K_DOWN, TUI_K_HOME, TUI_K_END,
+    TUI_K_WLEFT, TUI_K_WRIGHT, TUI_K_WBS, TUI_K_KILL_EOL, TUI_K_KILL_BOL,
+    TUI_K_ESC, TUI_K_TAB, TUI_K_CTRLC, TUI_K_CTRLD, TUI_K_CTRLL, TUI_K_CTRLO,
+    TUI_K_CTRLX, TUI_K_PASTE
+} tui_key;
+
+typedef struct {
+    tui_key     key;
+    const char *ch;
+    size_t      chlen;
+} tui_decoded;
+
+/* Consume one key from p[0..n). 0 if more bytes are needed. */
+size_t tui_decode_one(const char *p, size_t n, bool final, tui_decoded *out);
+
+/* Composer wrap math. width is display columns after the "> " / "  " prefix. */
+void   tui_wrap_locate(const char *s, size_t n, size_t cur, int width,
+                       int *row, int *col, int *total);
+size_t tui_wrap_index(const char *s, size_t n, int width, int row, int col);
+int    tui_wrap_width(const tui *t);
+
+/* Queue an image path for the next prompt. Returns 1-based index, or 0. */
+int tui_queue_image(tui *t, const char *path);
 
 /* tui.c */
 void tui_submit(tui *t, const char *text);

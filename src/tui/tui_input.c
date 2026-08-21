@@ -2,19 +2,19 @@
  * popover selection. Escape sequences are decoded from a byte stream, so a
  * split CSI across two read()s is re-joined instead of leaking as literals. */
 #include "tui/tui.h"
+#include "core/image.h"
 
 #include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
-
-enum {
-    K_NONE = 0, K_CHAR, K_ENTER, K_NEWLINE, K_BS, K_DEL, K_LEFT, K_RIGHT,
-    K_UP, K_DOWN, K_HOME, K_END, K_WLEFT, K_WRIGHT, K_WBS, K_KILL_EOL,
-    K_KILL_BOL, K_ESC, K_TAB, K_CTRLC, K_CTRLD, K_CTRLL, K_CTRLO, K_CTRLX
-};
 
 /* ---- composer primitives ---- */
 
@@ -215,20 +215,138 @@ static void hist_move(tui *t, int dir) {
     t->dirty = true;
 }
 
-static void caret_line_move(tui *t, int dir) {
-    size_t ls = line_start(t, t->cur);
-    size_t col = t->cur - ls;
+static void caret_visual_move(tui *t, int dir) {
+    int width = tui_wrap_width(t);
+    int row = 0, col = 0, total = 1;
+    tui_wrap_locate(t->input.data, t->input.len, t->cur, width, &row, &col, &total);
     if (dir < 0) {
-        size_t pls = ls ? line_start(t, ls - 1) : 0;
-        size_t ple = ls ? ls - 1 : 0;
-        t->cur = pls + col < ple ? pls + col : ple;
+        if (row <= 0) { hist_move(t, -1); return; }
+        t->cur = tui_wrap_index(t->input.data, t->input.len, width, row - 1, col);
     } else {
-        size_t le = line_end(t, t->cur);
-        size_t nls = le + 1;
-        size_t nle = line_end(t, nls);
-        t->cur = nls + col < nle ? nls + col : nle;
+        if (row + 1 >= total) { hist_move(t, 1); return; }
+        t->cur = tui_wrap_index(t->input.data, t->input.len, width, row + 1, col);
     }
     t->dirty = true;
+}
+
+/* ---- clipboard (spawned only on Ctrl-V; never at startup) ---- */
+
+static int spawn_to_fd(char *const argv[], int outfd) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        if (outfd >= 0) dup2(outfd, STDOUT_FILENO);
+        int nulfd = open("/dev/null", O_RDWR);
+        if (nulfd >= 0) {
+            dup2(nulfd, STDERR_FILENO);
+            if (nulfd > 2) close(nulfd);
+        }
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+    for (int i = 0; i < 40; i++) {
+        int st = 0;
+        pid_t r = waitpid(pid, &st, WNOHANG);
+        if (r == pid) return (WIFEXITED(st) && WEXITSTATUS(st) == 0) ? 0 : -1;
+        poll(NULL, 0, 50);
+    }
+    kill(pid, SIGKILL);
+    waitpid(pid, NULL, 0);
+    return -1;
+}
+
+static int spawn_to_file(char *const argv[], const char *path) {
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) return -1;
+    int rc = spawn_to_fd(argv, fd);
+    close(fd);
+    return rc;
+}
+
+static int clipboard_image(char *path, size_t pathlen) {
+    snprintf(path, pathlen, "/tmp/tny-paste-%d-%d.png", (int)getpid(), (int)now_ms());
+#ifdef __APPLE__
+    char *pngpaste[] = {"pngpaste", path, NULL};
+    if (spawn_to_fd(pngpaste, -1) == 0 && file_exists(path)) return 0;
+    char script[512];
+    snprintf(script, sizeof script,
+             "try\nset p to POSIX file \"%s\"\n"
+             "set d to the clipboard as «class PNGf»\n"
+             "set f to open for access p with write permission\n"
+             "write d to f\nclose access f\non error\nreturn \"\"\nend try",
+             path);
+    char *osa[] = {"osascript", "-e", script, NULL};
+    if (spawn_to_fd(osa, -1) == 0 && file_exists(path)) return 0;
+#else
+    char *wl[] = {"wl-paste", "-t", "image/png", "-o", NULL};
+    if (spawn_to_file(wl, path) == 0 && file_exists(path)) return 0;
+    char *xc[] = {"xclip", "-selection", "clipboard", "-t", "image/png", "-o", NULL};
+    if (spawn_to_file(xc, path) == 0 && file_exists(path)) return 0;
+#endif
+    unlink(path);
+    return -1;
+}
+
+static int drain_pipe(int rfd, buf_t *out) {
+    char tmp[4096];
+    ssize_t n;
+    while ((n = read(rfd, tmp, sizeof tmp)) > 0) buf_append(out, tmp, (size_t)n);
+    return out->len ? 0 : -1;
+}
+
+static int clipboard_text(buf_t *out) {
+    int pfd[2];
+    if (pipe(pfd) != 0) return -1;
+    int rc = -1;
+#ifdef __APPLE__
+    char *pb[] = {"pbpaste", NULL};
+    rc = spawn_to_fd(pb, pfd[1]);
+#else
+    char *wl[] = {"wl-paste", "-n", "-t", "text", NULL};
+    rc = spawn_to_fd(wl, pfd[1]);
+    if (rc != 0) {
+        char *xc[] = {"xclip", "-selection", "clipboard", "-o", NULL};
+        rc = spawn_to_fd(xc, pfd[1]);
+    }
+#endif
+    close(pfd[1]);
+    if (rc == 0) rc = drain_pipe(pfd[0], out);
+    close(pfd[0]);
+    return rc;
+}
+
+static void do_paste(tui *t) {
+    char path[PATH_MAX];
+    if (clipboard_image(path, sizeof path) == 0) {
+        size_t len = 0;
+        const char *mime = NULL;
+        uint8_t *data = image_load(path, &len, &mime, NULL, 0);
+        if (data) {
+            free(data);
+            int n = tui_queue_image(t, path);
+            if (n > 0) {
+                char ph[32];
+                snprintf(ph, sizeof ph, "[Image #%d]", n);
+                ins(t, ph, strlen(ph));
+                tui_note(t, "pasted image %d", n);
+                t->dirty = true;
+                return;
+            }
+            tui_note(t, "too many images queued");
+            return;
+        }
+        unlink(path);
+    }
+    buf_t text;
+    buf_init(&text);
+    if (clipboard_text(&text) == 0) {
+        ins(t, text.data, text.len);
+        t->dirty = true;
+        tui_pick_refresh(t);
+    } else {
+        tui_note(t, "clipboard has no image");
+    }
+    buf_free(&text);
 }
 
 static void do_key(tui *t, int k, const char *ch, size_t chlen) {
@@ -240,64 +358,65 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
     }
 
     switch (k) {
-    case K_CHAR:
+    case TUI_K_CHAR:
         ins(t, ch, chlen);
         t->dirty = true;
         tui_pick_refresh(t);
         break;
-    case K_ENTER:
+    case TUI_K_ENTER:
         if (popover) { pick_accept(t, true); break; }
         submit_current(t);
         break;
-    case K_TAB:
+    case TUI_K_TAB:
         if (popover) pick_accept(t, false);
         break;
-    case K_NEWLINE:
+    case TUI_K_NEWLINE:
         ins(t, "\n", 1);
         t->dirty = true;
         break;
-    case K_BS:
+    case TUI_K_PASTE:
+        do_paste(t);
+        break;
+    case TUI_K_BS:
         if (t->cur > 0) {
             del_range(t, prev_ch(t, t->cur), t->cur);
             t->dirty = true;
             tui_pick_refresh(t);
         }
         break;
-    case K_DEL:
+    case TUI_K_DEL:
         del_range(t, t->cur, next_ch(t, t->cur));
         t->dirty = true;
         tui_pick_refresh(t);
         break;
-    case K_WBS:
+    case TUI_K_WBS:
         del_range(t, word_left(t, t->cur), t->cur);
         t->dirty = true;
         tui_pick_refresh(t);
         break;
-    case K_LEFT:  t->cur = prev_ch(t, t->cur); t->dirty = true; tui_pick_refresh(t); break;
-    case K_RIGHT: t->cur = next_ch(t, t->cur); t->dirty = true; tui_pick_refresh(t); break;
-    case K_WLEFT: t->cur = word_left(t, t->cur); t->dirty = true; break;
-    case K_WRIGHT: t->cur = word_right(t, t->cur); t->dirty = true; break;
-    case K_HOME:  t->cur = line_start(t, t->cur); t->dirty = true; break;
-    case K_END:   t->cur = line_end(t, t->cur); t->dirty = true; break;
-    case K_KILL_EOL: del_range(t, t->cur, line_end(t, t->cur)); t->dirty = true; break;
-    case K_KILL_BOL: del_range(t, line_start(t, t->cur), t->cur); t->dirty = true; break;
-    case K_UP:
+    case TUI_K_LEFT:  t->cur = prev_ch(t, t->cur); t->dirty = true; tui_pick_refresh(t); break;
+    case TUI_K_RIGHT: t->cur = next_ch(t, t->cur); t->dirty = true; tui_pick_refresh(t); break;
+    case TUI_K_WLEFT: t->cur = word_left(t, t->cur); t->dirty = true; break;
+    case TUI_K_WRIGHT: t->cur = word_right(t, t->cur); t->dirty = true; break;
+    case TUI_K_HOME:  t->cur = line_start(t, t->cur); t->dirty = true; break;
+    case TUI_K_END:   t->cur = line_end(t, t->cur); t->dirty = true; break;
+    case TUI_K_KILL_EOL: del_range(t, t->cur, line_end(t, t->cur)); t->dirty = true; break;
+    case TUI_K_KILL_BOL: del_range(t, line_start(t, t->cur), t->cur); t->dirty = true; break;
+    case TUI_K_UP:
         if (popover) { if (t->sel > 0) t->sel--; t->dirty = true; break; }
-        if (line_start(t, t->cur) > 0) caret_line_move(t, -1);
-        else hist_move(t, -1);
+        caret_visual_move(t, -1);
         break;
-    case K_DOWN:
+    case TUI_K_DOWN:
         if (popover) { if (t->sel + 1 < t->n_items) t->sel++; t->dirty = true; break; }
-        if (line_end(t, t->cur) < t->input.len) caret_line_move(t, 1);
-        else hist_move(t, 1);
+        caret_visual_move(t, 1);
         break;
-    case K_ESC:
+    case TUI_K_ESC:
         if (popover) { tui_pick_close(t); t->dirty = true; break; }
         if (t->overlay.len) { tui_overlay_clear(t); break; }
         if (t->turn_active) { tui_cancel_turn(t); break; }
         if (t->input.len) { set_input(t, NULL); t->dirty = true; }
         break;
-    case K_CTRLC:
+    case TUI_K_CTRLC:
         if (popover) { tui_pick_close(t); t->dirty = true; break; }
         if (t->overlay.len) { tui_overlay_clear(t); break; }
         if (t->turn_active) { tui_cancel_turn(t); break; }
@@ -310,19 +429,19 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
             tui_note(t, "press ctrl-c again to exit");
         }
         break;
-    case K_CTRLD:
+    case TUI_K_CTRLD:
         if (!t->input.len) t->quit = true;
         else { del_range(t, t->cur, next_ch(t, t->cur)); t->dirty = true; }
         break;
-    case K_CTRLL:
+    case TUI_K_CTRLL:
         tui_raw_begin(t);
         fputs("\x1b[H\x1b[2J\x1b[3J", stdout);
         tui_raw_end(t);
         break;
-    case K_CTRLO:
+    case TUI_K_CTRLO:
         tui_command(t, "/transcript");
         break;
-    case K_CTRLX:
+    case TUI_K_CTRLX:
         tui_sys(t, "subagent manager: not available on this backend");
         break;
     default:
@@ -330,27 +449,49 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
     }
 }
 
+static void csi_params(const char *p, size_t i, int *a, int *b, int *c) {
+    *a = 0;
+    *b = 0;
+    *c = 0;
+    int *slots[3] = {a, b, c};
+    int n = 0, v = 0;
+    bool any = false;
+    for (size_t j = 2; j < i && n < 3; j++) {
+        if (p[j] >= '0' && p[j] <= '9') { v = v * 10 + (p[j] - '0'); any = true; }
+        else if (p[j] == ';') { *slots[n++] = any ? v : 0; v = 0; any = false; }
+    }
+    if (n < 3 && any) *slots[n] = v;
+}
+
+static void set_key(tui_decoded *out, tui_key k) {
+    if (out) { out->key = k; out->ch = NULL; out->chlen = 0; }
+}
+
 /* Decode one key from p[0..n). Returns bytes consumed, 0 if it needs more. */
-static size_t decode_one(tui *t, const char *p, size_t n, bool final) {
+size_t tui_decode_one(const char *p, size_t n, bool final, tui_decoded *out) {
+    if (out) { out->key = TUI_K_NONE; out->ch = NULL; out->chlen = 0; }
+    if (!p || n == 0) return 0;
     unsigned char c = (unsigned char)p[0];
 
     if (c != 0x1b) {
         switch (c) {
-        case '\r': case '\n': do_key(t, K_ENTER, NULL, 0); return 1;
-        case 0x7f: case 0x08: do_key(t, K_BS, NULL, 0); return 1;
-        case 0x01: do_key(t, K_HOME, NULL, 0); return 1;
-        case 0x02: do_key(t, K_LEFT, NULL, 0); return 1;
-        case 0x03: do_key(t, K_CTRLC, NULL, 0); return 1;
-        case 0x04: do_key(t, K_CTRLD, NULL, 0); return 1;
-        case 0x05: do_key(t, K_END, NULL, 0); return 1;
-        case 0x06: do_key(t, K_RIGHT, NULL, 0); return 1;
-        case 0x09: do_key(t, K_TAB, NULL, 0); return 1;
-        case 0x0b: do_key(t, K_KILL_EOL, NULL, 0); return 1;
-        case 0x0c: do_key(t, K_CTRLL, NULL, 0); return 1;
-        case 0x0f: do_key(t, K_CTRLO, NULL, 0); return 1;
-        case 0x15: do_key(t, K_KILL_BOL, NULL, 0); return 1;
-        case 0x17: do_key(t, K_WBS, NULL, 0); return 1;
-        case 0x18: do_key(t, K_CTRLX, NULL, 0); return 1;
+        case '\r': set_key(out, TUI_K_ENTER); return 1;
+        case '\n': set_key(out, TUI_K_NEWLINE); return 1; /* Ctrl-J */
+        case 0x7f: case 0x08: set_key(out, TUI_K_BS); return 1;
+        case 0x01: set_key(out, TUI_K_HOME); return 1;
+        case 0x02: set_key(out, TUI_K_LEFT); return 1;
+        case 0x03: set_key(out, TUI_K_CTRLC); return 1;
+        case 0x04: set_key(out, TUI_K_CTRLD); return 1;
+        case 0x05: set_key(out, TUI_K_END); return 1;
+        case 0x06: set_key(out, TUI_K_RIGHT); return 1;
+        case 0x09: set_key(out, TUI_K_TAB); return 1;
+        case 0x0b: set_key(out, TUI_K_KILL_EOL); return 1;
+        case 0x0c: set_key(out, TUI_K_CTRLL); return 1;
+        case 0x0f: set_key(out, TUI_K_CTRLO); return 1;
+        case 0x15: set_key(out, TUI_K_KILL_BOL); return 1;
+        case 0x16: set_key(out, TUI_K_PASTE); return 1; /* Ctrl-V */
+        case 0x17: set_key(out, TUI_K_WBS); return 1;
+        case 0x18: set_key(out, TUI_K_CTRLX); return 1;
         default: break;
         }
         if (c < 0x20) return 1; /* other control bytes: ignore */
@@ -359,13 +500,13 @@ static size_t decode_one(tui *t, const char *p, size_t n, bool final) {
         else if (c >= 0xE0) len = 3;
         else if (c >= 0xC0) len = 2;
         if (n < len) { if (!final) return 0; len = n; }
-        do_key(t, K_CHAR, p, len);
+        if (out) { out->key = TUI_K_CHAR; out->ch = p; out->chlen = len; }
         return len;
     }
 
     if (n == 1) {
         if (!final) return 0;
-        do_key(t, K_ESC, NULL, 0);
+        set_key(out, TUI_K_ESC);
         return 1;
     }
     if (p[1] == '[') {
@@ -373,22 +514,31 @@ static size_t decode_one(tui *t, const char *p, size_t n, bool final) {
         while (i < n && !((unsigned char)p[i] >= 0x40 && (unsigned char)p[i] <= 0x7e)) i++;
         if (i >= n) return final ? n : 0;
         char fin = p[i];
-        bool ctrl = false;
-        for (size_t j = 2; j < i; j++)
-            if (p[j] == ';' && j + 1 < i && (p[j + 1] == '5' || p[j + 1] == '3')) ctrl = true;
+        int a = 0, b = 0, csi_c = 0;
+        csi_params(p, i, &a, &b, &csi_c);
+        bool ctrl = (b == 5 || b == 3);
         size_t used = i + 1;
         switch (fin) {
-        case 'A': do_key(t, K_UP, NULL, 0); break;
-        case 'B': do_key(t, K_DOWN, NULL, 0); break;
-        case 'C': do_key(t, ctrl ? K_WRIGHT : K_RIGHT, NULL, 0); break;
-        case 'D': do_key(t, ctrl ? K_WLEFT : K_LEFT, NULL, 0); break;
-        case 'H': do_key(t, K_HOME, NULL, 0); break;
-        case 'F': do_key(t, K_END, NULL, 0); break;
-        case 'Z': do_key(t, K_TAB, NULL, 0); break;
+        case 'A': set_key(out, TUI_K_UP); break;
+        case 'B': set_key(out, TUI_K_DOWN); break;
+        case 'C': set_key(out, ctrl ? TUI_K_WRIGHT : TUI_K_RIGHT); break;
+        case 'D': set_key(out, ctrl ? TUI_K_WLEFT : TUI_K_LEFT); break;
+        case 'H': set_key(out, TUI_K_HOME); break;
+        case 'F': set_key(out, TUI_K_END); break;
+        case 'Z': set_key(out, TUI_K_TAB); break;
+        case 'u': /* kitty / CSI-u */
+            if (a == 13) set_key(out, b <= 1 ? TUI_K_ENTER : TUI_K_NEWLINE);
+            else if (a == 10 || a == 106) set_key(out, TUI_K_NEWLINE);
+            else if (a == 118 && b >= 5) set_key(out, TUI_K_PASTE);
+            break;
         case '~':
-            if (i > 2 && p[2] == '3') do_key(t, K_DEL, NULL, 0);
-            else if (i > 2 && (p[2] == '1' || p[2] == '7')) do_key(t, K_HOME, NULL, 0);
-            else if (i > 2 && (p[2] == '4' || p[2] == '8')) do_key(t, K_END, NULL, 0);
+            if (a == 27) { /* modifyOtherKeys: ESC [ 27 ; mod ; key ~ */
+                if (csi_c == 13) set_key(out, b <= 1 ? TUI_K_ENTER : TUI_K_NEWLINE);
+                else if (csi_c == 10 || csi_c == 106) set_key(out, TUI_K_NEWLINE);
+                else if (csi_c == 118 && b >= 5) set_key(out, TUI_K_PASTE);
+            } else if (a == 3) set_key(out, TUI_K_DEL);
+            else if (a == 1 || a == 7) set_key(out, TUI_K_HOME);
+            else if (a == 4 || a == 8) set_key(out, TUI_K_END);
             break;
         default: break;
         }
@@ -397,24 +547,33 @@ static size_t decode_one(tui *t, const char *p, size_t n, bool final) {
     if (p[1] == 'O') {
         if (n < 3) return final ? n : 0;
         switch (p[2]) {
-        case 'A': do_key(t, K_UP, NULL, 0); break;
-        case 'B': do_key(t, K_DOWN, NULL, 0); break;
-        case 'C': do_key(t, K_RIGHT, NULL, 0); break;
-        case 'D': do_key(t, K_LEFT, NULL, 0); break;
-        case 'H': do_key(t, K_HOME, NULL, 0); break;
-        case 'F': do_key(t, K_END, NULL, 0); break;
+        case 'A': set_key(out, TUI_K_UP); break;
+        case 'B': set_key(out, TUI_K_DOWN); break;
+        case 'C': set_key(out, TUI_K_RIGHT); break;
+        case 'D': set_key(out, TUI_K_LEFT); break;
+        case 'H': set_key(out, TUI_K_HOME); break;
+        case 'F': set_key(out, TUI_K_END); break;
         default: break;
         }
         return 3;
     }
     switch (p[1]) {
-    case '\r': case '\n': do_key(t, K_NEWLINE, NULL, 0); break;
-    case 'b': do_key(t, K_WLEFT, NULL, 0); break;
-    case 'f': do_key(t, K_WRIGHT, NULL, 0); break;
-    case 0x7f: do_key(t, K_WBS, NULL, 0); break;
+    case '\r': case '\n': set_key(out, TUI_K_NEWLINE); break; /* Alt-Enter */
+    case 'j': case 'J': set_key(out, TUI_K_NEWLINE); break;   /* Option-J */
+    case 'b': set_key(out, TUI_K_WLEFT); break;
+    case 'f': set_key(out, TUI_K_WRIGHT); break;
+    case 0x7f: set_key(out, TUI_K_WBS); break;
     default: break;
     }
     return 2;
+}
+
+static size_t decode_one(tui *t, const char *p, size_t n, bool final) {
+    tui_decoded d;
+    size_t used = tui_decode_one(p, n, final, &d);
+    if (!used) return 0;
+    if (d.key != TUI_K_NONE) do_key(t, (int)d.key, d.ch, d.chlen);
+    return used;
 }
 
 static char g_kb[4096];

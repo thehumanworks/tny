@@ -410,6 +410,128 @@ TEST prewarm_applicability(void) {
     PASS();
 }
 
+/* ---- wrap math ---- */
+
+TEST wrap_empty_is_one_row(void) {
+    int row = -1, col = -1, total = -1;
+    tui_wrap_locate("", 0, 0, 10, &row, &col, &total);
+    ASSERT_EQ(0, row);
+    ASSERT_EQ(0, col);
+    ASSERT_EQ(1, total);
+    ASSERT_EQ(0, (int)tui_wrap_index("", 0, 10, 0, 0));
+    PASS();
+}
+
+TEST wrap_soft_break_at_width(void) {
+    const char *s = "abcdef"; /* 6 cols */
+    int row, col, total;
+    tui_wrap_locate(s, 6, 0, 3, &row, &col, &total);
+    ASSERT_EQ(2, total);
+    ASSERT_EQ(0, row);
+    ASSERT_EQ(0, col);
+
+    tui_wrap_locate(s, 6, 3, 3, &row, &col, &total);
+    ASSERT_EQ(0, row); /* caret sits at the wrap point on the first visual row */
+    ASSERT_EQ(3, col);
+
+    tui_wrap_locate(s, 6, 4, 3, &row, &col, &total);
+    ASSERT_EQ(1, row);
+    ASSERT_EQ(1, col);
+
+    ASSERT_EQ(0, (int)tui_wrap_index(s, 6, 3, 0, 0));
+    ASSERT_EQ(3, (int)tui_wrap_index(s, 6, 3, 1, 0));
+    ASSERT_EQ(5, (int)tui_wrap_index(s, 6, 3, 1, 2));
+    PASS();
+}
+
+TEST wrap_hard_newline_is_its_own_row(void) {
+    const char *s = "ab\ncd";
+    int row, col, total;
+    tui_wrap_locate(s, 5, 5, 80, &row, &col, &total);
+    ASSERT_EQ(2, total);
+    ASSERT_EQ(1, row);
+    ASSERT_EQ(2, col);
+    tui_wrap_locate(s, 5, 3, 80, &row, &col, &total); /* start of "cd" */
+    ASSERT_EQ(1, row);
+    ASSERT_EQ(0, col);
+    ASSERT_EQ(3, (int)tui_wrap_index(s, 5, 80, 1, 0));
+    PASS();
+}
+
+TEST wrap_width_matches_composer_prefix(void) {
+    tui t;
+    mk_tui(&t, 24);
+    t.cols = 21; /* maxw=20, prefix 2 → 18 */
+    ASSERT_EQ(18, tui_wrap_width(&t));
+    t.cols = 8; /* floor at 8 */
+    ASSERT_EQ(8, tui_wrap_width(&t));
+    free_tui(&t);
+    PASS();
+}
+
+TEST overlay_budget_counts_wrapped_composer(void) {
+    tui t;
+    mk_tui(&t, 24);
+    t.cols = 12; /* wrap width 8 */
+    buf_appends(&t.input, "abcdefghij"); /* 10 cols → 2 visual rows */
+    ASSERT_EQ(20, tui_overlay_budget(&t)); /* 21 - extra composer row */
+    free_tui(&t);
+    PASS();
+}
+
+/* ---- key decoder ---- */
+
+static tui_key dec(const char *p, size_t n) {
+    tui_decoded d;
+    size_t used = tui_decode_one(p, n, true, &d);
+    (void)used;
+    return d.key;
+}
+
+TEST decode_enter_vs_ctrl_j(void) {
+    ASSERT_EQ(TUI_K_ENTER, dec("\r", 1));
+    ASSERT_EQ(TUI_K_NEWLINE, dec("\n", 1)); /* Ctrl-J */
+    ASSERT_EQ(TUI_K_PASTE, dec("\x16", 1)); /* Ctrl-V */
+    ASSERT_EQ(TUI_K_NEWLINE, dec("\x1bj", 2)); /* Option-J */
+    ASSERT_EQ(TUI_K_NEWLINE, dec("\x1bJ", 2));
+    ASSERT_EQ(TUI_K_NEWLINE, dec("\x1b\r", 2)); /* Alt-Enter */
+    PASS();
+}
+
+TEST decode_csi_u_shift_enter_and_ctrl_v(void) {
+    ASSERT_EQ(TUI_K_NEWLINE, dec("\x1b[13;2u", 7));
+    ASSERT_EQ(TUI_K_ENTER, dec("\x1b[13u", 5));
+    ASSERT_EQ(TUI_K_NEWLINE, dec("\x1b[10;5u", 7));
+    ASSERT_EQ(TUI_K_NEWLINE, dec("\x1b[106;3u", 8));
+    ASSERT_EQ(TUI_K_PASTE, dec("\x1b[118;5u", 8));
+    ASSERT_EQ(TUI_K_NEWLINE, dec("\x1b[27;2;13~", 10));
+    ASSERT_EQ(TUI_K_PASTE, dec("\x1b[27;5;118~", 11));
+    PASS();
+}
+
+TEST decode_csi_u_survives_every_split_boundary(void) {
+    const char seq[] = "\x1b[13;2u";
+    size_t n = sizeof seq - 1;
+    for (size_t split = 1; split < n; split++) {
+        tui_decoded d;
+        size_t used = tui_decode_one(seq, split, false, &d);
+        ASSERT_EQ(0, (int)used); /* needs the rest */
+        char buf[16];
+        memcpy(buf, seq, n);
+        used = tui_decode_one(buf, n, true, &d);
+        ASSERT_EQ((int)n, (int)used);
+        ASSERT_EQ(TUI_K_NEWLINE, d.key);
+    }
+    PASS();
+}
+
+TEST decode_arrows_unchanged(void) {
+    ASSERT_EQ(TUI_K_UP, dec("\x1b[A", 3));
+    ASSERT_EQ(TUI_K_DEL, dec("\x1b[3~", 4));
+    ASSERT_EQ(TUI_K_HOME, dec("\x1b[H", 3));
+    PASS();
+}
+
 SUITE(tui_suite) {
     RUN_TEST(push_ansi_plain_truncates);
     RUN_TEST(push_ansi_sgr_is_zero_width);
@@ -429,4 +551,13 @@ SUITE(tui_suite) {
     RUN_TEST(prewarm_failed_resume_is_silent_and_discarded);
     RUN_TEST(prewarm_start_restarts_on_a_stale_resume_pointer);
     RUN_TEST(prewarm_applicability);
+    RUN_TEST(wrap_empty_is_one_row);
+    RUN_TEST(wrap_soft_break_at_width);
+    RUN_TEST(wrap_hard_newline_is_its_own_row);
+    RUN_TEST(wrap_width_matches_composer_prefix);
+    RUN_TEST(overlay_budget_counts_wrapped_composer);
+    RUN_TEST(decode_enter_vs_ctrl_j);
+    RUN_TEST(decode_csi_u_shift_enter_and_ctrl_v);
+    RUN_TEST(decode_csi_u_survives_every_split_boundary);
+    RUN_TEST(decode_arrows_unchanged);
 }

@@ -38,8 +38,9 @@ static void send_chunk(acp_srv *s, const char *kind, const char *text, size_t le
 /* ACP ToolCallKind for a tny built-in tool. */
 static const char *tool_kind(const char *name) {
     if (!name) return "other";
-    if (!strcmp(name, "read_file") || !strcmp(name, "list_files") ||
-        !strcmp(name, "file_info") || !strcmp(name, "read_tool_result"))
+    if (!strcmp(name, "read_file") || !strcmp(name, "read_image") ||
+        !strcmp(name, "list_files") || !strcmp(name, "file_info") ||
+        !strcmp(name, "read_tool_result"))
         return "read";
     if (!strcmp(name, "glob_files") || !strcmp(name, "grep_files") ||
         !strcmp(name, "semantic_search"))

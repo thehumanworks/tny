@@ -26,6 +26,10 @@ typedef struct tools_env {
     struct mcp_client *mcp;
     /* set true when a PROMPT could not be resolved (ask-mode CLI) */
     bool perm_blocked;
+    /* Paths queued by read_image. Flushed as a user-role image_url
+     * message after the role:tool results (docs/adr/0008). */
+    char *pending_images[9];
+    int   n_pending_images;
 } tools_env;
 
 /* OpenAI "tools" array JSON for every built-in (+ selected MCP tools).
@@ -54,5 +58,7 @@ char *tool_resolve_path(tools_env *env, const char *path, char **err_out);
 /* Bound a result: if len > ctx->max_tool_result_bytes, store blob and return
  * preview + handle notice; else return a copy. */
 char *tool_bound_result(tools_env *env, const char *data, size_t len);
+/* Inject queued read_image files as one user message. 0 ok, -1 on error. */
+int tools_flush_images(tools_env *env, char *err, size_t errlen);
 
 #endif
