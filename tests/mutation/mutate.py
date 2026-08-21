@@ -68,6 +68,16 @@ EQUIVALENT = [
     # loop breaks before the increment ever runs; observing p-- needs a
     # machine with no standard CA bundle at all.
     "stream.c:for (const char *const *p = ossl_ca_bundles",
+    # EOF classification: every caller treats clean EOF (0) and error (-1)
+    # identically once a close-delimited body is complete, so flipping
+    # ZERO_RETURN / SYSCALL-EOF between 0 and -1 is unobservable until a
+    # caller starts detecting truncation.
+    "stream.c:if (e == OSSL_ERROR_ZERO_RETURN) return 0;",
+    "stream.c:if (e == OSSL_ERROR_SYSCALL) return n == 0 ? 0 : -1;",
+    # A fatal mid-request write error and the "connection lost before
+    # response" it causes downstream both fail the turn the same way, so
+    # returning 0 here is indistinguishable without a proto-level probe.
+    "stream.c:if (!ossl_want_retry(e)) return -1;",
 ]
 
 

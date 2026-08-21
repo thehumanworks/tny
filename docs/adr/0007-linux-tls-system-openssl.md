@@ -75,4 +75,10 @@ Policy baked into the shim:
 - Tests: `tls_to_plain_http_server_fails_cleanly` (tests/test_net.c) and a
   Linux-only end-to-end https tool turn against a TLS-wrapped mock with a
   runtime self-signed cert (tests/integration/test_https.py), including
-  proof that an untrusted certificate is rejected.
+  proof that an untrusted certificate is rejected, close-delimited EOF with
+  and without close_notify, and a blocked multi-megabyte request write.
+  `tests/mutation/mutate.py --only stream` kills 8/8 non-annotated mutants.
+- Enabling TLS exposed a latent `http1.c` bug: TLS 1.3 session tickets wake
+  the fd while `SSL_read` still reports would-block, and `fill()` gave up
+  after a single poll+retry. It now loops until its deadline (a plain-TCP
+  transport can also legitimately wake with a partial line).
