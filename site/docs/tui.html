@@ -73,8 +73,10 @@
 <p>Auth: <code>/login</code> <code>/logout</code> <code>/setup</code> — dispatched to the active backend. Backend-specific commands degrade to "not available" instead of crashing.</p>
 <h2 id="startup">Startup</h2>
 <p>First paint never waits on a backend. After the banner, the TUI pre-warms the selected provider's host on a background thread so the first prompt adopts a live connection. Failures stay silent and resurface on the ordinary lazy path. One-shot CLI commands do not pre-warm.</p>
+<h2 id="browser">Browser demo</h2>
+<p>The terminal on the landing page is a client-side preview of this chrome, not WASM tny. Pass <code>OPENAI_API_KEY</code> and optionally <code>OPENAI_BASE_URL</code> in the URL hash (<code>#OPENAI_API_KEY=…</code>), via <code>/login</code>, or as an <code>OPENAI_*=</code> assignment. The key and base URL are AES-GCM sealed in this tab; the base URL is never shown in the clear. Workspace tools and host providers are not available in the browser.</p>
 </article>
-    <aside class="toc"><p>on this page</p><a href="#layout">Layout</a><a href="#input">Input</a><a href="#slash">Slash commands</a><a href="#startup">Startup</a></aside>
+    <aside class="toc"><p>on this page</p><a href="#layout">Layout</a><a href="#input">Input</a><a href="#slash">Slash commands</a><a href="#startup">Startup</a><a href="#browser">Browser demo</a></aside>
   </main>
 </div>
 <script src="../assets/site.js"></script>

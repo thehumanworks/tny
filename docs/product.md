@@ -32,7 +32,7 @@ fx talks to Vercel AI Gateway and can *be* an ACP server. It does not ship Curso
 
 ## Non-goals (v1)
 
-- Embedding as WASM / JS `createFxAgent()` (fx has this; defer).
+- Embedding as WASM / JS `createFxAgent()` (fx has this; defer). The GitHub Pages landing terminal is a separate client-side BYOK preview of the TUI chrome ([ADR 0005](adr/0005-client-side-landing-terminal.md)), not the C harness.
 - Reimplementing Cursor or Codex agent loops inside tny.
 - Bundling `cursor-sdk-bridge` or `codex` into the tny binary (spawn or attach).
 - Vercel OAuth, AI Gateway team picker, or `fx login` lock-in.

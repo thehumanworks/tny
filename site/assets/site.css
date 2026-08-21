@@ -369,7 +369,7 @@ svg {
   margin: 48px 0 56px;
   width: 100%;
   max-width: 680px;
-  height: 320px;
+  height: 380px;
 }
 
 .term {
@@ -421,21 +421,122 @@ svg {
   white-space: pre-wrap;
 }
 
+.term-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  padding: 14px 16px 8px;
+}
+
+.term-transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 19px;
+  color: var(--term-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.term-banner .bright,
+.term-line-user {
+  color: var(--term-bright);
+}
+
+.term-banner .bright {
+  font-weight: 600;
+}
+
+.term-line + .term-line {
+  margin-top: 8px;
+}
+
+.term-line-sys,
+.term-line-err,
+.term-status,
+.term-body .status-row {
+  color: var(--term-status);
+}
+
+.term-line-err {
+  color: color-mix(in oklab, var(--term-status) 70%, #c44);
+}
+
+.term-overlay {
+  flex-shrink: 0;
+  margin-top: 8px;
+  max-height: 42%;
+  overflow: auto;
+  color: var(--term-status);
+  white-space: pre-wrap;
+}
+
+.term-overlay-row {
+  line-height: 19px;
+}
+
+.term-composer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 10px;
+}
+
 .term-body .bright {
   color: var(--term-bright);
   font-weight: 600;
 }
 
-.term-body .bar {
+.term-body .bar,
+.term-composer .bar {
   color: var(--term-bright);
 }
 
-.term-body .status-row {
-  color: var(--term-status);
+.term-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 19px;
+  max-height: 76px;
+  resize: none;
+  padding: 0;
+  line-height: 19px;
+  color: var(--term-bright);
+  caret-color: var(--term-bright);
+  outline: none;
 }
 
-.term-body .auto {
+.term-input:focus-visible {
+  outline: none;
+}
+
+.term:focus-within {
+  border-color: var(--ring);
+}
+
+.term-status {
+  flex-shrink: 0;
+  padding: 0 16px 14px;
+  font-size: 14px;
+  line-height: 19px;
+}
+
+.term-body .auto,
+.term-status .auto {
   color: var(--term-auto);
+}
+
+.term.is-busy .term-input {
+  caret-color: transparent;
+}
+
+@media (max-width: 640px) {
+  .term-input {
+    font-size: 16px;
+  }
 }
 
 .prose {
