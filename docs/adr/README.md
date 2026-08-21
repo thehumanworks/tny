@@ -13,3 +13,4 @@ these as `docs/adr/NNNN`.
 | [0005](0005-client-side-landing-terminal.md) | GitHub Pages terminal is a client-side BYOK preview; keys encrypted, base URL obfuscated |
 | [0006](0006-ci-build-targets.md) | CI builds Linux x86_64+aarch64 (glibc + musl static), Darwin arm64 only, Windows via MSYS2 |
 | [0007](0007-linux-tls-system-openssl.md) | Linux TLS dlopen's the system OpenSSL (libssl.so.3) at first use; nothing linked or vendored |
+| [0008](0008-native-loop-images.md) | Native-loop images are user-role `image_url` parts; `read_image` replaces the vision stub |

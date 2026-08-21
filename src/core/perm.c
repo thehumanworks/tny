@@ -6,7 +6,7 @@
 #include <stdio.h>
 
 static const char *SAFE_TOOLS[] = {
-    "list_files", "glob_files", "grep_files", "read_file", "file_info",
+    "list_files", "glob_files", "grep_files", "read_file", "read_image", "file_info",
     "semantic_search", "read_tool_result", "mcp_search_tools", "mcp_select_tool",
     "mcp_features", "skill", "ask_user_question", NULL
 };

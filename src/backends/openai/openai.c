@@ -2,6 +2,7 @@
  * tny-owned tool loop (docs/backends/openai-compatible.md). */
 #include "backends/openai/openai.h"
 #include "core/tools.h"
+#include "core/image.h"
 #include "core/instructions.h"
 #include "core/skills.h"
 #include "net/net.h"
@@ -331,6 +332,11 @@ static int step_finished(oa_impl *o) {
 
         if (o->cancelled) break;
     }
+    if (o->env.n_pending_images) {
+        char ierr[256];
+        if (tools_flush_images(&o->env, ierr, sizeof ierr) != 0)
+            emit_text(o, TNY_EV_ERROR, ierr, strlen(ierr));
+    }
     calls_reset(o);
     session_save(s);
 
@@ -413,44 +419,8 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images,
     session_set_meta(s, "openai", model_of(o));
 
     if (images && images[0]) {
-        /* user message with image_url content parts */
-        yyjson_mut_doc *doc = s->doc;
-        yyjson_mut_val *m = yyjson_mut_obj(doc);
-        yyjson_mut_obj_put(m, yyjson_mut_strcpy(doc, "role"), yyjson_mut_strcpy(doc, "user"));
-        yyjson_mut_val *parts = yyjson_mut_arr(doc);
-        yyjson_mut_val *tp = yyjson_mut_obj(doc);
-        yyjson_mut_obj_put(tp, yyjson_mut_strcpy(doc, "type"), yyjson_mut_strcpy(doc, "text"));
-        yyjson_mut_obj_put(tp, yyjson_mut_strcpy(doc, "text"), yyjson_mut_strcpy(doc, prompt));
-        yyjson_mut_arr_add_val(parts, tp);
-        for (int i = 0; images[i]; i++) {
-            size_t len = 0;
-            char *data = file_slurp(images[i], &len);
-            if (!data) {
-                snprintf(errbuf, errlen, "cannot read image %s", images[i]);
-                return -1;
-            }
-            const char *mime = str_ends(images[i], ".jpg") || str_ends(images[i], ".jpeg")
-                                   ? "image/jpeg"
-                               : str_ends(images[i], ".gif") ? "image/gif"
-                               : str_ends(images[i], ".webp") ? "image/webp"
-                                                              : "image/png";
-            buf_t url;
-            buf_init(&url);
-            buf_appendf(&url, "data:%s;base64,", mime);
-            b64_encode((const uint8_t *)data, len, &url);
-            free(data);
-            yyjson_mut_val *ip = yyjson_mut_obj(doc);
-            yyjson_mut_obj_put(ip, yyjson_mut_strcpy(doc, "type"),
-                               yyjson_mut_strcpy(doc, "image_url"));
-            yyjson_mut_val *iu = yyjson_mut_obj(doc);
-            yyjson_mut_obj_put(iu, yyjson_mut_strcpy(doc, "url"),
-                               yyjson_mut_strcpy(doc, url.data));
-            yyjson_mut_obj_put(ip, yyjson_mut_strcpy(doc, "image_url"), iu);
-            yyjson_mut_arr_add_val(parts, ip);
-            buf_free(&url);
-        }
-        yyjson_mut_obj_put(m, yyjson_mut_strcpy(doc, "content"), parts);
-        yyjson_mut_arr_add_val(session_messages(s), m);
+        if (session_add_user_images(s, prompt, images, errbuf, errlen) != 0)
+            return -1;
     } else {
         session_add_text(s, "user", prompt);
     }

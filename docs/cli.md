@@ -89,6 +89,11 @@ JSON object (keep field names stable):
 
 `tny ask` never blocks on an approval. Unresolved permissions fail the run unless `--auto` reviews (native loop) or `--yolo`. Host providers must be pre-authorized or they fail closed.
 
+`--image PATH` (repeatable) attaches image files to the first user message as
+`image_url` data URLs on the native OpenAI-compatible loop. The same encoding
+is used when the model calls `read_image` mid-turn. Max 8 MiB; type comes
+from magic bytes (png/jpeg/gif/webp), not the extension.
+
 Provider caveats: `--provider cursor` runs Cursor's own headless loop — the bridge exposes no per-call approval RPC, so tny's permission mode does not apply (a status line says so); it also rejects `--image`. `--provider codex` ignores `--image` with a status line (no documented image input item).
 
 ## Help shape

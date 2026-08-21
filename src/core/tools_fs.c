@@ -1,5 +1,6 @@
 /* tools_fs.c — file tools: list/glob/grep/read/write/edit/…, /undo support. */
 #include "core/tools.h"
+#include "core/image.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -247,6 +248,13 @@ static char *t_read_file(tools_env *env, yyjson_val *args) {
     size_t len = 0;
     char *data = file_slurp(abs, &len);
     if (!data) { char *e = tool_err("cannot read %s", abs); free(abs); return e; }
+    const char *mime = image_mime((const uint8_t *)data, len);
+    if (mime) {
+        free(data);
+        char *e = tool_err("%s is %s; use read_image to view it", abs, mime);
+        free(abs);
+        return e;
+    }
     free(abs);
     int64_t off = jget_int(args, "offset", 0);
     int64_t lim = jget_int(args, "limit", 0);

@@ -1,5 +1,6 @@
 /* tools.c — registry, permission gate, dispatch, result bounding. */
 #include "core/tools.h"
+#include "core/image.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -26,6 +27,13 @@ char *tool_resolve_path(tools_env *env, const char *path, char **err_out) {
         *err_out = tool_err("missing path");
         return NULL;
     }
+    char *expanded = NULL;
+    if (path[0] == '~' && (path[1] == '/' || path[1] == '\0')) {
+        char *home = path_home();
+        expanded = path[1] == '/' ? path_join(home, path + 2) : xstrdup(home);
+        free(home);
+        path = expanded;
+    }
     char *abs;
     if (path[0] == '/') abs = path_abs(path);
     else {
@@ -33,6 +41,7 @@ char *tool_resolve_path(tools_env *env, const char *path, char **err_out) {
         abs = path_abs(joined);
         if (!abs) abs = joined; else free(joined);
     }
+    free(expanded);
     if (!abs) {
         *err_out = tool_err("cannot resolve path %s", path);
         return NULL;
@@ -64,7 +73,8 @@ static const char *SCHEMA_JSON =
 "{\"type\":\"function\",\"function\":{\"name\":\"list_files\",\"description\":\"List directory entries. Args: path (default workspace root).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}}}}},"
 "{\"type\":\"function\",\"function\":{\"name\":\"glob_files\",\"description\":\"Find files matching a glob pattern (e.g. src/**/*.c) under the workspace.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"pattern\"]}}},"
 "{\"type\":\"function\",\"function\":{\"name\":\"grep_files\",\"description\":\"Search file contents for a substring or simple pattern. Returns matching lines with file:line prefixes.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"},\"case_insensitive\":{\"type\":\"boolean\"}},\"required\":[\"pattern\"]}}},"
-"{\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"description\":\"Read a text file. Args: path, optional offset (line), limit (lines).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\"},\"limit\":{\"type\":\"integer\"}},\"required\":[\"path\"]}}},"
+"{\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"description\":\"Read a text file. Args: path, optional offset (line), limit (lines). For png/jpeg/gif/webp use read_image.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\"},\"limit\":{\"type\":\"integer\"}},\"required\":[\"path\"]}}},"
+"{\"type\":\"function\",\"function\":{\"name\":\"read_image\",\"description\":\"View an image file (png/jpeg/gif/webp). The pixels are shown to you on the next turn. Args: path.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}},"
 "{\"type\":\"function\",\"function\":{\"name\":\"write_file\",\"description\":\"Create or overwrite a file with the given content.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}},"
 "{\"type\":\"function\",\"function\":{\"name\":\"edit_file\",\"description\":\"Replace an exact substring in a file once (or all occurrences with replace_all).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"old_string\":{\"type\":\"string\"},\"new_string\":{\"type\":\"string\"},\"replace_all\":{\"type\":\"boolean\"}},\"required\":[\"path\",\"old_string\",\"new_string\"]}}},"
 "{\"type\":\"function\",\"function\":{\"name\":\"delete_file\",\"description\":\"Delete a file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}},"
@@ -109,8 +119,22 @@ static char *call_detail(tools_env *env, const char *name, yyjson_val *args) {
     return abs;
 }
 
+int tools_flush_images(tools_env *env, char *err, size_t errlen) {
+    if (!env || env->n_pending_images <= 0) return 0;
+    env->pending_images[env->n_pending_images] = NULL;
+    int rc = session_add_user_images(env->session, "Image attached by read_image.",
+                                     (const char **)env->pending_images, err, errlen);
+    for (int i = 0; i < env->n_pending_images; i++) {
+        free(env->pending_images[i]);
+        env->pending_images[i] = NULL;
+    }
+    env->n_pending_images = 0;
+    return rc;
+}
+
 char *tools_execute(tools_env *env, const char *name, const char *args_json) {
     if (strcmp(name, "run_command") == 0) name = "terminal"; /* fx alias */
+    if (strcmp(name, "vision") == 0) name = "read_image";   /* fx name */
 
     yyjson_doc *adoc = args_json ? jparse(args_json, strlen(args_json)) : NULL;
     yyjson_val *args = adoc ? yyjson_doc_get_root(adoc) : NULL;

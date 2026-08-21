@@ -25,7 +25,7 @@ tny is a **frontend + native loop**, not a fourth coding agent. Host backends al
 | Kind | Backends | Who runs tools? | tny role |
 | --- | --- | --- | --- |
 | **Host** | Cursor bridge, Codex app-server, ACP client | The host process | Protocol client, approvals UI, session mapping |
-| **Native** | OpenAI-compatible | tny | Agent loop, MCP, skills, sandbox, ACP **server** |
+| **Native** | OpenAI-compatible | tny | Agent loop, MCP, skills, sandbox, ACP **server**, `read_image` |
 
 Never leak host-specific types into the TUI. Map every backend onto one event set: `text_delta`, `thinking`, `tool_start`, `tool_end`, `permission_request`, `plan`, `usage`, `turn_end`, `error`.
 
@@ -57,7 +57,7 @@ src/
   main.c            # argv → cli or tui
   cli/              # ask, resume, doctor, acp, status
   tui/              # ANSI renderer, input, slash/@/$
-  core/             # events, session store, permissions, AGENTS.md loader
+  core/             # events, session store, permissions, AGENTS.md loader, images
   backends/
     cursor/         # bridge manager + Connect client
     codex/          # websocket JSON-RPC

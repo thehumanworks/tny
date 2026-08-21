@@ -1,5 +1,6 @@
 /* tools_ext.c — memory, read_tool_result, skills, subagent, vision, MCP glue. */
 #include "core/tools.h"
+#include "core/image.h"
 #include "core/skills.h"
 #include "mcp/mcp.h"
 #include "util/util.h"
@@ -213,6 +214,32 @@ static char *t_subagent(tools_env *env, yyjson_val *args) {
     return result;
 }
 
+static char *t_read_image(tools_env *env, yyjson_val *args) {
+    char *err = NULL;
+    char *abs = tool_resolve_path(env, jget_str(args, "path"), &err);
+    if (!abs) return err;
+    size_t len = 0;
+    const char *mime = NULL;
+    char loaderr[256];
+    uint8_t *data = image_load(abs, &len, &mime, loaderr, sizeof loaderr);
+    if (!data) {
+        free(abs);
+        return tool_err("%s", loaderr);
+    }
+    free(data); /* pixels go out as a follow-up user message, not this result */
+    if (env->n_pending_images >= 8) {
+        free(abs);
+        return tool_err("too many images in this step (max 8)");
+    }
+    env->pending_images[env->n_pending_images++] = abs;
+    buf_t b;
+    buf_init(&b);
+    buf_appendf(&b, "Image loaded: %s (%s, %zu bytes). The pixels follow in the "
+                    "next user message — describe what you see; do not call "
+                    "read_file on this path.", abs, mime, len);
+    return buf_detach(&b);
+}
+
 static char *t_ask_user(tools_env *env, yyjson_val *args) {
     const char *q = jget_str(args, "question");
     if (!q) return tool_err("missing question");
@@ -232,9 +259,7 @@ char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool 
     if (strcmp(name, "install_skill") == 0) return t_install_skill(env, args);
     if (strcmp(name, "subagent") == 0) return t_subagent(env, args);
     if (strcmp(name, "ask_user_question") == 0) return t_ask_user(env, args);
-    if (strcmp(name, "vision") == 0)
-        return tool_err("vision runs as a fallback on image attachments; attach "
-                        "images with `tny ask --image PATH` or /image in the TUI");
+    if (strcmp(name, "read_image") == 0) return t_read_image(env, args);
     if (strcmp(name, "mcp_features") == 0) return mcp_features(env);
     if (strcmp(name, "mcp_search_tools") == 0)
         return mcp_search_tools(env, jget_str(args, "query"));

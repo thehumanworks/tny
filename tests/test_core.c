@@ -5,6 +5,8 @@
 #include "core/backend.h"
 #include "core/perm.h"
 #include "core/session.h"
+#include "core/tools.h"
+#include "core/image.h"
 #include "backends/codex/codex.h"
 #include "util/util.h"
 
@@ -541,6 +543,111 @@ TEST codex_registry_rejects_bad_entries(void) {
     PASS();
 }
 
+/* 1x1 transparent PNG */
+static const uint8_t PNG1[] = {
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+    0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+    0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+    0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82
+};
+
+TEST image_mime_from_magic(void) {
+    ASSERT_STR_EQ("image/png", image_mime(PNG1, sizeof PNG1));
+    uint8_t jpeg[12] = {0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0};
+    ASSERT_STR_EQ("image/jpeg", image_mime(jpeg, sizeof jpeg));
+    uint8_t gif[12] = {'G', 'I', 'F', '8', '9', 'a', 0, 0, 0, 0, 0, 0};
+    ASSERT_STR_EQ("image/gif", image_mime(gif, sizeof gif));
+    uint8_t webp[12] = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P'};
+    ASSERT_STR_EQ("image/webp", image_mime(webp, sizeof webp));
+    ASSERT_EQ(NULL, image_mime((const uint8_t *)"not an image!!", 14));
+    ASSERT_EQ(NULL, image_mime(PNG1, 8)); /* too short */
+    PASS();
+}
+
+TEST image_data_url_roundtrip(void) {
+    buf_t url;
+    buf_init(&url);
+    image_data_url(PNG1, sizeof PNG1, "image/png", &url);
+    ASSERT(str_starts(url.data, "data:image/png;base64,"));
+    const char *b64 = url.data + strlen("data:image/png;base64,");
+    uint8_t back[128];
+    size_t n = b64_decode(b64, back, sizeof back);
+    ASSERT_EQ_FMT(sizeof PNG1, n, "%zu");
+    ASSERT_MEM_EQ(PNG1, back, sizeof PNG1);
+    buf_free(&url);
+    PASS();
+}
+
+TEST read_image_queues_user_message(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    tny_session *s = session_new(ctx);
+    perm_engine *p = perm_new(ctx);
+    tools_env env;
+    memset(&env, 0, sizeof env);
+    env.ctx = ctx;
+    env.session = s;
+    env.perm = p;
+
+    char pngpath[600];
+    snprintf(pngpath, sizeof pngpath, "%s/dot.png", g_ws);
+    file_write_atomic(pngpath, PNG1, sizeof PNG1);
+
+    char args[700];
+    snprintf(args, sizeof args, "{\"path\":\"%s\"}", pngpath);
+    char *res = tools_execute(&env, "read_image", args);
+    ASSERT(res);
+    ASSERT(strstr(res, "image/png"));
+    ASSERT_FALSE(str_starts(res, "error:"));
+    ASSERT_EQ(1, env.n_pending_images);
+    free(res);
+
+    /* read_file must refuse the same path instead of dumping bytes */
+    res = tools_execute(&env, "read_file", args);
+    ASSERT(res);
+    ASSERT(str_starts(res, "error:"));
+    ASSERT(strstr(res, "read_image"));
+    free(res);
+
+    char err[128];
+    ASSERT_EQ(0, tools_flush_images(&env, err, sizeof err));
+    ASSERT_EQ(0, env.n_pending_images);
+    yyjson_mut_val *msgs = session_messages(s);
+    yyjson_mut_val *last = yyjson_mut_arr_get(msgs, yyjson_mut_arr_size(msgs) - 1);
+    ASSERT_STR_EQ("user", yyjson_mut_get_str(yyjson_mut_obj_get(last, "role")));
+    yyjson_mut_val *content = yyjson_mut_obj_get(last, "content");
+    ASSERT(yyjson_mut_is_arr(content));
+    ASSERT_EQ(2, (int)yyjson_mut_arr_size(content));
+    yyjson_mut_val *img = yyjson_mut_arr_get(content, 1);
+    ASSERT_STR_EQ("image_url", yyjson_mut_get_str(yyjson_mut_obj_get(img, "type")));
+    const char *url = yyjson_mut_get_str(
+        yyjson_mut_obj_get(yyjson_mut_obj_get(img, "image_url"), "url"));
+    ASSERT(url);
+    ASSERT(str_starts(url, "data:image/png;base64,"));
+
+    /* vision is an alias */
+    res = tools_execute(&env, "vision", args);
+    ASSERT(res);
+    ASSERT_FALSE(str_starts(res, "error:"));
+    ASSERT_EQ(1, env.n_pending_images);
+    free(res);
+    tools_flush_images(&env, err, sizeof err);
+
+    perm_free(p);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST perm_read_image_is_safe(void) {
+    ASSERT(perm_tool_is_safe("read_image"));
+    PASS();
+}
+
 SUITE(core_suite) {
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(backend_default_cursor_key_from_env);
@@ -561,4 +668,8 @@ SUITE(core_suite) {
     RUN_TEST(session_result_handles);
     RUN_TEST(session_compaction);
     RUN_TEST(session_recovery_roundtrip);
+    RUN_TEST(image_mime_from_magic);
+    RUN_TEST(image_data_url_roundtrip);
+    RUN_TEST(read_image_queues_user_message);
+    RUN_TEST(perm_read_image_is_safe);
 }
