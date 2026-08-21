@@ -17,6 +17,13 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 chmod +x "$MOCK"
 
+# Resolve the interpreter *before* HOME is a throwaway dir. macOS shims
+# and site-packages init hang or miss python3 once HOME is overridden,
+# so the mock never prints a ready line within 30 s.
+PY=$(python3 -c 'import sys; print(sys.executable)')
+[ -n "$PY" ] || fail "could not resolve python3 executable"
+REAL_HOME=${HOME:-/tmp}
+
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/tny-cursor.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 HOME=$TMP/home
@@ -30,6 +37,13 @@ export TNY_MOCK_DIR=$MOCK_DIR
 export TNY_MOCK_CWD=$WS
 export CURSOR_API_KEY=key_mock_deadbeef
 unset CURSOR_SDK_BRIDGE_BIN
+
+WRAP=$TMP/mock-bridge
+# Keep the real HOME for the interpreter; the mock uses TNY_MOCK_DIR.
+printf '#!/bin/sh\nexport HOME="%s"\nexec "%s" -u "%s" "$@"\n' \
+    "$REAL_HOME" "$PY" "$MOCK" > "$WRAP"
+chmod +x "$WRAP"
+MOCK=$WRAP
 
 run() { # run <outfile> <errfile> <ask args...>
     _out=$1; _err=$2; shift 2

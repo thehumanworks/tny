@@ -77,6 +77,10 @@ Requirements: a C11 compiler and make; python3 for the integration fixtures.
 Vendored deps (yyjson, picohttpparser, wslay, greatest) are pinned in
 `third_party/*/VERSION` — nothing is downloaded at build time.
 
+CI (`.github/workflows/ci.yml`) builds the stripped binary on Linux
+x86_64 and aarch64 (glibc + musl static), Darwin arm64 (Apple Silicon
+only — not Intel x86), and Windows x86_64 (MSYS2). See [docs/ci.md](docs/ci.md).
+
 ## Docs
 
 Public site (Geist Mono, fx.sh-style): [thehumanworks.github.io/tny](https://thehumanworks.github.io/tny/).

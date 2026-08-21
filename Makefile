@@ -1,30 +1,71 @@
 # tny — C11 TUI + CLI coding-agent harness.
-# Targets: make (release), make debug, make test, make size, make bench,
-#          make install, make site
+# Targets: make (release), make debug, make test, make size, make size-check,
+#          make pack, make bench, make install, make site
 
 CC      ?= cc
 STD      = -std=c11
 WARN     = -Wall -Wextra -Werror -Wno-deprecated-declarations
 INC      = -Isrc -Ithird_party -Ithird_party/yyjson -Ithird_party/picohttpparser \
            -Ithird_party/wslay -Ithird_party/wslay/wslay -Ithird_party/greatest
-DEFS     = -DHAVE_ARPA_INET_H -DHAVE_NETINET_IN_H -D_DARWIN_C_SOURCE
+DEFS     = -DHAVE_ARPA_INET_H -DHAVE_NETINET_IN_H -D_DARWIN_C_SOURCE \
+           -D_DEFAULT_SOURCE -D_BSD_SOURCE
 
-UNAME_S := $(shell uname -s)
+UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
+UNAME_M := $(shell uname -m 2>/dev/null || echo unknown)
+
+# MSYS2/Cygwin are POSIX enough to compile the existing sources. Native
+# Win32 (MSVC / MinGW without the MSYS runtime) is still later.
+WINDOWS := 0
+ifneq ($(filter MSYS% MINGW% CYGWIN%,$(UNAME_S)),)
+  WINDOWS := 1
+endif
+
+ifeq ($(WINDOWS),1)
+  EXE := .exe
+else
+  EXE :=
+endif
+
+BIN      = $(BUILD)/tny$(EXE)
+TEST_BIN = $(BUILD)/tny-test$(EXE)
+
+# STATIC=1: musl static publish build. Ignored on Darwin (cannot static-link).
+STATIC   ?= 0
+# SANITIZE=1: ASan/UBSan on the debug/test binary. Off for musl and MSYS2.
+ifeq ($(WINDOWS),1)
+  SANITIZE ?= 0
+else
+  SANITIZE ?= 1
+endif
 
 REL_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -Os -ffunction-sections -fdata-sections
-DBG_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -O0 -g -fsanitize=address,undefined
+DBG_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -O0 -g
 
 # SecureTransport is dlopen'd at first TLS use (src/net/stream.c) — do NOT
 # link the frameworks; eager loading costs ~1.2 ms at every launch.
 ifeq ($(UNAME_S),Darwin)
-  # pthreads live in libSystem; no extra flags needed
   REL_LDFLAGS = -Wl,-dead_strip
-  DBG_LDFLAGS = -fsanitize=address,undefined
+  DBG_LDFLAGS =
 else
   REL_CFLAGS += -pthread
   DBG_CFLAGS += -pthread
   REL_LDFLAGS = -Wl,--gc-sections -pthread
-  DBG_LDFLAGS = -fsanitize=address,undefined -pthread
+  DBG_LDFLAGS = -pthread
+endif
+
+ifeq ($(STATIC),1)
+  ifneq ($(UNAME_S),Darwin)
+    REL_LDFLAGS += -static
+  endif
+endif
+
+ifeq ($(SANITIZE),1)
+  DBG_CFLAGS  += -fsanitize=address,undefined
+  DBG_LDFLAGS += -fsanitize=address,undefined
+endif
+
+ifeq ($(WINDOWS),1)
+  REL_LDFLAGS += -static-libgcc
 endif
 
 BUILD    = build
@@ -49,13 +90,23 @@ TEST_OBJS := $(TEST_DEPS:%.c=$(OBJ_DBG)/%.o)
 
 PREFIX ?= $(HOME)/.local
 
-.PHONY: all release debug test size bench clean install site
+# Size budgets (docs/size-and-speed.md). Override SIZE_MAX in CI per target.
+# 1.5 MiB Linux, 1.8 MiB Darwin, 2.0 MiB Windows (MSYS-linked).
+ifeq ($(UNAME_S),Darwin)
+  SIZE_MAX ?= 1887436
+else ifeq ($(WINDOWS),1)
+  SIZE_MAX ?= 2097152
+else
+  SIZE_MAX ?= 1572864
+endif
+
+.PHONY: all release debug test test-unit size size-check pack smoke bench clean install site
 
 all: release
 
-release: $(BUILD)/tny
+release: $(BIN)
 
-$(BUILD)/tny: $(REL_OBJS)
+$(BIN): $(REL_OBJS)
 	@mkdir -p $(@D)
 	$(CC) $(REL_CFLAGS) -o $@ $^ $(REL_LDFLAGS)
 	strip $@ 2>/dev/null || strip -x $@
@@ -69,31 +120,55 @@ $(OBJ_DBG)/%.o: %.c
 	@mkdir -p $(@D)
 	$(CC) $(DBG_CFLAGS) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
 
-$(BUILD)/tny-test: $(TEST_OBJS) $(TEST_SRC:%.c=$(OBJ_DBG)/%.o)
+$(TEST_BIN): $(TEST_OBJS) $(TEST_SRC:%.c=$(OBJ_DBG)/%.o)
 	@mkdir -p $(@D)
 	$(CC) $(DBG_CFLAGS) -o $@ $^ $(DBG_LDFLAGS)
 
-debug: $(BUILD)/tny-test
+debug: $(TEST_BIN)
 
-test: $(BUILD)/tny-test release
-	./$(BUILD)/tny-test
+test-unit: $(TEST_BIN)
+	./$(TEST_BIN)
+
+test: test-unit release
 	@if [ -x tests/integration/run.sh ]; then tests/integration/run.sh; fi
 
 size: release
-	@wc -c $(BUILD)/tny
+	@wc -c $(BIN)
+
+# Fail if the stripped binary exceeds SIZE_MAX (bytes).
+size-check: release
+	@bytes=$$(wc -c < $(BIN) | tr -d ' '); \
+	echo "$$bytes $(BIN) (limit $(SIZE_MAX))"; \
+	if [ "$$bytes" -gt "$(SIZE_MAX)" ]; then \
+		echo "error: $(BIN) is $$bytes bytes, over the $(SIZE_MAX)-byte budget" >&2; \
+		exit 1; \
+	fi
+
+# Copy the stripped binary to dist/tny-<triple>[.exe]. TRIPLE is required.
+pack: release
+	@test -n "$(TRIPLE)" || { echo "error: pack needs TRIPLE=os-arch" >&2; exit 1; }
+	@mkdir -p dist
+	cp $(BIN) dist/tny-$(TRIPLE)$(EXE)
+	@wc -c dist/tny-$(TRIPLE)$(EXE)
+
+smoke: release
+	./$(BIN) --version
+	./$(BIN) --help >/dev/null
+	./$(BIN) ask --help >/dev/null
+	./$(BIN) doctor --json >/dev/null
 
 bench: release
-	hyperfine --warmup 5 -N './$(BUILD)/tny --version'
+	hyperfine --warmup 5 -N './$(BIN) --version'
 
 install: release
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
-	cp $(BUILD)/tny $(DESTDIR)$(PREFIX)/bin/tny
+	cp $(BIN) $(DESTDIR)$(PREFIX)/bin/tny$(EXE)
 
 site:
 	python3 scripts/site_build.py
 
 clean:
-	rm -rf $(BUILD)
+	rm -rf $(BUILD) dist
 
 # Header dependencies emitted by -MMD; a header edit rebuilds its users.
 -include $(REL_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(TEST_SRC:%.c=$(OBJ_DBG)/%.d)

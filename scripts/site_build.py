@@ -406,8 +406,10 @@ def docs_install() -> str:
 <h2 id="script">setup.sh</h2>
 <p>The same recipe as a one-liner. Read it before piping to a shell.</p>
 {cmd("curl -fsSL https://thehumanworks.github.io/tny/setup.sh | bash")}
+<h2 id="ci">CI binaries</h2>
+<p>Every pull request builds stripped artifacts on Linux x86_64 and aarch64 (glibc and musl static), Darwin arm64 (Apple Silicon / Metal — not Intel x86), and Windows x86_64 (MSYS2). Download them from the <code>ci</code> workflow run.</p>
 <h2 id="size">What you should see</h2>
-<p>A stripped Linux or macOS binary well under 2 MiB. Current measured size is {SIZE} on macOS arm64. <code>tny --version</code> and <code>tny ask --help</code> should return in a couple of milliseconds.</p>
+<p>A stripped Linux, macOS arm64, or Windows binary well under 2 MiB. Current measured size is {SIZE} on macOS arm64. <code>tny --version</code> and <code>tny ask --help</code> should return in a couple of milliseconds.</p>
 {cmd("tny --version")}
 {cmd("tny doctor --json")}
 <h2 id="hosts">Optional host binaries</h2>
@@ -433,6 +435,7 @@ def docs_install() -> str:
         toc=[
             ("from-source", "From source"),
             ("script", "setup.sh"),
+            ("ci", "CI binaries"),
             ("size", "What you should see"),
             ("hosts", "Optional hosts"),
         ],
@@ -967,6 +970,7 @@ def docs_size() -> str:
   <tbody>
     <tr><td>macOS arm64, stripped</td><td>&lt; 1.8 MiB</td><td>&lt; 1.2 MiB</td></tr>
     <tr><td>Linux musl static, stripped</td><td>&lt; 1.5 MiB</td><td>&lt; 1.0 MiB</td></tr>
+    <tr><td>Windows x86_64 (MSYS), stripped</td><td>&lt; 2.0 MiB</td><td>—</td></tr>
     <tr><td><code>--version</code> / <code>ask --help</code></td><td>&lt; 5 ms median</td><td>&lt; 2 ms</td></tr>
     <tr><td>TUI first prompt (no spawn)</td><td>&lt; 10 ms</td><td>&lt; 5 ms</td></tr>
   </tbody>
