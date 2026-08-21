@@ -54,6 +54,15 @@ Normalize before paint:
 
 Ignore keepalives and unknown envelope cases. Never block the input loop on a parse error; show a one-line warning and keep the connection.
 
+## Browser demo
+
+The GitHub Pages landing terminal (`site/index.html`) is a client-side
+preview of this chrome ([ADR 0005](adr/0005-client-side-landing-terminal.md)).
+Pass `OPENAI_API_KEY` and optionally `OPENAI_BASE_URL` in the URL hash,
+`/login`, or an `OPENAI_*=` assignment. Values are AES-GCM sealed in this
+origin and never written in the clear; the base URL is obfuscated in the UI.
+Workspace tools, `@` / `$`, and host providers are not available there.
+
 ## Startup
 
 First paint never waits on a backend, but the TUI **pre-warms** the selected provider's host right after the banner ([ADR 0002](adr/0002-tui-provider-prewarm.md)): `codex app-server`, the cursor bridge, or the ACP agent is spawned and initialized on a background thread so the first prompt adopts a live connection instead of paying seconds of startup. Pre-warm failures stay silent and resurface on the ordinary lazy path. One-shot CLI commands do not pre-warm.

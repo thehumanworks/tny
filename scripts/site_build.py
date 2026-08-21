@@ -158,6 +158,8 @@ def page_shell(
     body: str,
     current_doc: str | None = None,
     toc: list[tuple[str, str]] | None = None,
+    extra_head: str = "",
+    extra_scripts: str = "",
 ) -> str:
     prefix = "../" if from_docs else ""
     drawer = ""
@@ -198,7 +200,7 @@ def page_shell(
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="{prefix}favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="{prefix}assets/site.css">
-  <script>
+{extra_head}  <script>
     (function () {{
       try {{
         var t = localStorage.getItem("theme");
@@ -211,7 +213,7 @@ def page_shell(
 {header(from_docs, active)}
 {extra_body}
 <script src="{prefix}assets/site.js"></script>
-</body>
+{extra_scripts}</body>
 </html>
 """
 
@@ -221,13 +223,6 @@ def article(title: str, lede: str, inner: str) -> str:
 
 
 def landing() -> str:
-    term = (
-        '<span class="bright">tny</span> 0.1.0 · Run /help for commands\n'
-        "\n"
-        '<span class="bar">┃</span>\n'
-        "\n"
-        '<span class="status-row"><span class="auto">yolo</span> · openai</span>'
-    )
     features = [
         (
             "Tiny 0.41mb binary",
@@ -286,17 +281,28 @@ def landing() -> str:
       </p>
     </div>
     <div class="term-wrap">
-      <div class="term" role="img" aria-label="tny interactive shell">
+      <div class="term" id="tny-term" role="application" aria-label="tny interactive shell">
         <div class="term-bar">
           <div class="term-dots" aria-hidden="true"><span></span><span></span><span></span></div>
           <div class="term-title">tny</div>
         </div>
-        <pre class="term-body">{term}</pre>
+        <div class="term-main">
+          <div class="term-transcript" data-term-transcript>
+            <div class="term-banner"><span class="bright">tny</span> {VERSION} · Run /help for commands</div>
+          </div>
+          <div class="term-overlay" data-term-overlay hidden></div>
+          <div class="term-composer">
+            <span class="bar" data-term-bar aria-hidden="true">┃</span>
+            <textarea class="term-input" data-term-input rows="1" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Prompt"></textarea>
+          </div>
+        </div>
+        <div class="term-status" data-term-status><span class="status-row"><span class="auto">yolo</span> · openai</span></div>
       </div>
     </div>
     <div class="prose">
       <p><span class="name">tny</span> is a coding agent harness and CLI written in C11, built to beat <a href="https://fx.sh">fx</a> on size and startup while keeping a Unix-shell UI.</p>
       <p>It focuses on a thin multiplexed frontend over host agents, plus a native OpenAI-compatible loop for BYOK providers. The stripped binary is {SIZE}.</p>
+      <p>The terminal on this page is live and stays in your browser. Pass <code>OPENAI_API_KEY</code> (and optionally <code>OPENAI_BASE_URL</code>) in the URL hash. Both are encrypted in this tab and sent only to the provider you set — never to GitHub.</p>
       <p>For end users, the form factor aims to be closer to a Unix shell than a heavy "IDE in the terminal" TUI.</p>
       <p>It's open source, model-agnostic, and suitable for local models, subscriptions, and cloud inference.</p>
     </div>
@@ -313,6 +319,14 @@ def landing() -> str:
         active=None,
         canonical="",
         body=body,
+        extra_head=(
+            '  <meta name="referrer" content="no-referrer">\n'
+            '  <script src="assets/term-core.js"></script>\n'
+            "  <script>\n"
+            "    window.__tnyBoot = window.tnyTermCore.takeSecretsFromLocation(location, history);\n"
+            "  </script>\n"
+        ),
+        extra_scripts='<script src="assets/term.js"></script>\n',
     )
 
 
@@ -641,6 +655,8 @@ def docs_tui() -> str:
 <p>Auth: <code>/login</code> <code>/logout</code> <code>/setup</code> — dispatched to the active backend. Backend-specific commands degrade to "not available" instead of crashing.</p>
 <h2 id="startup">Startup</h2>
 <p>First paint never waits on a backend. After the banner, the TUI pre-warms the selected provider's host on a background thread so the first prompt adopts a live connection. Failures stay silent and resurface on the ordinary lazy path. One-shot CLI commands do not pre-warm.</p>
+<h2 id="browser">Browser demo</h2>
+<p>The terminal on the landing page is a client-side preview of this chrome, not WASM tny. Pass <code>OPENAI_API_KEY</code> and optionally <code>OPENAI_BASE_URL</code> in the URL hash (<code>#OPENAI_API_KEY=…</code>), via <code>/login</code>, or as an <code>OPENAI_*=</code> assignment. The key and base URL are AES-GCM sealed in this tab; the base URL is never shown in the clear. Workspace tools and host providers are not available in the browser.</p>
 """
     return page_shell(
         title="Interactive shell — tny",
@@ -654,6 +670,7 @@ def docs_tui() -> str:
             ("input", "Input"),
             ("slash", "Slash commands"),
             ("startup", "Startup"),
+            ("browser", "Browser demo"),
         ],
         body=article(
             "Interactive shell",

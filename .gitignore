@@ -34,5 +34,7 @@ auth-token
 *.gcda
 *.gcno
 coverage/
+__pycache__/
+*.pyc
 
 .claude/worktrees

@@ -84,6 +84,9 @@ only — not Intel x86), and Windows x86_64 (MSYS2). See [docs/ci.md](docs/ci.md
 ## Docs
 
 Public site (Geist Mono, fx.sh-style): [thehumanworks.github.io/tny](https://thehumanworks.github.io/tny/).
+The landing terminal is a client-side BYOK preview — pass `OPENAI_API_KEY`
+(and optionally `OPENAI_BASE_URL`) in the URL hash; both are encrypted in
+the tab ([ADR 0005](docs/adr/0005-client-side-landing-terminal.md)).
 
 The implementation contract lives in [docs/](docs/README.md): product scope,
 architecture, CLI/TUI specs, per-backend protocol notes,
