@@ -76,6 +76,31 @@ void tui_drop_backend(tui *t) {
     t->bk = NULL;
 }
 
+int tui_queue_image(tui *t, const char *path) {
+    if (!t || !path || !*path || t->n_images >= TUI_MAX_IMAGES) return 0;
+    char *use = NULL;
+    if (path[0] == '~' && (path[1] == '/' || path[1] == '\0')) {
+        char *home = path_home();
+        use = path[1] == '/' ? path_join(home, path + 2) : xstrdup(home);
+        free(home);
+    }
+    const char *src = use ? use : path;
+    if (!file_exists(src)) { free(use); return 0; }
+    char *abs = path_abs(src);
+    free(use);
+    t->images[t->n_images++] = abs ? abs : xstrdup(src);
+    t->images[t->n_images] = NULL;
+    return t->n_images;
+}
+
+static void maybe_gap(tui *t, bool for_text) {
+    if (t->gap == 0) return;
+    if (!for_text && t->gap == 2) return;
+    tui_bol(t);
+    tui_write(t, "\n", 1);
+    t->gap = 0;
+}
+
 /* ---- approvals ---- */
 
 tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
@@ -140,10 +165,12 @@ static void ev_cb(const tny_event *ev, void *ud) {
 
     switch (ev->kind) {
     case TNY_EV_TEXT_DELTA:
+        maybe_gap(t, true);
         tui_write(t, ev->text, ev->text_len);
         buf_append(&t->last_reply, ev->text, ev->text_len);
         break;
     case TNY_EV_THINKING:
+        maybe_gap(t, true);
         if (!t->in_thinking) {
             t->in_thinking = true;
             tui_bol(t);
@@ -156,6 +183,7 @@ static void ev_cb(const tny_event *ev, void *ud) {
         if (t->color) tui_write(t, "\x1b[0m", 4);
         break;
     case TNY_EV_TOOL_START:
+        maybe_gap(t, false);
         oneline(line, sizeof line, ev->tool_detail);
         tui_linef(t, "%s⏺ %s%s %.100s", tui_c(t, "\x1b[36m"), ev->tool_name,
                   tui_c(t, "\x1b[0m"), line);
@@ -164,6 +192,7 @@ static void ev_cb(const tny_event *ev, void *ud) {
         oneline(line, sizeof line, ev->tool_detail);
         tui_linef(t, "  %s%s%s %s %.80s", tui_c(t, ev->tool_ok ? "\x1b[32m" : "\x1b[31m"),
                   ev->tool_ok ? "✓" : "✗", tui_c(t, "\x1b[0m"), ev->tool_name, line);
+        t->gap = 2; /* next model text starts a new iteration */
         break;
     case TNY_EV_PERMISSION: {
         tny_perm_decision d;
@@ -301,6 +330,8 @@ static void after_turn(tui *t) {
         session_save(t->session);
     }
     tui_bol(t);
+    tui_write(t, "\n", 1);
+    t->gap = 0;
     switch (t->stop) {
     case TNY_STOP_DONE: break;
     case TNY_STOP_INTERRUPTED: tui_sys(t, "interrupted"); break;
@@ -341,6 +372,7 @@ void tui_submit(tui *t, const char *text) {
 
     tui_hist_add(t, s);
     tui_linef(t, "%s› %s%s", tui_c(t, "\x1b[1m"), s, tui_c(t, "\x1b[0m"));
+    t->gap = 1; /* one blank line before the first agent output */
     /* connect/send below can block for a while: show the echoed prompt and a
      * status note now so Enter never looks like a freeze */
     tui_note(t, t->bk ? "sending…" : "starting %s…",

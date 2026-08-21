@@ -239,12 +239,12 @@ static void drop_backend(tui *t) {
  * from the buffer once they move on (esc dismisses, submit clears). */
 static void cmd_help(tui *t) {
     const char *d = tui_c(t, "\x1b[2m"), *b = tui_c(t, "\x1b[1m"), *r = tui_c(t, "\x1b[0m");
-    tui_overlay_linef(t, "%skeys: enter submit · \\ + enter or alt-enter newline · "
+    tui_overlay_linef(t, "%skeys: enter submit · ctrl-j / alt-j / shift-enter newline · "
                          "up/down history%s", d, r);
     tui_overlay_linef(t, "%s      / commands · @ files · $ skills · tab complete · "
                          "esc cancel turn%s", d, r);
-    tui_overlay_linef(t, "%s      ctrl-o transcript · ctrl-l redraw · ctrl-c interrupt "
-                         "(twice exits)%s", d, r);
+    tui_overlay_linef(t, "%s      ctrl-v paste image · ctrl-o transcript · "
+                         "ctrl-c interrupt (twice exits)%s", d, r);
     for (int i = 0; i < N_CMDS; i++)
         tui_overlay_linef(t, "  %s/%-12s%s %s", b, CMDS[i].name, r, CMDS[i].hint);
     if (t->tty)
@@ -497,13 +497,11 @@ void tui_command(tui *t, const char *line) {
         cmd_skills(t);
     } else if (strcmp(c, "image") == 0) {
         if (!arg || !*arg) tui_sys(t, "usage: /image PATH");
-        else if (!file_exists(arg)) tui_err(t, "no such file");
         else if (t->n_images >= TUI_MAX_IMAGES) tui_sys(t, "too many images queued");
         else {
-            char *abs = path_abs(arg);
-            t->images[t->n_images++] = abs ? abs : xstrdup(arg);
-            t->images[t->n_images] = NULL;
-            tui_linef(t, "  attached %s", t->images[t->n_images - 1]);
+            int n = tui_queue_image(t, arg);
+            if (!n) tui_err(t, "no such file");
+            else tui_linef(t, "  attached %s", t->images[n - 1]);
         }
         t->dirty = true;
     } else if (strcmp(c, "undo") == 0) {

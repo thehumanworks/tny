@@ -15,25 +15,6 @@ static void wout(const void *s, size_t n) {
     if (n) fwrite(s, 1, n, stdout);
 }
 
-/* Display columns of a UTF-8 run, counting one column per code point.
- * Wide (CJK/emoji) glyphs are undercounted; the cols-1 clamp absorbs it. */
-static int dw(const char *s, size_t n) {
-    int w = 0;
-    for (size_t i = 0; i < n; i++)
-        if (((unsigned char)s[i] & 0xC0) != 0x80) w++;
-    return w;
-}
-
-/* Advance past `cols` display columns. */
-static const char *skip_cols(const char *s, const char *end, int cols) {
-    while (s < end && cols > 0) {
-        s++;
-        while (s < end && ((unsigned char)*s & 0xC0) == 0x80) s++;
-        cols--;
-    }
-    return s;
-}
-
 /* Append at most maxw columns of s, dropping control bytes. Returns columns. */
 static int push_trunc(buf_t *b, const char *s, size_t n, int maxw) {
     int w = 0;
@@ -153,15 +134,81 @@ static void popover_rows(tui *t, buf_t *b, int *rows, int maxw) {
 
 /* The whole block must fit the screen or erase_block's cursor-up arithmetic
  * breaks, so the overlay only gets the rows everything else leaves over. */
+int tui_wrap_width(const tui *t) {
+    int avail = t->cols - 1 - 2;
+    return avail < 8 ? 8 : avail;
+}
+
+static size_t cp_adv(const char *s, size_t n, size_t i) {
+    if (i >= n) return 0;
+    unsigned char c = (unsigned char)s[i];
+    size_t a = 1;
+    if (c >= 0xF0) a = 4;
+    else if (c >= 0xE0) a = 3;
+    else if (c >= 0xC0) a = 2;
+    if (i + a > n) a = n - i;
+    return a ? a : 1;
+}
+
+void tui_wrap_locate(const char *s, size_t n, size_t cur, int width,
+                     int *row, int *col, int *total) {
+    if (width < 1) width = 1;
+    if (!s) s = "";
+    int r = 0, c = 0, cr = 0, cc = 0;
+    for (size_t i = 0; i < n; ) {
+        if (i == cur) { cr = r; cc = c; }
+        if (s[i] == '\n') {
+            r++;
+            c = 0;
+            i++;
+            continue;
+        }
+        size_t a = cp_adv(s, n, i);
+        if (c >= width) { r++; c = 0; }
+        c++;
+        i += a;
+    }
+    if (cur >= n) { cr = r; cc = c; }
+    if (row) *row = cr;
+    if (col) *col = cc;
+    if (total) *total = r + 1;
+}
+
+size_t tui_wrap_index(const char *s, size_t n, int width, int trow, int tcol) {
+    if (width < 1) width = 1;
+    if (!s || trow < 0) return 0;
+    int r = 0, c = 0;
+    for (size_t i = 0; i < n; ) {
+        if (r == trow && c >= tcol) return i;
+        if (s[i] == '\n') {
+            if (r == trow) return i;
+            r++;
+            c = 0;
+            i++;
+            if (r > trow) return i;
+            continue;
+        }
+        if (c >= width) {
+            r++;
+            c = 0;
+            if (r > trow) return i;
+            if (r == trow && tcol <= 0) return i;
+        }
+        i += cp_adv(s, n, i);
+        c++;
+    }
+    return n;
+}
+
 int tui_overlay_budget(const tui *t) {
     int used = 1 /* status */ + (t->partial.len ? 1 : 0) + 1 /* slack */;
     if (t->approval) {
         used += 1;
     } else {
-        int nl = 1;
-        for (size_t i = 0; i < t->input.len; i++)
-            if (t->input.data[i] == '\n') nl++;
-        used += nl < TUI_COMP_ROWS ? nl : TUI_COMP_ROWS;
+        int total = 1;
+        tui_wrap_locate(t->input.data, t->input.len, 0, tui_wrap_width(t),
+                        NULL, NULL, &total);
+        used += total < TUI_COMP_ROWS ? total : TUI_COMP_ROWS;
     }
     if (t->pick != PICK_NONE && t->n_items > 0)
         used += t->n_items < TUI_POP_ROWS ? t->n_items : TUI_POP_ROWS;
@@ -213,43 +260,29 @@ static void composer_rows(tui *t, buf_t *b, int *rows, int maxw, int *cur_row, i
         return;
     }
 
-    /* logical lines */
     const char *data = t->input.len ? t->input.data : "";
     size_t len = t->input.len;
-    size_t starts[258];
-    int nl = 0;
-    starts[nl++] = 0;
-    for (size_t i = 0; i < len && nl < 256; i++)
-        if (data[i] == '\n') starts[nl++] = i + 1;
-    starts[nl] = len + 1; /* sentinel: line i spans [starts[i], starts[i+1]-1) */
-
-    int caret_line = 0;
-    for (int i = 0; i < nl; i++)
-        if (t->cur >= starts[i]) caret_line = i;
-
-    int first = 0;
-    if (caret_line >= TUI_COMP_ROWS) first = caret_line - TUI_COMP_ROWS + 1;
-
     int avail = maxw - 2;
     if (avail < 8) avail = 8;
-    for (int i = first; i < nl && i - first < TUI_COMP_ROWS; i++) {
+    int caret_row = 0, caret_col = 0, total = 1;
+    tui_wrap_locate(data, len, t->cur, avail, &caret_row, &caret_col, &total);
+
+    int first = 0;
+    if (caret_row >= TUI_COMP_ROWS) first = caret_row - TUI_COMP_ROWS + 1;
+
+    for (int vr = first; vr < total && vr - first < TUI_COMP_ROWS; vr++) {
         row_sep(b, rows);
-        size_t ls = starts[i], le = starts[i + 1] - 1;
-        if (le > len) le = len;
-        const char *lp = data + ls;
-        size_t ll = le - ls;
+        size_t ls = tui_wrap_index(data, len, avail, vr, 0);
+        size_t le = vr + 1 < total ? tui_wrap_index(data, len, avail, vr + 1, 0) : len;
+        if (le > ls && data[le - 1] == '\n') le--;
         buf_appends(b, tui_c(t, "\x1b[1;32m"));
-        buf_appends(b, i == 0 ? "> " : "  ");
+        buf_appends(b, ls == 0 ? "> " : "  ");
         buf_appends(b, tui_c(t, "\x1b[0m"));
-        int off = 0;
-        if (i == caret_line) {
-            int col = dw(lp, t->cur - ls);
-            if (col > avail - 1) off = col - (avail - 1);
+        if (vr == caret_row) {
             *cur_row = *rows - 1;
-            *cur_col = 2 + col - off;
+            *cur_col = 2 + caret_col;
         }
-        const char *from = skip_cols(lp, lp + ll, off);
-        push_trunc(b, from, (size_t)(lp + ll - from), avail);
+        if (le > ls) push_trunc(b, data + ls, le - ls, avail);
     }
 }
 
