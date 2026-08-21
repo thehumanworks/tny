@@ -61,6 +61,10 @@ jobs:
             exit 1
           fi
 
+      - name: Warm python3
+        if: matrix.metal
+        run: python3 -c 'print("python3 ok")'
+
       - name: Build, test, size
         run: |
           set -eu
@@ -103,12 +107,13 @@ jobs:
         run: |
           set -eu
           docker run --rm -v "$PWD":/src -w /src alpine:3.21 \
-            sh -c 'apk add --no-cache build-base python3 bash \
+            sh -c 'apk add --no-cache build-base \
               && make -j"$(getconf _NPROCESSORS_ONLN)" release STATIC=1 \
-              && make test SANITIZE=0 STATIC=1 \
+              && make test-unit SANITIZE=0 STATIC=1 \
               && make size-check SIZE_MAX=1572864 STATIC=1 \
               && make pack TRIPLE='"${{ matrix.triple }}"' STATIC=1 \
-              && ./dist/tny-'"${{ matrix.triple }}"' --version'
+              && ./dist/tny-'"${{ matrix.triple }}"' --version \
+              && ./dist/tny-'"${{ matrix.triple }}"' ask --help >/dev/null'
           file dist/tny-${{ matrix.triple }}
           # Must be a static ELF; ldd says "not a dynamic executable".
           if ldd dist/tny-${{ matrix.triple }} >/tmp/ldd.out 2>&1; then
@@ -154,8 +159,8 @@ jobs:
           ./dist/tny-windows-x86_64.exe --version
           ./dist/tny-windows-x86_64.exe --help >/dev/null
           ./dist/tny-windows-x86_64.exe ask --help >/dev/null
-          # Unit tests without ASan. Integration fixtures need /bin/sh (present).
-          make test SANITIZE=0
+          # Unit tests without ASan. Integration (pty/TUI) stays on POSIX CI.
+          make test-unit SANITIZE=0
           # Runtime DLL for a usable artifact outside this runner.
           cp /usr/bin/msys-2.0.dll dist/
           ldd dist/tny-windows-x86_64.exe || true

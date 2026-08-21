@@ -31,6 +31,15 @@ export TNY_MOCK_CWD=$WS
 export CURSOR_API_KEY=key_mock_deadbeef
 unset CURSOR_SDK_BRIDGE_BIN
 
+# HOME is a throwaway dir. macOS version-manager shims for
+# `#!/usr/bin/env python3` then hang or miss the interpreter, so the
+# mock never prints a ready line. Exec the real python3 -u instead.
+PY=$(command -v python3)
+WRAP=$TMP/mock-bridge
+printf '#!/bin/sh\nexec "%s" -u "%s" "$@"\n' "$PY" "$MOCK" > "$WRAP"
+chmod +x "$WRAP"
+MOCK=$WRAP
+
 run() { # run <outfile> <errfile> <ask args...>
     _out=$1; _err=$2; shift 2
     set +e

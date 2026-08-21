@@ -100,7 +100,7 @@ else
   SIZE_MAX ?= 1572864
 endif
 
-.PHONY: all release debug test size size-check pack smoke bench clean install site
+.PHONY: all release debug test test-unit size size-check pack smoke bench clean install site
 
 all: release
 
@@ -126,8 +126,10 @@ $(TEST_BIN): $(TEST_OBJS) $(TEST_SRC:%.c=$(OBJ_DBG)/%.o)
 
 debug: $(TEST_BIN)
 
-test: $(TEST_BIN) release
+test-unit: $(TEST_BIN)
 	./$(TEST_BIN)
+
+test: test-unit release
 	@if [ -x tests/integration/run.sh ]; then tests/integration/run.sh; fi
 
 size: release

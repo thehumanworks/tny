@@ -10,10 +10,10 @@ workflow (`.github/workflows/ci.yml`).
 | --- | --- | --- |
 | `tny-linux-x86_64` | `ubuntu-24.04` | glibc, ASan unit tests + fixtures |
 | `tny-linux-aarch64` | `ubuntu-24.04-arm` | glibc, same tests |
-| `tny-linux-x86_64-musl` | `ubuntu-24.04` + Alpine 3.21 | **static** musl (publish shape) |
-| `tny-linux-aarch64-musl` | `ubuntu-24.04-arm` + Alpine 3.21 | **static** musl |
-| `tny-darwin-arm64` | `macos-15` | Apple Silicon only |
-| `tny-windows-x86_64.exe` | `windows-2025` + MSYS2 `MSYS` | POSIX via `msys-2.0.dll` |
+| `tny-linux-x86_64-musl` | `ubuntu-24.04` + Alpine 3.21 | **static** musl; unit tests + smoke |
+| `tny-linux-aarch64-musl` | `ubuntu-24.04-arm` + Alpine 3.21 | **static** musl; unit tests + smoke |
+| `tny-darwin-arm64` | `macos-15` | Apple Silicon only; full `make test` |
+| `tny-windows-x86_64.exe` | `windows-2025` + MSYS2 `MSYS` | POSIX via `msys-2.0.dll`; unit + smoke |
 
 The Pages workflow (`.github/workflows/pages.yml`) is separate and only
 rebuilds the static site.

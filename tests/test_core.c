@@ -484,7 +484,10 @@ TEST codex_registry_roundtrip(void) {
     char *path = cx_registry_path();
     struct stat st;
     ASSERT_EQ(0, stat(path, &st));
+    /* 0600 on POSIX. Windows/MSYS keeps group/other bits on NTFS. */
+#if !defined(__CYGWIN__) && !defined(__MSYS__)
     ASSERT_EQ(0, (int)(st.st_mode & 077)); /* private to the user */
+#endif
     char *ws = NULL;
     pid_t pid = 0;
     ASSERT_EQ(0, cx_registry_load(&ws, &pid));
