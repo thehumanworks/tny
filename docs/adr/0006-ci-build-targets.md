@@ -1,4 +1,4 @@
-# 0005 — CI builds Linux (x86_64 + aarch64), Darwin Apple Silicon, and Windows
+# 0006 — CI builds Linux (x86_64 + aarch64), Darwin Apple Silicon, and Windows
 
 Date: 2026-08-21
 Status: accepted

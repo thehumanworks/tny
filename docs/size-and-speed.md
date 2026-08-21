@@ -48,10 +48,12 @@ Do not initialize backends until the user sends a turn or `ask` starts. `doctor`
 2. ANSI TUI, not a widget kit.
 3. yyjson + picohttpparser + wslay, vendored as .c files you can see in `nm`.
    (nanopb deferred: v1 speaks Connect with the JSON codec, no protobuf runtime.)
-4. macOS Security.framework, **dlopen'd at first TLS use** — eager framework
-   linking costs ~1.2 ms per launch and loses the startup race. Linux mbedTLS
-   client-only is a follow-up (v1 Linux: plain http works, https errors
-   cleanly). Never static OpenSSL.
+4. System TLS, **dlopen'd at first TLS use**: macOS Security.framework (eager
+   framework linking costs ~1.2 ms per launch and loses the startup race),
+   Linux the distro's `libssl.so.3`/`.so.1.1`
+   ([adr/0007](adr/0007-linux-tls-system-openssl.md), +4 KiB total, `ldd`
+   stays libssl-free). Never static or vendored OpenSSL. musl static builds
+   cannot dlopen: plain http works, https errors cleanly there.
 5. Lazy backend load: Cursor/Codex/ACP stay cold until selected. No upgrade/MCP/skill walk before first prompt.
 6. No WASM, NAPI, sounds, or bundled Node in the default CLI.
 

@@ -1,7 +1,7 @@
 /* stream.c — nstream: plain fd or TLS.
  * macOS: SecureTransport, dlopen'd at first TLS use.
  * Linux: system OpenSSL (libssl.so.3 / .so.1.1), dlopen'd at first TLS use
- *        (docs/adr/0006). Never linked, never vendored, never static. */
+ *        (docs/adr/0007). Never linked, never vendored, never static. */
 #include "net/net.h"
 
 #include <stdio.h>
