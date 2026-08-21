@@ -255,6 +255,8 @@ static int spawn_to_fd(char *const argv[], int outfd) {
     return -1;
 }
 
+#ifndef __APPLE__
+/* only the wl-paste/xclip path writes to a file; macOS uses pngpaste/osascript */
 static int spawn_to_file(char *const argv[], const char *path) {
     int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (fd < 0) return -1;
@@ -262,6 +264,7 @@ static int spawn_to_file(char *const argv[], const char *path) {
     close(fd);
     return rc;
 }
+#endif
 
 static int clipboard_image(char *path, size_t pathlen) {
     snprintf(path, pathlen, "/tmp/tny-paste-%d-%d.png", (int)getpid(), (int)now_ms());
