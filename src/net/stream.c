@@ -205,6 +205,10 @@ static int ossl_load(void) {
     return 0;
 }
 
+static bool ossl_want_retry(int e) {
+    return e == OSSL_ERROR_WANT_READ || e == OSSL_ERROR_WANT_WRITE;
+}
+
 /* Poll for the direction the last SSL_ERROR_WANT_* asked for. */
 static void ossl_wait(int fd, int want, int timeout_ms) {
     struct pollfd pf = {fd, want == OSSL_ERROR_WANT_WRITE ? POLLOUT : POLLIN, 0};
@@ -273,7 +277,7 @@ nstream *nstream_connect(const char *host, int port, bool tls,
     int rc;
     while ((rc = ossl.handshake(ssl)) != 1) {
         int e = ossl.get_error(ssl, rc);
-        if (e != OSSL_ERROR_WANT_READ && e != OSSL_ERROR_WANT_WRITE) {
+        if (!ossl_want_retry(e)) {
             long vr = ossl.verify_result(ssl);
             if (vr != OSSL_X509_V_OK && ossl.verify_str)
                 snprintf(err, errlen, "TLS certificate for %s rejected: %s",
@@ -320,9 +324,9 @@ ssize_t nstream_read(nstream *s, void *buf, size_t cap) {
         int n = ossl.read((ossl_ssl *)s->ssl, buf, want);
         if (n > 0) return n;
         int e = ossl.get_error((ossl_ssl *)s->ssl, n);
-        if (e == OSSL_ERROR_WANT_READ || e == OSSL_ERROR_WANT_WRITE) return -2;
+        if (ossl_want_retry(e)) return -2;
         if (e == OSSL_ERROR_ZERO_RETURN) return 0;
-        if (e == OSSL_ERROR_SYSCALL && n == 0) return 0; /* peer EOF, no alert */
+        if (e == OSSL_ERROR_SYSCALL) return n == 0 ? 0 : -1; /* 0: EOF, no alert */
         return -1;
     }
 #endif
@@ -360,11 +364,8 @@ int nstream_write_all(nstream *s, const void *data, size_t len) {
             int n = ossl.write((ossl_ssl *)s->ssl, (const char *)data + off, want);
             if (n > 0) { off += (size_t)n; continue; }
             int e = ossl.get_error((ossl_ssl *)s->ssl, n);
-            if (e == OSSL_ERROR_WANT_READ || e == OSSL_ERROR_WANT_WRITE) {
-                ossl_wait(s->fd, e, 5000);
-                continue;
-            }
-            return -1;
+            if (!ossl_want_retry(e)) return -1;
+            ossl_wait(s->fd, e, 5000);
         }
         return 0;
     }

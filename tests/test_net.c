@@ -295,30 +295,34 @@ static void *tls_junk_server(void *arg) {
 }
 
 TEST tls_to_plain_http_server_fails_cleanly(void) {
-    int lfd = socket(AF_INET, SOCK_STREAM, 0);
-    ASSERT(lfd >= 0);
-    struct sockaddr_in sa = {0};
-    sa.sin_family = AF_INET;
-    sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    ASSERT_EQ(0, bind(lfd, (struct sockaddr *)&sa, sizeof sa));
-    socklen_t sl = sizeof sa;
-    ASSERT_EQ(0, getsockname(lfd, (struct sockaddr *)&sa, &sl));
-    ASSERT_EQ(0, listen(lfd, 1));
-    pthread_t th;
-    ASSERT_EQ(0, pthread_create(&th, NULL, tls_junk_server,
-                                (void *)(intptr_t)lfd));
-    char err[256] = "";
-    nstream *s = nstream_connect("127.0.0.1", (int)ntohs(sa.sin_port), true,
-                                 3000, err, sizeof err);
-    pthread_join(th, NULL);
-    close(lfd);
-    ASSERT_EQ(NULL, s);
-    ASSERT(err[0] != '\0');
+    /* Two rounds: the second one runs against the already-loaded TLS
+     * library, so the load-once cache path is a handshake too. */
+    for (int round = 0; round < 2; round++) {
+        int lfd = socket(AF_INET, SOCK_STREAM, 0);
+        ASSERT(lfd >= 0);
+        struct sockaddr_in sa = {0};
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        ASSERT_EQ(0, bind(lfd, (struct sockaddr *)&sa, sizeof sa));
+        socklen_t sl = sizeof sa;
+        ASSERT_EQ(0, getsockname(lfd, (struct sockaddr *)&sa, &sl));
+        ASSERT_EQ(0, listen(lfd, 1));
+        pthread_t th;
+        ASSERT_EQ(0, pthread_create(&th, NULL, tls_junk_server,
+                                    (void *)(intptr_t)lfd));
+        char err[256] = "";
+        nstream *s = nstream_connect("127.0.0.1", (int)ntohs(sa.sin_port),
+                                     true, 3000, err, sizeof err);
+        pthread_join(th, NULL);
+        close(lfd);
+        ASSERT_EQ(NULL, s);
+        ASSERT(err[0] != '\0');
 #if defined(__APPLE__) || defined(__linux__)
-    /* TLS is implemented here: this must be a real handshake failure, never
-     * the "https not built" fallback or a failed TLS-library load. */
-    ASSERT(strstr(err, "handshake") != NULL);
+        /* TLS is implemented here: this must be a real handshake failure,
+         * never the "https not built" fallback or a failed library load. */
+        ASSERT(strstr(err, "handshake") != NULL);
 #endif
+    }
     PASS();
 }
 

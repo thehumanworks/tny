@@ -61,6 +61,13 @@ OPS = [
 # unobservable without heroics. Matched against "file:line-content".
 EQUIVALENT = [
     "tui_prewarm.c:pthread_cond_signal",  # signal-vs-broadcast style details
+    # Wrong poll direction only delays the retry by the poll timeout; the
+    # handshake/write loops re-check the real condition and still succeed.
+    "stream.c:struct pollfd pf = {fd, want == OSSL_ERROR_WANT_WRITE",
+    # CA-bundle fallback order: every test host has the first bundle, so the
+    # loop breaks before the increment ever runs; observing p-- needs a
+    # machine with no standard CA bundle at all.
+    "stream.c:for (const char *const *p = ossl_ca_bundles",
 ]
 
 

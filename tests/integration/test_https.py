@@ -11,14 +11,17 @@ OpenAI provider (Linux system-OpenSSL dlopen path, docs/adr/0006).
 Linux-only: macOS SecureTransport verifies against the keychain, not
 SSL_CERT_FILE, and other platforms have no TLS yet.
 """
+import json
 import os
+import re
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import tempfile
+import threading
 import time
-import json
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TNY = sys.argv[1] if len(sys.argv) > 1 else \
@@ -44,6 +47,91 @@ def make_cert(tmp):
          "-addext", "subjectAltName=IP:127.0.0.1"],
         check=True, capture_output=True)
     return cert, key
+
+
+def raw_tls_server(cert, key, handler):
+    """One-shot TLS server driven by `handler(tls_socket)` on a thread."""
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(certfile=cert, keyfile=key)
+    lsock = socket.socket()
+    lsock.bind(("127.0.0.1", 0))
+    lsock.listen(1)
+    port = lsock.getsockname()[1]
+
+    def run():
+        conn, _ = lsock.accept()
+        try:
+            handler(ctx.wrap_socket(conn, server_side=True))
+        except OSError:
+            pass
+        finally:
+            conn.close()
+            lsock.close()
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return port, t
+
+
+def recv_headers(tls):
+    data = b""
+    while b"\r\n\r\n" not in data:
+        chunk = tls.recv(65536)
+        if not chunk:
+            break
+        data += chunk
+    return data
+
+
+MODELS_RESP = (b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
+               b'{"data":[{"id":"mock-model-tls"}]}')
+
+
+def eof_with_close_notify(tls):
+    """Close-delimited body, delayed so the client hits a would-block read
+    mid-body, ended by a proper TLS close_notify (SSL_ERROR_ZERO_RETURN)."""
+    recv_headers(tls)
+    split = MODELS_RESP.index(b"\r\n\r\n") + 14  # headers + a body prefix
+    tls.sendall(MODELS_RESP[:split])
+    time.sleep(0.2)
+    tls.sendall(MODELS_RESP[split:])
+    tls.unwrap().close()
+
+
+def eof_without_close_notify(tls):
+    """Same body, but a bare TCP FIN with no close_notify — the buggy-server
+    EOF that must read as end-of-body, not an error (SSL_ERROR_SYSCALL, 0)."""
+    recv_headers(tls)
+    tls.sendall(MODELS_RESP)
+    tls.close()
+
+
+def slow_reading_provider(tls):
+    """Sleep before draining the request so a multi-megabyte POST fills both
+    socket buffers and the client's SSL_write hits SSL_ERROR_WANT_WRITE."""
+    time.sleep(0.8)
+    data = recv_headers(tls)
+    head, _, rest = data.partition(b"\r\n\r\n")
+    clen = int(re.search(rb"content-length:\s*(\d+)", head, re.I).group(1))
+    while len(rest) < clen:
+        chunk = tls.recv(1 << 20)
+        if not chunk:
+            break
+        rest += chunk
+    body = (b'data: {"choices":[{"index":0,"delta":{"content":"BIG-OK"}}]}\n\n'
+            b'data: [DONE]\n\n')
+    tls.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+                b"Content-Length: %d\r\n\r\n%s" % (len(body), body))
+    tls.unwrap().close()
+
+
+def run_models(cert, key, handler, env):
+    port, t = raw_tls_server(cert, key, handler)
+    env = dict(env, OPENAI_BASE_URL=f"https://127.0.0.1:{port}/v1")
+    r = subprocess.run([TNY, "models", "--json"], env=env,
+                       capture_output=True, timeout=30)
+    t.join(timeout=10)
+    return r
 
 
 def main():
@@ -98,6 +186,28 @@ def main():
         finally:
             mock.terminate()
             mock.wait(timeout=5)
+
+        # close-delimited body ending in a TLS close_notify, with a stall
+        # mid-body: exercises would-block reads and the clean-EOF read path
+        r = run_models(cert, key, eof_with_close_notify, env)
+        assert r.returncode == 0, f"exit {r.returncode}: {r.stderr.decode()}"
+        assert b"mock-model-tls" in r.stdout, (r.stdout, r.stderr)
+
+        # bare TCP FIN with no close_notify: must still be end-of-body
+        r = run_models(cert, key, eof_without_close_notify, env)
+        assert r.returncode == 0, f"exit {r.returncode}: {r.stderr.decode()}"
+        assert b"mock-model-tls" in r.stdout, (r.stdout, r.stderr)
+
+        # multi-megabyte prompt against a provider that reads slowly: the
+        # request write must survive SSL_ERROR_WANT_WRITE and complete
+        port, t = raw_tls_server(cert, key, slow_reading_provider)
+        env_big = dict(env, OPENAI_BASE_URL=f"https://127.0.0.1:{port}/v1")
+        r = subprocess.run([TNY, "--cwd", ws, "ask", "--json"],
+                           input=b"summarize: " + b"x" * (4 << 20),
+                           env=env_big, capture_output=True, timeout=30)
+        t.join(timeout=10)
+        assert r.returncode == 0, f"exit {r.returncode}: {r.stderr.decode()}"
+        assert "BIG-OK" in json.loads(r.stdout)["output"], r.stdout
     print("test_https: all assertions passed")
 
 
