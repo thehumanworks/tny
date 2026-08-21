@@ -18,6 +18,23 @@ workflow (`.github/workflows/ci.yml`).
 The Pages workflow (`.github/workflows/pages.yml`) is separate and only
 rebuilds the static site.
 
+## Releases (mise / `github:` backend)
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`: the same matrix,
+packaged as `tny-<os>-<arch>[-musl].tar.gz` (Windows: `.zip` with
+`msys-2.0.dll`) plus `SHA256SUMS`, published as a GitHub release. The
+workflow fails if the tag does not match `TNY_VERSION` in
+`src/core/config.h`.
+
+Releases are what make `mise x github:thehumanworks/tny -- tny --version`
+work — mise resolves versions from GitHub releases and autodetects the
+asset from the os/arch/libc words in its name, so keep the triple naming.
+While the repo is private, mise needs `GITHUB_TOKEN` (or
+`MISE_GITHUB_TOKEN`) set to list and download releases.
+
+Release flow: bump `TNY_VERSION`, merge to `main`, then
+`git tag v<version> && git push origin v<version>`.
+
 ## Darwin is Metal / Apple Silicon, not Intel
 
 macOS CI **must** be arm64. The darwin job runs on `macos-15` (M1) and
