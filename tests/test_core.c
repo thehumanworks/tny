@@ -14,7 +14,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-static char g_home[512], g_ws[512];
+static char g_home[512], g_ws[520];
 
 static void ensure_env(void) {
     if (g_home[0]) return;

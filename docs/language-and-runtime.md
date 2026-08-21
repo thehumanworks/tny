@@ -40,7 +40,11 @@ Do **not** take: libcurl, OpenSSL, libuv, Boost, nlohmann/json, protobuf C++, gr
 
 ## Build
 
-POSIX `Makefile` first. Targets: `tny`, `tny-test`, `compile_commands` (optional bear). macOS and Linux are v1. Windows is later.
+POSIX `Makefile` first. Targets: `tny`, `tny-test`, `size-check`, `pack`.
+macOS **Apple Silicon** and Linux (x86_64 + aarch64, glibc and musl static)
+are v1. Windows CI builds via MSYS2 `MSYS` (POSIX runtime, `msys-2.0.dll`);
+native Win32 is later. Intel Mac is not a CI or publish target
+([adr/0005](adr/0005-ci-build-targets.md), [ci.md](ci.md)).
 
 Pin third-party versions in `third_party/*/VERSION`. Generated nanopb output lives in `gen/` and is not hand-edited.
 

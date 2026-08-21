@@ -26,7 +26,8 @@ run openai python3 tests/integration/test_openai.py
 
 for t in tests/integration/test_*.sh; do
     [ -e "$t" ] || continue
-    run "$(basename "$t" .sh)" sh "$t" "$TNY"
+    # Honor each script's shebang (test_codex.sh is bash; dash rejects pipefail).
+    run "$(basename "$t" .sh)" "$t" "$TNY"
 done
 
 for t in tests/integration/test_*.py; do

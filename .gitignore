@@ -1,6 +1,7 @@
 # Build
 /build/
 /build-*/
+/dist/
 /out/
 /zig-out/
 *.o
