@@ -31,7 +31,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # — functions None means the whole file; regex None means every line.
 # The scope is the code THIS change touched: whole new files/functions, but
 # only the overlay branches inside the pre-existing key handler.
+# (path, function names or None, line regex or None[, integration test]) —
+# the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
+    ("src/net/stream.c", None, r"ossl|OSSL",
+     "tests/integration/test_https.py"),
     ("src/tui/tui_prewarm.c", None, None),
     ("src/tui/tui_draw.c", ["tui_push_ansi", "tui_overlay_budget", "overlay_rows",
                             "tui_overlay_linef", "tui_overlay_clear"], None),
@@ -57,6 +61,23 @@ OPS = [
 # unobservable without heroics. Matched against "file:line-content".
 EQUIVALENT = [
     "tui_prewarm.c:pthread_cond_signal",  # signal-vs-broadcast style details
+    # Wrong poll direction only delays the retry by the poll timeout; the
+    # handshake/write loops re-check the real condition and still succeed.
+    "stream.c:struct pollfd pf = {fd, want == OSSL_ERROR_WANT_WRITE",
+    # CA-bundle fallback order: every test host has the first bundle, so the
+    # loop breaks before the increment ever runs; observing p-- needs a
+    # machine with no standard CA bundle at all.
+    "stream.c:for (const char *const *p = ossl_ca_bundles",
+    # EOF classification: every caller treats clean EOF (0) and error (-1)
+    # identically once a close-delimited body is complete, so flipping
+    # ZERO_RETURN / SYSCALL-EOF between 0 and -1 is unobservable until a
+    # caller starts detecting truncation.
+    "stream.c:if (e == OSSL_ERROR_ZERO_RETURN) return 0;",
+    "stream.c:if (e == OSSL_ERROR_SYSCALL) return n == 0 ? 0 : -1;",
+    # A fatal mid-request write error and the "connection lost before
+    # response" it causes downstream both fail the turn the same way, so
+    # returning 0 here is indistinguishable without a proto-level probe.
+    "stream.c:if (!ossl_want_retry(e)) return -1;",
 ]
 
 
@@ -139,10 +160,15 @@ def main():
     args = ap.parse_args()
 
     mutants = []
-    for path, names, line_re in TARGETS:
+    for spec in TARGETS:
+        path, names, line_re = spec[:3]
+        itest = spec[3] if len(spec) > 3 else "tests/integration/test_tui.py"
         if args.only and args.only not in path:
             continue
-        mutants += gen_mutants(os.path.join(ROOT, path), names, line_re)
+        ms = gen_mutants(os.path.join(ROOT, path), names, line_re)
+        for mu in ms:
+            mu["itest"] = itest
+        mutants += ms
     print("generated %d mutants" % len(mutants))
 
     killed_unit = killed_int = invalid = 0
@@ -177,8 +203,7 @@ def main():
                 invalid += 1
                 print("%3d/%d  invalid:r %s" % (i + 1, len(mutants), tag))
                 continue
-            rc, out = run([sys.executable, "tests/integration/test_tui.py",
-                           "./build/tny"], 420)
+            rc, out = run([sys.executable, mu["itest"], "./build/tny"], 420)
             if rc != 0:
                 killed_int += 1
                 print("%3d/%d  killed:i  %s" % (i + 1, len(mutants), tag))

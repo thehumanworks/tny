@@ -117,19 +117,20 @@ int http_request(http_conn *c, const char *method, const char *path,
 /* 1 got data, 0 EOF, -1 error, -2 would-block (after timeout_ms). */
 static int fill(http_conn *c, int timeout_ms) {
     char tmp[16384];
-    ssize_t n = nstream_read(c->s, tmp, sizeof tmp);
-    if (n == -2) {
-        if (timeout_ms == 0) return -2;
+    int64_t deadline = now_ms() + timeout_ms;
+    for (;;) {
+        ssize_t n = nstream_read(c->s, tmp, sizeof tmp);
+        if (n > 0) { buf_append(&c->in, tmp, (size_t)n); return 1; }
+        if (n == 0) return 0;
+        if (n == -1) return -1;
+        /* -2: would-block. A poll wake is not always app data — TLS 1.3
+         * session tickets wake the fd and SSL_read still reports
+         * would-block — so keep polling until the deadline, not once. */
+        int left = (int)(deadline - now_ms());
+        if (timeout_ms == 0 || left <= 0) return -2;
         struct pollfd pf = {nstream_fd(c->s), POLLIN, 0};
-        int pr = poll(&pf, 1, timeout_ms);
-        if (pr <= 0) return -2;
-        n = nstream_read(c->s, tmp, sizeof tmp);
-        if (n == -2) return -2;
+        if (poll(&pf, 1, left) <= 0) return -2;
     }
-    if (n == 0) return 0;
-    if (n < 0) return -1;
-    buf_append(&c->in, tmp, (size_t)n);
-    return 1;
 }
 
 int http_read_response(http_conn *c, int timeout_ms) {

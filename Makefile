@@ -41,8 +41,9 @@ endif
 REL_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -Os -ffunction-sections -fdata-sections
 DBG_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -O0 -g
 
-# SecureTransport is dlopen'd at first TLS use (src/net/stream.c) — do NOT
-# link the frameworks; eager loading costs ~1.2 ms at every launch.
+# TLS is dlopen'd at first use (src/net/stream.c): SecureTransport on macOS,
+# system libssl on Linux. Do NOT link frameworks or libssl; eager loading
+# costs launch time and libssl would pin a link-time dependency.
 ifeq ($(UNAME_S),Darwin)
   REL_LDFLAGS = -Wl,-dead_strip
   DBG_LDFLAGS =
@@ -51,6 +52,12 @@ else
   DBG_CFLAGS += -pthread
   REL_LDFLAGS = -Wl,--gc-sections -pthread
   DBG_LDFLAGS = -pthread
+endif
+
+# dlopen lives in libdl on glibc < 2.34; a no-op stub on newer glibc and musl.
+ifeq ($(UNAME_S),Linux)
+  REL_LDFLAGS += -ldl
+  DBG_LDFLAGS += -ldl
 endif
 
 ifeq ($(STATIC),1)
