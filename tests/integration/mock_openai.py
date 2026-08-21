@@ -4,8 +4,12 @@
 Turn 1: streams a tool_call (list_files), split across SSE chunks.
 Turn 2: streams a text answer mentioning what the tool returned.
 Also serves GET /v1/models. SSE is chunked-encoded like real providers.
+
+Usage: mock_openai.py [port] [certfile keyfile]
+With certfile/keyfile the mock serves HTTPS (used by test_https.py).
 """
 import json
+import ssl
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -77,5 +81,9 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
     srv = HTTPServer(("127.0.0.1", port), Handler)
+    if len(sys.argv) > 3:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile=sys.argv[2], keyfile=sys.argv[3])
+        srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
     print(f"ready on {port}", flush=True)
     srv.serve_forever()
