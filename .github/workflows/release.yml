@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Compare tag to src/core/config.h
         run: |
           set -eu
@@ -58,7 +58,7 @@ jobs:
             triple: darwin-arm64
             size_max: "1887436"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Require Apple Silicon (not Intel x86)
         if: matrix.triple == 'darwin-arm64'
@@ -84,7 +84,7 @@ jobs:
           cp dist/tny-${{ matrix.triple }} dist/stage/tny
           tar -C dist/stage -czf dist/tny-${{ matrix.triple }}.tar.gz tny
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-tny-${{ matrix.triple }}
           path: dist/tny-${{ matrix.triple }}.tar.gz
@@ -106,7 +106,7 @@ jobs:
             os: ubuntu-24.04-arm
             triple: linux-aarch64-musl
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Static musl build in Alpine
         run: |
@@ -116,17 +116,19 @@ jobs:
               && make -j"$(getconf _NPROCESSORS_ONLN)" release STATIC=1 \
               && make size-check SIZE_MAX=1572864 STATIC=1 \
               && make pack TRIPLE='"${{ matrix.triple }}"' STATIC=1 \
-              && ./dist/tny-'"${{ matrix.triple }}"' --version'
+              && ./dist/tny-'"${{ matrix.triple }}"' --version \
+              && mkdir -p dist/stage \
+              && cp dist/tny-'"${{ matrix.triple }}"' dist/stage/tny \
+              && tar -C dist/stage -czf dist/tny-'"${{ matrix.triple }}"'.tar.gz tny'
+          # dist/ is root-owned (created by the container), so package inside
+          # the container and only inspect from the host.
           if ldd dist/tny-${{ matrix.triple }} >/tmp/ldd.out 2>&1; then
             echo "error: musl binary is dynamically linked:" >&2
             cat /tmp/ldd.out >&2
             exit 1
           fi
-          mkdir -p dist/stage
-          cp dist/tny-${{ matrix.triple }} dist/stage/tny
-          tar -C dist/stage -czf dist/tny-${{ matrix.triple }}.tar.gz tny
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-tny-${{ matrix.triple }}
           path: dist/tny-${{ matrix.triple }}.tar.gz
@@ -141,7 +143,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -164,7 +166,7 @@ jobs:
           cp /usr/bin/msys-2.0.dll dist/stage/
           (cd dist/stage && zip ../tny-windows-x86_64.zip tny.exe msys-2.0.dll)
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-tny-windows-x86_64
           path: dist/tny-windows-x86_64.zip
@@ -176,7 +178,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: release-tny-*
           path: assets

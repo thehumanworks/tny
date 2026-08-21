@@ -48,7 +48,7 @@ jobs:
             size_max: "1887436"
             metal: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Require Apple Silicon (not Intel x86)
         if: matrix.metal
@@ -80,7 +80,7 @@ jobs:
           file ./dist/tny-${{ matrix.triple }} || true
           uname -s -m
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tny-${{ matrix.triple }}
           path: dist/tny-${{ matrix.triple }}
@@ -101,7 +101,7 @@ jobs:
             os: ubuntu-24.04-arm
             triple: linux-aarch64-musl
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Static musl build in Alpine
         run: |
@@ -122,7 +122,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tny-${{ matrix.triple }}
           path: dist/tny-${{ matrix.triple }}
@@ -136,7 +136,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -165,7 +165,7 @@ jobs:
           cp /usr/bin/msys-2.0.dll dist/
           ldd dist/tny-windows-x86_64.exe || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tny-windows-x86_64
           path: |
