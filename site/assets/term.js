@@ -134,6 +134,9 @@
   function resizeInput() {
     input.style.height = "19px";
     input.style.height = Math.min(input.scrollHeight, 76) + "px";
+    var hide = secretMode || C.looksLikeSecretDraft(input.value);
+    input.classList.toggle("is-secret", hide);
+    input.setAttribute("aria-label", hide ? "Secret (hidden)" : "Prompt");
     paintBar();
   }
 

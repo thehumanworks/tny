@@ -513,6 +513,10 @@ svg {
   outline: none;
 }
 
+.term-input.is-secret {
+  -webkit-text-security: disc;
+}
+
 .term:focus-within {
   border-color: var(--ring);
 }

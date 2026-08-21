@@ -73,6 +73,11 @@ async function run() {
     assert.strictEqual(got.baseUrl, "https://corp.internal/v1");
     assert.ok(C.looksLikeSecretAssignment("OPENAI_API_KEY=sk-x"));
     assert.ok(!C.looksLikeSecretAssignment("what is OPENAI_API_KEY used for?"));
+    assert.ok(C.looksLikeSecretDraft("OPENAI_API_KEY="));
+    assert.ok(C.looksLikeSecretDraft("/login sk-x"));
+    assert.ok(C.looksLikeSecretDraft("/setup OPENAI_BASE_URL=https://x.example/v1"));
+    assert.ok(!C.looksLikeSecretDraft("/help"));
+    assert.ok(!C.looksLikeSecretDraft("explain OPENAI_API_KEY"));
   });
 
   await test("sanitizeBaseUrl rejects non-http schemes", () => {

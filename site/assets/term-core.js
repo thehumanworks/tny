@@ -120,6 +120,14 @@
     return !!(got.apiKey || got.baseUrl);
   }
 
+  function looksLikeSecretDraft(line) {
+    if (!line) return false;
+    if (/^\s*(export\s+)?(OPENAI_API_KEY|OPENAI_BASE_URL)\s*=/.test(line))
+      return true;
+    if (/^\/(login|setup)\b/i.test(line)) return true;
+    return looksLikeSecretAssignment(line);
+  }
+
   function sanitizeBaseUrl(url) {
     var raw = (url == null || url === "") ? DEFAULT_BASE : String(url).trim();
     if (!raw) raw = DEFAULT_BASE;
@@ -268,6 +276,7 @@
     takeSecretsFromLocation: takeSecretsFromLocation,
     parseEnvAssignments: parseEnvAssignments,
     looksLikeSecretAssignment: looksLikeSecretAssignment,
+    looksLikeSecretDraft: looksLikeSecretDraft,
     sanitizeBaseUrl: sanitizeBaseUrl,
     joinApi: joinApi,
     maskSecret: maskSecret,
