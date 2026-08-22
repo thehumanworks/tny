@@ -178,9 +178,7 @@ static void ev_cb(const tny_event *ev, void *ud) {
             tui_write(t, "· ", 3); /* "·" is 2 bytes of UTF-8 plus the space */
             if (t->color) tui_write(t, "\x1b[0m", 4);
         }
-        if (t->color) tui_write(t, "\x1b[2m", 4);
-        tui_write(t, ev->text, ev->text_len);
-        if (t->color) tui_write(t, "\x1b[0m", 4);
+        tui_write_dim(t, ev->text, ev->text_len);
         break;
     case TNY_EV_TOOL_START:
         maybe_gap(t, false);
