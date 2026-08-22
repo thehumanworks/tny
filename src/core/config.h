@@ -19,6 +19,7 @@ typedef struct tny_ctx {
 
     /* selection */
     int    backend;         /* tny_backend_id, resolved */
+    char  *provider_name;   /* user-named openai-compatible profile, or NULL */
     char  *model;
     bool   model_from_flag; /* --model on the command line beats saved models */
     tny_perm_mode perm_mode;
@@ -67,6 +68,18 @@ void     tny_ctx_free(tny_ctx *ctx);
 /* Resolve backend per docs/cli.md when no --backend flag was given. */
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value);
 bool tny_codex_auth_present(void); /* codex login (auth.json) on this machine */
+
+/* Effective provider name: the settings.json profile name ("openrouter")
+ * when a user-named OpenAI-compatible profile is active, else the builtin
+ * backend name. Never NULL after tny_resolve_backend. */
+const char *tny_provider_name(const tny_ctx *ctx);
+/* True when settings.json has a top-level object `name` with a base_url —
+ * i.e. a user-named OpenAI-compatible provider profile. Builtin names
+ * (openai|cursor|codex|acp) are never custom. */
+bool tny_custom_provider_exists(tny_ctx *ctx, const char *name);
+/* malloc'd env-var name holding the profile's API key: its api_key_env,
+ * or NAME_API_KEY derived from the profile name. NULL if no such profile. */
+char *tny_custom_provider_key_env(tny_ctx *ctx, const char *name);
 
 /* Persist the provider (and its model) that just ran, so the next launch
  * defaults to them: settings last_provider + models.{provider}. */

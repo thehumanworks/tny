@@ -43,6 +43,12 @@ TARGETS = [
                        "tui_submit"], None),
     ("src/tui/tui_input.c", ["do_key"], r"overlay"),
     ("src/core/config.c", ["tny_ctx_load"], r"perm_mode|permission_mode"),
+    # named openai-compatible provider profiles (settings.json arbitrary keys)
+    ("src/core/config.c",
+     ["tny_provider_name", "custom_provider_obj", "derived_key_env",
+      "tny_custom_provider_key_env", "load_openai_profile",
+      "apply_custom_provider", "apply_provider_model", "tny_resolve_backend"],
+     None),
 ]
 
 # operator substitutions applied to one site at a time
@@ -78,6 +84,9 @@ EQUIVALENT = [
     # response" it causes downstream both fail the turn the same way, so
     # returning 0 here is indistinguishable without a proto-level probe.
     "stream.c:if (!ossl_want_retry(e)) return -1;",
+    # derived_key_env: i <= n reads name's NUL and writes s[n], which the
+    # memcpy of "_API_KEY" at s+n immediately overwrites.
+    "config.c:for (size_t i = 0; i < n; i++) {",
 ]
 
 

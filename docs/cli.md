@@ -27,7 +27,8 @@ tny setup                   # write provider config from flags/env
 Global flags are **leading**:
 
 ```text
-tny --provider cursor|codex|acp|openai [command]   # --backend is an alias
+tny --provider cursor|codex|acp|openai|NAME [command]   # --backend is an alias;
+                            # NAME = a settings.json provider profile (below)
 tny --cwd DIR
 tny --model ID
 tny --add-dir DIR           # repeatable, process-only
@@ -39,9 +40,15 @@ tny -c                      # resume last for this workspace
 
 ## Provider selection
 
+`--provider` accepts the four builtin names plus any **named OpenAI-compatible
+profile**: a top-level `~/.tny/settings.json` object with a `base_url`
+(`"openrouter"`, `"xai"`, a local gateway — any name). Named profiles run on
+the openai backend but keep their own name, config, key env, and saved model
+(see [backends/openai-compatible.md](backends/openai-compatible.md)).
+
 `--provider` default, in order:
 
-1. the provider (and its saved model) last used, recorded in `~/.tny/settings.json` (`last_provider`, `models.{provider}`)
+1. the provider (and its saved model) last used, recorded in `~/.tny/settings.json` (`last_provider`, `models.{provider}`) — named profiles included
 2. `openai` if `OPENAI_BASE_URL` or `OPENAI_API_KEY` is set
 3. `codex` if a `codex login` exists (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`) — subscriptions need no API key
 4. `cursor` if `CURSOR_API_KEY` is set in the environment
@@ -86,6 +93,7 @@ JSON object (keep field names stable):
 | codex | `--codex-ws URL` to attach (attach-or-fail); without it tny first tries `TNY_CODEX_WS`, then a live registered host from `~/.tny/codex-host.json` (loopback only, written by whichever tny spawned the server — a running TUI, typically), and only then spawns `codex app-server` on an ephemeral port (never a fixed port that could collide). Discovery failures fall back to spawning silently (`docs/adr/0004`). `--codex-bin`, `--ws-token-file`, `CODEX_REMOTE_TOKEN` |
 | acp | `--agent CMD` plus extra args after `--`, e.g. `tny --provider acp --agent gemini -- acp` |
 | openai | `--base-url`, `--api-key-env NAME`, `OPENAI_BASE_URL`, `OPENAI_API_KEY` |
+| named profile | same flags; key from the profile's `api_key_env`, default `NAME_API_KEY` (uppercased, non-alphanumerics → `_`) — never `OPENAI_API_KEY` |
 
 `tny ask` never blocks on an approval. Unresolved permissions fail the run unless `--auto` reviews (native loop) or `--yolo`. Host providers must be pre-authorized or they fail closed.
 
@@ -105,7 +113,7 @@ Options:
   --json          Write one JSON object to stdout
   --resume last   Continue the latest workspace session
   --no-save       Do not persist a session
-  --provider NAME cursor | codex | acp | openai (--backend also accepted)
+  --provider NAME cursor | codex | acp | openai | settings profile (--backend also accepted)
 
 Examples:
   tny ask "explain src/main.c"

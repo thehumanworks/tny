@@ -28,7 +28,7 @@ static const struct { const char *name, *hint; } CMDS[] = {
     {"model",       "/model [ID]"},
     {"permissions", "/permissions [ask|auto|yolo]"},
     {"sandbox",     "show the sandbox mode"},
-    {"provider",    "/provider [openai|cursor|codex|acp]"},
+    {"provider",    "/provider [openai|cursor|codex|acp|settings profile]"},
     {"fast",        "/fast [fast|priority|default] — codex service tier"},
     {"status",      "provider, auth, workspace"},
     {"usage",       "token usage for this workspace"},
@@ -426,8 +426,10 @@ void tui_command(tui *t, const char *line) {
                   strcmp(t->ctx->sandbox_mode, "os") == 0 ? " (unsupported: effective none)" : "");
     } else if (strcmp(c, "provider") == 0 || strcmp(c, "backend") == 0) {
         if (arg && *arg) {
-            int id = tny_backend_from_name(arg);
-            if (id < 0) tui_err(t, "unknown provider (openai|cursor|codex|acp)");
+            bool known = tny_backend_from_name(arg) >= 0 ||
+                         tny_custom_provider_exists(t->ctx, arg);
+            if (!known) tui_err(t, "unknown provider (openai|cursor|codex|acp "
+                                   "or a settings.json profile)");
             else {
                 if (t->turn_active) tui_sys(t, "finish the turn first");
                 else {
@@ -440,8 +442,7 @@ void tui_command(tui *t, const char *line) {
                 }
             }
         }
-        tui_linef(t, "  provider: %s (model %s)",
-                  tny_backend_name((tny_backend_id)t->ctx->backend),
+        tui_linef(t, "  provider: %s (model %s)", tny_provider_name(t->ctx),
                   t->ctx->model ? t->ctx->model : "default");
         t->dirty = true;
     } else if (strcmp(c, "fast") == 0) {

@@ -45,19 +45,44 @@ Also implement `GET {base_url}/models` for `/models` when the provider has it; o
 | Missing tools | disable tools, error clearly |
 | Parallel tool calls | honor `parallel_tool_calls` when present |
 
-Config entry:
+Config entry — the builtin `"openai"` object, plus **any number of named
+profiles**: every top-level settings object with a `base_url` is a provider
+name that `--provider` / `/provider` accepts:
 
 ```json
 {
   "openai": {
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4.1-mini"
+  },
+  "openrouter": {
     "base_url": "https://openrouter.ai/api/v1",
     "api_key_env": "OPENROUTER_API_KEY",
     "model": "anthropic/claude-sonnet-4.6",
     "auth_header_name": "Authorization",
     "auth_header_prefix": "Bearer "
+  },
+  "xai": {
+    "base_url": "https://api.x.ai/v1"
   }
 }
 ```
+
+Named-profile rules:
+
+- `base_url` is required — it is what marks the object as a provider profile
+  (reserved objects like `workspaces` and `models` never have one). The four
+  builtin names (`openai|cursor|codex|acp`) are never profiles.
+- The API key comes from the profile's `api_key_env`, defaulting to
+  `NAME_API_KEY` (name uppercased, non-alphanumerics mapped to `_`, e.g.
+  `xai` → `XAI_API_KEY`). `OPENAI_API_KEY` is **not** a fallback: it belongs
+  to a different provider.
+- `model`, `auth_header_name`, `auth_header_prefix`, and `max_tokens_field`
+  work exactly as in the `"openai"` object. The last-used model is saved per
+  profile name (`models.{name}`), and `last_provider` remembers the profile
+  across launches.
+- `--base-url` / `--api-key-env` flags override the selected profile for one
+  run.
 
 ## Agent loop
 

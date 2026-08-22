@@ -438,6 +438,92 @@ TEST provider_last_used_and_scoped_models(void) {
     PASS();
 }
 
+/* settings.json may define OpenAI-compatible providers under arbitrary
+ * names ("openrouter", "xai", …): any top-level object with a base_url.
+ * They resolve to the openai backend but keep their own name, config,
+ * key env, and saved model. */
+TEST custom_named_provider_profiles(void) {
+    ensure_env();
+    codex_auth_write(false);
+    unsetenv("CURSOR_API_KEY");
+    unsetenv("OPENAI_API_KEY");
+    unsetenv("OPENAI_BASE_URL");
+    write_settings(
+        "{\"openrouter\":{\"base_url\":\"https://openrouter.ai/api/v1\","
+        "\"api_key_env\":\"TEST_OR_KEY\",\"model\":\"anthropic/claude-sonnet-4.6\"},"
+        "\"xai\":{\"base_url\":\"https://api.x.ai/v1\"},"
+        "\"az-AZ09\":{\"base_url\":\"https://mixed.test/v1\"},"
+        "\"openai\":{\"base_url\":\"https://example.test/v1\"}}");
+    setenv("TEST_OR_KEY", "sk-or-test", 1);
+    setenv("XAI_API_KEY", "sk-xai-test", 1);
+
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openrouter"));
+    ASSERT_STR_EQ("openrouter", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://openrouter.ai/api/v1", ctx->base_url);
+    ASSERT_STR_EQ("sk-or-test", ctx->api_key);
+    ASSERT(ctx->model);
+    ASSERT_STR_EQ("anthropic/claude-sonnet-4.6", ctx->model);
+    ASSERT_EQ(0, tny_settings_remember_use(ctx)); /* saves "openrouter" */
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws); /* fresh launch: the named profile comes back */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("openrouter", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://openrouter.ai/api/v1", ctx->base_url);
+    ASSERT_STR_EQ("sk-or-test", ctx->api_key);
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws); /* no api_key_env: NAME_API_KEY is derived */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "xai"));
+    ASSERT_STR_EQ("xai", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://api.x.ai/v1", ctx->base_url);
+    ASSERT_STR_EQ("sk-xai-test", ctx->api_key);
+    ASSERT_EQ(NULL, ctx->model); /* openrouter's model must not leak */
+
+    /* switching back to a builtin restores the openai object's config */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://example.test/v1", ctx->base_url);
+    ASSERT_EQ(NULL, ctx->api_key);
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws); /* a missing profile key resolves to no key */
+    unsetenv("XAI_API_KEY");
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "xai"));
+    ASSERT_EQ(NULL, ctx->api_key);
+    tny_ctx_free(ctx);
+
+    /* an explicit --provider openai must not be hijacked by detection */
+    setenv("CURSOR_API_KEY", "key_test", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
+    unsetenv("CURSOR_API_KEY");
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(tny_custom_provider_exists(ctx, "openrouter"));
+    /* builtin even though a base_url object with that name exists */
+    ASSERT_FALSE(tny_custom_provider_exists(ctx, "openai"));
+    ASSERT_FALSE(tny_custom_provider_exists(ctx, "models")); /* no base_url */
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, "nope")); /* unknown still fails */
+    char *env = tny_custom_provider_key_env(ctx, "xai");
+    ASSERT(env);
+    ASSERT_STR_EQ("XAI_API_KEY", env);
+    free(env);
+    /* every character class in the derived name: lower, upper, digit, other */
+    env = tny_custom_provider_key_env(ctx, "az-AZ09");
+    ASSERT(env);
+    ASSERT_STR_EQ("AZ_AZ09_API_KEY", env);
+    free(env);
+    tny_ctx_free(ctx);
+
+    unsetenv("TEST_OR_KEY");
+    write_settings("{}");
+    PASS();
+}
+
 TEST backend_default_cursor_key_from_env(void) {
     ensure_env();
     write_settings("{}");
@@ -652,6 +738,7 @@ SUITE(core_suite) {
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(backend_default_cursor_key_from_env);
     RUN_TEST(provider_last_used_and_scoped_models);
+    RUN_TEST(custom_named_provider_profiles);
     RUN_TEST(perm_defaults_to_yolo);
     RUN_TEST(perm_ask_mode_opt_in);
     RUN_TEST(perm_mode_overrides_parse);

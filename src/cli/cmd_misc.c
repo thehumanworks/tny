@@ -23,7 +23,7 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     int n = 0;
     session_meta *m = session_list(ctx, false, 100, NULL, &n);
     session_meta_free(m, n);
-    const char *bk = tny_backend_name((tny_backend_id)ctx->backend);
+    const char *bk = tny_provider_name(ctx);
     const char *model = ctx->model ? ctx->model : "default";
     bool auth = ctx->api_key != NULL || str_starts(ctx->base_url, "http://");
     if (json) {
@@ -79,7 +79,7 @@ int cmd_permissions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
 
 /* Print one normalized [{"id","name"},…] catalog. */
 static void models_print(tny_ctx *ctx, const char *json_arr, bool json) {
-    const char *name = tny_backend_name((tny_backend_id)ctx->backend);
+    const char *name = tny_provider_name(ctx);
     if (json) {
         printf("{\"kind\":\"models\",\"provider\":\"%s\",\"models\":%s}\n", name,
                json_arr);
@@ -117,8 +117,7 @@ static int models_fallback(tny_ctx *ctx, bool json) {
         buf_free(&j);
     } else {
         printf("%s (no catalog from the %s provider; use --model ID to override)\n",
-               ctx->model ? ctx->model : "default",
-               tny_backend_name((tny_backend_id)ctx->backend));
+               ctx->model ? ctx->model : "default", tny_provider_name(ctx));
     }
     return 0;
 }
@@ -278,17 +277,47 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         int healthy = 1;
         if (bk && bk->doctor) healthy = bk->doctor(ctx, line, sizeof line);
         if (bk) bk->destroy(bk);
+        bool active = i == ctx->backend && !ctx->provider_name;
         if (json) {
             if (i) buf_appends(&b, ",");
             buf_appendf(&b, "{\"name\":\"%s\",\"active\":%s,\"healthy\":%s,\"hint\":",
                         tny_backend_name((tny_backend_id)i),
-                        i == ctx->backend ? "true" : "false",
+                        active ? "true" : "false",
                         healthy == 0 ? "true" : "false");
             jescape(&b, line);
             buf_appends(&b, "}");
         } else {
-            buf_appendf(&b, "%s %s — %s\n", i == ctx->backend ? "*" : " ",
+            buf_appendf(&b, "%s %s — %s\n", active ? "*" : " ",
                         tny_backend_name((tny_backend_id)i), line);
+        }
+    }
+    /* user-named OpenAI-compatible profiles from settings.json */
+    if (ctx->settings) {
+        yyjson_val *root = yyjson_doc_get_root(ctx->settings);
+        size_t idx, max;
+        yyjson_val *k, *v;
+        if (yyjson_is_obj(root)) yyjson_obj_foreach(root, idx, max, k, v) {
+            const char *name = yyjson_get_str(k);
+            if (!name || !tny_custom_provider_exists(ctx, name)) continue;
+            char *env = tny_custom_provider_key_env(ctx, name);
+            const char *key = env ? getenv(env) : NULL;
+            const char *bu = jget_str(v, "base_url");
+            bool healthy = (key && *key) || str_starts(bu, "http://");
+            char line[256];
+            snprintf(line, sizeof line, "openai-compatible: base_url %s (key env %s%s)",
+                     bu, env ? env : "?", key && *key ? "" : " unset");
+            free(env);
+            bool active = ctx->provider_name && strcmp(ctx->provider_name, name) == 0;
+            if (json) {
+                buf_appends(&b, ",{\"name\":");
+                jescape(&b, name);
+                buf_appendf(&b, ",\"active\":%s,\"healthy\":%s,\"hint\":",
+                            active ? "true" : "false", healthy ? "true" : "false");
+                jescape(&b, line);
+                buf_appends(&b, "}");
+            } else {
+                buf_appendf(&b, "%s %s — %s\n", active ? "*" : " ", name, line);
+            }
         }
     }
     if (json) buf_appends(&b, "]}\n");
