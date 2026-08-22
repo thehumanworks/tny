@@ -240,8 +240,17 @@
     if (!got) return false;
     var changed = false;
     if (got.apiKey) {
-      creds.apiKey = got.apiKey;
-      changed = true;
+      var cleanKey;
+      try {
+        cleanKey = C.sanitizeApiKey(got.apiKey);
+      } catch (e) {
+        err(e.message || "bad OPENAI_API_KEY");
+        return false;
+      }
+      if (cleanKey) {
+        creds.apiKey = cleanKey;
+        changed = true;
+      }
     }
     if (got.baseUrl) {
       try {
@@ -288,7 +297,13 @@
           function (pt) {
             if (unlocked) return;
             var data = JSON.parse(new TextDecoder().decode(pt));
-            creds.apiKey = data.k || "";
+            /* Vaults written before key sanitization may hold a header-unsafe
+             * key; drop it rather than restore a value fetch() will reject. */
+            try {
+              creds.apiKey = C.sanitizeApiKey(data.k);
+            } catch (e) {
+              creds.apiKey = "";
+            }
             creds.baseUrl = data.u || "";
             creds.model = data.m || DEFAULT_MODEL;
             persist = "idb";

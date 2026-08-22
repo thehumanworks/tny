@@ -37,6 +37,14 @@ tny itself.
   degrade to "not available in the browser demo". The native tool loop here
   is `lookup_docs` plus conversation.
 - This is **not** WASM tny and does not change the C size budget.
+- API keys are sanitized at intake (`sanitizeApiKey` in `term-core.js`):
+  whitespace and invisible characters (NBSP, zero-width, bidi marks, BOM) are
+  stripped; any remaining non-printable-ASCII character is rejected with a
+  clear error. `fetch()` requires header values to be ISO-8859-1, so an
+  unsanitized pasted key with e.g. a smart quote or `…` would otherwise throw
+  `Failed to read the 'headers' property from 'RequestInit'` at send time,
+  far from the paste that caused it. Vault restores from before this rule
+  drop invalid keys instead of resurrecting them.
 
 ## Consequences
 
