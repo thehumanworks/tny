@@ -406,6 +406,30 @@ void tui_bol(tui *t) {
     if (t->partial.len) tui_write(t, "\n", 1);
 }
 
+/* Dim streaming text (reasoning traces). tui_write flushes the transcript at
+ * newline granularity, and tui_render repaints t->partial from scratch every
+ * frame — after emitting a reset. SGR state therefore never survives a '\n':
+ * each physical line must open and close its own dim attribute, or the tail
+ * of a delta that crossed a newline repaints in the default color
+ * (docs/adr/0012). */
+void tui_write_dim(tui *t, const char *s, size_t n) {
+    if (!t->color) {
+        tui_write(t, s, n);
+        return;
+    }
+    size_t at = 0;
+    for (size_t i = 0; i <= n; i++) {
+        if (i < n && s[i] != '\n') continue;
+        if (i > at) {
+            tui_write(t, "\x1b[2m", 4);
+            tui_write(t, s + at, i - at);
+            tui_write(t, "\x1b[0m", 4);
+        }
+        if (i < n) tui_write(t, "\n", 1);
+        at = i + 1;
+    }
+}
+
 void tui_linef(tui *t, const char *fmt, ...) {
     char line[4096];
     va_list ap;

@@ -17,3 +17,4 @@ these as `docs/adr/NNNN`.
 | [0009](0009-reasoning-effort.md) | Canonical reasoning-effort levels (`off…max`), mapped per provider, catalog-discovered where possible |
 | [0010](0010-fast-tier-capability.md) | `--fast` is a `TNY_CAP_FAST` capability mapped per provider; cursor composes it with effort in one `params` array |
 | [0011](0011-mid-turn-input-steer-or-queue.md) | Enter during a turn steers (codex `turn/steer`, native loop) or queues (cursor, acp); queue sends at turn end, Esc drops it |
+| [0012](0012-self-contained-sgr-lines.md) | Streamed transcript color is per-line: SGR never crosses a newline |
