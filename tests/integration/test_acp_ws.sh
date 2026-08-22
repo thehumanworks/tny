@@ -48,13 +48,35 @@ TEXT2=$(printf '%s' "$OUT2" | "$PY" -c 'import json,sys; print(json.load(sys.std
 contains "$TEXT2" "Hello from the fake ACP agent."
 echo "ok  turn 2 over ws: resumed"
 
-# ---- refused connection: clean startup error, no hang ------------------
-if HOME="$TMP/home" "$TNY" --cwd "$TMP/ws" --backend acp \
-    --agent "ws://127.0.0.1:1" ask --yolo "hi" > "$TMP/out3" 2> "$TMP/err3"; then
-    fail "run 3 should have failed"
-fi
-grep -qi "acp" "$TMP/err3" || fail "no acp error line: $(cat "$TMP/err3")"
+# ---- refused connection: clean startup error (exit 1), no hang ---------
+HOME="$TMP/home" "$TNY" --cwd "$TMP/ws" --backend acp \
+    --agent "ws://127.0.0.1:1" ask --yolo "hi" > "$TMP/out3" 2> "$TMP/err3"
+rc=$?
+[ "$rc" -eq 1 ] || fail "refused connect should exit 1, got $rc ($(cat "$TMP/err3"))"
+grep -Eq "connect.*failed" "$TMP/err3" || fail "no connect-failed error line: $(cat "$TMP/err3")"
 echo "ok  refused ws connect is a clean startup error"
+
+# ---- agent dies mid-turn: the ws close ends the turn with an error -----
+FAKE_ACP_DIE=1 "$PY" "$WRAP" 0 > "$TMP/wrap2.out" 2> "$TMP/wrap2.err" &
+WS2PID=$!
+i=0
+PORT2=
+while [ $i -lt 50 ]; do
+    PORT2=$(sed -n 's/^ready on //p' "$TMP/wrap2.out" 2>/dev/null)
+    [ -n "$PORT2" ] && break
+    i=$((i + 1))
+    sleep 0.1
+done
+[ -n "$PORT2" ] || { kill $WS2PID 2>/dev/null; fail "second ws wrapper did not start"; }
+HOME="$TMP/home" "$TNY" --cwd "$TMP/ws" --backend acp \
+    --agent "ws://127.0.0.1:$PORT2" ask --json --yolo --no-save "die please" \
+    > "$TMP/out4" 2> "$TMP/err4"
+rc=$?
+kill $WS2PID 2>/dev/null
+[ "$rc" -eq 2 ] || fail "mid-turn ws death should exit 2, got $rc ($(cat "$TMP/err4"))"
+grep -q "closed the connection mid-turn" "$TMP/err4" \
+    || fail "no mid-turn close error: $(cat "$TMP/err4")"
+echo "ok  mid-turn ws close ends the turn with an error"
 
 # ---- doctor: a ws agent resolves without a PATH lookup -----------------
 DOC=$(HOME="$TMP/home" "$TNY" --backend acp --agent "ws://127.0.0.1:$PORT" \

@@ -76,19 +76,24 @@ int ac_tx_error(ac_impl *o, const char *id_raw, int code, const char *msg) {
     return ac_tx(o, &b);
 }
 
+/* One append path for every branch, so the bounds logic exists (and is
+ * unit-tested) exactly once. */
+static void push_fd(struct pollfd *fds, int *n, int max, int fd, short events) {
+    if (fd < 0 || *n >= max) return;
+    fds[*n].fd = fd;
+    fds[*n].events = events;
+    fds[*n].revents = 0;
+    (*n)++;
+}
+
 int ac_transport_pollfds(ac_impl *o, struct pollfd *fds, int max) {
     int n = 0;
-    if (o->ws && n < max) {
-        fds[n].fd = ws_fd(o->ws);
-        fds[n].events = (short)(POLLIN | (ws_want_write(o->ws) ? POLLOUT : 0));
-        fds[n++].revents = 0;
-    }
-    if (!o->ws && o->out_fd >= 0 && n < max) {
-        fds[n].fd = o->out_fd; fds[n].events = POLLIN; fds[n++].revents = 0;
-    }
-    if (o->err_fd >= 0 && n < max) {
-        fds[n].fd = o->err_fd; fds[n].events = POLLIN; fds[n++].revents = 0;
-    }
+    if (o->ws)
+        push_fd(fds, &n, max, ws_fd(o->ws),
+                (short)(POLLIN | (ws_want_write(o->ws) ? POLLOUT : 0)));
+    else
+        push_fd(fds, &n, max, o->out_fd, POLLIN);
+    push_fd(fds, &n, max, o->err_fd, POLLIN);
     return n;
 }
 
@@ -244,7 +249,7 @@ int ac_pump_reads(ac_impl *o) {
         free(line);
         if (!doc) continue; /* a malformed line must not kill the loop */
         yyjson_val *root = yyjson_doc_get_root(doc);
-        if (root || yyjson_is_arr(root)) { /* v2 batch: process each element */
+        if (root && yyjson_is_arr(root)) { /* v2 batch: process each element */
             size_t idx, max;
             yyjson_val *el;
             yyjson_arr_foreach(root, idx, max, el) {

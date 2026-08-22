@@ -8,6 +8,7 @@ SUITE_EXTERN(net_suite);
 SUITE_EXTERN(core_suite);
 SUITE_EXTERN(tui_suite);
 SUITE_EXTERN(codex_suite);
+SUITE_EXTERN(acp_suite);
 SUITE_EXTERN(openai_suite);
 
 int main(int argc, char **argv) {
@@ -17,6 +18,7 @@ int main(int argc, char **argv) {
     RUN_SUITE(core_suite);
     RUN_SUITE(tui_suite);
     RUN_SUITE(codex_suite);
+    RUN_SUITE(acp_suite);
     RUN_SUITE(openai_suite);
     GREATEST_MAIN_END();
 }

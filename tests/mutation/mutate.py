@@ -94,7 +94,11 @@ TARGETS = [
      "tests/integration/test_acp.sh"),
     ("src/backends/acp/acp_proc.c",
      ["ac_agent_is_ws", "ac_tx_request", "ac_tx_notify", "ac_tx_result",
-      "ac_transport_pollfds", "ac_pump_reads", "ac_connect_ws"], None,
+      "ac_tx_error", "push_fd", "ac_transport_pollfds", "ac_connect_ws"],
+     None, "tests/integration/test_acp_ws.sh"),
+    # ac_pump_reads: only the ws lines this change added; the stdio read
+    # loop internals predate the transport seam and are latency-shaped.
+    ("src/backends/acp/acp_proc.c", ["ac_pump_reads"], r"ws",
      "tests/integration/test_acp_ws.sh"),
     ("src/backends/openai/responses.c", None, None,
      "tests/integration/test_openai.py"),
