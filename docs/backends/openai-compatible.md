@@ -68,21 +68,44 @@ name that `--provider` / `/provider` accepts:
 }
 ```
 
-Named-profile rules:
+Named providers can equally be defined **by environment variables alone** —
+no settings entry needed:
 
-- `base_url` is required — it is what marks the object as a provider profile
-  (reserved objects like `workspaces` and `models` never have one). The four
-  builtin names (`openai|cursor|codex|acp`) are never profiles.
+```sh
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1 \
+OPENROUTER_API_KEY=sk-or-… \
+OPENROUTER_DEFAULT_MODEL=anthropic/claude-sonnet-4.6 \
+tny ask "hi"                       # auto-detected, provider name "openrouter"
+```
+
+Named-provider rules:
+
+- A name is valid when settings has a `base_url` object for it **or**
+  `NAME_BASE_URL` is set (name uppercased, non-alphanumerics mapped to `_`).
+  When both exist, the env `base_url` wins — mirroring how
+  `OPENAI_BASE_URL` beats the `"openai"` object. The settings `base_url` is
+  what marks the object as a provider profile (reserved objects like
+  `workspaces` and `models` never have one). The four builtin names
+  (`openai|cursor|codex|acp`) are never named providers.
 - The API key comes from the profile's `api_key_env`, defaulting to
-  `NAME_API_KEY` (name uppercased, non-alphanumerics mapped to `_`, e.g.
-  `xai` → `XAI_API_KEY`). `OPENAI_API_KEY` is **not** a fallback: it belongs
-  to a different provider.
-- `model`, `auth_header_name`, `auth_header_prefix`, and `max_tokens_field`
-  work exactly as in the `"openai"` object. The last-used model is saved per
-  profile name (`models.{name}`), and `last_provider` remembers the profile
-  across launches.
-- `--base-url` / `--api-key-env` flags override the selected profile for one
-  run.
+  `NAME_API_KEY` (e.g. `xai` → `XAI_API_KEY`). `OPENAI_API_KEY` is **not** a
+  fallback: it belongs to a different provider.
+- Model precedence: `--model` > saved `models.{name}` > the profile's
+  `model` > `NAME_DEFAULT_MODEL` from the environment.
+- `auth_header_name`, `auth_header_prefix`, and `max_tokens_field` work
+  exactly as in the `"openai"` object (settings profile only).
+  `last_provider` remembers the provider across launches — env-defined ones
+  included.
+- Auto-detection without `--provider`/`last_provider` picks an env-defined
+  provider only when **exactly one** `NAME_BASE_URL` + `NAME_API_KEY` pair
+  is set, so a stray `*_BASE_URL` exported by an unrelated tool never
+  hijacks the default. Keyless local gateways need an explicit
+  `--provider NAME` once.
+- Env detection is a lazy in-memory walk of the process environment at
+  provider-resolution time (microseconds, no I/O) — startup paths never run
+  it, so `--help` / `--version` / first TUI paint stay fast.
+- `--base-url` / `--api-key-env` flags override the selected provider for
+  one run.
 
 ## Agent loop
 

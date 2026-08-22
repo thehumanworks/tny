@@ -41,18 +41,27 @@ tny -c                      # resume last for this workspace
 ## Provider selection
 
 `--provider` accepts the four builtin names plus any **named OpenAI-compatible
-profile**: a top-level `~/.tny/settings.json` object with a `base_url`
-(`"openrouter"`, `"xai"`, a local gateway — any name). Named profiles run on
-the openai backend but keep their own name, config, key env, and saved model
-(see [backends/openai-compatible.md](backends/openai-compatible.md)).
+provider** (`"openrouter"`, `"xai"`, a local gateway — any name), defined
+either way or both:
+
+- a top-level `~/.tny/settings.json` object with a `base_url`, and/or
+- `NAME_BASE_URL` in the environment (name uppercased, non-alphanumerics →
+  `_`; the env value beats the settings `base_url`)
+
+Named providers run on the openai backend but keep their own name, config,
+key env, and saved model (see
+[backends/openai-compatible.md](backends/openai-compatible.md)). Env
+detection is a lazy in-memory scan at provider-resolution time — startup
+paths (`--help`, `--version`, first TUI paint) never run it.
 
 `--provider` default, in order:
 
-1. the provider (and its saved model) last used, recorded in `~/.tny/settings.json` (`last_provider`, `models.{provider}`) — named profiles included
+1. the provider (and its saved model) last used, recorded in `~/.tny/settings.json` (`last_provider`, `models.{provider}`) — named providers included
 2. `openai` if `OPENAI_BASE_URL` or `OPENAI_API_KEY` is set
-3. `codex` if a `codex login` exists (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`) — subscriptions need no API key
-4. `cursor` if `CURSOR_API_KEY` is set in the environment
-5. `openai` (its connect error explains how to configure a key)
+3. the env-defined provider if **exactly one** `NAME_BASE_URL` + `NAME_API_KEY` pair is set (a lone `*_BASE_URL` from an unrelated tool never hijacks the default; keyless local gateways need an explicit `--provider NAME` once — `last_provider` remembers it)
+4. `codex` if a `codex login` exists (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`) — subscriptions need no API key
+5. `cursor` if `CURSOR_API_KEY` is set in the environment
+6. `openai` (its connect error explains how to configure a key)
 
 ## `tny ask` (scripts and CI)
 
@@ -93,7 +102,11 @@ JSON object (keep field names stable):
 | codex | `--codex-ws URL` to attach (attach-or-fail); without it tny first tries `TNY_CODEX_WS`, then a live registered host from `~/.tny/codex-host.json` (loopback only, written by whichever tny spawned the server — a running TUI, typically), and only then spawns `codex app-server` on an ephemeral port (never a fixed port that could collide). Discovery failures fall back to spawning silently (`docs/adr/0004`). `--codex-bin`, `--ws-token-file`, `CODEX_REMOTE_TOKEN` |
 | acp | `--agent CMD` plus extra args after `--`, e.g. `tny --provider acp --agent gemini -- acp` |
 | openai | `--base-url`, `--api-key-env NAME`, `OPENAI_BASE_URL`, `OPENAI_API_KEY` |
-| named profile | same flags; key from the profile's `api_key_env`, default `NAME_API_KEY` (uppercased, non-alphanumerics → `_`) — never `OPENAI_API_KEY` |
+| named provider | same flags; `NAME_BASE_URL` (beats the settings `base_url`), key from the profile's `api_key_env`, default `NAME_API_KEY` — never `OPENAI_API_KEY` |
+
+Model precedence for every provider: `--model` > saved `models.{provider}` >
+the provider object's `model` (openai-compatible only) > `NAME_DEFAULT_MODEL`
+from the environment (`CODEX_DEFAULT_MODEL`, `OPENROUTER_DEFAULT_MODEL`, …).
 
 `tny ask` never blocks on an approval. Unresolved permissions fail the run unless `--auto` reviews (native loop) or `--yolo`. Host providers must be pre-authorized or they fail closed.
 

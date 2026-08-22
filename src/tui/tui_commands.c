@@ -428,8 +428,8 @@ void tui_command(tui *t, const char *line) {
         if (arg && *arg) {
             bool known = tny_backend_from_name(arg) >= 0 ||
                          tny_custom_provider_exists(t->ctx, arg);
-            if (!known) tui_err(t, "unknown provider (openai|cursor|codex|acp "
-                                   "or a settings.json profile)");
+            if (!known) tui_err(t, "unknown provider (openai|cursor|codex|acp, "
+                                   "a settings.json profile, or NAME_BASE_URL)");
             else {
                 if (t->turn_active) tui_sys(t, "finish the turn first");
                 else {
