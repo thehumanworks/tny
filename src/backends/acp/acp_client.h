@@ -28,6 +28,7 @@ typedef struct {
     int64_t next_id;
     char  *session_id;
     bool   load_session;   /* agent advertises loadSession */
+    bool   effort_noted;   /* the effort-unsupported status went out once */
 
     /* turn state */
     bool    turn_active;

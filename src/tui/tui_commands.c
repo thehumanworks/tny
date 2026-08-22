@@ -30,6 +30,7 @@ static const struct { const char *name, *hint; } CMDS[] = {
     {"sandbox",     "show the sandbox mode"},
     {"provider",    "/provider [openai|cursor|codex|acp]"},
     {"fast",        "/fast [fast|priority|default] — codex service tier"},
+    {"effort",      "/effort [" TNY_EFFORT_LEVELS "|default]"},
     {"status",      "provider, auth, workspace"},
     {"usage",       "token usage for this workspace"},
     {"sessions",    "list sessions for this workspace"},
@@ -470,6 +471,31 @@ void tui_command(tui *t, const char *line) {
                           strcmp(next, "priority") == 0
                               ? " (fast: 1.5x speed, increased usage)" : "");
             }
+        }
+        t->dirty = true;
+    } else if (strcmp(c, "effort") == 0) {
+        /* Reasoning effort applies from the next turn without a rebind: it
+         * rides on codex turn/start, cursor SendOptions.model.params and the
+         * openai request body. Levels beyond the canonical set are fine when
+         * the provider's catalog advertises them (/models shows those). */
+        if (!arg || !*arg) {
+            tui_linef(t, "  reasoning effort: %s",
+                      t->ctx->reasoning_effort ? t->ctx->reasoning_effort
+                                               : "default");
+            tui_sys(t, "usage: /effort [" TNY_EFFORT_LEVELS "|default] "
+                       "— /models lists provider levels");
+        } else {
+            tui_prewarm_drop(t); /* the warm-up thread reads the effort */
+            free(t->ctx->reasoning_effort);
+            t->ctx->reasoning_effort =
+                strcmp(arg, "default") == 0 ? NULL : xstrdup(arg);
+            if (!t->bk) tui_prewarm_start(t);
+            if (!t->ctx->reasoning_effort)
+                tui_linef(t, "  reasoning effort: provider default");
+            else
+                tui_linef(t, "  reasoning effort: %s%s (next turn on)", arg,
+                          tny_effort_canonical(arg)
+                              ? "" : " (provider-advertised value, unverified)");
         }
         t->dirty = true;
     } else if (strcmp(c, "status") == 0) {

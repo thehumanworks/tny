@@ -36,8 +36,9 @@ unset OPENAI_API_KEY CODEX_REMOTE_TOKEN 2>/dev/null
 token="s3cr3t-capability-token"
 printf '%s\n' "$token" > "$tmp/token"
 export MOCK_TOKEN="$token"
-export MOCK_CONNECTIONS=4
+export MOCK_CONNECTIONS=5
 export MOCK_BUSY_CONN=3   # connection 3 replies -32001 once per request kind
+export MOCK_EXPECT_EFFORT="xhigh"  # run 1 passes --effort xhigh; others none
 
 "$PYTHON" "$here/mock_codex_ws.py" 0 > "$tmp/mock.out" 2> "$tmp/mock.err" &
 mock_pid=$!
@@ -57,8 +58,9 @@ url="ws://127.0.0.1:$port"
 ok "mock app-server listening on $url"
 
 # --- run 1: fresh thread, token from --ws-token-file ---------------------
+# --effort xhigh must land as turn/start.effort (the mock asserts the value)
 HOME="$TNY_HOME" "$TNY" --cwd "$tmp/ws" --backend codex --codex-ws "$url" \
-       --ws-token-file "$tmp/token" \
+       --ws-token-file "$tmp/token" --effort xhigh \
        ask --json --yolo "hi" > "$tmp/run1.out" 2> "$tmp/run1.err"
 rc1=$?
 
@@ -121,6 +123,21 @@ grep -q "\"pid\":$mock_pid" "$reg" 2>/dev/null \
   && ok "run 4 left the foreign host's registry entry alone" \
   || bad "run 4 removed or rewrote a registry entry it does not own"
 
+# --- models: the catalog surfaces per-model reasoning efforts ------------
+HOME="$TNY_HOME" CODEX_REMOTE_TOKEN="$token" "$TNY" --cwd "$tmp/ws" --backend codex \
+       --codex-ws "$url" models --json > "$tmp/models.out" 2> "$tmp/models.err"
+rcm=$?
+[ $rcm -eq 0 ] && ok "models exit 0" || bad "models exit $rcm"
+grep -q '"efforts":\["low","medium","high","xhigh"\]' "$tmp/models.out" \
+  && ok "models surfaced supportedReasoningEfforts" \
+  || bad "models json lacked the efforts list: $(cat "$tmp/models.out")"
+grep -q '"default_effort":"medium"' "$tmp/models.out" \
+  && ok "models surfaced the default effort" \
+  || bad "models json lacked default_effort"
+grep -q 'mock-hidden-model' "$tmp/models.out" \
+  && bad "models listed a hidden catalog entry" \
+  || ok "models skipped the hidden catalog entry"
+
 # --- run 5: stale registry falls back to spawn (stub codex bin) ----------
 # The registry names a live pid but a dead port; tny must attach-fail fast,
 # spawn its own host (the stub wraps the mock), publish its entry, and
@@ -131,7 +148,7 @@ cat > "$tmp/codex-stub" <<EOF
 # Real HOME again: tny runs with the throwaway one, but python3 version
 # managers only resolve under the real home (see the mock note above).
 url="\$3"
-HOME="$HOME" MOCK_TOKEN= MOCK_CONNECTIONS=1 MOCK_BUSY_CONN=0 \
+HOME="$HOME" MOCK_TOKEN= MOCK_CONNECTIONS=1 MOCK_BUSY_CONN=0 MOCK_EXPECT_EFFORT= \
   exec "$PYTHON" "$here/mock_codex_ws.py" "\${url##*:}"
 EOF
 chmod +x "$tmp/codex-stub"
@@ -161,6 +178,9 @@ grep -q 'MOCK-NOTE approval answered decision=accept' "$tmp/mock.err" \
 grep -q 'MOCK-NOTE bearer accepted' "$tmp/mock.err" \
   && ok "bearer token was sent on the upgrade" \
   || bad "mock did not see the Authorization bearer"
+grep -q 'MOCK-NOTE turn/start effort=xhigh ok' "$tmp/mock.err" \
+  && ok "run 1 carried effort=xhigh on turn/start" \
+  || bad "mock never saw turn/start effort=xhigh"
 
 if [ $mock_rc -ne 0 ]; then
   bad "mock app-server reported protocol failures"

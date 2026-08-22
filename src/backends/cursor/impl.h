@@ -17,6 +17,14 @@ typedef struct {
     char *agent_id;   /* session pointer */
     char *run_id;     /* current run, for CancelRun */
 
+    /* reasoning effort resolved against the ListModels catalog: model params
+     * travel as ModelSelection.params [{id,value}] and both ids and values
+     * are model-specific, so tny asks the catalog instead of guessing. */
+    char *effort_for;   /* the ctx->reasoning_effort this resolution is for */
+    char *effort_param; /* catalog parameter id (e.g. "effort") */
+    char *effort_value; /* catalog-allowed value actually sent */
+    char *effort_note;  /* one-shot status line when resolution degraded */
+
     tny_event_cb cb;
     void        *ud;
     bool         active;     /* a turn is in flight */

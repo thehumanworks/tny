@@ -32,6 +32,10 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_appendf(&b, "{\"kind\":\"status\",\"version\":\"%s\",\"backend\":\"%s\",\"model\":",
                     TNY_VERSION, bk);
         jescape(&b, model);
+        if (ctx->reasoning_effort) {
+            buf_appends(&b, ",\"reasoning_effort\":");
+            jescape(&b, ctx->reasoning_effort);
+        }
         buf_appendf(&b, ",\"auth\":\"%s\",\"permission_mode\":\"%s\",\"sandbox\":\"%s\","
                         "\"workspace\":",
                     auth ? "ok" : "missing", tny_perm_mode_name(ctx->perm_mode),
@@ -44,6 +48,7 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         printf("tny v%s\n", TNY_VERSION);
         printf("provider:   %s\n", bk);
         printf("model:      %s\n", model);
+        if (ctx->reasoning_effort) printf("effort:     %s\n", ctx->reasoning_effort);
         printf("auth:       %s\n", auth ? "ok" : "missing (set OPENAI_API_KEY or run tny setup)");
         printf("permission: %s\n", tny_perm_mode_name(ctx->perm_mode));
         printf("sandbox:    %s\n", strcmp(ctx->sandbox_mode, "os") == 0 ? "os (unsupported: effective none)" : "none");
@@ -77,7 +82,7 @@ int cmd_permissions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     return 0;
 }
 
-/* Print one normalized [{"id","name"},…] catalog. */
+/* Print one normalized [{"id","name","efforts":[…]},…] catalog. */
 static void models_print(tny_ctx *ctx, const char *json_arr, bool json) {
     const char *name = tny_backend_name((tny_backend_id)ctx->backend);
     if (json) {
@@ -96,8 +101,18 @@ static void models_print(tny_ctx *ctx, const char *json_arr, bool json) {
             if (!id) continue;
             n++;
             bool active = ctx->model && strcmp(ctx->model, id) == 0;
-            printf("%s%s%s%s%s\n", id, nm ? "  —  " : "", nm ? nm : "",
-                   active ? "  (active)" : "", "");
+            printf("%s%s%s%s", id, nm ? "  —  " : "", nm ? nm : "",
+                   active ? "  (active)" : "");
+            yyjson_val *ef = jget(m, "efforts");
+            if (ef && yyjson_is_arr(ef) && yyjson_arr_size(ef)) {
+                size_t ei, emax;
+                yyjson_val *e;
+                printf("  [effort:");
+                yyjson_arr_foreach(ef, ei, emax, e)
+                    if (yyjson_is_str(e)) printf(" %s", yyjson_get_str(e));
+                printf("]");
+            }
+            printf("\n");
         }
     }
     if (!n) printf("%s\n", ctx->model ? ctx->model : "default");

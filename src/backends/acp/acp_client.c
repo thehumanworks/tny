@@ -151,6 +151,15 @@ static int ac_send(tny_backend *b, const char *prompt, const char **images,
     o->ud = ud;
     o->cancelled = false;
     ac_perms_clear(o);
+    if (o->ctx->reasoning_effort && *o->ctx->reasoning_effort && !o->effort_noted) {
+        /* ACP has no portable reasoning-effort knob at protocolVersion 1;
+         * agent-specific config options are a later addition. Say so once
+         * instead of silently running at whatever the agent defaults to. */
+        static const char m[] = "acp: reasoning effort is not forwarded to ACP "
+                                "agents; the agent's own default applies";
+        ac_emit_text(o, TNY_EV_STATUS, m, sizeof m - 1);
+        o->effort_noted = true;
+    }
 
     buf_t p;
     buf_init(&p);

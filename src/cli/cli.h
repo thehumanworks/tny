@@ -10,6 +10,7 @@ typedef struct {
     const char *backend;     /* --backend */
     const char *cwd;         /* --cwd */
     const char *model;       /* --model */
+    const char *effort;      /* --effort | --reasoning-effort */
     const char *perm_mode;   /* --permission-mode | --yolo | --auto */
     const char **add_dirs;   /* --add-dir, repeatable */
     int         n_add_dirs;

@@ -96,6 +96,30 @@ def main():
                 input=b"", env=env, capture_output=True, timeout=15)
             assert r5.returncode == 1, f"exit {r5.returncode}: {r5.stderr.decode()}"
             assert b"ask needs a prompt" in r5.stderr, r5.stderr
+
+            # --effort: a second mock demands reasoning_effort=xhigh; the
+            # canonical "max" must clamp to xhigh on the OpenAI wire, and the
+            # mock 400s any request that carries something else (the earlier
+            # runs already proved the field is absent without the flag).
+            eport = free_port()
+            emock = subprocess.Popen(
+                [sys.executable, MOCK, str(eport)],
+                env=dict(os.environ, MOCK_EXPECT_EFFORT="xhigh"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = emock.stdout.readline().decode()
+                assert "ready" in line, f"effort mock did not start: {line!r}"
+                eenv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{eport}/v1")
+                r6 = subprocess.run(
+                    [TNY, "--cwd", ws, "--effort", "max", "ask", "--json",
+                     "--no-save", "list files in ."],
+                    env=eenv, capture_output=True, timeout=30)
+                assert r6.returncode == 0, \
+                    f"exit {r6.returncode}: {r6.stderr.decode()}"
+                assert b"MOCK-OK" in r6.stdout, r6.stdout
+            finally:
+                emock.terminate()
+                emock.wait(timeout=5)
         print("test_openai: all assertions passed")
     finally:
         mock.terminate()

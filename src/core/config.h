@@ -40,6 +40,11 @@ typedef struct tny_ctx {
     char *codex_bin;
     char *ws_token_file;
     char *service_tier;     /* codex thread/start serviceTier: priority|default */
+
+    /* reasoning effort (all providers). Canonical levels are
+     * TNY_EFFORT_LEVELS; other tokens are provider-advertised values passed
+     * through verbatim. NULL = provider default (field omitted on the wire). */
+    char *reasoning_effort;
     /* acp */
     char **agent_argv;      /* NULL-terminated, or NULL */
 
@@ -85,5 +90,15 @@ int tny_workspace_remove(tny_ctx *ctx, const char *dir);
 int tny_workspace_clear(tny_ctx *ctx);
 
 const char *tny_perm_mode_name(tny_perm_mode m);
+
+/* Canonical reasoning-effort levels shared across providers (docs/adr/0009). */
+#define TNY_EFFORT_LEVELS "off|light|medium|high|xhigh|max"
+/* True when v is one of the canonical levels. */
+bool tny_effort_canonical(const char *v);
+/* Map a canonical level onto one provider's wire vocabulary (backend is a
+ * tny_backend_id). Non-canonical tokens come back verbatim so users can pick
+ * anything the provider's catalog advertises. Never returns NULL for a
+ * non-NULL input. */
+const char *tny_effort_wire(int backend, const char *v);
 
 #endif

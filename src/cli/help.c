@@ -35,6 +35,8 @@ void help_root(void) {
 "  --provider NAME        cursor | codex | acp | openai (--backend also works)\n"
 "  --cwd DIR              Primary workspace (default: current directory)\n"
 "  --model ID             Model for this run\n"
+"  --effort LEVEL         Reasoning effort: " TNY_EFFORT_LEVELS "\n"
+"                         (or any level `tny models` lists for the provider)\n"
 "  --add-dir DIR          Extra workspace directory; repeatable, process-only\n"
 "  --permission-mode M    ask | auto | yolo (default: yolo)\n"
 "  --json                 Machine-readable output where listed\n"
@@ -54,6 +56,7 @@ void help_root(void) {
 "  tny ask \"explain src/main.c\"  One request, Markdown on stdout\n"
 "  tny ask --json \"list the public CLI\"\n"
 "  tny --provider codex ask \"run the tests\"\n"
+"  tny --effort xhigh ask \"prove this lock-free queue is correct\"\n"
 "  tny --provider acp --agent gemini -- --acp\n",
     stdout);
 }
@@ -162,7 +165,7 @@ bool help_for(const char *command) {
     else if (strcmp(command, "status") == 0)
         text = "Usage: tny status [--json]\n\nShow provider, model, permissions, workspace, and session counts.\n";
     else if (strcmp(command, "models") == 0)
-        text = "Usage: tny models [--json]\n\nList models for the active provider (codex model/list, cursor ListModels, GET /models on openai).\n";
+        text = "Usage: tny models [--json]\n\nList models for the active provider (codex model/list, cursor ListModels, GET /models on openai).\nCatalogs that advertise reasoning-effort levels show them per model; pick one\nwith --effort or /effort.\n";
     else if (strcmp(command, "permissions") == 0)
         text = "Usage: tny permissions [--json]\n\nShow the permission mode and persistent rules.\n";
     else if (strcmp(command, "providers") == 0 || strcmp(command, "backends") == 0)
