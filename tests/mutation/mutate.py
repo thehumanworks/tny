@@ -59,6 +59,9 @@ TARGETS = [
     ("src/backends/openai/openai.c", ["take_steer", "oa_steer", "step_finished",
                                       "emit_turn_end"],
      r"steer"),
+    # streamed tool_call assembly: parallel calls, gateway index reuse
+    ("src/backends/openai/toolcalls.c", None, None,
+     "tests/integration/test_openai.py"),
     ("src/backends/codex/codex.c", ["cx_steer"], None),
     # steer-text ownership + turn-end sweep (docs/adr/0013)
     ("src/backends/codex/codex_rpc.c", ["cx_end_turn", "cx_request"],
@@ -95,6 +98,10 @@ OPS = [
 # Sites where a mutant is *equivalent* (no observable behavior change) or
 # unobservable without heroics. Matched against "file:line-content".
 EQUIVALENT = [
+    # yyjson_arr_foreach is a zero-iteration no-op on NULL/non-arrays
+    # (yyjson_arr_size returns 0), so the early-return guard is redundant
+    # defense and flipping its ||/&& is unobservable.
+    "toolcalls.c:if (!tool_calls || !yyjson_is_arr(tool_calls)) return;",
     "tui_prewarm.c:pthread_cond_signal",  # signal-vs-broadcast style details
     # Wrong poll direction only delays the retry by the poll timeout; the
     # handshake/write loops re-check the real condition and still succeed.

@@ -6,7 +6,17 @@
 #include <stddef.h>
 #include "json/json.h"
 
-#define TNY_VERSION "0.1.0"
+/* TNY_VERSION lives in build/generated/tny_version.h, written by make from
+ * `git describe` (docs/adr/0014). The fallback keeps editors and static
+ * analysis working without a build. */
+#if defined(__has_include)
+#  if __has_include("tny_version.h")
+#    include "tny_version.h"
+#  endif
+#endif
+#ifndef TNY_VERSION
+#  define TNY_VERSION "0.0.0-dev"
+#endif
 
 typedef enum { TNY_MODE_ASK = 0, TNY_MODE_AUTO, TNY_MODE_YOLO } tny_perm_mode;
 

@@ -24,10 +24,44 @@ EXPECT_EFFORT = os.environ.get("MOCK_EXPECT_EFFORT")
 # — the steered input rides after the tool result, never inside it.
 SLOW_MS = int(os.environ.get("MOCK_SLOW_MS", "0"))
 EXPECT_STEER = os.environ.get("MOCK_EXPECT_STEER")
+# MOCK_PARALLEL: turn 1 streams THREE parallel tool calls in the gateway
+# shape from the field: the third call reuses the second call's "index" but
+# carries its own fresh "id" (index-keyed assembly used to merge the two and
+# drop an id, unpairing the transcript).
+PARALLEL = os.environ.get("MOCK_PARALLEL") == "1"
 
 
 def sse(obj):
     return f"data: {json.dumps(obj)}\n\n".encode()
+
+
+def unpaired_tool_calls(messages):
+    """What a strict provider validates: every id in an assistant message's
+    tool_calls needs a role:tool message with that tool_call_id before the
+    next assistant message, ids must be unique, arguments must be JSON."""
+    problems = []
+    for i, m in enumerate(messages):
+        if m.get("role") != "assistant" or not m.get("tool_calls"):
+            continue
+        ids = [tc["id"] for tc in m["tool_calls"]]
+        if len(ids) != len(set(ids)):
+            problems.append(f"duplicate tool_call ids {ids}")
+        for tc in m["tool_calls"]:
+            try:
+                json.loads(tc["function"]["arguments"] or "{}")
+            except ValueError:
+                problems.append("arguments of %s are not JSON: %r"
+                                % (tc["id"], tc["function"]["arguments"]))
+        seen = set()
+        for mm in messages[i + 1:]:
+            if mm.get("role") == "assistant":
+                break
+            if mm.get("role") == "tool":
+                seen.add(mm.get("tool_call_id"))
+        for cid in ids:
+            if cid not in seen:
+                problems.append(f"no tool output found for function call {cid}")
+    return problems
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -65,6 +99,16 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        problems = unpaired_tool_calls(req["messages"])
+        if problems:
+            body = json.dumps({"error": {"message": "; ".join(problems)}}).encode()
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         has_tool_result = any(m.get("role") == "tool" for m in req["messages"])
         if not has_tool_result and SLOW_MS:
             import time
@@ -93,7 +137,40 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
 
-        if not has_tool_result:
+        if PARALLEL and not has_tool_result:
+            frames = [
+                # call 1: id+name first, arguments fragmented, keyed by index
+                {"choices": [{"index": 0, "delta": {"role": "assistant",
+                    "tool_calls": [{"index": 0, "id": "par_A", "type": "function",
+                                    "function": {"name": "read_file", "arguments": ""}}]}}]},
+                {"choices": [{"index": 0, "delta": {
+                    "tool_calls": [{"index": 0, "function": {"arguments": "{\"path\":\"a.txt\"}"}}]}}]},
+                # call 2: complete in one chunk
+                {"choices": [{"index": 0, "delta": {
+                    "tool_calls": [{"index": 1, "id": "par_B", "type": "function",
+                                    "function": {"name": "read_file",
+                                                 "arguments": "{\"path\":\"b.txt\"}"}}]}}]},
+                # call 3: REUSES index 1 with a fresh id (the gateway bug)
+                {"choices": [{"index": 0, "delta": {
+                    "tool_calls": [{"index": 1, "id": "par_C", "type": "function",
+                                    "function": {"name": "list_files",
+                                                 "arguments": "{\"path\":\".\"}"}}]}}]},
+                {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+                 "usage": {"prompt_tokens": 100, "completion_tokens": 30}},
+            ]
+        elif PARALLEL:
+            by_id = {m.get("tool_call_id"): m["content"]
+                     for m in req["messages"] if m.get("role") == "tool"}
+            ok = ("aaa" in by_id.get("par_A", "") and
+                  "bbb" in by_id.get("par_B", "") and
+                  "a.txt" in by_id.get("par_C", ""))
+            text = "PARALLEL-OK" if ok else f"PARALLEL-BAD {by_id!r}"
+            frames = [
+                {"choices": [{"index": 0, "delta": {"content": text}}]},
+                {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                 "usage": {"prompt_tokens": 200, "completion_tokens": 20}},
+            ]
+        elif not has_tool_result:
             frames = [
                 {"choices": [{"index": 0, "delta": {"role": "assistant",
                     "tool_calls": [{"index": 0, "id": "call_1", "type": "function",

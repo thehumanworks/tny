@@ -36,6 +36,22 @@ it too). Omitted unless requested: strict providers reject unknown members.
 
 Stream: `text/event-stream`. Lines `data: {…}` then `data: [DONE]`. Accumulate `choices[0].delta.content` and `choices[0].delta.tool_calls` (index, id, function.name, function.arguments fragments).
 
+Tool-call assembly (`src/backends/openai/toolcalls.c`, unit-tested in
+`tests/test_openai.c`) is **id-first**, not index-first: a fragment with an
+unseen `id` always opens a new call, a fragment with a known `id` merges into
+it, id-less fragments key by `index` (most recent call for that index), and
+fragments with neither go to the last open call. Rationale: gateways have
+been observed streaming parallel calls with a repeated or missing `index`
+but a fresh `id` per call; index-keyed assembly merged two calls and dropped
+an id, so the next request was missing a tool output and the provider
+rejected the session with 400 "no tool output found for function call …".
+
+Transcript pairing is an invariant: every id in a recorded assistant
+`tool_calls` message gets exactly one `role:"tool"` message, ids fall back
+to slot-unique `call_<n>` (never a shared constant), and an interrupt
+mid-step records `error: interrupted` results for the calls that did not
+run instead of leaving them unpaired.
+
 Non-stream: read `choices[0].message`.
 
 Structured outputs: when `ctx->output_schema` is set (`tny ask

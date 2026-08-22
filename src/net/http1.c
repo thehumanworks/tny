@@ -2,6 +2,17 @@
 #include "net/net.h"
 #include "picohttpparser.h"
 
+/* net stays agent-agnostic (no core/ includes); take the generated version
+ * header directly for the User-Agent string (docs/adr/0014). */
+#if defined(__has_include)
+#  if __has_include("tny_version.h")
+#    include "tny_version.h"
+#  endif
+#endif
+#ifndef TNY_VERSION
+#  define TNY_VERSION "0.0.0-dev"
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -96,7 +107,7 @@ int http_request(http_conn *c, const char *method, const char *path,
     buf_appendf(&req, "%s %s HTTP/1.1\r\n", method, path);
     buf_appendf(&req, "Host: %s\r\n", c->base.host);
     buf_appends(&req, "Connection: keep-alive\r\n");
-    buf_appends(&req, "User-Agent: tny/" "0.1.0" "\r\n");
+    buf_appends(&req, "User-Agent: tny/" TNY_VERSION "\r\n");
     if (headers)
         for (int i = 0; headers[i]; i++) buf_appendf(&req, "%s\r\n", headers[i]);
     if (body) buf_appendf(&req, "Content-Length: %zu\r\n", body_len);

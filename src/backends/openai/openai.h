@@ -6,6 +6,7 @@
 #include "core/backend.h"
 #include "core/session.h"
 #include "core/perm.h"
+#include "json/json.h"
 
 void tny_backend_openai_bind(tny_backend *b, tny_session *session,
                              perm_engine *perm,
@@ -18,6 +19,38 @@ void tny_backend_openai_bind(tny_backend *b, tny_session *session,
  * text, borrowed until next send). */
 int tny_backend_openai_steps(tny_backend *b);
 const char *tny_backend_openai_toolcalls_json(tny_backend *b);
+
+/* ---- streamed tool_call assembly (src/backends/openai/toolcalls.c) ----
+ * Chat Completions streams tool calls as fragment deltas. Well-behaved
+ * providers key every fragment by "index"; gateways have been observed
+ * repeating or omitting the index while carrying a fresh "id" per call
+ * (a lost call there poisons the transcript: the provider 400s the next
+ * request with "no tool output found for function call …"). Attribution
+ * is therefore id-first; exposed for unit tests (tests/test_openai.c). */
+#define OA_MAX_TOOL_CALLS 32
+
+typedef struct {
+    char *id;        /* provider call id; NULL until (if ever) streamed */
+    char *name;      /* function name; NULL until streamed */
+    buf_t args;      /* concatenated argument fragments */
+    int   wire_index;/* provider "index" for this call; -1 if never sent */
+} oa_call;
+
+typedef struct {
+    oa_call calls[OA_MAX_TOOL_CALLS];
+    int n;
+} oa_callset;
+
+/* Merge one streamed `delta.tool_calls` array into the set. Fragments are
+ * attributed by id when present (new id = new call), else by wire index,
+ * else to the most recent call. Fragments beyond OA_MAX_TOOL_CALLS or with
+ * a negative index are dropped. */
+void oa_calls_feed(oa_callset *cs, yyjson_val *tool_calls);
+void oa_calls_reset(oa_callset *cs);
+/* The id sent upstream: the provider's id, or a slot-unique fallback
+ * (never a shared constant — duplicate ids also unpair the transcript).
+ * Writes into buf (>= 16 bytes) only when the fallback is needed. */
+const char *oa_call_id(const oa_call *pc, int slot, char *buf, size_t buflen);
 
 /* Normalize a user-supplied JSON Schema into a Chat Completions
  * `response_format` object (docs/backends/openai-compatible.md). Accepts a

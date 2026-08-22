@@ -14,13 +14,6 @@
 #include <poll.h>
 
 #define OPENAI_DEFAULT_MODEL "gpt-4.1-mini"
-#define MAX_TOOL_CALLS 16
-
-typedef struct {
-    char *id;
-    char *name;
-    buf_t args;
-} pending_call;
 
 typedef enum { ST_IDLE, ST_HEADERS, ST_BODY } oa_state;
 
@@ -35,8 +28,7 @@ typedef struct {
     void *ud;
 
     buf_t text;             /* assistant text this step */
-    pending_call calls[MAX_TOOL_CALLS];
-    int  ncalls;
+    oa_callset calls;       /* streamed tool_calls this step (toolcalls.c) */
     int  step;
     bool cancelled;
     bool stream_done;       /* saw [DONE] */
@@ -86,15 +78,6 @@ static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
     ev.kind = TNY_EV_TURN_END;
     ev.stop = stop;
     emit(o, &ev);
-}
-
-static void calls_reset(oa_impl *o) {
-    for (int i = 0; i < o->ncalls; i++) {
-        free(o->calls[i].id);
-        free(o->calls[i].name);
-        buf_free(&o->calls[i].args);
-    }
-    o->ncalls = 0;
 }
 
 static const char *model_of(oa_impl *o) {
@@ -261,29 +244,7 @@ static void on_sse_event(const char *data, size_t len, void *ud) {
     if (reasoning && *reasoning)
         emit_text(o, TNY_EV_THINKING, reasoning, strlen(reasoning));
 
-    yyjson_val *tcs = jget(delta, "tool_calls");
-    if (tcs && yyjson_is_arr(tcs)) {
-        size_t idx, max;
-        yyjson_val *tc;
-        yyjson_arr_foreach(tcs, idx, max, tc) {
-            int64_t index = jget_int(tc, "index", (int64_t)idx);
-            if (index < 0 || index >= MAX_TOOL_CALLS) continue;
-            while (o->ncalls <= index) {
-                pending_call *pc = &o->calls[o->ncalls++];
-                pc->id = NULL;
-                pc->name = NULL;
-                buf_init(&pc->args);
-            }
-            pending_call *pc = &o->calls[index];
-            const char *id = jget_str(tc, "id");
-            if (id && !pc->id) pc->id = xstrdup(id);
-            yyjson_val *fn = jget(tc, "function");
-            const char *name = jget_str(fn, "name");
-            if (name && !pc->name) pc->name = xstrdup(name);
-            const char *frag = jget_str(fn, "arguments");
-            if (frag) buf_appends(&pc->args, frag);
-        }
-    }
+    oa_calls_feed(&o->calls, jget(delta, "tool_calls"));
     yyjson_doc_free(doc);
 }
 
@@ -316,7 +277,7 @@ static void finish_turn_ok(oa_impl *o) {
 
 static int step_finished(oa_impl *o) {
     tny_session *s = o->env.session;
-    if (o->ncalls == 0) {
+    if (o->calls.n == 0) {
         if (o->steer && !o->cancelled) {
             /* the model answered before the steer could ride along: record
              * that answer and run one more round on the steered message so
@@ -341,11 +302,13 @@ static int step_finished(oa_impl *o) {
     buf_t tcj;
     buf_init(&tcj);
     buf_appends(&tcj, "[");
-    for (int i = 0; i < o->ncalls; i++) {
-        pending_call *pc = &o->calls[i];
+    char idbuf[16];
+    for (int i = 0; i < o->calls.n; i++) {
+        oa_call *pc = &o->calls.calls[i];
         if (i) buf_appends(&tcj, ",");
         buf_appendf(&tcj, "{\"id\":\"%s\",\"type\":\"function\",\"function\":{\"name\":\"%s\",\"arguments\":",
-                    pc->id ? pc->id : "call_0", pc->name ? pc->name : "unknown");
+                    oa_call_id(pc, i, idbuf, sizeof idbuf),
+                    pc->name ? pc->name : "unknown");
         jescape(&tcj, pc->args.data ? pc->args.data : "{}");
         buf_appends(&tcj, "}}");
     }
@@ -353,14 +316,23 @@ static int step_finished(oa_impl *o) {
     session_add_assistant(s, o->text.len ? o->text.data : NULL, tcj.data);
     buf_free(&tcj);
 
-    /* execute tools serially (writes must not race; reads are cheap) */
-    for (int i = 0; i < o->ncalls; i++) {
-        pending_call *pc = &o->calls[i];
+    /* Execute tools serially (writes must not race; reads are cheap).
+     * Every recorded call gets a tool result, even after an interrupt: an
+     * assistant tool_calls message without a matching output per id poisons
+     * the session — strict providers reject every later request with 400
+     * "no tool output found for function call". */
+    for (int i = 0; i < o->calls.n; i++) {
+        oa_call *pc = &o->calls.calls[i];
+        const char *cid = oa_call_id(pc, i, idbuf, sizeof idbuf);
         const char *name = pc->name ? pc->name : "unknown";
+        if (o->cancelled) {
+            session_add_tool_result(s, cid, "error: interrupted before this tool ran");
+            continue;
+        }
         tny_event ev = {0};
         ev.kind = TNY_EV_TOOL_START;
         ev.tool_name = name;
-        ev.tool_id = pc->id;
+        ev.tool_id = cid;
         ev.tool_detail = pc->args.data;
         emit(o, &ev);
 
@@ -371,22 +343,20 @@ static int step_finished(oa_impl *o) {
         tny_event ev2 = {0};
         ev2.kind = TNY_EV_TOOL_END;
         ev2.tool_name = name;
-        ev2.tool_id = pc->id;
+        ev2.tool_id = cid;
         ev2.tool_detail = result;
         ev2.tool_ok = ok;
         emit(o, &ev2);
 
-        session_add_tool_result(s, pc->id ? pc->id : "call_0", result);
+        session_add_tool_result(s, cid, result);
         free(result);
-
-        if (o->cancelled) break;
     }
     if (o->env.n_pending_images) {
         char ierr[256];
         if (tools_flush_images(&o->env, ierr, sizeof ierr) != 0)
             emit_text(o, TNY_EV_ERROR, ierr, strlen(ierr));
     }
-    calls_reset(o);
+    oa_calls_reset(&o->calls);
     session_save(s);
 
     if (o->env.perm_blocked && !o->env.prompt) {
@@ -464,7 +434,7 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images,
     o->steer = NULL;
     buf_clear(&o->toolcall_log);
     buf_appends(&o->toolcall_log, "[");
-    calls_reset(o);
+    oa_calls_reset(&o->calls);
 
     tny_session *s = o->env.session;
     if (!session_title(s)) session_set_title(s, prompt);
@@ -601,7 +571,7 @@ static int oa_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
 static void oa_destroy(tny_backend *b) {
     oa_impl *o = b->impl;
     oa_disconnect(b);
-    calls_reset(o);
+    oa_calls_reset(&o->calls);
     free(o->steer);
     buf_free(&o->text);
     buf_free(&o->toolcall_log);

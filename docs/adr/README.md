@@ -19,3 +19,4 @@ these as `docs/adr/NNNN`.
 | [0011](0011-mid-turn-input-steer-or-queue.md) | Enter during a turn steers (codex `turn/steer`, native loop) or queues (cursor, acp); queue sends at turn end, Esc drops it |
 | [0012](0012-self-contained-sgr-lines.md) | Streamed transcript color is per-line: SGR never crosses a newline |
 | [0013](0013-steer-rejection-owns-the-text.md) | The backend owns a steered text: `STEER_REJECTED` carries it, unanswered steers resolve as rejected before `TURN_END`, stale responses never fail a later turn |
+| [0014](0014-build-time-version-from-git.md) | `TNY_VERSION` comes from `git describe` at build time (generated header); releases pass the tag; nothing hardcoded |

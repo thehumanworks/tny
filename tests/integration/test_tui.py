@@ -34,6 +34,12 @@ TNY = (sys.argv[1] if len(sys.argv) > 1 else
        os.environ.get("TNY", os.path.join(ROOT, "build", "tny")))
 MOCK = os.path.join(HERE, "mock_openai.py")
 
+# The version is derived from git at build time (docs/adr/0014); read it from
+# the binary once and assert against that, never against a literal.
+VERSION = subprocess.run([TNY, "--version"], capture_output=True, text=True,
+                         timeout=10).stdout.strip()
+BANNER = f"tny {VERSION}"
+
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][B0]|\r")
 
 
@@ -224,7 +230,7 @@ def test_first_paint_is_lazy(home, ws):
     deferred until the first prompt."""
     t = Term([TNY], base_env(home), ws)
     try:
-        t.expect("tny 0.1.0", 10.0, absent="no API key")
+        t.expect(BANNER, 10.0, absent="no API key")
         t.expect("/help for commands")
         assert "openai" in clean(t.buf), clean(t.buf)
         t.send("/quit\r")
@@ -243,7 +249,7 @@ def test_turn_streams(home, ws, port):
     })
     t = Term([TNY], env, ws)
     try:
-        t.expect("tny 0.1.0")
+        t.expect(BANNER)
         t.send("list the files here\r")
         t.expect("list_files", 20.0)       # tool one-liner from the mock turn 1
         t.expect("MOCK-OK", 20.0)          # streamed answer from turn 2
@@ -271,7 +277,7 @@ def test_slash_palette(home, ws):
         f.write('{"openrouter":{"base_url":"https://openrouter.test/v1"}}')
     t = Term([TNY], base_env(home, {"ORWELL_BASE_URL": "https://orwell.test/v1"}), ws)
     try:
-        t.expect("tny 0.1.0")
+        t.expect(BANNER)
         t.send("/")
         t.expect("clear the screen", 5.0)   # palette listed commands
         t.send("prov")
@@ -335,7 +341,7 @@ def test_approval_ui(home, ws):
     })
     t = Term([TNY, "--permission-mode", "ask"], env, ws)
     try:
-        t.expect("tny 0.1.0")
+        t.expect(BANNER)
         t.send("write a note\r")
         t.expect("approve?", 20.0)
         t.expect("write_file", 5.0)
@@ -366,7 +372,7 @@ def test_yolo_default_auto_approves(home, ws):
     })
     t = Term([TNY], env, ws)
     try:
-        t.expect("tny 0.1.0")
+        t.expect(BANNER)
         assert "yolo" in clean(t.buf), "banner does not show yolo:\n%s" % clean(t.buf)
         t.send("write a note\r")
         # the mock's completion marker; "approve?" must never have appeared
@@ -390,7 +396,7 @@ def test_menu_overlay_transient(home, ws):
     docs/adr/0003)."""
     t = Term([TNY], base_env(home), ws)
     try:
-        t.expect("tny 0.1.0")
+        t.expect(BANNER)
         t.send("/help\r")
         t.expect_on_screen("(esc hides this menu)")
         t.expect_on_screen("keys: enter submit")
@@ -398,7 +404,7 @@ def test_menu_overlay_transient(home, ws):
         t.send("\x1b")  # esc dismisses the menu...
         t.expect_gone_from_screen("(esc hides this menu)")
         assert "keys: enter submit" not in t.screen(), t.screen()
-        assert "tny 0.1.0" in t.screen(), "transcript was wiped:\n%s" % t.screen()
+        assert BANNER in t.screen(), "transcript was wiped:\n%s" % t.screen()
 
         t.send("/help\r")  # ...and so does running the next command
         t.expect_on_screen("(esc hides this menu)")
@@ -436,7 +442,7 @@ def test_prewarm_spawns_acp_agent(home, ws):
     t = Term([TNY, "--provider", "acp", "--agent", sys.executable, "--", agent],
              base_env(home), ws)
     try:
-        t.expect("tny 0.1.0")
+        t.expect(BANNER)
         end = time.time() + 8
         spawned = []
         while time.time() < end:
@@ -476,8 +482,22 @@ def test_prewarm_spawns_acp_agent(home, ws):
 
 def test_version_fast_path():
     out = subprocess.run([TNY, "--version"], capture_output=True, text=True, timeout=10)
-    assert out.returncode == 0 and out.stdout.strip() == "0.1.0", out
-    print("ok  --version fast path untouched")
+    assert out.returncode == 0, out
+    got = out.stdout.strip()
+    # shape: no v prefix, one line, starts like a version or a bare hash
+    assert got and "\n" not in got and not got.startswith("v"), out
+    assert re.match(r"^[0-9a-zA-Z][0-9a-zA-Z.+-]*$", got), out
+    # a build from this checkout must agree with git describe
+    desc = subprocess.run(["git", "describe", "--tags", "--always", "--dirty"],
+                          capture_output=True, text=True, cwd=ROOT, timeout=10)
+    if desc.returncode == 0 and desc.stdout.strip():
+        # tolerate a dirty-flag flip between build and test run
+        want = desc.stdout.strip().lstrip("v").replace("-dirty", "")
+        assert got.replace("-dirty", "") == want, (got, want)
+    # --help carries the same version, not a stale constant
+    hlp = subprocess.run([TNY, "--help"], capture_output=True, text=True, timeout=10)
+    assert f"tny v{got}" in hlp.stdout, hlp.stdout[:200]
+    print("ok  --version fast path reports the build version (%s)" % got)
 
 
 def test_steer_mid_turn(home, ws):
@@ -498,7 +518,7 @@ def test_steer_mid_turn(home, ws):
         })
         t = Term([TNY, "--provider", "openai"], env, ws)
         try:
-            t.expect("tny 0.1.0")
+            t.expect(BANNER)
             t.send("list the files here\r")
             t.expect("working", 5.0)            # the turn is live (mock is slow)
             t.send("also count them\r")
@@ -525,7 +545,7 @@ def test_queue_sends_after_turn(home, ws):
     t = Term([TNY, "--provider", "acp", "--agent", sys.executable, "--", agent],
              env, ws)
     try:
-        t.expect("tny 0.1.0")
+        t.expect(BANNER)
         t.send("first question\r")
         t.expect("working", 5.0)
         t.send("second question\r")
@@ -567,7 +587,7 @@ def test_codex_steer_mid_turn(home, ws):
         t = Term([TNY, "--provider", "codex", "--codex-ws",
                   "ws://127.0.0.1:%d" % port], base_env(home), ws)
         try:
-            t.expect("tny 0.1.0")
+            t.expect(BANNER)
             t.send("hello codex\r")
             t.expect("thinking", 20.0)            # turn/start accepted, streaming
             t.send("and steer this\r")
@@ -611,7 +631,7 @@ def test_codex_steer_rejected_requeues(home, ws, mode):
         t = Term([TNY, "--provider", "codex", "--codex-ws",
                   "ws://127.0.0.1:%d" % port], base_env(home), ws)
         try:
-            t.expect("tny 0.1.0")
+            t.expect(BANNER)
             t.send("hello codex\r")
             t.expect("thinking", 20.0)          # turn 1 accepted, streaming
             t.send("please requeue me\r")

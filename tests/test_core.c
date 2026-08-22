@@ -1127,6 +1127,21 @@ TEST output_schema_rejects_non_object(void) {
     PASS();
 }
 
+/* TNY_VERSION is generated from git describe at build time (docs/adr/0014).
+ * Assert shape, never a literal: non-empty, no v prefix, printable, no
+ * whitespace or quotes that would break JSON/header embedding. */
+TEST version_string_is_sane(void) {
+    const char *v = TNY_VERSION;
+    ASSERT(v[0] != '\0');
+    ASSERT(v[0] != 'v');
+    for (const char *p = v; *p; p++) {
+        ASSERT(*p > 0x20 && *p < 0x7f);
+        ASSERT(*p != '"');
+        ASSERT(*p != '\\');
+    }
+    PASS();
+}
+
 SUITE(core_suite) {
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(backend_default_cursor_key_from_env);
@@ -1166,4 +1181,5 @@ SUITE(core_suite) {
     RUN_TEST(output_schema_names_anonymous_json_schema_object);
     RUN_TEST(output_schema_passes_full_wrapper_through);
     RUN_TEST(output_schema_rejects_non_object);
+    RUN_TEST(version_string_is_sane);
 }

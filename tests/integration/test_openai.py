@@ -44,6 +44,9 @@ def main():
                        OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1",
                        OPENAI_API_KEY="test-key-not-real")
 
+            # single tool call: one call streamed fragmented, one tool
+            # message back, one follow-up POST (the mock 400s any request
+            # whose assistant tool_calls are not fully paired)
             r = subprocess.run(
                 [TNY, "--cwd", ws, "ask", "--json", "list files in ."],
                 env=env, capture_output=True, timeout=30)
@@ -53,7 +56,9 @@ def main():
             assert "tier=unset" in out["output"], out  # no --fast: omit the field
             assert out["exit_code"] == 0
             assert out["steps"] == 2, out
+            assert len(out["tool_calls"]) == 1, out
             assert out["tool_calls"][0]["name"] == "list_files", out
+            assert out["tool_calls"][0]["status"] == "success", out
             sid = out["session_id"]
             assert sid, out
 
@@ -175,6 +180,39 @@ def main():
             finally:
                 emock.terminate()
                 emock.wait(timeout=5)
+
+            # parallel tool calls: three calls in one step, including the
+            # gateway shape that reuses an "index" with a fresh "id". Every
+            # call must execute with its own arguments and every id must get
+            # a tool message — the mock rejects the follow-up request with
+            # 400 "no tool output found for function call" otherwise, which
+            # is exactly how the field failure looked.
+            open(os.path.join(ws, "a.txt"), "w").write("aaa\n")
+            open(os.path.join(ws, "b.txt"), "w").write("bbb\n")
+            pport = free_port()
+            pmock = subprocess.Popen(
+                [sys.executable, MOCK, str(pport)],
+                env=dict(os.environ, MOCK_PARALLEL="1"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = pmock.stdout.readline().decode()
+                assert "ready" in line, f"parallel mock did not start: {line!r}"
+                penv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{pport}/v1")
+                r11 = subprocess.run(
+                    [TNY, "--cwd", ws, "ask", "--json", "--no-save",
+                     "read both files and list the dir"],
+                    env=penv, capture_output=True, timeout=30)
+                assert r11.returncode == 0, \
+                    f"exit {r11.returncode}: {r11.stderr.decode()}"
+                out11 = json.loads(r11.stdout)
+                assert "PARALLEL-OK" in out11["output"], out11
+                assert out11["steps"] == 2, out11
+                names = [t["name"] for t in out11["tool_calls"]]
+                assert names == ["read_file", "read_file", "list_files"], out11
+                assert all(t["status"] == "success" for t in out11["tool_calls"]), out11
+            finally:
+                pmock.terminate()
+                pmock.wait(timeout=5)
         print("test_openai: all assertions passed")
     finally:
         mock.terminate()
