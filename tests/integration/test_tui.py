@@ -591,6 +591,50 @@ def test_codex_steer_mid_turn(home, ws):
     print("ok  codex: enter mid-turn rides turn/steer with the active turn id")
 
 
+def test_codex_steer_rejected_requeues(home, ws, mode):
+    """codex: a steer the host refuses must come back as the next turn's
+    prompt, never be lost (docs/adr/0012). mode="now" is a plain JSON-RPC
+    error mid-turn; mode="late" delivers the error only after turn/completed
+    — the ordering race where the old TUI-side bookkeeping dropped the
+    text."""
+    mock_ws = os.path.join(HERE, "mock_codex_ws.py")
+    mock = subprocess.Popen(
+        [sys.executable, mock_ws, "0"],
+        env=dict(os.environ, MOCK_CONNECTIONS="1", MOCK_BUSY_CONN="0",
+                 MOCK_STEER_WAIT_MS="2500", MOCK_STEER_REJECT=mode,
+                 MOCK_EXPECT_RESEND="please requeue me"),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        line = mock.stdout.readline()
+        assert "ready" in line, line
+        port = int(line.split()[-1])
+        t = Term([TNY, "--provider", "codex", "--codex-ws",
+                  "ws://127.0.0.1:%d" % port], base_env(home), ws)
+        try:
+            t.expect("tny 0.1.0")
+            t.send("hello codex\r")
+            t.expect("thinking", 20.0)          # turn 1 accepted, streaming
+            t.send("please requeue me\r")
+            t.expect("steer", 5.0)              # sent as turn/steer first
+            t.expect("TURN1-DONE", 20.0)
+            # the rejected text is re-queued and submitted as turn 2
+            t.expect("TURN2-DONE", 20.0)
+            assert "already running" not in clean(t.buf), clean(t.buf)
+            t.send("/quit\r")
+            assert t.wait() == 0
+        finally:
+            t.close()
+        mock.wait(timeout=10)
+        err = mock.stderr.read()
+        assert mock.returncode == 0, "mock reported protocol failures:\n%s" % err
+        assert "turn/start ok (prompt='please requeue me')" in err, err
+    finally:
+        if mock.poll() is None:
+            mock.terminate()
+            mock.wait(timeout=5)
+    print("ok  codex: %s steer rejection re-queued the text as the next turn" % mode)
+
+
 def main():
     if not os.access(TNY, os.X_OK):
         print("build first: make BUILD=build-tui release", file=sys.stderr)
@@ -617,6 +661,8 @@ def main():
             test_steer_mid_turn(home, ws)
             test_queue_sends_after_turn(home, ws)
             test_codex_steer_mid_turn(home, ws)
+            test_codex_steer_rejected_requeues(home, ws, "now")
+            test_codex_steer_rejected_requeues(home, ws, "late")
         finally:
             shutil.rmtree(home, ignore_errors=True)
             shutil.rmtree(ws, ignore_errors=True)

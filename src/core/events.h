@@ -18,9 +18,9 @@ typedef enum {
     TNY_EV_TURN_END,     /* turn finished (see stop) */
     TNY_EV_ERROR,        /* fatal-for-this-turn error */
     TNY_EV_STATUS,       /* one-line progress note (stderr / status area) */
-    TNY_EV_STEER_REJECTED /* a steer() the host accepted was refused later:
-                           * the frontend re-queues the text it kept
-                           * (docs/adr/0011) */
+    TNY_EV_STEER_REJECTED /* a steer() the host accepted was refused later.
+                           * text (+len) carries the rejected user text; the
+                           * frontend re-queues it (docs/adr/0011, 0012) */
 } tny_event_kind;
 
 typedef enum {

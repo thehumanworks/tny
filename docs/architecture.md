@@ -27,7 +27,7 @@ tny is a **frontend + native loop**, not a fourth coding agent. Host backends al
 | **Host** | Cursor bridge, Codex app-server, ACP client | The host process | Protocol client, approvals UI, session mapping |
 | **Native** | OpenAI-compatible | tny | Agent loop, MCP, skills, sandbox, ACP **server**, `read_image` |
 
-Never leak host-specific types into the TUI. Map every backend onto one event set: `text_delta`, `thinking`, `tool_start`, `tool_end`, `permission_request`, `plan`, `usage`, `turn_end`, `error`, `status`, `steer_rejected` (a mid-turn `steer()` the host refused after accepting it; the frontend re-queues the text — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md)).
+Never leak host-specific types into the TUI. Map every backend onto one event set: `text_delta`, `thinking`, `tool_start`, `tool_end`, `permission_request`, `plan`, `usage`, `turn_end`, `error`, `status`, `steer_rejected` (a mid-turn `steer()` the host refused after accepting it; the event carries the rejected text and the frontend re-queues it — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md), [ADR 0012](adr/0012-steer-rejection-owns-the-text.md)).
 
 ## Process rules
 

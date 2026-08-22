@@ -265,18 +265,29 @@ static void cx_response(cx_impl *o, yyjson_doc *doc, yyjson_val *root, yyjson_va
             buf_free(&b);
             tny_event ev = {0};
             ev.kind = TNY_EV_STEER_REJECTED;
+            ev.text = p->steer_text ? p->steer_text : "";
+            ev.text_len = strlen(ev.text);
             if (o->cb) o->cb(&ev, o->ud);
             cx_pending_clear(p);
-        } else {
+        } else if (p) {
             buf_t b;
             buf_init(&b);
             buf_appendf(&b, "codex %s failed (%lld): %.300s",
-                        p && p->method ? p->method : "request", (long long)code,
-                        msg ? msg : "no detail");
+                        p->method, (long long)code, msg ? msg : "no detail");
             cx_emit_capped(o, TNY_EV_ERROR, b.data);
             buf_free(&b);
-            if (p) cx_pending_clear(p);
+            cx_pending_clear(p);
             cx_end_turn(o, TNY_STOP_ERROR);
+        } else {
+            /* a response to a request we no longer track — e.g. a steer the
+             * turn-end sweep already resolved (docs/adr/0012). It must not
+             * fail whatever turn is running now. */
+            buf_t b;
+            buf_init(&b);
+            buf_appendf(&b, "codex answered a request tny gave up on (%lld): %.200s",
+                        (long long)code, msg ? msg : "no detail");
+            cx_emit_capped(o, TNY_EV_STATUS, b.data);
+            buf_free(&b);
         }
         yyjson_doc_free(doc);
         return;

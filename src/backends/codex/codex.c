@@ -277,8 +277,13 @@ static int cx_send(tny_backend *b, const char *prompt, const char **images,
     o->turn_id = NULL;
     o->turn_active = true;
     o->cancel_sent = false;
-    cx_request(o, "turn/start", p.data, CXR_TURN);
+    int id = cx_request(o, "turn/start", p.data, CXR_TURN);
     buf_free(&p);
+    if (id < 0) {
+        o->turn_active = false;
+        snprintf(errbuf, errlen, "codex: too many requests in flight");
+        return -1;
+    }
     if (cx_flush(o) != 0) {
         o->turn_active = false;
         snprintf(errbuf, errlen, "codex: failed to send turn/start");
@@ -308,9 +313,20 @@ static int cx_steer(tny_backend *b, const char *text, char *errbuf, size_t errle
     buf_appends(&p, ",\"input\":[{\"type\":\"text\",\"text\":");
     jescape(&p, text ? text : "");
     buf_appends(&p, ",\"text_elements\":[]}]}");
-    cx_request(o, "turn/steer", p.data, CXR_STEER);
+    int id = cx_request(o, "turn/steer", p.data, CXR_STEER);
     buf_free(&p);
+    if (id < 0) {
+        /* no pending slot means no rejection could ever come back: refuse
+         * now so the caller queues the text instead (docs/adr/0012) */
+        snprintf(errbuf, errlen, "codex: too many requests in flight");
+        return -1;
+    }
+    cx_pending *pd = cx_pending_find(o, id);
+    if (pd) pd->steer_text = xstrdup(text ? text : "");
     if (cx_flush(o) != 0) {
+        /* the frame never left: drop the pending too, or the turn-end sweep
+         * would re-queue a text the caller is already queueing */
+        if (pd) cx_pending_clear(pd);
         snprintf(errbuf, errlen, "codex: failed to send turn/steer");
         return -1;
     }
@@ -326,7 +342,10 @@ static void cx_cancel(tny_backend *b) {
     jescape(&p, o->thread_id ? o->thread_id : "");
     if (o->turn_id) { buf_appends(&p, ",\"turnId\":"); jescape(&p, o->turn_id); }
     buf_appends(&p, "}");
-    cx_request(o, "turn/interrupt", p.data, CXR_INTERRUPT);
+    /* if every pending slot is busy, send it untracked: losing the response
+     * mapping is better than not interrupting at all */
+    if (cx_request(o, "turn/interrupt", p.data, CXR_INTERRUPT) < 0)
+        cx_request(o, "turn/interrupt", p.data, CXR_FREE);
     buf_free(&p);
     cx_flush(o);
     o->cancel_sent = true;

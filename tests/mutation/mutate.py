@@ -56,9 +56,14 @@ TARGETS = [
     ("src/tui/tui.c", ["tui_queue_push", "tui_queue_clear", "queue_pop",
                        "tui_cancel_turn", "after_turn", "tui_submit"],
      r"queue|steer"),
-    ("src/backends/openai/openai.c", ["take_steer", "oa_steer", "step_finished"],
+    ("src/backends/openai/openai.c", ["take_steer", "oa_steer", "step_finished",
+                                      "emit_turn_end"],
      r"steer"),
     ("src/backends/codex/codex.c", ["cx_steer"], None),
+    # steer-text ownership + turn-end sweep (docs/adr/0012)
+    ("src/backends/codex/codex_rpc.c", ["cx_end_turn", "cx_request"],
+     r"steer|STEER|registered|CXR_FREE"),
+    ("src/backends/codex/codex_msg.c", ["cx_response"], r"steer|STEER|CXR"),
     # --fast capability (TNY_CAP_FAST): new functions whole, only the
     # tier/fast lines inside the pre-existing ones.
     ("src/core/backend.c", ["tny_backend_caps"], None),

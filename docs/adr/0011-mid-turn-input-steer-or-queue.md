@@ -1,7 +1,9 @@
 # 0011 — Mid-turn input: steer where the host can, queue everywhere else
 
 Date: 2026-08-22
-Status: accepted
+Status: accepted — amended by [0012](0012-steer-rejection-owns-the-text.md)
+(steer-text ownership moved to the backend; `TNY_EV_STEER_REJECTED` carries
+the text)
 
 ## Context
 

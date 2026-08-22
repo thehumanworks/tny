@@ -230,11 +230,13 @@ static void ev_cb(const tny_event *ev, void *ud) {
         tui_err(t, line);
         break;
     case TNY_EV_STEER_REJECTED:
-        /* the host would not take it mid-turn: send it right after instead */
-        if (t->steer_inflight) {
-            tui_queue_push(t, t->steer_inflight, true);
-            free(t->steer_inflight);
-            t->steer_inflight = NULL;
+        /* the host would not take it mid-turn: send it right after instead.
+         * The event carries the rejected text (docs/adr/0012), so nothing
+         * here depends on which steer — or how many — went out. */
+        if (ev->text && ev->text_len) {
+            char *s = xstrndup(ev->text, ev->text_len);
+            tui_queue_push(t, s, true);
+            free(s);
         }
         break;
     case TNY_EV_TURN_END:
@@ -249,7 +251,7 @@ static void ev_cb(const tny_event *ev, void *ud) {
 
 void tui_queue_push(tui *t, const char *text, bool front) {
     char **q = realloc(t->queue, sizeof(char *) * (size_t)(t->n_queue + 1));
-    if (!q) return;
+    if (!q) { tui_sys(t, "message dropped: out of memory"); return; }
     t->queue = q;
     if (front) {
         memmove(q + 1, q, sizeof(char *) * (size_t)t->n_queue);
@@ -354,8 +356,6 @@ static bool ensure_backend(tui *t) {
     return true;
 }
 
-void tui_submit(tui *t, const char *text);
-
 static void after_turn(tui *t) {
     if (t->session) {
         if (t->bk && t->bk->session_pointer) {
@@ -382,8 +382,6 @@ static void after_turn(tui *t) {
     }
     t->cancel_ms = 0;
     buf_clear(&t->note);
-    free(t->steer_inflight);
-    t->steer_inflight = NULL;
     t->dirty = true;
     if (t->n_queue) {
         if (t->stop == TNY_STOP_DONE && !t->quit) {
@@ -433,9 +431,9 @@ void tui_submit(tui *t, const char *text) {
         char err[256];
         if (t->bk && t->bk->steer && !t->cancel_ms && !t->n_queue &&
             t->bk->steer(t->bk, s, err, sizeof err) == 0) {
-            /* into the running turn: echo it so the transcript reads in order */
-            free(t->steer_inflight);
-            t->steer_inflight = xstrdup(s);
+            /* into the running turn: echo it so the transcript reads in
+             * order; the backend owns the text now and hands it back via
+             * STEER_REJECTED if the host refuses it (docs/adr/0012) */
             tui_bol(t);
             tui_linef(t, "%s› %s%s %ssteer%s", tui_c(t, "\x1b[1m"), s,
                       tui_c(t, "\x1b[0m"), tui_c(t, "\x1b[2m"), tui_c(t, "\x1b[0m"));
@@ -612,7 +610,6 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     tui_hist_free(&t);
     for (int i = 0; i < t.n_images; i++) free(t.images[i]);
     tui_queue_clear(&t);
-    free(t.steer_inflight);
     buf_free(&t.out);
     buf_free(&t.partial);
     buf_free(&t.input);
