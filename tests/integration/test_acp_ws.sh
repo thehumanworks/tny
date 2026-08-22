@@ -13,7 +13,13 @@ TMP=$(mktemp -d)
 trap 'kill $WSPID 2>/dev/null; rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/ws" "$TMP/home"
 
-fail() { echo "FAIL: $*" >&2; exit 1; }
+fail() {
+    echo "FAIL: $*" >&2
+    for f in "$TMP"/wrap*.err "$TMP"/wrap*.out; do
+        [ -s "$f" ] && { echo "--- $(basename "$f"):" >&2; tail -20 "$f" >&2; }
+    done
+    exit 1
+}
 contains() { case "$1" in *"$2"*) ;; *) fail "missing '$2' in: $1" ;; esac; }
 
 FAKE_ACP_STATE=$TMP/state.json "$PY" "$WRAP" 0 > "$TMP/wrap.out" 2> "$TMP/wrap.err" &

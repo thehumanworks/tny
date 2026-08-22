@@ -83,6 +83,9 @@ def serve(conn):
     rest = handshake(conn)
     if rest is None:
         return
+    # frames go out from two threads (agent stdout pump, ping-pong reply);
+    # interleaved sends would corrupt the framing
+    wlock = threading.Lock()
     proc = subprocess.Popen([sys.executable, AGENT],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=sys.stderr.fileno())
@@ -93,7 +96,10 @@ def serve(conn):
             if not line:
                 continue
             try:
-                send_text(conn, line)
+                with wlock:
+                    send_text(conn, line)
+                print("ws-agent: frame out %dB" % len(line), file=sys.stderr,
+                      flush=True)
             except OSError:
                 break
         try:
@@ -144,15 +150,20 @@ def serve(conn):
             if opcode == 0x8:  # close
                 break
             if opcode == 0x9:  # ping -> pong
-                conn.sendall(struct.pack("!BB", 0x8A, len(payload)) + payload)
+                with wlock:
+                    conn.sendall(struct.pack("!BB", 0x8A, len(payload)) + payload)
                 continue
             if opcode != 0x1:
+                if opcode == 0x0:
+                    print("ws-agent: unexpected continuation frame (client "
+                          "fragmented a message)", file=sys.stderr, flush=True)
                 continue
             # sanity: one JSON object per frame
             try:
                 json.loads(payload.decode())
             except ValueError:
                 print("ws-agent: non-JSON frame", file=sys.stderr, flush=True)
+            print("ws-agent: frame in %dB" % ln, file=sys.stderr, flush=True)
             proc.stdin.write(payload + b"\n")
             proc.stdin.flush()
     finally:
