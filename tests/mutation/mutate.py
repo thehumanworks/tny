@@ -43,6 +43,7 @@ TARGETS = [
                        "tui_submit"], None),
     ("src/tui/tui_input.c", ["do_key"], r"overlay"),
     ("src/core/config.c", ["tny_ctx_load"], r"perm_mode|permission_mode"),
+    ("src/core/config.c", ["tny_effort_canonical", "tny_effort_wire"], None),
 ]
 
 # operator substitutions applied to one site at a time

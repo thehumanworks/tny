@@ -41,7 +41,8 @@ Also implement `GET {base_url}/models` for `/models` when the provider has it; o
 | --- | --- |
 | Azure `api-key` header | `auth_header_name=api-key`, empty prefix |
 | Old `max_tokens` vs `max_completion_tokens` | `max_tokens_field` |
-| Extra `reasoning_effort` / `thinking` | pass-through JSON object in provider profile |
+| Reasoning effort | `--effort` / `/effort` → `reasoning_effort` in the request; canonical levels map per [ADR 0009](../adr/0009-reasoning-effort.md) (`off`→`none`, `light`→`low`, `max`→`xhigh`); provider-specific tokens (`minimal`, …) pass through verbatim. Omitted when unset — providers without the field would 400 |
+| Extra `thinking`-style objects | pass-through JSON object in provider profile (later) |
 | Missing tools | disable tools, error clearly |
 | Parallel tool calls | honor `parallel_tool_calls` when present |
 

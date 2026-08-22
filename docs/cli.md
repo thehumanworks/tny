@@ -30,6 +30,7 @@ Global flags are **leading**:
 tny --provider cursor|codex|acp|openai [command]   # --backend is an alias
 tny --cwd DIR
 tny --model ID
+tny --effort LEVEL          # reasoning effort (--reasoning-effort is an alias)
 tny --add-dir DIR           # repeatable, process-only
 tny --permission-mode ask|auto|yolo   # default: yolo (docs/adr/0001)
 tny --json                  # where listed
@@ -47,6 +48,21 @@ tny -c                      # resume last for this workspace
 4. `cursor` if `CURSOR_API_KEY` is set in the environment
 5. `openai` (its connect error explains how to configure a key)
 
+## Reasoning effort
+
+`--effort` (env `TNY_REASONING_EFFORT`, TUI `/effort`) takes the canonical
+levels `off | light | medium | high | xhigh | max` and maps them onto each
+provider's wire vocabulary ([ADR 0009](adr/0009-reasoning-effort.md)):
+codex `turn/start.effort`, cursor `ModelSelection.params`, openai
+`reasoning_effort`. ACP has no portable knob at protocolVersion 1; the
+backend says so in one status line and the agent's default applies.
+
+Providers advertise their real per-model levels through their catalogs;
+`tny models` shows them (`[effort: …]` / `"efforts"` in `--json`) and any
+advertised token is accepted verbatim (e.g. `--effort minimal` on openai).
+Unset means the provider default; `--effort default` clears an inherited
+env value. The setting is process-memory only — never persisted.
+
 ## `tny ask` (scripts and CI)
 
 ```text
@@ -55,6 +71,7 @@ printf 'summarize src/\n' | tny ask --stdin
 tny ask --json --no-save "list the public CLI"
 tny ask --resume last "now add tests"
 tny ask --provider cursor --model composer-2 "find the login bug"
+tny --provider codex --effort xhigh ask "prove this queue is lock-free"
 tny ask --yolo --cwd /tmp/ws "run the test suite"
 ```
 

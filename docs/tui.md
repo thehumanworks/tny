@@ -45,7 +45,15 @@ Mirror fx names where they still make sense. Backend-specific commands degrade t
 
 Sessions: `/help` `/clear` `/new` `/reset` `/resume` `/continue` `/rename` `/compact` `/quit`
 
-Runtime: `/models` `/model` `/permissions` `/sandbox` `/backend` `/status` `/usage`
+Runtime: `/models` `/model` `/effort` `/permissions` `/sandbox` `/backend` `/fast` `/status` `/usage`
+
+`/effort [off|light|medium|high|xhigh|max|default]` changes the reasoning
+effort at any point in the conversation and applies from the next turn with
+no backend rebind: it rides on codex `turn/start`, cursor
+`SendOptions.model.params`, and the openai request body ([ADR
+0009](adr/0009-reasoning-effort.md)). `/models` lists the levels each model
+actually advertises. `/fast [fast|priority|default]` toggles the codex
+service tier and does rebind (the tier rides on `thread/start`).
 
 Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace`
 

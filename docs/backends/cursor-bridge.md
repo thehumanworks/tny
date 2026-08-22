@@ -112,16 +112,28 @@ protojson camelCase. Written by `src/backends/cursor/cursor.c` only; readers
 accept camelCase *and* snake_case. Re-pin these against the release `.proto`s
 and smoke-test.md before shipping against a new bridge release.
 
-- `CreateAgent` → `{"options":{"model":{"id":M},"apiKey":K,"local":{"cwd":[cwd],"dirs":[…extraDirs]}}}`
+- `CreateAgent` → `{"options":{"model":{"id":M,"params":[{"id":P,"value":V}]},"apiKey":K,"local":{"cwd":[cwd],"dirs":[…extraDirs]}}}`
   — `model` is a `ModelSelection`, `local.cwd` carries at most one entry
-  (when `--model` is absent tny calls `ListModels` and uses the first item id)
+  (when `--model` is absent tny calls `ListModels` and uses the first item id);
+  `params` appears only when `--effort` is set
 - `ListModels` → `{"options":{"apiKey":K}}` (`CursorRequestOptions`; catalog
   RPCs hard-require the per-call key), response models are in `items`
 - `ResumeAgent` → same options plus `"agentId"` (the stored host pointer)
-- `Send` (server-streaming) → `{"agentId":A,"message":{"text":T},"options":{"enableDeltas":true}}`
-  — the field is `message` (a `UserMessage`), not `prompt`
+- `Send` (server-streaming) → `{"agentId":A,"message":{"text":T},"options":{"enableDeltas":true,"model":…}}`
+  — the field is `message` (a `UserMessage`), not `prompt`; `options.model`
+  (same `ModelSelection`) is sent only when `--effort` is set, so `/effort`
+  applies mid-conversation without a new agent
 - `CancelRun` → `{"agentId":A,"runId":R}`
 - `Shutdown` → `{"graceSeconds":5}`
+
+Reasoning effort: model params are **model-specific** — a top-level key or an
+unknown param id is silently dropped by the bridge. tny therefore resolves
+`--effort` against the model's `ListModels` entry (`SdkModel.parameters`, a
+`ModelParameterDefinition` whose id names an effort, values in
+`values[].value`) and sends only a catalog-allowed value
+([ADR 0009](../adr/0009-reasoning-effort.md)). No match → one status line and
+the model default runs; catalog unreachable → param id `effort` is sent
+unverified with a status saying so.
 
 Permission mode is **not** wired into `CreateAgent`: the bridge is headless
 with no per-call approval RPC, so tny emits one status line when
