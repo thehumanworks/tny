@@ -235,7 +235,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     const char *hp = session_host_pointer(session);
     /* a host pointer only means something to the provider that minted it */
     const char *owner = session_backend(session);
-    if (hp && owner && strcmp(owner, tny_backend_name(bk->id)) != 0) hp = NULL;
+    if (hp && owner && strcmp(owner, tny_provider_name(ctx)) != 0) hp = NULL;
     if (bk->create_or_resume && bk->create_or_resume(bk, hp, err, sizeof err) != 0) {
         fprintf(stderr, "tny: %s\n", err);
         bk->destroy(bk);
@@ -287,8 +287,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         char *ptr = bk->session_pointer(bk);
         if (ptr) {
             session_set_host_pointer(session, ptr);
-            session_set_meta(session, tny_backend_name((tny_backend_id)ctx->backend),
-                             ctx->model);
+            session_set_meta(session, tny_provider_name(ctx), ctx->model);
             if (!session_title(session)) session_set_title(session, prompt.data);
             session_save(session);
             free(ptr);
@@ -310,7 +309,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_appends(&out, "{\"output\":");
         jescape(&out, st.output.data ? st.output.data : "");
         buf_appendf(&out, ",\"exit_code\":%d,\"provider\":\"%s\",\"model\":",
-                    exit_code, tny_backend_name((tny_backend_id)ctx->backend));
+                    exit_code, tny_provider_name(ctx));
         jescape(&out, ctx->model ? ctx->model : "default");
         buf_appends(&out, ",\"session_id\":");
         jescape(&out, ctx->no_save ? "" : session->id);

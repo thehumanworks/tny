@@ -118,16 +118,6 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         }
     }
     ctx->json_out = g->json;
-    if (g->base_url) { free(ctx->base_url); ctx->base_url = xstrdup(g->base_url); }
-    if (g->api_key_env) {
-        const char *k = getenv(g->api_key_env);
-        if (k && *k) { free(ctx->api_key); ctx->api_key = xstrdup(k); }
-        else {
-            fprintf(stderr, "tny: --api-key-env %s: variable is empty\n", g->api_key_env);
-            tny_ctx_free(ctx);
-            return NULL;
-        }
-    }
     if (g->bridge_bin) { free(ctx->bridge_bin); ctx->bridge_bin = xstrdup(g->bridge_bin); }
     if (g->codex_ws) { free(ctx->codex_ws); ctx->codex_ws = xstrdup(g->codex_ws); }
     if (g->codex_bin) { free(ctx->codex_bin); ctx->codex_bin = xstrdup(g->codex_bin); }
@@ -156,6 +146,17 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     if (tny_resolve_backend(ctx, g->backend) < 0) {
         tny_ctx_free(ctx);
         return NULL;
+    }
+    /* after resolve: flags beat whatever provider profile was applied */
+    if (g->base_url) { free(ctx->base_url); ctx->base_url = xstrdup(g->base_url); }
+    if (g->api_key_env) {
+        const char *k = getenv(g->api_key_env);
+        if (k && *k) { free(ctx->api_key); ctx->api_key = xstrdup(k); }
+        else {
+            fprintf(stderr, "tny: --api-key-env %s: variable is empty\n", g->api_key_env);
+            tny_ctx_free(ctx);
+            return NULL;
+        }
     }
     return ctx;
 }

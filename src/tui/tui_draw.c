@@ -94,7 +94,7 @@ static void row_sep(buf_t *b, int *rows) {
 static void status_row(tui *t, buf_t *b, int maxw) {
     buf_t s;
     buf_init(&s);
-    buf_appendf(&s, "%s  %s  %s", tny_backend_name((tny_backend_id)t->ctx->backend),
+    buf_appendf(&s, "%s  %s  %s", tny_provider_name(t->ctx),
                 t->ctx->model ? t->ctx->model : "default",
                 tny_perm_mode_name(t->ctx->perm_mode));
     if (t->session) buf_appendf(&s, "  %s", t->session->id);

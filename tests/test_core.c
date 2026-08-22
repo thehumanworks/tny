@@ -18,6 +18,25 @@
 
 static char g_home[512], g_ws[520];
 
+/* Drop every *_BASE_URL from the environment: the host shell (CI, dev
+ * boxes) may carry pairs that would register as env-defined providers and
+ * flip the default-resolution assertions. */
+static void clear_env_providers(void) {
+    for (;;) {
+        int n = 0;
+        char **v = tny_env_provider_names(&n);
+        if (!v) return;
+        for (int i = 0; i < n; i++) {
+            char *var = tny_provider_env_var(v[i], "_BASE_URL");
+            if (var) unsetenv(var);
+            free(var);
+            free(v[i]);
+        }
+        free(v);
+        if (n == 0) return;
+    }
+}
+
 static void ensure_env(void) {
     if (g_home[0]) return;
     const char *t = getenv("TMPDIR");
@@ -28,6 +47,7 @@ static void ensure_env(void) {
     unsetenv("TNY_PERMISSION_MODE");
     unsetenv("OPENAI_BASE_URL");
     unsetenv("OPENAI_API_KEY");
+    clear_env_providers();
     snprintf(g_ws, sizeof g_ws, "%s/ws", g_home);
     mkdir_p(g_ws);
 }
@@ -438,6 +458,214 @@ TEST provider_last_used_and_scoped_models(void) {
     PASS();
 }
 
+/* settings.json may define OpenAI-compatible providers under arbitrary
+ * names ("openrouter", "xai", …): any top-level object with a base_url.
+ * They resolve to the openai backend but keep their own name, config,
+ * key env, and saved model. */
+TEST custom_named_provider_profiles(void) {
+    ensure_env();
+    codex_auth_write(false);
+    unsetenv("CURSOR_API_KEY");
+    unsetenv("OPENAI_API_KEY");
+    unsetenv("OPENAI_BASE_URL");
+    write_settings(
+        "{\"openrouter\":{\"base_url\":\"https://openrouter.ai/api/v1\","
+        "\"api_key_env\":\"TEST_OR_KEY\",\"model\":\"anthropic/claude-sonnet-4.6\"},"
+        "\"xai\":{\"base_url\":\"https://api.x.ai/v1\"},"
+        "\"az-AZ09\":{\"base_url\":\"https://mixed.test/v1\"},"
+        "\"openai\":{\"base_url\":\"https://example.test/v1\"}}");
+    setenv("TEST_OR_KEY", "sk-or-test", 1);
+    setenv("XAI_API_KEY", "sk-xai-test", 1);
+
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openrouter"));
+    ASSERT_STR_EQ("openrouter", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://openrouter.ai/api/v1", ctx->base_url);
+    ASSERT_STR_EQ("sk-or-test", ctx->api_key);
+    ASSERT(ctx->model);
+    ASSERT_STR_EQ("anthropic/claude-sonnet-4.6", ctx->model);
+    ASSERT_EQ(0, tny_settings_remember_use(ctx)); /* saves "openrouter" */
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws); /* fresh launch: the named profile comes back */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("openrouter", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://openrouter.ai/api/v1", ctx->base_url);
+    ASSERT_STR_EQ("sk-or-test", ctx->api_key);
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws); /* no api_key_env: NAME_API_KEY is derived */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "xai"));
+    ASSERT_STR_EQ("xai", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://api.x.ai/v1", ctx->base_url);
+    ASSERT_STR_EQ("sk-xai-test", ctx->api_key);
+    ASSERT_EQ(NULL, ctx->model); /* openrouter's model must not leak */
+
+    /* switching back to a builtin restores the openai object's config */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://example.test/v1", ctx->base_url);
+    ASSERT_EQ(NULL, ctx->api_key);
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws); /* a missing profile key resolves to no key */
+    unsetenv("XAI_API_KEY");
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "xai"));
+    ASSERT_EQ(NULL, ctx->api_key);
+    tny_ctx_free(ctx);
+
+    /* an explicit --provider openai must not be hijacked by detection */
+    setenv("CURSOR_API_KEY", "key_test", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
+    unsetenv("CURSOR_API_KEY");
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(tny_custom_provider_exists(ctx, "openrouter"));
+    /* builtin even though a base_url object with that name exists */
+    ASSERT_FALSE(tny_custom_provider_exists(ctx, "openai"));
+    ASSERT_FALSE(tny_custom_provider_exists(ctx, "models")); /* no base_url */
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, "nope")); /* unknown still fails */
+    char *env = tny_custom_provider_key_env(ctx, "xai");
+    ASSERT(env);
+    ASSERT_STR_EQ("XAI_API_KEY", env);
+    free(env);
+    /* every character class in the derived name: lower, upper, digit, other */
+    env = tny_custom_provider_key_env(ctx, "az-AZ09");
+    ASSERT(env);
+    ASSERT_STR_EQ("AZ_AZ09_API_KEY", env);
+    free(env);
+    tny_ctx_free(ctx);
+
+    unsetenv("TEST_OR_KEY");
+    write_settings("{}");
+    PASS();
+}
+
+/* Providers can also be defined purely by environment variables:
+ * NAME_BASE_URL makes NAME a valid provider, NAME_API_KEY supplies the key,
+ * NAME_DEFAULT_MODEL the fallback model. Exactly one BASE_URL+API_KEY pair
+ * is auto-detected; ambiguity falls through to the normal detection order. */
+TEST env_defined_providers(void) {
+    ensure_env();
+    codex_auth_write(false);
+    unsetenv("CURSOR_API_KEY");
+    unsetenv("OPENAI_API_KEY");
+    unsetenv("OPENAI_BASE_URL");
+    clear_env_providers();
+    write_settings("{}");
+    setenv("ORWELL_BASE_URL", "https://orwell.test/v1", 1);
+    setenv("ORWELL_API_KEY", "sk-orwell", 1);
+    setenv("ORWELL_DEFAULT_MODEL", "orwell-1", 1);
+
+    /* explicit flag: the env vars alone define the provider */
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "orwell"));
+    ASSERT_STR_EQ("orwell", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://orwell.test/v1", ctx->base_url);
+    ASSERT_STR_EQ("sk-orwell", ctx->api_key);
+    ASSERT(ctx->model);
+    ASSERT_STR_EQ("orwell-1", ctx->model);
+    tny_ctx_free(ctx);
+
+    /* auto-detection: exactly one BASE_URL + API_KEY pair wins */
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("orwell", tny_provider_name(ctx));
+    tny_ctx_free(ctx);
+
+    /* two pairs are ambiguous: fall through, but both stay addressable */
+    setenv("HUXLEY_BASE_URL", "https://huxley.test/v1", 1);
+    setenv("HUXLEY_API_KEY", "sk-huxley", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "huxley"));
+    ASSERT_STR_EQ("huxley", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://huxley.test/v1", ctx->base_url);
+    tny_ctx_free(ctx);
+    unsetenv("HUXLEY_BASE_URL");
+    unsetenv("HUXLEY_API_KEY");
+
+    /* a BASE_URL without a key is never auto-detected (a stray *_BASE_URL
+     * from an unrelated tool must not hijack the default), but an explicit
+     * --provider still accepts it — keyless local gateways */
+    unsetenv("ORWELL_API_KEY");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "orwell"));
+    ASSERT_STR_EQ("orwell", tny_provider_name(ctx));
+    ASSERT_EQ(NULL, ctx->api_key);
+    tny_ctx_free(ctx);
+    setenv("ORWELL_API_KEY", "sk-orwell", 1);
+
+    /* NAME_BASE_URL beats the settings profile's base_url; the profile's
+     * model still beats NAME_DEFAULT_MODEL */
+    write_settings("{\"orwell\":{\"base_url\":\"https://settings.test/v1\","
+                   "\"model\":\"cfg-model\"}}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "orwell"));
+    ASSERT_STR_EQ("https://orwell.test/v1", ctx->base_url);
+    ASSERT(ctx->model);
+    ASSERT_STR_EQ("cfg-model", ctx->model);
+    tny_ctx_free(ctx);
+
+    /* NAME_DEFAULT_MODEL also works for builtin providers */
+    write_settings("{}");
+    setenv("CODEX_DEFAULT_MODEL", "o4-mini", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, "codex"));
+    ASSERT(ctx->model);
+    ASSERT_STR_EQ("o4-mini", ctx->model);
+    unsetenv("CODEX_DEFAULT_MODEL");
+    tny_ctx_free(ctx);
+
+    /* the scan itself: builtin exclusion, every prefix char class, and the
+     * vars that must NOT register (empty value, empty prefix, chars that
+     * cannot round-trip through the derived env-var name) */
+    setenv("OPENAI_BASE_URL", "https://builtin.test/v1", 1); /* builtin */
+    setenv("AZ09_G_BASE_URL", "https://mixed.test/v1", 1);   /* valid */
+    setenv("EMPTYP_BASE_URL", "", 1);                        /* not set */
+    setenv("_BASE_URL", "https://noname.test/v1", 1);        /* no prefix */
+    setenv("bad-Prefix_BASE_URL", "https://bad.test/v1", 1); /* bad chars */
+    int n = 0;
+    char **v = tny_env_provider_names(&n);
+    ASSERT_EQ(2, n);
+    ASSERT(v);
+    bool saw_orwell = false, saw_mixed = false;
+    for (int i = 0; i < n; i++) {
+        if (strcmp(v[i], "orwell") == 0) saw_orwell = true;
+        if (strcmp(v[i], "az09_g") == 0) saw_mixed = true;
+        free(v[i]);
+    }
+    free(v);
+    ASSERT(saw_orwell);
+    ASSERT(saw_mixed);
+    unsetenv("OPENAI_BASE_URL");
+    unsetenv("AZ09_G_BASE_URL");
+    unsetenv("EMPTYP_BASE_URL");
+    unsetenv("_BASE_URL");
+    unsetenv("bad-Prefix_BASE_URL");
+
+    unsetenv("ORWELL_BASE_URL");
+    unsetenv("ORWELL_API_KEY");
+    unsetenv("ORWELL_DEFAULT_MODEL");
+
+    /* a stale last_provider naming a vanished provider falls back cleanly */
+    write_settings("{\"last_provider\":\"ghost\"}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://api.openai.com/v1", ctx->base_url);
+    tny_ctx_free(ctx);
+
+    write_settings("{}");
+    PASS();
+}
+
 TEST backend_default_cursor_key_from_env(void) {
     ensure_env();
     write_settings("{}");
@@ -652,6 +880,8 @@ SUITE(core_suite) {
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(backend_default_cursor_key_from_env);
     RUN_TEST(provider_last_used_and_scoped_models);
+    RUN_TEST(custom_named_provider_profiles);
+    RUN_TEST(env_defined_providers);
     RUN_TEST(perm_defaults_to_yolo);
     RUN_TEST(perm_ask_mode_opt_in);
     RUN_TEST(perm_mode_overrides_parse);

@@ -277,7 +277,7 @@ static int bind_and_resume(tui *t, tny_backend *bk, char *err, size_t errlen) {
     const char *hp = session_host_pointer(t->session);
     /* a host pointer only means something to the provider that minted it */
     const char *owner = session_backend(t->session);
-    if (hp && owner && strcmp(owner, tny_backend_name(bk->id)) != 0) hp = NULL;
+    if (hp && owner && strcmp(owner, tny_provider_name(t->ctx)) != 0) hp = NULL;
     if (bk->create_or_resume && bk->create_or_resume(bk, hp, err, errlen) != 0)
         return -1;
     return 0;
@@ -323,8 +323,7 @@ static void after_turn(tui *t) {
                 free(ptr);
             }
         }
-        session_set_meta(t->session, tny_backend_name((tny_backend_id)t->ctx->backend),
-                         t->ctx->model);
+        session_set_meta(t->session, tny_provider_name(t->ctx), t->ctx->model);
         if (!session_title(t->session) && t->prompt_text.len)
             session_set_title(t->session, t->prompt_text.data);
         session_save(t->session);
@@ -375,8 +374,7 @@ void tui_submit(tui *t, const char *text) {
     t->gap = 1; /* one blank line before the first agent output */
     /* connect/send below can block for a while: show the echoed prompt and a
      * status note now so Enter never looks like a freeze */
-    tui_note(t, t->bk ? "sending…" : "starting %s…",
-             tny_backend_name((tny_backend_id)t->ctx->backend));
+    tui_note(t, t->bk ? "sending…" : "starting %s…", tny_provider_name(t->ctx));
     tui_render_force(t);
     if (!ensure_backend(t)) {
         buf_clear(&t->note);
@@ -424,7 +422,7 @@ void tui_submit(tui *t, const char *text) {
 
 static void banner(tui *t) {
     tui_linef(t, "%stny %s%s  %s  %s  %s", tui_c(t, "\x1b[1m"), TNY_VERSION,
-              tui_c(t, "\x1b[0m"), tny_backend_name((tny_backend_id)t->ctx->backend),
+              tui_c(t, "\x1b[0m"), tny_provider_name(t->ctx),
               t->ctx->model ? t->ctx->model : "default model",
               tny_perm_mode_name(t->ctx->perm_mode));
     tui_sys(t, "/help for commands · @ files · $ skills · ctrl-c twice to exit");

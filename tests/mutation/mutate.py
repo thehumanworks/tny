@@ -43,6 +43,14 @@ TARGETS = [
                        "tui_submit"], None),
     ("src/tui/tui_input.c", ["do_key"], r"overlay"),
     ("src/core/config.c", ["tny_ctx_load"], r"perm_mode|permission_mode"),
+    # named openai-compatible providers (settings.json profiles + env vars)
+    ("src/core/config.c",
+     ["tny_provider_name", "custom_provider_obj", "tny_provider_env_var",
+      "derived_env_value", "tny_custom_provider_exists",
+      "tny_custom_provider_key_env", "tny_env_provider_names",
+      "env_sole_detected_provider", "load_openai_profile",
+      "apply_custom_provider", "apply_provider_model", "tny_resolve_backend"],
+     None),
 ]
 
 # operator substitutions applied to one site at a time
@@ -78,6 +86,14 @@ EQUIVALENT = [
     # response" it causes downstream both fail the turn the same way, so
     # returning 0 here is indistinguishable without a proto-level probe.
     "stream.c:if (!ossl_want_retry(e)) return -1;",
+    # environ never holds two entries with the same key unless corrupted by
+    # repeated putenv abuse; the dedupe branch is purely defensive.
+    "config.c:if (strcmp(v[i], name) == 0) { dup = true; break; }",
+    # Undersized allocations are only observable under ASan (the default
+    # `make test` build); unsanitized glibc rounds tiny chunks up, so the
+    # overwrite never faults here.
+    "config.c:char *s = malloc(n + m + 1);",
+    "config.c:char *name = malloc(plen + 1);",
 ]
 
 

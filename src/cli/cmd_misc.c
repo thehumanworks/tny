@@ -23,7 +23,7 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     int n = 0;
     session_meta *m = session_list(ctx, false, 100, NULL, &n);
     session_meta_free(m, n);
-    const char *bk = tny_backend_name((tny_backend_id)ctx->backend);
+    const char *bk = tny_provider_name(ctx);
     const char *model = ctx->model ? ctx->model : "default";
     bool auth = ctx->api_key != NULL || str_starts(ctx->base_url, "http://");
     if (json) {
@@ -79,7 +79,7 @@ int cmd_permissions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
 
 /* Print one normalized [{"id","name"},…] catalog. */
 static void models_print(tny_ctx *ctx, const char *json_arr, bool json) {
-    const char *name = tny_backend_name((tny_backend_id)ctx->backend);
+    const char *name = tny_provider_name(ctx);
     if (json) {
         printf("{\"kind\":\"models\",\"provider\":\"%s\",\"models\":%s}\n", name,
                json_arr);
@@ -117,8 +117,7 @@ static int models_fallback(tny_ctx *ctx, bool json) {
         buf_free(&j);
     } else {
         printf("%s (no catalog from the %s provider; use --model ID to override)\n",
-               ctx->model ? ctx->model : "default",
-               tny_backend_name((tny_backend_id)ctx->backend));
+               ctx->model ? ctx->model : "default", tny_provider_name(ctx));
     }
     return 0;
 }
@@ -267,6 +266,37 @@ int cmd_workspace(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     return 1;
 }
 
+/* One `tny providers` row for a user-named OpenAI-compatible provider.
+ * profile_bu is the settings base_url or NULL; NAME_BASE_URL beats it,
+ * mirroring resolution. */
+static void custom_provider_row(tny_ctx *ctx, buf_t *b, bool json,
+                                const char *name, const char *profile_bu,
+                                const char *origin) {
+    char *buvar = tny_provider_env_var(name, "_BASE_URL");
+    const char *envbu = buvar ? getenv(buvar) : NULL;
+    free(buvar);
+    const char *bu = envbu && *envbu ? envbu : profile_bu;
+    char *keyvar = tny_custom_provider_key_env(ctx, name);
+    const char *key = keyvar ? getenv(keyvar) : NULL;
+    bool healthy = (key && *key) || (bu && str_starts(bu, "http://"));
+    char line[256];
+    snprintf(line, sizeof line, "openai-compatible (%s): base_url %s (key env %s%s)",
+             origin, bu ? bu : "?", keyvar ? keyvar : "?",
+             key && *key ? "" : " unset");
+    free(keyvar);
+    bool active = ctx->provider_name && strcmp(ctx->provider_name, name) == 0;
+    if (json) {
+        buf_appends(b, ",{\"name\":");
+        jescape(b, name);
+        buf_appendf(b, ",\"active\":%s,\"healthy\":%s,\"hint\":",
+                    active ? "true" : "false", healthy ? "true" : "false");
+        jescape(b, line);
+        buf_appends(b, "}");
+    } else {
+        buf_appendf(b, "%s %s — %s\n", active ? "*" : " ", name, line);
+    }
+}
+
 int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = wants_json(g, argc, argv);
     buf_t b;
@@ -278,19 +308,45 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         int healthy = 1;
         if (bk && bk->doctor) healthy = bk->doctor(ctx, line, sizeof line);
         if (bk) bk->destroy(bk);
+        bool active = i == ctx->backend && !ctx->provider_name;
         if (json) {
             if (i) buf_appends(&b, ",");
             buf_appendf(&b, "{\"name\":\"%s\",\"active\":%s,\"healthy\":%s,\"hint\":",
                         tny_backend_name((tny_backend_id)i),
-                        i == ctx->backend ? "true" : "false",
+                        active ? "true" : "false",
                         healthy == 0 ? "true" : "false");
             jescape(&b, line);
             buf_appends(&b, "}");
         } else {
-            buf_appendf(&b, "%s %s — %s\n", i == ctx->backend ? "*" : " ",
+            buf_appendf(&b, "%s %s — %s\n", active ? "*" : " ",
                         tny_backend_name((tny_backend_id)i), line);
         }
     }
+    /* user-named OpenAI-compatible providers: settings.json profiles first,
+     * then env-only ones (NAME_BASE_URL with no settings entry) */
+    if (ctx->settings) {
+        yyjson_val *root = yyjson_doc_get_root(ctx->settings);
+        size_t idx, max;
+        yyjson_val *k, *v;
+        if (yyjson_is_obj(root)) yyjson_obj_foreach(root, idx, max, k, v) {
+            const char *name = yyjson_get_str(k);
+            if (!name || !yyjson_is_obj(v)) continue;
+            const char *bu = jget_str(v, "base_url");
+            if (!bu || !*bu || !tny_custom_provider_exists(ctx, name)) continue;
+            custom_provider_row(ctx, &b, json, name, bu, "settings");
+        }
+    }
+    int n_env = 0;
+    char **envnames = tny_env_provider_names(&n_env);
+    for (int i = 0; i < n_env; i++) {
+        const char *name = envnames[i];
+        yyjson_val *root = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
+        const char *in_settings = jget_str(jget(root, name), "base_url");
+        if (in_settings && *in_settings) { free(envnames[i]); continue; /* listed above */ }
+        custom_provider_row(ctx, &b, json, name, NULL, "env");
+        free(envnames[i]);
+    }
+    free(envnames);
     if (json) buf_appends(&b, "]}\n");
     fwrite(b.data, 1, b.len, stdout);
     buf_free(&b);

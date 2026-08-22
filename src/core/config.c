@@ -41,6 +41,183 @@ static yyjson_val *ws_obj(tny_ctx *ctx) {
     return jget(all, ctx->cwd);
 }
 
+const char *tny_provider_name(const tny_ctx *ctx) {
+    return ctx->provider_name ? ctx->provider_name
+                              : tny_backend_name((tny_backend_id)ctx->backend);
+}
+
+/* Any top-level settings object with a base_url is a user-named
+ * OpenAI-compatible provider profile ("openrouter", "xai", …). The base_url
+ * requirement keeps reserved objects (workspaces, models, permission) from
+ * ever being mistaken for one. */
+static yyjson_val *custom_provider_obj(tny_ctx *ctx, const char *name) {
+    /* callers exclude builtin names (tny_custom_provider_exists guard) */
+    if (!ctx->settings || !name || !*name) return NULL;
+    yyjson_val *o = jget(yyjson_doc_get_root(ctx->settings), name);
+    if (!yyjson_is_obj(o)) return NULL;
+    const char *bu = jget_str(o, "base_url");
+    return bu && *bu ? o : NULL;
+}
+
+/* NAME + suffix as an env-var name: "openrouter" + "_API_KEY" ->
+ * OPENROUTER_API_KEY (uppercased, non-alphanumerics -> '_'). */
+char *tny_provider_env_var(const char *name, const char *suffix) {
+    size_t n = strlen(name), m = strlen(suffix);
+    char *s = malloc(n + m + 1);
+    if (!s) return NULL;
+    for (size_t i = 0; i != n; i++) {
+        char c = name[i];
+        if (c >= 'a' && c <= 'z') s[i] = (char)(c - 'a' + 'A');
+        else if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) s[i] = c;
+        else s[i] = '_';
+    }
+    memcpy(s + n, suffix, m + 1);
+    return s;
+}
+
+/* Value of the provider's derived env var (NAME_BASE_URL, …), or NULL. */
+static const char *derived_env_value(const char *name, const char *suffix) {
+    char *var = tny_provider_env_var(name, suffix);
+    const char *v = var ? getenv(var) : NULL;
+    free(var);
+    return v && *v ? v : NULL;
+}
+
+/* A provider name is valid when settings has a base_url object for it OR
+ * NAME_BASE_URL is set in the environment. Env lookups here are lazy
+ * in-memory reads at resolve time — startup paths never run them. */
+bool tny_custom_provider_exists(tny_ctx *ctx, const char *name) {
+    if (!name || !*name || tny_backend_from_name(name) >= 0) return false;
+    if (custom_provider_obj(ctx, name)) return true;
+    return derived_env_value(name, "_BASE_URL") != NULL;
+}
+
+char *tny_custom_provider_key_env(tny_ctx *ctx, const char *name) {
+    if (!tny_custom_provider_exists(ctx, name)) return NULL;
+    const char *env = jget_str(custom_provider_obj(ctx, name), "api_key_env");
+    return env && *env ? xstrdup(env) : tny_provider_env_var(name, "_API_KEY");
+}
+
+extern char **environ;
+
+/* Provider names defined by NAME_BASE_URL environment variables: lowercased
+ * prefix, builtins excluded, prefixes outside [A-Z0-9_] skipped (they could
+ * not round-trip through tny_provider_env_var). malloc'd array; the
+ * caller frees entries and the array. A one-pass in-memory walk of environ
+ * (microseconds), run only when a provider is being resolved or listed. */
+char **tny_env_provider_names(int *count) {
+    static const size_t suf = sizeof "_BASE_URL" - 1;
+    char **v = NULL;
+    int n = 0;
+    for (char **e = environ; e && *e; e++) {
+        const char *s = *e;
+        const char *eq = strchr(s, '=');
+        if (!eq || !eq[1]) continue; /* no value: the provider is not set */
+        size_t klen = (size_t)(eq - s);
+        if (klen <= suf || memcmp(s + klen - suf, "_BASE_URL", suf) != 0)
+            continue;
+        size_t plen = klen - suf;
+        char *name = malloc(plen + 1);
+        if (!name) continue;
+        bool ok = true;
+        for (size_t i = 0; i != plen; i++) {
+            char c = s[i];
+            if (c >= 'A' && c <= 'Z') name[i] = (char)(c - 'A' + 'a');
+            else if ((c >= '0' && c <= '9') || c == '_') name[i] = c;
+            else { ok = false; break; }
+        }
+        name[plen] = 0;
+        if (!ok || tny_backend_from_name(name) >= 0) { free(name); continue; }
+        bool dup = false;
+        for (int i = 0; i < n; i++)
+            if (strcmp(v[i], name) == 0) { dup = true; break; }
+        if (dup) { free(name); continue; }
+        char **nv = realloc(v, sizeof(char *) * (size_t)(n + 2));
+        if (!nv) { free(name); break; }
+        v = nv;
+        v[n++] = name;
+        v[n] = NULL;
+    }
+    if (count) *count = n;
+    return v;
+}
+
+/* Auto-detection (no flag, no last_provider): pick an env-defined provider
+ * only when exactly one has BOTH NAME_BASE_URL and NAME_API_KEY set — a
+ * lone *_BASE_URL from some unrelated tool must never hijack the default.
+ * Keyless local gateways still work via an explicit --provider NAME (and
+ * last_provider remembers it). Returns a malloc'd name or NULL. */
+static char *env_sole_detected_provider(void) {
+    int n = 0;
+    char **v = tny_env_provider_names(&n);
+    char *pick = NULL;
+    int hits = 0;
+    for (int i = 0; i < n; i++) {
+        if (!derived_env_value(v[i], "_API_KEY")) continue;
+        hits++;
+        if (!pick) pick = xstrdup(v[i]);
+    }
+    for (int i = 0; i < n; i++) free(v[i]);
+    free(v);
+    if (hits == 1) return pick;
+    free(pick);
+    return NULL;
+}
+
+/* Load the builtin openai profile (settings "openai" object + OPENAI_* env)
+ * into ctx. Also used to restore the defaults after a named profile. */
+static void load_openai_profile(tny_ctx *ctx) {
+    yyjson_val *sroot = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
+    yyjson_val *oa = jget(sroot, "openai");
+    const char *bu = getenv("OPENAI_BASE_URL");
+    if (!bu || !*bu) bu = jget_str(oa, "base_url");
+    free(ctx->base_url);
+    ctx->base_url = xstrdup(bu && *bu ? bu : "https://api.openai.com/v1");
+    const char *key_env = jget_str(oa, "api_key_env");
+    const char *key = key_env ? getenv(key_env) : NULL;
+    if (!key || !*key) key = getenv("OPENAI_API_KEY");
+    free(ctx->api_key);
+    ctx->api_key = key && *key ? xstrdup(key) : NULL;
+    const char *ahn = jget_str(oa, "auth_header_name");
+    const char *ahp = jget_str(oa, "auth_header_prefix");
+    free(ctx->auth_header_name);
+    free(ctx->auth_header_prefix);
+    ctx->auth_header_name = xstrdup(ahn ? ahn : "Authorization");
+    ctx->auth_header_prefix = xstrdup(ahp ? ahp : "Bearer ");
+    const char *mtf = jget_str(oa, "max_tokens_field");
+    free(ctx->max_tokens_field);
+    ctx->max_tokens_field = mtf ? xstrdup(mtf) : NULL;
+}
+
+/* Point ctx at a named provider: settings profile, env vars, or both
+ * (NAME_BASE_URL beats the profile's base_url, mirroring how
+ * OPENAI_BASE_URL beats the "openai" object). The key comes from the
+ * profile's own api_key_env (default NAME_API_KEY) — never from
+ * OPENAI_API_KEY, which belongs to a different provider. */
+static void apply_custom_provider(tny_ctx *ctx, const char *name) {
+    yyjson_val *o = custom_provider_obj(ctx, name); /* NULL when env-only */
+    free(ctx->provider_name);
+    ctx->provider_name = xstrdup(name);
+    const char *bu = derived_env_value(name, "_BASE_URL");
+    if (!bu) bu = jget_str(o, "base_url");
+    free(ctx->base_url);
+    ctx->base_url = xstrdup(bu ? bu : "");
+    char *key_env = tny_custom_provider_key_env(ctx, name);
+    const char *key = key_env ? getenv(key_env) : NULL;
+    free(key_env);
+    free(ctx->api_key);
+    ctx->api_key = key && *key ? xstrdup(key) : NULL;
+    const char *ahn = jget_str(o, "auth_header_name");
+    const char *ahp = jget_str(o, "auth_header_prefix");
+    free(ctx->auth_header_name);
+    free(ctx->auth_header_prefix);
+    ctx->auth_header_name = xstrdup(ahn ? ahn : "Authorization");
+    ctx->auth_header_prefix = xstrdup(ahp ? ahp : "Bearer ");
+    const char *mtf = jget_str(o, "max_tokens_field");
+    free(ctx->max_tokens_field);
+    ctx->max_tokens_field = mtf ? xstrdup(mtf) : NULL;
+}
+
 tny_ctx *tny_ctx_load(const char *cwd_flag) {
     tny_ctx *ctx = calloc(1, sizeof *ctx);
     if (!ctx) return NULL;
@@ -99,21 +276,9 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
         else if (strcmp(pm_env, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;
     }
 
-    /* openai provider: settings "openai" object, then env */
-    yyjson_val *oa = jget(sroot, "openai");
-    const char *bu = getenv("OPENAI_BASE_URL");
-    if (!bu || !*bu) bu = jget_str(oa, "base_url");
-    ctx->base_url = xstrdup(bu && *bu ? bu : "https://api.openai.com/v1");
-    const char *key_env = jget_str(oa, "api_key_env");
-    const char *key = key_env ? getenv(key_env) : NULL;
-    if (!key || !*key) key = getenv("OPENAI_API_KEY");
-    ctx->api_key = key && *key ? xstrdup(key) : NULL;
-    const char *ahn = jget_str(oa, "auth_header_name");
-    const char *ahp = jget_str(oa, "auth_header_prefix");
-    ctx->auth_header_name = xstrdup(ahn ? ahn : "Authorization");
-    ctx->auth_header_prefix = xstrdup(ahp ? ahp : "Bearer ");
-    const char *mtf = jget_str(oa, "max_tokens_field");
-    ctx->max_tokens_field = mtf ? xstrdup(mtf) : NULL;
+    /* openai provider: settings "openai" object, then env. A user-named
+     * profile picked in tny_resolve_backend replaces these fields. */
+    load_openai_profile(ctx);
 
     /* host backend knobs */
     ctx->bridge_bin = dup_or("CURSOR_SDK_BRIDGE_BIN", "cursor-sdk-bridge");
@@ -175,12 +340,16 @@ const char *tny_settings_provider_model(tny_ctx *ctx, const char *provider) {
 }
 
 /* Once the provider is known, pick its model: --model beats the saved
- * per-provider entry beats the openai object's model (openai only). */
+ * per-provider entry beats the provider object's model (openai-compatible
+ * profiles only, builtin "openai" included) beats NAME_DEFAULT_MODEL from
+ * the environment (every provider, e.g. CODEX_DEFAULT_MODEL). */
 static void apply_provider_model(tny_ctx *ctx, int id) {
     if (ctx->model_from_flag) return;
-    const char *m = tny_settings_provider_model(ctx, tny_backend_name(id));
+    const char *name = tny_provider_name(ctx);
+    const char *m = tny_settings_provider_model(ctx, name);
     if (!m && id == TNY_BK_OPENAI && ctx->settings)
-        m = jget_str(jget(yyjson_doc_get_root(ctx->settings), "openai"), "model");
+        m = jget_str(jget(yyjson_doc_get_root(ctx->settings), name), "model");
+    if (!m || !*m) m = derived_env_value(name, "_DEFAULT_MODEL");
     if (m && *m) {
         free(ctx->model);
         ctx->model = xstrdup(m);
@@ -189,34 +358,62 @@ static void apply_provider_model(tny_ctx *ctx, int id) {
 
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
     int id = -1;
+    const char *custom_name = NULL;
+    char *env_pick = NULL;
     if (flag_value) {
         id = tny_backend_from_name(flag_value);
-        if (id < 0) {
-            fprintf(stderr, "tny: unknown provider '%s' (cursor|codex|acp|openai)\n",
-                    flag_value);
+        if (id == -1 && tny_custom_provider_exists(ctx, flag_value)) {
+            id = TNY_BK_OPENAI;
+            custom_name = flag_value;
+        }
+        if (id == -1) {
+            fprintf(stderr,
+                    "tny: unknown provider '%s' (cursor|codex|acp|openai, a "
+                    "settings.json object with a base_url, or NAME_BASE_URL "
+                    "in the environment)\n", flag_value);
             return -1;
         }
     }
     if (id < 0) { /* the provider (and model) last used wins over detection */
         const char *last = tny_settings_get_str(ctx, "last_provider");
         if (!last) last = tny_settings_get_str(ctx, "last_backend");
-        if (last) id = tny_backend_from_name(last);
+        if (last) {
+            id = tny_backend_from_name(last);
+            if (id == -1 && tny_custom_provider_exists(ctx, last)) {
+                id = TNY_BK_OPENAI;
+                custom_name = last;
+            }
+        }
     }
-    if (id < 0) {
+    if (id == -1) {
         const char *e1 = getenv("OPENAI_BASE_URL"), *e2 = getenv("OPENAI_API_KEY");
         if ((e1 && *e1) || (e2 && *e2)) id = TNY_BK_OPENAI;
+    }
+    if (id == -1 && (env_pick = env_sole_detected_provider()) != NULL) {
+        id = TNY_BK_OPENAI; /* exactly one NAME_BASE_URL + NAME_API_KEY pair */
+        custom_name = env_pick;
     }
     /* No explicit choice anywhere: prefer subscription logins over raw keys
      * (docs/cli.md "Provider selection"). Codex login first, then a Cursor
      * key from the environment, then the openai backend's own error path. */
-    if (id < 0 && tny_codex_auth_present()) id = TNY_BK_CODEX;
-    if (id < 0) {
+    if (id == -1 && tny_codex_auth_present()) id = TNY_BK_CODEX;
+    if (id == -1) {
         const char *ck = getenv("CURSOR_API_KEY");
         if (ck && *ck) id = TNY_BK_CURSOR;
     }
-    if (id < 0) id = TNY_BK_OPENAI;
+    if (id == -1) id = TNY_BK_OPENAI;
     ctx->backend = id;
+    if (custom_name) {
+        apply_custom_provider(ctx, custom_name);
+    } else if (ctx->provider_name) {
+        /* switching away from a named profile (TUI /provider): restore the
+         * builtin openai config the profile replaced */
+        free(ctx->provider_name);
+        ctx->provider_name = NULL;
+        load_openai_profile(ctx);
+    }
     apply_provider_model(ctx, id);
+    free(env_pick);
     return ctx->backend;
 }
 
@@ -279,7 +476,7 @@ static void edit_remember_use(yyjson_mut_doc *doc, yyjson_mut_val *root, void *u
 }
 
 int tny_settings_remember_use(tny_ctx *ctx) {
-    const char *name = tny_backend_name(ctx->backend);
+    const char *name = tny_provider_name(ctx);
     const char *last = tny_settings_get_str(ctx, "last_provider");
     const char *saved = tny_settings_provider_model(ctx, name);
     bool same_last = last && strcmp(last, name) == 0;
@@ -360,6 +557,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->cwd);
     for (int i = 0; i < ctx->n_extra_dirs; i++) free(ctx->extra_dirs[i]);
     free(ctx->extra_dirs);
+    free(ctx->provider_name);
     free(ctx->model);
     free(ctx->base_url);
     free(ctx->api_key);
