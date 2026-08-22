@@ -36,7 +36,7 @@ typedef struct {
     char      *params;     /* JSON object text, kept for a -32001 resend */
     char      *steer_text; /* CXR_STEER only: the user text, so a rejection —
                             * or a turn that ends first — can return it via
-                            * TNY_EV_STEER_REJECTED (docs/adr/0012) */
+                            * TNY_EV_STEER_REJECTED (docs/adr/0013) */
     int        attempts;
     int64_t    due_ms;     /* >0 while a resend is scheduled */
 } cx_pending;

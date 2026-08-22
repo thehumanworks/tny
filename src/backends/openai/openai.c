@@ -77,7 +77,7 @@ static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
     if (o->steer) {
         /* the turn is ending with the steered text still parked (interrupt,
          * error, step limit): hand it back so it is never silently lost
-         * (docs/adr/0012) */
+         * (docs/adr/0013) */
         emit_text(o, TNY_EV_STEER_REJECTED, o->steer, strlen(o->steer));
         free(o->steer);
         o->steer = NULL;

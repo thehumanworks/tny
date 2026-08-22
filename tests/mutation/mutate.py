@@ -60,7 +60,7 @@ TARGETS = [
                                       "emit_turn_end"],
      r"steer"),
     ("src/backends/codex/codex.c", ["cx_steer"], None),
-    # steer-text ownership + turn-end sweep (docs/adr/0012)
+    # steer-text ownership + turn-end sweep (docs/adr/0013)
     ("src/backends/codex/codex_rpc.c", ["cx_end_turn", "cx_request"],
      r"steer|STEER|registered|CXR_FREE"),
     ("src/backends/codex/codex_msg.c", ["cx_response"], r"steer|STEER|CXR"),

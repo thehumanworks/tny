@@ -280,7 +280,7 @@ static void cx_response(cx_impl *o, yyjson_doc *doc, yyjson_val *root, yyjson_va
             cx_end_turn(o, TNY_STOP_ERROR);
         } else {
             /* a response to a request we no longer track — e.g. a steer the
-             * turn-end sweep already resolved (docs/adr/0012). It must not
+             * turn-end sweep already resolved (docs/adr/0013). It must not
              * fail whatever turn is running now. */
             buf_t b;
             buf_init(&b);

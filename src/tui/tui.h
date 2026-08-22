@@ -157,6 +157,9 @@ void tui_raw_begin(tui *t);  /* drop the block so plain printf output scrolls */
 void tui_raw_end(tui *t);
 void tui_write(tui *t, const char *s, size_t n);
 void tui_bol(tui *t);        /* finish the current transcript line */
+/* Streamed dim text: every physical line carries its own open/reset SGR so
+ * color never depends on state from a previous line (docs/adr/0012). */
+void tui_write_dim(tui *t, const char *s, size_t n);
 void tui_linef(tui *t, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 void tui_sys(tui *t, const char *s);   /* dim system line */
 void tui_err(tui *t, const char *s);   /* red error line */

@@ -178,9 +178,7 @@ static void ev_cb(const tny_event *ev, void *ud) {
             tui_write(t, "· ", 3); /* "·" is 2 bytes of UTF-8 plus the space */
             if (t->color) tui_write(t, "\x1b[0m", 4);
         }
-        if (t->color) tui_write(t, "\x1b[2m", 4);
-        tui_write(t, ev->text, ev->text_len);
-        if (t->color) tui_write(t, "\x1b[0m", 4);
+        tui_write_dim(t, ev->text, ev->text_len);
         break;
     case TNY_EV_TOOL_START:
         maybe_gap(t, false);
@@ -231,7 +229,7 @@ static void ev_cb(const tny_event *ev, void *ud) {
         break;
     case TNY_EV_STEER_REJECTED:
         /* the host would not take it mid-turn: send it right after instead.
-         * The event carries the rejected text (docs/adr/0012), so nothing
+         * The event carries the rejected text (docs/adr/0013), so nothing
          * here depends on which steer — or how many — went out. */
         if (ev->text && ev->text_len) {
             char *s = xstrndup(ev->text, ev->text_len);
@@ -433,7 +431,7 @@ void tui_submit(tui *t, const char *text) {
             t->bk->steer(t->bk, s, err, sizeof err) == 0) {
             /* into the running turn: echo it so the transcript reads in
              * order; the backend owns the text now and hands it back via
-             * STEER_REJECTED if the host refuses it (docs/adr/0012) */
+             * STEER_REJECTED if the host refuses it (docs/adr/0013) */
             tui_bol(t);
             tui_linef(t, "%s› %s%s %ssteer%s", tui_c(t, "\x1b[1m"), s,
                       tui_c(t, "\x1b[0m"), tui_c(t, "\x1b[2m"), tui_c(t, "\x1b[0m"));

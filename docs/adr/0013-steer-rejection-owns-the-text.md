@@ -1,4 +1,4 @@
-# 0012 — Steer rejections carry the text; the backend resolves in-flight steers at turn end
+# 0013 — Steer rejections carry the text; the backend resolves in-flight steers at turn end
 
 Date: 2026-08-22
 Status: accepted (amends [0011](0011-mid-turn-input-steer-or-queue.md))

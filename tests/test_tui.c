@@ -163,6 +163,49 @@ TEST write_strips_nul_bytes(void) {
     PASS();
 }
 
+/* ---- dim streaming (reasoning traces, docs/adr/0012) ---- */
+
+TEST write_dim_reopens_after_newline(void) {
+    /* A reasoning delta crossing a newline: the flushed line and the tail
+     * left in `partial` must each be SGR-self-contained. Before the fix the
+     * opening \x1b[2m stayed on the flushed line and the tail repainted in
+     * the default color — the "first letters are white" bug. */
+    tui t;
+    mk_tui(&t, 24);
+    t.color = true;
+    tui_write_dim(&t, "end of line\nSta", 15);
+    ASSERT_STR_EQ("\x1b[2mend of line\x1b[0m\n", t.out.data);
+    ASSERT_STR_EQ("\x1b[2mSta\x1b[0m", t.partial.data);
+
+    /* the rest of the line streams in a later delta and stays dim */
+    tui_write_dim(&t, "rt", 2);
+    ASSERT_STR_EQ("\x1b[2mSta\x1b[0m\x1b[2mrt\x1b[0m", t.partial.data);
+    free_tui(&t);
+    PASS();
+}
+
+TEST write_dim_blank_lines_carry_no_sgr(void) {
+    tui t;
+    mk_tui(&t, 24);
+    t.color = true;
+    tui_write_dim(&t, "a\n\nb", 4); /* empty segment: no \x1b[2m\x1b[0m noise */
+    ASSERT_STR_EQ("\x1b[2ma\x1b[0m\n\n", t.out.data);
+    ASSERT_STR_EQ("\x1b[2mb\x1b[0m", t.partial.data);
+    free_tui(&t);
+    PASS();
+}
+
+TEST write_dim_without_color_is_plain(void) {
+    tui t;
+    mk_tui(&t, 24);
+    t.color = false;
+    tui_write_dim(&t, "abc\nde", 6);
+    ASSERT_STR_EQ("abc\n", t.out.data);
+    ASSERT_STR_EQ("de", t.partial.data);
+    free_tui(&t);
+    PASS();
+}
+
 /* ---- pre-warm handoff ---- */
 
 typedef struct {
@@ -577,6 +620,9 @@ SUITE(tui_suite) {
     RUN_TEST(overlay_linef_and_clear);
     RUN_TEST(overlay_linef_falls_back_without_a_tty);
     RUN_TEST(write_strips_nul_bytes);
+    RUN_TEST(write_dim_reopens_after_newline);
+    RUN_TEST(write_dim_blank_lines_carry_no_sgr);
+    RUN_TEST(write_dim_without_color_is_plain);
     RUN_TEST(prewarm_take_returns_connected_backend);
     RUN_TEST(prewarm_failed_connect_is_silent_and_discarded);
     RUN_TEST(prewarm_drop_mid_connect_cleans_up_on_the_thread);

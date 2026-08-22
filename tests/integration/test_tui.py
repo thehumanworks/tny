@@ -593,7 +593,7 @@ def test_codex_steer_mid_turn(home, ws):
 
 def test_codex_steer_rejected_requeues(home, ws, mode):
     """codex: a steer the host refuses must come back as the next turn's
-    prompt, never be lost (docs/adr/0012). mode="now" is a plain JSON-RPC
+    prompt, never be lost (docs/adr/0013). mode="now" is a plain JSON-RPC
     error mid-turn; mode="late" delivers the error only after turn/completed
     — the ordering race where the old TUI-side bookkeeping dropped the
     text."""

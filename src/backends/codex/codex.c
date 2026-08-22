@@ -317,7 +317,7 @@ static int cx_steer(tny_backend *b, const char *text, char *errbuf, size_t errle
     buf_free(&p);
     if (id < 0) {
         /* no pending slot means no rejection could ever come back: refuse
-         * now so the caller queues the text instead (docs/adr/0012) */
+         * now so the caller queues the text instead (docs/adr/0013) */
         snprintf(errbuf, errlen, "codex: too many requests in flight");
         return -1;
     }

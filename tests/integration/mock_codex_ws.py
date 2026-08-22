@@ -50,7 +50,7 @@ EXPECT_EFFORT = os.environ.get("MOCK_EXPECT_EFFORT")
 # turn id as expectedTurnId and UserInput[] — a stale id is rejected the way
 # the app-server rejects it, and the steered text is echoed as STEER-OK.
 STEER_WAIT_MS = int(os.environ.get("MOCK_STEER_WAIT_MS", "0"))
-# MOCK_STEER_REJECT (docs/adr/0012): "now" answers every valid turn/steer
+# MOCK_STEER_REJECT (docs/adr/0013): "now" answers every valid turn/steer
 # with a JSON-RPC error (a non-steerable turn); "late" swallows the request,
 # completes the turn, and only then sends the error — the response-after-
 # turn-completed ordering a real socket allows. Only the FIRST turn waits
@@ -299,7 +299,7 @@ def run_turn(ws, req_id, msg):
             STEER_SEEN.append(si[0]["text"])
             if STEER_REJECT == "now":
                 # a non-steerable turn (/review, manual /compact) rejects the
-                # request but the turn itself keeps running (docs/adr/0012)
+                # request but the turn itself keeps running (docs/adr/0013)
                 ws.send_json({"id": sid, "error": {"code": -32600,
                               "message": "turn is not steerable"}})
                 note("turn/steer rejected now (text=%r)" % si[0]["text"])

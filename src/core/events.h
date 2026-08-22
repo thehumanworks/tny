@@ -20,7 +20,7 @@ typedef enum {
     TNY_EV_STATUS,       /* one-line progress note (stderr / status area) */
     TNY_EV_STEER_REJECTED /* a steer() the host accepted was refused later.
                            * text (+len) carries the rejected user text; the
-                           * frontend re-queues it (docs/adr/0011, 0012) */
+                           * frontend re-queues it (docs/adr/0011, 0013) */
 } tny_event_kind;
 
 typedef enum {

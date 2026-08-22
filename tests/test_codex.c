@@ -1,5 +1,5 @@
 /* test_codex.c — unit tests for the codex backend's request/steer accounting
- * (docs/adr/0012): rejected steers must hand their text back, a turn ending
+ * (docs/adr/0013): rejected steers must hand their text back, a turn ending
  * with an unanswered steer resolves it before TURN_END, and responses to
  * requests tny no longer tracks can never fail the turn that runs now. */
 #include "greatest.h"
@@ -37,7 +37,7 @@ static void cx_free_state(cx_impl *o) {
     memset(o, 0, sizeof *o);
 }
 
-/* ---- cx_request slot exhaustion (docs/adr/0012) ---- */
+/* ---- cx_request slot exhaustion (docs/adr/0013) ---- */
 
 TEST tracked_request_with_no_free_slot_refuses_and_sends_nothing(void) {
     cx_impl o;
@@ -54,7 +54,7 @@ TEST tracked_request_with_no_free_slot_refuses_and_sends_nothing(void) {
     PASS();
 }
 
-/* ---- turn-end sweep for unanswered steers (docs/adr/0012) ---- */
+/* ---- turn-end sweep for unanswered steers (docs/adr/0013) ---- */
 
 TEST end_turn_resolves_unanswered_steer_before_turn_end(void) {
     cx_impl o;
