@@ -67,7 +67,10 @@ struct tny_backend {
                 tny_event_cb cb, void *ud, char *errbuf, size_t errlen);
 
     /* Deliver more user text into the turn that is running (docs/adr/0011).
-     * 0 = on its way (a later refusal arrives as TNY_EV_STEER_REJECTED);
+     * 0 = on its way — the backend now owns delivery: a later refusal, or a
+     * turn that ends before the host answered the steer, arrives as
+     * TNY_EV_STEER_REJECTED carrying the text, always before that turn's
+     * TURN_END (docs/adr/0013);
      * -1 = not possible right now, the caller should queue the text for the
      * next turn. Optional: NULL when the host has no in-flight input. */
     int (*steer)(tny_backend *b, const char *text, char *errbuf, size_t errlen);

@@ -91,8 +91,6 @@ typedef struct tui {
      * transcript. */
     char **queue;
     int    n_queue;
-    char  *steer_inflight; /* text handed to bk->steer, kept until TURN_END so
-                            * a STEER_REJECTED can put it back in the queue */
 
     /* Transcript gap: one blank line before the next agent start. */
     int gap; /* 0 none, 1 before text or tools, 2 before text only */

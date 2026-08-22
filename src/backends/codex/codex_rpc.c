@@ -28,6 +28,21 @@ void cx_end_turn(cx_impl *o, tny_stop_reason stop) {
     if (!o->turn_active) return;
     o->turn_active = false;
     o->cancel_sent = false;
+    /* A turn/steer the host never answered cannot have joined this turn.
+     * Resolve each one as rejected — carrying its own text — before
+     * TURN_END, so a response that arrives after the turn completed (legal:
+     * response and notification ordering on the socket is independent)
+     * cannot strand the text (docs/adr/0013). */
+    for (int i = 0; i < CX_MAX_PENDING; i++) {
+        cx_pending *p = &o->pending[i];
+        if (!p->method || p->kind != CXR_STEER) continue;
+        tny_event sev = {0};
+        sev.kind = TNY_EV_STEER_REJECTED;
+        sev.text = p->steer_text ? p->steer_text : "";
+        sev.text_len = strlen(sev.text);
+        cx_emit(o, &sev);
+        cx_pending_clear(p);
+    }
     tny_event ev = {0};
     ev.kind = TNY_EV_TURN_END;
     ev.stop = stop;
@@ -77,21 +92,28 @@ cx_pending *cx_pending_find(cx_impl *o, int id) {
 void cx_pending_clear(cx_pending *p) {
     free(p->method);
     free(p->params);
+    free(p->steer_text);
     memset(p, 0, sizeof *p);
 }
 
+/* Queue one request frame. A tracked kind that cannot get a pending slot is
+ * NOT sent and -1 is returned: an untracked response would be unmatchable,
+ * so e.g. a steer would never see its rejection (docs/adr/0013). */
 int cx_request(cx_impl *o, const char *method, const char *params, cx_reqkind kind) {
-    int id = o->next_id++;
     if (kind != CXR_FREE) {
+        bool registered = false;
         for (int i = 0; i < CX_MAX_PENDING; i++) {
             if (o->pending[i].method) continue;
-            o->pending[i].id = id;
+            o->pending[i].id = o->next_id;
             o->pending[i].kind = kind;
             o->pending[i].method = xstrdup(method);
             o->pending[i].params = xstrdup(params && *params ? params : "{}");
+            registered = true;
             break;
         }
+        if (!registered) return -1;
     }
+    int id = o->next_id++;
     buf_t b;
     buf_init(&b);
     buf_appends(&b, "{\"method\":");

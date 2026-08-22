@@ -50,8 +50,19 @@ EXPECT_EFFORT = os.environ.get("MOCK_EXPECT_EFFORT")
 # turn id as expectedTurnId and UserInput[] — a stale id is rejected the way
 # the app-server rejects it, and the steered text is echoed as STEER-OK.
 STEER_WAIT_MS = int(os.environ.get("MOCK_STEER_WAIT_MS", "0"))
+# MOCK_STEER_REJECT (docs/adr/0013): "now" answers every valid turn/steer
+# with a JSON-RPC error (a non-steerable turn); "late" swallows the request,
+# completes the turn, and only then sends the error — the response-after-
+# turn-completed ordering a real socket allows. Only the FIRST turn waits
+# for steers, so the re-queued text can run as a normal second turn.
+STEER_REJECT = os.environ.get("MOCK_STEER_REJECT", "")
+# MOCK_EXPECT_RESEND: this exact text must arrive later as a turn/start
+# prompt — proof that a rejected steer was re-queued, not lost.
+EXPECT_RESEND = os.environ.get("MOCK_EXPECT_RESEND")
 STEER_SEEN = []
 EFFORT_SEEN = []
+PROMPTS = []
+TURN_NO = [0]
 
 FAILURES = []
 
@@ -229,6 +240,9 @@ def run_turn(ws, req_id, msg):
         fail("turn/start input[0].text missing")
     if inp[0].get("text_elements") != []:
         fail("turn/start input[0].text_elements missing or not an empty array")
+    PROMPTS.append(inp[0].get("text"))
+    TURN_NO[0] += 1
+    turn_no = TURN_NO[0]
     effort = params.get("effort")
     if effort is not None:
         if effort == EXPECT_EFFORT:
@@ -238,11 +252,11 @@ def run_turn(ws, req_id, msg):
             fail("turn/start effort=%r, want %r" % (effort, EXPECT_EFFORT))
     note("turn/start ok (prompt=%r)" % inp[0].get("text"))
 
-    turn_id = "turn_mock_1"
+    turn_id = "turn_mock_%d" % turn_no
     ws.send_json({"id": req_id, "result": {"turn": {"id": turn_id}}})
     ws.send_json({"method": "turn/started", "params": {"turn": {"id": turn_id}}})
 
-    item = "item_msg_1"
+    item = "item_msg_%d" % turn_no
     ws.send_json({"method": "item/started",
                   "params": {"item": {"id": item, "type": "agentMessage"}}})
     for i in range(0, len(MARKER), 4):
@@ -254,8 +268,8 @@ def run_turn(ws, req_id, msg):
                   "params": {"item": {"id": item, "type": "agentMessage",
                                       "text": MARKER}}})
 
-    if STEER_WAIT_MS:
-        import time
+    late_steer_ids = []
+    if STEER_WAIT_MS and turn_no == 1:
         deadline = time.time() + STEER_WAIT_MS / 1000.0
         ws.conn.settimeout(0.2)
         while time.time() < deadline:
@@ -283,6 +297,19 @@ def run_turn(ws, req_id, msg):
                 fail("turn/steer input is not UserInput[] text: %r" % (si,))
                 continue
             STEER_SEEN.append(si[0]["text"])
+            if STEER_REJECT == "now":
+                # a non-steerable turn (/review, manual /compact) rejects the
+                # request but the turn itself keeps running (docs/adr/0013)
+                ws.send_json({"id": sid, "error": {"code": -32600,
+                              "message": "turn is not steerable"}})
+                note("turn/steer rejected now (text=%r)" % si[0]["text"])
+                continue
+            if STEER_REJECT == "late":
+                # answer only after turn/completed: response ordering on the
+                # socket is independent of the turn notifications
+                late_steer_ids.append(sid)
+                note("turn/steer held for a late rejection (text=%r)" % si[0]["text"])
+                continue
             note("turn/steer ok (text=%r)" % si[0]["text"])
             ws.send_json({"id": sid, "result": {"turnId": turn_id}})
             # the host replays steered input as a userMessage item (tny hides it)
@@ -324,16 +351,26 @@ def run_turn(ws, req_id, msg):
     else:
         note("approval answered decision=%s" % decision)
 
-    cmd_item = {"id": "item_cmd_1", "type": "commandExecution",
+    cmd_item = {"id": "item_cmd_%d" % turn_no, "type": "commandExecution",
                 "command": ["ls", "-la"], "cwd": "/tmp"}
     ws.send_json({"method": "item/started", "params": {"item": dict(cmd_item)}})
     done = dict(cmd_item)
     done.update({"status": "completed", "exitCode": 0})
     ws.send_json({"method": "item/completed", "params": {"item": done}})
+    if STEER_REJECT:
+        # a per-turn marker so the test can tell turn 2 answered the re-send
+        ws.send_json({"method": "item/completed",
+                      "params": {"item": {"id": "item_done_%d" % turn_no,
+                                          "type": "agentMessage",
+                                          "text": "TURN%d-DONE" % turn_no}}})
     ws.send_json({"method": "turn/tokenCount",
                   "params": {"usage": {"input_tokens": 123, "output_tokens": 45}}})
     ws.send_json({"method": "turn/completed",
                   "params": {"turn": {"id": turn_id, "status": "completed"}}})
+    for sid in late_steer_ids:
+        ws.send_json({"id": sid, "error": {"code": -32600,
+                      "message": "expectedTurnId does not match the active turn"}})
+        note("turn/steer rejected late (after turn/completed)")
 
 
 def serve(conn, index):
@@ -451,6 +488,9 @@ def main():
             conn.close()
     if EXPECT_EFFORT and not EFFORT_SEEN:
         fail("expected turn/start effort=%r but no turn carried one" % EXPECT_EFFORT)
+    if EXPECT_RESEND and EXPECT_RESEND not in PROMPTS[1:]:
+        fail("rejected steer text %r never came back as a turn/start prompt "
+             "(prompts seen: %r)" % (EXPECT_RESEND, PROMPTS))
     print("MOCK-DONE failures=%d" % len(FAILURES), flush=True)
     sys.exit(1 if FAILURES else 0)
 
