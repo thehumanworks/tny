@@ -78,7 +78,21 @@ Providers advertise their real per-model levels through their catalogs;
 `tny models` shows them (`[effort: …]` / `"efforts"` in `--json`) and any
 advertised token is accepted verbatim (e.g. `--effort minimal` on openai).
 Unset means the provider default; `--effort default` clears an inherited
-env value. The setting is process-memory only — never persisted.
+env or settings value.
+
+A default lives in `~/.tny/settings.json` under `"effort"` — one string for
+every provider, or a per-provider object like `"models"`
+([ADR 0015](adr/0015-settings-default-effort.md)):
+
+```json
+{ "effort": "high" }
+{ "effort": { "codex": "xhigh", "openai": "medium" } }
+```
+
+Precedence: `--effort` / `/effort` (an explicit `default` included) beats
+`TNY_REASONING_EFFORT` beats the settings entry beats the provider default.
+tny never *writes* the effort back to settings — a scripted
+`tny ask --effort X` does not change what tomorrow's session does.
 
 ## `tny ask` (scripts and CI)
 

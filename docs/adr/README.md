@@ -20,3 +20,4 @@ these as `docs/adr/NNNN`.
 | [0012](0012-self-contained-sgr-lines.md) | Streamed transcript color is per-line: SGR never crosses a newline |
 | [0013](0013-steer-rejection-owns-the-text.md) | The backend owns a steered text: `STEER_REJECTED` carries it, unanswered steers resolve as rejected before `TURN_END`, stale responses never fail a later turn |
 | [0014](0014-build-time-version-from-git.md) | `TNY_VERSION` comes from `git describe` at build time (generated header); releases pass the tag; nothing hardcoded |
+| [0015](0015-settings-default-effort.md) | settings.json carries a user-authored default effort (global or per-provider); flag//effort > env > settings; tny still never writes it |

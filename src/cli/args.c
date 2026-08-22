@@ -122,6 +122,10 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         free(ctx->reasoning_effort);
         ctx->reasoning_effort = strcmp(g->effort, "default") == 0
                                     ? NULL : xstrdup(g->effort);
+        /* "default" included: the flag must also beat a settings.json
+         * default applied when the provider resolves (docs/adr/0015) */
+        ctx->effort_explicit = true;
+        ctx->effort_from_settings = false;
     }
     if (g->perm_mode) {
         if (strcmp(g->perm_mode, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;

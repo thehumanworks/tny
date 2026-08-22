@@ -181,6 +181,58 @@ def main():
                 emock.terminate()
                 emock.wait(timeout=5)
 
+            # settings.json default effort (docs/adr/0015): with no flag and
+            # no env, `"effort"` in settings must ride the request — mapped
+            # to the openai wire vocabulary (canonical "light" -> "low").
+            # A fresh HOME keeps earlier runs' saved settings out of it.
+            shome = os.path.join(home, "settings-effort-home")
+            os.makedirs(shome)
+            os.makedirs(os.path.join(shome, ".tny"))
+            open(os.path.join(shome, ".tny", "settings.json"), "w").write(
+                '{"effort":{"openai":"light"}}')
+            sport = free_port()
+            smock = subprocess.Popen(
+                [sys.executable, MOCK, str(sport)],
+                env=dict(os.environ, MOCK_EXPECT_EFFORT="low"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = smock.stdout.readline().decode()
+                assert "ready" in line, f"settings mock did not start: {line!r}"
+                senv = dict(env, HOME=shome,
+                            OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1")
+                senv.pop("TNY_REASONING_EFFORT", None)
+                r12 = subprocess.run(
+                    [TNY, "--cwd", ws, "ask", "--json", "--no-save",
+                     "list files in ."],
+                    env=senv, capture_output=True, timeout=30)
+                assert r12.returncode == 0, \
+                    f"exit {r12.returncode}: {r12.stderr.decode()}"
+                assert b"MOCK-OK" in r12.stdout, r12.stdout
+                # and an explicit --effort default beats the settings value:
+                # the same mock 400s any request carrying an effort field
+                emock2_env = dict(os.environ)  # EXPECT unset = field absent
+                eport2 = free_port()
+                emock2 = subprocess.Popen(
+                    [sys.executable, MOCK, str(eport2)], env=emock2_env,
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                try:
+                    line = emock2.stdout.readline().decode()
+                    assert "ready" in line, f"default mock did not start: {line!r}"
+                    senv2 = dict(senv, OPENAI_BASE_URL=f"http://127.0.0.1:{eport2}/v1")
+                    r13 = subprocess.run(
+                        [TNY, "--cwd", ws, "--effort", "default", "ask",
+                         "--json", "--no-save", "list files in ."],
+                        env=senv2, capture_output=True, timeout=30)
+                    assert r13.returncode == 0, \
+                        f"exit {r13.returncode}: {r13.stderr.decode()}"
+                    assert b"MOCK-OK" in r13.stdout, r13.stdout
+                finally:
+                    emock2.terminate()
+                    emock2.wait(timeout=5)
+            finally:
+                smock.terminate()
+                smock.wait(timeout=5)
+
             # parallel tool calls: three calls in one step, including the
             # gateway shape that reuses an "index" with a fresh "id". Every
             # call must execute with its own arguments and every id must get

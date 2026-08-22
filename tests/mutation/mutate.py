@@ -51,7 +51,8 @@ TARGETS = [
       "env_sole_detected_provider", "load_openai_profile",
       "apply_custom_provider", "apply_provider_model", "tny_resolve_backend"],
      None),
-    ("src/core/config.c", ["tny_effort_canonical", "tny_effort_wire"], None),
+    ("src/core/config.c", ["tny_effort_canonical", "tny_effort_wire",
+                           "apply_provider_effort"], None),
     # mid-turn input: steer or queue (docs/adr/0011)
     ("src/tui/tui.c", ["tui_queue_push", "tui_queue_clear", "queue_pop",
                        "tui_cancel_turn", "after_turn", "tui_submit"],
@@ -102,6 +103,11 @@ EQUIVALENT = [
     # (yyjson_arr_size returns 0), so the early-return guard is redundant
     # defense and flipping its ||/&& is unobservable.
     "toolcalls.c:if (!tool_calls || !yyjson_is_arr(tool_calls)) return;",
+    # effort_from_settings is only read when reasoning_effort is non-NULL,
+    # and every path that sets a value also sets the flag; the pre-recompute
+    # reset is state hygiene for the value-not-found case (value NULL, flag
+    # never consulted), so flipping it is unobservable.
+    "config.c:ctx->effort_from_settings = false;",
     "tui_prewarm.c:pthread_cond_signal",  # signal-vs-broadcast style details
     # Wrong poll direction only delays the retry by the poll timeout; the
     # handshake/write loops re-check the real condition and still succeed.

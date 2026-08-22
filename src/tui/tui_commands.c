@@ -513,6 +513,11 @@ void tui_command(tui *t, const char *line) {
             free(t->ctx->reasoning_effort);
             t->ctx->reasoning_effort =
                 strcmp(arg, "default") == 0 ? NULL : xstrdup(arg);
+            /* /provider re-resolves the backend; an explicit /effort
+             * (default included) must survive that, not be replaced by a
+             * settings.json default (docs/adr/0015) */
+            t->ctx->effort_explicit = true;
+            t->ctx->effort_from_settings = false;
             if (!t->bk) tui_prewarm_start(t);
             if (!t->ctx->reasoning_effort)
                 tui_linef(t, "  reasoning effort: provider default");

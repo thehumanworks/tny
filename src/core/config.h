@@ -61,6 +61,12 @@ typedef struct tny_ctx {
      * TNY_EFFORT_LEVELS; other tokens are provider-advertised values passed
      * through verbatim. NULL = provider default (field omitted on the wire). */
     char *reasoning_effort;
+    bool  effort_explicit;  /* --effort / TUI /effort was used (any value,
+                             * "default" included): settings defaults must
+                             * never override an explicit choice */
+    bool  effort_from_settings; /* current value came from settings.json, so
+                                 * switching provider recomputes it instead
+                                 * of leaking one provider's default */
     /* acp */
     char **agent_argv;      /* NULL-terminated, or NULL */
 
