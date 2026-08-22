@@ -161,6 +161,56 @@ TEST perm_mode_overrides_parse(void) {
     PASS();
 }
 
+/* Canonical levels map onto each provider's wire vocabulary; anything else
+ * (a value the provider's catalog advertises) passes through verbatim. */
+TEST effort_wire_mapping(void) {
+    /* the canonical set is recognized, junk is not */
+    const char *levels[] = {"off", "light", "medium", "high", "xhigh", "max"};
+    for (size_t i = 0; i < sizeof levels / sizeof *levels; i++)
+        ASSERT(tny_effort_canonical(levels[i]));
+    ASSERT_FALSE(tny_effort_canonical("ultra"));
+    ASSERT_FALSE(tny_effort_canonical(""));
+    ASSERT_FALSE(tny_effort_canonical(NULL));
+
+    /* off and light translate; medium/high/xhigh are shared spellings */
+    ASSERT_STR_EQ("none", tny_effort_wire(TNY_BK_CODEX, "off"));
+    ASSERT_STR_EQ("none", tny_effort_wire(TNY_BK_OPENAI, "off"));
+    ASSERT_STR_EQ("low", tny_effort_wire(TNY_BK_CODEX, "light"));
+    ASSERT_STR_EQ("low", tny_effort_wire(TNY_BK_CURSOR, "light"));
+    ASSERT_STR_EQ("medium", tny_effort_wire(TNY_BK_OPENAI, "medium"));
+    ASSERT_STR_EQ("high", tny_effort_wire(TNY_BK_CODEX, "high"));
+    ASSERT_STR_EQ("xhigh", tny_effort_wire(TNY_BK_CURSOR, "xhigh"));
+
+    /* "max" exists on codex/cursor but not in the OpenAI API: clamp there */
+    ASSERT_STR_EQ("max", tny_effort_wire(TNY_BK_CODEX, "max"));
+    ASSERT_STR_EQ("max", tny_effort_wire(TNY_BK_CURSOR, "max"));
+    ASSERT_STR_EQ("xhigh", tny_effort_wire(TNY_BK_OPENAI, "max"));
+
+    /* provider-advertised tokens pass through untouched, every backend */
+    ASSERT_STR_EQ("ultra", tny_effort_wire(TNY_BK_CODEX, "ultra"));
+    ASSERT_STR_EQ("minimal", tny_effort_wire(TNY_BK_OPENAI, "minimal"));
+    ASSERT_STR_EQ("whatever", tny_effort_wire(TNY_BK_ACP, "whatever"));
+    PASS();
+}
+
+/* TNY_REASONING_EFFORT seeds the ctx; unset leaves the provider default. */
+TEST effort_env_loads(void) {
+    ensure_env();
+    write_settings("{}");
+    unsetenv("TNY_REASONING_EFFORT");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(NULL, ctx->reasoning_effort);
+    tny_ctx_free(ctx);
+
+    setenv("TNY_REASONING_EFFORT", "xhigh", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx->reasoning_effort);
+    ASSERT_STR_EQ("xhigh", ctx->reasoning_effort);
+    tny_ctx_free(ctx);
+    unsetenv("TNY_REASONING_EFFORT");
+    PASS();
+}
+
 TEST perm_safe_tool_inside_workspace(void) {
     ensure_env();
     write_settings("{}");
@@ -954,6 +1004,8 @@ SUITE(core_suite) {
     RUN_TEST(perm_defaults_to_yolo);
     RUN_TEST(perm_ask_mode_opt_in);
     RUN_TEST(perm_mode_overrides_parse);
+    RUN_TEST(effort_wire_mapping);
+    RUN_TEST(effort_env_loads);
     RUN_TEST(perm_safe_tool_inside_workspace);
     RUN_TEST(perm_rules_last_match_wins);
     RUN_TEST(perm_workspace_beats_global);

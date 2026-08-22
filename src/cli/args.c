@@ -31,6 +31,9 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else if (strcmp(a, "--model") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->model = v;
+        } else if (strcmp(a, "--effort") == 0 || strcmp(a, "--reasoning-effort") == 0) {
+            if (!(v = need_val(argc, argv, &i, a))) return -1;
+            g->effort = v;
         } else if (strcmp(a, "--add-dir") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->add_dirs = realloc(g->add_dirs, sizeof(char *) * (size_t)(g->n_add_dirs + 1));
@@ -106,6 +109,17 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         free(ctx->model);
         ctx->model = xstrdup(g->model);
         ctx->model_from_flag = true;
+    }
+    if (g->effort) {
+        if (!*g->effort) {
+            fprintf(stderr, "tny: --effort must be " TNY_EFFORT_LEVELS
+                            " or a value from `tny models`\n");
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        free(ctx->reasoning_effort);
+        ctx->reasoning_effort = strcmp(g->effort, "default") == 0
+                                    ? NULL : xstrdup(g->effort);
     }
     if (g->perm_mode) {
         if (strcmp(g->perm_mode, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;

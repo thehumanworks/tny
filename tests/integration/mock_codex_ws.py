@@ -41,6 +41,12 @@ MARKER = "CODEX-MOCK-OK"
 THREAD_ID = "thr_mock_0001"
 APPROVAL_ID = 9001
 
+# MOCK_EXPECT_EFFORT: when set, at least one turn/start must carry exactly
+# this `effort`; a different value on any turn is a failure. When unset, no
+# turn may carry one (tny sends it only when --effort is set).
+EXPECT_EFFORT = os.environ.get("MOCK_EXPECT_EFFORT")
+EFFORT_SEEN = []
+
 FAILURES = []
 
 
@@ -217,6 +223,13 @@ def run_turn(ws, req_id, msg):
         fail("turn/start input[0].text missing")
     if inp[0].get("text_elements") != []:
         fail("turn/start input[0].text_elements missing or not an empty array")
+    effort = params.get("effort")
+    if effort is not None:
+        if effort == EXPECT_EFFORT:
+            EFFORT_SEEN.append(effort)
+            note("turn/start effort=%s ok" % effort)
+        else:
+            fail("turn/start effort=%r, want %r" % (effort, EXPECT_EFFORT))
     note("turn/start ok (prompt=%r)" % inp[0].get("text"))
 
     turn_id = "turn_mock_1"
@@ -332,6 +345,19 @@ def serve(conn, index):
             ws.send_json({"id": req_id, "result": {"thread": {"id": THREAD_ID}}})
         elif method == "turn/start":
             run_turn(ws, req_id, msg)
+        elif method == "model/list":
+            # catalog with per-model reasoning efforts; "hidden" must be
+            # skipped by tny's normalization (docs/backends/codex-app-server.md)
+            note("model/list served")
+            ws.send_json({"id": req_id, "result": {"data": [
+                {"id": "mock-codex-model", "displayName": "Mock Codex",
+                 "supportedReasoningEfforts": [
+                     {"reasoningEffort": "low"},
+                     {"reasoningEffort": "medium"},
+                     {"reasoningEffort": "high"},
+                     {"reasoningEffort": "xhigh"}],
+                 "defaultReasoningEffort": "medium"},
+                {"id": "mock-hidden-model", "hidden": True}]}})
         elif method == "turn/interrupt":
             ws.send_json({"id": req_id, "result": {}})
         elif req_id is not None:
@@ -360,6 +386,8 @@ def main():
             fail("connection %d aborted: %s" % (index, exc))
         finally:
             conn.close()
+    if EXPECT_EFFORT and not EFFORT_SEEN:
+        fail("expected turn/start effort=%r but no turn carried one" % EXPECT_EFFORT)
     print("MOCK-DONE failures=%d" % len(FAILURES), flush=True)
     sys.exit(1 if FAILURES else 0)
 

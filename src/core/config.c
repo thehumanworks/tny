@@ -18,6 +18,46 @@ const char *tny_perm_mode_name(tny_perm_mode m) {
 
 static const char *bk_names[TNY_BK_COUNT] = {"openai", "cursor", "codex", "acp"};
 
+/* Canonical levels (TNY_EFFORT_LEVELS) and their per-provider wire words.
+ * Providers advertise more values than they share ("minimal", "ultra", …);
+ * those pass through tny_effort_wire verbatim so the catalog stays usable. */
+static const struct {
+    const char *level;
+    const char *openai; /* chat completions `reasoning_effort` */
+    const char *codex;  /* app-server turn/start `effort` */
+    const char *cursor; /* ModelSelection params candidate value */
+} EFFORTS[] = {
+    /* "max" is not an OpenAI chat-completions value: clamp it to xhigh. */
+    {"off",    "none",   "none",   "none"},
+    {"light",  "low",    "low",    "low"},
+    {"medium", "medium", "medium", "medium"},
+    {"high",   "high",   "high",   "high"},
+    {"xhigh",  "xhigh",  "xhigh",  "xhigh"},
+    {"max",    "xhigh",  "max",    "max"},
+};
+#define N_EFFORTS ((int)(sizeof EFFORTS / sizeof *EFFORTS))
+
+bool tny_effort_canonical(const char *v) {
+    if (!v) return false;
+    for (int i = 0; i < N_EFFORTS; i++)
+        if (strcmp(EFFORTS[i].level, v) == 0) return true;
+    return false;
+}
+
+const char *tny_effort_wire(int backend, const char *v) {
+    if (!v) return NULL;
+    for (int i = 0; i < N_EFFORTS; i++) {
+        if (strcmp(EFFORTS[i].level, v) != 0) continue;
+        switch (backend) {
+        case TNY_BK_OPENAI: return EFFORTS[i].openai;
+        case TNY_BK_CODEX:  return EFFORTS[i].codex;
+        case TNY_BK_CURSOR: return EFFORTS[i].cursor;
+        default:            return EFFORTS[i].level;
+        }
+    }
+    return v; /* provider-advertised token: trust the catalog */
+}
+
 const char *tny_backend_name(tny_backend_id id) {
     return (id >= 0 && id < TNY_BK_COUNT) ? bk_names[id] : "unknown";
 }
@@ -275,6 +315,11 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
         else if (strcmp(pm_env, "yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
         else if (strcmp(pm_env, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;
     }
+
+    /* reasoning effort: env only; --effort overrides in cli_make_ctx.
+     * Process-memory after that (like /fast) — never persisted. */
+    const char *re_env = getenv("TNY_REASONING_EFFORT");
+    if (re_env && *re_env) ctx->reasoning_effort = xstrdup(re_env);
 
     /* openai provider: settings "openai" object, then env. A user-named
      * profile picked in tny_resolve_backend replaces these fields. */
@@ -570,6 +615,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->codex_bin);
     free(ctx->ws_token_file);
     free(ctx->service_tier);
+    free(ctx->reasoning_effort);
     if (ctx->agent_argv) {
         for (char **p = ctx->agent_argv; *p; p++) free(*p);
         free(ctx->agent_argv);

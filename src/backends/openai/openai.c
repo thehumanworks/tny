@@ -146,6 +146,11 @@ static char *build_request(oa_impl *o) {
         buf_appendf(&b, ",\"response_format\":%s", o->ctx->output_schema);
     if (o->ctx->max_tokens_field)
         buf_appendf(&b, ",\"%s\":8192", o->ctx->max_tokens_field);
+    /* read per request, so /effort applies from the next turn */
+    if (o->ctx->reasoning_effort && *o->ctx->reasoning_effort) {
+        buf_appends(&b, ",\"reasoning_effort\":");
+        jescape(&b, tny_effort_wire(TNY_BK_OPENAI, o->ctx->reasoning_effort));
+    }
     buf_appends(&b, "}");
     return buf_detach(&b);
 }

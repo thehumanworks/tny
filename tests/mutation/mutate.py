@@ -51,6 +51,7 @@ TARGETS = [
       "env_sole_detected_provider", "load_openai_profile",
       "apply_custom_provider", "apply_provider_model", "tny_resolve_backend"],
      None),
+    ("src/core/config.c", ["tny_effort_canonical", "tny_effort_wire"], None),
 ]
 
 # operator substitutions applied to one site at a time

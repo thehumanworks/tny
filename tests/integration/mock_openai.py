@@ -9,9 +9,15 @@ Usage: mock_openai.py [port] [certfile keyfile]
 With certfile/keyfile the mock serves HTTPS (used by test_https.py).
 """
 import json
+import os
 import ssl
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+# MOCK_EXPECT_EFFORT: every chat request must carry exactly this
+# `reasoning_effort`; unset means the field must be absent (tny sends it only
+# when --effort / TNY_REASONING_EFFORT is set).
+EXPECT_EFFORT = os.environ.get("MOCK_EXPECT_EFFORT")
 
 
 def sse(obj):
@@ -43,6 +49,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("Content-Length", "0"))
         req = json.loads(self.rfile.read(n))
+        if req.get("reasoning_effort") != EXPECT_EFFORT:
+            body = json.dumps({"error": {"message":
+                f"reasoning_effort is {req.get('reasoning_effort')!r}, "
+                f"want {EXPECT_EFFORT!r}"}}).encode()
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         has_tool_result = any(m.get("role") == "tool" for m in req["messages"])
 
         # Structured outputs: validate the wrapper tny sends, echo JSON back.

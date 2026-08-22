@@ -71,7 +71,7 @@ Unix-socket clients still send a dummy HTTP Upgrade URL such as `ws://localhost/
 2. `initialize` with `clientInfo` `{ name: "tny", title: "tny", version }`.
 3. Notification `initialized`.
 4. `thread/start` or `thread/resume` or `thread/fork`.
-5. `account/read` then `turn/start` with `threadId` and `input: [{ "type": "text", "text": "…", "text_elements": [] }]`.
+5. `account/read` then `turn/start` with `threadId` and `input: [{ "type": "text", "text": "…", "text_elements": [] }]`. Optional `effort` overrides the reasoning effort "for this turn and subsequent turns" — tny sends it (mapped per [ADR 0009](../adr/0009-reasoning-effort.md)) whenever `--effort`/`/effort` is set, which is why a mid-conversation change needs no thread restart. Supported values per model come from `model/list` → `supportedReasoningEfforts[].reasoningEffort` (plus `defaultReasoningEffort`); tny surfaces them through `tny models`.
 6. Concatenate `item/agentMessage/delta` by `itemId` until `turn/completed` (`completed` \| `interrupted` \| `failed`).
 7. Optional `turn/steer` (in-flight only), `turn/interrupt` `{threadId, turnId}`.
 
