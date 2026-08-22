@@ -719,6 +719,28 @@ TEST env_defined_providers(void) {
     PASS();
 }
 
+/* /provider help lists what is actually usable here: builtins, then
+ * settings.json profiles, then env-only providers, each once. */
+TEST provider_names_joined_lists_detected(void) {
+    ensure_env();
+    clear_env_providers();
+    write_settings("{\"openrouter\":{\"base_url\":\"https://openrouter.ai/api/v1\"},"
+                   "\"nourl\":{\"model\":\"x\"},"
+                   "\"xai\":{\"base_url\":\"https://api.x.ai/v1\"}}");
+    setenv("XAI_BASE_URL", "https://api.x.ai/v1", 1);       /* dup of settings */
+    setenv("ORWELL_BASE_URL", "https://orwell.test/v1", 1); /* env only */
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    char *j = tny_provider_names_joined(ctx);
+    ASSERT(j);
+    ASSERT_STR_EQ("openai|cursor|codex|acp|openrouter|xai|orwell", j);
+    free(j);
+    tny_ctx_free(ctx);
+    unsetenv("XAI_BASE_URL");
+    unsetenv("ORWELL_BASE_URL");
+    write_settings("{}");
+    PASS();
+}
+
 /* ---- fast tier capability (--fast / /fast) ---- */
 
 /* TNY_CAP_FAST names the providers with a paid fast tier: codex serviceTier,
@@ -1111,6 +1133,7 @@ SUITE(core_suite) {
     RUN_TEST(provider_last_used_and_scoped_models);
     RUN_TEST(custom_named_provider_profiles);
     RUN_TEST(env_defined_providers);
+    RUN_TEST(provider_names_joined_lists_detected);
     RUN_TEST(fast_capability_per_provider);
     RUN_TEST(fast_tier_spellings);
     RUN_TEST(fast_flag_sets_service_tier);

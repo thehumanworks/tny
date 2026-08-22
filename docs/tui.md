@@ -45,7 +45,12 @@ Mirror fx names where they still make sense. Backend-specific commands degrade t
 
 Sessions: `/help` `/clear` `/new` `/reset` `/resume` `/continue` `/rename` `/compact` `/quit`
 
-Runtime: `/models` `/model` `/effort` `/permissions` `/sandbox` `/backend` `/fast` `/status` `/usage`
+Runtime: `/models` `/model` `/effort` `/permissions` `/sandbox` `/provider` (`/backend`) `/fast` `/status` `/usage`
+
+`/provider [NAME]`'s palette hint and `/help` line list the providers usable
+right now — builtins, settings.json profiles with a `base_url`, and
+`NAME_BASE_URL` env providers — so the accepted names are discoverable
+without leaving the TUI.
 
 `/effort [off|light|medium|high|xhigh|max|default]` changes the reasoning
 effort at any point in the conversation and applies from the next turn with

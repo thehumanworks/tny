@@ -264,11 +264,19 @@ def test_turn_streams(home, ws, port):
 
 
 def test_slash_palette(home, ws):
-    t = Term([TNY], base_env(home), ws)
+    # /provider's hint must list the providers detected here: builtins, a
+    # settings.json profile, and a NAME_BASE_URL env provider.
+    os.makedirs(os.path.join(home, ".tny"), exist_ok=True)
+    with open(os.path.join(home, ".tny", "settings.json"), "w") as f:
+        f.write('{"openrouter":{"base_url":"https://openrouter.test/v1"}}')
+    t = Term([TNY], base_env(home, {"ORWELL_BASE_URL": "https://orwell.test/v1"}), ws)
     try:
         t.expect("tny 0.1.0")
         t.send("/")
         t.expect("clear the screen", 5.0)   # palette listed commands
+        t.send("prov")
+        t.expect("openai|cursor|codex|acp|openrouter|orwell", 5.0)
+        t.send("\x7f" * 4)                 # back to a bare "/"
         t.send("help\r")
         t.expect("ctrl-o transcript", 5.0)
         t.send("/permissions auto\r")
@@ -277,6 +285,7 @@ def test_slash_palette(home, ws):
         assert t.wait() == 0
     finally:
         t.close()
+        os.remove(os.path.join(home, ".tny", "settings.json"))
     print("ok  slash palette filters, /help and /permissions work")
 
 

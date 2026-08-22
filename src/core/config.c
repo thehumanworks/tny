@@ -631,3 +631,29 @@ void tny_ctx_free(tny_ctx *ctx) {
     yyjson_doc_free(ctx->repo_cfg);
     free(ctx);
 }
+
+char *tny_provider_names_joined(tny_ctx *ctx) {
+    buf_t b;
+    buf_init(&b);
+    for (int i = 0; i < TNY_BK_COUNT; i++)
+        buf_appendf(&b, "%s%s", i ? "|" : "", tny_backend_name((tny_backend_id)i));
+    yyjson_val *root = ctx && ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
+    size_t idx, max;
+    yyjson_val *k, *v;
+    if (yyjson_is_obj(root)) yyjson_obj_foreach(root, idx, max, k, v) {
+        const char *name = yyjson_get_str(k);
+        if (!name || !yyjson_is_obj(v)) continue;
+        const char *bu = jget_str(v, "base_url");
+        if (!bu || !*bu || !tny_custom_provider_exists(ctx, name)) continue;
+        buf_appendf(&b, "|%s", name);
+    }
+    int n_env = 0;
+    char **env = tny_env_provider_names(&n_env);
+    for (int i = 0; i < n_env; i++) {
+        const char *in_settings = jget_str(jget(root, env[i]), "base_url");
+        if (!in_settings || !*in_settings) buf_appendf(&b, "|%s", env[i]);
+        free(env[i]);
+    }
+    free(env);
+    return b.data;
+}

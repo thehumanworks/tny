@@ -97,6 +97,10 @@ char *tny_provider_env_var(const char *name, const char *suffix);
  * excluded). malloc'd NULL-terminated array; caller frees entries + array.
  * Lazy in-memory environ walk — never runs on startup paths. */
 char **tny_env_provider_names(int *count);
+/* malloc'd "a|b|c" of every provider name usable with --provider / /provider:
+ * builtins first, then settings.json profiles, then env-only ones (deduped).
+ * Drives help text; walks environ, so not for startup paths. */
+char *tny_provider_names_joined(tny_ctx *ctx);
 
 /* Persist the provider (and its model) that just ran, so the next launch
  * defaults to them: settings last_provider + models.{provider}. */
