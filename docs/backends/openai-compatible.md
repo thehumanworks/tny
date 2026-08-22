@@ -33,6 +33,13 @@ Stream: `text/event-stream`. Lines `data: {…}` then `data: [DONE]`. Accumulate
 
 Non-stream: read `choices[0].message`.
 
+Structured outputs: when `ctx->output_schema` is set (`tny ask
+--output-schema`, docs/cli.md), every POST carries a `response_format`
+object — `{"type":"json_schema","json_schema":{"name":…,"strict":…,"schema":…}}`.
+`tny_openai_response_format()` normalizes bare schemas, `json_schema`
+objects, and full wrappers into that shape. Tool calls are unaffected; the
+schema constrains the final assistant text.
+
 Also implement `GET {base_url}/models` for `/models` when the provider has it; otherwise show configured ids only.
 
 ## Provider quirks (handle with flags, not forks)

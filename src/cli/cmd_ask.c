@@ -114,9 +114,46 @@ static void ask_event_cb(const tny_event *ev, void *ud) {
     }
 }
 
+/* --output-schema VALUE: inline JSON when VALUE starts with '{', otherwise a
+ * file path. Normalizes into ctx->output_schema (response_format JSON).
+ * Returns 0 ok, -1 error (message already printed). */
+static int load_output_schema(tny_ctx *ctx, const char *value) {
+    if (ctx->backend != TNY_BK_OPENAI) {
+        fprintf(stderr,
+                "tny: --output-schema needs the openai-compatible provider "
+                "(structured outputs ride on response_format)\n"
+                "Example: tny --provider openai ask --output-schema schema.json \"…\"\n");
+        return -1;
+    }
+    const char *text = value;
+    size_t len = strlen(value);
+    char *owned = NULL;
+    while (*text == ' ' || *text == '\t') { text++; len--; }
+    if (*text != '{') {
+        owned = file_slurp(value, &len);
+        if (!owned) {
+            fprintf(stderr, "tny: --output-schema %s: cannot read file\n"
+                    "Example: tny ask --output-schema schema.json \"…\"\n", value);
+            return -1;
+        }
+        text = owned;
+    }
+    char *rf = tny_openai_response_format(text, len);
+    free(owned);
+    if (!rf) {
+        fprintf(stderr, "tny: --output-schema: value is not a JSON object\n"
+                "Example: tny ask --output-schema '{\"type\":\"object\",\"properties\":{}}' \"…\"\n");
+        return -1;
+    }
+    free(ctx->output_schema);
+    ctx->output_schema = rf;
+    return 0;
+}
+
 int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = g->json, use_stdin = false, no_save = false, continue_recovery = false;
     const char *resume = g->resume;
+    const char *output_schema = NULL;
     const char *images[17] = {0};
     int n_images = 0;
     buf_t prompt;
@@ -136,6 +173,15 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             else if (strcmp(a, "--yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
             else if (strcmp(a, "--resume") == 0 && i + 1 < argc) resume = argv[++i];
             else if (strcmp(a, "--resume-id") == 0 && i + 1 < argc) resume = argv[++i];
+            else if (strcmp(a, "--output-schema") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "tny: --output-schema requires a value\n"
+                            "Example: tny ask --output-schema schema.json \"…\"\n");
+                    buf_free(&prompt);
+                    return 1;
+                }
+                output_schema = argv[++i];
+            }
             else if (strcmp(a, "--image") == 0 && i + 1 < argc) {
                 if (n_images < 16) images[n_images++] = argv[++i];
                 else { fprintf(stderr, "tny: too many --image flags (max 16)\n"); return 1; }
@@ -152,6 +198,10 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     }
     if (no_save && resume) {
         fprintf(stderr, "tny: --no-save is incompatible with --resume\n");
+        buf_free(&prompt);
+        return 1;
+    }
+    if (output_schema && load_output_schema(ctx, output_schema) != 0) {
         buf_free(&prompt);
         return 1;
     }

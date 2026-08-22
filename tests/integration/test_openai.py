@@ -96,6 +96,43 @@ def main():
                 input=b"", env=env, capture_output=True, timeout=15)
             assert r5.returncode == 1, f"exit {r5.returncode}: {r5.stderr.decode()}"
             assert b"ask needs a prompt" in r5.stderr, r5.stderr
+
+            # structured output: --output-schema rides response_format
+            # (mock validates the wrapper) and the answer is schema JSON
+            schema = ('{"type":"object","properties":{"count":'
+                      '{"type":"integer"}},"required":["count"],'
+                      '"additionalProperties":false}')
+            r6 = subprocess.run(
+                [TNY, "--cwd", ws, "ask", "--json", "--no-save",
+                 "--output-schema", schema, "how many files?"],
+                env=env, capture_output=True, timeout=30)
+            assert r6.returncode == 0, f"exit {r6.returncode}: {r6.stderr.decode()}"
+            out6 = json.loads(r6.stdout)
+            answer = json.loads(out6["output"])
+            assert answer["count"] == 3, out6
+
+            # schema from a file path works too
+            schema_path = os.path.join(home, "schema.json")
+            open(schema_path, "w").write(schema)
+            r7 = subprocess.run(
+                [TNY, "--cwd", ws, "ask", "--no-save",
+                 "--output-schema", schema_path, "how many files?"],
+                env=env, capture_output=True, timeout=30)
+            assert r7.returncode == 0, f"exit {r7.returncode}: {r7.stderr.decode()}"
+            assert json.loads(r7.stdout)["count"] == 3, r7.stdout
+
+            # startup errors: bad schema and non-openai provider exit 1
+            r8 = subprocess.run(
+                [TNY, "--cwd", ws, "ask", "--output-schema", "{not json", "hi"],
+                env=env, capture_output=True, timeout=15)
+            assert r8.returncode == 1, r8.stderr.decode()
+            assert b"not a JSON object" in r8.stderr, r8.stderr
+            r9 = subprocess.run(
+                [TNY, "--provider", "codex", "--cwd", ws, "ask",
+                 "--output-schema", schema, "hi"],
+                env=env, capture_output=True, timeout=15)
+            assert r9.returncode == 1, r9.stderr.decode()
+            assert b"openai-compatible provider" in r9.stderr, r9.stderr
         print("test_openai: all assertions passed")
     finally:
         mock.terminate()

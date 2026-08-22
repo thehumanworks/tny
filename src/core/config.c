@@ -564,6 +564,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->auth_header_name);
     free(ctx->auth_header_prefix);
     free(ctx->max_tokens_field);
+    free(ctx->output_schema);
     free(ctx->bridge_bin);
     free(ctx->codex_ws);
     free(ctx->codex_bin);

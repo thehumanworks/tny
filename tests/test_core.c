@@ -8,6 +8,7 @@
 #include "core/tools.h"
 #include "core/image.h"
 #include "backends/codex/codex.h"
+#include "backends/openai/openai.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -876,6 +877,74 @@ TEST perm_read_image_is_safe(void) {
     PASS();
 }
 
+/* ---- structured outputs (tny ask --output-schema) ---- */
+
+TEST output_schema_wraps_bare_schema(void) {
+    const char *s = "{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"integer\"}}}";
+    char *rf = tny_openai_response_format(s, strlen(s));
+    ASSERT(rf);
+    yyjson_doc *doc = jparse(rf, strlen(rf));
+    ASSERT(doc);
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    ASSERT_STR_EQ("json_schema", jget_str(root, "type"));
+    yyjson_val *js = jget(root, "json_schema");
+    ASSERT_STR_EQ("output", jget_str(js, "name"));
+    ASSERT(jget_bool(js, "strict", false));
+    ASSERT_STR_EQ("object", jget_str(jget(js, "schema"), "type"));
+    yyjson_doc_free(doc);
+    free(rf);
+    PASS();
+}
+
+TEST output_schema_accepts_json_schema_object(void) {
+    const char *s = "{\"name\":\"todo\",\"strict\":false,"
+                    "\"schema\":{\"type\":\"object\"}}";
+    char *rf = tny_openai_response_format(s, strlen(s));
+    ASSERT(rf);
+    yyjson_doc *doc = jparse(rf, strlen(rf));
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    ASSERT_STR_EQ("json_schema", jget_str(root, "type"));
+    yyjson_val *js = jget(root, "json_schema");
+    ASSERT_STR_EQ("todo", jget_str(js, "name"));
+    ASSERT_FALSE(jget_bool(js, "strict", true));
+    yyjson_doc_free(doc);
+    free(rf);
+    PASS();
+}
+
+TEST output_schema_names_anonymous_json_schema_object(void) {
+    const char *s = "{\"schema\":{\"type\":\"object\"}}";
+    char *rf = tny_openai_response_format(s, strlen(s));
+    ASSERT(rf);
+    yyjson_doc *doc = jparse(rf, strlen(rf));
+    yyjson_val *js = jget(yyjson_doc_get_root(doc), "json_schema");
+    ASSERT_STR_EQ("output", jget_str(js, "name"));
+    yyjson_doc_free(doc);
+    free(rf);
+    PASS();
+}
+
+TEST output_schema_passes_full_wrapper_through(void) {
+    const char *s = "{\"type\":\"json_schema\",\"json_schema\":"
+                    "{\"name\":\"x\",\"schema\":{\"type\":\"object\"}}}";
+    char *rf = tny_openai_response_format(s, strlen(s));
+    ASSERT(rf);
+    yyjson_doc *doc = jparse(rf, strlen(rf));
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    ASSERT_STR_EQ("json_schema", jget_str(root, "type"));
+    ASSERT_STR_EQ("x", jget_str(jget(root, "json_schema"), "name"));
+    yyjson_doc_free(doc);
+    free(rf);
+    PASS();
+}
+
+TEST output_schema_rejects_non_object(void) {
+    ASSERT_EQ(NULL, tny_openai_response_format("not json", 8));
+    ASSERT_EQ(NULL, tny_openai_response_format("[1,2]", 5));
+    ASSERT_EQ(NULL, tny_openai_response_format("\"str\"", 5));
+    PASS();
+}
+
 SUITE(core_suite) {
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(backend_default_cursor_key_from_env);
@@ -902,4 +971,9 @@ SUITE(core_suite) {
     RUN_TEST(image_data_url_roundtrip);
     RUN_TEST(read_image_queues_user_message);
     RUN_TEST(perm_read_image_is_safe);
+    RUN_TEST(output_schema_wraps_bare_schema);
+    RUN_TEST(output_schema_accepts_json_schema_object);
+    RUN_TEST(output_schema_names_anonymous_json_schema_object);
+    RUN_TEST(output_schema_passes_full_wrapper_through);
+    RUN_TEST(output_schema_rejects_non_object);
 }

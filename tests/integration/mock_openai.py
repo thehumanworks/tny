@@ -45,6 +45,13 @@ class Handler(BaseHTTPRequestHandler):
         req = json.loads(self.rfile.read(n))
         has_tool_result = any(m.get("role") == "tool" for m in req["messages"])
 
+        # Structured outputs: validate the wrapper tny sends, echo JSON back.
+        structured = req.get("response_format")
+        if structured is not None:
+            assert structured["type"] == "json_schema", structured
+            assert "schema" in structured["json_schema"], structured
+            assert "name" in structured["json_schema"], structured
+
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Transfer-Encoding", "chunked")
@@ -65,7 +72,10 @@ class Handler(BaseHTTPRequestHandler):
         else:
             tool_msg = next(m for m in req["messages"] if m.get("role") == "tool")
             nfiles = len([l for l in tool_msg["content"].splitlines() if l.strip()])
-            text = f"The workspace contains {nfiles} entries. MOCK-OK."
+            if structured is not None:
+                text = json.dumps({"count": nfiles, "note": "MOCK-OK"})
+            else:
+                text = f"The workspace contains {nfiles} entries. MOCK-OK."
             frames = []
             for i in range(0, len(text), 7):
                 frames.append({"choices": [{"index": 0, "delta": {"content": text[i:i+7]}}]})

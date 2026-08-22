@@ -33,6 +33,7 @@ typedef struct tny_ctx {
     char *auth_header_name; /* default Authorization */
     char *auth_header_prefix; /* default "Bearer " */
     char *max_tokens_field; /* NULL = omit */
+    char *output_schema;    /* normalized response_format JSON, or NULL */
 
     /* cursor */
     char *bridge_bin;

@@ -68,6 +68,8 @@ static const char *ask_help =
 "  --json               Write one JSON object to stdout\n"
 "  --stdin              Read the prompt from stdin\n"
 "  --image PATH         Attach an image file; repeatable\n"
+"  --output-schema X    Constrain the final answer to a JSON Schema (file\n"
+"                       path or inline JSON; openai provider only)\n"
 "  --resume <last|id>   Continue the latest workspace session or an id\n"
 "  --continue-recovery  Replay the interrupted response before this turn\n"
 "  --no-save            Do not persist a session\n"
@@ -84,6 +86,7 @@ static const char *ask_help =
 "  printf 'summarize src/\\n' | tny ask --stdin\n"
 "  tny ask --json --no-save \"list the public CLI\"\n"
 "  tny ask --resume last \"now add tests\"\n"
+"  tny ask --output-schema schema.json \"extract the TODOs as JSON\"\n"
 "  tny --provider cursor ask --model composer-2 \"find the login bug\"\n";
 
 static const char *sessions_help =
