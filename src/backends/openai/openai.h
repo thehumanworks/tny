@@ -19,4 +19,11 @@ void tny_backend_openai_bind(tny_backend *b, tny_session *session,
 int tny_backend_openai_steps(tny_backend *b);
 const char *tny_backend_openai_toolcalls_json(tny_backend *b);
 
+/* Normalize a user-supplied JSON Schema into a Chat Completions
+ * `response_format` object (docs/backends/openai-compatible.md). Accepts a
+ * bare schema, a `{"name":…,"schema":…}` json_schema object, or a full
+ * `{"type":"json_schema",…}` wrapper. Returns malloc'd compact JSON, or
+ * NULL when the input is not a JSON object. */
+char *tny_openai_response_format(const char *schema_json, size_t len);
+
 #endif

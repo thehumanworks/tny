@@ -94,6 +94,25 @@ JSON object (keep field names stable):
 is used when the model calls `read_image` mid-turn. Max 8 MiB; type comes
 from magic bytes (png/jpeg/gif/webp), not the extension.
 
+## Structured output (`--output-schema`)
+
+`tny ask --output-schema VALUE` constrains the final answer to a JSON Schema
+via Chat Completions `response_format` (openai-compatible provider only —
+other providers fail at startup with exit 1). VALUE is a file path, or inline
+JSON when it starts with `{`. Three shapes are accepted and normalized:
+
+- a bare JSON Schema — wrapped as `{"type":"json_schema","json_schema":{"name":"output","strict":true,"schema":…}}`
+- a `json_schema` object (`{"name":…,"schema":…}`) — wrapped, `name` defaults to `output`
+- a full `response_format` (`{"type":"json_schema",…}`) — sent as-is
+
+```text
+tny ask --output-schema schema.json "extract the TODOs as JSON"
+tny ask --output-schema '{"type":"object","properties":{"count":{"type":"integer"}},"required":["count"],"additionalProperties":false}' "how many files?"
+```
+
+Stdout is the model's JSON text (inside `output` with `--json`). The tool
+loop still runs; the schema constrains the final assistant message.
+
 Provider caveats: `--provider cursor` runs Cursor's own headless loop — the bridge exposes no per-call approval RPC, so tny's permission mode does not apply (a status line says so); it also rejects `--image`. `--provider codex` ignores `--image` with a status line (no documented image input item).
 
 ## Help shape

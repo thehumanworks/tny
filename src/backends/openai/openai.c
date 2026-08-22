@@ -142,6 +142,8 @@ static char *build_request(oa_impl *o) {
     char *schema = tools_schema_json(&o->env);
     buf_appendf(&b, ",\"tools\":%s,\"tool_choice\":\"auto\"", schema);
     free(schema);
+    if (o->ctx->output_schema)
+        buf_appendf(&b, ",\"response_format\":%s", o->ctx->output_schema);
     if (o->ctx->max_tokens_field)
         buf_appendf(&b, ",\"%s\":8192", o->ctx->max_tokens_field);
     buf_appends(&b, "}");
@@ -557,6 +559,44 @@ const char *tny_backend_openai_toolcalls_json(tny_backend *b) {
     if (o->toolcall_log.data[o->toolcall_log.len - 1] != ']')
         buf_appends(&o->toolcall_log, "]");
     return o->toolcall_log.data;
+}
+
+char *tny_openai_response_format(const char *schema_json, size_t len) {
+    yyjson_doc *doc = jparse(schema_json, len);
+    if (!doc) return NULL;
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    if (!yyjson_is_obj(root)) {
+        yyjson_doc_free(doc);
+        return NULL;
+    }
+    yyjson_mut_doc *m = yyjson_mut_doc_new(NULL);
+    if (!m) { yyjson_doc_free(doc); return NULL; }
+    yyjson_mut_val *copy = yyjson_val_mut_copy(m, root);
+    const char *type = jget_str(root, "type");
+    yyjson_mut_val *rf;
+    if (type && strcmp(type, "json_schema") == 0) {
+        rf = copy; /* already a full response_format */
+    } else {
+        rf = yyjson_mut_obj(m);
+        yyjson_mut_obj_add_str(m, rf, "type", "json_schema");
+        yyjson_mut_val *js;
+        if (jget(root, "schema")) {
+            js = copy; /* already a json_schema object ({name, schema, …}) */
+            if (!jget(root, "name"))
+                yyjson_mut_obj_add_str(m, js, "name", "output");
+        } else {
+            js = yyjson_mut_obj(m);
+            yyjson_mut_obj_add_str(m, js, "name", "output");
+            yyjson_mut_obj_add_bool(m, js, "strict", true);
+            yyjson_mut_obj_add_val(m, js, "schema", copy);
+        }
+        yyjson_mut_obj_add_val(m, rf, "json_schema", js);
+    }
+    yyjson_mut_doc_set_root(m, rf);
+    char *out = jwrite(m);
+    yyjson_mut_doc_free(m);
+    yyjson_doc_free(doc);
+    return out;
 }
 
 tny_backend *tny_backend_openai_new(struct tny_ctx *ctx) {
