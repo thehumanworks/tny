@@ -72,7 +72,7 @@
 </table>
 <p>Always answer <code>session/request_permission</code> or the agent hangs. Cursor extras (<code>cursor/ask_question</code>, <code>cursor/create_plan</code>) are answered if the argv is Cursor's ACP — that is still <code>--provider acp</code>.</p>
 <h2 id="openai">OpenAI-compatible</h2>
-<p>Chat Completions + SSE. This is the only backend where tny executes tools itself. Stream lines are <code>data: {…}</code> then <code>data: [DONE]</code>. The agent loop assembles preamble + <code>AGENTS.md</code> + skill catalog + history, posts, executes tool calls, and repeats until final text, a step limit, cancel, or deny.</p>
+<p>The Responses API (<code>POST /v1/responses</code>) with typed SSE events is the default wire; legacy Chat Completions stays available per provider via <code>wire_api: "chat"</code>. This is the only backend where tny executes tools itself. The agent loop assembles preamble + <code>AGENTS.md</code> + skill catalog + history, posts, executes tool calls, and repeats until final text, a step limit, cancel, or deny. Sessions store the portable chat-shaped transcript on either wire.</p>
 </article>
     <aside class="toc"><p>on this page</p><a href="#kinds">Two kinds</a><a href="#cursor">Cursor</a><a href="#codex">Codex</a><a href="#acp">ACP</a><a href="#openai">OpenAI-compatible</a></aside>
   </main>

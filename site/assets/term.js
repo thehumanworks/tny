@@ -27,26 +27,25 @@
     permissions:
       "Default yolo for every provider. ask/auto are opt-ins on the native openai loop only.",
     backends:
-      "Host loops: cursor sdk.v1 Connect, codex app-server WS, ACP stdio. Native: OpenAI-compatible Chat Completions + tools.",
+      "Host loops: cursor sdk.v1 Connect, codex app-server WS, ACP stdio. Native: OpenAI-compatible Responses API + tools (wire_api \"chat\" for legacy gateways).",
     size: "Stripped tny is 0.41 MiB on macOS arm64 vs fx 6.4 MiB. --version ~1.7 ms. TUI first prompt 3–4 ms.",
   };
 
+  /* Responses API tool shape: flat, no nested "function" (docs/adr/0014). */
   var TOOLS = [
     {
       type: "function",
-      function: {
-        name: "lookup_docs",
-        description: "Look up a tny documentation topic.",
-        parameters: {
-          type: "object",
-          properties: {
-            topic: {
-              type: "string",
-              description: "install, providers, cli, tui, permissions, backends, size",
-            },
+      name: "lookup_docs",
+      description: "Look up a tny documentation topic.",
+      parameters: {
+        type: "object",
+        properties: {
+          topic: {
+            type: "string",
+            description: "install, providers, cli, tui, permissions, backends, size",
           },
-          required: ["topic"],
         },
+        required: ["topic"],
       },
     },
   ];
@@ -346,20 +345,6 @@
     return "unknown tool";
   }
 
-  function accumulateToolCalls(acc, delta) {
-    if (!delta || !delta.tool_calls) return acc;
-    delta.tool_calls.forEach(function (part) {
-      var i = part.index == null ? acc.length : part.index;
-      if (!acc[i]) acc[i] = { id: "", type: "function", function: { name: "", arguments: "" } };
-      if (part.id) acc[i].id = part.id;
-      if (part.function) {
-        if (part.function.name) acc[i].function.name += part.function.name;
-        if (part.function.arguments) acc[i].function.arguments += part.function.arguments;
-      }
-    });
-    return acc;
-  }
-
   function headers() {
     return {
       Authorization: "Bearer " + creds.apiKey,
@@ -378,8 +363,11 @@
     return C.redactText(msg, creds);
   }
 
-  function chatOnce(msgs) {
-    var url = C.joinApi(creds.baseUrl || C.DEFAULT_BASE, "/chat/completions");
+  /* One POST to the Responses API (the wire the CLI defaults to,
+   * docs/adr/0014): chat-shaped history translates onto `input` items and
+   * the typed SSE events stream the answer / tool calls back. */
+  function responsesOnce(msgs) {
+    var url = C.joinApi(creds.baseUrl || C.DEFAULT_BASE, "/responses");
     abortCtl = new AbortController();
     return fetch(url, {
       method: "POST",
@@ -388,10 +376,12 @@
       signal: abortCtl.signal,
       body: JSON.stringify({
         model: creds.model || DEFAULT_MODEL,
-        messages: msgs,
+        instructions: SYS,
+        input: C.toResponsesInput(msgs),
         tools: TOOLS,
         tool_choice: "auto",
         stream: true,
+        store: false,
       }),
     }).then(function (res) {
       if (!res.ok) {
@@ -405,25 +395,22 @@
       var reader = res.body.getReader();
       var dec = new TextDecoder();
       var parser = new C.SseParser();
-      var content = "";
-      var calls = [];
+      var turn = new C.ResponsesTurn();
       var el = line("assistant", "");
       function pump() {
         return reader.read().then(function (chunk) {
           if (chunk.done) {
-            el.textContent = C.redactText(content, creds);
-            return { content: content, tool_calls: calls.filter(Boolean) };
+            el.textContent = C.redactText(turn.content, creds);
+            if (turn.error) throw new Error("provider error: " + turn.error);
+            return { content: turn.content, tool_calls: turn.calls };
           }
           var events = parser.push(dec.decode(chunk.value, { stream: true }));
           events.forEach(function (ev) {
-            if (!ev.json || !ev.json.choices || !ev.json.choices[0]) return;
-            var delta = ev.json.choices[0].delta || {};
-            if (delta.content) {
-              content += delta.content;
-              el.textContent = C.redactText(content, creds);
+            if (!ev.json) return;
+            if (turn.push(ev.json)) {
+              el.textContent = C.redactText(turn.content, creds);
               transcript.scrollTop = transcript.scrollHeight;
             }
-            accumulateToolCalls(calls, delta);
           });
           return pump();
         });
@@ -446,9 +433,7 @@
         sys("step limit — interrupt or send another prompt");
         return;
       }
-      return chatOnce(
-        [{ role: "system", content: SYS }].concat(messages)
-      ).then(function (result) {
+      return responsesOnce(messages).then(function (result) {
         if (result.tool_calls && result.tool_calls.length) {
           messages.push({
             role: "assistant",

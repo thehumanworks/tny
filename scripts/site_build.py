@@ -459,7 +459,7 @@ def docs_providers() -> str:
 {cmd("export OPENAI_API_KEY=…")}
 {cmd("export OPENAI_BASE_URL=https://openrouter.ai/api/v1   # optional")}
 {cmd("tny --provider openai --model anthropic/claude-sonnet-4.6")}
-<p>Any OpenAI-compatible <code>/v1/chat/completions</code> endpoint works: OpenAI, OpenRouter, Groq, Together, DeepSeek, ollama, llama.cpp, vLLM, Azure (with a custom auth header).</p>
+<p>The default wire is the Responses API (<code>POST /v1/responses</code>, typed SSE) — what current OpenAI models require for function tools + reasoning effort. Providers that only speak legacy Chat Completions still work: set <code>wire_api: "chat"</code> in the provider profile, <code>OPENAI_WIRE_API=chat</code>, or pass <code>--wire-api chat</code>. OpenAI, OpenRouter, Groq, Together, DeepSeek, ollama, llama.cpp, vLLM, and Azure (custom auth header) all fit one of the two wires.</p>
 <h2 id="cursor">cursor</h2>
 <p>Spawns <code>cursor-sdk-bridge</code> and speaks Connect <code>sdk.v1</code> over HTTP/1.1. This is Cursor's own headless loop, not <code>agent acp</code>.</p>
 {cmd("export CURSOR_API_KEY=…")}
@@ -858,7 +858,7 @@ def docs_backends() -> str:
 </table>
 <p>Always answer <code>session/request_permission</code> or the agent hangs. Cursor extras (<code>cursor/ask_question</code>, <code>cursor/create_plan</code>) are answered if the argv is Cursor's ACP — that is still <code>--provider acp</code>.</p>
 <h2 id="openai">OpenAI-compatible</h2>
-<p>Chat Completions + SSE. This is the only backend where tny executes tools itself. Stream lines are <code>data: {{…}}</code> then <code>data: [DONE]</code>. The agent loop assembles preamble + <code>AGENTS.md</code> + skill catalog + history, posts, executes tool calls, and repeats until final text, a step limit, cancel, or deny.</p>
+<p>The Responses API (<code>POST /v1/responses</code>) with typed SSE events is the default wire; legacy Chat Completions stays available per provider via <code>wire_api: "chat"</code>. This is the only backend where tny executes tools itself. The agent loop assembles preamble + <code>AGENTS.md</code> + skill catalog + history, posts, executes tool calls, and repeats until final text, a step limit, cancel, or deny. Sessions store the portable chat-shaped transcript on either wire.</p>
 """
     return page_shell(
         title="Backends — tny",
