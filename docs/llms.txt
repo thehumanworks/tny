@@ -37,7 +37,7 @@ Leading flags: `--provider cursor|codex|acp|openai` (`--backend` alias), `--cwd`
 
 ## Providers
 
-- openai (default fallback): OpenAI-compatible `/v1/chat/completions` SSE. tny owns tools/MCP/skills/permissions. `OPENAI_API_KEY`, `OPENAI_BASE_URL`.
+- openai (default fallback): OpenAI-compatible Responses API (`/v1/responses` SSE; `wire_api: "chat"` selects legacy `/v1/chat/completions`). tny owns tools/MCP/skills/permissions. `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_WIRE_API`.
 - cursor: spawn `cursor-sdk-bridge`, Connect `sdk.v1` HTTP/1.1. `CURSOR_API_KEY`. Headless — no per-call approvals.
 - codex: WebSocket JSON-RPC to `codex app-server`. Attach `--codex-ws`, inherit a live TUI host, or spawn on an ephemeral loopback port.
 - acp client: `tny --provider acp --agent CMD -- args`.

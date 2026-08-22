@@ -213,6 +213,94 @@
     return events;
   };
 
+  /* ---- Responses API wire (docs/adr/0014) ----
+   * The browser demo mirrors the CLI's native backend: history stays
+   * chat-shaped in memory and translates onto `input` items per request. */
+
+  function toResponsesInput(msgs) {
+    var items = [];
+    (msgs || []).forEach(function (m) {
+      if (!m || !m.role) return;
+      if (m.role === "tool") {
+        items.push({
+          type: "function_call_output",
+          call_id: m.tool_call_id || "call_0",
+          output: m.content == null ? "" : String(m.content),
+        });
+        return;
+      }
+      if (m.role === "assistant") {
+        if (m.content) items.push({ role: "assistant", content: m.content });
+        (m.tool_calls || []).forEach(function (tc) {
+          var fn = (tc && tc.function) || {};
+          items.push({
+            type: "function_call",
+            call_id: (tc && tc.id) || "call_0",
+            name: fn.name || "unknown",
+            arguments: fn.arguments || "{}",
+          });
+        });
+        return;
+      }
+      items.push({ role: m.role, content: m.content == null ? "" : m.content });
+    });
+    return items;
+  }
+
+  /* Accumulates one streamed response from typed Responses events.
+   * push(ev) returns the text delta to paint (usually ""). Tool calls come
+   * out chat-shaped so the caller's history format never changes. */
+  function ResponsesTurn() {
+    this.content = "";
+    this.calls = [];
+    this.byIndex = {};
+    this.completed = false;
+    this.error = null;
+  }
+
+  ResponsesTurn.prototype.push = function (ev) {
+    if (!ev || !ev.type) return "";
+    var t = ev.type;
+    if (t === "response.output_text.delta") {
+      var d = ev.delta == null ? "" : String(ev.delta);
+      this.content += d;
+      return d;
+    }
+    if (t === "response.output_item.added" || t === "response.output_item.done") {
+      var item = ev.item;
+      if (!item || item.type !== "function_call") return "";
+      var i = ev.output_index == null ? "n" + this.calls.length : ev.output_index;
+      var call = this.byIndex[i];
+      if (!call) {
+        call = { id: "", type: "function", function: { name: "", arguments: "" } };
+        this.byIndex[i] = call;
+        this.calls.push(call);
+      }
+      if (item.call_id && !call.id) call.id = item.call_id;
+      if (item.name && !call.function.name) call.function.name = item.name;
+      /* done carries the complete argument string: authoritative over
+       * deltas — but an empty string never wipes assembled deltas */
+      if (item.arguments) call.function.arguments = item.arguments;
+      return "";
+    }
+    if (t === "response.function_call_arguments.delta") {
+      var c = this.byIndex[ev.output_index];
+      if (c && ev.delta) c.function.arguments += ev.delta;
+      return "";
+    }
+    if (t === "response.completed" || t === "response.incomplete") {
+      this.completed = true;
+      return "";
+    }
+    if (t === "response.failed" || t === "error") {
+      var e = (ev.response && ev.response.error) || ev.error || {};
+      this.error = e.message || ev.message || "response failed";
+      this.completed = true;
+      return "";
+    }
+    return "";
+  };
+
   function bytesToB64(bytes) {
     var u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     var bin = "";
@@ -283,6 +371,8 @@
     obfuscateUrl: obfuscateUrl,
     redactText: redactText,
     SseParser: SseParser,
+    toResponsesInput: toResponsesInput,
+    ResponsesTurn: ResponsesTurn,
     bytesToB64: bytesToB64,
     b64ToBytes: b64ToBytes,
     aesGcmGenerateKey: aesGcmGenerateKey,

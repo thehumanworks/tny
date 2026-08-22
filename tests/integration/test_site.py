@@ -56,8 +56,12 @@ def main() -> None:
         if needle not in core:
             fail(f"term-core.js missing {needle}")
 
-    if "indexedDB" not in term or "chat/completions" not in term:
+    if "indexedDB" not in term or '"/responses"' not in term:
         fail("term.js does not look like a client-side agent loop")
+    if "chat/completions" in term:
+        fail("term.js regressed to the legacy chat wire (docs/adr/0014)")
+    if '"store": false' not in term and "store: false" not in term:
+        fail("term.js must send store:false — the tab owns session state")
     if "localStorage" in term and "OPENAI_API_KEY" in term:
         # plaintext key must not be written to localStorage
         fail("term.js appears to persist the key in localStorage")

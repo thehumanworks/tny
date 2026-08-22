@@ -142,6 +142,98 @@ async function run() {
     }
   });
 
+  await test("toResponsesInput translates chat-shaped history", () => {
+    const items = C.toResponsesInput([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          { id: "call_9", type: "function", function: { name: "lookup_docs", arguments: '{"topic":"cli"}' } },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_9", content: "docs text" },
+      { role: "bogus-no-content" },
+      null,
+    ]);
+    assert.deepStrictEqual(items, [
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+      { type: "function_call", call_id: "call_9", name: "lookup_docs", arguments: '{"topic":"cli"}' },
+      { type: "function_call_output", call_id: "call_9", output: "docs text" },
+      { role: "bogus-no-content", content: "" },
+    ]);
+  });
+
+  await test("ResponsesTurn assembles typed events across every split boundary", () => {
+    const frames = [
+      'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup_docs","arguments":""}}\n\n',
+      'data: {"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\\"top"}\n\n',
+      'data: {"type":"response.function_call_arguments.delta","output_index":0,"delta":"ic\\":\\"cli\\"}"}\n\n',
+      // done with EMPTY arguments must not wipe the assembled deltas
+      'data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup_docs","arguments":""}}\n\n',
+      'data: {"type":"response.output_text.delta","output_index":1,"delta":"Hel"}\n\n',
+      'data: {"type":"response.output_text.delta","output_index":1,"delta":"lo"}\n\n',
+      'data: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+    ];
+    const stream = frames.join("");
+    for (let split = 0; split <= stream.length; split += 7) {
+      const p = new C.SseParser();
+      const turn = new C.ResponsesTurn();
+      let painted = "";
+      p.push(stream.slice(0, split))
+        .concat(p.push(stream.slice(split)))
+        .forEach((ev) => {
+          if (ev.json) painted += turn.push(ev.json);
+        });
+      assert.strictEqual(turn.content, "Hello", "split " + split);
+      assert.strictEqual(painted, "Hello", "painted at split " + split);
+      assert.ok(turn.completed, "completed at split " + split);
+      assert.strictEqual(turn.error, null);
+      assert.strictEqual(turn.calls.length, 1);
+      assert.strictEqual(turn.calls[0].id, "call_1");
+      assert.strictEqual(turn.calls[0].function.name, "lookup_docs");
+      assert.strictEqual(turn.calls[0].function.arguments, '{"topic":"cli"}');
+    }
+  });
+
+  await test("ResponsesTurn: late metadata, authoritative done, junk events", () => {
+    const turn = new C.ResponsesTurn();
+    // added announces only the item; call_id/name/arguments arrive in done
+    turn.push({ type: "response.output_item.added", output_index: 0, item: { type: "function_call", id: "fc_2" } });
+    turn.push({ type: "response.output_item.added", output_index: 3, item: { id: "no-type" } });
+    turn.push({ type: "response.output_text.delta" }); // no delta member
+    turn.push({ type: "response.function_call_arguments.delta", output_index: 9, delta: "{}" }); // unknown index
+    turn.push({
+      type: "response.output_item.done",
+      output_index: 0,
+      item: { type: "function_call", id: "fc_2", call_id: "call_2", name: "lookup_docs", arguments: '{"topic":"size"}' },
+    });
+    turn.push({ type: "response.completed", response: { status: "completed" } });
+    assert.strictEqual(turn.calls.length, 1);
+    assert.strictEqual(turn.calls[0].id, "call_2");
+    assert.strictEqual(turn.calls[0].function.arguments, '{"topic":"size"}');
+    assert.ok(turn.completed);
+  });
+
+  await test("ResponsesTurn surfaces response.failed and error events", () => {
+    const t1 = new C.ResponsesTurn();
+    t1.push({ type: "response.failed", response: { error: { message: "mock exploded" } } });
+    assert.strictEqual(t1.error, "mock exploded");
+    assert.ok(t1.completed);
+    const t2 = new C.ResponsesTurn();
+    t2.push({ type: "error", message: "top-level error" });
+    assert.strictEqual(t2.error, "top-level error");
+    // incomplete keeps the partial text and no error
+    const t3 = new C.ResponsesTurn();
+    t3.push({ type: "response.output_text.delta", delta: "partial" });
+    t3.push({ type: "response.incomplete", response: { status: "incomplete" } });
+    assert.strictEqual(t3.content, "partial");
+    assert.strictEqual(t3.error, null);
+    assert.ok(t3.completed);
+  });
+
   await test("AES-GCM roundtrip", async () => {
     const key = await C.aesGcmGenerateKey();
     const pt = new TextEncoder().encode(JSON.stringify({ k: "sk-round", u: "https://z.example/v1" }));
