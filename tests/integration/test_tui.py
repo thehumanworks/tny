@@ -252,6 +252,7 @@ def test_turn_streams(home, ws, port):
         t.expect(BANNER)
         t.send("list the files here\r")
         t.expect("list_files", 20.0)       # tool one-liner from the mock turn 1
+        t.expect("pondering", 20.0)        # reasoning summary rendered dim
         t.expect("MOCK-OK", 20.0)          # streamed answer from turn 2
         assert "✓" in t.buf, "no tool-ok marker:\n%s" % clean(t.buf)
         t.send("/quit\r")
@@ -296,7 +297,9 @@ def test_slash_palette(home, ws):
 
 
 class ApprovalHandler(BaseHTTPRequestHandler):
-    """Asks for a write_file (not a safe tool) so the y/a/n UI has to run."""
+    """Asks for a write_file (not a safe tool) so the y/a/n UI has to run.
+    Speaks the default Responses API wire (docs/adr/0016); anything hitting
+    /chat/completions is a 404-class failure the test will surface."""
     protocol_version = "HTTP/1.1"
 
     def log_message(self, *a):
@@ -308,25 +311,30 @@ class ApprovalHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("Content-Length", "0"))
         req = json.loads(self.rfile.read(n))
-        answered = any(m.get("role") == "tool" for m in req["messages"])
+        assert self.path.endswith("/responses"), self.path
+        answered = any(i.get("type") == "function_call_output"
+                       for i in req["input"])
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
         if not answered:
             args = json.dumps({"path": "note.txt", "content": "hi"})
-            frames = [
-                {"choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [
-                    {"index": 0, "id": "call_w", "type": "function",
-                     "function": {"name": "write_file", "arguments": args}}]}}]},
-                {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]},
+            events = [
+                {"type": "response.output_item.added", "output_index": 0,
+                 "item": {"type": "function_call", "id": "fc_w",
+                          "call_id": "call_w", "name": "write_file",
+                          "arguments": args}},
+                {"type": "response.completed",
+                 "response": {"status": "completed"}},
             ]
         else:
-            frames = [{"choices": [{"index": 0, "delta": {"content": "DENIED-OK"}}]},
-                      {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}]
-        for f in frames:
-            self._chunk(("data: %s\n\n" % json.dumps(f)).encode())
-        self._chunk(b"data: [DONE]\n\n")
+            events = [{"type": "response.output_text.delta", "output_index": 0,
+                       "delta": "DENIED-OK"},
+                      {"type": "response.completed",
+                       "response": {"status": "completed"}}]
+        for e in events:
+            self._chunk(("data: %s\n\n" % json.dumps(e)).encode())
         self._chunk(b"")
 
 

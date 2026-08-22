@@ -51,7 +51,8 @@ TARGETS = [
       "env_sole_detected_provider", "load_openai_profile",
       "apply_custom_provider", "apply_provider_model", "tny_resolve_backend"],
      None),
-    ("src/core/config.c", ["tny_effort_canonical", "tny_effort_wire"], None),
+    ("src/core/config.c", ["tny_effort_canonical", "tny_effort_wire",
+                           "apply_provider_effort"], None),
     # mid-turn input: steer or queue (docs/adr/0011)
     ("src/tui/tui.c", ["tui_queue_push", "tui_queue_clear", "queue_pop",
                        "tui_cancel_turn", "after_turn", "tui_submit"],
@@ -76,11 +77,30 @@ TARGETS = [
     ("src/tui/tui_commands.c", ["tui_command"], r"fast|tier"),
     ("src/backends/codex/codex.c", ["cx_start_thread"], r"tier|serviceTier",
      "tests/integration/test_codex.sh"),
-    ("src/backends/openai/openai.c", ["build_request"], r"tier",
+    ("src/backends/openai/openai.c", ["build_request_chat"], r"tier",
      "tests/integration/test_openai.py"),
     ("src/backends/cursor/cursor.c",
      ["cursor_append_model_params", "append_options"], r"fast|tier",
      "tests/integration/test_cursor.sh"),
+    # Responses API default wire (docs/adr/0016): the translation file and
+    # the new backend functions whole, only the wire/stream_failed lines
+    # inside the pre-existing ones.
+    ("src/backends/openai/responses.c", None, None,
+     "tests/integration/test_openai.py"),
+    ("src/backends/openai/openai.c",
+     ["build_request_rsp", "on_sse_event_rsp", "rsp_call_by_index",
+      "on_sse_event"], r"^(?!.*reasoning_)",
+     "tests/integration/test_openai.py"),
+    # thinking deltas are dropped by `ask` (stderr noise); only the TUI
+    # renders them, so these lines answer to the TUI suite
+    ("src/backends/openai/openai.c", ["on_sse_event_rsp"], r"reasoning_"),
+    ("src/backends/openai/openai.c", ["start_post", "oa_dispatch"],
+     r"wire|stream_failed", "tests/integration/test_openai.py"),
+    ("src/core/config.c",
+     ["tny_wire_is_chat", "load_openai_profile", "apply_custom_provider"],
+     r"wire", "tests/integration/test_openai.py"),
+    ("src/cli/args.c", ["cli_parse_globals", "cli_make_ctx"], r"wire",
+     "tests/integration/test_openai.py"),
 ]
 
 # operator substitutions applied to one site at a time
@@ -102,6 +122,11 @@ EQUIVALENT = [
     # (yyjson_arr_size returns 0), so the early-return guard is redundant
     # defense and flipping its ||/&& is unobservable.
     "toolcalls.c:if (!tool_calls || !yyjson_is_arr(tool_calls)) return;",
+    # effort_from_settings is only read when reasoning_effort is non-NULL,
+    # and every path that sets a value also sets the flag; the pre-recompute
+    # reset is state hygiene for the value-not-found case (value NULL, flag
+    # never consulted), so flipping it is unobservable.
+    "config.c:ctx->effort_from_settings = false;",
     "tui_prewarm.c:pthread_cond_signal",  # signal-vs-broadcast style details
     # Wrong poll direction only delays the retry by the poll timeout; the
     # handshake/write loops re-check the real condition and still succeed.
@@ -128,6 +153,32 @@ EQUIVALENT = [
     # overwrite never faults here.
     "config.c:char *s = malloc(n + m + 1);",
     "config.c:char *name = malloc(plen + 1);",
+    # -- Responses API wire (docs/adr/0016) --
+    # `p && *p` -> `p || *p` on a possibly-NULL pointer: the dereference is
+    # UB when p is NULL, and clang folds the release build back to the
+    # original `p != NULL` check, so the mutant is equivalent by
+    # optimization. (The && guards themselves are exercised: the mock sends
+    # deltas with missing and empty payloads.)
+    "openai.c:if (o->ctx->reasoning_effort && *o->ctx->reasoning_effort) {",
+    "openai.c:if (d && *d) {",
+    "openai.c:if (d && *d) emit_text(o, TNY_EV_THINKING, d, strlen(d));",
+    # MAX_TOOL_CALLS boundary: observable only with a 17th parallel tool
+    # call in one step; purely defensive against a hostile provider.
+    "openai.c:if (!pc && o->ncalls < MAX_TOOL_CALLS) {",
+    # "only set once" guards: flipping them re-strdups the same wire value
+    # (a leak, no behavior change); ASan runs the unit suite, which cannot
+    # drive the network handler.
+    "openai.c:if (id && !pc->id) pc->id = xstrdup(id);",
+    "openai.c:if (name && !pc->name) pc->name = xstrdup(name);",
+    # loop-bound style flips guarded by the NULL-role/NULL-item skip on the
+    # far side (arr_get past the end returns NULL), or arithmetically
+    # identical at the boundary value (boundary>0 vs >=0 both start at 0).
+    "responses.c:for (size_t i = boundary > 0 ? (size_t)boundary : 0; i < total; i++) {",
+    # yyjson's foreach macros no-op on a non-container, so dropping the
+    # is_arr/is_obj half of the guard cannot change the output (the
+    # malformed-session unit test pins the contract either way).
+    "responses.c:if (tcs && yyjson_mut_is_arr(tcs)) add_function_calls(d, arr, tcs);",
+    "responses.c:if (js && yyjson_is_obj(js)) {",
 ]
 
 

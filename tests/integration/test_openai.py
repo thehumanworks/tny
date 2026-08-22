@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """End-to-end: tny ask --json against the mock OpenAI provider.
 
-Covers the full native loop: SSE streaming, fragmented tool_call assembly,
-tool execution (list_files), second POST, session persistence + resume.
+Covers the full native loop on the default Responses API wire (the mock
+400s anything that hits /chat/completions): typed SSE streaming split at
+arbitrary byte boundaries, fragmented function_call assembly, tool
+execution (list_files), second POST with the echoed function_call +
+function_call_output items, session persistence + resume. A second block
+re-runs the loop on the legacy chat wire via OPENAI_WIRE_API=chat,
+--wire-api chat, and the settings wire_api key (docs/adr/0016), and a
+third exercises the response.failed error path.
 """
 import json
 import os
@@ -27,7 +33,10 @@ def free_port():
 
 def main():
     port = free_port()
+    # the default wire must be the Responses API: any request that falls
+    # back to /chat/completions makes this mock 400 and the run fail
     mock = subprocess.Popen([sys.executable, MOCK, str(port)],
+                            env=dict(os.environ, MOCK_EXPECT_WIRE="responses"),
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     try:
         line = mock.stdout.readline().decode()
@@ -56,9 +65,13 @@ def main():
             assert "tier=unset" in out["output"], out  # no --fast: omit the field
             assert out["exit_code"] == 0
             assert out["steps"] == 2, out
-            assert len(out["tool_calls"]) == 1, out
+            # the mock streams TWO parallel function calls; both must be
+            # assembled (fragmented arguments, late call_id/name on the
+            # second) and both must succeed
+            assert len(out["tool_calls"]) == 2, out
             assert out["tool_calls"][0]["name"] == "list_files", out
-            assert out["tool_calls"][0]["status"] == "success", out
+            assert out["tool_calls"][1]["name"] == "glob_files", out
+            assert all(t["status"] == "success" for t in out["tool_calls"]), out
             sid = out["session_id"]
             assert sid, out
 
@@ -157,14 +170,16 @@ def main():
             assert r9.returncode == 1, r9.stderr.decode()
             assert b"openai-compatible provider" in r9.stderr, r9.stderr
 
-            # --effort: a second mock demands reasoning_effort=xhigh; the
-            # canonical "max" must clamp to xhigh on the OpenAI wire, and the
-            # mock 400s any request that carries something else (the earlier
-            # runs already proved the field is absent without the flag).
+            # --effort: a second mock demands effort=xhigh; the canonical
+            # "max" must clamp to xhigh and ride reasoning.effort on the
+            # responses wire (the mock 400s a chat-style reasoning_effort
+            # member, and the earlier runs already proved the field is
+            # absent without the flag).
             eport = free_port()
             emock = subprocess.Popen(
                 [sys.executable, MOCK, str(eport)],
-                env=dict(os.environ, MOCK_EXPECT_EFFORT="xhigh"),
+                env=dict(os.environ, MOCK_EXPECT_EFFORT="xhigh",
+                         MOCK_EXPECT_WIRE="responses"),
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             try:
                 line = emock.stdout.readline().decode()
@@ -181,8 +196,183 @@ def main():
                 emock.terminate()
                 emock.wait(timeout=5)
 
-            # parallel tool calls: three calls in one step, including the
-            # gateway shape that reuses an "index" with a fresh "id". Every
+            # a terminal response.failed event is a run error (exit 2)
+            # whose message reaches stderr, never a silent empty answer
+            fport = free_port()
+            fmock = subprocess.Popen(
+                [sys.executable, MOCK, str(fport)],
+                env=dict(os.environ, MOCK_FAIL_RESPONSE="mock exploded"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = fmock.stdout.readline().decode()
+                assert "ready" in line, f"fail mock did not start: {line!r}"
+                fenv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{fport}/v1")
+                r11 = subprocess.run(
+                    [TNY, "--cwd", ws, "ask", "--no-save", "boom please"],
+                    env=fenv, capture_output=True, timeout=30)
+                assert r11.returncode == 2, \
+                    f"exit {r11.returncode}: {r11.stderr.decode()}"
+                assert b"mock exploded" in r11.stderr, r11.stderr
+                # response.failed already classified the end of stream: the
+                # abrupt close after it must not double-report a transport
+                # error
+                assert b"stream aborted" not in r11.stderr, r11.stderr
+            finally:
+                fmock.terminate()
+                fmock.wait(timeout=5)
+
+            # response.incomplete (token cutoff): the partial text still
+            # finishes the turn cleanly, exactly like chat's length stop
+            iport = free_port()
+            imock = subprocess.Popen(
+                [sys.executable, MOCK, str(iport)],
+                env=dict(os.environ, MOCK_INCOMPLETE="1"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = imock.stdout.readline().decode()
+                assert "ready" in line, f"incomplete mock did not start: {line!r}"
+                ienv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{iport}/v1")
+                r11b = subprocess.run(
+                    [TNY, "--cwd", ws, "ask", "--json", "--no-save",
+                     "list files in ."],
+                    env=ienv, capture_output=True, timeout=30)
+                assert r11b.returncode == 0, \
+                    f"exit {r11b.returncode}: {r11b.stderr.decode()}"
+                out11b = json.loads(r11b.stdout)
+                assert "MOCK-OK" in out11b["output"], out11b
+                assert b"stream aborted" not in r11b.stderr, r11b.stderr
+            finally:
+                imock.terminate()
+                imock.wait(timeout=5)
+
+            # ---- legacy chat wire (wire_api "chat", docs/adr/0016) ----
+            # a chat-only mock: any request to /responses 400s, so these
+            # runs prove each opt-in spelling really switches the wire
+            cport = free_port()
+            cmock = subprocess.Popen(
+                [sys.executable, MOCK, str(cport)],
+                env=dict(os.environ, MOCK_EXPECT_WIRE="chat"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = cmock.stdout.readline().decode()
+                assert "ready" in line, f"chat mock did not start: {line!r}"
+                cbase = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{cport}/v1")
+
+                # 1. OPENAI_WIRE_API=chat
+                cenv = dict(cbase, OPENAI_WIRE_API="chat")
+                r12 = subprocess.run(
+                    [TNY, "--cwd", ws, "ask", "--json", "--no-save",
+                     "list files in ."],
+                    env=cenv, capture_output=True, timeout=30)
+                assert r12.returncode == 0, \
+                    f"exit {r12.returncode}: {r12.stderr.decode()}"
+                out12 = json.loads(r12.stdout)
+                assert "MOCK-OK" in out12["output"], out12
+                assert out12["steps"] == 2, out12
+                assert out12["tool_calls"][0]["name"] == "list_files", out12
+
+                # 2. --wire-api chat (flag beats the responses default)
+                r13 = subprocess.run(
+                    [TNY, "--cwd", ws, "--wire-api", "chat", "ask", "--json",
+                     "--no-save", "list files in ."],
+                    env=cbase, capture_output=True, timeout=30)
+                assert r13.returncode == 0, \
+                    f"exit {r13.returncode}: {r13.stderr.decode()}"
+                assert b"MOCK-OK" in r13.stdout, r13.stdout
+
+                # 3. settings.json {"openai":{"wire_api":"chat"}}
+                tnydir = os.path.join(home, ".tny")
+                os.makedirs(tnydir, exist_ok=True)
+                settings = os.path.join(tnydir, "settings.json")
+                open(settings, "w").write('{"openai":{"wire_api":"chat"}}')
+                try:
+                    r14 = subprocess.run(
+                        [TNY, "--cwd", ws, "ask", "--json", "--no-save",
+                         "list files in ."],
+                        env=cbase, capture_output=True, timeout=30)
+                    assert r14.returncode == 0, \
+                        f"exit {r14.returncode}: {r14.stderr.decode()}"
+                    assert b"MOCK-OK" in r14.stdout, r14.stdout
+                finally:
+                    os.remove(settings)
+
+                # 4. structured outputs still ride response_format on chat
+                schema = ('{"type":"object","properties":{"count":'
+                          '{"type":"integer"}},"required":["count"],'
+                          '"additionalProperties":false}')
+                r15 = subprocess.run(
+                    [TNY, "--cwd", ws, "--wire-api", "chat", "ask", "--json",
+                     "--no-save", "--output-schema", schema, "how many?"],
+                    env=cbase, capture_output=True, timeout=30)
+                assert r15.returncode == 0, \
+                    f"exit {r15.returncode}: {r15.stderr.decode()}"
+                assert json.loads(json.loads(r15.stdout)["output"])["count"] == 3
+
+                # 5. --wire-api rejects unknown values at startup
+                r16 = subprocess.run(
+                    [TNY, "--cwd", ws, "--wire-api", "grpc", "ask", "hi"],
+                    env=cbase, capture_output=True, timeout=15)
+                assert r16.returncode == 1, r16.stderr.decode()
+                assert b"--wire-api must be responses|chat" in r16.stderr, r16.stderr
+            finally:
+                cmock.terminate()
+                cmock.wait(timeout=5)
+
+            # settings.json default effort (docs/adr/0015): with no flag and
+            # no env, `"effort"` in settings must ride the request — mapped
+            # to the openai wire vocabulary (canonical "light" -> "low").
+            # A fresh HOME keeps earlier runs' saved settings out of it.
+            shome = os.path.join(home, "settings-effort-home")
+            os.makedirs(shome)
+            os.makedirs(os.path.join(shome, ".tny"))
+            open(os.path.join(shome, ".tny", "settings.json"), "w").write(
+                '{"effort":{"openai":"light"}}')
+            sport = free_port()
+            smock = subprocess.Popen(
+                [sys.executable, MOCK, str(sport)],
+                env=dict(os.environ, MOCK_EXPECT_EFFORT="low"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = smock.stdout.readline().decode()
+                assert "ready" in line, f"settings mock did not start: {line!r}"
+                senv = dict(env, HOME=shome,
+                            OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1")
+                senv.pop("TNY_REASONING_EFFORT", None)
+                r12 = subprocess.run(
+                    [TNY, "--cwd", ws, "ask", "--json", "--no-save",
+                     "list files in ."],
+                    env=senv, capture_output=True, timeout=30)
+                assert r12.returncode == 0, \
+                    f"exit {r12.returncode}: {r12.stderr.decode()}"
+                assert b"MOCK-OK" in r12.stdout, r12.stdout
+                # and an explicit --effort default beats the settings value:
+                # the same mock 400s any request carrying an effort field
+                emock2_env = dict(os.environ)  # EXPECT unset = field absent
+                eport2 = free_port()
+                emock2 = subprocess.Popen(
+                    [sys.executable, MOCK, str(eport2)], env=emock2_env,
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                try:
+                    line = emock2.stdout.readline().decode()
+                    assert "ready" in line, f"default mock did not start: {line!r}"
+                    senv2 = dict(senv, OPENAI_BASE_URL=f"http://127.0.0.1:{eport2}/v1")
+                    r13 = subprocess.run(
+                        [TNY, "--cwd", ws, "--effort", "default", "ask",
+                         "--json", "--no-save", "list files in ."],
+                        env=senv2, capture_output=True, timeout=30)
+                    assert r13.returncode == 0, \
+                        f"exit {r13.returncode}: {r13.stderr.decode()}"
+                    assert b"MOCK-OK" in r13.stdout, r13.stdout
+                finally:
+                    emock2.terminate()
+                    emock2.wait(timeout=5)
+            finally:
+                smock.terminate()
+                smock.wait(timeout=5)
+
+            # parallel tool calls on the chat wire (the gateway shape from
+            # the field is a Chat Completions stream): three calls in one
+            # step, including one that reuses an "index" with a fresh "id". Every
             # call must execute with its own arguments and every id must get
             # a tool message — the mock rejects the follow-up request with
             # 400 "no tool output found for function call" otherwise, which
@@ -192,15 +382,15 @@ def main():
             pport = free_port()
             pmock = subprocess.Popen(
                 [sys.executable, MOCK, str(pport)],
-                env=dict(os.environ, MOCK_PARALLEL="1"),
+                env=dict(os.environ, MOCK_PARALLEL="1", MOCK_EXPECT_WIRE="chat"),
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             try:
                 line = pmock.stdout.readline().decode()
                 assert "ready" in line, f"parallel mock did not start: {line!r}"
                 penv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{pport}/v1")
                 r11 = subprocess.run(
-                    [TNY, "--cwd", ws, "ask", "--json", "--no-save",
-                     "read both files and list the dir"],
+                    [TNY, "--cwd", ws, "--wire-api", "chat", "ask", "--json",
+                     "--no-save", "read both files and list the dir"],
                     env=penv, capture_output=True, timeout=30)
                 assert r11.returncode == 0, \
                     f"exit {r11.returncode}: {r11.stderr.decode()}"

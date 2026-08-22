@@ -213,6 +213,82 @@ TEST effort_env_loads(void) {
     PASS();
 }
 
+/* settings.json can carry a default effort — one string for every provider
+ * or a per-provider object like "models" (docs/adr/0015). */
+TEST effort_settings_global_default(void) {
+    ensure_env();
+    unsetenv("TNY_REASONING_EFFORT");
+    write_settings("{\"effort\":\"high\",\"openai\":{\"base_url\":\"http://x/v1\"}}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(NULL, ctx->reasoning_effort); /* not before the provider resolves */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT(ctx->reasoning_effort);
+    ASSERT_STR_EQ("high", ctx->reasoning_effort);
+    tny_ctx_free(ctx);
+
+    /* "default" and empty entries mean provider default (unset) */
+    write_settings("{\"effort\":\"default\"}");
+    ctx = tny_ctx_load(g_ws);
+    tny_resolve_backend(ctx, "openai");
+    ASSERT_EQ(NULL, ctx->reasoning_effort);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST effort_settings_per_provider(void) {
+    ensure_env();
+    unsetenv("TNY_REASONING_EFFORT");
+    write_settings("{\"effort\":{\"openai\":\"light\",\"codex\":\"xhigh\"}}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_resolve_backend(ctx, "openai");
+    ASSERT_STR_EQ("light", ctx->reasoning_effort);
+    /* switching provider recomputes: codex gets its own entry, and a
+     * provider with no entry falls back to unset */
+    tny_resolve_backend(ctx, "codex");
+    ASSERT_STR_EQ("xhigh", ctx->reasoning_effort);
+    tny_resolve_backend(ctx, "cursor");
+    ASSERT_EQ(NULL, ctx->reasoning_effort);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST effort_env_beats_settings(void) {
+    ensure_env();
+    write_settings("{\"effort\":\"light\"}");
+    setenv("TNY_REASONING_EFFORT", "xhigh", 1);
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_resolve_backend(ctx, "openai");
+    ASSERT_STR_EQ("xhigh", ctx->reasoning_effort);
+    tny_ctx_free(ctx);
+    unsetenv("TNY_REASONING_EFFORT");
+    PASS();
+}
+
+TEST effort_flag_beats_settings(void) {
+    ensure_env();
+    unsetenv("TNY_REASONING_EFFORT");
+    write_settings("{\"effort\":\"light\"}");
+    cli_globals g = {0};
+    g.cwd = g_ws;
+    g.backend = "openai";
+    g.effort = "max";
+    tny_ctx *ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    ASSERT_STR_EQ("max", ctx->reasoning_effort);
+    tny_ctx_free(ctx);
+
+    /* --effort default clears the settings default too, and an explicit
+     * choice survives a later provider re-resolve (TUI /provider) */
+    g.effort = "default";
+    ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    ASSERT_EQ(NULL, ctx->reasoning_effort);
+    tny_resolve_backend(ctx, "codex");
+    ASSERT_EQ(NULL, ctx->reasoning_effort);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST perm_safe_tool_inside_workspace(void) {
     ensure_env();
     write_settings("{}");
@@ -1127,6 +1203,373 @@ TEST output_schema_rejects_non_object(void) {
     PASS();
 }
 
+/* ---- Responses API wire translation (docs/adr/0016) ----
+ * Sessions persist chat-shaped messages; the responses wire translates
+ * them at request time. These pin the translation invariants. */
+
+/* One full loop of history: text turns, an assistant tool call, and its
+ * result must come out as the exact Responses item sequence. */
+TEST responses_input_translates_history(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session *s = session_new(ctx);
+    session_add_text(s, "user", "hello");
+    session_add_assistant(s, "hi there", NULL);
+    session_add_text(s, "user", "list files");
+    session_add_assistant(s, NULL,
+        "[{\"id\":\"call_9\",\"type\":\"function\",\"function\":"
+        "{\"name\":\"list_files\",\"arguments\":\"{\\\"path\\\": \\\".\\\"}\"}}]");
+    session_add_tool_result(s, "call_9", "a.txt\nb.txt");
+
+    char *in = tny_openai_responses_input(session_messages(s), 0, NULL);
+    ASSERT(in);
+    yyjson_doc *doc = jparse(in, strlen(in));
+    ASSERT(doc);
+    yyjson_val *arr = yyjson_doc_get_root(doc);
+    ASSERT(yyjson_is_arr(arr));
+    ASSERT_EQ_FMT(5, (int)yyjson_arr_size(arr), "%d");
+
+    yyjson_val *m0 = yyjson_arr_get(arr, 0);
+    ASSERT_STR_EQ("user", jget_str(m0, "role"));
+    ASSERT_STR_EQ("hello", jget_str(m0, "content"));
+    yyjson_val *m1 = yyjson_arr_get(arr, 1);
+    ASSERT_STR_EQ("assistant", jget_str(m1, "role"));
+    ASSERT_STR_EQ("hi there", jget_str(m1, "content"));
+
+    /* the null-content assistant message is only its function_call item */
+    yyjson_val *fc = yyjson_arr_get(arr, 3);
+    ASSERT_STR_EQ("function_call", jget_str(fc, "type"));
+    ASSERT_STR_EQ("call_9", jget_str(fc, "call_id"));
+    ASSERT_STR_EQ("list_files", jget_str(fc, "name"));
+    /* arguments stay a JSON *string*, byte-for-byte */
+    ASSERT_STR_EQ("{\"path\": \".\"}", jget_str(fc, "arguments"));
+    ASSERT_EQ(NULL, jget(fc, "role"));
+
+    yyjson_val *out = yyjson_arr_get(arr, 4);
+    ASSERT_STR_EQ("function_call_output", jget_str(out, "type"));
+    ASSERT_STR_EQ("call_9", jget_str(out, "call_id"));
+    ASSERT_STR_EQ("a.txt\nb.txt", jget_str(out, "output"));
+
+    yyjson_doc_free(doc);
+    free(in);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* The compaction summary rides as a leading system item and everything
+ * before the boundary is dropped from the wire. */
+TEST responses_input_honors_compact_boundary(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session *s = session_new(ctx);
+    session_add_text(s, "user", "old question");
+    session_add_assistant(s, "old answer", NULL);
+    session_add_text(s, "user", "new question");
+
+    char *in = tny_openai_responses_input(session_messages(s), 2, "the summary");
+    ASSERT(in);
+    yyjson_doc *doc = jparse(in, strlen(in));
+    yyjson_val *arr = yyjson_doc_get_root(doc);
+    ASSERT_EQ_FMT(2, (int)yyjson_arr_size(arr), "%d");
+    yyjson_val *m0 = yyjson_arr_get(arr, 0);
+    ASSERT_STR_EQ("system", jget_str(m0, "role"));
+    ASSERT_STR_EQ("the summary", jget_str(m0, "content"));
+    yyjson_val *m1 = yyjson_arr_get(arr, 1);
+    ASSERT_STR_EQ("user", jget_str(m1, "role"));
+    ASSERT_STR_EQ("new question", jget_str(m1, "content"));
+    yyjson_doc_free(doc);
+    free(in);
+
+    /* boundary 0 with a summary: no summary item (matches the chat wire) */
+    in = tny_openai_responses_input(session_messages(s), 0, "the summary");
+    ASSERT(in);
+    doc = jparse(in, strlen(in));
+    arr = yyjson_doc_get_root(doc);
+    ASSERT_EQ_FMT(3, (int)yyjson_arr_size(arr), "%d");
+    ASSERT_STR_EQ("user", jget_str(yyjson_arr_get(arr, 0), "role"));
+    yyjson_doc_free(doc);
+    free(in);
+
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* Image messages (chat text/image_url parts) become input_text/input_image
+ * parts with the data URL as a plain string. */
+TEST responses_input_translates_image_parts(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session *s = session_new(ctx);
+
+    char pngpath[600];
+    snprintf(pngpath, sizeof pngpath, "%s/dot2.png", g_ws);
+    file_write_atomic(pngpath, PNG1, sizeof PNG1);
+    const char *paths[] = {pngpath, NULL};
+    char err[256];
+    ASSERT_EQ(0, session_add_user_images(s, "look at this", paths, err, sizeof err));
+
+    char *in = tny_openai_responses_input(session_messages(s), 0, NULL);
+    ASSERT(in);
+    yyjson_doc *doc = jparse(in, strlen(in));
+    yyjson_val *arr = yyjson_doc_get_root(doc);
+    ASSERT_EQ_FMT(1, (int)yyjson_arr_size(arr), "%d");
+    yyjson_val *m = yyjson_arr_get(arr, 0);
+    ASSERT_STR_EQ("user", jget_str(m, "role"));
+    yyjson_val *parts = jget(m, "content");
+    ASSERT(yyjson_is_arr(parts));
+    ASSERT_EQ_FMT(2, (int)yyjson_arr_size(parts), "%d");
+    yyjson_val *tp = yyjson_arr_get(parts, 0);
+    ASSERT_STR_EQ("input_text", jget_str(tp, "type"));
+    ASSERT_STR_EQ("look at this", jget_str(tp, "text"));
+    yyjson_val *ip = yyjson_arr_get(parts, 1);
+    ASSERT_STR_EQ("input_image", jget_str(ip, "type"));
+    const char *url = jget_str(ip, "image_url");
+    ASSERT(url); /* a string, not chat's {"url":…} object */
+    ASSERT(str_starts(url, "data:image/png;base64,"));
+    yyjson_doc_free(doc);
+    free(in);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* Malformed stored messages (hand-edited sessions, buggy forks) must be
+ * skipped, never crash the translation or leak into the wire. */
+TEST responses_input_skips_malformed(void) {
+    yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
+    ASSERT(d);
+    yyjson_mut_val *msgs = yyjson_mut_arr(d);
+    yyjson_mut_doc_set_root(d, msgs);
+
+    /* user message whose parts have no type / an unknown type */
+    yyjson_mut_val *m = yyjson_mut_obj(d);
+    yyjson_mut_obj_put(m, yyjson_mut_strcpy(d, "role"), yyjson_mut_strcpy(d, "user"));
+    yyjson_mut_val *parts = yyjson_mut_arr(d);
+    yyjson_mut_val *p1 = yyjson_mut_obj(d); /* no "type" at all */
+    yyjson_mut_obj_put(p1, yyjson_mut_strcpy(d, "text"), yyjson_mut_strcpy(d, "x"));
+    yyjson_mut_arr_add_val(parts, p1);
+    yyjson_mut_val *p2 = yyjson_mut_obj(d);
+    yyjson_mut_obj_put(p2, yyjson_mut_strcpy(d, "type"), yyjson_mut_strcpy(d, "weird"));
+    yyjson_mut_arr_add_val(parts, p2);
+    yyjson_mut_val *p3 = yyjson_mut_obj(d); /* the one valid part */
+    yyjson_mut_obj_put(p3, yyjson_mut_strcpy(d, "type"), yyjson_mut_strcpy(d, "text"));
+    yyjson_mut_obj_put(p3, yyjson_mut_strcpy(d, "text"), yyjson_mut_strcpy(d, "ok"));
+    yyjson_mut_arr_add_val(parts, p3);
+    yyjson_mut_obj_put(m, yyjson_mut_strcpy(d, "content"), parts);
+    yyjson_mut_arr_add_val(msgs, m);
+
+    /* assistant message whose tool_calls is not an array */
+    yyjson_mut_val *m2 = yyjson_mut_obj(d);
+    yyjson_mut_obj_put(m2, yyjson_mut_strcpy(d, "role"),
+                       yyjson_mut_strcpy(d, "assistant"));
+    yyjson_mut_obj_put(m2, yyjson_mut_strcpy(d, "content"),
+                       yyjson_mut_strcpy(d, "fine"));
+    yyjson_mut_obj_put(m2, yyjson_mut_strcpy(d, "tool_calls"),
+                       yyjson_mut_strcpy(d, "not an array"));
+    yyjson_mut_arr_add_val(msgs, m2);
+
+    /* message with no role at all */
+    yyjson_mut_arr_add_val(msgs, yyjson_mut_obj(d));
+
+    char *in = tny_openai_responses_input(msgs, 0, NULL);
+    ASSERT(in);
+    yyjson_doc *doc = jparse(in, strlen(in));
+    ASSERT(doc);
+    yyjson_val *arr = yyjson_doc_get_root(doc);
+    ASSERT_EQ_FMT(2, (int)yyjson_arr_size(arr), "%d");
+    yyjson_val *u = yyjson_arr_get(arr, 0);
+    yyjson_val *up = jget(u, "content");
+    ASSERT_EQ_FMT(1, (int)yyjson_arr_size(up), "%d"); /* junk parts dropped */
+    ASSERT_STR_EQ("ok", jget_str(yyjson_arr_get(up, 0), "text"));
+    yyjson_val *a = yyjson_arr_get(arr, 1);
+    ASSERT_STR_EQ("assistant", jget_str(a, "role"));
+    ASSERT_STR_EQ("fine", jget_str(a, "content"));
+    yyjson_doc_free(doc);
+    free(in);
+    yyjson_mut_doc_free(d);
+
+    /* text_format: a json_schema wrapper whose payload is not an object
+     * degrades to the bare type, never crashes */
+    char *fmt = tny_openai_responses_text_format(
+        "{\"type\":\"json_schema\",\"json_schema\":42}");
+    ASSERT(fmt);
+    yyjson_doc *fd = jparse(fmt, strlen(fmt));
+    ASSERT_STR_EQ("json_schema", jget_str(yyjson_doc_get_root(fd), "type"));
+    ASSERT_EQ(NULL, jget(yyjson_doc_get_root(fd), "schema"));
+    yyjson_doc_free(fd);
+    free(fmt);
+    PASS();
+}
+
+/* The whole builtin tool schema must flatten: every entry keeps its name,
+ * description, and parameters at the top level and loses the nested
+ * "function" object the chat wire uses. */
+TEST responses_tools_flatten(void) {
+    tools_env env;
+    memset(&env, 0, sizeof env);
+    char *chat = tools_schema_json(&env);
+    ASSERT(chat);
+    char *flat = tny_openai_responses_tools(chat);
+    ASSERT(flat);
+
+    yyjson_doc *cd = jparse(chat, strlen(chat));
+    yyjson_doc *fd = jparse(flat, strlen(flat));
+    ASSERT(cd);
+    ASSERT(fd);
+    yyjson_val *ca = yyjson_doc_get_root(cd);
+    yyjson_val *fa = yyjson_doc_get_root(fd);
+    ASSERT_EQ(yyjson_arr_size(ca), yyjson_arr_size(fa));
+    size_t idx, max;
+    yyjson_val *t;
+    yyjson_arr_foreach(fa, idx, max, t) {
+        ASSERT_STR_EQ("function", jget_str(t, "type"));
+        ASSERT(jget_str(t, "name"));
+        ASSERT(jget_str(t, "description"));
+        ASSERT(yyjson_is_obj(jget(t, "parameters")));
+        ASSERT_EQ(NULL, jget(t, "function"));
+        /* same tool, same position as the chat schema */
+        yyjson_val *cfn = jget(yyjson_arr_get(ca, idx), "function");
+        ASSERT_STR_EQ(jget_str(cfn, "name"), jget_str(t, "name"));
+    }
+    yyjson_doc_free(cd);
+    yyjson_doc_free(fd);
+    free(flat);
+    free(chat);
+
+    /* junk in, NULL out */
+    ASSERT_EQ(NULL, tny_openai_responses_tools("{\"not\":\"an array\"}"));
+    ASSERT_EQ(NULL, tny_openai_responses_tools("not json"));
+    ASSERT_EQ(NULL, tny_openai_responses_tools(NULL));
+    PASS();
+}
+
+/* Chat response_format wrappers flatten into the Responses text.format
+ * object: json_schema members hoisted, no nested "json_schema" key. */
+TEST responses_text_format_flattens(void) {
+    const char *bare = "{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"integer\"}}}";
+    char *rf = tny_openai_response_format(bare, strlen(bare));
+    ASSERT(rf);
+    char *fmt = tny_openai_responses_text_format(rf);
+    ASSERT(fmt);
+    yyjson_doc *doc = jparse(fmt, strlen(fmt));
+    ASSERT(doc);
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    ASSERT_STR_EQ("json_schema", jget_str(root, "type"));
+    ASSERT_STR_EQ("output", jget_str(root, "name"));
+    ASSERT(jget_bool(root, "strict", false));
+    ASSERT_STR_EQ("object", jget_str(jget(root, "schema"), "type"));
+    ASSERT_EQ(NULL, jget(root, "json_schema"));
+    yyjson_doc_free(doc);
+    free(fmt);
+    free(rf);
+
+    /* a named wrapper keeps its name */
+    const char *named = "{\"type\":\"json_schema\",\"json_schema\":"
+                        "{\"name\":\"todo\",\"schema\":{\"type\":\"object\"}}}";
+    fmt = tny_openai_responses_text_format(named);
+    ASSERT(fmt);
+    doc = jparse(fmt, strlen(fmt));
+    ASSERT_STR_EQ("todo", jget_str(yyjson_doc_get_root(doc), "name"));
+    yyjson_doc_free(doc);
+    free(fmt);
+
+    /* non-json_schema wrappers and junk return NULL */
+    ASSERT_EQ(NULL, tny_openai_responses_text_format("{\"type\":\"text\"}"));
+    ASSERT_EQ(NULL, tny_openai_responses_text_format("not json"));
+    ASSERT_EQ(NULL, tny_openai_responses_text_format(NULL));
+    PASS();
+}
+
+/* wire_api resolution: responses is the default; settings, env, and named
+ * profiles opt into chat; OPENAI_WIRE_API beats the settings object. */
+TEST wire_api_resolution(void) {
+    ensure_env();
+    unsetenv("OPENAI_WIRE_API");
+
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(NULL, ctx->wire_api);
+    ASSERT_FALSE(tny_wire_is_chat(ctx->wire_api));
+    tny_ctx_free(ctx);
+    ASSERT_FALSE(tny_wire_is_chat(NULL));
+    ASSERT_FALSE(tny_wire_is_chat("responses"));
+    ASSERT(tny_wire_is_chat("chat"));
+
+    write_settings("{\"openai\":{\"wire_api\":\"chat\"}}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx->wire_api);
+    ASSERT_STR_EQ("chat", ctx->wire_api);
+    tny_ctx_free(ctx);
+
+    setenv("OPENAI_WIRE_API", "responses", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_STR_EQ("responses", ctx->wire_api);
+    ASSERT_FALSE(tny_wire_is_chat(ctx->wire_api));
+    tny_ctx_free(ctx);
+    unsetenv("OPENAI_WIRE_API");
+
+    /* a named settings profile carries its own wire */
+    write_settings("{\"legacy\":{\"base_url\":\"https://legacy.test/v1\","
+                   "\"wire_api\":\"chat\"}}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "legacy"));
+    ASSERT_STR_EQ("chat", ctx->wire_api);
+    /* switching back to the builtin restores the responses default */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_EQ(NULL, ctx->wire_api);
+    tny_ctx_free(ctx);
+
+    /* NAME_WIRE_API beats the profile object */
+    setenv("LEGACY_WIRE_API", "responses", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "legacy"));
+    ASSERT_STR_EQ("responses", ctx->wire_api);
+    tny_ctx_free(ctx);
+    unsetenv("LEGACY_WIRE_API");
+    write_settings("{}");
+    PASS();
+}
+
+/* --wire-api: chat and responses parse; anything else is a startup error. */
+TEST wire_api_flag(void) {
+    ensure_env();
+    unsetenv("OPENAI_WIRE_API");
+    write_settings("{}");
+
+    char *argv[] = {"tny", "--provider", "openai", "--wire-api", "chat",
+                    "ask", "hi", NULL};
+    cli_globals g = {0};
+    int ci = cli_parse_globals(7, argv, &g);
+    ASSERT_EQ(5, ci);
+    ASSERT_STR_EQ("chat", g.wire_api);
+    g.cwd = g_ws;
+    tny_ctx *ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    ASSERT_STR_EQ("chat", ctx->wire_api);
+    tny_ctx_free(ctx);
+
+    cli_globals g2 = {0};
+    g2.backend = "openai";
+    g2.cwd = g_ws;
+    g2.wire_api = "responses";
+    ctx = cli_make_ctx(&g2);
+    ASSERT(ctx);
+    ASSERT_STR_EQ("responses", ctx->wire_api);
+    tny_ctx_free(ctx);
+
+    cli_globals g3 = {0};
+    g3.backend = "openai";
+    g3.cwd = g_ws;
+    g3.wire_api = "grpc"; /* nonsense must fail at startup */
+    ASSERT_EQ(NULL, cli_make_ctx(&g3));
+    PASS();
+}
+
 /* TNY_VERSION is generated from git describe at build time (docs/adr/0014).
  * Assert shape, never a literal: non-empty, no v prefix, printable, no
  * whitespace or quotes that would break JSON/header embedding. */
@@ -1159,6 +1602,10 @@ SUITE(core_suite) {
     RUN_TEST(perm_mode_overrides_parse);
     RUN_TEST(effort_wire_mapping);
     RUN_TEST(effort_env_loads);
+    RUN_TEST(effort_settings_global_default);
+    RUN_TEST(effort_settings_per_provider);
+    RUN_TEST(effort_env_beats_settings);
+    RUN_TEST(effort_flag_beats_settings);
     RUN_TEST(perm_safe_tool_inside_workspace);
     RUN_TEST(perm_rules_last_match_wins);
     RUN_TEST(perm_workspace_beats_global);
@@ -1181,5 +1628,13 @@ SUITE(core_suite) {
     RUN_TEST(output_schema_names_anonymous_json_schema_object);
     RUN_TEST(output_schema_passes_full_wrapper_through);
     RUN_TEST(output_schema_rejects_non_object);
+    RUN_TEST(responses_input_translates_history);
+    RUN_TEST(responses_input_honors_compact_boundary);
+    RUN_TEST(responses_input_translates_image_parts);
+    RUN_TEST(responses_input_skips_malformed);
+    RUN_TEST(responses_tools_flatten);
+    RUN_TEST(responses_text_format_flattens);
+    RUN_TEST(wire_api_resolution);
+    RUN_TEST(wire_api_flag);
     RUN_TEST(version_string_is_sane);
 }

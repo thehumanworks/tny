@@ -20,6 +20,10 @@ bool tny_tier_is_fast(const char *tier) {
     return tier && (strcmp(tier, "fast") == 0 || strcmp(tier, "priority") == 0);
 }
 
+bool tny_wire_is_chat(const char *wire_api) {
+    return wire_api && strcmp(wire_api, "chat") == 0;
+}
+
 static const char *bk_names[TNY_BK_COUNT] = {"openai", "cursor", "codex", "acp"};
 
 /* Canonical levels (TNY_EFFORT_LEVELS) and their per-provider wire words.
@@ -231,6 +235,10 @@ static void load_openai_profile(tny_ctx *ctx) {
     const char *mtf = jget_str(oa, "max_tokens_field");
     free(ctx->max_tokens_field);
     ctx->max_tokens_field = mtf ? xstrdup(mtf) : NULL;
+    const char *wa = getenv("OPENAI_WIRE_API");
+    if (!wa || !*wa) wa = jget_str(oa, "wire_api");
+    free(ctx->wire_api);
+    ctx->wire_api = wa && *wa ? xstrdup(wa) : NULL; /* NULL = responses */
 }
 
 /* Point ctx at a named provider: settings profile, env vars, or both
@@ -260,6 +268,10 @@ static void apply_custom_provider(tny_ctx *ctx, const char *name) {
     const char *mtf = jget_str(o, "max_tokens_field");
     free(ctx->max_tokens_field);
     ctx->max_tokens_field = mtf ? xstrdup(mtf) : NULL;
+    const char *wa = derived_env_value(name, "_WIRE_API");
+    if (!wa) wa = jget_str(o, "wire_api");
+    free(ctx->wire_api);
+    ctx->wire_api = wa && *wa ? xstrdup(wa) : NULL; /* NULL = responses */
 }
 
 tny_ctx *tny_ctx_load(const char *cwd_flag) {
@@ -320,8 +332,11 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
         else if (strcmp(pm_env, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;
     }
 
-    /* reasoning effort: env only; --effort overrides in cli_make_ctx.
-     * Process-memory after that (like /fast) — never persisted. */
+    /* reasoning effort: env here; a settings.json default is applied after
+     * the provider resolves (apply_provider_effort); --effort overrides in
+     * cli_make_ctx. tny never *writes* the effort back to settings — a
+     * scripted `tny ask --effort X` must not change tomorrow's session
+     * (docs/adr/0009, docs/adr/0015). */
     const char *re_env = getenv("TNY_REASONING_EFFORT");
     if (re_env && *re_env) ctx->reasoning_effort = xstrdup(re_env);
 
@@ -405,6 +420,30 @@ static void apply_provider_model(tny_ctx *ctx, int id) {
     }
 }
 
+/* Settings-default reasoning effort (docs/adr/0015), applied once the
+ * provider is known. Weakest link in the chain: --effort and /effort
+ * (effort_explicit) beat TNY_REASONING_EFFORT (already loaded) beat this.
+ * `"effort"` is either one string for every provider or a per-provider
+ * object like `"models"`; "default"/empty entries mean provider default. */
+static void apply_provider_effort(tny_ctx *ctx) {
+    if (ctx->effort_explicit) return;               /* --effort / /effort */
+    if (ctx->reasoning_effort && !ctx->effort_from_settings) return; /* env */
+    /* (re)compute for the provider that just resolved: a per-provider
+     * settings value must not leak into a /provider switch */
+    free(ctx->reasoning_effort);
+    ctx->reasoning_effort = NULL;
+    ctx->effort_from_settings = false;
+    if (!ctx->settings) return;
+    yyjson_val *e = jget(yyjson_doc_get_root(ctx->settings), "effort");
+    const char *v = NULL;
+    if (yyjson_is_str(e)) v = yyjson_get_str(e);
+    else if (yyjson_is_obj(e)) v = jget_str(e, tny_provider_name(ctx));
+    if (v && *v && strcmp(v, "default") != 0) {
+        ctx->reasoning_effort = xstrdup(v);
+        ctx->effort_from_settings = true;
+    }
+}
+
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
     int id = -1;
     const char *custom_name = NULL;
@@ -462,6 +501,7 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
         load_openai_profile(ctx);
     }
     apply_provider_model(ctx, id);
+    apply_provider_effort(ctx);
     free(env_pick);
     return ctx->backend;
 }
@@ -613,6 +653,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->auth_header_name);
     free(ctx->auth_header_prefix);
     free(ctx->max_tokens_field);
+    free(ctx->wire_api);
     free(ctx->output_schema);
     free(ctx->bridge_bin);
     free(ctx->codex_ws);
