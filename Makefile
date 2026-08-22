@@ -208,6 +208,58 @@ install: release
 site:
 	python3 scripts/site_build.py
 
+# ---- wasm (docs/adr/0017): the same sources, the browser/node seams ----
+# Two links from one object set: tny.js (node, NODERAWFS — what CI drives
+# through the existing integration suite) and tny-web.mjs (browser, MEMFS —
+# what the landing page loads). The C is identical; only FS + env glue differ.
+EMCC        ?= emcc
+OBJ_WASM     = $(BUILD)/wasm/obj
+WASM_NODE    = $(BUILD)/wasm/tny.js
+WASM_WEB     = $(BUILD)/wasm/tny-web.mjs
+WASM_SRC    := $(SRC_SHARED) $(SRC_WASM_ONLY) $(TP_WASM)
+WASM_OBJS   := $(WASM_SRC:%.c=$(OBJ_WASM)/%.o)
+WASM_CFLAGS  = $(STD) $(WARN) $(INC) $(DEFS) -Os
+# Asyncify is the suspension mechanism (JSPI is Chrome-only, COOP/COEP for
+# workers cannot be set on GitHub Pages). Broad instrumentation first; narrow
+# later if the size budget demands it (docs/adr/0017 footguns).
+WASM_LDFLAGS = -Os -sASYNCIFY -sASYNCIFY_STACK_SIZE=131072 \
+               -sALLOW_MEMORY_GROWTH -sEXIT_RUNTIME=1 -sSTACK_SIZE=1048576
+
+$(OBJ_WASM)/%.o: %.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(EMCC) $(WASM_CFLAGS) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
+
+$(WASM_NODE): $(WASM_OBJS) src/wasm/pre_node.js
+	@mkdir -p $(@D)
+	$(EMCC) $(WASM_LDFLAGS) -sENVIRONMENT=node -sNODERAWFS \
+		--pre-js src/wasm/pre_node.js -o $@ $(WASM_OBJS)
+	@printf '#!/bin/sh\nexec node "%s" "$$@"\n' "$$(cd $(@D) && pwd)/tny.js" > $(@D)/tny
+	@chmod +x $(@D)/tny
+	@wc -c $@ $(@:.js=.wasm)
+
+$(WASM_WEB): $(WASM_OBJS) src/wasm/pre_web.js
+	@mkdir -p $(@D)
+	$(EMCC) $(WASM_LDFLAGS) -sENVIRONMENT=web -sMODULARIZE -sEXPORT_ES6 \
+		-sINVOKE_RUN=0 -sEXPORTED_RUNTIME_METHODS=callMain,FS,ENV \
+		--pre-js src/wasm/pre_web.js -o $@ $(WASM_OBJS)
+	@wc -c $@ $(@:.mjs=.wasm)
+
+wasm: $(WASM_NODE)
+wasm-web: $(WASM_WEB)
+
+# wasm size budget: artifact (js glue + wasm) stays under the Linux native
+# budget so the browser build cannot quietly outgrow the product invariant.
+WASM_SIZE_MAX ?= 1572864
+wasm-size-check: wasm
+	@bytes=$$(cat $(WASM_NODE) $(WASM_NODE:.js=.wasm) | wc -c | tr -d ' '); \
+	echo "$$bytes wasm artifact (limit $(WASM_SIZE_MAX))"; \
+	if [ "$$bytes" -gt "$(WASM_SIZE_MAX)" ]; then \
+		echo "error: wasm artifact is $$bytes bytes, over the $(WASM_SIZE_MAX)-byte budget" >&2; \
+		exit 1; \
+	fi
+
+.PHONY: wasm wasm-web wasm-size-check
+
 clean:
 	rm -rf $(BUILD) dist
 

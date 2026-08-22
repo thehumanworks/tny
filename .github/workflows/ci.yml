@@ -173,9 +173,44 @@ jobs:
             dist/msys-2.0.dll
           if-no-files-found: error
 
+  wasm:
+    # Parity by construction (docs/adr/0017): the wasm binary must pass the
+    # SAME openai integration suite against the SAME strict mocks the native
+    # binary does. A drifted browser build is a red X here, not a code review
+    # comment.
+    name: wasm-node
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.8   # the release the suite was validated against
+          actions-cache-folder: emsdk-cache
+
+      - name: Build wasm, run the openai suite under node, size guard
+        run: |
+          set -eu
+          emcc --version | head -1
+          node --version
+          make -j"$(getconf _NPROCESSORS_ONLN)" wasm wasm-web
+          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_openai.py
+          make wasm-size-check
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tny-wasm
+          path: |
+            build/wasm/tny.js
+            build/wasm/tny.wasm
+            build/wasm/tny-web.mjs
+            build/wasm/tny-web.wasm
+          if-no-files-found: error
+
   ci:
     name: ci
-    needs: [build, musl, windows]
+    needs: [build, musl, windows, wasm]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -185,3 +220,4 @@ jobs:
           test "${{ needs.build.result }}" = "success"
           test "${{ needs.musl.result }}" = "success"
           test "${{ needs.windows.result }}" = "success"
+          test "${{ needs.wasm.result }}" = "success"

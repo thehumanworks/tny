@@ -84,5 +84,10 @@ int main(int argc, char **argv) {
     tny_ctx_free(ctx);
     free(g.add_dirs);
     free(g.agent_argv);
+#ifdef __EMSCRIPTEN__
+    /* an Asyncified main's return value is dropped after an unwind; only an
+     * explicit exit() carries the code to the host (docs/adr/0017) */
+    exit(rc);
+#endif
     return rc;
 }
