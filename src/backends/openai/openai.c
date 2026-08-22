@@ -1,5 +1,6 @@
-/* openai.c — native OpenAI-compatible backend: Chat Completions SSE + the
- * tny-owned tool loop (docs/backends/openai-compatible.md). */
+/* openai.c — native OpenAI-compatible backend: Responses API SSE (default)
+ * or Chat Completions SSE (wire_api "chat"), plus the tny-owned tool loop
+ * (docs/backends/openai-compatible.md, docs/adr/0014). */
 #include "backends/openai/openai.h"
 #include "core/tools.h"
 #include "core/image.h"
@@ -20,6 +21,7 @@ typedef struct {
     char *id;
     char *name;
     buf_t args;
+    int64_t oindex;         /* responses wire: the item's output_index */
 } pending_call;
 
 typedef enum { ST_IDLE, ST_HEADERS, ST_BODY } oa_state;
@@ -39,7 +41,9 @@ typedef struct {
     int  ncalls;
     int  step;
     bool cancelled;
-    bool stream_done;       /* saw [DONE] */
+    bool wire_chat;         /* this POST rides the legacy chat wire */
+    bool stream_done;       /* saw [DONE] / response.completed */
+    bool stream_failed;     /* responses wire signalled a terminal error */
     char finish_reason[32];
     int64_t usage_in, usage_out;
 
@@ -101,8 +105,30 @@ static const char *model_of(oa_impl *o) {
     return o->ctx->model ? o->ctx->model : OPENAI_DEFAULT_MODEL;
 }
 
-/* Build the request body from the session view. */
-static char *build_request(oa_impl *o) {
+/* The shared system preamble: workspace, AGENTS.md chain, skill catalog. */
+static void build_system_prompt(oa_impl *o, buf_t *sys) {
+    buf_appendf(sys,
+        "You are tny, a fast coding agent running in a terminal.\n"
+        "Primary workspace: %s\n"
+        "Use the provided tools to inspect and change the workspace. Prefer "
+        "small, verifiable steps. When you are done, answer in Markdown.\n",
+        o->ctx->cwd);
+    for (int i = 0; i < o->ctx->n_extra_dirs; i++)
+        buf_appendf(sys, "Additional workspace directory: %s\n", o->ctx->extra_dirs[i]);
+    instructions_collect(o->ctx, sys);
+    /* skill catalog: names only, lazy bodies */
+    int nsk = 0;
+    skill_meta *sk = skills_discover(o->ctx, &nsk);
+    if (nsk > 0) {
+        buf_appends(sys, "\nAvailable skills (load with the `skill` tool):\n");
+        for (int i = 0; i < nsk; i++)
+            buf_appendf(sys, "- %s: %.140s\n", sk[i].name, sk[i].description);
+    }
+    skills_free(sk, nsk);
+}
+
+/* Build the legacy Chat Completions request body from the session view. */
+static char *build_request_chat(oa_impl *o) {
     tny_session *s = o->env.session;
     buf_t b;
     buf_init(&b);
@@ -117,28 +143,9 @@ static char *build_request(oa_impl *o) {
         buf_appends(&b, ",\"service_tier\":\"priority\"");
     buf_appends(&b, ",\"stream\":true,\"messages\":[");
 
-    /* system preamble */
     buf_t sys;
     buf_init(&sys);
-    buf_appendf(&sys,
-        "You are tny, a fast coding agent running in a terminal.\n"
-        "Primary workspace: %s\n"
-        "Use the provided tools to inspect and change the workspace. Prefer "
-        "small, verifiable steps. When you are done, answer in Markdown.\n",
-        o->ctx->cwd);
-    for (int i = 0; i < o->ctx->n_extra_dirs; i++)
-        buf_appendf(&sys, "Additional workspace directory: %s\n", o->ctx->extra_dirs[i]);
-    instructions_collect(o->ctx, &sys);
-    /* skill catalog: names only, lazy bodies */
-    int nsk = 0;
-    skill_meta *sk = skills_discover(o->ctx, &nsk);
-    if (nsk > 0) {
-        buf_appends(&sys, "\nAvailable skills (load with the `skill` tool):\n");
-        for (int i = 0; i < nsk; i++)
-            buf_appendf(&sys, "- %s: %.140s\n", sk[i].name, sk[i].description);
-    }
-    skills_free(sk, nsk);
-
+    build_system_prompt(o, &sys);
     buf_appends(&b, "{\"role\":\"system\",\"content\":");
     jescape(&b, sys.data);
     buf_appends(&b, "}");
@@ -181,6 +188,60 @@ static char *build_request(oa_impl *o) {
     return buf_detach(&b);
 }
 
+/* Build the Responses API request body (docs/adr/0014): the stored chat
+ * shape is translated onto `input` items, tools ride flat, structured
+ * output rides `text.format`, and reasoning effort rides
+ * `reasoning.effort`. store:false — tny owns session state, never the
+ * provider. */
+static char *build_request_rsp(oa_impl *o) {
+    tny_session *s = o->env.session;
+    buf_t b;
+    buf_init(&b);
+    buf_appends(&b, "{\"model\":");
+    jescape(&b, model_of(o));
+    if (tny_tier_is_fast(o->ctx->service_tier))
+        buf_appends(&b, ",\"service_tier\":\"priority\"");
+    buf_appends(&b, ",\"stream\":true,\"store\":false");
+
+    buf_t sys;
+    buf_init(&sys);
+    build_system_prompt(o, &sys);
+    buf_appends(&b, ",\"instructions\":");
+    jescape(&b, sys.data);
+    buf_free(&sys);
+
+    const char *summary = NULL;
+    int boundary = session_compact_boundary(s, &summary);
+    char *input = tny_openai_responses_input(session_messages(s), boundary, summary);
+    buf_appendf(&b, ",\"input\":%s", input ? input : "[]");
+    free(input);
+
+    char *schema = tools_schema_json(&o->env);
+    char *flat = tny_openai_responses_tools(schema);
+    buf_appendf(&b, ",\"tools\":%s,\"tool_choice\":\"auto\"", flat ? flat : "[]");
+    free(flat);
+    free(schema);
+
+    if (o->ctx->output_schema) {
+        char *fmt = tny_openai_responses_text_format(o->ctx->output_schema);
+        if (fmt) {
+            buf_appendf(&b, ",\"text\":{\"format\":%s}", fmt);
+            free(fmt);
+        }
+    }
+    /* max_tokens_field set means the user wants a completion cap; the
+     * Responses wire spells it max_output_tokens whatever the chat quirk */
+    if (o->ctx->max_tokens_field)
+        buf_appends(&b, ",\"max_output_tokens\":8192");
+    if (o->ctx->reasoning_effort && *o->ctx->reasoning_effort) {
+        buf_appends(&b, ",\"reasoning\":{\"effort\":");
+        jescape(&b, tny_effort_wire(TNY_BK_OPENAI, o->ctx->reasoning_effort));
+        buf_appends(&b, "}");
+    }
+    buf_appends(&b, "}");
+    return buf_detach(&b);
+}
+
 static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
     char err[256];
     if (!o->conn) {
@@ -190,7 +251,10 @@ static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
             return -1;
         }
     }
-    char *body = build_request(o);
+    /* the wire is read per POST so /provider and settings edits apply on
+     * the next request, and every event in one stream parses consistently */
+    o->wire_chat = tny_wire_is_chat(o->ctx->wire_api);
+    char *body = o->wire_chat ? build_request_chat(o) : build_request_rsp(o);
     buf_t auth;
     buf_init(&auth);
     buf_appendf(&auth, "%s: %s%s", o->ctx->auth_header_name,
@@ -203,7 +267,8 @@ static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
     };
     buf_t path;
     buf_init(&path);
-    buf_appendf(&path, "%s/chat/completions", http_prefix(o->conn));
+    buf_appendf(&path, "%s%s", http_prefix(o->conn),
+                o->wire_chat ? "/chat/completions" : "/responses");
     int rc = http_request(o->conn, "POST", path.data, hdrs, body, strlen(body));
     if (rc != 0) {
         /* stale keep-alive: reopen once */
@@ -221,6 +286,7 @@ static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
     }
     o->state = ST_HEADERS;
     o->stream_done = false;
+    o->stream_failed = false;
     o->finish_reason[0] = 0;
     buf_clear(&o->text);
     sse_parser_free(&o->sse);
@@ -230,7 +296,7 @@ static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
 
 /* ---------- SSE event handling ---------- */
 
-static void on_sse_event(const char *data, size_t len, void *ud) {
+static void on_sse_event_chat(const char *data, size_t len, void *ud) {
     oa_impl *o = ud;
     if ((len == 6 && memcmp(data, "[DONE]", 6) == 0) ||
         (len == 4 && memcmp(data, "DONE", 4) == 0)) {
@@ -285,6 +351,105 @@ static void on_sse_event(const char *data, size_t len, void *ud) {
         }
     }
     yyjson_doc_free(doc);
+}
+
+/* Responses wire: pending call for one output_index, or NULL. */
+static pending_call *rsp_call_by_index(oa_impl *o, int64_t oindex) {
+    for (int i = 0; i < o->ncalls; i++)
+        if (o->calls[i].oindex == oindex) return &o->calls[i];
+    return NULL;
+}
+
+/* Typed Responses API events (docs/adr/0014). The SSE parser drops the
+ * `event:` line; every payload repeats the type in its "type" member, so
+ * dispatch happens on the data alone. */
+static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
+    oa_impl *o = ud;
+    if (len == 6 && memcmp(data, "[DONE]", 6) == 0) {
+        /* not part of the Responses stream, but some gateways send it */
+        o->stream_done = true;
+        return;
+    }
+    yyjson_doc *doc = jparse(data, len);
+    if (!doc) return; /* never block the loop on a parse error */
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    const char *type = jget_str(root, "type");
+    if (!type) { yyjson_doc_free(doc); return; }
+
+    if (strcmp(type, "response.output_text.delta") == 0) {
+        const char *d = jget_str(root, "delta");
+        if (d && *d) {
+            buf_appends(&o->text, d);
+            emit_text(o, TNY_EV_TEXT_DELTA, d, strlen(d));
+        }
+    } else if (strcmp(type, "response.reasoning_summary_text.delta") == 0 ||
+               strcmp(type, "response.reasoning_text.delta") == 0) {
+        const char *d = jget_str(root, "delta");
+        if (d && *d) emit_text(o, TNY_EV_THINKING, d, strlen(d));
+    } else if (strcmp(type, "response.output_item.added") == 0 ||
+               strcmp(type, "response.output_item.done") == 0) {
+        yyjson_val *item = jget(root, "item");
+        const char *itype = jget_str(item, "type");
+        if (itype && strcmp(itype, "function_call") == 0) {
+            int64_t oindex = jget_int(root, "output_index", o->ncalls);
+            pending_call *pc = rsp_call_by_index(o, oindex);
+            if (!pc && o->ncalls < MAX_TOOL_CALLS) {
+                pc = &o->calls[o->ncalls++];
+                pc->id = NULL;
+                pc->name = NULL;
+                buf_init(&pc->args);
+                pc->oindex = oindex;
+            }
+            if (pc) {
+                const char *id = jget_str(item, "call_id");
+                if (id && !pc->id) pc->id = xstrdup(id);
+                const char *name = jget_str(item, "name");
+                if (name && !pc->name) pc->name = xstrdup(name);
+                /* item.done carries the complete argument string — it is
+                 * authoritative over deltas assembled along the way */
+                const char *args = jget_str(item, "arguments");
+                if (args && *args) {
+                    buf_clear(&pc->args);
+                    buf_appends(&pc->args, args);
+                }
+            }
+        }
+    } else if (strcmp(type, "response.function_call_arguments.delta") == 0) {
+        pending_call *pc = rsp_call_by_index(o, jget_int(root, "output_index", -1));
+        const char *d = jget_str(root, "delta");
+        if (pc && d) buf_appends(&pc->args, d);
+    } else if (strcmp(type, "response.completed") == 0) {
+        yyjson_val *usage = jget(jget(root, "response"), "usage");
+        if (usage) {
+            o->usage_in = jget_int(usage, "input_tokens", o->usage_in);
+            o->usage_out = jget_int(usage, "output_tokens", o->usage_out);
+        }
+        o->stream_done = true;
+    } else if (strcmp(type, "response.incomplete") == 0) {
+        /* token/limit cutoff: keep the partial text, end the step cleanly
+         * (the chat wire treats finish_reason "length" the same way) */
+        o->stream_done = true;
+    } else if (strcmp(type, "response.failed") == 0 ||
+               strcmp(type, "error") == 0) {
+        yyjson_val *err = jget(jget(root, "response"), "error");
+        if (!err) err = jget(root, "error");
+        const char *msg = jget_str(err, "message");
+        if (!msg) msg = jget_str(root, "message");
+        buf_t m;
+        buf_init(&m);
+        buf_appendf(&m, "provider error: %s", msg ? msg : "response failed");
+        emit_text(o, TNY_EV_ERROR, m.data, m.len);
+        buf_free(&m);
+        o->stream_done = true;
+        o->stream_failed = true;
+    }
+    yyjson_doc_free(doc);
+}
+
+static void on_sse_event(const char *data, size_t len, void *ud) {
+    oa_impl *o = ud;
+    if (o->wire_chat) on_sse_event_chat(data, len, ud);
+    else on_sse_event_rsp(data, len, ud);
 }
 
 /* ---------- step completion ---------- */
@@ -581,13 +746,22 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             emit_turn_end(o, TNY_STOP_ERROR);
             return -1;
         }
+        if (o->stream_failed) {
+            /* the provider ended the response with a terminal error event
+             * (already surfaced): keep partial text recoverable, stop */
+            if (o->text.len) session_recovery_write(o->env.session, o->text.data);
+            emit_turn_end(o, TNY_STOP_ERROR);
+            return -1;
+        }
         return step_finished(o);
     }
 }
 
 static int oa_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
+    const char *wire = tny_wire_is_chat(ctx->wire_api) ? ", wire chat" : "";
     if (ctx->api_key) {
-        snprintf(line, linelen, "openai: key present, base_url %s", ctx->base_url);
+        snprintf(line, linelen, "openai: key present, base_url %s%s",
+                 ctx->base_url, wire);
         return 0;
     }
     if (str_starts(ctx->base_url, "http://")) {

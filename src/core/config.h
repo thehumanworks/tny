@@ -33,6 +33,7 @@ typedef struct tny_ctx {
     char *auth_header_name; /* default Authorization */
     char *auth_header_prefix; /* default "Bearer " */
     char *max_tokens_field; /* NULL = omit */
+    char *wire_api;         /* "responses" (default) | "chat" (docs/adr/0014) */
     char *output_schema;    /* normalized response_format JSON, or NULL */
 
     /* cursor */
@@ -133,5 +134,9 @@ const char *tny_effort_wire(int backend, const char *v);
 /* True when the tier string names the paid fast tier. OpenAI renamed
  * "priority" processing to "fast" mode; both spellings select it. */
 bool tny_tier_is_fast(const char *tier);
+
+/* True when ctx->wire_api selects the legacy Chat Completions wire. The
+ * default (NULL or anything else) is the Responses API (docs/adr/0014). */
+bool tny_wire_is_chat(const char *wire_api);
 
 #endif

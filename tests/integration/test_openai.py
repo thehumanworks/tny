@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """End-to-end: tny ask --json against the mock OpenAI provider.
 
-Covers the full native loop: SSE streaming, fragmented tool_call assembly,
-tool execution (list_files), second POST, session persistence + resume.
+Covers the full native loop on the default Responses API wire (the mock
+400s anything that hits /chat/completions): typed SSE streaming split at
+arbitrary byte boundaries, fragmented function_call assembly, tool
+execution (list_files), second POST with the echoed function_call +
+function_call_output items, session persistence + resume. A second block
+re-runs the loop on the legacy chat wire via OPENAI_WIRE_API=chat,
+--wire-api chat, and the settings wire_api key (docs/adr/0014), and a
+third exercises the response.failed error path.
 """
 import json
 import os
@@ -27,7 +33,10 @@ def free_port():
 
 def main():
     port = free_port()
+    # the default wire must be the Responses API: any request that falls
+    # back to /chat/completions makes this mock 400 and the run fail
     mock = subprocess.Popen([sys.executable, MOCK, str(port)],
+                            env=dict(os.environ, MOCK_EXPECT_WIRE="responses"),
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     try:
         line = mock.stdout.readline().decode()
@@ -152,14 +161,16 @@ def main():
             assert r9.returncode == 1, r9.stderr.decode()
             assert b"openai-compatible provider" in r9.stderr, r9.stderr
 
-            # --effort: a second mock demands reasoning_effort=xhigh; the
-            # canonical "max" must clamp to xhigh on the OpenAI wire, and the
-            # mock 400s any request that carries something else (the earlier
-            # runs already proved the field is absent without the flag).
+            # --effort: a second mock demands effort=xhigh; the canonical
+            # "max" must clamp to xhigh and ride reasoning.effort on the
+            # responses wire (the mock 400s a chat-style reasoning_effort
+            # member, and the earlier runs already proved the field is
+            # absent without the flag).
             eport = free_port()
             emock = subprocess.Popen(
                 [sys.executable, MOCK, str(eport)],
-                env=dict(os.environ, MOCK_EXPECT_EFFORT="xhigh"),
+                env=dict(os.environ, MOCK_EXPECT_EFFORT="xhigh",
+                         MOCK_EXPECT_WIRE="responses"),
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             try:
                 line = emock.stdout.readline().decode()
@@ -175,6 +186,100 @@ def main():
             finally:
                 emock.terminate()
                 emock.wait(timeout=5)
+
+            # a terminal response.failed event is a run error (exit 2)
+            # whose message reaches stderr, never a silent empty answer
+            fport = free_port()
+            fmock = subprocess.Popen(
+                [sys.executable, MOCK, str(fport)],
+                env=dict(os.environ, MOCK_FAIL_RESPONSE="mock exploded"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = fmock.stdout.readline().decode()
+                assert "ready" in line, f"fail mock did not start: {line!r}"
+                fenv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{fport}/v1")
+                r11 = subprocess.run(
+                    [TNY, "--cwd", ws, "ask", "--no-save", "boom please"],
+                    env=fenv, capture_output=True, timeout=30)
+                assert r11.returncode == 2, \
+                    f"exit {r11.returncode}: {r11.stderr.decode()}"
+                assert b"mock exploded" in r11.stderr, r11.stderr
+            finally:
+                fmock.terminate()
+                fmock.wait(timeout=5)
+
+            # ---- legacy chat wire (wire_api "chat", docs/adr/0014) ----
+            # a chat-only mock: any request to /responses 400s, so these
+            # runs prove each opt-in spelling really switches the wire
+            cport = free_port()
+            cmock = subprocess.Popen(
+                [sys.executable, MOCK, str(cport)],
+                env=dict(os.environ, MOCK_EXPECT_WIRE="chat"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = cmock.stdout.readline().decode()
+                assert "ready" in line, f"chat mock did not start: {line!r}"
+                cbase = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{cport}/v1")
+
+                # 1. OPENAI_WIRE_API=chat
+                cenv = dict(cbase, OPENAI_WIRE_API="chat")
+                r12 = subprocess.run(
+                    [TNY, "--cwd", ws, "ask", "--json", "--no-save",
+                     "list files in ."],
+                    env=cenv, capture_output=True, timeout=30)
+                assert r12.returncode == 0, \
+                    f"exit {r12.returncode}: {r12.stderr.decode()}"
+                out12 = json.loads(r12.stdout)
+                assert "MOCK-OK" in out12["output"], out12
+                assert out12["steps"] == 2, out12
+                assert out12["tool_calls"][0]["name"] == "list_files", out12
+
+                # 2. --wire-api chat (flag beats the responses default)
+                r13 = subprocess.run(
+                    [TNY, "--cwd", ws, "--wire-api", "chat", "ask", "--json",
+                     "--no-save", "list files in ."],
+                    env=cbase, capture_output=True, timeout=30)
+                assert r13.returncode == 0, \
+                    f"exit {r13.returncode}: {r13.stderr.decode()}"
+                assert b"MOCK-OK" in r13.stdout, r13.stdout
+
+                # 3. settings.json {"openai":{"wire_api":"chat"}}
+                tnydir = os.path.join(home, ".tny")
+                os.makedirs(tnydir, exist_ok=True)
+                settings = os.path.join(tnydir, "settings.json")
+                open(settings, "w").write('{"openai":{"wire_api":"chat"}}')
+                try:
+                    r14 = subprocess.run(
+                        [TNY, "--cwd", ws, "ask", "--json", "--no-save",
+                         "list files in ."],
+                        env=cbase, capture_output=True, timeout=30)
+                    assert r14.returncode == 0, \
+                        f"exit {r14.returncode}: {r14.stderr.decode()}"
+                    assert b"MOCK-OK" in r14.stdout, r14.stdout
+                finally:
+                    os.remove(settings)
+
+                # 4. structured outputs still ride response_format on chat
+                schema = ('{"type":"object","properties":{"count":'
+                          '{"type":"integer"}},"required":["count"],'
+                          '"additionalProperties":false}')
+                r15 = subprocess.run(
+                    [TNY, "--cwd", ws, "--wire-api", "chat", "ask", "--json",
+                     "--no-save", "--output-schema", schema, "how many?"],
+                    env=cbase, capture_output=True, timeout=30)
+                assert r15.returncode == 0, \
+                    f"exit {r15.returncode}: {r15.stderr.decode()}"
+                assert json.loads(json.loads(r15.stdout)["output"])["count"] == 3
+
+                # 5. --wire-api rejects unknown values at startup
+                r16 = subprocess.run(
+                    [TNY, "--cwd", ws, "--wire-api", "grpc", "ask", "hi"],
+                    env=cbase, capture_output=True, timeout=15)
+                assert r16.returncode == 1, r16.stderr.decode()
+                assert b"--wire-api must be responses|chat" in r16.stderr, r16.stderr
+            finally:
+                cmock.terminate()
+                cmock.wait(timeout=5)
         print("test_openai: all assertions passed")
     finally:
         mock.terminate()

@@ -20,6 +20,10 @@ bool tny_tier_is_fast(const char *tier) {
     return tier && (strcmp(tier, "fast") == 0 || strcmp(tier, "priority") == 0);
 }
 
+bool tny_wire_is_chat(const char *wire_api) {
+    return wire_api && strcmp(wire_api, "chat") == 0;
+}
+
 static const char *bk_names[TNY_BK_COUNT] = {"openai", "cursor", "codex", "acp"};
 
 /* Canonical levels (TNY_EFFORT_LEVELS) and their per-provider wire words.
@@ -231,6 +235,10 @@ static void load_openai_profile(tny_ctx *ctx) {
     const char *mtf = jget_str(oa, "max_tokens_field");
     free(ctx->max_tokens_field);
     ctx->max_tokens_field = mtf ? xstrdup(mtf) : NULL;
+    const char *wa = getenv("OPENAI_WIRE_API");
+    if (!wa || !*wa) wa = jget_str(oa, "wire_api");
+    free(ctx->wire_api);
+    ctx->wire_api = wa && *wa ? xstrdup(wa) : NULL; /* NULL = responses */
 }
 
 /* Point ctx at a named provider: settings profile, env vars, or both
@@ -260,6 +268,10 @@ static void apply_custom_provider(tny_ctx *ctx, const char *name) {
     const char *mtf = jget_str(o, "max_tokens_field");
     free(ctx->max_tokens_field);
     ctx->max_tokens_field = mtf ? xstrdup(mtf) : NULL;
+    const char *wa = derived_env_value(name, "_WIRE_API");
+    if (!wa) wa = jget_str(o, "wire_api");
+    free(ctx->wire_api);
+    ctx->wire_api = wa && *wa ? xstrdup(wa) : NULL; /* NULL = responses */
 }
 
 tny_ctx *tny_ctx_load(const char *cwd_flag) {
@@ -613,6 +625,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->auth_header_name);
     free(ctx->auth_header_prefix);
     free(ctx->max_tokens_field);
+    free(ctx->wire_api);
     free(ctx->output_schema);
     free(ctx->bridge_bin);
     free(ctx->codex_ws);

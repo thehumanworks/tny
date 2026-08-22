@@ -118,8 +118,9 @@ def slow_reading_provider(tls):
         if not chunk:
             break
         rest += chunk
-    body = (b'data: {"choices":[{"index":0,"delta":{"content":"BIG-OK"}}]}\n\n'
-            b'data: [DONE]\n\n')
+    body = (b'data: {"type":"response.output_text.delta","delta":"BIG-OK"}\n\n'
+            b'data: {"type":"response.completed",'
+            b'"response":{"status":"completed"}}\n\n')
     tls.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
                 b"Content-Length: %d\r\n\r\n%s" % (len(body), body))
     tls.unwrap().close()

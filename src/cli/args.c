@@ -77,6 +77,9 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else if (strcmp(a, "--api-key-env") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->api_key_env = v;
+        } else if (strcmp(a, "--wire-api") == 0) {
+            if (!(v = need_val(argc, argv, &i, a))) return -1;
+            g->wire_api = v;
         } else if (strcmp(a, "--agent") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             /* collect: CMD plus everything after `--` */
@@ -165,6 +168,16 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     }
     /* after resolve: flags beat whatever provider profile was applied */
     if (g->base_url) { free(ctx->base_url); ctx->base_url = xstrdup(g->base_url); }
+    if (g->wire_api) {
+        if (strcmp(g->wire_api, "responses") != 0 && strcmp(g->wire_api, "chat") != 0) {
+            fprintf(stderr, "tny: --wire-api must be responses|chat\n"
+                            "Example: tny --wire-api chat ask \"hi\"\n");
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        free(ctx->wire_api);
+        ctx->wire_api = xstrdup(g->wire_api);
+    }
     if (g->api_key_env) {
         const char *k = getenv(g->api_key_env);
         if (k && *k) { free(ctx->api_key); ctx->api_key = xstrdup(k); }

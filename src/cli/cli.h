@@ -27,6 +27,7 @@ typedef struct {
     const char **agent_argv; /* --agent CMD -- args…, NULL-terminated */
     const char *base_url;
     const char *api_key_env;
+    const char *wire_api;    /* --wire-api responses|chat */
 } cli_globals;
 
 /* Parse leading globals; returns index of the subcommand in argv or -1 on

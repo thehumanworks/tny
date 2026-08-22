@@ -1,9 +1,29 @@
 #!/usr/bin/env python3
 """Mock OpenAI-compatible provider for tny integration tests.
 
-Turn 1: streams a tool_call (list_files), split across SSE chunks.
-Turn 2: streams a text answer mentioning what the tool returned.
-Also serves GET /v1/models. SSE is chunked-encoded like real providers.
+Serves BOTH wires (docs/adr/0014):
+  POST /v1/responses          — the default Responses API wire (typed SSE)
+  POST /v1/chat/completions   — the legacy chat wire (wire_api "chat")
+  GET  /v1/models
+
+Both wires run the same scenario and validate the request strictly:
+Turn 1 streams a list_files tool call with the JSON arguments fragmented
+across SSE events; turn 2 streams a text answer mentioning what the tool
+returned. SSE rides chunked transfer-encoding and the responses stream is
+deliberately re-chunked at arbitrary byte boundaries so event reassembly
+is exercised end to end (real transports split anywhere).
+
+Env knobs:
+  MOCK_EXPECT_WIRE    responses|chat — the other endpoint 400s (proves tny
+                      picked the right wire, not just a working one)
+  MOCK_EXPECT_EFFORT  every request must carry exactly this effort
+                      (chat: reasoning_effort, responses: reasoning.effort);
+                      unset means the field must be absent
+  MOCK_SLOW_MS        delay before the first response (TUI steer tests)
+  MOCK_EXPECT_STEER   the follow-up request must END with a user message of
+                      exactly this text (steer rides after the tool result)
+  MOCK_FAIL_RESPONSE  responses wire: turn 1 ends in a response.failed
+                      event carrying this message (error-path test)
 
 Usage: mock_openai.py [port] [certfile keyfile]
 With certfile/keyfile the mock serves HTTPS (used by test_https.py).
@@ -12,22 +32,32 @@ import json
 import os
 import ssl
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# MOCK_EXPECT_EFFORT: every chat request must carry exactly this
-# `reasoning_effort`; unset means the field must be absent (tny sends it only
-# when --effort / TNY_REASONING_EFFORT is set).
+EXPECT_WIRE = os.environ.get("MOCK_EXPECT_WIRE")
 EXPECT_EFFORT = os.environ.get("MOCK_EXPECT_EFFORT")
-# MOCK_SLOW_MS: delay before the first (tool-call) response so a TUI test can
-# steer while the turn runs. MOCK_EXPECT_STEER: the follow-up request (the one
-# carrying the tool result) must END with a user message of exactly this text
-# — the steered input rides after the tool result, never inside it.
 SLOW_MS = int(os.environ.get("MOCK_SLOW_MS", "0"))
 EXPECT_STEER = os.environ.get("MOCK_EXPECT_STEER")
+FAIL_RESPONSE = os.environ.get("MOCK_FAIL_RESPONSE")
 
 
 def sse(obj):
     return f"data: {json.dumps(obj)}\n\n".encode()
+
+
+def sse_typed(obj):
+    """Responses events carry both the event: line and a type member."""
+    return (f"event: {obj['type']}\ndata: {json.dumps(obj)}\n\n").encode()
+
+
+class BadRequest(Exception):
+    pass
+
+
+def need(cond, msg):
+    if not cond:
+        raise BadRequest(msg)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -39,14 +69,27 @@ class Handler(BaseHTTPRequestHandler):
     def _chunk(self, data: bytes):
         self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
 
+    def _json(self, code, obj):
+        body = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _reject(self, msg):
+        self._json(400, {"error": {"message": msg}})
+
+    def _start_stream(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+
     def do_GET(self):
         if self.path.endswith("/models"):
-            body = json.dumps({"data": [{"id": "mock-model-1"}, {"id": "mock-model-2"}]}).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._json(200, {"data": [{"id": "mock-model-1"},
+                                      {"id": "mock-model-2"}]})
         else:
             self.send_response(404)
             self.send_header("Content-Length", "0")
@@ -55,44 +98,47 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("Content-Length", "0"))
         req = json.loads(self.rfile.read(n))
-        if req.get("reasoning_effort") != EXPECT_EFFORT:
-            body = json.dumps({"error": {"message":
-                f"reasoning_effort is {req.get('reasoning_effort')!r}, "
-                f"want {EXPECT_EFFORT!r}"}}).encode()
-            self.send_response(400)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
-        has_tool_result = any(m.get("role") == "tool" for m in req["messages"])
+        try:
+            if self.path.endswith("/chat/completions"):
+                need(EXPECT_WIRE != "responses",
+                     "hit /chat/completions but the responses wire was expected")
+                self._post_chat(req)
+            elif self.path.endswith("/responses"):
+                need(EXPECT_WIRE != "chat",
+                     "hit /responses but the chat wire was expected")
+                self._post_responses(req)
+            else:
+                self._reject(f"unknown endpoint {self.path}")
+        except BadRequest as e:
+            self._reject(str(e))
+
+    # ---- legacy chat wire ----
+
+    def _post_chat(self, req):
+        need(req.get("reasoning_effort") == EXPECT_EFFORT,
+             f"reasoning_effort is {req.get('reasoning_effort')!r}, "
+             f"want {EXPECT_EFFORT!r}")
+        need("input" not in req, "chat request must not carry input items")
+        msgs = req.get("messages")
+        need(isinstance(msgs, list) and msgs, "messages missing")
+        need(msgs[0].get("role") == "system", "no system preamble")
+        for t in req.get("tools", []):
+            need("function" in t, "chat tools must nest under function")
+        has_tool_result = any(m.get("role") == "tool" for m in msgs)
         if not has_tool_result and SLOW_MS:
-            import time
             time.sleep(SLOW_MS / 1000.0)
         if has_tool_result and EXPECT_STEER:
-            last = req["messages"][-1]
-            if last.get("role") != "user" or last.get("content") != EXPECT_STEER:
-                body = json.dumps({"error": {"message":
-                    f"steer: last message is {last!r}, want user {EXPECT_STEER!r}"}}).encode()
-                self.send_response(400)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-                return
+            last = msgs[-1]
+            need(last.get("role") == "user" and last.get("content") == EXPECT_STEER,
+                 f"steer: last message is {last!r}, want user {EXPECT_STEER!r}")
 
-        # Structured outputs: validate the wrapper tny sends, echo JSON back.
         structured = req.get("response_format")
         if structured is not None:
-            assert structured["type"] == "json_schema", structured
-            assert "schema" in structured["json_schema"], structured
-            assert "name" in structured["json_schema"], structured
+            need(structured.get("type") == "json_schema", f"bad {structured}")
+            need("schema" in structured["json_schema"], f"bad {structured}")
+            need("name" in structured["json_schema"], f"bad {structured}")
 
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Transfer-Encoding", "chunked")
-        self.end_headers()
-
+        self._start_stream()
         if not has_tool_result:
             frames = [
                 {"choices": [{"index": 0, "delta": {"role": "assistant",
@@ -106,25 +152,128 @@ class Handler(BaseHTTPRequestHandler):
                  "usage": {"prompt_tokens": 100, "completion_tokens": 10}},
             ]
         else:
-            tool_msg = next(m for m in req["messages"] if m.get("role") == "tool")
-            nfiles = len([l for l in tool_msg["content"].splitlines() if l.strip()])
-            tier = req.get("service_tier", "unset")
-            if structured is not None:
-                text = json.dumps({"count": nfiles, "note": "MOCK-OK"})
-            else:
-                text = f"The workspace contains {nfiles} entries. MOCK-OK. tier={tier}"
-                if EXPECT_STEER:
-                    text += " STEER-OK"
+            tool_msg = next(m for m in msgs if m.get("role") == "tool")
+            text = self._answer_text(req, tool_msg["content"],
+                                     structured is not None)
             frames = []
             for i in range(0, len(text), 7):
                 frames.append({"choices": [{"index": 0, "delta": {"content": text[i:i+7]}}]})
             frames.append({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                            "usage": {"prompt_tokens": 200, "completion_tokens": 20}})
-
         for f in frames:
             self._chunk(sse(f))
         self._chunk(b"data: [DONE]\n\n")
         self._chunk(b"")  # final chunk
+
+    # ---- Responses API wire ----
+
+    def _post_responses(self, req):
+        need("messages" not in req, "responses request must not carry messages")
+        need(req.get("store") is False, "responses request must send store:false")
+        need(req.get("stream") is True, "responses request must stream")
+        need("reasoning_effort" not in req,
+             "reasoning_effort is a chat member; responses use reasoning.effort")
+        effort = (req.get("reasoning") or {}).get("effort")
+        need(effort == EXPECT_EFFORT,
+             f"reasoning.effort is {effort!r}, want {EXPECT_EFFORT!r}")
+        instructions = req.get("instructions")
+        need(isinstance(instructions, str) and "tny" in instructions,
+             "instructions must carry the system preamble")
+        items = req.get("input")
+        need(isinstance(items, list) and items, "input items missing")
+        for t in req.get("tools", []):
+            need(t.get("type") == "function" and "name" in t and "function" not in t,
+                 f"responses tools must be flat: {t}")
+
+        structured = (req.get("text") or {}).get("format")
+        if structured is not None:
+            need(structured.get("type") == "json_schema", f"bad {structured}")
+            need("json_schema" not in structured, f"not flattened: {structured}")
+            need("schema" in structured and "name" in structured,
+                 f"bad {structured}")
+
+        outputs = [i for i in items if i.get("type") == "function_call_output"]
+        if not outputs and SLOW_MS:
+            time.sleep(SLOW_MS / 1000.0)
+        if outputs and EXPECT_STEER:
+            last = items[-1]
+            need(last.get("role") == "user" and last.get("content") == EXPECT_STEER,
+                 f"steer: last item is {last!r}, want user {EXPECT_STEER!r}")
+
+        self._start_stream()
+        if not outputs:
+            if FAIL_RESPONSE:
+                events = [
+                    {"type": "response.created", "response": {"status": "in_progress"}},
+                    {"type": "response.failed",
+                     "response": {"status": "failed",
+                                  "error": {"code": "server_error",
+                                            "message": FAIL_RESPONSE}}},
+                ]
+            else:
+                item = {"type": "function_call", "id": "fc_1",
+                        "call_id": "call_1", "name": "list_files", "arguments": ""}
+                done = dict(item, arguments="{\"path\": \".\"}", status="completed")
+                events = [
+                    {"type": "response.created", "response": {"status": "in_progress"}},
+                    {"type": "response.output_item.added", "output_index": 0,
+                     "item": item},
+                    {"type": "response.function_call_arguments.delta",
+                     "item_id": "fc_1", "output_index": 0, "delta": "{\"pa"},
+                    {"type": "response.function_call_arguments.delta",
+                     "item_id": "fc_1", "output_index": 0, "delta": "th\": \".\"}"},
+                    {"type": "response.function_call_arguments.done",
+                     "item_id": "fc_1", "output_index": 0,
+                     "arguments": "{\"path\": \".\"}"},
+                    {"type": "response.output_item.done", "output_index": 0,
+                     "item": done},
+                    {"type": "response.completed",
+                     "response": {"status": "completed",
+                                  "usage": {"input_tokens": 100, "output_tokens": 10}}},
+                ]
+        else:
+            # the assistant's function_call must have been echoed back
+            calls = [i for i in items if i.get("type") == "function_call"]
+            need(calls and calls[0].get("call_id") == "call_1",
+                 f"function_call item not echoed: {items}")
+            need(outputs[0].get("call_id") == "call_1",
+                 f"function_call_output has the wrong call_id: {outputs[0]}")
+            text = self._answer_text(req, outputs[0].get("output", ""),
+                                     structured is not None)
+            events = [{"type": "response.created",
+                       "response": {"status": "in_progress"}},
+                      {"type": "response.output_item.added", "output_index": 0,
+                       "item": {"type": "message", "id": "msg_1",
+                                "role": "assistant", "content": []}},
+                      {"type": "response.reasoning_summary_text.delta",
+                       "output_index": 0, "delta": "pondering the listing"}]
+            for i in range(0, len(text), 7):
+                events.append({"type": "response.output_text.delta",
+                               "item_id": "msg_1", "output_index": 0,
+                               "delta": text[i:i+7]})
+            events.append({"type": "response.output_text.done",
+                           "item_id": "msg_1", "output_index": 0, "text": text})
+            events.append({"type": "response.completed",
+                           "response": {"status": "completed",
+                                        "usage": {"input_tokens": 200,
+                                                  "output_tokens": 20}}})
+
+        # one byte stream, re-chunked at an arbitrary width so SSE events
+        # split mid-line, mid-JSON, and mid-UTF-8 across reads
+        wire = b"".join(sse_typed(e) for e in events)
+        for i in range(0, len(wire), 17):
+            self._chunk(wire[i:i+17])
+        self._chunk(b"")  # final chunk
+
+    def _answer_text(self, req, tool_output, structured):
+        nfiles = len([l for l in tool_output.splitlines() if l.strip()])
+        if structured:
+            return json.dumps({"count": nfiles, "note": "MOCK-OK"})
+        tier = req.get("service_tier", "unset")
+        text = f"The workspace contains {nfiles} entries. MOCK-OK. tier={tier}"
+        if EXPECT_STEER:
+            text += " STEER-OK"
+        return text
 
 
 if __name__ == "__main__":
