@@ -51,7 +51,8 @@ TARGETS = [
       "env_sole_detected_provider", "load_openai_profile",
       "apply_custom_provider", "apply_provider_model", "tny_resolve_backend"],
      None),
-    ("src/core/config.c", ["tny_effort_canonical", "tny_effort_wire"], None),
+    ("src/core/config.c", ["tny_effort_canonical", "tny_effort_wire",
+                           "apply_provider_effort"], None),
     # mid-turn input: steer or queue (docs/adr/0011)
     ("src/tui/tui.c", ["tui_queue_push", "tui_queue_clear", "queue_pop",
                        "tui_cancel_turn", "after_turn", "tui_submit"],
@@ -59,6 +60,9 @@ TARGETS = [
     ("src/backends/openai/openai.c", ["take_steer", "oa_steer", "step_finished",
                                       "emit_turn_end"],
      r"steer"),
+    # streamed tool_call assembly: parallel calls, gateway index reuse
+    ("src/backends/openai/toolcalls.c", None, None,
+     "tests/integration/test_openai.py"),
     ("src/backends/codex/codex.c", ["cx_steer"], None),
     # steer-text ownership + turn-end sweep (docs/adr/0013)
     ("src/backends/codex/codex_rpc.c", ["cx_end_turn", "cx_request"],
@@ -78,7 +82,7 @@ TARGETS = [
     ("src/backends/cursor/cursor.c",
      ["cursor_append_model_params", "append_options"], r"fast|tier",
      "tests/integration/test_cursor.sh"),
-    # Responses API default wire (docs/adr/0014): the translation file and
+    # Responses API default wire (docs/adr/0016): the translation file and
     # the new backend functions whole, only the wire/stream_failed lines
     # inside the pre-existing ones.
     ("src/backends/openai/responses.c", None, None,
@@ -114,6 +118,15 @@ OPS = [
 # Sites where a mutant is *equivalent* (no observable behavior change) or
 # unobservable without heroics. Matched against "file:line-content".
 EQUIVALENT = [
+    # yyjson_arr_foreach is a zero-iteration no-op on NULL/non-arrays
+    # (yyjson_arr_size returns 0), so the early-return guard is redundant
+    # defense and flipping its ||/&& is unobservable.
+    "toolcalls.c:if (!tool_calls || !yyjson_is_arr(tool_calls)) return;",
+    # effort_from_settings is only read when reasoning_effort is non-NULL,
+    # and every path that sets a value also sets the flag; the pre-recompute
+    # reset is state hygiene for the value-not-found case (value NULL, flag
+    # never consulted), so flipping it is unobservable.
+    "config.c:ctx->effort_from_settings = false;",
     "tui_prewarm.c:pthread_cond_signal",  # signal-vs-broadcast style details
     # Wrong poll direction only delays the retry by the poll timeout; the
     # handshake/write loops re-check the real condition and still succeed.
@@ -140,7 +153,7 @@ EQUIVALENT = [
     # overwrite never faults here.
     "config.c:char *s = malloc(n + m + 1);",
     "config.c:char *name = malloc(plen + 1);",
-    # -- Responses API wire (docs/adr/0014) --
+    # -- Responses API wire (docs/adr/0016) --
     # `p && *p` -> `p || *p` on a possibly-NULL pointer: the dereference is
     # UB when p is NULL, and clang folds the release build back to the
     # original `p != NULL` check, so the mutant is equivalent by

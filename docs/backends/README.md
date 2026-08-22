@@ -9,7 +9,7 @@ Pick a backend per process with `--backend` or `settings.json`. Switching mid-se
 | `cursor` | Spawn/attach `cursor-sdk-bridge`, Connect HTTP/1.1 `sdk.v1` | `CURSOR_API_KEY` on env **and** RPC options; bridge bearer from ready-line | Cursor runtime | Bridge local store / cloud IDs |
 | `codex` | WebSocket (`ws://`, `wss://`, `unix://`) to `codex app-server` | Codex CLI login + optional WS bearer | Codex core | Codex threads |
 | `acp` | Spawn agent, JSON-RPC 2.0 JSONL stdio | Agent's `auth/login` or pre-auth | Agent | `session/new` / `resume` |
-| `openai` | HTTPS `POST /v1/responses` SSE (`/v1/chat/completions` via `wire_api:"chat"`, [ADR 0014](../adr/0014-responses-api-default-wire.md)) | Bearer or custom header | **tny** | `~/.tny/sessions` |
+| `openai` | HTTPS `POST /v1/responses` SSE (`/v1/chat/completions` via `wire_api:"chat"`, [ADR 0016](../adr/0016-responses-api-default-wire.md)) | Bearer or custom header | **tny** | `~/.tny/sessions` |
 
 ## Decision rule
 

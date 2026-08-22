@@ -65,7 +65,7 @@ Fetched 2026-08-18. Pin implementations to these pages and to a **release tag**,
 
 - https://developers.openai.com/api/docs/guides/streaming-responses
 - https://developers.openai.com/api/docs/guides/migrate-to-responses
-- Responses API (default wire, docs/adr/0014): `POST /v1/responses` typed SSE
+- Responses API (default wire, docs/adr/0016): `POST /v1/responses` typed SSE
 - Chat Completions (`wire_api:"chat"`): `POST /v1/chat/completions` SSE
 
 ## C libraries (intended)

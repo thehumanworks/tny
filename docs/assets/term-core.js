@@ -142,6 +142,29 @@
     return raw.replace(/\/+$/, "");
   }
 
+  /* fetch() requires header values to be ISO-8859-1; one code point > U+00FF
+   * in "Bearer <key>" throws before any network I/O. Keys are pasted from
+   * rich text (docs, chat apps), which injects NBSP, zero-width, bidi, and
+   * smart-quote characters. Strip the invisible junk, then reject anything
+   * left outside printable ASCII instead of sending a corrupted key. */
+  var KEY_JUNK_RE = /[\s\u00a0\u00ad\u034f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g;
+
+  function sanitizeApiKey(value) {
+    if (value == null) return "";
+    var s = String(value).replace(KEY_JUNK_RE, "");
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      if (c < 0x21 || c > 0x7e)
+        throw new Error(
+          "API key contains a non-ASCII character (" +
+            "U+" + ("0000" + c.toString(16)).slice(-4).toUpperCase() +
+            " at position " + i +
+            ") that cannot be sent in an HTTP header. Re-copy the key as plain text."
+        );
+    }
+    return s;
+  }
+
   function joinApi(base, path) {
     var b = sanitizeBaseUrl(base || DEFAULT_BASE);
     var p = path.charAt(0) === "/" ? path : "/" + path;
@@ -278,6 +301,7 @@
     looksLikeSecretAssignment: looksLikeSecretAssignment,
     looksLikeSecretDraft: looksLikeSecretDraft,
     sanitizeBaseUrl: sanitizeBaseUrl,
+    sanitizeApiKey: sanitizeApiKey,
     joinApi: joinApi,
     maskSecret: maskSecret,
     obfuscateUrl: obfuscateUrl,

@@ -7,7 +7,7 @@ arbitrary byte boundaries, fragmented function_call assembly, tool
 execution (list_files), second POST with the echoed function_call +
 function_call_output items, session persistence + resume. A second block
 re-runs the loop on the legacy chat wire via OPENAI_WIRE_API=chat,
---wire-api chat, and the settings wire_api key (docs/adr/0014), and a
+--wire-api chat, and the settings wire_api key (docs/adr/0016), and a
 third exercises the response.failed error path.
 """
 import json
@@ -53,6 +53,9 @@ def main():
                        OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1",
                        OPENAI_API_KEY="test-key-not-real")
 
+            # single tool call: one call streamed fragmented, one tool
+            # message back, one follow-up POST (the mock 400s any request
+            # whose assistant tool_calls are not fully paired)
             r = subprocess.run(
                 [TNY, "--cwd", ws, "ask", "--json", "list files in ."],
                 env=env, capture_output=True, timeout=30)
@@ -242,7 +245,7 @@ def main():
                 imock.terminate()
                 imock.wait(timeout=5)
 
-            # ---- legacy chat wire (wire_api "chat", docs/adr/0014) ----
+            # ---- legacy chat wire (wire_api "chat", docs/adr/0016) ----
             # a chat-only mock: any request to /responses 400s, so these
             # runs prove each opt-in spelling really switches the wire
             cport = free_port()
@@ -314,6 +317,92 @@ def main():
             finally:
                 cmock.terminate()
                 cmock.wait(timeout=5)
+
+            # settings.json default effort (docs/adr/0015): with no flag and
+            # no env, `"effort"` in settings must ride the request — mapped
+            # to the openai wire vocabulary (canonical "light" -> "low").
+            # A fresh HOME keeps earlier runs' saved settings out of it.
+            shome = os.path.join(home, "settings-effort-home")
+            os.makedirs(shome)
+            os.makedirs(os.path.join(shome, ".tny"))
+            open(os.path.join(shome, ".tny", "settings.json"), "w").write(
+                '{"effort":{"openai":"light"}}')
+            sport = free_port()
+            smock = subprocess.Popen(
+                [sys.executable, MOCK, str(sport)],
+                env=dict(os.environ, MOCK_EXPECT_EFFORT="low"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = smock.stdout.readline().decode()
+                assert "ready" in line, f"settings mock did not start: {line!r}"
+                senv = dict(env, HOME=shome,
+                            OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1")
+                senv.pop("TNY_REASONING_EFFORT", None)
+                r12 = subprocess.run(
+                    [TNY, "--cwd", ws, "ask", "--json", "--no-save",
+                     "list files in ."],
+                    env=senv, capture_output=True, timeout=30)
+                assert r12.returncode == 0, \
+                    f"exit {r12.returncode}: {r12.stderr.decode()}"
+                assert b"MOCK-OK" in r12.stdout, r12.stdout
+                # and an explicit --effort default beats the settings value:
+                # the same mock 400s any request carrying an effort field
+                emock2_env = dict(os.environ)  # EXPECT unset = field absent
+                eport2 = free_port()
+                emock2 = subprocess.Popen(
+                    [sys.executable, MOCK, str(eport2)], env=emock2_env,
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                try:
+                    line = emock2.stdout.readline().decode()
+                    assert "ready" in line, f"default mock did not start: {line!r}"
+                    senv2 = dict(senv, OPENAI_BASE_URL=f"http://127.0.0.1:{eport2}/v1")
+                    r13 = subprocess.run(
+                        [TNY, "--cwd", ws, "--effort", "default", "ask",
+                         "--json", "--no-save", "list files in ."],
+                        env=senv2, capture_output=True, timeout=30)
+                    assert r13.returncode == 0, \
+                        f"exit {r13.returncode}: {r13.stderr.decode()}"
+                    assert b"MOCK-OK" in r13.stdout, r13.stdout
+                finally:
+                    emock2.terminate()
+                    emock2.wait(timeout=5)
+            finally:
+                smock.terminate()
+                smock.wait(timeout=5)
+
+            # parallel tool calls on the chat wire (the gateway shape from
+            # the field is a Chat Completions stream): three calls in one
+            # step, including one that reuses an "index" with a fresh "id". Every
+            # call must execute with its own arguments and every id must get
+            # a tool message — the mock rejects the follow-up request with
+            # 400 "no tool output found for function call" otherwise, which
+            # is exactly how the field failure looked.
+            open(os.path.join(ws, "a.txt"), "w").write("aaa\n")
+            open(os.path.join(ws, "b.txt"), "w").write("bbb\n")
+            pport = free_port()
+            pmock = subprocess.Popen(
+                [sys.executable, MOCK, str(pport)],
+                env=dict(os.environ, MOCK_PARALLEL="1", MOCK_EXPECT_WIRE="chat"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = pmock.stdout.readline().decode()
+                assert "ready" in line, f"parallel mock did not start: {line!r}"
+                penv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{pport}/v1")
+                r11 = subprocess.run(
+                    [TNY, "--cwd", ws, "--wire-api", "chat", "ask", "--json",
+                     "--no-save", "read both files and list the dir"],
+                    env=penv, capture_output=True, timeout=30)
+                assert r11.returncode == 0, \
+                    f"exit {r11.returncode}: {r11.stderr.decode()}"
+                out11 = json.loads(r11.stdout)
+                assert "PARALLEL-OK" in out11["output"], out11
+                assert out11["steps"] == 2, out11
+                names = [t["name"] for t in out11["tool_calls"]]
+                assert names == ["read_file", "read_file", "list_files"], out11
+                assert all(t["status"] == "success" for t in out11["tool_calls"]), out11
+            finally:
+                pmock.terminate()
+                pmock.wait(timeout=5)
         print("test_openai: all assertions passed")
     finally:
         mock.terminate()

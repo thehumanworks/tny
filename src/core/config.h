@@ -6,7 +6,17 @@
 #include <stddef.h>
 #include "json/json.h"
 
-#define TNY_VERSION "0.1.0"
+/* TNY_VERSION lives in build/generated/tny_version.h, written by make from
+ * `git describe` (docs/adr/0014). The fallback keeps editors and static
+ * analysis working without a build. */
+#if defined(__has_include)
+#  if __has_include("tny_version.h")
+#    include "tny_version.h"
+#  endif
+#endif
+#ifndef TNY_VERSION
+#  define TNY_VERSION "0.0.0-dev"
+#endif
 
 typedef enum { TNY_MODE_ASK = 0, TNY_MODE_AUTO, TNY_MODE_YOLO } tny_perm_mode;
 
@@ -33,7 +43,7 @@ typedef struct tny_ctx {
     char *auth_header_name; /* default Authorization */
     char *auth_header_prefix; /* default "Bearer " */
     char *max_tokens_field; /* NULL = omit */
-    char *wire_api;         /* "responses" (default) | "chat" (docs/adr/0014) */
+    char *wire_api;         /* "responses" (default) | "chat" (docs/adr/0016) */
     char *output_schema;    /* normalized response_format JSON, or NULL */
 
     /* cursor */
@@ -52,6 +62,12 @@ typedef struct tny_ctx {
      * TNY_EFFORT_LEVELS; other tokens are provider-advertised values passed
      * through verbatim. NULL = provider default (field omitted on the wire). */
     char *reasoning_effort;
+    bool  effort_explicit;  /* --effort / TUI /effort was used (any value,
+                             * "default" included): settings defaults must
+                             * never override an explicit choice */
+    bool  effort_from_settings; /* current value came from settings.json, so
+                                 * switching provider recomputes it instead
+                                 * of leaking one provider's default */
     /* acp */
     char **agent_argv;      /* NULL-terminated, or NULL */
 
@@ -136,7 +152,7 @@ const char *tny_effort_wire(int backend, const char *v);
 bool tny_tier_is_fast(const char *tier);
 
 /* True when ctx->wire_api selects the legacy Chat Completions wire. The
- * default (NULL or anything else) is the Responses API (docs/adr/0014). */
+ * default (NULL or anything else) is the Responses API (docs/adr/0016). */
 bool tny_wire_is_chat(const char *wire_api);
 
 #endif

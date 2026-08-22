@@ -13,6 +13,15 @@ DEFS     = -DHAVE_ARPA_INET_H -DHAVE_NETINET_IN_H -D_DARWIN_C_SOURCE \
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
 UNAME_M := $(shell uname -m 2>/dev/null || echo unknown)
 
+# Version comes from git at build time (docs/adr/0014): the nearest v* tag,
+# plus -N-g<hash>[-dirty] between releases. Release CI overrides it with the
+# pushed tag (TNY_VERSION env/arg) so shallow and containerized builds do not
+# depend on tag fetching. Tarball builds without git fall back below.
+TNY_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
+ifeq ($(strip $(TNY_VERSION)),)
+  TNY_VERSION := 0.0.0-unknown
+endif
+
 # MSYS2/Cygwin are POSIX enough to compile the existing sources. Native
 # Win32 (MSVC / MinGW without the MSYS runtime) is still later.
 WINDOWS := 0
@@ -78,6 +87,9 @@ endif
 BUILD    = build
 OBJ_REL  = $(BUILD)/rel
 OBJ_DBG  = $(BUILD)/dbg
+GEN      = $(BUILD)/generated
+VERSION_H = $(GEN)/tny_version.h
+INC     += -I$(GEN)
 
 SRC := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c \
         src/net/*.c src/mcp/*.c src/tui/*.c \
@@ -107,9 +119,18 @@ else
   SIZE_MAX ?= 1572864
 endif
 
-.PHONY: all release debug test test-unit size size-check pack smoke bench clean install site
+.PHONY: all release debug test test-unit size size-check pack smoke bench clean install site FORCE
 
 all: release
+
+# Regenerated every run, rewritten only when the version changes, so cached
+# objects survive; -MMD rebuilds the version's users when it does change.
+$(VERSION_H): FORCE
+	@mkdir -p $(@D)
+	@printf '#define TNY_VERSION "%s"\n' '$(TNY_VERSION)' > $@.tmp
+	@if cmp -s $@.tmp $@ 2>/dev/null; then rm -f $@.tmp; else mv $@.tmp $@; fi
+
+FORCE:
 
 release: $(BIN)
 
@@ -119,11 +140,11 @@ $(BIN): $(REL_OBJS)
 	strip $@ 2>/dev/null || strip -x $@
 	@wc -c $@
 
-$(OBJ_REL)/%.o: %.c
+$(OBJ_REL)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(CC) $(REL_CFLAGS) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
 
-$(OBJ_DBG)/%.o: %.c
+$(OBJ_DBG)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(CC) $(DBG_CFLAGS) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
 

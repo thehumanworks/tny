@@ -1,4 +1,4 @@
-# 0014 — The native backend defaults to the Responses API wire
+# 0016 — The native backend defaults to the Responses API wire
 
 Date: 2026-08-22
 Status: accepted

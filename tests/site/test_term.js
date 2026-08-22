@@ -87,6 +87,28 @@ async function run() {
     assert.throws(() => C.sanitizeBaseUrl("not a url"), /absolute/);
   });
 
+  await test("sanitizeApiKey strips pasted junk and rejects non-ASCII", () => {
+    assert.strictEqual(C.sanitizeApiKey("sk-plain"), "sk-plain");
+    assert.strictEqual(C.sanitizeApiKey("  sk-trimmed\n"), "sk-trimmed");
+    // NBSP, zero-width space, word joiner, BOM, bidi marks: pasted from rich text
+    assert.strictEqual(
+      C.sanitizeApiKey("\u00a0sk-\u200bab\u2060cd\ufeff\u200e"),
+      "sk-abcd"
+    );
+    assert.strictEqual(C.sanitizeApiKey(null), "");
+    assert.strictEqual(C.sanitizeApiKey("\u200b\ufeff"), "");
+    // Ellipsis (from copying the /setup placeholder), curly quotes, emoji
+    assert.throws(() => C.sanitizeApiKey("sk-abc\u2026"), /U\+2026/);
+    assert.throws(() => C.sanitizeApiKey("\u201csk-quoted\u201d"), /HTTP header/);
+    assert.throws(() => C.sanitizeApiKey("sk-\u00e9"), /U\+00E9/);
+    // Error must not echo the key material itself
+    try {
+      C.sanitizeApiKey("sk-secret\u2026value");
+    } catch (e) {
+      assert.ok(!String(e.message).includes("sk-secret"));
+    }
+  });
+
   await test("joinApi and obfuscateUrl never echo the host", () => {
     const url = "https://private-gateway.internal.example/v1";
     const joined = C.joinApi(url, "chat/completions");

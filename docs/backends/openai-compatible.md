@@ -4,7 +4,7 @@ This backend is the **native harness**. tny owns the tool loop, permissions, MCP
 
 ## HTTP surface (v1)
 
-Two wires, one loop ([ADR 0014](../adr/0014-responses-api-default-wire.md)):
+Two wires, one loop ([ADR 0016](../adr/0016-responses-api-default-wire.md)):
 
 ```text
 POST {base_url}/responses            # default: the Responses API
@@ -88,6 +88,22 @@ Stream: `text/event-stream`, chunked, split anywhere.
   function.name, function.arguments fragments). Non-stream fallback: read
   `choices[0].message`.
 
+Tool-call assembly (`src/backends/openai/toolcalls.c`, unit-tested in
+`tests/test_openai.c`) is **id-first**, not index-first: a fragment with an
+unseen `id` always opens a new call, a fragment with a known `id` merges into
+it, id-less fragments key by `index` (most recent call for that index), and
+fragments with neither go to the last open call. Rationale: gateways have
+been observed streaming parallel calls with a repeated or missing `index`
+but a fresh `id` per call; index-keyed assembly merged two calls and dropped
+an id, so the next request was missing a tool output and the provider
+rejected the session with 400 "no tool output found for function call …".
+
+Transcript pairing is an invariant: every id in a recorded assistant
+`tool_calls` message gets exactly one `role:"tool"` message, ids fall back
+to slot-unique `call_<n>` (never a shared constant), and an interrupt
+mid-step records `error: interrupted` results for the calls that did not
+run instead of leaving them unpaired.
+
 Structured outputs: when `ctx->output_schema` is set (`tny ask
 --output-schema`, docs/cli.md), `tny_openai_response_format()` normalizes
 bare schemas, `json_schema` objects, and full wrappers into the chat
@@ -104,7 +120,7 @@ Also implement `GET {base_url}/models` for `/models` when the provider has it; o
 | Quirk | Flag / rewrite |
 | --- | --- |
 | Azure `api-key` header | `auth_header_name=api-key`, empty prefix |
-| Chat-only provider | `wire_api: "chat"` / `NAME_WIRE_API` / `--wire-api chat` ([ADR 0014](../adr/0014-responses-api-default-wire.md)) |
+| Chat-only provider | `wire_api: "chat"` / `NAME_WIRE_API` / `--wire-api chat` ([ADR 0016](../adr/0016-responses-api-default-wire.md)) |
 | Old `max_tokens` vs `max_completion_tokens` | `max_tokens_field` (chat wire; when set, the responses wire sends `max_output_tokens`) |
 | Reasoning effort | `--effort` / `/effort` → `reasoning.effort` (responses) / `reasoning_effort` (chat); canonical levels map per [ADR 0009](../adr/0009-reasoning-effort.md) (`off`→`none`, `light`→`low`, `max`→`xhigh`); provider-specific tokens (`minimal`, …) pass through verbatim. Omitted when unset — providers without the field would 400 |
 | Extra `thinking`-style objects | pass-through JSON object in provider profile (later) |

@@ -1,4 +1,4 @@
-/* responses.c — Responses API wire translation (docs/adr/0014).
+/* responses.c — Responses API wire translation (docs/adr/0016).
  *
  * Sessions persist Chat Completions-shaped messages (the lingua franca of
  * OpenAI-compatible providers, and what saved sessions already contain).

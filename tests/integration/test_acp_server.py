@@ -88,6 +88,12 @@ class Client:
 
 def base_env(home, port=None):
     env = dict(os.environ)
+    # hermetic: the host shell may carry provider credentials, and any
+    # FOO_API_KEY / FOO_BASE_URL pair defines a provider — the
+    # no-credential check below must find none of them
+    for k in list(env):
+        if k.endswith("_API_KEY") or k.endswith("_BASE_URL"):
+            env.pop(k)
     env["HOME"] = home
     env["OPENAI_API_KEY"] = "test-key-not-a-real-secret"
     env.pop("TNY_PERMISSION_MODE", None)

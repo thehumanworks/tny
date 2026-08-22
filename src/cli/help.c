@@ -54,7 +54,7 @@ void help_root(void) {
 "  acp:    --agent CMD -- args...   e.g. tny --provider acp --agent gemini -- --acp\n"
 "  openai: --base-url URL --api-key-env NAME (env OPENAI_BASE_URL, OPENAI_API_KEY)\n"
 "          --wire-api responses|chat  Wire protocol (default responses;\n"
-"                         chat for legacy-only providers, docs/adr/0014)\n"
+"                         chat for legacy-only providers, docs/adr/0016)\n"
 "\n"
 "Examples:\n"
 "  tny                          Start a fresh interactive session\n"

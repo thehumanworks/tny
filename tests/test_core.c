@@ -213,6 +213,82 @@ TEST effort_env_loads(void) {
     PASS();
 }
 
+/* settings.json can carry a default effort — one string for every provider
+ * or a per-provider object like "models" (docs/adr/0015). */
+TEST effort_settings_global_default(void) {
+    ensure_env();
+    unsetenv("TNY_REASONING_EFFORT");
+    write_settings("{\"effort\":\"high\",\"openai\":{\"base_url\":\"http://x/v1\"}}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(NULL, ctx->reasoning_effort); /* not before the provider resolves */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT(ctx->reasoning_effort);
+    ASSERT_STR_EQ("high", ctx->reasoning_effort);
+    tny_ctx_free(ctx);
+
+    /* "default" and empty entries mean provider default (unset) */
+    write_settings("{\"effort\":\"default\"}");
+    ctx = tny_ctx_load(g_ws);
+    tny_resolve_backend(ctx, "openai");
+    ASSERT_EQ(NULL, ctx->reasoning_effort);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST effort_settings_per_provider(void) {
+    ensure_env();
+    unsetenv("TNY_REASONING_EFFORT");
+    write_settings("{\"effort\":{\"openai\":\"light\",\"codex\":\"xhigh\"}}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_resolve_backend(ctx, "openai");
+    ASSERT_STR_EQ("light", ctx->reasoning_effort);
+    /* switching provider recomputes: codex gets its own entry, and a
+     * provider with no entry falls back to unset */
+    tny_resolve_backend(ctx, "codex");
+    ASSERT_STR_EQ("xhigh", ctx->reasoning_effort);
+    tny_resolve_backend(ctx, "cursor");
+    ASSERT_EQ(NULL, ctx->reasoning_effort);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST effort_env_beats_settings(void) {
+    ensure_env();
+    write_settings("{\"effort\":\"light\"}");
+    setenv("TNY_REASONING_EFFORT", "xhigh", 1);
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_resolve_backend(ctx, "openai");
+    ASSERT_STR_EQ("xhigh", ctx->reasoning_effort);
+    tny_ctx_free(ctx);
+    unsetenv("TNY_REASONING_EFFORT");
+    PASS();
+}
+
+TEST effort_flag_beats_settings(void) {
+    ensure_env();
+    unsetenv("TNY_REASONING_EFFORT");
+    write_settings("{\"effort\":\"light\"}");
+    cli_globals g = {0};
+    g.cwd = g_ws;
+    g.backend = "openai";
+    g.effort = "max";
+    tny_ctx *ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    ASSERT_STR_EQ("max", ctx->reasoning_effort);
+    tny_ctx_free(ctx);
+
+    /* --effort default clears the settings default too, and an explicit
+     * choice survives a later provider re-resolve (TUI /provider) */
+    g.effort = "default";
+    ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    ASSERT_EQ(NULL, ctx->reasoning_effort);
+    tny_resolve_backend(ctx, "codex");
+    ASSERT_EQ(NULL, ctx->reasoning_effort);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST perm_safe_tool_inside_workspace(void) {
     ensure_env();
     write_settings("{}");
@@ -1127,7 +1203,7 @@ TEST output_schema_rejects_non_object(void) {
     PASS();
 }
 
-/* ---- Responses API wire translation (docs/adr/0014) ----
+/* ---- Responses API wire translation (docs/adr/0016) ----
  * Sessions persist chat-shaped messages; the responses wire translates
  * them at request time. These pin the translation invariants. */
 
@@ -1494,6 +1570,21 @@ TEST wire_api_flag(void) {
     PASS();
 }
 
+/* TNY_VERSION is generated from git describe at build time (docs/adr/0014).
+ * Assert shape, never a literal: non-empty, no v prefix, printable, no
+ * whitespace or quotes that would break JSON/header embedding. */
+TEST version_string_is_sane(void) {
+    const char *v = TNY_VERSION;
+    ASSERT(v[0] != '\0');
+    ASSERT(v[0] != 'v');
+    for (const char *p = v; *p; p++) {
+        ASSERT(*p > 0x20 && *p < 0x7f);
+        ASSERT(*p != '"');
+        ASSERT(*p != '\\');
+    }
+    PASS();
+}
+
 SUITE(core_suite) {
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(backend_default_cursor_key_from_env);
@@ -1511,6 +1602,10 @@ SUITE(core_suite) {
     RUN_TEST(perm_mode_overrides_parse);
     RUN_TEST(effort_wire_mapping);
     RUN_TEST(effort_env_loads);
+    RUN_TEST(effort_settings_global_default);
+    RUN_TEST(effort_settings_per_provider);
+    RUN_TEST(effort_env_beats_settings);
+    RUN_TEST(effort_flag_beats_settings);
     RUN_TEST(perm_safe_tool_inside_workspace);
     RUN_TEST(perm_rules_last_match_wins);
     RUN_TEST(perm_workspace_beats_global);
@@ -1541,4 +1636,5 @@ SUITE(core_suite) {
     RUN_TEST(responses_text_format_flattens);
     RUN_TEST(wire_api_resolution);
     RUN_TEST(wire_api_flag);
+    RUN_TEST(version_string_is_sane);
 }

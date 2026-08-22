@@ -79,7 +79,21 @@ Providers advertise their real per-model levels through their catalogs;
 `tny models` shows them (`[effort: …]` / `"efforts"` in `--json`) and any
 advertised token is accepted verbatim (e.g. `--effort minimal` on openai).
 Unset means the provider default; `--effort default` clears an inherited
-env value. The setting is process-memory only — never persisted.
+env or settings value.
+
+A default lives in `~/.tny/settings.json` under `"effort"` — one string for
+every provider, or a per-provider object like `"models"`
+([ADR 0015](adr/0015-settings-default-effort.md)):
+
+```json
+{ "effort": "high" }
+{ "effort": { "codex": "xhigh", "openai": "medium" } }
+```
+
+Precedence: `--effort` / `/effort` (an explicit `default` included) beats
+`TNY_REASONING_EFFORT` beats the settings entry beats the provider default.
+tny never *writes* the effort back to settings — a scripted
+`tny ask --effort X` does not change what tomorrow's session does.
 
 ## `tny ask` (scripts and CI)
 
@@ -120,7 +134,7 @@ JSON object (keep field names stable):
 | cursor | `--bridge-bin PATH`, `CURSOR_SDK_BRIDGE_BIN`, `CURSOR_API_KEY` (also pass through to RPCs) |
 | codex | `--codex-ws URL` to attach (attach-or-fail); without it tny first tries `TNY_CODEX_WS`, then a live registered host from `~/.tny/codex-host.json` (loopback only, written by whichever tny spawned the server — a running TUI, typically), and only then spawns `codex app-server` on an ephemeral port (never a fixed port that could collide). Discovery failures fall back to spawning silently (`docs/adr/0004`). `--codex-bin`, `--ws-token-file`, `CODEX_REMOTE_TOKEN` |
 | acp | `--agent CMD` plus extra args after `--`, e.g. `tny --provider acp --agent gemini -- acp` |
-| openai | `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0014](adr/0014-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API` |
+| openai | `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0016](adr/0016-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API` |
 | named provider | same flags; `NAME_BASE_URL` (beats the settings `base_url`), key from the profile's `api_key_env`, default `NAME_API_KEY` — never `OPENAI_API_KEY`; `NAME_WIRE_API` / profile `wire_api` |
 
 Model precedence for every provider: `--model` > saved `models.{provider}` >
