@@ -153,7 +153,7 @@ Stdout is the model's JSON text (inside `output` with `--json`). The tool
 loop still runs; the schema constrains the final assistant message.
 ## `--fast` (speed tier)
 
-`--fast` opts in to the provider's paid fast tier (`TNY_CAP_FAST` in
+`--fast` opts in to the provider's paid fast tier ([ADR 0010](adr/0010-fast-tier-capability.md); `TNY_CAP_FAST` in
 `src/core/backend.h`). OpenAI renamed "priority processing" to "fast mode";
 the API accepts both spellings. Each capable provider maps the flag to its
 own wire field:

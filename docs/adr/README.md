@@ -15,3 +15,4 @@ these as `docs/adr/NNNN`.
 | [0007](0007-linux-tls-system-openssl.md) | Linux TLS dlopen's the system OpenSSL (libssl.so.3) at first use; nothing linked or vendored |
 | [0008](0008-native-loop-images.md) | Native-loop images are user-role `image_url` parts; `read_image` replaces the vision stub |
 | [0009](0009-reasoning-effort.md) | Canonical reasoning-effort levels (`off…max`), mapped per provider, catalog-discovered where possible |
+| [0010](0010-fast-tier-capability.md) | `--fast` is a `TNY_CAP_FAST` capability mapped per provider; cursor composes it with effort in one `params` array |
