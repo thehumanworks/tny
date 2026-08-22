@@ -85,6 +85,17 @@ TARGETS = [
     # Responses API default wire (docs/adr/0016): the translation file and
     # the new backend functions whole, only the wire/stream_failed lines
     # inside the pre-existing ones.
+    # wasm parity seams (docs/adr/0017): the poll wrapper, the relocated
+    # URL parser, and the ACP ws transport (builders + routing + pump).
+    ("src/util/tny_poll.c", None, None),
+    ("src/net/url.c", None, None),
+    ("src/backends/acp/acp_wire.c",
+     ["acp_fmt_request", "acp_fmt_notify", "acp_fmt_result"], None,
+     "tests/integration/test_acp.sh"),
+    ("src/backends/acp/acp_proc.c",
+     ["ac_agent_is_ws", "ac_tx_request", "ac_tx_notify", "ac_tx_result",
+      "ac_transport_pollfds", "ac_pump_reads", "ac_connect_ws"], None,
+     "tests/integration/test_acp_ws.sh"),
     ("src/backends/openai/responses.c", None, None,
      "tests/integration/test_openai.py"),
     ("src/backends/openai/openai.c",

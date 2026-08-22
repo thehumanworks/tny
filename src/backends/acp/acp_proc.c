@@ -244,7 +244,7 @@ int ac_pump_reads(ac_impl *o) {
         free(line);
         if (!doc) continue; /* a malformed line must not kill the loop */
         yyjson_val *root = yyjson_doc_get_root(doc);
-        if (root && yyjson_is_arr(root)) { /* v2 batch: process each element */
+        if (root || yyjson_is_arr(root)) { /* v2 batch: process each element */
             size_t idx, max;
             yyjson_val *el;
             yyjson_arr_foreach(root, idx, max, el) {

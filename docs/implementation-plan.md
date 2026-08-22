@@ -60,6 +60,14 @@ Research is done. Product code is **not** in this repository yet. When implement
 - Publish size/speed table vs the fx version pinned in [size-and-speed.md](size-and-speed.md)
 - Fill [parity-with-fx.md](features/parity-with-fx.md)
 
+## Phase 8 — wasm browser parity (docs/adr/0017) — DONE
+
+- `tny_poll` + per-platform source lists; `src/net/net_wasm.c` (fetch, WebSocket, pseudo-fd registry, Asyncify)
+- `make wasm` (node, NODERAWFS, CI) and `make wasm-web` (browser, MEMFS) from one object set
+- ACP `--agent ws://` remote transport, native and wasm; codex attach under wasm
+- The landing page runs the artifact in xterm.js; the JS agent loop is deleted
+- CI: the same openai/acp/codex mock suites against `TNY=build/wasm/tny`, a size guard, and a headless-browser smoke
+
 ## Hard rules during implementation
 
 - No C++ sources.

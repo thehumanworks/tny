@@ -92,14 +92,19 @@ depends on state from a previous line, because the renderer flushes the
 transcript per line and repaints the partial line from scratch every frame
 ([ADR 0012](adr/0012-self-contained-sgr-lines.md)).
 
-## Browser demo
+## Browser terminal
 
-The GitHub Pages landing terminal (`site/index.html`) is a client-side
-preview of this chrome ([ADR 0005](adr/0005-client-side-landing-terminal.md)).
-Pass `OPENAI_API_KEY` and optionally `OPENAI_BASE_URL` in the URL hash,
-`/login`, or an `OPENAI_*=` assignment. Values are AES-GCM sealed in this
-origin and never written in the clear; the base URL is obfuscated in the UI.
-Workspace tools, `@` / `$`, and host providers are not available there.
+The GitHub Pages landing terminal (`site/index.html`) runs the real TUI:
+the tny binary compiled to WebAssembly inside xterm.js
+([ADR 0017](adr/0017-wasm-browser-parity.md), superseding 0005's JS
+preview). Pass `OPENAI_API_KEY` and optionally `OPENAI_BASE_URL` in the
+URL hash or paste them at the pre-launch prompt; both pass through
+`sanitizeApiKey` at intake and stay in the tab. The native openai loop,
+sessions, skills, and fs tools run on MEMFS (per-tab, not persisted);
+codex is attach-only, ACP is `--agent ws://` remote-only, cursor errors
+cleanly; `terminal`/`open_file` return the missing-host tool error. The
+provider must allow CORS — `api.openai.com` does not; use a CORS-open
+gateway or a loopback server.
 
 ## Startup
 

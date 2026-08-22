@@ -133,7 +133,7 @@ JSON object (keep field names stable):
 | --- | --- |
 | cursor | `--bridge-bin PATH`, `CURSOR_SDK_BRIDGE_BIN`, `CURSOR_API_KEY` (also pass through to RPCs) |
 | codex | `--codex-ws URL` to attach (attach-or-fail); without it tny first tries `TNY_CODEX_WS`, then a live registered host from `~/.tny/codex-host.json` (loopback only, written by whichever tny spawned the server — a running TUI, typically), and only then spawns `codex app-server` on an ephemeral port (never a fixed port that could collide). Discovery failures fall back to spawning silently (`docs/adr/0004`). `--codex-bin`, `--ws-token-file`, `CODEX_REMOTE_TOKEN` |
-| acp | `--agent CMD` plus extra args after `--`, e.g. `tny --provider acp --agent gemini -- acp` |
+| acp | `--agent CMD` plus extra args after `--`, e.g. `tny --provider acp --agent gemini -- acp`; `--agent ws://host:port` connects to a remote agent instead of spawning ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
 | openai | `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0016](adr/0016-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API` |
 | named provider | same flags; `NAME_BASE_URL` (beats the settings `base_url`), key from the profile's `api_key_env`, default `NAME_API_KEY` — never `OPENAI_API_KEY`; `NAME_WIRE_API` / profile `wire_api` |
 

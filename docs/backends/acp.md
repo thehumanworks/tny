@@ -9,10 +9,17 @@ tny implements **both** sides:
 | Client | `tny --backend acp --agent <exe> -- <args>` | Drive other agents |
 | Server | `tny acp` | Expose the **native** OpenAI-compatible loop to editors |
 
-## Transport (stdio)
+## Transport (stdio, or WebSocket for remote agents)
 
 - Client spawns the agent. JSON-RPC 2.0, UTF-8, **one message per line**, no embedded newlines.
 - stdout is protocol only. stderr is logs.
+- `--agent ws://host:port` (or `wss://`) connects instead of spawning: the
+  same JSON-RPC messages ride the socket, **one message per text frame**,
+  no trailing newline required ([ADR 0017](../adr/0017-wasm-browser-parity.md)).
+  Everything above the transport (lifecycle, permissions, sessions) is
+  identical, and this is the only ACP transport in the wasm build. The
+  fixture is `tests/integration/fake_acp_agent_ws.py`, a frame↔line bridge
+  around the stdio fake agent.
 - v2 allows JSON-RPC batches; implement read-side batching even if tny sends single messages.
 - Input message size cap: 8 MiB (fx's published ACP limit — match it on `tny acp`).
 

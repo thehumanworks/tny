@@ -47,6 +47,15 @@ codex app-server generate-json-schema --out ./schemas
 
 Vendor that snapshot next to the Codex version `doctor` detected. Do not guess method names from memory when they drift.
 
+### wasm attach ([ADR 0017](../adr/0017-wasm-browser-parity.md))
+
+The wasm build supports `--codex-ws` attach only (no spawn). Node callers
+send no `Origin` header, so the app-server accepts them like any local
+client. Browser callers always send `Origin` (the app-server 403s it —
+unverified against a real host) and cannot attach an `Authorization`
+header at all; tny refuses a configured bearer on wasm with a clear error
+instead of silently dropping auth.
+
 ## Framing
 
 JSON-RPC 2.0 **shape** (request / response / notification / error) but the `"jsonrpc":"2.0"` header is **omitted on the wire**.
