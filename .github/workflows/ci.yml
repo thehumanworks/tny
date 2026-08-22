@@ -196,6 +196,8 @@ jobs:
           node --version
           make -j"$(getconf _NPROCESSORS_ONLN)" wasm wasm-web
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_openai.py
+          tests/integration/test_acp_ws.sh "$PWD/build/wasm/tny"
+          tests/integration/test_codex_attach.sh "$PWD/build/wasm/tny"
           make wasm-size-check
 
       - uses: actions/upload-artifact@v7

@@ -14,14 +14,85 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "util/tny_poll.h"
+
 #define ACP_RPC_TIMEOUT_MS 60000
+#define ACP_WS_CONNECT_TIMEOUT_MS 10000
+
+/* ---------- WebSocket transport (--agent ws://…) ---------- */
+
+bool ac_agent_is_ws(const char *argv0) {
+    return argv0 && (strncmp(argv0, "ws://", 5) == 0 ||
+                     strncmp(argv0, "wss://", 6) == 0);
+}
+
+int ac_connect_ws(ac_impl *o, char *errbuf, size_t errlen) {
+    char err[256];
+    o->ws = ws_connect(o->ctx->agent_argv[0], NULL, ACP_WS_CONNECT_TIMEOUT_MS,
+                       err, sizeof err);
+    if (!o->ws) {
+        snprintf(errbuf, errlen, "acp: %s", err);
+        return -1;
+    }
+    return 0;
+}
+
+/* One JSON-RPC message per text frame on ws; JSONL on the pipe. */
+static int ac_tx(ac_impl *o, buf_t *b) {
+    int rc = o->ws ? ws_send_text(o->ws, b->data, b->len)
+                   : acp_write_line(o->in_fd, b->data, b->len);
+    buf_free(b);
+    return rc;
+}
+
+int ac_tx_request(ac_impl *o, int64_t id, const char *method, const char *params) {
+    buf_t b;
+    buf_init(&b);
+    acp_fmt_request(&b, id, method, params);
+    return ac_tx(o, &b);
+}
+
+int ac_tx_notify(ac_impl *o, const char *method, const char *params) {
+    buf_t b;
+    buf_init(&b);
+    acp_fmt_notify(&b, method, params);
+    return ac_tx(o, &b);
+}
+
+int ac_tx_result(ac_impl *o, const char *id_raw, const char *result_json) {
+    buf_t b;
+    buf_init(&b);
+    acp_fmt_result(&b, id_raw, result_json);
+    return ac_tx(o, &b);
+}
+
+int ac_tx_error(ac_impl *o, const char *id_raw, int code, const char *msg) {
+    buf_t b;
+    buf_init(&b);
+    buf_appendf(&b, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"error\":{\"code\":%d,\"message\":",
+                id_raw ? id_raw : "null", code);
+    jescape(&b, msg ? msg : "error");
+    buf_appends(&b, "}}");
+    return ac_tx(o, &b);
+}
+
+int ac_transport_pollfds(ac_impl *o, struct pollfd *fds, int max) {
+    int n = 0;
+    if (o->ws && n < max) {
+        fds[n].fd = ws_fd(o->ws);
+        fds[n].events = (short)(POLLIN | (ws_want_write(o->ws) ? POLLOUT : 0));
+        fds[n++].revents = 0;
+    }
+    if (!o->ws && o->out_fd >= 0 && n < max) {
+        fds[n].fd = o->out_fd; fds[n].events = POLLIN; fds[n++].revents = 0;
+    }
+    if (o->err_fd >= 0 && n < max) {
+        fds[n].fd = o->err_fd; fds[n].events = POLLIN; fds[n++].revents = 0;
+    }
+    return n;
+}
 
 /* ---------- process ---------- */
-
-static void set_nonblock(int fd) {
-    int fl = fcntl(fd, F_GETFL, 0);
-    if (fl >= 0) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
-}
 
 bool ac_on_path(const char *bin) {
     if (!bin || !*bin) return false;
@@ -85,8 +156,8 @@ int ac_spawn_agent(ac_impl *o, char *errbuf, size_t errlen) {
     o->in_fd = inp[1];
     o->out_fd = outp[0];
     o->err_fd = errp[0];
-    set_nonblock(o->out_fd);
-    set_nonblock(o->err_fd);
+    set_nonblock(o->out_fd, true);
+    set_nonblock(o->err_fd, true);
     return 0;
 }
 
@@ -136,20 +207,33 @@ static bool handle_message(ac_impl *o, yyjson_doc *doc) {
     return false;
 }
 
+/* ws frames re-enter the JSONL reader with a newline so both transports
+ * share one message loop below. */
+static void ac_on_ws_msg(const char *data, size_t len, void *ud) {
+    ac_impl *o = ud;
+    acp_reader_feed(&o->out_r, data, len);
+    acp_reader_feed(&o->out_r, "\n", 1);
+}
+
 /* Read whatever is pending. Returns -1 on EOF/error of the agent's stdout. */
 int ac_pump_reads(ac_impl *o) {
     drain_stderr(o);
-    if (o->out_fd < 0) return -1;
-    char tmp[16384];
     bool eof = false;
-    for (;;) {
-        ssize_t n = read(o->out_fd, tmp, sizeof tmp);
-        if (n > 0) { acp_reader_feed(&o->out_r, tmp, (size_t)n); continue; }
-        if (n == 0) { eof = true; break; }
-        if (errno == EINTR) continue;
-        if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-        eof = true;
-        break;
+    if (o->ws) {
+        if (ws_pump(o->ws, ac_on_ws_msg, o) != 0) eof = true;
+    } else if (o->out_fd < 0) {
+        return -1;
+    } else {
+        char tmp[16384];
+        for (;;) {
+            ssize_t n = read(o->out_fd, tmp, sizeof tmp);
+            if (n > 0) { acp_reader_feed(&o->out_r, tmp, (size_t)n); continue; }
+            if (n == 0) { eof = true; break; }
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            eof = true;
+            break;
+        }
     }
     for (;;) {
         size_t len = 0;
@@ -200,7 +284,7 @@ int ac_reap_agent(ac_impl *o) {
 yyjson_doc *ac_rpc(ac_impl *o, const char *method, const char *params,
                           char *errbuf, size_t errlen) {
     int64_t id = o->next_id++;
-    if (acp_send_request(o->in_fd, id, method, params) != 0) {
+    if (ac_tx_request(o, id, method, params) != 0) {
         snprintf(errbuf, errlen, "acp: agent closed its input during %s", method);
         return NULL;
     }
@@ -214,11 +298,9 @@ yyjson_doc *ac_rpc(ac_impl *o, const char *method, const char *params,
             snprintf(errbuf, errlen, "acp: agent did not answer %s in time", method);
             return NULL;
         }
-        struct pollfd fds[2];
-        int n = 0;
-        fds[n].fd = o->out_fd; fds[n].events = POLLIN; fds[n++].revents = 0;
-        if (o->err_fd >= 0) { fds[n].fd = o->err_fd; fds[n].events = POLLIN; fds[n++].revents = 0; }
-        int pr = poll(fds, (nfds_t)n, (int)(left > 200 ? 200 : left));
+        struct pollfd fds[3];
+        int n = ac_transport_pollfds(o, fds, 3);
+        int pr = tny_poll(fds, (nfds_t)n, (int)(left > 200 ? 200 : left));
         if (pr < 0 && errno == EINTR) continue;
         int rc = ac_pump_reads(o);
         if (rc == -2) {
@@ -228,6 +310,11 @@ yyjson_doc *ac_rpc(ac_impl *o, const char *method, const char *params,
         }
         if (rc == -1 && !o->wait_doc) {
             o->wait_id = -1;
+            if (o->ws) {
+                snprintf(errbuf, errlen,
+                         "acp: remote agent closed the connection during %s", method);
+                return NULL;
+            }
             int code = ac_reap_agent(o);
             if (code == 127)
                 snprintf(errbuf, errlen, "acp: cannot execute agent '%.80s' "

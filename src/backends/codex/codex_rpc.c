@@ -5,6 +5,7 @@
 #include "backends/codex/codex.h"
 
 #include <poll.h>
+#include "util/tny_poll.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -181,7 +182,7 @@ int cx_pump_once(cx_impl *o, int poll_ms) {
         fds[n].events = POLLIN;
         fds[n++].revents = 0;
     }
-    if (poll_ms > 0) poll(fds, (nfds_t)n, poll_ms);
+    if (poll_ms > 0) tny_poll(fds, (nfds_t)n, poll_ms);
     cx_drain_child_stderr(o);
     if (ws_pump(o->ws, cx_on_ws_msg, o) != 0) { o->dead = true; return -1; }
     return cx_flush(o);

@@ -40,8 +40,15 @@ char *acp_reader_next(acp_reader *r, size_t *len_out);
 /* Write "<json>\n". 0 ok, -1 on a dead pipe. Retries short writes. */
 int acp_write_line(int fd, const char *json, size_t len);
 
-/* Builders. `params_json` / `result_json` are raw JSON text; NULL means
- * omit (params) or `null` (result). `id_raw` is verbatim id JSON text. */
+/* Message builders (append the JSON object, no newline). `params_json` /
+ * `result_json` are raw JSON text; NULL means `{}` (params) or `null`
+ * (result). `id_raw` is verbatim id JSON text. Shared by the fd senders
+ * below and the WebSocket agent transport (docs/backends/acp.md). */
+void acp_fmt_request(buf_t *b, int64_t id, const char *method, const char *params_json);
+void acp_fmt_notify(buf_t *b, const char *method, const char *params_json);
+void acp_fmt_result(buf_t *b, const char *id_raw, const char *result_json);
+
+/* fd senders: builder + "\n" + write. */
 int acp_send_request(int fd, int64_t id, const char *method, const char *params_json);
 int acp_send_notify(int fd, const char *method, const char *params_json);
 int acp_send_result(int fd, const char *id_raw, const char *result_json);

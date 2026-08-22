@@ -6,6 +6,7 @@
 #include "backends/codex/codex.h"
 
 #include <poll.h>
+#include "util/tny_poll.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -130,7 +131,7 @@ static int cx_connect(tny_backend *b, char *errbuf, size_t errlen) {
             }
             o->ws = ws_connect(o->ws_url, NULL, 1000, err, sizeof err);
             if (o->ws) break;
-            poll(NULL, 0, 150);
+            tny_poll(NULL, 0, 150);
         }
         if (!o->ws) {
             snprintf(errbuf, errlen, "codex: app-server did not accept a WebSocket on "

@@ -55,7 +55,7 @@ void ac_perms_clear(ac_impl *o) {
 static void handle_permission(ac_impl *o, yyjson_val *msg, yyjson_val *params) {
     char *id_raw = acp_id_text(msg);
     if (o->nperms >= ACP_MAX_PERMS) {
-        acp_send_error(o->in_fd, id_raw, ACP_E_INTERNAL, "too many pending permissions");
+        ac_tx_error(o, id_raw, ACP_E_INTERNAL, "too many pending permissions");
         free(id_raw);
         return;
     }
@@ -221,7 +221,7 @@ void ac_handle_agent_request(ac_impl *o, yyjson_val *msg, const char *method,
     if (strcmp(method, "session/request_permission") == 0) {
         if (!o->turn_active) {
             char *id = acp_id_text(msg);
-            acp_send_result(o->in_fd, id, "{\"outcome\":{\"outcome\":\"cancelled\"}}");
+            ac_tx_result(o, id, "{\"outcome\":{\"outcome\":\"cancelled\"}}");
             free(id);
             return;
         }
@@ -243,7 +243,7 @@ void ac_handle_agent_request(ac_impl *o, yyjson_val *msg, const char *method,
         buf_appendf(&s, "%.40s: %.200s", method, q ? q : "(no detail)");
         ac_emit_text(o, TNY_EV_STATUS, s.data, s.len);
         buf_free(&s);
-        acp_send_result(o->in_fd, id, "{}");
+        ac_tx_result(o, id, "{}");
         free(id);
         return;
     }
@@ -251,7 +251,7 @@ void ac_handle_agent_request(ac_impl *o, yyjson_val *msg, const char *method,
     buf_init(&m);
     buf_appendf(&m, "tny does not implement %.100s (no fs/terminal capabilities "
                     "advertised)", method);
-    acp_send_error(o->in_fd, id, ACP_E_NO_METHOD, m.data);
+    ac_tx_error(o, id, ACP_E_NO_METHOD, m.data);
     buf_free(&m);
     free(id);
 }
