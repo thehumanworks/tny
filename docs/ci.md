@@ -15,8 +15,12 @@ workflow (`.github/workflows/ci.yml`).
 | `tny-darwin-arm64` | `macos-15` | Apple Silicon only; `make test` minus cursor mock |
 | `tny-windows-x86_64.exe` | `windows-2025` + MSYS2 `MSYS` | POSIX via `msys-2.0.dll`; unit + smoke |
 
-The Pages workflow (`.github/workflows/pages.yml`) is separate and only
-rebuilds the static site.
+The Pages workflow (`.github/workflows/pages.yml`) is separate. GitHub
+Pages for this repo deploys from the branch (`main:/docs`, legacy build),
+so the workflow rebuilds the static site from `site/` and commits the
+output into `docs/` on `main`. Generated HTML and assets in `docs/` are a
+published mirror of `site/` — edit `site/` and `scripts/site_build.py`,
+never the generated files in `docs/`.
 
 ## Releases (mise / `github:` backend)
 
