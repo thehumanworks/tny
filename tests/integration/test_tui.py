@@ -246,6 +246,7 @@ def test_turn_streams(home, ws, port):
         t.expect("tny 0.1.0")
         t.send("list the files here\r")
         t.expect("list_files", 20.0)       # tool one-liner from the mock turn 1
+        t.expect("pondering", 20.0)        # reasoning summary rendered dim
         t.expect("MOCK-OK", 20.0)          # streamed answer from turn 2
         assert "✓" in t.buf, "no tool-ok marker:\n%s" % clean(t.buf)
         t.send("/quit\r")

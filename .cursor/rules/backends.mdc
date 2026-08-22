@@ -13,7 +13,7 @@ Each backend implements connect, send, cancel, permission reply, disconnect. Map
 | `cursor` | Spawn `cursor-sdk-bridge`, Connect HTTP/1.1 | `agent acp` |
 | `codex` | WebSocket JSON-RPC (no `jsonrpc` field) | Codex ACP adapter |
 | `acp` | JSON-RPC 2.0 JSONL stdio client | `tny acp` server |
-| `openai` | `POST /v1/chat/completions` SSE | Host tool loops |
+| `openai` | `POST /v1/responses` SSE (`/chat/completions` via `wire_api:"chat"`) | Host tool loops |
 
 ```c
 /* ❌ BAD — TUI paints Connect frames */

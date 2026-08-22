@@ -62,7 +62,13 @@ def main():
             assert "tier=unset" in out["output"], out  # no --fast: omit the field
             assert out["exit_code"] == 0
             assert out["steps"] == 2, out
+            # the mock streams TWO parallel function calls; both must be
+            # assembled (fragmented arguments, late call_id/name on the
+            # second) and both must succeed
+            assert len(out["tool_calls"]) == 2, out
             assert out["tool_calls"][0]["name"] == "list_files", out
+            assert out["tool_calls"][1]["name"] == "glob_files", out
+            assert all(t["status"] == "success" for t in out["tool_calls"]), out
             sid = out["session_id"]
             assert sid, out
 
@@ -204,9 +210,37 @@ def main():
                 assert r11.returncode == 2, \
                     f"exit {r11.returncode}: {r11.stderr.decode()}"
                 assert b"mock exploded" in r11.stderr, r11.stderr
+                # response.failed already classified the end of stream: the
+                # abrupt close after it must not double-report a transport
+                # error
+                assert b"stream aborted" not in r11.stderr, r11.stderr
             finally:
                 fmock.terminate()
                 fmock.wait(timeout=5)
+
+            # response.incomplete (token cutoff): the partial text still
+            # finishes the turn cleanly, exactly like chat's length stop
+            iport = free_port()
+            imock = subprocess.Popen(
+                [sys.executable, MOCK, str(iport)],
+                env=dict(os.environ, MOCK_INCOMPLETE="1"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = imock.stdout.readline().decode()
+                assert "ready" in line, f"incomplete mock did not start: {line!r}"
+                ienv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{iport}/v1")
+                r11b = subprocess.run(
+                    [TNY, "--cwd", ws, "ask", "--json", "--no-save",
+                     "list files in ."],
+                    env=ienv, capture_output=True, timeout=30)
+                assert r11b.returncode == 0, \
+                    f"exit {r11b.returncode}: {r11b.stderr.decode()}"
+                out11b = json.loads(r11b.stdout)
+                assert "MOCK-OK" in out11b["output"], out11b
+                assert b"stream aborted" not in r11b.stderr, r11b.stderr
+            finally:
+                imock.terminate()
+                imock.wait(timeout=5)
 
             # ---- legacy chat wire (wire_api "chat", docs/adr/0014) ----
             # a chat-only mock: any request to /responses 400s, so these

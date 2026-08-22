@@ -41,6 +41,7 @@ typedef struct {
     int  ncalls;
     int  step;
     bool cancelled;
+    bool conn_reused;       /* this POST rode a kept-alive connection */
     bool wire_chat;         /* this POST rides the legacy chat wire */
     bool stream_done;       /* saw [DONE] / response.completed */
     bool stream_failed;     /* responses wire signalled a terminal error */
@@ -244,6 +245,7 @@ static char *build_request_rsp(oa_impl *o) {
 
 static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
     char err[256];
+    o->conn_reused = o->conn != NULL;
     if (!o->conn) {
         o->conn = http_open(o->ctx->base_url, err, sizeof err);
         if (!o->conn) {
@@ -271,9 +273,10 @@ static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
                 o->wire_chat ? "/chat/completions" : "/responses");
     int rc = http_request(o->conn, "POST", path.data, hdrs, body, strlen(body));
     if (rc != 0) {
-        /* stale keep-alive: reopen once */
+        /* stale keep-alive caught at write time: reopen once */
         http_close(o->conn);
         o->conn = http_open(o->ctx->base_url, err, sizeof err);
+        o->conn_reused = false;
         if (o->conn)
             rc = http_request(o->conn, "POST", path.data, hdrs, body, strlen(body));
     }
@@ -365,13 +368,11 @@ static pending_call *rsp_call_by_index(oa_impl *o, int64_t oindex) {
  * dispatch happens on the data alone. */
 static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
     oa_impl *o = ud;
-    if (len == 6 && memcmp(data, "[DONE]", 6) == 0) {
-        /* not part of the Responses stream, but some gateways send it */
-        o->stream_done = true;
-        return;
-    }
     yyjson_doc *doc = jparse(data, len);
-    if (!doc) return; /* never block the loop on a parse error */
+    /* parse errors never block the loop. A stray "[DONE]" from a
+     * chat-flavored gateway lands here too: it is not JSON, and the
+     * Responses stream ends on response.completed, not the sentinel. */
+    if (!doc) return;
     yyjson_val *root = yyjson_doc_get_root(doc);
     const char *type = jget_str(root, "type");
     if (!type) { yyjson_doc_free(doc); return; }
@@ -702,6 +703,19 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         int status = http_read_response(o->conn, 0);
         if (status == -2) return 0;
         if (status < 0) {
+            if (o->conn_reused) {
+                /* stale keep-alive caught at read time: the provider
+                 * closed the idle connection after the previous response
+                 * (SSE providers routinely do). No response byte arrived,
+                 * so re-POST once on a fresh connection. */
+                http_close(o->conn);
+                o->conn = NULL;
+                char rerr[512];
+                if (start_post(o, rerr, sizeof rerr) == 0) return 0;
+                emit_text(o, TNY_EV_ERROR, rerr, strlen(rerr));
+                emit_turn_end(o, TNY_STOP_ERROR);
+                return -1;
+            }
             emit_text(o, TNY_EV_ERROR, "connection lost before response", 31);
             emit_turn_end(o, TNY_STOP_ERROR);
             return -1;

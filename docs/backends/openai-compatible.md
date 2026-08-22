@@ -4,17 +4,54 @@ This backend is the **native harness**. tny owns the tool loop, permissions, MCP
 
 ## HTTP surface (v1)
 
-Implement Chat Completions first. It is what Groq, OpenRouter, Together, DeepSeek, ollama, llama.cpp, vLLM, Azure OpenAI (with tweaks), and local gateways actually share.
+Two wires, one loop ([ADR 0014](../adr/0014-responses-api-default-wire.md)):
 
 ```text
-POST {base_url}/chat/completions
+POST {base_url}/responses            # default: the Responses API
+POST {base_url}/chat/completions     # wire_api "chat": legacy providers
 Authorization: Bearer <key>          # default
 # or --auth-header-name / --auth-header-prefix for Azure / odd providers
 ```
 
+The **Responses API is the default** — newer OpenAI models 400 function
+tools + `reasoning_effort` on the chat wire, and responses-first gateways
+exist. **Chat Completions stays implemented** for what older ollama,
+llama.cpp, and small routers actually share; select it per provider with
+`wire_api: "chat"` in the profile, `OPENAI_WIRE_API` / `NAME_WIRE_API` in
+the environment (env beats settings, like `base_url`), or `--wire-api
+chat` for one run.
+
 `base_url` examples: `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`, `http://127.0.0.1:11434/v1`.
 
-Request (minimum):
+Sessions persist **chat-shaped messages** on either wire (the portable
+format; old sessions resume unchanged). The responses wire translates at
+request time (`src/backends/openai/responses.c`).
+
+Responses request (minimum):
+
+```json
+{
+  "model": "gpt-4.1-mini",
+  "instructions": "…system preamble…",
+  "input": [
+    { "role": "user", "content": "…" },
+    { "type": "function_call", "call_id": "call_1", "name": "read_file", "arguments": "{…}" },
+    { "type": "function_call_output", "call_id": "call_1", "output": "…" }
+  ],
+  "tools": [ { "type": "function", "name": "read_file", "parameters": { } } ],
+  "tool_choice": "auto",
+  "stream": true,
+  "store": false
+}
+```
+
+`store:false` always — tny owns session state, and the full input rides
+every POST (no `previous_response_id` chaining), so compaction, resume,
+and steer work identically on both wires. Image messages become
+`input_text` / `input_image` parts; the compaction summary is a leading
+system input item.
+
+Chat request (minimum, `wire_api: "chat"`):
 
 ```json
 {
@@ -29,20 +66,35 @@ Request (minimum):
 }
 ```
 
-`--fast` (`TNY_CAP_FAST`) adds `"service_tier":"priority"` — OpenAI's paid
-fast tier ("priority processing" pre-rename; the API also accepts `"fast"`,
-tny sends `"priority"` because older models and compatible routers accept
-it too). Omitted unless requested: strict providers reject unknown members.
+`--fast` (`TNY_CAP_FAST`) adds `"service_tier":"priority"` on both wires —
+OpenAI's paid fast tier ("priority processing" pre-rename; the API also
+accepts `"fast"`, tny sends `"priority"` because older models and
+compatible routers accept it too). Omitted unless requested: strict
+providers reject unknown members.
 
-Stream: `text/event-stream`. Lines `data: {…}` then `data: [DONE]`. Accumulate `choices[0].delta.content` and `choices[0].delta.tool_calls` (index, id, function.name, function.arguments fragments).
+Stream: `text/event-stream`, chunked, split anywhere.
 
-Non-stream: read `choices[0].message`.
+- **Responses**: typed events; tny dispatches on the payload's `"type"`
+  (the `event:` line is redundant). `response.output_text.delta` → text,
+  `response.reasoning_summary_text.delta` / `response.reasoning_text.delta`
+  → thinking, `response.output_item.added` + `response.function_call_arguments.delta`
+  assemble tool calls (`response.output_item.done` carries the complete
+  `arguments` string and is authoritative), `response.completed` carries
+  `usage.input_tokens/output_tokens` and ends the stream.
+  `response.failed` / `error` → run error with the provider message;
+  `response.incomplete` keeps the partial text (chat's `length` stop).
+- **Chat**: lines `data: {…}` then `data: [DONE]`. Accumulate
+  `choices[0].delta.content` and `choices[0].delta.tool_calls` (index, id,
+  function.name, function.arguments fragments). Non-stream fallback: read
+  `choices[0].message`.
 
 Structured outputs: when `ctx->output_schema` is set (`tny ask
---output-schema`, docs/cli.md), every POST carries a `response_format`
-object — `{"type":"json_schema","json_schema":{"name":…,"strict":…,"schema":…}}`.
-`tny_openai_response_format()` normalizes bare schemas, `json_schema`
-objects, and full wrappers into that shape. Tool calls are unaffected; the
+--output-schema`, docs/cli.md), `tny_openai_response_format()` normalizes
+bare schemas, `json_schema` objects, and full wrappers into the chat
+`response_format` shape — `{"type":"json_schema","json_schema":{"name":…,"strict":…,"schema":…}}` —
+which is what ctx stores. The chat wire sends it verbatim; the responses
+wire flattens it onto `"text":{"format":{"type":"json_schema","name":…,"schema":…}}`
+(`tny_openai_responses_text_format()`). Tool calls are unaffected; the
 schema constrains the final assistant text.
 
 Also implement `GET {base_url}/models` for `/models` when the provider has it; otherwise show configured ids only.
@@ -52,8 +104,9 @@ Also implement `GET {base_url}/models` for `/models` when the provider has it; o
 | Quirk | Flag / rewrite |
 | --- | --- |
 | Azure `api-key` header | `auth_header_name=api-key`, empty prefix |
-| Old `max_tokens` vs `max_completion_tokens` | `max_tokens_field` |
-| Reasoning effort | `--effort` / `/effort` → `reasoning_effort` in the request; canonical levels map per [ADR 0009](../adr/0009-reasoning-effort.md) (`off`→`none`, `light`→`low`, `max`→`xhigh`); provider-specific tokens (`minimal`, …) pass through verbatim. Omitted when unset — providers without the field would 400 |
+| Chat-only provider | `wire_api: "chat"` / `NAME_WIRE_API` / `--wire-api chat` ([ADR 0014](../adr/0014-responses-api-default-wire.md)) |
+| Old `max_tokens` vs `max_completion_tokens` | `max_tokens_field` (chat wire; when set, the responses wire sends `max_output_tokens`) |
+| Reasoning effort | `--effort` / `/effort` → `reasoning.effort` (responses) / `reasoning_effort` (chat); canonical levels map per [ADR 0009](../adr/0009-reasoning-effort.md) (`off`→`none`, `light`→`low`, `max`→`xhigh`); provider-specific tokens (`minimal`, …) pass through verbatim. Omitted when unset — providers without the field would 400 |
 | Extra `thinking`-style objects | pass-through JSON object in provider profile (later) |
 | Missing tools | disable tools, error clearly |
 | Parallel tool calls | honor `parallel_tool_calls` when present |
@@ -105,8 +158,9 @@ Named-provider rules:
   fallback: it belongs to a different provider.
 - Model precedence: `--model` > saved `models.{name}` > the profile's
   `model` > `NAME_DEFAULT_MODEL` from the environment.
-- `auth_header_name`, `auth_header_prefix`, and `max_tokens_field` work
-  exactly as in the `"openai"` object (settings profile only).
+- `auth_header_name`, `auth_header_prefix`, `max_tokens_field`, and
+  `wire_api` work exactly as in the `"openai"` object (settings profile;
+  `wire_api` can also come from `NAME_WIRE_API` in the environment).
   `last_provider` remembers the provider across launches — env-defined ones
   included.
 - Auto-detection without `--provider`/`last_provider` picks an env-defined
@@ -128,10 +182,6 @@ Named-provider rules:
 4. Stop on final text, step limit, cancel, or permission deny.
 
 This is the only backend that uses [features/permissions.md](../features/permissions.md) and [features/mcp-and-skills.md](../features/mcp-and-skills.md) as the execution engine. Host backends have their own loops; tny only maps events.
-
-## Responses API (optional, later)
-
-`POST /v1/responses` with typed SSE (`response.output_text.delta`, `response.function_call_arguments.delta`). Useful for OpenAI-native and Codex-shaped gateways. Do not block v1 on it. Chat Completions remains the compatibility layer.
 
 ## SSE client notes
 

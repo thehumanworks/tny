@@ -71,7 +71,8 @@ paths (`--help`, `--version`, first TUI paint) never run it.
 levels `off | light | medium | high | xhigh | max` and maps them onto each
 provider's wire vocabulary ([ADR 0009](adr/0009-reasoning-effort.md)):
 codex `turn/start.effort`, cursor `ModelSelection.params`, openai
-`reasoning_effort`. ACP has no portable knob at protocolVersion 1; the
+`reasoning.effort` (`reasoning_effort` on the chat wire). ACP has no
+portable knob at protocolVersion 1; the
 backend says so in one status line and the agent's default applies.
 
 Providers advertise their real per-model levels through their catalogs;
@@ -119,8 +120,8 @@ JSON object (keep field names stable):
 | cursor | `--bridge-bin PATH`, `CURSOR_SDK_BRIDGE_BIN`, `CURSOR_API_KEY` (also pass through to RPCs) |
 | codex | `--codex-ws URL` to attach (attach-or-fail); without it tny first tries `TNY_CODEX_WS`, then a live registered host from `~/.tny/codex-host.json` (loopback only, written by whichever tny spawned the server — a running TUI, typically), and only then spawns `codex app-server` on an ephemeral port (never a fixed port that could collide). Discovery failures fall back to spawning silently (`docs/adr/0004`). `--codex-bin`, `--ws-token-file`, `CODEX_REMOTE_TOKEN` |
 | acp | `--agent CMD` plus extra args after `--`, e.g. `tny --provider acp --agent gemini -- acp` |
-| openai | `--base-url`, `--api-key-env NAME`, `OPENAI_BASE_URL`, `OPENAI_API_KEY` |
-| named provider | same flags; `NAME_BASE_URL` (beats the settings `base_url`), key from the profile's `api_key_env`, default `NAME_API_KEY` — never `OPENAI_API_KEY` |
+| openai | `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0014](adr/0014-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API` |
+| named provider | same flags; `NAME_BASE_URL` (beats the settings `base_url`), key from the profile's `api_key_env`, default `NAME_API_KEY` — never `OPENAI_API_KEY`; `NAME_WIRE_API` / profile `wire_api` |
 
 Model precedence for every provider: `--model` > saved `models.{provider}` >
 the provider object's `model` (openai-compatible only) > `NAME_DEFAULT_MODEL`

@@ -1262,6 +1262,74 @@ TEST responses_input_translates_image_parts(void) {
     PASS();
 }
 
+/* Malformed stored messages (hand-edited sessions, buggy forks) must be
+ * skipped, never crash the translation or leak into the wire. */
+TEST responses_input_skips_malformed(void) {
+    yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
+    ASSERT(d);
+    yyjson_mut_val *msgs = yyjson_mut_arr(d);
+    yyjson_mut_doc_set_root(d, msgs);
+
+    /* user message whose parts have no type / an unknown type */
+    yyjson_mut_val *m = yyjson_mut_obj(d);
+    yyjson_mut_obj_put(m, yyjson_mut_strcpy(d, "role"), yyjson_mut_strcpy(d, "user"));
+    yyjson_mut_val *parts = yyjson_mut_arr(d);
+    yyjson_mut_val *p1 = yyjson_mut_obj(d); /* no "type" at all */
+    yyjson_mut_obj_put(p1, yyjson_mut_strcpy(d, "text"), yyjson_mut_strcpy(d, "x"));
+    yyjson_mut_arr_add_val(parts, p1);
+    yyjson_mut_val *p2 = yyjson_mut_obj(d);
+    yyjson_mut_obj_put(p2, yyjson_mut_strcpy(d, "type"), yyjson_mut_strcpy(d, "weird"));
+    yyjson_mut_arr_add_val(parts, p2);
+    yyjson_mut_val *p3 = yyjson_mut_obj(d); /* the one valid part */
+    yyjson_mut_obj_put(p3, yyjson_mut_strcpy(d, "type"), yyjson_mut_strcpy(d, "text"));
+    yyjson_mut_obj_put(p3, yyjson_mut_strcpy(d, "text"), yyjson_mut_strcpy(d, "ok"));
+    yyjson_mut_arr_add_val(parts, p3);
+    yyjson_mut_obj_put(m, yyjson_mut_strcpy(d, "content"), parts);
+    yyjson_mut_arr_add_val(msgs, m);
+
+    /* assistant message whose tool_calls is not an array */
+    yyjson_mut_val *m2 = yyjson_mut_obj(d);
+    yyjson_mut_obj_put(m2, yyjson_mut_strcpy(d, "role"),
+                       yyjson_mut_strcpy(d, "assistant"));
+    yyjson_mut_obj_put(m2, yyjson_mut_strcpy(d, "content"),
+                       yyjson_mut_strcpy(d, "fine"));
+    yyjson_mut_obj_put(m2, yyjson_mut_strcpy(d, "tool_calls"),
+                       yyjson_mut_strcpy(d, "not an array"));
+    yyjson_mut_arr_add_val(msgs, m2);
+
+    /* message with no role at all */
+    yyjson_mut_arr_add_val(msgs, yyjson_mut_obj(d));
+
+    char *in = tny_openai_responses_input(msgs, 0, NULL);
+    ASSERT(in);
+    yyjson_doc *doc = jparse(in, strlen(in));
+    ASSERT(doc);
+    yyjson_val *arr = yyjson_doc_get_root(doc);
+    ASSERT_EQ_FMT(2, (int)yyjson_arr_size(arr), "%d");
+    yyjson_val *u = yyjson_arr_get(arr, 0);
+    yyjson_val *up = jget(u, "content");
+    ASSERT_EQ_FMT(1, (int)yyjson_arr_size(up), "%d"); /* junk parts dropped */
+    ASSERT_STR_EQ("ok", jget_str(yyjson_arr_get(up, 0), "text"));
+    yyjson_val *a = yyjson_arr_get(arr, 1);
+    ASSERT_STR_EQ("assistant", jget_str(a, "role"));
+    ASSERT_STR_EQ("fine", jget_str(a, "content"));
+    yyjson_doc_free(doc);
+    free(in);
+    yyjson_mut_doc_free(d);
+
+    /* text_format: a json_schema wrapper whose payload is not an object
+     * degrades to the bare type, never crashes */
+    char *fmt = tny_openai_responses_text_format(
+        "{\"type\":\"json_schema\",\"json_schema\":42}");
+    ASSERT(fmt);
+    yyjson_doc *fd = jparse(fmt, strlen(fmt));
+    ASSERT_STR_EQ("json_schema", jget_str(yyjson_doc_get_root(fd), "type"));
+    ASSERT_EQ(NULL, jget(yyjson_doc_get_root(fd), "schema"));
+    yyjson_doc_free(fd);
+    free(fmt);
+    PASS();
+}
+
 /* The whole builtin tool schema must flatten: every entry keeps its name,
  * description, and parameters at the top level and loses the nested
  * "function" object the chat wire uses. */
@@ -1468,6 +1536,7 @@ SUITE(core_suite) {
     RUN_TEST(responses_input_translates_history);
     RUN_TEST(responses_input_honors_compact_boundary);
     RUN_TEST(responses_input_translates_image_parts);
+    RUN_TEST(responses_input_skips_malformed);
     RUN_TEST(responses_tools_flatten);
     RUN_TEST(responses_text_format_flattens);
     RUN_TEST(wire_api_resolution);

@@ -24,6 +24,19 @@ Env knobs:
                       exactly this text (steer rides after the tool result)
   MOCK_FAIL_RESPONSE  responses wire: turn 1 ends in a response.failed
                       event carrying this message (error-path test)
+  MOCK_INCOMPLETE     responses wire: the final answer ends in
+                      response.incomplete (token cutoff) — the partial
+                      text must still finish the turn cleanly
+
+The responses wire streams TWO parallel tool calls (list_files +
+glob_files). The second one's output_item.added carries only the item id;
+call_id, name arrive in output_item.done, whose empty `arguments` must
+never wipe the delta-assembled string. Junk events ride along (items
+without a type, deltas without/with empty payloads, an unknown
+output_index) — tny must skip them without crashing. Every responses
+stream ends with an abrupt connection close after the terminal event (no
+final chunk): completeness comes from response.completed/failed, not the
+transport.
 
 Usage: mock_openai.py [port] [certfile keyfile]
 With certfile/keyfile the mock serves HTTPS (used by test_https.py).
@@ -200,6 +213,21 @@ class Handler(BaseHTTPRequestHandler):
             need(last.get("role") == "user" and last.get("content") == EXPECT_STEER,
                  f"steer: last item is {last!r}, want user {EXPECT_STEER!r}")
 
+        # noise every stream carries: an item with no type, deltas with a
+        # missing / empty payload, and a delta for an output_index that was
+        # never announced — all must be skipped without crashing
+        junk = [
+            {"type": "response.output_item.added", "output_index": 7,
+             "item": {"id": "mystery"}},
+            {"type": "response.output_text.delta", "output_index": 7},
+            {"type": "response.output_text.delta", "output_index": 7, "delta": ""},
+            {"type": "response.reasoning_summary_text.delta", "output_index": 7},
+            {"type": "response.function_call_arguments.delta",
+             "item_id": "fc_ghost", "output_index": 9, "delta": "{\"x\":1}"},
+            {"type": "response.function_call_arguments.delta",
+             "item_id": "fc_ghost", "output_index": 9},
+        ]
+
         self._start_stream()
         if not outputs:
             if FAIL_RESPONSE:
@@ -211,33 +239,59 @@ class Handler(BaseHTTPRequestHandler):
                                             "message": FAIL_RESPONSE}}},
                 ]
             else:
-                item = {"type": "function_call", "id": "fc_1",
-                        "call_id": "call_1", "name": "list_files", "arguments": ""}
-                done = dict(item, arguments="{\"path\": \".\"}", status="completed")
+                # call 1: full metadata up front, arguments fragmented in
+                # deltas, output_item.done repeats the complete string
+                item1 = {"type": "function_call", "id": "fc_1",
+                         "call_id": "call_1", "name": "list_files", "arguments": ""}
+                done1 = dict(item1, arguments="{\"path\": \".\"}", status="completed")
+                # call 2: added announces only the item; call_id and name
+                # arrive in done, whose EMPTY arguments must not wipe the
+                # delta-assembled string
+                done2 = {"type": "function_call", "id": "fc_2",
+                         "call_id": "call_2", "name": "glob_files",
+                         "arguments": "", "status": "completed"}
                 events = [
                     {"type": "response.created", "response": {"status": "in_progress"}},
                     {"type": "response.output_item.added", "output_index": 0,
-                     "item": item},
+                     "item": item1},
+                    {"type": "response.output_item.added", "output_index": 1,
+                     "item": {"type": "function_call", "id": "fc_2"}},
+                    *junk,
                     {"type": "response.function_call_arguments.delta",
                      "item_id": "fc_1", "output_index": 0, "delta": "{\"pa"},
                     {"type": "response.function_call_arguments.delta",
+                     "item_id": "fc_2", "output_index": 1,
+                     "delta": "{\"pattern\": "},
+                    {"type": "response.function_call_arguments.delta",
                      "item_id": "fc_1", "output_index": 0, "delta": "th\": \".\"}"},
+                    {"type": "response.function_call_arguments.delta",
+                     "item_id": "fc_2", "output_index": 1, "delta": "\"*.txt\"}"},
                     {"type": "response.function_call_arguments.done",
                      "item_id": "fc_1", "output_index": 0,
                      "arguments": "{\"path\": \".\"}"},
                     {"type": "response.output_item.done", "output_index": 0,
-                     "item": done},
+                     "item": done1},
+                    {"type": "response.output_item.done", "output_index": 1,
+                     "item": done2},
                     {"type": "response.completed",
                      "response": {"status": "completed",
                                   "usage": {"input_tokens": 100, "output_tokens": 10}}},
                 ]
         else:
-            # the assistant's function_call must have been echoed back
-            calls = [i for i in items if i.get("type") == "function_call"]
-            need(calls and calls[0].get("call_id") == "call_1",
-                 f"function_call item not echoed: {items}")
-            need(outputs[0].get("call_id") == "call_1",
-                 f"function_call_output has the wrong call_id: {outputs[0]}")
+            # both function_calls must have been echoed back, exact
+            # arguments included, and both results answered
+            calls = {i["call_id"]: i for i in items
+                     if i.get("type") == "function_call"}
+            need(set(calls) == {"call_1", "call_2"},
+                 f"function_call items not echoed exactly: {sorted(calls)}")
+            need(calls["call_1"].get("name") == "list_files" and
+                 calls["call_1"].get("arguments") == "{\"path\": \".\"}",
+                 f"call_1 mangled: {calls['call_1']}")
+            need(calls["call_2"].get("name") == "glob_files" and
+                 calls["call_2"].get("arguments") == "{\"pattern\": \"*.txt\"}",
+                 f"call_2 mangled: {calls['call_2']}")
+            need([o.get("call_id") for o in outputs] == ["call_1", "call_2"],
+                 f"outputs wrong: {outputs}")
             text = self._answer_text(req, outputs[0].get("output", ""),
                                      structured is not None)
             events = [{"type": "response.created",
@@ -245,6 +299,7 @@ class Handler(BaseHTTPRequestHandler):
                       {"type": "response.output_item.added", "output_index": 0,
                        "item": {"type": "message", "id": "msg_1",
                                 "role": "assistant", "content": []}},
+                      *junk,
                       {"type": "response.reasoning_summary_text.delta",
                        "output_index": 0, "delta": "pondering the listing"}]
             for i in range(0, len(text), 7):
@@ -253,17 +308,26 @@ class Handler(BaseHTTPRequestHandler):
                                "delta": text[i:i+7]})
             events.append({"type": "response.output_text.done",
                            "item_id": "msg_1", "output_index": 0, "text": text})
-            events.append({"type": "response.completed",
-                           "response": {"status": "completed",
-                                        "usage": {"input_tokens": 200,
-                                                  "output_tokens": 20}}})
+            if os.environ.get("MOCK_INCOMPLETE"):
+                events.append({"type": "response.incomplete",
+                               "response": {"status": "incomplete",
+                                            "incomplete_details":
+                                                {"reason": "max_output_tokens"}}})
+            else:
+                events.append({"type": "response.completed",
+                               "response": {"status": "completed",
+                                            "usage": {"input_tokens": 200,
+                                                      "output_tokens": 20}}})
 
         # one byte stream, re-chunked at an arbitrary width so SSE events
-        # split mid-line, mid-JSON, and mid-UTF-8 across reads
+        # split mid-line, mid-JSON, and mid-UTF-8 across reads. After the
+        # terminal event the connection closes abruptly — NO final chunk:
+        # completeness is response.completed/failed, not a clean transport
+        # close, and tny must reopen the connection for the next POST.
         wire = b"".join(sse_typed(e) for e in events)
         for i in range(0, len(wire), 17):
             self._chunk(wire[i:i+17])
-        self._chunk(b"")  # final chunk
+        self.close_connection = True
 
     def _answer_text(self, req, tool_output, structured):
         nfiles = len([l for l in tool_output.splitlines() if l.strip()])
