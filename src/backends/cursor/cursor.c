@@ -54,6 +54,15 @@ void cu_end_turn(cu_impl *o, tny_stop_reason stop) {
 
 /* ---------- request bodies ---------- */
 
+/* TNY_CAP_FAST: the fast tier is a per-model parameter, not a request
+ * field. Omitting params keeps the model's own default variant; "default"
+ * pins the standard one explicitly. */
+void cursor_append_model_params(buf_t *b, const char *tier) {
+    if (!tier || !*tier) return;
+    buf_appendf(b, ",\"params\":[{\"id\":\"fast\",\"value\":\"%s\"}]",
+                tny_tier_is_fast(tier) ? "true" : "false");
+}
+
 /* AgentOptions (proto/sdk/v1/sdk_messages.proto): model is a ModelSelection
  * ({"id":…}), local.cwd carries at most one entry, extra roots go in
  * local.dirs. Local agents need an explicit model and a cwd. */
@@ -62,12 +71,7 @@ static void append_options(cu_impl *o, buf_t *b) {
     if (o->model) {
         buf_appends(b, "\"model\":{\"id\":");
         jescape(b, o->model);
-        /* TNY_CAP_FAST: the fast tier is a per-model parameter, not a
-         * request field. Omitting params keeps the model's own default
-         * variant; "default" pins the standard one explicitly. */
-        if (o->ctx->service_tier && *o->ctx->service_tier)
-            buf_appendf(b, ",\"params\":[{\"id\":\"fast\",\"value\":\"%s\"}]",
-                        tny_tier_is_fast(o->ctx->service_tier) ? "true" : "false");
+        cursor_append_model_params(b, o->ctx->service_tier);
         buf_appends(b, "},");
     }
     if (o->api_key) {

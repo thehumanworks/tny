@@ -34,15 +34,20 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # (path, function names or None, line regex or None[, integration test]) —
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
-    ("src/net/stream.c", None, r"ossl|OSSL",
-     "tests/integration/test_https.py"),
-    ("src/tui/tui_prewarm.c", None, None),
-    ("src/tui/tui_draw.c", ["tui_push_ansi", "tui_overlay_budget", "overlay_rows",
-                            "tui_overlay_linef", "tui_overlay_clear"], None),
-    ("src/tui/tui.c", ["ensure_backend", "bind_and_resume", "fresh_backend",
-                       "tui_submit"], None),
-    ("src/tui/tui_input.c", ["do_key"], r"overlay"),
-    ("src/core/config.c", ["tny_ctx_load"], r"perm_mode|permission_mode"),
+    # --fast capability (TNY_CAP_FAST): new functions whole, only the
+    # tier/fast lines inside the pre-existing ones.
+    ("src/core/backend.c", ["tny_backend_caps"], None),
+    ("src/core/config.c", ["tny_tier_is_fast"], None),
+    ("src/cli/args.c", ["cli_parse_globals", "cli_make_ctx"],
+     r"fast|tier|TNY_CAP"),
+    ("src/tui/tui_commands.c", ["tui_command"], r"fast|tier"),
+    ("src/backends/codex/codex.c", ["cx_start_thread"], r"tier|serviceTier",
+     "tests/integration/test_codex.sh"),
+    ("src/backends/openai/openai.c", ["build_request"], r"tier",
+     "tests/integration/test_openai.py"),
+    ("src/backends/cursor/cursor.c",
+     ["cursor_append_model_params", "append_options"], r"fast|tier",
+     "tests/integration/test_cursor.sh"),
 ]
 
 # operator substitutions applied to one site at a time
@@ -159,6 +164,10 @@ def main():
     ap.add_argument("--only")
     args = ap.parse_args()
 
+    # every integration fixture accepts the binary via $TNY (the .sh ones
+    # default to per-backend build dirs the harness does not rebuild)
+    os.environ["TNY"] = os.path.join(ROOT, "build", "tny")
+
     mutants = []
     for spec in TARGETS:
         path, names, line_re = spec[:3]
@@ -203,7 +212,10 @@ def main():
                 invalid += 1
                 print("%3d/%d  invalid:r %s" % (i + 1, len(mutants), tag))
                 continue
-            rc, out = run([sys.executable, mu["itest"], "./build/tny"], 420)
+            if mu["itest"].endswith(".sh"):  # bash fixtures take TNY from env
+                rc, out = run(["bash", mu["itest"], "./build/tny"], 420)
+            else:
+                rc, out = run([sys.executable, mu["itest"], "./build/tny"], 420)
             if rc != 0:
                 killed_int += 1
                 print("%3d/%d  killed:i  %s" % (i + 1, len(mutants), tag))

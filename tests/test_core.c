@@ -8,6 +8,7 @@
 #include "core/tools.h"
 #include "core/image.h"
 #include "backends/codex/codex.h"
+#include "backends/cursor/cursor.h"
 #include "cli/cli.h"
 #include "util/util.h"
 
@@ -496,6 +497,35 @@ TEST fast_flag_sets_service_tier(void) {
     PASS();
 }
 
+/* The cursor mapping is a per-model param: fast tiers pin the fast variant,
+ * "default" pins the standard one, unset appends nothing (the model's own
+ * default variant — which may itself be the fast one — applies). */
+TEST fast_cursor_model_param(void) {
+    buf_t b;
+
+    buf_init(&b);
+    cursor_append_model_params(&b, "fast");
+    ASSERT_STR_EQ(",\"params\":[{\"id\":\"fast\",\"value\":\"true\"}]", b.data);
+    buf_free(&b);
+
+    buf_init(&b);
+    cursor_append_model_params(&b, "priority");
+    ASSERT_STR_EQ(",\"params\":[{\"id\":\"fast\",\"value\":\"true\"}]", b.data);
+    buf_free(&b);
+
+    buf_init(&b);
+    cursor_append_model_params(&b, "default");
+    ASSERT_STR_EQ(",\"params\":[{\"id\":\"fast\",\"value\":\"false\"}]", b.data);
+    buf_free(&b);
+
+    buf_init(&b);
+    cursor_append_model_params(&b, NULL);
+    cursor_append_model_params(&b, "");
+    ASSERT_EQ(0, (int)b.len);
+    buf_free(&b);
+    PASS();
+}
+
 /* --fast on a provider without the capability is a startup error (exit 1
  * path): cli_make_ctx must refuse instead of silently dropping the flag. */
 TEST fast_flag_rejected_without_capability(void) {
@@ -735,6 +765,7 @@ SUITE(core_suite) {
     RUN_TEST(fast_capability_per_provider);
     RUN_TEST(fast_tier_spellings);
     RUN_TEST(fast_flag_sets_service_tier);
+    RUN_TEST(fast_cursor_model_param);
     RUN_TEST(fast_flag_rejected_without_capability);
     RUN_TEST(perm_defaults_to_yolo);
     RUN_TEST(perm_ask_mode_opt_in);
