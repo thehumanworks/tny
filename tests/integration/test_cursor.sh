@@ -130,8 +130,41 @@ if [ $_code -ne 0 ]; then
 fi
 cat "$TMP/3.err" >&2
 grep -q "CURSOR-MOCK-OK" "$TMP/3.out" || fail "the --effort ask did not stream the mock answer"
+
 check_mock_assertions
 check_no_secret_leak "$TMP/3.out" "$TMP/3.err"
+
+# ---- run 4: --fast must ride CreateAgent as a model "fast" param ----
+echo "== run 4: --fast"
+set +e
+TNY_MOCK_FAST=1 "$TNY" --backend cursor --bridge-bin "$MOCK" --cwd "$WS" --fast \
+    ask --json --no-save "quick" >"$TMP/4.out" 2>"$TMP/4.err"
+CODE=$?
+set -e
+if [ $CODE -ne 0 ]; then
+    cat "$TMP/4.err" >&2
+    fail "the --fast ask exited nonzero"
+fi
+grep -q "CURSOR-MOCK-OK" "$TMP/4.out" || fail "the --fast ask did not stream the mock answer"
+check_mock_assertions
+check_no_secret_leak "$TMP/4.out" "$TMP/4.err"
+
+# ---- run 5: --effort and --fast compose into one params array ----
+echo "== run 5: --effort light --fast"
+export TNY_MOCK_EXPECT_EFFORT=low
+set +e
+TNY_MOCK_FAST=1 "$TNY" --backend cursor --bridge-bin "$MOCK" --cwd "$WS" \
+    --effort light --fast ask --json --no-save "both" >"$TMP/5.out" 2>"$TMP/5.err"
+CODE=$?
+set -e
+unset TNY_MOCK_EXPECT_EFFORT
+if [ $CODE -ne 0 ]; then
+    cat "$TMP/5.err" >&2
+    fail "the --effort --fast ask exited nonzero"
+fi
+grep -q "CURSOR-MOCK-OK" "$TMP/5.out" || fail "the --effort --fast ask did not stream the mock answer"
+check_mock_assertions
+check_no_secret_leak "$TMP/5.out" "$TMP/5.err"
 
 # ---- the host must not outlive tny ----
 if [ -f "$MOCK_DIR/pid.txt" ] && kill -0 "$(cat "$MOCK_DIR/pid.txt")" 2>/dev/null; then

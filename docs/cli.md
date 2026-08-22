@@ -34,6 +34,7 @@ tny --model ID
 tny --effort LEVEL          # reasoning effort (--reasoning-effort is an alias)
 tny --add-dir DIR           # repeatable, process-only
 tny --permission-mode ask|auto|yolo   # default: yolo (docs/adr/0001)
+tny --fast                  # paid fast tier (TNY_CAP_FAST providers only)
 tny --json                  # where listed
 tny -r                      # session picker (TUI)
 tny -c                      # resume last for this workspace
@@ -150,6 +151,21 @@ tny ask --output-schema '{"type":"object","properties":{"count":{"type":"integer
 
 Stdout is the model's JSON text (inside `output` with `--json`). The tool
 loop still runs; the schema constrains the final assistant message.
+## `--fast` (speed tier)
+
+`--fast` opts in to the provider's paid fast tier (`TNY_CAP_FAST` in
+`src/core/backend.h`). OpenAI renamed "priority processing" to "fast mode";
+the API accepts both spellings. Each capable provider maps the flag to its
+own wire field:
+
+| Provider | Wire mapping |
+| --- | --- |
+| openai | `"service_tier":"priority"` on the chat-completions request (`fast` alias server-side) |
+| codex | `thread/start` `serviceTier:"priority"` (same tier; the value every app-server release accepts) |
+| cursor | `ModelSelection` param `{"id":"fast","value":"true"}` — fast is a per-model variant, not a request field |
+| acp | not supported — `--fast` exits 1 with the capable provider list |
+
+The interactive TUI exposes the same capability as `/fast [fast|priority|default]`.
 
 Provider caveats: `--provider cursor` runs Cursor's own headless loop — the bridge exposes no per-call approval RPC, so tny's permission mode does not apply (a status line says so); it also rejects `--image`. `--provider codex` ignores `--image` with a status line (no documented image input item).
 

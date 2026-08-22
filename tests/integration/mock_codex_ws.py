@@ -333,6 +333,18 @@ def serve(conn, index):
             knob_delay("MOCK_THREAD_DELAY_MS")
             if index == 2:
                 fail("connection 2 used thread/start instead of thread/resume")
+            # MOCK_FAST_CONN=<n>: that connection ran with --fast and must
+            # carry serviceTier "priority" (the pre-rename spelling tny pins
+            # on the wire); every other connection must omit the field.
+            tier = (msg.get("params") or {}).get("serviceTier")
+            if index == int(os.environ.get("MOCK_FAST_CONN", "0")):
+                if tier != "priority":
+                    fail("thread/start serviceTier=%r, expected 'priority' (--fast)"
+                         % (tier,))
+                else:
+                    note("thread/start serviceTier=priority ok")
+            elif tier is not None:
+                fail("thread/start carried serviceTier=%r without --fast" % (tier,))
             note("thread/start ok")
             ws.send_json({"id": req_id, "result": {"thread": {"id": THREAD_ID}}})
         elif method == "thread/resume":

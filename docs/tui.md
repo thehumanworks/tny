@@ -52,8 +52,9 @@ effort at any point in the conversation and applies from the next turn with
 no backend rebind: it rides on codex `turn/start`, cursor
 `SendOptions.model.params`, and the openai request body ([ADR
 0009](adr/0009-reasoning-effort.md)). `/models` lists the levels each model
-actually advertises. `/fast [fast|priority|default]` toggles the codex
-service tier and does rebind (the tier rides on `thread/start`).
+actually advertises. `/fast [fast|priority|default]` selects the provider's
+paid fast tier (`TNY_CAP_FAST`: openai, cursor, codex) and rebinds where the
+tier rides on session start (codex `thread/start`).
 
 Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace`
 

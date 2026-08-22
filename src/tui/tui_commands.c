@@ -29,7 +29,7 @@ static const struct { const char *name, *hint; } CMDS[] = {
     {"permissions", "/permissions [ask|auto|yolo]"},
     {"sandbox",     "show the sandbox mode"},
     {"provider",    "/provider [openai|cursor|codex|acp|settings profile]"},
-    {"fast",        "/fast [fast|priority|default] — codex service tier"},
+    {"fast",        "/fast [fast|priority|default] — provider speed tier"},
     {"effort",      "/effort [" TNY_EFFORT_LEVELS "|default]"},
     {"status",      "provider, auth, workspace"},
     {"usage",       "token usage for this workspace"},
@@ -447,18 +447,18 @@ void tui_command(tui *t, const char *line) {
                   t->ctx->model ? t->ctx->model : "default");
         t->dirty = true;
     } else if (strcmp(c, "fast") == 0) {
-        /* codex service tier (thread/start serviceTier): fast|priority map to
-         * the paid "priority" tier (1.5x speed on gpt-5.6 models), default
-         * turns it off. No argument toggles. */
-        if (t->ctx->backend != TNY_BK_CODEX) {
-            tui_err(t, "/fast is a codex service tier — switch with /provider codex");
+        /* TNY_CAP_FAST speed tier: fast|priority select the paid fast tier,
+         * default turns it off. No argument toggles. Each capable backend
+         * maps the tier to its own wire field (codex serviceTier, openai
+         * service_tier, cursor model param). */
+        if (!(tny_backend_caps((tny_backend_id)t->ctx->backend) & TNY_CAP_FAST)) {
+            tui_err(t, "/fast: no fast tier on this provider — try /provider codex");
         } else {
             const char *cur = t->ctx->service_tier;
             const char *next = NULL;
-            if (!arg || !*arg) next = cur && strcmp(cur, "priority") == 0
-                                          ? "default" : "priority";
+            if (!arg || !*arg) next = tny_tier_is_fast(cur) ? "default" : "fast";
             else if (strcmp(arg, "fast") == 0 || strcmp(arg, "priority") == 0)
-                next = "priority";
+                next = "fast";
             else if (strcmp(arg, "default") == 0 || strcmp(arg, "off") == 0)
                 next = "default";
             if (!next) {
@@ -467,10 +467,10 @@ void tui_command(tui *t, const char *line) {
                 tui_prewarm_drop(t); /* the warm-up thread reads the tier */
                 free(t->ctx->service_tier);
                 t->ctx->service_tier = xstrdup(next);
-                drop_backend(t); /* the tier rides on thread/start */
+                drop_backend(t); /* the tier rides on session creation */
                 tui_linef(t, "  service tier: %s%s", next,
-                          strcmp(next, "priority") == 0
-                              ? " (fast: 1.5x speed, increased usage)" : "");
+                          tny_tier_is_fast(next)
+                              ? " (fast: higher speed, increased usage)" : "");
             }
         }
         t->dirty = true;

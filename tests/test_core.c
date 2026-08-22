@@ -9,6 +9,8 @@
 #include "core/image.h"
 #include "backends/codex/codex.h"
 #include "backends/openai/openai.h"
+#include "backends/cursor/cursor.h"
+#include "cli/cli.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -717,6 +719,114 @@ TEST env_defined_providers(void) {
     PASS();
 }
 
+/* ---- fast tier capability (--fast / /fast) ---- */
+
+/* TNY_CAP_FAST names the providers with a paid fast tier: codex serviceTier,
+ * openai service_tier, cursor's per-model "fast" param. ACP has no tier
+ * field in session/new, so it must not carry the bit. */
+TEST fast_capability_per_provider(void) {
+    ASSERT(tny_backend_caps(TNY_BK_OPENAI) & TNY_CAP_FAST);
+    ASSERT(tny_backend_caps(TNY_BK_CURSOR) & TNY_CAP_FAST);
+    ASSERT(tny_backend_caps(TNY_BK_CODEX) & TNY_CAP_FAST);
+    ASSERT_FALSE(tny_backend_caps(TNY_BK_ACP) & TNY_CAP_FAST);
+    ASSERT_EQ(0u, tny_backend_caps((tny_backend_id)TNY_BK_COUNT));
+    PASS();
+}
+
+/* OpenAI renamed "priority" processing to "fast" mode; both spellings must
+ * select the tier, everything else (including NULL and "default") must not. */
+TEST fast_tier_spellings(void) {
+    ASSERT(tny_tier_is_fast("fast"));
+    ASSERT(tny_tier_is_fast("priority"));
+    ASSERT_FALSE(tny_tier_is_fast("default"));
+    ASSERT_FALSE(tny_tier_is_fast(""));
+    ASSERT_FALSE(tny_tier_is_fast("FAST"));
+    ASSERT_FALSE(tny_tier_is_fast(NULL));
+    PASS();
+}
+
+/* `tny --provider X --fast …` parses as a leading global and lands on
+ * ctx->service_tier for capable providers. */
+TEST fast_flag_sets_service_tier(void) {
+    ensure_env();
+    write_settings("{}");
+
+    char *argv[] = {"tny", "--provider", "openai", "--fast", "ask", "hi", NULL};
+    cli_globals g = {0};
+    int ci = cli_parse_globals(6, argv, &g);
+    ASSERT_EQ(4, ci); /* the subcommand index */
+    ASSERT(g.fast);
+    g.cwd = g_ws;
+
+    tny_ctx *ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    ASSERT_EQ(TNY_BK_OPENAI, ctx->backend);
+    ASSERT(ctx->service_tier);
+    ASSERT(tny_tier_is_fast(ctx->service_tier));
+    tny_ctx_free(ctx);
+
+    /* without the flag nothing sets a tier */
+    cli_globals g2 = {0};
+    g2.backend = "openai";
+    g2.cwd = g_ws;
+    ctx = cli_make_ctx(&g2);
+    ASSERT(ctx);
+    ASSERT_EQ(NULL, ctx->service_tier);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* The cursor mapping is a per-model param: fast tiers pin the fast variant,
+ * "default" pins the standard one, unset appends nothing (the model's own
+ * default variant — which may itself be the fast one — applies). */
+TEST fast_cursor_model_param(void) {
+    buf_t b;
+
+    buf_init(&b);
+    cursor_append_model_params(&b, "fast");
+    ASSERT_STR_EQ(",\"params\":[{\"id\":\"fast\",\"value\":\"true\"}]", b.data);
+    buf_free(&b);
+
+    buf_init(&b);
+    cursor_append_model_params(&b, "priority");
+    ASSERT_STR_EQ(",\"params\":[{\"id\":\"fast\",\"value\":\"true\"}]", b.data);
+    buf_free(&b);
+
+    buf_init(&b);
+    cursor_append_model_params(&b, "default");
+    ASSERT_STR_EQ(",\"params\":[{\"id\":\"fast\",\"value\":\"false\"}]", b.data);
+    buf_free(&b);
+
+    buf_init(&b);
+    cursor_append_model_params(&b, NULL);
+    cursor_append_model_params(&b, "");
+    ASSERT_EQ(0, (int)b.len);
+    buf_free(&b);
+    PASS();
+}
+
+/* --fast on a provider without the capability is a startup error (exit 1
+ * path): cli_make_ctx must refuse instead of silently dropping the flag. */
+TEST fast_flag_rejected_without_capability(void) {
+    ensure_env();
+    write_settings("{}");
+
+    cli_globals g = {0};
+    g.backend = "acp";
+    g.cwd = g_ws;
+    g.fast = true;
+    fprintf(stderr, "(expected error) ");
+    tny_ctx *ctx = cli_make_ctx(&g);
+    ASSERT_EQ(NULL, ctx);
+
+    g.backend = "codex"; /* same globals on a capable provider succeed */
+    ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    ASSERT(tny_tier_is_fast(ctx->service_tier));
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST backend_default_cursor_key_from_env(void) {
     ensure_env();
     write_settings("{}");
@@ -1001,6 +1111,11 @@ SUITE(core_suite) {
     RUN_TEST(provider_last_used_and_scoped_models);
     RUN_TEST(custom_named_provider_profiles);
     RUN_TEST(env_defined_providers);
+    RUN_TEST(fast_capability_per_provider);
+    RUN_TEST(fast_tier_spellings);
+    RUN_TEST(fast_flag_sets_service_tier);
+    RUN_TEST(fast_cursor_model_param);
+    RUN_TEST(fast_flag_rejected_without_capability);
     RUN_TEST(perm_defaults_to_yolo);
     RUN_TEST(perm_ask_mode_opt_in);
     RUN_TEST(perm_mode_overrides_parse);

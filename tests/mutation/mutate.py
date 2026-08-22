@@ -52,6 +52,20 @@ TARGETS = [
       "apply_custom_provider", "apply_provider_model", "tny_resolve_backend"],
      None),
     ("src/core/config.c", ["tny_effort_canonical", "tny_effort_wire"], None),
+    # --fast capability (TNY_CAP_FAST): new functions whole, only the
+    # tier/fast lines inside the pre-existing ones.
+    ("src/core/backend.c", ["tny_backend_caps"], None),
+    ("src/core/config.c", ["tny_tier_is_fast"], None),
+    ("src/cli/args.c", ["cli_parse_globals", "cli_make_ctx"],
+     r"fast|tier|TNY_CAP"),
+    ("src/tui/tui_commands.c", ["tui_command"], r"fast|tier"),
+    ("src/backends/codex/codex.c", ["cx_start_thread"], r"tier|serviceTier",
+     "tests/integration/test_codex.sh"),
+    ("src/backends/openai/openai.c", ["build_request"], r"tier",
+     "tests/integration/test_openai.py"),
+    ("src/backends/cursor/cursor.c",
+     ["cursor_append_model_params", "append_options"], r"fast|tier",
+     "tests/integration/test_cursor.sh"),
 ]
 
 # operator substitutions applied to one site at a time
@@ -176,6 +190,10 @@ def main():
     ap.add_argument("--only")
     args = ap.parse_args()
 
+    # every integration fixture accepts the binary via $TNY (the .sh ones
+    # default to per-backend build dirs the harness does not rebuild)
+    os.environ["TNY"] = os.path.join(ROOT, "build", "tny")
+
     mutants = []
     for spec in TARGETS:
         path, names, line_re = spec[:3]
@@ -220,7 +238,10 @@ def main():
                 invalid += 1
                 print("%3d/%d  invalid:r %s" % (i + 1, len(mutants), tag))
                 continue
-            rc, out = run([sys.executable, mu["itest"], "./build/tny"], 420)
+            if mu["itest"].endswith(".sh"):  # bash fixtures take TNY from env
+                rc, out = run(["bash", mu["itest"], "./build/tny"], 420)
+            else:
+                rc, out = run([sys.executable, mu["itest"], "./build/tny"], 420)
             if rc != 0:
                 killed_int += 1
                 print("%3d/%d  killed:i  %s" % (i + 1, len(mutants), tag))

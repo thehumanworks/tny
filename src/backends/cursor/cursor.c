@@ -54,17 +54,44 @@ void cu_end_turn(cu_impl *o, tny_stop_reason stop) {
 
 /* ---------- request bodies ---------- */
 
+/* TNY_CAP_FAST: the fast tier is a per-model parameter, not a request
+ * field. Omitting it keeps the model's own default variant; "default"
+ * pins the standard one explicitly. Emits one params entry (with a leading
+ * comma when `first` is false) or nothing. Returns true when it wrote. */
+bool cursor_append_fast_param(buf_t *b, const char *tier, bool first) {
+    if (!tier || !*tier) return false;
+    buf_appendf(b, "%s{\"id\":\"fast\",\"value\":\"%s\"}", first ? "" : ",",
+                tny_tier_is_fast(tier) ? "true" : "false");
+    return true;
+}
+
+/* Backward-compatible wrapper: the full ",\"params\":[…]" tail for a tier. */
+void cursor_append_model_params(buf_t *b, const char *tier) {
+    if (!tier || !*tier) return;
+    buf_appends(b, ",\"params\":[");
+    cursor_append_fast_param(b, tier, true);
+    buf_appends(b, "]");
+}
+
 /* ModelSelection ({"id":…,"params":[{id,value}…]}): per-model options such as
- * reasoning effort ride in params; top-level keys are silently dropped. */
+ * reasoning effort and the fast tier ride in params; top-level keys are
+ * silently dropped. params is omitted when neither is set. */
 static void append_model_selection(cu_impl *o, buf_t *b) {
     buf_appends(b, "{\"id\":");
     jescape(b, o->model);
-    if (o->effort_param && o->effort_value) {
-        buf_appends(b, ",\"params\":[{\"id\":");
-        jescape(b, o->effort_param);
-        buf_appends(b, ",\"value\":");
-        jescape(b, o->effort_value);
-        buf_appends(b, "}]");
+    bool effort = o->effort_param && o->effort_value;
+    const char *tier = o->ctx ? o->ctx->service_tier : NULL;
+    if (effort || (tier && *tier)) {
+        buf_appends(b, ",\"params\":[");
+        if (effort) {
+            buf_appends(b, "{\"id\":");
+            jescape(b, o->effort_param);
+            buf_appends(b, ",\"value\":");
+            jescape(b, o->effort_value);
+            buf_appends(b, "}");
+        }
+        cursor_append_fast_param(b, tier, !effort);
+        buf_appends(b, "]");
     }
     buf_appends(b, "}");
 }
@@ -482,7 +509,8 @@ static int cu_send(tny_backend *b, const char *prompt, const char **images,
     buf_appends(&body, ",\"message\":{\"text\":");
     jescape(&body, prompt);
     buf_appends(&body, "},\"options\":{\"enableDeltas\":true");
-    if (o->model && o->effort_param && o->effort_value) {
+    if (o->model && ((o->effort_param && o->effort_value) ||
+                     (o->ctx && o->ctx->service_tier && *o->ctx->service_tier))) {
         buf_appends(&body, ",\"model\":");
         append_model_selection(o, &body);
     }

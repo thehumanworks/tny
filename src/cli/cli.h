@@ -12,6 +12,7 @@ typedef struct {
     const char *model;       /* --model */
     const char *effort;      /* --effort | --reasoning-effort */
     const char *perm_mode;   /* --permission-mode | --yolo | --auto */
+    bool        fast;        /* --fast (providers with TNY_CAP_FAST) */
     const char **add_dirs;   /* --add-dir, repeatable */
     int         n_add_dirs;
     bool        json;        /* --json */

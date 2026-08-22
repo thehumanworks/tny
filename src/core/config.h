@@ -41,7 +41,11 @@ typedef struct tny_ctx {
     char *codex_ws;
     char *codex_bin;
     char *ws_token_file;
-    char *service_tier;     /* codex thread/start serviceTier: priority|default */
+    /* Speed tier for providers with TNY_CAP_FAST: NULL = provider default,
+     * "fast"/"priority" = the paid fast tier, "default" = standard. Each
+     * backend maps this to its own wire field. */
+    char *service_tier;
+
 
     /* reasoning effort (all providers). Canonical levels are
      * TNY_EFFORT_LEVELS; other tokens are provider-advertised values passed
@@ -121,5 +125,9 @@ bool tny_effort_canonical(const char *v);
  * anything the provider's catalog advertises. Never returns NULL for a
  * non-NULL input. */
 const char *tny_effort_wire(int backend, const char *v);
+
+/* True when the tier string names the paid fast tier. OpenAI renamed
+ * "priority" processing to "fast" mode; both spellings select it. */
+bool tny_tier_is_fast(const char *tier);
 
 #endif

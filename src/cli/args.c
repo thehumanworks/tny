@@ -41,6 +41,8 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else if (strcmp(a, "--permission-mode") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->perm_mode = v;
+        } else if (strcmp(a, "--fast") == 0) {
+            g->fast = true;
         } else if (strcmp(a, "--yolo") == 0) {
             g->perm_mode = "yolo";
         } else if (strcmp(a, "--auto") == 0) {
@@ -171,6 +173,23 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
             tny_ctx_free(ctx);
             return NULL;
         }
+    }
+    /* --fast needs the resolved provider: it is a capability, not a knob
+     * every backend has. Capable providers map it to their own wire field. */
+    if (g->fast) {
+        if (!(tny_backend_caps((tny_backend_id)ctx->backend) & TNY_CAP_FAST)) {
+            fprintf(stderr, "tny: --fast is not supported by provider '%s'\n"
+                            "Providers with a fast tier:",
+                    tny_backend_name((tny_backend_id)ctx->backend));
+            for (int b = 0; b < TNY_BK_COUNT; b++)
+                if (tny_backend_caps((tny_backend_id)b) & TNY_CAP_FAST)
+                    fprintf(stderr, " %s", tny_backend_name((tny_backend_id)b));
+            fprintf(stderr, "\nExample: tny --provider codex --fast ask \"hi\"\n");
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        free(ctx->service_tier);
+        ctx->service_tier = xstrdup("fast");
     }
     return ctx;
 }

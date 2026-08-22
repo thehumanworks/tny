@@ -88,10 +88,11 @@ class Handler(BaseHTTPRequestHandler):
         else:
             tool_msg = next(m for m in req["messages"] if m.get("role") == "tool")
             nfiles = len([l for l in tool_msg["content"].splitlines() if l.strip()])
+            tier = req.get("service_tier", "unset")
             if structured is not None:
                 text = json.dumps({"count": nfiles, "note": "MOCK-OK"})
             else:
-                text = f"The workspace contains {nfiles} entries. MOCK-OK."
+                text = f"The workspace contains {nfiles} entries. MOCK-OK. tier={tier}"
             frames = []
             for i in range(0, len(text), 7):
                 frames.append({"choices": [{"index": 0, "delta": {"content": text[i:i+7]}}]})

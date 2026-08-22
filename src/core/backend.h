@@ -20,6 +20,15 @@ typedef enum {
 const char *tny_backend_name(tny_backend_id id);
 int tny_backend_from_name(const char *name); /* -1 if unknown */
 
+/* Provider capabilities, known without spawning a host. */
+enum {
+    /* Paid fast/priority tier: codex thread/start serviceTier, OpenAI-compat
+     * service_tier, cursor ModelSelection param {"id":"fast"}. ACP has no
+     * tier field in session/new, so it lacks the bit. */
+    TNY_CAP_FAST = 1u << 0
+};
+unsigned tny_backend_caps(tny_backend_id id);
+
 typedef enum {
     TNY_PERM_DECISION_ALLOW,
     TNY_PERM_DECISION_ALLOW_ALWAYS,

@@ -44,6 +44,14 @@ int  cursor_ready_parse(const char *line, size_t len, cursor_ready *out,
                         char *err, size_t errlen);
 bool cursor_ready_is_line(const char *line, size_t len);
 
+/* ---- request bodies ---- */
+
+/* Append the ModelSelection "fast" param for a speed tier (TNY_CAP_FAST):
+ * fast tiers pin the fast variant, "default" pins the standard one, NULL or
+ * empty appends nothing so the model's own default variant applies. */
+void cursor_append_model_params(buf_t *b, const char *tier);
+bool cursor_append_fast_param(buf_t *b, const char *tier, bool first);
+
 /* ---- bridge process ---- */
 
 typedef struct {

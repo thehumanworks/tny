@@ -40,6 +40,8 @@ void help_root(void) {
 "                         (or any level `tny models` lists for the provider)\n"
 "  --add-dir DIR          Extra workspace directory; repeatable, process-only\n"
 "  --permission-mode M    ask | auto | yolo (default: yolo)\n"
+"  --fast                 Paid fast tier where the provider has one\n"
+"                         (openai, cursor, codex; higher speed and cost)\n"
 "  --json                 Machine-readable output where listed\n"
 "  -r                     Open the saved-session picker\n"
 "  -c, --continue         Resume the latest workspace session\n"
@@ -58,6 +60,7 @@ void help_root(void) {
 "  tny ask --json \"list the public CLI\"\n"
 "  tny --provider codex ask \"run the tests\"\n"
 "  tny --effort xhigh ask \"prove this lock-free queue is correct\"\n"
+"  tny --provider codex --fast ask \"quick: run the tests\"\n"
 "  tny --provider acp --agent gemini -- --acp\n",
     stdout);
 }

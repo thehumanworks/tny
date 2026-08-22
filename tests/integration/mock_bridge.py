@@ -148,14 +148,31 @@ class Handler(BaseHTTPRequestHandler):
             {"id": "mock-cursor-model-2"}]})
 
     def _check_effort(self, who, model):
-        params = model.get("params")
+        params = model.get("params") or []
+        effort = [p for p in params if p.get("id") == "effort"]
         if not EXPECT_EFFORT:
-            if params:
-                fail(f"{who}: unexpected ModelSelection.params {params!r}")
+            if effort:
+                fail(f"{who}: unexpected effort param {effort!r}")
             return
         want = {"id": "effort", "value": EXPECT_EFFORT}
-        if not isinstance(params, list) or want not in params:
+        if want not in effort:
             fail(f"{who}: params {params!r} does not carry {want!r}")
+
+    def _check_fast(self, who, model):
+        # TNY_MOCK_FAST=1: the run used --fast, so the ModelSelection must
+        # carry the per-model fast param; otherwise it must be absent so the
+        # model's own default variant applies.
+        params = model.get("params") or []
+        fast = [p for p in params if p.get("id") == "fast"]
+        if os.environ.get("TNY_MOCK_FAST") == "1":
+            if fast != [{"id": "fast", "value": "true"}]:
+                fail(f"{who}: fast param is {fast!r}, want "
+                     "[{'id': 'fast', 'value': 'true'}] (--fast)")
+        elif fast:
+            fail(f"{who}: fast param {fast!r} without --fast; omit it")
+        known = [p for p in params if p.get("id") not in ("effort", "fast")]
+        if known:
+            fail(f"{who}: unexpected ModelSelection.params {known!r}")
 
     def _check_options(self, req):
         who = self.path.rsplit("/", 1)[-1]
@@ -169,6 +186,7 @@ class Handler(BaseHTTPRequestHandler):
                  f"want ModelSelection {{'id': {MODEL!r}}}")
         else:
             self._check_effort(who, model)
+            self._check_fast(who, model)
         local = opts.get("local") or {}
         cwd = local.get("cwd")
         if not isinstance(cwd, list) or not cwd:
@@ -215,14 +233,15 @@ class Handler(BaseHTTPRequestHandler):
         if not options.get("enableDeltas"):
             fail("Send: options.enableDeltas is not true")
         send_model = options.get("model")
-        if EXPECT_EFFORT:
+        if EXPECT_EFFORT or os.environ.get("TNY_MOCK_FAST") == "1":
             if not isinstance(send_model, dict):
-                fail(f"Send: options.model is {send_model!r}; effort must ride "
-                     "on SendOptions.model.params")
+                fail(f"Send: options.model is {send_model!r}; effort/fast must "
+                     "ride on SendOptions.model.params")
             else:
                 self._check_effort("Send", send_model)
+                self._check_fast("Send", send_model)
         elif send_model is not None:
-            fail(f"Send: unexpected options.model {send_model!r} without --effort")
+            fail(f"Send: unexpected options.model {send_model!r} without --effort/--fast")
 
         self.send_response(200)
         self.send_header("Content-Type", "application/connect+json")

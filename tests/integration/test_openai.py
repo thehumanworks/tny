@@ -50,6 +50,7 @@ def main():
             assert r.returncode == 0, f"exit {r.returncode}: {r.stderr.decode()}"
             out = json.loads(r.stdout)
             assert "MOCK-OK" in out["output"], out
+            assert "tier=unset" in out["output"], out  # no --fast: omit the field
             assert out["exit_code"] == 0
             assert out["steps"] == 2, out
             assert out["tool_calls"][0]["name"] == "list_files", out
@@ -88,6 +89,23 @@ def main():
             out4 = json.loads(r4.stdout)
             assert "MOCK-OK" in out4["output"], out4
             assert out4["steps"] == 2, out4
+
+            # --fast (TNY_CAP_FAST) must ride the request as the paid tier
+            # ("priority", the pre-rename spelling every provider accepts)
+            r6 = subprocess.run(
+                [TNY, "--cwd", ws, "--fast", "ask", "--json", "--no-save",
+                 "list files in ."],
+                env=env, capture_output=True, timeout=30)
+            assert r6.returncode == 0, f"exit {r6.returncode}: {r6.stderr.decode()}"
+            out6 = json.loads(r6.stdout)
+            assert "tier=priority" in out6["output"], out6
+
+            # --fast on a provider without the capability is a startup error
+            r7 = subprocess.run(
+                [TNY, "--cwd", ws, "--provider", "acp", "--fast", "ask", "hi"],
+                env=env, capture_output=True, timeout=15)
+            assert r7.returncode == 1, f"exit {r7.returncode}: {r7.stderr.decode()}"
+            assert b"--fast is not supported" in r7.stderr, r7.stderr
 
             # empty stdin: exit 1 with the usage error, no hang, no half-open
             # backend left behind

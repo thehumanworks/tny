@@ -29,6 +29,11 @@ Request (minimum):
 }
 ```
 
+`--fast` (`TNY_CAP_FAST`) adds `"service_tier":"priority"` — OpenAI's paid
+fast tier ("priority processing" pre-rename; the API also accepts `"fast"`,
+tny sends `"priority"` because older models and compatible routers accept
+it too). Omitted unless requested: strict providers reject unknown members.
+
 Stream: `text/event-stream`. Lines `data: {…}` then `data: [DONE]`. Accumulate `choices[0].delta.content` and `choices[0].delta.tool_calls` (index, id, function.name, function.arguments fragments).
 
 Non-stream: read `choices[0].message`.
