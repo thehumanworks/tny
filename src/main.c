@@ -7,6 +7,7 @@
 #include "cli/cli.h"
 #include "core/backend.h"
 
+
 int main(int argc, char **argv) {
     /* fast paths: no allocation, no config */
     if (argc >= 2) {

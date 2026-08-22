@@ -16,6 +16,7 @@
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/site.css">
   <meta name="referrer" content="no-referrer">
+  <link rel="stylesheet" href="assets/vendor/xterm.css">
   <script src="assets/term-core.js"></script>
   <script>
     window.__tnyBoot = window.tnyTermCore.takeSecretsFromLocation(location, history);
@@ -63,25 +64,18 @@
       <div class="term" id="tny-term" role="application" aria-label="tny interactive shell">
         <div class="term-bar">
           <div class="term-dots" aria-hidden="true"><span></span><span></span><span></span></div>
-          <div class="term-title">tny</div>
+          <div class="term-title">tny.wasm</div>
         </div>
-        <div class="term-main">
-          <div class="term-transcript" data-term-transcript>
-            <div class="term-banner"><span class="bright">tny</span> 0.1.0 · Run /help for commands</div>
-          </div>
-          <div class="term-overlay" data-term-overlay hidden></div>
-          <div class="term-composer">
-            <span class="bar" data-term-bar aria-hidden="true">┃</span>
-            <textarea class="term-input" data-term-input rows="1" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Prompt"></textarea>
-          </div>
+        <div class="term-main term-main--wasm">
+          <div class="term-xterm" data-term-xterm></div>
         </div>
-        <div class="term-status" data-term-status><span class="status-row"><span class="auto">yolo</span> · openai</span></div>
+        <div class="term-status" data-term-status><span class="status-row"><span class="auto">yolo</span> · openai · wasm</span></div>
       </div>
     </div>
     <div class="prose">
       <p><span class="name">tny</span> is a coding agent harness and CLI written in C11, built to beat <a href="https://fx.sh">fx</a> on size and startup while keeping a Unix-shell UI.</p>
       <p>It focuses on a thin multiplexed frontend over host agents, plus a native OpenAI-compatible loop for BYOK providers. The stripped binary is 0.41mib.</p>
-      <p>The terminal on this page is live and stays in your browser. Pass <code>OPENAI_API_KEY</code> (and optionally <code>OPENAI_BASE_URL</code>) in the URL hash. Both are encrypted in this tab and sent only to the provider you set — never to GitHub.</p>
+      <p>The terminal on this page is the real <span class="name">tny</span> binary compiled to WebAssembly — the same sources and the same CI test suite as the native CLI. Pass <code>OPENAI_API_KEY</code> (and optionally <code>OPENAI_BASE_URL</code>) in the URL hash or paste them at the prompt. Keys stay in this tab and go only to the provider you set — never to GitHub. Your provider must allow browser (CORS) calls; <code>api.openai.com</code> does not.</p>
       <p>For end users, the form factor aims to be closer to a Unix shell than a heavy "IDE in the terminal" TUI.</p>
       <p>It's open source, model-agnostic, and suitable for local models, subscriptions, and cloud inference.</p>
     </div>
@@ -92,6 +86,7 @@
   </section>
 </main>
 <script src="assets/site.js"></script>
-<script src="assets/term.js"></script>
+<script src="assets/vendor/xterm.js"></script>
+<script src="assets/term-wasm.js"></script>
 </body>
 </html>

@@ -200,6 +200,13 @@ jobs:
           tests/integration/test_codex_attach.sh "$PWD/build/wasm/tny"
           make wasm-size-check
 
+      - name: Browser smoke (xterm.js page runs the artifact)
+        run: |
+          set -eu
+          pip install playwright
+          python3 -m playwright install chromium --with-deps
+          python3 tests/integration/test_site_wasm.py
+
       - uses: actions/upload-artifact@v7
         with:
           name: tny-wasm

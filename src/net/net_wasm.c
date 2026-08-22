@@ -19,6 +19,7 @@
 #include "util/tny_poll.h"
 
 #include <emscripten.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -103,6 +104,11 @@ int set_nonblock(int fd, bool nb) {
   if (fl < 0) return -1;
   return fcntl(fd, F_SETFL, nb ? (fl | O_NONBLOCK) : (fl & ~O_NONBLOCK));
 }
+
+/* Resize hook for the page: raising SIGWINCH only sets the TUI's flag, so
+ * it is safe to call from JS even while the wasm is Asyncify-suspended. */
+EMSCRIPTEN_KEEPALIVE
+void tny_wasm_winch(void) { raise(SIGWINCH); }
 
 /* Native-only entry points that shared code still links against. */
 int tcp_connect(const char *host, int port, int timeout_ms) {

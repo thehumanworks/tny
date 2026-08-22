@@ -116,19 +116,36 @@ class Handler(BaseHTTPRequestHandler):
     def _chunk(self, data: bytes):
         self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
 
+    def _cors(self):
+        # the browser wasm build (docs/adr/0017) calls this mock cross-origin;
+        # a CORS-open gateway is exactly what the page documents as required
+        self.send_header("Access-Control-Allow-Origin", "*")
+
     def _json(self, code, obj):
         body = json.dumps(obj).encode()
         self.send_response(code)
+        self._cors()
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self._cors()
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers",
+                         "authorization, content-type, accept")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _reject(self, msg):
         self._json(400, {"error": {"message": msg}})
 
     def _start_stream(self):
         self.send_response(200)
+        self._cors()
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
@@ -395,6 +412,12 @@ class Handler(BaseHTTPRequestHandler):
         wire = b"".join(sse_typed(e) for e in events)
         for i in range(0, len(wire), 17):
             self._chunk(wire[i:i+17])
+        if os.environ.get("MOCK_CLEAN_EOF"):
+            # browser fetch() (the wasm build's transport) discards the tail
+            # of a truncated chunked body instead of delivering bytes-then-
+            # error the way sockets and undici do; the browser smoke test
+            # needs the terminating chunk (docs/adr/0017 footguns)
+            self._chunk(b"")
         self.close_connection = True
 
     def _answer_text(self, req, tool_output, structured):

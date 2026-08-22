@@ -6,6 +6,12 @@
 #include "mcp/mcp.h"
 #include "util/tny_poll.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+/* 1 when the browser bootstrap owns stdio (site/assets/term-wasm.js). */
+EM_JS(int, js_tui_page, (void), { return Module.tnyOut ? 1 : 0; });
+#endif
+
 #include <errno.h>
 #include <poll.h>
 #include <signal.h>
@@ -517,10 +523,15 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     buf_init(&t.prompt_text);
     t.perm = perm_new(ctx);
     t.tty = isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
+    if (t.tty && !term_raw()) t.tty = false;
+#ifdef __EMSCRIPTEN__
+    /* the page terminal is xterm.js: already raw, always a tty — the
+     * Emscripten termios/isatty stubs must not demote it (docs/adr/0017) */
+    if (js_tui_page()) t.tty = true;
+#endif
     t.color = t.tty && !ctx->no_color && !getenv("NO_COLOR");
     tui_size(&t);
 
-    if (t.tty && !term_raw()) t.tty = false;
     install(SIGWINCH, on_winch);
     install(SIGINT, on_sigint);
     install(SIGTERM, on_fatal);
