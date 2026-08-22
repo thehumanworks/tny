@@ -229,12 +229,52 @@ static void ev_cb(const tny_event *ev, void *ud) {
         snprintf(line, sizeof line, "%.*s", (int)ev->text_len, ev->text);
         tui_err(t, line);
         break;
+    case TNY_EV_STEER_REJECTED:
+        /* the host would not take it mid-turn: send it right after instead */
+        if (t->steer_inflight) {
+            tui_queue_push(t, t->steer_inflight, true);
+            free(t->steer_inflight);
+            t->steer_inflight = NULL;
+        }
+        break;
     case TNY_EV_TURN_END:
         t->turn_active = false;
         t->turn_done = true;
         t->stop = ev->stop;
         break;
     }
+}
+
+/* ---- mid-turn input queue (docs/adr/0011) ---- */
+
+void tui_queue_push(tui *t, const char *text, bool front) {
+    char **q = realloc(t->queue, sizeof(char *) * (size_t)(t->n_queue + 1));
+    if (!q) return;
+    t->queue = q;
+    if (front) {
+        memmove(q + 1, q, sizeof(char *) * (size_t)t->n_queue);
+        q[0] = xstrdup(text);
+    } else q[t->n_queue] = xstrdup(text);
+    t->n_queue++;
+    t->dirty = true;
+}
+
+void tui_queue_clear(tui *t) {
+    for (int i = 0; i < t->n_queue; i++) free(t->queue[i]);
+    free(t->queue);
+    t->queue = NULL;
+    t->n_queue = 0;
+    t->dirty = true;
+}
+
+/* Pop the oldest queued message; malloc'd, NULL when empty. */
+static char *queue_pop(tui *t) {
+    if (!t->n_queue) return NULL;
+    char *s = t->queue[0];
+    memmove(t->queue, t->queue + 1, sizeof(char *) * (size_t)(t->n_queue - 1));
+    t->n_queue--;
+    t->dirty = true;
+    return s;
 }
 
 /* ---- session / backend ---- */
@@ -314,6 +354,8 @@ static bool ensure_backend(tui *t) {
     return true;
 }
 
+void tui_submit(tui *t, const char *text);
+
 static void after_turn(tui *t) {
     if (t->session) {
         if (t->bk && t->bk->session_pointer) {
@@ -340,12 +382,34 @@ static void after_turn(tui *t) {
     }
     t->cancel_ms = 0;
     buf_clear(&t->note);
+    free(t->steer_inflight);
+    t->steer_inflight = NULL;
     t->dirty = true;
+    if (t->n_queue) {
+        if (t->stop == TNY_STOP_DONE && !t->quit) {
+            char *next = queue_pop(t);
+            tui_submit(t, next);
+            free(next);
+        } else {
+            char m[80];
+            snprintf(m, sizeof m, "dropped %d queued message%s", t->n_queue,
+                     t->n_queue == 1 ? "" : "s");
+            tui_sys(t, m);
+            tui_queue_clear(t);
+        }
+    }
 }
 
 void tui_cancel_turn(tui *t) {
     if (!t->turn_active || !t->bk) return;
     if (t->cancel_ms) return;
+    if (t->n_queue) {
+        char m[80];
+        snprintf(m, sizeof m, "dropped %d queued message%s", t->n_queue,
+                 t->n_queue == 1 ? "" : "s");
+        tui_sys(t, m);
+        tui_queue_clear(t);
+    }
     t->cancel_ms = now_ms();
     tui_note(t, "cancelling…");
     t->bk->cancel(t->bk);
@@ -365,7 +429,21 @@ void tui_submit(tui *t, const char *text) {
         return;
     }
     if (t->turn_active) {
-        tui_sys(t, "a turn is already running — esc interrupts it");
+        tui_hist_add(t, s);
+        char err[256];
+        if (t->bk && t->bk->steer && !t->cancel_ms && !t->n_queue &&
+            t->bk->steer(t->bk, s, err, sizeof err) == 0) {
+            /* into the running turn: echo it so the transcript reads in order */
+            free(t->steer_inflight);
+            t->steer_inflight = xstrdup(s);
+            tui_bol(t);
+            tui_linef(t, "%s› %s%s %ssteer%s", tui_c(t, "\x1b[1m"), s,
+                      tui_c(t, "\x1b[0m"), tui_c(t, "\x1b[2m"), tui_c(t, "\x1b[0m"));
+            t->gap = 1;
+        } else {
+            tui_queue_push(t, s, false); /* sent when this turn ends */
+        }
+        t->dirty = true;
         return;
     }
 
@@ -533,6 +611,8 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     tui_files_free(&t);
     tui_hist_free(&t);
     for (int i = 0; i < t.n_images; i++) free(t.images[i]);
+    tui_queue_clear(&t);
+    free(t.steer_inflight);
     buf_free(&t.out);
     buf_free(&t.partial);
     buf_free(&t.input);

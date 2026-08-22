@@ -287,6 +287,36 @@ static int cx_send(tny_backend *b, const char *prompt, const char **images,
     return 0;
 }
 
+/* turn/steer (docs/adr/0011): more user input for the active turn. Needs
+ * the turn id from the turn/start response; before that the caller queues. */
+static int cx_steer(tny_backend *b, const char *text, char *errbuf, size_t errlen) {
+    cx_impl *o = b->impl;
+    if (!o->turn_active || !o->ws || o->dead || o->cancel_sent) {
+        snprintf(errbuf, errlen, "codex: no steerable turn");
+        return -1;
+    }
+    if (!o->turn_id || !o->thread_id) {
+        snprintf(errbuf, errlen, "codex: turn id not known yet");
+        return -1;
+    }
+    buf_t p;
+    buf_init(&p);
+    buf_appends(&p, "{\"threadId\":");
+    jescape(&p, o->thread_id);
+    buf_appends(&p, ",\"expectedTurnId\":");
+    jescape(&p, o->turn_id);
+    buf_appends(&p, ",\"input\":[{\"type\":\"text\",\"text\":");
+    jescape(&p, text ? text : "");
+    buf_appends(&p, ",\"text_elements\":[]}]}");
+    cx_request(o, "turn/steer", p.data, CXR_STEER);
+    buf_free(&p);
+    if (cx_flush(o) != 0) {
+        snprintf(errbuf, errlen, "codex: failed to send turn/steer");
+        return -1;
+    }
+    return 0;
+}
+
 static void cx_cancel(tny_backend *b) {
     cx_impl *o = b->impl;
     if (!o->turn_active || o->cancel_sent || !o->ws) return;
@@ -501,6 +531,7 @@ tny_backend *tny_backend_codex_new(struct tny_ctx *ctx) {
     b->create_or_resume = cx_create_or_resume;
     b->session_pointer = cx_session_pointer;
     b->send = cx_send;
+    b->steer = cx_steer;
     b->cancel = cx_cancel;
     b->respond_permission = cx_respond_permission;
     b->pollfds = cx_pollfds;

@@ -95,6 +95,8 @@ static void ask_event_cb(const tny_event *ev, void *ud) {
     case TNY_EV_STATUS:
         fprintf(stderr, "%.*s\n", (int)ev->text_len, ev->text);
         break;
+    case TNY_EV_STEER_REJECTED: /* ask never steers */
+        break;
     case TNY_EV_PLAN:
         fprintf(stderr, "plan: %.*s\n", (int)ev->text_len, ev->text);
         break;

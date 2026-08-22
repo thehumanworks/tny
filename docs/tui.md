@@ -29,13 +29,16 @@ Match fx's form: a **Unix shell**, not an IDE. Streaming transcript, a pinned co
 | `@` | workspace file picker (gitignore-aware, insert path only) |
 | `$` | skill picker (insert skill name, do not load until invoked) |
 | Up/Down at draft edge | prompt history |
-| Esc or Ctrl-C | interrupt current turn (second Ctrl-C exits if idle) |
+| Esc or Ctrl-C | interrupt current turn and drop queued messages (second Ctrl-C exits if idle) |
+| Enter during a turn | steer the running turn (codex `turn/steer`, native loop) or queue the message for when it ends (cursor, acp) — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md) |
 | Ctrl-J / Alt-J / Shift-Enter | insert a newline in the composer |
 | Ctrl-V | paste clipboard image (or text) |
 | Ctrl-O | full transcript / review |
 | Ctrl-X | subagent manager (native loop) |
 
 Disable `/` `@` `$` popovers while an approval or clarification is focused so paths like `/tmp/x` stay literal.
+
+Typing while a turn runs never writes a note into the transcript: a steered message is echoed as `› text steer`, a queued one sits in a dim `queued (n): …` row above the status row until the turn ends and it is sent through the normal prompt path. Queued messages are dropped (with a one-line note) when the turn is interrupted or fails.
 
 Menus are **transient overlays** ([ADR 0003](adr/0003-transient-menu-overlay.md)): the palette and `/help` draw inside the redrawn bottom block, esc hides them, and the next submit clears them — they never enter the scrollback. Without a tty, menu output degrades to plain transcript lines.
 

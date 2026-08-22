@@ -115,6 +115,21 @@ static void status_row(tui *t, buf_t *b, int maxw) {
     buf_free(&s);
 }
 
+/* Messages waiting for the running turn to end (docs/adr/0011): one dim
+ * row next to the composer, gone the moment they are sent. */
+static void queue_row(tui *t, buf_t *b, int *rows, int maxw) {
+    row_sep(b, rows);
+    buf_t line;
+    buf_init(&line);
+    buf_appendf(&line, "queued (%d): %s", t->n_queue, t->queue[0]);
+    if (t->n_queue > 1) buf_appends(&line, " …");
+    buf_appends(&line, " · sends when this turn ends · esc drops");
+    buf_appends(b, tui_c(t, "\x1b[2m"));
+    push_trunc(b, line.data, line.len, maxw);
+    buf_appends(b, tui_c(t, "\x1b[0m"));
+    buf_free(&line);
+}
+
 static void popover_rows(tui *t, buf_t *b, int *rows, int maxw) {
     int first = 0;
     if (t->sel >= TUI_POP_ROWS) first = t->sel - TUI_POP_ROWS + 1;
@@ -323,6 +338,7 @@ void tui_render(tui *t) {
     }
     if (t->overlay.len) overlay_rows(t, &b, &rows, maxw);
     if (t->pick != PICK_NONE && t->n_items > 0) popover_rows(t, &b, &rows, maxw);
+    if (t->n_queue) queue_row(t, &b, &rows, maxw);
     row_sep(&b, &rows);
     status_row(t, &b, maxw);
     composer_rows(t, &b, &rows, maxw, &cur_row, &cur_col);

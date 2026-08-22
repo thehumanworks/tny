@@ -66,6 +66,12 @@ struct tny_backend {
     int (*send)(tny_backend *b, const char *prompt, const char **images,
                 tny_event_cb cb, void *ud, char *errbuf, size_t errlen);
 
+    /* Deliver more user text into the turn that is running (docs/adr/0011).
+     * 0 = on its way (a later refusal arrives as TNY_EV_STEER_REJECTED);
+     * -1 = not possible right now, the caller should queue the text for the
+     * next turn. Optional: NULL when the host has no in-flight input. */
+    int (*steer)(tny_backend *b, const char *text, char *errbuf, size_t errlen);
+
     /* Ask the backend to stop the current turn. Backend still emits
      * TURN_END (stop=INTERRUPTED) when the host confirms. */
     void (*cancel)(tny_backend *b);

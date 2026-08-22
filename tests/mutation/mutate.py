@@ -52,6 +52,13 @@ TARGETS = [
       "apply_custom_provider", "apply_provider_model", "tny_resolve_backend"],
      None),
     ("src/core/config.c", ["tny_effort_canonical", "tny_effort_wire"], None),
+    # mid-turn input: steer or queue (docs/adr/0011)
+    ("src/tui/tui.c", ["tui_queue_push", "tui_queue_clear", "queue_pop",
+                       "tui_cancel_turn", "after_turn", "tui_submit"],
+     r"queue|steer"),
+    ("src/backends/openai/openai.c", ["take_steer", "oa_steer", "step_finished"],
+     r"steer"),
+    ("src/backends/codex/codex.c", ["cx_steer"], None),
     # --fast capability (TNY_CAP_FAST): new functions whole, only the
     # tier/fast lines inside the pre-existing ones.
     ("src/core/backend.c", ["tny_backend_caps"], None),

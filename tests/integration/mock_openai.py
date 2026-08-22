@@ -18,6 +18,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 # `reasoning_effort`; unset means the field must be absent (tny sends it only
 # when --effort / TNY_REASONING_EFFORT is set).
 EXPECT_EFFORT = os.environ.get("MOCK_EXPECT_EFFORT")
+# MOCK_SLOW_MS: delay before the first (tool-call) response so a TUI test can
+# steer while the turn runs. MOCK_EXPECT_STEER: the follow-up request (the one
+# carrying the tool result) must END with a user message of exactly this text
+# — the steered input rides after the tool result, never inside it.
+SLOW_MS = int(os.environ.get("MOCK_SLOW_MS", "0"))
+EXPECT_STEER = os.environ.get("MOCK_EXPECT_STEER")
 
 
 def sse(obj):
@@ -60,6 +66,20 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         has_tool_result = any(m.get("role") == "tool" for m in req["messages"])
+        if not has_tool_result and SLOW_MS:
+            import time
+            time.sleep(SLOW_MS / 1000.0)
+        if has_tool_result and EXPECT_STEER:
+            last = req["messages"][-1]
+            if last.get("role") != "user" or last.get("content") != EXPECT_STEER:
+                body = json.dumps({"error": {"message":
+                    f"steer: last message is {last!r}, want user {EXPECT_STEER!r}"}}).encode()
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
 
         # Structured outputs: validate the wrapper tny sends, echo JSON back.
         structured = req.get("response_format")
@@ -93,6 +113,8 @@ class Handler(BaseHTTPRequestHandler):
                 text = json.dumps({"count": nfiles, "note": "MOCK-OK"})
             else:
                 text = f"The workspace contains {nfiles} entries. MOCK-OK. tier={tier}"
+                if EXPECT_STEER:
+                    text += " STEER-OK"
             frames = []
             for i in range(0, len(text), 7):
                 frames.append({"choices": [{"index": 0, "delta": {"content": text[i:i+7]}}]})

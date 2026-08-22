@@ -45,6 +45,12 @@ APPROVAL_ID = 9001
 # this `effort`; a different value on any turn is a failure. When unset, no
 # turn may carry one (tny sends it only when --effort is set).
 EXPECT_EFFORT = os.environ.get("MOCK_EXPECT_EFFORT")
+# MOCK_STEER_WAIT_MS: after the first deltas, hold the turn open this long
+# and accept turn/steer (docs/adr/0011). The request must carry the active
+# turn id as expectedTurnId and UserInput[] — a stale id is rejected the way
+# the app-server rejects it, and the steered text is echoed as STEER-OK.
+STEER_WAIT_MS = int(os.environ.get("MOCK_STEER_WAIT_MS", "0"))
+STEER_SEEN = []
 EFFORT_SEEN = []
 
 FAILURES = []
@@ -247,6 +253,51 @@ def run_turn(ws, req_id, msg):
     ws.send_json({"method": "item/completed",
                   "params": {"item": {"id": item, "type": "agentMessage",
                                       "text": MARKER}}})
+
+    if STEER_WAIT_MS:
+        import time
+        deadline = time.time() + STEER_WAIT_MS / 1000.0
+        ws.conn.settimeout(0.2)
+        while time.time() < deadline:
+            try:
+                m = ws.recv_json()
+            except Exception:
+                m = None
+            if m is None:
+                continue
+            if m.get("method") != "turn/steer":
+                note("ignored %s while waiting for turn/steer" % m.get("method"))
+                continue
+            p = m.get("params") or {}
+            sid = m.get("id")
+            if p.get("threadId") != THREAD_ID:
+                fail("turn/steer threadId=%r" % p.get("threadId"))
+            if p.get("expectedTurnId") != turn_id:
+                ws.send_json({"id": sid, "error": {"code": -32600,
+                              "message": "expectedTurnId does not match the active turn"}})
+                note("turn/steer rejected (stale turn id %r)" % p.get("expectedTurnId"))
+                continue
+            si = p.get("input")
+            if (not isinstance(si, list) or not si or si[0].get("type") != "text"
+                    or not si[0].get("text") or si[0].get("text_elements") != []):
+                fail("turn/steer input is not UserInput[] text: %r" % (si,))
+                continue
+            STEER_SEEN.append(si[0]["text"])
+            note("turn/steer ok (text=%r)" % si[0]["text"])
+            ws.send_json({"id": sid, "result": {"turnId": turn_id}})
+            # the host replays steered input as a userMessage item (tny hides it)
+            ws.send_json({"method": "item/completed",
+                          "params": {"item": {"id": "item_user_2", "type": "userMessage",
+                                              "text": si[0]["text"]}}})
+            ws.send_json({"method": "item/started",
+                          "params": {"item": {"id": "item_msg_2", "type": "agentMessage"}}})
+            ws.send_json({"method": "item/agentMessage/delta",
+                          "params": {"itemId": "item_msg_2",
+                                     "delta": "STEER-OK:" + si[0]["text"]}})
+            ws.send_json({"method": "item/completed",
+                          "params": {"item": {"id": "item_msg_2", "type": "agentMessage",
+                                              "text": "STEER-OK:" + si[0]["text"]}}})
+        ws.conn.settimeout(30)
 
     ws.send_json({"method": "item/commandExecution/requestApproval",
                   "id": APPROVAL_ID,
