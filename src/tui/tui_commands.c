@@ -28,8 +28,9 @@ static const struct { const char *name, *hint; } CMDS[] = {
     {"model",       "/model [ID]"},
     {"permissions", "/permissions [ask|auto|yolo]"},
     {"sandbox",     "show the sandbox mode"},
-    {"provider",    "/provider [openai|cursor|codex|acp]"},
-    {"fast",        "/fast [fast|priority|default] — codex service tier"},
+    {"provider",    "/provider [NAME]"}, /* hint built from cmd_hint() */
+    {"fast",        "/fast [fast|priority|default] — provider speed tier"},
+    {"effort",      "/effort [" TNY_EFFORT_LEVELS "|default]"},
     {"status",      "provider, auth, workspace"},
     {"usage",       "token usage for this workspace"},
     {"sessions",    "list sessions for this workspace"},
@@ -88,13 +89,33 @@ static bool fuzzy(const char *hay, const char *needle) {
     return false;
 }
 
+/* Hint for CMDS[i]; /provider lists the providers actually available here
+ * (builtins + settings.json profiles + NAME_BASE_URL). malloc'd. */
+static char *cmd_hint(tui *t, int i) {
+    if (strcmp(CMDS[i].name, "provider") != 0) return xstrdup(CMDS[i].hint);
+    char *names = tny_provider_names_joined(t->ctx);
+    size_t n = strlen(names) + 32;
+    char *h = malloc(n);
+    if (!h) return xstrdup(CMDS[i].hint);
+    snprintf(h, n, "/provider [%s]", names);
+    free(names);
+    return h;
+}
+
 void tui_pick_build_cmd(tui *t, const char *filter) {
     for (int i = 0; i < N_CMDS; i++)
-        if (strncasecmp(CMDS[i].name, filter, strlen(filter)) == 0)
-            tui_items_add(t, CMDS[i].name, CMDS[i].hint);
+        if (strncasecmp(CMDS[i].name, filter, strlen(filter)) == 0) {
+            char *h = cmd_hint(t, i);
+            tui_items_add(t, CMDS[i].name, h);
+            free(h);
+        }
     if (t->n_items) return;
     for (int i = 0; i < N_CMDS; i++)
-        if (fuzzy(CMDS[i].name, filter)) tui_items_add(t, CMDS[i].name, CMDS[i].hint);
+        if (fuzzy(CMDS[i].name, filter)) {
+            char *h = cmd_hint(t, i);
+            tui_items_add(t, CMDS[i].name, h);
+            free(h);
+        }
 }
 
 /* ---- workspace file cache ---- */
@@ -245,8 +266,11 @@ static void cmd_help(tui *t) {
                          "esc cancel turn%s", d, r);
     tui_overlay_linef(t, "%s      ctrl-v paste image · ctrl-o transcript · "
                          "ctrl-c interrupt (twice exits)%s", d, r);
-    for (int i = 0; i < N_CMDS; i++)
-        tui_overlay_linef(t, "  %s/%-12s%s %s", b, CMDS[i].name, r, CMDS[i].hint);
+    for (int i = 0; i < N_CMDS; i++) {
+        char *h = cmd_hint(t, i);
+        tui_overlay_linef(t, "  %s/%-12s%s %s", b, CMDS[i].name, r, h);
+        free(h);
+    }
     if (t->tty)
         tui_overlay_linef(t, "%s(esc hides this menu)%s", d, r);
 }
@@ -426,8 +450,10 @@ void tui_command(tui *t, const char *line) {
                   strcmp(t->ctx->sandbox_mode, "os") == 0 ? " (unsupported: effective none)" : "");
     } else if (strcmp(c, "provider") == 0 || strcmp(c, "backend") == 0) {
         if (arg && *arg) {
-            int id = tny_backend_from_name(arg);
-            if (id < 0) tui_err(t, "unknown provider (openai|cursor|codex|acp)");
+            bool known = tny_backend_from_name(arg) >= 0 ||
+                         tny_custom_provider_exists(t->ctx, arg);
+            if (!known) tui_err(t, "unknown provider (openai|cursor|codex|acp, "
+                                   "a settings.json profile, or NAME_BASE_URL)");
             else {
                 if (t->turn_active) tui_sys(t, "finish the turn first");
                 else {
@@ -440,23 +466,22 @@ void tui_command(tui *t, const char *line) {
                 }
             }
         }
-        tui_linef(t, "  provider: %s (model %s)",
-                  tny_backend_name((tny_backend_id)t->ctx->backend),
+        tui_linef(t, "  provider: %s (model %s)", tny_provider_name(t->ctx),
                   t->ctx->model ? t->ctx->model : "default");
         t->dirty = true;
     } else if (strcmp(c, "fast") == 0) {
-        /* codex service tier (thread/start serviceTier): fast|priority map to
-         * the paid "priority" tier (1.5x speed on gpt-5.6 models), default
-         * turns it off. No argument toggles. */
-        if (t->ctx->backend != TNY_BK_CODEX) {
-            tui_err(t, "/fast is a codex service tier — switch with /provider codex");
+        /* TNY_CAP_FAST speed tier: fast|priority select the paid fast tier,
+         * default turns it off. No argument toggles. Each capable backend
+         * maps the tier to its own wire field (codex serviceTier, openai
+         * service_tier, cursor model param). */
+        if (!(tny_backend_caps((tny_backend_id)t->ctx->backend) & TNY_CAP_FAST)) {
+            tui_err(t, "/fast: no fast tier on this provider — try /provider codex");
         } else {
             const char *cur = t->ctx->service_tier;
             const char *next = NULL;
-            if (!arg || !*arg) next = cur && strcmp(cur, "priority") == 0
-                                          ? "default" : "priority";
+            if (!arg || !*arg) next = tny_tier_is_fast(cur) ? "default" : "fast";
             else if (strcmp(arg, "fast") == 0 || strcmp(arg, "priority") == 0)
-                next = "priority";
+                next = "fast";
             else if (strcmp(arg, "default") == 0 || strcmp(arg, "off") == 0)
                 next = "default";
             if (!next) {
@@ -465,11 +490,36 @@ void tui_command(tui *t, const char *line) {
                 tui_prewarm_drop(t); /* the warm-up thread reads the tier */
                 free(t->ctx->service_tier);
                 t->ctx->service_tier = xstrdup(next);
-                drop_backend(t); /* the tier rides on thread/start */
+                drop_backend(t); /* the tier rides on session creation */
                 tui_linef(t, "  service tier: %s%s", next,
-                          strcmp(next, "priority") == 0
-                              ? " (fast: 1.5x speed, increased usage)" : "");
+                          tny_tier_is_fast(next)
+                              ? " (fast: higher speed, increased usage)" : "");
             }
+        }
+        t->dirty = true;
+    } else if (strcmp(c, "effort") == 0) {
+        /* Reasoning effort applies from the next turn without a rebind: it
+         * rides on codex turn/start, cursor SendOptions.model.params and the
+         * openai request body. Levels beyond the canonical set are fine when
+         * the provider's catalog advertises them (/models shows those). */
+        if (!arg || !*arg) {
+            tui_linef(t, "  reasoning effort: %s",
+                      t->ctx->reasoning_effort ? t->ctx->reasoning_effort
+                                               : "default");
+            tui_sys(t, "usage: /effort [" TNY_EFFORT_LEVELS "|default] "
+                       "— /models lists provider levels");
+        } else {
+            tui_prewarm_drop(t); /* the warm-up thread reads the effort */
+            free(t->ctx->reasoning_effort);
+            t->ctx->reasoning_effort =
+                strcmp(arg, "default") == 0 ? NULL : xstrdup(arg);
+            if (!t->bk) tui_prewarm_start(t);
+            if (!t->ctx->reasoning_effort)
+                tui_linef(t, "  reasoning effort: provider default");
+            else
+                tui_linef(t, "  reasoning effort: %s%s (next turn on)", arg,
+                          tny_effort_canonical(arg)
+                              ? "" : " (provider-advertised value, unverified)");
         }
         t->dirty = true;
     } else if (strcmp(c, "status") == 0) {

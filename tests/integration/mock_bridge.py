@@ -30,6 +30,10 @@ RESUMED_PATH = os.path.join(DIR, "resumed.txt")
 FAIL_PATH = os.path.join(DIR, "failures.log")
 MODEL = os.environ.get("TNY_MOCK_MODEL", "mock-cursor-model")
 EXPECT_CWD = os.path.realpath(os.environ.get("TNY_MOCK_CWD") or os.getcwd())
+# When set, ModelSelection.params must carry {"id":"effort","value":<this>}
+# on CreateAgent/ResumeAgent and on SendOptions.model; when unset, params
+# must be absent everywhere (tny sends them only when --effort is set).
+EXPECT_EFFORT = os.environ.get("TNY_MOCK_EXPECT_EFFORT")
 TOKEN = secrets.token_hex(16)
 
 ANSWER = "CURSOR-MOCK-OK"
@@ -134,7 +138,41 @@ class Handler(BaseHTTPRequestHandler):
         # CursorRequestOptions: the per-call key is required for catalog RPCs
         if not (req.get("options") or {}).get("apiKey"):
             fail("ListModels: options.apiKey is missing")
-        self._json(200, {"items": [{"id": MODEL}, {"id": "mock-cursor-model-2"}]})
+        # SdkModel.parameters: ModelParameterDefinition list. tny resolves
+        # --effort against this catalog instead of guessing ids/values.
+        self._json(200, {"items": [
+            {"id": MODEL, "parameters": [
+                {"id": "effort", "displayName": "Reasoning Effort",
+                 "values": [{"value": "low"}, {"value": "medium"},
+                            {"value": "high"}, {"value": "max"}]}]},
+            {"id": "mock-cursor-model-2"}]})
+
+    def _check_effort(self, who, model):
+        params = model.get("params") or []
+        effort = [p for p in params if p.get("id") == "effort"]
+        if not EXPECT_EFFORT:
+            if effort:
+                fail(f"{who}: unexpected effort param {effort!r}")
+            return
+        want = {"id": "effort", "value": EXPECT_EFFORT}
+        if want not in effort:
+            fail(f"{who}: params {params!r} does not carry {want!r}")
+
+    def _check_fast(self, who, model):
+        # TNY_MOCK_FAST=1: the run used --fast, so the ModelSelection must
+        # carry the per-model fast param; otherwise it must be absent so the
+        # model's own default variant applies.
+        params = model.get("params") or []
+        fast = [p for p in params if p.get("id") == "fast"]
+        if os.environ.get("TNY_MOCK_FAST") == "1":
+            if fast != [{"id": "fast", "value": "true"}]:
+                fail(f"{who}: fast param is {fast!r}, want "
+                     "[{'id': 'fast', 'value': 'true'}] (--fast)")
+        elif fast:
+            fail(f"{who}: fast param {fast!r} without --fast; omit it")
+        known = [p for p in params if p.get("id") not in ("effort", "fast")]
+        if known:
+            fail(f"{who}: unexpected ModelSelection.params {known!r}")
 
     def _check_options(self, req):
         who = self.path.rsplit("/", 1)[-1]
@@ -146,6 +184,9 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(model, dict) or model.get("id") != MODEL:
             fail(f"{who}: options.model is {opts.get('model')!r}, "
                  f"want ModelSelection {{'id': {MODEL!r}}}")
+        else:
+            self._check_effort(who, model)
+            self._check_fast(who, model)
         local = opts.get("local") or {}
         cwd = local.get("cwd")
         if not isinstance(cwd, list) or not cwd:
@@ -188,8 +229,19 @@ class Handler(BaseHTTPRequestHandler):
         message = req.get("message") or {}
         if not isinstance(message, dict) or not message.get("text"):
             fail(f"Send: no message.text in {req!r}")
-        if not (req.get("options") or {}).get("enableDeltas"):
+        options = req.get("options") or {}
+        if not options.get("enableDeltas"):
             fail("Send: options.enableDeltas is not true")
+        send_model = options.get("model")
+        if EXPECT_EFFORT or os.environ.get("TNY_MOCK_FAST") == "1":
+            if not isinstance(send_model, dict):
+                fail(f"Send: options.model is {send_model!r}; effort/fast must "
+                     "ride on SendOptions.model.params")
+            else:
+                self._check_effort("Send", send_model)
+                self._check_fast("Send", send_model)
+        elif send_model is not None:
+            fail(f"Send: unexpected options.model {send_model!r} without --effort/--fast")
 
         self.send_response(200)
         self.send_header("Content-Type", "application/connect+json")

@@ -41,6 +41,18 @@ MARKER = "CODEX-MOCK-OK"
 THREAD_ID = "thr_mock_0001"
 APPROVAL_ID = 9001
 
+# MOCK_EXPECT_EFFORT: when set, at least one turn/start must carry exactly
+# this `effort`; a different value on any turn is a failure. When unset, no
+# turn may carry one (tny sends it only when --effort is set).
+EXPECT_EFFORT = os.environ.get("MOCK_EXPECT_EFFORT")
+# MOCK_STEER_WAIT_MS: after the first deltas, hold the turn open this long
+# and accept turn/steer (docs/adr/0011). The request must carry the active
+# turn id as expectedTurnId and UserInput[] — a stale id is rejected the way
+# the app-server rejects it, and the steered text is echoed as STEER-OK.
+STEER_WAIT_MS = int(os.environ.get("MOCK_STEER_WAIT_MS", "0"))
+STEER_SEEN = []
+EFFORT_SEEN = []
+
 FAILURES = []
 
 
@@ -217,6 +229,13 @@ def run_turn(ws, req_id, msg):
         fail("turn/start input[0].text missing")
     if inp[0].get("text_elements") != []:
         fail("turn/start input[0].text_elements missing or not an empty array")
+    effort = params.get("effort")
+    if effort is not None:
+        if effort == EXPECT_EFFORT:
+            EFFORT_SEEN.append(effort)
+            note("turn/start effort=%s ok" % effort)
+        else:
+            fail("turn/start effort=%r, want %r" % (effort, EXPECT_EFFORT))
     note("turn/start ok (prompt=%r)" % inp[0].get("text"))
 
     turn_id = "turn_mock_1"
@@ -234,6 +253,51 @@ def run_turn(ws, req_id, msg):
     ws.send_json({"method": "item/completed",
                   "params": {"item": {"id": item, "type": "agentMessage",
                                       "text": MARKER}}})
+
+    if STEER_WAIT_MS:
+        import time
+        deadline = time.time() + STEER_WAIT_MS / 1000.0
+        ws.conn.settimeout(0.2)
+        while time.time() < deadline:
+            try:
+                m = ws.recv_json()
+            except Exception:
+                m = None
+            if m is None:
+                continue
+            if m.get("method") != "turn/steer":
+                note("ignored %s while waiting for turn/steer" % m.get("method"))
+                continue
+            p = m.get("params") or {}
+            sid = m.get("id")
+            if p.get("threadId") != THREAD_ID:
+                fail("turn/steer threadId=%r" % p.get("threadId"))
+            if p.get("expectedTurnId") != turn_id:
+                ws.send_json({"id": sid, "error": {"code": -32600,
+                              "message": "expectedTurnId does not match the active turn"}})
+                note("turn/steer rejected (stale turn id %r)" % p.get("expectedTurnId"))
+                continue
+            si = p.get("input")
+            if (not isinstance(si, list) or not si or si[0].get("type") != "text"
+                    or not si[0].get("text") or si[0].get("text_elements") != []):
+                fail("turn/steer input is not UserInput[] text: %r" % (si,))
+                continue
+            STEER_SEEN.append(si[0]["text"])
+            note("turn/steer ok (text=%r)" % si[0]["text"])
+            ws.send_json({"id": sid, "result": {"turnId": turn_id}})
+            # the host replays steered input as a userMessage item (tny hides it)
+            ws.send_json({"method": "item/completed",
+                          "params": {"item": {"id": "item_user_2", "type": "userMessage",
+                                              "text": si[0]["text"]}}})
+            ws.send_json({"method": "item/started",
+                          "params": {"item": {"id": "item_msg_2", "type": "agentMessage"}}})
+            ws.send_json({"method": "item/agentMessage/delta",
+                          "params": {"itemId": "item_msg_2",
+                                     "delta": "STEER-OK:" + si[0]["text"]}})
+            ws.send_json({"method": "item/completed",
+                          "params": {"item": {"id": "item_msg_2", "type": "agentMessage",
+                                              "text": "STEER-OK:" + si[0]["text"]}}})
+        ws.conn.settimeout(30)
 
     ws.send_json({"method": "item/commandExecution/requestApproval",
                   "id": APPROVAL_ID,
@@ -320,6 +384,18 @@ def serve(conn, index):
             knob_delay("MOCK_THREAD_DELAY_MS")
             if index == 2:
                 fail("connection 2 used thread/start instead of thread/resume")
+            # MOCK_FAST_CONN=<n>: that connection ran with --fast and must
+            # carry serviceTier "priority" (the pre-rename spelling tny pins
+            # on the wire); every other connection must omit the field.
+            tier = (msg.get("params") or {}).get("serviceTier")
+            if index == int(os.environ.get("MOCK_FAST_CONN", "0")):
+                if tier != "priority":
+                    fail("thread/start serviceTier=%r, expected 'priority' (--fast)"
+                         % (tier,))
+                else:
+                    note("thread/start serviceTier=priority ok")
+            elif tier is not None:
+                fail("thread/start carried serviceTier=%r without --fast" % (tier,))
             note("thread/start ok")
             ws.send_json({"id": req_id, "result": {"thread": {"id": THREAD_ID}}})
         elif method == "thread/resume":
@@ -332,6 +408,19 @@ def serve(conn, index):
             ws.send_json({"id": req_id, "result": {"thread": {"id": THREAD_ID}}})
         elif method == "turn/start":
             run_turn(ws, req_id, msg)
+        elif method == "model/list":
+            # catalog with per-model reasoning efforts; "hidden" must be
+            # skipped by tny's normalization (docs/backends/codex-app-server.md)
+            note("model/list served")
+            ws.send_json({"id": req_id, "result": {"data": [
+                {"id": "mock-codex-model", "displayName": "Mock Codex",
+                 "supportedReasoningEfforts": [
+                     {"reasoningEffort": "low"},
+                     {"reasoningEffort": "medium"},
+                     {"reasoningEffort": "high"},
+                     {"reasoningEffort": "xhigh"}],
+                 "defaultReasoningEffort": "medium"},
+                {"id": "mock-hidden-model", "hidden": True}]}})
         elif method == "turn/interrupt":
             ws.send_json({"id": req_id, "result": {}})
         elif req_id is not None:
@@ -360,6 +449,8 @@ def main():
             fail("connection %d aborted: %s" % (index, exc))
         finally:
             conn.close()
+    if EXPECT_EFFORT and not EFFORT_SEEN:
+        fail("expected turn/start effort=%r but no turn carried one" % EXPECT_EFFORT)
     print("MOCK-DONE failures=%d" % len(FAILURES), flush=True)
     sys.exit(1 if FAILURES else 0)
 

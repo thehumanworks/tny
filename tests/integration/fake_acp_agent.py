@@ -21,6 +21,9 @@ SESSION_ID = "fake-session-1"
 # lines and several messages per read(). FAKE_ACP_DIE=1 exits mid-turn.
 CHUNKY = bool(os.environ.get("FAKE_ACP_CHUNKY"))
 DIE = bool(os.environ.get("FAKE_ACP_DIE"))
+# FAKE_ACP_SLOW_MS: hold the turn open this long before answering, so a
+# TUI test can type a second message while the turn is still running.
+SLOW_MS = int(os.environ.get("FAKE_ACP_SLOW_MS", "0"))
 
 
 def log(msg):
@@ -118,6 +121,14 @@ def run_prompt(msg):
     blocks = msg["params"].get("prompt", [])
     asked = " ".join(b.get("text", "") for b in blocks if b.get("type") == "text")
     state_write("last_prompt", asked)
+    if SLOW_MS:
+        import time
+        time.sleep(SLOW_MS / 1000.0)
+    # echo what was asked so a test can prove which prompt each turn carried
+    update(session_id, {
+        "sessionUpdate": "agent_message_chunk",
+        "content": {"type": "text", "text": f"[asked: {asked}] "},
+    })
 
     update(session_id, {
         "sessionUpdate": "agent_thought_chunk",

@@ -85,6 +85,15 @@ typedef struct tui {
     char *images[TUI_MAX_IMAGES + 1];
     int   n_images;
 
+    /* Messages entered while a turn ran that could not be steered into it:
+     * sent in order when the turn ends on its own, dropped on interrupt
+     * (docs/adr/0011). Shown in a row above the status row, never in the
+     * transcript. */
+    char **queue;
+    int    n_queue;
+    char  *steer_inflight; /* text handed to bk->steer, kept until TURN_END so
+                            * a STEER_REJECTED can put it back in the queue */
+
     /* Transcript gap: one blank line before the next agent start. */
     int gap; /* 0 none, 1 before text or tools, 2 before text only */
 } tui;
@@ -119,6 +128,9 @@ int tui_queue_image(tui *t, const char *path);
 /* tui.c */
 void tui_submit(tui *t, const char *text);
 void tui_cancel_turn(tui *t);
+/* Queue management (docs/adr/0011). */
+void tui_queue_push(tui *t, const char *text, bool front);
+void tui_queue_clear(tui *t);
 void tui_new_session(tui *t, bool clear_screen);
 tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary);
 void tui_drop_backend(tui *t);  /* disconnect + destroy the bound backend */
@@ -148,7 +160,7 @@ void tui_raw_end(tui *t);
 void tui_write(tui *t, const char *s, size_t n);
 void tui_bol(tui *t);        /* finish the current transcript line */
 /* Streamed dim text: every physical line carries its own open/reset SGR so
- * color never depends on state from a previous line (docs/adr/0009). */
+ * color never depends on state from a previous line (docs/adr/0012). */
 void tui_write_dim(tui *t, const char *s, size_t n);
 void tui_linef(tui *t, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 void tui_sys(tui *t, const char *s);   /* dim system line */

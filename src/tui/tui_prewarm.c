@@ -141,7 +141,7 @@ static const char *resume_pointer_for(tui *t) {
     const char *hp = session_host_pointer(t->session);
     if (!hp) return NULL;
     const char *owner = session_backend(t->session);
-    if (owner && strcmp(owner, tny_backend_name((tny_backend_id)t->ctx->backend)) != 0)
+    if (owner && strcmp(owner, tny_provider_name(t->ctx)) != 0)
         return NULL;
     return hp;
 }

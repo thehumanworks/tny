@@ -19,6 +19,7 @@ typedef struct tny_ctx {
 
     /* selection */
     int    backend;         /* tny_backend_id, resolved */
+    char  *provider_name;   /* user-named openai-compatible profile, or NULL */
     char  *model;
     bool   model_from_flag; /* --model on the command line beats saved models */
     tny_perm_mode perm_mode;
@@ -32,6 +33,7 @@ typedef struct tny_ctx {
     char *auth_header_name; /* default Authorization */
     char *auth_header_prefix; /* default "Bearer " */
     char *max_tokens_field; /* NULL = omit */
+    char *output_schema;    /* normalized response_format JSON, or NULL */
 
     /* cursor */
     char *bridge_bin;
@@ -39,7 +41,16 @@ typedef struct tny_ctx {
     char *codex_ws;
     char *codex_bin;
     char *ws_token_file;
-    char *service_tier;     /* codex thread/start serviceTier: priority|default */
+    /* Speed tier for providers with TNY_CAP_FAST: NULL = provider default,
+     * "fast"/"priority" = the paid fast tier, "default" = standard. Each
+     * backend maps this to its own wire field. */
+    char *service_tier;
+
+
+    /* reasoning effort (all providers). Canonical levels are
+     * TNY_EFFORT_LEVELS; other tokens are provider-advertised values passed
+     * through verbatim. NULL = provider default (field omitted on the wire). */
+    char *reasoning_effort;
     /* acp */
     char **agent_argv;      /* NULL-terminated, or NULL */
 
@@ -68,6 +79,29 @@ void     tny_ctx_free(tny_ctx *ctx);
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value);
 bool tny_codex_auth_present(void); /* codex login (auth.json) on this machine */
 
+/* Effective provider name: the settings.json profile name ("openrouter")
+ * when a user-named OpenAI-compatible profile is active, else the builtin
+ * backend name. Never NULL after tny_resolve_backend. */
+const char *tny_provider_name(const tny_ctx *ctx);
+/* True when `name` is a user-named OpenAI-compatible provider: a top-level
+ * settings.json object with a base_url, or NAME_BASE_URL set in the
+ * environment. Builtin names (openai|cursor|codex|acp) are never custom. */
+bool tny_custom_provider_exists(tny_ctx *ctx, const char *name);
+/* malloc'd env-var name holding the profile's API key: its api_key_env,
+ * or NAME_API_KEY derived from the profile name. NULL if no such profile. */
+char *tny_custom_provider_key_env(tny_ctx *ctx, const char *name);
+/* malloc'd NAME+suffix env-var name: ("xai","_BASE_URL") -> "XAI_BASE_URL"
+ * (uppercased, non-alphanumerics -> '_'). */
+char *tny_provider_env_var(const char *name, const char *suffix);
+/* Provider names defined by NAME_BASE_URL env vars (lowercased, builtins
+ * excluded). malloc'd NULL-terminated array; caller frees entries + array.
+ * Lazy in-memory environ walk — never runs on startup paths. */
+char **tny_env_provider_names(int *count);
+/* malloc'd "a|b|c" of every provider name usable with --provider / /provider:
+ * builtins first, then settings.json profiles, then env-only ones (deduped).
+ * Drives help text; walks environ, so not for startup paths. */
+char *tny_provider_names_joined(tny_ctx *ctx);
+
 /* Persist the provider (and its model) that just ran, so the next launch
  * defaults to them: settings last_provider + models.{provider}. */
 int tny_settings_remember_use(tny_ctx *ctx);
@@ -85,5 +119,19 @@ int tny_workspace_remove(tny_ctx *ctx, const char *dir);
 int tny_workspace_clear(tny_ctx *ctx);
 
 const char *tny_perm_mode_name(tny_perm_mode m);
+
+/* Canonical reasoning-effort levels shared across providers (docs/adr/0009). */
+#define TNY_EFFORT_LEVELS "off|light|medium|high|xhigh|max"
+/* True when v is one of the canonical levels. */
+bool tny_effort_canonical(const char *v);
+/* Map a canonical level onto one provider's wire vocabulary (backend is a
+ * tny_backend_id). Non-canonical tokens come back verbatim so users can pick
+ * anything the provider's catalog advertises. Never returns NULL for a
+ * non-NULL input. */
+const char *tny_effort_wire(int backend, const char *v);
+
+/* True when the tier string names the paid fast tier. OpenAI renamed
+ * "priority" processing to "fast" mode; both spellings select it. */
+bool tny_tier_is_fast(const char *tier);
 
 #endif

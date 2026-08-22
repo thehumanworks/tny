@@ -44,8 +44,19 @@ typedef struct {
     int64_t usage_in, usage_out;
 
     buf_t toolcall_log;     /* JSON array text for ask --json */
+    char *steer;            /* user text parked by steer(): appended as a
+                             * user message before the next POST (adr/0011) */
     char errbuf[512];
 } oa_impl;
+
+/* Move parked steer text into the transcript as a user message. */
+static bool take_steer(oa_impl *o) {
+    if (!o->steer) return false;
+    session_add_text(o->env.session, "user", o->steer);
+    free(o->steer);
+    o->steer = NULL;
+    return true;
+}
 
 /* ---------- helpers ---------- */
 
@@ -89,6 +100,13 @@ static char *build_request(oa_impl *o) {
     buf_init(&b);
     buf_appends(&b, "{\"model\":");
     jescape(&b, model_of(o));
+    /* TNY_CAP_FAST: OpenAI's paid fast tier ("priority" pre-rename; both
+     * spellings select it — send "priority", which older models and
+     * compatible routers also accept). Omitted otherwise: "default" is
+     * what the API applies anyway, and strict providers reject unknown
+     * request members. */
+    if (tny_tier_is_fast(o->ctx->service_tier))
+        buf_appends(&b, ",\"service_tier\":\"priority\"");
     buf_appends(&b, ",\"stream\":true,\"messages\":[");
 
     /* system preamble */
@@ -142,8 +160,15 @@ static char *build_request(oa_impl *o) {
     char *schema = tools_schema_json(&o->env);
     buf_appendf(&b, ",\"tools\":%s,\"tool_choice\":\"auto\"", schema);
     free(schema);
+    if (o->ctx->output_schema)
+        buf_appendf(&b, ",\"response_format\":%s", o->ctx->output_schema);
     if (o->ctx->max_tokens_field)
         buf_appendf(&b, ",\"%s\":8192", o->ctx->max_tokens_field);
+    /* read per request, so /effort applies from the next turn */
+    if (o->ctx->reasoning_effort && *o->ctx->reasoning_effort) {
+        buf_appends(&b, ",\"reasoning_effort\":");
+        jescape(&b, tny_effort_wire(TNY_BK_OPENAI, o->ctx->reasoning_effort));
+    }
     buf_appends(&b, "}");
     return buf_detach(&b);
 }
@@ -284,6 +309,22 @@ static void finish_turn_ok(oa_impl *o) {
 static int step_finished(oa_impl *o) {
     tny_session *s = o->env.session;
     if (o->ncalls == 0) {
+        if (o->steer && !o->cancelled) {
+            /* the model answered before the steer could ride along: record
+             * that answer and run one more round on the steered message so
+             * it is addressed within the turn it targeted (adr/0011) */
+            session_add_assistant(s, o->text.len ? o->text.data : "", NULL);
+            take_steer(o);
+            session_save(s);
+            o->step++;
+            if (o->step < o->ctx->max_steps) {
+                char err[512];
+                if (start_post(o, err, sizeof err) == 0) return 0;
+                emit_text(o, TNY_EV_ERROR, err, strlen(err));
+                emit_turn_end(o, TNY_STOP_ERROR);
+                return -1;
+            }
+        }
         finish_turn_ok(o);
         return 0;
     }
@@ -356,6 +397,7 @@ static int step_finished(oa_impl *o) {
         emit_turn_end(o, TNY_STOP_STEP_LIMIT);
         return 0;
     }
+    if (take_steer(o)) session_save(s); /* steered text goes in after the tool results */
     char err[512];
     if (start_post(o, err, sizeof err) != 0) {
         emit_text(o, TNY_EV_ERROR, err, strlen(err));
@@ -410,6 +452,8 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images,
     o->cancelled = false;
     o->usage_in = o->usage_out = 0;
     o->env.perm_blocked = false;
+    free(o->steer);
+    o->steer = NULL;
     buf_clear(&o->toolcall_log);
     buf_appends(&o->toolcall_log, "[");
     calls_reset(o);
@@ -426,6 +470,28 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images,
     }
     session_save(s);
     return start_post(o, errbuf, errlen);
+}
+
+/* Park text for the running turn; it is appended as a user message at the
+ * next model-call boundary (after tool results), never into tool output. */
+static int oa_steer(tny_backend *b, const char *text, char *errbuf, size_t errlen) {
+    oa_impl *o = b->impl;
+    if (o->state == ST_IDLE || o->cancelled) {
+        snprintf(errbuf, errlen, "no turn is running");
+        return -1;
+    }
+    if (o->steer) {
+        /* two steers before a boundary: keep both, in order */
+        size_t n = strlen(o->steer) + strlen(text) + 3;
+        char *both = malloc(n);
+        if (!both) { snprintf(errbuf, errlen, "out of memory"); return -1; }
+        snprintf(both, n, "%s\n\n%s", o->steer, text);
+        free(o->steer);
+        o->steer = both;
+        return 0;
+    }
+    o->steer = xstrdup(text);
+    return 0;
 }
 
 static void oa_cancel(tny_backend *b) {
@@ -528,6 +594,7 @@ static void oa_destroy(tny_backend *b) {
     oa_impl *o = b->impl;
     oa_disconnect(b);
     calls_reset(o);
+    free(o->steer);
     buf_free(&o->text);
     buf_free(&o->toolcall_log);
     sse_parser_free(&o->sse);
@@ -559,6 +626,44 @@ const char *tny_backend_openai_toolcalls_json(tny_backend *b) {
     return o->toolcall_log.data;
 }
 
+char *tny_openai_response_format(const char *schema_json, size_t len) {
+    yyjson_doc *doc = jparse(schema_json, len);
+    if (!doc) return NULL;
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    if (!yyjson_is_obj(root)) {
+        yyjson_doc_free(doc);
+        return NULL;
+    }
+    yyjson_mut_doc *m = yyjson_mut_doc_new(NULL);
+    if (!m) { yyjson_doc_free(doc); return NULL; }
+    yyjson_mut_val *copy = yyjson_val_mut_copy(m, root);
+    const char *type = jget_str(root, "type");
+    yyjson_mut_val *rf;
+    if (type && strcmp(type, "json_schema") == 0) {
+        rf = copy; /* already a full response_format */
+    } else {
+        rf = yyjson_mut_obj(m);
+        yyjson_mut_obj_add_str(m, rf, "type", "json_schema");
+        yyjson_mut_val *js;
+        if (jget(root, "schema")) {
+            js = copy; /* already a json_schema object ({name, schema, …}) */
+            if (!jget(root, "name"))
+                yyjson_mut_obj_add_str(m, js, "name", "output");
+        } else {
+            js = yyjson_mut_obj(m);
+            yyjson_mut_obj_add_str(m, js, "name", "output");
+            yyjson_mut_obj_add_bool(m, js, "strict", true);
+            yyjson_mut_obj_add_val(m, js, "schema", copy);
+        }
+        yyjson_mut_obj_add_val(m, rf, "json_schema", js);
+    }
+    yyjson_mut_doc_set_root(m, rf);
+    char *out = jwrite(m);
+    yyjson_mut_doc_free(m);
+    yyjson_doc_free(doc);
+    return out;
+}
+
 tny_backend *tny_backend_openai_new(struct tny_ctx *ctx) {
     tny_backend *b = calloc(1, sizeof *b);
     oa_impl *o = calloc(1, sizeof *o);
@@ -575,6 +680,7 @@ tny_backend *tny_backend_openai_new(struct tny_ctx *ctx) {
     b->create_or_resume = oa_create_or_resume;
     b->session_pointer = oa_session_pointer;
     b->send = oa_send;
+    b->steer = oa_steer;
     b->cancel = oa_cancel;
     b->respond_permission = oa_respond_permission;
     b->pollfds = oa_pollfds;

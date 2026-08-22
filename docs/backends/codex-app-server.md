@@ -57,6 +57,12 @@ Request:
 { "method": "thread/start", "id": 10, "params": { "model": "gpt-5.4" } }
 ```
 
+`--fast` / `/fast` (`TNY_CAP_FAST`) adds `"serviceTier":"priority"` to
+`thread/start` params — the paid fast tier (`service_tier = fast|priority`
+in codex `config.toml`; tny sends `"priority"`, the value every app-server
+release accepts). Unset means the host's own default; the host ignores
+unknown values.
+
 Response: `{ "id": 10, "result": { "thread": { "id": "thr_123" } } }`
 Error: `{ "id": 10, "error": { "code": 123, "message": "…" } }`
 Notification: `{ "method": "turn/started", "params": { "turn": { "id": "turn_456" } } }`
@@ -71,9 +77,9 @@ Unix-socket clients still send a dummy HTTP Upgrade URL such as `ws://localhost/
 2. `initialize` with `clientInfo` `{ name: "tny", title: "tny", version }`.
 3. Notification `initialized`.
 4. `thread/start` or `thread/resume` or `thread/fork`.
-5. `account/read` then `turn/start` with `threadId` and `input: [{ "type": "text", "text": "…", "text_elements": [] }]`.
+5. `account/read` then `turn/start` with `threadId` and `input: [{ "type": "text", "text": "…", "text_elements": [] }]`. Optional `effort` overrides the reasoning effort "for this turn and subsequent turns" — tny sends it (mapped per [ADR 0009](../adr/0009-reasoning-effort.md)) whenever `--effort`/`/effort` is set, which is why a mid-conversation change needs no thread restart. Supported values per model come from `model/list` → `supportedReasoningEfforts[].reasoningEffort` (plus `defaultReasoningEffort`); tny surfaces them through `tny models`.
 6. Concatenate `item/agentMessage/delta` by `itemId` until `turn/completed` (`completed` \| `interrupted` \| `failed`).
-7. Optional `turn/steer` (in-flight only), `turn/interrupt` `{threadId, turnId}`.
+7. `turn/steer` `{threadId, expectedTurnId, input: UserInput[]}` (in-flight only; tny sends it for Enter-during-a-turn once the `turn/start` response has delivered the turn id — [ADR 0011](../adr/0011-mid-turn-input-steer-or-queue.md); a rejection, e.g. a non-steerable `/review` turn, re-queues the text and does not end the turn), `turn/interrupt` `{threadId, turnId}`.
 
 Wire enums from current Rust (docs examples can be stale): approval `"untrusted"` \| `"on-request"` \| `"never"`; sandbox `"read-only"` \| `"workspace-write"` \| `"danger-full-access"`.
 

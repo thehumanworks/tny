@@ -264,11 +264,19 @@ def test_turn_streams(home, ws, port):
 
 
 def test_slash_palette(home, ws):
-    t = Term([TNY], base_env(home), ws)
+    # /provider's hint must list the providers detected here: builtins, a
+    # settings.json profile, and a NAME_BASE_URL env provider.
+    os.makedirs(os.path.join(home, ".tny"), exist_ok=True)
+    with open(os.path.join(home, ".tny", "settings.json"), "w") as f:
+        f.write('{"openrouter":{"base_url":"https://openrouter.test/v1"}}')
+    t = Term([TNY], base_env(home, {"ORWELL_BASE_URL": "https://orwell.test/v1"}), ws)
     try:
         t.expect("tny 0.1.0")
         t.send("/")
         t.expect("clear the screen", 5.0)   # palette listed commands
+        t.send("prov")
+        t.expect("openai|cursor|codex|acp|openrouter|orwell", 5.0)
+        t.send("\x7f" * 4)                 # back to a bare "/"
         t.send("help\r")
         t.expect("ctrl-o transcript", 5.0)
         t.send("/permissions auto\r")
@@ -277,6 +285,7 @@ def test_slash_palette(home, ws):
         assert t.wait() == 0
     finally:
         t.close()
+        os.remove(os.path.join(home, ".tny", "settings.json"))
     print("ok  slash palette filters, /help and /permissions work")
 
 
@@ -471,6 +480,117 @@ def test_version_fast_path():
     print("ok  --version fast path untouched")
 
 
+def test_steer_mid_turn(home, ws):
+    """Enter during a native-loop turn steers (docs/adr/0011): the text lands
+    as a user message after the tool result, the transcript shows it with
+    the `steer` tag, and nothing about "a turn is already running" is
+    printed."""
+    port = free_port()
+    mock = subprocess.Popen(
+        [sys.executable, MOCK, str(port)],
+        env=dict(os.environ, MOCK_SLOW_MS="1500", MOCK_EXPECT_STEER="also count them"),
+        stdout=subprocess.PIPE, text=True)
+    try:
+        assert "ready" in mock.stdout.readline()
+        env = base_env(home, {
+            "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % port,
+            "OPENAI_API_KEY": "test-key-not-a-secret",
+        })
+        t = Term([TNY, "--provider", "openai"], env, ws)
+        try:
+            t.expect("tny 0.1.0")
+            t.send("list the files here\r")
+            t.expect("working", 5.0)            # the turn is live (mock is slow)
+            t.send("also count them\r")
+            t.expect("steer", 5.0)              # echoed with the steer tag
+            t.expect("STEER-OK", 20.0)          # mock saw it as the last user msg
+            assert "already running" not in clean(t.buf), clean(t.buf)
+            t.send("/quit\r")
+            assert t.wait() == 0
+        finally:
+            t.close()
+    finally:
+        mock.terminate()
+        mock.wait(timeout=5)
+    print("ok  enter mid-turn steers the native loop after the tool result")
+
+
+def test_queue_sends_after_turn(home, ws):
+    """A backend without steer (ACP) queues: the second message shows in the
+    queue row, not the transcript, and is sent once the first turn ends. Esc
+    during a turn drops whatever is queued."""
+    agent = os.path.join(HERE, "fake_acp_agent.py")
+    env = base_env(home, {"FAKE_ACP_SLOW_MS": "1500",
+                          "FAKE_ACP_STATE": os.path.join(home, "acp-state.json")})
+    t = Term([TNY, "--provider", "acp", "--agent", sys.executable, "--", agent],
+             env, ws)
+    try:
+        t.expect("tny 0.1.0")
+        t.send("first question\r")
+        t.expect("working", 5.0)
+        t.send("second question\r")
+        t.expect("queued (1): second question", 5.0)
+        assert "already running" not in clean(t.buf), clean(t.buf)
+        t.expect("[asked: first question]", 20.0)
+        t.expect("[asked: second question]", 20.0)   # sent after turn 1 ended
+        t.expect("ALLOWED.", 20.0)
+        # esc while a turn runs drops the queue
+        t.send("third question\r")
+        t.expect("working", 5.0)
+        t.send("fourth question\r")
+        t.expect("queued (1): fourth question", 5.0)
+        t.send("\x1b")
+        t.expect("dropped 1 queued message", 10.0)
+        t.expect("DENIED.", 20.0)   # the fake agent finishes turn 3 cancelled
+        time.sleep(1.0)             # long enough for a wrongly-sent turn 4 to echo
+        assert "[asked: fourth question]" not in clean(t.buf), clean(t.buf)
+        t.send("/quit\r")
+        assert t.wait() == 0
+    finally:
+        t.close()
+    print("ok  queued message sent after the turn; esc drops the queue")
+
+
+def test_codex_steer_mid_turn(home, ws):
+    """codex: Enter during a turn rides turn/steer with the active turn id
+    (docs/adr/0011); the mock validates the request and echoes STEER-OK."""
+    mock_ws = os.path.join(HERE, "mock_codex_ws.py")
+    mock = subprocess.Popen(
+        [sys.executable, mock_ws, "0"],
+        env=dict(os.environ, MOCK_CONNECTIONS="1", MOCK_BUSY_CONN="0",
+                 MOCK_STEER_WAIT_MS="2500"),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        line = mock.stdout.readline()
+        assert "ready" in line, line
+        port = int(line.split()[-1])
+        t = Term([TNY, "--provider", "codex", "--codex-ws",
+                  "ws://127.0.0.1:%d" % port], base_env(home), ws)
+        try:
+            t.expect("tny 0.1.0")
+            t.send("hello codex\r")
+            t.expect("thinking", 20.0)            # turn/start accepted, streaming
+            t.send("and steer this\r")
+            t.expect("steer", 5.0)                # transcript tag
+            t.expect("STEER-OK:and steer this", 20.0)
+            assert "already running" not in clean(t.buf), clean(t.buf)
+            t.expect("ls -la", 20.0)              # the turn's tool item: turn ending
+            time.sleep(1.0)
+            t.send("/quit\r")
+            assert t.wait() == 0
+        finally:
+            t.close()
+        mock.wait(timeout=10)
+        err = mock.stderr.read()
+        assert mock.returncode == 0, "mock reported protocol failures:\n%s" % err
+        assert "turn/steer ok" in err, err
+    finally:
+        if mock.poll() is None:
+            mock.terminate()
+            mock.wait(timeout=5)
+    print("ok  codex: enter mid-turn rides turn/steer with the active turn id")
+
+
 def main():
     if not os.access(TNY, os.X_OK):
         print("build first: make BUILD=build-tui release", file=sys.stderr)
@@ -494,6 +614,9 @@ def main():
             test_yolo_default_auto_approves(home, ws)
             test_menu_overlay_transient(home, ws)
             test_prewarm_spawns_acp_agent(home, ws)
+            test_steer_mid_turn(home, ws)
+            test_queue_sends_after_turn(home, ws)
+            test_codex_steer_mid_turn(home, ws)
         finally:
             shutil.rmtree(home, ignore_errors=True)
             shutil.rmtree(ws, ignore_errors=True)

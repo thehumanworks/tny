@@ -254,6 +254,19 @@ static void cx_response(cx_impl *o, yyjson_doc *doc, yyjson_val *root, yyjson_va
             p->attempts++;
             p->due_ms = now_ms() + base + (int64_t)(now_ms() % 120);
             cx_emit_capped(o, TNY_EV_STATUS, "codex is busy; retrying shortly");
+        } else if (p && p->kind == CXR_STEER) {
+            /* non-steerable turn (review/compact) or a stale turn id: hand
+             * the text back to the frontend's queue; the turn itself is fine */
+            buf_t b;
+            buf_init(&b);
+            buf_appendf(&b, "codex refused to steer this turn (%lld): %.200s",
+                        (long long)code, msg ? msg : "no detail");
+            cx_emit_capped(o, TNY_EV_STATUS, b.data);
+            buf_free(&b);
+            tny_event ev = {0};
+            ev.kind = TNY_EV_STEER_REJECTED;
+            if (o->cb) o->cb(&ev, o->ud);
+            cx_pending_clear(p);
         } else {
             buf_t b;
             buf_init(&b);

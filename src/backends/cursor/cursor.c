@@ -54,15 +54,57 @@ void cu_end_turn(cu_impl *o, tny_stop_reason stop) {
 
 /* ---------- request bodies ---------- */
 
+/* TNY_CAP_FAST: the fast tier is a per-model parameter, not a request
+ * field. Omitting it keeps the model's own default variant; "default"
+ * pins the standard one explicitly. Emits one params entry (with a leading
+ * comma when `first` is false) or nothing. Returns true when it wrote. */
+bool cursor_append_fast_param(buf_t *b, const char *tier, bool first) {
+    if (!tier || !*tier) return false;
+    buf_appendf(b, "%s{\"id\":\"fast\",\"value\":\"%s\"}", first ? "" : ",",
+                tny_tier_is_fast(tier) ? "true" : "false");
+    return true;
+}
+
+/* Backward-compatible wrapper: the full ",\"params\":[…]" tail for a tier. */
+void cursor_append_model_params(buf_t *b, const char *tier) {
+    if (!tier || !*tier) return;
+    buf_appends(b, ",\"params\":[");
+    cursor_append_fast_param(b, tier, true);
+    buf_appends(b, "]");
+}
+
+/* ModelSelection ({"id":…,"params":[{id,value}…]}): per-model options such as
+ * reasoning effort and the fast tier ride in params; top-level keys are
+ * silently dropped. params is omitted when neither is set. */
+static void append_model_selection(cu_impl *o, buf_t *b) {
+    buf_appends(b, "{\"id\":");
+    jescape(b, o->model);
+    bool effort = o->effort_param && o->effort_value;
+    const char *tier = o->ctx ? o->ctx->service_tier : NULL;
+    if (effort || (tier && *tier)) {
+        buf_appends(b, ",\"params\":[");
+        if (effort) {
+            buf_appends(b, "{\"id\":");
+            jescape(b, o->effort_param);
+            buf_appends(b, ",\"value\":");
+            jescape(b, o->effort_value);
+            buf_appends(b, "}");
+        }
+        cursor_append_fast_param(b, tier, !effort);
+        buf_appends(b, "]");
+    }
+    buf_appends(b, "}");
+}
+
 /* AgentOptions (proto/sdk/v1/sdk_messages.proto): model is a ModelSelection
  * ({"id":…}), local.cwd carries at most one entry, extra roots go in
  * local.dirs. Local agents need an explicit model and a cwd. */
 static void append_options(cu_impl *o, buf_t *b) {
     buf_appends(b, "{");
     if (o->model) {
-        buf_appends(b, "\"model\":{\"id\":");
-        jescape(b, o->model);
-        buf_appends(b, "},");
+        buf_appends(b, "\"model\":");
+        append_model_selection(o, b);
+        buf_appends(b, ",");
     }
     if (o->api_key) {
         buf_appends(b, "\"apiKey\":");
@@ -151,7 +193,126 @@ static int resolve_model(cu_impl *o, char *err, size_t errlen) {
     return 0;
 }
 
-/* Normalized model catalog: ListModelsResponse.items -> [{"id","name"},…]. */
+static void effort_clear(cu_impl *o) {
+    free(o->effort_for);   o->effort_for = NULL;
+    free(o->effort_param); o->effort_param = NULL;
+    free(o->effort_value); o->effort_value = NULL;
+    free(o->effort_note);  o->effort_note = NULL;
+}
+
+/* Resolve ctx->reasoning_effort against the catalog for o->model: find the
+ * ModelParameterDefinition whose id names an effort and pick an allowed
+ * value (the user's token verbatim, else the canonical mapping). Runs once
+ * per distinct setting; called from create_or_resume (possibly the TUI
+ * pre-warm thread, so no output here — degradations land in effort_note and
+ * are emitted from cu_send). Best effort by design: a failure never blocks
+ * the turn, it just runs at the model's default effort. */
+static void resolve_effort(cu_impl *o) {
+    const char *want = o->ctx->reasoning_effort;
+    if (!want || !*want) {
+        if (o->effort_for) effort_clear(o);
+        return;
+    }
+    if (o->effort_for && strcmp(o->effort_for, want) == 0) return; /* cached */
+    effort_clear(o);
+    o->effort_for = xstrdup(want);
+    const char *wire = tny_effort_wire(TNY_BK_CURSOR, want);
+
+    buf_t body;
+    buf_init(&body);
+    buf_appends(&body, "{");
+    if (o->api_key) {
+        buf_appends(&body, "\"options\":{\"apiKey\":");
+        jescape(&body, o->api_key);
+        buf_appends(&body, "}");
+    }
+    buf_appends(&body, "}");
+    char err[256];
+    char *res = rpc(o, CURSOR_SVC_CURSOR, "ListModels", body.data, err, sizeof err);
+    buf_free(&body);
+    yyjson_doc *doc = res ? jparse(res, strlen(res)) : NULL;
+    free(res);
+    if (!doc) {
+        /* catalog unreachable: send the common param id unverified — the
+         * bridge drops unknown params silently, so say we guessed */
+        o->effort_param = xstrdup("effort");
+        o->effort_value = xstrdup(wire);
+        buf_t n;
+        buf_init(&n);
+        buf_appendf(&n, "cursor: ListModels failed; sent effort \"%s\" unverified",
+                    wire);
+        o->effort_note = buf_detach(&n);
+        return;
+    }
+
+    yyjson_val *items = jget(yyjson_doc_get_root(doc), "items");
+    yyjson_val *def = NULL; /* effort ModelParameterDefinition for o->model */
+    size_t idx, max;
+    yyjson_val *m;
+    if (items && yyjson_is_arr(items)) {
+        yyjson_arr_foreach(items, idx, max, m) {
+            const char *id = jget_str(m, "id");
+            if (!id || !o->model || strcmp(id, o->model) != 0) continue;
+            yyjson_val *params = jget(m, "parameters");
+            size_t pi, pmax;
+            yyjson_val *p;
+            if (params && yyjson_is_arr(params)) {
+                yyjson_arr_foreach(params, pi, pmax, p) {
+                    const char *pid = jget_str(p, "id");
+                    if (pid && strstr(pid, "effort")) { def = p; break; }
+                }
+            }
+            break;
+        }
+    }
+    if (!def) {
+        buf_t n;
+        buf_init(&n);
+        buf_appendf(&n, "cursor: model %s advertises no reasoning-effort "
+                        "parameter; --effort was ignored",
+                    o->model ? o->model : "?");
+        o->effort_note = buf_detach(&n);
+        yyjson_doc_free(doc);
+        return;
+    }
+
+    yyjson_val *values = jget(def, "values");
+    const char *picked = NULL;
+    for (int pass = 0; pass < 2 && !picked; pass++) {
+        const char *cand = pass == 0 ? want : wire;
+        size_t vi, vmax;
+        yyjson_val *v;
+        if (values && yyjson_is_arr(values)) {
+            yyjson_arr_foreach(values, vi, vmax, v) {
+                const char *val = jget_str(v, "value");
+                if (val && strcmp(val, cand) == 0) { picked = val; break; }
+            }
+        }
+    }
+    if (picked) {
+        o->effort_param = xstrdup(jget_str(def, "id"));
+        o->effort_value = xstrdup(picked);
+    } else {
+        buf_t n;
+        buf_init(&n);
+        buf_appendf(&n, "cursor: model %s has no effort \"%s\" (available:",
+                    o->model ? o->model : "?", want);
+        size_t vi, vmax;
+        yyjson_val *v;
+        if (values && yyjson_is_arr(values)) {
+            yyjson_arr_foreach(values, vi, vmax, v) {
+                const char *val = jget_str(v, "value");
+                if (val) buf_appendf(&n, " %s", val);
+            }
+        }
+        buf_appends(&n, "); running at the model default");
+        o->effort_note = buf_detach(&n);
+    }
+    yyjson_doc_free(doc);
+}
+
+/* Normalized model catalog: ListModelsResponse.items ->
+ * [{"id","name","efforts":[…]},…]. */
 static int cu_list_models(tny_backend *b, char **out, char *e, size_t el) {
     cu_impl *o = b->impl;
     buf_t body;
@@ -186,6 +347,32 @@ static int cu_list_models(tny_backend *b, char **out, char *e, size_t el) {
             jescape(&j, id);
             const char *nm = jget_str(m, "displayName");
             if (nm) { buf_appends(&j, ",\"name\":"); jescape(&j, nm); }
+            /* advertise effort levels from the model's parameter catalog */
+            yyjson_val *params = jget(m, "parameters");
+            size_t pi, pmax;
+            yyjson_val *p;
+            if (params && yyjson_is_arr(params)) {
+                yyjson_arr_foreach(params, pi, pmax, p) {
+                    const char *pid = jget_str(p, "id");
+                    yyjson_val *values = jget(p, "values");
+                    if (!pid || !strstr(pid, "effort") || !values ||
+                        !yyjson_is_arr(values) || !yyjson_arr_size(values))
+                        continue;
+                    buf_appends(&j, ",\"efforts\":[");
+                    size_t vi, vmax;
+                    yyjson_val *v;
+                    bool vfirst = true;
+                    yyjson_arr_foreach(values, vi, vmax, v) {
+                        const char *val = jget_str(v, "value");
+                        if (!val) continue;
+                        if (!vfirst) buf_appends(&j, ",");
+                        vfirst = false;
+                        jescape(&j, val);
+                    }
+                    buf_appends(&j, "]");
+                    break;
+                }
+            }
             buf_appends(&j, "}");
         }
     }
@@ -240,6 +427,7 @@ static void cu_disconnect(tny_backend *b) {
 static int cu_create_or_resume(tny_backend *b, const char *ptr, char *e, size_t el) {
     cu_impl *o = b->impl;
     if (resolve_model(o, e, el) != 0) return -1;
+    resolve_effort(o); /* best effort; degradations surface at send time */
 
     buf_t body;
     buf_init(&body);
@@ -304,6 +492,15 @@ static int cu_send(tny_backend *b, const char *prompt, const char **images,
     free(o->run_id);
     o->run_id = NULL;
 
+    /* /effort mid-conversation: re-resolve and ride the params on
+     * SendOptions.model, so the change applies without a new agent */
+    resolve_effort(o);
+    if (o->effort_note) {
+        cu_emit_text(o, TNY_EV_STATUS, o->effort_note, strlen(o->effort_note));
+        free(o->effort_note);
+        o->effort_note = NULL;
+    }
+
     /* SendRequest: agent id + UserMessage `message` + SendOptions.enable_deltas. */
     buf_t body;
     buf_init(&body);
@@ -311,7 +508,13 @@ static int cu_send(tny_backend *b, const char *prompt, const char **images,
     jescape(&body, o->agent_id);
     buf_appends(&body, ",\"message\":{\"text\":");
     jescape(&body, prompt);
-    buf_appends(&body, "},\"options\":{\"enableDeltas\":true}}");
+    buf_appends(&body, "},\"options\":{\"enableDeltas\":true");
+    if (o->model && ((o->effort_param && o->effort_value) ||
+                     (o->ctx && o->ctx->service_tier && *o->ctx->service_tier))) {
+        buf_appends(&body, ",\"model\":");
+        append_model_selection(o, &body);
+    }
+    buf_appends(&body, "}}");
     int rc = cursor_stream_start(&o->stream, CURSOR_SVC_AGENT, "Send", body.data,
                                  errbuf, errlen);
     buf_free(&body);
@@ -474,6 +677,7 @@ static void cu_destroy(tny_backend *b) {
     free(o->model);
     free(o->agent_id);
     free(o->run_id);
+    effort_clear(o);
     buf_free(&o->last_status);
     free(o);
     free(b);

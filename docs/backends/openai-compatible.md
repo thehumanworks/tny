@@ -29,9 +29,21 @@ Request (minimum):
 }
 ```
 
+`--fast` (`TNY_CAP_FAST`) adds `"service_tier":"priority"` — OpenAI's paid
+fast tier ("priority processing" pre-rename; the API also accepts `"fast"`,
+tny sends `"priority"` because older models and compatible routers accept
+it too). Omitted unless requested: strict providers reject unknown members.
+
 Stream: `text/event-stream`. Lines `data: {…}` then `data: [DONE]`. Accumulate `choices[0].delta.content` and `choices[0].delta.tool_calls` (index, id, function.name, function.arguments fragments).
 
 Non-stream: read `choices[0].message`.
+
+Structured outputs: when `ctx->output_schema` is set (`tny ask
+--output-schema`, docs/cli.md), every POST carries a `response_format`
+object — `{"type":"json_schema","json_schema":{"name":…,"strict":…,"schema":…}}`.
+`tny_openai_response_format()` normalizes bare schemas, `json_schema`
+objects, and full wrappers into that shape. Tool calls are unaffected; the
+schema constrains the final assistant text.
 
 Also implement `GET {base_url}/models` for `/models` when the provider has it; otherwise show configured ids only.
 
@@ -41,23 +53,72 @@ Also implement `GET {base_url}/models` for `/models` when the provider has it; o
 | --- | --- |
 | Azure `api-key` header | `auth_header_name=api-key`, empty prefix |
 | Old `max_tokens` vs `max_completion_tokens` | `max_tokens_field` |
-| Extra `reasoning_effort` / `thinking` | pass-through JSON object in provider profile |
+| Reasoning effort | `--effort` / `/effort` → `reasoning_effort` in the request; canonical levels map per [ADR 0009](../adr/0009-reasoning-effort.md) (`off`→`none`, `light`→`low`, `max`→`xhigh`); provider-specific tokens (`minimal`, …) pass through verbatim. Omitted when unset — providers without the field would 400 |
+| Extra `thinking`-style objects | pass-through JSON object in provider profile (later) |
 | Missing tools | disable tools, error clearly |
 | Parallel tool calls | honor `parallel_tool_calls` when present |
 
-Config entry:
+Config entry — the builtin `"openai"` object, plus **any number of named
+profiles**: every top-level settings object with a `base_url` is a provider
+name that `--provider` / `/provider` accepts:
 
 ```json
 {
   "openai": {
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4.1-mini"
+  },
+  "openrouter": {
     "base_url": "https://openrouter.ai/api/v1",
     "api_key_env": "OPENROUTER_API_KEY",
     "model": "anthropic/claude-sonnet-4.6",
     "auth_header_name": "Authorization",
     "auth_header_prefix": "Bearer "
+  },
+  "xai": {
+    "base_url": "https://api.x.ai/v1"
   }
 }
 ```
+
+Named providers can equally be defined **by environment variables alone** —
+no settings entry needed:
+
+```sh
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1 \
+OPENROUTER_API_KEY=sk-or-… \
+OPENROUTER_DEFAULT_MODEL=anthropic/claude-sonnet-4.6 \
+tny ask "hi"                       # auto-detected, provider name "openrouter"
+```
+
+Named-provider rules:
+
+- A name is valid when settings has a `base_url` object for it **or**
+  `NAME_BASE_URL` is set (name uppercased, non-alphanumerics mapped to `_`).
+  When both exist, the env `base_url` wins — mirroring how
+  `OPENAI_BASE_URL` beats the `"openai"` object. The settings `base_url` is
+  what marks the object as a provider profile (reserved objects like
+  `workspaces` and `models` never have one). The four builtin names
+  (`openai|cursor|codex|acp`) are never named providers.
+- The API key comes from the profile's `api_key_env`, defaulting to
+  `NAME_API_KEY` (e.g. `xai` → `XAI_API_KEY`). `OPENAI_API_KEY` is **not** a
+  fallback: it belongs to a different provider.
+- Model precedence: `--model` > saved `models.{name}` > the profile's
+  `model` > `NAME_DEFAULT_MODEL` from the environment.
+- `auth_header_name`, `auth_header_prefix`, and `max_tokens_field` work
+  exactly as in the `"openai"` object (settings profile only).
+  `last_provider` remembers the provider across launches — env-defined ones
+  included.
+- Auto-detection without `--provider`/`last_provider` picks an env-defined
+  provider only when **exactly one** `NAME_BASE_URL` + `NAME_API_KEY` pair
+  is set, so a stray `*_BASE_URL` exported by an unrelated tool never
+  hijacks the default. Keyless local gateways need an explicit
+  `--provider NAME` once.
+- Env detection is a lazy in-memory walk of the process environment at
+  provider-resolution time (microseconds, no I/O) — startup paths never run
+  it, so `--help` / `--version` / first TUI paint stay fast.
+- `--base-url` / `--api-key-env` flags override the selected provider for
+  one run.
 
 ## Agent loop
 

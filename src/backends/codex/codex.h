@@ -25,7 +25,8 @@
 typedef enum {
     CXR_FREE = 0,
     CXR_TURN,
-    CXR_INTERRUPT
+    CXR_INTERRUPT,
+    CXR_STEER     /* turn/steer: an error re-queues, never ends the turn */
 } cx_reqkind;
 
 typedef struct {

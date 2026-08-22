@@ -29,13 +29,16 @@ Match fx's form: a **Unix shell**, not an IDE. Streaming transcript, a pinned co
 | `@` | workspace file picker (gitignore-aware, insert path only) |
 | `$` | skill picker (insert skill name, do not load until invoked) |
 | Up/Down at draft edge | prompt history |
-| Esc or Ctrl-C | interrupt current turn (second Ctrl-C exits if idle) |
+| Esc or Ctrl-C | interrupt current turn and drop queued messages (second Ctrl-C exits if idle) |
+| Enter during a turn | steer the running turn (codex `turn/steer`, native loop) or queue the message for when it ends (cursor, acp) — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md) |
 | Ctrl-J / Alt-J / Shift-Enter | insert a newline in the composer |
 | Ctrl-V | paste clipboard image (or text) |
 | Ctrl-O | full transcript / review |
 | Ctrl-X | subagent manager (native loop) |
 
 Disable `/` `@` `$` popovers while an approval or clarification is focused so paths like `/tmp/x` stay literal.
+
+Typing while a turn runs never writes a note into the transcript: a steered message is echoed as `› text steer`, a queued one sits in a dim `queued (n): …` row above the status row until the turn ends and it is sent through the normal prompt path. Queued messages are dropped (with a one-line note) when the turn is interrupted or fails.
 
 Menus are **transient overlays** ([ADR 0003](adr/0003-transient-menu-overlay.md)): the palette and `/help` draw inside the redrawn bottom block, esc hides them, and the next submit clears them — they never enter the scrollback. Without a tty, menu output degrades to plain transcript lines.
 
@@ -45,7 +48,21 @@ Mirror fx names where they still make sense. Backend-specific commands degrade t
 
 Sessions: `/help` `/clear` `/new` `/reset` `/resume` `/continue` `/rename` `/compact` `/quit`
 
-Runtime: `/models` `/model` `/permissions` `/sandbox` `/backend` `/status` `/usage`
+Runtime: `/models` `/model` `/effort` `/permissions` `/sandbox` `/provider` (`/backend`) `/fast` `/status` `/usage`
+
+`/provider [NAME]`'s palette hint and `/help` line list the providers usable
+right now — builtins, settings.json profiles with a `base_url`, and
+`NAME_BASE_URL` env providers — so the accepted names are discoverable
+without leaving the TUI.
+
+`/effort [off|light|medium|high|xhigh|max|default]` changes the reasoning
+effort at any point in the conversation and applies from the next turn with
+no backend rebind: it rides on codex `turn/start`, cursor
+`SendOptions.model.params`, and the openai request body ([ADR
+0009](adr/0009-reasoning-effort.md)). `/models` lists the levels each model
+actually advertises. `/fast [fast|priority|default]` selects the provider's
+paid fast tier (`TNY_CAP_FAST`: openai, cursor, codex) and rebinds where the
+tier rides on session start (codex `thread/start`).
 
 Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace`
 
@@ -73,7 +90,7 @@ Ignore keepalives and unknown envelope cases. Never block the input loop on a pa
 Reasoning traces render dim, one SGR pair per physical line: color never
 depends on state from a previous line, because the renderer flushes the
 transcript per line and repaints the partial line from scratch every frame
-([ADR 0009](adr/0009-self-contained-sgr-lines.md)).
+([ADR 0012](adr/0012-self-contained-sgr-lines.md)).
 
 ## Browser demo
 

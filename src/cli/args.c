@@ -31,6 +31,9 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else if (strcmp(a, "--model") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->model = v;
+        } else if (strcmp(a, "--effort") == 0 || strcmp(a, "--reasoning-effort") == 0) {
+            if (!(v = need_val(argc, argv, &i, a))) return -1;
+            g->effort = v;
         } else if (strcmp(a, "--add-dir") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->add_dirs = realloc(g->add_dirs, sizeof(char *) * (size_t)(g->n_add_dirs + 1));
@@ -38,6 +41,8 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else if (strcmp(a, "--permission-mode") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->perm_mode = v;
+        } else if (strcmp(a, "--fast") == 0) {
+            g->fast = true;
         } else if (strcmp(a, "--yolo") == 0) {
             g->perm_mode = "yolo";
         } else if (strcmp(a, "--auto") == 0) {
@@ -107,6 +112,17 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         ctx->model = xstrdup(g->model);
         ctx->model_from_flag = true;
     }
+    if (g->effort) {
+        if (!*g->effort) {
+            fprintf(stderr, "tny: --effort must be " TNY_EFFORT_LEVELS
+                            " or a value from `tny models`\n");
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        free(ctx->reasoning_effort);
+        ctx->reasoning_effort = strcmp(g->effort, "default") == 0
+                                    ? NULL : xstrdup(g->effort);
+    }
     if (g->perm_mode) {
         if (strcmp(g->perm_mode, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;
         else if (strcmp(g->perm_mode, "auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
@@ -118,16 +134,6 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         }
     }
     ctx->json_out = g->json;
-    if (g->base_url) { free(ctx->base_url); ctx->base_url = xstrdup(g->base_url); }
-    if (g->api_key_env) {
-        const char *k = getenv(g->api_key_env);
-        if (k && *k) { free(ctx->api_key); ctx->api_key = xstrdup(k); }
-        else {
-            fprintf(stderr, "tny: --api-key-env %s: variable is empty\n", g->api_key_env);
-            tny_ctx_free(ctx);
-            return NULL;
-        }
-    }
     if (g->bridge_bin) { free(ctx->bridge_bin); ctx->bridge_bin = xstrdup(g->bridge_bin); }
     if (g->codex_ws) { free(ctx->codex_ws); ctx->codex_ws = xstrdup(g->codex_ws); }
     if (g->codex_bin) { free(ctx->codex_bin); ctx->codex_bin = xstrdup(g->codex_bin); }
@@ -156,6 +162,34 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     if (tny_resolve_backend(ctx, g->backend) < 0) {
         tny_ctx_free(ctx);
         return NULL;
+    }
+    /* after resolve: flags beat whatever provider profile was applied */
+    if (g->base_url) { free(ctx->base_url); ctx->base_url = xstrdup(g->base_url); }
+    if (g->api_key_env) {
+        const char *k = getenv(g->api_key_env);
+        if (k && *k) { free(ctx->api_key); ctx->api_key = xstrdup(k); }
+        else {
+            fprintf(stderr, "tny: --api-key-env %s: variable is empty\n", g->api_key_env);
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+    }
+    /* --fast needs the resolved provider: it is a capability, not a knob
+     * every backend has. Capable providers map it to their own wire field. */
+    if (g->fast) {
+        if (!(tny_backend_caps((tny_backend_id)ctx->backend) & TNY_CAP_FAST)) {
+            fprintf(stderr, "tny: --fast is not supported by provider '%s'\n"
+                            "Providers with a fast tier:",
+                    tny_backend_name((tny_backend_id)ctx->backend));
+            for (int b = 0; b < TNY_BK_COUNT; b++)
+                if (tny_backend_caps((tny_backend_id)b) & TNY_CAP_FAST)
+                    fprintf(stderr, " %s", tny_backend_name((tny_backend_id)b));
+            fprintf(stderr, "\nExample: tny --provider codex --fast ask \"hi\"\n");
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        free(ctx->service_tier);
+        ctx->service_tier = xstrdup("fast");
     }
     return ctx;
 }

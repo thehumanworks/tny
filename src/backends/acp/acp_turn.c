@@ -144,6 +144,8 @@ static void srv_event_cb(const tny_event *ev, void *ud) {
     case TNY_EV_STATUS:
         acp_srv_log("%.*s", (int)ev->text_len, ev->text);
         break;
+    case TNY_EV_STEER_REJECTED: /* the acp server never steers its loop */
+        break;
     case TNY_EV_ERROR:
         buf_clear(&s->last_error);
         buf_append(&s->last_error, ev->text, ev->text_len);

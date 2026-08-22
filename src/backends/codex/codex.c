@@ -202,11 +202,14 @@ static int cx_start_thread(cx_impl *o, const char *resume, char *err, size_t err
             jescape(&p, o->ctx->model);
             first = false;
         }
-        /* "priority" is the paid fast tier; the host ignores unknown values */
+        /* TNY_CAP_FAST: "priority" is the paid fast tier ("fast" is the
+         * renamed alias — send "priority", the value every app-server
+         * release accepts). The host ignores unknown values. */
         if (o->ctx->service_tier && *o->ctx->service_tier) {
             if (!first) buf_appends(&p, ",");
             buf_appends(&p, "\"serviceTier\":");
-            jescape(&p, o->ctx->service_tier);
+            jescape(&p, tny_tier_is_fast(o->ctx->service_tier)
+                            ? "priority" : o->ctx->service_tier);
         }
         buf_appends(&p, "}");
     }
@@ -260,7 +263,15 @@ static int cx_send(tny_backend *b, const char *prompt, const char **images,
     jescape(&p, o->thread_id);
     buf_appends(&p, ",\"input\":[{\"type\":\"text\",\"text\":");
     jescape(&p, prompt ? prompt : "");
-    buf_appends(&p, ",\"text_elements\":[]}]}");
+    buf_appends(&p, ",\"text_elements\":[]}]");
+    /* turn/start.effort overrides "for this turn and subsequent turns", so a
+     * mid-conversation /effort needs no thread restart. Supported values come
+     * from model/list supportedReasoningEfforts (see cx_list_models). */
+    if (o->ctx->reasoning_effort && *o->ctx->reasoning_effort) {
+        buf_appends(&p, ",\"effort\":");
+        jescape(&p, tny_effort_wire(TNY_BK_CODEX, o->ctx->reasoning_effort));
+    }
+    buf_appends(&p, "}");
 
     free(o->turn_id);
     o->turn_id = NULL;
@@ -271,6 +282,36 @@ static int cx_send(tny_backend *b, const char *prompt, const char **images,
     if (cx_flush(o) != 0) {
         o->turn_active = false;
         snprintf(errbuf, errlen, "codex: failed to send turn/start");
+        return -1;
+    }
+    return 0;
+}
+
+/* turn/steer (docs/adr/0011): more user input for the active turn. Needs
+ * the turn id from the turn/start response; before that the caller queues. */
+static int cx_steer(tny_backend *b, const char *text, char *errbuf, size_t errlen) {
+    cx_impl *o = b->impl;
+    if (!o->turn_active || !o->ws || o->dead || o->cancel_sent) {
+        snprintf(errbuf, errlen, "codex: no steerable turn");
+        return -1;
+    }
+    if (!o->turn_id || !o->thread_id) {
+        snprintf(errbuf, errlen, "codex: turn id not known yet");
+        return -1;
+    }
+    buf_t p;
+    buf_init(&p);
+    buf_appends(&p, "{\"threadId\":");
+    jescape(&p, o->thread_id);
+    buf_appends(&p, ",\"expectedTurnId\":");
+    jescape(&p, o->turn_id);
+    buf_appends(&p, ",\"input\":[{\"type\":\"text\",\"text\":");
+    jescape(&p, text ? text : "");
+    buf_appends(&p, ",\"text_elements\":[]}]}");
+    cx_request(o, "turn/steer", p.data, CXR_STEER);
+    buf_free(&p);
+    if (cx_flush(o) != 0) {
+        snprintf(errbuf, errlen, "codex: failed to send turn/steer");
         return -1;
     }
     return 0;
@@ -353,7 +394,33 @@ static int cx_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     return 0;
 }
 
-/* Normalized model catalog: model/list result.data -> [{"id","name"},…].
+/* supportedReasoningEfforts entries are objects ({"reasoningEffort":…}) in
+ * current schemas; accept bare strings too. Appends `,"efforts":[…]`. */
+static void cx_append_efforts(buf_t *j, yyjson_val *m) {
+    yyjson_val *arr = jget(m, "supportedReasoningEfforts");
+    if (!arr || !yyjson_is_arr(arr) || !yyjson_arr_size(arr)) return;
+    buf_appends(j, ",\"efforts\":[");
+    size_t idx, max;
+    yyjson_val *e;
+    bool first = true;
+    yyjson_arr_foreach(arr, idx, max, e) {
+        const char *v = yyjson_is_str(e) ? yyjson_get_str(e)
+                                         : jget_str(e, "reasoningEffort");
+        if (!v || !*v) continue;
+        if (!first) buf_appends(j, ",");
+        first = false;
+        jescape(j, v);
+    }
+    buf_appends(j, "]");
+    const char *dflt = jget_str(m, "defaultReasoningEffort");
+    if (dflt && *dflt) {
+        buf_appends(j, ",\"default_effort\":");
+        jescape(j, dflt);
+    }
+}
+
+/* Normalized model catalog: model/list result.data ->
+ * [{"id","name","efforts":[…],"default_effort":…},…].
  * The host hides internal entries behind "hidden": skip them. */
 static int cx_list_models(tny_backend *b, char **out, char *err, size_t errlen) {
     cx_impl *o = b->impl;
@@ -378,6 +445,7 @@ static int cx_list_models(tny_backend *b, char **out, char *err, size_t errlen) 
             jescape(&j, id);
             const char *nm = jget_str(m, "displayName");
             if (nm) { buf_appends(&j, ",\"name\":"); jescape(&j, nm); }
+            cx_append_efforts(&j, m);
             buf_appends(&j, "}");
         }
     }
@@ -463,6 +531,7 @@ tny_backend *tny_backend_codex_new(struct tny_ctx *ctx) {
     b->create_or_resume = cx_create_or_resume;
     b->session_pointer = cx_session_pointer;
     b->send = cx_send;
+    b->steer = cx_steer;
     b->cancel = cx_cancel;
     b->respond_permission = cx_respond_permission;
     b->pollfds = cx_pollfds;

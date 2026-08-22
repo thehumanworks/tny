@@ -20,6 +20,15 @@ typedef enum {
 const char *tny_backend_name(tny_backend_id id);
 int tny_backend_from_name(const char *name); /* -1 if unknown */
 
+/* Provider capabilities, known without spawning a host. */
+enum {
+    /* Paid fast/priority tier: codex thread/start serviceTier, OpenAI-compat
+     * service_tier, cursor ModelSelection param {"id":"fast"}. ACP has no
+     * tier field in session/new, so it lacks the bit. */
+    TNY_CAP_FAST = 1u << 0
+};
+unsigned tny_backend_caps(tny_backend_id id);
+
 typedef enum {
     TNY_PERM_DECISION_ALLOW,
     TNY_PERM_DECISION_ALLOW_ALWAYS,
@@ -56,6 +65,12 @@ struct tny_backend {
      * file paths or NULL. */
     int (*send)(tny_backend *b, const char *prompt, const char **images,
                 tny_event_cb cb, void *ud, char *errbuf, size_t errlen);
+
+    /* Deliver more user text into the turn that is running (docs/adr/0011).
+     * 0 = on its way (a later refusal arrives as TNY_EV_STEER_REJECTED);
+     * -1 = not possible right now, the caller should queue the text for the
+     * next turn. Optional: NULL when the host has no in-flight input. */
+    int (*steer)(tny_backend *b, const char *text, char *errbuf, size_t errlen);
 
     /* Ask the backend to stop the current turn. Backend still emits
      * TURN_END (stop=INTERRUPTED) when the host confirms. */

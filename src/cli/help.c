@@ -32,11 +32,16 @@ void help_root(void) {
 "  help                   Show this help\n"
 "\n"
 "Global flags (leading, before the command):\n"
-"  --provider NAME        cursor | codex | acp | openai (--backend also works)\n"
+"  --provider NAME        cursor | codex | acp | openai | a named settings.json\n"
+"                         profile with a base_url (--backend also works)\n"
 "  --cwd DIR              Primary workspace (default: current directory)\n"
 "  --model ID             Model for this run\n"
+"  --effort LEVEL         Reasoning effort: " TNY_EFFORT_LEVELS "\n"
+"                         (or any level `tny models` lists for the provider)\n"
 "  --add-dir DIR          Extra workspace directory; repeatable, process-only\n"
 "  --permission-mode M    ask | auto | yolo (default: yolo)\n"
+"  --fast                 Paid fast tier where the provider has one\n"
+"                         (openai, cursor, codex; higher speed and cost)\n"
 "  --json                 Machine-readable output where listed\n"
 "  -r                     Open the saved-session picker\n"
 "  -c, --continue         Resume the latest workspace session\n"
@@ -54,6 +59,8 @@ void help_root(void) {
 "  tny ask \"explain src/main.c\"  One request, Markdown on stdout\n"
 "  tny ask --json \"list the public CLI\"\n"
 "  tny --provider codex ask \"run the tests\"\n"
+"  tny --effort xhigh ask \"prove this lock-free queue is correct\"\n"
+"  tny --provider codex --fast ask \"quick: run the tests\"\n"
 "  tny --provider acp --agent gemini -- --acp\n",
     stdout);
 }
@@ -67,6 +74,8 @@ static const char *ask_help =
 "  --json               Write one JSON object to stdout\n"
 "  --stdin              Read the prompt from stdin\n"
 "  --image PATH         Attach an image file; repeatable\n"
+"  --output-schema X    Constrain the final answer to a JSON Schema (file\n"
+"                       path or inline JSON; openai provider only)\n"
 "  --resume <last|id>   Continue the latest workspace session or an id\n"
 "  --continue-recovery  Replay the interrupted response before this turn\n"
 "  --no-save            Do not persist a session\n"
@@ -83,6 +92,7 @@ static const char *ask_help =
 "  printf 'summarize src/\\n' | tny ask --stdin\n"
 "  tny ask --json --no-save \"list the public CLI\"\n"
 "  tny ask --resume last \"now add tests\"\n"
+"  tny ask --output-schema schema.json \"extract the TODOs as JSON\"\n"
 "  tny --provider cursor ask --model composer-2 \"find the login bug\"\n";
 
 static const char *sessions_help =
@@ -162,7 +172,7 @@ bool help_for(const char *command) {
     else if (strcmp(command, "status") == 0)
         text = "Usage: tny status [--json]\n\nShow provider, model, permissions, workspace, and session counts.\n";
     else if (strcmp(command, "models") == 0)
-        text = "Usage: tny models [--json]\n\nList models for the active provider (codex model/list, cursor ListModels, GET /models on openai).\n";
+        text = "Usage: tny models [--json]\n\nList models for the active provider (codex model/list, cursor ListModels, GET /models on openai).\nCatalogs that advertise reasoning-effort levels show them per model; pick one\nwith --effort or /effort.\n";
     else if (strcmp(command, "permissions") == 0)
         text = "Usage: tny permissions [--json]\n\nShow the permission mode and persistent rules.\n";
     else if (strcmp(command, "providers") == 0 || strcmp(command, "backends") == 0)

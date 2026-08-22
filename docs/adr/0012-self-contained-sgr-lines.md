@@ -1,4 +1,4 @@
-# 0009 — Streamed transcript color is per-line: SGR never crosses a newline
+# 0012 — Streamed transcript color is per-line: SGR never crosses a newline
 
 Date: 2026-08-22
 Status: accepted

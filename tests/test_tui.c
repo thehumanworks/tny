@@ -163,7 +163,7 @@ TEST write_strips_nul_bytes(void) {
     PASS();
 }
 
-/* ---- dim streaming (reasoning traces, docs/adr/0009) ---- */
+/* ---- dim streaming (reasoning traces, docs/adr/0012) ---- */
 
 TEST write_dim_reopens_after_newline(void) {
     /* A reasoning delta crossing a newline: the flushed line and the tail
@@ -453,6 +453,41 @@ TEST prewarm_applicability(void) {
     PASS();
 }
 
+/* /fast is capability-gated (TNY_CAP_FAST), not codex-only: capable
+ * providers toggle ctx->service_tier, incapable ones must leave it alone. */
+TEST fast_command_is_capability_gated(void) {
+    tui t;
+    struct tny_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    memset(&t, 0, sizeof t);
+    t.ctx = &ctx;
+    unsetenv("CURSOR_API_KEY"); /* keep the cursor warm-up out of the test */
+
+    ctx.backend = TNY_BK_ACP; /* no fast tier: the command must refuse */
+    tui_command(&t, "/fast");
+    ASSERT_EQ(NULL, ctx.service_tier);
+    tui_command(&t, "/fast priority");
+    ASSERT_EQ(NULL, ctx.service_tier);
+
+    ctx.backend = TNY_BK_OPENAI; /* capable: bare /fast toggles */
+    tui_command(&t, "/fast");
+    ASSERT(tny_tier_is_fast(ctx.service_tier));
+    tui_command(&t, "/fast");
+    ASSERT_STR_EQ("default", ctx.service_tier);
+
+    tui_command(&t, "/fast priority"); /* explicit spellings */
+    ASSERT(tny_tier_is_fast(ctx.service_tier));
+    tui_command(&t, "/fast off");
+    ASSERT_STR_EQ("default", ctx.service_tier);
+    tui_command(&t, "/fast garbage"); /* usage error keeps the tier */
+    ASSERT_STR_EQ("default", ctx.service_tier);
+
+    free(ctx.service_tier);
+    buf_free(&t.out);
+    buf_free(&t.partial);
+    PASS();
+}
+
 /* ---- wrap math ---- */
 
 TEST wrap_empty_is_one_row(void) {
@@ -597,6 +632,7 @@ SUITE(tui_suite) {
     RUN_TEST(prewarm_failed_resume_is_silent_and_discarded);
     RUN_TEST(prewarm_start_restarts_on_a_stale_resume_pointer);
     RUN_TEST(prewarm_applicability);
+    RUN_TEST(fast_command_is_capability_gated);
     RUN_TEST(wrap_empty_is_one_row);
     RUN_TEST(wrap_soft_break_at_width);
     RUN_TEST(wrap_hard_newline_is_its_own_row);

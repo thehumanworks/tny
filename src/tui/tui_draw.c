@@ -94,7 +94,7 @@ static void row_sep(buf_t *b, int *rows) {
 static void status_row(tui *t, buf_t *b, int maxw) {
     buf_t s;
     buf_init(&s);
-    buf_appendf(&s, "%s  %s  %s", tny_backend_name((tny_backend_id)t->ctx->backend),
+    buf_appendf(&s, "%s  %s  %s", tny_provider_name(t->ctx),
                 t->ctx->model ? t->ctx->model : "default",
                 tny_perm_mode_name(t->ctx->perm_mode));
     if (t->session) buf_appendf(&s, "  %s", t->session->id);
@@ -113,6 +113,21 @@ static void status_row(tui *t, buf_t *b, int maxw) {
     for (; w < maxw; w++) buf_appends(b, " ");
     buf_appends(b, tui_c(t, "\x1b[0m"));
     buf_free(&s);
+}
+
+/* Messages waiting for the running turn to end (docs/adr/0011): one dim
+ * row next to the composer, gone the moment they are sent. */
+static void queue_row(tui *t, buf_t *b, int *rows, int maxw) {
+    row_sep(b, rows);
+    buf_t line;
+    buf_init(&line);
+    buf_appendf(&line, "queued (%d): %s", t->n_queue, t->queue[0]);
+    if (t->n_queue > 1) buf_appends(&line, " …");
+    buf_appends(&line, " · sends when this turn ends · esc drops");
+    buf_appends(b, tui_c(t, "\x1b[2m"));
+    push_trunc(b, line.data, line.len, maxw);
+    buf_appends(b, tui_c(t, "\x1b[0m"));
+    buf_free(&line);
 }
 
 static void popover_rows(tui *t, buf_t *b, int *rows, int maxw) {
@@ -323,6 +338,7 @@ void tui_render(tui *t) {
     }
     if (t->overlay.len) overlay_rows(t, &b, &rows, maxw);
     if (t->pick != PICK_NONE && t->n_items > 0) popover_rows(t, &b, &rows, maxw);
+    if (t->n_queue) queue_row(t, &b, &rows, maxw);
     row_sep(&b, &rows);
     status_row(t, &b, maxw);
     composer_rows(t, &b, &rows, maxw, &cur_row, &cur_col);
@@ -395,7 +411,7 @@ void tui_bol(tui *t) {
  * frame — after emitting a reset. SGR state therefore never survives a '\n':
  * each physical line must open and close its own dim attribute, or the tail
  * of a delta that crossed a newline repaints in the default color
- * (docs/adr/0009). */
+ * (docs/adr/0012). */
 void tui_write_dim(tui *t, const char *s, size_t n) {
     if (!t->color) {
         tui_write(t, s, n);

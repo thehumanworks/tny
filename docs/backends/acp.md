@@ -38,6 +38,8 @@ Baseline: `initialize`, `session/new`, `session/prompt`, `session/cancel`. Auth:
 
 fx's ACP server (v1, for parity on `tny acp`) also implements `session/load`, `session/set_config_option`, `session/set_mode`. Modes there: `ask` (approve sensitive tools), `code` (auto-review).
 
+Reasoning effort: protocolVersion 1 has no portable knob. Newer agents expose it as a session config option (thought-level category) via `session/set_config_option`; tny's client does not consume config options yet, so `--effort` on `--provider acp` emits one status line and the agent's default applies ([ADR 0009](../adr/0009-reasoning-effort.md)). Wire it through config options when the client learns to parse them.
+
 ## Methods (client ← agent)
 
 `session/update` (messages, tool calls, plans, slash-command ads, config options), permission requests, optional elicitation, optional filesystem/terminal if we advertise those capabilities.

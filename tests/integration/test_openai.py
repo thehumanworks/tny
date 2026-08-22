@@ -50,6 +50,7 @@ def main():
             assert r.returncode == 0, f"exit {r.returncode}: {r.stderr.decode()}"
             out = json.loads(r.stdout)
             assert "MOCK-OK" in out["output"], out
+            assert "tier=unset" in out["output"], out  # no --fast: omit the field
             assert out["exit_code"] == 0
             assert out["steps"] == 2, out
             assert out["tool_calls"][0]["name"] == "list_files", out
@@ -89,6 +90,23 @@ def main():
             assert "MOCK-OK" in out4["output"], out4
             assert out4["steps"] == 2, out4
 
+            # --fast (TNY_CAP_FAST) must ride the request as the paid tier
+            # ("priority", the pre-rename spelling every provider accepts)
+            r6 = subprocess.run(
+                [TNY, "--cwd", ws, "--fast", "ask", "--json", "--no-save",
+                 "list files in ."],
+                env=env, capture_output=True, timeout=30)
+            assert r6.returncode == 0, f"exit {r6.returncode}: {r6.stderr.decode()}"
+            out6 = json.loads(r6.stdout)
+            assert "tier=priority" in out6["output"], out6
+
+            # --fast on a provider without the capability is a startup error
+            r7 = subprocess.run(
+                [TNY, "--cwd", ws, "--provider", "acp", "--fast", "ask", "hi"],
+                env=env, capture_output=True, timeout=15)
+            assert r7.returncode == 1, f"exit {r7.returncode}: {r7.stderr.decode()}"
+            assert b"--fast is not supported" in r7.stderr, r7.stderr
+
             # empty stdin: exit 1 with the usage error, no hang, no half-open
             # backend left behind
             r5 = subprocess.run(
@@ -96,6 +114,67 @@ def main():
                 input=b"", env=env, capture_output=True, timeout=15)
             assert r5.returncode == 1, f"exit {r5.returncode}: {r5.stderr.decode()}"
             assert b"ask needs a prompt" in r5.stderr, r5.stderr
+
+            # structured output: --output-schema rides response_format
+            # (mock validates the wrapper) and the answer is schema JSON
+            schema = ('{"type":"object","properties":{"count":'
+                      '{"type":"integer"}},"required":["count"],'
+                      '"additionalProperties":false}')
+            r6 = subprocess.run(
+                [TNY, "--cwd", ws, "ask", "--json", "--no-save",
+                 "--output-schema", schema, "how many files?"],
+                env=env, capture_output=True, timeout=30)
+            assert r6.returncode == 0, f"exit {r6.returncode}: {r6.stderr.decode()}"
+            out6 = json.loads(r6.stdout)
+            answer = json.loads(out6["output"])
+            assert answer["count"] == 3, out6
+
+            # schema from a file path works too
+            schema_path = os.path.join(home, "schema.json")
+            open(schema_path, "w").write(schema)
+            r7 = subprocess.run(
+                [TNY, "--cwd", ws, "ask", "--no-save",
+                 "--output-schema", schema_path, "how many files?"],
+                env=env, capture_output=True, timeout=30)
+            assert r7.returncode == 0, f"exit {r7.returncode}: {r7.stderr.decode()}"
+            assert json.loads(r7.stdout)["count"] == 3, r7.stdout
+
+            # startup errors: bad schema and non-openai provider exit 1
+            r8 = subprocess.run(
+                [TNY, "--cwd", ws, "ask", "--output-schema", "{not json", "hi"],
+                env=env, capture_output=True, timeout=15)
+            assert r8.returncode == 1, r8.stderr.decode()
+            assert b"not a JSON object" in r8.stderr, r8.stderr
+            r9 = subprocess.run(
+                [TNY, "--provider", "codex", "--cwd", ws, "ask",
+                 "--output-schema", schema, "hi"],
+                env=env, capture_output=True, timeout=15)
+            assert r9.returncode == 1, r9.stderr.decode()
+            assert b"openai-compatible provider" in r9.stderr, r9.stderr
+
+            # --effort: a second mock demands reasoning_effort=xhigh; the
+            # canonical "max" must clamp to xhigh on the OpenAI wire, and the
+            # mock 400s any request that carries something else (the earlier
+            # runs already proved the field is absent without the flag).
+            eport = free_port()
+            emock = subprocess.Popen(
+                [sys.executable, MOCK, str(eport)],
+                env=dict(os.environ, MOCK_EXPECT_EFFORT="xhigh"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = emock.stdout.readline().decode()
+                assert "ready" in line, f"effort mock did not start: {line!r}"
+                eenv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{eport}/v1")
+                r10 = subprocess.run(
+                    [TNY, "--cwd", ws, "--effort", "max", "ask", "--json",
+                     "--no-save", "list files in ."],
+                    env=eenv, capture_output=True, timeout=30)
+                assert r10.returncode == 0, \
+                    f"exit {r10.returncode}: {r10.stderr.decode()}"
+                assert b"MOCK-OK" in r10.stdout, r10.stdout
+            finally:
+                emock.terminate()
+                emock.wait(timeout=5)
         print("test_openai: all assertions passed")
     finally:
         mock.terminate()
