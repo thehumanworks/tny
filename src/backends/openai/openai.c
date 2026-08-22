@@ -89,6 +89,13 @@ static char *build_request(oa_impl *o) {
     buf_init(&b);
     buf_appends(&b, "{\"model\":");
     jescape(&b, model_of(o));
+    /* TNY_CAP_FAST: OpenAI's paid fast tier ("priority" pre-rename; both
+     * spellings select it — send "priority", which older models and
+     * compatible routers also accept). Omitted otherwise: "default" is
+     * what the API applies anyway, and strict providers reject unknown
+     * request members. */
+    if (tny_tier_is_fast(o->ctx->service_tier))
+        buf_appends(&b, ",\"service_tier\":\"priority\"");
     buf_appends(&b, ",\"stream\":true,\"messages\":[");
 
     /* system preamble */

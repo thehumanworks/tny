@@ -37,6 +37,8 @@ void help_root(void) {
 "  --model ID             Model for this run\n"
 "  --add-dir DIR          Extra workspace directory; repeatable, process-only\n"
 "  --permission-mode M    ask | auto | yolo (default: yolo)\n"
+"  --fast                 Paid fast tier where the provider has one\n"
+"                         (openai, cursor, codex; higher speed and cost)\n"
 "  --json                 Machine-readable output where listed\n"
 "  -r                     Open the saved-session picker\n"
 "  -c, --continue         Resume the latest workspace session\n"
@@ -54,6 +56,7 @@ void help_root(void) {
 "  tny ask \"explain src/main.c\"  One request, Markdown on stdout\n"
 "  tny ask --json \"list the public CLI\"\n"
 "  tny --provider codex ask \"run the tests\"\n"
+"  tny --provider codex --fast ask \"quick: run the tests\"\n"
 "  tny --provider acp --agent gemini -- --acp\n",
     stdout);
 }

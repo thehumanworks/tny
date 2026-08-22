@@ -65,7 +65,10 @@ class Handler(BaseHTTPRequestHandler):
         else:
             tool_msg = next(m for m in req["messages"] if m.get("role") == "tool")
             nfiles = len([l for l in tool_msg["content"].splitlines() if l.strip()])
-            text = f"The workspace contains {nfiles} entries. MOCK-OK."
+            # Echo the requested service tier so the driver can assert that
+            # --fast adds "service_tier":"priority" and plain runs omit it.
+            tier = req.get("service_tier", "unset")
+            text = f"The workspace contains {nfiles} entries. MOCK-OK. tier={tier}"
             frames = []
             for i in range(0, len(text), 7):
                 frames.append({"choices": [{"index": 0, "delta": {"content": text[i:i+7]}}]})

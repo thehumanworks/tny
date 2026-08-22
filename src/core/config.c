@@ -16,6 +16,10 @@ const char *tny_perm_mode_name(tny_perm_mode m) {
     }
 }
 
+bool tny_tier_is_fast(const char *tier) {
+    return tier && (strcmp(tier, "fast") == 0 || strcmp(tier, "priority") == 0);
+}
+
 static const char *bk_names[TNY_BK_COUNT] = {"openai", "cursor", "codex", "acp"};
 
 const char *tny_backend_name(tny_backend_id id) {

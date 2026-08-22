@@ -202,11 +202,14 @@ static int cx_start_thread(cx_impl *o, const char *resume, char *err, size_t err
             jescape(&p, o->ctx->model);
             first = false;
         }
-        /* "priority" is the paid fast tier; the host ignores unknown values */
+        /* TNY_CAP_FAST: "priority" is the paid fast tier ("fast" is the
+         * renamed alias — send "priority", the value every app-server
+         * release accepts). The host ignores unknown values. */
         if (o->ctx->service_tier && *o->ctx->service_tier) {
             if (!first) buf_appends(&p, ",");
             buf_appends(&p, "\"serviceTier\":");
-            jescape(&p, o->ctx->service_tier);
+            jescape(&p, tny_tier_is_fast(o->ctx->service_tier)
+                            ? "priority" : o->ctx->service_tier);
         }
         buf_appends(&p, "}");
     }

@@ -45,7 +45,7 @@ Mirror fx names where they still make sense. Backend-specific commands degrade t
 
 Sessions: `/help` `/clear` `/new` `/reset` `/resume` `/continue` `/rename` `/compact` `/quit`
 
-Runtime: `/models` `/model` `/permissions` `/sandbox` `/backend` `/status` `/usage`
+Runtime: `/models` `/model` `/fast` `/permissions` `/sandbox` `/backend` `/status` `/usage`
 
 Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace`
 

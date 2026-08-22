@@ -62,6 +62,12 @@ static void append_options(cu_impl *o, buf_t *b) {
     if (o->model) {
         buf_appends(b, "\"model\":{\"id\":");
         jescape(b, o->model);
+        /* TNY_CAP_FAST: the fast tier is a per-model parameter, not a
+         * request field. Omitting params keeps the model's own default
+         * variant; "default" pins the standard one explicitly. */
+        if (o->ctx->service_tier && *o->ctx->service_tier)
+            buf_appendf(b, ",\"params\":[{\"id\":\"fast\",\"value\":\"%s\"}]",
+                        tny_tier_is_fast(o->ctx->service_tier) ? "true" : "false");
         buf_appends(b, "},");
     }
     if (o->api_key) {

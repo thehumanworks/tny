@@ -114,7 +114,11 @@ and smoke-test.md before shipping against a new bridge release.
 
 - `CreateAgent` → `{"options":{"model":{"id":M},"apiKey":K,"local":{"cwd":[cwd],"dirs":[…extraDirs]}}}`
   — `model` is a `ModelSelection`, `local.cwd` carries at most one entry
-  (when `--model` is absent tny calls `ListModels` and uses the first item id)
+  (when `--model` is absent tny calls `ListModels` and uses the first item id).
+  `--fast` / `/fast` (`TNY_CAP_FAST`) adds
+  `"params":[{"id":"fast","value":"true"}]` to the selection (`"false"` for
+  `/fast default`) — fast is a per-model parameter, and omitting `params`
+  leaves the model's own default variant (which may itself be the fast one)
 - `ListModels` → `{"options":{"apiKey":K}}` (`CursorRequestOptions`; catalog
   RPCs hard-require the per-call key), response models are in `items`
 - `ResumeAgent` → same options plus `"agentId"` (the stored host pointer)

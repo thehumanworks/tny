@@ -57,6 +57,12 @@ Request:
 { "method": "thread/start", "id": 10, "params": { "model": "gpt-5.4" } }
 ```
 
+`--fast` / `/fast` (`TNY_CAP_FAST`) adds `"serviceTier":"priority"` to
+`thread/start` params — the paid fast tier (`service_tier = fast|priority`
+in codex `config.toml`; tny sends `"priority"`, the value every app-server
+release accepts). Unset means the host's own default; the host ignores
+unknown values.
+
 Response: `{ "id": 10, "result": { "thread": { "id": "thr_123" } } }`
 Error: `{ "id": 10, "error": { "code": 123, "message": "…" } }`
 Notification: `{ "method": "turn/started", "params": { "turn": { "id": "turn_456" } } }`

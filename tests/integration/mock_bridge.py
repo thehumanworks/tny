@@ -146,6 +146,16 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(model, dict) or model.get("id") != MODEL:
             fail(f"{who}: options.model is {opts.get('model')!r}, "
                  f"want ModelSelection {{'id': {MODEL!r}}}")
+        # TNY_MOCK_FAST=1: the run used --fast, so the ModelSelection must
+        # carry the per-model fast param; otherwise params must be absent so
+        # the model's own default variant applies.
+        params = model.get("params") if isinstance(model, dict) else None
+        if os.environ.get("TNY_MOCK_FAST") == "1":
+            if params != [{"id": "fast", "value": "true"}]:
+                fail(f"{who}: model.params is {params!r}, want "
+                     "[{'id': 'fast', 'value': 'true'}] (--fast)")
+        elif params is not None:
+            fail(f"{who}: model.params is {params!r} without --fast; omit it")
         local = opts.get("local") or {}
         cwd = local.get("cwd")
         if not isinstance(cwd, list) or not cwd:

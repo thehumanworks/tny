@@ -112,6 +112,21 @@ check_mock_assertions
 [ "$(cat "$MOCK_DIR/resumed.txt")" = "$AGENT" ] || fail "ResumeAgent used a different agent id"
 check_no_secret_leak "$TMP/2.out" "$TMP/2.err"
 
+# ---- run 3: --fast must ride CreateAgent as a model "fast" param ----
+echo "== run 3: --fast"
+set +e
+TNY_MOCK_FAST=1 "$TNY" --backend cursor --bridge-bin "$MOCK" --cwd "$WS" --fast \
+    ask --json --no-save "quick" >"$TMP/3.out" 2>"$TMP/3.err"
+CODE=$?
+set -e
+if [ $CODE -ne 0 ]; then
+    cat "$TMP/3.err" >&2
+    fail "the --fast ask exited nonzero"
+fi
+grep -q "CURSOR-MOCK-OK" "$TMP/3.out" || fail "the --fast ask did not stream the mock answer"
+check_mock_assertions
+check_no_secret_leak "$TMP/3.out" "$TMP/3.err"
+
 # ---- the host must not outlive tny ----
 if [ -f "$MOCK_DIR/pid.txt" ] && kill -0 "$(cat "$MOCK_DIR/pid.txt")" 2>/dev/null; then
     kill -9 "$(cat "$MOCK_DIR/pid.txt")" 2>/dev/null || true

@@ -36,8 +36,9 @@ unset OPENAI_API_KEY CODEX_REMOTE_TOKEN 2>/dev/null
 token="s3cr3t-capability-token"
 printf '%s\n' "$token" > "$tmp/token"
 export MOCK_TOKEN="$token"
-export MOCK_CONNECTIONS=4
+export MOCK_CONNECTIONS=5
 export MOCK_BUSY_CONN=3   # connection 3 replies -32001 once per request kind
+export MOCK_FAST_CONN=5   # connection 5 runs with --fast: serviceTier=priority
 
 "$PYTHON" "$here/mock_codex_ws.py" 0 > "$tmp/mock.out" 2> "$tmp/mock.err" &
 mock_pid=$!
@@ -131,7 +132,7 @@ cat > "$tmp/codex-stub" <<EOF
 # Real HOME again: tny runs with the throwaway one, but python3 version
 # managers only resolve under the real home (see the mock note above).
 url="\$3"
-HOME="$HOME" MOCK_TOKEN= MOCK_CONNECTIONS=1 MOCK_BUSY_CONN=0 \
+HOME="$HOME" MOCK_TOKEN= MOCK_CONNECTIONS=1 MOCK_BUSY_CONN=0 MOCK_FAST_CONN=0 \
   exec "$PYTHON" "$here/mock_codex_ws.py" "\${url##*:}"
 EOF
 chmod +x "$tmp/codex-stub"
@@ -147,6 +148,16 @@ grep -q 'CODEX-MOCK-OK' "$tmp/run5.out" \
   && ok "run 5 unpublished its registry entry on exit" \
   || bad "run 5 left $(cat "$reg" 2>/dev/null) behind in the registry"
 
+# --- run 6: --fast must ride thread/start as serviceTier=priority --------
+HOME="$TNY_HOME" CODEX_REMOTE_TOKEN="$token" "$TNY" --cwd "$tmp/ws" --backend codex \
+       --codex-ws "$url" --fast ask --json --yolo --no-save "speedy" \
+       > "$tmp/run6.out" 2> "$tmp/run6.err"
+rc6=$?
+[ $rc6 -eq 0 ] && ok "run 6 exit 0 with --fast" || bad "run 6 exit $rc6"
+grep -q 'CODEX-MOCK-OK' "$tmp/run6.out" \
+  && ok "run 6 streamed CODEX-MOCK-OK" \
+  || bad "run 6 output did not contain CODEX-MOCK-OK"
+
 # --- mock verdict --------------------------------------------------------
 wait "$mock_pid"
 mock_rc=$?
@@ -161,6 +172,9 @@ grep -q 'MOCK-NOTE approval answered decision=accept' "$tmp/mock.err" \
 grep -q 'MOCK-NOTE bearer accepted' "$tmp/mock.err" \
   && ok "bearer token was sent on the upgrade" \
   || bad "mock did not see the Authorization bearer"
+grep -q 'MOCK-NOTE thread/start serviceTier=priority ok' "$tmp/mock.err" \
+  && ok "--fast rode thread/start as serviceTier=priority" \
+  || bad "mock never saw serviceTier=priority on the --fast run"
 
 if [ $mock_rc -ne 0 ]; then
   bad "mock app-server reported protocol failures"
@@ -169,7 +183,7 @@ fi
 if [ $fails -ne 0 ]; then
   echo "--- mock log ---" >&2
   cat "$tmp/mock.err" >&2
-  for f in run1 run2 run3 run4 run5; do
+  for f in run1 run2 run3 run4 run5 run6; do
     [ -f "$tmp/$f.err" ] || continue
     echo "--- $f stderr ---" >&2
     cat "$tmp/$f.err" >&2

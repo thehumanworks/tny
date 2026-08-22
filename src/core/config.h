@@ -39,7 +39,10 @@ typedef struct tny_ctx {
     char *codex_ws;
     char *codex_bin;
     char *ws_token_file;
-    char *service_tier;     /* codex thread/start serviceTier: priority|default */
+    /* Speed tier for providers with TNY_CAP_FAST: NULL = provider default,
+     * "fast"/"priority" = the paid fast tier, "default" = standard. Each
+     * backend maps this to its own wire field. */
+    char *service_tier;
     /* acp */
     char **agent_argv;      /* NULL-terminated, or NULL */
 
@@ -85,5 +88,9 @@ int tny_workspace_remove(tny_ctx *ctx, const char *dir);
 int tny_workspace_clear(tny_ctx *ctx);
 
 const char *tny_perm_mode_name(tny_perm_mode m);
+
+/* True when the tier string names the paid fast tier. OpenAI renamed
+ * "priority" processing to "fast" mode; both spellings select it. */
+bool tny_tier_is_fast(const char *tier);
 
 #endif
