@@ -144,6 +144,10 @@ def cmd(command: str) -> str:
     )
 
 
+# Python < 3.12 forbids backslashes inside f-string expressions; keep the
+# escaped example out of the f-string.
+STDIN_EXAMPLE = cmd("printf 'summarize src/\\n' | tny ask --stdin")
+
 def note(title: str, body: str) -> str:
     return f'<div class="note"><strong>{title}</strong><p>{body}</p></div>'
 
@@ -503,7 +507,7 @@ def docs_ask() -> str:
 <h2 id="shape">Shape</h2>
 <p>One turn, then exit. Stdout is assistant Markdown. Stderr is progress, tool lines, and diagnostics. Interactive prompts are never the only path.</p>
 {cmd('tny ask "summarize this repository"')}
-{cmd("printf 'summarize src/\\n' | tny ask --stdin")}
+{STDIN_EXAMPLE}
 {cmd('tny ask --json --no-save "list the public CLI"')}
 {cmd('tny ask --resume last "now add tests"')}
 <h2 id="exit">Exit codes</h2>

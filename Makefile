@@ -91,15 +91,28 @@ GEN      = $(BUILD)/generated
 VERSION_H = $(GEN)/tny_version.h
 INC     += -I$(GEN)
 
-SRC := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c \
+SRC_ALL := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c \
         src/net/*.c src/mcp/*.c src/tui/*.c \
         src/backends/openai/*.c src/backends/acp/*.c src/backends/codex/*.c \
         src/backends/cursor/*.c)
+
+# Per-platform source lists (docs/adr/0017). Native transports (sockets, TLS,
+# hand-rolled HTTP/1.1 + wslay WebSocket) and the poll(2) wrapper are excluded
+# from the wasm build wholesale rather than #ifdef-riddled; src/net/net_wasm.c
+# replaces the whole seam there (fetch, browser WebSocket, pseudo-fd registry).
+SRC_NATIVE := src/net/tcp.c src/net/stream.c src/net/http1.c src/net/ws.c \
+              src/util/tny_poll.c
+SRC_WASM_ONLY := src/net/net_wasm.c
+SRC_SHARED := $(filter-out $(SRC_NATIVE) $(SRC_WASM_ONLY),$(SRC_ALL))
+SRC := $(SRC_SHARED) $(SRC_NATIVE)
 
 TP  := third_party/yyjson/yyjson.c third_party/picohttpparser/picohttpparser.c \
        third_party/wslay/wslay_event.c third_party/wslay/wslay_frame.c \
        third_party/wslay/wslay_net.c third_party/wslay/wslay_queue.c \
        third_party/wslay/wslay_stack.c
+# wslay + picohttpparser serve the native transports only; the wasm build
+# keeps just yyjson so `nm` stays honest about dead code.
+TP_WASM := third_party/yyjson/yyjson.c
 
 REL_OBJS := $(SRC:%.c=$(OBJ_REL)/%.o) $(TP:%.c=$(OBJ_REL)/%.o)
 

@@ -4,6 +4,7 @@
 #include "tui/tui.h"
 #include "backends/openai/openai.h"
 #include "mcp/mcp.h"
+#include "util/tny_poll.h"
 
 #include <errno.h>
 #include <poll.h>
@@ -122,7 +123,7 @@ tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
     while (!got && !t->quit) {
         tui_render(t);
         struct pollfd pf = {STDIN_FILENO, POLLIN, 0};
-        int pr = poll(&pf, 1, 200);
+        int pr = tny_poll(&pf, 1, 200);
         if (g_winch) { g_winch = 0; tui_size(t); t->dirty = true; }
         if (g_sigint) { g_sigint = 0; t->want_cancel = true; break; }
         if (pr <= 0) continue;
@@ -556,7 +557,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         fds[0].revents = 0;
         int nb = 0;
         if (t.turn_active && t.bk && t.bk->pollfds) nb = t.bk->pollfds(t.bk, fds + 1, 8);
-        int pr = poll(fds, (nfds_t)(1 + nb), t.turn_active ? 40 : 400);
+        int pr = tny_poll(fds, (nfds_t)(1 + nb), t.turn_active ? 40 : 400);
         if (pr < 0 && errno != EINTR) break;
 
         if (g_winch) { g_winch = 0; tui_size(&t); t.dirty = true; }
