@@ -1,21 +1,30 @@
 /* session.h — on-disk sessions (docs/features/sessions.md).
  * Native backend stores the full transcript in OpenAI message shape.
- * Host backends store only a resume pointer. */
+ * Host backends store only a resume pointer. Ephemeral sessions keep the
+ * same working state in memory but never materialize conversation artifacts. */
 #ifndef TNY_SESSION_H
 #define TNY_SESSION_H
 
 #include "core/config.h"
 
 typedef struct {
+    char *handle;
+    char *data;
+    size_t len;
+} session_mem_result;
+
+typedef struct {
     char *id;
     char *dir;             /* ~/.tny/sessions/<ws-hash>/<id> */
     tny_ctx *ctx;
     yyjson_mut_doc *doc;   /* working copy of session.json */
+    session_mem_result *mem_results; /* large results in ephemeral mode */
+    int n_mem_results;
 } tny_session;
 
 /* Create a fresh session for this workspace (not yet saved). */
 tny_session *session_new(tny_ctx *ctx);
-/* Open by id or "last". NULL if not found / corrupt. */
+/* Open by id or "last". NULL if not found / corrupt / ephemeral. */
 tny_session *session_open(tny_ctx *ctx, const char *id_or_last);
 int  session_save(tny_session *s);
 void session_close(tny_session *s);
@@ -38,7 +47,8 @@ const char *session_host_pointer(tny_session *s);
 void session_add_usage(tny_session *s, int64_t in_tok, int64_t out_tok);
 void session_get_usage(tny_session *s, int64_t *in_tok, int64_t *out_tok);
 
-/* Large tool results: store blob, return malloc'd handle id. */
+/* Large tool results: store blob, return malloc'd handle id. Ephemeral
+ * sessions retain the blob only until session_close(). */
 char *session_store_result(tny_session *s, const char *data, size_t len);
 /* Read a byte range from a stored blob; malloc'd or NULL. */
 char *session_read_result(tny_session *s, const char *handle, size_t off,
