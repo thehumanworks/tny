@@ -36,9 +36,38 @@ tny --add-dir DIR           # repeatable, process-only
 tny --permission-mode ask|auto|yolo   # default: yolo (docs/adr/0001)
 tny --fast                  # paid fast tier (TNY_CAP_FAST providers only)
 tny --json                  # where listed
+tny --ephemeral             # conversation/session artifacts stay in memory
 tny -r                      # session picker (TUI)
 tny -c                      # resume last for this workspace
 ```
+
+`--no-save` is a compatibility alias for `--ephemeral`. `tny ask` accepts
+both spellings after the subcommand as well as in the leading global position.
+
+## Ephemeral mode
+
+Ephemeral mode is available on every conversational entry point:
+
+```text
+tny --ephemeral
+tny --ephemeral ask "review this workspace"
+tny ask --ephemeral --json "list the public CLI"
+tny --ephemeral acp
+```
+
+The working transcript remains in memory for multi-turn TUI/ACP use, but tny
+does not write session JSON, recovery checkpoints, large tool-result blobs, or
+TUI prompt history. It also does not import saved conversation state:
+`resume`, `--resume`, `-r`, `-c`, session recovery/migration, and TUI
+`/resume` are incompatible with the mode.
+
+`ask --json` includes `"ephemeral":true` and emits an empty `session_id`.
+The local guarantee is provider-independent. Codex additionally receives
+`ephemeral:true` at `thread/start`; the native Responses wire uses
+`store:false`; other host agents may apply their own remote retention policy.
+Configuration metadata such as the last selected provider/model is not part of
+the conversation and retains its existing settings behavior. See
+[ADR 0018](adr/0018-ephemeral-sessions.md).
 
 ## Provider selection
 
@@ -123,7 +152,7 @@ tny never *writes* the effort back to settings — a scripted
 ```text
 tny ask "summarize this repository"
 printf 'summarize src/\n' | tny ask --stdin
-tny ask --json --no-save "list the public CLI"
+tny ask --json --ephemeral "list the public CLI"
 tny ask --resume last "now add tests"
 tny ask --provider cursor --model composer-2 "find the login bug"
 tny --provider codex --effort xhigh ask "prove this queue is lock-free"
@@ -143,6 +172,7 @@ JSON object (keep field names stable):
   "provider": "openai",
   "model": "provider/model",
   "session_id": "…",
+  "ephemeral": false,
   "steps": 1,
   "tool_calls": [{"name": "read_file", "status": "success"}]
 }
@@ -217,12 +247,13 @@ Usage: tny ask [options] [prompt]
 Options:
   --json          Write one JSON object to stdout
   --resume last   Continue the latest workspace session
-  --no-save       Do not persist a session
+  --ephemeral     Keep conversation/session artifacts in memory only
+  --no-save       Compatibility alias for --ephemeral
   --provider NAME cursor | codex | acp | openai | settings profile (--backend also accepted)
 
 Examples:
   tny ask "explain src/main.c"
-  tny ask --json --provider openai "list exported symbols"
+  tny ask --json --ephemeral "list exported symbols"
   tny --provider cursor ask --model composer-2 "fix the leak"
 ```
 

@@ -16,6 +16,7 @@ typedef struct {
     const char **add_dirs;   /* --add-dir, repeatable */
     int         n_add_dirs;
     bool        json;        /* --json */
+    bool        ephemeral;   /* --ephemeral | --no-save */
     bool        resume_picker;   /* -r */
     bool        resume_last;     /* -c / --continue */
     const char *resume;      /* --resume value */
@@ -43,6 +44,7 @@ int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+int cmd_status_ephemeral(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_permissions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

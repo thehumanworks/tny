@@ -1,5 +1,6 @@
-/* tui_hist.c — persistent prompt history (~/.tny/history). Multi-line prompts
- * are stored with escaped newlines so one entry stays one line on disk. */
+/* tui_hist.c — prompt history. Persistent runs use ~/.tny/history; ephemeral
+ * runs retain only prompts entered during the current process. Multi-line
+ * prompts are escaped so one persistent entry stays one line on disk. */
 #include "tui/tui.h"
 
 #include <stdio.h>
@@ -14,6 +15,10 @@ static char *hist_path(void) {
 }
 
 void tui_hist_load(tui *t) {
+    if (t->ctx->no_save) {
+        tui_sys(t, "ephemeral mode · session, recovery, results, and prompt history stay in memory");
+        return;
+    }
     char *p = hist_path();
     size_t len = 0;
     char *data = file_slurp(p, &len);
@@ -58,6 +63,7 @@ void tui_hist_add(tui *t, const char *line) {
     t->hist[t->n_hist++] = xstrdup(line);
     t->hist_pos = t->n_hist;
 
+    if (t->ctx->no_save) return;
     char *dir = path_tny_dir();
     mkdir_p(dir);
     free(dir);

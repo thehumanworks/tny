@@ -20,6 +20,20 @@ Match fx's form: a **Unix shell**, not an IDE. Streaming transcript, a pinned co
   if the clipboard has no image. Helpers are spawned only on paste.
 - Status line is off-by-default extras (sandbox, context bytes) like fx.
 
+## Ephemeral mode
+
+Start the shell with `tny --ephemeral` to keep the conversation process-local.
+The TUI prints an explicit mode line at startup. It keeps the full multi-turn
+conversation and prompt history in memory while the shell is running, but it
+does not read or write saved sessions, recovery checkpoints, large-result
+blobs, or `~/.tny/history`.
+
+`/resume`, `/continue`, the session picker, and other saved-session import paths
+are unavailable because they would load persisted conversation state. `/new`
+and `/clear` continue to work within the process. Exiting the shell discards
+the in-memory session. `--no-save` remains an alias. See
+[ADR 0018](adr/0018-ephemeral-sessions.md).
+
 ## Input
 
 | Input | Action |
@@ -104,6 +118,11 @@ Workspace tools, `@` / `$`, and host providers are not available there.
 ## Startup
 
 First paint never waits on a backend, but the TUI **pre-warms** the selected provider's host right after the banner ([ADR 0002](adr/0002-tui-provider-prewarm.md)): `codex app-server`, the cursor bridge, or the ACP agent is spawned and initialized on a background thread so the first prompt adopts a live connection instead of paying seconds of startup. Pre-warm failures stay silent and resurface on the ordinary lazy path. One-shot CLI commands do not pre-warm.
+
+In ephemeral mode, pre-warm may still create process-local provider state.
+Codex receives `ephemeral:true` on `thread/start`; adapters without a portable
+no-store field retain their ordinary provider-side policy while tny continues
+to make no local conversation write.
 
 ## Permissions UI
 

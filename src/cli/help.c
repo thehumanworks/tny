@@ -44,6 +44,8 @@ void help_root(void) {
 "  --fast                 Paid fast tier where the provider has one\n"
 "                         (openai, cursor, codex; higher speed and cost)\n"
 "  --json                 Machine-readable output where listed\n"
+"  --ephemeral            Keep conversation/session artifacts in memory only\n"
+"                         (--no-save is a compatibility alias)\n"
 "  -r                     Open the saved-session picker\n"
 "  -c, --continue         Resume the latest workspace session\n"
 "  --resume <last|id>     Resume the latest session or an exact id\n"
@@ -63,6 +65,7 @@ void help_root(void) {
 "\n"
 "Examples:\n"
 "  tny                          Start a fresh interactive session\n"
+"  tny --ephemeral             Interactive session with no local transcript\n"
 "  tny ask \"explain src/main.c\"  One request, Markdown on stdout\n"
 "  tny ask --json \"list the public CLI\"\n"
 "  tny --provider codex login   ChatGPT sign-in over the app-server\n"
@@ -86,7 +89,8 @@ static const char *ask_help =
 "                       path or inline JSON; openai provider only)\n"
 "  --resume <last|id>   Continue the latest workspace session or an id\n"
 "  --continue-recovery  Replay the interrupted response before this turn\n"
-"  --no-save            Do not persist a session\n"
+"  --ephemeral          Keep conversation/session artifacts in memory only\n"
+"  --no-save            Compatibility alias for --ephemeral\n"
 "  --auto               Auto-review unresolved permissions (native loop)\n"
 "  --yolo               Disable permission checks and sandbox (the default)\n"
 "  --                   Treat every following argument as prompt text\n"
@@ -98,7 +102,7 @@ static const char *ask_help =
 "Examples:\n"
 "  tny ask \"summarize this repository\"\n"
 "  printf 'summarize src/\\n' | tny ask --stdin\n"
-"  tny ask --json --no-save \"list the public CLI\"\n"
+"  tny ask --json --ephemeral \"list the public CLI\"\n"
 "  tny ask --resume last \"now add tests\"\n"
 "  tny ask --output-schema schema.json \"extract the TODOs as JSON\"\n"
 "  tny --provider cursor ask --model composer-2 \"find the login bug\"\n";
@@ -137,10 +141,11 @@ static const char *acp_help =
 "\n"
 "Serve tny's native OpenAI-compatible loop as an ACP agent over stdio\n"
 "(protocolVersion 1). stdout is protocol-only; logs go to --log-file.\n"
+"Use the leading --ephemeral global flag to disable local session storage.\n"
 "\n"
 "Examples:\n"
 "  tny acp\n"
-"  tny --model gpt-4.1-mini acp\n";
+"  tny --ephemeral --model gpt-4.1-mini acp\n";
 
 static const char *setup_help =
 "Usage: tny setup [--base-url URL] [--api-key-env NAME] [--model ID]\n"
@@ -161,7 +166,8 @@ static const char *doctor_help =
 static const char *resume_help =
 "Usage: tny resume [last|<id>]\n"
 "\n"
-"Resume a saved session in the interactive shell.\n"
+"Resume a saved session in the interactive shell. This is incompatible with\n"
+"--ephemeral because ephemeral runs never import stored conversation state.\n"
 "\n"
 "Examples:\n"
 "  tny resume last\n"

@@ -23,3 +23,4 @@ these as `docs/adr/NNNN`.
 | [0015](0015-settings-default-effort.md) | settings.json carries a user-authored default effort (global or per-provider); flag//effort > env > settings; tny still never writes it |
 | [0016](0016-responses-api-default-wire.md) | The native backend defaults to the Responses API wire; Chat Completions is the `wire_api:"chat"` opt-in |
 | [0017](0017-subscription-logins-claude-grok.md) | `tny login` drives the codex app-server `account/login/start`; claude and grok are builtin openai-compatible profiles fed by subscription credentials (Claude Code OAuth token, grok session token), never persisted by tny |
+| [0018](0018-ephemeral-sessions.md) | `--ephemeral` keeps conversation state process-local, blocks resume/import, and applies provider no-store controls where defined |
