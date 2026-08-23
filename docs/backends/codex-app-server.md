@@ -63,6 +63,12 @@ in codex `config.toml`; tny sends `"priority"`, the value every app-server
 release accepts). Unset means the host's own default; the host ignores
 unknown values.
 
+`--ephemeral` adds `"ephemeral":true` to `thread/start`. The flag is injected
+at tny's request-framing boundary, so retries carry the same setting. tny also
+suppresses its local alias/session artifacts; the Codex flag prevents the host
+thread from being persisted. `thread/resume` is never used in this mode. See
+[ADR 0017](../adr/0017-ephemeral-sessions.md).
+
 Response: `{ "id": 10, "result": { "thread": { "id": "thr_123" } } }`
 Error: `{ "id": 10, "error": { "code": 123, "message": "…" } }`
 Notification: `{ "method": "turn/started", "params": { "turn": { "id": "turn_456" } } }`
