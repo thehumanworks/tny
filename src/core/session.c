@@ -42,6 +42,7 @@ tny_session *session_new(tny_ctx *ctx) {
 }
 
 tny_session *session_open(tny_ctx *ctx, const char *id_or_last) {
+    if (ctx->no_save) return NULL;
     char *id = NULL;
     if (!id_or_last || strcmp(id_or_last, "last") == 0) {
         id = session_latest_id(ctx);
@@ -87,6 +88,11 @@ void session_close(tny_session *s) {
     free(s->id);
     free(s->dir);
     yyjson_mut_doc_free(s->doc);
+    for (int i = 0; i < s->n_mem_results; i++) {
+        free(s->mem_results[i].handle);
+        free(s->mem_results[i].data);
+    }
+    free(s->mem_results);
     free(s);
 }
 
@@ -189,6 +195,21 @@ void session_get_usage(tny_session *s, int64_t *in_tok, int64_t *out_tok) {
 
 char *session_store_result(tny_session *s, const char *data, size_t len) {
     char *handle = gen_id();
+    if (s->ctx->no_save) {
+        session_mem_result *next = realloc(
+            s->mem_results,
+            sizeof(*s->mem_results) * (size_t)(s->n_mem_results + 1));
+        if (!next) {
+            free(handle);
+            return NULL;
+        }
+        s->mem_results = next;
+        session_mem_result *r = &s->mem_results[s->n_mem_results++];
+        r->handle = xstrdup(handle);
+        r->data = xstrndup(data, len);
+        r->len = len;
+        return handle;
+    }
     char *rdir = path_join(s->dir, "results");
     mkdir_p(rdir);
     char *fname = malloc(strlen(handle) + 5);
@@ -206,6 +227,21 @@ char *session_read_result(tny_session *s, const char *handle, size_t off,
     /* handle ids are hex only — reject anything path-like */
     for (const char *p = handle; *p; p++)
         if (!((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f'))) return NULL;
+    if (s->ctx->no_save) {
+        for (int i = 0; i < s->n_mem_results; i++) {
+            session_mem_result *r = &s->mem_results[i];
+            if (strcmp(r->handle, handle) != 0) continue;
+            if (off >= r->len) {
+                *out_len = 0;
+                return xstrdup("");
+            }
+            size_t n = r->len - off;
+            if (n > maxlen) n = maxlen;
+            *out_len = n;
+            return xstrndup(r->data + off, n);
+        }
+        return NULL;
+    }
     buf_t b;
     buf_init(&b);
     buf_appendf(&b, "%s/results/%s.txt", s->dir, handle);
@@ -315,6 +351,7 @@ void session_recovery_write(tny_session *s, const char *partial) {
 }
 
 char *session_recovery_read(tny_session *s) {
+    if (s->ctx->no_save) return NULL;
     char *file = path_join(s->dir, "recovery.json");
     yyjson_doc *doc = jparse_file(file);
     free(file);
@@ -326,6 +363,7 @@ char *session_recovery_read(tny_session *s) {
 }
 
 void session_recovery_clear(tny_session *s) {
+    if (s->ctx->no_save) return;
     char *file = path_join(s->dir, "recovery.json");
     remove(file);
     free(file);
@@ -429,6 +467,7 @@ void session_meta_free(session_meta *m, int count) {
 }
 
 char *session_latest_id(tny_ctx *ctx) {
+    if (ctx->no_save) return NULL;
     int n = 0;
     session_meta *m = session_list(ctx, false, 1, NULL, &n);
     char *id = n > 0 ? xstrdup(m[0].id) : NULL;
@@ -437,6 +476,7 @@ char *session_latest_id(tny_ctx *ctx) {
 }
 
 char *session_recover_copy(tny_ctx *ctx, const char *id) {
+    if (ctx->no_save) return NULL;
     char *root = sessions_root(ctx);
     char *src = path_join(root, id);
     char *file = path_join(src, "session.json");
