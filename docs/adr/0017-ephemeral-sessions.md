@@ -47,6 +47,8 @@ central rather than reimplemented by each surface. While it is active:
 - persistent `memory set` writes are rejected, while existing memories remain
   readable through `memory get` and `memory list`;
 - JSON `ask` output reports `"ephemeral":true` and an empty `session_id`;
+- `tny --ephemeral status` shows the active mode, including
+  `"ephemeral":true` in JSON;
 - the TUI prints an explicit ephemeral-mode status line.
 
 The provider adapter applies a no-store control when the protocol defines one:
