@@ -64,7 +64,8 @@ int main(int argc, char **argv) {
     } else if (strcmp(cmd, "workspace") == 0) {
         rc = cmd_workspace(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "status") == 0) {
-        rc = cmd_status(ctx, &g, cargc, cargv);
+        rc = ctx->no_save ? cmd_status_ephemeral(ctx, &g, cargc, cargv)
+                          : cmd_status(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "doctor") == 0) {
         rc = cmd_doctor(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "usage") == 0) {
