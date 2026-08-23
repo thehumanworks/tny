@@ -49,6 +49,8 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
             g->perm_mode = "auto";
         } else if (strcmp(a, "--json") == 0) {
             g->json = true;
+        } else if (strcmp(a, "--ephemeral") == 0 || strcmp(a, "--no-save") == 0) {
+            g->ephemeral = true;
         } else if (strcmp(a, "-r") == 0) {
             g->resume_picker = true;
         } else if (strcmp(a, "-c") == 0 || strcmp(a, "--continue") == 0) {
@@ -141,6 +143,7 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         }
     }
     ctx->json_out = g->json;
+    ctx->no_save = g->ephemeral;
     if (g->bridge_bin) { free(ctx->bridge_bin); ctx->bridge_bin = xstrdup(g->bridge_bin); }
     if (g->codex_ws) { free(ctx->codex_ws); ctx->codex_ws = xstrdup(g->codex_ws); }
     if (g->codex_bin) { free(ctx->codex_bin); ctx->codex_bin = xstrdup(g->codex_bin); }
