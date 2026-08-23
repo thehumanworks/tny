@@ -480,11 +480,20 @@ def serve(conn, index):
                                                       "message": "bad login type"}})
                 continue
             note("account/login/start type=%s ok" % t)
-            ws.send_json({"method": "account/login/completed",
-                          "params": {"loginId": "login_mock_1",
-                                     "success": True, "error": None}})
-            ws.send_json({"method": "account/updated",
-                          "params": {"authMode": "chatgpt", "planType": "plus"}})
+            # MOCK_LOGIN_FAIL_CONN=<n>: on that connection, answer with a
+            # malformed failure — "success" omitted, only "error" set. The
+            # client must treat missing success as failure, never as a
+            # completed login.
+            if index == int(os.environ.get("MOCK_LOGIN_FAIL_CONN", "0")):
+                ws.send_json({"method": "account/login/completed",
+                              "params": {"loginId": "login_mock_1",
+                                         "error": "mock denied the login"}})
+            else:
+                ws.send_json({"method": "account/login/completed",
+                              "params": {"loginId": "login_mock_1",
+                                         "success": True, "error": None}})
+                ws.send_json({"method": "account/updated",
+                              "params": {"authMode": "chatgpt", "planType": "plus"}})
         elif method == "turn/interrupt":
             ws.send_json({"id": req_id, "result": {}})
         elif req_id is not None:

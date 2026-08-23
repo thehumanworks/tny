@@ -929,6 +929,88 @@ TEST builtin_grok_profile(void) {
     PASS();
 }
 
+/* Credential edge cases: empty tokens are not credentials, the sign-in
+ * entry wins over other auth.json objects, a credential-less claude profile
+ * never carries the oauth beta header, and the header plumbing rejects
+ * empty lines. */
+TEST builtin_profile_edge_credentials(void) {
+    ensure_env();
+    write_settings("{}");
+    codex_auth_write(false);
+
+    /* credentials file without an accessToken: no token, and the source
+     * out-param must stay untouched */
+    char path[600];
+    snprintf(path, sizeof path, "%s/.claude", g_home);
+    mkdir_p(path);
+    snprintf(path, sizeof path, "%s/.claude/.credentials.json", g_home);
+    const char *no_tok = "{\"claudeAiOauth\":{}}";
+    file_write_atomic(path, no_tok, strlen(no_tok));
+    const char *source = NULL;
+    char *tok = tny_claude_token(&source);
+    ASSERT_EQ(NULL, tok);
+    ASSERT_EQ(NULL, source);
+
+    /* an empty accessToken string is not a credential either */
+    const char *empty_tok = "{\"claudeAiOauth\":{\"accessToken\":\"\"}}";
+    file_write_atomic(path, empty_tok, strlen(empty_tok));
+    tok = tny_claude_token(&source);
+    ASSERT_EQ(NULL, tok);
+
+    /* no resolvable credential: the claude profile must not invent a key
+     * or attach the oauth beta header */
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "claude"));
+    ASSERT_EQ(NULL, ctx->api_key);
+    ASSERT_FALSE(has_extra_header(ctx, "anthropic-beta:"));
+
+    /* the header plumbing ignores empty lines */
+    tny_ctx_add_extra_header(ctx, "");
+    ASSERT_FALSE(has_extra_header(ctx, ""));
+    tny_ctx_free(ctx);
+    unlink(path);
+
+    /* grok: the accounts.x.ai sign-in entry wins over other objects that
+     * also carry a "key" (OIDC issuers, unrelated caches) */
+    char gpath[600];
+    snprintf(gpath, sizeof gpath, "%s/.grok", g_home);
+    mkdir_p(gpath);
+    snprintf(gpath, sizeof gpath, "%s/.grok/auth.json", g_home);
+    const char *two = "{\"other\":{\"key\":\"wrong\"},"
+                      "\"https://accounts.x.ai/sign-in\":{\"key\":\"right\"}}";
+    file_write_atomic(gpath, two, strlen(two));
+    char *g = tny_grok_session_token();
+    ASSERT(g);
+    ASSERT_STR_EQ("right", g);
+    free(g);
+
+    /* an empty session key is not a session */
+    const char *empty_key = "{\"https://accounts.x.ai/sign-in\":{\"key\":\"\"}}";
+    file_write_atomic(gpath, empty_key, strlen(empty_key));
+    ASSERT_EQ(NULL, tny_grok_session_token());
+
+    /* the model-override header needs a proxy base_url AND a real model */
+    grok_auth_write("sess-tok-3");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "grok"));
+    tny_ctx_clear_extra_headers(ctx);
+    free(ctx->model);
+    ctx->model = xstrdup("");
+    tny_finish_builtin_profile(ctx);
+    ASSERT_FALSE(has_extra_header(ctx, "x-grok-model-override:"));
+    tny_ctx_free(ctx);
+    grok_auth_write(NULL);
+
+    /* an empty XAI_API_KEY is unset */
+    setenv("XAI_API_KEY", "", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "grok"));
+    ASSERT_EQ(NULL, ctx->api_key);
+    tny_ctx_free(ctx);
+    unsetenv("XAI_API_KEY");
+    PASS();
+}
+
 /* Subscription logins auto-detect in docs/cli.md order: codex first, then
  * claude, then grok — and a settings profile with the builtin's name
  * shadows the builtin entirely (explicit config wins). */
@@ -963,6 +1045,24 @@ TEST builtin_profile_detection_and_shadowing(void) {
     ASSERT_STR_EQ("claude", tny_provider_name(ctx));
     ASSERT_STR_EQ("https://api.anthropic.com/v1", ctx->base_url);
     tny_ctx_free(ctx);
+
+    /* the remembered builtin beats the detection order: grok last-used
+     * wins even while claude credentials are also present */
+    write_settings("{\"last_provider\":\"grok\"}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("grok", tny_provider_name(ctx));
+    tny_ctx_free(ctx);
+
+    /* a stale last_provider naming nothing must fall through to detection,
+     * never resolve as a phantom builtin profile */
+    write_settings("{\"last_provider\":\"gone\"}");
+    codex_auth_write(true);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, NULL));
+    tny_ctx_free(ctx);
+    codex_auth_write(false);
+    write_settings("{}");
 
     /* a user settings profile named "claude" shadows the builtin */
     write_settings("{\"claude\":{\"base_url\":\"https://gw.test/v1\","
@@ -1786,6 +1886,7 @@ SUITE(core_suite) {
     RUN_TEST(env_defined_providers);
     RUN_TEST(builtin_claude_profile);
     RUN_TEST(builtin_grok_profile);
+    RUN_TEST(builtin_profile_edge_credentials);
     RUN_TEST(builtin_profile_detection_and_shadowing);
     RUN_TEST(provider_names_joined_lists_detected);
     RUN_TEST(fast_capability_per_provider);
