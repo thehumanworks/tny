@@ -20,7 +20,7 @@ contains() { case "$1" in *"$2"*) ;; *) fail "missing '$2' in: $1" ;; esac; }
 MPID=$!
 i=0
 PORT=
-while [ $i -lt 50 ]; do
+while [ $i -lt 300 ]; do
     PORT=$(sed -n 's/^ready on //p' "$TMP/mock.out" 2>/dev/null)
     [ -n "$PORT" ] && break
     i=$((i + 1))

@@ -26,7 +26,7 @@ FAKE_ACP_STATE=$TMP/state.json "$PY" "$WRAP" 0 > "$TMP/wrap.out" 2> "$TMP/wrap.e
 WSPID=$!
 i=0
 PORT=
-while [ $i -lt 50 ]; do
+while [ $i -lt 300 ]; do
     PORT=$(sed -n 's/^ready on //p' "$TMP/wrap.out" 2>/dev/null)
     [ -n "$PORT" ] && break
     i=$((i + 1))
@@ -67,7 +67,7 @@ FAKE_ACP_DIE=1 "$PY" "$WRAP" 0 > "$TMP/wrap2.out" 2> "$TMP/wrap2.err" &
 WS2PID=$!
 i=0
 PORT2=
-while [ $i -lt 50 ]; do
+while [ $i -lt 300 ]; do
     PORT2=$(sed -n 's/^ready on //p' "$TMP/wrap2.out" 2>/dev/null)
     [ -n "$PORT2" ] && break
     i=$((i + 1))

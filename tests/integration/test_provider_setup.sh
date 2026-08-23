@@ -18,15 +18,17 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 contains() { case "$1" in *"$2"*) ;; *) fail "missing '$2' in: $1" ;; esac; }
 
 PORT=$("$PY" -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
-MOCK_EXPECT_WIRE=responses "$PY" "$MOCK" "$PORT" > "$TMP/mock.out" 2>/dev/null &
+MOCK_EXPECT_WIRE=responses "$PY" "$MOCK" "$PORT" > "$TMP/mock.out" 2> "$TMP/mock.err" &
 MPID=$!
+# macOS CI pythons cold-start slowly (see run.sh's cursor note): allow 30 s
 i=0
-while [ $i -lt 50 ]; do
+while [ $i -lt 300 ]; do
     grep -q "ready" "$TMP/mock.out" 2>/dev/null && break
     i=$((i + 1))
     sleep 0.1
 done
-grep -q "ready" "$TMP/mock.out" || fail "openai mock did not start"
+grep -q "ready" "$TMP/mock.out" \
+    || fail "openai mock did not start ($(tail -3 "$TMP/mock.err" 2>/dev/null))"
 
 # every run below must resolve the key from settings.json, never the shell
 unset OPENAI_API_KEY OPENAI_BASE_URL || true
