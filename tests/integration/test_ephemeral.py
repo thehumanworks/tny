@@ -222,6 +222,18 @@ def run():
               f"ephemeral ask/resume exit {ask.returncode}: {ask.stderr}")
         check("incompatible" in ask.stderr.lower(), ask.stderr)
 
+        status = subprocess.run(
+            base_cmd() + ["--ephemeral", "--json", "status"],
+            cwd=workspace, env=env, text=True, capture_output=True,
+        )
+        check(status.returncode == 0,
+              f"ephemeral status failed ({status.returncode}): {status.stderr}")
+        try:
+            status_payload = json.loads(status.stdout)
+        except json.JSONDecodeError as exc:
+            raise Fail(f"status stdout was not JSON: {status.stdout!r}: {exc}") from exc
+        check(status_payload.get("ephemeral") is True, status_payload)
+
         # A native-loop child agent is another conversational surface. It
         # must inherit the mode rather than materialize a child session.
         exercise_ephemeral_subagent(home, workspace, env)
@@ -232,7 +244,7 @@ def run():
         check(not os.path.exists(sessions), f"created session store: {sessions}")
         check(not os.path.exists(history), f"created prompt history: {history}")
 
-    print("ok  ephemeral: ACP, CLI resume guards, and child-agent propagation")
+    print("ok  ephemeral: ACP, status, resume guards, and child-agent propagation")
 
 
 if __name__ == "__main__":
