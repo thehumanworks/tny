@@ -1585,11 +1585,85 @@ TEST version_string_is_sane(void) {
     PASS();
 }
 
+
+/* docs/adr/0018: a key stored by `provider setup` is the fallback; any env
+ * var still beats it, so shell-side rotation wins without editing files. */
+TEST provider_profile_stored_api_key(void) {
+    unsetenv("OPENAI_API_KEY");
+    unsetenv("WIZPROV_API_KEY");
+    write_settings("{\"wizprov\":{\"base_url\":\"http://127.0.0.1:1/v1\","
+                   "\"api_key\":\"sk-stored\"}}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "wizprov"));
+    ASSERT(ctx->api_key);
+    ASSERT_STR_EQ("sk-stored", ctx->api_key);
+    tny_ctx_free(ctx);
+
+    setenv("WIZPROV_API_KEY", "sk-from-env", 1);
+    ctx = tny_ctx_load(g_ws);
+    tny_resolve_backend(ctx, "wizprov");
+    ASSERT_STR_EQ("sk-from-env", ctx->api_key);
+    tny_ctx_free(ctx);
+    unsetenv("WIZPROV_API_KEY");
+
+    /* the builtin openai object takes a stored key the same way */
+    write_settings("{\"openai\":{\"api_key\":\"sk-oa-stored\"}}");
+    ctx = tny_ctx_load(g_ws);
+    tny_resolve_backend(ctx, "openai");
+    ASSERT_STR_EQ("sk-oa-stored", ctx->api_key);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST provider_write_profile_rules(void) {
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    char err[256];
+
+    /* host providers and reserved settings keys are refused */
+    tny_provider_fields f0 = {"http://h/v1", NULL, NULL, NULL, NULL};
+    ASSERT_EQ(-1, tny_provider_write_profile(ctx, "codex", &f0, err, sizeof err));
+    ASSERT_EQ(-1, tny_provider_write_profile(ctx, "models", &f0, err, sizeof err));
+    ASSERT_EQ(-1, tny_provider_write_profile(ctx, "bad name", &f0, err, sizeof err));
+
+    /* a new profile needs a base_url */
+    tny_provider_fields f1 = {NULL, "sk-x", NULL, NULL, NULL};
+    ASSERT_EQ(-1, tny_provider_write_profile(ctx, "newprov", &f1, err, sizeof err));
+
+    /* create, then partial update keeps the untouched fields */
+    tny_provider_fields f2 = {"http://127.0.0.1:1/v1", "sk-1", NULL, "m1", NULL};
+    ASSERT_EQ(0, tny_provider_write_profile(ctx, "newprov", &f2, err, sizeof err));
+    tny_provider_fields f3 = {NULL, NULL, NULL, "m2", NULL};
+    ASSERT_EQ(0, tny_provider_write_profile(ctx, "newprov", &f3, err, sizeof err));
+    tny_resolve_backend(ctx, "newprov");
+    ASSERT_STR_EQ("http://127.0.0.1:1/v1", ctx->base_url);
+    ASSERT_STR_EQ("sk-1", ctx->api_key);
+    ASSERT(ctx->model);
+    ASSERT_STR_EQ("m2", ctx->model);
+
+    /* storing a key clears api_key_env and vice versa: one source of truth */
+    tny_provider_fields f4 = {NULL, NULL, "NEWPROV_KEY_VAR", NULL, NULL};
+    ASSERT_EQ(0, tny_provider_write_profile(ctx, "newprov", &f4, err, sizeof err));
+    yyjson_val *o = jget(yyjson_doc_get_root(ctx->settings), "newprov");
+    ASSERT(jget_str(o, "api_key") == NULL);
+    ASSERT_STR_EQ("NEWPROV_KEY_VAR", jget_str(o, "api_key_env"));
+    tny_provider_fields f5 = {NULL, "sk-2", NULL, NULL, NULL};
+    ASSERT_EQ(0, tny_provider_write_profile(ctx, "newprov", &f5, err, sizeof err));
+    o = jget(yyjson_doc_get_root(ctx->settings), "newprov");
+    ASSERT(jget_str(o, "api_key_env") == NULL);
+    ASSERT_STR_EQ("sk-2", jget_str(o, "api_key"));
+
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 SUITE(core_suite) {
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(backend_default_cursor_key_from_env);
     RUN_TEST(provider_last_used_and_scoped_models);
     RUN_TEST(custom_named_provider_profiles);
+    RUN_TEST(provider_profile_stored_api_key);
+    RUN_TEST(provider_write_profile_rules);
     RUN_TEST(env_defined_providers);
     RUN_TEST(provider_names_joined_lists_detected);
     RUN_TEST(fast_capability_per_provider);

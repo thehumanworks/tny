@@ -56,6 +56,27 @@ key env, and saved model (see
 detection is a lazy in-memory scan at provider-resolution time — startup
 paths (`--help`, `--version`, first TUI paint) never run it.
 
+### `tny provider setup` ([ADR 0018](adr/0018-provider-setup-stored-keys.md))
+
+The guided way to add one:
+
+```text
+tny provider setup opencode --base-url https://api.opencode.example/v1 --api-key sk-…
+tny provider setup openrouter --base-url https://openrouter.ai/api/v1     --api-key-env OPENROUTER_API_KEY --model anthropic/claude-sonnet-4.6
+tny provider setup            # interactive on a tty (key prompted with echo off)
+```
+
+Fields merge into the settings profile and `last_provider` switches to it, so
+a bare `tny` runs on the new provider immediately. `--api-key` stores the key
+in `~/.tny/settings.json` (the file drops to 0600); an environment variable
+(`api_key_env`, default `NAME_API_KEY`) always beats a stored key, so
+rotation from the shell keeps working. Storing a key clears `api_key_env`
+and vice versa. Host providers (cursor/codex/acp) are refused — they have no
+base_url/key shape. In the TUI the same flow is `/provider setup [NAME]`
+(`/cancel` aborts), which is also how the browser wasm terminal adds
+providers; the page URL hash additionally accepts
+`NAME_BASE_URL`/`NAME_API_KEY`/`NAME_DEFAULT_MODEL` pairs directly.
+
 `--provider` default, in order:
 
 1. the provider (and its saved model) last used, recorded in `~/.tny/settings.json` (`last_provider`, `models.{provider}`) — named providers included

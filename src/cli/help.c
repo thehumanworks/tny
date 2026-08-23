@@ -21,6 +21,7 @@ void help_root(void) {
 "  sessions               List saved sessions for this workspace\n"
 "  session <last|id>      Inspect one saved session\n"
 "  providers              List configured providers and doctor hints\n"
+"  provider setup NAME    Add an OpenAI-compatible provider (interactive on a tty)\n"
 "  models                 List available models for the active provider\n"
 "  permissions            Show the permission mode and rules\n"
 "  workspace list|add|remove|clear\n"
@@ -179,6 +180,20 @@ bool help_for(const char *command) {
         text = "Usage: tny permissions [--json]\n\nShow the permission mode and persistent rules.\n";
     else if (strcmp(command, "providers") == 0 || strcmp(command, "backends") == 0)
         text = "Usage: tny providers [--json]\n\nList the four providers with a one-line doctor hint each.\n";
+    else if (strcmp(command, "provider") == 0)
+        text = "Usage: tny provider [list]\n       tny provider setup NAME [--base-url URL]\n"
+               "           [--api-key KEY | --api-key-env ENV] [--model M]\n"
+               "           [--wire-api responses|chat]\n\n"
+               "Write an OpenAI-compatible provider profile to ~/.tny/settings.json and\n"
+               "make it the default. On a terminal, missing fields are prompted for (the\n"
+               "key with echo off). --api-key stores the key in settings.json (0600);\n"
+               "--api-key-env names an env var instead — an env var always wins.\n\n"
+               "Examples:\n"
+               "  tny provider setup openrouter --base-url https://openrouter.ai/api/v1 \\\n"
+               "      --api-key-env OPENROUTER_API_KEY --model anthropic/claude-sonnet-4.6\n"
+               "  tny provider setup opencode --base-url https://api.opencode.example/v1 \\\n"
+               "      --api-key sk-…\n"
+               "  tny provider setup   # interactive\n";
     else if (strcmp(command, "usage") == 0)
         text = "Usage: tny usage [--json]\n\nShow local token usage recorded from native-loop sessions.\n";
     else if (strcmp(command, "login") == 0)

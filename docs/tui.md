@@ -50,6 +50,10 @@ Sessions: `/help` `/clear` `/new` `/reset` `/resume` `/continue` `/rename` `/com
 
 Runtime: `/models` `/model` `/effort` `/permissions` `/sandbox` `/provider` (`/backend`) `/fast` `/status` `/usage`
 
+`/provider setup [NAME]` runs the guided provider wizard through the
+composer (name → base url → key or `$ENV_NAME` → model; `/cancel` aborts;
+[ADR 0018](adr/0018-provider-setup-stored-keys.md)) — in the browser wasm
+terminal this is the primary way to add a provider.
 `/provider [NAME]`'s palette hint and `/help` line list the providers usable
 right now — builtins, settings.json profiles with a `base_url`, and
 `NAME_BASE_URL` env providers — so the accepted names are discoverable

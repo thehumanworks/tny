@@ -131,6 +131,31 @@ def main():
                 content = page.content()
                 assert "test-key-not-real" not in content, "api key leaked into DOM"
                 assert not errors, f"page errors: {errors}"
+
+                # named provider pairs in the hash (docs/adr/0018): the CLI's
+                # own sole-pair detection must select the provider and run a
+                # turn on it, no OPENAI_* anywhere
+                page2 = browser.new_page()
+                page2.on("pageerror", lambda e: errors.append(str(e)))
+                page2.goto(
+                    f"http://127.0.0.1:{sport}/index.html"
+                    f"#OPENCODE_API_KEY=named-key-not-real"
+                    f"&OPENCODE_BASE_URL=http://127.0.0.1:{mport}/v1")
+                page2.wait_for_function(
+                    """() => document.querySelector('[data-term-xterm]')
+                          && document.querySelector('[data-term-xterm]')
+                             .textContent.includes('opencode')""",
+                    timeout=30000)
+                page2.click("[data-term-xterm]")
+                page2.keyboard.type("list files in .")
+                page2.keyboard.press("Enter")
+                page2.wait_for_function(
+                    """() => document.querySelector('[data-term-xterm]')
+                             .textContent.includes('MOCK-OK')""",
+                    timeout=30000)
+                print("stage: named-provider turn", flush=True)
+                assert "named-key-not-real" not in page2.content(), "named key leaked"
+                assert not errors, f"page errors: {errors}"
                 browser.close()
         finally:
             mock.terminate()

@@ -73,18 +73,49 @@
     term.write("\x1b[1mtny\x1b[0m — the real CLI, compiled to WebAssembly.\r\n");
     term.write("Runs entirely in this tab. Bring an OpenAI-compatible key;\r\n");
     term.write("it is validated at intake and sent only to your provider.\r\n");
+    term.write("Any provider works: pass NAME_BASE_URL + NAME_API_KEY in the\r\n");
+    term.write("URL hash, or run /provider setup inside the terminal.\r\n");
     term.write("CORS note: api.openai.com refuses browser calls — use a\r\n");
     term.write("CORS-open gateway or a local http://127.0.0.1 server.\r\n\r\n");
+  }
+
+  /* Named-provider pairs from the hash (docs/adr/0018): keys sanitized at
+   * intake, base urls scheme-checked; a bad value is reported and dropped
+   * rather than shipped to fetch() where it would throw later. */
+  function namedEnv() {
+    var env = {};
+    var pairs = boot.env || {};
+    for (var k in pairs) {
+      var v = pairs[k];
+      if (/_API_KEY$/.test(k)) {
+        v = C.sanitizeApiKey(v);
+        if (!v) {
+          term.write("ignoring " + k + ": empty after removing non-ISO-8859-1 junk\r\n");
+          continue;
+        }
+      } else if (/_BASE_URL$/.test(k)) {
+        v = C.sanitizeBaseUrl(v);
+        if (!v) {
+          term.write("ignoring " + k + ": not an http(s) URL\r\n");
+          continue;
+        }
+      }
+      env[k] = v;
+    }
+    return env;
   }
 
   function askCreds() {
     var key = C.sanitizeApiKey(boot.apiKey || "");
     var base = (boot.baseUrl || "").trim();
-    if (key) return Promise.resolve({ key: key, base: base });
+    var env = namedEnv();
+    if (key || Object.keys(env).length)
+      return Promise.resolve({ key: key, base: base, env: env });
     intro();
     function askKey() {
-      term.write("api key> ");
+      term.write("api key (empty to start without one — /provider setup adds any provider)> ");
       return readLine(true).then(function (raw) {
+        if (!raw.trim()) return "";
         var k = C.sanitizeApiKey(raw);
         if (!k) {
           term.write("that key is empty after removing non-ISO-8859-1 junk (smart quotes, NBSP); paste it again\r\n");
@@ -94,9 +125,10 @@
       });
     }
     return askKey().then(function (k) {
+      if (!k) return { key: "", base: "", env: env };
       term.write("base url [" + C.DEFAULT_BASE + "]> ");
       return readLine(false).then(function (b) {
-        return { key: k, base: b.trim() };
+        return { key: k, base: b.trim(), env: env };
       });
     });
   }
@@ -109,8 +141,9 @@
         var env = {
           HOME: "/home/web_user",
           TERM: "xterm-256color",
-          OPENAI_API_KEY: creds.key,
         };
+        for (var k in (creds.env || {})) env[k] = creds.env[k];
+        if (creds.key) env.OPENAI_API_KEY = creds.key;
         if (creds.base) env.OPENAI_BASE_URL = creds.base;
         return mod.default({
           tnyEnv: env,

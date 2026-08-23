@@ -82,6 +82,11 @@ typedef struct tui {
     int   perm_opts;
     bool  approval;     /* an approval owns the keyboard */
 
+    /* /provider setup wizard (docs/adr/0018): while wiz_step > 0 the
+     * composer feeds the wizard, not a prompt. */
+    int   wiz_step;     /* 0 off; 1 name, 2 base url, 3 key, 4 model */
+    char *wiz_name, *wiz_base, *wiz_key, *wiz_key_env, *wiz_model;
+
     char *images[TUI_MAX_IMAGES + 1];
     int   n_images;
 
@@ -185,6 +190,11 @@ void tui_pick_refresh(tui *t);
 
 /* tui_commands.c */
 void tui_command(tui *t, const char *line);
+/* /provider setup wizard (tui_commands.c): start, feed one composer line,
+ * cancel (drops state, frees fields). */
+void tui_wizard_start(tui *t, const char *name);
+void tui_wizard_feed(tui *t, const char *line);
+void tui_wizard_cancel(tui *t);
 void tui_items_clear(tui *t);
 void tui_items_add(tui *t, const char *label, const char *hint);
 void tui_pick_build_cmd(tui *t, const char *filter);

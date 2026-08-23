@@ -65,6 +65,31 @@ async function run() {
     assert.ok(!replaced[0].includes("secret.example"));
   });
 
+  await test("named provider env pairs ride the hash and are stripped", () => {
+    const loc = {
+      pathname: "/tny/",
+      search: "",
+      hash: "#OPENROUTER_API_KEY=sk-named&OPENROUTER_BASE_URL=" +
+            encodeURIComponent("https://openrouter.ai/api/v1") +
+            "&GROQ_DEFAULT_MODEL=llama-4&keep=1",
+    };
+    const replaced = [];
+    const hist = { replaceState(_s, _t, url) { replaced.push(url); } };
+    const got = C.takeSecretsFromLocation(loc, hist);
+    assert.strictEqual(got.env.OPENROUTER_API_KEY, "sk-named");
+    assert.strictEqual(got.env.OPENROUTER_BASE_URL, "https://openrouter.ai/api/v1");
+    assert.strictEqual(got.env.GROQ_DEFAULT_MODEL, "llama-4");
+    assert.strictEqual(replaced.length, 1);
+    assert.strictEqual(replaced[0], "/tny/#keep=1");
+    assert.ok(!replaced[0].includes("sk-named"));
+    assert.ok(!replaced[0].includes("openrouter.ai"));
+    // lowercase and unrelated params never register as env pairs
+    const none = C.takeSecretsFromLocation(
+      { pathname: "/", search: "", hash: "#foo_api_key=x&BASE_URL=y" },
+      { replaceState() { throw new Error("nothing to strip"); } });
+    assert.ok(!none.env);
+  });
+
   await test("parse env assignments and refuse to treat them as chat", () => {
     const got = C.parseEnvAssignments(
       'export OPENAI_API_KEY="sk-quoted" OPENAI_BASE_URL=https://corp.internal/v1'

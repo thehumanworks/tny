@@ -56,6 +56,8 @@ int main(int argc, char **argv) {
         rc = cmd_sessions(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "session") == 0) {
         rc = cmd_session(ctx, &g, cargc, cargv);
+    } else if (strcmp(cmd, "provider") == 0) {
+        rc = cmd_provider(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "providers") == 0 || strcmp(cmd, "backends") == 0) {
         rc = cmd_backends(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "models") == 0) {

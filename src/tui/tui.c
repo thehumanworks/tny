@@ -422,6 +422,7 @@ void tui_submit(tui *t, const char *text) {
     tui_overlay_clear(t); /* the menu interaction is over */
     const char *s = text;
     while (*s == ' ' || *s == '\t') s++;
+    if (t->wiz_step) { tui_wizard_feed(t, s); return; }
     if (!*s) { t->dirty = true; return; }
 
     if (*s == '/') {
@@ -618,6 +619,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     tui_items_clear(&t);
     tui_files_free(&t);
     tui_hist_free(&t);
+    tui_wizard_cancel(&t);
     for (int i = 0; i < t.n_images; i++) free(t.images[i]);
     tui_queue_clear(&t);
     buf_free(&t.out);
