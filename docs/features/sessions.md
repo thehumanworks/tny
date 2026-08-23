@@ -34,17 +34,23 @@ does not create or update:
 - `session.json`;
 - `recovery.json`;
 - `results/<handle>.txt` (large results use a process-local memory store);
-- `~/.tny/history` (TUI history is process-local).
+- `~/.tny/history` (TUI history is process-local);
+- child-agent session records (native subagents inherit `--ephemeral`);
+- `~/.tny/memories.json` through `memory set`.
 
 Saved-session operations are intentionally incompatible with ephemeral mode:
 `resume`, `--resume`, `-r`, `-c`, `/resume`, recovery, migration, and import do
-not load stored conversation state. `tny ask --json` returns
-`"ephemeral":true` and an empty `session_id`.
+not load stored conversation state. Native subagents are one-shot, so their
+`message` and `inspect` actions are unavailable. Existing user memories may
+still be read. `tny ask --json` returns `"ephemeral":true` and an empty
+`session_id`.
 
 The local guarantee does not invent retention controls for provider protocols.
 Codex starts its host thread with `ephemeral:true`; the native OpenAI Responses
 wire sends `store:false`; other host agents may retain request data according
-to their own policy. See [ADR 0017](../adr/0017-ephemeral-sessions.md).
+to their own policy. Ephemeral mode is not a filesystem sandbox: ordinary
+workspace-changing tools still work when permitted. See
+[ADR 0017](../adr/0017-ephemeral-sessions.md).
 
 ## Resume
 
