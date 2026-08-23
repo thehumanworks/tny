@@ -1,8 +1,9 @@
-/* test_ephemeral.c — no-write session, history, and host-wire invariants. */
+/* test_ephemeral.c — no-write session, history, tool, and host-wire invariants. */
 #include "greatest.h"
 #include "cli/cli.h"
 #include "core/config.h"
 #include "core/session.h"
+#include "core/tools.h"
 #include "backends/codex/codex.h"
 #include "tui/tui.h"
 #include "util/util.h"
@@ -110,6 +111,37 @@ TEST ephemeral_tui_history_is_process_local(void) {
     PASS();
 }
 
+TEST ephemeral_memory_tool_cannot_persist(void) {
+    ephemeral_env e;
+    ephemeral_env_begin(&e);
+    tny_ctx *ctx = tny_ctx_load(e.workspace);
+    ASSERT(ctx);
+    ctx->no_save = true;
+
+    tools_env env;
+    memset(&env, 0, sizeof env);
+    env.ctx = ctx;
+    yyjson_doc *args = jparse(
+        "{\"action\":\"set\",\"key\":\"secret\",\"value\":\"do not persist\"}",
+        strlen("{\"action\":\"set\",\"key\":\"secret\",\"value\":\"do not persist\"}"));
+    ASSERT(args);
+    bool handled = false;
+    char *result = tool_ext_execute(&env, "memory", yyjson_doc_get_root(args), &handled);
+    ASSERT(handled);
+    ASSERT(result);
+    ASSERT(strstr(result, "ephemeral mode"));
+    free(result);
+    yyjson_doc_free(args);
+
+    char *memories = path_join(ctx->tny_dir, "memories.json");
+    ASSERT(access(memories, F_OK) != 0);
+    free(memories);
+
+    tny_ctx_free(ctx);
+    ephemeral_env_end(&e);
+    PASS();
+}
+
 TEST ephemeral_codex_thread_start_sets_wire_flag(void) {
     tny_ctx ctx = {0};
     ctx.no_save = true;
@@ -140,5 +172,6 @@ SUITE(ephemeral_suite) {
     RUN_TEST(ephemeral_flags_parse_globally);
     RUN_TEST(ephemeral_session_artifacts_stay_in_memory);
     RUN_TEST(ephemeral_tui_history_is_process_local);
+    RUN_TEST(ephemeral_memory_tool_cannot_persist);
     RUN_TEST(ephemeral_codex_thread_start_sets_wire_flag);
 }
