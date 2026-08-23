@@ -69,6 +69,26 @@ Configuration metadata such as the last selected provider/model is not part of
 the conversation and retains its existing settings behavior. See
 [ADR 0018](adr/0018-ephemeral-sessions.md).
 
+## SSH execution mode
+
+`--ssh user@host[:port]` is a process-level execution boundary
+([ADR 0020](adr/0020-ssh-execution-boundary.md)). `tny` delegates the complete
+invocation through OpenSSH before loading local workspace config, sessions,
+providers, MCP servers, or tools, so the remote machine owns every file,
+terminal, backend, MCP, session, and tool-call interaction for that run —
+regardless of provider.
+
+```sh
+tny --ssh dev@example.com ask "inspect the repository"
+tny --ssh dev@example.com:2222          # remote TUI
+tny --ssh '[2001:db8::1]:22' status
+```
+
+The remaining arguments are forwarded verbatim (single-quoted for the remote
+shell). The remote host must have `tny` in its non-interactive SSH `PATH`.
+Authentication and host-key checking are entirely controlled by the user's
+OpenSSH configuration; tny disables neither.
+
 ## Provider selection
 
 `--provider` accepts the four builtin names, the two **builtin subscription
@@ -94,7 +114,8 @@ paths (`--help`, `--version`, first TUI paint) never run it.
 3. the env-defined provider if **exactly one** `NAME_BASE_URL` + `NAME_API_KEY` pair is set (a lone `*_BASE_URL` from an unrelated tool never hijacks the default; keyless local gateways need an explicit `--provider NAME` once — `last_provider` remembers it)
 4. `codex` if a `codex login` exists (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`) — subscriptions need no API key
 5. `claude` if a Claude Code OAuth login exists (`CLAUDE_CODE_OAUTH_TOKEN`, or `~/.claude/.credentials.json` from `claude /login`; a bare `ANTHROPIC_API_KEY` never hijacks the default — use `--provider claude`)
-6. `grok` if a grok CLI session exists (`~/.grok/auth.json` from `grok login`)
+6. `grok` if an xAI session exists (`~/.grok/auth.json`, from `tny
+   --provider grok login` or the grok CLI)
 7. `cursor` if `CURSOR_API_KEY` is set in the environment
 8. `openai` (its connect error explains how to configure a key)
 
@@ -110,12 +131,13 @@ tny never stores tokens itself:
 | --- | --- |
 | codex | Connects to `codex app-server` and calls `account/login/start` — the browser flow prints (and tries to open) the `authUrl`; `--device` uses the device-code flow and prints `verificationUrl` + `userCode`. tny pumps the socket until `account/login/completed`; the host writes `$CODEX_HOME/auth.json`, which tny auto-detects afterwards. Hosts without the RPC fall back to `codex login`. |
 | claude | Reports the credential tny resolved (`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `~/.claude/.credentials.json`), else runs `claude setup-token`; the user exports the printed token as `CLAUDE_CODE_OAUTH_TOKEN`. |
-| grok | Runs `grok login --device-auth` (RFC 8628 device code — works over SSH/containers); the grok CLI stores the session token in `~/.grok/auth.json`. |
+| grok | Native RFC 8628 device-code sign-in against `auth.x.ai` — no grok CLI needed, works over SSH/containers ([ADR 0019](adr/0019-native-grok-device-login.md)). tny prints the verification URL + code, polls the token endpoint, and writes the session to `~/.grok/auth.json` in the grok CLI's own store format (both tools share the entry). `GROK_OAUTH2_ISSUER` / `GROK_OAUTH2_CLIENT_ID` override the endpoint (enterprise IdPs, tests). |
 | cursor | Reports whether `CURSOR_API_KEY` is set. |
 | openai / named | Reports whether an API key resolved (`tny setup` configures one). |
 
-`tny logout` mirrors this: `codex logout` / `grok logout` where a host CLI
-owns the credential, an env-var hint otherwise.
+`tny logout` mirrors this: `codex logout` where the host CLI owns the
+credential, native removal of the xAI entries from `~/.grok/auth.json` for
+grok (foreign-issuer entries are kept), an env-var hint otherwise.
 
 ## Reasoning effort
 
@@ -190,7 +212,7 @@ JSON object (keep field names stable):
 | openai | `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0016](adr/0016-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API` |
 | named provider | same flags; `NAME_BASE_URL` (beats the settings `base_url`), key from the profile's `api_key_env`, default `NAME_API_KEY` — never `OPENAI_API_KEY`; `NAME_WIRE_API` / profile `wire_api` |
 | claude (builtin profile) | credential from `CLAUDE_CODE_OAUTH_TOKEN` > `ANTHROPIC_API_KEY` > `~/.claude/.credentials.json` (`$CLAUDE_CONFIG_DIR` honored); OAuth tokens add `anthropic-beta: oauth-2025-04-20`; chat wire; default model `claude-sonnet-4-6`; `TNY_CLAUDE_BIN` for login |
-| grok (builtin profile) | session token from `~/.grok/auth.json` → CLI chat proxy (chat wire, `X-XAI-Token-Auth` + `x-grok-model-override` headers, default model `grok-build`); else `XAI_API_KEY` → `api.x.ai` (responses wire, default model `grok-4.6`); `TNY_GROK_BIN` for login/logout |
+| grok (builtin profile) | session token from `~/.grok/auth.json` (minted by tny's native device login or the grok CLI; expired OIDC tokens auto-refresh at resolve) → CLI chat proxy (chat wire, `X-XAI-Token-Auth` + `x-grok-model-override` + `x-grok-client-version` headers — the proxy 426s unversioned clients, `TNY_GROK_CLIENT_VERSION` overrides the pin — default model `grok-4.6`); else `XAI_API_KEY` → `api.x.ai` (responses wire, same default model); `GROK_OAUTH2_ISSUER` / `GROK_OAUTH2_CLIENT_ID` override the login endpoint |
 
 Model precedence for every provider: `--model` > saved `models.{provider}` >
 the provider object's `model` (openai-compatible only) > `NAME_DEFAULT_MODEL`

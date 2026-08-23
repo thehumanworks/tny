@@ -111,8 +111,15 @@ bool tny_grok_auth_present(void);   /* ~/.grok/auth.json session */
  * ANTHROPIC_API_KEY, then ~/.claude/.credentials.json accessToken.
  * malloc'd; *source (optional) names where it came from. */
 char *tny_claude_token(const char **source);
-/* Session token `grok login` stored in ~/.grok/auth.json. malloc'd. */
+/* Session token from ~/.grok/auth.json (tny's own login or the grok
+ * CLI's). malloc'd. */
 char *tny_grok_session_token(void);
+/* Native xAI sign-in (grok_login.c, docs/adr/0019): RFC 8628 device-code
+ * login and logout against auth.x.ai — no grok CLI needed — plus the
+ * refresh-token exchange run before each token read. */
+int  tny_grok_login(void);
+int  tny_grok_logout(void);
+void tny_grok_refresh_if_stale(void);
 void tny_apply_builtin_profile(tny_ctx *ctx, const char *name);
 /* Post-model-resolution fixups (grok proxy model-override header). */
 void tny_finish_builtin_profile(tny_ctx *ctx);

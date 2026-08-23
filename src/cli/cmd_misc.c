@@ -528,32 +528,11 @@ static int login_claude(tny_ctx *ctx) {
     return 0;
 }
 
-/* Grok: the device-code sign-in belongs to the grok CLI; it stores the
- * session token in ~/.grok/auth.json, which tny reads on the next run. */
+/* Grok: native RFC 8628 device-code sign-in against auth.x.ai
+ * (grok_login.c, docs/adr/0019) — no grok CLI needed. */
 static int login_grok(tny_ctx *ctx) {
     (void)ctx;
-    const char *bin = getenv("TNY_GROK_BIN");
-    if (!bin || !*bin) bin = "grok";
-    buf_t cmd;
-    buf_init(&cmd);
-    buf_appendf(&cmd, "%s login --device-auth", bin);
-    printf("Starting `%s` (RFC 8628 device code: open the URL it prints on "
-           "any device)…\n", cmd.data);
-    fflush(stdout);
-    int rc = system(cmd.data);
-    buf_free(&cmd);
-    if (rc != 0) {
-        fprintf(stderr,
-                "tny: `%s login --device-auth` failed. Install the grok CLI "
-                "(npm install -g @xai-official/grok, or set TNY_GROK_BIN), or "
-                "set XAI_API_KEY to use api.x.ai directly.\n", bin);
-        return 1;
-    }
-    printf(tny_grok_auth_present()
-               ? "grok session saved (~/.grok/auth.json) — `tny --provider "
-                 "grok` uses it.\n"
-               : "grok login finished, but ~/.grok/auth.json is missing.\n");
-    return tny_grok_auth_present() ? 0 : 1;
+    return tny_grok_login();
 }
 
 int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
@@ -596,19 +575,7 @@ int cmd_logout(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                "secrets itself.\n");
         return 0;
     }
-    if (strcmp(pn, "grok") == 0) {
-        const char *bin = getenv("TNY_GROK_BIN");
-        if (!bin || !*bin) bin = "grok";
-        buf_t cmd;
-        buf_init(&cmd);
-        buf_appendf(&cmd, "%s logout", bin);
-        int rc = system(cmd.data);
-        buf_free(&cmd);
-        if (rc != 0)
-            printf("`%s logout` failed; remove ~/.grok/auth.json or unset "
-                   "XAI_API_KEY.\n", bin);
-        return rc == 0 ? 0 : 1;
-    }
+    if (strcmp(pn, "grok") == 0) return tny_grok_logout();
     if (ctx->backend == TNY_BK_CODEX) {
         buf_t cmd;
         buf_init(&cmd);

@@ -141,21 +141,31 @@ Console key must not carry the beta header. These extra headers live in
 
 **grok** — two credential modes:
 
-1. session token from `~/.grok/auth.json`
-   (`"https://accounts.x.ai/sign-in".key`, written by
-   `grok login --device-auth`; `tny --provider grok login` runs it):
+1. session token from `~/.grok/auth.json` — the legacy
+   `"https://accounts.x.ai/sign-in".key` entry, or an OIDC
+   `"{issuer}::{client_id}"` entry written by tny's **native device-code
+   login** (`tny --provider grok login`,
+   [ADR 0019](../adr/0019-native-grok-device-login.md)) or by the grok CLI:
    base URL `https://cli-chat-proxy.grok.com/v1`, chat wire (proxy models
-   are streaming-only chat), headers `X-XAI-Token-Auth: xai-grok-cli` and
+   are streaming-only chat), headers `X-XAI-Token-Auth: xai-grok-cli`,
    `x-grok-model-override: <model>` (the proxy routes on the header, not
-   the body; default model `grok-build` is the default route). Session
-   tokens expire after ~7 days — re-run `tny --provider grok login`.
-   The model-override header is pinned at provider-resolve time, so a
-   mid-session `/model` on the proxy applies at the next resolve.
+   the body; default model `grok-4.6`), and
+   `x-grok-client-version` (the proxy version-gates and answers HTTP 426
+   below its rolling minimum; tny pins a known-accepted grok-build
+   version, `TNY_GROK_CLIENT_VERSION` overrides it without a rebuild).
+   OIDC entries carry `refresh_token` / `expires_at`; at provider resolve
+   tny runs the `refresh_token` grant when the entry is at/near expiry and
+   writes the rotated tokens back into the store, so a device-code login
+   outlives its first access token without the grok CLI's background
+   refresher. The model-override header is pinned at provider-resolve
+   time, so a mid-session `/model` on the proxy applies at the next
+   resolve.
 2. else `XAI_API_KEY` against `https://api.x.ai/v1` on the default
    Responses wire, default model `grok-4.6`.
 
-Credentials are read when the provider resolves and never persisted; tny
-stores env-var names and reads host-owned files only.
+Credentials are read when the provider resolves; the only write is the
+grok token refresh above, back into the same `~/.grok/auth.json` entry the
+token came from. tny stores env-var names otherwise.
 
 ## Provider quirks (handle with flags, not forks)
 

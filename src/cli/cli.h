@@ -35,6 +35,12 @@ typedef struct {
  * error (message already printed). */
 int cli_parse_globals(int argc, char **argv, cli_globals *g);
 
+/* Process-level SSH delegation (docs/adr/0020). cli_ssh_maybe_delegate returns
+ * -1 when no leading --ssh was given; successful delegation replaces this
+ * process, so any other return is an exit status. */
+int cli_ssh_maybe_delegate(int argc, char **argv);
+int cli_ssh_exec_tui(const char *target);
+
 /* Build ctx from globals (loads settings). NULL = startup error. */
 tny_ctx *cli_make_ctx(const cli_globals *g);
 

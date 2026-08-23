@@ -1,6 +1,8 @@
 # 0017 — Subscription logins: app-server codex login, builtin claude and grok profiles
 
-Status: accepted.
+Status: accepted. Decision 4 is amended for grok by
+[ADR 0019](0019-native-grok-device-login.md): the device-code login,
+token refresh, and logout are now native — no grok CLI required.
 
 ## Context
 

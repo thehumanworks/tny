@@ -13,9 +13,13 @@
 #include "cli/cli.h"
 #include "util/util.h"
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -907,9 +911,11 @@ TEST builtin_grok_profile(void) {
     ASSERT(ctx->api_key);
     ASSERT_STR_EQ("sess-tok-1", ctx->api_key);
     ASSERT(has_extra_header(ctx, "X-XAI-Token-Auth: xai-grok-cli"));
+    /* the proxy 426s requests without a client-version claim */
+    ASSERT(has_extra_header(ctx, "x-grok-client-version: "));
     ASSERT(ctx->model);
-    ASSERT_STR_EQ("grok-build", ctx->model);
-    ASSERT(has_extra_header(ctx, "x-grok-model-override: grok-build"));
+    ASSERT_STR_EQ("grok-4.6", ctx->model);
+    ASSERT(has_extra_header(ctx, "x-grok-model-override: grok-4.6"));
     tny_ctx_free(ctx);
 
     /* no session: XAI_API_KEY against api.x.ai, no proxy headers */
@@ -926,6 +932,264 @@ TEST builtin_grok_profile(void) {
     ASSERT_FALSE(has_extra_header(ctx, "x-grok-model-override:"));
     tny_ctx_free(ctx);
     unsetenv("XAI_API_KEY");
+    PASS();
+}
+
+/* ---- native grok device-code login/refresh/logout (docs/adr/0019) ---- */
+
+/* Scripted OAuth2 issuer: one connection per response, request captured. */
+typedef struct {
+    int lfd;
+    int n;
+    int status[6];
+    const char *body[6];
+    char req[6][4096];
+} oauth_mock;
+
+static void *oauth_mock_run(void *ud) {
+    oauth_mock *s = ud;
+    for (int i = 0; i < s->n; i++) {
+        int fd = accept(s->lfd, NULL, NULL);
+        if (fd < 0) return NULL;
+        char *req = s->req[i];
+        size_t got = 0, cap = sizeof s->req[i];
+        for (;;) {
+            ssize_t r = read(fd, req + got, cap - 1 - got);
+            if (r <= 0) break;
+            got += (size_t)r;
+            req[got] = 0;
+            char *he = strstr(req, "\r\n\r\n");
+            if (!he) continue;
+            long cl = 0;
+            char *clh = strstr(req, "Content-Length:");
+            if (clh) cl = strtol(clh + 15, NULL, 10);
+            if (got >= (size_t)(he - req) + 4 + (size_t)cl) break;
+        }
+        char resp[4608];
+        int rl = snprintf(resp, sizeof resp,
+                          "HTTP/1.1 %d X\r\nContent-Type: application/json\r\n"
+                          "Content-Length: %zu\r\nConnection: close\r\n\r\n%s",
+                          s->status[i], strlen(s->body[i]), s->body[i]);
+        if (write(fd, resp, (size_t)rl) < 0) { /* peer gone; keep serving */ }
+        close(fd);
+    }
+    return NULL;
+}
+
+/* Bind 127.0.0.1:0, start the thread, return the port (or -1). */
+static int oauth_mock_start(oauth_mock *s, pthread_t *th) {
+    s->lfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (s->lfd < 0) return -1;
+    struct sockaddr_in sa = {0};
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (bind(s->lfd, (struct sockaddr *)&sa, sizeof sa) != 0 ||
+        listen(s->lfd, 4) != 0)
+        return -1;
+    socklen_t sl = sizeof sa;
+    if (getsockname(s->lfd, (struct sockaddr *)&sa, &sl) != 0) return -1;
+    if (pthread_create(th, NULL, oauth_mock_run, s) != 0) return -1;
+    return ntohs(sa.sin_port);
+}
+
+/* Full device flow against a scripted issuer: pending poll, then tokens.
+ * The store entry must be grok-CLI-compatible and readable by tny. */
+TEST grok_native_device_login(void) {
+    ensure_env();
+    grok_auth_write(NULL);
+    oauth_mock s = {0};
+    s.n = 3;
+    s.status[0] = 200;
+    s.body[0] = "{\"device_code\":\"dc-1\",\"user_code\":\"AB-12\","
+                "\"verification_uri\":\"https://x.ai/device\","
+                "\"verification_uri_complete\":"
+                "\"https://x.ai/device?user_code=AB-12\","
+                "\"expires_in\":900,\"interval\":0}";
+    s.status[1] = 400;
+    s.body[1] = "{\"error\":\"authorization_pending\"}";
+    s.status[2] = 200;
+    s.body[2] = "{\"access_token\":\"at-1\",\"refresh_token\":\"rt-1\","
+                "\"expires_in\":900,\"id_token\":"
+                "\"e30.eyJzdWIiOiJ1LTEiLCJlbWFpbCI6ImFAYi5jIn0.sig\"}";
+    pthread_t th;
+    int port = oauth_mock_start(&s, &th);
+    ASSERT(port > 0);
+    char issuer[64];
+    snprintf(issuer, sizeof issuer, "http://127.0.0.1:%d", port);
+    setenv("GROK_OAUTH2_ISSUER", issuer, 1);
+    setenv("GROK_OAUTH2_CLIENT_ID", "cid-1", 1);
+    int rc = tny_grok_login();
+    pthread_join(th, NULL);
+    close(s.lfd);
+    ASSERT_EQ(0, rc);
+
+    /* wire shape: endpoints, form encoding, RFC 8628 grant */
+    ASSERT(strstr(s.req[0], "POST /oauth2/device/code"));
+    ASSERT(strstr(s.req[0], "client_id=cid-1"));
+    ASSERT(strstr(s.req[0], "grok-cli%3Aaccess"));   /* scope, %-encoded */
+    ASSERT(strstr(s.req[0], "referrer=grok-build"));
+    ASSERT(strstr(s.req[2], "POST /oauth2/token"));
+    ASSERT(strstr(s.req[2], "device_code=dc-1"));
+    ASSERT(strstr(s.req[2],
+        "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code"));
+
+    /* the store entry is grok-CLI-compatible */
+    char path[600];
+    snprintf(path, sizeof path, "%s/.grok/auth.json", g_home);
+    yyjson_doc *doc = jparse_file(path);
+    ASSERT(doc);
+    char scope[128];
+    snprintf(scope, sizeof scope, "%s::cid-1", issuer);
+    yyjson_val *e = jget(yyjson_doc_get_root(doc), scope);
+    ASSERT(e);
+    ASSERT_STR_EQ("at-1", jget_str(e, "key"));
+    ASSERT_STR_EQ("oidc", jget_str(e, "auth_mode"));
+    ASSERT_STR_EQ("rt-1", jget_str(e, "refresh_token"));
+    ASSERT_STR_EQ("u-1", jget_str(e, "user_id"));    /* id_token sub */
+    ASSERT_STR_EQ("a@b.c", jget_str(e, "email"));
+    ASSERT_STR_EQ(issuer, jget_str(e, "oidc_issuer"));
+    ASSERT_STR_EQ("cid-1", jget_str(e, "oidc_client_id"));
+    ASSERT(jget_str(e, "create_time"));
+    ASSERT(jget_str(e, "expires_at"));
+    yyjson_doc_free(doc);
+
+    /* and tny reads it back as the session token */
+    char *tok = tny_grok_session_token();
+    ASSERT(tok);
+    ASSERT_STR_EQ("at-1", tok);
+    free(tok);
+
+    unsetenv("GROK_OAUTH2_ISSUER");
+    unsetenv("GROK_OAUTH2_CLIENT_ID");
+    grok_auth_write(NULL);
+    PASS();
+}
+
+/* A denied (or expired) device code fails without writing credentials. */
+TEST grok_native_login_denied(void) {
+    ensure_env();
+    grok_auth_write(NULL);
+    oauth_mock s = {0};
+    s.n = 2;
+    s.status[0] = 200;
+    s.body[0] = "{\"device_code\":\"dc-2\",\"user_code\":\"CD-34\","
+                "\"verification_uri\":\"https://x.ai/device\","
+                "\"expires_in\":900,\"interval\":0}";
+    s.status[1] = 400;
+    s.body[1] = "{\"error\":\"access_denied\"}";
+    pthread_t th;
+    int port = oauth_mock_start(&s, &th);
+    ASSERT(port > 0);
+    char issuer[64];
+    snprintf(issuer, sizeof issuer, "http://127.0.0.1:%d", port);
+    setenv("GROK_OAUTH2_ISSUER", issuer, 1);
+    setenv("GROK_OAUTH2_CLIENT_ID", "cid-1", 1);
+    int rc = tny_grok_login();
+    pthread_join(th, NULL);
+    close(s.lfd);
+    ASSERT(rc != 0);
+    ASSERT_FALSE(tny_grok_auth_present());
+    unsetenv("GROK_OAUTH2_ISSUER");
+    unsetenv("GROK_OAUTH2_CLIENT_ID");
+    PASS();
+}
+
+/* An expired entry refreshes in place (issuer and client_id ride inside the
+ * entry — no env needed) and the rotated tokens persist; a fresh entry is
+ * left alone (no network: the mock is gone by then). */
+TEST grok_native_refresh(void) {
+    ensure_env();
+    oauth_mock s = {0};
+    s.n = 1;
+    s.status[0] = 200;
+    s.body[0] = "{\"access_token\":\"at-new\",\"refresh_token\":\"rt-new\","
+                "\"expires_in\":900}";
+    pthread_t th;
+    int port = oauth_mock_start(&s, &th);
+    ASSERT(port > 0);
+    char issuer[64];
+    snprintf(issuer, sizeof issuer, "http://127.0.0.1:%d", port);
+
+    char path[600];
+    snprintf(path, sizeof path, "%s/.grok", g_home);
+    mkdir_p(path);
+    snprintf(path, sizeof path, "%s/.grok/auth.json", g_home);
+    buf_t b;
+    buf_init(&b);
+    buf_appendf(&b,
+        "{\"%s::cid-1\":{\"key\":\"at-old\",\"auth_mode\":\"oidc\","
+        "\"create_time\":\"2020-01-01T00:00:00Z\",\"user_id\":\"u-1\","
+        "\"refresh_token\":\"rt-old\",\"expires_at\":\"2020-01-01T00:15:00Z\","
+        "\"oidc_issuer\":\"%s\",\"oidc_client_id\":\"cid-1\"}}",
+        issuer, issuer);
+    file_write_atomic(path, b.data, b.len);
+    buf_free(&b);
+
+    tny_grok_refresh_if_stale();
+    pthread_join(th, NULL);
+    close(s.lfd);
+
+    ASSERT(strstr(s.req[0], "POST /oauth2/token"));
+    ASSERT(strstr(s.req[0], "grant_type=refresh_token"));
+    ASSERT(strstr(s.req[0], "refresh_token=rt-old"));
+    ASSERT(strstr(s.req[0], "client_id=cid-1"));
+
+    yyjson_doc *doc = jparse_file(path);
+    ASSERT(doc);
+    char scope[128];
+    snprintf(scope, sizeof scope, "%s::cid-1", issuer);
+    yyjson_val *e = jget(yyjson_doc_get_root(doc), scope);
+    ASSERT(e);
+    ASSERT_STR_EQ("at-new", jget_str(e, "key"));
+    ASSERT_STR_EQ("rt-new", jget_str(e, "refresh_token"));
+    ASSERT_STR_EQ("u-1", jget_str(e, "user_id")); /* profile carried over */
+    yyjson_doc_free(doc);
+
+    /* now fresh: must return without touching the (closed) issuer */
+    tny_grok_refresh_if_stale();
+    char *tok = tny_grok_session_token();
+    ASSERT(tok);
+    ASSERT_STR_EQ("at-new", tok);
+    free(tok);
+    grok_auth_write(NULL);
+    PASS();
+}
+
+/* Logout drops the xAI entries (legacy scope, auth.x.ai entries) but keeps
+ * foreign-issuer entries; the file goes away once nothing is left. */
+TEST grok_native_logout(void) {
+    ensure_env();
+    unsetenv("GROK_OAUTH2_ISSUER");
+    unsetenv("GROK_OAUTH2_CLIENT_ID");
+    char path[600];
+    snprintf(path, sizeof path, "%s/.grok", g_home);
+    mkdir_p(path);
+    snprintf(path, sizeof path, "%s/.grok/auth.json", g_home);
+    const char *store =
+        "{\"https://accounts.x.ai/sign-in\":{\"key\":\"k1\"},"
+        "\"https://auth.x.ai::cid\":{\"key\":\"k2\","
+        "\"oidc_issuer\":\"https://auth.x.ai\"},"
+        "\"https://idp.acme.example::c\":{\"key\":\"k3\","
+        "\"oidc_issuer\":\"https://idp.acme.example\"}}";
+    file_write_atomic(path, store, strlen(store));
+
+    ASSERT_EQ(0, tny_grok_logout());
+    yyjson_doc *doc = jparse_file(path);
+    ASSERT(doc); /* foreign issuer kept, file kept */
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    ASSERT_EQ(1, (int)yyjson_obj_size(root));
+    ASSERT(jget(root, "https://idp.acme.example::c"));
+    yyjson_doc_free(doc);
+
+    /* nothing of ours left: logout is a no-op, not an error */
+    ASSERT_EQ(0, tny_grok_logout());
+    ASSERT(file_exists(path));
+
+    /* only xAI entries: the file itself goes away */
+    const char *only = "{\"https://accounts.x.ai/sign-in\":{\"key\":\"k1\"}}";
+    file_write_atomic(path, only, strlen(only));
+    ASSERT_EQ(0, tny_grok_logout());
+    ASSERT_FALSE(file_exists(path));
     PASS();
 }
 
@@ -1886,6 +2150,10 @@ SUITE(core_suite) {
     RUN_TEST(env_defined_providers);
     RUN_TEST(builtin_claude_profile);
     RUN_TEST(builtin_grok_profile);
+    RUN_TEST(grok_native_device_login);
+    RUN_TEST(grok_native_login_denied);
+    RUN_TEST(grok_native_refresh);
+    RUN_TEST(grok_native_logout);
     RUN_TEST(builtin_profile_edge_credentials);
     RUN_TEST(builtin_profile_detection_and_shadowing);
     RUN_TEST(provider_names_joined_lists_detected);

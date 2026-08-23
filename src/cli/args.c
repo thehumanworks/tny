@@ -22,7 +22,12 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         const char *a = argv[i];
         if (a[0] != '-') break; /* subcommand */
         const char *v;
-        if (strcmp(a, "--provider") == 0 || strcmp(a, "--backend") == 0) {
+        if (strcmp(a, "--ssh") == 0) {
+            /* main.c delegates this before config parsing; keeping the case
+             * gives a deterministic error if that invariant is bypassed. */
+            fprintf(stderr, "tny: internal error: --ssh was not delegated\n");
+            return -1;
+        } else if (strcmp(a, "--provider") == 0 || strcmp(a, "--backend") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->backend = v;
         } else if (strcmp(a, "--cwd") == 0) {

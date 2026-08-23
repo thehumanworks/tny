@@ -4,6 +4,7 @@
 #include "tui/tui.h"
 #include "core/skills.h"
 #include "core/tools.h"
+#include "cli/cli.h"
 #include "mcp/mcp.h"
 
 #include <ctype.h>
@@ -38,6 +39,7 @@ static const struct { const char *name, *hint; } CMDS[] = {
     {"skills",      "list discovered skills"},
     {"workspace",   "/workspace [add|remove DIR]"},
     {"image",       "/image PATH — attach to the next prompt"},
+    {"ssh",         "/ssh user@host[:port] — move this TUI to a remote host"},
     {"undo",        "undo the last file change"},
     {"copy",        "copy the last reply to the clipboard"},
     {"trace",       "toggle raw event tracing"},
@@ -373,7 +375,7 @@ void tui_command(tui *t, const char *line) {
 
     /* commands that swap the session or backend must not race a live turn */
     static const char *LOCKED[] = {"new", "reset", "resume", "continue", "compact",
-                                   "backend", "provider", "model", "fast", "undo", NULL};
+                                   "backend", "provider", "model", "fast", "ssh", "undo", NULL};
     if (t->turn_active) {
         for (const char **l = LOCKED; *l; l++)
             if (strcmp(c, *l) == 0) {
@@ -384,7 +386,22 @@ void tui_command(tui *t, const char *line) {
     }
 
     if (!*c || strcmp(c, "help") == 0) cmd_help(t);
-    else if (strcmp(c, "quit") == 0 || strcmp(c, "exit") == 0) t->quit = true;
+    else if (strcmp(c, "ssh") == 0) {
+        if (!arg || !*arg) {
+            tui_sys(t, "usage: /ssh user@host[:port]");
+        } else {
+            /* Make the boundary structural: stop all local execution state,
+             * restore the user's terminal, then replace this process with
+             * ssh running a fresh remote tny TUI. */
+            tui_prewarm_drop(t);
+            tui_drop_backend(t);
+            tui_raw_begin(t);
+            fflush(stdout);
+            int rc = cli_ssh_exec_tui(arg);
+            tui_raw_end(t); /* reached only when validation/exec failed */
+            tui_note(t, "ssh failed (exit %d)", rc);
+        }
+    } else if (strcmp(c, "quit") == 0 || strcmp(c, "exit") == 0) t->quit = true;
     else if (strcmp(c, "clear") == 0) {
         tui_raw_begin(t);
         fputs("\x1b[H\x1b[2J\x1b[3J", stdout);
@@ -451,9 +468,11 @@ void tui_command(tui *t, const char *line) {
     } else if (strcmp(c, "provider") == 0 || strcmp(c, "backend") == 0) {
         if (arg && *arg) {
             bool known = tny_backend_from_name(arg) >= 0 ||
+                         tny_builtin_profile_exists(arg) ||
                          tny_custom_provider_exists(t->ctx, arg);
-            if (!known) tui_err(t, "unknown provider (openai|cursor|codex|acp, "
-                                   "a settings.json profile, or NAME_BASE_URL)");
+            if (!known) tui_err(t, "unknown provider (openai|cursor|codex|acp|"
+                                   "claude|grok, a settings.json profile, or "
+                                   "NAME_BASE_URL)");
             else {
                 if (t->turn_active) tui_sys(t, "finish the turn first");
                 else {

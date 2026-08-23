@@ -64,6 +64,8 @@ TARGETS = [
     ("src/backends/openai/toolcalls.c", None, None,
      "tests/integration/test_openai.py"),
     ("src/backends/codex/codex.c", ["cx_steer"], None),
+    # native grok device-code login / refresh / logout (docs/adr/0019)
+    ("src/core/grok_login.c", None, None),
     # steer-text ownership + turn-end sweep (docs/adr/0013)
     ("src/backends/codex/codex_rpc.c", ["cx_end_turn", "cx_request"],
      r"steer|STEER|registered|CXR_FREE"),

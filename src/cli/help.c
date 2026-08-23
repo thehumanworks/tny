@@ -32,6 +32,8 @@ void help_root(void) {
 "  help                   Show this help\n"
 "\n"
 "Global flags (leading, before the command):\n"
+"  --ssh TARGET           Run this whole invocation on user@host[:port] via\n"
+"                         OpenSSH, before any local config/backend/tool init\n"
 "  --provider NAME        cursor | codex | acp | openai | claude | grok | a\n"
 "                         named settings.json profile with a base_url\n"
 "                         (--backend also works)\n"
@@ -60,12 +62,14 @@ void help_root(void) {
 "                         chat for legacy-only providers, docs/adr/0016)\n"
 "  claude: Claude Code OAuth token (env CLAUDE_CODE_OAUTH_TOKEN,\n"
 "          ANTHROPIC_API_KEY, or ~/.claude/.credentials.json)\n"
-"  grok:   grok CLI session (~/.grok/auth.json via `tny --provider grok\n"
-"          login`, device auth) or env XAI_API_KEY\n"
+"  grok:   xAI session (~/.grok/auth.json via `tny --provider grok login`,\n"
+"          native device auth) or env XAI_API_KEY\n"
 "\n"
 "Examples:\n"
 "  tny                          Start a fresh interactive session\n"
 "  tny --ephemeral             Interactive session with no local transcript\n"
+"  tny --ssh dev@box:2222      Start the TUI on the remote host\n"
+"  tny --ssh dev@box ask \"run the tests\"   One-shot, tools run remotely\n"
 "  tny ask \"explain src/main.c\"  One request, Markdown on stdout\n"
 "  tny ask --json \"list the public CLI\"\n"
 "  tny --provider codex login   ChatGPT sign-in over the app-server\n"
@@ -197,7 +201,7 @@ bool help_for(const char *command) {
         text =
 "Usage: tny [--provider NAME] login [--device]\n"
 "\n"
-"Sign in to the active provider. tny never stores tokens itself.\n"
+"Sign in to the active provider. Tokens live in each provider's own store.\n"
 "\n"
 "  codex   ChatGPT sign-in over `codex app-server` (account/login/start):\n"
 "          prints the auth URL (browser flow), or a verification URL plus\n"
@@ -206,8 +210,10 @@ bool help_for(const char *command) {
 "  claude  Reports the credential in use (CLAUDE_CODE_OAUTH_TOKEN,\n"
 "          ANTHROPIC_API_KEY, ~/.claude/.credentials.json), else runs\n"
 "          `claude setup-token` to mint a Claude Code OAuth token.\n"
-"  grok    Runs `grok login --device-auth` (RFC 8628 device code); the\n"
-"          session token in ~/.grok/auth.json then drives the provider.\n"
+"  grok    Native RFC 8628 device-code sign-in against auth.x.ai (no grok\n"
+"          CLI needed): open the printed URL on any device, confirm the\n"
+"          code; the session lands in ~/.grok/auth.json (grok CLI format)\n"
+"          and auto-refreshes.\n"
 "  cursor  Reports whether CURSOR_API_KEY is set.\n"
 "  openai  Reports whether an API key resolved (tny setup configures one).\n"
 "\n"
@@ -216,7 +222,7 @@ bool help_for(const char *command) {
 "  tny --provider claude login\n"
 "  tny --provider grok login\n";
     else if (strcmp(command, "logout") == 0)
-        text = "Usage: tny [--provider NAME] logout\n\nProvider-specific logout (codex/grok CLI logout, env-var hints). tny stores no secrets itself.\n";
+        text = "Usage: tny [--provider NAME] logout\n\nProvider-specific logout (codex CLI logout, native removal of the xAI entries in ~/.grok/auth.json for grok, env-var hints otherwise).\n";
     if (!text) { help_root(); return true; }
     fputs(text, stdout);
     return true;

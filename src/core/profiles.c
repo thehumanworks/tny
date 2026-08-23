@@ -5,16 +5,18 @@
  * OAuth tokens ride `Authorization: Bearer` and need the
  * `anthropic-beta: oauth-2025-04-20` request header.
  *
- * "grok": the xAI CLI session token from `grok login [--device-auth]`
- * (~/.grok/auth.json) against the CLI chat proxy, falling back to
- * XAI_API_KEY against api.x.ai. The proxy validates the session token only
- * when `X-XAI-Token-Auth: xai-grok-cli` rides along, and routes models via
- * the `x-grok-model-override` header.
+ * "grok": the xAI session token from ~/.grok/auth.json — minted by
+ * `tny --provider grok login` (native device flow, grok_login.c) or by the
+ * grok CLI — against the CLI chat proxy, falling back to XAI_API_KEY
+ * against api.x.ai. The proxy validates the session token only when
+ * `X-XAI-Token-Auth: xai-grok-cli` rides along, and routes models via the
+ * `x-grok-model-override` header.
  *
  * Both run on the openai backend like user-named profiles; a settings.json
  * object or NAME_BASE_URL env var with the same name shadows the builtin
  * (tny_resolve_backend checks custom providers first). Credentials are read
- * at resolve time and never persisted by tny. */
+ * at resolve time; the only thing tny ever persists is the refreshed grok
+ * token, written back into the grok store it came from. */
 #include "core/config.h"
 #include "util/util.h"
 
@@ -26,9 +28,14 @@
 #define CLAUDE_DEFAULT_MODEL "claude-sonnet-4-6"
 #define GROK_PROXY_BASE_URL  "https://cli-chat-proxy.grok.com/v1"
 #define GROK_PROXY_HEADER    "X-XAI-Token-Auth: xai-grok-cli"
-#define GROK_PROXY_MODEL     "grok-build"
+/* The proxy version-gates on x-grok-client-version and 426s requests that
+ * claim less than its rolling minimum. Pinned to a known-accepted grok-build
+ * release; TNY_GROK_CLIENT_VERSION overrides without a rebuild. */
+#define GROK_PROXY_VERSION   "0.1.202"
 #define GROK_API_BASE_URL    "https://api.x.ai/v1"
-#define GROK_API_MODEL       "grok-4.6"
+/* Both modes: the proxy routes the model-override header, api.x.ai the
+ * JSON body — same catalog, one default. */
+#define GROK_DEFAULT_MODEL   "grok-4.6"
 
 bool tny_builtin_profile_exists(const char *name) {
     return name && (strcmp(name, "claude") == 0 || strcmp(name, "grok") == 0);
@@ -198,6 +205,10 @@ static void apply_claude(tny_ctx *ctx) {
 
 static void apply_grok(tny_ctx *ctx) {
     profile_reset(ctx, "grok");
+    /* The grok CLI refreshes its OIDC tokens in the background; without it
+     * tny must run the refresh grant itself before reading (grok_login.c).
+     * Only fires when an entry is actually at/near expiry. */
+    tny_grok_refresh_if_stale();
     char *session = tny_grok_session_token();
     if (session) {
         /* subscription path: the CLI chat proxy, session token as bearer */
@@ -205,9 +216,16 @@ static void apply_grok(tny_ctx *ctx) {
         set_str(&ctx->wire_api, "chat"); /* proxy models are streaming chat */
         set_str(&ctx->api_key, session);
         tny_ctx_add_extra_header(ctx, GROK_PROXY_HEADER);
+        const char *ver = getenv("TNY_GROK_CLIENT_VERSION");
+        buf_t vh;
+        buf_init(&vh);
+        buf_appendf(&vh, "x-grok-client-version: %s",
+                    ver && *ver ? ver : GROK_PROXY_VERSION);
+        tny_ctx_add_extra_header(ctx, vh.data);
+        buf_free(&vh);
         memset(session, 0, strlen(session));
         free(session);
-        profile_default_model(ctx, GROK_PROXY_MODEL);
+        profile_default_model(ctx, GROK_DEFAULT_MODEL);
         return;
     }
     /* API-key fallback: the public xAI API (Responses wire, tny default) */
@@ -215,7 +233,7 @@ static void apply_grok(tny_ctx *ctx) {
     set_str(&ctx->wire_api, NULL);
     const char *key = getenv("XAI_API_KEY");
     set_str(&ctx->api_key, key && *key ? key : NULL);
-    profile_default_model(ctx, GROK_API_MODEL);
+    profile_default_model(ctx, GROK_DEFAULT_MODEL);
 }
 
 void tny_apply_builtin_profile(tny_ctx *ctx, const char *name) {

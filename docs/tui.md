@@ -34,6 +34,14 @@ and `/clear` continue to work within the process. Exiting the shell discards
 the in-memory session. `--no-save` remains an alias. See
 [ADR 0018](adr/0018-ephemeral-sessions.md).
 
+## SSH
+
+Start directly on a remote host with `tny --ssh user@host[:port]`. From a local
+TUI, `/ssh user@host[:port]` drops local prewarm/backend state, restores the
+terminal, and replaces the process with an SSH-launched remote `tny` TUI, so all
+subsequent tool calls run there. Enforced by the app, not by model
+instructions ([ADR 0020](adr/0020-ssh-execution-boundary.md)).
+
 ## Input
 
 | Input | Action |
@@ -78,7 +86,7 @@ actually advertises. `/fast [fast|priority|default]` selects the provider's
 paid fast tier (`TNY_CAP_FAST`: openai, cursor, codex) and rebinds where the
 tier rides on session start (codex `thread/start`).
 
-Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace`
+Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace` `/ssh`
 
 `/image PATH` and Ctrl-V queue files for the next prompt. The native loop
 sends them as `image_url` data URLs ([ADR 0008](adr/0008-native-loop-images.md)).
