@@ -30,6 +30,20 @@ def free_port() -> int:
     return port
 
 
+def chromium_exe() -> str | None:
+    for path in (
+        os.environ.get("TNY_CHROMIUM"),
+        "/opt/pw-browsers/chromium",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+    ):
+        if path and os.path.exists(path):
+            return path
+    return None
+
+
 def main() -> None:
     port = free_port()
 
@@ -44,10 +58,10 @@ def main() -> None:
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     try:
         with sync_playwright() as pw:
-            exe = os.environ.get("TNY_CHROMIUM", "/opt/pw-browsers/chromium")
+            exe = chromium_exe()
             browser = (
                 pw.chromium.launch(executable_path=exe)
-                if os.path.exists(exe)
+                if exe
                 else pw.chromium.launch()
             )
             page = browser.new_page(viewport={"width": 390, "height": 844})
