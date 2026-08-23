@@ -239,6 +239,7 @@ static void load_openai_profile(tny_ctx *ctx) {
     if (!wa || !*wa) wa = jget_str(oa, "wire_api");
     free(ctx->wire_api);
     ctx->wire_api = wa && *wa ? xstrdup(wa) : NULL; /* NULL = responses */
+    tny_ctx_clear_extra_headers(ctx); /* builtin-profile headers must not leak */
 }
 
 /* Point ctx at a named provider: settings profile, env vars, or both
@@ -272,6 +273,7 @@ static void apply_custom_provider(tny_ctx *ctx, const char *name) {
     if (!wa) wa = jget_str(o, "wire_api");
     free(ctx->wire_api);
     ctx->wire_api = wa && *wa ? xstrdup(wa) : NULL; /* NULL = responses */
+    tny_ctx_clear_extra_headers(ctx);
 }
 
 tny_ctx *tny_ctx_load(const char *cwd_flag) {
@@ -447,18 +449,25 @@ static void apply_provider_effort(tny_ctx *ctx) {
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
     int id = -1;
     const char *custom_name = NULL;
+    const char *builtin_profile = NULL; /* claude|grok (profiles.c) */
     char *env_pick = NULL;
     if (flag_value) {
         id = tny_backend_from_name(flag_value);
+        /* a user settings profile / env pair shadows a builtin of the
+         * same name — explicit config wins over what tny ships */
         if (id == -1 && tny_custom_provider_exists(ctx, flag_value)) {
             id = TNY_BK_OPENAI;
             custom_name = flag_value;
         }
+        if (id == -1 && tny_builtin_profile_exists(flag_value)) {
+            id = TNY_BK_OPENAI;
+            builtin_profile = flag_value;
+        }
         if (id == -1) {
             fprintf(stderr,
-                    "tny: unknown provider '%s' (cursor|codex|acp|openai, a "
-                    "settings.json object with a base_url, or NAME_BASE_URL "
-                    "in the environment)\n", flag_value);
+                    "tny: unknown provider '%s' (cursor|codex|acp|openai|"
+                    "claude|grok, a settings.json object with a base_url, or "
+                    "NAME_BASE_URL in the environment)\n", flag_value);
             return -1;
         }
     }
@@ -471,6 +480,10 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
                 id = TNY_BK_OPENAI;
                 custom_name = last;
             }
+            if (id == -1 && tny_builtin_profile_exists(last)) {
+                id = TNY_BK_OPENAI;
+                builtin_profile = last;
+            }
         }
     }
     if (id == -1) {
@@ -482,17 +495,32 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
         custom_name = env_pick;
     }
     /* No explicit choice anywhere: prefer subscription logins over raw keys
-     * (docs/cli.md "Provider selection"). Codex login first, then a Cursor
-     * key from the environment, then the openai backend's own error path. */
+     * (docs/cli.md "Provider selection"). Codex login first, then a Claude
+     * Code OAuth login, then a grok session, then a Cursor key from the
+     * environment, then the openai backend's own error path. */
     if (id == -1 && tny_codex_auth_present()) id = TNY_BK_CODEX;
+    if (id == -1 && tny_claude_auth_present()) {
+        id = TNY_BK_OPENAI;
+        builtin_profile = "claude";
+    }
+    if (id == -1 && tny_grok_auth_present()) {
+        id = TNY_BK_OPENAI;
+        builtin_profile = "grok";
+    }
     if (id == -1) {
         const char *ck = getenv("CURSOR_API_KEY");
         if (ck && *ck) id = TNY_BK_CURSOR;
     }
     if (id == -1) id = TNY_BK_OPENAI;
     ctx->backend = id;
+    if (builtin_profile && tny_custom_provider_exists(ctx, builtin_profile)) {
+        custom_name = builtin_profile; /* user config shadows the builtin */
+        builtin_profile = NULL;
+    }
     if (custom_name) {
         apply_custom_provider(ctx, custom_name);
+    } else if (builtin_profile) {
+        tny_apply_builtin_profile(ctx, builtin_profile);
     } else if (ctx->provider_name) {
         /* switching away from a named profile (TUI /provider): restore the
          * builtin openai config the profile replaced */
@@ -502,6 +530,7 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
     }
     apply_provider_model(ctx, id);
     apply_provider_effort(ctx);
+    tny_finish_builtin_profile(ctx);
     free(env_pick);
     return ctx->backend;
 }
@@ -655,6 +684,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->max_tokens_field);
     free(ctx->wire_api);
     free(ctx->output_schema);
+    tny_ctx_clear_extra_headers(ctx);
     free(ctx->bridge_bin);
     free(ctx->codex_ws);
     free(ctx->codex_bin);
@@ -678,12 +708,14 @@ char *tny_provider_names_joined(tny_ctx *ctx) {
     buf_init(&b);
     for (int i = 0; i < TNY_BK_COUNT; i++)
         buf_appendf(&b, "%s%s", i ? "|" : "", tny_backend_name((tny_backend_id)i));
+    buf_appends(&b, "|claude|grok"); /* builtin profiles (docs/adr/0017) */
     yyjson_val *root = ctx && ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
     size_t idx, max;
     yyjson_val *k, *v;
     if (yyjson_is_obj(root)) yyjson_obj_foreach(root, idx, max, k, v) {
         const char *name = yyjson_get_str(k);
         if (!name || !yyjson_is_obj(v)) continue;
+        if (tny_builtin_profile_exists(name)) continue; /* already listed */
         const char *bu = jget_str(v, "base_url");
         if (!bu || !*bu || !tny_custom_provider_exists(ctx, name)) continue;
         buf_appendf(&b, "|%s", name);
@@ -692,7 +724,8 @@ char *tny_provider_names_joined(tny_ctx *ctx) {
     char **env = tny_env_provider_names(&n_env);
     for (int i = 0; i < n_env; i++) {
         const char *in_settings = jget_str(jget(root, env[i]), "base_url");
-        if (!in_settings || !*in_settings) buf_appendf(&b, "|%s", env[i]);
+        if ((!in_settings || !*in_settings) && !tny_builtin_profile_exists(env[i]))
+            buf_appendf(&b, "|%s", env[i]);
         free(env[i]);
     }
     free(env);

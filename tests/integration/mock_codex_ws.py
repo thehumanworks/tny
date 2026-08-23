@@ -458,6 +458,33 @@ def serve(conn, index):
                      {"reasoningEffort": "xhigh"}],
                  "defaultReasoningEffort": "medium"},
                 {"id": "mock-hidden-model", "hidden": True}]}})
+        elif method == "account/login/start":
+            # v2 auth endpoints (docs/backends/codex-app-server.md): the
+            # browser flow returns authUrl; the device-code flow returns
+            # verificationUrl + userCode. Completion arrives as the
+            # account/login/completed notification.
+            p = msg.get("params") or {}
+            t = p.get("type")
+            if t == "chatgptDeviceCode":
+                ws.send_json({"id": req_id, "result": {
+                    "type": "chatgptDeviceCode", "loginId": "login_mock_1",
+                    "verificationUrl": "https://auth.openai.example/codex/device",
+                    "userCode": "MOCK-CODE-1234"}})
+            elif t == "chatgpt":
+                ws.send_json({"id": req_id, "result": {
+                    "type": "chatgpt", "loginId": "login_mock_1",
+                    "authUrl": "https://auth.openai.example/oauth?mock=1"}})
+            else:
+                fail("account/login/start type=%r is not chatgpt/chatgptDeviceCode" % t)
+                ws.send_json({"id": req_id, "error": {"code": -32602,
+                                                      "message": "bad login type"}})
+                continue
+            note("account/login/start type=%s ok" % t)
+            ws.send_json({"method": "account/login/completed",
+                          "params": {"loginId": "login_mock_1",
+                                     "success": True, "error": None}})
+            ws.send_json({"method": "account/updated",
+                          "params": {"authMode": "chatgpt", "planType": "plus"}})
         elif method == "turn/interrupt":
             ws.send_json({"id": req_id, "result": {}})
         elif req_id is not None:

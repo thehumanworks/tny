@@ -243,12 +243,16 @@ static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
     buf_init(&auth);
     buf_appendf(&auth, "%s: %s%s", o->ctx->auth_header_name,
                 o->ctx->auth_header_prefix, o->ctx->api_key ? o->ctx->api_key : "");
-    const char *hdrs[] = {
-        "Content-Type: application/json",
-        "Accept: text/event-stream",
-        o->ctx->api_key ? auth.data : NULL,
-        NULL
-    };
+    const char *hdrs[12];
+    int hn = 0;
+    hdrs[hn++] = "Content-Type: application/json";
+    hdrs[hn++] = "Accept: text/event-stream";
+    if (o->ctx->api_key) hdrs[hn++] = auth.data;
+    /* builtin-profile headers (claude oauth beta, grok proxy auth/model
+     * routing — docs/adr/0017) */
+    for (char **e = o->ctx->extra_headers; e && *e && hn < 11; e++)
+        hdrs[hn++] = *e;
+    hdrs[hn] = NULL;
     buf_t path;
     buf_init(&path);
     buf_appendf(&path, "%s%s", http_prefix(o->conn),
@@ -558,12 +562,22 @@ static int oa_connect(tny_backend *b, char *errbuf, size_t errlen) {
     oa_impl *o = b->impl;
     if (!o->ctx->api_key &&
         !str_starts(o->ctx->base_url, "http://")) {
-        snprintf(errbuf, errlen,
-                 "no API key: set OPENAI_API_KEY (or --api-key-env NAME; "
-                 "local http:// providers may omit it)%s",
-                 tny_codex_auth_present()
-                     ? ". A codex login exists — `tny --provider codex` uses it"
-                     : "");
+        const char *pn = o->ctx->provider_name;
+        if (pn && strcmp(pn, "claude") == 0)
+            snprintf(errbuf, errlen,
+                     "no Claude credential: run `tny --provider claude login`, "
+                     "or set CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY");
+        else if (pn && strcmp(pn, "grok") == 0)
+            snprintf(errbuf, errlen,
+                     "no grok credential: run `tny --provider grok login` "
+                     "(device auth), or set XAI_API_KEY");
+        else
+            snprintf(errbuf, errlen,
+                     "no API key: set OPENAI_API_KEY (or --api-key-env NAME; "
+                     "local http:// providers may omit it)%s",
+                     tny_codex_auth_present()
+                         ? ". A codex login exists — `tny --provider codex` uses it"
+                         : "");
         return -1;
     }
     return 0;

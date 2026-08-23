@@ -50,6 +50,11 @@ static void ensure_env(void) {
     unsetenv("TNY_PERMISSION_MODE");
     unsetenv("OPENAI_BASE_URL");
     unsetenv("OPENAI_API_KEY");
+    /* builtin-profile credentials from the host shell must not leak in */
+    unsetenv("CLAUDE_CODE_OAUTH_TOKEN");
+    unsetenv("ANTHROPIC_API_KEY");
+    unsetenv("CLAUDE_CONFIG_DIR");
+    unsetenv("XAI_API_KEY");
     clear_env_providers();
     snprintf(g_ws, sizeof g_ws, "%s/ws", g_home);
     mkdir_p(g_ws);
@@ -797,6 +802,194 @@ TEST env_defined_providers(void) {
 
 /* /provider help lists what is actually usable here: builtins, then
  * settings.json profiles, then env-only providers, each once. */
+/* ---- builtin subscription profiles: claude and grok (docs/adr/0017) ---- */
+
+static bool has_extra_header(tny_ctx *ctx, const char *prefix) {
+    for (char **h = ctx->extra_headers; h && *h; h++)
+        if (str_starts(*h, prefix)) return true;
+    return false;
+}
+
+static void claude_credentials_write(const char *token) {
+    char path[600];
+    snprintf(path, sizeof path, "%s/.claude", g_home);
+    mkdir_p(path);
+    snprintf(path, sizeof path, "%s/.claude/.credentials.json", g_home);
+    if (!token) { unlink(path); return; }
+    buf_t b;
+    buf_init(&b);
+    buf_appendf(&b, "{\"claudeAiOauth\":{\"accessToken\":\"%s\","
+                    "\"refreshToken\":\"r\",\"expiresAt\":9999999999999}}", token);
+    file_write_atomic(path, b.data, b.len);
+    buf_free(&b);
+}
+
+static void grok_auth_write(const char *token) {
+    char path[600];
+    snprintf(path, sizeof path, "%s/.grok", g_home);
+    mkdir_p(path);
+    snprintf(path, sizeof path, "%s/.grok/auth.json", g_home);
+    if (!token) { unlink(path); return; }
+    buf_t b;
+    buf_init(&b);
+    buf_appendf(&b, "{\"https://accounts.x.ai/sign-in\":{\"key\":\"%s\"}}", token);
+    file_write_atomic(path, b.data, b.len);
+    buf_free(&b);
+}
+
+/* The claude builtin: Anthropic's OpenAI-compat endpoint on the chat wire.
+ * OAuth-sourced tokens add the anthropic-beta oauth header; a Console API
+ * key must not carry it. */
+TEST builtin_claude_profile(void) {
+    ensure_env();
+    write_settings("{}");
+    codex_auth_write(false);
+
+    /* env OAuth token */
+    setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-test", 1);
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "claude"));
+    ASSERT_STR_EQ("claude", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://api.anthropic.com/v1", ctx->base_url);
+    ASSERT(ctx->wire_api);
+    ASSERT_STR_EQ("chat", ctx->wire_api);
+    ASSERT(ctx->api_key);
+    ASSERT_STR_EQ("sk-ant-oat01-test", ctx->api_key);
+    ASSERT(has_extra_header(ctx, "anthropic-beta: oauth-2025-04-20"));
+    ASSERT(ctx->model); /* the openai default model must not leak in */
+    ASSERT(strcmp(ctx->model, "gpt-4.1-mini") != 0);
+    tny_ctx_free(ctx);
+    unsetenv("CLAUDE_CODE_OAUTH_TOKEN");
+
+    /* credentials file from `claude /login` */
+    claude_credentials_write("sk-ant-oat01-fromfile");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(tny_claude_auth_present());
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "claude"));
+    ASSERT(ctx->api_key);
+    ASSERT_STR_EQ("sk-ant-oat01-fromfile", ctx->api_key);
+    ASSERT(has_extra_header(ctx, "anthropic-beta:"));
+    tny_ctx_free(ctx);
+    claude_credentials_write(NULL);
+
+    /* Console API key: bearer, no oauth beta header */
+    setenv("ANTHROPIC_API_KEY", "sk-ant-api03-test", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_FALSE(tny_claude_auth_present()); /* a raw key never auto-detects */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "claude"));
+    ASSERT(ctx->api_key);
+    ASSERT_STR_EQ("sk-ant-api03-test", ctx->api_key);
+    ASSERT_FALSE(has_extra_header(ctx, "anthropic-beta:"));
+    /* switching to another provider must drop the profile's headers */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_EQ(NULL, ctx->extra_headers);
+    tny_ctx_free(ctx);
+    unsetenv("ANTHROPIC_API_KEY");
+    PASS();
+}
+
+/* The grok builtin: `grok login` session token drives the CLI chat proxy
+ * (chat wire, proxy auth + model-override headers); XAI_API_KEY falls back
+ * to api.x.ai on the default Responses wire. */
+TEST builtin_grok_profile(void) {
+    ensure_env();
+    write_settings("{}");
+    codex_auth_write(false);
+
+    grok_auth_write("sess-tok-1");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(tny_grok_auth_present());
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "grok"));
+    ASSERT_STR_EQ("grok", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://cli-chat-proxy.grok.com/v1", ctx->base_url);
+    ASSERT(ctx->wire_api);
+    ASSERT_STR_EQ("chat", ctx->wire_api);
+    ASSERT(ctx->api_key);
+    ASSERT_STR_EQ("sess-tok-1", ctx->api_key);
+    ASSERT(has_extra_header(ctx, "X-XAI-Token-Auth: xai-grok-cli"));
+    ASSERT(ctx->model);
+    ASSERT_STR_EQ("grok-build", ctx->model);
+    ASSERT(has_extra_header(ctx, "x-grok-model-override: grok-build"));
+    tny_ctx_free(ctx);
+
+    /* no session: XAI_API_KEY against api.x.ai, no proxy headers */
+    grok_auth_write(NULL);
+    setenv("XAI_API_KEY", "sk-xai-test", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_FALSE(tny_grok_auth_present());
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "grok"));
+    ASSERT_STR_EQ("https://api.x.ai/v1", ctx->base_url);
+    ASSERT_EQ(NULL, ctx->wire_api); /* responses default */
+    ASSERT(ctx->api_key);
+    ASSERT_STR_EQ("sk-xai-test", ctx->api_key);
+    ASSERT_FALSE(has_extra_header(ctx, "X-XAI-Token-Auth:"));
+    ASSERT_FALSE(has_extra_header(ctx, "x-grok-model-override:"));
+    tny_ctx_free(ctx);
+    unsetenv("XAI_API_KEY");
+    PASS();
+}
+
+/* Subscription logins auto-detect in docs/cli.md order: codex first, then
+ * claude, then grok — and a settings profile with the builtin's name
+ * shadows the builtin entirely (explicit config wins). */
+TEST builtin_profile_detection_and_shadowing(void) {
+    ensure_env();
+    write_settings("{}");
+    codex_auth_write(false);
+    unsetenv("CURSOR_API_KEY");
+
+    grok_auth_write("sess-tok-2");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("grok", tny_provider_name(ctx));
+    tny_ctx_free(ctx);
+
+    setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-test", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("claude", tny_provider_name(ctx)); /* claude beats grok */
+    tny_ctx_free(ctx);
+
+    codex_auth_write(true);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, NULL)); /* codex first */
+    tny_ctx_free(ctx);
+    codex_auth_write(false);
+
+    /* last_provider remembers a builtin profile by name */
+    write_settings("{\"last_provider\":\"claude\"}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("claude", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://api.anthropic.com/v1", ctx->base_url);
+    tny_ctx_free(ctx);
+
+    /* a user settings profile named "claude" shadows the builtin */
+    write_settings("{\"claude\":{\"base_url\":\"https://gw.test/v1\","
+                   "\"api_key_env\":\"GW_KEY\"}}");
+    setenv("GW_KEY", "sk-gw", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "claude"));
+    ASSERT_STR_EQ("https://gw.test/v1", ctx->base_url);
+    ASSERT(ctx->api_key);
+    ASSERT_STR_EQ("sk-gw", ctx->api_key);
+    ASSERT_FALSE(has_extra_header(ctx, "anthropic-beta:"));
+    tny_ctx_free(ctx);
+
+    /* auto-detection routes through the shadowing profile too */
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("claude", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://gw.test/v1", ctx->base_url);
+    tny_ctx_free(ctx);
+
+    unsetenv("GW_KEY");
+    unsetenv("CLAUDE_CODE_OAUTH_TOKEN");
+    grok_auth_write(NULL);
+    write_settings("{}");
+    PASS();
+}
+
 TEST provider_names_joined_lists_detected(void) {
     ensure_env();
     clear_env_providers();
@@ -808,7 +1001,7 @@ TEST provider_names_joined_lists_detected(void) {
     tny_ctx *ctx = tny_ctx_load(g_ws);
     char *j = tny_provider_names_joined(ctx);
     ASSERT(j);
-    ASSERT_STR_EQ("openai|cursor|codex|acp|openrouter|xai|orwell", j);
+    ASSERT_STR_EQ("openai|cursor|codex|acp|claude|grok|openrouter|xai|orwell", j);
     free(j);
     tny_ctx_free(ctx);
     unsetenv("XAI_BASE_URL");
@@ -1591,6 +1784,9 @@ SUITE(core_suite) {
     RUN_TEST(provider_last_used_and_scoped_models);
     RUN_TEST(custom_named_provider_profiles);
     RUN_TEST(env_defined_providers);
+    RUN_TEST(builtin_claude_profile);
+    RUN_TEST(builtin_grok_profile);
+    RUN_TEST(builtin_profile_detection_and_shadowing);
     RUN_TEST(provider_names_joined_lists_detected);
     RUN_TEST(fast_capability_per_provider);
     RUN_TEST(fast_tier_spellings);

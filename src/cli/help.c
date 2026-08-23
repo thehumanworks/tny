@@ -32,8 +32,9 @@ void help_root(void) {
 "  help                   Show this help\n"
 "\n"
 "Global flags (leading, before the command):\n"
-"  --provider NAME        cursor | codex | acp | openai | a named settings.json\n"
-"                         profile with a base_url (--backend also works)\n"
+"  --provider NAME        cursor | codex | acp | openai | claude | grok | a\n"
+"                         named settings.json profile with a base_url\n"
+"                         (--backend also works)\n"
 "  --cwd DIR              Primary workspace (default: current directory)\n"
 "  --model ID             Model for this run\n"
 "  --effort LEVEL         Reasoning effort: " TNY_EFFORT_LEVELS "\n"
@@ -55,11 +56,16 @@ void help_root(void) {
 "  openai: --base-url URL --api-key-env NAME (env OPENAI_BASE_URL, OPENAI_API_KEY)\n"
 "          --wire-api responses|chat  Wire protocol (default responses;\n"
 "                         chat for legacy-only providers, docs/adr/0016)\n"
+"  claude: Claude Code OAuth token (env CLAUDE_CODE_OAUTH_TOKEN,\n"
+"          ANTHROPIC_API_KEY, or ~/.claude/.credentials.json)\n"
+"  grok:   grok CLI session (~/.grok/auth.json via `tny --provider grok\n"
+"          login`, device auth) or env XAI_API_KEY\n"
 "\n"
 "Examples:\n"
 "  tny                          Start a fresh interactive session\n"
 "  tny ask \"explain src/main.c\"  One request, Markdown on stdout\n"
 "  tny ask --json \"list the public CLI\"\n"
+"  tny --provider codex login   ChatGPT sign-in over the app-server\n"
 "  tny --provider codex ask \"run the tests\"\n"
 "  tny --effort xhigh ask \"prove this lock-free queue is correct\"\n"
 "  tny --provider codex --fast ask \"quick: run the tests\"\n"
@@ -182,9 +188,29 @@ bool help_for(const char *command) {
     else if (strcmp(command, "usage") == 0)
         text = "Usage: tny usage [--json]\n\nShow local token usage recorded from native-loop sessions.\n";
     else if (strcmp(command, "login") == 0)
-        text = "Usage: tny [--provider NAME] login\n\nDispatch auth to the active provider (Cursor key check, codex login, API key hint).\n";
+        text =
+"Usage: tny [--provider NAME] login [--device]\n"
+"\n"
+"Sign in to the active provider. tny never stores tokens itself.\n"
+"\n"
+"  codex   ChatGPT sign-in over `codex app-server` (account/login/start):\n"
+"          prints the auth URL (browser flow), or a verification URL plus\n"
+"          user code with --device (headless machines). The result lands in\n"
+"          $CODEX_HOME/auth.json, which tny auto-detects.\n"
+"  claude  Reports the credential in use (CLAUDE_CODE_OAUTH_TOKEN,\n"
+"          ANTHROPIC_API_KEY, ~/.claude/.credentials.json), else runs\n"
+"          `claude setup-token` to mint a Claude Code OAuth token.\n"
+"  grok    Runs `grok login --device-auth` (RFC 8628 device code); the\n"
+"          session token in ~/.grok/auth.json then drives the provider.\n"
+"  cursor  Reports whether CURSOR_API_KEY is set.\n"
+"  openai  Reports whether an API key resolved (tny setup configures one).\n"
+"\n"
+"Examples:\n"
+"  tny --provider codex login --device\n"
+"  tny --provider claude login\n"
+"  tny --provider grok login\n";
     else if (strcmp(command, "logout") == 0)
-        text = "Usage: tny [--provider NAME] logout\n\nProvider-specific logout. tny stores no secrets itself.\n";
+        text = "Usage: tny [--provider NAME] logout\n\nProvider-specific logout (codex/grok CLI logout, env-var hints). tny stores no secrets itself.\n";
     if (!text) { help_root(); return true; }
     fputs(text, stdout);
     return true;

@@ -85,6 +85,11 @@ typedef struct {
     int         wait_id;   /* -1 when nothing is awaited */
     bool        wait_done;
     yyjson_doc *wait_doc;  /* owned once wait_done is set */
+
+    /* account/login/completed notification (codex_login.c waits on these) */
+    bool login_done;
+    bool login_ok;
+    char login_err[240];
 } cx_impl;
 
 /* ---- codex_rpc.c: events, framing, queue, pump ---- */
@@ -110,6 +115,13 @@ yyjson_doc *cx_request_sync(cx_impl *o, const char *method, const char *params,
 
 /* ---- codex_msg.c ---- */
 void cx_on_ws_msg(const char *data, size_t len, void *ud);
+
+/* ---- codex_login.c: `tny --provider codex login` (docs/adr/0017) ----
+ * Drives account/login/start over the app-server (browser flow, or the
+ * device-code flow with device=true), prints the sign-in URL / user code,
+ * and waits for account/login/completed. Hosts without the login RPC fall
+ * back to `codex login`. Returns a process exit code. */
+int tny_codex_login(tny_ctx *ctx, bool device);
 
 /* ---- codex_items.c: rendering item payloads ---- */
 extern const char *const CX_ITEM_TYPE_KEYS[];
