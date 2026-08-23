@@ -90,14 +90,26 @@ static const char *model_of(oa_impl *o) {
 
 /* The shared system preamble: workspace, AGENTS.md chain, skill catalog. */
 static void build_system_prompt(oa_impl *o, buf_t *sys) {
-    buf_appendf(sys,
-        "You are tny, a fast coding agent running in a terminal.\n"
-        "Primary workspace: %s\n"
+    buf_appends(sys, "You are tny, a fast coding agent running in a terminal.\n");
+    if (o->ctx->ssh_host) {
+        /* --ssh (docs/adr/0022): the tools act on another machine; the
+         * local workspace only supplies config. Say so, or the model
+         * "corrects" pwd against the local path it was told about. */
+        buf_appendf(sys,
+            "You are working in a REMOTE environment: every workspace tool "
+            "(files, grep, terminal) executes over SSH on %s. The local "
+            "machine running tny is not your workspace.\n"
+            "Current working directory (remote): %s\n"
+            "Relative paths resolve against it; the terminal starts there.\n",
+            o->ctx->ssh_host, o->ctx->ssh_cwd);
+    } else {
+        buf_appendf(sys, "Primary workspace: %s\n", o->ctx->cwd);
+        for (int i = 0; i < o->ctx->n_extra_dirs; i++)
+            buf_appendf(sys, "Additional workspace directory: %s\n", o->ctx->extra_dirs[i]);
+    }
+    buf_appends(sys,
         "Use the provided tools to inspect and change the workspace. Prefer "
-        "small, verifiable steps. When you are done, answer in Markdown.\n",
-        o->ctx->cwd);
-    for (int i = 0; i < o->ctx->n_extra_dirs; i++)
-        buf_appendf(sys, "Additional workspace directory: %s\n", o->ctx->extra_dirs[i]);
+        "small, verifiable steps. When you are done, answer in Markdown.\n");
     instructions_collect(o->ctx, sys);
     /* skill catalog: names only, lazy bodies */
     int nsk = 0;

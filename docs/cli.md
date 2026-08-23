@@ -94,6 +94,9 @@ tny --ssh '[2001:db8::1]:22' ask "df -h"
 - `memory`, `skill`, `subagent`, MCP and web tools stay local; `open_file`
   and `install_skill` report that they are unavailable over `--ssh`.
 - `/undo` does not cover remote edits.
+- The system prompt tells the model it is in a remote environment on the
+  target host and states the remote working directory (instead of the local
+  workspace); the TUI status bar shows `ssh user@host:/remote/dir`.
 
 wasm behavior: remote-only — the browser build has no `ssh` to spawn, so
 `--ssh` fails at connect with a clear error.

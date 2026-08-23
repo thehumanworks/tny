@@ -23,13 +23,25 @@ def free_port():
 
 def main():
     port = free_port()
+    td_obj = tempfile.TemporaryDirectory()
+    d = pathlib.Path(td_obj.name)
+    home, ws, remote, binp = d / "home", d / "ws", d / "remote", d / "bin"
+    # the system prompt must announce the remote host + cwd and must not
+    # advertise the local --cwd as the workspace (the model "corrects" pwd
+    # against it otherwise)
     mock = subprocess.Popen([sys.executable, MOCK, str(port)],
+                            env=dict(os.environ,
+                                     MOCK_EXPECT_INSTRUCTIONS=
+                                     f"REMOTE environment: every workspace tool "
+                                     f"(files, grep, terminal) executes over SSH on "
+                                     f"alice@example.test. The local machine running "
+                                     f"tny is not your workspace.\n"
+                                     f"Current working directory (remote): {remote}\n",
+                                     MOCK_REJECT_INSTRUCTIONS=f"Primary workspace: {ws}"),
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     try:
         assert "ready" in mock.stdout.readline().decode()
-        with tempfile.TemporaryDirectory() as td:
-            d = pathlib.Path(td)
-            home, ws, remote, binp = d / "home", d / "ws", d / "remote", d / "bin"
+        with td_obj:
             for p in (home, ws, remote, binp):
                 p.mkdir()
             (ws / "local-only.txt").write_text("x\n")

@@ -123,7 +123,9 @@ static void status_row(tui *t, buf_t *b, int maxw) {
         static const char *frames[] = {"⠋", "⠙", "⠹", "⠸", "⠼",
                                        "⠴", "⠦", "⠧", "⠇", "⠏"};
         buf_appendf(&s, "  %s working… (esc cancels)", frames[t->spin % 10]);
-    } else buf_appendf(&s, "  %s", t->ctx->cwd);
+    } else if (t->ctx->ssh_host)
+        buf_appendf(&s, "  ssh %s:%s", t->ctx->ssh_host, t->ctx->ssh_cwd);
+    else buf_appendf(&s, "  %s", t->ctx->cwd);
 
     buf_appends(b, tui_c(t, "\x1b[7m"));
     int w = push_trunc(b, s.data, s.len, maxw);

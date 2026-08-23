@@ -52,6 +52,9 @@ EXPECT_WIRE = os.environ.get("MOCK_EXPECT_WIRE")
 EXPECT_EFFORT = os.environ.get("MOCK_EXPECT_EFFORT")
 SLOW_MS = int(os.environ.get("MOCK_SLOW_MS", "0"))
 EXPECT_STEER = os.environ.get("MOCK_EXPECT_STEER")
+# substring every system preamble must contain (docs/adr/0022 remote banner)
+EXPECT_INSTRUCTIONS = os.environ.get("MOCK_EXPECT_INSTRUCTIONS")
+REJECT_INSTRUCTIONS = os.environ.get("MOCK_REJECT_INSTRUCTIONS")
 FAIL_RESPONSE = os.environ.get("MOCK_FAIL_RESPONSE")
 # MOCK_PARALLEL: turn 1 streams THREE parallel tool calls in the gateway
 # shape from the field: the third call reuses the second call's "index" but
@@ -277,6 +280,12 @@ class Handler(BaseHTTPRequestHandler):
         instructions = req.get("instructions")
         need(isinstance(instructions, str) and "tny" in instructions,
              "instructions must carry the system preamble")
+        if EXPECT_INSTRUCTIONS:
+            need(EXPECT_INSTRUCTIONS in instructions,
+                 f"instructions lack {EXPECT_INSTRUCTIONS!r}")
+        if REJECT_INSTRUCTIONS:
+            need(REJECT_INSTRUCTIONS not in instructions,
+                 f"instructions must not contain {REJECT_INSTRUCTIONS!r}")
         items = req.get("input")
         need(isinstance(items, list) and items, "input items missing")
         for t in req.get("tools", []):
