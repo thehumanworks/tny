@@ -14,6 +14,10 @@ workflow (`.github/workflows/ci.yml`).
 | `tny-linux-aarch64-musl` | `ubuntu-24.04-arm` + Alpine 3.21 | **static** musl; unit tests + smoke |
 | `tny-darwin-arm64` | `macos-15` | Apple Silicon only; `make test` minus cursor mock |
 | `tny-windows-x86_64.exe` | `windows-2025` + MSYS2 `MSYS` | POSIX via `msys-2.0.dll`; unit + smoke |
+| `tny-wasm` (`tny.js`+`tny.wasm`, `tny-web.mjs`+`.wasm`) | `ubuntu-24.04` + emsdk 6.0.8 | the SAME openai/acp-ws/codex-attach mock suites with `TNY=build/wasm/tny`, `wasm-size-check`, and a headless-Chromium page smoke ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
+
+The Pages workflow also builds `tny-web.mjs` with emsdk and publishes it
+under `assets/wasm/` — the landing terminal is the CI-tested artifact.
 
 The Pages workflow (`.github/workflows/pages.yml`) is separate. GitHub
 Pages for this repo deploys from the branch (`main:/docs`, legacy build),

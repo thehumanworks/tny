@@ -508,6 +508,44 @@ def test_version_fast_path():
     print("ok  --version fast path reports the build version (%s)" % got)
 
 
+
+def test_provider_setup_wizard(home, ws, port):
+    """/provider setup (docs/adr/0018): the composer Q&A writes a settings
+    profile, switches to it, and the next turn runs on the new provider with
+    the stored key — no OPENAI_* env at all."""
+    wizhome = tempfile.mkdtemp(prefix="tny-wizhome-")
+    t = Term([TNY], base_env(wizhome), ws)
+    try:
+        t.expect(BANNER)
+        t.send("/provider setup wizprov\r")
+        t.expect("base url", 10.0)
+        t.send("http://127.0.0.1:%d/v1\r" % port)
+        t.expect("api key", 10.0)
+        t.send("sk-wiz-not-a-secret\r")
+        t.expect("default model", 10.0)
+        t.send("\r")
+        t.expect("provider 'wizprov' ready", 10.0)
+        settings = open(os.path.join(wizhome, ".tny", "settings.json")).read()
+        assert '"wizprov"' in settings and '"sk-wiz-not-a-secret"' in settings, settings
+        t.send("list the files here\r")
+        t.expect("MOCK-OK", 20.0)
+        # /cancel aborts a wizard without touching settings
+        t.send("/provider setup droppedprov\r")
+        t.expect("base url", 10.0)
+        t.send("/cancel\r")
+        t.expect("cancelled", 10.0)
+        assert "droppedprov" not in open(
+            os.path.join(wizhome, ".tny", "settings.json")).read()
+        t.send("/quit\r")
+        rc = t.wait()
+        assert rc == 0, "exit %s\n%s" % (rc, clean(t.buf))
+        print("ok  /provider setup wizard: profile written, turn ran, "
+              "/cancel left settings alone")
+    finally:
+        t.close()
+        shutil.rmtree(wizhome, ignore_errors=True)
+
+
 def test_steer_mid_turn(home, ws):
     """Enter during a native-loop turn steers (docs/adr/0011): the text lands
     as a user message after the tool result, the transcript shows it with
@@ -686,6 +724,7 @@ def main():
             test_yolo_default_auto_approves(home, ws)
             test_menu_overlay_transient(home, ws)
             test_prewarm_spawns_acp_agent(home, ws)
+            test_provider_setup_wizard(home, ws, port)
             test_steer_mid_turn(home, ws)
             test_queue_sends_after_turn(home, ws)
             test_codex_steer_mid_turn(home, ws)

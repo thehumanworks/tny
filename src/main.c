@@ -7,6 +7,7 @@
 #include "cli/cli.h"
 #include "core/backend.h"
 
+
 int main(int argc, char **argv) {
     /* fast paths: no allocation, no config */
     if (argc >= 2) {
@@ -55,6 +56,8 @@ int main(int argc, char **argv) {
         rc = cmd_sessions(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "session") == 0) {
         rc = cmd_session(ctx, &g, cargc, cargv);
+    } else if (strcmp(cmd, "provider") == 0) {
+        rc = cmd_provider(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "providers") == 0 || strcmp(cmd, "backends") == 0) {
         rc = cmd_backends(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "models") == 0) {
@@ -84,5 +87,10 @@ int main(int argc, char **argv) {
     tny_ctx_free(ctx);
     free(g.add_dirs);
     free(g.agent_argv);
+#ifdef __EMSCRIPTEN__
+    /* an Asyncified main's return value is dropped after an unwind; only an
+     * explicit exit() carries the code to the host (docs/adr/0017) */
+    exit(rc);
+#endif
     return rc;
 }

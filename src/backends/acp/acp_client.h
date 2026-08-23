@@ -6,6 +6,7 @@
 #include "backends/acp/acp_wire.h"
 #include "core/backend.h"
 #include "core/config.h"
+#include "net/net.h"
 
 #include <sys/types.h>
 
@@ -24,6 +25,7 @@ typedef struct {
     tny_ctx *ctx;
     pid_t pid;
     int    in_fd, out_fd, err_fd;
+    ws_conn *ws;           /* --agent ws://…: remote agent, no spawn */
     acp_reader out_r, err_r;
     int64_t next_id;
     char  *session_id;
@@ -58,7 +60,19 @@ void ac_handle_agent_request(ac_impl *o, yyjson_val *msg, const char *method,
                              yyjson_val *params);
 void ac_handle_prompt_response(ac_impl *o, yyjson_val *msg);
 
-/* acp_proc.c — transport. */
+/* acp_proc.c — transport. The agent is either a spawned process (JSONL over
+ * stdio) or, when agent_argv[0] is a ws:// / wss:// URL, a remote host
+ * reached over WebSocket (one JSON-RPC message per text frame). Everything
+ * above these helpers is one code path (docs/adr/0017). */
+bool ac_agent_is_ws(const char *argv0);
+int  ac_connect_ws(ac_impl *o, char *errbuf, size_t errlen);
+/* Route to the live transport (pipe write or ws frame). 0 ok, -1 dead. */
+int  ac_tx_request(ac_impl *o, int64_t id, const char *method, const char *params);
+int  ac_tx_notify(ac_impl *o, const char *method, const char *params);
+int  ac_tx_result(ac_impl *o, const char *id_raw, const char *result_json);
+int  ac_tx_error(ac_impl *o, const char *id_raw, int code, const char *msg);
+/* Fill fds to wait on for agent traffic; returns count. */
+int  ac_transport_pollfds(ac_impl *o, struct pollfd *fds, int max);
 bool ac_on_path(const char *bin);
 int  ac_spawn_agent(ac_impl *o, char *errbuf, size_t errlen);
 /* Exit status once the agent's stdout closed, or -1 if it is still running. */

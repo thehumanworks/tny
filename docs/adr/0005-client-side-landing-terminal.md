@@ -1,7 +1,8 @@
 # 0005 — Client-side landing terminal
 
 Date: 2026-08-21
-Status: accepted
+Status: superseded by [0017](0017-wasm-browser-parity.md) — the landing terminal is now
+the real CLI compiled to wasm; the BYOK/intake rules here carry forward
 
 ## Context
 

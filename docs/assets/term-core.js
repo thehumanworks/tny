@@ -16,13 +16,24 @@
     OPENAI_BASE_URL: "baseUrl",
     OPENAI_MODEL: "model",
   };
+  /* Named-provider env pairs (docs/adr/0018): OPENROUTER_API_KEY,
+   * GROQ_BASE_URL, … ride the hash into the wasm module's environ, where
+   * the CLI's own provider detection picks them up. */
+  var ENV_PAIR_RE = /^[A-Z][A-Z0-9_]*_(API_KEY|BASE_URL|DEFAULT_MODEL|WIRE_API)$/;
 
   function assignSecret(out, key, value) {
-    var field = PARAM_MAP[key] || ENV_MAP[key];
-    if (!field || value == null) return;
+    if (value == null) return;
     var trimmed = String(value).trim();
     if (!trimmed) return;
-    out[field] = trimmed;
+    var field = PARAM_MAP[key] || ENV_MAP[key];
+    if (field) {
+      out[field] = trimmed;
+      return;
+    }
+    if (ENV_PAIR_RE.test(key)) {
+      out.env = out.env || {};
+      out.env[key] = trimmed;
+    }
   }
 
   function parseParamString(raw) {
@@ -51,6 +62,10 @@
       if (src.apiKey) out.apiKey = src.apiKey;
       if (src.baseUrl) out.baseUrl = src.baseUrl;
       if (src.model) out.model = src.model;
+      if (src.env) {
+        out.env = out.env || {};
+        for (var k in src.env) out.env[k] = src.env[k];
+      }
     });
     return out;
   }
@@ -74,6 +89,13 @@
     Object.keys(PARAM_MAP).forEach(function (key) {
       params.delete(key);
     });
+    var generic = [];
+    params.forEach(function (_v, key) {
+      if (ENV_PAIR_RE.test(key)) generic.push(key);
+    });
+    generic.forEach(function (key) {
+      params.delete(key);
+    });
     var kept = params.toString();
     if (!kept) return "";
     return (leading || prefix || "") + kept;
@@ -83,7 +105,7 @@
     var fromSearch = parseParamString(loc && loc.search);
     var fromHash = parseParamString(loc && loc.hash);
     var got = mergeSecrets(fromSearch, fromHash);
-    var dirty = !!(got.apiKey || got.baseUrl || got.model);
+    var dirty = !!(got.apiKey || got.baseUrl || got.model || got.env);
     if (dirty && hist && typeof hist.replaceState === "function") {
       var search = stripSecretParams(loc.search, "?");
       var hash = stripSecretParams(loc.hash, "#");

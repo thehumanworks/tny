@@ -7,6 +7,7 @@
 #include "backends/openai/openai.h"
 #include "mcp/mcp.h"
 #include "util/util.h"
+#include "util/tny_poll.h"
 
 #include <pthread.h>
 #include <stdio.h>
@@ -327,7 +328,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         }
         struct pollfd fds[8];
         int n = bk->pollfds ? bk->pollfds(bk, fds, 8) : 0;
-        if (n > 0) poll(fds, (nfds_t)n, 200);
+        if (n > 0) tny_poll(fds, (nfds_t)n, 200);
         if (bk->dispatch && bk->dispatch(bk, fds, n) != 0 && !st.turn_ended) {
             st.turn_ended = true;
             st.stop = TNY_STOP_ERROR;

@@ -85,6 +85,34 @@ TARGETS = [
     # Responses API default wire (docs/adr/0016): the translation file and
     # the new backend functions whole, only the wire/stream_failed lines
     # inside the pre-existing ones.
+    # provider setup (docs/adr/0018): key precedence and the profile writer
+    # whole (unit-killed); the CLI flag parser and wizard against the
+    # provider-setup / tui fixtures.
+    ("src/core/config.c",
+     ["tny_provider_write_profile", "edit_provider_profile"], None),
+    ("src/core/config.c", ["apply_custom_provider", "load_openai_profile"],
+     r"api_key"),
+    ("src/cli/cmd_provider.c", ["provider_setup", "cmd_provider",
+                                "base_url_ok"], None,
+     "tests/integration/test_provider_setup.sh"),
+    ("src/tui/tui_commands.c",
+     ["tui_wizard_start", "tui_wizard_feed", "tui_wizard_cancel",
+      "wiz_finish", "wiz_base_ok"], None),
+    # wasm parity seams (docs/adr/0017): the poll wrapper, the relocated
+    # URL parser, and the ACP ws transport (builders + routing + pump).
+    ("src/util/tny_poll.c", None, None),
+    ("src/net/url.c", None, None),
+    ("src/backends/acp/acp_wire.c",
+     ["acp_fmt_request", "acp_fmt_notify", "acp_fmt_result"], None,
+     "tests/integration/test_acp.sh"),
+    ("src/backends/acp/acp_proc.c",
+     ["ac_agent_is_ws", "ac_tx_request", "ac_tx_notify", "ac_tx_result",
+      "ac_tx_error", "push_fd", "ac_transport_pollfds", "ac_connect_ws"],
+     None, "tests/integration/test_acp_ws.sh"),
+    # ac_pump_reads: only the ws lines this change added; the stdio read
+    # loop internals predate the transport seam and are latency-shaped.
+    ("src/backends/acp/acp_proc.c", ["ac_pump_reads"], r"ws",
+     "tests/integration/test_acp_ws.sh"),
     ("src/backends/openai/responses.c", None, None,
      "tests/integration/test_openai.py"),
     ("src/backends/openai/openai.c",
@@ -145,6 +173,10 @@ EQUIVALENT = [
     # response" it causes downstream both fail the turn the same way, so
     # returning 0 here is indistinguishable without a proto-level probe.
     "stream.c:if (!ossl_want_retry(e)) return -1;",
+    # Both fds are ttys under the pty fixture and neither is under pipes;
+    # no harness we run can make exactly one a tty, so &&/|| here is
+    # unobservable (the flag only gates optional prompts).
+    "cmd_provider.c:    bool tty = isatty(0) && isatty(2);",
     # environ never holds two entries with the same key unless corrupted by
     # repeated putenv abuse; the dedupe branch is purely defensive.
     "config.c:if (strcmp(v[i], name) == 0) { dup = true; break; }",

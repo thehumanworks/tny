@@ -62,6 +62,17 @@ int tui_push_ansi(buf_t *b, const char *s, size_t n, int maxw) {
     return w;
 }
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+/* Emscripten's tty fakes TIOCGWINSZ; the page keeps the real size in
+ * Module.tnyWinsize and raises SIGWINCH via _tny_wasm_winch on resize
+ * (docs/adr/0017). */
+EM_JS(int, js_tui_cols, (void),
+      { return (Module.tnyWinsize && Module.tnyWinsize[0]) | 0; });
+EM_JS(int, js_tui_rows, (void),
+      { return (Module.tnyWinsize && Module.tnyWinsize[1]) | 0; });
+#endif
+
 void tui_size(tui *t) {
     struct winsize ws;
     t->rows = 24;
@@ -70,6 +81,12 @@ void tui_size(tui *t) {
         t->cols = ws.ws_col;
         t->rows = ws.ws_row > 0 ? ws.ws_row : 24;
     }
+#ifdef __EMSCRIPTEN__
+    if (js_tui_cols() > 0) {
+        t->cols = js_tui_cols();
+        t->rows = js_tui_rows() > 0 ? js_tui_rows() : 24;
+    }
+#endif
     if (t->cols < 20) t->cols = 20;
 }
 

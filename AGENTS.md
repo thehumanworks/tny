@@ -56,10 +56,17 @@ docs/          # this contract; update when behavior changes
 - Live Cursor/Codex calls need user-provided keys; default CI uses fixtures and the bridge curl smoke test.
 - Protocol mocks send whole frames per read — real transports split anywhere. Streaming parsers need split-boundary tests (see `chunked_survives_every_split_boundary` in `tests/test_net.c`).
 
+## wasm build (docs/adr/0017)
+
+- `make wasm` / `make wasm-web` build the same `SRC_SHARED` sources as the native release plus `src/net/net_wasm.c`. Platform code lives only at the three seams (net.h transport, `tny_poll`, host OS); never `#ifdef` a fourth place without an ADR.
+- Blocking waits go through `tny_poll` (`src/util/tny_poll.h`), never raw `poll(2)`: raw poll returns instantly for wasm pseudo-fds and spins the event loop into a livelock.
+- **Every new backend or tool states its wasm behavior** — works / remote-only / clean error — in its docs page, and the wasm CI job (`test_openai.py`, `test_acp_ws.sh`, `test_codex_attach.sh` with `TNY=build/wasm/tny`, plus the browser smoke `test_site_wasm.py`) enforces it. Parity is a red X, not a review comment.
+- In `net_wasm.c`, JS never calls into C: handlers queue bytes and wake `tny_poll`; C pulls when awake (the Asyncify re-entry contract). Ready flags must clear when consumed.
+
 ## Landing site (GitHub Pages)
 
-- The landing terminal is **client-side JS** (`site/assets/term*.js`), not WASM tny — a documented non-goal (`docs/adr/0005`). Do not add an Emscripten build to "fix" it.
-- `site/` is the source; CI mirrors it into `docs/` (`.github/workflows/pages.yml`). When editing site assets, update `site/` and copy into `docs/assets/` so the published tree stays in sync.
+- The landing terminal is the **real tny binary compiled to wasm** (`docs/adr/0017`; supersedes 0005's JS preview). `site/assets/term-wasm.js` is bootstrap only — key intake, xterm.js, stdio plumbing. No agent-loop or provider-wire code may live in site JS; `test_site.py` fails the build if it reappears.
+- `site/` is the source; CI mirrors it into `docs/` (`.github/workflows/pages.yml`) and builds `assets/wasm/tny-web.{mjs,wasm}` with emsdk (never committed — gitignored). When editing site assets, update `site/` and copy into `docs/assets/` so the published tree stays in sync; the mirror is additive, so deleting a site asset means deleting the `docs/` copy too.
 - Browser `fetch()` requires header values to be **ISO-8859-1**; one code point > U+00FF in `Authorization: Bearer <key>` throws `String contains non ISO-8859-1 code point` before any network I/O. Keys pasted from rich text carry NBSP/zero-width/bidi/smart-quote junk, so every secret intake path (URL hash, `/login`, `/setup`, `OPENAI_*=`, vault restore) must go through `sanitizeApiKey` in `term-core.js`. Validate secrets **at intake** with a clear error, not at send time.
 - Site tests: `node tests/site/test_term.js`.
 

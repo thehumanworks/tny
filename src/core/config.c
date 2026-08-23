@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <limits.h>
 
 const char *tny_perm_mode_name(tny_perm_mode m) {
@@ -224,6 +225,7 @@ static void load_openai_profile(tny_ctx *ctx) {
     const char *key_env = jget_str(oa, "api_key_env");
     const char *key = key_env ? getenv(key_env) : NULL;
     if (!key || !*key) key = getenv("OPENAI_API_KEY");
+    if (!key || !*key) key = jget_str(oa, "api_key"); /* docs/adr/0018 */
     free(ctx->api_key);
     ctx->api_key = key && *key ? xstrdup(key) : NULL;
     const char *ahn = jget_str(oa, "auth_header_name");
@@ -257,6 +259,9 @@ static void apply_custom_provider(tny_ctx *ctx, const char *name) {
     char *key_env = tny_custom_provider_key_env(ctx, name);
     const char *key = key_env ? getenv(key_env) : NULL;
     free(key_env);
+    /* a key stored by `tny provider setup --api-key` (docs/adr/0018) is the
+     * fallback: an env var always beats it, so rotation via the shell works */
+    if (!key || !*key) key = jget_str(o, "api_key");
     free(ctx->api_key);
     ctx->api_key = key && *key ? xstrdup(key) : NULL;
     const char *ahn = jget_str(o, "auth_header_name");
@@ -548,6 +553,94 @@ static void edit_set_str(yyjson_mut_doc *doc, yyjson_mut_val *root, void *ud) {
 int tny_settings_set_str(tny_ctx *ctx, const char *key, const char *value) {
     struct kv kv = {key, value};
     return settings_edit(ctx, edit_set_str, &kv);
+}
+
+/* ---- `provider setup` writer (docs/adr/0018) ---- */
+
+struct profile_edit {
+    const char *name; /* "openai" or a custom profile name */
+    const tny_provider_fields *f;
+};
+
+static void edit_provider_profile(yyjson_mut_doc *doc, yyjson_mut_val *root,
+                                  void *ud) {
+    struct profile_edit *pe = ud;
+    yyjson_mut_val *o = yyjson_mut_obj_get(root, pe->name);
+    if (!o || !yyjson_mut_is_obj(o)) {
+        o = yyjson_mut_obj(doc);
+        yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, pe->name), o);
+    }
+    const struct { const char *k, *v; } kv[] = {
+        {"base_url", pe->f->base_url},
+        {"api_key", pe->f->api_key},
+        {"api_key_env", pe->f->api_key_env},
+        {"model", pe->f->model},
+        {"wire_api", pe->f->wire_api},
+    };
+    for (size_t i = 0; i < sizeof kv / sizeof *kv; i++)
+        if (kv[i].v)
+            yyjson_mut_obj_put(o, yyjson_mut_strcpy(doc, kv[i].k),
+                               yyjson_mut_strcpy(doc, kv[i].v));
+    /* a stored key and a key env var are alternatives: setting one clears
+     * the other so the effective source is what the user just chose */
+    if (pe->f->api_key)
+        yyjson_mut_obj_remove_key(o, "api_key_env");
+    if (pe->f->api_key_env)
+        yyjson_mut_obj_remove_key(o, "api_key");
+}
+
+/* Merge fields into the profile `name` ("openai" or a custom name; other
+ * builtins are rejected). NULL fields keep their current values. When a
+ * raw api_key is stored, settings.json drops to 0600. 0 ok, -1 error
+ * (reason in errbuf). */
+int tny_provider_write_profile(tny_ctx *ctx, const char *name,
+                               const tny_provider_fields *f,
+                               char *errbuf, size_t errlen) {
+    if (!name || !*name) {
+        snprintf(errbuf, errlen, "provider setup needs a name");
+        return -1;
+    }
+    int builtin = tny_backend_from_name(name);
+    if (builtin >= 0 && builtin != TNY_BK_OPENAI) {
+        snprintf(errbuf, errlen,
+                 "'%s' is a host provider; only openai-compatible profiles "
+                 "take base_url/api_key", name);
+        return -1;
+    }
+    for (const char *p = name; *p; p++) {
+        char c = *p;
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '-' || c == '_')) {
+            snprintf(errbuf, errlen,
+                     "provider names use letters, digits, - and _ (got '%s')",
+                     name);
+            return -1;
+        }
+    }
+    /* reserved top-level settings keys must never become profiles */
+    static const char *const reserved[] = {
+        "workspaces", "models", "permission", "effort", "last_provider", NULL};
+    for (int i = 0; reserved[i]; i++)
+        if (strcmp(name, reserved[i]) == 0) {
+            snprintf(errbuf, errlen, "'%s' is a reserved settings key", name);
+            return -1;
+        }
+    bool exists = builtin == TNY_BK_OPENAI ||
+                  custom_provider_obj(ctx, name) != NULL;
+    if (!exists && (!f->base_url || !*f->base_url)) {
+        snprintf(errbuf, errlen,
+                 "new provider '%s' needs --base-url (an OpenAI-compatible "
+                 "/v1 endpoint)", name);
+        return -1;
+    }
+    struct profile_edit pe = {name, f};
+    if (settings_edit(ctx, edit_provider_profile, &pe) != 0) {
+        snprintf(errbuf, errlen, "could not write %s", ctx->settings_path);
+        return -1;
+    }
+    if (f->api_key && *f->api_key)
+        chmod(ctx->settings_path, 0600); /* it now holds a secret */
+    return 0;
 }
 
 static void edit_remember_use(yyjson_mut_doc *doc, yyjson_mut_val *root, void *ud) {

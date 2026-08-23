@@ -465,6 +465,25 @@ svg {
   color: color-mix(in oklab, var(--term-status) 70%, #c44);
 }
 
+
+/* wasm terminal (docs/adr/0017): xterm.js fills the term body */
+.term-main--wasm {
+  padding: 10px 12px;
+}
+
+.term-xterm {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.term-xterm .xterm,
+.term-xterm .xterm-viewport,
+.term-xterm .xterm-screen {
+  height: 100% !important;
+  background: transparent !important;
+}
+
 .term-overlay {
   flex-shrink: 0;
   margin-top: 8px;

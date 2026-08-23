@@ -128,6 +128,20 @@ const char *tny_settings_provider_model(tny_ctx *ctx, const char *provider);
 /* Persist a top-level string into ~/.tny/settings.json (e.g. last backend,
  * model). Creates the file if missing. Returns 0 on success. */
 int tny_settings_set_str(tny_ctx *ctx, const char *key, const char *value);
+
+/* `provider setup` fields; NULL members keep the profile's current value
+ * (docs/adr/0018). */
+typedef struct {
+    const char *base_url;
+    const char *api_key;      /* stored in settings.json; env still wins */
+    const char *api_key_env;
+    const char *model;
+    const char *wire_api;     /* "responses" | "chat" */
+} tny_provider_fields;
+
+int tny_provider_write_profile(tny_ctx *ctx, const char *name,
+                               const tny_provider_fields *f,
+                               char *errbuf, size_t errlen);
 const char *tny_settings_get_str(tny_ctx *ctx, const char *key);
 
 /* Workspace extra-dir persistence (settings "workspaces" map). */

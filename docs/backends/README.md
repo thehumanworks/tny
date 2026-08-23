@@ -20,6 +20,18 @@ Pick a backend per process with `--backend` or `settings.json`. Switching mid-se
 
 Cursor also speaks ACP (`agent acp`). Support that only as a generic ACP agent, not as the Cursor backend. The product requirement is the **SDK bridge**.
 
+## wasm behavior ([ADR 0017](../adr/0017-wasm-browser-parity.md))
+
+Every backend states what it does in the wasm build; a new backend must add
+its row here and its behavior is enforced by the wasm CI suites.
+
+| Backend | wasm | How |
+| --- | --- | --- |
+| `openai` | ✓ works | both wires over `fetch()` |
+| `codex` | ✓ attach-only | `--codex-ws` over WebSocket; no spawn. Browser callers cannot send a bearer (no `Authorization` on browser WebSockets) and always send `Origin` — loopback, token-less hosts only |
+| `acp` | ✓ remote-only | `--agent ws://…` (below); no spawn |
+| `cursor` | ✗ clean error | needs a spawned local bridge |
+
 ## Shared client contract
 
 Every backend implements:

@@ -6,6 +6,7 @@
 #include "util/util.h"
 
 #include <poll.h>
+#include "util/tny_poll.h"
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +24,7 @@ static void fail_turn(ac_impl *o, const char *msg) {
 
 static void ac_disconnect(tny_backend *b) {
     ac_impl *o = b->impl;
+    if (o->ws) { ws_close(o->ws); o->ws = NULL; }
     if (o->pid > 0) {
         pid_t pgid = o->pid; /* the spawn made the agent its group leader */
         if (o->in_fd >= 0) close(o->in_fd);
@@ -32,7 +34,7 @@ static void ac_disconnect(tny_backend *b) {
             pid_t r = waitpid(o->pid, &status, WNOHANG);
             if (r == o->pid || r < 0) { o->pid = 0; break; }
             struct pollfd p = {o->out_fd, POLLIN, 0};
-            poll(&p, o->out_fd >= 0 ? 1 : 0, 10);
+            tny_poll(&p, o->out_fd >= 0 ? 1 : 0, 10);
         }
         if (o->pid > 0) {
             if (kill(-pgid, SIGTERM) != 0) kill(o->pid, SIGTERM);
@@ -48,8 +50,12 @@ static void ac_disconnect(tny_backend *b) {
 
 static int ac_connect(tny_backend *b, char *errbuf, size_t errlen) {
     ac_impl *o = b->impl;
-    if (o->pid > 0) return 0;
-    if (ac_spawn_agent(o, errbuf, errlen) != 0) return -1;
+    if (o->pid > 0 || o->ws) return 0;
+    if (ac_agent_is_ws(o->ctx->agent_argv ? o->ctx->agent_argv[0] : NULL)) {
+        if (ac_connect_ws(o, errbuf, errlen) != 0) return -1;
+    } else if (ac_spawn_agent(o, errbuf, errlen) != 0) {
+        return -1;
+    }
 
     buf_t p;
     buf_init(&p);
@@ -171,7 +177,7 @@ static int ac_send(tny_backend *b, const char *prompt, const char **images,
 
     o->prompt_id = o->next_id++;
     o->turn_active = true;
-    int rc = acp_send_request(o->in_fd, o->prompt_id, "session/prompt", p.data);
+    int rc = ac_tx_request(o, o->prompt_id, "session/prompt", p.data);
     buf_free(&p);
     if (rc != 0) {
         o->turn_active = false;
@@ -190,12 +196,12 @@ static void ac_cancel(tny_backend *b) {
     buf_appends(&p, "{\"sessionId\":");
     jescape(&p, o->session_id ? o->session_id : "");
     buf_appends(&p, "}");
-    acp_send_notify(o->in_fd, "session/cancel", p.data);
+    ac_tx_notify(o, "session/cancel", p.data);
     buf_free(&p);
     /* Answer everything still pending so the agent can unwind. */
     while (o->nperms) {
-        acp_send_result(o->in_fd, o->perms[0].id_raw,
-                        "{\"outcome\":{\"outcome\":\"cancelled\"}}");
+        ac_tx_result(o, o->perms[0].id_raw,
+                     "{\"outcome\":{\"outcome\":\"cancelled\"}}");
         ac_perm_drop(o, &o->perms[0]);
     }
 }
@@ -208,7 +214,7 @@ static void ac_respond_permission(tny_backend *b, const char *perm_id,
     if (!p) return;
     const char *choice = NULL;
     if (o->cancelled) {
-        acp_send_result(o->in_fd, p->id_raw, "{\"outcome\":{\"outcome\":\"cancelled\"}}");
+        ac_tx_result(o, p->id_raw, "{\"outcome\":{\"outcome\":\"cancelled\"}}");
         ac_perm_drop(o, p);
         return;
     }
@@ -226,7 +232,7 @@ static void ac_respond_permission(tny_backend *b, const char *perm_id,
     if (!choice) {
         /* The agent offered nothing usable for this decision: cancel instead
          * of guessing an option that might approve something. */
-        acp_send_result(o->in_fd, p->id_raw, "{\"outcome\":{\"outcome\":\"cancelled\"}}");
+        ac_tx_result(o, p->id_raw, "{\"outcome\":{\"outcome\":\"cancelled\"}}");
         ac_perm_drop(o, p);
         return;
     }
@@ -235,27 +241,20 @@ static void ac_respond_permission(tny_backend *b, const char *perm_id,
     buf_appends(&r, "{\"outcome\":{\"outcome\":\"selected\",\"optionId\":");
     jescape(&r, choice);
     buf_appends(&r, "}}");
-    acp_send_result(o->in_fd, p->id_raw, r.data);
+    ac_tx_result(o, p->id_raw, r.data);
     buf_free(&r);
     ac_perm_drop(o, p);
 }
 
 static int ac_pollfds(tny_backend *b, struct pollfd *fds, int max) {
     ac_impl *o = b->impl;
-    int n = 0;
-    if (o->out_fd >= 0 && n < max) {
-        fds[n].fd = o->out_fd; fds[n].events = POLLIN; fds[n++].revents = 0;
-    }
-    if (o->err_fd >= 0 && n < max) {
-        fds[n].fd = o->err_fd; fds[n].events = POLLIN; fds[n++].revents = 0;
-    }
-    return n;
+    return ac_transport_pollfds(o, fds, max);
 }
 
 static int ac_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     (void)fds; (void)n;
     ac_impl *o = b->impl;
-    if (o->out_fd < 0) return 0;
+    if (!o->ws && o->out_fd < 0) return 0;
     int rc = ac_pump_reads(o);
     if (rc == -2) {
         fail_turn(o, "acp: agent sent a message over the 8 MiB cap");
@@ -264,7 +263,7 @@ static int ac_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     if (rc == -1) {
         /* stdout closed: give the child a moment to land its exit status so
          * the turn error can name it. */
-        int code = ac_reap_agent(o);
+        int code = o->ws ? -1 : ac_reap_agent(o);
         if (o->turn_active) {
             char msg[160];
             if (code == 127)
@@ -287,6 +286,11 @@ static int ac_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
         snprintf(line, linelen,
                  "acp: no agent configured (tny --provider acp --agent CMD -- args…)");
         return 1;
+    }
+    if (ac_agent_is_ws(ctx->agent_argv[0])) {
+        snprintf(line, linelen, "acp: remote agent %.80s (WebSocket)",
+                 ctx->agent_argv[0]);
+        return 0;
     }
     if (!ac_on_path(ctx->agent_argv[0])) {
         snprintf(line, linelen, "acp: agent '%.80s' not found on PATH",

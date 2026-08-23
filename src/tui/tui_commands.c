@@ -3,6 +3,7 @@
  * reused verbatim: the block is torn down first so their stdout scrolls. */
 #include "tui/tui.h"
 #include "core/skills.h"
+#include "net/net.h"
 #include "core/tools.h"
 #include "mcp/mcp.h"
 
@@ -449,11 +450,20 @@ void tui_command(tui *t, const char *line) {
         tui_linef(t, "  sandbox: %s%s", t->ctx->sandbox_mode,
                   strcmp(t->ctx->sandbox_mode, "os") == 0 ? " (unsupported: effective none)" : "");
     } else if (strcmp(c, "provider") == 0 || strcmp(c, "backend") == 0) {
+        if (arg && strncmp(arg, "setup", 5) == 0 &&
+            (arg[5] == 0 || arg[5] == ' ')) {
+            if (t->turn_active) { tui_sys(t, "finish the turn first"); return; }
+            const char *nm = arg[5] ? arg + 6 : NULL;
+            while (nm && *nm == ' ') nm++;
+            tui_wizard_start(t, nm);
+            return;
+        }
         if (arg && *arg) {
             bool known = tny_backend_from_name(arg) >= 0 ||
                          tny_custom_provider_exists(t->ctx, arg);
             if (!known) tui_err(t, "unknown provider (openai|cursor|codex|acp, "
-                                   "a settings.json profile, or NAME_BASE_URL)");
+                                   "a settings.json profile, or NAME_BASE_URL) "
+                                   "— /provider setup adds one");
             else {
                 if (t->turn_active) tui_sys(t, "finish the turn first");
                 else {
@@ -573,3 +583,133 @@ void tui_command(tui *t, const char *line) {
     }
     free(copy);
 }
+
+/* ---- /provider setup wizard (docs/adr/0018) ----
+ * A short Q&A through the composer, so it works identically in a native
+ * terminal and the browser wasm build (where it is the main way to add a
+ * provider). While active, tui_submit routes lines here. */
+
+static void wiz_prompt(tui *t) {
+    switch (t->wiz_step) {
+    case 1:
+        tui_sys(t, "  provider name (e.g. openrouter) — /cancel aborts:");
+        break;
+    case 2:
+        tui_sys(t, "  base url (OpenAI-compatible /v1 endpoint; empty keeps"
+                   " the current one for an existing provider):");
+        break;
+    case 3:
+        tui_sys(t, "  api key — typed input is visible; $ENV_NAME reads an"
+                   " env var instead; empty skips:");
+        break;
+    case 4:
+        tui_sys(t, "  default model (empty skips):");
+        break;
+    }
+    t->dirty = true;
+}
+
+void tui_wizard_start(tui *t, const char *name) {
+    tui_wizard_cancel(t); /* drop any half-finished run */
+    if (name && *name) {
+        t->wiz_name = xstrdup(name);
+        t->wiz_step = 2;
+    } else {
+        t->wiz_step = 1;
+    }
+    tui_sys(t, "  provider setup — answers go to ~/.tny/settings.json");
+    wiz_prompt(t);
+}
+
+void tui_wizard_cancel(tui *t) {
+    if (!t->wiz_step) return;
+    t->wiz_step = 0;
+    free(t->wiz_name); t->wiz_name = NULL;
+    free(t->wiz_base); t->wiz_base = NULL;
+    free(t->wiz_key); t->wiz_key = NULL;
+    free(t->wiz_key_env); t->wiz_key_env = NULL;
+    free(t->wiz_model); t->wiz_model = NULL;
+}
+
+static bool wiz_base_ok(const char *url) {
+    url_parts u;
+    return url_parse(url, &u) == 0 &&
+           (strcmp(u.scheme, "http") == 0 || strcmp(u.scheme, "https") == 0);
+}
+
+static void wiz_finish(tui *t) {
+    tny_provider_fields f = {
+        t->wiz_base, t->wiz_key, t->wiz_key_env, t->wiz_model, NULL};
+    char err[256];
+    if (tny_provider_write_profile(t->ctx, t->wiz_name, &f,
+                                   err, sizeof err) != 0) {
+        tui_err(t, err);
+        tui_wizard_cancel(t);
+        return;
+    }
+    char *name = xstrdup(t->wiz_name);
+    tui_wizard_cancel(t);
+    tui_prewarm_drop(t);
+    tny_resolve_backend(t->ctx, name);
+    tui_drop_backend(t);
+    tny_settings_remember_use(t->ctx);
+    tui_linef(t, "  provider '%s' ready (model %s) — saved to settings.json",
+              name, t->ctx->model ? t->ctx->model : "default");
+    if (!t->ctx->api_key)
+        tui_sys(t, "  no key resolved yet: the provider may refuse requests");
+    free(name);
+    t->dirty = true;
+}
+
+void tui_wizard_feed(tui *t, const char *line) {
+    if (strcmp(line, "/cancel") == 0 || strcmp(line, "/quit") == 0) {
+        tui_wizard_cancel(t);
+        tui_sys(t, "  provider setup cancelled");
+        if (strcmp(line, "/quit") == 0) t->quit = true;
+        t->dirty = true;
+        return;
+    }
+    switch (t->wiz_step) {
+    case 1:
+        if (!*line) { wiz_prompt(t); return; }
+        if (tny_backend_from_name(line) >= 0 && strcmp(line, "openai") != 0) {
+            tui_err(t, "host providers (cursor|codex|acp) have no base_url; "
+                       "pick another name");
+            wiz_prompt(t);
+            return;
+        }
+        t->wiz_name = xstrdup(line);
+        t->wiz_step = 2;
+        wiz_prompt(t);
+        return;
+    case 2: {
+        bool exists = strcmp(t->wiz_name, "openai") == 0 ||
+                      tny_custom_provider_exists(t->ctx, t->wiz_name);
+        if (!*line && !exists) {
+            tui_err(t, "a new provider needs a base url");
+            wiz_prompt(t);
+            return;
+        }
+        if (*line && !wiz_base_ok(line)) {
+            tui_err(t, "base url must be http(s)://host[/prefix]");
+            wiz_prompt(t);
+            return;
+        }
+        if (*line) t->wiz_base = xstrdup(line);
+        t->wiz_step = 3;
+        wiz_prompt(t);
+        return;
+    }
+    case 3:
+        if (line[0] == '$' && line[1]) t->wiz_key_env = xstrdup(line + 1);
+        else if (*line) t->wiz_key = xstrdup(line);
+        t->wiz_step = 4;
+        wiz_prompt(t);
+        return;
+    case 4:
+        if (*line) t->wiz_model = xstrdup(line);
+        wiz_finish(t);
+        return;
+    }
+}
+

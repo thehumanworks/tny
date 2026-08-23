@@ -66,12 +66,27 @@ int acp_write_line(int fd, const char *json, size_t len) {
     return rc;
 }
 
+void acp_fmt_request(buf_t *b, int64_t id, const char *method, const char *params_json) {
+    buf_appendf(b, "{\"jsonrpc\":\"2.0\",\"id\":%lld,\"method\":", (long long)id);
+    jescape(b, method);
+    buf_appendf(b, ",\"params\":%s}", params_json ? params_json : "{}");
+}
+
+void acp_fmt_notify(buf_t *b, const char *method, const char *params_json) {
+    buf_appends(b, "{\"jsonrpc\":\"2.0\",\"method\":");
+    jescape(b, method);
+    buf_appendf(b, ",\"params\":%s}", params_json ? params_json : "{}");
+}
+
+void acp_fmt_result(buf_t *b, const char *id_raw, const char *result_json) {
+    buf_appendf(b, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}",
+                id_raw ? id_raw : "null", result_json ? result_json : "null");
+}
+
 int acp_send_request(int fd, int64_t id, const char *method, const char *params_json) {
     buf_t b;
     buf_init(&b);
-    buf_appendf(&b, "{\"jsonrpc\":\"2.0\",\"id\":%lld,\"method\":", (long long)id);
-    jescape(&b, method);
-    buf_appendf(&b, ",\"params\":%s}", params_json ? params_json : "{}");
+    acp_fmt_request(&b, id, method, params_json);
     int rc = acp_write_line(fd, b.data, b.len);
     buf_free(&b);
     return rc;
@@ -80,9 +95,7 @@ int acp_send_request(int fd, int64_t id, const char *method, const char *params_
 int acp_send_notify(int fd, const char *method, const char *params_json) {
     buf_t b;
     buf_init(&b);
-    buf_appends(&b, "{\"jsonrpc\":\"2.0\",\"method\":");
-    jescape(&b, method);
-    buf_appendf(&b, ",\"params\":%s}", params_json ? params_json : "{}");
+    acp_fmt_notify(&b, method, params_json);
     int rc = acp_write_line(fd, b.data, b.len);
     buf_free(&b);
     return rc;
@@ -91,8 +104,7 @@ int acp_send_notify(int fd, const char *method, const char *params_json) {
 int acp_send_result(int fd, const char *id_raw, const char *result_json) {
     buf_t b;
     buf_init(&b);
-    buf_appendf(&b, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}",
-                id_raw ? id_raw : "null", result_json ? result_json : "null");
+    acp_fmt_result(&b, id_raw, result_json);
     int rc = acp_write_line(fd, b.data, b.len);
     buf_free(&b);
     return rc;

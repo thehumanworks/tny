@@ -15,6 +15,11 @@ on:
       - "site/**"
       - "scripts/site_build.py"
       - ".github/workflows/pages.yml"
+      # the landing terminal IS the wasm binary (docs/adr/0017): republish
+      # whenever the product sources or the wasm seams change
+      - "src/**"
+      - "third_party/**"
+      - "Makefile"
   workflow_dispatch:
 
 permissions:
@@ -31,6 +36,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: main
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.8
+          actions-cache-folder: emsdk-cache
+      - name: Build tny-web.wasm (the page terminal is the real CLI)
+        run: |
+          make -j"$(getconf _NPROCESSORS_ONLN)" wasm-web
+          mkdir -p site/assets/wasm
+          cp build/wasm/tny-web.mjs build/wasm/tny-web.wasm site/assets/wasm/
       - name: Rebuild static pages
         run: python3 scripts/site_build.py
       - name: Mirror site/ into docs/

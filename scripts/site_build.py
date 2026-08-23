@@ -144,6 +144,10 @@ def cmd(command: str) -> str:
     )
 
 
+# Python < 3.12 forbids backslashes inside f-string expressions; keep the
+# escaped example out of the f-string.
+STDIN_EXAMPLE = cmd("printf 'summarize src/\\n' | tny ask --stdin")
+
 def note(title: str, body: str) -> str:
     return f'<div class="note"><strong>{title}</strong><p>{body}</p></div>'
 
@@ -284,25 +288,18 @@ def landing() -> str:
       <div class="term" id="tny-term" role="application" aria-label="tny interactive shell">
         <div class="term-bar">
           <div class="term-dots" aria-hidden="true"><span></span><span></span><span></span></div>
-          <div class="term-title">tny</div>
+          <div class="term-title">tny.wasm</div>
         </div>
-        <div class="term-main">
-          <div class="term-transcript" data-term-transcript>
-            <div class="term-banner"><span class="bright">tny</span> {VERSION} · Run /help for commands</div>
-          </div>
-          <div class="term-overlay" data-term-overlay hidden></div>
-          <div class="term-composer">
-            <span class="bar" data-term-bar aria-hidden="true">┃</span>
-            <textarea class="term-input" data-term-input rows="1" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Prompt"></textarea>
-          </div>
+        <div class="term-main term-main--wasm">
+          <div class="term-xterm" data-term-xterm></div>
         </div>
-        <div class="term-status" data-term-status><span class="status-row"><span class="auto">yolo</span> · openai</span></div>
+        <div class="term-status" data-term-status><span class="status-row"><span class="auto">yolo</span> · openai · wasm</span></div>
       </div>
     </div>
     <div class="prose">
       <p><span class="name">tny</span> is a coding agent harness and CLI written in C11, built to beat <a href="https://fx.sh">fx</a> on size and startup while keeping a Unix-shell UI.</p>
       <p>It focuses on a thin multiplexed frontend over host agents, plus a native OpenAI-compatible loop for BYOK providers. The stripped binary is {SIZE}.</p>
-      <p>The terminal on this page is live and stays in your browser. Pass <code>OPENAI_API_KEY</code> (and optionally <code>OPENAI_BASE_URL</code>) in the URL hash. Both are encrypted in this tab and sent only to the provider you set — never to GitHub.</p>
+      <p>The terminal on this page is the real <span class="name">tny</span> binary compiled to WebAssembly — the same sources and the same CI test suite as the native CLI. Pass <code>OPENAI_API_KEY</code> (and optionally <code>OPENAI_BASE_URL</code>) in the URL hash or paste them at the prompt. Keys stay in this tab and go only to the provider you set — never to GitHub. Your provider must allow browser (CORS) calls; <code>api.openai.com</code> does not.</p>
       <p>For end users, the form factor aims to be closer to a Unix shell than a heavy "IDE in the terminal" TUI.</p>
       <p>It's open source, model-agnostic, and suitable for local models, subscriptions, and cloud inference.</p>
     </div>
@@ -321,12 +318,16 @@ def landing() -> str:
         body=body,
         extra_head=(
             '  <meta name="referrer" content="no-referrer">\n'
+            '  <link rel="stylesheet" href="assets/vendor/xterm.css">\n'
             '  <script src="assets/term-core.js"></script>\n'
             "  <script>\n"
             "    window.__tnyBoot = window.tnyTermCore.takeSecretsFromLocation(location, history);\n"
             "  </script>\n"
         ),
-        extra_scripts='<script src="assets/term.js"></script>\n',
+        extra_scripts=(
+            '<script src="assets/vendor/xterm.js"></script>\n'
+            '<script src="assets/term-wasm.js"></script>\n'
+        ),
     )
 
 
@@ -503,7 +504,7 @@ def docs_ask() -> str:
 <h2 id="shape">Shape</h2>
 <p>One turn, then exit. Stdout is assistant Markdown. Stderr is progress, tool lines, and diagnostics. Interactive prompts are never the only path.</p>
 {cmd('tny ask "summarize this repository"')}
-{cmd("printf 'summarize src/\\n' | tny ask --stdin")}
+{STDIN_EXAMPLE}
 {cmd('tny ask --json --no-save "list the public CLI"')}
 {cmd('tny ask --resume last "now add tests"')}
 <h2 id="exit">Exit codes</h2>

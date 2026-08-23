@@ -4,6 +4,13 @@
 #include "tui/tui.h"
 #include "backends/openai/openai.h"
 #include "mcp/mcp.h"
+#include "util/tny_poll.h"
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+/* 1 when the browser bootstrap owns stdio (site/assets/term-wasm.js). */
+EM_JS(int, js_tui_page, (void), { return Module.tnyOut ? 1 : 0; });
+#endif
 
 #include <errno.h>
 #include <poll.h>
@@ -122,7 +129,7 @@ tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
     while (!got && !t->quit) {
         tui_render(t);
         struct pollfd pf = {STDIN_FILENO, POLLIN, 0};
-        int pr = poll(&pf, 1, 200);
+        int pr = tny_poll(&pf, 1, 200);
         if (g_winch) { g_winch = 0; tui_size(t); t->dirty = true; }
         if (g_sigint) { g_sigint = 0; t->want_cancel = true; break; }
         if (pr <= 0) continue;
@@ -415,6 +422,7 @@ void tui_submit(tui *t, const char *text) {
     tui_overlay_clear(t); /* the menu interaction is over */
     const char *s = text;
     while (*s == ' ' || *s == '\t') s++;
+    if (t->wiz_step) { tui_wizard_feed(t, s); return; }
     if (!*s) { t->dirty = true; return; }
 
     if (*s == '/') {
@@ -516,10 +524,15 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     buf_init(&t.prompt_text);
     t.perm = perm_new(ctx);
     t.tty = isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
+    if (t.tty && !term_raw()) t.tty = false;
+#ifdef __EMSCRIPTEN__
+    /* the page terminal is xterm.js: already raw, always a tty — the
+     * Emscripten termios/isatty stubs must not demote it (docs/adr/0017) */
+    if (js_tui_page()) t.tty = true;
+#endif
     t.color = t.tty && !ctx->no_color && !getenv("NO_COLOR");
     tui_size(&t);
 
-    if (t.tty && !term_raw()) t.tty = false;
     install(SIGWINCH, on_winch);
     install(SIGINT, on_sigint);
     install(SIGTERM, on_fatal);
@@ -556,7 +569,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         fds[0].revents = 0;
         int nb = 0;
         if (t.turn_active && t.bk && t.bk->pollfds) nb = t.bk->pollfds(t.bk, fds + 1, 8);
-        int pr = poll(fds, (nfds_t)(1 + nb), t.turn_active ? 40 : 400);
+        int pr = tny_poll(fds, (nfds_t)(1 + nb), t.turn_active ? 40 : 400);
         if (pr < 0 && errno != EINTR) break;
 
         if (g_winch) { g_winch = 0; tui_size(&t); t.dirty = true; }
@@ -606,6 +619,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     tui_items_clear(&t);
     tui_files_free(&t);
     tui_hist_free(&t);
+    tui_wizard_cancel(&t);
     for (int i = 0; i < t.n_images; i++) free(t.images[i]);
     tui_queue_clear(&t);
     buf_free(&t.out);
