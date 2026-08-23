@@ -16,6 +16,8 @@ typedef struct {
     const char **add_dirs;   /* --add-dir, repeatable */
     int         n_add_dirs;
     bool        json;        /* --json */
+    const char *ssh;         /* --ssh user@host[:port] */
+    const char *ssh_cwd;     /* --ssh-cwd DIR (remote) */
     bool        ephemeral;   /* --ephemeral | --no-save */
     bool        resume_picker;   /* -r */
     bool        resume_last;     /* -c / --continue */
@@ -35,11 +37,9 @@ typedef struct {
  * error (message already printed). */
 int cli_parse_globals(int argc, char **argv, cli_globals *g);
 
-/* Process-level SSH delegation (docs/adr/0022). cli_ssh_maybe_delegate returns
- * -1 when no leading --ssh was given; successful delegation replaces this
- * process, so any other return is an exit status. */
-int cli_ssh_maybe_delegate(int argc, char **argv);
-int cli_ssh_exec_tui(const char *target);
+/* --ssh TARGET: open the remote tool runtime on ctx (docs/adr/0022). Prints
+ * its own error; 0 ok. Shared by cli_make_ctx and the TUI /ssh command. */
+int cli_ssh_attach(tny_ctx *ctx, const char *target, const char *remote_cwd);
 
 /* Build ctx from globals (loads settings). NULL = startup error. */
 tny_ctx *cli_make_ctx(const cli_globals *g);

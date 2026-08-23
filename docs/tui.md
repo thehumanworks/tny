@@ -36,11 +36,12 @@ the in-memory session. `--no-save` remains an alias. See
 
 ## SSH
 
-Start directly on a remote host with `tny --ssh user@host[:port]`. From a local
-TUI, `/ssh user@host[:port]` drops local prewarm/backend state, restores the
-terminal, and replaces the process with an SSH-launched remote `tny` TUI, so all
-subsequent tool calls run there. Enforced by the app, not by model
-instructions ([ADR 0022](adr/0022-ssh-execution-boundary.md)).
+`tny --ssh user@host[:port] [--ssh-cwd DIR]` starts the shell locally with
+every workspace tool executing on the remote host. Inside a session,
+`/ssh user@host[:port] [dir]` attaches (the block is released so OpenSSH can
+prompt), `/ssh off` goes back to local tools, and a bare `/ssh` shows the
+current target. The provider connection, session and history stay local
+([ADR 0022](adr/0022-ssh-execution-boundary.md)).
 
 ## Input
 

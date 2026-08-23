@@ -22,11 +22,6 @@ int main(int argc, char **argv) {
         }
     }
 
-    /* SSH is a process boundary, not a tool hint: delegate before loading
-     * local config, sessions, workspace state, backends, or MCP. */
-    int ssh_rc = cli_ssh_maybe_delegate(argc, argv);
-    if (ssh_rc >= 0) return ssh_rc;
-
     cli_globals g = {0};
     int ci = cli_parse_globals(argc, argv, &g);
     if (ci < 0) return 1;

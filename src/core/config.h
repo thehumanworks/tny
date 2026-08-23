@@ -55,6 +55,12 @@ typedef struct tny_ctx {
     char *codex_ws;
     char *codex_bin;
     char *ws_token_file;
+    /* remote tool runtime (core/ssh.c, docs/adr/0022): when ssh_host is set
+     * every workspace tool runs on that host over one ControlMaster */
+    char *ssh_host;        /* user@host or [v6], NULL = local tools */
+    char  ssh_port[6];     /* "" = ssh default */
+    char *ssh_cwd;         /* remote working dir (absolute after connect) */
+    char *ssh_control;     /* "ControlPath=…" option string */
     /* Speed tier for providers with TNY_CAP_FAST: NULL = provider default,
      * "fast"/"priority" = the paid fast tier, "default" = standard. Each
      * backend maps this to its own wire field. */

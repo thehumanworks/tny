@@ -782,6 +782,9 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->codex_ws);
     free(ctx->codex_bin);
     free(ctx->ws_token_file);
+    free(ctx->ssh_host);
+    free(ctx->ssh_cwd);
+    free(ctx->ssh_control);
     free(ctx->service_tier);
     free(ctx->reasoning_effort);
     if (ctx->agent_argv) {

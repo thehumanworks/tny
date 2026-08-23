@@ -1,6 +1,7 @@
 /* args.c — leading global flags (docs/cli.md). */
 #include "cli/cli.h"
 #include "core/backend.h"
+#include "core/ssh.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -23,10 +24,11 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         if (a[0] != '-') break; /* subcommand */
         const char *v;
         if (strcmp(a, "--ssh") == 0) {
-            /* main.c delegates this before config parsing; keeping the case
-             * gives a deterministic error if that invariant is bypassed. */
-            fprintf(stderr, "tny: internal error: --ssh was not delegated\n");
-            return -1;
+            if (!(v = need_val(argc, argv, &i, a))) return -1;
+            g->ssh = v;
+        } else if (strcmp(a, "--ssh-cwd") == 0) {
+            if (!(v = need_val(argc, argv, &i, a))) return -1;
+            g->ssh_cwd = v;
         } else if (strcmp(a, "--provider") == 0 || strcmp(a, "--backend") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->backend = v;
@@ -178,6 +180,10 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         tny_ctx_free(ctx);
         return NULL;
     }
+    if (g->ssh && cli_ssh_attach(ctx, g->ssh, g->ssh_cwd) != 0) {
+        tny_ctx_free(ctx);
+        return NULL;
+    }
     /* after resolve: flags beat whatever provider profile was applied */
     if (g->base_url) { free(ctx->base_url); ctx->base_url = xstrdup(g->base_url); }
     if (g->wire_api) {
@@ -217,4 +223,30 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         ctx->service_tier = xstrdup("fast");
     }
     return ctx;
+}
+
+/* --ssh: tny stays local; the native loop's workspace tools run on TARGET
+ * (docs/adr/0022). Host backends own their own tool loops and cannot be
+ * redirected, so they are refused rather than silently running locally. */
+int cli_ssh_attach(tny_ctx *ctx, const char *target, const char *remote_cwd) {
+    if (ctx->backend != TNY_BK_OPENAI) {
+        fprintf(stderr, "tny: --ssh runs tools through tny's native loop; provider '%s' "
+                        "executes its own tools on this machine.\n"
+                        "Use an openai-compatible provider: tny --ssh %s --provider claude\n",
+                tny_backend_name((tny_backend_id)ctx->backend), target);
+        return -1;
+    }
+    char err[256];
+    if (ssh_target_set(ctx, target, err, sizeof err) < 0) {
+        fprintf(stderr, "tny: --ssh: %s\n", err);
+        return -1;
+    }
+    free(ctx->ssh_cwd);
+    ctx->ssh_cwd = remote_cwd && *remote_cwd ? xstrdup(remote_cwd) : NULL;
+    if (ssh_connect(ctx, err, sizeof err) < 0) {
+        fprintf(stderr, "tny: --ssh: %s\n", err);
+        ssh_disconnect(ctx);
+        return -1;
+    }
+    return 0;
 }

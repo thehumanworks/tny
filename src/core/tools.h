@@ -49,6 +49,9 @@ char *tool_fs_execute(tools_env *env, const char *name, yyjson_val *args, bool *
 char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
 char *tool_web_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
 char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
+/* Remote variants of the workspace tools when ctx->ssh_host is set
+ * (tools_ssh.c, docs/adr/0022); *handled=false when tools stay local. */
+char *tool_ssh_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
 
 /* Shared helpers for tool impls */
 char *tool_err(const char *fmt, ...) __attribute__((format(printf, 1, 2)));

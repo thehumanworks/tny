@@ -64,6 +64,10 @@ TARGETS = [
     ("src/backends/openai/toolcalls.c", None, None,
      "tests/integration/test_openai.py"),
     ("src/backends/codex/codex.c", ["cx_steer"], None),
+    # --ssh remote tool runtime (docs/adr/0022): target parsing, the quoting
+    # + stdin/timeout primitive, and every remote tool script
+    ("src/core/ssh.c", ["ssh_target_set", "ssh_shell_quote", "ssh_run"], None),
+    ("src/core/tools_ssh.c", None, None),
     # native grok device-code login / refresh / logout (docs/adr/0021)
     ("src/core/grok_login.c", None, None),
     # steer-text ownership + turn-end sweep (docs/adr/0013)

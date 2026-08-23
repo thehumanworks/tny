@@ -69,28 +69,34 @@ Configuration metadata such as the last selected provider/model is not part of
 the conversation and retains its existing settings behavior. See
 [ADR 0020](adr/0020-ephemeral-sessions.md).
 
-## SSH execution mode
+## SSH: run the tools on another machine
 
-`--ssh user@host[:port]` is a process-level execution boundary
-([ADR 0022](adr/0022-ssh-execution-boundary.md)). `tny` delegates the complete
-invocation through OpenSSH before loading local workspace config, sessions,
-providers, MCP servers, or tools, so the remote machine owns every file,
-terminal, backend, MCP, session, and tool-call interaction for that run —
-regardless of provider.
+`--ssh user@host[:port]` keeps tny local and runs every workspace tool of the
+native loop — `read_file`, `edit_file`, `grep_files`, `terminal`, … — on the
+remote host over one persistent OpenSSH connection
+([ADR 0022](adr/0022-ssh-execution-boundary.md)). The remote host needs
+`sshd`, a POSIX `sh` and coreutils; **tny is not required there**.
 
 ```sh
-tny --ssh dev@example.com ask "inspect the repository"
-tny --ssh dev@example.com:2222          # remote TUI
-tny --ssh '[2001:db8::1]:22' status
+tny --ssh dev@example.com --ssh-cwd ~/app          # TUI, tools act on the box
+tny --ssh dev@example.com:2222 ask "run the tests" # one-shot
+tny --ssh '[2001:db8::1]:22' ask "df -h"
 ```
 
-The remaining arguments are forwarded verbatim (single-quoted for the remote
-shell). The remote host must have `tny` in its non-interactive SSH `PATH`.
-Authentication and host-key checking are entirely controlled by the user's
-OpenSSH configuration; tny disables neither.
+- `--ssh-cwd DIR` sets the remote working directory (default: the login
+  directory). `--cwd` stays the *local* workspace for settings and sessions.
+- The connection is opened before the TUI starts, so OpenSSH prompts for
+  passwords / host keys as usual; tool calls then reuse it (`BatchMode`).
+  The master lives in `~/.tny/ssh/` and idles out after 10 minutes.
+- Works with the native loop providers (`openai`, `claude`, `grok`, any
+  openai-compatible profile). Cursor, Codex and ACP hosts execute their own
+  tools and are refused with an explanatory error.
+- `memory`, `skill`, `subagent`, MCP and web tools stay local; `open_file`
+  and `install_skill` report that they are unavailable over `--ssh`.
+- `/undo` does not cover remote edits.
 
-wasm behavior: remote-only — the browser build has no `ssh` to exec, so `--ssh`
-fails with the `could not execute ssh` error before any other work.
+wasm behavior: remote-only — the browser build has no `ssh` to spawn, so
+`--ssh` fails at connect with a clear error.
 
 ## Provider selection
 

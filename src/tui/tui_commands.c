@@ -6,6 +6,7 @@
 #include "net/net.h"
 #include "core/tools.h"
 #include "cli/cli.h"
+#include "core/ssh.h"
 #include "mcp/mcp.h"
 
 #include <ctype.h>
@@ -40,7 +41,7 @@ static const struct { const char *name, *hint; } CMDS[] = {
     {"skills",      "list discovered skills"},
     {"workspace",   "/workspace [add|remove DIR]"},
     {"image",       "/image PATH — attach to the next prompt"},
-    {"ssh",         "/ssh user@host[:port] — move this TUI to a remote host"},
+    {"ssh",         "/ssh user@host[:port] [dir] | /ssh off — run tools on a remote host"},
     {"undo",        "undo the last file change"},
     {"copy",        "copy the last reply to the clipboard"},
     {"trace",       "toggle raw event tracing"},
@@ -389,18 +390,27 @@ void tui_command(tui *t, const char *line) {
     if (!*c || strcmp(c, "help") == 0) cmd_help(t);
     else if (strcmp(c, "ssh") == 0) {
         if (!arg || !*arg) {
-            tui_sys(t, "usage: /ssh user@host[:port]");
+            if (t->ctx->ssh_host)
+                tui_note(t, "tools run on %s in %s", t->ctx->ssh_host, t->ctx->ssh_cwd);
+            else tui_sys(t, "usage: /ssh user@host[:port] [remote-dir] | /ssh off");
+        } else if (strcmp(arg, "off") == 0) {
+            if (t->ctx->ssh_host) {
+                tui_note(t, "disconnected from %s; tools run locally", t->ctx->ssh_host);
+                ssh_disconnect(t->ctx);
+            } else tui_sys(t, "not connected");
         } else {
-            /* Make the boundary structural: stop all local execution state,
-             * restore the user's terminal, then replace this process with
-             * ssh running a fresh remote tny TUI. */
-            tui_prewarm_drop(t);
-            tui_drop_backend(t);
+            char *target = xstrdup(arg);
+            char *dir = strchr(target, ' ');
+            if (dir) { *dir++ = 0; while (*dir == ' ') dir++; }
+            /* OpenSSH may prompt (password, host key): leave the block and
+             * hand it the terminal. The backend/session stay as they are. */
             tui_raw_begin(t);
             fflush(stdout);
-            int rc = cli_ssh_exec_tui(arg);
-            tui_raw_end(t); /* reached only when validation/exec failed */
-            tui_note(t, "ssh failed (exit %d)", rc);
+            int rc = cli_ssh_attach(t->ctx, target, dir);
+            tui_raw_end(t);
+            if (rc == 0) tui_note(t, "tools now run on %s in %s", t->ctx->ssh_host, t->ctx->ssh_cwd);
+            else tui_err(t, "ssh: could not attach (see above)");
+            free(target);
         }
     } else if (strcmp(c, "quit") == 0 || strcmp(c, "exit") == 0) t->quit = true;
     else if (strcmp(c, "clear") == 0) {

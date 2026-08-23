@@ -113,6 +113,12 @@ static char *call_detail(tools_env *env, const char *name, yyjson_val *args) {
     if (!p) p = jget_str(args, "url");
     if (!p) return NULL;
     if (p[0] == '/') return xstrdup(p);
+    if (env->ctx->ssh_host) { /* remote: no local realpath; join textually */
+        buf_t b;
+        buf_init(&b);
+        buf_appendf(&b, "%s/%s", env->ctx->ssh_cwd ? env->ctx->ssh_cwd : "", p);
+        return buf_detach(&b);
+    }
     char *err = NULL;
     char *abs = tool_resolve_path(env, p, &err);
     free(err);
@@ -172,7 +178,8 @@ char *tools_execute(tools_env *env, const char *name, const char *args_json) {
     free(detail);
 
     bool handled = false;
-    char *out = tool_fs_execute(env, name, args, &handled);
+    char *out = tool_ssh_execute(env, name, args, &handled);
+    if (!handled) out = tool_fs_execute(env, name, args, &handled);
     if (!handled) out = tool_shell_execute(env, name, args, &handled);
     if (!handled) out = tool_web_execute(env, name, args, &handled);
     if (!handled) out = tool_ext_execute(env, name, args, &handled);
