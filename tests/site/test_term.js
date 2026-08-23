@@ -281,6 +281,21 @@ async function run() {
     assert.ok(t3.completed);
   });
 
+  await test("wrapToCols word-wraps and keeps newlines", () => {
+    assert.deepStrictEqual(C.wrapToCols("hello world", 5), ["hello", "world"]);
+    assert.deepStrictEqual(C.wrapToCols("abcdefghij", 4), ["abcd", "efgh", "ij"]);
+    assert.deepStrictEqual(C.wrapToCols("a\nb c d", 3), ["a", "b c", "d"]);
+    assert.deepStrictEqual(C.wrapToCols("", 20), [""]);
+    assert.ok(C.wrapToCols("Bring an OpenAI-compatible key;", 28).every((l) => l.length <= 28));
+  });
+
+  await test("proposeTermGeometry never invents columns that do not fit", () => {
+    assert.deepStrictEqual(C.proposeTermGeometry(390, 300, 7.5, 15), { cols: 52, rows: 20 });
+    assert.deepStrictEqual(C.proposeTermGeometry(0, 0, 8, 16), { cols: 2, rows: 1 });
+    assert.deepStrictEqual(C.proposeTermGeometry(100, 80, 8, 16), { cols: 12, rows: 5 });
+    assert.strictEqual(C.proposeTermGeometry(320, 200, 8, 16).cols < 80, true);
+  });
+
   await test("AES-GCM roundtrip", async () => {
     const key = await C.aesGcmGenerateKey();
     const pt = new TextEncoder().encode(JSON.stringify({ k: "sk-round", u: "https://z.example/v1" }));

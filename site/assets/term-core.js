@@ -400,6 +400,59 @@
     ["quit", "this is a web page"],
   ];
 
+  /* Word-wrap for the pre-launch banner so a 30-col phone does not
+   * mid-word-split the same way a hard-coded 70-col line would. Existing
+   * newlines stay paragraph breaks. */
+  function wrapToCols(text, cols) {
+    var width = Math.max(8, cols | 0);
+    var src = text == null ? "" : String(text);
+    var paragraphs = src.split(/\r\n|\n|\r/);
+    var out = [];
+    for (var p = 0; p < paragraphs.length; p++) {
+      var line = paragraphs[p];
+      if (!line) {
+        out.push("");
+        continue;
+      }
+      var words = line.split(/[ \t]+/);
+      var cur = "";
+      for (var i = 0; i < words.length; i++) {
+        var word = words[i];
+        if (!word) continue;
+        while (word.length > width) {
+          if (cur) {
+            out.push(cur);
+            cur = "";
+          }
+          out.push(word.slice(0, width));
+          word = word.slice(width);
+        }
+        if (!cur) cur = word;
+        else if (cur.length + 1 + word.length <= width) cur += " " + word;
+        else {
+          out.push(cur);
+          cur = word;
+        }
+      }
+      if (cur) out.push(cur);
+    }
+    return out;
+  }
+
+  /* xterm.js defaults to 80×24. On a phone that is wider than the
+   * container, so overflow:hidden clips the row. Floor to the cells that
+   * actually fit; never invent extra columns. */
+  function proposeTermGeometry(widthPx, heightPx, cellW, cellH) {
+    var w = Math.max(0, Number(widthPx) || 0);
+    var h = Math.max(0, Number(heightPx) || 0);
+    var cw = Math.max(1, Number(cellW) || 1);
+    var ch = Math.max(1, Number(cellH) || 1);
+    return {
+      cols: Math.max(2, Math.floor(w / cw)),
+      rows: Math.max(1, Math.floor(h / ch)),
+    };
+  }
+
   var api = {
     DEFAULT_BASE: DEFAULT_BASE,
     PARAM_MAP: PARAM_MAP,
@@ -416,6 +469,8 @@
     maskSecret: maskSecret,
     obfuscateUrl: obfuscateUrl,
     redactText: redactText,
+    wrapToCols: wrapToCols,
+    proposeTermGeometry: proposeTermGeometry,
     SseParser: SseParser,
     toResponsesInput: toResponsesInput,
     ResponsesTurn: ResponsesTurn,

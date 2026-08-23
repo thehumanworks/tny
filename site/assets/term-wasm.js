@@ -27,6 +27,95 @@
   });
   term.open(mount);
 
+  /* Fit to the mount. xterm defaults to 80 columns; a phone-width
+   * .term-wrap is ~40, and overflow:hidden was clipping the welcome
+   * lines down the right edge. */
+  function cellSize() {
+    var core = term._core;
+    if (core && core._renderService && core._renderService.dimensions) {
+      var d = core._renderService.dimensions;
+      var cell = (d.css && d.css.cell) || d.actualCell;
+      if (cell && cell.width > 0 && cell.height > 0) {
+        return { width: cell.width, height: cell.height };
+      }
+    }
+    var probe = document.createElement("span");
+    probe.textContent = "MMMMMMMM";
+    probe.style.cssText =
+      "position:absolute;visibility:hidden;white-space:pre;font-family:" +
+      term.options.fontFamily +
+      ";font-size:" +
+      term.options.fontSize +
+      "px";
+    mount.appendChild(probe);
+    var r = probe.getBoundingClientRect();
+    mount.removeChild(probe);
+    return {
+      width: Math.max(1, r.width / 8),
+      height: Math.max(term.options.fontSize * 1.2, r.height),
+    };
+  }
+
+  function fit() {
+    var cell = cellSize();
+    var sb = 0;
+    if (term.element) {
+      var vp = term.element.querySelector(".xterm-viewport");
+      if (vp) sb = Math.max(0, vp.offsetWidth - vp.clientWidth);
+    }
+    var geo = C.proposeTermGeometry(
+      mount.clientWidth - sb,
+      mount.clientHeight,
+      cell.width,
+      cell.height
+    );
+    if (geo.cols !== term.cols || geo.rows !== term.rows) {
+      term.resize(geo.cols, geo.rows);
+    }
+    mount.setAttribute("data-term-cols", String(term.cols));
+    mount.setAttribute("data-term-rows", String(term.rows));
+  }
+
+  function syncViewport() {
+    var vv = window.visualViewport;
+    if (vv) {
+      document.documentElement.style.setProperty("--vv-height", vv.height + "px");
+      document.documentElement.classList.toggle(
+        "kb-open",
+        (window.innerHeight || 0) - vv.height > 120
+      );
+    }
+    fit();
+  }
+
+  var fitQ = 0;
+  function requestFit() {
+    if (fitQ) return;
+    fitQ = window.requestAnimationFrame(function () {
+      fitQ = 0;
+      syncViewport();
+    });
+  }
+
+  syncViewport();
+  if (window.ResizeObserver) {
+    new window.ResizeObserver(requestFit).observe(mount);
+  }
+  window.addEventListener("resize", requestFit);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", requestFit);
+    window.visualViewport.addEventListener("scroll", requestFit);
+  }
+  if (term.element) {
+    term.element.addEventListener("focusin", function () {
+      var box = document.getElementById("tny-term");
+      if (box && box.scrollIntoView) {
+        box.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
+      requestFit();
+    });
+  }
+
   var stdinQ = [];
   var enc = new TextEncoder();
   var started = false;
@@ -69,14 +158,29 @@
     });
   }
 
+  function writeln(text) {
+    var lines = C.wrapToCols(text, term.cols);
+    for (var i = 0; i < lines.length; i++) term.write(lines[i] + "\r\n");
+  }
+
   function intro() {
-    term.write("\x1b[1mtny\x1b[0m — the real CLI, compiled to WebAssembly.\r\n");
-    term.write("Runs entirely in this tab. Bring an OpenAI-compatible key;\r\n");
-    term.write("it is validated at intake and sent only to your provider.\r\n");
-    term.write("Any provider works: pass NAME_BASE_URL + NAME_API_KEY in the\r\n");
-    term.write("URL hash, or run /provider setup inside the terminal.\r\n");
-    term.write("CORS note: api.openai.com refuses browser calls — use a\r\n");
-    term.write("CORS-open gateway or a local http://127.0.0.1 server.\r\n\r\n");
+    var title = C.wrapToCols("tny — the real CLI, compiled to WebAssembly.", term.cols);
+    if (title.length) {
+      var first = title[0];
+      term.write(
+        first.indexOf("tny") === 0
+          ? "\x1b[1mtny\x1b[0m" + first.slice(3) + "\r\n"
+          : first + "\r\n"
+      );
+      for (var t = 1; t < title.length; t++) term.write(title[t] + "\r\n");
+    }
+    writeln("Runs entirely in this tab. Bring an OpenAI-compatible key;");
+    writeln("it is validated at intake and sent only to your provider.");
+    writeln("Any provider works: pass NAME_BASE_URL + NAME_API_KEY in the");
+    writeln("URL hash, or run /provider setup inside the terminal.");
+    writeln("CORS note: api.openai.com refuses browser calls — use a");
+    writeln("CORS-open gateway or a local http://127.0.0.1 server.");
+    term.write("\r\n");
   }
 
   /* Named-provider pairs from the hash (docs/adr/0018): keys sanitized at
@@ -113,7 +217,10 @@
       return Promise.resolve({ key: key, base: base, env: env });
     intro();
     function askKey() {
-      term.write("api key (empty to start without one — /provider setup adds any provider)> ");
+      var hint = term.cols < 48
+        ? "api key (empty skips — /provider setup)> "
+        : "api key (empty to start without one — /provider setup adds any provider)> ";
+      term.write(hint);
       return readLine(true).then(function (raw) {
         if (!raw.trim()) return "";
         var k = C.sanitizeApiKey(raw);
