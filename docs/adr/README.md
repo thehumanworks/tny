@@ -22,3 +22,4 @@ these as `docs/adr/NNNN`.
 | [0014](0014-build-time-version-from-git.md) | `TNY_VERSION` comes from `git describe` at build time (generated header); releases pass the tag; nothing hardcoded |
 | [0015](0015-settings-default-effort.md) | settings.json carries a user-authored default effort (global or per-provider); flag//effort > env > settings; tny still never writes it |
 | [0016](0016-responses-api-default-wire.md) | The native backend defaults to the Responses API wire; Chat Completions is the `wire_api:"chat"` opt-in |
+| [0017](0017-ephemeral-sessions.md) | `--ephemeral` keeps conversation state process-local, blocks resume/import, and applies provider no-store controls where defined |
