@@ -16,6 +16,7 @@ typedef struct {
     const char **add_dirs;   /* --add-dir, repeatable */
     int         n_add_dirs;
     bool        json;        /* --json */
+    bool        ephemeral;   /* --ephemeral | --no-save */
     bool        resume_picker;   /* -r */
     bool        resume_last;     /* -c / --continue */
     const char *resume;      /* --resume value */
