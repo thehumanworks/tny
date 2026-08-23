@@ -103,6 +103,24 @@ The server can **send requests** (approvals). Pause the turn until tny replies a
 
 Reuse the user's `codex login` / ChatGPT session. tny does not store OpenAI cookies. `doctor` should run `codex login status` when the binary exists.
 
+When no login exists yet, `tny --provider codex login` performs the sign-in
+**through the app-server itself** ([ADR 0017](../adr/0017-subscription-logins-claude-grok.md)):
+
+1. connect (attach or spawn) and `initialize` as usual;
+2. `account/login/start` with `{"type":"chatgpt"}` (browser flow — the
+   result carries `authUrl`, and the app-server hosts the localhost OAuth
+   callback, so the host must stay up) or `{"type":"chatgptDeviceCode"}`
+   with `--device` (result carries `verificationUrl` + `userCode`);
+3. print the URL / code (best-effort browser open for the browser flow) and
+   pump the socket until the `account/login/completed` notification
+   (`{loginId, success, error}`); `account/login/cancel` on Ctrl-C/timeout.
+
+The host writes `$CODEX_HOME/auth.json` and owns refresh; tny never parses
+or prints the tokens — success is observable as `tny_codex_auth_present()`.
+Hosts too old for the v2 account endpoints answer -32601 and tny falls back
+to running `codex login`. The flow is covered by
+`tests/integration/test_codex.sh` run 7 against the scripted mock.
+
 ## Client metadata
 
 Set a stable `clientInfo.name` of `tny` so Codex usage attribution stays readable.

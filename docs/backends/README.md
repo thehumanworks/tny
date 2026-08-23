@@ -15,7 +15,11 @@ Pick a backend per process with `--backend` or `settings.json`. Switching mid-se
 
 - User wants Cursor's local/cloud SDK agent → `cursor` (bridge), not `agent acp`.
 - User wants Codex's full harness (approvals, threads, steer) → `codex` WebSocket, not Codex-via-ACP.
-- User wants Gemini / Claude Code / OpenCode / Copilot / … → `acp`.
+- User wants Gemini / Claude Code / OpenCode / Copilot / … agent harnesses → `acp`.
+- User has a Claude subscription (Claude Code OAuth token) or a grok CLI
+  session and wants tny's native loop → the builtin `claude` / `grok`
+  profiles on the openai backend ([ADR 0017](../adr/0017-subscription-logins-claude-grok.md),
+  [openai-compatible.md](openai-compatible.md#builtin-subscription-profiles-claude-and-grok)).
 - User has an OpenAI-compatible base URL → `openai`.
 
 Cursor also speaks ACP (`agent acp`). Support that only as a generic ACP agent, not as the Cursor backend. The product requirement is the **SDK bridge**.

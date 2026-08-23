@@ -42,9 +42,11 @@ tny -c                      # resume last for this workspace
 
 ## Provider selection
 
-`--provider` accepts the four builtin names plus any **named OpenAI-compatible
-provider** (`"openrouter"`, `"xai"`, a local gateway — any name), defined
-either way or both:
+`--provider` accepts the four builtin names, the two **builtin subscription
+profiles** `claude` and `grok` ([ADR 0017](adr/0017-subscription-logins-claude-grok.md),
+[backends/openai-compatible.md](backends/openai-compatible.md#builtin-subscription-profiles-claude-and-grok)),
+plus any **named OpenAI-compatible provider** (`"openrouter"`, `"xai"`, a
+local gateway — any name), defined either way or both:
 
 - a top-level `~/.tny/settings.json` object with a `base_url`, and/or
 - `NAME_BASE_URL` in the environment (name uppercased, non-alphanumerics →
@@ -62,8 +64,29 @@ paths (`--help`, `--version`, first TUI paint) never run it.
 2. `openai` if `OPENAI_BASE_URL` or `OPENAI_API_KEY` is set
 3. the env-defined provider if **exactly one** `NAME_BASE_URL` + `NAME_API_KEY` pair is set (a lone `*_BASE_URL` from an unrelated tool never hijacks the default; keyless local gateways need an explicit `--provider NAME` once — `last_provider` remembers it)
 4. `codex` if a `codex login` exists (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`) — subscriptions need no API key
-5. `cursor` if `CURSOR_API_KEY` is set in the environment
-6. `openai` (its connect error explains how to configure a key)
+5. `claude` if a Claude Code OAuth login exists (`CLAUDE_CODE_OAUTH_TOKEN`, or `~/.claude/.credentials.json` from `claude /login`; a bare `ANTHROPIC_API_KEY` never hijacks the default — use `--provider claude`)
+6. `grok` if a grok CLI session exists (`~/.grok/auth.json` from `grok login`)
+7. `cursor` if `CURSOR_API_KEY` is set in the environment
+8. `openai` (its connect error explains how to configure a key)
+
+A settings.json object or `NAME_BASE_URL` env var named `claude` or `grok`
+shadows the builtin profile entirely: explicit config wins.
+
+## `tny login`
+
+`tny [--provider NAME] login [--device]` signs in to the active provider.
+tny never stores tokens itself:
+
+| Provider | What login does |
+| --- | --- |
+| codex | Connects to `codex app-server` and calls `account/login/start` — the browser flow prints (and tries to open) the `authUrl`; `--device` uses the device-code flow and prints `verificationUrl` + `userCode`. tny pumps the socket until `account/login/completed`; the host writes `$CODEX_HOME/auth.json`, which tny auto-detects afterwards. Hosts without the RPC fall back to `codex login`. |
+| claude | Reports the credential tny resolved (`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `~/.claude/.credentials.json`), else runs `claude setup-token`; the user exports the printed token as `CLAUDE_CODE_OAUTH_TOKEN`. |
+| grok | Runs `grok login --device-auth` (RFC 8628 device code — works over SSH/containers); the grok CLI stores the session token in `~/.grok/auth.json`. |
+| cursor | Reports whether `CURSOR_API_KEY` is set. |
+| openai / named | Reports whether an API key resolved (`tny setup` configures one). |
+
+`tny logout` mirrors this: `codex logout` / `grok logout` where a host CLI
+owns the credential, an env-var hint otherwise.
 
 ## Reasoning effort
 
@@ -136,6 +159,8 @@ JSON object (keep field names stable):
 | acp | `--agent CMD` plus extra args after `--`, e.g. `tny --provider acp --agent gemini -- acp` |
 | openai | `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0016](adr/0016-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API` |
 | named provider | same flags; `NAME_BASE_URL` (beats the settings `base_url`), key from the profile's `api_key_env`, default `NAME_API_KEY` — never `OPENAI_API_KEY`; `NAME_WIRE_API` / profile `wire_api` |
+| claude (builtin profile) | credential from `CLAUDE_CODE_OAUTH_TOKEN` > `ANTHROPIC_API_KEY` > `~/.claude/.credentials.json` (`$CLAUDE_CONFIG_DIR` honored); OAuth tokens add `anthropic-beta: oauth-2025-04-20`; chat wire; default model `claude-sonnet-4-6`; `TNY_CLAUDE_BIN` for login |
+| grok (builtin profile) | session token from `~/.grok/auth.json` → CLI chat proxy (chat wire, `X-XAI-Token-Auth` + `x-grok-model-override` headers, default model `grok-build`); else `XAI_API_KEY` → `api.x.ai` (responses wire, default model `grok-4.6`); `TNY_GROK_BIN` for login/logout |
 
 Model precedence for every provider: `--model` > saved `models.{provider}` >
 the provider object's `model` (openai-compatible only) > `NAME_DEFAULT_MODEL`
