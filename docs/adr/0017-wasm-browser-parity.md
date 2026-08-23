@@ -128,7 +128,11 @@ fails. Sessions persist for the tab (MEMFS); OPFS is later and unpromised.
   the artifact size (`wasm-size-check`, budget = the 1.5 MiB Linux
   budget), and runs the Playwright page smoke.
 - Pages CI builds `tny-web.mjs` and publishes it under `assets/wasm/`;
-  the artifact is never committed to `site/` (gitignored).
+  the artifact is never committed to `site/` (gitignored), but the CI
+  mirror into `docs/assets/wasm/` **is** committed — Pages deploys from
+  the `main:/docs` branch, so the publish gate must stage before diffing
+  (`git add docs` + `git diff --cached`) or brand-new untracked
+  artifacts are silently skipped.
 - AGENTS.md gains the invariant: every new backend or tool states its
   wasm behavior (works / remote-only / clean error) — review catches the
   statement, CI catches the behavior.
