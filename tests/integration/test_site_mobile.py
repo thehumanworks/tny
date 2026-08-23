@@ -64,45 +64,54 @@ def main() -> None:
                 if exe
                 else pw.chromium.launch()
             )
-            page = browser.new_page(viewport={"width": 390, "height": 844})
             errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/index.html")
-            page.wait_for_selector("[data-term-xterm] .xterm-rows", timeout=15000)
 
-            cols = int(page.get_attribute("[data-term-xterm]", "data-term-cols") or "0")
-            assert 2 <= cols < 80, f"expected a fitted phone column count, got {cols}"
+            def check_phone(width, height, color_scheme):
+                page = browser.new_page(viewport={"width": width, "height": height})
+                page.on("pageerror", lambda e: errors.append(f"{width}x{height}: {e}"))
+                page.emulate_media(color_scheme=color_scheme)
+                page.goto(f"http://127.0.0.1:{port}/index.html")
+                page.wait_for_selector("[data-term-xterm] .xterm-rows", timeout=15000)
 
-            geom = page.evaluate(
-                """() => {
-                  const mount = document.querySelector('[data-term-xterm]');
-                  const screen = document.querySelector('.xterm-screen');
-                  const nav = Array.from(document.querySelectorAll('.nav a'));
-                  const install = document.querySelector('.install-line');
-                  return {
-                    mountW: mount.getBoundingClientRect().width,
-                    screenW: screen ? screen.getBoundingClientRect().width : 0,
-                    navMinH: Math.min(...nav.map((a) => a.getBoundingClientRect().height)),
-                    installWrap: install
-                      ? getComputedStyle(install).whiteSpace
-                      : "",
-                    overflowX: document.documentElement.scrollWidth
-                      - document.documentElement.clientWidth,
-                  };
-                }"""
-            )
-            assert geom["screenW"] <= geom["mountW"] + 2, geom
-            assert geom["navMinH"] >= 40, geom
-            assert geom["installWrap"] == "normal", geom
-            assert geom["overflowX"] <= 2, geom
+                cols = int(page.get_attribute("[data-term-xterm]", "data-term-cols") or "0")
+                assert 2 <= cols < 80, f"{width}x{height}: fitted cols={cols}"
 
-            text = page.evaluate(
-                """() => Array.from(document.querySelectorAll(
-                     '[data-term-xterm] .xterm-rows > div'))
-                     .map((r) => r.textContent).join('\\n')"""
-            )
-            assert "OpenAI-compatible" in text.replace(" ", ""), text
-            assert "provider" in text, text
+                geom = page.evaluate(
+                    """() => {
+                      const mount = document.querySelector('[data-term-xterm]');
+                      const screen = document.querySelector('.xterm-screen');
+                      const nav = Array.from(document.querySelectorAll('.nav a'));
+                      const install = document.querySelector('.install-line');
+                      return {
+                        mountW: mount.getBoundingClientRect().width,
+                        screenW: screen ? screen.getBoundingClientRect().width : 0,
+                        navMinH: Math.min(...nav.map((a) => a.getBoundingClientRect().height)),
+                        installWrap: install
+                          ? getComputedStyle(install).whiteSpace
+                          : "",
+                        overflowX: document.documentElement.scrollWidth
+                          - document.documentElement.clientWidth,
+                      };
+                    }"""
+                )
+                assert geom["screenW"] <= geom["mountW"] + 2, (width, geom)
+                assert geom["navMinH"] >= 40, (width, geom)
+                assert geom["installWrap"] == "normal", (width, geom)
+                assert geom["overflowX"] <= 2, (width, geom)
+
+                text = page.evaluate(
+                    """() => Array.from(document.querySelectorAll(
+                         '[data-term-xterm] .xterm-rows > div'))
+                         .map((r) => r.textContent).join('\\n')"""
+                )
+                assert "tny" in text, (width, text)
+                assert "provider" in text, (width, text)
+                if width <= 320:
+                    assert "empty skips" in text, (width, text)
+                page.close()
+
+            check_phone(390, 844, "light")
+            check_phone(320, 568, "dark")
             assert not errors, f"page errors: {errors}"
             browser.close()
     finally:

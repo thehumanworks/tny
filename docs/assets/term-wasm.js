@@ -163,16 +163,27 @@
     for (var i = 0; i < lines.length; i++) term.write(lines[i] + "\r\n");
   }
 
-  function intro() {
+  function writeTitle() {
     var title = C.wrapToCols("tny — the real CLI, compiled to WebAssembly.", term.cols);
-    if (title.length) {
-      var first = title[0];
-      term.write(
-        first.indexOf("tny") === 0
-          ? "\x1b[1mtny\x1b[0m" + first.slice(3) + "\r\n"
-          : first + "\r\n"
-      );
-      for (var t = 1; t < title.length; t++) term.write(title[t] + "\r\n");
+    if (!title.length) return;
+    var first = title[0];
+    term.write(
+      first.indexOf("tny") === 0
+        ? "\x1b[1mtny\x1b[0m" + first.slice(3) + "\r\n"
+        : first + "\r\n"
+    );
+    for (var t = 1; t < title.length; t++) term.write(title[t] + "\r\n");
+  }
+
+  function intro() {
+    writeTitle();
+    /* A 320×568 phone has ~12 visible rows after chrome. Keep the
+     * prompt on screen instead of painting a desktop-length banner. */
+    if (term.cols < 42 || term.rows < 16) {
+      writeln("Runs in this tab. Bring an OpenAI-compatible key, or leave empty and use /provider setup.");
+      writeln("api.openai.com blocks browser CORS — use a gateway or 127.0.0.1.");
+      term.write("\r\n");
+      return;
     }
     writeln("Runs entirely in this tab. Bring an OpenAI-compatible key;");
     writeln("it is validated at intake and sent only to your provider.");

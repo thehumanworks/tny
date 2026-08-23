@@ -90,6 +90,7 @@ def main() -> None:
         "proposeTermGeometry",
         "visualViewport",
         "data-term-cols",
+        "empty skips",
     ):
         if needle not in wasm_boot:
             fail(f"term-wasm.js missing {needle}")
