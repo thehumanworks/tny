@@ -404,7 +404,7 @@
    * mid-word-split the same way a hard-coded 70-col line would. Existing
    * newlines stay paragraph breaks. */
   function wrapToCols(text, cols) {
-    var width = Math.max(8, cols | 0);
+    var width = Math.max(1, cols | 0);
     var src = text == null ? "" : String(text);
     var paragraphs = src.split(/\r\n|\n|\r/);
     var out = [];

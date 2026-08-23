@@ -286,6 +286,7 @@ async function run() {
     assert.deepStrictEqual(C.wrapToCols("abcdefghij", 4), ["abcd", "efgh", "ij"]);
     assert.deepStrictEqual(C.wrapToCols("a\nb c d", 3), ["a", "b c", "d"]);
     assert.deepStrictEqual(C.wrapToCols("", 20), [""]);
+    assert.deepStrictEqual(C.wrapToCols("ab", 0), ["a", "b"]);
     assert.ok(C.wrapToCols("Bring an OpenAI-compatible key;", 28).every((l) => l.length <= 28));
   });
 
