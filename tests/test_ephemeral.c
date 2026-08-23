@@ -1,8 +1,9 @@
-/* test_ephemeral.c — no-write session and history invariants. */
+/* test_ephemeral.c — no-write session, history, and host-wire invariants. */
 #include "greatest.h"
 #include "cli/cli.h"
 #include "core/config.h"
 #include "core/session.h"
+#include "backends/codex/codex.h"
 #include "tui/tui.h"
 #include "util/util.h"
 
@@ -109,8 +110,35 @@ TEST ephemeral_tui_history_is_process_local(void) {
     PASS();
 }
 
+TEST ephemeral_codex_thread_start_sets_wire_flag(void) {
+    tny_ctx ctx = {0};
+    ctx.no_save = true;
+    cx_impl cx = {0};
+    cx.ctx = &ctx;
+    cx.next_id = 1;
+
+    ASSERT(cx_request(&cx, "thread/start", "{\"model\":\"gpt-5\"}", CXR_FREE) > 0);
+    ASSERT_EQ(1, cx.n_out);
+    ASSERT(strstr(cx.outq[0], "\"ephemeral\":true"));
+    ASSERT(strstr(cx.outq[0], "\"model\":\"gpt-5\""));
+    ASSERT_EQ(0, cx_flush(&cx));
+    free(cx.outq);
+
+    memset(&cx, 0, sizeof cx);
+    ctx.no_save = false;
+    cx.ctx = &ctx;
+    cx.next_id = 1;
+    ASSERT(cx_request(&cx, "thread/start", "{}", CXR_FREE) > 0);
+    ASSERT_EQ(1, cx.n_out);
+    ASSERT_FALSE(strstr(cx.outq[0], "\"ephemeral\""));
+    ASSERT_EQ(0, cx_flush(&cx));
+    free(cx.outq);
+    PASS();
+}
+
 SUITE(ephemeral_suite) {
     RUN_TEST(ephemeral_flags_parse_globally);
     RUN_TEST(ephemeral_session_artifacts_stay_in_memory);
     RUN_TEST(ephemeral_tui_history_is_process_local);
+    RUN_TEST(ephemeral_codex_thread_start_sets_wire_flag);
 }
