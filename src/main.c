@@ -22,6 +22,11 @@ int main(int argc, char **argv) {
         }
     }
 
+    /* SSH is a process boundary, not a tool hint: delegate before loading
+     * local config, sessions, workspace state, backends, or MCP. */
+    int ssh_rc = cli_ssh_maybe_delegate(argc, argv);
+    if (ssh_rc >= 0) return ssh_rc;
+
     cli_globals g = {0};
     int ci = cli_parse_globals(argc, argv, &g);
     if (ci < 0) return 1;
@@ -67,7 +72,8 @@ int main(int argc, char **argv) {
     } else if (strcmp(cmd, "workspace") == 0) {
         rc = cmd_workspace(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "status") == 0) {
-        rc = cmd_status(ctx, &g, cargc, cargv);
+        rc = ctx->no_save ? cmd_status_ephemeral(ctx, &g, cargc, cargv)
+                          : cmd_status(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "doctor") == 0) {
         rc = cmd_doctor(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "usage") == 0) {

@@ -65,6 +65,10 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         fprintf(stderr, "tny: session <last|id>\nExample: tny session last\n");
         return 1;
     }
+    if (ctx->no_save) {
+        fprintf(stderr, "tny: --ephemeral cannot open, migrate, or recover saved sessions\n");
+        return 1;
+    }
     if (sub && strcmp(sub, "recover") == 0) {
         char *nid = session_recover_copy(ctx, id);
         if (!nid) {
@@ -114,6 +118,10 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
 }
 
 int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
+    if (ctx->no_save) {
+        fprintf(stderr, "tny: --ephemeral cannot resume a saved session\n");
+        return 1;
+    }
     const char *target = argc > 0 ? argv[0] : (g->resume ? g->resume : "last");
     if (g->resume_last) target = "last";
     tny_session *probe = session_open(ctx, target);

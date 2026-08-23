@@ -36,10 +36,11 @@ unset OPENAI_API_KEY CODEX_REMOTE_TOKEN 2>/dev/null
 token="s3cr3t-capability-token"
 printf '%s\n' "$token" > "$tmp/token"
 export MOCK_TOKEN="$token"
-export MOCK_CONNECTIONS=6
+export MOCK_CONNECTIONS=8
 export MOCK_BUSY_CONN=3   # connection 3 replies -32001 once per request kind
 export MOCK_EXPECT_EFFORT="xhigh"  # run 1 passes --effort xhigh; others none
 export MOCK_FAST_CONN=6   # connection 6 runs with --fast: serviceTier=priority
+export MOCK_LOGIN_FAIL_CONN=8  # connection 8: login completes without success
 
 "$PYTHON" "$here/mock_codex_ws.py" 0 > "$tmp/mock.out" 2> "$tmp/mock.err" &
 mock_pid=$!
@@ -174,6 +175,34 @@ rc6=$?
 grep -q 'CODEX-MOCK-OK' "$tmp/run6.out" \
   && ok "run 6 streamed CODEX-MOCK-OK" \
   || bad "run 6 output did not contain CODEX-MOCK-OK"
+
+# --- run 7: login --device drives account/login/start over the socket ----
+HOME="$TNY_HOME" CODEX_REMOTE_TOKEN="$token" "$TNY" --cwd "$tmp/ws" --backend codex \
+       --codex-ws "$url" login --device > "$tmp/run7.out" 2> "$tmp/run7.err"
+rc7=$?
+[ $rc7 -eq 0 ] && ok "run 7 login exit 0" || bad "run 7 login exit $rc7"
+grep -q 'MOCK-CODE-1234' "$tmp/run7.out" \
+  && ok "run 7 printed the device-code userCode" \
+  || bad "run 7 did not print the device user code"
+grep -q 'auth.openai.example/codex/device' "$tmp/run7.out" \
+  && ok "run 7 printed the verification URL" \
+  || bad "run 7 did not print the verification URL"
+grep -q 'Signed in' "$tmp/run7.out" \
+  && ok "run 7 saw account/login/completed" \
+  || bad "run 7 never reported the completed login"
+
+# --- run 8: a completed notification without success:true is a failure ----
+HOME="$TNY_HOME" CODEX_REMOTE_TOKEN="$token" "$TNY" --cwd "$tmp/ws" \
+       --backend codex --codex-ws "$url" login --device \
+       > "$tmp/run8.out" 2> "$tmp/run8.err"
+rc8=$?
+[ $rc8 -ne 0 ] && ok "run 8 failed login exits nonzero" || bad "run 8 exit 0 on a failed login"
+grep -q 'mock denied the login' "$tmp/run8.err" \
+  && ok "run 8 surfaced the host's failure reason" \
+  || bad "run 8 did not surface the failure reason"
+grep -q 'Signed in' "$tmp/run8.out" \
+  && bad "run 8 claimed success on a failed login" \
+  || ok "run 8 did not claim success"
 
 # --- mock verdict --------------------------------------------------------
 wait "$mock_pid"

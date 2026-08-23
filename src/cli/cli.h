@@ -16,6 +16,7 @@ typedef struct {
     const char **add_dirs;   /* --add-dir, repeatable */
     int         n_add_dirs;
     bool        json;        /* --json */
+    bool        ephemeral;   /* --ephemeral | --no-save */
     bool        resume_picker;   /* -r */
     bool        resume_last;     /* -c / --continue */
     const char *resume;      /* --resume value */
@@ -34,6 +35,12 @@ typedef struct {
  * error (message already printed). */
 int cli_parse_globals(int argc, char **argv, cli_globals *g);
 
+/* Process-level SSH delegation (docs/adr/0022). cli_ssh_maybe_delegate returns
+ * -1 when no leading --ssh was given; successful delegation replaces this
+ * process, so any other return is an exit status. */
+int cli_ssh_maybe_delegate(int argc, char **argv);
+int cli_ssh_exec_tui(const char *target);
+
 /* Build ctx from globals (loads settings). NULL = startup error. */
 tny_ctx *cli_make_ctx(const cli_globals *g);
 
@@ -43,6 +50,7 @@ int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+int cmd_status_ephemeral(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_permissions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

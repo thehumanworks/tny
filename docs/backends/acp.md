@@ -84,4 +84,11 @@ Match [fx acp](https://fx.sh/docs/using-fx/acp):
 - `session/prompt` accepts text and embedded resources. Images: document as unsupported on ACP (use TUI / `ask --image`) unless we later add them.
 - MCP: only `mcpServers` supplied by the client, not `~/.tny/mcp.json` (fx behavior — copy it).
 
+`tny --ephemeral acp` keeps each `session/new` transcript and result store in
+memory until the stdio server exits. During `initialize`, it advertises
+`agentCapabilities.loadSession:false`; `session/load` returns a method error
+that names ephemeral mode. `session/new`, repeated prompts, cancellation, and
+`session/close` remain available. The native Responses wire continues to send
+`store:false`. See [ADR 0020](../adr/0020-ephemeral-sessions.md).
+
 Negotiate protocol version honestly. Prefer v2 if we implement v2 session resume/replay; otherwise advertise v1 like fx does today.

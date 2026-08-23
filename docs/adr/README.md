@@ -24,3 +24,7 @@ these as `docs/adr/NNNN`.
 | [0016](0016-responses-api-default-wire.md) | The native backend defaults to the Responses API wire; Chat Completions is the `wire_api:"chat"` opt-in |
 | [0017](0017-wasm-browser-parity.md) | The landing terminal is the real CLI compiled to wasm; parity enforced by shared sources, the tny_poll/net seams, and the same mock suites in CI |
 | [0018](0018-provider-setup-stored-keys.md) | `provider setup` writes guided profiles (CLI flags/tty prompts, TUI wizard, browser hash pairs); a stored `api_key` is the fallback below env vars, settings.json drops to 0600 |
+| [0019](0019-subscription-logins-claude-grok.md) | `tny login` drives the codex app-server `account/login/start`; claude and grok are builtin openai-compatible profiles fed by subscription credentials (Claude Code OAuth token, grok session token), never persisted by tny |
+| [0020](0020-ephemeral-sessions.md) | `--ephemeral` keeps conversation state process-local, blocks resume/import, and applies provider no-store controls where defined |
+| [0021](0021-native-grok-device-login.md) | `tny --provider grok login` runs the RFC 8628 device flow natively against auth.x.ai (no grok CLI), writes/refreshes the session in the grok CLI's own `~/.grok/auth.json` format, and logout removes only the xAI entries |
+| [0022](0022-ssh-execution-boundary.md) | `--ssh user@host[:port]` / `/ssh` exec the whole tny invocation over OpenSSH before any local config/backend/tool init, so every tool call runs on the remote host for every provider |

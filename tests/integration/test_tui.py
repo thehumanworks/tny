@@ -282,7 +282,7 @@ def test_slash_palette(home, ws):
         t.send("/")
         t.expect("clear the screen", 5.0)   # palette listed commands
         t.send("prov")
-        t.expect("openai|cursor|codex|acp|openrouter|orwell", 5.0)
+        t.expect("openai|cursor|codex|acp|claude|grok|openrouter|orwell", 5.0)
         t.send("\x7f" * 4)                 # back to a bare "/"
         t.send("help\r")
         t.expect("ctrl-o transcript", 5.0)

@@ -36,15 +36,69 @@ tny --add-dir DIR           # repeatable, process-only
 tny --permission-mode ask|auto|yolo   # default: yolo (docs/adr/0001)
 tny --fast                  # paid fast tier (TNY_CAP_FAST providers only)
 tny --json                  # where listed
+tny --ephemeral             # conversation/session artifacts stay in memory
 tny -r                      # session picker (TUI)
 tny -c                      # resume last for this workspace
 ```
 
+`--no-save` is a compatibility alias for `--ephemeral`. `tny ask` accepts
+both spellings after the subcommand as well as in the leading global position.
+
+## Ephemeral mode
+
+Ephemeral mode is available on every conversational entry point:
+
+```text
+tny --ephemeral
+tny --ephemeral ask "review this workspace"
+tny ask --ephemeral --json "list the public CLI"
+tny --ephemeral acp
+```
+
+The working transcript remains in memory for multi-turn TUI/ACP use, but tny
+does not write session JSON, recovery checkpoints, large tool-result blobs, or
+TUI prompt history. It also does not import saved conversation state:
+`resume`, `--resume`, `-r`, `-c`, session recovery/migration, and TUI
+`/resume` are incompatible with the mode.
+
+`ask --json` includes `"ephemeral":true` and emits an empty `session_id`.
+The local guarantee is provider-independent. Codex additionally receives
+`ephemeral:true` at `thread/start`; the native Responses wire uses
+`store:false`; other host agents may apply their own remote retention policy.
+Configuration metadata such as the last selected provider/model is not part of
+the conversation and retains its existing settings behavior. See
+[ADR 0020](adr/0020-ephemeral-sessions.md).
+
+## SSH execution mode
+
+`--ssh user@host[:port]` is a process-level execution boundary
+([ADR 0022](adr/0022-ssh-execution-boundary.md)). `tny` delegates the complete
+invocation through OpenSSH before loading local workspace config, sessions,
+providers, MCP servers, or tools, so the remote machine owns every file,
+terminal, backend, MCP, session, and tool-call interaction for that run —
+regardless of provider.
+
+```sh
+tny --ssh dev@example.com ask "inspect the repository"
+tny --ssh dev@example.com:2222          # remote TUI
+tny --ssh '[2001:db8::1]:22' status
+```
+
+The remaining arguments are forwarded verbatim (single-quoted for the remote
+shell). The remote host must have `tny` in its non-interactive SSH `PATH`.
+Authentication and host-key checking are entirely controlled by the user's
+OpenSSH configuration; tny disables neither.
+
+wasm behavior: remote-only — the browser build has no `ssh` to exec, so `--ssh`
+fails with the `could not execute ssh` error before any other work.
+
 ## Provider selection
 
-`--provider` accepts the four builtin names plus any **named OpenAI-compatible
-provider** (`"openrouter"`, `"xai"`, a local gateway — any name), defined
-either way or both:
+`--provider` accepts the four builtin names, the two **builtin subscription
+profiles** `claude` and `grok` ([ADR 0019](adr/0019-subscription-logins-claude-grok.md),
+[backends/openai-compatible.md](backends/openai-compatible.md#builtin-subscription-profiles-claude-and-grok)),
+plus any **named OpenAI-compatible provider** (`"openrouter"`, `"xai"`, a
+local gateway — any name), defined either way or both:
 
 - a top-level `~/.tny/settings.json` object with a `base_url`, and/or
 - `NAME_BASE_URL` in the environment (name uppercased, non-alphanumerics →
@@ -83,8 +137,31 @@ providers; the page URL hash additionally accepts
 2. `openai` if `OPENAI_BASE_URL` or `OPENAI_API_KEY` is set
 3. the env-defined provider if **exactly one** `NAME_BASE_URL` + `NAME_API_KEY` pair is set (a lone `*_BASE_URL` from an unrelated tool never hijacks the default; keyless local gateways need an explicit `--provider NAME` once — `last_provider` remembers it)
 4. `codex` if a `codex login` exists (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`) — subscriptions need no API key
-5. `cursor` if `CURSOR_API_KEY` is set in the environment
-6. `openai` (its connect error explains how to configure a key)
+5. `claude` if a Claude Code OAuth login exists (`CLAUDE_CODE_OAUTH_TOKEN`, or `~/.claude/.credentials.json` from `claude /login`; a bare `ANTHROPIC_API_KEY` never hijacks the default — use `--provider claude`)
+6. `grok` if an xAI session exists (`~/.grok/auth.json`, from `tny
+   --provider grok login` or the grok CLI)
+7. `cursor` if `CURSOR_API_KEY` is set in the environment
+8. `openai` (its connect error explains how to configure a key)
+
+A settings.json object or `NAME_BASE_URL` env var named `claude` or `grok`
+shadows the builtin profile entirely: explicit config wins.
+
+## `tny login`
+
+`tny [--provider NAME] login [--device]` signs in to the active provider.
+tny never stores tokens itself:
+
+| Provider | What login does |
+| --- | --- |
+| codex | Connects to `codex app-server` and calls `account/login/start` — the browser flow prints (and tries to open) the `authUrl`; `--device` uses the device-code flow and prints `verificationUrl` + `userCode`. tny pumps the socket until `account/login/completed`; the host writes `$CODEX_HOME/auth.json`, which tny auto-detects afterwards. Hosts without the RPC fall back to `codex login`. |
+| claude | Reports the credential tny resolved (`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `~/.claude/.credentials.json`), else runs `claude setup-token`; the user exports the printed token as `CLAUDE_CODE_OAUTH_TOKEN`. |
+| grok | Native RFC 8628 device-code sign-in against `auth.x.ai` — no grok CLI needed, works over SSH/containers ([ADR 0021](adr/0021-native-grok-device-login.md)). tny prints the verification URL + code, polls the token endpoint, and writes the session to `~/.grok/auth.json` in the grok CLI's own store format (both tools share the entry). `GROK_OAUTH2_ISSUER` / `GROK_OAUTH2_CLIENT_ID` override the endpoint (enterprise IdPs, tests). |
+| cursor | Reports whether `CURSOR_API_KEY` is set. |
+| openai / named | Reports whether an API key resolved (`tny setup` configures one). |
+
+`tny logout` mirrors this: `codex logout` where the host CLI owns the
+credential, native removal of the xAI entries from `~/.grok/auth.json` for
+grok (foreign-issuer entries are kept), an env-var hint otherwise.
 
 ## Reasoning effort
 
@@ -121,7 +198,7 @@ tny never *writes* the effort back to settings — a scripted
 ```text
 tny ask "summarize this repository"
 printf 'summarize src/\n' | tny ask --stdin
-tny ask --json --no-save "list the public CLI"
+tny ask --json --ephemeral "list the public CLI"
 tny ask --resume last "now add tests"
 tny ask --provider cursor --model composer-2 "find the login bug"
 tny --provider codex --effort xhigh ask "prove this queue is lock-free"
@@ -141,6 +218,7 @@ JSON object (keep field names stable):
   "provider": "openai",
   "model": "provider/model",
   "session_id": "…",
+  "ephemeral": false,
   "steps": 1,
   "tool_calls": [{"name": "read_file", "status": "success"}]
 }
@@ -157,6 +235,8 @@ JSON object (keep field names stable):
 | acp | `--agent CMD` plus extra args after `--`, e.g. `tny --provider acp --agent gemini -- acp`; `--agent ws://host:port` connects to a remote agent instead of spawning ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
 | openai | `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0016](adr/0016-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API` |
 | named provider | same flags; `NAME_BASE_URL` (beats the settings `base_url`), key from the profile's `api_key_env`, default `NAME_API_KEY` — never `OPENAI_API_KEY`; `NAME_WIRE_API` / profile `wire_api` |
+| claude (builtin profile) | credential from `CLAUDE_CODE_OAUTH_TOKEN` > `ANTHROPIC_API_KEY` > `~/.claude/.credentials.json` (`$CLAUDE_CONFIG_DIR` honored); OAuth tokens add `anthropic-beta: oauth-2025-04-20`; chat wire; default model `claude-sonnet-4-6`; `TNY_CLAUDE_BIN` for login |
+| grok (builtin profile) | session token from `~/.grok/auth.json` (minted by tny's native device login or the grok CLI; expired OIDC tokens auto-refresh at resolve) → CLI chat proxy (chat wire, `X-XAI-Token-Auth` + `x-grok-model-override` + `x-grok-client-version` headers — the proxy 426s unversioned clients, `TNY_GROK_CLIENT_VERSION` overrides the pin — default model `grok-4.6`); else `XAI_API_KEY` → `api.x.ai` (responses wire, same default model); `GROK_OAUTH2_ISSUER` / `GROK_OAUTH2_CLIENT_ID` override the login endpoint |
 
 Model precedence for every provider: `--model` > saved `models.{provider}` >
 the provider object's `model` (openai-compatible only) > `NAME_DEFAULT_MODEL`
@@ -213,12 +293,13 @@ Usage: tny ask [options] [prompt]
 Options:
   --json          Write one JSON object to stdout
   --resume last   Continue the latest workspace session
-  --no-save       Do not persist a session
+  --ephemeral     Keep conversation/session artifacts in memory only
+  --no-save       Compatibility alias for --ephemeral
   --provider NAME cursor | codex | acp | openai | settings profile (--backend also accepted)
 
 Examples:
   tny ask "explain src/main.c"
-  tny ask --json --provider openai "list exported symbols"
+  tny ask --json --ephemeral "list exported symbols"
   tny --provider cursor ask --model composer-2 "fix the leak"
 ```
 

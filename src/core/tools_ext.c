@@ -32,6 +32,8 @@ static char *self_exe(void) {
 static char *t_memory(tools_env *env, yyjson_val *args) {
     const char *action = jget_str(args, "action");
     if (!action) return tool_err("missing action (get|set|list)");
+    if (env->ctx->no_save && strcmp(action, "set") == 0)
+        return tool_err("persistent memory writes are unavailable in ephemeral mode");
     char *file = path_join(env->ctx->tny_dir, "memories.json");
     yyjson_doc *doc = jparse_file(file);
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
@@ -127,14 +129,17 @@ static char *t_install_skill(tools_env *env, yyjson_val *args) {
 }
 
 /* ---- subagent: child native sessions via `tny ask` processes.
- * Disk-backed like everything else; the child transcript stays out of the
- * parent context. ---- */
+ * Persistent parents use disk-backed child sessions. Ephemeral parents pass
+ * the mode through and therefore support only one-shot children. ---- */
 
 static char *t_subagent(tools_env *env, yyjson_val *args) {
     const char *action = jget_str(args, "action");
     if (!action) return tool_err("missing action (create|message|inspect|lifecycle)");
     if (!env->ctx->api_key && env->ctx->backend == TNY_BK_OPENAI)
         return tool_err("subagents need the native provider configured");
+    if (env->ctx->no_save &&
+        (strcmp(action, "message") == 0 || strcmp(action, "inspect") == 0))
+        return tool_err("ephemeral subagents are one-shot and cannot be resumed or inspected");
 
     char *exe = self_exe();
     buf_t cmd;
@@ -153,6 +158,7 @@ static char *t_subagent(tools_env *env, yyjson_val *args) {
         if (env->ctx->model) buf_appendf(&cmd, "--model '%s' ", env->ctx->model);
         /* children cannot raise permission mode above the creator */
         buf_appendf(&cmd, "--permission-mode %s ", tny_perm_mode_name(env->ctx->perm_mode));
+        if (env->ctx->no_save) buf_appends(&cmd, "--ephemeral ");
         buf_appends(&cmd, "ask --json ");
         if (id) buf_appendf(&cmd, "--resume-id %s ", id);
         buf_appends(&cmd, "-- ");
@@ -175,10 +181,15 @@ static char *t_subagent(tools_env *env, yyjson_val *args) {
             if (doc) {
                 const char *o = jget_str(yyjson_doc_get_root(doc), "output");
                 const char *sid = jget_str(yyjson_doc_get_root(doc), "session_id");
+                bool resumable = sid && *sid && !env->ctx->no_save;
                 buf_t r;
                 buf_init(&r);
-                buf_appendf(&r, "subagent %s finished.\n", sid ? sid : "?");
-                if (sid) buf_appendf(&r, "id: %s (use action=message id=%s to continue)\n", sid, sid);
+                if (resumable) {
+                    buf_appendf(&r, "subagent %s finished.\n", sid);
+                    buf_appendf(&r, "id: %s (use action=message id=%s to continue)\n", sid, sid);
+                } else {
+                    buf_appends(&r, "ephemeral subagent finished; no resumable id was stored.\n");
+                }
                 buf_appendf(&r, "result:\n%s", o ? o : "(no output)");
                 yyjson_doc_free(doc);
                 result = tool_bound_result(env, r.data, r.len);
@@ -205,7 +216,9 @@ static char *t_subagent(tools_env *env, yyjson_val *args) {
             }
         }
     } else if (strcmp(action, "lifecycle") == 0) {
-        result = xstrdup("subagents are one-shot processes; sessions persist under tny sessions");
+        result = xstrdup(env->ctx->no_save
+            ? "ephemeral subagents are one-shot processes; child sessions are not stored"
+            : "subagents are one-shot processes; sessions persist under tny sessions");
     } else {
         result = tool_err("unknown action %s", action);
     }

@@ -64,6 +64,8 @@ TARGETS = [
     ("src/backends/openai/toolcalls.c", None, None,
      "tests/integration/test_openai.py"),
     ("src/backends/codex/codex.c", ["cx_steer"], None),
+    # native grok device-code login / refresh / logout (docs/adr/0021)
+    ("src/core/grok_login.c", None, None),
     # steer-text ownership + turn-end sweep (docs/adr/0013)
     ("src/backends/codex/codex_rpc.c", ["cx_end_turn", "cx_request"],
      r"steer|STEER|registered|CXR_FREE"),
@@ -129,6 +131,14 @@ TARGETS = [
      r"wire", "tests/integration/test_openai.py"),
     ("src/cli/args.c", ["cli_parse_globals", "cli_make_ctx"], r"wire",
      "tests/integration/test_openai.py"),
+    # builtin subscription profiles: claude/grok (docs/adr/0019). The login
+    # ceremonies (codex_login.c, cmd_login) are interactive/process-spawning
+    # and answer to tests/integration/test_codex.sh run 7 instead.
+    ("src/core/profiles.c", None, None),
+    ("src/core/config.c", ["tny_resolve_backend", "tny_provider_names_joined"],
+     r"builtin|claude|grok"),
+    ("src/backends/codex/codex_msg.c", ["cx_notification"], r"login",
+     "tests/integration/test_codex.sh"),
 ]
 
 # operator substitutions applied to one site at a time
@@ -156,6 +166,9 @@ EQUIVALENT = [
     # never consulted), so flipping it is unobservable.
     "config.c:ctx->effort_from_settings = false;",
     "tui_prewarm.c:pthread_cond_signal",  # signal-vs-broadcast style details
+    # path_home() never returns NULL (it falls back to "/tmp"), so the
+    # home_join NULL guards in the credential probes fire only on OOM.
+    "profiles.c:if (!path) return false;",
     # Wrong poll direction only delays the retry by the poll timeout; the
     # handshake/write loops re-check the real condition and still succeed.
     "stream.c:struct pollfd pf = {fd, want == OSSL_ERROR_WANT_WRITE",

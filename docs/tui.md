@@ -20,6 +20,28 @@ Match fx's form: a **Unix shell**, not an IDE. Streaming transcript, a pinned co
   if the clipboard has no image. Helpers are spawned only on paste.
 - Status line is off-by-default extras (sandbox, context bytes) like fx.
 
+## Ephemeral mode
+
+Start the shell with `tny --ephemeral` to keep the conversation process-local.
+The TUI prints an explicit mode line at startup. It keeps the full multi-turn
+conversation and prompt history in memory while the shell is running, but it
+does not read or write saved sessions, recovery checkpoints, large-result
+blobs, or `~/.tny/history`.
+
+`/resume`, `/continue`, the session picker, and other saved-session import paths
+are unavailable because they would load persisted conversation state. `/new`
+and `/clear` continue to work within the process. Exiting the shell discards
+the in-memory session. `--no-save` remains an alias. See
+[ADR 0020](adr/0020-ephemeral-sessions.md).
+
+## SSH
+
+Start directly on a remote host with `tny --ssh user@host[:port]`. From a local
+TUI, `/ssh user@host[:port]` drops local prewarm/backend state, restores the
+terminal, and replaces the process with an SSH-launched remote `tny` TUI, so all
+subsequent tool calls run there. Enforced by the app, not by model
+instructions ([ADR 0022](adr/0022-ssh-execution-boundary.md)).
+
 ## Input
 
 | Input | Action |
@@ -68,7 +90,7 @@ actually advertises. `/fast [fast|priority|default]` selects the provider's
 paid fast tier (`TNY_CAP_FAST`: openai, cursor, codex) and rebinds where the
 tier rides on session start (codex `thread/start`).
 
-Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace`
+Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace` `/ssh`
 
 `/image PATH` and Ctrl-V queue files for the next prompt. The native loop
 sends them as `image_url` data URLs ([ADR 0008](adr/0008-native-loop-images.md)).
@@ -113,6 +135,11 @@ gateway or a loopback server.
 ## Startup
 
 First paint never waits on a backend, but the TUI **pre-warms** the selected provider's host right after the banner ([ADR 0002](adr/0002-tui-provider-prewarm.md)): `codex app-server`, the cursor bridge, or the ACP agent is spawned and initialized on a background thread so the first prompt adopts a live connection instead of paying seconds of startup. Pre-warm failures stay silent and resurface on the ordinary lazy path. One-shot CLI commands do not pre-warm.
+
+In ephemeral mode, pre-warm may still create process-local provider state.
+Codex receives `ephemeral:true` on `thread/start`; adapters without a portable
+no-store field retain their ordinary provider-side policy while tny continues
+to make no local conversation write.
 
 ## Permissions UI
 

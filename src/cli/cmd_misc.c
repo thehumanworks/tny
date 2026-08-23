@@ -3,6 +3,7 @@
 #include "cli/cli.h"
 #include "core/backend.h"
 #include "core/session.h"
+#include "backends/codex/codex.h" /* tny_codex_login */
 #include "net/net.h"
 #include "util/util.h"
 
@@ -177,7 +178,12 @@ int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     buf_init(&auth);
     buf_appendf(&auth, "%s: %s%s", ctx->auth_header_name, ctx->auth_header_prefix,
                 ctx->api_key ? ctx->api_key : "");
-    const char *hdrs[] = {ctx->api_key ? auth.data : NULL, NULL};
+    const char *hdrs[12];
+    int hn = 0;
+    if (ctx->api_key) hdrs[hn++] = auth.data;
+    for (char **e = ctx->extra_headers; e && *e && hn < 11; e++)
+        hdrs[hn++] = *e; /* builtin-profile headers (docs/adr/0019) */
+    hdrs[hn] = NULL;
     buf_t path;
     buf_init(&path);
     buf_appendf(&path, "%s/models", http_prefix(c));
@@ -337,6 +343,51 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                         tny_backend_name((tny_backend_id)i), line);
         }
     }
+    /* builtin subscription profiles (docs/adr/0019); a settings/env profile
+     * of the same name shadows the builtin and is listed below instead */
+    static const char *const builtin_profiles[] = {"claude", "grok"};
+    for (size_t bi = 0; bi < sizeof builtin_profiles / sizeof *builtin_profiles; bi++) {
+        const char *name = builtin_profiles[bi];
+        if (tny_custom_provider_exists(ctx, name)) continue;
+        char line[256];
+        bool healthy;
+        if (strcmp(name, "claude") == 0) {
+            const char *source = NULL;
+            char *tok = tny_claude_token(&source);
+            healthy = tok != NULL;
+            if (tok) { memset(tok, 0, strlen(tok)); free(tok); }
+            snprintf(line, sizeof line, healthy
+                         ? "claude: credential from %s (Anthropic OpenAI-compat)"
+                         : "claude: no credential (run `tny --provider claude login`)%s",
+                     healthy ? source : "");
+        } else {
+            char *sess = tny_grok_session_token();
+            const char *xk = getenv("XAI_API_KEY");
+            healthy = sess != NULL || (xk && *xk);
+            if (sess) {
+                snprintf(line, sizeof line,
+                         "grok: session token (~/.grok/auth.json, CLI chat proxy)");
+                memset(sess, 0, strlen(sess));
+                free(sess);
+            } else if (xk && *xk) {
+                snprintf(line, sizeof line, "grok: XAI_API_KEY set (api.x.ai)");
+            } else {
+                snprintf(line, sizeof line,
+                         "grok: no credential (run `tny --provider grok login`)");
+            }
+        }
+        bool active = ctx->provider_name && strcmp(ctx->provider_name, name) == 0;
+        if (json) {
+            buf_appends(&b, ",{\"name\":");
+            jescape(&b, name);
+            buf_appendf(&b, ",\"active\":%s,\"healthy\":%s,\"hint\":",
+                        active ? "true" : "false", healthy ? "true" : "false");
+            jescape(&b, line);
+            buf_appends(&b, "}");
+        } else {
+            buf_appendf(&b, "%s %s — %s\n", active ? "*" : " ", name, line);
+        }
+    }
     /* user-named OpenAI-compatible providers: settings.json profiles first,
      * then env-only ones (NAME_BASE_URL with no settings entry) */
     if (ctx->settings) {
@@ -440,22 +491,70 @@ int cmd_setup(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     return 0;
 }
 
+/* Claude: report the credential tny would use, or hand the browser ceremony
+ * to `claude setup-token` (prints a one-year OAuth token the user exports as
+ * CLAUDE_CODE_OAUTH_TOKEN). tny never captures or stores the token itself. */
+static int login_claude(tny_ctx *ctx) {
+    (void)ctx;
+    const char *source = NULL;
+    char *tok = tny_claude_token(&source);
+    if (tok) {
+        printf("Claude credential found (%s) — `tny --provider claude` uses it.\n",
+               source);
+        memset(tok, 0, strlen(tok));
+        free(tok);
+        return 0;
+    }
+    const char *bin = getenv("TNY_CLAUDE_BIN");
+    if (!bin || !*bin) bin = "claude";
+    printf("No Claude credential. Starting `%s setup-token` (browser sign-in;\n"
+           "requires a Pro/Max/Team/Enterprise subscription)…\n", bin);
+    fflush(stdout);
+    buf_t cmd;
+    buf_init(&cmd);
+    buf_appendf(&cmd, "%s setup-token", bin);
+    int rc = system(cmd.data);
+    buf_free(&cmd);
+    if (rc != 0) {
+        fprintf(stderr,
+                "tny: `%s setup-token` failed. Install the Claude Code CLI "
+                "(or set TNY_CLAUDE_BIN), run `claude /login` once, or set "
+                "CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY.\n", bin);
+        return 1;
+    }
+    printf("Copy the token it printed and export it:\n"
+           "  export CLAUDE_CODE_OAUTH_TOKEN=<token>\n"
+           "tny also auto-detects ~/.claude/.credentials.json from `claude /login`.\n");
+    return 0;
+}
+
+/* Grok: native RFC 8628 device-code sign-in against auth.x.ai
+ * (grok_login.c, docs/adr/0021) — no grok CLI needed. */
+static int login_grok(tny_ctx *ctx) {
+    (void)ctx;
+    return tny_grok_login();
+}
+
 int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
-    (void)g; (void)argc; (void)argv;
+    (void)g;
+    bool device = false;
+    for (int i = 0; i < argc; i++)
+        if (strcmp(argv[i], "--device") == 0 ||
+            strcmp(argv[i], "--device-code") == 0)
+            device = true;
+    const char *pn = tny_provider_name(ctx);
+    if (strcmp(pn, "claude") == 0) return login_claude(ctx);
+    if (strcmp(pn, "grok") == 0) return login_grok(ctx);
     switch (ctx->backend) {
     case TNY_BK_CURSOR:
         printf(getenv("CURSOR_API_KEY") && *getenv("CURSOR_API_KEY")
                    ? "CURSOR_API_KEY is set — the bridge will use it.\n"
                    : "Set CURSOR_API_KEY (user or service-account key) for the SDK bridge.\n");
         return 0;
-    case TNY_BK_CODEX: {
-        buf_t cmd;
-        buf_init(&cmd);
-        buf_appendf(&cmd, "%s login", ctx->codex_bin);
-        int rc = system(cmd.data);
-        buf_free(&cmd);
-        return rc == 0 ? 0 : 1;
-    }
+    case TNY_BK_CODEX:
+        /* app-server account/login/start (browser flow, or the device-code
+         * flow with --device); falls back to `codex login` on old hosts */
+        return tny_codex_login(ctx, device);
     case TNY_BK_ACP:
         printf("ACP agents authenticate themselves; pre-authorize the agent CLI.\n");
         return 0;
@@ -469,6 +568,14 @@ int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
 
 int cmd_logout(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     (void)g; (void)argc; (void)argv;
+    const char *pn = tny_provider_name(ctx);
+    if (strcmp(pn, "claude") == 0) {
+        printf("Unset CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY, or remove "
+               "~/.claude/.credentials.json (`claude /logout`). tny stores no "
+               "secrets itself.\n");
+        return 0;
+    }
+    if (strcmp(pn, "grok") == 0) return tny_grok_logout();
     if (ctx->backend == TNY_BK_CODEX) {
         buf_t cmd;
         buf_init(&cmd);

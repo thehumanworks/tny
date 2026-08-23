@@ -75,11 +75,11 @@ static void handle_initialize(acp_srv *s, const char *id, yyjson_val *params) {
     buf_t r;
     buf_init(&r);
     buf_appendf(&r,
-        "{\"protocolVersion\":%d,\"agentCapabilities\":{\"loadSession\":true,"
+        "{\"protocolVersion\":%d,\"agentCapabilities\":{\"loadSession\":%s,"
         "\"promptCapabilities\":{\"image\":false,\"audio\":false,"
         "\"embeddedContext\":true}},\"authMethods\":[],"
         "\"agentInfo\":{\"name\":\"tny\",\"title\":\"tny\",\"version\":\"%s\"}}",
-        ACP_PROTOCOL_VERSION, TNY_VERSION);
+        ACP_PROTOCOL_VERSION, s->ctx->no_save ? "false" : "true", TNY_VERSION);
     acp_send_result(s->out_fd, id, r.data);
     buf_free(&r);
     s->initialized = true;
@@ -162,6 +162,11 @@ static void replay_history(acp_srv *s) {
 
 static void handle_load(acp_srv *s, const char *id, yyjson_val *params) {
     if (!require_init(s, id)) return;
+    if (s->ctx->no_save) {
+        acp_send_error(s->out_fd, id, ACP_E_NO_METHOD,
+                       "session/load is unavailable in ephemeral mode");
+        return;
+    }
     const char *sid = jget_str(params, "sessionId");
     if (!sid || !*sid) {
         acp_send_error(s->out_fd, id, ACP_E_PARAMS, "sessionId is required");
@@ -399,7 +404,8 @@ int cmd_acp_server(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     acp_reader_init(&s.rd);
     buf_init(&s.last_error);
 
-    acp_srv_log("serving the native loop on stdio (workspace %s)", ctx->cwd);
+    acp_srv_log("serving the native loop on stdio (workspace %s, %s)",
+                ctx->cwd, ctx->no_save ? "ephemeral" : "persistent");
     while (!s.eof) {
         if (acp_srv_pump(&s, 1000) != 0) break;
     }

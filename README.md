@@ -6,11 +6,26 @@ normalized event loop.
 
 ```text
 tny                          # interactive shell (lazy backend, ~4 ms first paint)
+tny --ephemeral              # multi-turn shell with no local conversation store
 tny ask --json "fix the failing test"
+tny ask --ephemeral "review this without saving the session"
 tny ask --backend cursor "explain this repo"
 tny --backend acp --agent gemini -- acp -- ask "hi"
 tny acp                      # serve tny's native loop to any ACP client
 ```
+
+## Ephemeral sessions
+
+Use `--ephemeral` before the command to keep a CLI, TUI, or ACP conversation
+process-local. `tny ask` also accepts it after the subcommand, and `--no-save`
+remains an alias.
+
+The session stays multi-turn in memory while the process runs, but tny does not
+write session JSON, recovery checkpoints, large tool-result blobs, or TUI
+prompt history. Saved-session resume/import paths are disabled. Codex also
+receives its native `thread/start` `ephemeral:true` flag; the OpenAI Responses
+wire uses `store:false`. Other host agents can still apply their own remote
+retention policy. See [ADR 0020](docs/adr/0020-ephemeral-sessions.md).
 
 ## Backends
 

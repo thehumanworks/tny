@@ -33,8 +33,11 @@ void help_root(void) {
 "  help                   Show this help\n"
 "\n"
 "Global flags (leading, before the command):\n"
-"  --provider NAME        cursor | codex | acp | openai | a named settings.json\n"
-"                         profile with a base_url (--backend also works)\n"
+"  --ssh TARGET           Run this whole invocation on user@host[:port] via\n"
+"                         OpenSSH, before any local config/backend/tool init\n"
+"  --provider NAME        cursor | codex | acp | openai | claude | grok | a\n"
+"                         named settings.json profile with a base_url\n"
+"                         (--backend also works)\n"
 "  --cwd DIR              Primary workspace (default: current directory)\n"
 "  --model ID             Model for this run\n"
 "  --effort LEVEL         Reasoning effort: " TNY_EFFORT_LEVELS "\n"
@@ -44,6 +47,8 @@ void help_root(void) {
 "  --fast                 Paid fast tier where the provider has one\n"
 "                         (openai, cursor, codex; higher speed and cost)\n"
 "  --json                 Machine-readable output where listed\n"
+"  --ephemeral            Keep conversation/session artifacts in memory only\n"
+"                         (--no-save is a compatibility alias)\n"
 "  -r                     Open the saved-session picker\n"
 "  -c, --continue         Resume the latest workspace session\n"
 "  --resume <last|id>     Resume the latest session or an exact id\n"
@@ -56,11 +61,19 @@ void help_root(void) {
 "  openai: --base-url URL --api-key-env NAME (env OPENAI_BASE_URL, OPENAI_API_KEY)\n"
 "          --wire-api responses|chat  Wire protocol (default responses;\n"
 "                         chat for legacy-only providers, docs/adr/0016)\n"
+"  claude: Claude Code OAuth token (env CLAUDE_CODE_OAUTH_TOKEN,\n"
+"          ANTHROPIC_API_KEY, or ~/.claude/.credentials.json)\n"
+"  grok:   xAI session (~/.grok/auth.json via `tny --provider grok login`,\n"
+"          native device auth) or env XAI_API_KEY\n"
 "\n"
 "Examples:\n"
 "  tny                          Start a fresh interactive session\n"
+"  tny --ephemeral             Interactive session with no local transcript\n"
+"  tny --ssh dev@box:2222      Start the TUI on the remote host\n"
+"  tny --ssh dev@box ask \"run the tests\"   One-shot, tools run remotely\n"
 "  tny ask \"explain src/main.c\"  One request, Markdown on stdout\n"
 "  tny ask --json \"list the public CLI\"\n"
+"  tny --provider codex login   ChatGPT sign-in over the app-server\n"
 "  tny --provider codex ask \"run the tests\"\n"
 "  tny --effort xhigh ask \"prove this lock-free queue is correct\"\n"
 "  tny --provider codex --fast ask \"quick: run the tests\"\n"
@@ -81,7 +94,8 @@ static const char *ask_help =
 "                       path or inline JSON; openai provider only)\n"
 "  --resume <last|id>   Continue the latest workspace session or an id\n"
 "  --continue-recovery  Replay the interrupted response before this turn\n"
-"  --no-save            Do not persist a session\n"
+"  --ephemeral          Keep conversation/session artifacts in memory only\n"
+"  --no-save            Compatibility alias for --ephemeral\n"
 "  --auto               Auto-review unresolved permissions (native loop)\n"
 "  --yolo               Disable permission checks and sandbox (the default)\n"
 "  --                   Treat every following argument as prompt text\n"
@@ -93,7 +107,7 @@ static const char *ask_help =
 "Examples:\n"
 "  tny ask \"summarize this repository\"\n"
 "  printf 'summarize src/\\n' | tny ask --stdin\n"
-"  tny ask --json --no-save \"list the public CLI\"\n"
+"  tny ask --json --ephemeral \"list the public CLI\"\n"
 "  tny ask --resume last \"now add tests\"\n"
 "  tny ask --output-schema schema.json \"extract the TODOs as JSON\"\n"
 "  tny --provider cursor ask --model composer-2 \"find the login bug\"\n";
@@ -132,10 +146,11 @@ static const char *acp_help =
 "\n"
 "Serve tny's native OpenAI-compatible loop as an ACP agent over stdio\n"
 "(protocolVersion 1). stdout is protocol-only; logs go to --log-file.\n"
+"Use the leading --ephemeral global flag to disable local session storage.\n"
 "\n"
 "Examples:\n"
 "  tny acp\n"
-"  tny --model gpt-4.1-mini acp\n";
+"  tny --ephemeral --model gpt-4.1-mini acp\n";
 
 static const char *setup_help =
 "Usage: tny setup [--base-url URL] [--api-key-env NAME] [--model ID]\n"
@@ -156,7 +171,8 @@ static const char *doctor_help =
 static const char *resume_help =
 "Usage: tny resume [last|<id>]\n"
 "\n"
-"Resume a saved session in the interactive shell.\n"
+"Resume a saved session in the interactive shell. This is incompatible with\n"
+"--ephemeral because ephemeral runs never import stored conversation state.\n"
 "\n"
 "Examples:\n"
 "  tny resume last\n"
@@ -197,9 +213,31 @@ bool help_for(const char *command) {
     else if (strcmp(command, "usage") == 0)
         text = "Usage: tny usage [--json]\n\nShow local token usage recorded from native-loop sessions.\n";
     else if (strcmp(command, "login") == 0)
-        text = "Usage: tny [--provider NAME] login\n\nDispatch auth to the active provider (Cursor key check, codex login, API key hint).\n";
+        text =
+"Usage: tny [--provider NAME] login [--device]\n"
+"\n"
+"Sign in to the active provider. Tokens live in each provider's own store.\n"
+"\n"
+"  codex   ChatGPT sign-in over `codex app-server` (account/login/start):\n"
+"          prints the auth URL (browser flow), or a verification URL plus\n"
+"          user code with --device (headless machines). The result lands in\n"
+"          $CODEX_HOME/auth.json, which tny auto-detects.\n"
+"  claude  Reports the credential in use (CLAUDE_CODE_OAUTH_TOKEN,\n"
+"          ANTHROPIC_API_KEY, ~/.claude/.credentials.json), else runs\n"
+"          `claude setup-token` to mint a Claude Code OAuth token.\n"
+"  grok    Native RFC 8628 device-code sign-in against auth.x.ai (no grok\n"
+"          CLI needed): open the printed URL on any device, confirm the\n"
+"          code; the session lands in ~/.grok/auth.json (grok CLI format)\n"
+"          and auto-refreshes.\n"
+"  cursor  Reports whether CURSOR_API_KEY is set.\n"
+"  openai  Reports whether an API key resolved (tny setup configures one).\n"
+"\n"
+"Examples:\n"
+"  tny --provider codex login --device\n"
+"  tny --provider claude login\n"
+"  tny --provider grok login\n";
     else if (strcmp(command, "logout") == 0)
-        text = "Usage: tny [--provider NAME] logout\n\nProvider-specific logout. tny stores no secrets itself.\n";
+        text = "Usage: tny [--provider NAME] logout\n\nProvider-specific logout (codex CLI logout, native removal of the xAI entries in ~/.grok/auth.json for grok, env-var hints otherwise).\n";
     if (!text) { help_root(); return true; }
     fputs(text, stdout);
     return true;

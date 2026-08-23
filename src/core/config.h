@@ -45,6 +45,9 @@ typedef struct tny_ctx {
     char *max_tokens_field; /* NULL = omit */
     char *wire_api;         /* "responses" (default) | "chat" (docs/adr/0016) */
     char *output_schema;    /* normalized response_format JSON, or NULL */
+    char **extra_headers;   /* NULL-terminated extra request header lines set
+                             * by builtin profiles (claude oauth beta, grok
+                             * proxy auth — docs/adr/0019); never persisted */
 
     /* cursor */
     char *bridge_bin;
@@ -95,6 +98,33 @@ void     tny_ctx_free(tny_ctx *ctx);
 /* Resolve backend per docs/cli.md when no --backend flag was given. */
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value);
 bool tny_codex_auth_present(void); /* codex login (auth.json) on this machine */
+
+/* ---- builtin subscription profiles (profiles.c, docs/adr/0019) ----
+ * "claude" (Anthropic OpenAI-compat + Claude Code OAuth token) and "grok"
+ * (xAI CLI session token / XAI_API_KEY) run on the openai backend like
+ * user-named profiles, but ship with tny. A settings.json object or
+ * NAME_BASE_URL env var with the same name shadows the builtin. */
+bool tny_builtin_profile_exists(const char *name);
+bool tny_claude_auth_present(void); /* subscription login artifacts only */
+bool tny_grok_auth_present(void);   /* ~/.grok/auth.json session */
+/* Resolved Claude credential: CLAUDE_CODE_OAUTH_TOKEN, then
+ * ANTHROPIC_API_KEY, then ~/.claude/.credentials.json accessToken.
+ * malloc'd; *source (optional) names where it came from. */
+char *tny_claude_token(const char **source);
+/* Session token from ~/.grok/auth.json (tny's own login or the grok
+ * CLI's). malloc'd. */
+char *tny_grok_session_token(void);
+/* Native xAI sign-in (grok_login.c, docs/adr/0021): RFC 8628 device-code
+ * login and logout against auth.x.ai — no grok CLI needed — plus the
+ * refresh-token exchange run before each token read. */
+int  tny_grok_login(void);
+int  tny_grok_logout(void);
+void tny_grok_refresh_if_stale(void);
+void tny_apply_builtin_profile(tny_ctx *ctx, const char *name);
+/* Post-model-resolution fixups (grok proxy model-override header). */
+void tny_finish_builtin_profile(tny_ctx *ctx);
+void tny_ctx_clear_extra_headers(tny_ctx *ctx);
+void tny_ctx_add_extra_header(tny_ctx *ctx, const char *line);
 
 /* Effective provider name: the settings.json profile name ("openrouter")
  * when a user-named OpenAI-compatible profile is active, else the builtin

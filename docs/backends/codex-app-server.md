@@ -72,6 +72,12 @@ in codex `config.toml`; tny sends `"priority"`, the value every app-server
 release accepts). Unset means the host's own default; the host ignores
 unknown values.
 
+`--ephemeral` adds `"ephemeral":true` to `thread/start`. The flag is injected
+at tny's request-framing boundary, so retries carry the same setting. tny also
+suppresses its local alias/session artifacts; the Codex flag prevents the host
+thread from being persisted. `thread/resume` is never used in this mode. See
+[ADR 0020](../adr/0020-ephemeral-sessions.md).
+
 Response: `{ "id": 10, "result": { "thread": { "id": "thr_123" } } }`
 Error: `{ "id": 10, "error": { "code": 123, "message": "…" } }`
 Notification: `{ "method": "turn/started", "params": { "turn": { "id": "turn_456" } } }`
@@ -111,6 +117,24 @@ The server can **send requests** (approvals). Pause the turn until tny replies a
 ## Codex login
 
 Reuse the user's `codex login` / ChatGPT session. tny does not store OpenAI cookies. `doctor` should run `codex login status` when the binary exists.
+
+When no login exists yet, `tny --provider codex login` performs the sign-in
+**through the app-server itself** ([ADR 0019](../adr/0019-subscription-logins-claude-grok.md)):
+
+1. connect (attach or spawn) and `initialize` as usual;
+2. `account/login/start` with `{"type":"chatgpt"}` (browser flow — the
+   result carries `authUrl`, and the app-server hosts the localhost OAuth
+   callback, so the host must stay up) or `{"type":"chatgptDeviceCode"}`
+   with `--device` (result carries `verificationUrl` + `userCode`);
+3. print the URL / code (best-effort browser open for the browser flow) and
+   pump the socket until the `account/login/completed` notification
+   (`{loginId, success, error}`); `account/login/cancel` on Ctrl-C/timeout.
+
+The host writes `$CODEX_HOME/auth.json` and owns refresh; tny never parses
+or prints the tokens — success is observable as `tny_codex_auth_present()`.
+Hosts too old for the v2 account endpoints answer -32601 and tny falls back
+to running `codex login`. The flow is covered by
+`tests/integration/test_codex.sh` run 7 against the scripted mock.
 
 ## Client metadata
 

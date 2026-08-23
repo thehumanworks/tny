@@ -97,10 +97,31 @@ void cx_pending_clear(cx_pending *p) {
     memset(p, 0, sizeof *p);
 }
 
+/* Codex app-server owns its thread store. When tny is ephemeral, add the
+ * protocol's native flag at the framing boundary so both initial requests
+ * and tracked retries carry the same no-store intent. Caller-generated
+ * thread/start params are compact JSON objects. */
+static char *cx_ephemeral_params(cx_impl *o, const char *method, const char *params) {
+    if (!o->ctx || !o->ctx->no_save || strcmp(method, "thread/start") != 0)
+        return NULL;
+    const char *p = params && *params ? params : "{}";
+    size_t len = strlen(p);
+    if (len < 2 || p[0] != '{' || p[len - 1] != '}') return NULL;
+    buf_t b;
+    buf_init(&b);
+    buf_append(&b, p, len - 1);
+    if (len > 2) buf_appends(&b, ",");
+    buf_appends(&b, "\"ephemeral\":true}");
+    return buf_detach(&b);
+}
+
 /* Queue one request frame. A tracked kind that cannot get a pending slot is
  * NOT sent and -1 is returned: an untracked response would be unmatchable,
  * so e.g. a steer would never see its rejection (docs/adr/0013). */
 int cx_request(cx_impl *o, const char *method, const char *params, cx_reqkind kind) {
+    char *ephemeral = cx_ephemeral_params(o, method, params);
+    const char *wire_params = ephemeral ? ephemeral :
+                              (params && *params ? params : "{}");
     if (kind != CXR_FREE) {
         bool registered = false;
         for (int i = 0; i < CX_MAX_PENDING; i++) {
@@ -108,19 +129,23 @@ int cx_request(cx_impl *o, const char *method, const char *params, cx_reqkind ki
             o->pending[i].id = o->next_id;
             o->pending[i].kind = kind;
             o->pending[i].method = xstrdup(method);
-            o->pending[i].params = xstrdup(params && *params ? params : "{}");
+            o->pending[i].params = xstrdup(wire_params);
             registered = true;
             break;
         }
-        if (!registered) return -1;
+        if (!registered) {
+            free(ephemeral);
+            return -1;
+        }
     }
     int id = o->next_id++;
     buf_t b;
     buf_init(&b);
     buf_appends(&b, "{\"method\":");
     jescape(&b, method);
-    buf_appendf(&b, ",\"id\":%d,\"params\":%s}", id, params && *params ? params : "{}");
+    buf_appendf(&b, ",\"id\":%d,\"params\":%s}", id, wire_params);
     cx_queue(o, buf_detach(&b));
+    free(ephemeral);
     return id;
 }
 

@@ -77,6 +77,15 @@ static void on_turn_completed(cx_impl *o, yyjson_val *params) {
 }
 
 static void cx_notification(cx_impl *o, const char *method, yyjson_val *params) {
+    if (strcmp(method, "account/login/completed") == 0) {
+        /* codex_login.c pumps until this lands; success:false carries the
+         * host's reason. Never log tokens or the params blob. */
+        o->login_ok = jget_bool(params, "success", false);
+        const char *e = jget_str(params, "error");
+        if (e) snprintf(o->login_err, sizeof o->login_err, "%.200s", e);
+        o->login_done = true;
+        return;
+    }
     if (strcmp(method, "turn/started") == 0) {
         yyjson_val *turn = jget(params, "turn");
         const char *tid = jget_str(turn ? turn : params, "id");

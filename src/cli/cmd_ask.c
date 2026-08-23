@@ -154,7 +154,8 @@ static int load_output_schema(tny_ctx *ctx, const char *value) {
 }
 
 int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
-    bool json = g->json, use_stdin = false, no_save = false, continue_recovery = false;
+    bool json = g->json, use_stdin = false, ephemeral = ctx->no_save;
+    bool continue_recovery = false;
     const char *resume = g->resume;
     const char *output_schema = NULL;
     const char *images[17] = {0};
@@ -169,7 +170,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (!raw && a[0] == '-' && a[1]) {
             if (strcmp(a, "--json") == 0) json = true;
             else if (strcmp(a, "--stdin") == 0) use_stdin = true;
-            else if (strcmp(a, "--no-save") == 0) no_save = true;
+            else if (strcmp(a, "--ephemeral") == 0 || strcmp(a, "--no-save") == 0)
+                ephemeral = true;
             else if (strcmp(a, "--no-color") == 0) { /* colors already plain */ }
             else if (strcmp(a, "--continue-recovery") == 0) continue_recovery = true;
             else if (strcmp(a, "--auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
@@ -199,8 +201,13 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             buf_appends(&prompt, a);
         }
     }
-    if (no_save && resume) {
-        fprintf(stderr, "tny: --no-save is incompatible with --resume\n");
+    if (ephemeral && resume) {
+        fprintf(stderr, "tny: --ephemeral is incompatible with --resume\n");
+        buf_free(&prompt);
+        return 1;
+    }
+    if (ephemeral && continue_recovery) {
+        fprintf(stderr, "tny: --ephemeral is incompatible with --continue-recovery\n");
         buf_free(&prompt);
         return 1;
     }
@@ -208,7 +215,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_free(&prompt);
         return 1;
     }
-    ctx->no_save = no_save;
+    ctx->no_save = ephemeral;
     ctx->json_out = json;
 
     /* Piped stdin can be slow (upstream producer): overlap the host connect
@@ -335,7 +342,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         }
     }
 
-    /* persist host pointer for resume */
+    /* Capture host pointers for the in-process session; session_save is a
+     * no-op in ephemeral mode. */
     if (bk->session_pointer) {
         char *ptr = bk->session_pointer(bk);
         if (ptr) {
@@ -366,6 +374,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         jescape(&out, ctx->model ? ctx->model : "default");
         buf_appends(&out, ",\"session_id\":");
         jescape(&out, ctx->no_save ? "" : session->id);
+        buf_appendf(&out, ",\"ephemeral\":%s", ctx->no_save ? "true" : "false");
         int steps = bk->id == TNY_BK_OPENAI ? tny_backend_openai_steps(bk) : 1;
         buf_appendf(&out, ",\"steps\":%d,\"tool_calls\":", steps);
         if (bk->id == TNY_BK_OPENAI) {
