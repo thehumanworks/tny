@@ -45,6 +45,8 @@ void help_root(void) {
 "                         (or any level `tny models` lists for the provider)\n"
 "  --add-dir DIR          Extra workspace directory; repeatable, process-only\n"
 "  --permission-mode M    ask | auto | yolo (default: yolo)\n"
+"  --max-steps N          Cap the native agent loop at N model calls per turn\n"
+"                         (default: unlimited; 'unlimited' clears a repo cap)\n"
 "  --fast                 Paid fast tier where the provider has one\n"
 "                         (openai, cursor, codex; higher speed and cost)\n"
 "  --json                 Machine-readable output where listed\n"

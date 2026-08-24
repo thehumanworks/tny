@@ -34,6 +34,8 @@ tny --model ID
 tny --effort LEVEL          # reasoning effort (--reasoning-effort is an alias)
 tny --add-dir DIR           # repeatable, process-only
 tny --permission-mode ask|auto|yolo   # default: yolo (docs/adr/0001)
+tny --max-steps N|unlimited # cap native-loop model calls per turn
+                            # (default: unlimited, docs/adr/0024)
 tny --fast                  # paid fast tier (TNY_CAP_FAST providers only)
 tny --json                  # where listed
 tny --ephemeral             # conversation/session artifacts stay in memory
@@ -293,6 +295,18 @@ own wire field:
 The interactive TUI exposes the same capability as `/fast [fast|priority|default]`.
 
 Provider caveats: `--provider cursor` runs Cursor's own headless loop — the bridge exposes no per-call approval RPC, so tny's permission mode does not apply (a status line says so); it also rejects `--image`. `--provider codex` ignores `--image` with a status line (no documented image input item).
+
+## `--max-steps` (agent loop cap)
+
+The native loop runs for as long as the turn needs by default — no step limit
+([ADR 0024](adr/0024-unlimited-steps-default.md)). `--max-steps N` caps model
+calls per turn; a capped turn stops with "step limit reached" on stderr and
+`tny ask` exits 2. `tny status --json` reports the cap as `agent_step_limit`
+(`0` means unlimited).
+`--max-steps unlimited` (or `0`) clears a cap a repo set through the
+`.tny.json` `"steps"` limit. The interactive TUI exposes the same knob as
+`/max-steps set N` / `/max-steps clear`. Host providers (cursor, codex, acp)
+run their own loops and are not affected.
 
 ## Help shape
 

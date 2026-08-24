@@ -2172,6 +2172,38 @@ TEST provider_profile_stored_api_key(void) {
     PASS();
 }
 
+/* The native loop is unlimited by default (docs/adr/0024): max_steps 0.
+ * The repo's .tny.json "steps" limit still caps it, and the shared
+ * --max-steps / /max-steps parser takes caps plus the clearing tokens. */
+TEST max_steps_default_and_overrides(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ASSERT_EQ(0, ctx->max_steps); /* unlimited out of the box */
+    tny_ctx_free(ctx);
+
+    char p[600];
+    snprintf(p, sizeof p, "%s/.tny.json", g_ws);
+    file_write_atomic(p, "{\"steps\":7}", strlen("{\"steps\":7}"));
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ASSERT_EQ(7, ctx->max_steps); /* repo limit still applies */
+    tny_ctx_free(ctx);
+    unlink(p);
+
+    ASSERT_EQ(0, tny_parse_max_steps("0"));
+    ASSERT_EQ(0, tny_parse_max_steps("unlimited"));
+    ASSERT_EQ(0, tny_parse_max_steps("none"));
+    ASSERT_EQ(30, tny_parse_max_steps("30"));
+    ASSERT_EQ(-1, tny_parse_max_steps("abc"));
+    ASSERT_EQ(-1, tny_parse_max_steps("-3"));
+    ASSERT_EQ(-1, tny_parse_max_steps("3x"));
+    ASSERT_EQ(-1, tny_parse_max_steps(""));
+    ASSERT_EQ(-1, tny_parse_max_steps(NULL));
+    PASS();
+}
+
 TEST provider_write_profile_rules(void) {
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
@@ -2221,6 +2253,7 @@ SUITE(core_suite) {
     RUN_TEST(custom_named_provider_profiles);
     RUN_TEST(provider_profile_stored_api_key);
     RUN_TEST(provider_write_profile_rules);
+    RUN_TEST(max_steps_default_and_overrides);
     RUN_TEST(env_defined_providers);
     RUN_TEST(builtin_claude_profile);
     RUN_TEST(builtin_grok_profile);

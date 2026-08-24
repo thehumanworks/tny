@@ -61,7 +61,9 @@ loop. Cursor, Codex, and ACP remain CLI providers until their authority and
 host-state contracts are explicit.
 
 The default permission policy is `TNY_PERMISSION_ASK`, unlike the CLI's
-deliberate yolo default. A sensitive native or host request emits a permission
+deliberate yolo default. `max_steps` defaults to 0 (unlimited, matching the
+CLI; [ADR 0024](adr/0024-unlimited-steps-default.md)); a positive value caps
+model calls per turn and ends the turn with `TNY_STOP_REASON_STEP_LIMIT`. A sensitive native or host request emits a permission
 event and parks until `tny_session_respond_permission`, cancellation, or close.
 MCP is disabled and omitted from the advertised tool schema in ABI 0.
 Home/ancestor instructions and home skill catalogs are never imported. Only an

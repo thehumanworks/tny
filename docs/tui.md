@@ -71,7 +71,7 @@ Mirror fx names where they still make sense. Backend-specific commands degrade t
 
 Sessions: `/help` `/clear` `/new` `/reset` `/resume` `/continue` `/rename` `/compact` `/quit`
 
-Runtime: `/models` `/model` `/effort` `/permissions` `/sandbox` `/provider` (`/backend`) `/fast` `/status` `/usage`
+Runtime: `/models` `/model` `/effort` `/max-steps` `/permissions` `/sandbox` `/provider` (`/backend`) `/fast` `/status` `/usage`
 
 `/provider setup [NAME]` runs the guided provider wizard through the
 composer (name → base url → key or `$ENV_NAME` → model; `/cancel` aborts;
@@ -90,6 +90,12 @@ no backend rebind: it rides on codex `turn/start`, cursor
 actually advertises. `/fast [fast|priority|default]` selects the provider's
 paid fast tier (`TNY_CAP_FAST`: openai, cursor, codex) and rebinds where the
 tier rides on session start (codex `thread/start`).
+
+`/max-steps set N` caps the native loop at N model calls per turn;
+`/max-steps clear` removes the cap (the default is unlimited — [ADR
+0024](adr/0024-unlimited-steps-default.md)). The value is read at step
+boundaries, so it applies immediately with no backend rebind. Host providers
+run their own loops and ignore it.
 
 Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace` `/ssh`
 

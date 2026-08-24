@@ -164,6 +164,47 @@ def main():
             assert r7.returncode == 1, f"exit {r7.returncode}: {r7.stderr.decode()}"
             assert b"--fast is not supported" in r7.stderr, r7.stderr
 
+            # step limit (docs/adr/0024): unlimited by default (the 2-step
+            # runs above pass with no cap configured); --max-steps 1 stops
+            # the turn after the first model call
+            r_cap = subprocess.run(
+                [TNY, "--cwd", ws, "--max-steps", "1", "ask", "--json",
+                 "--no-save", "list files in ."],
+                env=env, capture_output=True, timeout=30)
+            assert r_cap.returncode == 2, \
+                f"exit {r_cap.returncode}: {r_cap.stderr.decode()}"
+            assert b"step limit reached" in r_cap.stderr, r_cap.stderr
+            cap_out = json.loads(r_cap.stdout)
+            assert cap_out["steps"] == 1, cap_out  # one model call was made
+
+            # a .tny.json "steps" repo limit still caps the loop, and the
+            # explicit flag beats it (--max-steps unlimited clears the cap)
+            repo_cfg = os.path.join(ws, ".tny.json")
+            open(repo_cfg, "w").write('{"steps": 1}')
+            try:
+                r_repo = subprocess.run(
+                    [TNY, "--cwd", ws, "ask", "--json", "--no-save",
+                     "list files in ."],
+                    env=env, capture_output=True, timeout=30)
+                assert r_repo.returncode == 2, r_repo.stderr.decode()
+                assert b"step limit reached" in r_repo.stderr, r_repo.stderr
+                r_uncap = subprocess.run(
+                    [TNY, "--cwd", ws, "--max-steps", "unlimited", "ask",
+                     "--json", "--no-save", "list files in ."],
+                    env=env, capture_output=True, timeout=30)
+                assert r_uncap.returncode == 0, r_uncap.stderr.decode()
+                assert json.loads(r_uncap.stdout)["steps"] == 2, r_uncap.stdout
+            finally:
+                os.unlink(repo_cfg)
+
+            # a bad value is a startup error with a usable example
+            r_bad = subprocess.run(
+                [TNY, "--cwd", ws, "--max-steps", "lots", "ask", "hi"],
+                env=env, capture_output=True, timeout=15)
+            assert r_bad.returncode == 1, r_bad.stderr.decode()
+            assert b"--max-steps takes a positive integer" in r_bad.stderr, \
+                r_bad.stderr
+
             # empty stdin: exit 1 with the usage error, no hang, no half-open
             # backend left behind
             r5 = subprocess.run(
