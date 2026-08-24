@@ -59,6 +59,13 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
             g->perm_mode = "auto";
         } else if (strcmp(a, "--json") == 0) {
             g->json = true;
+        } else if (strcmp(a, "--color") == 0) {
+            if (!(v = need_val(argc, argv, &i, a))) return -1;
+            g->color = v;
+        } else if (str_starts(a, "--color=")) {
+            g->color = a + strlen("--color=");
+        } else if (strcmp(a, "--no-color") == 0) {
+            g->color = "never";
         } else if (strcmp(a, "--ephemeral") == 0 || strcmp(a, "--no-save") == 0) {
             g->ephemeral = true;
         } else if (strcmp(a, "-r") == 0) {
@@ -164,6 +171,16 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     }
     ctx->json_out = g->json;
     ctx->no_save = g->ephemeral;
+    if (g->color) {
+        if (strcmp(g->color, "never") == 0) ctx->no_color = true;
+        else if (strcmp(g->color, "always") == 0) ctx->force_color = true;
+        else if (strcmp(g->color, "auto") != 0) {
+            fprintf(stderr, "tny: --color must be auto|always|never\n"
+                            "Example: NO_COLOR= tny --color=always\n");
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+    }
     if (g->bridge_bin) { free(ctx->bridge_bin); ctx->bridge_bin = xstrdup(g->bridge_bin); }
     if (g->codex_ws) { free(ctx->codex_ws); ctx->codex_ws = xstrdup(g->codex_ws); }
     if (g->codex_bin) { free(ctx->codex_bin); ctx->codex_bin = xstrdup(g->codex_bin); }

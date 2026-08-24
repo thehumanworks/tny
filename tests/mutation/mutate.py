@@ -161,6 +161,12 @@ TARGETS = [
      r"builtin|claude|grok"),
     ("src/backends/codex/codex_msg.c", ["cx_notification"], r"login",
      "tests/integration/test_codex.sh"),
+    # color vs attribute split (docs/adr/0026): the resolver and the flag
+    # parsing whole; the status row's two renderings answer to the unit
+    # tests, the dumb-mode note + POLLNVAL exit to test_tui.py
+    ("src/core/config.c", ["tny_color_resolve"], None),
+    ("src/tui/tui_draw.c", ["tui_status_row"], None),
+    ("src/cli/args.c", ["cli_parse_globals", "cli_make_ctx"], r"color"),
 ]
 
 # operator substitutions applied to one site at a time

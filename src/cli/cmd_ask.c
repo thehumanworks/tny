@@ -174,7 +174,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             else if (strcmp(a, "--stdin") == 0) use_stdin = true;
             else if (strcmp(a, "--ephemeral") == 0 || strcmp(a, "--no-save") == 0)
                 ephemeral = true;
-            else if (strcmp(a, "--no-color") == 0) { /* colors already plain */ }
+            else if (strcmp(a, "--no-color") == 0) ctx->no_color = true;
             else if (strcmp(a, "--continue-recovery") == 0) continue_recovery = true;
             else if (strcmp(a, "--auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
             else if (strcmp(a, "--yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;

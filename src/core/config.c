@@ -27,6 +27,15 @@ int tny_parse_max_steps(const char *s) {
     return (int)v;
 }
 
+void tny_color_resolve(const tny_ctx *ctx, bool tty, bool *color, bool *attr) {
+    const char *f = getenv("CLICOLOR_FORCE");
+    bool force = ctx->force_color || (f && *f && strcmp(f, "0") != 0);
+    if (ctx->no_color) { *color = false; *attr = false; return; }
+    if (force) { *color = true; *attr = true; return; }
+    *attr = tty;
+    *color = tty && !getenv("NO_COLOR");
+}
+
 bool tny_tier_is_fast(const char *tier) {
     return tier && (strcmp(tier, "fast") == 0 || strcmp(tier, "priority") == 0);
 }

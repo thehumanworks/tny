@@ -33,7 +33,10 @@ typedef struct tui {
     tny_ctx           *ctx;
     const cli_globals *g;
 
-    bool tty, color;
+    /* tty: the bottom block is drawn at all. color: SGR color sequences.
+     * attr: non-color SGR (bold/dim/reverse/reset) — structural, survives
+     * NO_COLOR (docs/adr/0026). Both come from tny_color_resolve. */
+    bool tty, color, attr;
     int  rows, cols;
     int  block_rows, cur_row;
 
@@ -175,8 +178,16 @@ void tui_bol(tui *t);        /* finish the current transcript line */
 void tui_write_dim(tui *t, const char *s, size_t n);
 void tui_linef(tui *t, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 void tui_sys(tui *t, const char *s);   /* dim system line */
+void tui_sysf(tui *t, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 void tui_err(tui *t, const char *s);   /* red error line */
+/* tui_c gates SGR *colors* on t->color; tui_attr gates non-color SGR
+ * (bold/dim/reverse/reset) on t->attr. NO_COLOR suppresses colors only, so
+ * the status bar keeps its reverse video (docs/adr/0026). */
 const char *tui_c(const tui *t, const char *code);
+const char *tui_attr(const tui *t, const char *code);
+/* The status row, exposed for the unit tests: reverse-video bar when attrs
+ * are on, `── … ──` delimiters when no SGR is available at all. */
+void tui_status_row(tui *t, buf_t *b, int maxw);
 void tui_note(tui *t, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 void tui_overlay_linef(tui *t, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 void tui_overlay_clear(tui *t);

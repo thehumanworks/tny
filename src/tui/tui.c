@@ -23,13 +23,14 @@ EM_JS(int, js_tui_page, (void), { return Module.tnyOut ? 1 : 0; });
 /* ---- terminal ---- */
 
 static struct termios g_saved;
-static bool g_raw;
+static bool g_raw, g_restore_sgr;
 static volatile sig_atomic_t g_winch, g_sigint;
 
 static void term_restore(void) {
     if (!g_raw) return;
     g_raw = false;
-    fputs("\x1b[?2004l\x1b[0m\x1b[?25h", stdout);
+    fputs(g_restore_sgr ? "\x1b[?2004l\x1b[0m\x1b[?25h"
+                        : "\x1b[?2004l\x1b[?25h", stdout);
     fflush(stdout);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &g_saved);
 }
@@ -47,7 +48,7 @@ static void install(int sig, void (*fn)(int)) {
     sigaction(sig, &sa, NULL);
 }
 
-static bool term_raw(void) {
+static bool term_raw(bool restore_sgr) {
     if (tcgetattr(STDIN_FILENO, &g_saved) != 0) return false;
     struct termios r = g_saved;
     /* keep OPOST/ONLCR so plain printf from reused CLI commands still works */
@@ -57,6 +58,7 @@ static bool term_raw(void) {
     r.c_cc[VTIME] = 0;
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &r) != 0) return false;
     g_raw = true;
+    g_restore_sgr = restore_sgr;
     /* bracketed paste: pasted newlines land in the composer, not as Enter */
     fputs("\x1b[?2004h", stdout);
     fflush(stdout);
@@ -116,7 +118,8 @@ tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
 
     char line[512];
     oneline(line, sizeof line, summary && *summary ? summary : tool);
-    tui_linef(t, "%s? %s%s", tui_c(t, "\x1b[1;33m"), line, tui_c(t, "\x1b[0m"));
+    tui_linef(t, "%s%s? %s%s", tui_attr(t, "\x1b[1m"), tui_c(t, "\x1b[33m"),
+              line, tui_attr(t, "\x1b[0m"));
     if (!t->tty) {
         tui_sys(t, "  not a terminal: denied");
         return TNY_PERM_DECISION_DENY;
@@ -182,9 +185,9 @@ static void ev_cb(const tny_backend_event *ev, void *ud) {
         if (!t->in_thinking) {
             t->in_thinking = true;
             tui_bol(t);
-            if (t->color) tui_write(t, "\x1b[2m", 4);
+            if (t->attr) tui_write(t, "\x1b[2m", 4);
             tui_write(t, "· ", 3); /* "·" is 2 bytes of UTF-8 plus the space */
-            if (t->color) tui_write(t, "\x1b[0m", 4);
+            if (t->attr) tui_write(t, "\x1b[0m", 4);
         }
         tui_write_dim(t, ev->text, ev->text_len);
         break;
@@ -192,12 +195,12 @@ static void ev_cb(const tny_backend_event *ev, void *ud) {
         maybe_gap(t, false);
         oneline(line, sizeof line, ev->tool_detail);
         tui_linef(t, "%s⏺ %s%s %.100s", tui_c(t, "\x1b[36m"), ev->tool_name,
-                  tui_c(t, "\x1b[0m"), line);
+                  tui_attr(t, "\x1b[0m"), line);
         break;
     case TNY_EV_TOOL_END:
         oneline(line, sizeof line, ev->tool_detail);
         tui_linef(t, "  %s%s%s %s %.80s", tui_c(t, ev->tool_ok ? "\x1b[32m" : "\x1b[31m"),
-                  ev->tool_ok ? "✓" : "✗", tui_c(t, "\x1b[0m"), ev->tool_name, line);
+                  ev->tool_ok ? "✓" : "✗", tui_attr(t, "\x1b[0m"), ev->tool_name, line);
         t->gap = 2; /* next model text starts a new iteration */
         break;
     case TNY_EV_PERMISSION: {
@@ -215,10 +218,10 @@ static void ev_cb(const tny_backend_event *ev, void *ud) {
     }
     case TNY_EV_PLAN:
         tui_bol(t);
-        tui_linef(t, "%s── plan ──%s", tui_c(t, "\x1b[2m"), tui_c(t, "\x1b[0m"));
+        tui_linef(t, "%s── plan ──%s", tui_attr(t, "\x1b[2m"), tui_attr(t, "\x1b[0m"));
         tui_write(t, ev->text, ev->text_len);
         tui_bol(t);
-        tui_linef(t, "%s──────────%s", tui_c(t, "\x1b[2m"), tui_c(t, "\x1b[0m"));
+        tui_linef(t, "%s──────────%s", tui_attr(t, "\x1b[2m"), tui_attr(t, "\x1b[0m"));
         break;
     case TNY_EV_USAGE:
         t->in_tok += ev->in_tokens;
@@ -360,6 +363,10 @@ static void after_turn(tui *t) {
     case TNY_STOP_STEP_LIMIT: tui_sys(t, "stopped: step limit reached"); break;
     case TNY_STOP_ERROR: tui_sys(t, "stopped: error"); break;
     }
+    if (!t->tty) /* dumb mode has no status row: leave one in the transcript */
+        tui_sysf(t, "── %s  %s  %lld/%lld tok ──", tny_provider_name(t->ctx),
+                 t->ctx->model ? t->ctx->model : "default",
+                 (long long)t->in_tok, (long long)t->out_tok);
     t->cancel_ms = 0;
     buf_clear(&t->note);
     t->dirty = true;
@@ -416,8 +423,9 @@ void tui_submit(tui *t, const char *text) {
              * order; the backend owns the text now and hands it back via
              * STEER_REJECTED if the host refuses it (docs/adr/0013) */
             tui_bol(t);
-            tui_linef(t, "%s› %s%s %ssteer%s", tui_c(t, "\x1b[1m"), s,
-                      tui_c(t, "\x1b[0m"), tui_c(t, "\x1b[2m"), tui_c(t, "\x1b[0m"));
+            tui_linef(t, "%s› %s%s %ssteer%s", tui_attr(t, "\x1b[1m"), s,
+                      tui_attr(t, "\x1b[0m"), tui_attr(t, "\x1b[2m"),
+                      tui_attr(t, "\x1b[0m"));
             t->gap = 1;
         } else {
             tui_queue_push(t, s, false); /* sent when this turn ends */
@@ -427,7 +435,7 @@ void tui_submit(tui *t, const char *text) {
     }
 
     tui_hist_add(t, s);
-    tui_linef(t, "%s› %s%s", tui_c(t, "\x1b[1m"), s, tui_c(t, "\x1b[0m"));
+    tui_linef(t, "%s› %s%s", tui_attr(t, "\x1b[1m"), s, tui_attr(t, "\x1b[0m"));
     t->gap = 1; /* one blank line before the first agent output */
     /* connect/send below can block for a while: show the echoed prompt and a
      * status note now so Enter never looks like a freeze */
@@ -479,11 +487,13 @@ void tui_submit(tui *t, const char *text) {
 /* ---- run loop ---- */
 
 static void banner(tui *t) {
-    tui_linef(t, "%stny %s%s  %s  %s  %s", tui_c(t, "\x1b[1m"), TNY_VERSION,
-              tui_c(t, "\x1b[0m"), tny_provider_name(t->ctx),
+    tui_linef(t, "%stny %s%s  %s  %s  %s", tui_attr(t, "\x1b[1m"), TNY_VERSION,
+              tui_attr(t, "\x1b[0m"), tny_provider_name(t->ctx),
               t->ctx->model ? t->ctx->model : "default model",
               tny_perm_mode_name(t->ctx->perm_mode));
     tui_sys(t, "/help for commands · @ files · $ skills · ctrl-c twice to exit");
+    if (!t->tty)
+        tui_sys(t, "not a terminal: status bar disabled, approvals auto-deny");
 }
 
 static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
@@ -500,13 +510,19 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     buf_init(&t.prompt_text);
     t.perm = perm_new(ctx);
     t.tty = isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
-    if (t.tty && !term_raw()) t.tty = false;
+    tny_color_resolve(ctx, t.tty, &t.color, &t.attr);
+    if (t.tty && !term_raw(t.attr)) {
+        t.tty = false;
+        tny_color_resolve(ctx, false, &t.color, &t.attr);
+    }
 #ifdef __EMSCRIPTEN__
     /* the page terminal is xterm.js: already raw, always a tty — the
      * Emscripten termios/isatty stubs must not demote it (docs/adr/0017) */
-    if (js_tui_page()) t.tty = true;
+    if (js_tui_page()) {
+        t.tty = true;
+        tny_color_resolve(ctx, true, &t.color, &t.attr);
+    }
 #endif
-    t.color = t.tty && !ctx->no_color && !getenv("NO_COLOR");
     tui_size(&t);
 
     install(SIGWINCH, on_winch);
@@ -560,7 +576,10 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
             t.spin = (t.spin + 1) % 10;
             if (!t.note.len) t.dirty = true; /* an explicit note wins the row */
         }
-        if (pr > 0 && (fds[0].revents & (POLLIN | POLLHUP | POLLERR))) {
+        /* POLLNVAL is stdin-is-gone (macOS polls /dev/null that way): treat
+         * it as EOF. Excluding it livelocks the loop at 100% CPU — poll
+         * returns instantly forever and read never runs. */
+        if (pr > 0 && (fds[0].revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL))) {
             if (tui_read_input(&t) < 0) t.quit = true;
         }
         if (t.turn_active && t.engine) {

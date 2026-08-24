@@ -16,13 +16,33 @@ Match fx's form: a **Unix shell**, not an IDE. Streaming transcript, a pinned co
   `\x1b[13;2u`, or `\\` then Enter). Plain Enter still submits.
 - `Ctrl-V` pastes a clipboard image when a helper is installed (`pngpaste` /
   `osascript` on macOS, `wl-paste` / `xclip` on Linux): the file is written
-  under `/tmp` and a `[Image #N]` placeholder is inserted. Text is pasted
-  if the clipboard has no image. Helpers are spawned only on paste.
+  under `/tmp` and its path is inserted as inline-code composer text. Text is
+  pasted if the clipboard has no image. Helpers are spawned only on paste.
 - The shell enables **bracketed paste** (`ESC[?2004h`): a terminal paste
   arrives wrapped in `ESC[200~ … ESC[201~` and is inserted into the composer
   as literal text with `\r`/`\r\n` normalized to `\n` — pasted newlines never
   submit. Only a real Enter keypress submits the draft.
 - Status line is off-by-default extras (sandbox, context bytes) like fx.
+
+## Colors and attributes
+
+SGR output splits into *colors* and *attributes* (bold, dim, reverse video),
+resolved once at startup (`tny_color_resolve`,
+[ADR 0026](adr/0026-color-vs-attribute-sgr.md)):
+
+- `NO_COLOR` (any value, even empty) disables colors only. Attributes are
+  structural: the status bar keeps its reverse video, the banner stays bold,
+  reasoning traces stay dim.
+- `CLICOLOR_FORCE` (non-empty, not `0`) or `--color=always` forces full
+  styling — it beats `NO_COLOR` and applies even when stdout is piped.
+- `--color=never` / `--no-color` emits no SGR at all; the status row falls
+  back to `── provider  model  mode … ──` delimiters so it never reads as
+  ordinary transcript text.
+
+Without a tty the shell runs in dumb mode: no status row, composer, or
+overlays — one prompt per stdin line, and approvals auto-deny. Startup says
+so (`not a terminal: status bar disabled, approvals auto-deny`), and each
+turn ends with a plain `── provider  model  in/out tok ──` transcript line.
 
 ## Ephemeral mode
 

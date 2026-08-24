@@ -17,6 +17,7 @@ typedef struct {
     const char **add_dirs;   /* --add-dir, repeatable */
     int         n_add_dirs;
     bool        json;        /* --json */
+    const char *color;       /* --color auto|always|never (--no-color = never) */
     const char *ssh;         /* --ssh user@host[:port] */
     const char *ssh_cwd;     /* --ssh-cwd DIR (remote) */
     bool        ephemeral;   /* --ephemeral | --no-save */

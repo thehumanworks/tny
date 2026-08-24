@@ -264,7 +264,7 @@ static void drop_backend(tui *t) {
 /* Rendered as a transient overlay: visible while the user reads it, gone
  * from the buffer once they move on (esc dismisses, submit clears). */
 static void cmd_help(tui *t) {
-    const char *d = tui_c(t, "\x1b[2m"), *b = tui_c(t, "\x1b[1m"), *r = tui_c(t, "\x1b[0m");
+    const char *d = tui_attr(t, "\x1b[2m"), *b = tui_attr(t, "\x1b[1m"), *r = tui_attr(t, "\x1b[0m");
     tui_overlay_linef(t, "%skeys: enter submit · ctrl-j / alt-j / shift-enter newline · "
                          "up/down history%s", d, r);
     tui_overlay_linef(t, "%s      / commands · @ files · $ skills · tab complete · "
@@ -292,7 +292,7 @@ static void cmd_transcript(tui *t) {
         const char *role = r ? yyjson_mut_get_str(r) : NULL;
         const char *txt = c ? yyjson_mut_get_str(c) : NULL;
         if (!role) continue;
-        tui_linef(t, "%s[%s]%s %s", tui_c(t, "\x1b[2m"), role, tui_c(t, "\x1b[0m"),
+        tui_linef(t, "%s[%s]%s %s", tui_attr(t, "\x1b[2m"), role, tui_attr(t, "\x1b[0m"),
                   txt ? txt : "(structured)");
     }
 }

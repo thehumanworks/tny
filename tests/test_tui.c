@@ -79,6 +79,7 @@ static void mk_tui(tui *t, int rows) {
     t->rows = rows;
     t->cols = 100;
     t->tty = true;
+    t->attr = true; /* a tty gets non-color SGR unless --color=never */
 }
 
 static void free_tui(tui *t) {
@@ -195,13 +196,161 @@ TEST write_dim_blank_lines_carry_no_sgr(void) {
     PASS();
 }
 
-TEST write_dim_without_color_is_plain(void) {
+TEST write_dim_without_color_stays_dim(void) {
+    /* NO_COLOR kills colors only: dim is an attribute and survives, so
+     * reasoning traces keep their mute in colorless terminals
+     * (docs/adr/0026). */
     tui t;
     mk_tui(&t, 24);
     t.color = false;
     tui_write_dim(&t, "abc\nde", 6);
+    ASSERT_STR_EQ("\x1b[2mabc\x1b[0m\n", t.out.data);
+    ASSERT_STR_EQ("\x1b[2mde\x1b[0m", t.partial.data);
+    free_tui(&t);
+    PASS();
+}
+
+TEST write_dim_without_attr_is_plain(void) {
+    tui t;
+    mk_tui(&t, 24);
+    t.attr = false; /* --color=never: no SGR at all */
+    tui_write_dim(&t, "abc\nde", 6);
     ASSERT_STR_EQ("abc\n", t.out.data);
     ASSERT_STR_EQ("de", t.partial.data);
+    free_tui(&t);
+    PASS();
+}
+
+/* ---- color vs attribute gates (docs/adr/0026) ---- */
+
+TEST attr_gate_is_independent_from_color(void) {
+    tui t;
+    mk_tui(&t, 24);
+    t.color = false; /* NO_COLOR look: colors off, structure on */
+    ASSERT_STR_EQ("", tui_c(&t, "\x1b[31m"));
+    ASSERT_STR_EQ("\x1b[7m", tui_attr(&t, "\x1b[7m"));
+    ASSERT_STR_EQ("\x1b[0m", tui_attr(&t, "\x1b[0m"));
+    t.attr = false; /* --color=never: nothing at all */
+    ASSERT_STR_EQ("", tui_attr(&t, "\x1b[7m"));
+    free_tui(&t);
+    PASS();
+}
+
+TEST color_resolve_matrix(void) {
+    struct tny_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    bool c = false, a = false;
+    unsetenv("NO_COLOR");
+    unsetenv("CLICOLOR_FORCE");
+
+    tny_color_resolve(&ctx, true, &c, &a); /* plain tty: everything on */
+    ASSERT(c); ASSERT(a);
+    tny_color_resolve(&ctx, false, &c, &a); /* piped: nothing */
+    ASSERT_FALSE(c); ASSERT_FALSE(a);
+
+    setenv("NO_COLOR", "1", 1); /* colors off, the bar keeps reverse video */
+    tny_color_resolve(&ctx, true, &c, &a);
+    ASSERT_FALSE(c); ASSERT(a);
+    setenv("NO_COLOR", "", 1); /* tny honors even an empty NO_COLOR */
+    tny_color_resolve(&ctx, true, &c, &a);
+    ASSERT_FALSE(c); ASSERT(a);
+
+    setenv("CLICOLOR_FORCE", "1", 1); /* force beats NO_COLOR… */
+    tny_color_resolve(&ctx, true, &c, &a);
+    ASSERT(c); ASSERT(a);
+    tny_color_resolve(&ctx, false, &c, &a); /* …and works when piped */
+    ASSERT(c); ASSERT(a);
+    setenv("CLICOLOR_FORCE", "0", 1); /* "0" never forces */
+    tny_color_resolve(&ctx, true, &c, &a);
+    ASSERT_FALSE(c); ASSERT(a);
+    unsetenv("CLICOLOR_FORCE");
+
+    ctx.force_color = true; /* --color=always, piped */
+    tny_color_resolve(&ctx, false, &c, &a);
+    ASSERT(c); ASSERT(a);
+    ctx.no_color = true; /* explicit never beats every force */
+    tny_color_resolve(&ctx, true, &c, &a);
+    ASSERT_FALSE(c); ASSERT_FALSE(a);
+
+    unsetenv("NO_COLOR");
+    PASS();
+}
+
+TEST status_row_is_a_reverse_bar_with_attrs(void) {
+    tui t;
+    mk_tui(&t, 24);
+    struct tny_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    ctx.cwd = (char *)"/work";
+    t.ctx = &ctx;
+    t.color = false; /* the NO_COLOR case from the sandbox screenshot */
+    buf_t b;
+    buf_init(&b);
+    tui_status_row(&t, &b, 39);
+    ASSERT(str_starts(b.data, "\x1b[7m"));
+    ASSERT(str_ends(b.data, "\x1b[0m"));
+    ASSERT_EQ(4 + 39 + 4, (int)b.len); /* padded to the full row width */
+    ASSERT(strstr(b.data, "openai  default  ask  /work"));
+    buf_free(&b);
+    free_tui(&t);
+    PASS();
+}
+
+TEST status_row_falls_back_to_delimiters_without_sgr(void) {
+    tui t;
+    mk_tui(&t, 24);
+    struct tny_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    ctx.cwd = (char *)"/work";
+    t.ctx = &ctx;
+    t.attr = false;
+    t.color = false; /* --color=never */
+    buf_t b;
+    buf_init(&b);
+    tui_status_row(&t, &b, 39);
+    ASSERT_STR_EQ("── openai  default  ask  /work ──", b.data);
+    buf_free(&b);
+    free_tui(&t);
+    PASS();
+}
+
+TEST status_row_shows_one_sided_token_counts(void) {
+    /* in_tok/out_tok are independent: either one alone must bring the
+     * token segment out (||, not &&) */
+    tui t;
+    mk_tui(&t, 24);
+    struct tny_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    ctx.cwd = (char *)"/work";
+    t.ctx = &ctx;
+    buf_t b;
+    buf_init(&b);
+    t.in_tok = 5;
+    tui_status_row(&t, &b, 79);
+    ASSERT(strstr(b.data, "5/0 tok"));
+    buf_clear(&b);
+    t.in_tok = 0;
+    t.out_tok = 7;
+    tui_status_row(&t, &b, 79);
+    ASSERT(strstr(b.data, "0/7 tok"));
+    buf_free(&b);
+    free_tui(&t);
+    PASS();
+}
+
+TEST status_row_fallback_truncates_to_width(void) {
+    tui t;
+    mk_tui(&t, 24);
+    struct tny_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    ctx.cwd = (char *)"/work";
+    t.ctx = &ctx;
+    t.attr = false;
+    buf_t b;
+    buf_init(&b);
+    tui_status_row(&t, &b, 20); /* "── " + 14 columns + " ──" */
+    ASSERT_STR_EQ("── openai  defaul ──", b.data);
+    buf_free(&b);
     free_tui(&t);
     PASS();
 }
@@ -677,7 +826,14 @@ SUITE(tui_suite) {
     RUN_TEST(write_strips_nul_bytes);
     RUN_TEST(write_dim_reopens_after_newline);
     RUN_TEST(write_dim_blank_lines_carry_no_sgr);
-    RUN_TEST(write_dim_without_color_is_plain);
+    RUN_TEST(write_dim_without_color_stays_dim);
+    RUN_TEST(write_dim_without_attr_is_plain);
+    RUN_TEST(attr_gate_is_independent_from_color);
+    RUN_TEST(color_resolve_matrix);
+    RUN_TEST(status_row_is_a_reverse_bar_with_attrs);
+    RUN_TEST(status_row_falls_back_to_delimiters_without_sgr);
+    RUN_TEST(status_row_fallback_truncates_to_width);
+    RUN_TEST(status_row_shows_one_sided_token_counts);
     RUN_TEST(prewarm_take_returns_connected_backend);
     RUN_TEST(prewarm_failed_connect_is_silent_and_discarded);
     RUN_TEST(prewarm_drop_mid_connect_cleans_up_on_the_thread);

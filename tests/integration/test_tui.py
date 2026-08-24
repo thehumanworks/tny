@@ -430,6 +430,111 @@ def test_menu_overlay_transient(home, ws):
     print("ok  /help menu is transient: esc and the next command both clear it")
 
 
+COLOR_SGR = re.compile(r"\x1b\[(?:[0-9]+;)*[349][0-9]m")
+
+
+def test_no_color_keeps_the_status_bar(home, ws):
+    """The sandbox screenshot: a pty with NO_COLOR set must keep structural
+    SGR — the status bar's reverse video, the banner's bold — while colors
+    (the green composer prompt) disappear (docs/adr/0026)."""
+    t = Term([TNY], base_env(home, {"NO_COLOR": "1"}), ws)
+    try:
+        t.expect(BANNER)
+        t.expect("yolo")                       # the status row painted
+        assert "\x1b[7m" in t.buf, "status bar lost reverse video:\n%r" % t.buf
+        assert "\x1b[1m" in t.buf, "banner lost bold:\n%r" % t.buf
+        assert not COLOR_SGR.search(t.buf), \
+            "color SGR leaked under NO_COLOR:\n%r" % t.buf
+        t.send("/quit\r")
+        assert t.wait() == 0
+        assert t.restored(), "terminal left in raw mode"
+    finally:
+        t.close()
+    print("ok  NO_COLOR keeps the status bar's reverse video, drops colors")
+
+
+def test_color_never_drops_all_sgr(home, ws):
+    """--color=never: zero SGR; the status row falls back to ── delimiters
+    so it never reads as ordinary transcript text (docs/adr/0026)."""
+    t = Term([TNY, "--color=never"], base_env(home), ws)
+    try:
+        t.expect(BANNER)
+        assert not re.search(r"\x1b\[[0-9;]*m", t.buf), \
+            "SGR leaked under --color=never:\n%r" % t.buf
+        t.expect_on_screen("── openai  default  yolo")
+        t.send("/quit\r")
+        assert t.wait() == 0
+        assert not re.search(r"\x1b\[[0-9;]*m", t.buf), \
+            "SGR leaked during --color=never shutdown:\n%r" % t.buf
+    finally:
+        t.close()
+    print("ok  --color=never: no SGR, status row reads ── … ──")
+
+
+def test_clicolor_force_beats_no_color(home, ws):
+    """CLICOLOR_FORCE recovers full styling without touching NO_COLOR
+    (docs/adr/0026)."""
+    env = base_env(home, {"NO_COLOR": "1", "CLICOLOR_FORCE": "1"})
+    t = Term([TNY], env, ws)
+    try:
+        t.expect(BANNER)
+        assert "\x1b[32m" in t.buf, "composer green not forced on:\n%r" % t.buf
+        assert "\x1b[7m" in t.buf, "status bar lost reverse video:\n%r" % t.buf
+        t.send("/quit\r")
+        assert t.wait() == 0
+    finally:
+        t.close()
+    print("ok  CLICOLOR_FORCE beats NO_COLOR")
+
+
+def test_dumb_mode_announces_itself(home, ws):
+    """No pty: the shell says why the status bar is missing, stays plain,
+    and exits 0 on stdin EOF. /dev/null polls back POLLNVAL on macOS —
+    treating it as anything but EOF livelocks the loop (docs/adr/0026)."""
+    proc = subprocess.run(
+        [TNY], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, env=base_env(home), cwd=ws, timeout=15)
+    out = proc.stdout.decode("utf-8", "replace")
+    assert proc.returncode == 0, (proc.returncode, out)
+    assert "not a terminal: status bar disabled" in out, out
+    assert "\x1b" not in out, "escape leaked into a pipe:\n%r" % out
+    print("ok  dumb mode announces the missing status bar, zero escapes")
+
+
+def test_dumb_mode_turn_status(home, ws, port):
+    """Dumb mode has no status row, so a turn leaves a plain status line in
+    the transcript when it ends (docs/adr/0026)."""
+    env = base_env(home, {
+        "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % port,
+        "OPENAI_API_KEY": "test-key-not-a-secret",
+    })
+    proc = subprocess.Popen([TNY], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, env=env, cwd=ws)
+    try:
+        proc.stdin.write(b"list the files here\n")
+        proc.stdin.flush()
+        out = b""
+        end = time.time() + 20
+        while time.time() < end and b" tok " not in out:
+            r, _, _ = select.select([proc.stdout], [], [], 0.25)
+            if r:
+                chunk = os.read(proc.stdout.fileno(), 65536)
+                if not chunk:
+                    break
+                out += chunk
+        text = out.decode("utf-8", "replace")
+        assert "not a terminal: status bar disabled" in text, text
+        assert "MOCK-OK" in text, text          # the turn actually ran
+        assert "── openai" in text and " tok ──" in text, text
+        assert "\x1b" not in text, "escape leaked into a pipe:\n%r" % text
+        proc.stdin.close()
+        assert proc.wait(timeout=10) == 0
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    print("ok  dumb mode prints a plain status line when the turn ends")
+
+
 def children_of(pid):
     out = subprocess.run(["ps", "-ax", "-o", "pid=,ppid=,command="],
                          capture_output=True, text=True).stdout
@@ -787,6 +892,11 @@ def main():
             test_approval_ui(home, ws)
             test_yolo_default_auto_approves(home, ws)
             test_menu_overlay_transient(home, ws)
+            test_no_color_keeps_the_status_bar(home, ws)
+            test_color_never_drops_all_sgr(home, ws)
+            test_clicolor_force_beats_no_color(home, ws)
+            test_dumb_mode_announces_itself(home, ws)
+            test_dumb_mode_turn_status(home, ws, port)
             test_prewarm_spawns_acp_agent(home, ws)
             test_provider_setup_wizard(home, ws, port)
             test_steer_mid_turn(home, ws)

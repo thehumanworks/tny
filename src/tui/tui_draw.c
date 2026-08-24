@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 const char *tui_c(const tui *t, const char *code) { return t->color ? code : ""; }
+const char *tui_attr(const tui *t, const char *code) { return t->attr ? code : ""; }
 
 static void wout(const void *s, size_t n) {
     if (n) fwrite(s, 1, n, stdout);
@@ -108,7 +109,7 @@ static void row_sep(buf_t *b, int *rows) {
     (*rows)++;
 }
 
-static void status_row(tui *t, buf_t *b, int maxw) {
+void tui_status_row(tui *t, buf_t *b, int maxw) {
     buf_t s;
     buf_init(&s);
     buf_appendf(&s, "%s  %s  %s", tny_provider_name(t->ctx),
@@ -127,10 +128,19 @@ static void status_row(tui *t, buf_t *b, int maxw) {
         buf_appendf(&s, "  ssh %s:%s", t->ctx->ssh_host, t->ctx->ssh_cwd);
     else buf_appendf(&s, "  %s", t->ctx->cwd);
 
-    buf_appends(b, tui_c(t, "\x1b[7m"));
-    int w = push_trunc(b, s.data, s.len, maxw);
-    for (; w < maxw; w++) buf_appends(b, " ");
-    buf_appends(b, tui_c(t, "\x1b[0m"));
+    if (t->attr) {
+        /* reverse video is structural, not a color: it survives NO_COLOR */
+        buf_appends(b, tui_attr(t, "\x1b[7m"));
+        int w = push_trunc(b, s.data, s.len, maxw);
+        for (; w < maxw; w++) buf_appends(b, " ");
+        buf_appends(b, tui_attr(t, "\x1b[0m"));
+    } else {
+        /* no SGR at all (--color=never): without delimiters the row reads
+         * as ordinary transcript text */
+        buf_appends(b, "── ");
+        push_trunc(b, s.data, s.len, maxw - 6);
+        buf_appends(b, " ──");
+    }
     buf_free(&s);
 }
 
@@ -143,9 +153,9 @@ static void queue_row(tui *t, buf_t *b, int *rows, int maxw) {
     buf_appendf(&line, "queued (%d): %s", t->n_queue, t->queue[0]);
     if (t->n_queue > 1) buf_appends(&line, " …");
     buf_appends(&line, " · sends when this turn ends · esc drops");
-    buf_appends(b, tui_c(t, "\x1b[2m"));
+    buf_appends(b, tui_attr(t, "\x1b[2m"));
     push_trunc(b, line.data, line.len, maxw);
-    buf_appends(b, tui_c(t, "\x1b[0m"));
+    buf_appends(b, tui_attr(t, "\x1b[0m"));
     buf_free(&line);
 }
 
@@ -155,14 +165,19 @@ static void popover_rows(tui *t, buf_t *b, int *rows, int maxw) {
     for (int i = first; i < t->n_items && i - first < TUI_POP_ROWS; i++) {
         row_sep(b, rows);
         bool on = i == t->sel;
-        buf_appends(b, tui_c(t, on ? "\x1b[1;36m" : "\x1b[2m"));
+        if (on) { /* bold is structural, cyan is the color on top */
+            buf_appends(b, tui_attr(t, "\x1b[1m"));
+            buf_appends(b, tui_c(t, "\x1b[36m"));
+        } else {
+            buf_appends(b, tui_attr(t, "\x1b[2m"));
+        }
         buf_t line;
         buf_init(&line);
         buf_appendf(&line, "%s %-22s %s", on ? "›" : " ", t->items[i].label,
                     t->items[i].hint ? t->items[i].hint : "");
         push_trunc(b, line.data, line.len, maxw);
         buf_free(&line);
-        buf_appends(b, tui_c(t, "\x1b[0m"));
+        buf_appends(b, tui_attr(t, "\x1b[0m"));
     }
 }
 
@@ -267,19 +282,19 @@ static void overlay_rows(tui *t, buf_t *b, int *rows, int maxw) {
         size_t ll = nl ? (size_t)(nl - p) : (size_t)(end - p);
         row_sep(b, rows);
         tui_push_ansi(b, p, ll, maxw);
-        buf_appends(b, tui_c(t, "\x1b[0m"));
+        buf_appends(b, tui_attr(t, "\x1b[0m"));
         p = nl ? nl + 1 : end;
     }
     if (show < total) {
         row_sep(b, rows);
-        buf_appends(b, tui_c(t, "\x1b[2m"));
+        buf_appends(b, tui_attr(t, "\x1b[2m"));
         buf_t m;
         buf_init(&m);
         buf_appendf(&m, "  … %d more rows (enlarge the window to see them)",
                     total - show);
         tui_push_ansi(b, m.data, m.len, maxw);
         buf_free(&m);
-        buf_appends(b, tui_c(t, "\x1b[0m"));
+        buf_appends(b, tui_attr(t, "\x1b[0m"));
     }
 }
 
@@ -287,10 +302,11 @@ static void composer_rows(tui *t, buf_t *b, int *rows, int maxw, int *cur_row, i
     if (t->approval) {
         row_sep(b, rows);
         *cur_row = *rows - 1;
-        buf_appends(b, tui_c(t, "\x1b[1;33m"));
+        buf_appends(b, tui_attr(t, "\x1b[1m"));
+        buf_appends(b, tui_c(t, "\x1b[33m"));
         const char *q = "approve? [y] yes  [a] yes, don't ask again  [n] no";
         *cur_col = push_trunc(b, q, strlen(q), maxw);
-        buf_appends(b, tui_c(t, "\x1b[0m"));
+        buf_appends(b, tui_attr(t, "\x1b[0m"));
         return;
     }
 
@@ -309,9 +325,10 @@ static void composer_rows(tui *t, buf_t *b, int *rows, int maxw, int *cur_row, i
         size_t ls = tui_wrap_index(data, len, avail, vr, 0);
         size_t le = vr + 1 < total ? tui_wrap_index(data, len, avail, vr + 1, 0) : len;
         if (le > ls && data[le - 1] == '\n') le--;
-        buf_appends(b, tui_c(t, "\x1b[1;32m"));
+        buf_appends(b, tui_attr(t, "\x1b[1m"));
+        buf_appends(b, tui_c(t, "\x1b[32m"));
         buf_appends(b, ls == 0 ? "> " : "  ");
-        buf_appends(b, tui_c(t, "\x1b[0m"));
+        buf_appends(b, tui_attr(t, "\x1b[0m"));
         if (vr == caret_row) {
             *cur_row = *rows - 1;
             *cur_col = 2 + caret_col;
@@ -353,13 +370,13 @@ void tui_render(tui *t) {
         /* the streaming line carries SGR (thinking is dimmed): push_trunc
          * would strip the ESC and print the "[2m"/"[0m" remainder literally */
         tui_push_ansi(&b, t->partial.data, t->partial.len, maxw);
-        buf_appends(&b, tui_c(t, "\x1b[0m"));
+        buf_appends(&b, tui_attr(t, "\x1b[0m"));
     }
     if (t->overlay.len) overlay_rows(t, &b, &rows, maxw);
     if (t->pick != PICK_NONE && t->n_items > 0) popover_rows(t, &b, &rows, maxw);
     if (t->n_queue) queue_row(t, &b, &rows, maxw);
     row_sep(&b, &rows);
-    status_row(t, &b, maxw);
+    tui_status_row(t, &b, maxw);
     composer_rows(t, &b, &rows, maxw, &cur_row, &cur_col);
 
     wout(b.data, b.len);
@@ -432,7 +449,7 @@ void tui_bol(tui *t) {
  * of a delta that crossed a newline repaints in the default color
  * (docs/adr/0012). */
 void tui_write_dim(tui *t, const char *s, size_t n) {
-    if (!t->color) {
+    if (!t->attr) { /* dim is an attribute: it survives NO_COLOR */
         tui_write(t, s, n);
         return;
     }
@@ -462,11 +479,22 @@ void tui_linef(tui *t, const char *fmt, ...) {
 }
 
 void tui_sys(tui *t, const char *s) {
-    tui_linef(t, "%s%s%s", tui_c(t, "\x1b[2m"), s, tui_c(t, "\x1b[0m"));
+    tui_linef(t, "%s%s%s", tui_attr(t, "\x1b[2m"), s, tui_attr(t, "\x1b[0m"));
+}
+
+void tui_sysf(tui *t, const char *fmt, ...) {
+    char line[4096];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    if (n < 0) return;
+    line[sizeof line - 1] = 0;
+    tui_sys(t, line);
 }
 
 void tui_err(tui *t, const char *s) {
-    tui_linef(t, "%stny: %s%s", tui_c(t, "\x1b[31m"), s, tui_c(t, "\x1b[0m"));
+    tui_linef(t, "%stny: %s%s", tui_c(t, "\x1b[31m"), s, tui_attr(t, "\x1b[0m"));
 }
 
 /* Menu-style output: transient on a terminal (cleared once the interaction

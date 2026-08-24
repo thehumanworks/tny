@@ -35,7 +35,8 @@ typedef struct tny_ctx {
     tny_perm_mode perm_mode;
     bool   json_out;
     bool   no_save;
-    bool   no_color;
+    bool   no_color;         /* --no-color | --color=never: no SGR at all */
+    bool   force_color;      /* --color=always: SGR even piped, beats NO_COLOR */
     bool   library_mode;     /* deterministic embed: never write host stdio */
 
     /* openai-compatible provider */
@@ -193,6 +194,14 @@ int tny_workspace_remove(tny_ctx *ctx, const char *dir);
 int tny_workspace_clear(tny_ctx *ctx);
 
 const char *tny_perm_mode_name(tny_perm_mode m);
+
+/* Resolve SGR output for one session (docs/adr/0026). *color: SGR color
+ * sequences; *attr: non-color SGR (bold/dim/reverse/reset). Precedence:
+ * --color=never/--no-color (no SGR at all) > --color=always/CLICOLOR_FORCE
+ * (SGR even when piped; CLICOLOR_FORCE must be non-empty and not "0") >
+ * NO_COLOR (any value, even empty — colors off, attributes stay: they are
+ * structural, not color) > tty default (both on). */
+void tny_color_resolve(const tny_ctx *ctx, bool tty, bool *color, bool *attr);
 
 /* Parse a --max-steps / /max-steps value: a positive integer caps the
  * native loop, "unlimited"|"none"|"0" clear the cap (0 = unlimited).

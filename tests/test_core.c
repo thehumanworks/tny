@@ -2127,6 +2127,58 @@ TEST wire_api_flag(void) {
     PASS();
 }
 
+/* --color / --no-color: always and never parse (both spellings); anything
+ * else is a startup error (docs/adr/0026). */
+TEST color_flag(void) {
+    ensure_env();
+    write_settings("{}");
+
+    char *argv[] = {"tny", "--color", "always", "ask", "hi", NULL};
+    cli_globals g = {0};
+    int ci = cli_parse_globals(5, argv, &g);
+    ASSERT_EQ(3, ci);
+    ASSERT_STR_EQ("always", g.color);
+    g.cwd = g_ws;
+    tny_ctx *ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    ASSERT(ctx->force_color);
+    ASSERT_FALSE(ctx->no_color);
+    tny_ctx_free(ctx);
+
+    char *argv2[] = {"tny", "--color=never", "ask", "hi", NULL};
+    cli_globals g2 = {0};
+    ASSERT_EQ(2, cli_parse_globals(4, argv2, &g2));
+    ASSERT_STR_EQ("never", g2.color);
+    g2.cwd = g_ws;
+    ctx = cli_make_ctx(&g2);
+    ASSERT(ctx);
+    ASSERT(ctx->no_color);
+    ASSERT_FALSE(ctx->force_color);
+    tny_ctx_free(ctx);
+
+    char *argv3[] = {"tny", "--no-color", "ask", "hi", NULL};
+    cli_globals g4 = {0};
+    ASSERT_EQ(2, cli_parse_globals(4, argv3, &g4));
+    ASSERT_STR_EQ("never", g4.color);
+
+    /* Repeated CLI color flags follow normal last-flag-wins semantics. */
+    char *argv4[] = {"tny", "--no-color", "--color=always", "ask", "hi", NULL};
+    cli_globals g5 = {0};
+    ASSERT_EQ(3, cli_parse_globals(5, argv4, &g5));
+    ASSERT_STR_EQ("always", g5.color);
+
+    char *argv5[] = {"tny", "--color=always", "--no-color", "ask", "hi", NULL};
+    cli_globals g6 = {0};
+    ASSERT_EQ(3, cli_parse_globals(5, argv5, &g6));
+    ASSERT_STR_EQ("never", g6.color);
+
+    cli_globals g7 = {0};
+    g7.cwd = g_ws;
+    g7.color = "grpc"; /* nonsense must fail at startup */
+    ASSERT_EQ(NULL, cli_make_ctx(&g7));
+    PASS();
+}
+
 /* TNY_VERSION is generated from git describe at build time (docs/adr/0014).
  * Assert shape, never a literal: non-empty, no v prefix, printable, no
  * whitespace or quotes that would break JSON/header embedding. */
@@ -2308,5 +2360,6 @@ SUITE(core_suite) {
     RUN_TEST(responses_text_format_flattens);
     RUN_TEST(wire_api_resolution);
     RUN_TEST(wire_api_flag);
+    RUN_TEST(color_flag);
     RUN_TEST(version_string_is_sane);
 }

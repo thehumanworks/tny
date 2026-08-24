@@ -31,3 +31,4 @@ these as `docs/adr/NNNN`.
 | [0023](0023-libtny-embedding-abi.md) | libtny is one headless runtime with an experimental pull-driven C ABI; CLI/TUI/ACP are adapters; ABI 0 ships shared libraries on macOS arm64 and Linux glibc |
 | [0024](0024-unlimited-steps-default.md) | The native agent loop is unlimited by default; `--max-steps` / `/max-steps` / `.tny.json` `"steps"` set an explicit cap (0 = unlimited everywhere, libtny included) |
 | [0025](0025-clipboard-images-paste-as-paths.md) | Ctrl-V materializes clipboard images and inserts the path as provider-neutral prompt text; `/image` remains the explicit attachment path |
+| [0026](0026-color-vs-attribute-sgr.md) | `NO_COLOR` gates SGR colors only — bold/dim/reverse are structural; `--color=always`/`CLICOLOR_FORCE` force, `--color=never`/`--no-color` silence all SGR; dumb mode announces itself |

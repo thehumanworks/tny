@@ -38,6 +38,7 @@ tny --max-steps N|unlimited # cap native-loop model calls per turn
                             # (default: unlimited, docs/adr/0024)
 tny --fast                  # paid fast tier (TNY_CAP_FAST providers only)
 tny --json                  # where listed
+tny --color auto|always|never   # SGR styling; --no-color is never
 tny --ephemeral             # conversation/session artifacts stay in memory
 tny -r                      # session picker (TUI)
 tny -c                      # resume last for this workspace
@@ -45,6 +46,13 @@ tny -c                      # resume last for this workspace
 
 `--no-save` is a compatibility alias for `--ephemeral`. `tny ask` accepts
 both spellings after the subcommand as well as in the leading global position.
+
+Color resolution ([ADR 0026](adr/0026-color-vs-attribute-sgr.md)): `NO_COLOR`
+(any value, even empty) disables SGR *colors* only — bold/dim/reverse are
+structural and stay, so the status bar keeps its reverse video.
+`CLICOLOR_FORCE` (non-empty, not `0`) or `--color=always` forces full styling,
+beating `NO_COLOR` and applying even when piped. `--color=never` /
+`--no-color` emits no SGR at all.
 
 ## Ephemeral mode
 
