@@ -377,6 +377,9 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
     case TUI_K_PASTE:
         do_paste(t);
         break;
+    case TUI_K_PASTE_BEGIN:
+        t->in_paste = true;
+        break;
     case TUI_K_BS:
         if (t->cur > 0) {
             del_range(t, prev_ch(t, t->cur), t->cur);
@@ -539,6 +542,8 @@ size_t tui_decode_one(const char *p, size_t n, bool final, tui_decoded *out) {
             } else if (a == 3) set_key(out, TUI_K_DEL);
             else if (a == 1 || a == 7) set_key(out, TUI_K_HOME);
             else if (a == 4 || a == 8) set_key(out, TUI_K_END);
+            else if (a == 200) set_key(out, TUI_K_PASTE_BEGIN);
+            /* a == 201: stray paste end with no begin — consume, no key */
             break;
         default: break;
         }
@@ -568,6 +573,32 @@ size_t tui_decode_one(const char *p, size_t n, bool final, tui_decoded *out) {
     return 2;
 }
 
+size_t tui_paste_scan(const char *p, size_t n, buf_t *out, bool *done) {
+    *done = false;
+    size_t i = 0;
+    while (i < n) {
+        char c = p[i];
+        if (c == 0x1b) {
+            static const char end[] = "\x1b[201~";
+            size_t have = n - i < 6 ? n - i : 6;
+            if (memcmp(p + i, end, have) == 0) {
+                if (have == 6) { *done = true; return i + 6; }
+                return i; /* terminator may be split: wait for more bytes */
+            }
+            buf_append(out, &c, 1); /* stray ESC inside the paste: literal */
+            i++;
+        } else if (c == '\r') {
+            if (i + 1 == n) return i; /* \r\n may straddle the chunk */
+            buf_append(out, "\n", 1);
+            i += p[i + 1] == '\n' ? 2 : 1;
+        } else {
+            buf_append(out, &c, 1);
+            i++;
+        }
+    }
+    return i;
+}
+
 static size_t decode_one(tui *t, const char *p, size_t n, bool final) {
     tui_decoded d;
     size_t used = tui_decode_one(p, n, final, &d);
@@ -582,7 +613,24 @@ static size_t g_kn;
 static bool decode_all(tui *t, bool final) {
     bool progress = false;
     while (g_kn) {
-        size_t used = decode_one(t, g_kb, g_kn, final);
+        size_t used;
+        if (t->in_paste) {
+            buf_t txt;
+            buf_init(&txt);
+            bool done = false;
+            used = tui_paste_scan(g_kb, g_kn, &txt, &done);
+            if (txt.len && !t->approval) {
+                ins(t, txt.data, txt.len);
+                t->dirty = true;
+            }
+            buf_free(&txt);
+            if (done) {
+                t->in_paste = false;
+                if (!t->approval) tui_pick_refresh(t);
+            }
+        } else {
+            used = decode_one(t, g_kb, g_kn, final);
+        }
         if (!used) break;
         memmove(g_kb, g_kb + used, g_kn - used);
         g_kn -= used;

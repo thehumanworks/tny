@@ -43,6 +43,7 @@ typedef struct tui {
 
     buf_t  input;   /* composer, '\n' separates continuation lines */
     size_t cur;     /* byte offset of the caret in input */
+    bool   in_paste; /* inside a bracketed paste: bytes are literal text */
 
     char **hist;
     int    n_hist, hist_pos;
@@ -108,7 +109,7 @@ typedef enum {
     TUI_K_LEFT, TUI_K_RIGHT, TUI_K_UP, TUI_K_DOWN, TUI_K_HOME, TUI_K_END,
     TUI_K_WLEFT, TUI_K_WRIGHT, TUI_K_WBS, TUI_K_KILL_EOL, TUI_K_KILL_BOL,
     TUI_K_ESC, TUI_K_TAB, TUI_K_CTRLC, TUI_K_CTRLD, TUI_K_CTRLL, TUI_K_CTRLO,
-    TUI_K_CTRLX, TUI_K_PASTE
+    TUI_K_CTRLX, TUI_K_PASTE, TUI_K_PASTE_BEGIN
 } tui_key;
 
 typedef struct {
@@ -119,6 +120,12 @@ typedef struct {
 
 /* Consume one key from p[0..n). 0 if more bytes are needed. */
 size_t tui_decode_one(const char *p, size_t n, bool final, tui_decoded *out);
+
+/* Bracketed paste body: append literal bytes from p[0..n) to out, normalizing
+ * \r and \r\n to \n, until the ESC[201~ terminator. Returns bytes consumed;
+ * a possible split terminator (or trailing \r) stays unconsumed until more
+ * bytes arrive. *done is set once the terminator was consumed. */
+size_t tui_paste_scan(const char *p, size_t n, buf_t *out, bool *done);
 
 /* Composer wrap math. width is display columns after the "> " / "  " prefix. */
 void   tui_wrap_locate(const char *s, size_t n, size_t cur, int width,

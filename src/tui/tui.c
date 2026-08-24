@@ -29,7 +29,7 @@ static volatile sig_atomic_t g_winch, g_sigint;
 static void term_restore(void) {
     if (!g_raw) return;
     g_raw = false;
-    fputs("\x1b[0m\x1b[?25h", stdout);
+    fputs("\x1b[?2004l\x1b[0m\x1b[?25h", stdout);
     fflush(stdout);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &g_saved);
 }
@@ -57,6 +57,9 @@ static bool term_raw(void) {
     r.c_cc[VTIME] = 0;
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &r) != 0) return false;
     g_raw = true;
+    /* bracketed paste: pasted newlines land in the composer, not as Enter */
+    fputs("\x1b[?2004h", stdout);
+    fflush(stdout);
     atexit(term_restore);
     return true;
 }

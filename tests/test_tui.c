@@ -603,6 +603,61 @@ TEST decode_csi_u_survives_every_split_boundary(void) {
     PASS();
 }
 
+TEST decode_bracketed_paste_markers(void) {
+    ASSERT_EQ(TUI_K_PASTE_BEGIN, dec("\x1b[200~", 6));
+    ASSERT_EQ(TUI_K_NONE, dec("\x1b[201~", 6)); /* stray end: consumed, no key */
+    PASS();
+}
+
+TEST paste_scan_normalizes_newlines(void) {
+    buf_t out;
+    buf_init(&out);
+    bool done = false;
+    const char in[] = "a\r\nb\rc\nd\x1b[201~";
+    size_t used = tui_paste_scan(in, sizeof in - 1, &out, &done);
+    ASSERT_EQ((int)(sizeof in - 1), (int)used);
+    ASSERT(done);
+    ASSERT_STR_EQ("a\nb\nc\nd", out.data);
+    buf_free(&out);
+    PASS();
+}
+
+TEST paste_scan_keeps_stray_esc_literal(void) {
+    buf_t out;
+    buf_init(&out);
+    bool done = false;
+    const char in[] = "x\x1b[Ay\x1b[201~";
+    size_t used = tui_paste_scan(in, sizeof in - 1, &out, &done);
+    ASSERT_EQ((int)(sizeof in - 1), (int)used);
+    ASSERT(done);
+    ASSERT_STR_EQ("x\x1b[Ay", out.data);
+    buf_free(&out);
+    PASS();
+}
+
+TEST paste_scan_survives_every_split_boundary(void) {
+    const char in[] = "ab\r\ncd\r\x1b[201~";
+    size_t n = sizeof in - 1;
+    for (size_t split = 1; split < n; split++) {
+        buf_t out;
+        buf_init(&out);
+        bool done = false;
+        size_t off = 0;
+        /* feed the first `split` bytes, then the rest, re-offering the
+         * unconsumed tail each round the way decode_all does */
+        size_t avail = split;
+        for (int rounds = 0; rounds < 8 && !done; rounds++) {
+            off += tui_paste_scan(in + off, avail - off, &out, &done);
+            avail = n;
+        }
+        ASSERT(done);
+        ASSERT_EQ((int)n, (int)off);
+        ASSERT_STR_EQ("ab\ncd\n", out.data);
+        buf_free(&out);
+    }
+    PASS();
+}
+
 TEST decode_arrows_unchanged(void) {
     ASSERT_EQ(TUI_K_UP, dec("\x1b[A", 3));
     ASSERT_EQ(TUI_K_DEL, dec("\x1b[3~", 4));
@@ -637,6 +692,10 @@ SUITE(tui_suite) {
     RUN_TEST(wrap_soft_break_at_width);
     RUN_TEST(wrap_hard_newline_is_its_own_row);
     RUN_TEST(wrap_width_matches_composer_prefix);
+    RUN_TEST(decode_bracketed_paste_markers);
+    RUN_TEST(paste_scan_normalizes_newlines);
+    RUN_TEST(paste_scan_keeps_stray_esc_literal);
+    RUN_TEST(paste_scan_survives_every_split_boundary);
     RUN_TEST(overlay_budget_counts_wrapped_composer);
     RUN_TEST(decode_enter_vs_ctrl_j);
     RUN_TEST(decode_csi_u_shift_enter_and_ctrl_v);
