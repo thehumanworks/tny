@@ -82,7 +82,9 @@ typedef struct tny_ctx {
     char **agent_argv;      /* NULL-terminated, or NULL */
 
     /* repo limits (.tny.json — never authority, only limits) */
-    int    max_steps;              /* default 24 */
+    int    max_steps;              /* 0 = unlimited (default); a cap comes
+                                    * from --max-steps, /max-steps, or the
+                                    * repo's .tny.json "steps" */
     size_t max_tool_result_bytes;  /* default 32768 */
     bool   context_enabled;        /* AGENTS.md loading */
     bool   mcp_disabled;           /* `tny acp` server: client owns MCP */
@@ -191,6 +193,11 @@ int tny_workspace_remove(tny_ctx *ctx, const char *dir);
 int tny_workspace_clear(tny_ctx *ctx);
 
 const char *tny_perm_mode_name(tny_perm_mode m);
+
+/* Parse a --max-steps / /max-steps value: a positive integer caps the
+ * native loop, "unlimited"|"none"|"0" clear the cap (0 = unlimited).
+ * Returns the parsed value, or -1 when the token is not usable. */
+int tny_parse_max_steps(const char *s);
 
 /* Canonical reasoning-effort levels shared across providers (docs/adr/0009). */
 #define TNY_EFFORT_LEVELS "off|light|medium|high|xhigh|max"

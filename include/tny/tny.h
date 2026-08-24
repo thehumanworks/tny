@@ -93,7 +93,7 @@ typedef struct {
     uint32_t struct_size;
     uint32_t permission_mode;
     uint32_t persistence; /* 0 = process-local, 1 = save under state_dir */
-    uint32_t max_steps;
+    uint32_t max_steps;   /* model calls per turn; 0 = unlimited (default) */
     uint64_t max_tool_result_bytes;
     tny_bytes workspace;  /* required existing directory */
     tny_bytes state_dir;  /* required; created lazily when persistence is on */

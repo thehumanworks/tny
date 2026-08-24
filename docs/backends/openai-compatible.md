@@ -247,7 +247,7 @@ Named-provider rules:
 1. Assemble messages: tny preamble + `AGENTS.md` chain + skill catalog (names only) + bounded history.
 2. POST with built-in + selected MCP tool schemas.
 3. On tool calls: permission check → execute (parallel read-only, serial writes) → append `role: tool` messages. `read_image` then injects a **user** message with `image_url` data-URL parts (providers reject image parts on `role: tool`; [ADR 0008](../adr/0008-native-loop-images.md)) → POST again.
-4. Stop on final text, step limit, cancel, or permission deny.
+4. Stop on final text, cancel, permission deny, or the optional step limit (unlimited by default; `--max-steps` / `/max-steps` / `.tny.json` `"steps"` set a cap — [ADR 0024](../adr/0024-unlimited-steps-default.md)).
 
 This is the only backend that uses [features/permissions.md](../features/permissions.md) and [features/mcp-and-skills.md](../features/mcp-and-skills.md) as the execution engine. Host backends have their own loops; tny only maps events.
 

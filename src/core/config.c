@@ -17,6 +17,16 @@ const char *tny_perm_mode_name(tny_perm_mode m) {
     }
 }
 
+int tny_parse_max_steps(const char *s) {
+    if (!s || !*s) return -1;
+    if (strcmp(s, "unlimited") == 0 || strcmp(s, "none") == 0) return 0;
+    for (const char *p = s; *p; p++)
+        if (*p < '0' || *p > '9') return -1;
+    long v = strtol(s, NULL, 10);
+    if (v < 0 || v > 1000000) return -1;
+    return (int)v;
+}
+
 bool tny_tier_is_fast(const char *tier) {
     return tier && (strcmp(tier, "fast") == 0 || strcmp(tier, "priority") == 0);
 }
@@ -318,7 +328,7 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
      * unless the user explicitly opts into ask/auto (docs/adr/0001). */
     ctx->backend = -1;
     ctx->perm_mode = TNY_MODE_YOLO;
-    ctx->max_steps = 24;
+    ctx->max_steps = 0; /* unlimited; .tny.json "steps" or --max-steps cap it */
     ctx->max_tool_result_bytes = 32768;
     ctx->context_enabled = true;
     ctx->sandbox_mode = xstrdup("auto");
@@ -398,7 +408,7 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
     ctx->backend = TNY_BK_OPENAI;
     ctx->provider_name = xstrdup("openai");
     ctx->perm_mode = TNY_MODE_ASK;
-    ctx->max_steps = 24;
+    ctx->max_steps = 0; /* unlimited unless the embedder sets a cap */
     ctx->max_tool_result_bytes = 32768;
     ctx->context_enabled = true;
     ctx->mcp_disabled = true;

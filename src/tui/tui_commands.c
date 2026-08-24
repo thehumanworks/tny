@@ -34,6 +34,7 @@ static const struct { const char *name, *hint; } CMDS[] = {
     {"provider",    "/provider [NAME]"}, /* hint built from cmd_hint() */
     {"fast",        "/fast [fast|priority|default] — provider speed tier"},
     {"effort",      "/effort [" TNY_EFFORT_LEVELS "|default]"},
+    {"max-steps",   "/max-steps [set N|clear] — cap the agent loop per turn"},
     {"status",      "provider, auth, workspace"},
     {"usage",       "token usage for this workspace"},
     {"sessions",    "list sessions for this workspace"},
@@ -563,6 +564,34 @@ void tui_command(tui *t, const char *line) {
                 tui_linef(t, "  reasoning effort: %s%s (next turn on)", arg,
                           tny_effort_canonical(arg)
                               ? "" : " (provider-advertised value, unverified)");
+        }
+        t->dirty = true;
+    } else if (strcmp(c, "max-steps") == 0) {
+        /* Cap on model calls per native-loop turn; 0 = unlimited (the
+         * default). Read at step boundaries, so it applies immediately with
+         * no rebind. Host providers run their own loops and ignore it. */
+        if (!arg || !*arg) {
+            if (t->ctx->max_steps > 0)
+                tui_linef(t, "  max steps: %d per turn", t->ctx->max_steps);
+            else
+                tui_linef(t, "  max steps: unlimited");
+            tui_sys(t, "usage: /max-steps set N | /max-steps clear");
+        } else {
+            const char *val = arg;
+            if (strncmp(arg, "set", 3) == 0 && (arg[3] == 0 || arg[3] == ' ')) {
+                val = arg + 3;
+                while (*val == ' ') val++;
+            } else if (strcmp(arg, "clear") == 0) {
+                val = "unlimited";
+            }
+            int v = tny_parse_max_steps(val);
+            if (v < 0) {
+                tui_err(t, "usage: /max-steps set N | /max-steps clear");
+            } else {
+                t->ctx->max_steps = v;
+                if (v > 0) tui_linef(t, "  max steps: %d per turn", v);
+                else tui_linef(t, "  max steps: unlimited");
+            }
         }
         t->dirty = true;
     } else if (strcmp(c, "status") == 0) {

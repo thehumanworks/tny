@@ -48,6 +48,9 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else if (strcmp(a, "--permission-mode") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->perm_mode = v;
+        } else if (strcmp(a, "--max-steps") == 0) {
+            if (!(v = need_val(argc, argv, &i, a))) return -1;
+            g->max_steps = v;
         } else if (strcmp(a, "--fast") == 0) {
             g->fast = true;
         } else if (strcmp(a, "--yolo") == 0) {
@@ -138,6 +141,16 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
          * default applied when the provider resolves (docs/adr/0015) */
         ctx->effort_explicit = true;
         ctx->effort_from_settings = false;
+    }
+    if (g->max_steps) {
+        int v = tny_parse_max_steps(g->max_steps);
+        if (v < 0) {
+            fprintf(stderr, "tny: --max-steps takes a positive integer or "
+                            "'unlimited'\nExample: tny --max-steps 30 ask \"hi\"\n");
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        ctx->max_steps = v; /* explicit flag beats the .tny.json "steps" cap */
     }
     if (g->perm_mode) {
         if (strcmp(g->perm_mode, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;

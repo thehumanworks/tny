@@ -524,14 +524,16 @@ static int finish_tool_batch(oa_impl *o) {
         emit_turn_end(o, TNY_STOP_INTERRUPTED);
         return 0;
     }
-    o->step++;
-    if (o->step >= o->ctx->max_steps) {
+    /* checked before the increment so o->step + 1 stays the number of model
+     * calls actually made — a capped turn never POSTs again */
+    if (o->ctx->max_steps > 0 && o->step + 1 >= o->ctx->max_steps) {
         emit_error(o, TNY_EVENT_ERROR_INTERNAL, "step limit reached", 18);
         session_bump_turns(s);
         session_save(s);
         emit_turn_end(o, TNY_STOP_STEP_LIMIT);
         return 0;
     }
+    o->step++;
     if (take_steer(o)) session_save(s); /* after tool results, before next POST */
     char err[512];
     if (start_post(o, err, sizeof err) != 0) {
@@ -644,8 +646,8 @@ static int step_finished(oa_impl *o) {
             session_add_assistant(s, o->text.len ? o->text.data : "", NULL);
             take_steer(o);
             session_save(s);
-            o->step++;
-            if (o->step < o->ctx->max_steps) {
+            if (o->ctx->max_steps <= 0 || o->step + 1 < o->ctx->max_steps) {
+                o->step++;
                 char err[512];
                 if (start_post(o, err, sizeof err) == 0) return 0;
                 emit_error(o, TNY_EVENT_ERROR_IO, err, strlen(err));

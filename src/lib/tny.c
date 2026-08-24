@@ -140,7 +140,7 @@ void tny_runtime_options_init(tny_runtime_options_v0 *o) {
     memset(o, 0, sizeof *o);
     o->struct_size = sizeof *o;
     o->permission_mode = TNY_PERMISSION_ASK;
-    o->max_steps = 24;
+    o->max_steps = 0; /* unlimited; embedders opt into a cap */
     o->max_tool_result_bytes = 32768;
 }
 
@@ -153,8 +153,8 @@ static int32_t validate_options(const tny_runtime_options_v0 *o,
     if (o->permission_mode > TNY_PERMISSION_YOLO || o->persistence > 1)
         return failf(error, TNY_STATUS_INVALID_ARGUMENT,
                      "invalid permission or persistence option");
-    if (o->max_steps == 0 || o->max_steps > 256 ||
-        o->max_tool_result_bytes == 0 || o->max_tool_result_bytes > (16u << 20))
+    /* max_steps: 0 = unlimited, any positive value caps the loop */
+    if (o->max_tool_result_bytes == 0 || o->max_tool_result_bytes > (16u << 20))
         return failf(error, TNY_STATUS_INVALID_ARGUMENT,
                      "runtime limits are outside the supported range");
     if (o->struct_size >= sizeof *o) {
