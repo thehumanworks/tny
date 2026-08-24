@@ -20,6 +20,7 @@ typedef struct {
     char *id[REC_MAX];     /* tool_id */
     char *detail[REC_MAX]; /* tool_detail */
     bool ok[REC_MAX];      /* tool_ok */
+    tny_stop_reason stop[REC_MAX]; /* TURN_END */
     int n;
 } rec_t;
 
@@ -32,7 +33,14 @@ static void rec_cb(const tny_backend_event *ev, void *ud) {
     r->id[r->n] = ev->tool_id ? xstrdup(ev->tool_id) : NULL;
     r->detail[r->n] = ev->tool_detail ? xstrdup(ev->tool_detail) : NULL;
     r->ok[r->n] = ev->tool_ok;
+    r->stop[r->n] = ev->stop;
     r->n++;
+}
+
+static bool rec_has_kind(const rec_t *r, tny_event_kind k) {
+    for (int i = 0; i < r->n; i++)
+        if (r->kind[i] == k) return true;
+    return false;
 }
 
 static void rec_free(rec_t *r) {
@@ -91,6 +99,8 @@ TEST tool_call_union_maps_name_args_and_clipped_result(void) {
     ASSERT_EQ(TNY_EV_TOOL_END, r.kind[1]);
     ASSERT_STR_EQ("read", r.name[1]);
     ASSERT(r.detail[1] && strstr(r.detail[1], "hello world"));
+    /* completed detail is the clipped result, not the repeated args */
+    ASSERT(!strstr(r.detail[1], "README.md"));
     ASSERT(r.ok[1]);
 
     rec_free(&r);
@@ -154,6 +164,102 @@ TEST tool_call_unknown_variant_derives_name_from_key(void) {
 
     ASSERT_EQ(1, r.n);
     ASSERT_STR_EQ("semanticSearch", r.name[0]);
+
+    rec_free(&r);
+    impl_free(&o);
+    PASS();
+}
+
+/* one started frame with the given union key; returns the recorded name */
+static int feed_variant_key(const char *key, char *out, size_t cap) {
+    cu_impl o;
+    rec_t r;
+    memset(&r, 0, sizeof r);
+    impl_init(&o, &r);
+    buf_t j;
+    buf_init(&j);
+    buf_appends(&j, "{\"sdkMessage\":{\"type\":\"tool_call\",\"message\":{"
+                    "\"type\":\"tool_call\",\"subtype\":\"started\","
+                    "\"call_id\":\"tc\",\"tool_call\":{");
+    jescape(&j, key);
+    buf_appends(&j, ":{\"args\":{\"q\":\"x\"}}}}}}");
+    feed(&o, j.data);
+    buf_free(&j);
+    int rc = -1;
+    if (r.n == 1 && r.name[0]) {
+        snprintf(out, cap, "%s", r.name[0]);
+        rc = 0;
+    }
+    rec_free(&r);
+    impl_free(&o);
+    return rc;
+}
+
+TEST tool_call_variant_suffix_stripping_edge_cases(void) {
+    char name[80];
+
+    /* proto snake_case spelling of the union key */
+    ASSERT_EQ(0, feed_variant_key("read_tool_call", name, sizeof name));
+    ASSERT_STR_EQ("read", name);
+
+    /* degenerate keys: a bare suffix strips to nothing usable -> keep it */
+    ASSERT_EQ(0, feed_variant_key("ToolCall", name, sizeof name));
+    ASSERT_STR_EQ("ToolCall", name);
+    ASSERT_EQ(0, feed_variant_key("_tool_call", name, sizeof name));
+    ASSERT_STR_EQ("_tool_call", name);
+
+    /* a long key without a recognized suffix passes through whole */
+    ASSERT_EQ(0, feed_variant_key("customtoolthing", name, sizeof name));
+    ASSERT_STR_EQ("customtoolthing", name);
+
+    /* names longer than the scratch buffer fall back to the generic label
+     * instead of truncating into a wrong name (64 chars + "ToolCall") */
+    char big[80];
+    memset(big, 'a', 64);
+    memcpy(big + 64, "ToolCall", 9);
+    ASSERT_EQ(0, feed_variant_key(big, name, sizeof name));
+    ASSERT_STR_EQ("tool", name);
+
+    PASS();
+}
+
+TEST tool_call_without_subtype_ends_only_with_result(void) {
+    cu_impl o;
+    rec_t r;
+    memset(&r, 0, sizeof r);
+    impl_init(&o, &r);
+
+    feed(&o, "{\"sdkMessage\":{\"type\":\"tool_call\",\"message\":{"
+             "\"type\":\"tool_call\",\"call_id\":\"tc-5\","
+             "\"tool_call\":{\"lsToolCall\":{\"args\":{\"path\":\".\"}}}}}}");
+    feed(&o, "{\"sdkMessage\":{\"type\":\"tool_call\",\"message\":{"
+             "\"type\":\"tool_call\",\"call_id\":\"tc-5\","
+             "\"tool_call\":{\"lsToolCall\":{"
+             "\"result\":{\"success\":{\"files\":[\"a\"]}}}}}}}");
+
+    ASSERT_EQ(2, r.n);
+    ASSERT_EQ(TNY_EV_TOOL_START, r.kind[0]);
+    ASSERT_EQ(TNY_EV_TOOL_END, r.kind[1]);
+
+    rec_free(&r);
+    impl_free(&o);
+    PASS();
+}
+
+TEST tool_call_args_win_over_raw_args(void) {
+    cu_impl o;
+    rec_t r;
+    memset(&r, 0, sizeof r);
+    impl_init(&o, &r);
+
+    feed(&o, "{\"sdkMessage\":{\"type\":\"tool_call\",\"message\":{"
+             "\"type\":\"tool_call\",\"subtype\":\"started\",\"call_id\":\"tc-6\","
+             "\"tool_call\":{\"grepToolCall\":{\"args\":{\"pattern\":\"WANTED\"},"
+             "\"rawArgs\":{\"pattern\":\"UNPARSED\"}}}}}}");
+
+    ASSERT_EQ(1, r.n);
+    ASSERT(r.detail[0] && strstr(r.detail[0], "WANTED"));
+    ASSERT(!strstr(r.detail[0], "UNPARSED"));
 
     rec_free(&r);
     impl_free(&o);
@@ -243,8 +349,65 @@ TEST result_final_text_falls_back_to_run_result(void) {
     ASSERT_EQ(TNY_EV_TEXT_DELTA, r.kind[0]);
     ASSERT_STR_EQ("the final answer", r.text[0]);
     ASSERT_EQ(TNY_EV_TURN_END, r.kind[r.n - 1]);
+    /* FINISHED is a success: no error event, and the turn stops clean */
+    ASSERT_FALSE(rec_has_kind(&r, TNY_EV_ERROR));
+    ASSERT_EQ(TNY_STOP_DONE, r.stop[r.n - 1]);
     ASSERT_EQ(7, o.in_tok);
     ASSERT_EQ(3, o.out_tok);
+
+    rec_free(&r);
+    impl_free(&o);
+    PASS();
+}
+
+TEST result_streamed_text_is_not_doubled_by_the_fallback(void) {
+    cu_impl o;
+    rec_t r;
+    memset(&r, 0, sizeof r);
+    impl_init(&o, &r);
+
+    /* a result frame that carries both loose text and RunResult.result:
+     * the fallback must not append the final text on top */
+    feed(&o, "{\"result\":{\"status\":\"RUN_LIFECYCLE_STATUS_FINISHED\","
+             "\"text\":\"streamed\",\"result\":{\"result\":\"final\"}}}");
+
+    ASSERT(r.n >= 2);
+    ASSERT_EQ(TNY_EV_TEXT_DELTA, r.kind[0]);
+    ASSERT_STR_EQ("streamed", r.text[0]);
+
+    rec_free(&r);
+    impl_free(&o);
+    PASS();
+}
+
+TEST result_lowercase_error_status_fails_the_turn(void) {
+    cu_impl o;
+    rec_t r;
+    memset(&r, 0, sizeof r);
+    impl_init(&o, &r);
+
+    feed(&o, "{\"result\":{\"status\":\"error\",\"result\":{}}}");
+
+    ASSERT(rec_has_kind(&r, TNY_EV_ERROR));
+    ASSERT_EQ(TNY_EV_TURN_END, r.kind[r.n - 1]);
+    ASSERT_EQ(TNY_STOP_ERROR, r.stop[r.n - 1]);
+
+    rec_free(&r);
+    impl_free(&o);
+    PASS();
+}
+
+TEST result_expired_status_fails_the_turn(void) {
+    cu_impl o;
+    rec_t r;
+    memset(&r, 0, sizeof r);
+    impl_init(&o, &r);
+
+    feed(&o, "{\"result\":{\"status\":\"RUN_LIFECYCLE_STATUS_EXPIRED\","
+             "\"result\":{}}}");
+
+    ASSERT(rec_has_kind(&r, TNY_EV_ERROR));
+    ASSERT_EQ(TNY_STOP_ERROR, r.stop[r.n - 1]);
 
     rec_free(&r);
     impl_free(&o);
@@ -277,9 +440,15 @@ SUITE(cursor_suite) {
     RUN_TEST(tool_call_error_result_flags_not_ok);
     RUN_TEST(tool_call_mcp_variant_prefers_inner_tool_name);
     RUN_TEST(tool_call_unknown_variant_derives_name_from_key);
+    RUN_TEST(tool_call_variant_suffix_stripping_edge_cases);
+    RUN_TEST(tool_call_without_subtype_ends_only_with_result);
+    RUN_TEST(tool_call_args_win_over_raw_args);
     RUN_TEST(tool_call_flat_legacy_shape_still_maps);
     RUN_TEST(envelope_unwrap_reads_status_text_and_run_id);
     RUN_TEST(assistant_text_survives_envelope_and_flat_shapes);
     RUN_TEST(result_final_text_falls_back_to_run_result);
+    RUN_TEST(result_streamed_text_is_not_doubled_by_the_fallback);
+    RUN_TEST(result_lowercase_error_status_fails_the_turn);
+    RUN_TEST(result_expired_status_fails_the_turn);
     RUN_TEST(result_lifecycle_error_status_fails_the_turn);
 }
