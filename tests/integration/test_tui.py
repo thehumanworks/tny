@@ -617,6 +617,70 @@ def test_queue_sends_after_turn(home, ws):
     print("ok  queued message sent after the turn; esc drops the queue")
 
 
+def test_clipboard_image_pastes_path(home, ws):
+    """Ctrl-V materializes clipboard pixels but submits only their path.
+
+    ACP deliberately advertises no image prompt capability, so this also
+    proves the paste never enters tny's provider-specific image channel and
+    cannot poison later sends (including after /clear).
+    """
+    agent = os.path.join(HERE, "fake_acp_agent.py")
+    helpers = tempfile.mkdtemp(prefix="tny-clipboard-")
+    helper_body = (
+        "#!%s\n" % sys.executable +
+        "import os, sys\n"
+        "data = b'\\x89PNG\\r\\n\\x1a\\n' + b'\\x00' * 8\n"
+        "if os.path.basename(sys.argv[0]) == 'pngpaste':\n"
+        "    open(sys.argv[1], 'wb').write(data)\n"
+        "else:\n"
+        "    sys.stdout.buffer.write(data)\n"
+    )
+    for name in ("pngpaste", "wl-paste", "xclip"):
+        helper = os.path.join(helpers, name)
+        with open(helper, "w") as f:
+            f.write(helper_body)
+        os.chmod(helper, 0o755)
+
+    env = base_env(home, {"PATH": helpers + os.pathsep +
+                          os.environ.get("PATH", "/usr/bin:/bin")})
+    t = Term([TNY, "--provider", "acp", "--agent", sys.executable, "--", agent],
+             env, ws)
+    pasted = None
+    try:
+        t.expect(BANNER)
+        t.send("\x16")                  # Ctrl-V
+        prefix = "tny-paste-%d-" % t.proc.pid
+        end = time.time() + 10
+        while time.time() < end:
+            matches = [name for name in os.listdir("/tmp")
+                       if name.startswith(prefix) and name.endswith(".png")]
+            if matches:
+                pasted = os.path.join("/tmp", matches[0])
+                break
+            t.pump(0.1)
+        assert pasted, "clipboard helper did not materialize an image"
+        t.expect_on_screen(pasted)
+        assert "[Image #" not in t.screen(), t.screen()
+
+        t.send("\r")
+        t.expect("[asked: `%s`]" % pasted, 20.0,
+                 absent="image prompts are not supported")
+        t.expect("Hello from the fake ACP agent.", 20.0)
+
+        t.send("/clear\r")
+        t.send("after clear\r")
+        t.expect("[asked: after clear]", 20.0,
+                 absent="image prompts are not supported")
+        t.send("/quit\r")
+        assert t.wait() == 0
+    finally:
+        t.close()
+        if pasted and os.path.exists(pasted):
+            os.unlink(pasted)
+        shutil.rmtree(helpers, ignore_errors=True)
+    print("ok  ctrl-v image pasted a path; image-less ACP and post-clear send work")
+
+
 def test_codex_steer_mid_turn(home, ws):
     """codex: Enter during a turn rides turn/steer with the active turn id
     (docs/adr/0011); the mock validates the request and echoes STEER-OK."""
@@ -727,6 +791,7 @@ def main():
             test_provider_setup_wizard(home, ws, port)
             test_steer_mid_turn(home, ws)
             test_queue_sends_after_turn(home, ws)
+            test_clipboard_image_pastes_path(home, ws)
             test_codex_steer_mid_turn(home, ws)
             test_codex_steer_rejected_requeues(home, ws, "now")
             test_codex_steer_rejected_requeues(home, ws, "late")

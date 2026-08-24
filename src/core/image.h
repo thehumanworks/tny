@@ -1,5 +1,5 @@
 /* image.h — magic-byte MIME, data-URL encoding, session image parts.
- * Used by --image / TUI paste and by the native read_image tool. */
+ * Used by --image, clipboard-image validation and the native read_image tool. */
 #ifndef TNY_IMAGE_H
 #define TNY_IMAGE_H
 

@@ -321,21 +321,18 @@ static int clipboard_text(buf_t *out) {
 static void do_paste(tui *t) {
     char path[PATH_MAX];
     if (clipboard_image(path, sizeof path) == 0) {
-        size_t len = 0;
-        const char *mime = NULL;
-        uint8_t *data = image_load(path, &len, &mime, NULL, 0);
+        uint8_t *data = image_load(path, NULL, NULL, NULL, 0);
         if (data) {
             free(data);
-            int n = tui_queue_image(t, path);
-            if (n > 0) {
-                char ph[32];
-                snprintf(ph, sizeof ph, "[Image #%d]", n);
-                ins(t, ph, strlen(ph));
-                tui_note(t, "pasted image %d", n);
-                t->dirty = true;
-                return;
-            }
-            tui_note(t, "too many images queued");
+            /* Absolute temp paths begin with '/', which the composer treats
+             * as slash commands at column zero. Inline-code quoting keeps the
+             * path provider-neutral prompt text wherever it is inserted. */
+            ins(t, "`", 1);
+            ins(t, path, strlen(path));
+            ins(t, "`", 1);
+            tui_note(t, "pasted image path");
+            t->dirty = true;
+            tui_pick_refresh(t);
             return;
         }
         unlink(path);

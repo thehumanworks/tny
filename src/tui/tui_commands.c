@@ -269,7 +269,7 @@ static void cmd_help(tui *t) {
                          "up/down history%s", d, r);
     tui_overlay_linef(t, "%s      / commands · @ files · $ skills · tab complete · "
                          "esc cancel turn%s", d, r);
-    tui_overlay_linef(t, "%s      ctrl-v paste image · ctrl-o transcript · "
+    tui_overlay_linef(t, "%s      ctrl-v paste image path · ctrl-o transcript · "
                          "ctrl-c interrupt (twice exits)%s", d, r);
     for (int i = 0; i < N_CMDS; i++) {
         char *h = cmd_hint(t, i);
