@@ -88,6 +88,18 @@ if ! grep -q "CURSOR-MOCK-OK" "$TMP/1.out"; then
     cat "$TMP/1.out" >&2
     fail "the first ask did not stream the mock answer"
 fi
+# tool calls must render named with clipped args/results, never as an
+# opaque "tool" line (the payload nests a tool_call.<variant>ToolCall union)
+grep -q "⏺ read .*README.md" "$TMP/1.err" ||
+    fail "the tool start line did not show the tool name and args"
+[ "$(grep -c "⏺ read" "$TMP/1.err")" = "1" ] ||
+    fail "a re-emitted running frame rendered a duplicate tool start line"
+grep -q "✓ read" "$TMP/1.err" || fail "the tool end line did not show the tool name"
+if grep -q "⏺ tool" "$TMP/1.err"; then
+    fail "a tool call rendered as an opaque 'tool' line"
+fi
+grep -q '"name":"read"' "$TMP/1.out" ||
+    fail "ask --json did not log the named tool call"
 check_mock_assertions
 [ -f "$MOCK_DIR/agent.txt" ] || fail "the mock never saw CreateAgent"
 AGENT=$(cat "$MOCK_DIR/agent.txt")

@@ -97,6 +97,15 @@ TARGETS = [
     ("src/backends/cursor/cursor.c",
      ["cursor_append_model_params", "append_options"], r"fast|tier",
      "tests/integration/test_cursor.sh"),
+    # cursor SdkMessage envelope + tool_call union mapping (the opaque-tool
+    # fix): the rewritten tool mapper whole, only the unwrap/result lines
+    # inside the pre-existing handlers.
+    ("src/backends/cursor/map.c",
+     ["variant_tool_name", "tok_count", "emit_tool"], None,
+     "tests/integration/test_cursor.sh"),
+    ("src/backends/cursor/map.c", ["handle_sdk", "handle_result"],
+     r"inner|itype|\brr\b|\bst\b|EXPIRED|ERROR",
+     "tests/integration/test_cursor.sh"),
     # Responses API default wire (docs/adr/0016): the translation file and
     # the new backend functions whole, only the wire/stream_failed lines
     # inside the pre-existing ones.
@@ -173,6 +182,12 @@ EQUIVALENT = [
     # (yyjson_arr_size returns 0), so the early-return guard is redundant
     # defense and flipping its ||/&& is unobservable.
     "toolcalls.c:if (!tool_calls || !yyjson_is_arr(tool_calls)) return;",
+    # yyjson's read API is NULL/type-safe: yyjson_is_obj(NULL) is false,
+    # yyjson_obj_foreach iterates zero times on non-objects and jget
+    # (yyjson_obj_get) returns NULL for them, so flipping these &&/|| guards
+    # is unobservable.
+    "map.c:if (un && yyjson_is_obj(un)) {",
+    "map.c:if (result && yyjson_is_obj(result)) {",
     # effort_from_settings is only read when reasoning_effort is non-NULL,
     # and every path that sets a value also sets the flag; the pre-recompute
     # reset is state hygiene for the value-not-found case (value NULL, flag
