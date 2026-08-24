@@ -1,10 +1,13 @@
 /* map.c — RunStreamMessage -> the normalized event set (docs/architecture.md).
  *
- * The bridge's oneof is `sdk_message | result | done` and `sdk_message.type`
- * is one of system / assistant / user / tool_call / thinking / status / task /
- * usage (docs/backends/cursor-bridge.md, "Send stream"). Field spellings are
- * accepted in both camelCase (Connect JSON) and proto snake_case, and every
- * lookup tolerates a missing or wrongly typed node: host output is untrusted. */
+ * The bridge's oneof is `sdk_message | result | done` and `sdk_message` is a
+ * `type` discriminator plus a Struct payload in `message` — the payload is the
+ * @cursor/sdk stream event, so field lookups must unwrap that envelope first
+ * (docs/backends/cursor-bridge.md, "Send stream"). `type` is one of system /
+ * assistant / user / tool_call / thinking / status / task / usage. Field
+ * spellings are accepted in both camelCase (Connect JSON) and proto
+ * snake_case, and every lookup tolerates a missing or wrongly typed node:
+ * host output is untrusted. */
 #include "backends/cursor/impl.h"
 
 #include <stdio.h>
@@ -65,16 +68,43 @@ static void append_short(yyjson_val *v, buf_t *out) {
     free(owned);
 }
 
+/* Token counts arrive as numbers on usage messages but as protojson
+ * *strings* ("24530") inside RunResult (int64 fields) — accept both. */
+static int64_t tok_count(yyjson_val *u, const char *key, int64_t dflt) {
+    yyjson_val *v = jget(u, key);
+    if (!v) return dflt;
+    if (yyjson_is_int(v)) return yyjson_get_sint(v);
+    if (yyjson_is_str(v)) {
+        char *end = NULL;
+        long long n = strtoll(yyjson_get_str(v), &end, 10);
+        if (end && *end == '\0') return n;
+    }
+    return dflt;
+}
+
 static void take_usage(cu_impl *o, yyjson_val *u) {
     if (!u || !yyjson_is_obj(u)) return;
-    int64_t in = jget_int(u, "inputTokens",
-                 jget_int(u, "input_tokens",
-                 jget_int(u, "promptTokens", jget_int(u, "prompt_tokens", -1))));
-    int64_t out = jget_int(u, "outputTokens",
-                  jget_int(u, "output_tokens",
-                  jget_int(u, "completionTokens", jget_int(u, "completion_tokens", -1))));
+    int64_t in = tok_count(u, "inputTokens",
+                 tok_count(u, "input_tokens",
+                 tok_count(u, "promptTokens", tok_count(u, "prompt_tokens", -1))));
+    int64_t out = tok_count(u, "outputTokens",
+                  tok_count(u, "output_tokens",
+                  tok_count(u, "completionTokens", tok_count(u, "completion_tokens", -1))));
     if (in >= 0) o->in_tok = in;
     if (out >= 0) o->out_tok = out;
+}
+
+/* "readToolCall" / "shell_tool_call" -> "read" / "shell". NULL when the key
+ * carries no usable name. */
+static const char *variant_tool_name(const char *key, char *buf, size_t cap) {
+    if (!key) return NULL;
+    size_t n = strlen(key);
+    if (n > 8 && strcmp(key + n - 8, "ToolCall") == 0) n -= 8;
+    else if (n > 10 && strcmp(key + n - 10, "_tool_call") == 0) n -= 10;
+    if (!n || n >= cap) return NULL;
+    memcpy(buf, key, n);
+    buf[n] = '\0';
+    return buf;
 }
 
 static void emit_tool(cu_impl *o, yyjson_val *v) {
@@ -84,34 +114,109 @@ static void emit_tool(cu_impl *o, yyjson_val *v) {
     const char *sub = jget_str(v, "subtype");
     if (!sub) sub = jget_str(v, "phase");
     if (!sub) sub = jget_str(v, "status");
-    yyjson_val *result = jget(v, "result");
+
+    /* The SDK payload nests everything under a per-tool union:
+     * tool_call.<variant>ToolCall = {args, result} — e.g. readToolCall,
+     * shellToolCall, mcpToolCall (docs/backends/cursor-bridge.md,
+     * "Tool call payloads"). Pick the union's first object member. */
+    yyjson_val *un = jget(v, "tool_call");
+    if (!un) un = jget(v, "toolCall");
+    yyjson_val *call = NULL;
+    const char *vkey = NULL;
+    if (un && yyjson_is_obj(un)) {
+        size_t i, m;
+        yyjson_val *k, *val;
+        yyjson_obj_foreach(un, i, m, k, val) {
+            if (yyjson_is_obj(val)) {
+                vkey = yyjson_get_str(k);
+                call = val;
+                break;
+            }
+        }
+    }
+
+    yyjson_val *result = call ? jget(call, "result") : NULL;
+    if (!result) result = jget(v, "result");
     if (!result) result = jget(v, "output");
     bool end = sub ? is_one_of(sub, END_SUB) : result != NULL;
 
-    const char *name = jget_str(v, "name");
+    char namebuf[64];
+    const char *name = call ? jget_str(call, "name") : NULL; /* MCP tool name */
+    if (!name) name = jget_str(v, "name");
     if (!name) name = str2(v, "toolName", "tool_name");
     if (!name) name = jget_str(v, "tool");
+    if (!name) name = variant_tool_name(vkey, namebuf, sizeof namebuf);
     if (!name) name = "tool";
-    const char *id = str2(v, "toolCallId", "tool_call_id");
+    const char *id = str2(v, "callId", "call_id");
+    if (!id) id = str2(v, "toolCallId", "tool_call_id");
     if (!id) id = jget_str(v, "id");
+
+    /* Results arrive wrapped. The bridge (observed live, sdk 1.0.28) sends
+     * result = {"status":"success"|"error","value":{…}}; the CLI stream-json
+     * spelling is result.success = {…} / result.error = "…". Unwrap either
+     * so the clipped detail shows the interesting part, and a failure
+     * wrapper implies tool_ok=false. */
+    bool ok = !(jget_bool(v, "isError", false) || jget_bool(v, "is_error", false) ||
+                jget(v, "error") != NULL || is_one_of(sub, BAD_SUB));
+    if (result && yyjson_is_obj(result)) {
+        const char *rstat = jget_str(result, "status");
+        if (is_one_of(rstat, BAD_SUB)) ok = false;
+        yyjson_val *err = jget(result, "error");
+        if (!err) err = jget(result, "failure");
+        if (!err) err = jget(result, "rejected");
+        yyjson_val *succ = jget(result, "success");
+        if (!succ) succ = jget(result, "value");
+        if (err) {
+            ok = false;
+            if (!yyjson_is_null(err)) result = err;
+        } else if (succ) {
+            result = succ;
+        }
+    }
 
     yyjson_val *src = result;
     if (!end) {
-        src = jget(v, "args");
+        src = call ? jget(call, "args") : NULL;
+        if (!src && call) src = jget(call, "rawArgs");
+        if (!src) src = jget(v, "args");
         if (!src) src = jget(v, "arguments");
         if (!src) src = jget(v, "input");
     }
     buf_t detail;
     buf_init(&detail);
     append_short(src, &detail);
+    /* completed frames repeat the args: fall back so TOOL_END is never bare */
+    if (!detail.len && call) append_short(jget(call, "args"), &detail);
+
+    /* The SDK re-emits `running` frames for one call while args stream in
+     * (observed live): drop a start that repeats the previous one exactly,
+     * but let a changed detail or a new call through. */
+    if (!end) {
+        buf_t sig;
+        buf_init(&sig);
+        buf_appendf(&sig, "%s\x1f%s\x1f", id ? id : "", name);
+        buf_append(&sig, detail.data ? detail.data : "", detail.len);
+        bool dup = o->last_tool_start.len == sig.len && sig.len &&
+                   memcmp(o->last_tool_start.data, sig.data, sig.len) == 0;
+        if (!dup) {
+            buf_clear(&o->last_tool_start);
+            buf_append(&o->last_tool_start, sig.data, sig.len);
+        }
+        buf_free(&sig);
+        if (dup) {
+            buf_free(&detail);
+            return;
+        }
+    } else {
+        buf_clear(&o->last_tool_start);
+    }
 
     tny_backend_event ev = {0};
     ev.kind = end ? TNY_EV_TOOL_END : TNY_EV_TOOL_START;
     ev.tool_name = name;
     ev.tool_id = id;
     ev.tool_detail = detail.len ? detail.data : NULL;
-    ev.tool_ok = !(jget_bool(v, "isError", false) || jget_bool(v, "is_error", false) ||
-                   jget(v, "error") != NULL || is_one_of(sub, BAD_SUB));
+    ev.tool_ok = ok;
     cu_emit(o, &ev);
     buf_free(&detail);
 }
@@ -145,6 +250,23 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
 
     const char *type = jget_str(v, "type");
     if (!type) type = "";
+
+    /* SdkMessage is `type` + a Struct payload in `message`
+     * (sdk_messages.proto): the payload is the real SDK event, which may
+     * repeat `type`. Unwrap once so field lookups (tool_call union, status
+     * text, run_id) see the event, not the envelope. Skipped when the inner
+     * object carries a *different* type — that is a chat message, not an
+     * envelope (e.g. the payload's own assistant `message`). */
+    yyjson_val *inner = jget(v, "message");
+    if (*type && inner && yyjson_is_obj(inner)) {
+        const char *itype = jget_str(inner, "type");
+        if (!itype || strcmp(itype, type) == 0) {
+            v = inner;
+            rid = str2(v, "runId", "run_id");
+            if (rid && *rid && !o->run_id) o->run_id = xstrdup(rid);
+            take_usage(o, jget(v, "usage"));
+        }
+    }
 
     if (strcmp(type, "assistant") == 0 || strcmp(type, "text") == 0) {
         buf_t t;
@@ -205,17 +327,29 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
 
 static void handle_result(cu_impl *o, yyjson_val *r) {
     if (o->ended) return;
+    /* RunStreamResult.result is a RunResult: final text in `result`,
+     * usage in `usage` (sdk_messages.proto). */
+    yyjson_val *rr = jget(r, "result");
+    if (!yyjson_is_obj(rr)) rr = NULL;
     take_usage(o, jget(r, "usage"));
+    if (rr) take_usage(o, jget(rr, "usage"));
     const char *sub = jget_str(r, "subtype");
+    const char *st = jget_str(r, "status"); /* RunLifecycleStatus enum name */
     const char *code = str2(r, "errorCode", "error_code");
     bool bad = (code && *code) || jget_bool(r, "isError", false) ||
                jget_bool(r, "is_error", false) || jget(r, "error") != NULL ||
-               (sub && str_starts(sub, "error"));
+               (sub && str_starts(sub, "error")) ||
+               (st && (strstr(st, "ERROR") || strstr(st, "EXPIRED") ||
+                       strcmp(st, "error") == 0 || strcmp(st, "expired") == 0));
 
     if (!o->got_text) {
         buf_t t;
         buf_init(&t);
         collect_text(r, &t, 0);
+        if (!t.len && rr) {
+            const char *txt = jget_str(rr, "result");
+            if (txt) buf_appends(&t, txt);
+        }
         if (t.len) {
             o->got_text = true;
             cu_emit_text(o, TNY_EV_TEXT_DELTA, t.data, t.len);

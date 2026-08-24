@@ -489,6 +489,7 @@ static int cu_send(tny_backend *b, const char *prompt, const char **images,
     o->ended = o->got_text = o->saw_error = o->usage_sent = false;
     o->in_tok = o->out_tok = 0;
     buf_clear(&o->last_status);
+    buf_clear(&o->last_tool_start);
     free(o->run_id);
     o->run_id = NULL;
 
@@ -687,6 +688,7 @@ static void cu_destroy(tny_backend *b) {
     free(o->run_id);
     effort_clear(o);
     buf_free(&o->last_status);
+    buf_free(&o->last_tool_start);
     free(o);
     free(b);
 }
@@ -699,6 +701,7 @@ tny_backend *tny_backend_cursor_new(struct tny_ctx *ctx) {
     cursor_bridge_init(&o->bridge);
     cursor_stream_init(&o->stream, "", "");
     buf_init(&o->last_status);
+    buf_init(&o->last_tool_start);
     /* CLI contexts keep the Cursor key in CURSOR_API_KEY so an OpenAI key in
      * ctx can never cross providers. Deterministic libtny contexts explicitly
      * name provider_name=cursor and may carry their copied key in ctx. */

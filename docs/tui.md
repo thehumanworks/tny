@@ -59,7 +59,7 @@ current target. The provider connection, session and history stay local
 | Esc or Ctrl-C | interrupt current turn and drop queued messages (second Ctrl-C exits if idle) |
 | Enter during a turn | steer the running turn (codex `turn/steer`, native loop) or queue the message for when it ends (cursor, acp) — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md) |
 | Ctrl-J / Alt-J / Shift-Enter | insert a newline in the composer |
-| Ctrl-V | paste clipboard image (or text) |
+| Ctrl-V | paste a clipboard image path (or text) |
 | Ctrl-O | full transcript / review |
 | Ctrl-X | subagent manager (native loop) |
 
@@ -103,9 +103,12 @@ run their own loops and ignore it.
 
 Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace` `/ssh`
 
-`/image PATH` and Ctrl-V queue files for the next prompt. The native loop
-sends them as `image_url` data URLs ([ADR 0008](adr/0008-native-loop-images.md)).
-The model can also call `read_image` on a path.
+`/image PATH` explicitly queues a file for the next prompt. The native loop
+sends it as an `image_url` data URL ([ADR 0008](adr/0008-native-loop-images.md)).
+Ctrl-V instead inserts the materialized clipboard-image path as ordinary text,
+so it works with hosts that have no image-input capability ([ADR
+0025](adr/0025-clipboard-images-paste-as-paths.md)). The model can then call
+`read_image` or its own file/image tool on that path.
 
 Transcript spacing: one blank line between the echoed user prompt and the
 first agent output, and one blank line before the next model iteration
