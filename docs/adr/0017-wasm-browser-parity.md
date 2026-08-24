@@ -37,7 +37,9 @@ Compile the actual `tny` binary to WebAssembly and run it on the page.
      error shapes; the prewarm thread degrades to the lazy path
      (`pthread_create` returns EAGAIN, the code already handled that); the
      page terminal is always a tty and reads its size from
-     `Module.tnyWinsize`.
+     `Module.tnyWinsize`. The page's xterm enables `convertEol` to emulate
+     the native tty's retained `OPOST`/`ONLCR` flags; the wasm stdout sink
+     delivers raw LF bytes and does not provide that line discipline itself.
 - The wasm binary passes the **same integration suites against the same
   strict mocks** in CI on every PR (`test_openai.py`, `test_acp_ws.sh`,
   `test_codex_attach.sh`, parameterized by `$TNY`), plus a headless-browser

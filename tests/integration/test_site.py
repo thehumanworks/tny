@@ -87,6 +87,7 @@ def main() -> None:
         "wasm/tny-web.mjs",
         "sanitizeApiKey",
         "callMain",
+        "convertEol: true",
         "proposeTermGeometry",
         "visualViewport",
         "data-term-cols",
@@ -94,6 +95,8 @@ def main() -> None:
     ):
         if needle not in wasm_boot:
             fail(f"term-wasm.js missing {needle}")
+    if "convertEol: false" in wasm_boot:
+        fail("term-wasm.js leaves raw wasm LF output at the previous column")
     if "localStorage" in wasm_boot and "OPENAI_API_KEY" in wasm_boot:
         fail("term-wasm.js appears to persist the key in localStorage")
 

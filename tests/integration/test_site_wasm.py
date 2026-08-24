@@ -103,7 +103,16 @@ def main():
                           && document.querySelector('[data-term-xterm]')
                              .textContent.includes('/help for commands')""",
                     timeout=30000)
-                assert "tny" in term_text(), term_text()
+                banner = term_text()
+                assert "tny" in banner, banner
+                # Native terminals apply ONLCR: every LF also returns to
+                # column zero. The browser stdout sink emits raw LF, so the
+                # xterm configuration must emulate that behavior. Otherwise
+                # successive TUI rows staircase across and overflow the pane.
+                help_rows = [line for line in banner.splitlines()
+                             if "/help for commands" in line]
+                assert help_rows, banner
+                assert help_rows[0].startswith("/help for commands"), banner
                 print("stage: banner", flush=True)
 
                 # one full turn against the strict mock

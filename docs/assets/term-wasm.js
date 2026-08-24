@@ -16,7 +16,10 @@
     fontSize: 12.5,
     fontFamily: '"SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
     cursorBlink: true,
-    convertEol: false,
+    /* Native tny keeps the tty's OPOST/ONLCR flags enabled, so a line feed
+     * also returns the cursor to column zero. The wasm stdout sink delivers
+     * raw LF bytes; ask xterm to provide the same terminal-driver behavior. */
+    convertEol: true,
     scrollback: 4000,
     theme: {
       background: "#00000000",
