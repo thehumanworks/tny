@@ -18,6 +18,10 @@ Match fx's form: a **Unix shell**, not an IDE. Streaming transcript, a pinned co
   `osascript` on macOS, `wl-paste` / `xclip` on Linux): the file is written
   under `/tmp` and a `[Image #N]` placeholder is inserted. Text is pasted
   if the clipboard has no image. Helpers are spawned only on paste.
+- The shell enables **bracketed paste** (`ESC[?2004h`): a terminal paste
+  arrives wrapped in `ESC[200~ … ESC[201~` and is inserted into the composer
+  as literal text with `\r`/`\r\n` normalized to `\n` — pasted newlines never
+  submit. Only a real Enter keypress submits the draft.
 - Status line is off-by-default extras (sandbox, context bytes) like fx.
 
 ## Ephemeral mode
