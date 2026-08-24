@@ -124,14 +124,17 @@ transcript per line and repaints the partial line from scratch every frame
 The GitHub Pages landing terminal (`site/index.html`) runs the real TUI:
 the tny binary compiled to WebAssembly inside xterm.js
 ([ADR 0017](adr/0017-wasm-browser-parity.md), superseding 0005's JS
-preview). Pass `OPENAI_API_KEY` and optionally `OPENAI_BASE_URL` in the
-URL hash or paste them at the pre-launch prompt; both pass through
-`sanitizeApiKey` at intake and stay in the tab. The native openai loop,
-sessions, skills, and fs tools run on MEMFS (per-tab, not persisted);
-codex is attach-only, ACP is `--agent ws://` remote-only, cursor errors
-cleanly; `terminal`/`open_file` return the missing-host tool error. The
-provider must allow CORS — `api.openai.com` does not; use a CORS-open
-gateway or a loopback server.
+preview). The page is mobile-first: xterm is fitted to the mount (never
+left at the 80-column default), welcome text wraps to the current column
+count, header links are 44px tap targets, and the visual viewport shrinks
+the pane when the on-screen keyboard opens. Pass `OPENAI_API_KEY` and
+optionally `OPENAI_BASE_URL` in the URL hash or paste them at the
+pre-launch prompt; both pass through `sanitizeApiKey` at intake and stay
+in the tab. The native openai loop, sessions, skills, and fs tools run on
+MEMFS (per-tab, not persisted); codex is attach-only, ACP is
+`--agent ws://` remote-only, cursor errors cleanly; `terminal`/`open_file`
+return the missing-host tool error. The provider must allow CORS —
+`api.openai.com` does not; use a CORS-open gateway or a loopback server.
 
 ## Startup
 

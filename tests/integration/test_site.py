@@ -32,6 +32,8 @@ def main() -> None:
         "assets/term-wasm.js",
         "takeSecretsFromLocation",
         'name="referrer" content="no-referrer"',
+        "viewport-fit=cover",
+        "interactive-widget=resizes-content",
     ):
         if needle not in html:
             fail(f"index.html missing {needle!r}")
@@ -45,7 +47,14 @@ def main() -> None:
     if "sk-" in html and "sk-proj" in html:
         fail("landing HTML looks like it baked in a live key")
 
-    for needle in ("term-xterm", "term-main--wasm"):
+    for needle in (
+        "term-xterm",
+        "term-main--wasm",
+        "safe-area-inset",
+        "kb-open",
+        "min-height: 44px",
+        "xterm-helper-textarea",
+    ):
         if needle not in css:
             fail(f"site.css missing {needle}")
 
@@ -55,6 +64,8 @@ def main() -> None:
         "SseParser",
         "OPENAI_BASE_URL",
         "OPENAI_API_KEY",
+        "wrapToCols",
+        "proposeTermGeometry",
     ):
         if needle not in core:
             fail(f"term-core.js missing {needle}")
@@ -72,7 +83,15 @@ def main() -> None:
                 fail(f"{js.name} contains provider-wire code ({needle!r}); "
                      "the loop belongs to the wasm binary alone")
 
-    for needle in ("wasm/tny-web.mjs", "sanitizeApiKey", "callMain"):
+    for needle in (
+        "wasm/tny-web.mjs",
+        "sanitizeApiKey",
+        "callMain",
+        "proposeTermGeometry",
+        "visualViewport",
+        "data-term-cols",
+        "empty skips",
+    ):
         if needle not in wasm_boot:
             fail(f"term-wasm.js missing {needle}")
     if "localStorage" in wasm_boot and "OPENAI_API_KEY" in wasm_boot:
