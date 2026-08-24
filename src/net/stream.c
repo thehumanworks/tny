@@ -3,6 +3,7 @@
  * Linux: system OpenSSL (libssl.so.3 / .so.1.1), dlopen'd at first TLS use
  *        (docs/adr/0007). Never linked, never vendored, never static. */
 #include "net/net.h"
+#include "util/tny_poll.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -212,7 +213,7 @@ static bool ossl_want_retry(int e) {
 /* Poll for the direction the last SSL_ERROR_WANT_* asked for. */
 static void ossl_wait(int fd, int want, int timeout_ms) {
     struct pollfd pf = {fd, want == OSSL_ERROR_WANT_WRITE ? POLLOUT : POLLIN, 0};
-    poll(&pf, 1, timeout_ms);
+    tny_poll(&pf, 1, timeout_ms);
 }
 #endif /* __linux__ */
 
@@ -250,7 +251,7 @@ nstream *nstream_connect(const char *host, int port, bool tls,
     while ((rc = st_api.handshake(s->ssl)) == errSSLWouldBlock) {
         if (now_ms() > deadline) { rc = errSecIO; break; }
         struct pollfd pf = {fd, POLLIN | POLLOUT, 0};
-        poll(&pf, 1, 100);
+        tny_poll(&pf, 1, 100);
     }
     if (rc != noErr) {
         snprintf(err, errlen, "TLS handshake with %s failed (%d)", host, (int)rc);
@@ -348,7 +349,7 @@ int nstream_write_all(nstream *s, const void *data, size_t len) {
             if (rc == noErr) continue;
             if (rc == errSSLWouldBlock) {
                 struct pollfd pf = {s->fd, POLLOUT, 0};
-                poll(&pf, 1, 5000);
+                tny_poll(&pf, 1, 5000);
                 continue;
             }
             return -1;
@@ -376,7 +377,7 @@ int nstream_write_all(nstream *s, const void *data, size_t len) {
         if (n > 0) { off += (size_t)n; continue; }
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             struct pollfd pf = {s->fd, POLLOUT, 0};
-            poll(&pf, 1, 5000);
+            tny_poll(&pf, 1, 5000);
             continue;
         }
         if (n < 0 && errno == EINTR) continue;

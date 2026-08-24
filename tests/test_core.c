@@ -405,7 +405,7 @@ TEST session_roundtrip(void) {
     ensure_env();
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
-    tny_session *s = session_new(ctx);
+    tny_session_state *s = session_new(ctx);
     ASSERT(s);
     session_add_text(s, "user", "hello");
     session_add_assistant(s, "hi there", NULL);
@@ -443,7 +443,7 @@ TEST session_result_handles(void) {
     ensure_env();
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
-    tny_session *s = session_new(ctx);
+    tny_session_state *s = session_new(ctx);
     char *h = session_store_result(s, "0123456789", 10);
     ASSERT(h);
     size_t n = 0;
@@ -469,7 +469,7 @@ TEST session_compaction(void) {
     ensure_env();
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
-    tny_session *s = session_new(ctx);
+    tny_session_state *s = session_new(ctx);
     for (int i = 0; i < 9; i++) {
         char q[64], a[64];
         snprintf(q, sizeof q, "question %d", i);
@@ -502,7 +502,7 @@ TEST session_recovery_roundtrip(void) {
     ensure_env();
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
-    tny_session *s = session_new(ctx);
+    tny_session_state *s = session_new(ctx);
     session_recovery_write(s, "partial answer text");
     char *r = session_recovery_read(s);
     ASSERT(r);
@@ -1629,7 +1629,7 @@ TEST read_image_queues_user_message(void) {
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
     ctx->perm_mode = TNY_MODE_YOLO;
-    tny_session *s = session_new(ctx);
+    tny_session_state *s = session_new(ctx);
     perm_engine *p = perm_new(ctx);
     tools_env env;
     memset(&env, 0, sizeof env);
@@ -1770,7 +1770,7 @@ TEST responses_input_translates_history(void) {
     ensure_env();
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
-    tny_session *s = session_new(ctx);
+    tny_session_state *s = session_new(ctx);
     session_add_text(s, "user", "hello");
     session_add_assistant(s, "hi there", NULL);
     session_add_text(s, "user", "list files");
@@ -1821,7 +1821,7 @@ TEST responses_input_honors_compact_boundary(void) {
     ensure_env();
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
-    tny_session *s = session_new(ctx);
+    tny_session_state *s = session_new(ctx);
     session_add_text(s, "user", "old question");
     session_add_assistant(s, "old answer", NULL);
     session_add_text(s, "user", "new question");
@@ -1861,7 +1861,7 @@ TEST responses_input_translates_image_parts(void) {
     ensure_env();
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
-    tny_session *s = session_new(ctx);
+    tny_session_state *s = session_new(ctx);
 
     char pngpath[600];
     snprintf(pngpath, sizeof pngpath, "%s/dot2.png", g_ws);

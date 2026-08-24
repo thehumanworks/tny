@@ -67,7 +67,7 @@ uint8_t *image_load(const char *path, size_t *len_out, const char **mime_out,
     return (uint8_t *)data;
 }
 
-int session_add_user_images(tny_session *s, const char *text,
+int session_add_user_images(tny_session_state *s, const char *text,
                             const char **paths, char *err, size_t errlen) {
     if (!s || !paths || !paths[0]) {
         if (err && errlen) snprintf(err, errlen, "no images");

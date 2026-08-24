@@ -4,6 +4,7 @@
  * is not the ready line is forwarded to our stderr; the ready line and the
  * bearer token are never printed or logged. */
 #include "backends/cursor/cursor.h"
+#include "util/tny_poll.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -40,7 +41,8 @@ static void forward_line(cursor_bridge *bp, const char *line, size_t len, buf_t 
         if (leak) return;
     }
     if (capture && capture->len < 2048) buf_appendf(capture, "%.*s ", (int)len, line);
-    if (tny_debug()) fprintf(stderr, "cursor-sdk-bridge: %.*s\n", (int)len, line);
+    if (!bp->quiet && tny_debug())
+        fprintf(stderr, "cursor-sdk-bridge: %.*s\n", (int)len, line);
 }
 
 /* Split accumulated bytes into lines. -1 if a ready line was malformed. */
@@ -94,18 +96,19 @@ static int load_token(cursor_bridge *bp, char *err, size_t errlen) {
     char *t = str_trim(raw);
     size_t tl = strlen(t);
     if (tl == 0 || tl >= sizeof bp->token) {
-        free(raw);
+        secure_free(raw);
         snprintf(err, errlen, "bridge auth token file is empty or oversized");
         return -1;
     }
     memcpy(bp->token, t, tl + 1);
-    free(raw);
+    secure_free(raw);
     return 0;
 }
 
 int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key,
                         int timeout_ms, char *err, size_t errlen) {
     const char *bin = resolve_bin(ctx);
+    bp->quiet = ctx && ctx->library_mode;
     int p[2];
     if (pipe(p) != 0) {
         snprintf(err, errlen, "pipe: %s", strerror(errno));
@@ -155,7 +158,7 @@ int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key,
             break;
         }
         struct pollfd pf = {bp->err_fd, POLLIN, 0};
-        int pr = poll(&pf, 1, left > 200 ? 200 : left);
+        int pr = tny_poll(&pf, 1, left > 200 ? 200 : left);
         if (pr < 0 && errno != EINTR) {
             snprintf(err, errlen, "poll on bridge stderr: %s", strerror(errno));
             bad = true;

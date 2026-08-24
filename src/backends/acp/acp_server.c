@@ -4,8 +4,8 @@
 #include "backends/acp/acp_server.h"
 #include "cli/cli.h"
 #include "mcp/mcp.h"
-#include "backends/openai/openai.h"
 #include "util/util.h"
+#include "util/tny_poll.h"
 
 #include <errno.h>
 #include <poll.h>
@@ -29,7 +29,7 @@ void acp_srv_log(const char *fmt, ...) {
 /* ---------- session lifecycle ---------- */
 
 static void drop_session(acp_srv *s) {
-    if (s->bk) { s->bk->disconnect(s->bk); s->bk->destroy(s->bk); s->bk = NULL; }
+    if (s->engine) { tny_engine_free(s->engine); s->engine = NULL; }
     if (s->perm) { perm_free(s->perm); s->perm = NULL; }
     if (s->session) { session_close(s->session); s->session = NULL; }
     free(s->session_id);
@@ -37,15 +37,18 @@ static void drop_session(acp_srv *s) {
 }
 
 /* Attach a fresh native backend to `sess`. Returns an error string or NULL. */
-static const char *attach_backend(acp_srv *s, tny_session *sess, char *err, size_t errlen) {
+static const char *attach_backend(acp_srv *s, tny_session_state *sess, char *err, size_t errlen) {
     drop_session(s);
     s->session = sess;
     s->session_id = xstrdup(sess->id);
     s->perm = perm_new(s->ctx);
-    s->bk = tny_backend_create(TNY_BK_OPENAI, s->ctx);
-    if (!s->bk) return "cannot create the native backend";
-    if (s->bk->connect(s->bk, err, errlen) != 0) return err;
-    acp_srv_bind(s);
+    s->engine = tny_engine_new(s->ctx, s->session, s->perm, acp_srv_prompt, s);
+    if (!s->engine) return "cannot create the native runtime";
+    tny_backend *bk = tny_backend_create(TNY_BK_OPENAI, s->ctx);
+    if (!bk) return "cannot create the native backend";
+    if (tny_engine_prepare(s->engine, bk, TNY_ENGINE_PREPARE_FRESH,
+                           err, errlen) != 0)
+        return err;
     session_set_meta(sess, "openai", s->ctx->model ? s->ctx->model : "default");
     return NULL;
 }
@@ -106,7 +109,7 @@ static void handle_new(acp_srv *s, const char *id, yyjson_val *params) {
                     cwd, s->ctx->cwd);
     warn_client_mcp(params);
 
-    tny_session *sess = session_new(s->ctx);
+    tny_session_state *sess = session_new(s->ctx);
     if (!sess) {
         acp_send_error(s->out_fd, id, ACP_E_INTERNAL, "cannot create a session");
         return;
@@ -173,7 +176,7 @@ static void handle_load(acp_srv *s, const char *id, yyjson_val *params) {
         return;
     }
     warn_client_mcp(params);
-    tny_session *sess = session_open(s->ctx, sid);
+    tny_session_state *sess = session_open(s->ctx, sid);
     if (!sess) {
         acp_send_error(s->out_fd, id, ACP_E_PARAMS,
                        "no such session in this workspace");
@@ -333,7 +336,7 @@ static void handle_message(acp_srv *s, yyjson_val *msg) {
 
 int acp_srv_pump(acp_srv *s, int timeout_ms) {
     struct pollfd p = {s->in_fd, POLLIN, 0};
-    int pr = poll(&p, 1, timeout_ms);
+    int pr = tny_poll(&p, 1, timeout_ms);
     if (pr < 0) return (errno == EINTR) ? 0 : -1;
     if (pr > 0) {
         char tmp[16384];

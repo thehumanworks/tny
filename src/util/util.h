@@ -31,6 +31,8 @@ char *xstrndup(const char *s, size_t n);
 bool  str_starts(const char *s, const char *prefix);
 bool  str_ends(const char *s, const char *suffix);
 char *str_trim(char *s); /* in place, returns s */
+void  secure_zero(void *p, size_t n);
+void  secure_free(char *s); /* wipe a NUL-terminated secret, then free */
 /* Glob-style match: '*' any run, '?' one char. Not regex. */
 bool  glob_match(const char *pattern, const char *s);
 
@@ -55,6 +57,7 @@ uint64_t fnv1a(const void *data, size_t n);
 char  *gen_id(void);
 /* milliseconds since epoch */
 int64_t now_ms(void);
+int64_t monotonic_ms(void);
 bool tny_debug(void); /* TNY_DEBUG=1: pass host/protocol diagnostics through */
 /* ISO-8601 UTC "YYYY-MM-DDTHH:MM:SSZ"; caller frees */
 char  *now_iso8601(void);

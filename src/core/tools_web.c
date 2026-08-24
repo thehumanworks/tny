@@ -1,5 +1,6 @@
 /* tools_web.c — web_fetch and web_search (optional provider). */
 #include "core/tools.h"
+#include "util/tny_poll.h"
 #include "net/net.h"
 #include "util/util.h"
 
@@ -50,7 +51,7 @@ static char *fetch_url(tools_env *env, const char *url, int redirects) {
         if (n == -2) {
             if (now_ms() > deadline) break;
             struct pollfd pf = {http_fd(c), POLLIN, 0};
-            poll(&pf, 1, 1000);
+            tny_poll(&pf, 1, 1000);
             continue;
         }
         if (n < 0) break;

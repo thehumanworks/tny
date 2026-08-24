@@ -36,6 +36,7 @@ typedef struct tny_ctx {
     bool   json_out;
     bool   no_save;
     bool   no_color;
+    bool   library_mode;     /* deterministic embed: never write host stdio */
 
     /* openai-compatible provider */
     char *base_url;
@@ -99,6 +100,10 @@ typedef struct tny_ctx {
 /* Load settings + env + repo config for the given --cwd (NULL = getcwd).
  * Cheap: two small file reads, no network, no backend spawn. */
 tny_ctx *tny_ctx_load(const char *cwd_flag);
+/* Deterministic embedding context: no settings, repo config, or environment
+ * provider/authority loading. Caller supplies an existing workspace and an
+ * explicit state directory. Defaults to ask mode and the OpenAI backend. */
+tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir);
 void     tny_ctx_free(tny_ctx *ctx);
 
 /* Resolve backend per docs/cli.md when no --backend flag was given. */

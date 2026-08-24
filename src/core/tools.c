@@ -98,8 +98,39 @@ static const char *SCHEMA_JSON =
 "{\"type\":\"function\",\"function\":{\"name\":\"ask_user_question\",\"description\":\"Ask the user a clarifying question (interactive sessions only).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"question\":{\"type\":\"string\"}},\"required\":[\"question\"]}}}"
 "]";
 
+static bool schema_tool_disabled(const tools_env *env, const char *name) {
+    if (!env || !env->ctx || !name) return false;
+    if (env->ctx->mcp_disabled && str_starts(name, "mcp_")) return true;
+    if (!env->ctx->library_mode) return false;
+    return strcmp(name, "subagent") == 0 || strcmp(name, "skill") == 0 ||
+           strcmp(name, "install_skill") == 0 || strcmp(name, "memory") == 0 ||
+           strcmp(name, "ask_user_question") == 0;
+}
+
 char *tools_schema_json(tools_env *env) {
-    (void)env;
+    if (env && env->ctx && (env->ctx->mcp_disabled || env->ctx->library_mode)) {
+        yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
+        yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+        yyjson_mut_doc *mut = yyjson_mut_doc_new(NULL);
+        yyjson_mut_val *out = mut ? yyjson_mut_arr(mut) : NULL;
+        if (root && out) {
+            size_t idx, max;
+            yyjson_val *item;
+            yyjson_arr_foreach(root, idx, max, item) {
+                const char *name = jget_str(jget(item, "function"), "name");
+                if (schema_tool_disabled(env, name)) continue;
+                yyjson_mut_arr_add_val(out, yyjson_val_mut_copy(mut, item));
+            }
+            yyjson_mut_doc_set_root(mut, out);
+            char *json = jwrite(mut);
+            yyjson_mut_doc_free(mut);
+            yyjson_doc_free(doc);
+            if (json) return json;
+        } else {
+            yyjson_mut_doc_free(mut);
+            yyjson_doc_free(doc);
+        }
+    }
     return xstrdup(SCHEMA_JSON);
 }
 
@@ -125,6 +156,58 @@ static char *call_detail(tools_env *env, const char *name, yyjson_val *args) {
     return abs;
 }
 
+static const char *canonical_name(const char *name) {
+    if (strcmp(name, "run_command") == 0) return "terminal"; /* fx alias */
+    if (strcmp(name, "vision") == 0) return "read_image";   /* fx name */
+    return name;
+}
+
+int tools_call_prepare(tools_env *env, const char *name,
+                       const char *args_json, tools_call *call) {
+    if (!env || !name || !call) return -1;
+    memset(call, 0, sizeof *call);
+    call->name = xstrdup(canonical_name(name));
+    call->doc = args_json ? jparse(args_json, strlen(args_json)) : NULL;
+    call->args = call->doc ? yyjson_doc_get_root(call->doc) : NULL;
+    call->detail = call_detail(env, call->name, call->args);
+    call->verdict = perm_check(env->perm, call->name, call->detail);
+    if (call->verdict == PERM_PROMPT) {
+        buf_t summary;
+        buf_init(&summary);
+        buf_appendf(&summary, "%s %s", call->name,
+                    call->detail ? call->detail : "");
+        call->summary = buf_detach(&summary);
+    }
+    return 0;
+}
+
+void tools_call_grant(tools_env *env, const tools_call *call) {
+    if (env && call) perm_grant(env->perm, call->name, call->detail);
+}
+
+char *tools_call_execute(tools_env *env, const tools_call *call) {
+    const char *name = call->name;
+    yyjson_val *args = call->args;
+
+    bool handled = false;
+    char *out = tool_ssh_execute(env, name, args, &handled);
+    if (!handled) out = tool_fs_execute(env, name, args, &handled);
+    if (!handled) out = tool_shell_execute(env, name, args, &handled);
+    if (!handled) out = tool_web_execute(env, name, args, &handled);
+    if (!handled) out = tool_ext_execute(env, name, args, &handled);
+    if (!handled) out = tool_err("unknown tool %s", name);
+    return out;
+}
+
+void tools_call_free(tools_call *call) {
+    if (!call) return;
+    free(call->name);
+    free(call->detail);
+    free(call->summary);
+    yyjson_doc_free(call->doc);
+    memset(call, 0, sizeof *call);
+}
+
 int tools_flush_images(tools_env *env, char *err, size_t errlen) {
     if (!env || env->n_pending_images <= 0) return 0;
     env->pending_images[env->n_pending_images] = NULL;
@@ -139,23 +222,15 @@ int tools_flush_images(tools_env *env, char *err, size_t errlen) {
 }
 
 char *tools_execute(tools_env *env, const char *name, const char *args_json) {
-    if (strcmp(name, "run_command") == 0) name = "terminal"; /* fx alias */
-    if (strcmp(name, "vision") == 0) name = "read_image";   /* fx name */
-
-    yyjson_doc *adoc = args_json ? jparse(args_json, strlen(args_json)) : NULL;
-    yyjson_val *args = adoc ? yyjson_doc_get_root(adoc) : NULL;
-
-    /* permission gate */
-    char *detail = call_detail(env, name, args);
-    perm_verdict v = perm_check(env->perm, name, detail);
+    name = canonical_name(name);
+    tools_call call;
+    if (tools_call_prepare(env, name, args_json, &call) != 0)
+        return tool_err("cannot prepare tool call %s", name);
+    perm_verdict v = call.verdict;
     if (v == PERM_PROMPT && env->prompt) {
-        buf_t sum;
-        buf_init(&sum);
-        buf_appendf(&sum, "%s %s", name, detail ? detail : "");
-        tny_perm_decision d = env->prompt(name, sum.data, env->prompt_ud);
-        buf_free(&sum);
+        tny_perm_decision d = env->prompt(call.name, call.summary, env->prompt_ud);
         if (d == TNY_PERM_DECISION_ALLOW_ALWAYS) {
-            perm_grant(env->perm, name, detail);
+            tools_call_grant(env, &call);
             v = PERM_ALLOW;
         } else if (d == TNY_PERM_DECISION_ALLOW) {
             v = PERM_ALLOW;
@@ -165,25 +240,17 @@ char *tools_execute(tools_env *env, const char *name, const char *args_json) {
     }
     if (v == PERM_PROMPT) {
         env->perm_blocked = true;
-        free(detail);
-        yyjson_doc_free(adoc);
-        return tool_err("permission required for %s and no reviewer is available "
-                        "(run with --auto, --yolo, or grant a rule)", name);
+        char *out = tool_err("permission required for %s and no reviewer is available "
+                             "(run with --auto, --yolo, or grant a rule)", call.name);
+        tools_call_free(&call);
+        return out;
     }
     if (v == PERM_DENY) {
-        free(detail);
-        yyjson_doc_free(adoc);
-        return tool_err("permission denied for %s", name);
+        char *out = tool_err("permission denied for %s", call.name);
+        tools_call_free(&call);
+        return out;
     }
-    free(detail);
-
-    bool handled = false;
-    char *out = tool_ssh_execute(env, name, args, &handled);
-    if (!handled) out = tool_fs_execute(env, name, args, &handled);
-    if (!handled) out = tool_shell_execute(env, name, args, &handled);
-    if (!handled) out = tool_web_execute(env, name, args, &handled);
-    if (!handled) out = tool_ext_execute(env, name, args, &handled);
-    if (!handled) out = tool_err("unknown tool %s", name);
-    yyjson_doc_free(adoc);
+    char *out = tools_call_execute(env, &call);
+    tools_call_free(&call);
     return out;
 }

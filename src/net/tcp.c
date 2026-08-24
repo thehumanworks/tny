@@ -1,4 +1,5 @@
 #include "net/net.h"
+#include "util/tny_poll.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,7 +36,7 @@ int tcp_connect(const char *host, int port, int timeout_ms) {
         if (rc == 0) break;
         if (errno == EINPROGRESS) {
             struct pollfd pf = {fd, POLLOUT, 0};
-            if (poll(&pf, 1, timeout_ms) == 1) {
+            if (tny_poll(&pf, 1, timeout_ms) == 1) {
                 int soerr = 0;
                 socklen_t sl = sizeof soerr;
                 getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &sl);

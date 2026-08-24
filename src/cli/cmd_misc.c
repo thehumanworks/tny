@@ -6,6 +6,7 @@
 #include "backends/codex/codex.h" /* tny_codex_login */
 #include "net/net.h"
 #include "util/util.h"
+#include "util/tny_poll.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -200,7 +201,7 @@ int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             if (n == -2) {
                 if (now_ms() > deadline) break;
                 struct pollfd pf = {http_fd(c), POLLIN, 0};
-                poll(&pf, 1, 500);
+                tny_poll(&pf, 1, 500);
                 continue;
             }
             if (n < 0) break;
@@ -425,7 +426,7 @@ int cmd_usage(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     session_meta *m = session_list(ctx, false, 100, NULL, &n);
     int64_t tin = 0, tout = 0;
     for (int i = 0; i < n; i++) {
-        tny_session *s = session_open(ctx, m[i].id);
+        tny_session_state *s = session_open(ctx, m[i].id);
         if (s) {
             int64_t a, o;
             session_get_usage(s, &a, &o);

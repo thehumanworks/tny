@@ -2,6 +2,7 @@
  * drain. A full stderr pipe stalls the host (docs/architecture.md), so the
  * reader runs on every dispatch tick. */
 #include "backends/codex/codex.h"
+#include "util/tny_poll.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -92,7 +93,8 @@ static void cx_emit_stderr_line(cx_impl *o) {
     if (!o->child_line.data) { buf_clear(&o->child_line); return; }
     char *s = str_trim(o->child_line.data);
     if (*s) {
-        if (tny_debug()) fprintf(stderr, "codex: %.*s\n", CX_STDERR_LINE_MAX, s);
+        if (!o->ctx->library_mode && tny_debug())
+            fprintf(stderr, "codex: %.*s\n", CX_STDERR_LINE_MAX, s);
         if (o->stderr_tail.len > 2048) {
             buf_clear(&o->stderr_tail); /* keep it a tail, not a log */
         }
@@ -159,7 +161,7 @@ void cx_stop_child(cx_impl *o) {
             pid_t r = waitpid(o->child, &st, WNOHANG);
             if (r == o->child || (r < 0 && errno != EINTR)) { o->child_reaped = true; break; }
             if (now_ms() > deadline) break;
-            poll(NULL, 0, 20);
+            tny_poll(NULL, 0, 20);
         }
         if (!o->child_reaped) {
             if (kill(-o->child, SIGKILL) != 0) kill(o->child, SIGKILL);
@@ -198,7 +200,7 @@ int cx_capture(char *const argv[], char *out, size_t outcap, int timeout_ms) {
     bool eof = false;
     while (!eof && now_ms() < deadline) {
         struct pollfd pf = {pfd[0], POLLIN, 0};
-        if (poll(&pf, 1, 50) <= 0) continue;
+        if (tny_poll(&pf, 1, 50) <= 0) continue;
         for (;;) {
             char tmp[512];
             ssize_t n = read(pfd[0], tmp, sizeof tmp);
@@ -222,7 +224,7 @@ int cx_capture(char *const argv[], char *out, size_t outcap, int timeout_ms) {
         if (r == pid) { rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1; break; }
         if (r < 0 && errno == EINTR) continue;
         if (now_ms() > deadline + 500) { kill(pid, SIGKILL); waitpid(pid, &status, 0); break; }
-        poll(NULL, 0, 20);
+        tny_poll(NULL, 0, 20);
     }
     return rc;
 }

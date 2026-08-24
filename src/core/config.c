@@ -226,7 +226,7 @@ static void load_openai_profile(tny_ctx *ctx) {
     const char *key = key_env ? getenv(key_env) : NULL;
     if (!key || !*key) key = getenv("OPENAI_API_KEY");
     if (!key || !*key) key = jget_str(oa, "api_key"); /* docs/adr/0018 */
-    free(ctx->api_key);
+    secure_free(ctx->api_key);
     ctx->api_key = key && *key ? xstrdup(key) : NULL;
     const char *ahn = jget_str(oa, "auth_header_name");
     const char *ahp = jget_str(oa, "auth_header_prefix");
@@ -263,7 +263,7 @@ static void apply_custom_provider(tny_ctx *ctx, const char *name) {
     /* a key stored by `tny provider setup --api-key` (docs/adr/0018) is the
      * fallback: an env var always beats it, so rotation via the shell works */
     if (!key || !*key) key = jget_str(o, "api_key");
-    free(ctx->api_key);
+    secure_free(ctx->api_key);
     ctx->api_key = key && *key ? xstrdup(key) : NULL;
     const char *ahn = jget_str(o, "auth_header_name");
     const char *ahp = jget_str(o, "auth_header_prefix");
@@ -381,6 +381,35 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
             ctx->extra_dirs[ctx->n_extra_dirs++] = xstrdup(yyjson_get_str(v));
         }
     }
+    return ctx;
+}
+
+tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
+    if (!cwd || !state_dir || !dir_exists(cwd)) return NULL;
+    tny_ctx *ctx = calloc(1, sizeof *ctx);
+    if (!ctx) return NULL;
+    ctx->cwd = path_abs(cwd);
+    ctx->tny_dir = path_abs(state_dir);
+    if (!ctx->cwd || !ctx->tny_dir) { tny_ctx_free(ctx); return NULL; }
+    snprintf(ctx->ws_hash, sizeof ctx->ws_hash, "%016llx",
+             (unsigned long long)fnv1a(ctx->cwd, strlen(ctx->cwd)));
+    ctx->settings_path = path_join(ctx->tny_dir, "settings.json");
+
+    ctx->backend = TNY_BK_OPENAI;
+    ctx->provider_name = xstrdup("openai");
+    ctx->perm_mode = TNY_MODE_ASK;
+    ctx->max_steps = 24;
+    ctx->max_tool_result_bytes = 32768;
+    ctx->context_enabled = true;
+    ctx->mcp_disabled = true;
+    ctx->library_mode = true;
+    ctx->sandbox_mode = xstrdup("auto");
+
+    ctx->base_url = xstrdup("https://api.openai.com/v1");
+    ctx->auth_header_name = xstrdup("Authorization");
+    ctx->auth_header_prefix = xstrdup("Bearer ");
+    ctx->bridge_bin = xstrdup("cursor-sdk-bridge");
+    ctx->codex_bin = xstrdup("codex");
     return ctx;
 }
 
@@ -771,7 +800,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->provider_name);
     free(ctx->model);
     free(ctx->base_url);
-    free(ctx->api_key);
+    secure_free(ctx->api_key);
     free(ctx->auth_header_name);
     free(ctx->auth_header_prefix);
     free(ctx->max_tokens_field);

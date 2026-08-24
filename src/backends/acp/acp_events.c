@@ -11,12 +11,12 @@
 
 /* ---------- event helpers ---------- */
 
-void ac_emit(ac_impl *o, const tny_event *ev) {
+void ac_emit(ac_impl *o, const tny_backend_event *ev) {
     if (o->cb) o->cb(ev, o->ud);
 }
 
 void ac_emit_text(ac_impl *o, tny_event_kind k, const char *t, size_t n) {
-    tny_event ev = {0};
+    tny_backend_event ev = {0};
     ev.kind = k;
     ev.text = t;
     ev.text_len = n;
@@ -25,7 +25,7 @@ void ac_emit_text(ac_impl *o, tny_event_kind k, const char *t, size_t n) {
 
 void ac_emit_end(ac_impl *o, tny_stop_reason stop) {
     o->turn_active = false;
-    tny_event ev = {0};
+    tny_backend_event ev = {0};
     ev.kind = TNY_EV_TURN_END;
     ev.stop = stop;
     ac_emit(o, &ev);
@@ -98,7 +98,7 @@ static void handle_permission(ac_impl *o, yyjson_val *msg, yyjson_val *params) {
     if (kind) buf_appends(&sum, ")");
     p->summary = buf_detach(&sum);
 
-    tny_event ev = {0};
+    tny_backend_event ev = {0};
     ev.kind = TNY_EV_PERMISSION;
     ev.perm_id = p->id_raw;
     ev.perm_summary = p->summary;
@@ -135,7 +135,7 @@ static void update_tool_call(ac_impl *o, yyjson_val *u, const char *kind) {
     append_tool_content(jget(u, "content"), &detail);
     if (strcmp(kind, "tool_call") == 0) {
         const char *tk = jget_str(u, "kind");
-        tny_event ev = {0};
+        tny_backend_event ev = {0};
         ev.kind = TNY_EV_TOOL_START;
         ev.tool_name = title ? title : (tk ? tk : "tool");
         ev.tool_id = id;
@@ -143,7 +143,7 @@ static void update_tool_call(ac_impl *o, yyjson_val *u, const char *kind) {
         ac_emit(o, &ev);
     }
     if (done) {
-        tny_event ev = {0};
+        tny_backend_event ev = {0};
         ev.kind = TNY_EV_TOOL_END;
         ev.tool_name = title ? title : "tool";
         ev.tool_id = id;

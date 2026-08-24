@@ -279,7 +279,7 @@ int ac_reap_agent(ac_impl *o) {
             return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
         }
         if (r < 0) { o->pid = 0; return -1; }
-        poll(NULL, 0, 10);
+        tny_poll(NULL, 0, 10);
     }
     return -1;
 }

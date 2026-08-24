@@ -1,5 +1,6 @@
 /* acp_wire.c — JSONL framing + JSON-RPC message builders (docs/backends/acp.md). */
 #include "backends/acp/acp_wire.h"
+#include "util/tny_poll.h"
 
 #include <errno.h>
 #include <poll.h>
@@ -56,7 +57,7 @@ int acp_write_line(int fd, const char *json, size_t len) {
         if (w < 0 && errno == EINTR) continue;
         if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             struct pollfd p = {fd, POLLOUT, 0};
-            if (poll(&p, 1, 5000) <= 0) { rc = -1; break; }
+            if (tny_poll(&p, 1, 5000) <= 0) { rc = -1; break; }
             continue;
         }
         rc = -1;

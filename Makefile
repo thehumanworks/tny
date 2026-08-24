@@ -5,7 +5,7 @@
 CC      ?= cc
 STD      = -std=c11
 WARN     = -Wall -Wextra -Werror -Wno-deprecated-declarations
-INC      = -Isrc -Ithird_party -Ithird_party/yyjson -Ithird_party/picohttpparser \
+INC      = -Iinclude -Isrc -Ithird_party -Ithird_party/yyjson -Ithird_party/picohttpparser \
            -Ithird_party/wslay -Ithird_party/wslay/wslay -Ithird_party/greatest
 DEFS     = -DHAVE_ARPA_INET_H -DHAVE_NETINET_IN_H -D_DARWIN_C_SOURCE \
            -D_DEFAULT_SOURCE -D_BSD_SOURCE
@@ -91,6 +91,7 @@ GEN      = $(BUILD)/generated
 VERSION_H = $(GEN)/tny_version.h
 INC     += -I$(GEN)
 
+SRC_PUBLIC_API := $(wildcard src/lib/*.c)
 SRC_ALL := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c \
         src/net/*.c src/mcp/*.c src/tui/*.c \
         src/backends/openai/*.c src/backends/acp/*.c src/backends/codex/*.c \
@@ -116,6 +117,30 @@ TP_WASM := third_party/yyjson/yyjson.c
 
 REL_OBJS := $(SRC:%.c=$(OBJ_REL)/%.o) $(TP:%.c=$(OBJ_REL)/%.o)
 
+# libtny ABI 0: headless runtime only. ACP server/turn are application
+# adapters; the ACP client wire remains a library backend.
+LIB_APP_EXCLUDE := src/main.c $(wildcard src/cli/*.c src/tui/*.c) \
+                   src/backends/acp/acp_server.c src/backends/acp/acp_turn.c
+LIB_SRC := $(SRC_PUBLIC_API) $(filter-out $(LIB_APP_EXCLUDE),$(SRC_SHARED)) $(SRC_NATIVE)
+OBJ_PIC := $(BUILD)/pic
+LIB_PIC_OBJS := $(LIB_SRC:%.c=$(OBJ_PIC)/%.o) $(TP:%.c=$(OBJ_PIC)/%.o)
+PIC_CFLAGS := $(REL_CFLAGS) -fPIC -fvisibility=hidden
+ifeq ($(UNAME_S),Darwin)
+  LIB_REAL := $(BUILD)/lib/libtny.0.dylib
+  LIB_LINK := $(BUILD)/lib/libtny.dylib
+  LIB_LDFLAGS := -dynamiclib -Wl,-install_name,@rpath/libtny.0.dylib \
+                 -Wl,-compatibility_version,1.0 -Wl,-current_version,1.0 \
+                 -Wl,-dead_strip \
+                 -Wl,-exported_symbols_list,abi/libtny.exports.macos
+  LIB_EXPORT_FILE := abi/libtny.exports.macos
+else
+  LIB_REAL := $(BUILD)/lib/libtny.so.0
+  LIB_LINK := $(BUILD)/lib/libtny.so
+  LIB_LDFLAGS := -shared -Wl,-soname,libtny.so.0 -Wl,--gc-sections \
+                 -Wl,--version-script,abi/libtny.map -pthread -ldl
+  LIB_EXPORT_FILE := abi/libtny.map
+endif
+
 TEST_SRC := $(wildcard tests/*.c)
 TEST_DEPS := $(filter-out src/main.c,$(SRC)) $(TP)
 TEST_OBJS := $(TEST_DEPS:%.c=$(OBJ_DBG)/%.o)
@@ -132,7 +157,7 @@ else
   SIZE_MAX ?= 1572864
 endif
 
-.PHONY: all release debug test test-unit size size-check pack smoke bench clean install site FORCE
+.PHONY: all release debug test test-unit size size-check pack smoke bench clean install install-lib lib-shared site FORCE
 
 all: release
 
@@ -160,6 +185,20 @@ $(OBJ_REL)/%.o: %.c | $(VERSION_H)
 $(OBJ_DBG)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(CC) $(DBG_CFLAGS) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
+
+$(OBJ_PIC)/%.o: %.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(PIC_CFLAGS) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
+
+lib-shared: $(LIB_LINK)
+
+$(LIB_REAL): $(LIB_PIC_OBJS) $(LIB_EXPORT_FILE)
+	@mkdir -p $(@D)
+	$(CC) -o $@ $(LIB_PIC_OBJS) $(LIB_LDFLAGS)
+
+$(LIB_LINK): $(LIB_REAL)
+	@mkdir -p $(@D)
+	@cd $(@D) && ln -sf $(notdir $(LIB_REAL)) $(notdir $@)
 
 $(TEST_BIN): $(TEST_OBJS) $(TEST_SRC:%.c=$(OBJ_DBG)/%.o)
 	@mkdir -p $(@D)
@@ -204,6 +243,14 @@ bench: release
 install: release
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
 	cp $(BIN) $(DESTDIR)$(PREFIX)/bin/tny$(EXE)
+
+install-lib: lib-shared
+	mkdir -p $(DESTDIR)$(PREFIX)/include/tny $(DESTDIR)$(PREFIX)/lib/pkgconfig
+	cp include/tny/tny.h $(DESTDIR)$(PREFIX)/include/tny/tny.h
+	cp -P $(LIB_REAL) $(LIB_LINK) $(DESTDIR)$(PREFIX)/lib/
+	sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@VERSION@|$(TNY_VERSION)|g' \
+		libtny.pc.in > \
+		$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny.pc
 
 site:
 	python3 scripts/site_build.py
@@ -264,4 +311,4 @@ clean:
 	rm -rf $(BUILD) dist
 
 # Header dependencies emitted by -MMD; a header edit rebuilds its users.
--include $(REL_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(TEST_SRC:%.c=$(OBJ_DBG)/%.d)
+-include $(REL_OBJS:.o=.d) $(LIB_PIC_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(TEST_SRC:%.c=$(OBJ_DBG)/%.d)

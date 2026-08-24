@@ -64,7 +64,7 @@ struct tny_backend {
      * through cb until TNY_EV_TURN_END. images: NULL-terminated array of
      * file paths or NULL. */
     int (*send)(tny_backend *b, const char *prompt, const char **images,
-                tny_event_cb cb, void *ud, char *errbuf, size_t errlen);
+                tny_backend_event_cb cb, void *ud, char *errbuf, size_t errlen);
 
     /* Deliver more user text into the turn that is running (docs/adr/0011).
      * 0 = on its way — the backend now owns delivery: a later refusal, or a

@@ -4,11 +4,11 @@ tny is a **frontend + native loop**, not a fourth coding agent. Host backends al
 
 ```text
                     +-------------------------------------+
-                    |  cli / tui  (one event loop)        |
+                    | cli / tui / acp / libtny adapters   |
                     +------------------+------------------+
                                        | normalized events
                     +------------------v------------------+
-                    |  session + permission + render bus  |
+                    | private runtime + session + events  |
                     +------------------+------------------+
            +---------------+-----------+----------+---------------+
            v               v                      v               v
@@ -28,6 +28,16 @@ tny is a **frontend + native loop**, not a fourth coding agent. Host backends al
 | **Native** | OpenAI-compatible | tny | Agent loop, MCP, skills, sandbox, ACP **server**, `read_image` |
 
 Never leak host-specific types into the TUI. Map every backend onto one event set: `text_delta`, `thinking`, `tool_start`, `tool_end`, `permission_request`, `plan`, `usage`, `turn_end`, `error`, `status`, `steer_rejected` (a mid-turn `steer()` the host refused after accepting it; the event carries the rejected text and the frontend re-queues it — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md), [ADR 0013](adr/0013-steer-rejection-owns-the-text.md)).
+
+## Embedding boundary
+
+[`libtny`](adr/0023-libtny-embedding-abi.md) exposes opaque
+runtime/session/event/error handles through a pull-driven C ABI. It does
+not expose `tny_ctx`, `tny_backend`, `tny_backend_event`, yyjson, or `pollfd`
+layouts.
+The public `next_event` operation and the CLI adapters drive the same private
+runtime engine. TUI prewarm remains an acceleration adapter over that engine,
+not a separate provider lifecycle.
 
 ## Process rules
 
@@ -50,7 +60,7 @@ Never leak host-specific types into the TUI. Map every backend onto one event se
 
 Credentials stay in the OS store or env vars (`CURSOR_API_KEY`, `OPENAI_API_KEY`, provider-specific keys, Codex's own login). Not in project JSON.
 
-## Shared internals (implement later)
+## Shared internals
 
 ```text
 src/

@@ -64,7 +64,7 @@ typedef struct {
     char *thread_id;
     char *turn_id;
 
-    tny_event_cb cb;
+    tny_backend_event_cb cb;
     void        *ud;
     bool    turn_active;
     bool    cancel_sent;
@@ -93,7 +93,7 @@ typedef struct {
 } cx_impl;
 
 /* ---- codex_rpc.c: events, framing, queue, pump ---- */
-void cx_emit(cx_impl *o, const tny_event *ev);
+void cx_emit(cx_impl *o, const tny_backend_event *ev);
 void cx_emit_text(cx_impl *o, tny_event_kind k, const char *t);
 void cx_end_turn(cx_impl *o, tny_stop_reason stop);
 void cx_fail_turn(cx_impl *o, const char *msg);

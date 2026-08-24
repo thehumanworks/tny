@@ -1,6 +1,7 @@
 /* tools_shell.c — terminal tool. Sandbox v1: none/auto→none, documented in
  * doctor (docs/features/permissions.md allows this with disclosure). */
 #include "core/tools.h"
+#include "util/tny_poll.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -84,7 +85,7 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
         struct pollfd pf = {pipefd[0], POLLIN, 0};
         int left = (int)(deadline - now_ms());
         if (left <= 0) { timed_out = true; break; }
-        int pr = poll(&pf, 1, left > 500 ? 500 : left);
+        int pr = tny_poll(&pf, 1, left > 500 ? 500 : left);
         if (pr < 0) break;
         if (pr == 0) continue;
         char tmp[8192];

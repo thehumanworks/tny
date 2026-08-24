@@ -142,7 +142,7 @@ static char *ac_session_pointer(tny_backend *b) {
 }
 
 static int ac_send(tny_backend *b, const char *prompt, const char **images,
-                   tny_event_cb cb, void *ud, char *errbuf, size_t errlen) {
+                   tny_backend_event_cb cb, void *ud, char *errbuf, size_t errlen) {
     ac_impl *o = b->impl;
     if (!o->session_id) {
         snprintf(errbuf, errlen, "acp: no session (call create_or_resume first)");

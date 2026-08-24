@@ -31,6 +31,15 @@ typedef enum {
     TNY_STOP_ERROR
 } tny_stop_reason;
 
+typedef enum {
+    TNY_EVENT_ERROR_NONE = 0,
+    TNY_EVENT_ERROR_IO,
+    TNY_EVENT_ERROR_PROTOCOL,
+    TNY_EVENT_ERROR_BACKPRESSURE,
+    TNY_EVENT_ERROR_AUTH,
+    TNY_EVENT_ERROR_INTERNAL
+} tny_event_error_kind;
+
 /* Options a host offers for a permission request. Map onto y / a / n. */
 typedef enum {
     TNY_PERM_ALLOW_ONCE   = 1 << 0,
@@ -56,9 +65,11 @@ typedef struct {
     int64_t     in_tokens, out_tokens;
     /* TURN_END */
     tny_stop_reason stop;
-} tny_event;
+    /* ERROR: stable internal category mapped by the public ABI. */
+    tny_event_error_kind error_code;
+} tny_backend_event;
 
 /* Backends emit events through this callback. Must not block on I/O. */
-typedef void (*tny_event_cb)(const tny_event *ev, void *ud);
+typedef void (*tny_backend_event_cb)(const tny_backend_event *ev, void *ud);
 
 #endif

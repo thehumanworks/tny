@@ -2,6 +2,7 @@
  * popover selection. Escape sequences are decoded from a byte stream, so a
  * split CSI across two read()s is re-joined instead of leaking as literals. */
 #include "tui/tui.h"
+#include "util/tny_poll.h"
 #include "core/image.h"
 
 #include <errno.h>
@@ -248,7 +249,7 @@ static int spawn_to_fd(char *const argv[], int outfd) {
         int st = 0;
         pid_t r = waitpid(pid, &st, WNOHANG);
         if (r == pid) return (WIFEXITED(st) && WEXITSTATUS(st) == 0) ? 0 : -1;
-        poll(NULL, 0, 50);
+        tny_poll(NULL, 0, 50);
     }
     kill(pid, SIGKILL);
     waitpid(pid, NULL, 0);
@@ -623,7 +624,7 @@ int tui_read_input(tui *t) {
         decode_all(t, false);
         if (!g_kn) break;
         struct pollfd pf = {0, POLLIN, 0};
-        if (poll(&pf, 1, 25) <= 0) break;
+        if (tny_poll(&pf, 1, 25) <= 0) break;
         ssize_t m = read(0, tmp, sizeof tmp);
         if (m <= 0) break;
         if (g_kn + (size_t)m > sizeof g_kb) g_kn = 0;

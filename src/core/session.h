@@ -20,51 +20,51 @@ typedef struct {
     yyjson_mut_doc *doc;   /* working copy of session.json */
     session_mem_result *mem_results; /* large results in ephemeral mode */
     int n_mem_results;
-} tny_session;
+} tny_session_state;
 
 /* Create a fresh session for this workspace (not yet saved). */
-tny_session *session_new(tny_ctx *ctx);
+tny_session_state *session_new(tny_ctx *ctx);
 /* Open by id or "last". NULL if not found / corrupt / ephemeral. */
-tny_session *session_open(tny_ctx *ctx, const char *id_or_last);
-int  session_save(tny_session *s);
-void session_close(tny_session *s);
+tny_session_state *session_open(tny_ctx *ctx, const char *id_or_last);
+int  session_save(tny_session_state *s);
+void session_close(tny_session_state *s);
 
 /* Transcript (OpenAI shape). */
-void session_add_text(tny_session *s, const char *role, const char *content);
+void session_add_text(tny_session_state *s, const char *role, const char *content);
 /* assistant msg with tool_calls; tc_json is the serialized array or NULL */
-void session_add_assistant(tny_session *s, const char *content, const char *tc_json);
-void session_add_tool_result(tny_session *s, const char *tool_call_id, const char *content);
+void session_add_assistant(tny_session_state *s, const char *content, const char *tc_json);
+void session_add_tool_result(tny_session_state *s, const char *tool_call_id, const char *content);
 /* Borrowed array of messages in the working doc. */
-yyjson_mut_val *session_messages(tny_session *s);
-int  session_turns(tny_session *s);
-void session_bump_turns(tny_session *s);
-const char *session_title(tny_session *s);
-void session_set_title(tny_session *s, const char *title);
-void session_set_meta(tny_session *s, const char *backend, const char *model);
-const char *session_backend(tny_session *s); /* provider that owns the transcript */
-void session_set_host_pointer(tny_session *s, const char *ptr);
-const char *session_host_pointer(tny_session *s);
-void session_add_usage(tny_session *s, int64_t in_tok, int64_t out_tok);
-void session_get_usage(tny_session *s, int64_t *in_tok, int64_t *out_tok);
+yyjson_mut_val *session_messages(tny_session_state *s);
+int  session_turns(tny_session_state *s);
+void session_bump_turns(tny_session_state *s);
+const char *session_title(tny_session_state *s);
+void session_set_title(tny_session_state *s, const char *title);
+void session_set_meta(tny_session_state *s, const char *backend, const char *model);
+const char *session_backend(tny_session_state *s); /* provider that owns the transcript */
+void session_set_host_pointer(tny_session_state *s, const char *ptr);
+const char *session_host_pointer(tny_session_state *s);
+void session_add_usage(tny_session_state *s, int64_t in_tok, int64_t out_tok);
+void session_get_usage(tny_session_state *s, int64_t *in_tok, int64_t *out_tok);
 
 /* Large tool results: store blob, return malloc'd handle id. Ephemeral
  * sessions retain the blob only until session_close(). */
-char *session_store_result(tny_session *s, const char *data, size_t len);
+char *session_store_result(tny_session_state *s, const char *data, size_t len);
 /* Read a byte range from a stored blob; malloc'd or NULL. */
-char *session_read_result(tny_session *s, const char *handle, size_t off,
+char *session_read_result(tny_session_state *s, const char *handle, size_t off,
                           size_t maxlen, size_t *out_len);
 
 /* Compaction: after 8 completed turns keep latest 4 verbatim; force=true
  * condenses everything before the latest turn. Summary is mechanical
  * (requests, files, commands, outcomes). */
-void session_compact(tny_session *s, bool force);
+void session_compact(tny_session_state *s, bool force);
 /* Index of first message the model should see verbatim + summary text. */
-int  session_compact_boundary(tny_session *s, const char **summary);
+int  session_compact_boundary(tny_session_state *s, const char **summary);
 
 /* Recovery checkpoint. */
-void  session_recovery_write(tny_session *s, const char *partial);
-char *session_recovery_read(tny_session *s);
-void  session_recovery_clear(tny_session *s);
+void  session_recovery_write(tny_session_state *s, const char *partial);
+char *session_recovery_read(tny_session_state *s);
+void  session_recovery_clear(tny_session_state *s);
 
 /* Listing. */
 typedef struct {

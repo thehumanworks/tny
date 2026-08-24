@@ -10,6 +10,7 @@
 #include "cli/cli.h"
 #include "core/backend.h"
 #include "core/perm.h"
+#include "core/runtime.h"
 #include "core/session.h"
 #include "util/util.h"
 
@@ -56,11 +57,11 @@ typedef struct tui {
     int    n_files;
     bool   files_scanned;
 
-    tny_backend *bk;
-    tny_session *session;
+    tny_engine  *engine;
+    tny_session_state *session;
     perm_engine *perm;
     tui_prewarm *prewarm;   /* host warm-up running in the background */
-    bool bk_adopted;        /* t->bk came pre-resumed from the warm-up and has
+    bool bk_adopted;        /* engine backend came pre-resumed from warm-up and has
                              * not sent yet: one lazy retry if send() fails */
 
     bool turn_active, turn_done, want_cancel, quit, trace;

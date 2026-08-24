@@ -19,6 +19,11 @@ workflow (`.github/workflows/ci.yml`).
 The Pages workflow also builds `tny-web.mjs` with emsdk and publishes it
 under `assets/wasm/` — the landing terminal is the CI-tested artifact.
 
+The Linux glibc and Darwin jobs also stage the experimental ABI-0 `libtny`
+developer tree (`include/tny/tny.h`, shared library, and pkg-config metadata)
+as `libtny-<os>-<arch>`. MSYS2, musl-static, and wasm do not publish a public
+library artifact in ABI 0 ([ADR 0023](adr/0023-libtny-embedding-abi.md)).
+
 The Pages workflow (`.github/workflows/pages.yml`) is separate. GitHub
 Pages for this repo deploys from the branch (`main:/docs`, legacy build),
 so the workflow rebuilds the static site from `site/` and commits the

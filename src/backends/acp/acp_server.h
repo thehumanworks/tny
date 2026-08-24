@@ -7,6 +7,7 @@
 #include "core/backend.h"
 #include "core/config.h"
 #include "core/perm.h"
+#include "core/runtime.h"
 #include "core/session.h"
 
 typedef struct {
@@ -18,9 +19,9 @@ typedef struct {
     bool eof;
 
     /* the one session */
-    tny_session *session;
+    tny_session_state *session;
     perm_engine *perm;
-    tny_backend *bk;
+    tny_engine *engine;
     char *session_id;
 
     /* turn state */
@@ -46,7 +47,6 @@ void acp_srv_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 /* Run one prompt to completion. Writes the ACP stopReason into `reason`
  * (borrowed static text). 0 ok, -1 when the transport died. */
 int acp_srv_run_turn(acp_srv *s, const char *text, const char **reason);
-/* Bind the native backend's approval hook to this connection. */
-void acp_srv_bind(acp_srv *s);
-
+tny_perm_decision acp_srv_prompt(const char *tool, const char *summary,
+                                 void *ud);
 #endif

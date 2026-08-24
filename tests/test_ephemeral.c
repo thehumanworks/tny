@@ -58,7 +58,7 @@ TEST ephemeral_session_artifacts_stay_in_memory(void) {
     ASSERT(ctx);
     ctx->no_save = true;
 
-    tny_session *s = session_new(ctx);
+    tny_session_state *s = session_new(ctx);
     ASSERT(s);
     session_add_text(s, "user", "keep this only in memory");
     ASSERT_EQ(0, session_save(s));

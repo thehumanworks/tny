@@ -23,7 +23,7 @@ uint8_t *image_load(const char *path, size_t *len_out, const char **mime_out,
                     char *err, size_t errlen);
 
 /* user message: text part + one image_url part per path. 0 ok, -1 on error. */
-int session_add_user_images(tny_session *s, const char *text,
+int session_add_user_images(tny_session_state *s, const char *text,
                             const char **paths, char *err, size_t errlen);
 
 #endif

@@ -40,7 +40,10 @@ Do **not** take: libcurl, OpenSSL, libuv, Boost, nlohmann/json, protobuf C++, gr
 
 ## Build
 
-POSIX `Makefile` first. Targets: `tny`, `tny-test`, `size-check`, `pack`.
+POSIX `Makefile` first. Targets: `tny`, `tny-test`, `lib-shared`,
+`install-lib`, `size-check`, `pack`. ABI 0's shared-library platform and
+packaging contract is documented in [libtny.md](libtny.md) and
+[ADR 0023](adr/0023-libtny-embedding-abi.md).
 macOS **Apple Silicon** and Linux (x86_64 + aarch64, glibc and musl static)
 are v1. Windows CI builds via MSYS2 `MSYS` (POSIX runtime, `msys-2.0.dll`);
 native Win32 is later. Intel Mac is not a CI or publish target

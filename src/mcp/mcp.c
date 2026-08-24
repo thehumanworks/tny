@@ -3,6 +3,7 @@
  * Repo-local MCP files are never read (docs/features/mcp-and-skills.md). */
 #include "mcp/mcp.h"
 #include "util/util.h"
+#include "util/tny_poll.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,7 +73,7 @@ static yyjson_doc *rpc(mcp_server *s, const char *method, const char *params_jso
         int left = (int)(deadline - now_ms());
         if (left <= 0) return NULL;
         struct pollfd pf = {s->out_fd, POLLIN, 0};
-        if (poll(&pf, 1, left) <= 0) return NULL;
+        if (tny_poll(&pf, 1, left) <= 0) return NULL;
         char tmp[16384];
         ssize_t n = read(s->out_fd, tmp, sizeof tmp);
         if (n <= 0) return NULL;

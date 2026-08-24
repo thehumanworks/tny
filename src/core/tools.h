@@ -13,14 +13,14 @@ struct mcp_client; /* mcp/mcp.h */
 
 typedef struct tools_env {
     tny_ctx     *ctx;
-    tny_session *session;
+    tny_session_state *session;
     perm_engine *perm;
     /* Interactive approval hook (TUI). NULL means PROMPT cannot be resolved:
      * the call is denied and the run stops per docs/cli.md. */
     tny_perm_decision (*prompt)(const char *tool, const char *summary, void *ud);
     void *prompt_ud;
     /* Event sink for TOOL_START / TOOL_END / STATUS. */
-    tny_event_cb ev_cb;
+    tny_backend_event_cb ev_cb;
     void *ev_ud;
     /* Lazily started MCP client (owned by caller; may be NULL). */
     struct mcp_client *mcp;
@@ -32,6 +32,18 @@ typedef struct tools_env {
     int   n_pending_images;
 } tools_env;
 
+/* One parsed tool invocation. Preparing performs canonicalization and the
+ * permission lookup once; the parsed args remain valid while a native call is
+ * parked for an asynchronous permission response. */
+typedef struct {
+    char *name;
+    yyjson_doc *doc;
+    yyjson_val *args;
+    char *detail;
+    char *summary; /* allocated only for PERM_PROMPT */
+    perm_verdict verdict;
+} tools_call;
+
 /* OpenAI "tools" array JSON for every built-in (+ selected MCP tools).
  * malloc'd. */
 char *tools_schema_json(tools_env *env);
@@ -39,6 +51,12 @@ char *tools_schema_json(tools_env *env);
 /* Execute one call. Returns a malloc'd string for the role:"tool" message
  * (bounded; large output is stored as a session result handle). Never NULL. */
 char *tools_execute(tools_env *env, const char *name, const char *args_json);
+
+int tools_call_prepare(tools_env *env, const char *name,
+                       const char *args_json, tools_call *call);
+void tools_call_grant(tools_env *env, const tools_call *call);
+char *tools_call_execute(tools_env *env, const tools_call *call);
+void tools_call_free(tools_call *call);
 
 /* Undo the last mutating file tool (session-scoped). Returns malloc'd
  * status line. */

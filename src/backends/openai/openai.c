@@ -16,7 +16,13 @@
 
 #define OPENAI_DEFAULT_MODEL "gpt-4.1-mini"
 
-typedef enum { ST_IDLE, ST_HEADERS, ST_BODY } oa_state;
+typedef enum { ST_IDLE, ST_HEADERS, ST_BODY, ST_WAIT_PERMISSION } oa_state;
+
+typedef struct {
+    char *id;
+    tools_call call;
+    tny_perm_decision decision;
+} oa_pending_perm;
 
 typedef struct {
     tny_ctx *ctx;
@@ -25,7 +31,7 @@ typedef struct {
     sse_parser sse;
     oa_state state;
 
-    tny_event_cb cb;
+    tny_backend_event_cb cb;
     void *ud;
 
     buf_t text;             /* assistant text this step */
@@ -40,10 +46,19 @@ typedef struct {
     int64_t usage_in, usage_out;
 
     buf_t toolcall_log;     /* JSON array text for ask --json */
+    int tool_index;         /* next call in the recorded assistant batch */
+    bool tool_batch_active;
+    oa_pending_perm pending_perm;
     char *steer;            /* user text parked by steer(): appended as a
                              * user message before the next POST (adr/0011) */
     char errbuf[512];
 } oa_impl;
+
+static void pending_perm_clear(oa_impl *o) {
+    free(o->pending_perm.id);
+    tools_call_free(&o->pending_perm.call);
+    memset(&o->pending_perm, 0, sizeof o->pending_perm);
+}
 
 /* Move parked steer text into the transcript as a user message. */
 static bool take_steer(oa_impl *o) {
@@ -56,20 +71,32 @@ static bool take_steer(oa_impl *o) {
 
 /* ---------- helpers ---------- */
 
-static void emit(oa_impl *o, const tny_event *ev) {
+static void emit(oa_impl *o, const tny_backend_event *ev) {
     if (o->cb) o->cb(ev, o->ud);
 }
 
 static void emit_text(oa_impl *o, tny_event_kind k, const char *t, size_t n) {
-    tny_event ev = {0};
+    tny_backend_event ev = {0};
     ev.kind = k;
     ev.text = t;
     ev.text_len = n;
     emit(o, &ev);
 }
 
+static void emit_error(oa_impl *o, tny_event_error_kind code,
+                       const char *text, size_t len) {
+    tny_backend_event ev = {0};
+    ev.kind = TNY_EV_ERROR;
+    ev.error_code = code;
+    ev.text = text;
+    ev.text_len = len;
+    emit(o, &ev);
+}
+
 static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
     o->state = ST_IDLE;
+    pending_perm_clear(o);
+    o->tool_batch_active = false;
     if (o->steer) {
         /* the turn is ending with the steered text still parked (interrupt,
          * error, step limit): hand it back so it is never silently lost
@@ -78,7 +105,7 @@ static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
         free(o->steer);
         o->steer = NULL;
     }
-    tny_event ev = {0};
+    tny_backend_event ev = {0};
     ev.kind = TNY_EV_TURN_END;
     ev.stop = stop;
     emit(o, &ev);
@@ -112,19 +139,21 @@ static void build_system_prompt(oa_impl *o, buf_t *sys) {
         "small, verifiable steps. When you are done, answer in Markdown.\n");
     instructions_collect(o->ctx, sys);
     /* skill catalog: names only, lazy bodies */
-    int nsk = 0;
-    skill_meta *sk = skills_discover(o->ctx, &nsk);
-    if (nsk > 0) {
-        buf_appends(sys, "\nAvailable skills (load with the `skill` tool):\n");
-        for (int i = 0; i < nsk; i++)
-            buf_appendf(sys, "- %s: %.140s\n", sk[i].name, sk[i].description);
+    if (!o->ctx->library_mode) {
+        int nsk = 0;
+        skill_meta *sk = skills_discover(o->ctx, &nsk);
+        if (nsk > 0) {
+            buf_appends(sys, "\nAvailable skills (load with the `skill` tool):\n");
+            for (int i = 0; i < nsk; i++)
+                buf_appendf(sys, "- %s: %.140s\n", sk[i].name, sk[i].description);
+        }
+        skills_free(sk, nsk);
     }
-    skills_free(sk, nsk);
 }
 
 /* Build the legacy Chat Completions request body from the session view. */
 static char *build_request_chat(oa_impl *o) {
-    tny_session *s = o->env.session;
+    tny_session_state *s = o->env.session;
     buf_t b;
     buf_init(&b);
     buf_appends(&b, "{\"model\":");
@@ -189,7 +218,7 @@ static char *build_request_chat(oa_impl *o) {
  * `reasoning.effort`. store:false — tny owns session state, never the
  * provider. */
 static char *build_request_rsp(oa_impl *o) {
-    tny_session *s = o->env.session;
+    tny_session_state *s = o->env.session;
     buf_t b;
     buf_init(&b);
     buf_appends(&b, "{\"model\":");
@@ -417,7 +446,7 @@ static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
         buf_t m;
         buf_init(&m);
         buf_appendf(&m, "provider error: %s", msg ? msg : "response failed");
-        emit_text(o, TNY_EV_ERROR, m.data, m.len);
+        emit_error(o, TNY_EVENT_ERROR_PROTOCOL, m.data, m.len);
         buf_free(&m);
         o->stream_done = true;
         o->stream_failed = true;
@@ -440,7 +469,7 @@ static void log_toolcall(oa_impl *o, const char *name, bool ok) {
 }
 
 static void finish_turn_ok(oa_impl *o) {
-    tny_session *s = o->env.session;
+    tny_session_state *s = o->env.session;
     session_add_assistant(s, o->text.len ? o->text.data : "", NULL);
     session_bump_turns(s);
     session_compact(s, false);
@@ -449,7 +478,7 @@ static void finish_turn_ok(oa_impl *o) {
     if (o->usage_in || o->usage_out) {
         session_add_usage(s, o->usage_in, o->usage_out);
         session_save(s);
-        tny_event ev = {0};
+        tny_backend_event ev = {0};
         ev.kind = TNY_EV_USAGE;
         ev.in_tokens = o->usage_in;
         ev.out_tokens = o->usage_out;
@@ -458,8 +487,155 @@ static void finish_turn_ok(oa_impl *o) {
     emit_turn_end(o, TNY_STOP_DONE);
 }
 
+static void tool_result(oa_impl *o, const char *cid, const char *name,
+                        const char *result) {
+    bool ok = !str_starts(result, "error:");
+    log_toolcall(o, name, ok);
+
+    tny_backend_event ev = {0};
+    ev.kind = TNY_EV_TOOL_END;
+    ev.tool_name = name;
+    ev.tool_id = cid;
+    ev.tool_detail = result;
+    ev.tool_ok = ok;
+    emit(o, &ev);
+
+    session_add_tool_result(o->env.session, cid, result);
+}
+
+static int finish_tool_batch(oa_impl *o) {
+    tny_session_state *s = o->env.session;
+    if (o->env.n_pending_images) {
+        char ierr[256];
+        if (tools_flush_images(&o->env, ierr, sizeof ierr) != 0)
+            emit_error(o, TNY_EVENT_ERROR_INTERNAL, ierr, strlen(ierr));
+    }
+    pending_perm_clear(o);
+    o->tool_batch_active = false;
+    o->tool_index = 0;
+    oa_calls_reset(&o->calls);
+    session_save(s);
+
+    if (o->env.perm_blocked) {
+        emit_turn_end(o, TNY_STOP_DENIED);
+        return 0;
+    }
+    if (o->cancelled) {
+        emit_turn_end(o, TNY_STOP_INTERRUPTED);
+        return 0;
+    }
+    o->step++;
+    if (o->step >= o->ctx->max_steps) {
+        emit_error(o, TNY_EVENT_ERROR_INTERNAL, "step limit reached", 18);
+        session_bump_turns(s);
+        session_save(s);
+        emit_turn_end(o, TNY_STOP_STEP_LIMIT);
+        return 0;
+    }
+    if (take_steer(o)) session_save(s); /* after tool results, before next POST */
+    char err[512];
+    if (start_post(o, err, sizeof err) != 0) {
+        emit_error(o, TNY_EVENT_ERROR_IO, err, strlen(err));
+        emit_turn_end(o, TNY_STOP_ERROR);
+        return -1;
+    }
+    return 0;
+}
+
+static int run_tools(oa_impl *o) {
+    char idbuf[16];
+    while (o->tool_index < o->calls.n) {
+        oa_call *pc = &o->calls.calls[o->tool_index];
+        const char *cid = oa_call_id(pc, o->tool_index, idbuf, sizeof idbuf);
+        const char *name = pc->name ? pc->name : "unknown";
+        const char *args = pc->args.data ? pc->args.data : "{}";
+
+        if (o->cancelled) {
+            session_add_tool_result(o->env.session, cid,
+                                    "error: interrupted before this tool ran");
+            o->tool_index++;
+            continue;
+        }
+
+        if (!o->pending_perm.id) {
+            tny_backend_event start = {0};
+            start.kind = TNY_EV_TOOL_START;
+            start.tool_name = name;
+            start.tool_id = cid;
+            start.tool_detail = args;
+            emit(o, &start);
+
+            tools_call call;
+            if (tools_call_prepare(&o->env, name, args, &call) != 0) {
+                char *result = tool_err("cannot prepare tool call %s", name);
+                tool_result(o, cid, name, result);
+                free(result);
+                o->tool_index++;
+                continue;
+            }
+            if (call.verdict == PERM_DENY) {
+                char *result = tool_err("permission denied for %s", call.name);
+                tool_result(o, cid, name, result);
+                free(result);
+                tools_call_free(&call);
+                o->tool_index++;
+                continue;
+            }
+            if (call.verdict == PERM_ALLOW) {
+                char *result = tools_call_execute(&o->env, &call);
+                tool_result(o, cid, call.name, result);
+                free(result);
+                tools_call_free(&call);
+                o->tool_index++;
+                continue;
+            }
+
+            if (o->env.prompt) {
+                tny_perm_decision decision = o->env.prompt(call.name, call.summary,
+                                                           o->env.prompt_ud);
+                if (decision == TNY_PERM_DECISION_ALLOW_ALWAYS)
+                    tools_call_grant(&o->env, &call);
+                char *result = decision == TNY_PERM_DECISION_DENY
+                    ? tool_err("permission denied for %s", call.name)
+                    : tools_call_execute(&o->env, &call);
+                tool_result(o, cid, call.name, result);
+                free(result);
+                tools_call_free(&call);
+                o->tool_index++;
+                continue;
+            }
+
+            o->pending_perm.id = xstrdup(cid);
+            o->pending_perm.call = call; /* transfer parsed args + summary */
+            o->state = ST_WAIT_PERMISSION;
+
+            tny_backend_event request = {0};
+            request.kind = TNY_EV_PERMISSION;
+            request.perm_id = o->pending_perm.id;
+            request.perm_summary = o->pending_perm.call.summary;
+            request.perm_options = TNY_PERM_ALLOW_ONCE |
+                                   TNY_PERM_ALLOW_ALWAYS |
+                                   TNY_PERM_DENY;
+            emit(o, &request);
+            return 0;
+        }
+
+        oa_pending_perm *p = &o->pending_perm;
+        if (p->decision == TNY_PERM_DECISION_ALLOW_ALWAYS)
+            tools_call_grant(&o->env, &p->call);
+        char *result = p->decision == TNY_PERM_DECISION_DENY
+            ? tool_err("permission denied for %s", p->call.name)
+            : tools_call_execute(&o->env, &p->call);
+        tool_result(o, p->id, p->call.name, result);
+        free(result);
+        pending_perm_clear(o);
+        o->tool_index++;
+    }
+    return finish_tool_batch(o);
+}
+
 static int step_finished(oa_impl *o) {
-    tny_session *s = o->env.session;
+    tny_session_state *s = o->env.session;
     if (o->calls.n == 0) {
         if (o->steer && !o->cancelled) {
             /* the model answered before the steer could ride along: record
@@ -472,7 +648,7 @@ static int step_finished(oa_impl *o) {
             if (o->step < o->ctx->max_steps) {
                 char err[512];
                 if (start_post(o, err, sizeof err) == 0) return 0;
-                emit_text(o, TNY_EV_ERROR, err, strlen(err));
+                emit_error(o, TNY_EVENT_ERROR_IO, err, strlen(err));
                 emit_turn_end(o, TNY_STOP_ERROR);
                 return -1;
             }
@@ -481,91 +657,29 @@ static int step_finished(oa_impl *o) {
         return 0;
     }
 
-    /* record assistant message with tool_calls */
-    buf_t tcj;
-    buf_init(&tcj);
-    buf_appends(&tcj, "[");
-    char idbuf[16];
-    for (int i = 0; i < o->calls.n; i++) {
-        oa_call *pc = &o->calls.calls[i];
-        if (i) buf_appends(&tcj, ",");
-        buf_appendf(&tcj, "{\"id\":\"%s\",\"type\":\"function\",\"function\":{\"name\":\"%s\",\"arguments\":",
-                    oa_call_id(pc, i, idbuf, sizeof idbuf),
-                    pc->name ? pc->name : "unknown");
-        jescape(&tcj, pc->args.data ? pc->args.data : "{}");
-        buf_appends(&tcj, "}}");
-    }
-    buf_appends(&tcj, "]");
-    session_add_assistant(s, o->text.len ? o->text.data : NULL, tcj.data);
-    buf_free(&tcj);
-
-    /* Execute tools serially (writes must not race; reads are cheap).
-     * Every recorded call gets a tool result, even after an interrupt: an
-     * assistant tool_calls message without a matching output per id poisons
-     * the session — strict providers reject every later request with 400
-     * "no tool output found for function call". */
-    for (int i = 0; i < o->calls.n; i++) {
-        oa_call *pc = &o->calls.calls[i];
-        const char *cid = oa_call_id(pc, i, idbuf, sizeof idbuf);
-        const char *name = pc->name ? pc->name : "unknown";
-        if (o->cancelled) {
-            session_add_tool_result(s, cid, "error: interrupted before this tool ran");
-            continue;
+    /* Record the assistant batch once, then run it incrementally. An
+     * unresolved permission may park the backend and resume here later. */
+    if (!o->tool_batch_active) {
+        buf_t tcj;
+        buf_init(&tcj);
+        buf_appends(&tcj, "[");
+        char idbuf[16];
+        for (int i = 0; i < o->calls.n; i++) {
+            oa_call *pc = &o->calls.calls[i];
+            if (i) buf_appends(&tcj, ",");
+            buf_appendf(&tcj, "{\"id\":\"%s\",\"type\":\"function\",\"function\":{\"name\":\"%s\",\"arguments\":",
+                        oa_call_id(pc, i, idbuf, sizeof idbuf),
+                        pc->name ? pc->name : "unknown");
+            jescape(&tcj, pc->args.data ? pc->args.data : "{}");
+            buf_appends(&tcj, "}}");
         }
-        tny_event ev = {0};
-        ev.kind = TNY_EV_TOOL_START;
-        ev.tool_name = name;
-        ev.tool_id = cid;
-        ev.tool_detail = pc->args.data;
-        emit(o, &ev);
-
-        char *result = tools_execute(&o->env, name, pc->args.data ? pc->args.data : "{}");
-        bool ok = !str_starts(result, "error:");
-        log_toolcall(o, name, ok);
-
-        tny_event ev2 = {0};
-        ev2.kind = TNY_EV_TOOL_END;
-        ev2.tool_name = name;
-        ev2.tool_id = cid;
-        ev2.tool_detail = result;
-        ev2.tool_ok = ok;
-        emit(o, &ev2);
-
-        session_add_tool_result(s, cid, result);
-        free(result);
+        buf_appends(&tcj, "]");
+        session_add_assistant(s, o->text.len ? o->text.data : NULL, tcj.data);
+        buf_free(&tcj);
+        o->tool_batch_active = true;
+        o->tool_index = 0;
     }
-    if (o->env.n_pending_images) {
-        char ierr[256];
-        if (tools_flush_images(&o->env, ierr, sizeof ierr) != 0)
-            emit_text(o, TNY_EV_ERROR, ierr, strlen(ierr));
-    }
-    oa_calls_reset(&o->calls);
-    session_save(s);
-
-    if (o->env.perm_blocked && !o->env.prompt) {
-        emit_turn_end(o, TNY_STOP_DENIED);
-        return 0;
-    }
-    if (o->cancelled) {
-        emit_turn_end(o, TNY_STOP_INTERRUPTED);
-        return 0;
-    }
-    o->step++;
-    if (o->step >= o->ctx->max_steps) {
-        emit_text(o, TNY_EV_ERROR, "step limit reached", 18);
-        session_bump_turns(s);
-        session_save(s);
-        emit_turn_end(o, TNY_STOP_STEP_LIMIT);
-        return 0;
-    }
-    if (take_steer(o)) session_save(s); /* steered text goes in after the tool results */
-    char err[512];
-    if (start_post(o, err, sizeof err) != 0) {
-        emit_text(o, TNY_EV_ERROR, err, strlen(err));
-        emit_turn_end(o, TNY_STOP_ERROR);
-        return -1;
-    }
-    return 0;
+    return run_tools(o);
 }
 
 /* ---------- vtable ---------- */
@@ -611,7 +725,7 @@ static char *oa_session_pointer(tny_backend *b) {
 }
 
 static int oa_send(tny_backend *b, const char *prompt, const char **images,
-                   tny_event_cb cb, void *ud, char *errbuf, size_t errlen) {
+                   tny_backend_event_cb cb, void *ud, char *errbuf, size_t errlen) {
     oa_impl *o = b->impl;
     if (!o->env.session || !o->env.perm) {
         snprintf(errbuf, errlen, "native backend not bound to a session");
@@ -623,13 +737,16 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images,
     o->cancelled = false;
     o->usage_in = o->usage_out = 0;
     o->env.perm_blocked = false;
+    pending_perm_clear(o);
+    o->tool_batch_active = false;
+    o->tool_index = 0;
     free(o->steer);
     o->steer = NULL;
     buf_clear(&o->toolcall_log);
     buf_appends(&o->toolcall_log, "[");
     oa_calls_reset(&o->calls);
 
-    tny_session *s = o->env.session;
+    tny_session_state *s = o->env.session;
     if (!session_title(s)) session_set_title(s, prompt);
     session_set_meta(s, "openai", model_of(o));
 
@@ -669,7 +786,21 @@ static void oa_cancel(tny_backend *b) {
     oa_impl *o = b->impl;
     if (o->state == ST_IDLE) return;
     o->cancelled = true;
-    if (o->text.len) {
+    bool had_tool_batch = o->tool_batch_active;
+    if (had_tool_batch) {
+        char idbuf[16];
+        for (int i = o->tool_index; i < o->calls.n; i++) {
+            oa_call *pc = &o->calls.calls[i];
+            session_add_tool_result(o->env.session,
+                                    oa_call_id(pc, i, idbuf, sizeof idbuf),
+                                    "error: interrupted before this tool ran");
+        }
+        oa_calls_reset(&o->calls);
+        o->tool_batch_active = false;
+        pending_perm_clear(o);
+        session_save(o->env.session);
+    }
+    if (o->text.len && !had_tool_batch) {
         session_recovery_write(o->env.session, o->text.data);
         session_add_assistant(o->env.session, o->text.data, NULL);
         session_save(o->env.session);
@@ -679,12 +810,19 @@ static void oa_cancel(tny_backend *b) {
 }
 
 static void oa_respond_permission(tny_backend *b, const char *id, tny_perm_decision d) {
-    (void)b; (void)id; (void)d; /* native approvals flow through the prompt hook */
+    oa_impl *o = b->impl;
+    if (!id || !o->pending_perm.id ||
+        strcmp(id, o->pending_perm.id) != 0)
+        return;
+    o->pending_perm.decision = d;
+    if (d == TNY_PERM_DECISION_DENY) o->env.perm_blocked = true;
+    run_tools(o);
 }
 
 static int oa_pollfds(tny_backend *b, struct pollfd *fds, int max) {
     oa_impl *o = b->impl;
-    if (o->state == ST_IDLE || !o->conn || max < 1) return 0;
+    if (o->state == ST_IDLE || o->state == ST_WAIT_PERMISSION ||
+        !o->conn || max < 1) return 0;
     fds[0].fd = http_fd(o->conn);
     fds[0].events = POLLIN;
     fds[0].revents = 0;
@@ -694,7 +832,7 @@ static int oa_pollfds(tny_backend *b, struct pollfd *fds, int max) {
 static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     (void)fds; (void)n;
     oa_impl *o = b->impl;
-    if (o->state == ST_IDLE || !o->conn) return 0;
+    if (o->state == ST_IDLE || o->state == ST_WAIT_PERMISSION || !o->conn) return 0;
 
     if (o->state == ST_HEADERS) {
         int status = http_read_response(o->conn, 0);
@@ -709,16 +847,18 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 o->conn = NULL;
                 char rerr[512];
                 if (start_post(o, rerr, sizeof rerr) == 0) return 0;
-                emit_text(o, TNY_EV_ERROR, rerr, strlen(rerr));
+                emit_error(o, TNY_EVENT_ERROR_IO, rerr, strlen(rerr));
                 emit_turn_end(o, TNY_STOP_ERROR);
                 return -1;
             }
-            emit_text(o, TNY_EV_ERROR, "connection lost before response", 31);
+            emit_error(o, TNY_EVENT_ERROR_IO,
+                       "connection lost before response", 31);
             emit_turn_end(o, TNY_STOP_ERROR);
             return -1;
         }
         if (status == 401 || status == 403) {
-            emit_text(o, TNY_EV_ERROR, "authentication failed (401/403): check the API key", 51);
+            emit_error(o, TNY_EVENT_ERROR_AUTH,
+                       "authentication failed (401/403): check the API key", 51);
             emit_turn_end(o, TNY_STOP_ERROR);
             return -1;
         }
@@ -732,7 +872,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 body[bn] = 0;
                 buf_appendf(&msg, ": %.900s", body);
             }
-            emit_text(o, TNY_EV_ERROR, msg.data, msg.len);
+            emit_error(o, TNY_EVENT_ERROR_PROTOCOL, msg.data, msg.len);
             buf_free(&msg);
             emit_turn_end(o, TNY_STOP_ERROR);
             return -1;
@@ -753,7 +893,8 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         if (bn < 0 && !o->stream_done) {
             /* keep partial text recoverable */
             if (o->text.len) session_recovery_write(o->env.session, o->text.data);
-            emit_text(o, TNY_EV_ERROR, "stream aborted mid-response", 27);
+            emit_error(o, TNY_EVENT_ERROR_IO,
+                       "stream aborted mid-response", 27);
             emit_turn_end(o, TNY_STOP_ERROR);
             return -1;
         }
@@ -787,6 +928,7 @@ static void oa_destroy(tny_backend *b) {
     oa_impl *o = b->impl;
     oa_disconnect(b);
     oa_calls_reset(&o->calls);
+    pending_perm_clear(o);
     free(o->steer);
     buf_free(&o->text);
     buf_free(&o->toolcall_log);
@@ -795,7 +937,7 @@ static void oa_destroy(tny_backend *b) {
     free(b);
 }
 
-void tny_backend_openai_bind(tny_backend *b, tny_session *session,
+void tny_backend_openai_bind(tny_backend *b, tny_session_state *session,
                              perm_engine *perm,
                              tny_perm_decision (*prompt)(const char *, const char *, void *),
                              void *prompt_ud) {

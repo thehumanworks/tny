@@ -1,5 +1,6 @@
 /* http1.c — minimal HTTP/1.1 client over nstream with chunked decoding. */
 #include "net/net.h"
+#include "util/tny_poll.h"
 #include "picohttpparser.h"
 
 /* net stays agent-agnostic (no core/ includes); take the generated version
@@ -140,7 +141,7 @@ static int fill(http_conn *c, int timeout_ms) {
         int left = (int)(deadline - now_ms());
         if (timeout_ms == 0 || left <= 0) return -2;
         struct pollfd pf = {nstream_fd(c->s), POLLIN, 0};
-        if (poll(&pf, 1, left) <= 0) return -2;
+        if (tny_poll(&pf, 1, left) <= 0) return -2;
     }
 }
 

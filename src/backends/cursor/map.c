@@ -105,7 +105,7 @@ static void emit_tool(cu_impl *o, yyjson_val *v) {
     buf_init(&detail);
     append_short(src, &detail);
 
-    tny_event ev = {0};
+    tny_backend_event ev = {0};
     ev.kind = end ? TNY_EV_TOOL_END : TNY_EV_TOOL_START;
     ev.tool_name = name;
     ev.tool_id = id;

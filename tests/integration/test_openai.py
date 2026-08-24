@@ -97,6 +97,45 @@ def main():
             for blob in (r.stdout, r.stderr, r2.stdout, r2.stderr):
                 assert b"test-key-not-real" not in blob, "api key leaked"
 
+            # Native permissions can now park the OpenAI loop and resume from
+            # respond_permission, like host backends. Ask mode denies the
+            # sensitive write without hanging; yolo permits the same call.
+            pport = free_port()
+            pmock = subprocess.Popen(
+                [sys.executable, MOCK, str(pport)],
+                env=dict(os.environ, MOCK_SENSITIVE="1",
+                         MOCK_EXPECT_WIRE="responses"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = pmock.stdout.readline().decode()
+                assert "ready" in line, f"permission mock did not start: {line!r}"
+                penv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{pport}/v1")
+                target = os.path.join(ws, "permission.txt")
+                denied = subprocess.run(
+                    [TNY, "--permission-mode", "ask", "--cwd", ws,
+                     "ask", "--json", "--no-save", "write the marker"],
+                    env=penv, capture_output=True, timeout=30)
+                assert denied.returncode == 2, denied.stderr.decode()
+                denied_out = json.loads(denied.stdout)
+                assert denied_out["exit_code"] == 2, denied_out
+                assert denied_out["tool_calls"] == [
+                    {"name": "write_file", "status": "error"}], denied_out
+                assert not os.path.exists(target), "ask mode executed a denied write"
+
+                allowed = subprocess.run(
+                    [TNY, "--yolo", "--cwd", ws, "ask", "--json",
+                     "--no-save", "write the marker"],
+                    env=penv, capture_output=True, timeout=30)
+                assert allowed.returncode == 0, allowed.stderr.decode()
+                allowed_out = json.loads(allowed.stdout)
+                assert allowed_out["tool_calls"] == [
+                    {"name": "write_file", "status": "success"}], allowed_out
+                assert open(target).read() == "allowed"
+                os.unlink(target)
+            finally:
+                pmock.terminate()
+                pmock.wait(timeout=5)
+
             # piped stdin: the connect/stdin overlap path must still run a
             # full turn end-to-end
             r4 = subprocess.run(

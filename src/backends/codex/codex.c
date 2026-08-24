@@ -31,7 +31,7 @@ static void cx_load_token(cx_impl *o, char *err, size_t errlen, bool *failed) {
             return;
         }
         o->token = xstrdup(str_trim(data));
-        free(data);
+        secure_free(data);
         return;
     }
     const char *env = getenv("CODEX_REMOTE_TOKEN");
@@ -75,7 +75,7 @@ static bool cx_try_discovered(cx_impl *o) {
         o->ws = NULL;
     }
     if (!o->ws) {
-        if (tny_debug())
+        if (!o->ctx->library_mode && tny_debug())
             fprintf(stderr, "tny: no reusable codex host at %s (%s); spawning\n",
                     url, err);
         free(url);
@@ -234,7 +234,8 @@ static int cx_create_or_resume(tny_backend *b, const char *ptr, char *e, size_t 
     if (!o->ws) { snprintf(e, el, "codex: not connected"); return -1; }
     if (ptr && *ptr) {
         if (cx_start_thread(o, ptr, e, el) == 0) return 0;
-        if (tny_debug()) fprintf(stderr, "tny: %s; starting a fresh codex thread\n", e);
+        if (!o->ctx->library_mode && tny_debug())
+            fprintf(stderr, "tny: %s; starting a fresh codex thread\n", e);
     }
     return cx_start_thread(o, NULL, e, el);
 }
@@ -247,7 +248,7 @@ static char *cx_session_pointer(tny_backend *b) {
 /* ---------- turn ---------- */
 
 static int cx_send(tny_backend *b, const char *prompt, const char **images,
-                   tny_event_cb cb, void *ud, char *errbuf, size_t errlen) {
+                   tny_backend_event_cb cb, void *ud, char *errbuf, size_t errlen) {
     cx_impl *o = b->impl;
     o->cb = cb;
     o->ud = ud;
@@ -526,10 +527,7 @@ static void cx_destroy(tny_backend *b) {
     free(o->thread_id);
     free(o->turn_id);
     free(o->ws_url);
-    if (o->token) {
-        memset(o->token, 0, strlen(o->token)); /* keep the bearer out of core dumps */
-        free(o->token);
-    }
+    secure_free(o->token);
     free(o);
     free(b);
 }

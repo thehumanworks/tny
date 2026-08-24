@@ -61,6 +61,8 @@ FAIL_RESPONSE = os.environ.get("MOCK_FAIL_RESPONSE")
 # carries its own fresh "id" (index-keyed assembly used to merge the two and
 # drop an id, unpairing the transcript).
 PARALLEL = os.environ.get("MOCK_PARALLEL") == "1"
+SENSITIVE = os.environ.get("MOCK_SENSITIVE") == "1"
+HTTP_STATUS = int(os.environ.get("MOCK_HTTP_STATUS", "0"))
 
 
 def sse(obj):
@@ -165,6 +167,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("Content-Length", "0"))
         req = json.loads(self.rfile.read(n))
+        if HTTP_STATUS:
+            self._json(HTTP_STATUS, {"error": {"message": "mock status failure"}})
+            return
         try:
             if self.path.endswith("/chat/completions"):
                 need(EXPECT_WIRE != "responses",
@@ -207,7 +212,15 @@ class Handler(BaseHTTPRequestHandler):
             need("name" in structured["json_schema"], f"bad {structured}")
 
         self._start_stream()
-        if PARALLEL and not has_tool_result:
+        if SENSITIVE and not has_tool_result:
+            frames = [
+                {"choices": [{"index": 0, "delta": {"role": "assistant",
+                    "tool_calls": [{"index": 0, "id": "sensitive_1", "type": "function",
+                                    "function": {"name": "write_file",
+                                                 "arguments": "{\"path\":\"permission.txt\",\"content\":\"allowed\"}"}}]}}]},
+                {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]},
+            ]
+        elif PARALLEL and not has_tool_result:
             frames = [
                 # call 1: id+name first, arguments fragmented, keyed by index
                 {"choices": [{"index": 0, "delta": {"role": "assistant",
@@ -332,6 +345,21 @@ class Handler(BaseHTTPRequestHandler):
                                   "error": {"code": "server_error",
                                             "message": FAIL_RESPONSE}}},
                 ]
+            elif SENSITIVE:
+                item = {"type": "function_call", "id": "fc_sensitive",
+                        "call_id": "sensitive_1", "name": "write_file",
+                        "arguments": "{\"path\":\"permission.txt\",\"content\":\"allowed\"}"}
+                events = [
+                    {"type": "response.created", "response": {"status": "in_progress"}},
+                    {"type": "response.output_item.added", "output_index": 0,
+                     "item": item},
+                    {"type": "response.output_item.done", "output_index": 0,
+                     "item": dict(item, status="completed")},
+                    {"type": "response.completed",
+                     "response": {"status": "completed",
+                                  "usage": {"input_tokens": 100,
+                                            "output_tokens": 10}}},
+                ]
             else:
                 # call 1: full metadata up front, arguments fragmented in
                 # deltas, output_item.done repeats the complete string
@@ -376,16 +404,22 @@ class Handler(BaseHTTPRequestHandler):
             # arguments included, and both results answered
             calls = {i["call_id"]: i for i in items
                      if i.get("type") == "function_call"}
-            need(set(calls) == {"call_1", "call_2"},
-                 f"function_call items not echoed exactly: {sorted(calls)}")
-            need(calls["call_1"].get("name") == "list_files" and
-                 calls["call_1"].get("arguments") == "{\"path\": \".\"}",
-                 f"call_1 mangled: {calls['call_1']}")
-            need(calls["call_2"].get("name") == "glob_files" and
-                 calls["call_2"].get("arguments") == "{\"pattern\": \"*.txt\"}",
-                 f"call_2 mangled: {calls['call_2']}")
-            need([o.get("call_id") for o in outputs] == ["call_1", "call_2"],
-                 f"outputs wrong: {outputs}")
+            if SENSITIVE:
+                need(set(calls) == {"sensitive_1"},
+                     f"sensitive call not echoed exactly: {sorted(calls)}")
+                need([o.get("call_id") for o in outputs] == ["sensitive_1"],
+                     f"sensitive output wrong: {outputs}")
+            else:
+                need(set(calls) == {"call_1", "call_2"},
+                     f"function_call items not echoed exactly: {sorted(calls)}")
+                need(calls["call_1"].get("name") == "list_files" and
+                     calls["call_1"].get("arguments") == "{\"path\": \".\"}",
+                     f"call_1 mangled: {calls['call_1']}")
+                need(calls["call_2"].get("name") == "glob_files" and
+                     calls["call_2"].get("arguments") == "{\"pattern\": \"*.txt\"}",
+                     f"call_2 mangled: {calls['call_2']}")
+                need([o.get("call_id") for o in outputs] == ["call_1", "call_2"],
+                     f"outputs wrong: {outputs}")
             text = self._answer_text(req, outputs[0].get("output", ""),
                                      structured is not None)
             events = [{"type": "response.created",
@@ -430,6 +464,8 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection = True
 
     def _answer_text(self, req, tool_output, structured):
+        if SENSITIVE:
+            return f"PERMISSION-OK {tool_output}"
         nfiles = len([l for l in tool_output.splitlines() if l.strip()])
         if structured:
             return json.dumps({"count": nfiles, "note": "MOCK-OK"})

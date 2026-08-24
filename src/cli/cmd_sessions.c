@@ -83,7 +83,7 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         printf("sessions are already in the current format\n");
         return 0;
     }
-    tny_session *s = session_open(ctx, id);
+    tny_session_state *s = session_open(ctx, id);
     if (!s) {
         fprintf(stderr, "tny: no session '%s' for this workspace\n"
                         "If session.json is corrupt: tny session recover %s\n", id, id);
@@ -124,7 +124,7 @@ int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     }
     const char *target = argc > 0 ? argv[0] : (g->resume ? g->resume : "last");
     if (g->resume_last) target = "last";
-    tny_session *probe = session_open(ctx, target);
+    tny_session_state *probe = session_open(ctx, target);
     if (!probe && !g->resume_picker) {
         fprintf(stderr, "tny: no session '%s' for this workspace (try `tny sessions`)\n",
                 target);

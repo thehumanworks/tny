@@ -23,6 +23,7 @@
 #include "json/json.h"
 #include "net/net.h"
 #include "util/util.h"
+#include "util/tny_poll.h"
 
 #include <poll.h>
 #include <stdio.h>
@@ -159,7 +160,7 @@ static int oauth_post_form(const char *issuer, const char *path,
             if (n == -2) {
                 if (now_ms() > deadline) break;
                 struct pollfd pf = {http_fd(c), POLLIN, 0};
-                poll(&pf, 1, 500);
+                tny_poll(&pf, 1, 500);
                 continue;
             }
             if (n < 0) break;

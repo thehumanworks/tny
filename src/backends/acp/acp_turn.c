@@ -2,6 +2,7 @@
  * events out as session/update, permission prompts out as
  * session/request_permission (docs/backends/acp.md). */
 #include "backends/acp/acp_server.h"
+#include "util/tny_poll.h"
 #include "backends/openai/openai.h"
 #include "util/util.h"
 
@@ -75,7 +76,7 @@ static void append_raw_input(buf_t *u, const char *args_json) {
     yyjson_doc_free(doc);
 }
 
-static void tool_start(acp_srv *s, const tny_event *ev) {
+static void tool_start(acp_srv *s, const tny_backend_event *ev) {
     buf_t u;
     buf_init(&u);
     buf_appends(&u, "{\"sessionUpdate\":\"tool_call\",\"toolCallId\":");
@@ -89,7 +90,7 @@ static void tool_start(acp_srv *s, const tny_event *ev) {
     buf_free(&u);
 }
 
-static void tool_end(acp_srv *s, const tny_event *ev) {
+static void tool_end(acp_srv *s, const tny_backend_event *ev) {
     buf_t u;
     buf_init(&u);
     buf_appends(&u, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":");
@@ -107,7 +108,7 @@ static void tool_end(acp_srv *s, const tny_event *ev) {
     buf_free(&u);
 }
 
-static void plan_update(acp_srv *s, const tny_event *ev) {
+static void plan_update(acp_srv *s, const tny_backend_event *ev) {
     buf_t u;
     buf_init(&u);
     buf_appends(&u, "{\"sessionUpdate\":\"plan\",\"entries\":[{\"content\":");
@@ -119,7 +120,7 @@ static void plan_update(acp_srv *s, const tny_event *ev) {
     buf_free(&u);
 }
 
-static void srv_event_cb(const tny_event *ev, void *ud) {
+static void srv_event_cb(const tny_backend_event *ev, void *ud) {
     acp_srv *s = ud;
     switch (ev->kind) {
     case TNY_EV_TEXT_DELTA:
@@ -163,7 +164,7 @@ static void srv_event_cb(const tny_event *ev, void *ud) {
 
 /* ---------- approvals ---------- */
 
-static tny_perm_decision srv_prompt(const char *tool, const char *summary, void *ud) {
+tny_perm_decision acp_srv_prompt(const char *tool, const char *summary, void *ud) {
     acp_srv *s = ud;
     if (s->cancel_requested) return TNY_PERM_DECISION_DENY;
 
@@ -203,8 +204,12 @@ static tny_perm_decision srv_prompt(const char *tool, const char *summary, void 
     return s->perm_result;
 }
 
-void acp_srv_bind(acp_srv *s) {
-    tny_backend_openai_bind(s->bk, s->session, s->perm, srv_prompt, s);
+static void drain_engine_events(acp_srv *s) {
+    tny_owned_event *owned;
+    while ((owned = tny_engine_pop_event(s->engine))) {
+        srv_event_cb(&owned->ev, s);
+        tny_owned_event_free(owned);
+    }
 }
 
 /* ---------- the turn ---------- */
@@ -220,7 +225,7 @@ static const char *reason_of(tny_stop_reason stop) {
 }
 
 int acp_srv_run_turn(acp_srv *s, const char *text, const char **reason) {
-    if (!s->bk || !s->session) {
+    if (!s->engine || !s->session) {
         buf_clear(&s->last_error);
         buf_appends(&s->last_error, "no active session");
         return -1;
@@ -233,35 +238,36 @@ int acp_srv_run_turn(acp_srv *s, const char *text, const char **reason) {
     buf_clear(&s->last_error);
 
     char err[512];
-    if (s->bk->send(s->bk, text, NULL, srv_event_cb, s, err, sizeof err) != 0) {
+    if (tny_engine_start(s->engine, text, NULL, err, sizeof err) != 0) {
         s->turn_active = false;
         buf_clear(&s->last_error);
         buf_appends(&s->last_error, err);
         return -1;
     }
+    drain_engine_events(s);
 
     while (!s->turn_done) {
         if (acp_srv_pump(s, 0) != 0) {
-            s->bk->cancel(s->bk);
+            tny_engine_cancel(s->engine);
+            drain_engine_events(s);
             break;
         }
         if (s->cancel_requested && !s->cancelled) {
             s->cancelled = true;
-            s->bk->cancel(s->bk);
+            tny_engine_cancel(s->engine);
+            drain_engine_events(s);
             continue;
         }
         struct pollfd fds[8];
-        int n = s->bk->pollfds ? s->bk->pollfds(s->bk, fds, 8) : 0;
+        int n = tny_engine_pollfds(s->engine, fds, 8);
         if (n > 0) {
-            poll(fds, (nfds_t)n, 50);
+            tny_poll(fds, (nfds_t)n, 50);
         } else {
             struct pollfd idle = {s->in_fd, POLLIN, 0};
-            poll(&idle, 1, 20);
+            tny_poll(&idle, 1, 20);
         }
-        if (s->bk->dispatch && s->bk->dispatch(s->bk, fds, n) != 0 && !s->turn_done) {
-            s->turn_done = true;
-            s->stop = TNY_STOP_ERROR;
-        }
+        tny_engine_dispatch(s->engine, fds, n);
+        drain_engine_events(s);
     }
     s->turn_active = false;
     if (s->cancelled && s->stop == TNY_STOP_DONE) s->stop = TNY_STOP_INTERRUPTED;

@@ -1,6 +1,9 @@
 # Implementation plan
 
-Research is done. Product code is **not** in this repository yet. When implementation starts, follow this order. Each phase has an acceptance gate. Do not skip ahead to TUI chrome before the first backend streams.
+Phases 0–8 describe the completed path from the original research skeleton to
+the current product. New architecture work follows the accepted ADRs and must
+preserve the gates below; [ADR 0023](adr/0023-libtny-embedding-abi.md) defines
+the ordered extraction and verification gates for `libtny`.
 
 ## Phase 0 — skeleton
 

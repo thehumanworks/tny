@@ -12,13 +12,13 @@
 
 /* ---------- events ---------- */
 
-void cx_emit(cx_impl *o, const tny_event *ev) {
+void cx_emit(cx_impl *o, const tny_backend_event *ev) {
     if (o->cb) o->cb(ev, o->ud);
 }
 
 void cx_emit_text(cx_impl *o, tny_event_kind k, const char *t) {
     if (!t || !*t) return;
-    tny_event ev = {0};
+    tny_backend_event ev = {0};
     ev.kind = k;
     ev.text = t;
     ev.text_len = strlen(t);
@@ -37,14 +37,14 @@ void cx_end_turn(cx_impl *o, tny_stop_reason stop) {
     for (int i = 0; i < CX_MAX_PENDING; i++) {
         cx_pending *p = &o->pending[i];
         if (!p->method || p->kind != CXR_STEER) continue;
-        tny_event sev = {0};
+        tny_backend_event sev = {0};
         sev.kind = TNY_EV_STEER_REJECTED;
         sev.text = p->steer_text ? p->steer_text : "";
         sev.text_len = strlen(sev.text);
         cx_emit(o, &sev);
         cx_pending_clear(p);
     }
-    tny_event ev = {0};
+    tny_backend_event ev = {0};
     ev.kind = TNY_EV_TURN_END;
     ev.stop = stop;
     cx_emit(o, &ev);

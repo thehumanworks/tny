@@ -30,9 +30,16 @@ Keep the *user-visible harness*, not Vercel branding:
 
 fx talks to Vercel AI Gateway and can *be* an ACP server. It does not ship Cursor SDK Bridge or Codex app-server WebSocket clients. tny's extra job is a **thin multiplexed frontend** over those host harnesses, plus a native OpenAI-compatible loop for BYOK providers (OpenRouter, Groq, local llama.cpp, Azure, etc.).
 
+## Embedding
+
+The native harness is being extracted behind an experimental headless C ABI
+(`libtny`, [ADR 0023](adr/0023-libtny-embedding-abi.md)). The CLI, TUI, ACP
+server, and C embedders share one runtime; the public ABI does not expose the
+private backend or `tny_backend_event` structs.
+
 ## Non-goals (v1)
 
-- A JS `createFxAgent()`-style embedding API (fx has this; defer). The binary itself *does* compile to wasm and runs the GitHub Pages landing terminal ([ADR 0017](adr/0017-wasm-browser-parity.md)); what stays out of scope is a JS API surface around it.
+- A JS `createFxAgent()`-style embedding API (fx has this; defer). The binary itself *does* compile to wasm and runs the GitHub Pages landing terminal ([ADR 0017](adr/0017-wasm-browser-parity.md)); what stays out of scope is a JS API surface around it, not the native C ABI.
 - Reimplementing Cursor or Codex agent loops inside tny.
 - Bundling `cursor-sdk-bridge` or `codex` into the tny binary (spawn or attach).
 - Vercel OAuth, AI Gateway team picker, or `fx login` lock-in.

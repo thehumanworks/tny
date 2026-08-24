@@ -2,7 +2,6 @@
  * plus the backend fds, and lazy backend creation (nothing is spawned or
  * connected until the first prompt is submitted). See docs/tui.md. */
 #include "tui/tui.h"
-#include "backends/openai/openai.h"
 #include "mcp/mcp.h"
 #include "util/tny_poll.h"
 
@@ -77,10 +76,9 @@ static void oneline(char *dst, size_t cap, const char *src) {
 
 void tui_drop_backend(tui *t) {
     t->bk_adopted = false;
-    if (!t->bk) return;
-    t->bk->disconnect(t->bk);
-    t->bk->destroy(t->bk);
-    t->bk = NULL;
+    if (!t->engine) return;
+    tny_engine_free(t->engine);
+    t->engine = NULL;
 }
 
 int tui_queue_image(tui *t, const char *path) {
@@ -160,7 +158,7 @@ static tny_perm_decision perm_hook(const char *tool, const char *summary, void *
 
 /* ---- normalized event rendering ---- */
 
-static void ev_cb(const tny_event *ev, void *ud) {
+static void ev_cb(const tny_backend_event *ev, void *ud) {
     tui *t = ud;
     char line[512];
 
@@ -209,8 +207,7 @@ static void ev_cb(const tny_event *ev, void *ud) {
         if (d == TNY_PERM_DECISION_ALLOW_ALWAYS &&
             !(ev->perm_options & TNY_PERM_ALLOW_ALWAYS))
             d = TNY_PERM_DECISION_ALLOW;
-        if (t->bk && t->bk->respond_permission)
-            t->bk->respond_permission(t->bk, ev->perm_id, d);
+        tny_engine_respond_permission(t->engine, ev->perm_id, d);
         break;
     }
     case TNY_EV_PLAN:
@@ -252,6 +249,15 @@ static void ev_cb(const tny_event *ev, void *ud) {
     }
 }
 
+static void drain_engine_events(tui *t) {
+    if (!t->engine) return;
+    tny_owned_event *owned;
+    while ((owned = tny_engine_pop_event(t->engine))) {
+        ev_cb(&owned->ev, t);
+        tny_owned_event_free(owned);
+    }
+}
+
 /* ---- mid-turn input queue (docs/adr/0011) ---- */
 
 void tui_queue_push(tui *t, const char *text, bool front) {
@@ -288,12 +294,12 @@ static char *queue_pop(tui *t) {
 
 void tui_new_session(tui *t, bool clear_screen) {
     if (t->turn_active) { tui_sys(t, "finish the turn first"); return; }
+    tui_drop_backend(t);
     if (t->session) {
         session_save(t->session);
         session_close(t->session);
         t->session = NULL;
     }
-    tui_drop_backend(t);
     tui_prewarm_start(t); /* the next first prompt should not pay startup */
     t->in_tok = t->out_tok = 0;
     buf_clear(&t->last_reply);
@@ -305,76 +311,42 @@ void tui_new_session(tui *t, bool clear_screen) {
     tui_sys(t, "new session");
 }
 
-static tny_backend *fresh_backend(tui *t, char *err, size_t errlen) {
-    tny_backend *bk = tny_backend_create((tny_backend_id)t->ctx->backend, t->ctx);
-    if (!bk) {
-        snprintf(err, errlen, "could not create the backend");
-        return NULL;
-    }
-    if (bk->connect(bk, err, errlen) != 0) {
-        bk->destroy(bk);
-        return NULL;
-    }
-    return bk;
-}
-
-static int bind_and_resume(tui *t, tny_backend *bk, char *err, size_t errlen) {
-    if (bk->id == TNY_BK_OPENAI)
-        tny_backend_openai_bind(bk, t->session, t->perm, perm_hook, t);
-    const char *hp = session_host_pointer(t->session);
-    /* a host pointer only means something to the provider that minted it */
-    const char *owner = session_backend(t->session);
-    if (hp && owner && strcmp(owner, tny_provider_name(t->ctx)) != 0) hp = NULL;
-    if (bk->create_or_resume && bk->create_or_resume(bk, hp, err, errlen) != 0)
-        return -1;
-    return 0;
-}
-
 static bool ensure_backend(tui *t) {
     if (!t->session) t->session = session_new(t->ctx);
     if (!t->session) { tui_err(t, "could not create a session"); return false; }
-    if (t->bk) return true;
+    if (t->engine) return true;
 
     char err[512];
     err[0] = 0;
+    tny_engine *engine = tny_engine_new(t->ctx, t->session, t->perm,
+                                        perm_hook, t);
+    if (!engine) { tui_err(t, "could not create the runtime"); return false; }
     tny_backend *bk = tui_prewarm_take(t);
     if (bk) {
-        /* the warm-up already ran create_or_resume; only the bind remains
-         * (openai is never pre-warmed, so this branch never needs it) */
-        if (bk->id == TNY_BK_OPENAI)
-            tny_backend_openai_bind(bk, t->session, t->perm, perm_hook, t);
-        t->bk = bk;
+        if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_RESUMED,
+                               err, sizeof err) != 0) {
+            tny_engine_free(engine);
+            tui_err(t, err);
+            return false;
+        }
+        t->engine = engine;
         t->bk_adopted = true;
         tny_settings_remember_use(t->ctx);
         return true;
     }
-    bk = fresh_backend(t, err, sizeof err);
-    if (!bk) { tui_err(t, err); return false; }
-    if (bind_and_resume(t, bk, err, sizeof err) != 0) {
-        bk->disconnect(bk);
-        bk->destroy(bk);
+    bk = tny_backend_create((tny_backend_id)t->ctx->backend, t->ctx);
+    if (!bk || tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_FRESH,
+                           err, sizeof err) != 0) {
+        tny_engine_free(engine);
         tui_err(t, err);
         return false;
     }
-    t->bk = bk;
+    t->engine = engine;
     tny_settings_remember_use(t->ctx); /* next launch defaults to this provider */
     return true;
 }
 
 static void after_turn(tui *t) {
-    if (t->session) {
-        if (t->bk && t->bk->session_pointer) {
-            char *ptr = t->bk->session_pointer(t->bk);
-            if (ptr) {
-                session_set_host_pointer(t->session, ptr);
-                free(ptr);
-            }
-        }
-        session_set_meta(t->session, tny_provider_name(t->ctx), t->ctx->model);
-        if (!session_title(t->session) && t->prompt_text.len)
-            session_set_title(t->session, t->prompt_text.data);
-        session_save(t->session);
-    }
     tui_bol(t);
     tui_write(t, "\n", 1);
     t->gap = 0;
@@ -404,7 +376,7 @@ static void after_turn(tui *t) {
 }
 
 void tui_cancel_turn(tui *t) {
-    if (!t->turn_active || !t->bk) return;
+    if (!t->turn_active || !t->engine) return;
     if (t->cancel_ms) return;
     if (t->n_queue) {
         char m[80];
@@ -415,7 +387,7 @@ void tui_cancel_turn(tui *t) {
     }
     t->cancel_ms = now_ms();
     tui_note(t, "cancelling…");
-    t->bk->cancel(t->bk);
+    tny_engine_cancel(t->engine);
 }
 
 void tui_submit(tui *t, const char *text) {
@@ -435,8 +407,8 @@ void tui_submit(tui *t, const char *text) {
     if (t->turn_active) {
         tui_hist_add(t, s);
         char err[256];
-        if (t->bk && t->bk->steer && !t->cancel_ms && !t->n_queue &&
-            t->bk->steer(t->bk, s, err, sizeof err) == 0) {
+        if (t->engine && !t->cancel_ms && !t->n_queue &&
+            tny_engine_steer(t->engine, s, err, sizeof err) == 0) {
             /* into the running turn: echo it so the transcript reads in
              * order; the backend owns the text now and hands it back via
              * STEER_REJECTED if the host refuses it (docs/adr/0013) */
@@ -456,7 +428,7 @@ void tui_submit(tui *t, const char *text) {
     t->gap = 1; /* one blank line before the first agent output */
     /* connect/send below can block for a while: show the echoed prompt and a
      * status note now so Enter never looks like a freeze */
-    tui_note(t, t->bk ? "sending…" : "starting %s…", tny_provider_name(t->ctx));
+    tui_note(t, t->engine ? "sending…" : "starting %s…", tny_provider_name(t->ctx));
     tui_render_force(t);
     if (!ensure_backend(t)) {
         buf_clear(&t->note);
@@ -473,7 +445,7 @@ void tui_submit(tui *t, const char *text) {
     char err[512];
     const char **imgs = t->n_images ? (const char **)t->images : NULL;
     t->turn_done = false;
-    int rc = t->bk->send(t->bk, s, imgs, ev_cb, t, err, sizeof err);
+    int rc = tny_engine_start(t->engine, s, imgs, err, sizeof err);
     if (rc != 0 && t->bk_adopted) {
         /* the pre-warmed, pre-resumed host may have died while the shell sat
          * idle: one clean retry through the ordinary lazy path */
@@ -483,7 +455,7 @@ void tui_submit(tui *t, const char *text) {
             t->dirty = true;
             return;
         }
-        rc = t->bk->send(t->bk, s, imgs, ev_cb, t, err, sizeof err);
+        rc = tny_engine_start(t->engine, s, imgs, err, sizeof err);
     }
     if (rc != 0) {
         buf_clear(&t->note);
@@ -497,6 +469,7 @@ void tui_submit(tui *t, const char *text) {
     t->n_images = 0;
     t->turn_active = true;
     t->cancel_ms = 0;
+    drain_engine_events(t);
     t->dirty = true;
 }
 
@@ -568,7 +541,8 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         fds[0].events = POLLIN;
         fds[0].revents = 0;
         int nb = 0;
-        if (t.turn_active && t.bk && t.bk->pollfds) nb = t.bk->pollfds(t.bk, fds + 1, 8);
+        if (t.turn_active && t.engine)
+            nb = tny_engine_pollfds(t.engine, fds + 1, 8);
         int pr = tny_poll(fds, (nfds_t)(1 + nb), t.turn_active ? 40 : 400);
         if (pr < 0 && errno != EINTR) break;
 
@@ -586,34 +560,35 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         if (pr > 0 && (fds[0].revents & (POLLIN | POLLHUP | POLLERR))) {
             if (tui_read_input(&t) < 0) t.quit = true;
         }
-        if (t.turn_active && t.bk && t.bk->dispatch) {
-            if (t.bk->dispatch(t.bk, fds + 1, nb) != 0 && t.turn_active) {
-                t.turn_active = false;
-                t.turn_done = true;
-                t.stop = TNY_STOP_ERROR;
-            }
+        if (t.turn_active && t.engine) {
+            tny_engine_dispatch(t.engine, fds + 1, nb);
+            drain_engine_events(&t);
         }
         if (t.want_cancel) { t.want_cancel = false; tui_cancel_turn(&t); }
         if (t.turn_done) { t.turn_done = false; after_turn(&t); }
         /* a host that never confirms the cancel must not wedge the shell */
         if (t.turn_active && t.cancel_ms && now_ms() - t.cancel_ms > 5000) {
+            tui_drop_backend(&t);
             t.turn_active = false;
             t.stop = TNY_STOP_INTERRUPTED;
             after_turn(&t);
         }
     }
 
-    if (t.turn_active && t.bk) t.bk->cancel(t.bk);
+    if (t.turn_active && t.engine) {
+        tny_engine_cancel(t.engine);
+        drain_engine_events(&t);
+    }
     tui_raw_begin(&t);
     fflush(stdout);
     term_restore();
 
+    tui_prewarm_drop(&t);
+    tui_drop_backend(&t);
     if (t.session) {
         session_save(t.session);
         session_close(t.session);
     }
-    tui_prewarm_drop(&t);
-    tui_drop_backend(&t);
     mcp_shutdown_all();
     perm_free(t.perm);
     tui_items_clear(&t);

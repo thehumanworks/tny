@@ -5,6 +5,7 @@
  * Unary calls are short and loopback-only, so they block with a deadline;
  * the Send stream is fully non-blocking and lives in the caller's poll loop. */
 #include "backends/cursor/cursor.h"
+#include "util/tny_poll.h"
 
 #include <poll.h>
 #include <stdio.h>
@@ -70,7 +71,7 @@ static int read_body(http_conn *c, buf_t *out, int64_t deadline,
                 return -1;
             }
             struct pollfd pf = {http_fd(c), POLLIN, 0};
-            poll(&pf, 1, left > 200 ? 200 : left);
+            tny_poll(&pf, 1, left > 200 ? 200 : left);
             continue;
         }
         if (out->len + (size_t)n > CURSOR_MAX_MSG_BYTES) {

@@ -4,10 +4,10 @@
 #include "core/backend.h"
 #include "core/session.h"
 #include "core/perm.h"
+#include "core/runtime.h"
 #include "backends/openai/openai.h"
 #include "mcp/mcp.h"
 #include "util/util.h"
-#include "util/tny_poll.h"
 
 #include <pthread.h>
 #include <stdio.h>
@@ -51,11 +51,11 @@ typedef struct {
     tny_stop_reason stop;
     buf_t errline;
     buf_t host_tools; /* TOOL_END log for host backends (JSON array items) */
-    tny_backend *bk;
+    tny_engine *engine;
     tny_perm_mode perm_mode;
 } ask_state;
 
-static void ask_event_cb(const tny_event *ev, void *ud) {
+static void ask_event_cb(const tny_backend_event *ev, void *ud) {
     ask_state *st = ud;
     switch (ev->kind) {
     case TNY_EV_TEXT_DELTA:
@@ -73,7 +73,7 @@ static void ask_event_cb(const tny_event *ev, void *ud) {
         break;
     case TNY_EV_TOOL_END:
         fprintf(stderr, "  %s %s\n", ev->tool_ok ? "✓" : "✗", ev->tool_name);
-        if (st->bk->id != TNY_BK_OPENAI && ev->tool_name) {
+        if (tny_engine_backend_id(st->engine) != TNY_BK_OPENAI && ev->tool_name) {
             if (st->host_tools.len) buf_appends(&st->host_tools, ",");
             buf_appends(&st->host_tools, "{\"name\":");
             jescape(&st->host_tools, ev->tool_name);
@@ -86,11 +86,13 @@ static void ask_event_cb(const tny_event *ev, void *ud) {
         if (st->perm_mode == TNY_MODE_YOLO) {
             fprintf(stderr, "auto-approving (yolo): %s\n",
                     ev->perm_summary ? ev->perm_summary : "");
-            st->bk->respond_permission(st->bk, ev->perm_id, TNY_PERM_DECISION_ALLOW);
+            tny_engine_respond_permission(st->engine, ev->perm_id,
+                                          TNY_PERM_DECISION_ALLOW);
         } else {
             fprintf(stderr, "denying (ask mode cannot approve): %s\n",
                     ev->perm_summary ? ev->perm_summary : "");
-            st->bk->respond_permission(st->bk, ev->perm_id, TNY_PERM_DECISION_DENY);
+            tny_engine_respond_permission(st->engine, ev->perm_id,
+                                          TNY_PERM_DECISION_DENY);
         }
         break;
     case TNY_EV_STATUS:
@@ -248,7 +250,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     }
 
     /* session */
-    tny_session *session = NULL;
+    tny_session_state *session = NULL;
     if (resume) {
         session = session_open(ctx, resume);
         if (!session) {
@@ -290,15 +292,19 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         return 1;
     }
     perm_engine *perm = perm_new(ctx);
-    if (bk->id == TNY_BK_OPENAI)
-        tny_backend_openai_bind(bk, session, perm, NULL, NULL);
-    const char *hp = session_host_pointer(session);
-    /* a host pointer only means something to the provider that minted it */
-    const char *owner = session_backend(session);
-    if (hp && owner && strcmp(owner, tny_provider_name(ctx)) != 0) hp = NULL;
-    if (bk->create_or_resume && bk->create_or_resume(bk, hp, err, sizeof err) != 0) {
+    tny_engine *engine = tny_engine_new(ctx, session, perm, NULL, NULL);
+    if (!perm || !engine) {
+        fprintf(stderr, "tny: out of memory\n");
+        if (engine) tny_engine_free(engine); else bk->destroy(bk);
+        perm_free(perm);
+        session_close(session);
+        buf_free(&prompt);
+        return 1;
+    }
+    if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_CONNECTED,
+                           err, sizeof err) != 0) {
         fprintf(stderr, "tny: %s\n", err);
-        bk->destroy(bk);
+        tny_engine_free(engine);
         perm_free(perm);
         session_close(session);
         buf_free(&prompt);
@@ -309,16 +315,16 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     buf_init(&st.output);
     buf_init(&st.errline);
     st.json = json;
-    st.bk = bk;
+    st.engine = engine;
     st.perm_mode = ctx->perm_mode;
 
     signal(SIGINT, on_sigint);
     signal(SIGPIPE, SIG_IGN);
 
-    if (bk->send(bk, prompt.data, n_images ? images : NULL, ask_event_cb, &st,
-                 err, sizeof err) != 0) {
+    if (tny_engine_start(engine, prompt.data, n_images ? images : NULL,
+                         err, sizeof err) != 0) {
         fprintf(stderr, "tny: %s\n", err);
-        bk->destroy(bk);
+        tny_engine_free(engine);
         perm_free(perm);
         session_close(session);
         buf_free(&prompt);
@@ -330,28 +336,23 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     while (!st.turn_ended) {
         if (g_interrupted) {
             g_interrupted = 0;
-            bk->cancel(bk);
+            tny_engine_cancel(engine);
             continue;
         }
-        struct pollfd fds[8];
-        int n = bk->pollfds ? bk->pollfds(bk, fds, 8) : 0;
-        if (n > 0) tny_poll(fds, (nfds_t)n, 200);
-        if (bk->dispatch && bk->dispatch(bk, fds, n) != 0 && !st.turn_ended) {
+        tny_owned_event *owned = NULL;
+        tny_engine_next next = tny_engine_next_event(engine, 200, &owned,
+                                                     err, sizeof err);
+        if (next == TNY_ENGINE_NEXT_EVENT) {
+            ask_event_cb(&owned->ev, &st);
+            tny_owned_event_free(owned);
+        } else if (next == TNY_ENGINE_NEXT_TIMEOUT) {
+            continue;
+        } else if (next == TNY_ENGINE_NEXT_DRAINED) {
+            break;
+        } else if (!st.turn_ended) {
+            fprintf(stderr, "tny: %s\n", err);
             st.turn_ended = true;
             st.stop = TNY_STOP_ERROR;
-        }
-    }
-
-    /* Capture host pointers for the in-process session; session_save is a
-     * no-op in ephemeral mode. */
-    if (bk->session_pointer) {
-        char *ptr = bk->session_pointer(bk);
-        if (ptr) {
-            session_set_host_pointer(session, ptr);
-            session_set_meta(session, tny_provider_name(ctx), ctx->model);
-            if (!session_title(session)) session_set_title(session, prompt.data);
-            session_save(session);
-            free(ptr);
         }
     }
 
@@ -375,10 +376,10 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_appends(&out, ",\"session_id\":");
         jescape(&out, ctx->no_save ? "" : session->id);
         buf_appendf(&out, ",\"ephemeral\":%s", ctx->no_save ? "true" : "false");
-        int steps = bk->id == TNY_BK_OPENAI ? tny_backend_openai_steps(bk) : 1;
+        int steps = tny_engine_openai_steps(engine);
         buf_appendf(&out, ",\"steps\":%d,\"tool_calls\":", steps);
-        if (bk->id == TNY_BK_OPENAI) {
-            buf_appends(&out, tny_backend_openai_toolcalls_json(bk));
+        if (tny_engine_backend_id(engine) == TNY_BK_OPENAI) {
+            buf_appends(&out, tny_engine_openai_toolcalls_json(engine));
         } else {
             buf_appends(&out, "[");
             if (st.host_tools.len) buf_append(&out, st.host_tools.data, st.host_tools.len);
@@ -396,8 +397,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     }
 
     mcp_shutdown_all();
-    bk->disconnect(bk);
-    bk->destroy(bk);
+    tny_engine_free(engine);
     perm_free(perm);
     session_close(session);
     buf_free(&prompt);

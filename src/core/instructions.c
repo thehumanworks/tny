@@ -23,6 +23,13 @@ static void append_dir_instructions(const char *dir, buf_t *out) {
 void instructions_collect(tny_ctx *ctx, buf_t *out) {
     if (!ctx->context_enabled) return;
 
+    /* Embedders authorize exactly the supplied workspace. Never import
+     * HOME-level or ancestor instructions from the host application. */
+    if (ctx->library_mode) {
+        append_dir_instructions(ctx->cwd, out);
+        return;
+    }
+
     char *home = path_home();
     size_t home_len = strlen(home);
     char *tny_home = path_join(home, ".tny");

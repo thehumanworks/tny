@@ -22,12 +22,12 @@
 
 /* ---------- events ---------- */
 
-void cu_emit(cu_impl *o, const tny_event *ev) {
+void cu_emit(cu_impl *o, const tny_backend_event *ev) {
     if (o->cb) o->cb(ev, o->ud);
 }
 
 void cu_emit_text(cu_impl *o, tny_event_kind k, const char *t, size_t n) {
-    tny_event ev = {0};
+    tny_backend_event ev = {0};
     ev.kind = k;
     ev.text = t;
     ev.text_len = n;
@@ -40,13 +40,13 @@ void cu_end_turn(cu_impl *o, tny_stop_reason stop) {
     o->active = false;
     if (!o->usage_sent && (o->in_tok || o->out_tok)) {
         o->usage_sent = true;
-        tny_event u = {0};
+        tny_backend_event u = {0};
         u.kind = TNY_EV_USAGE;
         u.in_tokens = o->in_tok;
         u.out_tokens = o->out_tok;
         cu_emit(o, &u);
     }
-    tny_event ev = {0};
+    tny_backend_event ev = {0};
     ev.kind = TNY_EV_TURN_END;
     ev.stop = stop;
     cu_emit(o, &ev);
@@ -463,7 +463,7 @@ static char *cu_session_pointer(tny_backend *b) {
 }
 
 static int cu_send(tny_backend *b, const char *prompt, const char **images,
-                   tny_event_cb cb, void *ud, char *errbuf, size_t errlen) {
+                   tny_backend_event_cb cb, void *ud, char *errbuf, size_t errlen) {
     cu_impl *o = b->impl;
     /* report the model that actually ran (`ask --json`, session meta) —
      * ctx is written here on the caller's thread, never from
@@ -542,7 +542,11 @@ static void cu_cancel(tny_backend *b) {
         buf_appends(&body, "}");
         char err[256];
         char *res = rpc(o, CURSOR_SVC_AGENT, "CancelRun", body.data, err, sizeof err);
-        if (!res) fprintf(stderr, "tny: cursor: CancelRun failed: %s\n", err);
+        if (!res) {
+            cu_emit_text(o, TNY_EV_STATUS, err, strlen(err));
+            if (!o->ctx->library_mode && tny_debug())
+                fprintf(stderr, "tny: cursor: CancelRun failed: %s\n", err);
+        }
         free(res);
         buf_free(&body);
     }
@@ -673,7 +677,11 @@ static int cu_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
 static void cu_destroy(tny_backend *b) {
     cu_impl *o = b->impl;
     cu_disconnect(b);
-    free(o->api_key);
+    secure_free(o->api_key);
+    secure_zero(o->bridge.token, sizeof o->bridge.token);
+    secure_zero(o->bridge.info.auth_token, sizeof o->bridge.info.auth_token);
+    secure_zero(o->rpc.token, sizeof o->rpc.token);
+    secure_zero(o->stream.token, sizeof o->stream.token);
     free(o->model);
     free(o->agent_id);
     free(o->run_id);
@@ -691,9 +699,12 @@ tny_backend *tny_backend_cursor_new(struct tny_ctx *ctx) {
     cursor_bridge_init(&o->bridge);
     cursor_stream_init(&o->stream, "", "");
     buf_init(&o->last_status);
-    /* Deliberately only CURSOR_API_KEY: ctx->api_key is the OpenAI-compatible
-     * provider secret and must never be handed to a different service. */
-    const char *key = getenv("CURSOR_API_KEY");
+    /* CLI contexts keep the Cursor key in CURSOR_API_KEY so an OpenAI key in
+     * ctx can never cross providers. Deterministic libtny contexts explicitly
+     * name provider_name=cursor and may carry their copied key in ctx. */
+    const char *key = ctx->provider_name &&
+                      strcmp(ctx->provider_name, "cursor") == 0
+        ? ctx->api_key : getenv("CURSOR_API_KEY");
     if (key && *key) o->api_key = xstrdup(key);
 
     b->id = TNY_BK_CURSOR;

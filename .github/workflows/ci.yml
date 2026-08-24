@@ -80,10 +80,22 @@ jobs:
           file ./dist/tny-${{ matrix.triple }} || true
           uname -s -m
 
+      - name: Stage libtny ABI-0 developer artifact
+        run: |
+          set -eu
+          make lib-shared
+          make install-lib DESTDIR="$PWD/dist/libtny-root" PREFIX=/usr/local
+
       - uses: actions/upload-artifact@v7
         with:
           name: tny-${{ matrix.triple }}
           path: dist/tny-${{ matrix.triple }}
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: libtny-${{ matrix.triple }}
+          path: dist/libtny-root
           if-no-files-found: error
 
   musl:

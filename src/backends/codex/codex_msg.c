@@ -137,7 +137,7 @@ static void cx_notification(cx_impl *o, const char *method, yyjson_val *params) 
             return;
         }
         char *detail = cx_item_detail(type, item);
-        tny_event ev = {0};
+        tny_backend_event ev = {0};
         ev.kind = done ? TNY_EV_TOOL_END : TNY_EV_TOOL_START;
         ev.tool_name = type;
         ev.tool_id = id;
@@ -218,7 +218,7 @@ static void cx_server_request(cx_impl *o, const char *method, yyjson_val *idv,
         buf_init(&sum);
         approval_summary(&sum, method, params);
         approval_remember(o, id_json, method); /* takes id_json */
-        tny_event ev = {0};
+        tny_backend_event ev = {0};
         ev.kind = TNY_EV_PERMISSION;
         ev.perm_id = id_json;
         ev.perm_summary = sum.data ? sum.data : method;
@@ -272,7 +272,7 @@ static void cx_response(cx_impl *o, yyjson_doc *doc, yyjson_val *root, yyjson_va
                         (long long)code, msg ? msg : "no detail");
             cx_emit_capped(o, TNY_EV_STATUS, b.data);
             buf_free(&b);
-            tny_event ev = {0};
+            tny_backend_event ev = {0};
             ev.kind = TNY_EV_STEER_REJECTED;
             ev.text = p->steer_text ? p->steer_text : "";
             ev.text_len = strlen(ev.text);

@@ -17,7 +17,7 @@ typedef struct {
     int n;
 } rec_t;
 
-static void rec_cb(const tny_event *ev, void *ud) {
+static void rec_cb(const tny_backend_event *ev, void *ud) {
     rec_t *r = ud;
     if (r->n == REC_MAX) return;
     r->kind[r->n] = ev->kind;

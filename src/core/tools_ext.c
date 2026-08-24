@@ -203,7 +203,7 @@ static char *t_subagent(tools_env *env, yyjson_val *args) {
         const char *id = jget_str(args, "id");
         if (!id) result = tool_err("inspect needs id");
         else {
-            tny_session *child = session_open(env->ctx, id);
+            tny_session_state *child = session_open(env->ctx, id);
             if (!child) result = tool_err("no session %s", id);
             else {
                 buf_t r;
@@ -266,6 +266,11 @@ static char *t_ask_user(tools_env *env, yyjson_val *args) {
 
 char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled) {
     *handled = true;
+    if (env->ctx->library_mode &&
+        (strcmp(name, "subagent") == 0 || strcmp(name, "skill") == 0 ||
+         strcmp(name, "install_skill") == 0 || strcmp(name, "memory") == 0 ||
+         strcmp(name, "ask_user_question") == 0))
+        return tool_err("%s is disabled for embedded runtimes", name);
     if (strcmp(name, "memory") == 0) return t_memory(env, args);
     if (strcmp(name, "read_tool_result") == 0) return t_read_tool_result(env, args);
     if (strcmp(name, "skill") == 0) return t_skill(env, args);
@@ -273,6 +278,8 @@ char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool 
     if (strcmp(name, "subagent") == 0) return t_subagent(env, args);
     if (strcmp(name, "ask_user_question") == 0) return t_ask_user(env, args);
     if (strcmp(name, "read_image") == 0) return t_read_image(env, args);
+    if (str_starts(name, "mcp_") && env->ctx->mcp_disabled)
+        return tool_err("MCP is disabled for this runtime");
     if (strcmp(name, "mcp_features") == 0) return mcp_features(env);
     if (strcmp(name, "mcp_search_tools") == 0)
         return mcp_search_tools(env, jget_str(args, "query"));

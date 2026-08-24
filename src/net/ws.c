@@ -1,6 +1,7 @@
 /* ws.c — WebSocket client: tny owns TCP/TLS + the HTTP handshake, wslay owns
  * framing (docs/language-and-runtime.md). Text frames only for JSON-RPC. */
 #include "net/net.h"
+#include "util/tny_poll.h"
 #include "picohttpparser.h"
 #include <wslay/wslay.h>
 
@@ -141,7 +142,7 @@ ws_conn *ws_connect(const char *url, const char *bearer, int timeout_ms,
         if (n == -2) {
             if (now_ms() > deadline) break;
             struct pollfd pf = {nstream_fd(s), POLLIN, 0};
-            poll(&pf, 1, 200);
+            tny_poll(&pf, 1, 200);
             continue;
         }
         if (n <= 0) break;

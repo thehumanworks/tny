@@ -33,7 +33,7 @@ void cx_emit_capped(cx_impl *o, tny_event_kind k, const char *t) {
     if (!t || !*t) return;
     size_t n = strlen(t);
     if (n > CX_MAX_TEXT) n = CX_MAX_TEXT;
-    tny_event ev = {0};
+    tny_backend_event ev = {0};
     ev.kind = k;
     ev.text = t;
     ev.text_len = n;
@@ -219,7 +219,7 @@ bool cx_emit_usage(cx_impl *o, yyjson_val *params) {
     if (!u) u = params;
     int64_t in = cx_first_int(u, in_keys), out = cx_first_int(u, out_keys);
     if (in <= 0 && out <= 0) return false;
-    tny_event ev = {0};
+    tny_backend_event ev = {0};
     ev.kind = TNY_EV_USAGE;
     ev.in_tokens = in;
     ev.out_tokens = out;

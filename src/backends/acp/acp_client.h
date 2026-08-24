@@ -36,7 +36,7 @@ typedef struct {
     bool    turn_active;
     bool    cancelled;
     int64_t prompt_id;
-    tny_event_cb cb;
+    tny_backend_event_cb cb;
     void   *ud;
     ac_perm perms[ACP_MAX_PERMS];
     int     nperms;
@@ -47,7 +47,7 @@ typedef struct {
 } ac_impl;
 
 /* acp_events.c — normalization of everything the agent sends. */
-void ac_emit(ac_impl *o, const tny_event *ev);
+void ac_emit(ac_impl *o, const tny_backend_event *ev);
 void ac_emit_text(ac_impl *o, tny_event_kind k, const char *t, size_t n);
 void ac_emit_end(ac_impl *o, tny_stop_reason stop);
 

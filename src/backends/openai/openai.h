@@ -8,7 +8,7 @@
 #include "core/perm.h"
 #include "json/json.h"
 
-void tny_backend_openai_bind(tny_backend *b, tny_session *session,
+void tny_backend_openai_bind(tny_backend *b, tny_session_state *session,
                              perm_engine *perm,
                              tny_perm_decision (*prompt)(const char *tool,
                                                          const char *summary,

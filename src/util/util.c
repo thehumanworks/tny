@@ -101,6 +101,17 @@ char *str_trim(char *s) {
     return s;
 }
 
+void secure_zero(void *data, size_t n) {
+    volatile unsigned char *p = data;
+    while (n--) *p++ = 0;
+}
+
+void secure_free(char *s) {
+    if (!s) return;
+    secure_zero(s, strlen(s));
+    free(s);
+}
+
 bool glob_match(const char *p, const char *s) {
     /* iterative backtracking match: '*' any run, '?' one char */
     const char *star = NULL, *ss = NULL;
@@ -324,6 +335,12 @@ int64_t now_ms(void) {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
+int64_t monotonic_ms(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return now_ms();
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
 bool tny_debug(void) {

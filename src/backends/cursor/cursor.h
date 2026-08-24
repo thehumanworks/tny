@@ -59,6 +59,7 @@ typedef struct {
     int   err_fd;       /* bridge stdout+stderr read end, non-blocking */
     buf_t acc;          /* partial line */
     bool  ready;
+    bool  quiet;        /* embedding host owns diagnostics */
     cursor_ready info;
     char  token[512];
 } cursor_bridge;

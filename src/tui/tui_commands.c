@@ -349,7 +349,7 @@ static void cmd_skills(tui *t) {
 }
 
 static void cmd_resume_id(tui *t, const char *id) {
-    tny_session *s = session_open(t->ctx, id);
+    tny_session_state *s = session_open(t->ctx, id);
     if (!s) {
         tui_err(t, "no such session for this workspace (try /sessions)");
         return;
@@ -556,7 +556,7 @@ void tui_command(tui *t, const char *line) {
              * settings.json default (docs/adr/0015) */
             t->ctx->effort_explicit = true;
             t->ctx->effort_from_settings = false;
-            if (!t->bk) tui_prewarm_start(t);
+            if (!t->engine) tui_prewarm_start(t);
             if (!t->ctx->reasoning_effort)
                 tui_linef(t, "  reasoning effort: provider default");
             else
@@ -575,7 +575,7 @@ void tui_command(tui *t, const char *line) {
         if (ac) tui_prewarm_drop(t); /* add/remove edit dirs the warm-up reads */
         run_cli(t, cmd_workspace, ac, av);
         tui_files_free(t);
-        if (ac && !t->bk) tui_prewarm_start(t);
+        if (ac && !t->engine) tui_prewarm_start(t);
     } else if (strcmp(c, "setup") == 0) {
         char *av[8];
         int ac = arg ? tokenize(arg, av, 8) : 0;

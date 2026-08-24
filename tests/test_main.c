@@ -6,6 +6,7 @@ GREATEST_MAIN_DEFS();
 SUITE_EXTERN(util_suite);
 SUITE_EXTERN(net_suite);
 SUITE_EXTERN(core_suite);
+SUITE_EXTERN(runtime_suite);
 SUITE_EXTERN(tui_suite);
 SUITE_EXTERN(codex_suite);
 SUITE_EXTERN(acp_suite);
@@ -18,6 +19,7 @@ int main(int argc, char **argv) {
     RUN_SUITE(util_suite);
     RUN_SUITE(net_suite);
     RUN_SUITE(core_suite);
+    RUN_SUITE(runtime_suite);
     RUN_SUITE(tui_suite);
     RUN_SUITE(codex_suite);
     RUN_SUITE(acp_suite);
