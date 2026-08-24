@@ -89,9 +89,68 @@ Local agents: `options.local.cwd = [workspace]`, **explicit** `options.model`. C
 
 `RunStreamMessage` oneof: `sdk_message`, `result`, `done`, optional `interaction_update` / `step`. Track last non-empty `offset` only from `ObserveRun` for resume. Dropped `Send` does **not** cancel the run — reconnect with `ObserveRun` (from start if you only have live offsets) or `WaitLiveRun`.
 
-`sdk_message.type` values to render: `system` (subtype `init` has `run_id`), `assistant`, `user`, `tool_call`, `thinking`, `status`, `task`, `usage`. Failure text often lives on `status.message`, not `result.error_code`.
+`sdk_message` is **an envelope**: a `type` string plus the @cursor/sdk stream
+event as a `google.protobuf.Struct` in `message` (`sdk_messages.proto`). All
+interesting fields — the tool-call union, status text, `run_id` — live inside
+that payload, not on the envelope; `src/backends/cursor/map.c` unwraps it once
+before mapping. `type` values to render: `system` (subtype `init` has
+`run_id`), `assistant`, `user`, `tool_call`, `thinking`, `status`, `task`,
+`usage`. Failure text often lives on the status payload's `message`, not
+`result.error_code`. The terminal `result` carries a `RunResult` whose
+`result` field is the final assistant text — used as fallback when no
+assistant event streamed.
 
 Enable deltas with `SendOptions.enable_deltas` when the TUI wants token streaming.
+
+## Tool call payloads
+
+The `tool_call` payload does **not** carry flat `name`/`args` fields. It nests
+a per-tool union keyed by a `*ToolCall` variant, matching the
+[cursor-agent stream-json format](https://cursor.com/docs/cli/reference/output-format):
+
+```json
+{"type":"tool_call","subtype":"started","call_id":"…",
+ "tool_call":{"readToolCall":{"args":{"path":"file.txt"}}}}
+
+{"type":"tool_call","subtype":"completed","call_id":"…",
+ "tool_call":{"readToolCall":{"args":{"path":"file.txt"},
+   "result":{"success":{"content":"…","totalLines":54}}}}}
+```
+
+Known variants include `readToolCall`, `writeToolCall`, `editToolCall`,
+`deleteToolCall`, `shellToolCall` / `bashToolCall`, `grepToolCall`,
+`lsToolCall`, `globToolCall`, `todoToolCall`, `mcpToolCall`. tny maps them by
+stripping the `ToolCall` suffix (`read`, `shell`, …), prefers the variant's
+inner `name` when present (MCP tools), and clips `args` / the unwrapped
+`result.success` or `result.error` into `tool_detail`. Unknown future variants
+still render under their derived key name — an opaque `tool` line is a mapping
+bug, and `tests/test_cursor.c` plus the mock-bridge integration test guard it.
+`result.error` (or a `failed`/`error` subtype) marks the call failed.
+
+## Remote use, ssh, and known incompatibilities
+
+The bridge is a **headless local process on loopback TCP**: tny running in a
+plain terminal on a remote box you ssh'd into works fine — it needs the
+`cursor-sdk-bridge` binary and `CURSOR_API_KEY` on *that* machine, and no
+Cursor IDE or GUI anywhere. Cursor exposes no API to drive a locally running
+Cursor IDE; the bridge (which embeds `@cursor/sdk`) is the only supported
+local programmatic surface, so tny uses it and inherits its limits.
+
+Because the bridge owns the whole tool loop, some tny features cannot cross
+into it. tny calls each one out at use time rather than failing silently:
+
+- **`tny --ssh` (remote tool runtime, [ADR 0022](../adr/0022-ssh-execution-boundary.md))**
+  is native-loop only: `--provider cursor --ssh …` is refused at startup with
+  a pointer to an openai-compatible provider. The bridge's tools always run on
+  the machine where the bridge runs.
+- **Per-call approvals**: headless, no Allow/Deny RPC. `--perm ask|auto`
+  emits one status line pointing at `--backend acp` ([ADR 0001](../adr/0001-run-all-agents-in-yolo-mode.md)).
+- **Image input**: not wired yet; `--image` is refused with a pointer to
+  `--provider openai`.
+- **wasm**: clean error — the browser build cannot spawn the bridge
+  ([backends/README.md](README.md)).
+- **tny-side tools/MCP/skills**: the native loop's tool surface does not
+  apply; the agent uses Cursor's own tools, sandbox, hooks and MCP config.
 
 ## Shutdown
 

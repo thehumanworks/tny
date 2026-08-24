@@ -248,24 +248,43 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
 
+        # SdkMessage is a `type` discriminator plus the @cursor/sdk event as a
+        # Struct payload in `message` (sdk_messages.proto). Tool calls nest a
+        # per-tool union: tool_call.<variant>ToolCall = {args, result} with
+        # result.success / result.error wrappers — the shapes tny must unwrap
+        # to render named tool lines instead of opaque ones.
         run = "run-mock-1"
+
+        def sdk(kind, payload):
+            return frame({"sdkMessage": {"type": kind,
+                                         "message": {"type": kind, **payload}}})
+
         out = [
-            frame({"sdkMessage": {"type": "system", "subtype": "init", "runId": run}}),
+            sdk("system", {"subtype": "init", "run_id": run,
+                           "session_id": "sess-mock-1"}),
             envelope(0, b""),  # keepalive: tny must ignore it
-            frame({"sdkMessage": {"type": "assistant", "message": {
-                "content": [{"type": "text", "text": ANSWER[:7]}]}}}),
-            frame({"sdkMessage": {"type": "thinking", "text": "considering"}}),
-            frame({"sdkMessage": {"type": "tool_call", "subtype": "started",
-                                  "toolCallId": "tc1", "name": "read_file",
-                                  "args": {"path": "README.md"}}}),
-            frame({"sdkMessage": {"type": "tool_call", "subtype": "completed",
-                                  "toolCallId": "tc1", "name": "read_file",
-                                  "result": "42 lines"}}),
-            frame({"sdkMessage": {"type": "assistant", "delta": {"text": ANSWER[7:]}}}),
-            frame({"sdkMessage": {"type": "status", "message": "wrapping up"}}),
-            frame({"sdkMessage": {"type": "usage", "inputTokens": 111,
-                                  "outputTokens": 22}}),
-            frame({"result": {"subtype": "success", "runId": run}}),
+            sdk("assistant", {"message": {"role": "assistant", "content": [
+                {"type": "text", "text": ANSWER[:7]}]}}),
+            sdk("thinking", {"text": "considering"}),
+            sdk("tool_call", {"subtype": "started", "call_id": "tc1",
+                              "session_id": "sess-mock-1",
+                              "tool_call": {"readToolCall": {
+                                  "args": {"path": "README.md"}}}}),
+            sdk("tool_call", {"subtype": "completed", "call_id": "tc1",
+                              "session_id": "sess-mock-1",
+                              "tool_call": {"readToolCall": {
+                                  "args": {"path": "README.md"},
+                                  "result": {"success": {
+                                      "content": "hello", "totalLines": 1,
+                                      "totalChars": 6}}}}}),
+            sdk("assistant", {"message": {"role": "assistant", "content": [
+                {"type": "text", "text": ANSWER[7:]}]}}),
+            sdk("status", {"status": "running", "message": "wrapping up"}),
+            sdk("usage", {"inputTokens": 111, "outputTokens": 22}),
+            frame({"result": {"agentId": req.get("agentId"), "runId": run,
+                              "status": "RUN_LIFECYCLE_STATUS_FINISHED",
+                              "result": {"runId": run, "result": ANSWER,
+                                         "durationMs": 5}}}),
             envelope(2, b"{}"),
         ]
         for i, part in enumerate(out):
