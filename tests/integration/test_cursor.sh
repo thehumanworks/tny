@@ -92,6 +92,8 @@ fi
 # opaque "tool" line (the payload nests a tool_call.<variant>ToolCall union)
 grep -q "⏺ read .*README.md" "$TMP/1.err" ||
     fail "the tool start line did not show the tool name and args"
+[ "$(grep -c "⏺ read" "$TMP/1.err")" = "1" ] ||
+    fail "a re-emitted running frame rendered a duplicate tool start line"
 grep -q "✓ read" "$TMP/1.err" || fail "the tool end line did not show the tool name"
 if grep -q "⏺ tool" "$TMP/1.err"; then
     fail "a tool call rendered as an opaque 'tool' line"

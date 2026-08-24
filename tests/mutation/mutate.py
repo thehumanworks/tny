@@ -100,7 +100,8 @@ TARGETS = [
     # cursor SdkMessage envelope + tool_call union mapping (the opaque-tool
     # fix): the rewritten tool mapper whole, only the unwrap/result lines
     # inside the pre-existing handlers.
-    ("src/backends/cursor/map.c", ["variant_tool_name", "emit_tool"], None,
+    ("src/backends/cursor/map.c",
+     ["variant_tool_name", "tok_count", "emit_tool"], None,
      "tests/integration/test_cursor.sh"),
     ("src/backends/cursor/map.c", ["handle_sdk", "handle_result"],
      r"inner|itype|\brr\b|\bst\b|EXPIRED|ERROR",

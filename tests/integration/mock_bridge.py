@@ -249,42 +249,52 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
         # SdkMessage is a `type` discriminator plus the @cursor/sdk event as a
-        # Struct payload in `message` (sdk_messages.proto). Tool calls nest a
-        # per-tool union: tool_call.<variant>ToolCall = {args, result} with
-        # result.success / result.error wrappers — the shapes tny must unwrap
-        # to render named tool lines instead of opaque ones.
+        # Struct payload in `message` (sdk_messages.proto). The payload shapes
+        # below were captured live from cursor-sdk-bridge v1.0.28: tool calls
+        # carry flat name/status/args, results are wrapped as
+        # {"status":"success"|"error","value":{…}}, `running` frames re-emit
+        # while a tool executes, and RunResult renders int64 token counts as
+        # protojson strings.
         run = "run-mock-1"
+        agent_id = req.get("agentId")
 
         def sdk(kind, payload):
-            return frame({"sdkMessage": {"type": kind,
-                                         "message": {"type": kind, **payload}}})
+            return frame({"sdkMessage": {"type": kind, "message": {
+                "type": kind, "agent_id": agent_id, "run_id": run, **payload}}})
 
+        read_running = sdk("tool_call", {"call_id": "tc1", "name": "read",
+                                         "status": "running",
+                                         "args": {"path": "README.md"}})
         out = [
-            sdk("system", {"subtype": "init", "run_id": run,
-                           "session_id": "sess-mock-1"}),
+            sdk("status", {"status": "RUNNING"}),
             envelope(0, b""),  # keepalive: tny must ignore it
             sdk("assistant", {"message": {"role": "assistant", "content": [
                 {"type": "text", "text": ANSWER[:7]}]}}),
             sdk("thinking", {"text": "considering"}),
-            sdk("tool_call", {"subtype": "started", "call_id": "tc1",
-                              "session_id": "sess-mock-1",
-                              "tool_call": {"readToolCall": {
-                                  "args": {"path": "README.md"}}}}),
-            sdk("tool_call", {"subtype": "completed", "call_id": "tc1",
-                              "session_id": "sess-mock-1",
-                              "tool_call": {"readToolCall": {
-                                  "args": {"path": "README.md"},
-                                  "result": {"success": {
-                                      "content": "hello", "totalLines": 1,
-                                      "totalChars": 6}}}}}),
+            read_running,
+            read_running,  # re-emitted while the tool runs: render once
+            sdk("tool_call", {"call_id": "tc1", "name": "read",
+                              "status": "completed",
+                              "args": {"path": "README.md"},
+                              "result": {"status": "success", "value": {
+                                  "content": "hello\n", "totalLines": 2,
+                                  "fileSize": 6}}}),
             sdk("assistant", {"message": {"role": "assistant", "content": [
                 {"type": "text", "text": ANSWER[7:]}]}}),
-            sdk("status", {"status": "running", "message": "wrapping up"}),
-            sdk("usage", {"inputTokens": 111, "outputTokens": 22}),
-            frame({"result": {"agentId": req.get("agentId"), "runId": run,
+            sdk("status", {"status": "RUNNING", "message": "wrapping up"}),
+            sdk("usage", {"usage": {"inputTokens": 111, "outputTokens": 22,
+                                    "totalTokens": 133}}),
+            sdk("status", {"status": "FINISHED"}),
+            frame({"result": {"agentId": agent_id, "runId": run,
                               "status": "RUN_LIFECYCLE_STATUS_FINISHED",
-                              "result": {"runId": run, "result": ANSWER,
-                                         "durationMs": 5}}}),
+                              "result": {"runId": run, "agentId": agent_id,
+                                         "status": "RUN_LIFECYCLE_STATUS_FINISHED",
+                                         "result": ANSWER,
+                                         "model": {"id": MODEL},
+                                         "durationMs": "5",
+                                         "usage": {"inputTokens": "111",
+                                                   "outputTokens": "22"}}}}),
+            frame({"done": {"agentId": agent_id, "runId": run}}),
             envelope(2, b"{}"),
         ]
         for i, part in enumerate(out):

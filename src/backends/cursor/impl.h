@@ -33,6 +33,7 @@ typedef struct {
     bool         saw_error;
     bool         usage_sent;
     buf_t        last_status; /* failure text often lives on status.message */
+    buf_t        last_tool_start; /* id+name+detail: drop re-emitted `running` frames */
     int64_t      in_tok, out_tok;
 } cu_impl;
 

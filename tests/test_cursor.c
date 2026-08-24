@@ -56,6 +56,7 @@ static void rec_free(rec_t *r) {
 static void impl_init(cu_impl *o, rec_t *r) {
     memset(o, 0, sizeof *o);
     buf_init(&o->last_status);
+    buf_init(&o->last_tool_start);
     o->cb = rec_cb;
     o->ud = r;
 }
@@ -63,6 +64,7 @@ static void impl_init(cu_impl *o, rec_t *r) {
 static void impl_free(cu_impl *o) {
     free(o->run_id);
     buf_free(&o->last_status);
+    buf_free(&o->last_tool_start);
 }
 
 static void feed(cu_impl *o, const char *json) {
@@ -266,6 +268,130 @@ TEST tool_call_args_win_over_raw_args(void) {
     PASS();
 }
 
+/* The shapes below were captured live from cursor-sdk-bridge v1.0.28
+ * (sdk 1.0.28): flat name/status/args in the payload, results wrapped as
+ * {"status":"success"|"error","value":{…}}, and `running` frames re-emitted
+ * for one call while it executes. */
+
+TEST tool_call_live_bridge_shape_maps_and_unwraps_value(void) {
+    cu_impl o;
+    rec_t r;
+    memset(&r, 0, sizeof r);
+    impl_init(&o, &r);
+
+    feed(&o, "{\"sdkMessage\":{\"type\":\"tool_call\",\"message\":{"
+             "\"type\":\"tool_call\",\"agent_id\":\"a1\",\"run_id\":\"run-9\","
+             "\"call_id\":\"call-1\",\"name\":\"read\",\"status\":\"running\","
+             "\"args\":{\"path\":\"note.txt\"}}},\"offset\":\"18\"}");
+    feed(&o, "{\"sdkMessage\":{\"type\":\"tool_call\",\"message\":{"
+             "\"type\":\"tool_call\",\"call_id\":\"call-1\",\"name\":\"read\","
+             "\"status\":\"completed\",\"args\":{\"path\":\"note.txt\"},"
+             "\"result\":{\"status\":\"success\",\"value\":{"
+             "\"content\":\"hello live\\n\",\"totalLines\":2}}}}}");
+
+    ASSERT_EQ(2, r.n);
+    ASSERT_EQ(TNY_EV_TOOL_START, r.kind[0]);
+    ASSERT_STR_EQ("read", r.name[0]);
+    ASSERT(r.detail[0] && strstr(r.detail[0], "note.txt"));
+    ASSERT_EQ(TNY_EV_TOOL_END, r.kind[1]);
+    ASSERT(r.ok[1]);
+    /* detail is the unwrapped value, not the {"status","value"} wrapper */
+    ASSERT(r.detail[1] && strstr(r.detail[1], "hello live"));
+    ASSERT(!strstr(r.detail[1], "success"));
+    ASSERT(o.run_id);
+    ASSERT_STR_EQ("run-9", o.run_id);
+
+    rec_free(&r);
+    impl_free(&o);
+    PASS();
+}
+
+TEST tool_call_live_error_wrapper_flags_not_ok(void) {
+    cu_impl o;
+    rec_t r;
+    memset(&r, 0, sizeof r);
+    impl_init(&o, &r);
+
+    feed(&o, "{\"sdkMessage\":{\"type\":\"tool_call\",\"message\":{"
+             "\"type\":\"tool_call\",\"call_id\":\"call-2\",\"name\":\"shell\","
+             "\"status\":\"completed\",\"result\":{\"status\":\"error\","
+             "\"value\":{\"stderr\":\"boom\"}}}}}");
+
+    ASSERT_EQ(1, r.n);
+    ASSERT_EQ(TNY_EV_TOOL_END, r.kind[0]);
+    ASSERT_FALSE(r.ok[0]);
+    ASSERT(r.detail[0] && strstr(r.detail[0], "boom"));
+
+    rec_free(&r);
+    impl_free(&o);
+    PASS();
+}
+
+TEST tool_call_repeated_running_frames_are_deduped(void) {
+    cu_impl o;
+    rec_t r;
+    memset(&r, 0, sizeof r);
+    impl_init(&o, &r);
+
+    const char *running =
+        "{\"sdkMessage\":{\"type\":\"tool_call\",\"message\":{"
+        "\"type\":\"tool_call\",\"call_id\":\"call-3\",\"name\":\"edit\","
+        "\"status\":\"running\",\"args\":{\"path\":\"out.txt\"}}}}";
+    feed(&o, running);
+    feed(&o, running); /* re-emitted while the tool executes: dropped */
+    /* changed args stream through */
+    feed(&o, "{\"sdkMessage\":{\"type\":\"tool_call\",\"message\":{"
+             "\"type\":\"tool_call\",\"call_id\":\"call-3\",\"name\":\"edit\","
+             "\"status\":\"running\",\"args\":{\"path\":\"out.txt\",\"n\":2}}}}");
+    feed(&o, "{\"sdkMessage\":{\"type\":\"tool_call\",\"message\":{"
+             "\"type\":\"tool_call\",\"call_id\":\"call-3\",\"name\":\"edit\","
+             "\"status\":\"completed\",\"result\":{\"status\":\"success\","
+             "\"value\":{}}}}}");
+    /* after the end, the same start signature is a new call: rendered */
+    feed(&o, running);
+
+    ASSERT_EQ(4, r.n);
+    ASSERT_EQ(TNY_EV_TOOL_START, r.kind[0]);
+    ASSERT_EQ(TNY_EV_TOOL_START, r.kind[1]);
+    ASSERT(r.detail[1] && strstr(r.detail[1], "\"n\":2"));
+    ASSERT_EQ(TNY_EV_TOOL_END, r.kind[2]);
+    ASSERT_EQ(TNY_EV_TOOL_START, r.kind[3]);
+
+    rec_free(&r);
+    impl_free(&o);
+    PASS();
+}
+
+TEST result_usage_accepts_protojson_string_counts(void) {
+    cu_impl o;
+    rec_t r;
+    memset(&r, 0, sizeof r);
+    impl_init(&o, &r);
+
+    /* RunResult renders int64 token counts as strings (observed live) */
+    feed(&o, "{\"result\":{\"status\":\"RUN_LIFECYCLE_STATUS_FINISHED\","
+             "\"result\":{\"result\":\"DONE\",\"usage\":{"
+             "\"inputTokens\":\"24530\",\"outputTokens\":\"69\"}}}}");
+
+    ASSERT_EQ(24530, o.in_tok);
+    ASSERT_EQ(69, o.out_tok);
+    rec_free(&r);
+    impl_free(&o);
+
+    /* a count with trailing junk is not a number: leave the total alone */
+    memset(&r, 0, sizeof r);
+    impl_init(&o, &r);
+    feed(&o, "{\"sdkMessage\":{\"type\":\"usage\",\"message\":{"
+             "\"type\":\"usage\",\"usage\":{\"inputTokens\":\"24abc\","
+             "\"outputTokens\":\"7\"}}}}");
+    ASSERT_EQ(0, o.in_tok);
+    ASSERT_EQ(7, o.out_tok);
+
+    rec_free(&r);
+    impl_free(&o);
+    PASS();
+}
+
 TEST tool_call_flat_legacy_shape_still_maps(void) {
     cu_impl o;
     rec_t r;
@@ -443,6 +569,10 @@ SUITE(cursor_suite) {
     RUN_TEST(tool_call_variant_suffix_stripping_edge_cases);
     RUN_TEST(tool_call_without_subtype_ends_only_with_result);
     RUN_TEST(tool_call_args_win_over_raw_args);
+    RUN_TEST(tool_call_live_bridge_shape_maps_and_unwraps_value);
+    RUN_TEST(tool_call_live_error_wrapper_flags_not_ok);
+    RUN_TEST(tool_call_repeated_running_frames_are_deduped);
+    RUN_TEST(result_usage_accepts_protojson_string_counts);
     RUN_TEST(tool_call_flat_legacy_shape_still_maps);
     RUN_TEST(envelope_unwrap_reads_status_text_and_run_id);
     RUN_TEST(assistant_text_survives_envelope_and_flat_shapes);

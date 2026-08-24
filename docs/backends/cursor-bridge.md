@@ -104,28 +104,37 @@ Enable deltas with `SendOptions.enable_deltas` when the TUI wants token streamin
 
 ## Tool call payloads
 
-The `tool_call` payload does **not** carry flat `name`/`args` fields. It nests
-a per-tool union keyed by a `*ToolCall` variant, matching the
-[cursor-agent stream-json format](https://cursor.com/docs/cli/reference/output-format):
+Captured live from bridge v1.0.28 (sdk 1.0.28): the `tool_call` payload
+carries flat `name` / `status` / `args`, with results wrapped in a
+`{"status","value"}` envelope —
 
 ```json
-{"type":"tool_call","subtype":"started","call_id":"…",
- "tool_call":{"readToolCall":{"args":{"path":"file.txt"}}}}
+{"type":"tool_call","agent_id":"…","run_id":"…","call_id":"…",
+ "name":"read","status":"running","args":{"path":"note.txt"}}
 
-{"type":"tool_call","subtype":"completed","call_id":"…",
- "tool_call":{"readToolCall":{"args":{"path":"file.txt"},
-   "result":{"success":{"content":"…","totalLines":54}}}}}
+{"type":"tool_call","call_id":"…","name":"read","status":"completed",
+ "args":{"path":"note.txt"},
+ "result":{"status":"success","value":{"content":"…","totalLines":2}}}
 ```
 
-Known variants include `readToolCall`, `writeToolCall`, `editToolCall`,
-`deleteToolCall`, `shellToolCall` / `bashToolCall`, `grepToolCall`,
-`lsToolCall`, `globToolCall`, `todoToolCall`, `mcpToolCall`. tny maps them by
-stripping the `ToolCall` suffix (`read`, `shell`, …), prefers the variant's
-inner `name` when present (MCP tools), and clips `args` / the unwrapped
-`result.success` or `result.error` into `tool_detail`. Unknown future variants
-still render under their derived key name — an opaque `tool` line is a mapping
-bug, and `tests/test_cursor.c` plus the mock-bridge integration test guard it.
-`result.error` (or a `failed`/`error` subtype) marks the call failed.
+Live behaviors to handle: `running` frames **re-emit** for one call while it
+executes (tny drops exact repeats and renders changed args); a tool that
+*fails* (e.g. reading a missing file) may get **no completed frame at all** —
+never block on a matching `TOOL_END`; `call_id` can contain embedded
+newlines; and `RunResult` renders its int64 token counts as protojson
+*strings* (`"24530"`).
+
+tny also accepts the
+[cursor-agent stream-json spelling](https://cursor.com/docs/cli/reference/output-format)
+of the same events — a per-tool union `tool_call.<variant>ToolCall =
+{args, result}` (`readToolCall`, `shellToolCall`, `mcpToolCall`, …) with
+`result.success` / `result.error` wrappers — by stripping the `ToolCall`
+suffix for the name and preferring the variant's inner `name` (MCP tools).
+Either way the clipped args / unwrapped result land in `tool_detail`, and an
+error wrapper (`result.status == "error"`, `result.error`, or a
+`failed`/`error` status) marks the call failed. Unknown variants still render
+under a derived name — an opaque `tool` line is a mapping bug, and
+`tests/test_cursor.c` plus the mock-bridge integration test guard it.
 
 ## Remote use, ssh, and known incompatibilities
 

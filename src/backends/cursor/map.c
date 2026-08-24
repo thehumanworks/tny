@@ -68,14 +68,28 @@ static void append_short(yyjson_val *v, buf_t *out) {
     free(owned);
 }
 
+/* Token counts arrive as numbers on usage messages but as protojson
+ * *strings* ("24530") inside RunResult (int64 fields) — accept both. */
+static int64_t tok_count(yyjson_val *u, const char *key, int64_t dflt) {
+    yyjson_val *v = jget(u, key);
+    if (!v) return dflt;
+    if (yyjson_is_int(v)) return yyjson_get_sint(v);
+    if (yyjson_is_str(v)) {
+        char *end = NULL;
+        long long n = strtoll(yyjson_get_str(v), &end, 10);
+        if (end && *end == '\0') return n;
+    }
+    return dflt;
+}
+
 static void take_usage(cu_impl *o, yyjson_val *u) {
     if (!u || !yyjson_is_obj(u)) return;
-    int64_t in = jget_int(u, "inputTokens",
-                 jget_int(u, "input_tokens",
-                 jget_int(u, "promptTokens", jget_int(u, "prompt_tokens", -1))));
-    int64_t out = jget_int(u, "outputTokens",
-                  jget_int(u, "output_tokens",
-                  jget_int(u, "completionTokens", jget_int(u, "completion_tokens", -1))));
+    int64_t in = tok_count(u, "inputTokens",
+                 tok_count(u, "input_tokens",
+                 tok_count(u, "promptTokens", tok_count(u, "prompt_tokens", -1))));
+    int64_t out = tok_count(u, "outputTokens",
+                  tok_count(u, "output_tokens",
+                  tok_count(u, "completionTokens", tok_count(u, "completion_tokens", -1))));
     if (in >= 0) o->in_tok = in;
     if (out >= 0) o->out_tok = out;
 }
@@ -137,16 +151,21 @@ static void emit_tool(cu_impl *o, yyjson_val *v) {
     if (!id) id = str2(v, "toolCallId", "tool_call_id");
     if (!id) id = jget_str(v, "id");
 
-    /* Results arrive wrapped: result.success = {…} on success,
-     * result.error = "…" (or an object) on failure. Unwrap so the clipped
-     * detail shows the interesting part, and error implies tool_ok=false. */
+    /* Results arrive wrapped. The bridge (observed live, sdk 1.0.28) sends
+     * result = {"status":"success"|"error","value":{…}}; the CLI stream-json
+     * spelling is result.success = {…} / result.error = "…". Unwrap either
+     * so the clipped detail shows the interesting part, and a failure
+     * wrapper implies tool_ok=false. */
     bool ok = !(jget_bool(v, "isError", false) || jget_bool(v, "is_error", false) ||
                 jget(v, "error") != NULL || is_one_of(sub, BAD_SUB));
     if (result && yyjson_is_obj(result)) {
+        const char *rstat = jget_str(result, "status");
+        if (is_one_of(rstat, BAD_SUB)) ok = false;
         yyjson_val *err = jget(result, "error");
         if (!err) err = jget(result, "failure");
         if (!err) err = jget(result, "rejected");
         yyjson_val *succ = jget(result, "success");
+        if (!succ) succ = jget(result, "value");
         if (err) {
             ok = false;
             if (!yyjson_is_null(err)) result = err;
@@ -168,6 +187,29 @@ static void emit_tool(cu_impl *o, yyjson_val *v) {
     append_short(src, &detail);
     /* completed frames repeat the args: fall back so TOOL_END is never bare */
     if (!detail.len && call) append_short(jget(call, "args"), &detail);
+
+    /* The SDK re-emits `running` frames for one call while args stream in
+     * (observed live): drop a start that repeats the previous one exactly,
+     * but let a changed detail or a new call through. */
+    if (!end) {
+        buf_t sig;
+        buf_init(&sig);
+        buf_appendf(&sig, "%s\x1f%s\x1f", id ? id : "", name);
+        buf_append(&sig, detail.data ? detail.data : "", detail.len);
+        bool dup = o->last_tool_start.len == sig.len && sig.len &&
+                   memcmp(o->last_tool_start.data, sig.data, sig.len) == 0;
+        if (!dup) {
+            buf_clear(&o->last_tool_start);
+            buf_append(&o->last_tool_start, sig.data, sig.len);
+        }
+        buf_free(&sig);
+        if (dup) {
+            buf_free(&detail);
+            return;
+        }
+    } else {
+        buf_clear(&o->last_tool_start);
+    }
 
     tny_backend_event ev = {0};
     ev.kind = end ? TNY_EV_TOOL_END : TNY_EV_TOOL_START;
