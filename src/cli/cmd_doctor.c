@@ -61,7 +61,11 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool bridge = on_path(ctx->bridge_bin);
     bool codex = on_path(ctx->codex_bin);
     bool settings_ok = !file_exists(ctx->settings_path) || ctx->settings != NULL;
+#ifdef __EMSCRIPTEN__
+    bool python = false; /* no process/Python authority in wasm (ADR 0017/0028) */
+#else
     bool python = on_path("python3");
+#endif
     char *capabilities = tny_extension_capabilities_json(
         (tny_backend_id)ctx->backend, ctx->extensions_enabled, python);
     size_t extension_entries = 0;
