@@ -43,7 +43,7 @@ def main() -> int:
         env.update(
             {
                 "HOME": str(home),
-                "PATH": str(bin_dir),
+                "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
                 "OPENAI_API_KEY": secrets[0],
                 "CURSOR_API_KEY": secrets[1],
                 "CODEX_REMOTE_TOKEN": secrets[2],
