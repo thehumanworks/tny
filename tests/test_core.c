@@ -448,6 +448,15 @@ TEST tool_prepare_validates_rewrites_and_complete_permission_subjects(void) {
     ASSERT_EQ(2, perm_grant_count(perm));
     tools_call_free(&call);
 
+    ASSERT_EQ(0, tools_call_prepare(
+        &env, "copy_file",
+        "{\"path\":\"inside.txt\",\"new_path\":\"/etc/tny-copy-outside\"}",
+        &call));
+    ASSERT(call.detail && path_is_within(ctx->cwd, call.detail));
+    ASSERT_STR_EQ("/etc/tny-copy-outside", call.detail2);
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+    tools_call_free(&call);
+
     ctx->perm_mode = TNY_MODE_ASK;
     ASSERT_EQ(0, tools_call_prepare(
         &env, "mcp_select_tool",
@@ -457,6 +466,24 @@ TEST tool_prepare_validates_rewrites_and_complete_permission_subjects(void) {
     ASSERT_EQ(PERM_PROMPT, call.verdict);
     tools_call_free(&call);
 
+    session_close(session);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+
+    write_settings(
+        "{\"permission\":{\"edit\":{\"*\":\"allow\","
+        "\"*/deny-source\":\"deny\"}}}");
+    ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_ASK;
+    perm = perm_new(ctx);
+    session = session_new(ctx);
+    env = (tools_env){.ctx = ctx, .session = session, .perm = perm};
+    ASSERT_EQ(0, tools_call_prepare(
+        &env, "copy_file",
+        "{\"path\":\"/etc/deny-source\",\"new_path\":\"inside.txt\"}",
+        &call));
+    ASSERT_EQ(PERM_DENY, call.verdict);
+    tools_call_free(&call);
     session_close(session);
     perm_free(perm);
     tny_ctx_free(ctx);
