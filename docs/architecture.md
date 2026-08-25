@@ -35,6 +35,13 @@ names and immutable provider capability matrix. The matrix distinguishes
 native-owned control from host-owned observation; an adapter may not silently
 approximate an unsupported action or expose raw provider payloads.
 
+The native tool loop calls the shared runtime only at quiescent control
+boundaries: pre-tool before validation, unresolved permission before execution,
+post-tool before result persistence, batch before the next POST, and allowlisted
+provider request/response edges. The callback never runs from a backend event
+callback and is guarded against re-entry. Extension-free calls return without
+allocating event JSON or starting Python.
+
 ## Embedding boundary
 
 [`libtny`](adr/0023-libtny-embedding-abi.md) exposes opaque

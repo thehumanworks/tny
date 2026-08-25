@@ -20,6 +20,14 @@ Always (unless allowed by rule/grant): `write_file`, `edit_file`, `delete_file`,
 
 Prompt choices: Yes / Yes and don't ask again (session grant) / No. Grants die with the session.
 
+Native Python extensions observe a request only after rules and session grants
+leave the effective call unresolved. They may answer `allow_once`, `deny`, or
+`abstain`. The decision is correlated to that exact rewritten call and all of
+its targets. Extension allow-once never creates a session grant, never changes
+the configured mode, and cannot authorize a later call. Abstain preserves the
+normal TUI/CLI decision path; extension-resolved requests are not shown as stale
+frontend prompts.
+
 ## Persistent rules
 
 Only in `~/.tny/settings.json` (global or per-workspace). Project `.tny.json` cannot grant authority.

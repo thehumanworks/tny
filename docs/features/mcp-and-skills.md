@@ -50,6 +50,12 @@ Managed installs go only to `~/.tny/skills/`.
 
 Child **native** sessions. One-off or persistent. Parent/child messages queued on disk so the child transcript is not dumped into the parent. Children cannot raise permission mode above the creator unless a human set it in the manager (Ctrl-X). Host backends: no tny-spawned subagents; show host task events if they exist (e.g. Cursor `cursor/task`).
 
+Native `create`/`message` operations emit correlated `subagent_start` and
+`subagent_end` extension events around the child process. A pre-tool deny or
+stop occurs before the process is started. Host task/subagent events are only
+advertised when the pinned adapter supplies stable identity and a real terminal
+boundary.
+
 An ephemeral parent propagates `--ephemeral` to every child process. Those children are one-shot: `create` works, but `message` and `inspect` are unavailable because no child session id or transcript is stored. The tool result says that no resumable id exists.
 
 ## Project instructions

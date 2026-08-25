@@ -264,9 +264,11 @@ MCP, shell, subagent, or tool execution.
 - Project-local discovery and trust remain unavailable until #59. Candidate
   discovery cannot execute code; trust cannot come from repo config.
 
-The shipping #54 matrices intentionally mark #55 and adapter work
-`unavailable`. Downstream issues change states only after their tests pass;
-they do not rename keys or actions.
+The shipping #54 matrices intentionally marked #55 and adapter work
+`unavailable`. #55 now reports the tny-owned shared lifecycle and native
+OpenAI controls as supported. Provider-owned adapter and project-trust cells
+remain unavailable or unsupported until their owning issue passes; downstream
+issues do not rename keys or actions.
 
 ### Payload and secret limits
 
@@ -295,6 +297,34 @@ This contract does not add:
 - host-owned control without a pinned decision surface;
 - project-local execution without #59 trust;
 - Python execution in wasm or extension authority in libtny ABI 0.
+
+### #55 implementation
+
+The shared runtime applies prompt actions before persistence/send and maintains
+logical session, turn, message, compaction, selection, instruction, workspace,
+native subagent, candidate-end, and single-settlement ordering across engine
+rebinds. New/resume/clear/recovery reasons and previous-session identity are
+explicit where the corresponding operation exists.
+
+The native backend calls a guarded runtime control seam at quiescent boundaries,
+never from an emitted-event callback. Pre-tool folding precedes parsing and
+schema validation; permission classification uses the effective canonical tool
+and every target; extension allow-once never calls `perm_grant`; post-tool
+folding precedes provider result persistence; batch observation precedes the
+next request. Provider-declared parallel calls retain their IDs but execute and
+fold serially in stable order.
+
+Original and effective tool arguments/results are separate top-level audit
+fields. Only schema-valid rewritten arguments become provider-history truth,
+and only the bounded effective result reaches the next model request. A
+persist failure stops before a later POST. Cancellation finalizes every
+remaining call through failure/post/batch boundaries, and frontend signal probes
+are rechecked after every blocking Python control call before any side effect.
+
+Native `provider_request`/`provider_response` events use an allowlist and pair
+every physical HTTP attempt with a stable logical request ID and attempt number.
+Raw URL/header/body/error/cookie/credential data never enters the event. Raw
+HTTP and SSE error bodies are not echoed into diagnostics.
 
 ## Consequences
 

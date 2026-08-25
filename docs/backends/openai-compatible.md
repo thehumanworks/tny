@@ -252,10 +252,16 @@ Named-provider rules:
 
 1. Assemble messages: tny preamble + `AGENTS.md` chain + skill catalog (names only) + bounded history.
 2. POST with built-in + selected MCP tool schemas.
-3. On tool calls: permission check → execute (parallel read-only, serial writes) → append `role: tool` messages. `read_image` then injects a **user** message with `image_url` data-URL parts (providers reject image parts on `role: tool`; [ADR 0008](../adr/0008-native-loop-images.md)) → POST again.
+3. On tool calls: run `pre_tool_use` before validation, fold rewrite/deny, schema-validate and permission-check the effective call, resolve a real outstanding permission, execute admitted calls serially in stable provider order, run success/failure and batch hooks, then persist the effective `role: tool` messages. Original/effective values stay separately attributed in the top-level extension audit. `read_image` then injects a **user** message with `image_url` data-URL parts (providers reject image parts on `role: tool`; [ADR 0008](../adr/0008-native-loop-images.md)) → POST again.
 4. Stop on final text, cancel, permission deny, or the optional step limit (unlimited by default; `--max-steps` / `/max-steps` / `.tny.json` `"steps"` set a cap — [ADR 0024](../adr/0024-unlimited-steps-default.md)).
 
 This is the only backend that uses [features/permissions.md](../features/permissions.md) and [features/mcp-and-skills.md](../features/mcp-and-skills.md) as the execution engine. Host backends have their own loops; tny only maps events.
+
+Each physical HTTP attempt is surrounded by bounded `provider_request` and
+`provider_response` extension events sharing a logical request ID and attempt
+number. The payload is allowlisted metadata only. Raw headers, URLs, bodies,
+provider errors, cookies, and credentials are never sent to Python; HTTP/SSE
+error diagnostics do not echo raw provider bodies.
 
 ## SSE client notes
 

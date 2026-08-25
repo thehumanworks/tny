@@ -43,36 +43,36 @@ exclusion, not hidden work.
 | `resources_discover` | — | `operation_absent` | — | product absent | deferred |
 | `session_start` | `session_start` | `equivalent` | `extensions.lifecycle.session.observe` | tny | implemented |
 | `session_info_changed` | — | `operation_absent` | — | product absent | deferred |
-| `session_before_switch` | `session_end` then `session_start` with reasons | `equivalent_renamed` | `extensions.lifecycle.session.observe` | tny | contracted #55 |
+| `session_before_switch` | `session_end` then `session_start` with reasons | `equivalent_renamed` | `extensions.lifecycle.session.observe` | tny | implemented #55 |
 | `session_before_fork` | — | `operation_absent` | — | product absent | deferred |
-| `session_before_compact` | `pre_compact` | `equivalent_renamed` | `extensions.lifecycle.compaction.observe` | tny | contracted #55 |
-| `session_compact` | `post_compact` | `equivalent_renamed` | `extensions.lifecycle.compaction.observe` | tny/host | contracted #55/#56 |
-| `session_compact_failed` | `compact_failed` | `equivalent_renamed` | `extensions.lifecycle.compaction.observe` | tny/host | contracted #55/#56 |
+| `session_before_compact` | `pre_compact` | `equivalent_renamed` | `extensions.lifecycle.compaction.observe` | tny | implemented #55 |
+| `session_compact` | `post_compact` | `equivalent_renamed` | `extensions.lifecycle.compaction.observe` | tny/host | native implemented #55; host #56 |
+| `session_compact_failed` | `compact_failed` | `equivalent_renamed` | `extensions.lifecycle.compaction.observe` | tny/host | native implemented #55; host #56 |
 | `session_shutdown` | `session_end` | `equivalent_renamed` | `extensions.lifecycle.session.observe` | tny | implemented payload expansion #55 |
 | `session_before_tree` | — | `operation_absent` | — | product absent | deferred |
 | `session_tree` | — | `operation_absent` | — | product absent | deferred |
-| `context` | `instructions_change` | `equivalent_renamed` | `extensions.lifecycle.instructions.observe` | tny | contracted #55 |
-| `before_provider_request` | `provider_request` redacted metadata | `equivalent_renamed` | `extensions.provider.request.observe_redacted` | tny/native or host-observed | contracted #55/#56-#58 |
+| `context` | `instructions_change` | `equivalent_renamed` | `extensions.lifecycle.instructions.observe` | tny | implemented #55 |
+| `before_provider_request` | `provider_request` redacted metadata | `equivalent_renamed` | `extensions.provider.request.observe_redacted` | tny/native or host-observed | native implemented #55; host #56-#58 |
 | `before_provider_headers` | redacted metadata only; no raw headers | `unsupported_safety` | `extensions.provider.request.observe_redacted` | safety boundary | deferred |
-| `after_provider_response` | `provider_response` redacted metadata | `equivalent_renamed` | `extensions.provider.response.observe_redacted` | tny/native or host-observed | contracted #55/#56-#58 |
+| `after_provider_response` | `provider_response` redacted metadata | `equivalent_renamed` | `extensions.provider.response.observe_redacted` | tny/native or host-observed | native implemented #55; host #56-#58 |
 | `before_agent_start` | `before_agent_start` | `equivalent` | `extensions.prompt.observe` | tny | implemented |
-| `agent_start` | `agent_start` | `equivalent` | `extensions.lifecycle.turn.observe` | tny | implemented event; full lifecycle #55 |
+| `agent_start` | `agent_start` | `equivalent` | `extensions.lifecycle.turn.observe` | tny | implemented #55 |
 | `agent_end` | `agent_end` | `equivalent` | `extensions.agent.continue` | tny | implemented |
 | `agent_settled` | `agent_settled` | `equivalent` | `extensions.lifecycle.turn.observe` | tny | implemented |
-| `turn_start` | `turn_start` | `equivalent` | `extensions.lifecycle.turn.observe` | tny/host | contracted #55/#56-#58 |
+| `turn_start` | `turn_start` | `equivalent` | `extensions.lifecycle.turn.observe` | tny/host | shared wrapper implemented #55 |
 | `turn_end` | `turn_end` | `equivalent` | `extensions.lifecycle.turn.observe` | tny/host | implemented |
-| `message_start` | `message_start` | `equivalent` | `extensions.lifecycle.message.observe` | tny/host | contracted #55/#56-#58 |
-| `message_update` | `message_update` plus existing deltas | `equivalent` | `extensions.lifecycle.message.observe` | tny/host | contracted #55/#56-#58 |
-| `message_end` | `message_end` | `equivalent` | `extensions.lifecycle.message.observe` | tny/host | contracted #55/#56-#58 |
+| `message_start` | `message_start` | `equivalent` | `extensions.lifecycle.message.observe` | tny/host | shared wrapper implemented #55 |
+| `message_update` | `message_update` plus existing deltas | `equivalent` | `extensions.lifecycle.message.observe` | tny/host | shared wrapper implemented #55 |
+| `message_end` | `message_end` | `equivalent` | `extensions.lifecycle.message.observe` | tny/host | shared wrapper implemented #55 |
 | `tool_execution_start` | `tool_start` | `equivalent_renamed` | `extensions.tool.pre.observe` | tny/host | implemented observation; synchronous seam #55 |
 | `tool_execution_update` | `tool_progress` | `equivalent_renamed` | `extensions.tool.post.observe` | tny/host | implemented |
 | `tool_execution_end` | `tool_end` | `equivalent_renamed` | `extensions.tool.post.observe` | tny/host | implemented |
-| `model_select` | `model_change` | `equivalent_renamed` | `extensions.lifecycle.model.observe` | tny | contracted #55 |
-| `thinking_level_select` | `effort_change` | `equivalent_renamed` | `extensions.lifecycle.effort.observe` | tny | contracted #55 |
+| `model_select` | `model_change` | `equivalent_renamed` | `extensions.lifecycle.model.observe` | tny | implemented #55 |
+| `thinking_level_select` | `effort_change` | `equivalent_renamed` | `extensions.lifecycle.effort.observe` | tny | implemented #55 |
 | `user_bash` | — | `operation_absent` | — | product absent | deferred |
-| `input` | `user_prompt_submit`; `prompt_transform`/`prompt_block` | `equivalent_renamed` | `extensions.prompt.observe`, `.transform`, `.block` | tny | contracted #55 |
-| `tool_call` | `pre_tool_use`; `tool_rewrite`/`tool_deny` | `equivalent_renamed` | `extensions.tool.pre.observe`, `.rewrite`, `.deny` | tny native; host observe-only | contracted #55/#56-#58 |
-| `tool_result` | `post_tool_use`/`post_tool_failure`; annotate/replace | `equivalent_renamed` | `extensions.tool.post.observe`, `.annotate`, `.replace` | tny native; host observe-only | contracted #55/#56-#58 |
+| `input` | `user_prompt_submit`; `prompt_transform`/`prompt_block` | `equivalent_renamed` | `extensions.prompt.observe`, `.transform`, `.block` | tny | implemented #55 |
+| `tool_call` | `pre_tool_use`; `tool_rewrite`/`tool_deny` | `equivalent_renamed` | `extensions.tool.pre.observe`, `.rewrite`, `.deny` | tny native; host observe-only | native implemented #55; host #56-#58 |
+| `tool_result` | `post_tool_use`/`post_tool_failure`; annotate/replace | `equivalent_renamed` | `extensions.tool.post.observe`, `.annotate`, `.replace` | tny native; host observe-only | native implemented #55; host #56-#58 |
 
 Pi's tool/command/provider/renderer/UI/keybinding/resource registration APIs
 are plugin APIs rather than lifecycle hooks and are explicitly outside this
@@ -89,7 +89,7 @@ manifest.
 | `PostCompact` | `post_compact`/`compact_failed` | `observe_only_host_owned` | `extensions.lifecycle.compaction.observe` | Codex host | contracted #56 |
 | `SessionStart` | `session_start` plus thread lifecycle | `equivalent_renamed` | `extensions.lifecycle.session.observe` | tny/Codex | implemented; expansion #56 |
 | `SessionEnd` | `session_end` plus thread close | `equivalent_renamed` | `extensions.lifecycle.session.observe` | tny/Codex | implemented; expansion #56 |
-| `UserPromptSubmit` | `user_prompt_submit`; prompt transform/block before `turn/start` | `equivalent_renamed` | `extensions.prompt.observe`, `.transform`, `.block` | tny | contracted #55 |
+| `UserPromptSubmit` | `user_prompt_submit`; prompt transform/block before `turn/start` | `equivalent_renamed` | `extensions.prompt.observe`, `.transform`, `.block` | tny | implemented #55 |
 | `SubagentStart` | `subagent_start` from collaboration items | `observe_only_host_owned` | `extensions.lifecycle.subagent.observe` | Codex host | contracted #56 |
 | `SubagentStop` | `subagent_end` from collaboration items | `observe_only_host_owned` | `extensions.lifecycle.subagent.observe` | Codex host | contracted #56 |
 | `Stop` | `agent_end`; continuation before final settlement | `equivalent_renamed` | `extensions.agent.continue`, `.cancel` | tny wrapper | implemented |
@@ -103,32 +103,32 @@ claim and are reconsidered only when a stable release is deliberately pinned.
 | --- | --- | --- | --- | --- | --- |
 | `SessionStart` | `session_start` | `equivalent` | `extensions.lifecycle.session.observe` | tny | implemented |
 | `Setup` | — | `operation_absent` | — | product absent | deferred |
-| `UserPromptSubmit` | `user_prompt_submit`; prompt transform/block | `equivalent_renamed` | `extensions.prompt.observe`, `.transform`, `.block` | tny | contracted #55 |
+| `UserPromptSubmit` | `user_prompt_submit`; prompt transform/block | `equivalent_renamed` | `extensions.prompt.observe`, `.transform`, `.block` | tny | implemented #55 |
 | `UserPromptExpansion` | — | `operation_absent` | — | product absent | deferred |
-| `PreToolUse` | `pre_tool_use`; native rewrite/deny, host observe-only | `equivalent_renamed` | `extensions.tool.pre.observe`, `.rewrite`, `.deny` | tny native/provider host | contracted #55/#56-#58 |
-| `PermissionRequest` | `permission_request`; allow-once/deny/abstain where real | `equivalent_renamed` | `extensions.permission.observe`, `.allow_once`, `.deny`, `.abstain` | tny/provider request | contracted #55/#56/#57 |
-| `PermissionDenied` | denied permission plus `post_tool_failure` | `equivalent_renamed` | `extensions.permission.deny`, `extensions.tool.post.observe` | tny/provider request | contracted #55/#56/#57 |
-| `PostToolUse` | `post_tool_use`; native annotation/replacement | `equivalent_renamed` | `extensions.tool.post.observe`, `.annotate`, `.replace` | tny native/provider host | contracted #55/#56-#58 |
-| `PostToolUseFailure` | `post_tool_failure`; native annotation/replacement | `equivalent_renamed` | `extensions.tool.post.observe`, `.annotate`, `.replace` | tny native/provider host | contracted #55/#56-#58 |
-| `PostToolBatch` | `post_tool_batch` | `equivalent_renamed` | `extensions.tool.batch.observe` | tny/host | contracted #55/#56-#58 |
+| `PreToolUse` | `pre_tool_use`; native rewrite/deny, host observe-only | `equivalent_renamed` | `extensions.tool.pre.observe`, `.rewrite`, `.deny` | tny native/provider host | native implemented #55; host #56-#58 |
+| `PermissionRequest` | `permission_request`; allow-once/deny/abstain where real | `equivalent_renamed` | `extensions.permission.observe`, `.allow_once`, `.deny`, `.abstain` | tny/provider request | native implemented #55; host #56/#57 |
+| `PermissionDenied` | denied permission plus `post_tool_failure` | `equivalent_renamed` | `extensions.permission.deny`, `extensions.tool.post.observe` | tny/provider request | native implemented #55; host #56/#57 |
+| `PostToolUse` | `post_tool_use`; native annotation/replacement | `equivalent_renamed` | `extensions.tool.post.observe`, `.annotate`, `.replace` | tny native/provider host | native implemented #55; host #56-#58 |
+| `PostToolUseFailure` | `post_tool_failure`; native annotation/replacement | `equivalent_renamed` | `extensions.tool.post.observe`, `.annotate`, `.replace` | tny native/provider host | native implemented #55; host #56-#58 |
+| `PostToolBatch` | `post_tool_batch` | `equivalent_renamed` | `extensions.tool.batch.observe` | tny/host | native implemented #55; host #56-#58 |
 | `Notification` | bounded `status` | `equivalent_renamed` | `extensions.lifecycle.turn.observe` | tny/host | implemented |
-| `MessageDisplay` | `message_update` plus `text_delta` | `equivalent_renamed` | `extensions.lifecycle.message.observe` | tny/host | contracted #55/#56-#58 |
-| `SubagentStart` | `subagent_start` | `equivalent` | `extensions.lifecycle.subagent.observe` | tny/host | contracted #55/#56-#58 |
-| `SubagentStop` | `subagent_end` | `equivalent_renamed` | `extensions.lifecycle.subagent.observe` | tny/host | contracted #55/#56-#58 |
+| `MessageDisplay` | `message_update` plus `text_delta` | `equivalent_renamed` | `extensions.lifecycle.message.observe` | tny/host | shared wrapper implemented #55 |
+| `SubagentStart` | `subagent_start` | `equivalent` | `extensions.lifecycle.subagent.observe` | tny/host | native implemented #55; host #56-#58 |
+| `SubagentStop` | `subagent_end` | `equivalent_renamed` | `extensions.lifecycle.subagent.observe` | tny/host | native implemented #55; host #56-#58 |
 | `TaskCreated` | — | `operation_absent` | — | product absent | deferred |
 | `TaskCompleted` | — | `operation_absent` | — | product absent | deferred |
 | `Stop` | `agent_end`; continuation/stop folding | `equivalent_renamed` | `extensions.agent.continue`, `.cancel` | tny | implemented |
 | `StopFailure` | `error`, `turn_end`, `agent_end` | `equivalent_renamed` | `extensions.lifecycle.turn.observe` | tny/host | implemented; detail #55/#56-#58 |
 | `TeammateIdle` | — | `operation_absent` | — | product absent | deferred |
-| `InstructionsLoaded` | `instructions_change` | `equivalent_renamed` | `extensions.lifecycle.instructions.observe` | tny | contracted #55 |
+| `InstructionsLoaded` | `instructions_change` | `equivalent_renamed` | `extensions.lifecycle.instructions.observe` | tny | implemented #55 |
 | `ConfigChange` | — | `operation_absent` | — | product absent | deferred |
 | `CwdChanged` | — | `operation_absent` | — | product absent | deferred |
-| `DirectoryAdded` | `workspace_change` | `equivalent_renamed` | `extensions.lifecycle.workspace.observe` | tny | contracted #55 |
+| `DirectoryAdded` | `workspace_change` | `equivalent_renamed` | `extensions.lifecycle.workspace.observe` | tny | implemented #55 |
 | `FileChanged` | — | `operation_absent` | — | product absent | deferred |
 | `WorktreeCreate` | — | `operation_absent` | — | product absent | deferred |
 | `WorktreeRemove` | — | `operation_absent` | — | product absent | deferred |
-| `PreCompact` | `pre_compact` | `equivalent` | `extensions.lifecycle.compaction.observe` | tny/host | contracted #55/#56 |
-| `PostCompact` | `post_compact` | `equivalent` | `extensions.lifecycle.compaction.observe` | tny/host | contracted #55/#56 |
+| `PreCompact` | `pre_compact` | `equivalent` | `extensions.lifecycle.compaction.observe` | tny/host | native implemented #55; host #56 |
+| `PostCompact` | `post_compact` | `equivalent` | `extensions.lifecycle.compaction.observe` | tny/host | native implemented #55; host #56 |
 | `Elicitation` | bounded `permission_request` where a provider exposes it | `equivalent_renamed` | `extensions.permission.observe`, `.allow_once`, `.deny`, `.abstain` | provider request | contracted #56/#57 |
 | `ElicitationResult` | permission resolution/result observation | `equivalent_renamed` | `extensions.permission.observe` | provider request | contracted #56/#57 |
 | `SessionEnd` | `session_end` | `equivalent` | `extensions.lifecycle.session.observe` | tny | implemented |
@@ -141,28 +141,29 @@ Claude hook configuration.
 
 | Source hook | tny event/action | Classification | Capability keys | Authority | Status / lane |
 | --- | --- | --- | --- | --- | --- |
-| `PreToolUse` | `pre_tool_use`; native rewrite/deny | `equivalent_renamed` | `extensions.tool.pre.observe`, `.rewrite`, `.deny` | tny native | contracted #55 |
+| `PreToolUse` | `pre_tool_use`; native rewrite/deny | `equivalent_renamed` | `extensions.tool.pre.observe`, `.rewrite`, `.deny` | tny native | implemented #55 |
 | `Stop` | `agent_end`; continuation before settlement | `equivalent_renamed` | `extensions.agent.continue` | tny | implemented |
-| `PostTurnEnd` | `turn_end` then final `agent_settled` | `equivalent_renamed` | `extensions.lifecycle.turn.observe` | tny | implemented; full lifecycle #55 |
+| `PostTurnEnd` | `turn_end` then final `agent_settled` | `equivalent_renamed` | `extensions.lifecycle.turn.observe` | tny | implemented #55 |
 | `AttentionRequired` | `permission_request`/`status` | `equivalent_renamed` | `extensions.permission.observe` | tny/provider | implemented observation |
 
 fx's four definitions are internal/runtime hooks; its public SDK event and
 permission callbacks are not a user-loaded Python hook system.
 
-## Current #54 provider matrices
+## Current provider matrices after #55
 
 The exact machine-readable matrices are emitted by `tny doctor --json` and
-passed unchanged to `ExtensionAPI.capabilities`. At the #54 baseline:
+passed unchanged to `ExtensionAPI.capabilities`:
 
 | Provider | `supported` keys | `unsupported` keys | Every other key |
 | --- | --- | --- | --- |
-| Native OpenAI | prompt observe; session observe; permission observe; tool-post observe; agent continue/cancel | none | `unavailable` pending #55/#59 |
-| Codex | prompt observe; session observe; permission observe; tool-post observe; agent continue/cancel | tool-pre rewrite/deny; tool-post annotate/replace | `unavailable` pending #55/#56/#59 |
-| Cursor | prompt observe; session observe; tool-post observe; agent continue/cancel | tool-pre rewrite/deny; all permission keys; tool-post annotate/replace | `unavailable` pending #55/#58/#59 |
-| ACP | prompt observe; session observe; permission observe; tool-post observe; agent continue/cancel | tool-pre rewrite/deny; tool-post annotate/replace | `unavailable` pending #55/#57/#59 |
+| Native OpenAI | every key through provider response plus agent continue/cancel | none | project-local discover/trust pending #59 |
+| Codex | prompt transform/block; session/turn/message; model/effort/instructions/workspace; permission observe; tool-post observe; agent continue/cancel | tool-pre rewrite/deny; tool-post annotate/replace | provider compaction/subagent/tool/batch/wire and permission decisions pending #56; project trust #59 |
+| Cursor | prompt transform/block; session/turn/message; model/effort/instructions/workspace; tool-post observe; agent continue/cancel | tool-pre rewrite/deny; all permission keys; tool-post annotate/replace | provider compaction/subagent/tool/batch/wire pending #58; project trust #59 |
+| ACP | prompt transform/block; session/turn/message; model/effort/instructions/workspace; permission observe; tool-post observe; agent continue/cancel | tool-pre rewrite/deny; tool-post annotate/replace | provider compaction/subagent/tool/batch/wire and permission decisions pending #57; project trust #59 |
 
-This table reports current truth, not the roadmap target. A downstream lane may
-change a state only after implementing and testing the frozen semantics.
+This table reports current truth, not the roadmap target. The #55 shared
+permission fold is present, but Codex/ACP decision keys remain unavailable until
+their adapters bind it to one live correlated host request.
 
 ## Completion rule
 

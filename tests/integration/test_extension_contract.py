@@ -52,7 +52,7 @@ SECTIONS = {
     "Pi": ("## Pi v0.84.3", "## Codex rust-v0.149.1"),
     "Codex": ("## Codex rust-v0.149.1", "## Claude Code 2.1.245"),
     "Claude": ("## Claude Code 2.1.245", "## fx v0.0.5"),
-    "fx": ("## fx v0.0.5", "## Current #54 provider matrices"),
+    "fx": ("## fx v0.0.5", "## Current provider matrices after #55"),
 }
 
 CLASSIFICATIONS = {

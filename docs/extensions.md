@@ -120,16 +120,18 @@ Every event has these common fields:
 | `timestamp_ms` | Monotonic event time relative to process start |
 | `payload` | Event-specific typed data |
 
-The initial typed events are:
+The typed events are:
 
 | Family | Events |
 | --- | --- |
-| Session | `session_start`, `session_end` |
-| Agent request | `before_agent_start`, `agent_start`, `agent_end`, `agent_settled` |
-| Stream | `text_delta`, `thinking`, `plan`, `status`, `steer_rejected` |
-| Tools | `tool_start`, `tool_progress`, `tool_end` |
+| Input/session | `user_prompt_submit`, `session_start`, `session_end` |
+| Agent request | `before_agent_start`, `agent_start`, `agent_end`, `agent_settled`, `turn_start`, `turn_end` |
+| Messages/stream | `message_start`, `message_update`, `message_end`, `text_delta`, `thinking`, `plan`, `status`, `steer_rejected` |
+| Tools | `pre_tool_use`, `tool_start`, `tool_progress`, `tool_end`, `post_tool_use`, `post_tool_failure`, `post_tool_batch` |
 | Interaction | `permission_request` |
-| Accounting/terminal | `usage`, `turn_end`, `error` |
+| Configuration | `pre_compact`, `post_compact`, `compact_failed`, `model_change`, `effort_change`, `instructions_change`, `workspace_change` |
+| Collaboration | `subagent_start`, `subagent_end` |
+| Provider/accounting | `provider_request`, `provider_response`, `usage`, `error` |
 
 Tool events carry the normalized tool name, correlation ID, bounded detail,
 and completion result available from the backend. `agent_end` carries observed
@@ -138,8 +140,10 @@ assistant output, a normalized message view, and stop reason.
 and provider option fields are typed but may be empty where a host owns them.
 Unknown event names become `UnknownEvent` and preserve their complete payload.
 
-Provider-native payloads, when retained for diagnostics, are opaque and
-optional. Portable extensions use the normalized fields.
+Raw provider payloads never cross the Python boundary. Native provider events
+contain an allowlist only: fixed method/endpoint kind, status, wire kind, model
+step, and stable logical-request/attempt correlation. Headers, URLs, bodies,
+cookies, credentials, and provider error text are excluded.
 
 ## Candidate end and final settlement
 
@@ -176,10 +180,10 @@ Listeners return one of:
 | `continue_with(content, message_kind, custom_type, display)` / `continue` | At `agent_end`, add a visible user or custom item and start another provider turn |
 | `stop(reason)` / `stop` | Request asynchronous cancellation; terminal events still drain |
 
-ADR 0028 also freezes these additive control actions. Their Python types are
-available now so downstream lanes cannot invent incompatible names; returning
-one while its capability is `unavailable` or `unsupported` produces a visible
-typed diagnostic and acts as `none`.
+ADR 0028 freezes these additive control actions. Native OpenAI implements every
+listed control. Host adapters accept only the observation or real permission
+surface reported by their capability matrix; returning an unavailable or
+unsupported action produces a visible typed diagnostic and acts as `none`.
 
 | Constructor / kind | Contracted boundary | Capability |
 | --- | --- | --- |
@@ -191,10 +195,9 @@ typed diagnostic and acts as `none`.
 | `annotate_tool(content, display)` / `tool_annotate` | add attributed post-tool metadata | `extensions.tool.post.annotate` |
 | `replace_tool_result(content, is_error)` / `tool_result_replace` | select next-model result while retaining original | `extensions.tool.post.replace` |
 
-Current truth is intentionally conservative: #54 ships the contract and
-capability plumbing; #55 and the provider lanes turn individual states to
-`supported` only with their runtime tests. Cursor already reports its missing
-permission and host-tool control surfaces as `unsupported`.
+Cursor reports its missing permission and host-tool control surfaces as
+`unsupported`. Codex and ACP decisions remain unavailable until their adapter
+lanes correlate the shared fold to a real live host request.
 
 All matching listeners run before actions are folded. Context items retain
 listener order. `stop` wins over continuation. Multiple continuation
@@ -224,6 +227,44 @@ accept it is a visible diagnostic and otherwise acts like `none`.
 Context cannot alter a provider request already on the wire. It is queued for
 the next model/turn boundary, even where one provider offers a richer steering
 operation.
+
+## Native tool transaction
+
+Native calls run serially in provider batch order, including provider-declared
+parallel calls. Each call has one stable provider/tool ID and this transaction:
+
+```text
+proposal
+  -> pre_tool_use (observe, last rewrite, sticky deny, or stop)
+  -> reparse + schema validation
+  -> permission classification on the effective name and every target
+  -> permission_request only if still unresolved
+  -> tool_start -> execute -> tool_end
+  -> post_tool_use | post_tool_failure
+  -> persist effective result
+post_tool_batch
+  -> save the complete batch
+  -> next provider request, or terminal
+```
+
+An extension `allow_once` is bound to that effective call only and never writes
+a session grant or persistent rule. `abstain` leaves the ordinary frontend
+decision path intact. A deny/stop never reaches built-in, shell, MCP, skill,
+subagent, or future custom-tool execution. Rename/copy permission identity
+includes both paths; selected MCP identity is `mcp:<server>/<tool>`.
+
+Rewritten arguments are placed in provider history only after schema validation.
+The top-level `extension_audit` ledger retains the immutable provider proposal,
+effective arguments, original result, effective next-model result, action
+attribution, error flags, and ordered annotations. It is never serialized as a
+provider message. Replacements and annotations are bounded to 64 KiB. JSON CLI
+tool summaries add original/effective status and a transformation marker only
+when a transaction was transformed, preserving the prior shape otherwise.
+
+Cancellation and extension stop use the same result/batch finalizer. Remaining
+provider calls receive correlated interrupted results and post/batch observation
+before the single interrupted terminal. CLI/TUI signal probes are checked after
+every bounded Python control call and before execution or a later POST.
 
 ## Configuration
 
@@ -267,6 +308,13 @@ runtime. An observation capability can be supported while its rewrite/deny or
 replace companions are unsupported, which is the precise meaning of
 host-owned observational-only behavior.
 
+After #55, native OpenAI supports every key except the two project-local keys,
+which remain unavailable for #59. All providers share prompt/session/turn/
+message/model/effort/instruction/workspace observation and control at tny-owned
+boundaries. Provider-owned tool, permission, compaction, subagent, and redacted
+wire cells remain unavailable or unsupported until their adapter lane proves a
+real protocol surface.
+
 ## libtny and wasm
 
 libtny ABI 0 never discovers or executes `~/.tny/extensions`; a public
@@ -289,7 +337,7 @@ host.
 | Failure isolation | exception, timeout, invalid action, broken pipe, and host exit all fail open; later listeners run |
 | Continuation | visible custom attribution, explicit user follow-up, multiple messages, positive cap, `0` unlimited |
 | Settlement | repeated candidate `agent_end`, exactly one final `agent_settled`, user cancel wins |
-| Native provider | Responses and Chat text/reasoning/parallel tools/usage/error/terminal mappings |
+| Native provider | prompt/tool rewrite and deny, permission allow/deny/abstain, post replacement/annotation, deterministic parallel batch, cancellation, recovery/resume, redacted request attempts, and Responses/Chat regressions |
 | Cursor | SDK messages, deltas, tool lifecycle, result/done, cancelled and expired runs |
 | Codex | item lifecycle, reasoning/tool deltas, usage, error-before-completed, interrupt |
 | ACP | all v1 update variants, sparse tool updates, stop reasons, final updates after cancel |
