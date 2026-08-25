@@ -318,3 +318,27 @@ This contract does not add:
   and every public name has one normative definition.
 - `make test`, size, wasm clean-unavailable behavior, libtny exports, and
   extension-free startup gates remain green.
+
+## Local verification (2026-08-25)
+
+Apple Silicon macOS, pre-roadmap baseline `c0592d7` versus #54 result
+`fbbd3f2`, both built stripped with `make release`:
+
+| Gate | Baseline | #54 result |
+| --- | --- | --- |
+| stripped `build/tny` | 545,472 bytes | 545,664 bytes (+192) |
+| `tny --version`, hyperfine 50 runs | 2.2 ± 0.6 ms | 2.2 ± 0.5 ms |
+| extension-free `status --json`, hyperfine 50 runs | 1.9 ± 0.4 ms | 2.2 ± 0.5 ms |
+
+Both startup paths remain under the 5 ms command budget; the sub-5-ms
+hyperfine warning applies, so these numbers are a regression gate rather than
+a speedup claim. The sentinel integration additionally proved that
+extension-free status and JSON doctor execute neither Python nor provider
+binaries.
+
+The full native suite passed 204 C tests plus 18 Python extension tests and all
+fixture integrations. `make size-check` and the C/Python libtny consumers
+passed. The focused capability mutation target killed all 11 valid mutants
+(six generated boolean mutants were uncompilable). `emcc` was not installed
+locally, so the required wasm compile/size evidence is delegated to the
+repository's emsdk CI lane rather than claimed from source inspection.
