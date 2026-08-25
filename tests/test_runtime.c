@@ -205,6 +205,25 @@ static int drain_engine(tny_engine *engine, tny_stop_reason *stop) {
     return events;
 }
 
+static int drain_engine_kind(tny_engine *engine, tny_stop_reason *stop,
+                             tny_event_kind kind, int *kind_count) {
+    char err[256];
+    int events = 0;
+    *kind_count = 0;
+    tny_owned_event *ev = NULL;
+    for (;;) {
+        tny_engine_next next = tny_engine_next_event(engine, 50, &ev,
+                                                     err, sizeof err);
+        if (next == TNY_ENGINE_NEXT_DRAINED) break;
+        if (next != TNY_ENGINE_NEXT_EVENT) return -1;
+        events++;
+        if (ev->ev.kind == kind) (*kind_count)++;
+        if (ev->ev.kind == TNY_EV_TURN_END && stop) *stop = ev->ev.stop;
+        tny_owned_event_free(ev);
+    }
+    return events;
+}
+
 static int count_text(const char *haystack, const char *needle) {
     int count = 0;
     size_t n = strlen(needle);
@@ -765,8 +784,11 @@ TEST runtime_permission_fold_is_correlated_suppressed_and_deny_sticky(void) {
     ASSERT_EQ(0, tny_engine_start(x.engine, "permission", NULL,
                                   err, sizeof err));
     tny_stop_reason stop = TNY_STOP_ERROR;
-    ASSERT(drain_engine(x.engine, &stop) > 0);
+    int visible_permissions = -1;
+    ASSERT(drain_engine_kind(x.engine, &stop, TNY_EV_PERMISSION,
+                             &visible_permissions) > 0);
     ASSERT_EQ(TNY_STOP_DONE, stop);
+    ASSERT_EQ(0, visible_permissions);
     ASSERT_EQ(1, x.fake->permission_responses);
     ASSERT_EQ(TNY_PERM_DECISION_ALLOW, x.fake->permission_decision);
     fixture_free(&x);
@@ -786,8 +808,10 @@ TEST runtime_permission_fold_is_correlated_suppressed_and_deny_sticky(void) {
     ASSERT_EQ(0, tny_engine_start(x.engine, "permission", NULL,
                                   err, sizeof err));
     stop = TNY_STOP_ERROR;
-    ASSERT(drain_engine(x.engine, &stop) > 0);
+    ASSERT(drain_engine_kind(x.engine, &stop, TNY_EV_PERMISSION,
+                             &visible_permissions) > 0);
     ASSERT_EQ(TNY_STOP_DENIED, stop);
+    ASSERT_EQ(0, visible_permissions);
     ASSERT_EQ(1, x.fake->permission_responses);
     ASSERT_EQ(TNY_PERM_DECISION_DENY, x.fake->permission_decision);
     fixture_free(&x);
@@ -804,8 +828,10 @@ TEST runtime_permission_fold_is_correlated_suppressed_and_deny_sticky(void) {
     ASSERT_EQ(0, tny_engine_start(x.engine, "permission", NULL,
                                   err, sizeof err));
     stop = TNY_STOP_ERROR;
-    ASSERT(drain_engine(x.engine, &stop) > 0);
+    ASSERT(drain_engine_kind(x.engine, &stop, TNY_EV_PERMISSION,
+                             &visible_permissions) > 0);
     ASSERT_EQ(TNY_STOP_INTERRUPTED, stop);
+    ASSERT_EQ(0, visible_permissions);
     ASSERT_EQ(0, x.fake->permission_responses);
     ASSERT_EQ(1, x.fake->cancels);
     fixture_free(&x);

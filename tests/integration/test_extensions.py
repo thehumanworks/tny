@@ -116,6 +116,11 @@ def setup(api):
             return annotate_tool("integration annotation")
 
     @api.on(PostToolUseEvent)
+    def annotate_result_second(event):
+        if os.environ.get("TNY_TEST_REPLACE") == "1" and event.tool_id == "call_1":
+            return annotate_tool("integration annotation second", display=False)
+
+    @api.on(PostToolUseEvent)
     def replace_result(event):
         if os.environ.get("TNY_TEST_REPLACE") == "1" and event.tool_id == "call_1":
             return replace_tool_result("REPLACED-TOOL-RESULT")
@@ -234,6 +239,11 @@ def main():
             assert tool_audit[0]["original_result"] != tool_audit[0]["effective_result"], tool_audit
             assert tool_audit[0]["annotations"][0]["content"] == "integration annotation", tool_audit
             assert tool_audit[0]["annotations"][0]["display"] is True, tool_audit
+            assert tool_audit[0]["annotations"][1] == {
+                "extension": "integration",
+                "content": "integration annotation second",
+                "display": False,
+            }, tool_audit
 
             assert os.path.exists(event_log), (stderr, output)
             events = [json.loads(line) for line in open(event_log, encoding="utf-8")]

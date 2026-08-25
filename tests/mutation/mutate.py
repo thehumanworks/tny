@@ -51,20 +51,21 @@ TARGETS = [
     ("src/core/runtime.c",
      ["fold_extension_result", "process_queued_extension_hooks"],
      r"^(?!for ).*(permission|PERMISSION|suppressed|respond_permission|fold\.stop|fold\.blocked|deny|allow|selected)",
-     "tests/integration/test_extensions.py"),
+     "tests/integration/test_extensions.py", "extension-control"),
     ("src/core/runtime.c",
      ["native_pre_tool", "native_permission", "native_post_tool",
       "native_observe", "native_openai_control"],
      r"^(?!for ).*(stop|deny|rewrite|replacement|annotation|result_|audited|control_|cancel_probe|native_control|PERMISSION)",
-     "tests/integration/test_extensions.py"),
+     "tests/integration/test_extensions.py", "extension-control"),
     ("src/core/runtime.c", ["resolve_pending_terminal"],
      r"continue_requested|TNY_STOP_DENIED|TNY_STOP_INTERRUPTED|\bstop\b",
-     "tests/integration/test_extensions.py"),
+     "tests/integration/test_extensions.py", "extension-control"),
     ("src/core/session.c",
      ["session_replace_tool_arguments", "session_record_tool_audit"],
-     None, "tests/integration/test_extensions.py"),
+     None, "tests/integration/test_extensions.py", "extension-control"),
     ("src/core/tools.c", ["tools_call_prepare", "tools_call_execute",
-                           "tools_execute"], None),
+                           "tools_execute"], None,
+     "tests/integration/test_extensions.py", "extension-control"),
     ("src/tui/tui_input.c", ["do_key"], r"overlay"),
     ("src/core/config.c", ["tny_ctx_load"], r"perm_mode|permission_mode"),
     # named openai-compatible providers (settings.json profiles + env vars)
@@ -86,11 +87,11 @@ TARGETS = [
      r"steer"),
     ("src/backends/openai/openai.c",
      ["run_tools", "finish_tool_batch", "oa_respond_permission", "oa_cancel"],
-     None, "tests/integration/test_extensions.py"),
+     None, "tests/integration/test_extensions.py", "extension-control"),
     ("src/backends/openai/openai.c",
      ["provider_control", "start_post_mode", "complete_tool", "execute_call",
       "finish_cancelled_call", "tool_batch_control", "subagent_control"],
-     None, "tests/integration/test_extensions.py"),
+     None, "tests/integration/test_extensions.py", "extension-control"),
     # streamed tool_call assembly: parallel calls, gateway index reuse
     ("src/backends/openai/toolcalls.c", None, None,
      "tests/integration/test_openai.py"),
@@ -371,6 +372,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fast", action="store_true")
     ap.add_argument("--only")
+    ap.add_argument("--focus", help="run only targets carrying this focus tag")
     args = ap.parse_args()
 
     # every integration fixture accepts the binary via $TNY (the .sh ones
@@ -381,7 +383,10 @@ def main():
     for spec in TARGETS:
         path, names, line_re = spec[:3]
         itest = spec[3] if len(spec) > 3 else "tests/integration/test_tui.py"
+        focus = spec[4] if len(spec) > 4 else None
         if args.only and args.only not in path:
+            continue
+        if args.focus and focus != args.focus:
             continue
         ms = gen_mutants(os.path.join(ROOT, path), names, line_re)
         for mu in ms:

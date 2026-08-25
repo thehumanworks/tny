@@ -39,7 +39,7 @@ The native tool loop calls the shared runtime only at quiescent control
 boundaries: pre-tool before validation, unresolved permission before execution,
 post-tool before result persistence, batch before the next POST, and allowlisted
 provider request/response edges. The callback never runs from a backend event
-callback and is guarded against re-entry. Extension-free calls return without
+callback or re-enters the backend. Extension-free calls return without
 allocating event JSON or starting Python.
 
 ## Embedding boundary
