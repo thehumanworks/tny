@@ -119,7 +119,7 @@ jobs:
         run: |
           set -eu
           docker run --rm -v "$PWD":/src -w /src alpine:3.21 \
-            sh -c 'apk add --no-cache build-base \
+            sh -c 'apk add --no-cache build-base python3 \
               && make -j"$(getconf _NPROCESSORS_ONLN)" release STATIC=1 \
               && make test-unit SANITIZE=0 STATIC=1 \
               && make size-check SIZE_MAX=1572864 STATIC=1 \
