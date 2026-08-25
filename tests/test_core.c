@@ -399,6 +399,65 @@ TEST perm_yolo_allows_everything(void) {
     PASS();
 }
 
+TEST tool_prepare_validates_rewrites_and_complete_permission_subjects(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_AUTO;
+    perm_engine *perm = perm_new(ctx);
+    tny_session_state *session = session_new(ctx);
+    tools_env env = {0};
+    env.ctx = ctx;
+    env.session = session;
+    env.perm = perm;
+    tools_call call;
+
+    ASSERT_EQ(-1, tools_call_prepare(
+        &env, "write_file", "{\"path\":\"a.txt\"}", &call));
+    ASSERT(call.error && strstr(call.error, "needs argument content"));
+    tools_call_free(&call);
+    ASSERT_EQ(-1, tools_call_prepare(
+        &env, "write_file", "{\"path\":7,\"content\":\"x\"}", &call));
+    ASSERT(call.error && strstr(call.error, "path must be string"));
+    tools_call_free(&call);
+
+    ASSERT_EQ(0, tools_call_prepare(
+        &env, "write_file", "{\"path\":\"inside.txt\",\"content\":\"x\"}",
+        &call));
+    ASSERT_EQ(PERM_ALLOW, call.verdict);
+    tools_call_free(&call);
+    ASSERT_EQ(0, tools_call_prepare(
+        &env, "write_file", "{\"path\":\"/etc/tny-outside\",\"content\":\"x\"}",
+        &call));
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+    tools_call_free(&call);
+
+    ASSERT_EQ(0, tools_call_prepare(
+        &env, "rename_file",
+        "{\"path\":\"inside.txt\",\"new_path\":\"/etc/tny-outside\"}",
+        &call));
+    ASSERT(call.detail && path_is_within(ctx->cwd, call.detail));
+    ASSERT_STR_EQ("/etc/tny-outside", call.detail2);
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+    tools_call_grant(&env, &call);
+    ASSERT_EQ(2, perm_grant_count(perm));
+    tools_call_free(&call);
+
+    ctx->perm_mode = TNY_MODE_ASK;
+    ASSERT_EQ(0, tools_call_prepare(
+        &env, "mcp_select_tool",
+        "{\"server\":\"srv\",\"tool\":\"deploy\",\"arguments\":{}}",
+        &call));
+    ASSERT_STR_EQ("mcp:srv/deploy", call.permission_tool);
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+    tools_call_free(&call);
+
+    session_close(session);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 /* ---- sessions ---- */
 
 TEST session_roundtrip(void) {
@@ -2385,6 +2444,7 @@ SUITE(core_suite) {
     RUN_TEST(perm_session_grants);
     RUN_TEST(perm_auto_mode_heuristics);
     RUN_TEST(perm_yolo_allows_everything);
+    RUN_TEST(tool_prepare_validates_rewrites_and_complete_permission_subjects);
     RUN_TEST(codex_registry_loopback_only);
     RUN_TEST(codex_registry_roundtrip);
     RUN_TEST(codex_registry_rejects_bad_entries);

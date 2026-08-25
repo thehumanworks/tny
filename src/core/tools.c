@@ -134,17 +134,82 @@ char *tools_schema_json(tools_env *env) {
     return xstrdup(SCHEMA_JSON);
 }
 
-/* Extract the human "detail" used for permission rules and prompts. */
-static char *call_detail(tools_env *env, const char *name, yyjson_val *args) {
-    if (strcmp(name, "terminal") == 0 || strcmp(name, "run_command") == 0) {
-        const char *cmd = jget_str(args, "command");
-        return cmd ? xstrdup(cmd) : NULL;
+static bool json_type_matches(yyjson_val *value, const char *type) {
+    if (!value || !type) return false;
+    if (strcmp(type, "string") == 0) return yyjson_is_str(value);
+    if (strcmp(type, "integer") == 0) return yyjson_is_int(value) || yyjson_is_uint(value);
+    if (strcmp(type, "number") == 0) return yyjson_is_num(value);
+    if (strcmp(type, "boolean") == 0) return yyjson_is_bool(value);
+    if (strcmp(type, "object") == 0) return yyjson_is_obj(value);
+    if (strcmp(type, "array") == 0) return yyjson_is_arr(value);
+    return true; /* unknown future schema type is validated by the tool */
+}
+
+static int validate_call_schema(const char *name, yyjson_val *args,
+                                char **error) {
+    if (!args || !yyjson_is_obj(args)) {
+        *error = tool_err("arguments for %s must be a JSON object", name);
+        return -1;
     }
-    const char *p = jget_str(args, "path");
-    if (!p) p = jget_str(args, "url");
+    yyjson_doc *schemas = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
+    yyjson_val *root = schemas ? yyjson_doc_get_root(schemas) : NULL;
+    yyjson_val *parameters = NULL;
+    if (root && yyjson_is_arr(root)) {
+        size_t idx, max;
+        yyjson_val *item;
+        yyjson_arr_foreach(root, idx, max, item) {
+            yyjson_val *function = jget(item, "function");
+            const char *candidate = jget_str(function, "name");
+            if (candidate && strcmp(candidate, name) == 0) {
+                parameters = jget(function, "parameters");
+                break;
+            }
+        }
+    }
+    if (!parameters) {
+        yyjson_doc_free(schemas);
+        *error = tool_err("unknown tool %s", name);
+        return -1;
+    }
+    yyjson_val *required = jget(parameters, "required");
+    if (required && yyjson_is_arr(required)) {
+        size_t idx, max;
+        yyjson_val *field;
+        yyjson_arr_foreach(required, idx, max, field) {
+            const char *key = yyjson_get_str(field);
+            if (key && !jget(args, key)) {
+                *error = tool_err("%s needs argument %s", name, key);
+                yyjson_doc_free(schemas);
+                return -1;
+            }
+        }
+    }
+    yyjson_val *properties = jget(parameters, "properties");
+    if (properties && yyjson_is_obj(properties)) {
+        size_t idx, max;
+        yyjson_val *key_value, *schema;
+        yyjson_obj_foreach(properties, idx, max, key_value, schema) {
+            const char *key = yyjson_get_str(key_value);
+            yyjson_val *value = key ? jget(args, key) : NULL;
+            if (!value) continue;
+            const char *type = jget_str(schema, "type");
+            if (type && !json_type_matches(value, type)) {
+                *error = tool_err("%s argument %s must be %s", name, key, type);
+                yyjson_doc_free(schemas);
+                return -1;
+            }
+        }
+    }
+    yyjson_doc_free(schemas);
+    return 0;
+}
+
+/* Extract one path-like human detail used for permission rules/prompts. */
+static char *path_detail(tools_env *env, yyjson_val *args, const char *field) {
+    const char *p = jget_str(args, field);
     if (!p) return NULL;
     if (p[0] == '/') return xstrdup(p);
-    if (env->ctx->ssh_host) { /* remote: no local realpath; join textually */
+    if (env->ctx->ssh_host) {
         buf_t b;
         buf_init(&b);
         buf_appendf(&b, "%s/%s", env->ctx->ssh_cwd ? env->ctx->ssh_cwd : "", p);
@@ -154,6 +219,18 @@ static char *call_detail(tools_env *env, const char *name, yyjson_val *args) {
     char *abs = tool_resolve_path(env, p, &err);
     free(err);
     return abs;
+}
+
+/* Extract the primary human detail used for permission rules and prompts. */
+static char *call_detail(tools_env *env, const char *name, yyjson_val *args) {
+    if (strcmp(name, "terminal") == 0 || strcmp(name, "run_command") == 0) {
+        const char *cmd = jget_str(args, "command");
+        return cmd ? xstrdup(cmd) : NULL;
+    }
+    char *detail = path_detail(env, args, "path");
+    if (detail) return detail;
+    const char *url = jget_str(args, "url");
+    return url ? xstrdup(url) : NULL;
 }
 
 static const char *canonical_name(const char *name) {
@@ -167,22 +244,49 @@ int tools_call_prepare(tools_env *env, const char *name,
     if (!env || !name || !call) return -1;
     memset(call, 0, sizeof *call);
     call->name = xstrdup(canonical_name(name));
+    call->permission_tool = xstrdup(call->name);
     call->doc = args_json ? jparse(args_json, strlen(args_json)) : NULL;
     call->args = call->doc ? yyjson_doc_get_root(call->doc) : NULL;
+    if (validate_call_schema(call->name, call->args, &call->error) != 0)
+        return -1;
+    if (strcmp(call->name, "mcp_select_tool") == 0) {
+        const char *server = jget_str(call->args, "server");
+        const char *tool = jget_str(call->args, "tool");
+        free(call->permission_tool);
+        buf_t identity;
+        buf_init(&identity);
+        buf_appendf(&identity, "mcp:%s/%s", server, tool);
+        call->permission_tool = buf_detach(&identity);
+    }
     call->detail = call_detail(env, call->name, call->args);
-    call->verdict = perm_check(env->perm, call->name, call->detail);
+    if (strcmp(call->name, "rename_file") == 0 ||
+        strcmp(call->name, "copy_file") == 0)
+        call->detail2 = path_detail(env, call->args, "new_path");
+    call->verdict = perm_check(env->perm, call->permission_tool, call->detail);
+    if (call->detail2) {
+        perm_verdict second = perm_check(env->perm, call->permission_tool,
+                                         call->detail2);
+        if (second == PERM_DENY || call->verdict == PERM_DENY)
+            call->verdict = PERM_DENY;
+        else if (second == PERM_PROMPT || call->verdict == PERM_PROMPT)
+            call->verdict = PERM_PROMPT;
+    }
     if (call->verdict == PERM_PROMPT) {
         buf_t summary;
         buf_init(&summary);
-        buf_appendf(&summary, "%s %s", call->name,
+        buf_appendf(&summary, "%s %s", call->permission_tool,
                     call->detail ? call->detail : "");
+        if (call->detail2) buf_appendf(&summary, " -> %s", call->detail2);
         call->summary = buf_detach(&summary);
     }
     return 0;
 }
 
 void tools_call_grant(tools_env *env, const tools_call *call) {
-    if (env && call) perm_grant(env->perm, call->name, call->detail);
+    if (!env || !call) return;
+    perm_grant(env->perm, call->permission_tool, call->detail);
+    if (call->detail2)
+        perm_grant(env->perm, call->permission_tool, call->detail2);
 }
 
 char *tools_call_execute(tools_env *env, const tools_call *call) {
@@ -202,8 +306,11 @@ char *tools_call_execute(tools_env *env, const tools_call *call) {
 void tools_call_free(tools_call *call) {
     if (!call) return;
     free(call->name);
+    free(call->permission_tool);
     free(call->detail);
+    free(call->detail2);
     free(call->summary);
+    free(call->error);
     yyjson_doc_free(call->doc);
     memset(call, 0, sizeof *call);
 }
@@ -224,8 +331,12 @@ int tools_flush_images(tools_env *env, char *err, size_t errlen) {
 char *tools_execute(tools_env *env, const char *name, const char *args_json) {
     name = canonical_name(name);
     tools_call call;
-    if (tools_call_prepare(env, name, args_json, &call) != 0)
-        return tool_err("cannot prepare tool call %s", name);
+    if (tools_call_prepare(env, name, args_json, &call) != 0) {
+        char *out = call.error ? xstrdup(call.error)
+                               : tool_err("cannot prepare tool call %s", name);
+        tools_call_free(&call);
+        return out;
+    }
     perm_verdict v = call.verdict;
     if (v == PERM_PROMPT && env->prompt) {
         tny_perm_decision d = env->prompt(call.name, call.summary, env->prompt_ud);

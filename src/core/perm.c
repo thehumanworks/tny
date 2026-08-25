@@ -47,6 +47,8 @@ static char *grant_key(const char *tool, const char *detail) {
         char prog[128] = {0};
         sscanf(detail, "%127s", prog);
         buf_appendf(&b, "terminal:%s", prog);
+    } else if (detail && *detail) {
+        buf_appendf(&b, "%s:%s", tool, detail);
     } else {
         buf_appends(&b, tool);
     }

@@ -612,9 +612,11 @@ static int run_tools(oa_impl *o) {
 
             tools_call call;
             if (tools_call_prepare(&o->env, name, args, &call) != 0) {
-                char *result = tool_err("cannot prepare tool call %s", name);
+                char *result = call.error ? xstrdup(call.error)
+                                          : tool_err("cannot prepare tool call %s", name);
                 tool_result(o, cid, name, result);
                 free(result);
+                tools_call_free(&call);
                 o->tool_index++;
                 continue;
             }

@@ -37,10 +37,13 @@ typedef struct tools_env {
  * parked for an asynchronous permission response. */
 typedef struct {
     char *name;
+    char *permission_tool;
     yyjson_doc *doc;
     yyjson_val *args;
     char *detail;
+    char *detail2;
     char *summary; /* allocated only for PERM_PROMPT */
+    char *error;   /* validation error when prepare returns -1 */
     perm_verdict verdict;
 } tools_call;
 
