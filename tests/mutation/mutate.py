@@ -90,8 +90,10 @@ TARGETS = [
      None, "tests/integration/test_extensions.py", "extension-control"),
     ("src/backends/openai/openai.c",
      ["provider_control", "start_post_mode", "complete_tool", "execute_call",
-      "finish_cancelled_call", "tool_batch_control", "subagent_control"],
+      "finish_cancelled_call", "tool_batch_control"],
      None, "tests/integration/test_extensions.py", "extension-control"),
+    ("src/backends/openai/openai.c", ["subagent_control"], None,
+     "tests/integration/test_ephemeral.py", "extension-control"),
     # streamed tool_call assembly: parallel calls, gateway index reuse
     ("src/backends/openai/toolcalls.c", None, None,
      "tests/integration/test_openai.py"),
