@@ -112,12 +112,14 @@ def setup(api):
     @api.on(PostToolUseEvent)
     def annotate_result(event):
         if (os.environ.get("TNY_TEST_REPLACE") == "1" or
+                os.environ.get("TNY_TEST_ANNOTATE_ONLY") == "1" or
                 os.environ.get("TNY_TEST_STOP_POST") == "1") and event.tool_id == "call_1":
             return annotate_tool("integration annotation")
 
     @api.on(PostToolUseEvent)
     def annotate_result_second(event):
-        if os.environ.get("TNY_TEST_REPLACE") == "1" and event.tool_id == "call_1":
+        if (os.environ.get("TNY_TEST_REPLACE") == "1" or
+                os.environ.get("TNY_TEST_ANNOTATE_ONLY") == "1") and event.tool_id == "call_1":
             return annotate_tool("integration annotation second", display=False)
 
     @api.on(PostToolUseEvent)
@@ -526,6 +528,28 @@ def main():
                     capture_output=True, timeout=30)
                 assert invalid_observe.returncode == 0, invalid_observe.stderr.decode()
                 assert b"invalid_action" in invalid_observe.stderr, invalid_observe.stderr
+
+                annotated = subprocess.run(
+                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
+                     "annotation-only audit"],
+                    env=dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
+                             TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="0",
+                             TNY_TEST_ANNOTATE_ONLY="1"),
+                    capture_output=True, timeout=30)
+                assert annotated.returncode == 0, annotated.stderr.decode()
+                annotated_json = json.loads(annotated.stdout)
+                annotated_sessions = glob.glob(os.path.join(
+                    home, ".tny", "sessions", "*", annotated_json["session_id"],
+                    "session.json"))
+                assert len(annotated_sessions) == 1, annotated_sessions
+                annotated_doc = json.load(open(annotated_sessions[0], encoding="utf-8"))
+                annotated_audit = [entry for entry in annotated_doc.get("extension_audit", [])
+                                   if entry.get("kind") == "tool" and
+                                   entry.get("id") == "call_1"]
+                assert len(annotated_audit) == 1, annotated_audit
+                assert len(annotated_audit[0]["annotations"]) == 2, annotated_audit
+                assert annotated_audit[0]["original_result"] == annotated_audit[0]["effective_result"]
+                assert "replacement_extension" not in annotated_audit[0]
             finally:
                 stop_mock.terminate()
                 stop_mock.wait(timeout=5)

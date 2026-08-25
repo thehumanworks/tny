@@ -1149,7 +1149,8 @@ static void native_post_tool(tny_engine *e,
             continue;
         }
         if (action->kind == TNY_EXTENSION_ACTION_TOOL_ANNOTATE) {
-            if (annotation_count++) buf_appends(&annotations, ",");
+            if (annotation_count > 0) buf_appends(&annotations, ",");
+            annotation_count++;
             buf_appends(&annotations, "{\"extension\":");
             jescape(&annotations, action->extension ? action->extension : "extension");
             buf_appends(&annotations, ",\"content\":");
@@ -1243,7 +1244,6 @@ static void native_openai_control(
     free(json);
     if (e->extension_stop_requested) response->stop = true;
     if (e->cancel_probe && e->cancel_probe(e->cancel_probe_ud)) {
-        e->extension_stop_requested = true;
         response->stop = true;
     }
 }
