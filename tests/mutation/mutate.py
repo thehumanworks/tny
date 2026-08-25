@@ -63,9 +63,9 @@ TARGETS = [
     ("src/core/session.c",
      ["session_replace_tool_arguments", "session_record_tool_audit"],
      None, "tests/integration/test_extensions.py", "extension-control"),
-    ("src/core/tools.c", ["tools_call_prepare", "tools_call_execute",
-                           "tools_execute"], None,
+    ("src/core/tools.c", ["tools_call_prepare", "tools_call_execute"], None,
      "tests/integration/test_extensions.py", "extension-control"),
+    ("src/core/tools.c", ["tools_execute"], None),
     ("src/tui/tui_input.c", ["do_key"], r"overlay"),
     ("src/core/config.c", ["tny_ctx_load"], r"perm_mode|permission_mode"),
     # named openai-compatible providers (settings.json profiles + env vars)

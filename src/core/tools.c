@@ -293,7 +293,7 @@ char *tools_call_execute(tools_env *env, const tools_call *call) {
     const char *name = call->name;
     yyjson_val *args = call->args;
 
-    bool handled = false;
+    bool handled;
     char *out = tool_ssh_execute(env, name, args, &handled);
     if (!handled) out = tool_fs_execute(env, name, args, &handled);
     if (!handled) out = tool_shell_execute(env, name, args, &handled);

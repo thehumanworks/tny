@@ -412,6 +412,10 @@ TEST tool_prepare_validates_rewrites_and_complete_permission_subjects(void) {
     env.perm = perm;
     tools_call call;
 
+    ASSERT_EQ(-1, tools_call_prepare(NULL, "list_files", "{}", &call));
+    ASSERT_EQ(-1, tools_call_prepare(&env, NULL, "{}", &call));
+    ASSERT_EQ(-1, tools_call_prepare(&env, "list_files", "{}", NULL));
+
     ASSERT_EQ(-1, tools_call_prepare(
         &env, "write_file", "{\"path\":\"a.txt\"}", &call));
     ASSERT(call.error && strstr(call.error, "needs argument content"));
@@ -430,6 +434,7 @@ TEST tool_prepare_validates_rewrites_and_complete_permission_subjects(void) {
         &env, "write_file", "{\"path\":\"/etc/tny-outside\",\"content\":\"x\"}",
         &call));
     ASSERT_EQ(PERM_PROMPT, call.verdict);
+    ASSERT(call.summary && strstr(call.summary, "write_file /etc/tny-outside"));
     tools_call_free(&call);
 
     ASSERT_EQ(0, tools_call_prepare(
