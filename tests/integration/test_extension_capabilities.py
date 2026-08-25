@@ -95,7 +95,7 @@ def main() -> int:
         }
         native = capabilities["providers"]["openai"]["entries"]
         assert native["extensions.permission.observe"]["state"] == "supported"
-        assert native["extensions.prompt.transform"]["state"] == "unavailable"
+        assert native["extensions.prompt.transform"]["state"] == "supported"
         providers = {item["name"]: item for item in result["providers"]}
         assert "probe skipped" in providers["cursor"]["detail"]
         assert "probe skipped" in providers["codex"]["detail"]

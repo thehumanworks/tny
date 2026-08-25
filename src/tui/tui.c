@@ -82,6 +82,7 @@ static void oneline(char *dst, size_t cap, const char *src) {
 void tui_drop_backend(tui *t) {
     t->bk_adopted = false;
     if (!t->engine) return;
+    tny_engine_preserve_session_on_free(t->engine);
     tny_engine_free(t->engine);
     t->engine = NULL;
 }
@@ -320,6 +321,8 @@ static char *queue_pop(tui *t) {
 
 void tui_new_session(tui *t, bool clear_screen) {
     if (t->turn_active) { tui_sys(t, "finish the turn first"); return; }
+    if (t->engine)
+        tny_engine_end_session(t->engine, clear_screen ? "clear" : "new");
     tui_drop_backend(t);
     if (t->session) {
         session_save(t->session);
@@ -351,6 +354,7 @@ static bool ensure_backend(tui *t) {
     if (bk) {
         if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_RESUMED,
                                err, sizeof err) != 0) {
+            tny_engine_preserve_session_on_free(engine);
             tny_engine_free(engine);
             tui_err(t, err);
             return false;
@@ -363,6 +367,7 @@ static bool ensure_backend(tui *t) {
     bk = tny_backend_create((tny_backend_id)t->ctx->backend, t->ctx);
     if (!bk || tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_FRESH,
                            err, sizeof err) != 0) {
+        tny_engine_preserve_session_on_free(engine);
         tny_engine_free(engine);
         tui_err(t, err);
         return false;
@@ -626,6 +631,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     term_restore();
 
     tui_prewarm_drop(&t);
+    if (t.engine) tny_engine_end_session(t.engine, "exit");
     tui_drop_backend(&t);
     if (t.session) {
         session_save(t.session);

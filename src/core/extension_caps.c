@@ -56,22 +56,22 @@ static const char *CAPABILITY_NAMES[TNY_EXT_CAP_COUNT] = {
  * until their transaction and ordering are implemented.  Host-owned controls
  * with no protocol decision surface are unsupported, never approximated. */
 static const tny_extension_capability_state OPENAI_CAPS[TNY_EXT_CAP_COUNT] = {
-    S, U, U, S, U, U, U, U, U, U, U, U, U, U, U,
+    S, S, S, S, S, S, S, S, S, S, S, U, U, U, U,
     S, U, U, U, S, U, U, U, U, U, S, S, U, U,
 };
 
 static const tny_extension_capability_state CODEX_CAPS[TNY_EXT_CAP_COUNT] = {
-    S, U, U, S, U, U, U, U, U, U, U, U, U, X, X,
+    S, S, S, S, S, S, U, S, S, U, S, U, U, X, X,
     S, U, U, U, S, X, X, U, U, U, S, S, U, U,
 };
 
 static const tny_extension_capability_state CURSOR_CAPS[TNY_EXT_CAP_COUNT] = {
-    S, U, U, S, U, U, U, U, U, U, U, U, U, X, X,
+    S, S, S, S, S, S, U, S, S, U, S, U, U, X, X,
     X, X, X, X, S, X, X, U, U, U, S, S, U, U,
 };
 
 static const tny_extension_capability_state ACP_CAPS[TNY_EXT_CAP_COUNT] = {
-    S, U, U, S, U, U, U, U, U, U, U, U, U, X, X,
+    S, S, S, S, S, S, U, S, S, U, S, U, U, X, X,
     S, U, U, U, S, X, X, U, U, U, S, S, U, U,
 };
 

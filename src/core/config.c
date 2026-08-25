@@ -1,6 +1,7 @@
 #include "core/config.h"
 #include "core/backend.h"
 #include "core/extensions.h"
+#include "core/instructions.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -422,6 +423,7 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
             ctx->extra_dirs[ctx->n_extra_dirs++] = xstrdup(yyjson_get_str(v));
         }
     }
+    (void)instructions_refresh(ctx);
     if (ctx->extensions_enabled) {
         tny_extensions *extensions = tny_extensions_new(
             ctx->tny_dir, ctx->cwd, ctx->extension_timeout_ms);
@@ -463,6 +465,7 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
     ctx->auth_header_prefix = xstrdup("Bearer ");
     ctx->bridge_bin = xstrdup("cursor-sdk-bridge");
     ctx->codex_bin = xstrdup("codex");
+    (void)instructions_refresh(ctx);
     return ctx;
 }
 
@@ -830,6 +833,23 @@ int tny_workspace_add(tny_ctx *ctx, const char *dir) {
     }
     struct ws_edit e = {ctx, abs, 0};
     int rc = settings_edit(ctx, edit_ws, &e);
+    if (rc == 0) {
+        for (int i = 0; i < ctx->n_extra_dirs; i++) {
+            if (strcmp(ctx->extra_dirs[i], abs) == 0) {
+                free(ctx->extra_dirs[i]);
+                memmove(ctx->extra_dirs + i, ctx->extra_dirs + i + 1,
+                        sizeof(char *) * (size_t)(ctx->n_extra_dirs - i - 1));
+                ctx->n_extra_dirs--;
+                break;
+            }
+        }
+        char **next = realloc(ctx->extra_dirs,
+                              sizeof(char *) * (size_t)(ctx->n_extra_dirs + 1));
+        if (next) {
+            ctx->extra_dirs = next;
+            ctx->extra_dirs[ctx->n_extra_dirs++] = xstrdup(abs);
+        }
+    }
     free(abs);
     return rc;
 }
@@ -838,13 +858,31 @@ int tny_workspace_remove(tny_ctx *ctx, const char *dir) {
     char *abs = path_abs(dir);
     struct ws_edit e = {ctx, abs ? abs : dir, 1};
     int rc = settings_edit(ctx, edit_ws, &e);
+    if (rc == 0) {
+        const char *target = abs ? abs : dir;
+        for (int i = 0; i < ctx->n_extra_dirs; i++) {
+            if (strcmp(ctx->extra_dirs[i], target) != 0) continue;
+            free(ctx->extra_dirs[i]);
+            memmove(ctx->extra_dirs + i, ctx->extra_dirs + i + 1,
+                    sizeof(char *) * (size_t)(ctx->n_extra_dirs - i - 1));
+            ctx->n_extra_dirs--;
+            break;
+        }
+    }
     free(abs);
     return rc;
 }
 
 int tny_workspace_clear(tny_ctx *ctx) {
     struct ws_edit e = {ctx, NULL, 2};
-    return settings_edit(ctx, edit_ws, &e);
+    int rc = settings_edit(ctx, edit_ws, &e);
+    if (rc == 0) {
+        for (int i = 0; i < ctx->n_extra_dirs; i++) free(ctx->extra_dirs[i]);
+        free(ctx->extra_dirs);
+        ctx->extra_dirs = NULL;
+        ctx->n_extra_dirs = 0;
+    }
+    return rc;
 }
 
 void tny_ctx_free(tny_ctx *ctx) {
@@ -871,6 +909,10 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->ssh_control);
     free(ctx->service_tier);
     free(ctx->reasoning_effort);
+    free(ctx->instructions_snapshot);
+    for (int i = 0; i < ctx->n_instruction_paths; i++)
+        free(ctx->instruction_paths[i]);
+    free(ctx->instruction_paths);
     if (ctx->agent_argv) {
         for (char **p = ctx->agent_argv; *p; p++) free(*p);
         free(ctx->agent_argv);

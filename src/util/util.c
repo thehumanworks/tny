@@ -63,7 +63,10 @@ void buf_consume(buf_t *b, size_t n) {
 }
 
 char *buf_detach(buf_t *b) {
-    if (!b->data) buf_reserve(b, 0);
+    if (!b->data) {
+        buf_reserve(b, 0);
+        b->data[0] = 0;
+    }
     char *p = b->data;
     buf_init(b);
     return p;

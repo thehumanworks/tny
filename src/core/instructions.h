@@ -10,5 +10,8 @@
  * primary workspace. CLAUDE.md is the alias when AGENTS.md is absent.
  * No-op when ctx->context_enabled is false. */
 void instructions_collect(tny_ctx *ctx, buf_t *out);
+/* Refresh the one process snapshot used by both provider requests and
+ * extension metadata events. */
+int instructions_refresh(tny_ctx *ctx);
 
 #endif

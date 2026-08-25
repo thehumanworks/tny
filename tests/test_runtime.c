@@ -1,6 +1,8 @@
 /* test_runtime.c — private engine ownership and terminal normalization. */
 #include "greatest.h"
 #include "core/runtime.h"
+#include "core/instructions.h"
+#include "core/extensions.h"
 #include "util/util.h"
 
 #include <stdlib.h>
@@ -14,7 +16,9 @@ typedef struct {
     int mode;
     bool dispatched;
     char *prompts[8];
+    char *steers[8];
     int sends;
+    int steer_count;
 } fake_runtime_backend;
 
 static int fake_connect(tny_backend *b, char *err, size_t errlen) {
@@ -39,6 +43,17 @@ static void fake_cancel(tny_backend *b) {
     tny_backend_event ev = {0}; ev.kind = TNY_EV_TURN_END;
     ev.stop = TNY_STOP_INTERRUPTED;
     f->cb(&ev, f->ud);
+}
+static int fake_steer(tny_backend *b, const char *text, char *err, size_t errlen) {
+    fake_runtime_backend *f = b->impl;
+    if (f->steer_count < (int)(sizeof f->steers / sizeof *f->steers))
+        f->steers[f->steer_count] = xstrdup(text);
+    f->steer_count++;
+    if (f->mode == 4) {
+        snprintf(err, errlen, "synchronous rejection");
+        return -1;
+    }
+    return 0;
 }
 static int fake_pollfds(tny_backend *b, struct pollfd *fds, int max) {
     (void)b; (void)fds; (void)max; return 0;
@@ -72,6 +87,7 @@ static int fake_dispatch(tny_backend *b, struct pollfd *fds, int n) {
 static void fake_destroy(tny_backend *b) {
     fake_runtime_backend *f = b->impl;
     for (int i = 0; i < 8; i++) free(f->prompts[i]);
+    for (int i = 0; i < 8; i++) free(f->steers[i]);
     free(f);
     free(b);
 }
@@ -84,6 +100,7 @@ static tny_backend *fake_backend(int mode, fake_runtime_backend **out) {
     b->id = TNY_BK_ACP; b->impl = f;
     b->connect = fake_connect; b->disconnect = fake_disconnect;
     b->create_or_resume = fake_resume; b->send = fake_send;
+    b->steer = fake_steer;
     b->cancel = fake_cancel; b->pollfds = fake_pollfds;
     b->dispatch = fake_dispatch; b->destroy = fake_destroy;
     if (out) *out = f;
@@ -144,6 +161,30 @@ static void fixture_free(fixture *x) {
     if (x->old_home) setenv("HOME", x->old_home, 1);
     else unsetenv("HOME");
     free(x->old_home);
+}
+
+static int drain_engine(tny_engine *engine, tny_stop_reason *stop) {
+    char err[256];
+    int events = 0;
+    tny_owned_event *ev = NULL;
+    for (;;) {
+        tny_engine_next next = tny_engine_next_event(engine, 50, &ev,
+                                                     err, sizeof err);
+        if (next == TNY_ENGINE_NEXT_DRAINED) break;
+        if (next != TNY_ENGINE_NEXT_EVENT) return -1;
+        events++;
+        if (ev->ev.kind == TNY_EV_TURN_END && stop) *stop = ev->ev.stop;
+        tny_owned_event_free(ev);
+    }
+    return events;
+}
+
+static int count_text(const char *haystack, const char *needle) {
+    int count = 0;
+    size_t n = strlen(needle);
+    for (const char *p = haystack; (p = strstr(p, needle)) != NULL; p += n)
+        count++;
+    return count;
 }
 
 TEST runtime_copies_events_and_suppresses_duplicate_terminal(void) {
@@ -480,6 +521,209 @@ TEST runtime_extension_stop_suppresses_earlier_continuation(void) {
     PASS();
 }
 
+TEST runtime_prompt_transform_and_block_precede_send_and_persistence(void) {
+    const char *transform_source =
+        "from tny_ext import UserPromptSubmitEvent, transform_prompt\n"
+        "def setup(api):\n"
+        "    @api.on(UserPromptSubmitEvent)\n"
+        "    def transform(event):\n"
+        "        return transform_prompt('effective prompt')\n";
+    fixture x = fixture_new_ext(0, transform_source, 0);
+    char err[256];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "submitted prompt", NULL,
+                                  err, sizeof err));
+    ASSERT(drain_engine(x.engine, NULL) > 0);
+    ASSERT_EQ(1, x.fake->sends);
+    ASSERT_STR_EQ("effective prompt", x.fake->prompts[0]);
+    ASSERT_STR_EQ("submitted prompt", session_title(x.session));
+    char *stored = jwrite(x.session->doc);
+    ASSERT(stored);
+    ASSERT(strstr(stored, "submitted prompt"));
+    ASSERT(strstr(stored, "effective prompt"));
+    ASSERT(strstr(stored, "extension_audit"));
+    free(stored);
+    fixture_free(&x);
+
+    const char *block_source =
+        "from tny_ext import UserPromptSubmitEvent, block_prompt\n"
+        "def setup(api):\n"
+        "    @api.on(UserPromptSubmitEvent)\n"
+        "    def block(event):\n"
+        "        return block_prompt('policy')\n";
+    x = fixture_new_ext(0, block_source, 0);
+    ASSERT_EQ(0, tny_engine_start(x.engine, "must not persist", NULL,
+                                  err, sizeof err));
+    tny_stop_reason stop = TNY_STOP_ERROR;
+    ASSERT(drain_engine(x.engine, &stop) > 0);
+    ASSERT_EQ(TNY_STOP_DENIED, stop);
+    ASSERT_EQ(0, x.fake->sends);
+    ASSERT_FALSE(session_title(x.session));
+    stored = jwrite(x.session->doc);
+    ASSERT(stored);
+    ASSERT(strstr(stored, "\"blocked\":true"));
+    ASSERT_FALSE(strstr(stored, "must not persist"));
+    free(stored);
+    fixture_free(&x);
+    PASS();
+}
+
+TEST runtime_lifecycle_order_and_session_rebind_are_stable(void) {
+    const char *source =
+        "import os\n"
+        "def setup(api):\n"
+        "    @api.on('*')\n"
+        "    def record(event):\n"
+        "        reason = getattr(event, 'reason', '')\n"
+        "        with open(os.environ['TNY_TEST_LIFECYCLE_LOG'], 'a', encoding='utf-8') as f:\n"
+        "            f.write(event.type + (':' + reason if reason else '') + '\\n')\n";
+    char log_path[] = "/tmp/tny-runtime-lifecycle-XXXXXX";
+    int fd = mkstemp(log_path);
+    ASSERT(fd >= 0);
+    close(fd);
+    setenv("TNY_TEST_LIFECYCLE_LOG", log_path, 1);
+    fixture x = fixture_new_ext(0, source, 0);
+    char err[256];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "first", NULL, err, sizeof err));
+    ASSERT(drain_engine(x.engine, NULL) > 0);
+
+    tny_engine_preserve_session_on_free(x.engine);
+    tny_engine_free(x.engine);
+    x.engine = tny_engine_new(x.ctx, x.session, x.perm, NULL, NULL);
+    ASSERT(x.engine);
+    ASSERT_EQ(0, tny_engine_prepare(x.engine, fake_backend(0, &x.fake),
+                                    TNY_ENGINE_PREPARE_FRESH,
+                                    err, sizeof err));
+    ASSERT_EQ(0, tny_engine_start(x.engine, "second", NULL, err, sizeof err));
+    ASSERT(drain_engine(x.engine, NULL) > 0);
+    tny_engine_end_session(x.engine, "exit");
+
+    size_t n = 0;
+    char *log = file_slurp(log_path, &n);
+    ASSERT(log);
+    ASSERT_EQ(1, count_text(log, "session_start:new"));
+    ASSERT_EQ(1, count_text(log, "session_end:exit"));
+    ASSERT_EQ(2, count_text(log, "user_prompt_submit"));
+    ASSERT_EQ(2, count_text(log, "turn_start"));
+    ASSERT_EQ(2, count_text(log, "message_start"));
+    ASSERT_EQ(2, count_text(log, "message_update"));
+    ASSERT_EQ(2, count_text(log, "message_end"));
+    const char *session = strstr(log, "session_start:new");
+    const char *prompt = strstr(log, "user_prompt_submit");
+    const char *before = strstr(log, "before_agent_start");
+    const char *agent = strstr(log, "agent_start");
+    const char *turn = strstr(log, "turn_start");
+    const char *message = strstr(log, "message_start");
+    const char *delta = strstr(log, "text_delta");
+    const char *update = strstr(log, "message_update");
+    const char *message_end = strstr(log, "message_end");
+    const char *turn_end = strstr(log, "turn_end");
+    const char *agent_end = strstr(log, "agent_end");
+    const char *settled = strstr(log, "agent_settled");
+    ASSERT(session < prompt && prompt < before && before < agent && agent < turn);
+    ASSERT(turn < message && message < delta && delta < update);
+    ASSERT(update < message_end && message_end < turn_end && turn_end < agent_end);
+    ASSERT(agent_end < settled);
+    free(log);
+    unlink(log_path);
+    unsetenv("TNY_TEST_LIFECYCLE_LOG");
+    fixture_free(&x);
+    PASS();
+}
+
+TEST runtime_transformed_steer_requeues_without_replaying_hook(void) {
+    const char *source =
+        "from tny_ext import UserPromptSubmitEvent, transform_prompt\n"
+        "def setup(api):\n"
+        "    @api.on(UserPromptSubmitEvent)\n"
+        "    def transform(event):\n"
+        "        if event.prompt == 'steer original':\n"
+        "            return transform_prompt('steer effective')\n"
+        "        if event.prompt == 'steer effective':\n"
+        "            return transform_prompt('HOOK-REPLAYED')\n";
+    fixture x = fixture_new_ext(4, source, 0);
+    char err[256];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "initial", NULL, err, sizeof err));
+    ASSERT_EQ(0, tny_engine_steer(x.engine, "steer original", err, sizeof err));
+    ASSERT_EQ(1, x.fake->steer_count);
+    ASSERT_STR_EQ("steer effective", x.fake->steers[0]);
+    char *requeued = NULL;
+    tny_owned_event *ev = NULL;
+    while ((ev = tny_engine_pop_event(x.engine))) {
+        if (ev->ev.kind == TNY_EV_STEER_REJECTED)
+            requeued = xstrndup(ev->ev.text, ev->ev.text_len);
+        tny_owned_event_free(ev);
+    }
+    ASSERT_STR_EQ("steer effective", requeued);
+    ASSERT(drain_engine(x.engine, NULL) > 0);
+    ASSERT_EQ(0, tny_engine_start(x.engine, requeued, NULL, err, sizeof err));
+    free(requeued);
+    ASSERT(drain_engine(x.engine, NULL) > 0);
+    ASSERT_EQ(2, x.fake->sends);
+    ASSERT_STR_EQ("steer effective", x.fake->prompts[1]);
+    ASSERT_FALSE(strstr(x.fake->prompts[1], "HOOK-REPLAYED"));
+    fixture_free(&x);
+    PASS();
+}
+
+TEST runtime_compaction_selection_instructions_and_workspace_events(void) {
+    const char *source =
+        "import os\n"
+        "WATCH = {'instructions_change', 'pre_compact', 'post_compact', "
+        "'model_change', 'effort_change', 'workspace_change'}\n"
+        "def setup(api):\n"
+        "    @api.on('*')\n"
+        "    def record(event):\n"
+        "        if event.type in WATCH:\n"
+        "            with open(os.environ['TNY_TEST_CHANGE_LOG'], 'a', encoding='utf-8') as f:\n"
+        "                f.write(event.type + '\\n')\n";
+    char log_path[] = "/tmp/tny-runtime-changes-XXXXXX";
+    int fd = mkstemp(log_path);
+    ASSERT(fd >= 0);
+    close(fd);
+    setenv("TNY_TEST_CHANGE_LOG", log_path, 1);
+    fixture x = fixture_new_ext(0, source, 0);
+    x.ctx->backend = TNY_BK_OPENAI;
+    tny_extensions_set_provider(x.ctx->extensions, TNY_BK_OPENAI);
+    char *agents = path_join(x.ctx->cwd, "AGENTS.md");
+    ASSERT_EQ(0, file_write_atomic(agents, "test instructions\n", 18));
+    ASSERT_EQ(0, instructions_refresh(x.ctx));
+    free(agents);
+
+    char err[256];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "first", NULL, err, sizeof err));
+    ASSERT(drain_engine(x.engine, NULL) > 0);
+    for (int i = 0; i < 8; i++) session_bump_turns(x.session);
+    session_add_text(x.session, "user", "old request");
+    session_add_text(x.session, "assistant", "old answer");
+    session_add_text(x.session, "user", "latest request");
+    ASSERT_EQ(1, tny_engine_compact(x.engine, true, "manual"));
+    tny_engine_model_changed(x.engine, "old-model", "new-model", "test");
+    tny_engine_effort_changed(x.engine, "low", "high", "test");
+    char *extra = path_join(x.ctx->cwd, "extra");
+    ASSERT_EQ(0, mkdir_p(extra));
+    ASSERT_EQ(0, tny_workspace_add(x.ctx, extra));
+    ASSERT_EQ(1, x.ctx->n_extra_dirs);
+    ASSERT_STR_EQ(extra, x.ctx->extra_dirs[0]);
+    tny_engine_workspace_changed(x.engine, "add", extra);
+    free(extra);
+
+    size_t n = 0;
+    char *log = file_slurp(log_path, &n);
+    ASSERT(log);
+    ASSERT_EQ(1, count_text(log, "instructions_change"));
+    ASSERT_EQ(1, count_text(log, "pre_compact"));
+    ASSERT_EQ(1, count_text(log, "post_compact"));
+    ASSERT_EQ(1, count_text(log, "model_change"));
+    ASSERT_EQ(1, count_text(log, "effort_change"));
+    ASSERT_EQ(1, count_text(log, "workspace_change"));
+    ASSERT(strstr(log, "pre_compact") < strstr(log, "post_compact"));
+    free(log);
+    unlink(log_path);
+    unsetenv("TNY_TEST_CHANGE_LOG");
+    fixture_free(&x);
+    PASS();
+}
+
 SUITE(runtime_suite) {
     RUN_TEST(runtime_copies_events_and_suppresses_duplicate_terminal);
     RUN_TEST(runtime_synthesizes_transport_error_and_terminal);
@@ -492,4 +736,8 @@ SUITE(runtime_suite) {
     RUN_TEST(runtime_extension_stop_requests_cancel_at_safe_boundary);
     RUN_TEST(runtime_extension_host_state_persists_across_sessions);
     RUN_TEST(runtime_extension_stop_suppresses_earlier_continuation);
+    RUN_TEST(runtime_prompt_transform_and_block_precede_send_and_persistence);
+    RUN_TEST(runtime_lifecycle_order_and_session_rebind_are_stable);
+    RUN_TEST(runtime_transformed_steer_requeues_without_replaying_hook);
+    RUN_TEST(runtime_compaction_selection_instructions_and_workspace_events);
 }

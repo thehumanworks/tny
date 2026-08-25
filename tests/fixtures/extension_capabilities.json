@@ -35,9 +35,9 @@
     "openai": {
       "runtime": "native",
       "states": [
-        "supported", "unavailable", "unavailable", "supported",
-        "unavailable", "unavailable", "unavailable", "unavailable",
-        "unavailable", "unavailable", "unavailable", "unavailable",
+        "supported", "supported", "supported", "supported",
+        "supported", "supported", "supported", "supported",
+        "supported", "supported", "supported", "unavailable",
         "unavailable", "unavailable", "unavailable", "supported",
         "unavailable", "unavailable", "unavailable", "supported",
         "unavailable", "unavailable", "unavailable", "unavailable",
@@ -47,9 +47,9 @@
     "cursor": {
       "runtime": "host",
       "states": [
-        "supported", "unavailable", "unavailable", "supported",
-        "unavailable", "unavailable", "unavailable", "unavailable",
-        "unavailable", "unavailable", "unavailable", "unavailable",
+        "supported", "supported", "supported", "supported",
+        "supported", "supported", "unavailable", "supported",
+        "supported", "unavailable", "supported", "unavailable",
         "unavailable", "unsupported", "unsupported", "unsupported",
         "unsupported", "unsupported", "unsupported", "supported",
         "unsupported", "unsupported", "unavailable", "unavailable",
@@ -59,9 +59,9 @@
     "codex": {
       "runtime": "host",
       "states": [
-        "supported", "unavailable", "unavailable", "supported",
-        "unavailable", "unavailable", "unavailable", "unavailable",
-        "unavailable", "unavailable", "unavailable", "unavailable",
+        "supported", "supported", "supported", "supported",
+        "supported", "supported", "unavailable", "supported",
+        "supported", "unavailable", "supported", "unavailable",
         "unavailable", "unsupported", "unsupported", "supported",
         "unavailable", "unavailable", "unavailable", "supported",
         "unsupported", "unsupported", "unavailable", "unavailable",
@@ -71,9 +71,9 @@
     "acp": {
       "runtime": "host",
       "states": [
-        "supported", "unavailable", "unavailable", "supported",
-        "unavailable", "unavailable", "unavailable", "unavailable",
-        "unavailable", "unavailable", "unavailable", "unavailable",
+        "supported", "supported", "supported", "supported",
+        "supported", "supported", "unavailable", "supported",
+        "supported", "unavailable", "supported", "unavailable",
         "unavailable", "unsupported", "unsupported", "supported",
         "unavailable", "unavailable", "unavailable", "supported",
         "unsupported", "unsupported", "unavailable", "unavailable",

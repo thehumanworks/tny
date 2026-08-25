@@ -98,6 +98,11 @@ typedef struct tny_ctx {
                                     * repo's .tny.json "steps" */
     size_t max_tool_result_bytes;  /* default 32768 */
     bool   context_enabled;        /* AGENTS.md loading */
+    char  *instructions_snapshot;  /* cached request/event snapshot */
+    char **instruction_paths;
+    int    n_instruction_paths;
+    char   instructions_digest[17];
+    bool   instructions_snapshot_ready;
     bool   mcp_disabled;           /* `tny acp` server: client owns MCP */
     char  *sandbox_mode;           /* "none" | "auto" | "os" */
 

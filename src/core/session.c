@@ -32,6 +32,7 @@ tny_session_state *session_new(tny_ctx *ctx) {
     tny_session_state *s = calloc(1, sizeof *s);
     if (!s) return NULL;
     s->ctx = ctx;
+    s->extension_start_reason = xstrdup("new");
     s->id = gen_id();
     char *root = sessions_root(ctx);
     s->dir = path_join(root, s->id);
@@ -70,6 +71,7 @@ tny_session_state *session_open(tny_ctx *ctx, const char *id_or_last) {
     tny_session_state *s = calloc(1, sizeof *s);
     if (!s) { yyjson_doc_free(doc); free(id); free(dir); return NULL; }
     s->ctx = ctx;
+    s->extension_start_reason = xstrdup("resume");
     s->id = id;
     s->dir = dir;
     s->doc = yyjson_doc_mut_copy(doc, NULL);
@@ -97,6 +99,8 @@ void session_close(tny_session_state *s) {
     if (!s) return;
     free(s->id);
     free(s->dir);
+    free(s->extension_start_reason);
+    free(s->extension_previous_session_id);
     yyjson_mut_doc_free(s->doc);
     for (int i = 0; i < s->n_mem_results; i++) {
         free(s->mem_results[i].handle);
@@ -203,6 +207,45 @@ void session_get_usage(tny_session_state *s, int64_t *in_tok, int64_t *out_tok) 
     *out_tok = u ? yyjson_mut_get_int(yyjson_mut_obj_get(u, "out")) : 0;
 }
 
+void session_set_extension_start(tny_session_state *s, const char *reason,
+                                 const char *previous_session_id) {
+    if (!s) return;
+    free(s->extension_start_reason);
+    free(s->extension_previous_session_id);
+    s->extension_start_reason = xstrdup(reason && *reason ? reason : "new");
+    s->extension_previous_session_id = previous_session_id && *previous_session_id
+        ? xstrdup(previous_session_id) : NULL;
+}
+
+static yyjson_mut_val *extension_audit(tny_session_state *s) {
+    yyjson_mut_val *audit = yyjson_mut_obj_get(root_of(s), "extension_audit");
+    if (audit && yyjson_mut_is_arr(audit)) return audit;
+    audit = yyjson_mut_arr(s->doc);
+    yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "extension_audit"),
+                       audit);
+    return audit;
+}
+
+void session_record_prompt_audit(tny_session_state *s, const char *submission_id,
+                                 const char *submitted, const char *effective,
+                                 bool blocked, const char *extension,
+                                 const char *reason) {
+    if (!s || (!blocked && (!submitted || !effective))) return;
+    yyjson_mut_val *entry = yyjson_mut_obj(s->doc);
+    yyjson_mut_obj_add_strcpy(s->doc, entry, "kind", "prompt");
+    yyjson_mut_obj_add_strcpy(s->doc, entry, "id", submission_id ? submission_id : "");
+    yyjson_mut_obj_add_bool(s->doc, entry, "blocked", blocked);
+    if (!blocked) {
+        yyjson_mut_obj_add_strcpy(s->doc, entry, "submitted", submitted);
+        yyjson_mut_obj_add_strcpy(s->doc, entry, "effective", effective);
+    }
+    if (extension && *extension)
+        yyjson_mut_obj_add_strcpy(s->doc, entry, "extension", extension);
+    if (reason && *reason)
+        yyjson_mut_obj_add_strcpy(s->doc, entry, "reason", reason);
+    yyjson_mut_arr_add_val(extension_audit(s), entry);
+}
+
 char *session_store_result(tny_session_state *s, const char *data, size_t len) {
     char *handle = gen_id();
     if (s->ctx->no_save) {
@@ -292,15 +335,28 @@ static int start_of_last_turns(yyjson_mut_val *msgs, int keep) {
     return 0;
 }
 
-void session_compact(tny_session_state *s, bool force) {
+int session_message_count(tny_session_state *s) {
+    yyjson_mut_val *messages = session_messages(s);
+    return messages ? (int)yyjson_mut_arr_size(messages) : 0;
+}
+
+bool session_compact_needed(tny_session_state *s, bool force) {
     yyjson_mut_val *msgs = session_messages(s);
-    if (!msgs) return;
+    if (!msgs) return false;
     int turns = session_turns(s);
-    if (!force && turns < 8) return;
+    if (!force && turns < 8) return false;
     int keep = force ? 1 : 4;
     int boundary = start_of_last_turns(msgs, keep);
     int old_boundary = session_compact_boundary(s, NULL);
-    if (boundary <= old_boundary) return;
+    return boundary > old_boundary;
+}
+
+int session_compact(tny_session_state *s, bool force) {
+    yyjson_mut_val *msgs = session_messages(s);
+    if (!msgs || !session_compact_needed(s, force)) return 0;
+    int keep = force ? 1 : 4;
+    int boundary = start_of_last_turns(msgs, keep);
+    int old_boundary = session_compact_boundary(s, NULL);
 
     /* mechanical structured summary of [old_boundary, boundary) */
     buf_t sum;
@@ -336,6 +392,7 @@ void session_compact(tny_session_state *s, bool force) {
     yyjson_mut_obj_put(c, yyjson_mut_strcpy(s->doc, "summary"), yyjson_mut_strcpy(s->doc, sum.data));
     yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "compact"), c);
     buf_free(&sum);
+    return 1;
 }
 
 /* ---- recovery ---- */

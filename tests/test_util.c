@@ -83,6 +83,10 @@ TEST buf_ops(void) {
     char *d = buf_detach(&b);
     ASSERT_STR_EQ("42 world", d);
     free(d);
+    buf_init(&b);
+    d = buf_detach(&b);
+    ASSERT_STR_EQ("", d);
+    free(d);
     PASS();
 }
 

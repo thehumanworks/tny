@@ -247,11 +247,12 @@ static int tokenize(char *s, char **av, int max) {
     return n;
 }
 
-static void run_cli(tui *t, int (*fn)(tny_ctx *, const cli_globals *, int, char **),
-                    int argc, char **argv) {
+static int run_cli(tui *t, int (*fn)(tny_ctx *, const cli_globals *, int, char **),
+                   int argc, char **argv) {
     tui_raw_begin(t);
-    fn(t->ctx, t->g, argc, argv);
+    int rc = fn(t->ctx, t->g, argc, argv);
     tui_raw_end(t);
+    return rc;
 }
 
 /* Rebinding commands drop the live backend; warming the (possibly new)
@@ -355,9 +356,14 @@ static void cmd_resume_id(tui *t, const char *id) {
         tui_err(t, "no such session for this workspace (try /sessions)");
         return;
     }
+    char *previous = t->session && t->session->id
+        ? xstrdup(t->session->id) : NULL;
+    if (t->engine) tny_engine_end_session(t->engine, "resume");
+    drop_backend(t); /* old engine still owns the old session until here */
     if (t->session) session_close(t->session);
     t->session = s;
-    drop_backend(t); /* rebind on the next turn */
+    session_set_extension_start(s, "resume", previous);
+    free(previous);
     int64_t in_tok = 0, out_tok = 0;
     session_get_usage(s, &in_tok, &out_tok);
     t->in_tok = in_tok;
@@ -444,19 +450,27 @@ void tui_command(tui *t, const char *line) {
     } else if (strcmp(c, "compact") == 0) {
         if (!t->session) tui_sys(t, "no session yet");
         else {
-            session_compact(t->session, true);
-            session_save(t->session);
-            tui_sys(t, "transcript compacted");
+            int rc = t->engine
+                ? tny_engine_compact(t->engine, true, "manual")
+                : session_compact(t->session, true);
+            if (!t->engine && rc >= 0) session_save(t->session);
+            if (rc > 0) tui_sys(t, "transcript compacted");
+            else if (rc == 0) tui_sys(t, "nothing to compact");
+            else tui_err(t, "compaction failed");
         }
     } else if (strcmp(c, "models") == 0) {
         run_cli(t, cmd_models, 0, NULL);
     } else if (strcmp(c, "model") == 0) {
         if (arg && *arg) {
             tui_prewarm_drop(t); /* the warm-up thread reads ctx->model */
+            char *previous = t->ctx->model ? xstrdup(t->ctx->model) : NULL;
             free(t->ctx->model);
             t->ctx->model = xstrdup(arg);
             t->ctx->model_from_flag = false; /* explicit choice, persist it */
             tny_settings_remember_use(t->ctx); /* saved per provider */
+            tny_engine_model_changed(t->engine, previous, t->ctx->model,
+                                     "command");
+            free(previous);
             drop_backend(t); /* rebind so the new model reaches the host */
             tui_sys(t, "model set");
         } else {
@@ -497,8 +511,19 @@ void tui_command(tui *t, const char *line) {
                 if (t->turn_active) tui_sys(t, "finish the turn first");
                 else {
                     tui_prewarm_drop(t); /* resolve swaps ctx fields it reads */
+                    char *previous_model = t->ctx->model
+                        ? xstrdup(t->ctx->model) : NULL;
+                    char *previous_effort = t->ctx->reasoning_effort
+                        ? xstrdup(t->ctx->reasoning_effort) : NULL;
                     /* full resolve: also swaps in the provider's saved model */
                     tny_resolve_backend(t->ctx, arg);
+                    tny_engine_model_changed(t->engine, previous_model,
+                                             t->ctx->model, "provider");
+                    tny_engine_effort_changed(t->engine, previous_effort,
+                                              t->ctx->reasoning_effort,
+                                              "provider");
+                    free(previous_model);
+                    free(previous_effort);
                     drop_backend(t);
                     tny_settings_remember_use(t->ctx);
                     tui_sys(t, "provider switched");
@@ -549,6 +574,8 @@ void tui_command(tui *t, const char *line) {
                        "— /models lists provider levels");
         } else {
             tui_prewarm_drop(t); /* the warm-up thread reads the effort */
+            char *previous = t->ctx->reasoning_effort
+                ? xstrdup(t->ctx->reasoning_effort) : NULL;
             free(t->ctx->reasoning_effort);
             t->ctx->reasoning_effort =
                 strcmp(arg, "default") == 0 ? NULL : xstrdup(arg);
@@ -557,6 +584,9 @@ void tui_command(tui *t, const char *line) {
              * settings.json default (docs/adr/0015) */
             t->ctx->effort_explicit = true;
             t->ctx->effort_from_settings = false;
+            tny_engine_effort_changed(t->engine, previous,
+                                      t->ctx->reasoning_effort, "command");
+            free(previous);
             if (!t->engine) tui_prewarm_start(t);
             if (!t->ctx->reasoning_effort)
                 tui_linef(t, "  reasoning effort: provider default");
@@ -602,7 +632,11 @@ void tui_command(tui *t, const char *line) {
         char *av[4];
         int ac = arg ? tokenize(arg, av, 4) : 0;
         if (ac) tui_prewarm_drop(t); /* add/remove edit dirs the warm-up reads */
-        run_cli(t, cmd_workspace, ac, av);
+        int rc = run_cli(t, cmd_workspace, ac, av);
+        if (rc == 0 && ac) {
+            const char *path = ac > 1 ? av[1] : NULL;
+            tny_engine_workspace_changed(t->engine, av[0], path);
+        }
         tui_files_free(t);
         if (ac && !t->engine) tui_prewarm_start(t);
     } else if (strcmp(c, "setup") == 0) {

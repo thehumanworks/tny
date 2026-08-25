@@ -2,6 +2,7 @@
 """End-to-end Python hooks over the normalized native-provider event stream."""
 
 import json
+import glob
 import os
 import socket
 import subprocess
@@ -25,7 +26,15 @@ def free_port():
 EXTENSION = r'''
 import json
 import os
-from tny_ext import AgentEndEvent, BeforeAgentStartEvent, context, continue_with
+from tny_ext import (
+    AgentEndEvent,
+    BeforeAgentStartEvent,
+    UserPromptSubmitEvent,
+    block_prompt,
+    context,
+    continue_with,
+    transform_prompt,
+)
 
 log_path = os.environ["TNY_TEST_EXTENSION_LOG"]
 
@@ -46,8 +55,15 @@ def setup(api):
     assert selected is not None
     assert selected.runtime == "native"
     assert selected.supports("extensions.prompt.observe")
-    assert selected.state("extensions.prompt.transform") == "unavailable"
+    assert selected.state("extensions.prompt.transform") == "supported"
     api.on("*", record)
+
+    @api.on(UserPromptSubmitEvent)
+    def prepare_prompt(event):
+        if event.prompt == "list files":
+            return transform_prompt("TRANSFORMED-NATIVE-PROMPT")
+        if event.prompt == "blocked input":
+            return block_prompt("integration policy")
 
     @api.on(BeforeAgentStartEvent)
     def inject(event):
@@ -108,17 +124,40 @@ def main():
             assert "visible test context" in stderr, stderr
             assert "extension follow-up: extension followup" in stderr, stderr
 
+            session_files = glob.glob(os.path.join(home, ".tny", "sessions", "*", "*", "session.json"))
+            assert len(session_files) == 1, session_files
+            session_doc = json.load(open(session_files[0], encoding="utf-8"))
+            user_messages = [
+                message.get("content")
+                for message in session_doc["messages"]
+                if message.get("role") == "user"
+            ]
+            assert any(message.endswith("TRANSFORMED-NATIVE-PROMPT") for message in user_messages), user_messages
+            assert not any("list files" in message for message in user_messages), user_messages
+            assert session_doc["title"] == "list files", session_doc
+            prompt_audit = [
+                entry for entry in session_doc.get("extension_audit", [])
+                if entry.get("kind") == "prompt"
+            ]
+            assert prompt_audit and prompt_audit[0]["submitted"] == "list files", prompt_audit
+            assert prompt_audit[0]["effective"] == "TRANSFORMED-NATIVE-PROMPT", prompt_audit
+
             assert os.path.exists(event_log), (stderr, output)
             events = [json.loads(line) for line in open(event_log, encoding="utf-8")]
             kinds = [event["type"] for event in events]
             for required in (
                 "session_start",
+                "user_prompt_submit",
                 "before_agent_start",
                 "agent_start",
+                "turn_start",
+                "message_start",
                 "tool_start",
                 "tool_end",
                 "thinking",
                 "text_delta",
+                "message_update",
+                "message_end",
                 "usage",
                 "turn_end",
                 "agent_end",
@@ -133,6 +172,32 @@ def main():
             assert len(sequences) == len(set(sequences)), sequences
             assert all(event["provider"] == "openai" for event in events), events
             assert all(event["session_id"] for event in events), events
+
+            order = {kind: kinds.index(kind) for kind in (
+                "session_start", "user_prompt_submit", "before_agent_start",
+                "agent_start", "turn_start", "message_start", "text_delta",
+                "message_update", "message_end", "turn_end", "agent_end",
+                "agent_settled", "session_end",
+            )}
+            assert list(order.values()) == sorted(order.values()), order
+
+            blocked = subprocess.run(
+                [TNY, "--cwd", workspace, "ask", "--json", "blocked input"],
+                env=env,
+                capture_output=True,
+                timeout=30,
+            )
+            assert blocked.returncode == 2, (blocked.stdout, blocked.stderr)
+            blocked_output = json.loads(blocked.stdout)
+            assert blocked_output["exit_code"] == 2, blocked_output
+            blocked_session = os.path.join(
+                os.path.dirname(os.path.dirname(session_files[0])),
+                blocked_output["session_id"], "session.json",
+            )
+            blocked_doc = json.load(open(blocked_session, encoding="utf-8"))
+            assert not blocked_doc.get("messages"), blocked_doc
+            assert "blocked input" not in json.dumps(blocked_doc), blocked_doc
+            assert blocked_doc["extension_audit"][0]["blocked"] is True, blocked_doc
         print("test_extensions: all assertions passed")
     finally:
         mock.terminate()

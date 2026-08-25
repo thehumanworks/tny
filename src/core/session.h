@@ -18,6 +18,13 @@ typedef struct {
     char *dir;             /* ~/.tny/sessions/<ws-hash>/<id> */
     tny_ctx *ctx;
     yyjson_mut_doc *doc;   /* working copy of session.json */
+    /* Process-local extension lifecycle identity survives backend-engine
+     * rebinds without changing the on-disk/provider message schema. */
+    uint64_t extension_event_sequence;
+    uint64_t extension_agent_sequence;
+    bool extension_session_started;
+    char *extension_start_reason;
+    char *extension_previous_session_id;
     session_mem_result *mem_results; /* large results in ephemeral mode */
     int n_mem_results;
 } tny_session_state;
@@ -47,6 +54,15 @@ const char *session_host_pointer(tny_session_state *s);
 void session_add_usage(tny_session_state *s, int64_t in_tok, int64_t out_tok);
 void session_get_usage(tny_session_state *s, int64_t *in_tok, int64_t *out_tok);
 
+/* Extension lifecycle/audit metadata is top-level and never serialized into
+ * provider-facing messages[]. Old sessions simply lack it. */
+void session_set_extension_start(tny_session_state *s, const char *reason,
+                                 const char *previous_session_id);
+void session_record_prompt_audit(tny_session_state *s, const char *submission_id,
+                                 const char *submitted, const char *effective,
+                                 bool blocked, const char *extension,
+                                 const char *reason);
+
 /* Large tool results: store blob, return malloc'd handle id. Ephemeral
  * sessions retain the blob only until session_close(). */
 char *session_store_result(tny_session_state *s, const char *data, size_t len);
@@ -57,7 +73,9 @@ char *session_read_result(tny_session_state *s, const char *handle, size_t off,
 /* Compaction: after 8 completed turns keep latest 4 verbatim; force=true
  * condenses everything before the latest turn. Summary is mechanical
  * (requests, files, commands, outcomes). */
-void session_compact(tny_session_state *s, bool force);
+int  session_compact(tny_session_state *s, bool force); /* 1 changed, 0 no-op */
+bool session_compact_needed(tny_session_state *s, bool force);
+int  session_message_count(tny_session_state *s);
 /* Index of first message the model should see verbatim + summary text. */
 int  session_compact_boundary(tny_session_state *s, const char **summary);
 

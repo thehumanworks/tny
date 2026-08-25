@@ -516,7 +516,6 @@ static void finish_turn_ok(oa_impl *o) {
     tny_session_state *s = o->env.session;
     session_add_assistant(s, o->text.len ? o->text.data : "", NULL);
     session_bump_turns(s);
-    session_compact(s, false);
     session_save(s);
     session_recovery_clear(s);
     if (o->usage_in || o->usage_out) {
@@ -793,7 +792,6 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images,
     oa_calls_reset(&o->calls);
 
     tny_session_state *s = o->env.session;
-    if (!session_title(s)) session_set_title(s, prompt);
     session_set_meta(s, "openai", model_of(o));
 
     if (images && images[0]) {
