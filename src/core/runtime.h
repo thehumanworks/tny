@@ -17,6 +17,7 @@ typedef struct tny_engine tny_engine;
 typedef struct tny_owned_event {
     tny_backend_event ev;
     size_t owned_bytes;
+    bool hooks_done;
     struct tny_owned_event *next;
 } tny_owned_event;
 

@@ -301,8 +301,8 @@ def main():
                 fmock.terminate()
                 fmock.wait(timeout=5)
 
-            # response.incomplete (token cutoff): the partial text still
-            # finishes the turn cleanly, exactly like chat's length stop
+            # response.incomplete (token cutoff): partial text is preserved,
+            # but the provider limit remains a non-success terminal reason
             iport = free_port()
             imock = subprocess.Popen(
                 [sys.executable, MOCK, str(iport)],
@@ -316,7 +316,7 @@ def main():
                     [TNY, "--cwd", ws, "ask", "--json", "--no-save",
                      "list files in ."],
                     env=ienv, capture_output=True, timeout=30)
-                assert r11b.returncode == 0, \
+                assert r11b.returncode == 2, \
                     f"exit {r11b.returncode}: {r11b.stderr.decode()}"
                 out11b = json.loads(r11b.stdout)
                 assert "MOCK-OK" in out11b["output"], out11b
@@ -397,6 +397,29 @@ def main():
             finally:
                 cmock.terminate()
                 cmock.wait(timeout=5)
+
+            # OpenRouter-compatible mid-stream errors keep HTTP 200 and place
+            # a top-level error object inside SSE. They must fail the agent,
+            # not turn into a successful empty answer at [DONE].
+            ceport = free_port()
+            cemock = subprocess.Popen(
+                [sys.executable, MOCK, str(ceport)],
+                env=dict(os.environ, MOCK_CHAT_ERROR="routed provider failed",
+                         MOCK_EXPECT_WIRE="chat"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                line = cemock.stdout.readline().decode()
+                assert "ready" in line, f"chat error mock did not start: {line!r}"
+                ceenv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{ceport}/v1")
+                cerr = subprocess.run(
+                    [TNY, "--cwd", ws, "--wire-api", "chat", "ask",
+                     "--no-save", "fail in stream"],
+                    env=ceenv, capture_output=True, timeout=30)
+                assert cerr.returncode == 2, cerr.stderr.decode()
+                assert b"routed provider failed" in cerr.stderr, cerr.stderr
+            finally:
+                cemock.terminate()
+                cemock.wait(timeout=5)
 
             # settings.json default effort (docs/adr/0015): with no flag and
             # no env, `"effort"` in settings must ride the request — mapped

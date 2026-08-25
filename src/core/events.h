@@ -18,9 +18,12 @@ typedef enum {
     TNY_EV_TURN_END,     /* turn finished (see stop) */
     TNY_EV_ERROR,        /* fatal-for-this-turn error */
     TNY_EV_STATUS,       /* one-line progress note (stderr / status area) */
-    TNY_EV_STEER_REJECTED /* a steer() the host accepted was refused later.
-                           * text (+len) carries the rejected user text; the
-                           * frontend re-queues it (docs/adr/0011, 0013) */
+    TNY_EV_STEER_REJECTED, /* a steer() the host accepted was refused later.
+                            * text (+len) carries the rejected user text; the
+                            * frontend re-queues it (docs/adr/0011, 0013) */
+    TNY_EV_CUSTOM_MESSAGE, /* visible extension context, sent to the model */
+    TNY_EV_USER_MESSAGE,   /* visible extension-authored user follow-up */
+    TNY_EV_TOOL_PROGRESS   /* partial host tool input/output update */
 } tny_event_kind;
 
 typedef enum {
@@ -52,6 +55,7 @@ typedef struct {
     /* TEXT_DELTA / THINKING / PLAN / STATUS / ERROR: text (+len) */
     const char *text;
     size_t      text_len;
+    const char *message_id; /* provider message/item id when available */
     /* TOOL_START / TOOL_END */
     const char *tool_name;
     const char *tool_id;
@@ -61,8 +65,14 @@ typedef struct {
     const char *perm_id;      /* opaque id to pass to respond_permission */
     const char *perm_summary; /* what is being requested */
     int         perm_options; /* tny_perm_options bitmask */
+    /* CUSTOM_MESSAGE: stable extension-defined discriminator. USER_MESSAGE
+     * leaves it NULL. Both use text (+len). */
+    const char *message_type;
     /* USAGE */
     int64_t     in_tokens, out_tokens;
+    int64_t     context_used, context_size;
+    double      cost;
+    bool        has_cost;
     /* TURN_END */
     tny_stop_reason stop;
     /* ERROR: stable internal category mapped by the public ABI. */

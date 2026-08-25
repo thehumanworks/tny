@@ -1,5 +1,6 @@
 #include "core/config.h"
 #include "core/backend.h"
+#include "core/extensions.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -338,6 +339,9 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     ctx->backend = -1;
     ctx->perm_mode = TNY_MODE_YOLO;
     ctx->max_steps = 0; /* unlimited; .tny.json "steps" or --max-steps cap it */
+    ctx->extensions_enabled = true;
+    ctx->max_extension_iterations = 0; /* unlimited by default */
+    ctx->extension_timeout_ms = 5000;
     ctx->max_tool_result_bytes = 32768;
     ctx->context_enabled = true;
     ctx->sandbox_mode = xstrdup("auto");
@@ -357,6 +361,24 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
         else if (strcmp(pm_env, "yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
         else if (strcmp(pm_env, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;
     }
+
+    /* Extensions are global user code, never repo authority. Configuration
+     * therefore comes only from settings/env/CLI, not .tny.json. */
+    yyjson_val *ext = jget(sroot, "extensions");
+    if (ext && yyjson_is_obj(ext)) {
+        ctx->extensions_enabled = jget_bool(ext, "enabled", true);
+        int64_t cap = jget_int(ext, "max_iterations", 0);
+        int64_t timeout = jget_int(ext, "timeout_ms", 5000);
+        if (cap >= 0 && cap <= 1000000)
+            ctx->max_extension_iterations = (int)cap;
+        if (timeout >= 1 && timeout <= 600000)
+            ctx->extension_timeout_ms = (int)timeout;
+    }
+    const char *ext_env = getenv("TNY_EXTENSIONS");
+    if (ext_env && (strcmp(ext_env, "0") == 0 ||
+                    strcmp(ext_env, "false") == 0 ||
+                    strcmp(ext_env, "off") == 0))
+        ctx->extensions_enabled = false;
 
     /* reasoning effort: env here; a settings.json default is applied after
      * the provider resolves (apply_provider_effort); --effort overrides in
@@ -400,6 +422,15 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
             ctx->extra_dirs[ctx->n_extra_dirs++] = xstrdup(yyjson_get_str(v));
         }
     }
+    if (ctx->extensions_enabled) {
+        tny_extensions *extensions = tny_extensions_new(
+            ctx->tny_dir, ctx->cwd, ctx->extension_timeout_ms);
+        if (extensions &&
+            tny_extensions_get_state(extensions) != TNY_EXTENSIONS_EMPTY)
+            ctx->extensions = extensions;
+        else
+            tny_extensions_free(extensions);
+    }
     return ctx;
 }
 
@@ -418,6 +449,9 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
     ctx->provider_name = xstrdup("openai");
     ctx->perm_mode = TNY_MODE_ASK;
     ctx->max_steps = 0; /* unlimited unless the embedder sets a cap */
+    ctx->extensions_enabled = false; /* explicit embedders opt into authority */
+    ctx->max_extension_iterations = 0;
+    ctx->extension_timeout_ms = 5000;
     ctx->max_tool_result_bytes = 32768;
     ctx->context_enabled = true;
     ctx->mcp_disabled = true;
@@ -696,7 +730,8 @@ int tny_provider_write_profile(tny_ctx *ctx, const char *name,
     }
     /* reserved top-level settings keys must never become profiles */
     static const char *const reserved[] = {
-        "workspaces", "models", "permission", "effort", "last_provider", NULL};
+        "workspaces", "models", "permission", "effort", "extensions",
+        "last_provider", NULL};
     for (int i = 0; reserved[i]; i++)
         if (strcmp(name, reserved[i]) == 0) {
             snprintf(errbuf, errlen, "'%s' is a reserved settings key", name);
@@ -842,6 +877,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->sandbox_mode);
     free(ctx->tny_dir);
     free(ctx->settings_path);
+    tny_extensions_free(ctx->extensions);
     yyjson_doc_free(ctx->settings);
     yyjson_doc_free(ctx->repo_cfg);
     free(ctx);

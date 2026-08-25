@@ -485,6 +485,7 @@ EVENT_CSTR(tny_event_tool_id, tool_id)
 EVENT_CSTR(tny_event_tool_detail, tool_detail)
 EVENT_CSTR(tny_event_permission_id, perm_id)
 EVENT_CSTR(tny_event_permission_summary, perm_summary)
+EVENT_CSTR(tny_event_message_type, message_type)
 #undef EVENT_CSTR
 uint32_t tny_event_tool_ok(const tny_event *e) {
     tny_owned_event *owned = event_owned(e);

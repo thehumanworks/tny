@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 #define TNY_ABI_MAJOR 0u
-#define TNY_ABI_MINOR 1u
+#define TNY_ABI_MINOR 2u
 #define TNY_ABI_VERSION ((TNY_ABI_MAJOR << 16) | TNY_ABI_MINOR)
 
 /* Non-error outcomes. */
@@ -72,6 +72,9 @@ extern "C" {
 #define TNY_EVENT_ERROR         8u
 #define TNY_EVENT_STATUS        9u
 #define TNY_EVENT_STEER_REJECTED 10u
+#define TNY_EVENT_CUSTOM_MESSAGE 11u
+#define TNY_EVENT_USER_MESSAGE   12u
+#define TNY_EVENT_TOOL_PROGRESS  13u
 
 #define TNY_STOP_REASON_DONE        0u
 #define TNY_STOP_REASON_INTERRUPTED 1u
@@ -146,6 +149,7 @@ TNY_API tny_bytes TNY_CALL tny_event_tool_detail(const tny_event *event);
 TNY_API uint32_t TNY_CALL tny_event_tool_ok(const tny_event *event);
 TNY_API tny_bytes TNY_CALL tny_event_permission_id(const tny_event *event);
 TNY_API tny_bytes TNY_CALL tny_event_permission_summary(const tny_event *event);
+TNY_API tny_bytes TNY_CALL tny_event_message_type(const tny_event *event);
 TNY_API uint32_t TNY_CALL tny_event_permission_options(const tny_event *event);
 TNY_API int64_t TNY_CALL tny_event_input_tokens(const tny_event *event);
 TNY_API int64_t TNY_CALL tny_event_output_tokens(const tny_event *event);

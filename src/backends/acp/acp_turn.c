@@ -135,15 +135,28 @@ static void srv_event_cb(const tny_backend_event *ev, void *ud) {
     case TNY_EV_TOOL_END:
         tool_end(s, ev);
         break;
+    case TNY_EV_TOOL_PROGRESS:
+        acp_srv_log("tool progress %s: %.200s",
+                    ev->tool_name ? ev->tool_name : "tool",
+                    ev->tool_detail ? ev->tool_detail : "");
+        break;
     case TNY_EV_PLAN:
         plan_update(s, ev);
         break;
     case TNY_EV_USAGE:
-        acp_srv_log("tokens: %lld in, %lld out", (long long)ev->in_tokens,
-                    (long long)ev->out_tokens);
+        if (ev->context_size > 0)
+            acp_srv_log("context: %lld/%lld", (long long)ev->context_used,
+                        (long long)ev->context_size);
+        else
+            acp_srv_log("tokens: %lld in, %lld out", (long long)ev->in_tokens,
+                        (long long)ev->out_tokens);
         break;
     case TNY_EV_STATUS:
         acp_srv_log("%.*s", (int)ev->text_len, ev->text);
+        break;
+    case TNY_EV_CUSTOM_MESSAGE:
+    case TNY_EV_USER_MESSAGE:
+        send_chunk(s, "user_message_chunk", ev->text, ev->text_len);
         break;
     case TNY_EV_STEER_REJECTED: /* the acp server never steers its loop */
         break;

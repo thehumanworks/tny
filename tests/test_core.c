@@ -2256,6 +2256,54 @@ TEST max_steps_default_and_overrides(void) {
     PASS();
 }
 
+TEST extension_config_default_and_overrides(void) {
+    ensure_env();
+    unsetenv("TNY_EXTENSIONS");
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ASSERT(ctx->extensions_enabled);
+    ASSERT_EQ(0, ctx->max_extension_iterations);
+    ASSERT_EQ(5000, ctx->extension_timeout_ms);
+    tny_ctx_free(ctx);
+
+    write_settings("{\"extensions\":{\"enabled\":true,"
+                   "\"max_iterations\":7,\"timeout_ms\":1234}}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ASSERT(ctx->extensions_enabled);
+    ASSERT_EQ(7, ctx->max_extension_iterations);
+    ASSERT_EQ(1234, ctx->extension_timeout_ms);
+    tny_ctx_free(ctx);
+
+    char *argv[] = {"tny", "--max-extension-iterations", "unlimited",
+                    "--no-extensions", "ask", "hi", NULL};
+    cli_globals g = {0};
+    ASSERT_EQ(4, cli_parse_globals(6, argv, &g));
+    ASSERT_STR_EQ("unlimited", g.max_extension_iterations);
+    ASSERT(g.no_extensions);
+    g.cwd = g_ws;
+    ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    ASSERT_FALSE(ctx->extensions_enabled);
+    ASSERT_EQ(0, ctx->max_extension_iterations);
+    tny_ctx_free(ctx);
+
+    setenv("TNY_EXTENSIONS", "off", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ASSERT_FALSE(ctx->extensions_enabled);
+    tny_ctx_free(ctx);
+    unsetenv("TNY_EXTENSIONS");
+
+    ctx = tny_ctx_new_explicit(g_ws, g_home);
+    ASSERT(ctx);
+    ASSERT_FALSE(ctx->extensions_enabled);
+    tny_ctx_free(ctx);
+    write_settings("{}");
+    PASS();
+}
+
 TEST provider_write_profile_rules(void) {
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
@@ -2306,6 +2354,7 @@ SUITE(core_suite) {
     RUN_TEST(provider_profile_stored_api_key);
     RUN_TEST(provider_write_profile_rules);
     RUN_TEST(max_steps_default_and_overrides);
+    RUN_TEST(extension_config_default_and_overrides);
     RUN_TEST(env_defined_providers);
     RUN_TEST(builtin_claude_profile);
     RUN_TEST(builtin_grok_profile);

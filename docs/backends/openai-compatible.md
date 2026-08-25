@@ -82,11 +82,17 @@ Stream: `text/event-stream`, chunked, split anywhere.
   `arguments` string and is authoritative), `response.completed` carries
   `usage.input_tokens/output_tokens` and ends the stream.
   `response.failed` / `error` → run error with the provider message;
-  `response.incomplete` keeps the partial text (chat's `length` stop).
+  `response.incomplete` keeps the partial text and ends with a non-success
+  limit/filter stop (as do chat's `length` / `content_filter` reasons).
 - **Chat**: lines `data: {…}` then `data: [DONE]`. Accumulate
   `choices[0].delta.content` and `choices[0].delta.tool_calls` (index, id,
   function.name, function.arguments fragments). Non-stream fallback: read
   `choices[0].message`.
+
+OpenRouter-compatible chat streams may carry textual `reasoning_details`
+items; tny normalizes their `text`/`summary` fields to `THINKING`. A top-level
+SSE `error` is terminal even when the HTTP status remains 200, and `[DONE]`
+is only framing—not evidence that the run succeeded.
 
 Tool-call assembly (`src/backends/openai/toolcalls.c`, unit-tested in
 `tests/test_openai.c`) is **id-first**, not index-first: a fragment with an

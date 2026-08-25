@@ -6,6 +6,8 @@
 #include <stddef.h>
 #include "json/json.h"
 
+struct tny_extensions;
+
 /* TNY_VERSION lives in build/generated/tny_version.h, written by make from
  * `git describe` (docs/adr/0014). The fallback keeps editors and static
  * analysis working without a build. */
@@ -38,6 +40,14 @@ typedef struct tny_ctx {
     bool   no_color;         /* --no-color | --color=never: no SGR at all */
     bool   force_color;      /* --color=always: SGR even piped, beats NO_COLOR */
     bool   library_mode;     /* deterministic embed: never write host stdio */
+
+    /* optional Python extensions (~/.tny/extensions). CLI contexts enable
+     * discovery by default; explicit/libtny contexts keep it off unless a
+     * later public ABI opts in. A zero continuation cap means unlimited. */
+    bool   extensions_enabled;
+    int    max_extension_iterations;
+    int    extension_timeout_ms;
+    struct tny_extensions *extensions; /* process-owned persistent host */
 
     /* openai-compatible provider */
     char *base_url;

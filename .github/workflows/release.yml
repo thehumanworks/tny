@@ -85,9 +85,11 @@ jobs:
           ./dist/tny-${{ matrix.triple }} --version
           # Ship a tar.gz with the binary named plain `tny` so mise (and
           # humans) get a clean bin after extraction; exec bit survives tar.
-          mkdir -p dist/stage
+          mkdir -p dist/stage/lib/tny/tny_ext
           cp dist/tny-${{ matrix.triple }} dist/stage/tny
-          tar -C dist/stage -czf dist/tny-${{ matrix.triple }}.tar.gz tny
+          cp python/tny_extension_host.py dist/stage/lib/tny/
+          cp python/tny_ext/*.py python/tny_ext/py.typed dist/stage/lib/tny/tny_ext/
+          tar -C dist/stage -czf dist/tny-${{ matrix.triple }}.tar.gz tny lib
 
       - uses: actions/upload-artifact@v7
         with:
@@ -124,9 +126,11 @@ jobs:
               && make size-check SIZE_MAX=1572864 STATIC=1 \
               && make pack TRIPLE='"${{ matrix.triple }}"' STATIC=1 \
               && ./dist/tny-'"${{ matrix.triple }}"' --version \
-              && mkdir -p dist/stage \
+              && mkdir -p dist/stage/lib/tny/tny_ext \
               && cp dist/tny-'"${{ matrix.triple }}"' dist/stage/tny \
-              && tar -C dist/stage -czf dist/tny-'"${{ matrix.triple }}"'.tar.gz tny'
+              && cp python/tny_extension_host.py dist/stage/lib/tny/ \
+              && cp python/tny_ext/*.py python/tny_ext/py.typed dist/stage/lib/tny/tny_ext/ \
+              && tar -C dist/stage -czf dist/tny-'"${{ matrix.triple }}"'.tar.gz tny lib'
           # dist/ is root-owned (created by the container), so package inside
           # the container and only inspect from the host.
           if ldd dist/tny-${{ matrix.triple }} >/tmp/ldd.out 2>&1; then
@@ -169,10 +173,12 @@ jobs:
           ./dist/tny-windows-x86_64.exe --version
           # The MSYS binary needs msys-2.0.dll next to it; zip keeps them
           # together and is the preferred archive format on Windows.
-          mkdir -p dist/stage
+          mkdir -p dist/stage/lib/tny/tny_ext
           cp dist/tny-windows-x86_64.exe dist/stage/tny.exe
           cp /usr/bin/msys-2.0.dll dist/stage/
-          (cd dist/stage && zip ../tny-windows-x86_64.zip tny.exe msys-2.0.dll)
+          cp python/tny_extension_host.py dist/stage/lib/tny/
+          cp python/tny_ext/*.py python/tny_ext/py.typed dist/stage/lib/tny/tny_ext/
+          (cd dist/stage && zip -r ../tny-windows-x86_64.zip tny.exe msys-2.0.dll lib)
 
       - uses: actions/upload-artifact@v7
         with:

@@ -13,6 +13,8 @@ typedef struct {
     const char *effort;      /* --effort | --reasoning-effort */
     const char *perm_mode;   /* --permission-mode | --yolo | --auto */
     const char *max_steps;   /* --max-steps N|unlimited (0 = no cap) */
+    const char *max_extension_iterations; /* 0/unlimited = no cap */
+    bool        no_extensions; /* --no-extensions */
     bool        fast;        /* --fast (providers with TNY_CAP_FAST) */
     const char **add_dirs;   /* --add-dir, repeatable */
     int         n_add_dirs;

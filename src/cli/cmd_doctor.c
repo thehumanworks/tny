@@ -1,6 +1,7 @@
 /* cmd_doctor.c — local health and preflight checks. May spawn host probes. */
 #include "cli/cli.h"
 #include "core/backend.h"
+#include "core/extensions.h"
 #include "core/session.h"
 #include "util/util.h"
 
@@ -51,6 +52,10 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool bridge = on_path(ctx->bridge_bin);
     bool codex = on_path(ctx->codex_bin);
     bool settings_ok = !file_exists(ctx->settings_path) || ctx->settings != NULL;
+    bool python = on_path("python3");
+    size_t extension_entries = 0;
+    if (ctx->extensions_enabled)
+        extension_entries = tny_extensions_entry_count(ctx->extensions);
     int n = 0;
     session_meta *m = session_list(ctx, false, 100, NULL, &n);
     session_meta_free(m, n);
@@ -70,6 +75,10 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                         "\"arch\":\"%s\",", TNY_VERSION, un.sysname, un.machine);
         buf_appendf(&b, "\"settings_ok\":%s,\"sessions\":%d,",
                     settings_ok ? "true" : "false", n);
+        buf_appendf(&b, "\"extensions\":{\"enabled\":%s,\"entries\":%zu,"
+                        "\"python3\":%s},",
+                    ctx->extensions_enabled ? "true" : "false",
+                    extension_entries, python ? "true" : "false");
         buf_appendf(&b, "\"sandbox\":\"none\",\"sandbox_note\":\"os sandbox not "
                         "implemented in this build; commands run unsandboxed\",");
         buf_appendf(&b, "\"hosts\":{\"cursor_sdk_bridge\":%s,\"codex\":%s,\"acp_agents\":",
@@ -92,6 +101,15 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         printf("%s settings: %s\n", settings_ok ? "ok " : "FAIL",
                file_exists(ctx->settings_path) ? ctx->settings_path : "(none yet)");
         printf("ok  sessions: %d in this workspace\n", n);
+        if (!ctx->extensions_enabled)
+            printf("off python extensions: disabled\n");
+        else if (extension_entries && !python)
+            printf("warn python extensions: %zu found, python3 is not on PATH\n",
+                   extension_entries);
+        else
+            printf("ok  python extensions: %zu found%s\n",
+                   extension_entries,
+                   extension_entries ? ", python3 available" : "");
         printf("note sandbox: os sandbox not implemented in this build; "
                "approved commands run unsandboxed\n");
         printf("%s cursor-sdk-bridge: %s\n", bridge ? "ok " : "miss",

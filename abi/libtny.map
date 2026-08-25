@@ -22,6 +22,7 @@ LIBTNY_0 {
     tny_event_tool_ok;
     tny_event_permission_id;
     tny_event_permission_summary;
+    tny_event_message_type;
     tny_event_permission_options;
     tny_event_input_tokens;
     tny_event_output_tokens;

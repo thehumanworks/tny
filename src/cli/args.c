@@ -1,6 +1,7 @@
 /* args.c — leading global flags (docs/cli.md). */
 #include "cli/cli.h"
 #include "core/backend.h"
+#include "core/extensions.h"
 #include "core/ssh.h"
 #include "util/util.h"
 
@@ -51,6 +52,11 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else if (strcmp(a, "--max-steps") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->max_steps = v;
+        } else if (strcmp(a, "--max-extension-iterations") == 0) {
+            if (!(v = need_val(argc, argv, &i, a))) return -1;
+            g->max_extension_iterations = v;
+        } else if (strcmp(a, "--no-extensions") == 0) {
+            g->no_extensions = true;
         } else if (strcmp(a, "--fast") == 0) {
             g->fast = true;
         } else if (strcmp(a, "--yolo") == 0) {
@@ -158,6 +164,22 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
             return NULL;
         }
         ctx->max_steps = v; /* explicit flag beats the .tny.json "steps" cap */
+    }
+    if (g->max_extension_iterations) {
+        int v = tny_parse_max_steps(g->max_extension_iterations);
+        if (v < 0) {
+            fprintf(stderr, "tny: --max-extension-iterations takes a positive "
+                            "integer or 'unlimited'\nExample: tny "
+                            "--max-extension-iterations 8 ask \"hi\"\n");
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        ctx->max_extension_iterations = v;
+    }
+    if (g->no_extensions) {
+        ctx->extensions_enabled = false;
+        tny_extensions_free(ctx->extensions);
+        ctx->extensions = NULL;
     }
     if (g->perm_mode) {
         if (strcmp(g->perm_mode, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;

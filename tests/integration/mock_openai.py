@@ -24,9 +24,11 @@ Env knobs:
                       exactly this text (steer rides after the tool result)
   MOCK_FAIL_RESPONSE  responses wire: turn 1 ends in a response.failed
                       event carrying this message (error-path test)
+  MOCK_CHAT_ERROR     chat wire: HTTP 200 SSE contains a top-level provider
+                      error followed by the ordinary stream terminator
   MOCK_INCOMPLETE     responses wire: the final answer ends in
-                      response.incomplete (token cutoff) — the partial
-                      text must still finish the turn cleanly
+                      response.incomplete (token cutoff) — the partial text
+                      is preserved and the stop reason remains non-success
 
 The responses wire streams TWO parallel tool calls (list_files +
 glob_files). The second one's output_item.added carries only the item id;
@@ -56,6 +58,7 @@ EXPECT_STEER = os.environ.get("MOCK_EXPECT_STEER")
 EXPECT_INSTRUCTIONS = os.environ.get("MOCK_EXPECT_INSTRUCTIONS")
 REJECT_INSTRUCTIONS = os.environ.get("MOCK_REJECT_INSTRUCTIONS")
 FAIL_RESPONSE = os.environ.get("MOCK_FAIL_RESPONSE")
+CHAT_ERROR = os.environ.get("MOCK_CHAT_ERROR")
 # MOCK_PARALLEL: turn 1 streams THREE parallel tool calls in the gateway
 # shape from the field: the third call reuses the second call's "index" but
 # carries its own fresh "id" (index-keyed assembly used to merge the two and
@@ -212,7 +215,11 @@ class Handler(BaseHTTPRequestHandler):
             need("name" in structured["json_schema"], f"bad {structured}")
 
         self._start_stream()
-        if SENSITIVE and not has_tool_result:
+        if CHAT_ERROR:
+            frames = [{"error": {"code": 502, "message": CHAT_ERROR},
+                       "choices": [{"index": 0, "delta": {},
+                                    "finish_reason": "error"}]}]
+        elif SENSITIVE and not has_tool_result:
             frames = [
                 {"choices": [{"index": 0, "delta": {"role": "assistant",
                     "tool_calls": [{"index": 0, "id": "sensitive_1", "type": "function",

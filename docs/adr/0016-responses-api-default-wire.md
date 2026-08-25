@@ -64,8 +64,8 @@ leading `--wire-api responses|chat` flag (beats both, one run).**
   string is authoritative), `response.completed` carries usage and ends
   the stream. `response.failed` / `error` events surface as `TNY_EV_ERROR`
   + `TURN_END(ERROR)` with partial text kept recoverable;
-  `response.incomplete` keeps the partial text and ends the step cleanly
-  (the chat wire's `finish_reason:"length"` behavior). The SSE parser
+  `response.incomplete` keeps the partial text and ends with a non-success
+  limit/filter reason (matching chat `length` / `content_filter`). The SSE parser
   already ignores `event:` lines; dispatch is on the payload's `type`.
 - The wire is read from ctx per POST, so `/provider` switches and settings
   edits apply on the next request with no rebind.

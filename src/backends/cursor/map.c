@@ -268,23 +268,59 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
         }
     }
 
-    if (strcmp(type, "assistant") == 0 || strcmp(type, "text") == 0) {
+    const char *message_id = str2(v, "messageId", "message_id");
+    if (!message_id) message_id = jget_str(v, "id");
+
+    if (strcmp(type, "assistant") == 0 || strcmp(type, "text") == 0 ||
+        strcmp(type, "text_delta") == 0 || strcmp(type, "textDelta") == 0) {
         buf_t t;
         buf_init(&t);
         collect_text(v, &t, 0);
         if (t.len) {
             o->got_text = true;
-            cu_emit_text(o, TNY_EV_TEXT_DELTA, t.data, t.len);
+            tny_backend_event ev = {0};
+            ev.kind = TNY_EV_TEXT_DELTA;
+            ev.text = t.data;
+            ev.text_len = t.len;
+            ev.message_id = message_id;
+            cu_emit(o, &ev);
         }
         buf_free(&t);
-    } else if (strcmp(type, "thinking") == 0 || strcmp(type, "reasoning") == 0) {
+    } else if (strcmp(type, "thinking") == 0 || strcmp(type, "reasoning") == 0 ||
+               strcmp(type, "thinking_delta") == 0 ||
+               strcmp(type, "thinkingDelta") == 0 ||
+               strcmp(type, "summary") == 0) {
         buf_t t;
         buf_init(&t);
         collect_text(v, &t, 0);
-        if (t.len) cu_emit_text(o, TNY_EV_THINKING, t.data, t.len);
+        if (t.len) {
+            tny_backend_event ev = {0};
+            ev.kind = TNY_EV_THINKING;
+            ev.text = t.data;
+            ev.text_len = t.len;
+            ev.message_id = message_id;
+            cu_emit(o, &ev);
+        }
         buf_free(&t);
+    } else if (strcmp(type, "partial_tool_call") == 0) {
+        const char *id = str2(v, "callId", "call_id");
+        const char *name = jget_str(v, "name");
+        yyjson_val *detail_value = jget(v, "args");
+        if (!detail_value) detail_value = jget(v, "delta");
+        buf_t detail;
+        buf_init(&detail);
+        append_short(detail_value, &detail);
+        tny_backend_event ev = {0};
+        ev.kind = TNY_EV_TOOL_PROGRESS;
+        ev.tool_name = name ? name : "tool";
+        ev.tool_id = id;
+        ev.tool_detail = detail.data;
+        cu_emit(o, &ev);
+        buf_free(&detail);
     } else if (strcmp(type, "tool_call") == 0 || strcmp(type, "tool_use") == 0 ||
-               strcmp(type, "tool_result") == 0) {
+               strcmp(type, "tool_result") == 0 ||
+               strcmp(type, "tool_call_started") == 0 ||
+               strcmp(type, "tool_call_completed") == 0) {
         emit_tool(o, v);
     } else if (strcmp(type, "status") == 0 || strcmp(type, "system") == 0) {
         buf_t t;
@@ -401,6 +437,16 @@ void cu_on_frame(uint8_t flags, const char *payload, size_t len, void *ud) {
     yyjson_val *sm = jget(root, "sdkMessage");
     if (!sm) sm = jget(root, "sdk_message");
     if (sm) handle_sdk(o, sm, 0);
+
+    /* enableDeltas exposes the SDK's lower-level InteractionUpdate union.
+     * It is another typed Struct: route recognized text/thinking/tool/status
+     * variants through the same defensive normalizer and ignore unknowns. */
+    yyjson_val *interaction = jget(root, "interactionUpdate");
+    if (!interaction) interaction = jget(root, "interaction_update");
+    if (interaction) {
+        yyjson_val *update = jget(interaction, "update");
+        handle_sdk(o, update ? update : interaction, 0);
+    }
 
     yyjson_val *res = jget(root, "result");
     if (res && yyjson_is_obj(res)) handle_result(o, res);

@@ -35,7 +35,9 @@ never the generated files in `docs/`.
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`: the same matrix,
 packaged as `tny-<os>-<arch>[-musl].tar.gz` (Windows: `.zip` with
-`msys-2.0.dll`) plus `SHA256SUMS`, published as a GitHub release. The
+`msys-2.0.dll`) plus `SHA256SUMS`, published as a GitHub release. Each archive
+also carries the pure-Python extension host under `lib/tny/`; Python itself is
+never bundled. The
 version is not hardcoded anywhere: make derives it from `git describe`
 (docs/adr/0014), release jobs pass `TNY_VERSION=${tag#v}` explicitly
 (shallow checkouts and the Alpine container have no tags), and the

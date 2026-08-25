@@ -36,6 +36,8 @@ tny --add-dir DIR           # repeatable, process-only
 tny --permission-mode ask|auto|yolo   # default: yolo (docs/adr/0001)
 tny --max-steps N|unlimited # cap native-loop model calls per turn
                             # (default: unlimited, docs/adr/0024)
+tny --max-extension-iterations N|unlimited # cap Python-hook follow-up turns
+tny --no-extensions         # skip ~/.tny/extensions for this process
 tny --fast                  # paid fast tier (TNY_CAP_FAST providers only)
 tny --json                  # where listed
 tny --color auto|always|never   # SGR styling; --no-color is never
@@ -239,7 +241,11 @@ JSON object (keep field names stable):
   "session_id": "…",
   "ephemeral": false,
   "steps": 1,
-  "tool_calls": [{"name": "read_file", "status": "success"}]
+  "tool_calls": [{"name": "read_file", "status": "success"}],
+  "extension_messages": [
+    {"kind": "custom", "custom_type": "reviewer", "content": "…"},
+    {"kind": "user", "content": "verify again"}
+  ]
 }
 ```
 
@@ -315,6 +321,11 @@ calls per turn; a capped turn stops with "step limit reached" on stderr and
 `.tny.json` `"steps"` limit. The interactive TUI exposes the same knob as
 `/max-steps set N` / `/max-steps clear`. Host providers (cursor, codex, acp)
 run their own loops and are not affected.
+
+`--max-extension-iterations N` independently caps continuations requested by
+Python `agent_end` hooks; its default is unlimited and `0`/`unlimited` clears
+the cap. `--no-extensions` disables the trusted global hooks for the process.
+See [extensions.md](extensions.md).
 
 ## Help shape
 

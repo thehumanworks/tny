@@ -203,6 +203,11 @@ static void ev_cb(const tny_backend_event *ev, void *ud) {
                   ev->tool_ok ? "✓" : "✗", tui_attr(t, "\x1b[0m"), ev->tool_name, line);
         t->gap = 2; /* next model text starts a new iteration */
         break;
+    case TNY_EV_TOOL_PROGRESS:
+        oneline(line, sizeof line, ev->tool_detail);
+        tui_note(t, "%s: %.360s",
+                 ev->tool_name ? ev->tool_name : "tool", line);
+        break;
     case TNY_EV_PERMISSION: {
         tny_perm_decision d;
         if (t->ctx->perm_mode == TNY_MODE_YOLO) {
@@ -232,6 +237,21 @@ static void ev_cb(const tny_backend_event *ev, void *ud) {
         snprintf(line, sizeof line, "%.*s", (int)ev->text_len, ev->text);
         tui_note(t, "%s", line);
         if (t->trace) tui_sys(t, line);
+        break;
+    case TNY_EV_CUSTOM_MESSAGE:
+        tui_bol(t);
+        tui_linef(t, "%s◆ %s%s %.*s", tui_attr(t, "\x1b[2m"),
+                  ev->message_type ? ev->message_type : "extension",
+                  tui_attr(t, "\x1b[0m"), (int)ev->text_len, ev->text);
+        t->gap = 1;
+        break;
+    case TNY_EV_USER_MESSAGE:
+        tui_bol(t);
+        tui_linef(t, "%s› %.*s%s %sextension%s",
+                  tui_attr(t, "\x1b[1m"), (int)ev->text_len, ev->text,
+                  tui_attr(t, "\x1b[0m"), tui_attr(t, "\x1b[2m"),
+                  tui_attr(t, "\x1b[0m"));
+        t->gap = 1;
         break;
     case TNY_EV_ERROR:
         snprintf(line, sizeof line, "%.*s", (int)ev->text_len, ev->text);

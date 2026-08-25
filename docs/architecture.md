@@ -55,6 +55,7 @@ not a separate provider lifecycle.
 | `~/.tny/mcp.json` | Trusted MCP servers only (never repo-local MCP) |
 | `~/.tny/sessions/` | Transcripts and recovery checkpoints |
 | `~/.tny/skills/` | Managed skill installs |
+| `~/.tny/extensions/` | Trusted global Python event hooks (`*.py`, `*/index.py`) |
 | `<repo>/.tny.json` | Repo-safe limits only (steps, tool result bytes, sandbox, context on/off) |
 | `<repo>/AGENTS.md` | Project instructions (also `CLAUDE.md` as alias if present) |
 

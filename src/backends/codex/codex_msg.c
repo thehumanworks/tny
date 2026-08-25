@@ -41,12 +41,35 @@ static void on_item_delta(cx_impl *o, const char *method, yyjson_val *params) {
 
     if (str_starts(kind, "agentMessage/") || str_starts(kind, "assistantMessage/")) {
         streamed_add(o, id);
-        cx_emit_capped(o, TNY_EV_TEXT_DELTA, text);
+        tny_backend_event ev = {0};
+        ev.kind = TNY_EV_TEXT_DELTA;
+        ev.text = text;
+        ev.text_len = strlen(text);
+        ev.message_id = id;
+        cx_emit(o, &ev);
     } else if (strstr(kind, "easoning")) {
         streamed_add(o, id);
-        cx_emit_capped(o, TNY_EV_THINKING, text);
+        tny_backend_event ev = {0};
+        ev.kind = TNY_EV_THINKING;
+        ev.text = text;
+        ev.text_len = strlen(text);
+        ev.message_id = id;
+        cx_emit(o, &ev);
+    } else if (str_starts(kind, "plan/")) {
+        tny_backend_event ev = {0};
+        ev.kind = TNY_EV_PLAN;
+        ev.text = text;
+        ev.text_len = strlen(text);
+        ev.message_id = id;
+        cx_emit(o, &ev);
+    } else {
+        tny_backend_event ev = {0};
+        ev.kind = TNY_EV_TOOL_PROGRESS;
+        ev.tool_name = kind;
+        ev.tool_id = id;
+        ev.tool_detail = text;
+        cx_emit(o, &ev);
     }
-    /* other deltas are tool progress: rendered by item/started + item/completed */
 }
 
 static void on_turn_completed(cx_impl *o, yyjson_val *params) {

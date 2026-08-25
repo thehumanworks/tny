@@ -13,6 +13,8 @@ typedef struct {
     void *ud;
     int mode;
     bool dispatched;
+    char *prompts[8];
+    int sends;
 } fake_runtime_backend;
 
 static int fake_connect(tny_backend *b, char *err, size_t errlen) {
@@ -26,6 +28,9 @@ static int fake_send(tny_backend *b, const char *p, const char **images,
                      tny_backend_event_cb cb, void *ud, char *e, size_t n) {
     (void)p; (void)images; (void)e; (void)n;
     fake_runtime_backend *f = b->impl;
+    if (f->sends < (int)(sizeof f->prompts / sizeof *f->prompts))
+        f->prompts[f->sends] = xstrdup(p);
+    f->sends++;
     f->cb = cb; f->ud = ud; f->dispatched = false;
     return 0;
 }
@@ -64,9 +69,14 @@ static int fake_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     f->cb(&end, f->ud); /* duplicate must be suppressed */
     return 0;
 }
-static void fake_destroy(tny_backend *b) { free(b->impl); free(b); }
+static void fake_destroy(tny_backend *b) {
+    fake_runtime_backend *f = b->impl;
+    for (int i = 0; i < 8; i++) free(f->prompts[i]);
+    free(f);
+    free(b);
+}
 
-static tny_backend *fake_backend(int mode) {
+static tny_backend *fake_backend(int mode, fake_runtime_backend **out) {
     tny_backend *b = calloc(1, sizeof *b);
     fake_runtime_backend *f = calloc(1, sizeof *f);
     if (!b || !f) abort();
@@ -76,6 +86,7 @@ static tny_backend *fake_backend(int mode) {
     b->create_or_resume = fake_resume; b->send = fake_send;
     b->cancel = fake_cancel; b->pollfds = fake_pollfds;
     b->dispatch = fake_dispatch; b->destroy = fake_destroy;
+    if (out) *out = f;
     return b;
 }
 
@@ -84,26 +95,45 @@ typedef struct {
     tny_session_state *session;
     perm_engine *perm;
     tny_engine *engine;
+    fake_runtime_backend *fake;
+    char *old_home;
 } fixture;
 
-static fixture fixture_new(int mode) {
+static fixture fixture_new_ext(int mode, const char *extension_source,
+                               int max_extension_iterations) {
     char root[] = "/tmp/tny-runtime-test-XXXXXX";
     if (!mkdtemp(root)) abort();
+    const char *home = getenv("HOME");
+    char *old_home = home ? xstrdup(home) : NULL;
     setenv("HOME", root, 1);
     char ws[512]; snprintf(ws, sizeof ws, "%s/ws", root); mkdir_p(ws);
+    if (extension_source) {
+        char tny_dir[512];
+        snprintf(tny_dir, sizeof tny_dir, "%s/.tny/extensions", root);
+        mkdir_p(tny_dir);
+        char *entry = path_join(tny_dir, "gate.py");
+        file_write_atomic(entry, extension_source, strlen(extension_source));
+        free(entry);
+    }
     fixture x = {0};
+    x.old_home = old_home;
     x.ctx = tny_ctx_load(ws);
     x.ctx->backend = TNY_BK_ACP;
     x.ctx->no_save = true;
+    x.ctx->max_extension_iterations = max_extension_iterations;
     x.session = session_new(x.ctx);
     x.perm = perm_new(x.ctx);
     x.engine = tny_engine_new(x.ctx, x.session, x.perm, NULL, NULL);
     char err[128];
-    if (!x.engine || tny_engine_prepare(x.engine, fake_backend(mode),
+    if (!x.engine || tny_engine_prepare(x.engine, fake_backend(mode, &x.fake),
                                         TNY_ENGINE_PREPARE_FRESH,
                                         err, sizeof err) != 0)
         abort();
     return x;
+}
+
+static fixture fixture_new(int mode) {
+    return fixture_new_ext(mode, NULL, 0);
 }
 
 static void fixture_free(fixture *x) {
@@ -111,6 +141,9 @@ static void fixture_free(fixture *x) {
     perm_free(x->perm);
     session_close(x->session);
     tny_ctx_free(x->ctx);
+    if (x->old_home) setenv("HOME", x->old_home, 1);
+    else unsetenv("HOME");
+    free(x->old_home);
 }
 
 TEST runtime_copies_events_and_suppresses_duplicate_terminal(void) {
@@ -228,10 +261,235 @@ TEST runtime_next_event_waits_without_spinning(void) {
     PASS();
 }
 
+TEST runtime_extension_continues_visibly_then_settles(void) {
+    const char *source =
+        "from tny_ext import AgentEndEvent, continue_with\n"
+        "def setup(api):\n"
+        "    @api.on(AgentEndEvent)\n"
+        "    def gate(event):\n"
+        "        if event.continuation_count == 0:\n"
+        "            return continue_with('verify again')\n";
+    fixture x = fixture_new_ext(0, source, 0);
+    char err[256];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
+    int text = 0, visible = 0, terminal = 0;
+    tny_owned_event *ev = NULL;
+    for (;;) {
+        tny_engine_next next = tny_engine_next_event(x.engine, 50, &ev,
+                                                     err, sizeof err);
+        if (next == TNY_ENGINE_NEXT_DRAINED) break;
+        ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, next);
+        if (ev->ev.kind == TNY_EV_TEXT_DELTA) text++;
+        if (ev->ev.kind == TNY_EV_USER_MESSAGE) {
+            visible++;
+            ASSERT_STR_EQ("verify again", ev->ev.text);
+        }
+        if (ev->ev.kind == TNY_EV_TURN_END) {
+            terminal++;
+            ASSERT_EQ(TNY_STOP_DONE, ev->ev.stop);
+        }
+        tny_owned_event_free(ev);
+    }
+    ASSERT_EQ(2, x.fake->sends);
+    ASSERT_STR_EQ("hello", x.fake->prompts[0]);
+    ASSERT_STR_EQ("verify again", x.fake->prompts[1]);
+    ASSERT_EQ(2, text);
+    ASSERT_EQ(1, visible);
+    ASSERT_EQ(1, terminal);
+    fixture_free(&x);
+    PASS();
+}
+
+TEST runtime_extension_positive_continuation_cap_settles(void) {
+    const char *source =
+        "from tny_ext import AgentEndEvent, continue_with\n"
+        "def setup(api):\n"
+        "    @api.on(AgentEndEvent)\n"
+        "    def gate(event):\n"
+        "        return continue_with('again')\n";
+    fixture x = fixture_new_ext(0, source, 1);
+    char err[256];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
+    int limit_status = 0, terminal = 0;
+    tny_owned_event *ev = NULL;
+    for (;;) {
+        tny_engine_next next = tny_engine_next_event(x.engine, 50, &ev,
+                                                     err, sizeof err);
+        if (next == TNY_ENGINE_NEXT_DRAINED) break;
+        ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, next);
+        if (ev->ev.kind == TNY_EV_STATUS && ev->ev.text &&
+            strstr(ev->ev.text, "continuation limit")) limit_status++;
+        if (ev->ev.kind == TNY_EV_TURN_END) terminal++;
+        tny_owned_event_free(ev);
+    }
+    ASSERT_EQ(2, x.fake->sends);
+    ASSERT_EQ(1, limit_status);
+    ASSERT_EQ(1, terminal);
+    fixture_free(&x);
+    PASS();
+}
+
+TEST runtime_extension_failure_is_visible_and_fail_open(void) {
+    const char *source =
+        "from tny_ext import TextDeltaEvent\n"
+        "def setup(api):\n"
+        "    @api.on(TextDeltaEvent)\n"
+        "    def broken(event):\n"
+        "        raise RuntimeError('hook exploded')\n";
+    fixture x = fixture_new_ext(0, source, 0);
+    char err[256];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
+    int failure_status = 0, terminal = 0;
+    tny_owned_event *ev = NULL;
+    for (;;) {
+        tny_engine_next next = tny_engine_next_event(x.engine, 50, &ev,
+                                                     err, sizeof err);
+        if (next == TNY_ENGINE_NEXT_DRAINED) break;
+        ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, next);
+        if (ev->ev.kind == TNY_EV_STATUS && ev->ev.text &&
+            strstr(ev->ev.text, "hook exploded")) failure_status++;
+        if (ev->ev.kind == TNY_EV_TURN_END) {
+            terminal++;
+            ASSERT_EQ(TNY_STOP_DONE, ev->ev.stop);
+        }
+        tny_owned_event_free(ev);
+    }
+    ASSERT_EQ(1, failure_status);
+    ASSERT_EQ(1, terminal);
+    fixture_free(&x);
+    PASS();
+}
+
+TEST runtime_extension_stop_requests_cancel_at_safe_boundary(void) {
+    const char *source =
+        "from tny_ext import StatusEvent, stop\n"
+        "def setup(api):\n"
+        "    @api.on(StatusEvent)\n"
+        "    def halt(event):\n"
+        "        return stop('condition met')\n";
+    fixture x = fixture_new_ext(3, source, 0);
+    char err[256];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
+    tny_backend_event status = {0};
+    status.kind = TNY_EV_STATUS;
+    status.text = "checkpoint";
+    status.text_len = strlen(status.text);
+    x.fake->cb(&status, x.fake->ud);
+    ASSERT_EQ(0, tny_engine_dispatch(x.engine, NULL, 0));
+    int terminal = 0;
+    tny_owned_event *ev;
+    while ((ev = tny_engine_pop_event(x.engine))) {
+        if (ev->ev.kind == TNY_EV_TURN_END) {
+            terminal++;
+            ASSERT_EQ(TNY_STOP_INTERRUPTED, ev->ev.stop);
+        }
+        tny_owned_event_free(ev);
+    }
+    ASSERT_EQ(1, terminal);
+    fixture_free(&x);
+    PASS();
+}
+
+TEST runtime_extension_host_state_persists_across_sessions(void) {
+    const char *source =
+        "from tny_ext import BeforeAgentStartEvent, SessionStartEvent, context\n"
+        "starts = 0\n"
+        "def setup(api):\n"
+        "    @api.on(SessionStartEvent)\n"
+        "    def session(event):\n"
+        "        global starts\n"
+        "        starts += 1\n"
+        "    @api.on(BeforeAgentStartEvent)\n"
+        "    def inject(event):\n"
+        "        return context(str(starts), custom_type='session-count')\n";
+    fixture x = fixture_new_ext(0, source, 0);
+    char err[256];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "first", NULL, err, sizeof err));
+    int custom = 0;
+    tny_owned_event *ev = NULL;
+    for (;;) {
+        tny_engine_next next = tny_engine_next_event(x.engine, 50, &ev,
+                                                     err, sizeof err);
+        if (next == TNY_ENGINE_NEXT_DRAINED) break;
+        ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, next);
+        if (ev->ev.kind == TNY_EV_CUSTOM_MESSAGE) {
+            custom++;
+            ASSERT_STR_EQ("1", ev->ev.text);
+        }
+        tny_owned_event_free(ev);
+    }
+    ASSERT_EQ(1, custom);
+    ASSERT(strstr(x.fake->prompts[0], "session-count"));
+
+    tny_engine_free(x.engine);
+    perm_free(x.perm);
+    session_close(x.session);
+    x.session = session_new(x.ctx);
+    x.perm = perm_new(x.ctx);
+    x.engine = tny_engine_new(x.ctx, x.session, x.perm, NULL, NULL);
+    ASSERT(x.engine);
+    ASSERT_EQ(0, tny_engine_prepare(x.engine, fake_backend(0, &x.fake),
+                                    TNY_ENGINE_PREPARE_FRESH,
+                                    err, sizeof err));
+    ASSERT_EQ(0, tny_engine_start(x.engine, "second", NULL, err, sizeof err));
+    custom = 0;
+    for (;;) {
+        tny_engine_next next = tny_engine_next_event(x.engine, 50, &ev,
+                                                     err, sizeof err);
+        if (next == TNY_ENGINE_NEXT_DRAINED) break;
+        ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, next);
+        if (ev->ev.kind == TNY_EV_CUSTOM_MESSAGE) {
+            custom++;
+            ASSERT_STR_EQ("2", ev->ev.text);
+        }
+        tny_owned_event_free(ev);
+    }
+    ASSERT_EQ(1, custom);
+    fixture_free(&x);
+    PASS();
+}
+
+TEST runtime_extension_stop_suppresses_earlier_continuation(void) {
+    const char *source =
+        "from tny_ext import AgentEndEvent, continue_with, stop\n"
+        "def setup(api):\n"
+        "    @api.on(AgentEndEvent)\n"
+        "    def first(event):\n"
+        "        return continue_with('must not be sent')\n"
+        "    @api.on(AgentEndEvent)\n"
+        "    def second(event):\n"
+        "        return stop('settle now')\n";
+    fixture x = fixture_new_ext(0, source, 0);
+    char err[256];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
+    int visible_followups = 0, terminals = 0;
+    tny_owned_event *ev = NULL;
+    for (;;) {
+        tny_engine_next next = tny_engine_next_event(x.engine, 50, &ev,
+                                                     err, sizeof err);
+        if (next == TNY_ENGINE_NEXT_DRAINED) break;
+        ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, next);
+        if (ev->ev.kind == TNY_EV_USER_MESSAGE) visible_followups++;
+        if (ev->ev.kind == TNY_EV_TURN_END) terminals++;
+        tny_owned_event_free(ev);
+    }
+    ASSERT_EQ(1, x.fake->sends);
+    ASSERT_EQ(0, visible_followups);
+    ASSERT_EQ(1, terminals);
+    fixture_free(&x);
+    PASS();
+}
+
 SUITE(runtime_suite) {
     RUN_TEST(runtime_copies_events_and_suppresses_duplicate_terminal);
     RUN_TEST(runtime_synthesizes_transport_error_and_terminal);
     RUN_TEST(runtime_overflow_keeps_error_and_single_terminal);
     RUN_TEST(runtime_cancel_emits_one_interrupted_terminal);
     RUN_TEST(runtime_next_event_waits_without_spinning);
+    RUN_TEST(runtime_extension_continues_visibly_then_settles);
+    RUN_TEST(runtime_extension_positive_continuation_cap_settles);
+    RUN_TEST(runtime_extension_failure_is_visible_and_fail_open);
+    RUN_TEST(runtime_extension_stop_requests_cancel_at_safe_boundary);
+    RUN_TEST(runtime_extension_host_state_persists_across_sessions);
+    RUN_TEST(runtime_extension_stop_suppresses_earlier_continuation);
 }

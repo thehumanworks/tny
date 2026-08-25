@@ -241,8 +241,11 @@ bench: release
 	hyperfine --warmup 5 -N './$(BIN) --version'
 
 install: release
-	mkdir -p $(DESTDIR)$(PREFIX)/bin
+	mkdir -p $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/lib/tny/tny_ext
 	cp $(BIN) $(DESTDIR)$(PREFIX)/bin/tny$(EXE)
+	cp python/tny_extension_host.py $(DESTDIR)$(PREFIX)/lib/tny/
+	cp python/tny_ext/*.py python/tny_ext/py.typed \
+		$(DESTDIR)$(PREFIX)/lib/tny/tny_ext/
 
 install-lib: lib-shared
 	mkdir -p $(DESTDIR)$(PREFIX)/include/tny $(DESTDIR)$(PREFIX)/lib/pkgconfig

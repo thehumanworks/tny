@@ -4,7 +4,35 @@
 #include "greatest.h"
 #include "backends/acp/acp_client.h"
 
+#include <stdio.h>
 #include <string.h>
+
+typedef struct {
+    tny_backend_event event;
+    int count;
+    char tool_name[128];
+    char tool_id[128];
+    char tool_detail[512];
+} acp_event_capture;
+
+static void capture_event(const tny_backend_event *ev, void *ud) {
+    acp_event_capture *capture = ud;
+    capture->event = *ev;
+    if (ev->tool_name) {
+        snprintf(capture->tool_name, sizeof capture->tool_name, "%s", ev->tool_name);
+        capture->event.tool_name = capture->tool_name;
+    }
+    if (ev->tool_id) {
+        snprintf(capture->tool_id, sizeof capture->tool_id, "%s", ev->tool_id);
+        capture->event.tool_id = capture->tool_id;
+    }
+    if (ev->tool_detail) {
+        snprintf(capture->tool_detail, sizeof capture->tool_detail, "%s",
+                 ev->tool_detail);
+        capture->event.tool_detail = capture->tool_detail;
+    }
+    capture->count++;
+}
 
 TEST agent_is_ws_detects_only_ws_urls(void) {
     ASSERT(ac_agent_is_ws("ws://127.0.0.1:9100"));
@@ -89,9 +117,55 @@ TEST transport_pollfds_respects_max_and_missing_fds(void) {
     PASS();
 }
 
+TEST usage_update_preserves_context_accounting(void) {
+    const char *json = "{\"update\":{\"sessionUpdate\":\"usage_update\","
+                       "\"used\":321,\"size\":4096,\"cost\":0.125}}";
+    yyjson_doc *doc = jparse(json, strlen(json));
+    ASSERT(doc);
+    acp_event_capture capture = {0};
+    ac_impl o;
+    memset(&o, 0, sizeof o);
+    o.cb = capture_event;
+    o.ud = &capture;
+    ac_handle_update(&o, yyjson_doc_get_root(doc));
+    ASSERT_EQ(1, capture.count);
+    ASSERT_EQ(TNY_EV_USAGE, capture.event.kind);
+    ASSERT_EQ(321, capture.event.context_used);
+    ASSERT_EQ(4096, capture.event.context_size);
+    ASSERT(capture.event.has_cost);
+    ASSERT(capture.event.cost > 0.124 && capture.event.cost < 0.126);
+    yyjson_doc_free(doc);
+    PASS();
+}
+
+TEST sparse_tool_update_emits_progress(void) {
+    const char *json = "{\"update\":{\"sessionUpdate\":\"tool_call_update\","
+                       "\"toolCallId\":\"call-7\",\"title\":\"shell\","
+                       "\"status\":\"in_progress\",\"content\":[{"
+                       "\"type\":\"content\",\"content\":{"
+                       "\"type\":\"text\",\"text\":\"halfway\"}}]}}";
+    yyjson_doc *doc = jparse(json, strlen(json));
+    ASSERT(doc);
+    acp_event_capture capture = {0};
+    ac_impl o;
+    memset(&o, 0, sizeof o);
+    o.cb = capture_event;
+    o.ud = &capture;
+    ac_handle_update(&o, yyjson_doc_get_root(doc));
+    ASSERT_EQ(1, capture.count);
+    ASSERT_EQ(TNY_EV_TOOL_PROGRESS, capture.event.kind);
+    ASSERT_STR_EQ("call-7", capture.event.tool_id);
+    ASSERT_STR_EQ("shell", capture.event.tool_name);
+    ASSERT_STR_EQ("halfway", capture.event.tool_detail);
+    yyjson_doc_free(doc);
+    PASS();
+}
+
 SUITE(acp_suite) {
     RUN_TEST(agent_is_ws_detects_only_ws_urls);
     RUN_TEST(fmt_builders_produce_exact_json);
     RUN_TEST(transport_pollfds_stdio);
     RUN_TEST(transport_pollfds_respects_max_and_missing_fds);
+    RUN_TEST(usage_update_preserves_context_accounting);
+    RUN_TEST(sparse_tool_update_emits_progress);
 }

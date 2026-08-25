@@ -20,6 +20,7 @@ _tny_event_tool_detail
 _tny_event_tool_ok
 _tny_event_permission_id
 _tny_event_permission_summary
+_tny_event_message_type
 _tny_event_permission_options
 _tny_event_input_tokens
 _tny_event_output_tokens

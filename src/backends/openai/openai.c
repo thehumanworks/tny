@@ -42,6 +42,7 @@ typedef struct {
     bool wire_chat;         /* this POST rides the legacy chat wire */
     bool stream_done;       /* saw [DONE] / response.completed */
     bool stream_failed;     /* responses wire signalled a terminal error */
+    tny_stop_reason final_stop; /* provider terminal reason for this step */
     char finish_reason[32];
     int64_t usage_in, usage_out;
 
@@ -317,6 +318,7 @@ static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
     o->state = ST_HEADERS;
     o->stream_done = false;
     o->stream_failed = false;
+    o->final_stop = TNY_STOP_DONE;
     o->finish_reason[0] = 0;
     buf_clear(&o->text);
     sse_parser_free(&o->sse);
@@ -336,6 +338,20 @@ static void on_sse_event_chat(const char *data, size_t len, void *ud) {
     yyjson_doc *doc = jparse(data, len);
     if (!doc) return; /* never block the loop on a parse error */
     yyjson_val *root = yyjson_doc_get_root(doc);
+    yyjson_val *root_error = jget(root, "error");
+    if (root_error) {
+        const char *message = jget_str(root_error, "message");
+        buf_t error;
+        buf_init(&error);
+        buf_appendf(&error, "provider error: %s",
+                    message ? message : "stream failed");
+        emit_error(o, TNY_EVENT_ERROR_PROTOCOL, error.data, error.len);
+        buf_free(&error);
+        o->stream_done = true;
+        o->stream_failed = true;
+        yyjson_doc_free(doc);
+        return;
+    }
     yyjson_val *usage = jget(root, "usage");
     if (usage) {
         o->usage_in = jget_int(usage, "prompt_tokens", o->usage_in);
@@ -344,7 +360,17 @@ static void on_sse_event_chat(const char *data, size_t len, void *ud) {
     yyjson_val *choice = yyjson_arr_get_first(jget(root, "choices"));
     if (!choice) { yyjson_doc_free(doc); return; }
     const char *fr = jget_str(choice, "finish_reason");
-    if (fr) snprintf(o->finish_reason, sizeof o->finish_reason, "%s", fr);
+    if (fr) {
+        snprintf(o->finish_reason, sizeof o->finish_reason, "%s", fr);
+        if (strcmp(fr, "length") == 0) o->final_stop = TNY_STOP_STEP_LIMIT;
+        else if (strcmp(fr, "content_filter") == 0)
+            o->final_stop = TNY_STOP_DENIED;
+        else if (strcmp(fr, "error") == 0) {
+            emit_error(o, TNY_EVENT_ERROR_PROTOCOL,
+                       "provider ended the stream with an error", 39);
+            o->stream_failed = true;
+        }
+    }
     yyjson_val *delta = jget(choice, "delta");
     if (!delta) delta = jget(choice, "message"); /* non-stream fallback */
     const char *content = jget_str(delta, "content");
@@ -356,6 +382,19 @@ static void on_sse_event_chat(const char *data, size_t len, void *ud) {
     if (!reasoning) reasoning = jget_str(delta, "reasoning");
     if (reasoning && *reasoning)
         emit_text(o, TNY_EV_THINKING, reasoning, strlen(reasoning));
+    else {
+        yyjson_val *details = jget(delta, "reasoning_details");
+        size_t idx, max;
+        yyjson_val *detail;
+        if (details && yyjson_is_arr(details)) {
+            yyjson_arr_foreach(details, idx, max, detail) {
+                const char *text = jget_str(detail, "text");
+                if (!text) text = jget_str(detail, "summary");
+                if (text && *text)
+                    emit_text(o, TNY_EV_THINKING, text, strlen(text));
+            }
+        }
+    }
 
     oa_calls_feed(&o->calls, jget(delta, "tool_calls"));
     yyjson_doc_free(doc);
@@ -436,6 +475,11 @@ static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
     } else if (strcmp(type, "response.incomplete") == 0) {
         /* token/limit cutoff: keep the partial text, end the step cleanly
          * (the chat wire treats finish_reason "length" the same way) */
+        yyjson_val *response = jget(root, "response");
+        const char *reason = jget_str(jget(response, "incomplete_details"),
+                                      "reason");
+        o->final_stop = reason && strstr(reason, "content_filter")
+            ? TNY_STOP_DENIED : TNY_STOP_STEP_LIMIT;
         o->stream_done = true;
     } else if (strcmp(type, "response.failed") == 0 ||
                strcmp(type, "error") == 0) {
@@ -484,7 +528,7 @@ static void finish_turn_ok(oa_impl *o) {
         ev.out_tokens = o->usage_out;
         emit(o, &ev);
     }
-    emit_turn_end(o, TNY_STOP_DONE);
+    emit_turn_end(o, o->final_stop);
 }
 
 static void tool_result(oa_impl *o, const char *cid, const char *name,

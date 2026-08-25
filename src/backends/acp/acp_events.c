@@ -150,6 +150,13 @@ static void update_tool_call(ac_impl *o, yyjson_val *u, const char *kind) {
         ev.tool_detail = detail.len ? detail.data : NULL;
         ev.tool_ok = strcmp(status, "completed") == 0;
         ac_emit(o, &ev);
+    } else if (strcmp(kind, "tool_call_update") == 0) {
+        tny_backend_event ev = {0};
+        ev.kind = TNY_EV_TOOL_PROGRESS;
+        ev.tool_name = title ? title : "tool";
+        ev.tool_id = id;
+        ev.tool_detail = detail.len ? detail.data : status;
+        ac_emit(o, &ev);
     }
     buf_free(&detail);
 }
@@ -188,8 +195,12 @@ void ac_handle_update(ac_impl *o, yyjson_val *params) {
                                ? jget_str(c, "text") : NULL;
         if (!text) return;
         bool thought = strcmp(kind, "agent_thought_chunk") == 0;
-        ac_emit_text(o, thought ? TNY_EV_THINKING : TNY_EV_TEXT_DELTA,
-                     text, strlen(text));
+        tny_backend_event ev = {0};
+        ev.kind = thought ? TNY_EV_THINKING : TNY_EV_TEXT_DELTA;
+        ev.text = text;
+        ev.text_len = strlen(text);
+        ev.message_id = jget_str(u, "messageId");
+        ac_emit(o, &ev);
         return;
     }
     if (strcmp(kind, "user_message_chunk") == 0) return; /* our own echo */
@@ -199,6 +210,19 @@ void ac_handle_update(ac_impl *o, yyjson_val *params) {
     }
     if (strcmp(kind, "plan") == 0) {
         update_plan(o, u);
+        return;
+    }
+    if (strcmp(kind, "usage_update") == 0) {
+        tny_backend_event ev = {0};
+        ev.kind = TNY_EV_USAGE;
+        ev.context_used = jget_int(u, "used", 0);
+        ev.context_size = jget_int(u, "size", 0);
+        yyjson_val *cost = jget(u, "cost");
+        if (cost && yyjson_is_num(cost)) {
+            ev.cost = yyjson_get_num(cost);
+            ev.has_cost = true;
+        }
+        ac_emit(o, &ev);
         return;
     }
     /* available_commands_update, current_mode_update, anything newer:
