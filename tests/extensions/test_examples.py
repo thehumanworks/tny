@@ -73,12 +73,76 @@ class ExtensionExamplesTests(unittest.TestCase):
                         "id": 3,
                         "op": "invoke",
                         "handler_id": subscriptions[("project_context", "before_agent_start")],
-                        "event": {"type": "before_agent_start", "prompt": "ship"},
+                        "event": {
+                            "type": "before_agent_start",
+                            "session_id": "session-1",
+                            "prompt": "ship",
+                        },
+                    }
+                )
+                self.assertEqual(context_result["action"]["kind"], "none")
+
+                session_started = host.request(
+                    {
+                        "id": "context-session-start",
+                        "op": "invoke",
+                        "handler_id": subscriptions[("project_context", "session_start")],
+                        "event": {"type": "session_start", "session_id": "session-1"},
+                    }
+                )
+                self.assertEqual(session_started["action"]["kind"], "none")
+
+                context_result = host.request(
+                    {
+                        "id": "context-first-turn",
+                        "op": "invoke",
+                        "handler_id": subscriptions[("project_context", "before_agent_start")],
+                        "event": {
+                            "type": "before_agent_start",
+                            "session_id": "session-1",
+                            "prompt": "ship",
+                        },
                     }
                 )
                 self.assertEqual(context_result["action"]["kind"], "context")
                 self.assertEqual(context_result["action"]["custom_type"], "project_context")
                 self.assertIn("release checklist", context_result["action"]["content"])
+
+                context_again = host.request(
+                    {
+                        "id": "context-later-turn",
+                        "op": "invoke",
+                        "handler_id": subscriptions[("project_context", "before_agent_start")],
+                        "event": {
+                            "type": "before_agent_start",
+                            "session_id": "session-1",
+                            "prompt": "ship again",
+                        },
+                    }
+                )
+                self.assertEqual(context_again["action"]["kind"], "none")
+
+                host.request(
+                    {
+                        "id": "context-next-session-start",
+                        "op": "invoke",
+                        "handler_id": subscriptions[("project_context", "session_start")],
+                        "event": {"type": "session_start", "session_id": "session-2"},
+                    }
+                )
+                context_next_session = host.request(
+                    {
+                        "id": "context-next-session-first-turn",
+                        "op": "invoke",
+                        "handler_id": subscriptions[("project_context", "before_agent_start")],
+                        "event": {
+                            "type": "before_agent_start",
+                            "session_id": "session-2",
+                            "prompt": "ship another session",
+                        },
+                    }
+                )
+                self.assertEqual(context_next_session["action"]["kind"], "context")
 
                 stop_result = host.request(
                     {

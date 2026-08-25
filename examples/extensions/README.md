@@ -31,7 +31,7 @@ many entries were discovered. Use `--no-extensions` for a run without hooks.
 | Example | Events | Behavior |
 | --- | --- | --- |
 | `log_events.py` | `*` | Appends provider-neutral event metadata to a JSONL file |
-| `project_context.py` | `before_agent_start` | Adds visible context from `.tny-context.md` |
+| `project_context.py` | `session_start`, `before_agent_start` | Adds visible context from `.tny-context.md` before the session's first provider turn |
 | `stop_on_tool_failure.py` | `tool_end` | Requests agent cancellation after a failed tool |
 | `verify_once.py` | `agent_end` | Requests one visible verification follow-up when a marker is missing |
 | `ci_guard/` | `tool_end`, `agent_end` | Stateful package with a relative import; asks the agent to recover failed tools once |
@@ -39,8 +39,9 @@ many entries were discovered. Use `--no-extensions` for a run without hooks.
 `log_events.py` writes to `~/.tny/events.jsonl` by default. Override that with
 `TNY_EVENT_LOG=/path/to/events.jsonl`.
 
-`project_context.py` reads `.tny-context.md` from the workspace. Override the
-path with `TNY_CONTEXT_FILE=/path/to/context.md`.
+`project_context.py` reads `.tny-context.md` from the workspace once per
+session, immediately before its first provider turn. Override the path with
+`TNY_CONTEXT_FILE=/path/to/context.md`.
 
 Continuation hooks are unlimited by default. During development, a cap is
 useful protection against a faulty condition:
