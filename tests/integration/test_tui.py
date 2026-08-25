@@ -355,7 +355,7 @@ def test_approval_ui(home, ws):
         t.expect("write_file", 5.0)
         t.send("n")
         t.expect("denied", 10.0)
-        t.expect("DENIED-OK", 20.0)
+        t.expect("stopped: permission denied", 20.0)
         assert not os.path.exists(os.path.join(ws, "note.txt")), "denied write happened"
         t.send("/quit\r")
         assert t.wait() == 0
@@ -363,7 +363,7 @@ def test_approval_ui(home, ws):
     finally:
         t.close()
         srv.shutdown()
-    print("ok  approval prompt shown, 'n' denies and the turn continues")
+    print("ok  approval prompt shown, 'n' denies and stops before another request")
 
 
 def test_yolo_default_auto_approves(home, ws):

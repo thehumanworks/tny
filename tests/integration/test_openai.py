@@ -277,7 +277,7 @@ def main():
                 emock.wait(timeout=5)
 
             # a terminal response.failed event is a run error (exit 2)
-            # whose message reaches stderr, never a silent empty answer
+            # with a stable redacted diagnostic, never a silent empty answer
             fport = free_port()
             fmock = subprocess.Popen(
                 [sys.executable, MOCK, str(fport)],
@@ -292,7 +292,8 @@ def main():
                     env=fenv, capture_output=True, timeout=30)
                 assert r11.returncode == 2, \
                     f"exit {r11.returncode}: {r11.stderr.decode()}"
-                assert b"mock exploded" in r11.stderr, r11.stderr
+                assert b"provider stream reported an error" in r11.stderr, r11.stderr
+                assert b"mock exploded" not in r11.stderr, r11.stderr
                 # response.failed already classified the end of stream: the
                 # abrupt close after it must not double-report a transport
                 # error
@@ -416,7 +417,8 @@ def main():
                      "--no-save", "fail in stream"],
                     env=ceenv, capture_output=True, timeout=30)
                 assert cerr.returncode == 2, cerr.stderr.decode()
-                assert b"routed provider failed" in cerr.stderr, cerr.stderr
+                assert b"provider stream reported an error" in cerr.stderr, cerr.stderr
+                assert b"routed provider failed" not in cerr.stderr, cerr.stderr
             finally:
                 cemock.terminate()
                 cemock.wait(timeout=5)
