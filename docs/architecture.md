@@ -29,6 +29,12 @@ tny is a **frontend + native loop**, not a fourth coding agent. Host backends al
 
 Never leak host-specific types into the TUI. Map every backend onto one event set: `text_delta`, `thinking`, `tool_start`, `tool_end`, `permission_request`, `plan`, `usage`, `turn_end`, `error`, `status`, `steer_rejected` (a mid-turn `steer()` the host refused after accepting it; the event carries the rejected text and the frontend re-queues it — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md), [ADR 0013](adr/0013-steer-rejection-owns-the-text.md)).
 
+Python extensions consume a versioned superset of that renderer vocabulary.
+[ADR 0028](adr/0028-extension-parity-contract.md) freezes its lifecycle/control
+names and immutable provider capability matrix. The matrix distinguishes
+native-owned control from host-owned observation; an adapter may not silently
+approximate an unsupported action or expose raw provider payloads.
+
 ## Embedding boundary
 
 [`libtny`](adr/0023-libtny-embedding-abi.md) exposes opaque

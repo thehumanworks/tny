@@ -4,6 +4,9 @@ tny extensions are trusted Python programs that observe normalized agent
 events and can request a small set of portable actions. Python support is
 conditional on an external interpreter being available; tny does not bundle
 one. The architectural decision is [ADR 0027](adr/0027-python-event-hooks.md).
+The additive parity vocabulary, capability states, and provider authority
+rules are frozen by [ADR 0028](adr/0028-extension-parity-contract.md) and the
+[release-pinned manifest](features/extension-hook-parity.md).
 
 > **Security warning:** extensions run with your full user permissions and are
 > not sandboxed. They can read environment variables and credentials, change
@@ -38,6 +41,26 @@ dataclasses, action classes, constructors, and listener registration. The
 module's annotations allow editors and type checkers to validate extensions
 without tny shipping an interpreter.
 
+`api.capabilities` is an immutable `CapabilityView`. It contains the provider
+selected during setup plus complete native OpenAI, Cursor, Codex, and ACP
+matrices. Capability entries have stable names, a current `supported`,
+`unsupported`, or `unavailable` state, and a reason. Unknown names, unknown
+future state strings, and optional fields are retained.
+
+```python
+def setup(api: ExtensionAPI) -> None:
+    selected = api.capabilities.selected
+    can_rewrite = selected is not None and selected.supports(
+        "extensions.tool.pre.rewrite"
+    )
+```
+
+The view is a setup snapshot. If the TUI later changes provider, use the
+runtime event's `event.provider` with
+`api.capabilities.for_provider(event.provider)`. Capability queries are static:
+they do not spawn Python/providers, probe endpoints, read credentials, or
+perform network I/O. `tny doctor --json` exposes the same matrix.
+
 Illustrative v1 shape:
 
 ```python
@@ -60,10 +83,12 @@ This example selects a visible custom item attributed to `reviewer`. The
 default `continue_with(...)` form instead selects a visible user follow-up.
 Neither form inserts hidden system context.
 
-The public Python names and normalized event schema are versioned at major 1.
-The transport between tny and its Python host is private. Extensions must
-ignore optional fields they do not use and should handle new enum values with
-a fallback.
+The public Python names and normalized event/action schemas remain at major 1;
+capabilities begin at major 1. “Extensions v2” is a roadmap name, not a schema
+major. The private host handshake negotiates all three majors. Legacy
+protocol-1 initialization remains valid; an explicitly incompatible major is
+reported and extensions fail open. Extensions must ignore optional fields they
+do not use and handle new event, capability, and state values with a fallback.
 
 The installed host adds its own `lib/tny` directory to `sys.path`, so runtime
 imports need no `pip install`. For editor/type-checker resolution, add that
@@ -151,10 +176,36 @@ Listeners return one of:
 | `continue_with(content, message_kind, custom_type, display)` / `continue` | At `agent_end`, add a visible user or custom item and start another provider turn |
 | `stop(reason)` / `stop` | Request asynchronous cancellation; terminal events still drain |
 
+ADR 0028 also freezes these additive control actions. Their Python types are
+available now so downstream lanes cannot invent incompatible names; returning
+one while its capability is `unavailable` or `unsupported` produces a visible
+typed diagnostic and acts as `none`.
+
+| Constructor / kind | Contracted boundary | Capability |
+| --- | --- | --- |
+| `transform_prompt(prompt)` / `prompt_transform` | replace submitted text before persistence/send | `extensions.prompt.transform` |
+| `block_prompt(reason)` / `prompt_block` | reject submitted text before persistence/send | `extensions.prompt.block` |
+| `rewrite_tool(arguments)` / `tool_rewrite` | replace native tool arguments before validation/permission | `extensions.tool.pre.rewrite` |
+| `deny_tool(reason)` / `tool_deny` | prevent the exact native tool call from executing | `extensions.tool.pre.deny` |
+| `decide_permission(decision, reason)` / `permission_decision` | allow-once, deny, or abstain on a real request | matching `extensions.permission.*` key |
+| `annotate_tool(content, display)` / `tool_annotate` | add attributed post-tool metadata | `extensions.tool.post.annotate` |
+| `replace_tool_result(content, is_error)` / `tool_result_replace` | select next-model result while retaining original | `extensions.tool.post.replace` |
+
+Current truth is intentionally conservative: #54 ships the contract and
+capability plumbing; #55 and the provider lanes turn individual states to
+`supported` only with their runtime tests. Cursor already reports its missing
+permission and host-tool control surfaces as `unsupported`.
+
 All matching listeners run before actions are folded. Context items retain
 listener order. `stop` wins over continuation. Multiple continuation
 requests create one next provider turn containing each extension's visible
 context in order.
+
+For the additive control plane, precedence is cancellation/`stop`, explicit
+prompt/tool/permission deny, last valid transform/rewrite/replacement,
+allow-once, ordered annotations/context, then abstain/none/failure. A folded
+deny remains denied after a handler timeout or host restart and can never be
+turned into an allow.
 
 `before_agent_start` accepts `context` or `stop`. Normal stream/tool/status
 events accept `context` (queued to the next portable turn boundary) or
@@ -207,6 +258,14 @@ over global extensions.
 Provider terminal events remain true. `continue` creates a later turn; it
 does not rewrite or reopen the completed provider turn. Session-end hooks are
 tny lifecycle events because providers do not share a session-close event.
+
+For the complete 29-key current matrix, run `tny doctor --json` or see
+[extension-hook-parity.md](features/extension-hook-parity.md). `unsupported`
+means the selected provider cannot provide the semantic control;
+`unavailable` means the frozen contract is not implemented or enabled in this
+runtime. An observation capability can be supported while its rewrite/deny or
+replace companions are unsupported, which is the precise meaning of
+host-owned observational-only behavior.
 
 ## libtny and wasm
 

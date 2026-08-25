@@ -1,6 +1,6 @@
 # Feature parity with fx
 
-fx sources: [README](https://github.com/vercel-labs/fx), [fx.sh/llms.txt](https://fx.sh/llms.txt). Baseline advertised 2026-08-18.
+fx sources: [README](https://github.com/vercel-labs/fx), [fx.sh/llms.txt](https://fx.sh/llms.txt). The user-visible inventory and measured performance baseline below are the historical v0.0.3 bake-off captured 2026-08-18. The current v0.0.5 extension-hook baseline is tracked separately in [extension-hook-parity.md](extension-hook-parity.md).
 
 ## v1 must match — status as built (2026-08-19, all `make test` green)
 
@@ -22,7 +22,7 @@ fx sources: [README](https://github.com/vercel-labs/fx), [fx.sh/llms.txt](https:
 | Doctor / status / usage | yes | yes | ✅ all three, `--json` variants |
 | Undo last file tool | `/undo` | native loop | ✅ one-deep undo (blob + metadata) |
 
-## Bake-off vs fx v0.0.3 (macOS arm64, same machine, hyperfine)
+## Historical bake-off vs fx v0.0.3 (macOS arm64, same machine, hyperfine)
 
 | Metric | fx 0.0.3 | tny 0.1.0 | Result |
 | --- | --- | --- | --- |

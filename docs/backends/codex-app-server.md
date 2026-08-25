@@ -2,7 +2,7 @@
 
 Canonical: [developers.openai.com/codex/app-server](https://developers.openai.com/codex/app-server), source `openai/codex` → `codex-rs/app-server`. Design essay: [Unlocking the Codex harness](https://openai.com/index/unlocking-the-codex-harness/).
 
-tny is a rich client of the same JSON-RPC surface the VS Code extension uses. Prefer **WebSocket** as required. stdio JSONL is the same messages and is useful for tests. Pin the installed `codex` (research snapshot: `rust-v0.148.0`) and generate types from **that** binary. Leave `experimentalApi` **false**.
+tny is a rich client of the same JSON-RPC surface the VS Code extension uses. Prefer **WebSocket** as required. stdio JSONL is the same messages and is useful for tests. Pin the installed `codex` (extension-parity baseline: `rust-v0.149.1`, commit `ff29a44391deccde0aba0f8390337d7f3c319ea4`) and generate types from **that** binary. Leave `experimentalApi` **false**.
 
 OpenAI marks TCP WebSocket as **experimental**. Still implement it; default to loopback. Current source **refuses non-loopback without `--ws-auth`**. Do not send an `Origin` header (403). There is **no default TCP port**.
 

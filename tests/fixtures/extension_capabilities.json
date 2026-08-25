@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "capabilities": [
+    "extensions.prompt.observe",
+    "extensions.prompt.transform",
+    "extensions.prompt.block",
+    "extensions.lifecycle.session.observe",
+    "extensions.lifecycle.turn.observe",
+    "extensions.lifecycle.message.observe",
+    "extensions.lifecycle.compaction.observe",
+    "extensions.lifecycle.model.observe",
+    "extensions.lifecycle.effort.observe",
+    "extensions.lifecycle.instructions.observe",
+    "extensions.lifecycle.workspace.observe",
+    "extensions.lifecycle.subagent.observe",
+    "extensions.tool.pre.observe",
+    "extensions.tool.pre.rewrite",
+    "extensions.tool.pre.deny",
+    "extensions.permission.observe",
+    "extensions.permission.allow_once",
+    "extensions.permission.deny",
+    "extensions.permission.abstain",
+    "extensions.tool.post.observe",
+    "extensions.tool.post.annotate",
+    "extensions.tool.post.replace",
+    "extensions.tool.batch.observe",
+    "extensions.provider.request.observe_redacted",
+    "extensions.provider.response.observe_redacted",
+    "extensions.agent.continue",
+    "extensions.agent.cancel",
+    "extensions.project_local.discover",
+    "extensions.project_local.trust"
+  ],
+  "providers": {
+    "openai": {
+      "runtime": "native",
+      "states": [
+        "supported", "unavailable", "unavailable", "supported",
+        "unavailable", "unavailable", "unavailable", "unavailable",
+        "unavailable", "unavailable", "unavailable", "unavailable",
+        "unavailable", "unavailable", "unavailable", "supported",
+        "unavailable", "unavailable", "unavailable", "supported",
+        "unavailable", "unavailable", "unavailable", "unavailable",
+        "unavailable", "supported", "supported", "unavailable", "unavailable"
+      ]
+    },
+    "cursor": {
+      "runtime": "host",
+      "states": [
+        "supported", "unavailable", "unavailable", "supported",
+        "unavailable", "unavailable", "unavailable", "unavailable",
+        "unavailable", "unavailable", "unavailable", "unavailable",
+        "unavailable", "unsupported", "unsupported", "unsupported",
+        "unsupported", "unsupported", "unsupported", "supported",
+        "unsupported", "unsupported", "unavailable", "unavailable",
+        "unavailable", "supported", "supported", "unavailable", "unavailable"
+      ]
+    },
+    "codex": {
+      "runtime": "host",
+      "states": [
+        "supported", "unavailable", "unavailable", "supported",
+        "unavailable", "unavailable", "unavailable", "unavailable",
+        "unavailable", "unavailable", "unavailable", "unavailable",
+        "unavailable", "unsupported", "unsupported", "supported",
+        "unavailable", "unavailable", "unavailable", "supported",
+        "unsupported", "unsupported", "unavailable", "unavailable",
+        "unavailable", "supported", "supported", "unavailable", "unavailable"
+      ]
+    },
+    "acp": {
+      "runtime": "host",
+      "states": [
+        "supported", "unavailable", "unavailable", "supported",
+        "unavailable", "unavailable", "unavailable", "unavailable",
+        "unavailable", "unavailable", "unavailable", "unavailable",
+        "unavailable", "unsupported", "unsupported", "supported",
+        "unavailable", "unavailable", "unavailable", "supported",
+        "unsupported", "unsupported", "unavailable", "unavailable",
+        "unavailable", "supported", "supported", "unavailable", "unavailable"
+      ]
+    }
+  }
+}

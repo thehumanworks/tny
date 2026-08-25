@@ -12,7 +12,7 @@ and terminal state, but it is not a safe extension contract: message and item
 identity is lost, tool detail is clipped for display, provider stop reasons are
 collapsed, and session lifetime is not represented.
 
-[Pi's extension API](https://github.com/earendil-works/pi/tree/dcd461925db2edf69a43c8135db1180d418afd54)
+[Pi's extension API](https://github.com/earendil-works/pi/tree/4e58f324fae8ebfa98a3d45181fb248072a2afac)
 demonstrates the desired product shape: user code registers event listeners,
 may stop an agent, may add visible context, and may prevent a candidate agent
 end so the agent performs another iteration. tny needs that control without

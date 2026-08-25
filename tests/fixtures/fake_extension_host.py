@@ -17,6 +17,17 @@ for raw in sys.stdin:
     request = json.loads(raw)
     request_id = request["id"]
     if request.get("op") == "initialize":
+        expected_provider = os.environ.get("FAKE_REQUIRE_SELECTED_PROVIDER")
+        selected_provider = request.get("capabilities", {}).get("selected_provider")
+        if expected_provider and selected_provider != expected_provider:
+            response = {
+                "id": request_id,
+                "ok": False,
+                "error": "selected provider mismatch",
+            }
+            sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
+            sys.stdout.flush()
+            continue
         names = [extension_name(path) for path in request.get("entries", [])]
         subscriptions = []
         if names:
@@ -68,6 +79,14 @@ for raw in sys.stdin:
             "protocol": 1,
             "subscriptions": subscriptions,
         }
+        schema_major = os.environ.get("FAKE_EXTENSION_SCHEMA_MAJOR")
+        if schema_major:
+            major = int(schema_major)
+            response["schema"] = {
+                "events": major,
+                "actions": major,
+                "capabilities": major,
+            }
     elif request.get("op") == "invoke":
         handler = request.get("handler_id")
         if handler == "context":

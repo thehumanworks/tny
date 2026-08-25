@@ -373,6 +373,40 @@ TEST extensions_reject_event_over_the_wire_limit(void) {
     PASS();
 }
 
+TEST extensions_negotiate_schema_and_send_selected_capabilities(void) {
+    ext_fixture f = ext_fixture_new(true);
+    ASSERT(f.host);
+    setenv("TNY_EXTENSION_HOST", f.host, 1);
+    setenv("FAKE_REQUIRE_SELECTED_PROVIDER", "codex", 1);
+    tny_extensions *x = tny_extensions_new(f.tny, f.workspace, 200);
+    ASSERT(x);
+    tny_extensions_set_provider(x, TNY_BK_CODEX);
+    tny_extension_result result;
+    ASSERT_EQ(0, tny_extensions_invoke(
+        x, "tool_end", "{\"type\":\"tool_end\"}", &result));
+    ASSERT_EQ(2, result.action_count);
+    ASSERT_EQ(0, result.failure_count);
+    tny_extension_result_free(&result);
+    tny_extensions_free(x);
+    unsetenv("FAKE_REQUIRE_SELECTED_PROVIDER");
+
+    setenv("FAKE_EXTENSION_SCHEMA_MAJOR", "2", 1);
+    x = tny_extensions_new(f.tny, f.workspace, 200);
+    ASSERT(x);
+    ASSERT_EQ(0, tny_extensions_invoke(
+        x, "turn_end", "{\"type\":\"turn_end\"}", &result));
+    ASSERT_EQ(0, result.action_count);
+    ASSERT_EQ(1, result.failure_count);
+    ASSERT_STR_EQ("unavailable", result.failures[0].code);
+    ASSERT_EQ(TNY_EXTENSIONS_UNAVAILABLE, tny_extensions_get_state(x));
+    tny_extension_result_free(&result);
+    tny_extensions_free(x);
+    unsetenv("FAKE_EXTENSION_SCHEMA_MAJOR");
+    unsetenv("TNY_EXTENSION_HOST");
+    ext_fixture_free(&f);
+    PASS();
+}
+
 SUITE(extensions_suite) {
     RUN_TEST(extensions_empty_is_lazy_and_optional);
     RUN_TEST(extensions_discover_sorted_and_return_typed_actions);
@@ -386,4 +420,5 @@ SUITE(extensions_suite) {
     RUN_TEST(extension_capability_matrices_are_typed_and_secret_free);
     RUN_TEST(extensions_known_unavailable_actions_get_capability_diagnostics);
     RUN_TEST(extensions_reject_event_over_the_wire_limit);
+    RUN_TEST(extensions_negotiate_schema_and_send_selected_capabilities);
 }

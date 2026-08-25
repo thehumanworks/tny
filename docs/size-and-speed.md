@@ -43,7 +43,9 @@ Startup (empty `HOME` override, no network):
 | `tny --version` / `tny ask --help` | **< 5 ms** median | < 2 ms (match fx’s 2 ms Linux CLI gate if we can) |
 | TUI first prompt (no spawn) | **< 10 ms** | < 5 ms |
 
-Do not initialize backends until the user sends a turn or `ask` starts. `doctor` may spawn.
+Do not initialize backends until the user sends a turn or `ask` starts. Human
+`doctor` may spawn bounded health probes; `doctor --json` is a side-effect-free
+configuration/capability query and never starts a provider or Python.
 
 ## How we stay under fx
 

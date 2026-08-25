@@ -41,6 +41,7 @@ Do not start product code until you have read this index and the files it names.
 | Doc | Why |
 | --- | --- |
 | [features/parity-with-fx.md](features/parity-with-fx.md) | Must-keep inventory vs deferrals |
+| [features/extension-hook-parity.md](features/extension-hook-parity.md) | Release-pinned Pi/Codex/Claude/fx hook classifications and provider capabilities |
 | [features/sessions.md](features/sessions.md) | Save, resume, compact, recover |
 | [features/permissions.md](features/permissions.md) | ask / auto / yolo, rules, sandbox |
 | [features/mcp-and-skills.md](features/mcp-and-skills.md) | MCP client, skills, subagents, tools |
