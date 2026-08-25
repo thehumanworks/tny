@@ -51,6 +51,8 @@ typedef struct {
     tny_stop_reason final_stop; /* provider terminal reason for this step */
     char finish_reason[32];
     int64_t usage_in, usage_out;
+    uint64_t provider_request_sequence;
+    int provider_attempt;
 
     buf_t toolcall_log;     /* JSON array text for ask --json */
     int tool_index;         /* next call in the recorded assistant batch */
@@ -294,8 +296,36 @@ static char *build_request_rsp(oa_impl *o) {
     return buf_detach(&b);
 }
 
-static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
+static tny_openai_control_response provider_control(
+    oa_impl *o, tny_openai_control_kind kind, int status) {
+    char request_id[192];
+    snprintf(request_id, sizeof request_id, "%s:%llu:request:%llu",
+             o->env.session ? o->env.session->id : "session",
+             (unsigned long long)(o->env.session
+                 ? o->env.session->extension_agent_sequence : 0),
+             (unsigned long long)o->provider_request_sequence);
+    tny_openai_control_request provider = {0};
+    provider.kind = kind;
+    provider.method = kind == TNY_OPENAI_CONTROL_PROVIDER_REQUEST ? "POST" : NULL;
+    provider.endpoint = o->wire_chat ? "/chat/completions" : "/responses";
+    provider.status = status;
+    provider.stream = true;
+    provider.connection_reused = o->conn_reused;
+    provider.wire_api = o->wire_chat ? "chat" : "responses";
+    provider.step = o->step;
+    provider.logical_request_id = request_id;
+    provider.attempt = o->provider_attempt;
+    return control_call(o, &provider);
+}
+
+static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen,
+                           bool retry) {
     char err[256];
+    if (retry) o->provider_attempt++;
+    else {
+        o->provider_request_sequence++;
+        o->provider_attempt = 1;
+    }
     o->conn_reused = o->conn != NULL;
     if (!o->conn) {
         o->conn = http_open(o->ctx->base_url, err, sizeof err);
@@ -326,14 +356,8 @@ static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
     buf_init(&path);
     buf_appendf(&path, "%s%s", http_prefix(o->conn),
                 o->wire_chat ? "/chat/completions" : "/responses");
-    tny_openai_control_request provider = {0};
-    provider.kind = TNY_OPENAI_CONTROL_PROVIDER_REQUEST;
-    provider.method = "POST";
-    provider.endpoint = o->wire_chat ? "/chat/completions" : "/responses";
-    provider.stream = true;
-    provider.wire_api = o->wire_chat ? "chat" : "responses";
-    provider.step = o->step;
-    tny_openai_control_response control = control_call(o, &provider);
+    tny_openai_control_response control = provider_control(
+        o, TNY_OPENAI_CONTROL_PROVIDER_REQUEST, 0);
     if (control.stop) {
         o->cancelled = true;
         control_response_free(&control);
@@ -347,11 +371,31 @@ static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
     int rc = http_request(o->conn, "POST", path.data, hdrs, body, strlen(body));
     if (rc != 0) {
         /* stale keep-alive caught at write time: reopen once */
+        control = provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
+        if (control.stop) o->cancelled = true;
+        control_response_free(&control);
         http_close(o->conn);
         o->conn = http_open(o->ctx->base_url, err, sizeof err);
         o->conn_reused = false;
-        if (o->conn)
-            rc = http_request(o->conn, "POST", path.data, hdrs, body, strlen(body));
+        if (o->conn) {
+            o->provider_attempt++;
+            control = provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_REQUEST, 0);
+            if (control.stop) {
+                o->cancelled = true;
+                control_response_free(&control);
+                rc = -1;
+            } else {
+                control_response_free(&control);
+                rc = http_request(o->conn, "POST", path.data, hdrs, body,
+                                  strlen(body));
+                if (rc != 0) {
+                    control = provider_control(
+                        o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
+                    if (control.stop) o->cancelled = true;
+                    control_response_free(&control);
+                }
+            }
+        }
     }
     buf_free(&path);
     buf_free(&auth);
@@ -369,6 +413,10 @@ static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
     sse_parser_free(&o->sse);
     sse_parser_init(&o->sse);
     return 0;
+}
+
+static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
+    return start_post_mode(o, errbuf, errlen, false);
 }
 
 /* ---------- SSE event handling ---------- */
@@ -1193,7 +1241,11 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 http_close(o->conn);
                 o->conn = NULL;
                 char rerr[512];
-                if (start_post(o, rerr, sizeof rerr) == 0) return 0;
+                tny_openai_control_response failed = provider_control(
+                    o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
+                if (failed.stop) o->cancelled = true;
+                control_response_free(&failed);
+                if (start_post_mode(o, rerr, sizeof rerr, true) == 0) return 0;
                 emit_error(o, TNY_EVENT_ERROR_IO, rerr, strlen(rerr));
                 emit_turn_end(o, TNY_STOP_ERROR);
                 return -1;
@@ -1203,13 +1255,8 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             emit_turn_end(o, TNY_STOP_ERROR);
             return -1;
         }
-        tny_openai_control_request provider = {0};
-        provider.kind = TNY_OPENAI_CONTROL_PROVIDER_RESPONSE;
-        provider.status = status;
-        provider.stream = true;
-        provider.connection_reused = o->conn_reused;
-        provider.wire_api = o->wire_chat ? "chat" : "responses";
-        tny_openai_control_response control = control_call(o, &provider);
+        tny_openai_control_response control = provider_control(
+            o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, status);
         if (control.stop) {
             o->cancelled = true;
             control_response_free(&control);

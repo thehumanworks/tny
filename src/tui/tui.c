@@ -329,6 +329,8 @@ static char *queue_pop(tui *t) {
 
 void tui_new_session(tui *t, bool clear_screen) {
     if (t->turn_active) { tui_sys(t, "finish the turn first"); return; }
+    char *previous = t->session && t->session->id
+        ? xstrdup(t->session->id) : NULL;
     if (t->engine)
         tny_engine_end_session(t->engine, clear_screen ? "clear" : "new");
     tui_drop_backend(t);
@@ -337,6 +339,11 @@ void tui_new_session(tui *t, bool clear_screen) {
         session_close(t->session);
         t->session = NULL;
     }
+    t->session = session_new(t->ctx);
+    if (t->session)
+        session_set_extension_start(t->session,
+                                    clear_screen ? "clear" : "new", previous);
+    free(previous);
     tui_prewarm_start(t); /* the next first prompt should not pay startup */
     t->in_tok = t->out_tok = 0;
     buf_clear(&t->last_reply);

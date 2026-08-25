@@ -306,6 +306,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     if (continue_recovery && session) {
         char *rec = session_recovery_read(session);
         if (rec) {
+            session_set_extension_start(session, "recovery", NULL);
             if (!json) { fputs(rec, stdout); fputs("\n", stdout); }
             session_recovery_clear(session);
             free(rec);

@@ -63,6 +63,9 @@ def record(event):
             "tool_id": getattr(event, "tool_id", ""),
             "permission_id": getattr(event, "permission_id", ""),
             "detail": getattr(event, "message", getattr(event, "text", "")),
+            "metadata": dict(getattr(event, "metadata", {})),
+            "status": getattr(event, "status", 0),
+            "reason": getattr(event, "reason", ""),
         }, separators=(",", ":")) + "\n")
 
 def setup(api):
@@ -265,6 +268,22 @@ def main():
             batch = kinds.index("post_tool_batch")
             assert first_pre < first_start < first_end < first_post < second_pre < batch, kinds
             assert kinds.index("provider_request") < kinds.index("provider_response"), kinds
+            requests = [event for event in events
+                        if event["type"] == "provider_request"]
+            responses = [event for event in events
+                         if event["type"] == "provider_response"]
+            request_attempts = [
+                (event["metadata"]["logical_request_id"],
+                 event["metadata"]["attempt"])
+                for event in requests
+            ]
+            response_attempts = [
+                (event["metadata"]["logical_request_id"],
+                 event["metadata"]["attempt"])
+                for event in responses
+            ]
+            assert request_attempts == response_attempts, (requests, responses)
+            assert len(request_attempts) == len(set(request_attempts)), request_attempts
 
             order = {kind: kinds.index(kind) for kind in (
                 "session_start", "user_prompt_submit", "before_agent_start",
@@ -273,6 +292,35 @@ def main():
                 "agent_settled", "session_end",
             )}
             assert list(order.values()) == sorted(order.values()), order
+
+            resumed = subprocess.run(
+                [TNY, "--cwd", workspace, "ask", "--json", "--resume",
+                 output["session_id"], "resume extension session"],
+                env=env, capture_output=True, timeout=30)
+            assert resumed.returncode == 0, resumed.stderr.decode()
+            resumed_doc = json.load(open(session_files[0], encoding="utf-8"))
+            assert len([entry for entry in resumed_doc.get("extension_audit", [])
+                        if entry.get("kind") == "tool"]) == 1, resumed_doc
+            resumed_events = [json.loads(line) for line in
+                              open(event_log, encoding="utf-8")]
+            assert [event["reason"] for event in resumed_events
+                    if event["type"] == "session_start"][-1] == "resume"
+
+            recovery_file = os.path.join(os.path.dirname(session_files[0]),
+                                         "recovery.json")
+            with open(recovery_file, "w", encoding="utf-8") as stream:
+                json.dump({"partial": "RECOVERY-PARTIAL", "at": "test"}, stream)
+            recovered = subprocess.run(
+                [TNY, "--cwd", workspace, "ask", "--json", "--resume",
+                 output["session_id"], "--continue-recovery",
+                 "recover extension session"],
+                env=env, capture_output=True, timeout=30)
+            assert recovered.returncode == 0, recovered.stderr.decode()
+            assert not os.path.exists(recovery_file)
+            recovered_events = [json.loads(line) for line in
+                                open(event_log, encoding="utf-8")]
+            assert [event["reason"] for event in recovered_events
+                    if event["type"] == "session_start"][-1] == "recovery"
 
             blocked = subprocess.run(
                 [TNY, "--cwd", workspace, "ask", "--json", "blocked input"],

@@ -1029,7 +1029,9 @@ static char *native_control_json(tny_engine *e,
         buf_appendf(&b, "\"stream\":%s,\"step\":%d,\"wire_api\":",
                     request->stream ? "true" : "false", request->step);
         jescape(&b, request->wire_api ? request->wire_api : "responses");
-        buf_appends(&b, "}");
+        buf_appends(&b, ",\"logical_request_id\":");
+        jescape(&b, request->logical_request_id ? request->logical_request_id : "");
+        buf_appendf(&b, ",\"attempt\":%d}", request->attempt);
         break;
     case TNY_OPENAI_CONTROL_PROVIDER_RESPONSE:
         buf_appendf(&b, "\"status\":%d,\"metadata\":{\"stream\":%s,"
@@ -1037,7 +1039,9 @@ static char *native_control_json(tny_engine *e,
                     request->status, request->stream ? "true" : "false",
                     request->connection_reused ? "true" : "false");
         jescape(&b, request->wire_api ? request->wire_api : "responses");
-        buf_appends(&b, "}");
+        buf_appends(&b, ",\"logical_request_id\":");
+        jescape(&b, request->logical_request_id ? request->logical_request_id : "");
+        buf_appendf(&b, ",\"attempt\":%d}", request->attempt);
         break;
     case TNY_OPENAI_CONTROL_SUBAGENT_START:
         buf_appends(&b, "\"subagent_id\":");

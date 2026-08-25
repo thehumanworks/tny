@@ -49,6 +49,8 @@ typedef struct {
     bool connection_reused;
     const char *wire_api;
     int step;
+    const char *logical_request_id;
+    int attempt;
     const char *subagent_id;
     const char *subagent_action;
     const char *subagent_outcome;
