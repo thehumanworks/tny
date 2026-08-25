@@ -74,6 +74,8 @@ static void pending_perm_clear(oa_impl *o) {
     memset(&o->pending_perm, 0, sizeof o->pending_perm);
 }
 
+static void permission_block(oa_impl *o) { o->env.perm_blocked = true; }
+
 static void control_response_free(tny_openai_control_response *response) {
     if (!response) return;
     free(response->arguments_json);
@@ -306,7 +308,7 @@ static tny_openai_control_response provider_control(
              (unsigned long long)o->provider_request_sequence);
     tny_openai_control_request provider = {0};
     provider.kind = kind;
-    provider.method = kind == TNY_OPENAI_CONTROL_PROVIDER_REQUEST ? "POST" : NULL;
+    provider.method = "POST";
     provider.endpoint = o->wire_chat ? "/chat/completions" : "/responses";
     provider.status = status;
     provider.stream = true;
@@ -684,7 +686,7 @@ static void complete_tool(oa_impl *o, const char *cid, const char *name,
     request.control_extension = control_extension;
     request.control_reason = control_reason;
     tny_openai_control_response response = control_call(o, &request);
-    const char *effective_result = response.result_replaced && response.result
+    const char *effective_result = response.result_replaced
         ? response.result : original_result;
     bool effective_ok = response.result_replaced
         ? !response.result_is_error : original_ok;
@@ -694,7 +696,6 @@ static void complete_tool(oa_impl *o, const char *cid, const char *name,
     log_toolcall(o, name, original_ok, effective_ok, transformed);
     if (!effective_ok) o->tool_batch_failed++;
     session_add_tool_result(o->env.session, cid, effective_result);
-    if (response.stop) o->cancelled = true;
     control_response_free(&response);
 }
 
@@ -707,7 +708,7 @@ static void execute_call(oa_impl *o, const char *cid, const char *original_args,
     start.tool_id = cid;
     start.tool_detail = effective_args;
     emit(o, &start);
-    subagent_control(o, TNY_OPENAI_CONTROL_SUBAGENT_START, cid, call, NULL, true);
+    subagent_control(o, TNY_OPENAI_CONTROL_SUBAGENT_START, cid, call, NULL, false);
     char *result = o->cancelled
         ? tool_err("interrupted before %s ran", call->name)
         : tools_call_execute(&o->env, call);
@@ -725,8 +726,8 @@ static void finish_cancelled_call(oa_impl *o, const char *cid, const char *name,
     free(result);
 }
 
-static void tool_batch_control(oa_impl *o) {
-    if (!o->control) return;
+static bool tool_batch_control(oa_impl *o) {
+    if (!o->control) return false;
     buf_t ids;
     buf_init(&ids);
     buf_appends(&ids, "[");
@@ -741,14 +742,15 @@ static void tool_batch_control(oa_impl *o) {
     request.tool_ids_json = ids.data;
     request.failed_tools = o->tool_batch_failed;
     tny_openai_control_response response = control_call(o, &request);
-    if (response.stop) o->cancelled = true;
+    bool stop = response.stop;
     control_response_free(&response);
     buf_free(&ids);
+    return stop;
 }
 
 static int finish_tool_batch(oa_impl *o) {
     tny_session_state *s = o->env.session;
-    tool_batch_control(o);
+    bool batch_stop = tool_batch_control(o);
     if (o->env.n_pending_images) {
         char ierr[256];
         if (tools_flush_images(&o->env, ierr, sizeof ierr) != 0)
@@ -764,6 +766,11 @@ static int finish_tool_batch(oa_impl *o) {
         emit_error(o, TNY_EVENT_ERROR_IO, message, strlen(message));
         emit_turn_end(o, TNY_STOP_ERROR);
         return -1;
+    }
+
+    if (batch_stop) {
+        emit_turn_end(o, TNY_STOP_INTERRUPTED);
+        return 0;
     }
 
     if (o->cancelled) {
@@ -874,7 +881,7 @@ static int run_tools(oa_impl *o) {
             }
             if (call.verdict == PERM_DENY) {
                 char *result = tool_err("permission denied for %s", call.name);
-                o->env.perm_blocked = true;
+                permission_block(o);
                 complete_tool(o, cid, call.name, args, effective_args,
                               control_extension, "permission rule denied", result);
                 free(result);
@@ -917,8 +924,7 @@ static int run_tools(oa_impl *o) {
             }
             if (response.stop ||
                 response.permission == TNY_OPENAI_PERMISSION_DENY) {
-                if (response.stop) o->cancelled = true;
-                else o->env.perm_blocked = true;
+                if (!response.stop) permission_block(o);
                 char *result = response.stop
                     ? tool_err("interrupted before %s ran", call.name)
                     : tool_err("permission denied for %s", call.name);
@@ -952,7 +958,7 @@ static int run_tools(oa_impl *o) {
                 if (decision == TNY_PERM_DECISION_ALLOW_ALWAYS)
                     tools_call_grant(&o->env, &call);
                 if (decision == TNY_PERM_DECISION_DENY) {
-                    o->env.perm_blocked = true;
+                    permission_block(o);
                     char *result = tool_err("permission denied for %s", call.name);
                     complete_tool(o, cid, call.name, args, effective_args,
                                   control_extension, "user denied", result);
@@ -992,7 +998,7 @@ static int run_tools(oa_impl *o) {
         if (p->decision == TNY_PERM_DECISION_ALLOW_ALWAYS)
             tools_call_grant(&o->env, &p->call);
         if (p->decision == TNY_PERM_DECISION_DENY) {
-            o->env.perm_blocked = true;
+            permission_block(o);
             char *result = tool_err("permission denied for %s", p->call.name);
             complete_tool(o, p->id, p->call.name, p->original_args,
                           p->effective_args, p->control_extension,
@@ -1210,7 +1216,7 @@ static void oa_respond_permission(tny_backend *b, const char *id, tny_perm_decis
         strcmp(id, o->pending_perm.id) != 0)
         return;
     o->pending_perm.decision = d;
-    if (d == TNY_PERM_DECISION_DENY) o->env.perm_blocked = true;
+    if (d == TNY_PERM_DECISION_DENY) permission_block(o);
     run_tools(o);
 }
 

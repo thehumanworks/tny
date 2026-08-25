@@ -34,6 +34,7 @@ from tny_ext import (
     AgentEndEvent,
     BeforeAgentStartEvent,
     PermissionRequestEvent,
+    PostToolBatchEvent,
     PostToolFailureEvent,
     PostToolUseEvent,
     PreToolUseEvent,
@@ -136,6 +137,11 @@ def setup(api):
     @api.on(PostToolFailureEvent)
     def observe_failure(event):
         return annotate_tool("observed tool failure", display=False)
+
+    @api.on(PostToolBatchEvent)
+    def stop_after_batch(event):
+        if os.environ.get("TNY_TEST_STOP_BATCH") == "1":
+            return stop("stop after tool batch")
 
     @api.on(PermissionRequestEvent)
     def decide(event):
@@ -316,6 +322,15 @@ def main():
             ]
             assert request_attempts == response_attempts, (requests, responses)
             assert len(request_attempts) == len(set(request_attempts)), request_attempts
+            assert all(attempt >= 1 for _, attempt in request_attempts)
+            first_attempt_sequences = [
+                int(request_id.rsplit(":", 1)[1])
+                for request_id, attempt in request_attempts if attempt == 1
+            ]
+            assert first_attempt_sequences == list(
+                range(1, len(first_attempt_sequences) + 1)
+            ), first_attempt_sequences
+            assert any(attempt > 1 for _, attempt in request_attempts), request_attempts
             assert all(event["metadata"]["stream"] is True for event in requests + responses)
             assert all(event["metadata"]["wire_api"] == "responses"
                        for event in requests + responses)
@@ -442,6 +457,19 @@ def main():
                 assert permission_stopped.returncode == 130, permission_stopped.stderr.decode()
                 assert not os.path.exists(target)
                 assert permission_event_count() == before_permissions + 1
+                permission_stopped_json = json.loads(permission_stopped.stdout)
+                permission_stopped_sessions = glob.glob(os.path.join(
+                    home, ".tny", "sessions", "*",
+                    permission_stopped_json["session_id"], "session.json"))
+                assert len(permission_stopped_sessions) == 1
+                permission_stopped_doc = json.load(open(
+                    permission_stopped_sessions[0], encoding="utf-8"))
+                permission_stopped_audit = [
+                    entry for entry in permission_stopped_doc.get("extension_audit", [])
+                    if entry.get("kind") == "tool"
+                ]
+                assert permission_stopped_audit[0]["control_extension"] == "integration"
+                assert permission_stopped_audit[0]["control_reason"] == "stop permission"
 
                 pre_stopped = subprocess.run(
                     [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
@@ -459,6 +487,7 @@ def main():
                 assert tool_denied.returncode == 0, tool_denied.stderr.decode()
                 assert not os.path.exists(target)
 
+                before_invalid_events = len(open(event_log, encoding="utf-8").readlines())
                 invalid = subprocess.run(
                     [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
                      "invalid rewrite"],
@@ -479,6 +508,12 @@ def main():
                 assert invalid_audit[0]["original_ok"] is False
                 assert invalid_audit[0]["effective_ok"] is False
                 assert invalid_audit[0]["annotations"][0]["display"] is False
+                invalid_events = [json.loads(line) for line in
+                                  open(event_log, encoding="utf-8").readlines()[before_invalid_events:]]
+                invalid_batches = [event for event in invalid_events
+                                   if event["type"] == "post_tool_batch"]
+                assert len(invalid_batches) == 1, invalid_batches
+                assert invalid_batches[0]["failed"] == 1, invalid_batches
 
                 # SIGINT arriving while Python is in a bounded pre-tool hook
                 # is consumed by the runtime probe before the write executes.
@@ -588,6 +623,19 @@ def main():
                              TNY_TEST_STOP_PROVIDER="1"),
                     capture_output=True, timeout=30)
                 assert provider_stopped.returncode == 130, provider_stopped.stderr.decode()
+
+                batch_stopped = subprocess.run(
+                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
+                     "stop after provider tool batch"],
+                    env=dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
+                             TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="0",
+                             TNY_TEST_STOP_BATCH="1", TNY_TEST_NO_CONTINUE="1"),
+                    capture_output=True, timeout=30)
+                assert batch_stopped.returncode == 130, batch_stopped.stderr.decode()
+                batch_stopped_json = json.loads(batch_stopped.stdout)
+                assert [tool["status"] for tool in batch_stopped_json["tool_calls"]] == [
+                    "success", "success"
+                ], batch_stopped_json
             finally:
                 stop_mock.terminate()
                 stop_mock.wait(timeout=5)

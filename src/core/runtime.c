@@ -954,13 +954,22 @@ static void native_invalid_action(tny_engine *e, const char *event,
     extension_status(e, action->extension, event, "invalid_action", message);
 }
 
+static void native_set_attribution(tny_openai_control_response *response,
+                                   const tny_extension_action *action);
+
 static bool native_has_stop(tny_engine *e, const char *event,
-                            tny_extension_result *result) {
+                            tny_extension_result *result,
+                            tny_openai_control_response *response) {
     bool stop = e->extension_stop_requested;
+    const tny_extension_action *selected = NULL;
     for (size_t i = 0; i < result->action_count; i++) {
-        if (result->actions[i].kind == TNY_EXTENSION_ACTION_STOP) stop = true;
+        if (result->actions[i].kind == TNY_EXTENSION_ACTION_STOP) {
+            stop = true;
+            selected = &result->actions[i];
+        }
     }
     if (stop) e->extension_stop_requested = true;
+    if (selected && response) native_set_attribution(response, selected);
     (void)event;
     return stop;
 }
@@ -1069,7 +1078,7 @@ static void native_pre_tool(tny_engine *e, const char *json,
     tny_extension_result result = {0};
     if (!native_invoke(e, "pre_tool_use", json, &result)) return;
     native_control_failures(e, "pre_tool_use", &result);
-    if (native_has_stop(e, "pre_tool_use", &result)) {
+    if (native_has_stop(e, "pre_tool_use", &result, response)) {
         tny_extension_result_free(&result);
         return;
     }
@@ -1098,7 +1107,7 @@ static void native_permission(tny_engine *e, const char *json,
     tny_extension_result result = {0};
     if (!native_invoke(e, "permission_request", json, &result)) return;
     native_control_failures(e, "permission_request", &result);
-    if (native_has_stop(e, "permission_request", &result)) {
+    if (native_has_stop(e, "permission_request", &result, response)) {
         tny_extension_result_free(&result);
         return;
     }
@@ -1135,7 +1144,7 @@ static void native_post_tool(tny_engine *e,
     tny_extension_result result = {0};
     (void)native_invoke(e, event, json, &result);
     native_control_failures(e, event, &result);
-    bool stop = native_has_stop(e, event, &result);
+    bool stop = native_has_stop(e, event, &result, response);
     const tny_extension_action *replacement = NULL;
     buf_t annotations;
     buf_init(&annotations);
@@ -1194,7 +1203,7 @@ static void native_observe(tny_engine *e, const char *event, const char *json) {
     tny_extension_result result = {0};
     if (!native_invoke(e, event, json, &result)) return;
     native_control_failures(e, event, &result);
-    (void)native_has_stop(e, event, &result);
+    (void)native_has_stop(e, event, &result, NULL);
     for (size_t i = 0; i < result.action_count; i++) {
         if (result.actions[i].kind != TNY_EXTENSION_ACTION_STOP)
             native_invalid_action(e, event, &result.actions[i],
