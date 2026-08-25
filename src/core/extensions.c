@@ -34,6 +34,7 @@
 #define EXT_MAX_EVENT_NAME 80u
 #define EXT_MAX_EVENT_JSON (128u * 1024u)
 #define EXT_MAX_ACTION_TEXT (64u * 1024u)
+#define EXT_MAX_ARGUMENTS_JSON (128u * 1024u)
 #define EXT_MAX_LINE (256u * 1024u)
 #define EXT_DEFAULT_TIMEOUT_MS 2000
 #define EXT_MAX_TIMEOUT_MS 600000
@@ -638,60 +639,85 @@ static int append_action(tny_extension_result *out, ext_call *call,
     if (strcmp(type, "none") == 0) return 0;
 
     tny_extension_capability_id required = TNY_EXT_CAP_COUNT;
-    if (strcmp(type, "prompt_transform") == 0)
+    tny_extension_action_kind kind = 0;
+    tny_extension_permission_decision permission_decision =
+        TNY_EXTENSION_PERMISSION_ABSTAIN;
+    if (strcmp(type, "context") == 0)
+        kind = TNY_EXTENSION_ACTION_CONTEXT;
+    else if (strcmp(type, "continue") == 0)
+        kind = TNY_EXTENSION_ACTION_CONTINUE;
+    else if (strcmp(type, "stop") == 0)
+        kind = TNY_EXTENSION_ACTION_STOP;
+    else if (strcmp(type, "prompt_transform") == 0) {
+        kind = TNY_EXTENSION_ACTION_PROMPT_TRANSFORM;
         required = TNY_EXT_CAP_PROMPT_TRANSFORM;
-    else if (strcmp(type, "prompt_block") == 0)
+    } else if (strcmp(type, "prompt_block") == 0) {
+        kind = TNY_EXTENSION_ACTION_PROMPT_BLOCK;
         required = TNY_EXT_CAP_PROMPT_BLOCK;
-    else if (strcmp(type, "tool_rewrite") == 0)
+    } else if (strcmp(type, "tool_rewrite") == 0) {
+        kind = TNY_EXTENSION_ACTION_TOOL_REWRITE;
         required = TNY_EXT_CAP_TOOL_PRE_REWRITE;
-    else if (strcmp(type, "tool_deny") == 0)
+    } else if (strcmp(type, "tool_deny") == 0) {
+        kind = TNY_EXTENSION_ACTION_TOOL_DENY;
         required = TNY_EXT_CAP_TOOL_PRE_DENY;
-    else if (strcmp(type, "tool_annotate") == 0)
+    } else if (strcmp(type, "tool_annotate") == 0) {
+        kind = TNY_EXTENSION_ACTION_TOOL_ANNOTATE;
         required = TNY_EXT_CAP_TOOL_POST_ANNOTATE;
-    else if (strcmp(type, "tool_result_replace") == 0)
+    } else if (strcmp(type, "tool_result_replace") == 0) {
+        kind = TNY_EXTENSION_ACTION_TOOL_RESULT_REPLACE;
         required = TNY_EXT_CAP_TOOL_POST_REPLACE;
-    else if (strcmp(type, "permission_decision") == 0) {
+    } else if (strcmp(type, "permission_decision") == 0) {
+        kind = TNY_EXTENSION_ACTION_PERMISSION_DECISION;
         const char *decision = jget_str(value, "decision");
-        if (decision && strcmp(decision, "allow_once") == 0)
+        if (decision && strcmp(decision, "allow_once") == 0) {
             required = TNY_EXT_CAP_PERMISSION_ALLOW_ONCE;
-        else if (decision && strcmp(decision, "deny") == 0)
+            permission_decision = TNY_EXTENSION_PERMISSION_ALLOW_ONCE;
+        } else if (decision && strcmp(decision, "deny") == 0) {
             required = TNY_EXT_CAP_PERMISSION_DENY;
-        else if (decision && strcmp(decision, "abstain") == 0)
+            permission_decision = TNY_EXTENSION_PERMISSION_DENY;
+        } else if (decision && strcmp(decision, "abstain") == 0) {
             required = TNY_EXT_CAP_PERMISSION_ABSTAIN;
-        else
+            permission_decision = TNY_EXTENSION_PERMISSION_ABSTAIN;
+        } else {
             return append_failure(out, call->extension, call->handler_id,
                                   call->event, "invalid_action",
                                   "permission decision must be allow_once, deny, or abstain");
+        }
+    } else {
+        return append_failure(out, call->extension, call->handler_id,
+                              call->event, "invalid_action",
+                              "extension action kind is not supported");
     }
     if (required != TNY_EXT_CAP_COUNT) {
         tny_extension_capability_state state = tny_extension_capability_get(
             call->provider, required);
-        char message[320];
-        snprintf(message, sizeof message, "%s is %s for provider %s (%s)",
-                 tny_extension_capability_name(required),
-                 tny_extension_capability_state_name(state),
-                 tny_backend_name(call->provider),
-                 tny_extension_capability_reason(call->provider, required));
-        return append_failure(out, call->extension, call->handler_id,
-                              call->event,
-                              state == TNY_EXT_CAP_UNSUPPORTED
-                                  ? "unsupported_capability"
-                                  : "unavailable_capability",
-                              message);
+        if (state != TNY_EXT_CAP_SUPPORTED) {
+            char message[320];
+            snprintf(message, sizeof message, "%s is %s for provider %s (%s)",
+                     tny_extension_capability_name(required),
+                     tny_extension_capability_state_name(state),
+                     tny_backend_name(call->provider),
+                     tny_extension_capability_reason(call->provider, required));
+            return append_failure(out, call->extension, call->handler_id,
+                                  call->event,
+                                  state == TNY_EXT_CAP_UNSUPPORTED
+                                      ? "unsupported_capability"
+                                      : "unavailable_capability",
+                                  message);
+        }
     }
-    tny_extension_action_kind kind;
-    if (strcmp(type, "context") == 0) kind = TNY_EXTENSION_ACTION_CONTEXT;
-    else if (strcmp(type, "continue") == 0) kind = TNY_EXTENSION_ACTION_CONTINUE;
-    else if (strcmp(type, "stop") == 0) kind = TNY_EXTENSION_ACTION_STOP;
-    else
-        return append_failure(out, call->extension, call->handler_id,
-                              call->event, "invalid_action",
-                              "extension action kind is not supported");
     const char *content = jget_str(value, "content");
-    if (kind != TNY_EXTENSION_ACTION_STOP && !content)
+    if (kind == TNY_EXTENSION_ACTION_PROMPT_TRANSFORM)
+        content = jget_str(value, "prompt");
+    bool needs_content = kind == TNY_EXTENSION_ACTION_CONTEXT ||
+        kind == TNY_EXTENSION_ACTION_CONTINUE ||
+        kind == TNY_EXTENSION_ACTION_PROMPT_TRANSFORM ||
+        kind == TNY_EXTENSION_ACTION_TOOL_ANNOTATE ||
+        kind == TNY_EXTENSION_ACTION_TOOL_RESULT_REPLACE;
+    if (needs_content && !content)
         return append_failure(out, call->extension, call->handler_id,
                               call->event, "invalid_action",
-                              "context and continuation actions need content");
+                              "extension action needs text content");
     if (content && strlen(content) > EXT_MAX_ACTION_TEXT)
         return append_failure(out, call->extension, call->handler_id,
                               call->event, "invalid_action",
@@ -708,13 +734,35 @@ static int append_action(tny_extension_result *out, ext_call *call,
                               call->event, "invalid_action",
                               "continuation message_kind must be user or custom");
     const char *reason = jget_str(value, "reason");
-    if (kind == TNY_EXTENSION_ACTION_STOP && !reason)
+    bool needs_reason = kind == TNY_EXTENSION_ACTION_STOP ||
+        kind == TNY_EXTENSION_ACTION_PROMPT_BLOCK ||
+        kind == TNY_EXTENSION_ACTION_TOOL_DENY;
+    if (needs_reason && !reason)
         return append_failure(out, call->extension, call->handler_id,
                               call->event, "invalid_action",
-                              "stop action needs a reason");
+                              "extension action needs a reason");
+    if (reason && strlen(reason) > 512)
+        return append_failure(out, call->extension, call->handler_id,
+                              call->event, "invalid_action",
+                              "extension action reason exceeds the size limit");
+    char *arguments_json = NULL;
+    if (kind == TNY_EXTENSION_ACTION_TOOL_REWRITE) {
+        yyjson_val *arguments = jget(value, "arguments");
+        if (!arguments || !yyjson_is_obj(arguments))
+            return append_failure(out, call->extension, call->handler_id,
+                                  call->event, "invalid_action",
+                                  "tool rewrite arguments must be an object");
+        arguments_json = jwrite_val(arguments);
+        if (!arguments_json || strlen(arguments_json) > EXT_MAX_ARGUMENTS_JSON) {
+            free(arguments_json);
+            return append_failure(out, call->extension, call->handler_id,
+                                  call->event, "invalid_action",
+                                  "tool rewrite arguments exceed the size limit");
+        }
+    }
     tny_extension_action *next = realloc(
         out->actions, sizeof *next * (out->action_count + 1));
-    if (!next) return -1;
+    if (!next) { free(arguments_json); return -1; }
     out->actions = next;
     tny_extension_action *a = &out->actions[out->action_count++];
     memset(a, 0, sizeof *a);
@@ -724,9 +772,12 @@ static int append_action(tny_extension_result *out, ext_call *call,
     const char *custom = jget_str(value, "custom_type");
     a->custom_type = custom ? dup_cap(custom, 128) : NULL;
     a->reason = reason ? dup_cap(reason, 512) : NULL;
+    a->arguments_json = arguments_json;
     a->message_kind = message_kind && strcmp(message_kind, "custom") == 0
         ? TNY_EXTENSION_MESSAGE_CUSTOM : TNY_EXTENSION_MESSAGE_USER;
     a->display = jget_bool(value, "display", true);
+    a->permission_decision = permission_decision;
+    a->is_error = jget_bool(value, "is_error", false);
     return 0;
 }
 
@@ -961,6 +1012,7 @@ void tny_extension_result_free(tny_extension_result *result) {
         free(result->actions[i].content);
         free(result->actions[i].custom_type);
         free(result->actions[i].reason);
+        free(result->actions[i].arguments_json);
     }
     for (size_t i = 0; i < result->failure_count; i++) {
         free(result->failures[i].extension);

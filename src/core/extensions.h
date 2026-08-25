@@ -23,7 +23,14 @@ typedef enum {
 typedef enum {
     TNY_EXTENSION_ACTION_CONTEXT = 1,
     TNY_EXTENSION_ACTION_CONTINUE,
-    TNY_EXTENSION_ACTION_STOP
+    TNY_EXTENSION_ACTION_STOP,
+    TNY_EXTENSION_ACTION_PROMPT_TRANSFORM,
+    TNY_EXTENSION_ACTION_PROMPT_BLOCK,
+    TNY_EXTENSION_ACTION_TOOL_REWRITE,
+    TNY_EXTENSION_ACTION_TOOL_DENY,
+    TNY_EXTENSION_ACTION_PERMISSION_DECISION,
+    TNY_EXTENSION_ACTION_TOOL_ANNOTATE,
+    TNY_EXTENSION_ACTION_TOOL_RESULT_REPLACE
 } tny_extension_action_kind;
 
 typedef enum {
@@ -31,14 +38,23 @@ typedef enum {
     TNY_EXTENSION_MESSAGE_CUSTOM
 } tny_extension_message_kind;
 
+typedef enum {
+    TNY_EXTENSION_PERMISSION_ABSTAIN = 0,
+    TNY_EXTENSION_PERMISSION_ALLOW_ONCE,
+    TNY_EXTENSION_PERMISSION_DENY
+} tny_extension_permission_decision;
+
 typedef struct {
     tny_extension_action_kind kind;
     char *extension;   /* extension name, owned */
     char *content;     /* context/continuation content, owned */
     char *custom_type; /* optional custom context/message type, owned */
     char *reason;      /* optional stop reason, owned */
+    char *arguments_json; /* tool rewrite object, compact JSON, owned */
     tny_extension_message_kind message_kind;
+    tny_extension_permission_decision permission_decision;
     bool display;      /* action should be visible in the transcript */
+    bool is_error;     /* effective replacement result error flag */
 } tny_extension_action;
 
 typedef struct {

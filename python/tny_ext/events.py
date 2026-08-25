@@ -32,6 +32,12 @@ def _mapping_tuple(value: Any) -> Tuple[Mapping[str, Any], ...]:
     return tuple(dict(item) for item in value if isinstance(item, Mapping))
 
 
+def _text_tuple(value: Any) -> Tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(item for item in value if isinstance(item, str))
+
+
 def _stop_info(value: Any) -> "StopInfo":
     if isinstance(value, Mapping):
         details = dict(value)
@@ -208,6 +214,165 @@ class SessionEndEvent(HookEvent):
     reason: str
 
 
+@dataclass(frozen=True)
+class UserPromptSubmitEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "user_prompt_submit"
+    prompt: str
+    source: str
+    submission_id: str
+    images: Tuple[Mapping[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class TurnStartEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "turn_start"
+    iteration: int
+    source: str
+
+
+@dataclass(frozen=True)
+class MessageStartEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "message_start"
+    message_id: str
+    role: str
+    content_type: str
+
+
+@dataclass(frozen=True)
+class MessageUpdateEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "message_update"
+    message_id: str
+    role: str
+    content_type: str
+    text: str
+
+
+@dataclass(frozen=True)
+class MessageEndEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "message_end"
+    message_id: str
+    role: str
+    content_type: str
+    text: str
+
+
+@dataclass(frozen=True)
+class PreCompactEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "pre_compact"
+    trigger: str
+    message_count: int
+
+
+@dataclass(frozen=True)
+class PostCompactEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "post_compact"
+    trigger: str
+    before_count: int
+    after_count: int
+    summary: str
+
+
+@dataclass(frozen=True)
+class CompactFailedEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "compact_failed"
+    trigger: str
+    error: str
+
+
+@dataclass(frozen=True)
+class ModelChangeEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "model_change"
+    previous: str
+    current: str
+    source: str
+
+
+@dataclass(frozen=True)
+class EffortChangeEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "effort_change"
+    previous: str
+    current: str
+    source: str
+
+
+@dataclass(frozen=True)
+class InstructionsChangeEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "instructions_change"
+    paths: Tuple[str, ...]
+    digest: str
+    count: int
+
+
+@dataclass(frozen=True)
+class WorkspaceChangeEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "workspace_change"
+    action: str
+    path: str
+    directories: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SubagentStartEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "subagent_start"
+    subagent_id: str
+    action: str
+
+
+@dataclass(frozen=True)
+class SubagentEndEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "subagent_end"
+    subagent_id: str
+    action: str
+    outcome: str
+    ok: bool
+
+
+@dataclass(frozen=True)
+class PreToolUseEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "pre_tool_use"
+    tool_name: str
+    tool_id: str
+    arguments: Mapping[str, Any]
+    original_arguments: Mapping[str, Any]
+    provider_owned: bool
+
+
+@dataclass(frozen=True)
+class PostToolUseEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "post_tool_use"
+    tool_name: str
+    tool_id: str
+    result: str
+    original_ok: bool
+
+
+@dataclass(frozen=True)
+class PostToolFailureEvent(PostToolUseEvent):
+    EVENT_NAME: ClassVar[str] = "post_tool_failure"
+
+
+@dataclass(frozen=True)
+class PostToolBatchEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "post_tool_batch"
+    tool_ids: Tuple[str, ...]
+    failed: int
+
+
+@dataclass(frozen=True)
+class ProviderRequestEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "provider_request"
+    method: str
+    endpoint: str
+    metadata: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class ProviderResponseEvent(HookEvent):
+    EVENT_NAME: ClassVar[str] = "provider_response"
+    status: int
+    metadata: Mapping[str, Any]
+
+
 _EVENT_TYPES: Dict[str, Type[HookEvent]] = {
     cls.EVENT_NAME: cls
     for cls in (
@@ -231,6 +396,26 @@ _EVENT_TYPES: Dict[str, Type[HookEvent]] = {
         AgentSettledEvent,
         SessionStartEvent,
         SessionEndEvent,
+        UserPromptSubmitEvent,
+        TurnStartEvent,
+        MessageStartEvent,
+        MessageUpdateEvent,
+        MessageEndEvent,
+        PreCompactEvent,
+        PostCompactEvent,
+        CompactFailedEvent,
+        ModelChangeEvent,
+        EffortChangeEvent,
+        InstructionsChangeEvent,
+        WorkspaceChangeEvent,
+        SubagentStartEvent,
+        SubagentEndEvent,
+        PreToolUseEvent,
+        PostToolUseEvent,
+        PostToolFailureEvent,
+        PostToolBatchEvent,
+        ProviderRequestEvent,
+        ProviderResponseEvent,
     )
 }
 # Accept the internal C spelling while presenting the documented public name.
@@ -375,6 +560,121 @@ def event_from_dict(value: Mapping[str, Any]) -> HookEvent:
             reason=_text(payload.get("reason")),
             **common
         )
+    if cls is UserPromptSubmitEvent:
+        return UserPromptSubmitEvent(
+            prompt=_text(payload.get("prompt")),
+            source=_text(payload.get("source")),
+            submission_id=_text(payload.get("submission_id")),
+            images=_mapping_tuple(payload.get("images")),
+            **common
+        )
+    if cls is TurnStartEvent:
+        return TurnStartEvent(
+            iteration=_integer(payload.get("iteration")),
+            source=_text(payload.get("source")),
+            **common
+        )
+    if cls in (MessageStartEvent, MessageUpdateEvent, MessageEndEvent):
+        fields = {
+            "message_id": _text(payload.get("message_id")),
+            "role": _text(payload.get("role")),
+            "content_type": _text(payload.get("content_type")),
+        }
+        if cls is MessageStartEvent:
+            return MessageStartEvent(**fields, **common)
+        fields["text"] = _text(payload.get("text"))
+        return cls(**fields, **common)  # type: ignore[call-arg]
+    if cls is PreCompactEvent:
+        return PreCompactEvent(
+            trigger=_text(payload.get("trigger")),
+            message_count=_integer(payload.get("message_count")),
+            **common
+        )
+    if cls is PostCompactEvent:
+        return PostCompactEvent(
+            trigger=_text(payload.get("trigger")),
+            before_count=_integer(payload.get("before_count")),
+            after_count=_integer(payload.get("after_count")),
+            summary=_text(payload.get("summary")),
+            **common
+        )
+    if cls is CompactFailedEvent:
+        return CompactFailedEvent(
+            trigger=_text(payload.get("trigger")),
+            error=_text(payload.get("error")),
+            **common
+        )
+    if cls in (ModelChangeEvent, EffortChangeEvent):
+        return cls(
+            previous=_text(payload.get("previous")),
+            current=_text(payload.get("current")),
+            source=_text(payload.get("source")),
+            **common
+        )  # type: ignore[call-arg]
+    if cls is InstructionsChangeEvent:
+        return InstructionsChangeEvent(
+            paths=_text_tuple(payload.get("paths")),
+            digest=_text(payload.get("digest")),
+            count=_integer(payload.get("count")),
+            **common
+        )
+    if cls is WorkspaceChangeEvent:
+        return WorkspaceChangeEvent(
+            action=_text(payload.get("action")),
+            path=_text(payload.get("path")),
+            directories=_text_tuple(payload.get("directories")),
+            **common
+        )
+    if cls is SubagentStartEvent:
+        return SubagentStartEvent(
+            subagent_id=_text(payload.get("subagent_id")),
+            action=_text(payload.get("action")),
+            **common
+        )
+    if cls is SubagentEndEvent:
+        return SubagentEndEvent(
+            subagent_id=_text(payload.get("subagent_id")),
+            action=_text(payload.get("action")),
+            outcome=_text(payload.get("outcome")),
+            ok=_boolean(payload.get("ok")),
+            **common
+        )
+    if cls is PreToolUseEvent:
+        return PreToolUseEvent(
+            tool_name=_text(payload.get("tool_name")),
+            tool_id=_text(payload.get("tool_id")),
+            arguments=_mapping(payload.get("arguments")),
+            original_arguments=_mapping(payload.get("original_arguments")),
+            provider_owned=_boolean(payload.get("provider_owned")),
+            **common
+        )
+    if cls in (PostToolUseEvent, PostToolFailureEvent):
+        return cls(
+            tool_name=_text(payload.get("tool_name")),
+            tool_id=_text(payload.get("tool_id")),
+            result=_text(payload.get("result")),
+            original_ok=_boolean(payload.get("original_ok")),
+            **common
+        )  # type: ignore[call-arg]
+    if cls is PostToolBatchEvent:
+        return PostToolBatchEvent(
+            tool_ids=_text_tuple(payload.get("tool_ids")),
+            failed=_integer(payload.get("failed")),
+            **common
+        )
+    if cls is ProviderRequestEvent:
+        return ProviderRequestEvent(
+            method=_text(payload.get("method")),
+            endpoint=_text(payload.get("endpoint")),
+            metadata=_mapping(payload.get("metadata")),
+            **common
+        )
+    if cls is ProviderResponseEvent:
+        return ProviderResponseEvent(
+            status=_integer(payload.get("status")),
+            metadata=_mapping(payload.get("metadata")),
+            **common
+        )
     return cls(**common)  # type: ignore[call-arg]
 
 
@@ -383,10 +683,25 @@ __all__ = [
     "AgentSettledEvent",
     "AgentStartEvent",
     "BeforeAgentStartEvent",
+    "CompactFailedEvent",
+    "EffortChangeEvent",
     "ErrorEvent",
     "HookEvent",
+    "InstructionsChangeEvent",
+    "MessageEndEvent",
+    "MessageStartEvent",
+    "MessageUpdateEvent",
+    "ModelChangeEvent",
     "PermissionRequestEvent",
     "PlanEvent",
+    "PostCompactEvent",
+    "PostToolBatchEvent",
+    "PostToolFailureEvent",
+    "PostToolUseEvent",
+    "PreCompactEvent",
+    "PreToolUseEvent",
+    "ProviderRequestEvent",
+    "ProviderResponseEvent",
     "SessionEndEvent",
     "SessionStartEvent",
     "StatusEvent",
@@ -397,8 +712,13 @@ __all__ = [
     "ToolEndEvent",
     "ToolStartEvent",
     "TurnEndEvent",
+    "TurnStartEvent",
     "UnknownEvent",
+    "UserPromptSubmitEvent",
     "UsageEvent",
+    "SubagentEndEvent",
+    "SubagentStartEvent",
+    "WorkspaceChangeEvent",
     "event_from_dict",
     "event_name",
 ]

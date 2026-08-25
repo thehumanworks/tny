@@ -80,6 +80,83 @@ class EventTests(unittest.TestCase):
         self.assertIsInstance(event, UnknownEvent)
         self.assertEqual(event.payload, {"nested": {"ok": True}})
 
+    def test_contracted_lifecycle_and_control_events_are_typed(self):
+        cases = {
+            "user_prompt_submit": (
+                "UserPromptSubmitEvent",
+                {"prompt": "ship", "source": "user", "submission_id": "p1", "images": []},
+                ("source", "user"),
+            ),
+            "turn_start": ("TurnStartEvent", {"iteration": 2, "source": "continuation"}, ("iteration", 2)),
+            "message_start": (
+                "MessageStartEvent",
+                {"message_id": "m1", "role": "assistant", "content_type": "text"},
+                ("message_id", "m1"),
+            ),
+            "message_update": (
+                "MessageUpdateEvent",
+                {"message_id": "m1", "role": "assistant", "content_type": "text", "text": "a"},
+                ("text", "a"),
+            ),
+            "message_end": (
+                "MessageEndEvent",
+                {"message_id": "m1", "role": "assistant", "content_type": "text", "text": "all"},
+                ("text", "all"),
+            ),
+            "pre_compact": ("PreCompactEvent", {"trigger": "manual", "message_count": 8}, ("trigger", "manual")),
+            "post_compact": (
+                "PostCompactEvent",
+                {"trigger": "manual", "before_count": 8, "after_count": 2, "summary": "bounded"},
+                ("after_count", 2),
+            ),
+            "compact_failed": ("CompactFailedEvent", {"trigger": "threshold", "error": "oom"}, ("error", "oom")),
+            "model_change": ("ModelChangeEvent", {"previous": "a", "current": "b", "source": "command"}, ("current", "b")),
+            "effort_change": ("EffortChangeEvent", {"previous": "low", "current": "high", "source": "command"}, ("current", "high")),
+            "instructions_change": (
+                "InstructionsChangeEvent",
+                {"paths": ["AGENTS.md"], "digest": "abc", "count": 1},
+                ("paths", ("AGENTS.md",)),
+            ),
+            "workspace_change": (
+                "WorkspaceChangeEvent",
+                {"action": "add", "path": "/tmp/ws", "directories": ["/tmp/ws"]},
+                ("directories", ("/tmp/ws",)),
+            ),
+            "subagent_start": ("SubagentStartEvent", {"subagent_id": "s1", "action": "create"}, ("subagent_id", "s1")),
+            "subagent_end": (
+                "SubagentEndEvent",
+                {"subagent_id": "s1", "action": "create", "outcome": "done", "ok": True},
+                ("ok", True),
+            ),
+            "pre_tool_use": (
+                "PreToolUseEvent",
+                {"tool_name": "read_file", "tool_id": "t1", "arguments": {"path": "a"}, "original_arguments": {"path": "b"}},
+                ("arguments", {"path": "a"}),
+            ),
+            "post_tool_use": (
+                "PostToolUseEvent",
+                {"tool_name": "read_file", "tool_id": "t1", "result": "ok", "original_ok": True},
+                ("original_ok", True),
+            ),
+            "post_tool_failure": (
+                "PostToolFailureEvent",
+                {"tool_name": "read_file", "tool_id": "t1", "result": "error", "original_ok": False},
+                ("original_ok", False),
+            ),
+            "post_tool_batch": ("PostToolBatchEvent", {"tool_ids": ["t1", "t2"], "failed": 1}, ("tool_ids", ("t1", "t2"))),
+            "provider_request": (
+                "ProviderRequestEvent",
+                {"method": "POST", "endpoint": "/v1/responses", "metadata": {"wire": "responses"}},
+                ("endpoint", "/v1/responses"),
+            ),
+            "provider_response": ("ProviderResponseEvent", {"status": 200, "metadata": {"stream": True}}, ("status", 200)),
+        }
+        for event_type, (class_name, payload, field) in cases.items():
+            with self.subTest(event_type=event_type):
+                event = event_from_dict({"type": event_type, "payload": payload})
+                self.assertEqual(type(event).__name__, class_name)
+                self.assertEqual(getattr(event, field[0]), field[1])
+
 
 class ActionTests(unittest.TestCase):
     def test_visible_defaults_and_wire_shape(self):
