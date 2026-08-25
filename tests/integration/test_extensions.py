@@ -4,10 +4,12 @@
 import json
 import glob
 import os
+import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import time
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -26,13 +28,25 @@ def free_port():
 EXTENSION = r'''
 import json
 import os
+import signal
+import time
 from tny_ext import (
     AgentEndEvent,
     BeforeAgentStartEvent,
+    PermissionRequestEvent,
+    PostToolFailureEvent,
+    PostToolUseEvent,
+    PreToolUseEvent,
     UserPromptSubmitEvent,
+    annotate_tool,
     block_prompt,
     context,
     continue_with,
+    decide_permission,
+    deny_tool,
+    replace_tool_result,
+    rewrite_tool,
+    stop,
     transform_prompt,
 )
 
@@ -46,6 +60,9 @@ def record(event):
             "provider": event.provider,
             "session_id": event.session_id,
             "turn_id": event.turn_id,
+            "tool_id": getattr(event, "tool_id", ""),
+            "permission_id": getattr(event, "permission_id", ""),
+            "detail": getattr(event, "message", getattr(event, "text", "")),
         }, separators=(",", ":")) + "\n")
 
 def setup(api):
@@ -69,6 +86,44 @@ def setup(api):
     def inject(event):
         return context("visible test context", custom_type="integration.context")
 
+    @api.on(PreToolUseEvent)
+    def control_tool(event):
+        if os.environ.get("TNY_TEST_SLOW_PRE") == "1" and event.tool_name == "write_file":
+            open(os.environ["TNY_TEST_SLOW_MARKER"], "w", encoding="utf-8").write("entered")
+            time.sleep(1.0)
+        if os.environ.get("TNY_TEST_DENY_TOOL") == "1" and event.tool_name == "write_file":
+            return deny_tool("integration deny")
+        if os.environ.get("TNY_TEST_INVALID_REWRITE") == "1" and event.tool_name == "write_file":
+            return rewrite_tool({"path": "invalid.txt"})
+        if os.environ.get("TNY_TEST_REWRITE") == "1" and event.tool_id == "call_1":
+            return rewrite_tool({"path": "."})
+
+    @api.on(PostToolUseEvent)
+    def annotate_result(event):
+        if (os.environ.get("TNY_TEST_REPLACE") == "1" or
+                os.environ.get("TNY_TEST_STOP_POST") == "1") and event.tool_id == "call_1":
+            return annotate_tool("integration annotation")
+
+    @api.on(PostToolUseEvent)
+    def replace_result(event):
+        if os.environ.get("TNY_TEST_REPLACE") == "1" and event.tool_id == "call_1":
+            return replace_tool_result("REPLACED-TOOL-RESULT")
+
+    @api.on(PostToolUseEvent)
+    def stop_after_result(event):
+        if os.environ.get("TNY_TEST_STOP_POST") == "1" and event.tool_id == "call_1":
+            return stop("stop after first tool")
+
+    @api.on(PostToolFailureEvent)
+    def observe_failure(event):
+        return annotate_tool("observed tool failure", display=False)
+
+    @api.on(PermissionRequestEvent)
+    def decide(event):
+        decision = os.environ.get("TNY_TEST_PERMISSION_DECISION")
+        if decision:
+            return decide_permission(decision, "integration permission")
+
     @api.on(AgentEndEvent)
     def continue_once(event):
         if event.continuation_count == 0:
@@ -80,7 +135,9 @@ def main():
     port = free_port()
     mock = subprocess.Popen(
         [sys.executable, MOCK, str(port)],
-        env=dict(os.environ, MOCK_EXPECT_WIRE="responses"),
+        env=dict(os.environ, MOCK_EXPECT_WIRE="responses",
+                 MOCK_EXPECT_EXTENSION_REWRITE="1",
+                 MOCK_EXPECT_TOOL_OUTPUT="REPLACED-TOOL-RESULT"),
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
     )
@@ -101,6 +158,8 @@ def main():
                 OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1",
                 OPENAI_API_KEY="test-key-not-real",
                 TNY_TEST_EXTENSION_LOG=event_log,
+                TNY_TEST_REWRITE="1",
+                TNY_TEST_REPLACE="1",
             )
             run = subprocess.run(
                 [TNY, "--cwd", workspace, "ask", "--json", "list files"],
@@ -118,6 +177,11 @@ def main():
             ), output
             assert any(
                 message == {"kind": "user", "content": "extension followup"}
+                for message in output["extension_messages"]
+            ), output
+            assert any(
+                message.get("kind") == "custom"
+                and message.get("content") == "integration annotation"
                 for message in output["extension_messages"]
             ), output
             stderr = run.stderr.decode()
@@ -141,6 +205,16 @@ def main():
             ]
             assert prompt_audit and prompt_audit[0]["submitted"] == "list files", prompt_audit
             assert prompt_audit[0]["effective"] == "TRANSFORMED-NATIVE-PROMPT", prompt_audit
+            tool_audit = [
+                entry for entry in session_doc.get("extension_audit", [])
+                if entry.get("kind") == "tool" and entry.get("id") == "call_1"
+            ]
+            assert len(tool_audit) == 1, tool_audit
+            assert tool_audit[0]["original_arguments"] == '{"path": "."}', tool_audit
+            assert tool_audit[0]["effective_arguments"] == '{"path":"."}', tool_audit
+            assert tool_audit[0]["effective_result"] == "REPLACED-TOOL-RESULT", tool_audit
+            assert tool_audit[0]["original_result"] != tool_audit[0]["effective_result"], tool_audit
+            assert tool_audit[0]["annotations"][0]["content"] == "integration annotation", tool_audit
 
             assert os.path.exists(event_log), (stderr, output)
             events = [json.loads(line) for line in open(event_log, encoding="utf-8")]
@@ -152,8 +226,13 @@ def main():
                 "agent_start",
                 "turn_start",
                 "message_start",
+                "provider_request",
+                "provider_response",
+                "pre_tool_use",
                 "tool_start",
                 "tool_end",
+                "post_tool_use",
+                "post_tool_batch",
                 "thinking",
                 "text_delta",
                 "message_update",
@@ -172,6 +251,20 @@ def main():
             assert len(sequences) == len(set(sequences)), sequences
             assert all(event["provider"] == "openai" for event in events), events
             assert all(event["session_id"] for event in events), events
+
+            first_pre = next(i for i, event in enumerate(events)
+                             if event["type"] == "pre_tool_use" and event["tool_id"] == "call_1")
+            first_start = next(i for i, event in enumerate(events)
+                               if event["type"] == "tool_start" and event["tool_id"] == "call_1")
+            first_end = next(i for i, event in enumerate(events)
+                             if event["type"] == "tool_end" and event["tool_id"] == "call_1")
+            first_post = next(i for i, event in enumerate(events)
+                              if event["type"] == "post_tool_use" and event["tool_id"] == "call_1")
+            second_pre = next(i for i, event in enumerate(events)
+                              if event["type"] == "pre_tool_use" and event["tool_id"] == "call_2")
+            batch = kinds.index("post_tool_batch")
+            assert first_pre < first_start < first_end < first_post < second_pre < batch, kinds
+            assert kinds.index("provider_request") < kinds.index("provider_response"), kinds
 
             order = {kind: kinds.index(kind) for kind in (
                 "session_start", "user_prompt_submit", "before_agent_start",
@@ -198,6 +291,158 @@ def main():
             assert not blocked_doc.get("messages"), blocked_doc
             assert "blocked input" not in json.dumps(blocked_doc), blocked_doc
             assert blocked_doc["extension_audit"][0]["blocked"] is True, blocked_doc
+
+            # The sensitive fixture proposes one write. Extension decisions
+            # resolve only that live request; abstain falls back to the CLI's
+            # normal noninteractive deny path.
+            pport = free_port()
+            permission_mock = subprocess.Popen(
+                [sys.executable, MOCK, str(pport)],
+                env=dict(os.environ, MOCK_EXPECT_WIRE="responses", MOCK_SENSITIVE="1"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                assert "ready" in permission_mock.stdout.readline().decode()
+                permission_env = dict(env,
+                    OPENAI_BASE_URL=f"http://127.0.0.1:{pport}/v1",
+                    TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="0")
+                target = os.path.join(workspace, "permission.txt")
+
+                def permission_event_count():
+                    return sum(
+                        1 for line in open(event_log, encoding="utf-8")
+                        if json.loads(line)["type"] == "permission_request"
+                    )
+
+                before_permissions = permission_event_count()
+                allowed = subprocess.run(
+                    [TNY, "--permission-mode", "ask", "--cwd", workspace,
+                     "ask", "--json", "allow extension permission"],
+                    env=dict(permission_env,
+                             TNY_TEST_PERMISSION_DECISION="allow_once"),
+                    capture_output=True, timeout=30)
+                assert allowed.returncode == 0, allowed.stderr.decode()
+                assert open(target, encoding="utf-8").read() == "allowed"
+                assert permission_event_count() == before_permissions + 1
+                os.unlink(target)
+
+                before_permissions = permission_event_count()
+                denied = subprocess.run(
+                    [TNY, "--permission-mode", "ask", "--cwd", workspace,
+                     "ask", "--json", "deny extension permission"],
+                    env=dict(permission_env, TNY_TEST_PERMISSION_DECISION="deny"),
+                    capture_output=True, timeout=30)
+                assert denied.returncode == 2, denied.stderr.decode()
+                assert not os.path.exists(target)
+                assert permission_event_count() == before_permissions + 1
+
+                before_permissions = permission_event_count()
+                abstained = subprocess.run(
+                    [TNY, "--permission-mode", "ask", "--cwd", workspace,
+                     "ask", "--json", "abstain extension permission"],
+                    env=dict(permission_env,
+                             TNY_TEST_PERMISSION_DECISION="abstain"),
+                    capture_output=True, timeout=30)
+                assert abstained.returncode == 2, abstained.stderr.decode()
+                assert not os.path.exists(target)
+                assert permission_event_count() == before_permissions + 1
+
+                tool_denied = subprocess.run(
+                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
+                     "pre-tool deny"],
+                    env=dict(permission_env, TNY_TEST_DENY_TOOL="1"),
+                    capture_output=True, timeout=30)
+                assert tool_denied.returncode == 0, tool_denied.stderr.decode()
+                assert not os.path.exists(target)
+
+                invalid = subprocess.run(
+                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
+                     "invalid rewrite"],
+                    env=dict(permission_env, TNY_TEST_INVALID_REWRITE="1"),
+                    capture_output=True, timeout=30)
+                assert invalid.returncode == 0, invalid.stderr.decode()
+                assert not os.path.exists(os.path.join(workspace, "invalid.txt"))
+
+                # SIGINT arriving while Python is in a bounded pre-tool hook
+                # is consumed by the runtime probe before the write executes.
+                marker = os.path.join(home, "slow-pre-entered")
+                slow = subprocess.Popen(
+                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
+                     "cancel slow pre-tool"],
+                    env=dict(permission_env, TNY_TEST_SLOW_PRE="1",
+                             TNY_TEST_SLOW_MARKER=marker),
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                deadline = time.time() + 5
+                while not os.path.exists(marker) and time.time() < deadline:
+                    time.sleep(0.01)
+                assert os.path.exists(marker), "slow pre-tool hook never started"
+                slow.send_signal(signal.SIGINT)
+                slow_out, slow_err = slow.communicate(timeout=10)
+                assert slow.returncode == 130, (slow_out, slow_err)
+                assert not os.path.exists(target), "cancelled hook still executed write"
+            finally:
+                permission_mock.terminate()
+                permission_mock.wait(timeout=5)
+
+            # A post-hook stop suppresses lower-priority annotation/replacement,
+            # finalizes the remaining batch deterministically, and does not POST
+            # another model request.
+            sport = free_port()
+            stop_mock = subprocess.Popen(
+                [sys.executable, MOCK, str(sport)],
+                env=dict(os.environ, MOCK_EXPECT_WIRE="responses"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                assert "ready" in stop_mock.stdout.readline().decode()
+                stopped = subprocess.run(
+                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
+                     "stop in post tool"],
+                    env=dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
+                             TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="0",
+                             TNY_TEST_STOP_POST="1"),
+                    capture_output=True, timeout=30)
+                assert stopped.returncode == 130, stopped.stderr.decode()
+                stopped_json = json.loads(stopped.stdout)
+                assert not any(
+                    message.get("content") == "integration annotation"
+                    for message in stopped_json["extension_messages"]
+                ), stopped_json
+            finally:
+                stop_mock.terminate()
+                stop_mock.wait(timeout=5)
+
+            # Raw HTTP and SSE error bodies may echo credentials or request
+            # content. Only fixed categories/status metadata reach diagnostics,
+            # Python, or persistence.
+            secret = "EXTENSION_PROVIDER_SECRET_SENTINEL"
+            for extra in (
+                {"MOCK_HTTP_STATUS": "500", "MOCK_ERROR_SECRET": secret},
+                {"MOCK_FAIL_RESPONSE": secret},
+            ):
+                eport = free_port()
+                error_mock = subprocess.Popen(
+                    [sys.executable, MOCK, str(eport)],
+                    env=dict(os.environ, MOCK_EXPECT_WIRE="responses", **extra),
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                try:
+                    assert "ready" in error_mock.stdout.readline().decode()
+                    failed = subprocess.run(
+                        [TNY, "--cwd", workspace, "ask", "--json",
+                         "provider failure redaction"],
+                        env=dict(env,
+                                 OPENAI_BASE_URL=f"http://127.0.0.1:{eport}/v1",
+                                 TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="0"),
+                        capture_output=True, timeout=30)
+                    assert failed.returncode == 2, (failed.stdout, failed.stderr)
+                    assert secret.encode() not in failed.stdout + failed.stderr
+                    assert secret not in open(event_log, encoding="utf-8").read()
+                    for session_file in glob.glob(
+                            os.path.join(home, ".tny", "sessions", "*", "*", "session.json")):
+                        assert secret not in open(session_file, encoding="utf-8").read()
+                finally:
+                    error_mock.terminate()
+                    error_mock.wait(timeout=5)
         print("test_extensions: all assertions passed")
     finally:
         mock.terminate()

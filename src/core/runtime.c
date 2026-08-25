@@ -22,6 +22,9 @@ struct tny_engine {
     perm_engine *perm;
     tny_perm_decision (*prompt)(const char *, const char *, void *);
     void *prompt_ud;
+    tny_engine_cancel_probe cancel_probe;
+    void *cancel_probe_ud;
+    bool native_control_active;
 
     tny_backend *bk;
     bool active;
@@ -33,6 +36,7 @@ struct tny_engine {
     tny_stop_reason stop;
     char *prompt_text;
     char *prepared_requeue_text;
+    char *native_observed_permission_id;
 
     tny_extensions *extensions;
     bool extensions_started;
@@ -172,7 +176,16 @@ static void backend_event(const tny_backend_event *ev, void *ud) {
         free(e->prepared_requeue_text);
         e->prepared_requeue_text = dup_bytes(ev->text, ev->text_len);
     }
+    tny_owned_event *before = e->tail;
     queue_event(e, ev);
+    if (ev->kind == TNY_EV_PERMISSION && ev->perm_id &&
+        e->native_observed_permission_id &&
+        strcmp(ev->perm_id, e->native_observed_permission_id) == 0 &&
+        e->tail && e->tail != before) {
+        e->tail->hooks_done = true; /* native control already folded it */
+        free(e->native_observed_permission_id);
+        e->native_observed_permission_id = NULL;
+    }
 }
 
 static void synth_error(tny_engine *e, tny_event_error_kind code,
@@ -197,6 +210,7 @@ typedef enum {
     EXT_PHASE_PROMPT,
     EXT_PHASE_BEFORE_START,
     EXT_PHASE_STREAM,
+    EXT_PHASE_PERMISSION,
     EXT_PHASE_AGENT_END,
     EXT_PHASE_OBSERVE
 } extension_phase;
@@ -206,6 +220,8 @@ typedef struct {
     bool continued;
     bool blocked;
     bool transformed;
+    bool permission_decided;
+    tny_extension_permission_decision permission_decision;
     char extension[129];
     char reason[513];
 } extension_fold;
@@ -333,7 +349,17 @@ static char *backend_event_json(tny_engine *e, const tny_backend_event *ev) {
         break;
     case TNY_EV_ERROR:
         buf_appends(&b, "\"message\":");
-        jescape(&b, ev->text ? ev->text : "");
+        /* Provider error bodies/messages can echo credentials or request
+         * content. Python receives only the stable allowlisted category. */
+        jescape(&b, ev->error_code == TNY_EVENT_ERROR_AUTH
+            ? "provider authentication error"
+            : ev->error_code == TNY_EVENT_ERROR_IO
+                ? "provider I/O error"
+                : ev->error_code == TNY_EVENT_ERROR_PROTOCOL
+                    ? "provider protocol error"
+                    : ev->error_code == TNY_EVENT_ERROR_BACKPRESSURE
+                        ? "runtime backpressure"
+                        : "runtime internal error");
         buf_appends(&b, ",\"error_code\":");
         jescape(&b, event_error_name(ev->error_code));
         break;
@@ -606,6 +632,34 @@ static extension_fold fold_extension_result(tny_engine *e, const char *event,
     }
     /* Explicit block beats every transformation/context action. */
     if (fold.blocked) return fold;
+    if (phase == EXT_PHASE_PERMISSION) {
+        const tny_extension_action *allow = NULL;
+        const tny_extension_action *deny = NULL;
+        for (size_t i = 0; i < result->action_count; i++) {
+            tny_extension_action *action = &result->actions[i];
+            if (action->kind == TNY_EXTENSION_ACTION_STOP) continue;
+            if (action->kind != TNY_EXTENSION_ACTION_PERMISSION_DECISION) {
+                extension_status(e, action->extension, event, "invalid_action",
+                                 "only a permission decision or stop is accepted");
+                continue;
+            }
+            if (action->permission_decision == TNY_EXTENSION_PERMISSION_DENY)
+                deny = action;
+            else if (action->permission_decision ==
+                     TNY_EXTENSION_PERMISSION_ALLOW_ONCE)
+                allow = action;
+        }
+        const tny_extension_action *selected = deny ? deny : allow;
+        if (selected) {
+            fold.permission_decided = true;
+            fold.permission_decision = selected->permission_decision;
+            snprintf(fold.extension, sizeof fold.extension, "%s",
+                     selected->extension ? selected->extension : "extension");
+            snprintf(fold.reason, sizeof fold.reason, "%s",
+                     selected->reason ? selected->reason : "");
+        }
+        return fold;
+    }
     for (size_t i = 0; i < result->action_count; i++) {
         tny_extension_action *a = &result->actions[i];
         if (a->kind == TNY_EXTENSION_ACTION_STOP) {
@@ -684,13 +738,11 @@ static void extensions_session_start(tny_engine *e) {
     if (!json) return;
     (void)invoke_extensions(e, "session_start", json, EXT_PHASE_OBSERVE, NULL);
     free(json);
-    if (e->ctx->backend == TNY_BK_OPENAI) {
-        json = instructions_event_json(e);
-        if (json) {
-            (void)invoke_extensions(e, "instructions_change", json,
-                                    EXT_PHASE_OBSERVE, NULL);
-            free(json);
-        }
+    json = instructions_event_json(e);
+    if (json) {
+        (void)invoke_extensions(e, "instructions_change", json,
+                                EXT_PHASE_OBSERVE, NULL);
+        free(json);
     }
 }
 
@@ -849,6 +901,22 @@ static void process_queued_extension_hooks(tny_engine *e) {
         }
         char *json = backend_event_json(e, &owned->ev);
         if (!json) continue;
+        if (owned->ev.kind == TNY_EV_PERMISSION) {
+            extension_fold permission = invoke_extensions(
+                e, "permission_request", json, EXT_PHASE_PERMISSION, NULL);
+            free(json);
+            if (permission.stop || permission.permission_decided) {
+                owned->suppressed = true;
+                tny_perm_decision decision = permission.permission_decision ==
+                    TNY_EXTENSION_PERMISSION_ALLOW_ONCE
+                        ? TNY_PERM_DECISION_ALLOW : TNY_PERM_DECISION_DENY;
+                if (!permission.stop && e->bk && e->bk->respond_permission &&
+                    owned->ev.perm_id)
+                    e->bk->respond_permission(e->bk, owned->ev.perm_id, decision);
+            }
+            stop = stop || permission.stop;
+            continue;
+        }
         extension_fold fold = invoke_extensions(
             e, event_kind_name(owned->ev.kind), json, EXT_PHASE_STREAM, NULL);
         stop = stop || fold.stop;
@@ -866,6 +934,343 @@ static void process_queued_extension_hooks(tny_engine *e) {
         }
     }
     if (stop) e->extension_stop_requested = true;
+}
+
+static void native_control_failures(tny_engine *e, const char *event,
+                                    tny_extension_result *result) {
+    for (size_t i = 0; i < result->failure_count; i++) {
+        tny_extension_failure *failure = &result->failures[i];
+        extension_status(e, failure->extension, event, failure->code,
+                         failure->message);
+    }
+}
+
+static bool native_invoke(tny_engine *e, const char *event, const char *json,
+                          tny_extension_result *result) {
+    memset(result, 0, sizeof *result);
+    if (!e->extensions) return false;
+    if (tny_extensions_invoke(e->extensions, event, json, result) == 0)
+        return true;
+    extension_status(e, "extension-host", event, "manager_error",
+                     "could not invoke extension handlers");
+    return false;
+}
+
+static void native_invalid_action(tny_engine *e, const char *event,
+                                  const tny_extension_action *action,
+                                  const char *message) {
+    extension_status(e, action->extension, event, "invalid_action", message);
+}
+
+static bool native_has_stop(tny_engine *e, const char *event,
+                            tny_extension_result *result) {
+    bool stop = e->extension_stop_requested;
+    for (size_t i = 0; i < result->action_count; i++) {
+        if (result->actions[i].kind == TNY_EXTENSION_ACTION_STOP) stop = true;
+    }
+    if (stop) e->extension_stop_requested = true;
+    (void)event;
+    return stop;
+}
+
+static char *native_control_json(tny_engine *e,
+                                 const tny_openai_control_request *request,
+                                 const char *event) {
+    buf_t b;
+    buf_init(&b);
+    event_json_begin(e, &b, event);
+    switch (request->kind) {
+    case TNY_OPENAI_CONTROL_PRE_TOOL: {
+        yyjson_doc *args = request->arguments_json
+            ? jparse(request->arguments_json, strlen(request->arguments_json))
+            : NULL;
+        yyjson_val *root = args ? yyjson_doc_get_root(args) : NULL;
+        bool valid = root && yyjson_is_obj(root);
+        buf_appends(&b, "\"tool_name\":");
+        jescape(&b, request->tool_name ? request->tool_name : "tool");
+        buf_appends(&b, ",\"tool_id\":");
+        jescape(&b, request->tool_id ? request->tool_id : "");
+        buf_appendf(&b, ",\"arguments\":%s,\"original_arguments\":%s,"
+                        "\"provider_owned\":false,\"arguments_valid\":%s",
+                    valid ? request->arguments_json : "{}",
+                    valid ? request->arguments_json : "{}",
+                    valid ? "true" : "false");
+        yyjson_doc_free(args);
+        break;
+    }
+    case TNY_OPENAI_CONTROL_PERMISSION:
+        buf_appends(&b, "\"permission_id\":");
+        jescape(&b, request->tool_id ? request->tool_id : "");
+        buf_appends(&b, ",\"summary\":");
+        jescape(&b, request->permission_summary ? request->permission_summary : "");
+        buf_appendf(&b, ",\"options\":%d", request->permission_options);
+        break;
+    case TNY_OPENAI_CONTROL_POST_TOOL:
+        buf_appends(&b, "\"tool_name\":");
+        jescape(&b, request->tool_name ? request->tool_name : "tool");
+        buf_appends(&b, ",\"tool_id\":");
+        jescape(&b, request->tool_id ? request->tool_id : "");
+        buf_appends(&b, ",\"result\":");
+        jescape(&b, request->result ? request->result : "");
+        buf_appendf(&b, ",\"original_ok\":%s",
+                    request->original_ok ? "true" : "false");
+        break;
+    case TNY_OPENAI_CONTROL_TOOL_BATCH:
+        buf_appendf(&b, "\"tool_ids\":%s,\"failed\":%d",
+                    request->tool_ids_json ? request->tool_ids_json : "[]",
+                    request->failed_tools);
+        break;
+    case TNY_OPENAI_CONTROL_PROVIDER_REQUEST:
+        buf_appends(&b, "\"method\":");
+        jescape(&b, request->method ? request->method : "POST");
+        buf_appends(&b, ",\"endpoint\":");
+        jescape(&b, request->endpoint ? request->endpoint : "");
+        buf_appends(&b, ",\"metadata\":{");
+        buf_appendf(&b, "\"stream\":%s,\"step\":%d,\"wire_api\":",
+                    request->stream ? "true" : "false", request->step);
+        jescape(&b, request->wire_api ? request->wire_api : "responses");
+        buf_appends(&b, "}");
+        break;
+    case TNY_OPENAI_CONTROL_PROVIDER_RESPONSE:
+        buf_appendf(&b, "\"status\":%d,\"metadata\":{\"stream\":%s,"
+                        "\"connection_reused\":%s,\"wire_api\":",
+                    request->status, request->stream ? "true" : "false",
+                    request->connection_reused ? "true" : "false");
+        jescape(&b, request->wire_api ? request->wire_api : "responses");
+        buf_appends(&b, "}");
+        break;
+    case TNY_OPENAI_CONTROL_SUBAGENT_START:
+        buf_appends(&b, "\"subagent_id\":");
+        jescape(&b, request->subagent_id ? request->subagent_id : "");
+        buf_appends(&b, ",\"action\":");
+        jescape(&b, request->subagent_action ? request->subagent_action : "create");
+        break;
+    case TNY_OPENAI_CONTROL_SUBAGENT_END:
+        buf_appends(&b, "\"subagent_id\":");
+        jescape(&b, request->subagent_id ? request->subagent_id : "");
+        buf_appends(&b, ",\"action\":");
+        jescape(&b, request->subagent_action ? request->subagent_action : "create");
+        buf_appends(&b, ",\"outcome\":");
+        jescape(&b, request->subagent_outcome ? request->subagent_outcome : "done");
+        buf_appendf(&b, ",\"ok\":%s",
+                    request->subagent_ok ? "true" : "false");
+        break;
+    }
+    buf_appends(&b, "}}");
+    return buf_detach(&b);
+}
+
+static void native_set_attribution(tny_openai_control_response *response,
+                                   const tny_extension_action *action) {
+    free(response->extension);
+    free(response->reason);
+    response->extension = dup_cstr(action->extension);
+    response->reason = dup_cstr(action->reason);
+}
+
+static void native_pre_tool(tny_engine *e, const char *json,
+                            tny_openai_control_response *response) {
+    tny_extension_result result = {0};
+    if (!native_invoke(e, "pre_tool_use", json, &result)) return;
+    native_control_failures(e, "pre_tool_use", &result);
+    if (native_has_stop(e, "pre_tool_use", &result)) {
+        response->stop = true;
+        tny_extension_result_free(&result);
+        return;
+    }
+    const tny_extension_action *deny = NULL;
+    const tny_extension_action *rewrite = NULL;
+    for (size_t i = 0; i < result.action_count; i++) {
+        tny_extension_action *action = &result.actions[i];
+        if (action->kind == TNY_EXTENSION_ACTION_STOP) continue;
+        if (action->kind == TNY_EXTENSION_ACTION_TOOL_DENY) deny = action;
+        else if (action->kind == TNY_EXTENSION_ACTION_TOOL_REWRITE) rewrite = action;
+        else native_invalid_action(e, "pre_tool_use", action,
+                                   "only tool rewrite, deny, or stop is accepted");
+    }
+    if (deny) {
+        response->deny = true;
+        native_set_attribution(response, deny);
+    } else if (rewrite && rewrite->arguments_json) {
+        response->arguments_json = dup_cstr(rewrite->arguments_json);
+        native_set_attribution(response, rewrite);
+    }
+    tny_extension_result_free(&result);
+}
+
+static void native_permission(tny_engine *e, const char *json,
+                              tny_openai_control_response *response) {
+    tny_extension_result result = {0};
+    if (!native_invoke(e, "permission_request", json, &result)) return;
+    native_control_failures(e, "permission_request", &result);
+    if (native_has_stop(e, "permission_request", &result)) {
+        response->stop = true;
+        tny_extension_result_free(&result);
+        return;
+    }
+    const tny_extension_action *deny = NULL;
+    const tny_extension_action *allow = NULL;
+    for (size_t i = 0; i < result.action_count; i++) {
+        tny_extension_action *action = &result.actions[i];
+        if (action->kind == TNY_EXTENSION_ACTION_STOP) continue;
+        if (action->kind != TNY_EXTENSION_ACTION_PERMISSION_DECISION) {
+            native_invalid_action(e, "permission_request", action,
+                                  "only a permission decision or stop is accepted");
+            continue;
+        }
+        if (action->permission_decision == TNY_EXTENSION_PERMISSION_DENY)
+            deny = action;
+        else if (action->permission_decision ==
+                 TNY_EXTENSION_PERMISSION_ALLOW_ONCE)
+            allow = action;
+    }
+    if (deny) {
+        response->permission = TNY_OPENAI_PERMISSION_DENY;
+        native_set_attribution(response, deny);
+    } else if (allow) {
+        response->permission = TNY_OPENAI_PERMISSION_ALLOW_ONCE;
+        native_set_attribution(response, allow);
+    }
+    tny_extension_result_free(&result);
+}
+
+static void native_post_tool(tny_engine *e,
+                             const tny_openai_control_request *request,
+                             const char *event, const char *json,
+                             tny_openai_control_response *response) {
+    tny_extension_result result = {0};
+    (void)native_invoke(e, event, json, &result);
+    native_control_failures(e, event, &result);
+    bool stop = native_has_stop(e, event, &result);
+    const tny_extension_action *replacement = NULL;
+    buf_t annotations;
+    buf_init(&annotations);
+    buf_appends(&annotations, "[");
+    int annotation_count = 0;
+    for (size_t i = 0; !stop && i < result.action_count; i++) {
+        tny_extension_action *action = &result.actions[i];
+        if (action->kind == TNY_EXTENSION_ACTION_STOP) continue;
+        if (action->kind == TNY_EXTENSION_ACTION_TOOL_RESULT_REPLACE) {
+            replacement = action;
+            continue;
+        }
+        if (action->kind == TNY_EXTENSION_ACTION_TOOL_ANNOTATE) {
+            if (annotation_count++) buf_appends(&annotations, ",");
+            buf_appends(&annotations, "{\"extension\":");
+            jescape(&annotations, action->extension ? action->extension : "extension");
+            buf_appends(&annotations, ",\"content\":");
+            jescape(&annotations, action->content ? action->content : "");
+            buf_appendf(&annotations, ",\"display\":%s}",
+                        action->display ? "true" : "false");
+            queue_action_message(e, action, true);
+            continue;
+        }
+        native_invalid_action(e, event, action,
+                              "only tool annotation, replacement, or stop is accepted");
+    }
+    buf_appends(&annotations, "]");
+    if (!stop && replacement) {
+        response->result = dup_cstr(replacement->content);
+        response->result_replaced = response->result != NULL;
+        response->result_is_error = replacement->is_error;
+        native_set_attribution(response, replacement);
+    }
+    response->stop = stop;
+    const char *effective = response->result_replaced
+        ? response->result : request->result;
+    bool effective_ok = response->result_replaced
+        ? !response->result_is_error : request->original_ok;
+    bool audited = response->result_replaced || annotation_count > 0 ||
+        (request->control_extension && *request->control_extension) ||
+        (request->control_reason && *request->control_reason) ||
+        strcmp(request->original_arguments_json ? request->original_arguments_json : "{}",
+               request->arguments_json ? request->arguments_json : "{}") != 0;
+    if (audited) {
+        session_record_tool_audit(
+            e->session, request->tool_id, request->tool_name,
+            request->original_arguments_json, request->arguments_json,
+            request->control_extension, request->control_reason,
+            request->result, request->original_ok, effective, effective_ok,
+            response->extension, annotations.data);
+    }
+    buf_free(&annotations);
+    tny_extension_result_free(&result);
+}
+
+static void native_observe(tny_engine *e, const char *event, const char *json,
+                           tny_openai_control_response *response) {
+    tny_extension_result result = {0};
+    if (!native_invoke(e, event, json, &result)) return;
+    native_control_failures(e, event, &result);
+    response->stop = native_has_stop(e, event, &result);
+    for (size_t i = 0; i < result.action_count; i++) {
+        if (result.actions[i].kind != TNY_EXTENSION_ACTION_STOP)
+            native_invalid_action(e, event, &result.actions[i],
+                                  "this event is observational");
+    }
+    tny_extension_result_free(&result);
+}
+
+static void native_openai_control(
+    const tny_openai_control_request *request,
+    tny_openai_control_response *response, void *ud) {
+    tny_engine *e = ud;
+    if (!e || !request || !response) return;
+    if (!e->extensions) {
+        if (e->cancel_probe && e->cancel_probe(e->cancel_probe_ud))
+            response->stop = true;
+        return;
+    }
+    if (e->native_control_active) {
+        extension_status(e, "extension-host", "native_control", "reentrant",
+                         "nested native control invocation was ignored");
+        return;
+    }
+    e->native_control_active = true;
+    process_queued_extension_hooks(e);
+    const char *event = NULL;
+    switch (request->kind) {
+    case TNY_OPENAI_CONTROL_PRE_TOOL:
+        end_extension_message(e);
+        event = "pre_tool_use";
+        break;
+    case TNY_OPENAI_CONTROL_PERMISSION: event = "permission_request"; break;
+    case TNY_OPENAI_CONTROL_POST_TOOL:
+        event = request->original_ok ? "post_tool_use" : "post_tool_failure";
+        break;
+    case TNY_OPENAI_CONTROL_TOOL_BATCH: event = "post_tool_batch"; break;
+    case TNY_OPENAI_CONTROL_PROVIDER_REQUEST: event = "provider_request"; break;
+    case TNY_OPENAI_CONTROL_PROVIDER_RESPONSE: event = "provider_response"; break;
+    case TNY_OPENAI_CONTROL_SUBAGENT_START: event = "subagent_start"; break;
+    case TNY_OPENAI_CONTROL_SUBAGENT_END: event = "subagent_end"; break;
+    }
+    if (!event) {
+        e->native_control_active = false;
+        return;
+    }
+    if (request->kind == TNY_OPENAI_CONTROL_PERMISSION) {
+        free(e->native_observed_permission_id);
+        e->native_observed_permission_id = dup_cstr(request->tool_id);
+    }
+    char *json = native_control_json(e, request, event);
+    if (!json) {
+        e->native_control_active = false;
+        return;
+    }
+    if (request->kind == TNY_OPENAI_CONTROL_PRE_TOOL)
+        native_pre_tool(e, json, response);
+    else if (request->kind == TNY_OPENAI_CONTROL_PERMISSION)
+        native_permission(e, json, response);
+    else if (request->kind == TNY_OPENAI_CONTROL_POST_TOOL)
+        native_post_tool(e, request, event, json, response);
+    else
+        native_observe(e, event, json, response);
+    free(json);
+    if (e->cancel_probe && e->cancel_probe(e->cancel_probe_ud)) {
+        e->extension_stop_requested = true;
+        response->stop = true;
+    }
+    e->native_control_active = false;
 }
 
 static void commit_pending_terminal(tny_engine *e) {
@@ -914,7 +1319,9 @@ static bool resolve_pending_terminal(tny_engine *e) {
     }
 
     bool continue_requested = e->turn_started && e->extension_followup.len > 0;
-    if (terminal->stop == TNY_STOP_INTERRUPTED) continue_requested = false;
+    if (terminal->stop == TNY_STOP_INTERRUPTED ||
+        terminal->stop == TNY_STOP_DENIED)
+        continue_requested = false;
     if (stop) continue_requested = false;
     int limit = e->ctx->max_extension_iterations;
     if (continue_requested && limit > 0 &&
@@ -1053,7 +1460,8 @@ int tny_engine_prepare(tny_engine *e, tny_backend *prepared,
         return -1;
     }
     if (bk->id == TNY_BK_OPENAI)
-        tny_backend_openai_bind(bk, e->session, e->perm, e->prompt, e->prompt_ud);
+        tny_backend_openai_bind(bk, e->session, e->perm, e->prompt, e->prompt_ud,
+                                native_openai_control, e);
     if (state != TNY_ENGINE_PREPARE_RESUMED && bk->create_or_resume) {
         const char *ptr = session_host_pointer(e->session);
         const char *owner = session_backend(e->session);
@@ -1065,6 +1473,13 @@ int tny_engine_prepare(tny_engine *e, tny_backend *prepared,
         }
     }
     return 0;
+}
+
+void tny_engine_set_cancel_probe(tny_engine *e,
+                                 tny_engine_cancel_probe probe, void *ud) {
+    if (!e) return;
+    e->cancel_probe = probe;
+    e->cancel_probe_ud = ud;
 }
 
 int tny_engine_start(tny_engine *e, const char *prompt, const char **images,
@@ -1087,6 +1502,8 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images,
     e->extension_stop_requested = false;
     e->extension_cancel_sent = false;
     e->extension_continuations = 0;
+    free(e->native_observed_permission_id);
+    e->native_observed_permission_id = NULL;
     e->session->extension_agent_sequence++;
     buf_clear(&e->extension_followup);
     buf_t effective;
@@ -1190,7 +1607,17 @@ int tny_engine_dispatch(tny_engine *e, struct pollfd *fds, int n) {
 }
 
 tny_owned_event *tny_engine_pop_event(tny_engine *e) {
-    if (!e || !e->head) return NULL;
+    if (!e) return NULL;
+    while (e->head && e->head->suppressed) {
+        tny_owned_event *suppressed = e->head;
+        e->head = suppressed->next;
+        if (!e->head) e->tail = NULL;
+        e->queue_count--;
+        e->queue_bytes -= suppressed->owned_bytes;
+        suppressed->next = NULL;
+        tny_owned_event_free(suppressed);
+    }
+    if (!e->head) return NULL;
     tny_owned_event *o = e->head;
     e->head = o->next;
     if (!e->head) e->tail = NULL;
@@ -1370,6 +1797,7 @@ void tny_engine_free(tny_engine *e) {
     buf_free(&e->extension_followup);
     free(e->prompt_text);
     free(e->prepared_requeue_text);
+    free(e->native_observed_permission_id);
     free(e->current_message_id);
     free(e);
 }

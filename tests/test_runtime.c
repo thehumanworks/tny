@@ -19,6 +19,8 @@ typedef struct {
     char *steers[8];
     int sends;
     int steer_count;
+    int permission_responses;
+    tny_perm_decision permission_decision;
 } fake_runtime_backend;
 
 static int fake_connect(tny_backend *b, char *err, size_t errlen) {
@@ -74,6 +76,15 @@ static int fake_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         return 0;
     }
     if (f->mode == 3) return 0; /* quiet backend: timeout path */
+    if (f->mode == 5) {
+        tny_backend_event permission = {0};
+        permission.kind = TNY_EV_PERMISSION;
+        permission.perm_id = "permission-1";
+        permission.perm_summary = "write_file /outside";
+        permission.perm_options = TNY_PERM_ALLOW_ONCE | TNY_PERM_DENY;
+        f->cb(&permission, f->ud);
+        return 0;
+    }
     char borrowed[] = "copied delta";
     tny_backend_event text = {0}; text.kind = TNY_EV_TEXT_DELTA;
     text.text = borrowed; text.text_len = strlen(borrowed);
@@ -83,6 +94,18 @@ static int fake_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     f->cb(&end, f->ud);
     f->cb(&end, f->ud); /* duplicate must be suppressed */
     return 0;
+}
+static void fake_respond_permission(tny_backend *b, const char *id,
+                                    tny_perm_decision decision) {
+    fake_runtime_backend *f = b->impl;
+    if (!id || strcmp(id, "permission-1") != 0) return;
+    f->permission_responses++;
+    f->permission_decision = decision;
+    tny_backend_event end = {0};
+    end.kind = TNY_EV_TURN_END;
+    end.stop = decision == TNY_PERM_DECISION_DENY
+        ? TNY_STOP_DENIED : TNY_STOP_DONE;
+    f->cb(&end, f->ud);
 }
 static void fake_destroy(tny_backend *b) {
     fake_runtime_backend *f = b->impl;
@@ -102,6 +125,7 @@ static tny_backend *fake_backend(int mode, fake_runtime_backend **out) {
     b->create_or_resume = fake_resume; b->send = fake_send;
     b->steer = fake_steer;
     b->cancel = fake_cancel; b->pollfds = fake_pollfds;
+    b->respond_permission = fake_respond_permission;
     b->dispatch = fake_dispatch; b->destroy = fake_destroy;
     if (out) *out = f;
     return b;
@@ -724,6 +748,49 @@ TEST runtime_compaction_selection_instructions_and_workspace_events(void) {
     PASS();
 }
 
+TEST runtime_permission_fold_is_correlated_suppressed_and_deny_sticky(void) {
+    const char *allow_source =
+        "from tny_ext import PermissionRequestEvent, decide_permission\n"
+        "def setup(api):\n"
+        "    @api.on(PermissionRequestEvent)\n"
+        "    def allow(event):\n"
+        "        return decide_permission('allow_once')\n";
+    fixture x = fixture_new_ext(5, allow_source, 0);
+    x.ctx->backend = TNY_BK_OPENAI;
+    tny_extensions_set_provider(x.ctx->extensions, TNY_BK_OPENAI);
+    char err[128];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "permission", NULL,
+                                  err, sizeof err));
+    tny_stop_reason stop = TNY_STOP_ERROR;
+    ASSERT(drain_engine(x.engine, &stop) > 0);
+    ASSERT_EQ(TNY_STOP_DONE, stop);
+    ASSERT_EQ(1, x.fake->permission_responses);
+    ASSERT_EQ(TNY_PERM_DECISION_ALLOW, x.fake->permission_decision);
+    fixture_free(&x);
+
+    const char *deny_source =
+        "from tny_ext import PermissionRequestEvent, decide_permission\n"
+        "def setup(api):\n"
+        "    @api.on(PermissionRequestEvent)\n"
+        "    def allow(event):\n"
+        "        return decide_permission('allow_once')\n"
+        "    @api.on(PermissionRequestEvent)\n"
+        "    def deny(event):\n"
+        "        return decide_permission('deny', 'policy')\n";
+    x = fixture_new_ext(5, deny_source, 0);
+    x.ctx->backend = TNY_BK_OPENAI;
+    tny_extensions_set_provider(x.ctx->extensions, TNY_BK_OPENAI);
+    ASSERT_EQ(0, tny_engine_start(x.engine, "permission", NULL,
+                                  err, sizeof err));
+    stop = TNY_STOP_ERROR;
+    ASSERT(drain_engine(x.engine, &stop) > 0);
+    ASSERT_EQ(TNY_STOP_DENIED, stop);
+    ASSERT_EQ(1, x.fake->permission_responses);
+    ASSERT_EQ(TNY_PERM_DECISION_DENY, x.fake->permission_decision);
+    fixture_free(&x);
+    PASS();
+}
+
 SUITE(runtime_suite) {
     RUN_TEST(runtime_copies_events_and_suppresses_duplicate_terminal);
     RUN_TEST(runtime_synthesizes_transport_error_and_terminal);
@@ -740,4 +807,5 @@ SUITE(runtime_suite) {
     RUN_TEST(runtime_lifecycle_order_and_session_rebind_are_stable);
     RUN_TEST(runtime_transformed_steer_requeues_without_replaying_hook);
     RUN_TEST(runtime_compaction_selection_instructions_and_workspace_events);
+    RUN_TEST(runtime_permission_fold_is_correlated_suppressed_and_deny_sticky);
 }

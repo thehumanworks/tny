@@ -37,11 +37,11 @@
       "states": [
         "supported", "supported", "supported", "supported",
         "supported", "supported", "supported", "supported",
-        "supported", "supported", "supported", "unavailable",
-        "unavailable", "unavailable", "unavailable", "supported",
-        "unavailable", "unavailable", "unavailable", "supported",
-        "unavailable", "unavailable", "unavailable", "unavailable",
-        "unavailable", "supported", "supported", "unavailable", "unavailable"
+        "supported", "supported", "supported", "supported",
+        "supported", "supported", "supported", "supported",
+        "supported", "supported", "supported", "supported",
+        "supported", "supported", "supported", "supported",
+        "supported", "supported", "supported", "unavailable", "unavailable"
       ]
     },
     "cursor": {
@@ -49,7 +49,7 @@
       "states": [
         "supported", "supported", "supported", "supported",
         "supported", "supported", "unavailable", "supported",
-        "supported", "unavailable", "supported", "unavailable",
+        "supported", "supported", "supported", "unavailable",
         "unavailable", "unsupported", "unsupported", "unsupported",
         "unsupported", "unsupported", "unsupported", "supported",
         "unsupported", "unsupported", "unavailable", "unavailable",
@@ -61,7 +61,7 @@
       "states": [
         "supported", "supported", "supported", "supported",
         "supported", "supported", "unavailable", "supported",
-        "supported", "unavailable", "supported", "unavailable",
+        "supported", "supported", "supported", "unavailable",
         "unavailable", "unsupported", "unsupported", "supported",
         "unavailable", "unavailable", "unavailable", "supported",
         "unsupported", "unsupported", "unavailable", "unavailable",
@@ -73,7 +73,7 @@
       "states": [
         "supported", "supported", "supported", "supported",
         "supported", "supported", "unavailable", "supported",
-        "supported", "unavailable", "supported", "unavailable",
+        "supported", "supported", "supported", "unavailable",
         "unavailable", "unsupported", "unsupported", "supported",
         "unavailable", "unavailable", "unavailable", "supported",
         "unsupported", "unsupported", "unavailable", "unavailable",

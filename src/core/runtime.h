@@ -18,6 +18,7 @@ typedef struct tny_owned_event {
     tny_backend_event ev;
     size_t owned_bytes;
     bool hooks_done;
+    bool suppressed;
     struct tny_owned_event *next;
 } tny_owned_event;
 
@@ -34,6 +35,8 @@ typedef enum {
     TNY_ENGINE_NEXT_DRAINED = 2
 } tny_engine_next;
 
+typedef bool (*tny_engine_cancel_probe)(void *ud);
+
 /* ctx/session/perm are borrowed and must outlive the engine. The engine owns
  * the non-NULL backend passed to prepare() from the moment prepare is called. */
 tny_engine *tny_engine_new(tny_ctx *ctx, tny_session_state *session,
@@ -44,6 +47,10 @@ tny_engine *tny_engine_new(tny_ctx *ctx, tny_session_state *session,
 int tny_engine_prepare(tny_engine *e, tny_backend *prepared,
                        tny_engine_prepare_state state,
                        char *err, size_t errlen);
+/* Optional signal-safe frontend flag probe. Native control hooks re-check it
+ * after every bounded Python invocation and before side effects/POSTs. */
+void tny_engine_set_cancel_probe(tny_engine *e,
+                                 tny_engine_cancel_probe probe, void *ud);
 int tny_engine_start(tny_engine *e, const char *prompt, const char **images,
                      char *err, size_t errlen);
 int tny_engine_steer(tny_engine *e, const char *text,

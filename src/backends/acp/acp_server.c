@@ -36,6 +36,10 @@ static void drop_session(acp_srv *s) {
     s->session_id = NULL;
 }
 
+static bool acp_srv_cancel_probe(void *ud) {
+    return ((acp_srv *)ud)->cancel_requested;
+}
+
 /* Attach a fresh native backend to `sess`. Returns an error string or NULL. */
 static const char *attach_backend(acp_srv *s, tny_session_state *sess, char *err, size_t errlen) {
     drop_session(s);
@@ -44,6 +48,7 @@ static const char *attach_backend(acp_srv *s, tny_session_state *sess, char *err
     s->perm = perm_new(s->ctx);
     s->engine = tny_engine_new(s->ctx, s->session, s->perm, acp_srv_prompt, s);
     if (!s->engine) return "cannot create the native runtime";
+    tny_engine_set_cancel_probe(s->engine, acp_srv_cancel_probe, s);
     tny_backend *bk = tny_backend_create(TNY_BK_OPENAI, s->ctx);
     if (!bk) return "cannot create the native backend";
     if (tny_engine_prepare(s->engine, bk, TNY_ENGINE_PREPARE_FRESH,

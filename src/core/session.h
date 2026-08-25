@@ -62,6 +62,15 @@ void session_record_prompt_audit(tny_session_state *s, const char *submission_id
                                  const char *submitted, const char *effective,
                                  bool blocked, const char *extension,
                                  const char *reason);
+void session_replace_tool_arguments(tny_session_state *s, const char *tool_call_id,
+                                    const char *arguments_json);
+void session_record_tool_audit(
+    tny_session_state *s, const char *tool_call_id, const char *tool_name,
+    const char *original_arguments, const char *effective_arguments,
+    const char *control_extension, const char *control_reason,
+    const char *original_result, bool original_ok, const char *effective_result,
+    bool effective_ok, const char *replacement_extension,
+    const char *annotations_json);
 
 /* Large tool results: store blob, return malloc'd handle id. Ephemeral
  * sessions retain the blob only until session_close(). */

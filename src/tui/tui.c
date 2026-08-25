@@ -39,6 +39,14 @@ static void on_winch(int s) { (void)s; g_winch = 1; }
 static void on_sigint(int s) { (void)s; g_sigint = 1; }
 static void on_fatal(int s) { term_restore(); _exit(128 + s); }
 
+static bool tui_cancel_probe(void *ud) {
+    tui *t = ud;
+    if (!g_sigint && !t->want_cancel) return false;
+    g_sigint = 0;
+    t->want_cancel = false;
+    return true;
+}
+
 static void install(int sig, void (*fn)(int)) {
     struct sigaction sa;
     memset(&sa, 0, sizeof sa);
@@ -350,6 +358,7 @@ static bool ensure_backend(tui *t) {
     tny_engine *engine = tny_engine_new(t->ctx, t->session, t->perm,
                                         perm_hook, t);
     if (!engine) { tui_err(t, "could not create the runtime"); return false; }
+    tny_engine_set_cancel_probe(engine, tui_cancel_probe, t);
     tny_backend *bk = tui_prewarm_take(t);
     if (bk) {
         if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_RESUMED,

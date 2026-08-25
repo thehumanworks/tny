@@ -66,6 +66,9 @@ CHAT_ERROR = os.environ.get("MOCK_CHAT_ERROR")
 PARALLEL = os.environ.get("MOCK_PARALLEL") == "1"
 SENSITIVE = os.environ.get("MOCK_SENSITIVE") == "1"
 HTTP_STATUS = int(os.environ.get("MOCK_HTTP_STATUS", "0"))
+ERROR_SECRET = os.environ.get("MOCK_ERROR_SECRET", "mock status failure")
+EXPECT_EXTENSION_REWRITE = os.environ.get("MOCK_EXPECT_EXTENSION_REWRITE") == "1"
+EXPECT_TOOL_OUTPUT = os.environ.get("MOCK_EXPECT_TOOL_OUTPUT")
 
 
 def sse(obj):
@@ -171,7 +174,7 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", "0"))
         req = json.loads(self.rfile.read(n))
         if HTTP_STATUS:
-            self._json(HTTP_STATUS, {"error": {"message": "mock status failure"}})
+            self._json(HTTP_STATUS, {"error": {"message": ERROR_SECRET}})
             return
         try:
             if self.path.endswith("/chat/completions"):
@@ -320,6 +323,10 @@ class Handler(BaseHTTPRequestHandler):
                  f"bad {structured}")
 
         outputs = [i for i in items if i.get("type") == "function_call_output"]
+        if outputs and EXPECT_TOOL_OUTPUT is not None:
+            need(outputs[0].get("output") == EXPECT_TOOL_OUTPUT,
+                 f"effective tool output is {outputs[0].get('output')!r}, "
+                 f"want {EXPECT_TOOL_OUTPUT!r}")
         if not outputs and SLOW_MS:
             time.sleep(SLOW_MS / 1000.0)
         if outputs and EXPECT_STEER:
@@ -419,8 +426,11 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 need(set(calls) == {"call_1", "call_2"},
                      f"function_call items not echoed exactly: {sorted(calls)}")
+                expected_call_1 = ("{\"path\":\".\"}"
+                                   if EXPECT_EXTENSION_REWRITE
+                                   else "{\"path\": \".\"}")
                 need(calls["call_1"].get("name") == "list_files" and
-                     calls["call_1"].get("arguments") == "{\"path\": \".\"}",
+                     calls["call_1"].get("arguments") == expected_call_1,
                      f"call_1 mangled: {calls['call_1']}")
                 need(calls["call_2"].get("name") == "glob_files" and
                      calls["call_2"].get("arguments") == "{\"pattern\": \"*.txt\"}",

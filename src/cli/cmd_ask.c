@@ -19,6 +19,12 @@
 
 static volatile sig_atomic_t g_interrupted = 0;
 static void on_sigint(int sig) { (void)sig; g_interrupted = 1; }
+static bool ask_cancel_probe(void *ud) {
+    (void)ud;
+    if (!g_interrupted) return false;
+    g_interrupted = 0;
+    return true;
+}
 
 /* connect() run off the main thread while stdin drains (safe per backend.h:
  * no terminal output, no ctx reads that anyone mutates meanwhile — same
@@ -352,6 +358,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     st.json = json;
     st.engine = engine;
     st.perm_mode = ctx->perm_mode;
+    tny_engine_set_cancel_probe(engine, ask_cancel_probe, NULL);
 
     signal(SIGINT, on_sigint);
     signal(SIGPIPE, SIG_IGN);

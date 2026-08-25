@@ -8,12 +8,77 @@
 #include "core/perm.h"
 #include "json/json.h"
 
+typedef enum {
+    TNY_OPENAI_CONTROL_PRE_TOOL = 1,
+    TNY_OPENAI_CONTROL_PERMISSION,
+    TNY_OPENAI_CONTROL_POST_TOOL,
+    TNY_OPENAI_CONTROL_TOOL_BATCH,
+    TNY_OPENAI_CONTROL_PROVIDER_REQUEST,
+    TNY_OPENAI_CONTROL_PROVIDER_RESPONSE,
+    TNY_OPENAI_CONTROL_SUBAGENT_START,
+    TNY_OPENAI_CONTROL_SUBAGENT_END
+} tny_openai_control_kind;
+
+typedef enum {
+    TNY_OPENAI_PERMISSION_ABSTAIN = 0,
+    TNY_OPENAI_PERMISSION_ALLOW_ONCE,
+    TNY_OPENAI_PERMISSION_DENY
+} tny_openai_permission_decision;
+
+/* Private native-loop control seam. The backend calls this only at a
+ * quiescent boundary, never from its event callback. All strings are borrowed
+ * for the duration of the call and contain normalized, bounded data. */
+typedef struct {
+    tny_openai_control_kind kind;
+    const char *tool_id;
+    const char *tool_name;
+    const char *arguments_json;
+    const char *original_arguments_json;
+    const char *result;
+    bool original_ok;
+    const char *control_extension;
+    const char *control_reason;
+    const char *permission_summary;
+    int permission_options;
+    const char *tool_ids_json;
+    int failed_tools;
+    const char *method;
+    const char *endpoint;
+    int status;
+    bool stream;
+    bool connection_reused;
+    const char *wire_api;
+    int step;
+    const char *subagent_id;
+    const char *subagent_action;
+    const char *subagent_outcome;
+    bool subagent_ok;
+} tny_openai_control_request;
+
+typedef struct {
+    char *arguments_json; /* last accepted pre-tool rewrite, or NULL */
+    char *result;         /* last accepted post-tool replacement, or NULL */
+    char *extension;      /* attribution for the selected control action */
+    char *reason;
+    bool deny;
+    bool stop;
+    bool result_replaced;
+    bool result_is_error;
+    tny_openai_permission_decision permission;
+} tny_openai_control_response;
+
+typedef void (*tny_openai_control_cb)(
+    const tny_openai_control_request *request,
+    tny_openai_control_response *response, void *ud);
+
 void tny_backend_openai_bind(tny_backend *b, tny_session_state *session,
                              perm_engine *perm,
                              tny_perm_decision (*prompt)(const char *tool,
                                                          const char *summary,
                                                          void *ud),
-                             void *prompt_ud);
+                             void *prompt_ud,
+                             tny_openai_control_cb control,
+                             void *control_ud);
 
 /* Number of agent steps taken in the last turn + tool call log (JSON array
  * text, borrowed until next send). */
