@@ -67,6 +67,7 @@ def record(event):
             "metadata": dict(getattr(event, "metadata", {})),
             "status": getattr(event, "status", 0),
             "reason": getattr(event, "reason", ""),
+            "failed": getattr(event, "failed", -1),
         }, separators=(",", ":")) + "\n")
 
 def setup(api):
@@ -146,12 +147,15 @@ def setup(api):
 
     @api.on(ProviderRequestEvent)
     def reject_invalid_observational_action(event):
+        if os.environ.get("TNY_TEST_STOP_PROVIDER") == "1":
+            return stop("stop before provider request")
         if os.environ.get("TNY_TEST_INVALID_OBSERVE") == "1":
             return replace_tool_result("not accepted here")
 
     @api.on(AgentEndEvent)
     def continue_once(event):
-        if event.continuation_count == 0:
+        if (os.environ.get("TNY_TEST_NO_CONTINUE") != "1" and
+                event.continuation_count == 0):
             return continue_with("extension followup")
 '''
 
@@ -312,6 +316,11 @@ def main():
             ]
             assert request_attempts == response_attempts, (requests, responses)
             assert len(request_attempts) == len(set(request_attempts)), request_attempts
+            assert all(event["metadata"]["stream"] is True for event in requests + responses)
+            assert all(event["metadata"]["wire_api"] == "responses"
+                       for event in requests + responses)
+            assert all(isinstance(event["metadata"]["step"], int)
+                       for event in requests)
 
             order = {kind: kinds.index(kind) for kind in (
                 "session_start", "user_prompt_submit", "before_agent_start",
@@ -550,6 +559,35 @@ def main():
                 assert len(annotated_audit[0]["annotations"]) == 2, annotated_audit
                 assert annotated_audit[0]["original_result"] == annotated_audit[0]["effective_result"]
                 assert "replacement_extension" not in annotated_audit[0]
+
+                transformed = subprocess.run(
+                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
+                     "transformed json summary"],
+                    env=dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
+                             TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="1",
+                             TNY_TEST_NO_CONTINUE="1"),
+                    capture_output=True, timeout=30)
+                assert transformed.returncode == 0, transformed.stderr.decode()
+                transformed_json = json.loads(transformed.stdout)
+                assert len(transformed_json["tool_calls"]) == 2, transformed_json
+                assert transformed_json["tool_calls"][0] == {
+                    "name": "list_files",
+                    "status": "success",
+                    "original_status": "success",
+                    "result_transformed": True,
+                }, transformed_json
+                assert transformed_json["tool_calls"][1] == {
+                    "name": "glob_files", "status": "success"
+                }, transformed_json
+
+                provider_stopped = subprocess.run(
+                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
+                     "stop provider request"],
+                    env=dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
+                             TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="0",
+                             TNY_TEST_STOP_PROVIDER="1"),
+                    capture_output=True, timeout=30)
+                assert provider_stopped.returncode == 130, provider_stopped.stderr.decode()
             finally:
                 stop_mock.terminate()
                 stop_mock.wait(timeout=5)
