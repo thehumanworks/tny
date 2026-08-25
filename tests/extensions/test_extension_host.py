@@ -272,6 +272,65 @@ class ExtensionHostTests(unittest.TestCase):
         ping = self.host.request({"id": 4, "op": "ping"})
         self.assertEqual(ping, {"id": 4, "ok": True, "protocol": 1})
 
+    def test_capabilities_are_available_during_setup_and_runtime(self):
+        capabilities = {
+            "schema_version": 1,
+            "selected_provider": "codex",
+            "extension_runtime": {"enabled": True, "python": "available"},
+            "providers": {
+                "codex": {
+                    "provider": "codex",
+                    "runtime": "host",
+                    "entries": {
+                        "extensions.prompt.observe": {
+                            "state": "supported",
+                            "reason": "implemented",
+                        }
+                    },
+                }
+            },
+            "future": {"preserved": True},
+        }
+        initialized = self.host.request(
+            {
+                "id": 1,
+                "op": "initialize",
+                "schema": {"events": 1, "actions": 1, "capabilities": 1},
+                "capabilities": capabilities,
+                "entries": [str(FIXTURES / "capability_extension.py")],
+            }
+        )
+        self.assertTrue(initialized["ok"])
+        self.assertEqual(
+            initialized["schema"], {"events": 1, "actions": 1, "capabilities": 1}
+        )
+        handler_id = initialized["subscriptions"][0]["handler_id"]
+        result = self.host.request(
+            {
+                "id": 2,
+                "op": "invoke",
+                "handler_id": handler_id,
+                "event": {"type": "status"},
+            }
+        )
+        self.assertEqual(result["action"]["content"], "1|codex|supported|immutable")
+
+    def test_incompatible_schema_fails_visibly_and_legacy_init_still_works(self):
+        incompatible = self.host.request(
+            {
+                "id": 1,
+                "op": "initialize",
+                "schema": {"events": 2, "actions": 1, "capabilities": 1},
+                "entries": [],
+            }
+        )
+        self.assertFalse(incompatible["ok"])
+        self.assertEqual(incompatible["error"]["kind"], "protocol_error")
+        self.assertIn("unsupported events schema major 2", incompatible["error"]["message"])
+        legacy = self.host.request({"id": 2, "op": "initialize", "entries": []})
+        self.assertTrue(legacy["ok"])
+        self.assertEqual(legacy["protocol"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

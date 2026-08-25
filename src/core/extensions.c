@@ -6,6 +6,7 @@
  * into tny's own diagnostics. */
 #include "core/extensions.h"
 
+#include "core/extension_caps.h"
 #include "json/json.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
@@ -52,6 +53,7 @@ struct tny_extensions {
     char *tny_dir;
     char *cwd;
     int timeout_ms;
+    tny_backend_id selected_provider;
     tny_extensions_state state;
     char status[160];
 
@@ -75,6 +77,7 @@ typedef struct {
     char *event;
     char *handler_id;
     char *extension;
+    tny_backend_id provider;
 } ext_call;
 
 static void set_status(tny_extensions *x, tny_extensions_state state,
@@ -513,7 +516,9 @@ static int initialize_host(tny_extensions *x) {
     buf_t req;
     buf_init(&req);
     int64_t id = x->next_id++;
-    buf_appendf(&req, "{\"id\":%lld,\"op\":\"initialize\",\"entries\":[",
+    buf_appendf(&req, "{\"id\":%lld,\"op\":\"initialize\","
+                      "\"schema\":{\"events\":1,\"actions\":1,"
+                      "\"capabilities\":1},\"entries\":[",
                 (long long)id);
     for (size_t i = 0; i < x->n_entries; i++) {
         if (i) buf_appends(&req, ",");
@@ -521,6 +526,12 @@ static int initialize_host(tny_extensions *x) {
     }
     buf_appends(&req, "],\"cwd\":");
     jescape(&req, x->cwd);
+    char *capabilities = tny_extension_capabilities_json(
+        x->selected_provider, true, true);
+    if (!capabilities) { buf_free(&req); return -1; }
+    buf_appends(&req, ",\"capabilities\":");
+    buf_appends(&req, capabilities);
+    free(capabilities);
     buf_appends(&req, "}");
     int why = 0;
     int initialize_timeout = x->timeout_ms < 5000 ? 5000 : x->timeout_ms;
@@ -541,7 +552,12 @@ static int initialize_host(tny_extensions *x) {
         return -1;
     }
     yyjson_val *root = yyjson_doc_get_root(doc);
-    bool valid = root && yyjson_is_obj(root) &&
+    yyjson_val *schema = root && yyjson_is_obj(root) ? jget(root, "schema") : NULL;
+    bool schema_valid = !schema ||
+        (yyjson_is_obj(schema) && jget_int(schema, "events", -1) == 1 &&
+         jget_int(schema, "actions", -1) == 1 &&
+         jget_int(schema, "capabilities", -1) == 1);
+    bool valid = root && yyjson_is_obj(root) && schema_valid &&
                  jget_int(root, "id", -1) == id &&
                  jget_bool(root, "ok", false) &&
                  jget_int(root, "protocol", -1) == EXT_PROTOCOL;
@@ -620,6 +636,49 @@ static int append_action(tny_extension_result *out, ext_call *call,
                               call->event, "invalid_action",
                               "extension action has no kind");
     if (strcmp(type, "none") == 0) return 0;
+
+    tny_extension_capability_id required = TNY_EXT_CAP_COUNT;
+    if (strcmp(type, "prompt_transform") == 0)
+        required = TNY_EXT_CAP_PROMPT_TRANSFORM;
+    else if (strcmp(type, "prompt_block") == 0)
+        required = TNY_EXT_CAP_PROMPT_BLOCK;
+    else if (strcmp(type, "tool_rewrite") == 0)
+        required = TNY_EXT_CAP_TOOL_PRE_REWRITE;
+    else if (strcmp(type, "tool_deny") == 0)
+        required = TNY_EXT_CAP_TOOL_PRE_DENY;
+    else if (strcmp(type, "tool_annotate") == 0)
+        required = TNY_EXT_CAP_TOOL_POST_ANNOTATE;
+    else if (strcmp(type, "tool_result_replace") == 0)
+        required = TNY_EXT_CAP_TOOL_POST_REPLACE;
+    else if (strcmp(type, "permission_decision") == 0) {
+        const char *decision = jget_str(value, "decision");
+        if (decision && strcmp(decision, "allow_once") == 0)
+            required = TNY_EXT_CAP_PERMISSION_ALLOW_ONCE;
+        else if (decision && strcmp(decision, "deny") == 0)
+            required = TNY_EXT_CAP_PERMISSION_DENY;
+        else if (decision && strcmp(decision, "abstain") == 0)
+            required = TNY_EXT_CAP_PERMISSION_ABSTAIN;
+        else
+            return append_failure(out, call->extension, call->handler_id,
+                                  call->event, "invalid_action",
+                                  "permission decision must be allow_once, deny, or abstain");
+    }
+    if (required != TNY_EXT_CAP_COUNT) {
+        tny_extension_capability_state state = tny_extension_capability_get(
+            call->provider, required);
+        char message[320];
+        snprintf(message, sizeof message, "%s is %s for provider %s (%s)",
+                 tny_extension_capability_name(required),
+                 tny_extension_capability_state_name(state),
+                 tny_backend_name(call->provider),
+                 tny_extension_capability_reason(call->provider, required));
+        return append_failure(out, call->extension, call->handler_id,
+                              call->event,
+                              state == TNY_EXT_CAP_UNSUPPORTED
+                                  ? "unsupported_capability"
+                                  : "unavailable_capability",
+                              message);
+    }
     tny_extension_action_kind kind;
     if (strcmp(type, "context") == 0) kind = TNY_EXTENSION_ACTION_CONTEXT;
     else if (strcmp(type, "continue") == 0) kind = TNY_EXTENSION_ACTION_CONTINUE;
@@ -726,6 +785,7 @@ static ext_call *matching_calls(tny_extensions *x, const char *event,
         call->event = xstrdup(sub->event);
         call->handler_id = xstrdup(sub->handler_id);
         call->extension = xstrdup(sub->extension);
+        call->provider = x->selected_provider;
     }
     return calls;
 }
@@ -746,6 +806,7 @@ tny_extensions *tny_extensions_new(const char *tny_dir, const char *cwd,
     if (!x) return NULL;
     x->tny_dir = xstrdup(tny_dir);
     x->cwd = xstrdup(cwd);
+    x->selected_provider = TNY_BK_OPENAI;
     x->timeout_ms = handler_timeout_ms > 0 ? handler_timeout_ms
                                            : EXT_DEFAULT_TIMEOUT_MS;
     if (x->timeout_ms > EXT_MAX_TIMEOUT_MS) x->timeout_ms = EXT_MAX_TIMEOUT_MS;
@@ -793,6 +854,12 @@ size_t tny_extensions_entry_count(const tny_extensions *x) {
 
 const char *tny_extensions_status(const tny_extensions *x) {
     return x ? x->status : "extension manager unavailable";
+}
+
+void tny_extensions_set_provider(tny_extensions *x,
+                                 tny_backend_id provider) {
+    if (!x || provider < 0 || provider >= TNY_BK_COUNT) return;
+    x->selected_provider = provider;
 }
 
 int tny_extensions_invoke(tny_extensions *x, const char *event_name,

@@ -20,10 +20,14 @@ from typing import Any, Dict, List, Mapping, Optional, TextIO, Tuple
 
 from tny_ext import ExtensionAPI
 from tny_ext.actions import action_to_dict
+from tny_ext.capabilities import capability_view_from_dict
 from tny_ext.events import event_from_dict
 
 
 PROTOCOL_VERSION = 1
+EVENT_SCHEMA_VERSION = 1
+ACTION_SCHEMA_VERSION = 1
+CAPABILITY_SCHEMA_VERSION = 1
 MAX_TRACEBACK_CHARS = 4096
 
 
@@ -122,6 +126,30 @@ class ExtensionHost:
         cwd = request.get("cwd")
         if cwd is not None and not isinstance(cwd, str):
             raise ValueError("initialize.cwd must be a string")
+        schema_value = request.get("schema")
+        if schema_value is not None:
+            if not isinstance(schema_value, Mapping):
+                raise ValueError("initialize.schema must be an object")
+            expected = {
+                "events": EVENT_SCHEMA_VERSION,
+                "actions": ACTION_SCHEMA_VERSION,
+                "capabilities": CAPABILITY_SCHEMA_VERSION,
+            }
+            for name, supported in expected.items():
+                requested = schema_value.get(name, supported)
+                if not isinstance(requested, int) or isinstance(requested, bool):
+                    raise ValueError("initialize.schema.%s must be an integer" % name)
+                if requested != supported:
+                    raise ValueError(
+                        "unsupported %s schema major %s (host supports %s)"
+                        % (name, requested, supported)
+                    )
+        capabilities = capability_view_from_dict(request.get("capabilities"))
+        if capabilities.schema_version != CAPABILITY_SCHEMA_VERSION:
+            raise ValueError(
+                "unsupported capabilities schema major %s (host supports %s)"
+                % (capabilities.schema_version, CAPABILITY_SCHEMA_VERSION)
+            )
         self.debug = request.get("debug") is True
         subscriptions: List[Dict[str, str]] = []
         extensions: List[Dict[str, Any]] = []
@@ -133,7 +161,7 @@ class ExtensionHost:
                     setup = getattr(module, "setup", None)
                     if not callable(setup):
                         raise TypeError("extension must define callable setup(api): %s" % path)
-                    api = ExtensionAPI(name)
+                    api = ExtensionAPI(name, capabilities)
                     _run_awaitable(setup(api))
                 for registration in api.registrations:
                     handler_id = "%d:%s:%d" % (ordinal, registration.event, registration.index)
@@ -153,6 +181,11 @@ class ExtensionHost:
         self.initialized = True
         return {
             "protocol": PROTOCOL_VERSION,
+            "schema": {
+                "events": EVENT_SCHEMA_VERSION,
+                "actions": ACTION_SCHEMA_VERSION,
+                "capabilities": CAPABILITY_SCHEMA_VERSION,
+            },
             "subscriptions": subscriptions,
             "extensions": extensions,
             "load_errors": load_errors,

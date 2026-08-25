@@ -157,7 +157,7 @@ else
   SIZE_MAX ?= 1572864
 endif
 
-.PHONY: all release debug test test-unit size size-check pack smoke bench clean install install-lib lib-shared site FORCE
+.PHONY: all release debug test test-unit test-extensions-python size size-check pack smoke bench clean install install-lib lib-shared site FORCE
 
 all: release
 
@@ -209,7 +209,10 @@ debug: $(TEST_BIN)
 test-unit: $(TEST_BIN)
 	./$(TEST_BIN)
 
-test: test-unit release
+test-extensions-python:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/extensions -p 'test_*.py' -v
+
+test: test-unit test-extensions-python release
 	@if [ -x tests/integration/run.sh ]; then tests/integration/run.sh; fi
 
 size: release

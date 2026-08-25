@@ -1,6 +1,7 @@
 /* cmd_doctor.c — local health and preflight checks. May spawn host probes. */
 #include "cli/cli.h"
 #include "core/backend.h"
+#include "core/extension_caps.h"
 #include "core/extensions.h"
 #include "core/session.h"
 #include "util/util.h"
@@ -41,6 +42,9 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     /* backend one-liners */
     char lines[TNY_BK_COUNT][256];
     int health[TNY_BK_COUNT];
+    const char *old_no_spawn_value = getenv("TNY_DOCTOR_NO_SPAWN");
+    char *old_no_spawn = old_no_spawn_value ? xstrdup(old_no_spawn_value) : NULL;
+    if (json) setenv("TNY_DOCTOR_NO_SPAWN", "1", 1);
     for (int i = 0; i < TNY_BK_COUNT; i++) {
         snprintf(lines[i], sizeof lines[i], "no probe");
         health[i] = 1;
@@ -48,11 +52,18 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (bk && bk->doctor) health[i] = bk->doctor(ctx, lines[i], sizeof lines[i]);
         if (bk) bk->destroy(bk);
     }
+    if (json) {
+        if (old_no_spawn) setenv("TNY_DOCTOR_NO_SPAWN", old_no_spawn, 1);
+        else unsetenv("TNY_DOCTOR_NO_SPAWN");
+    }
+    free(old_no_spawn);
 
     bool bridge = on_path(ctx->bridge_bin);
     bool codex = on_path(ctx->codex_bin);
     bool settings_ok = !file_exists(ctx->settings_path) || ctx->settings != NULL;
     bool python = on_path("python3");
+    char *capabilities = tny_extension_capabilities_json(
+        (tny_backend_id)ctx->backend, ctx->extensions_enabled, python);
     size_t extension_entries = 0;
     if (ctx->extensions_enabled)
         extension_entries = tny_extensions_entry_count(ctx->extensions);
@@ -76,9 +87,11 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_appendf(&b, "\"settings_ok\":%s,\"sessions\":%d,",
                     settings_ok ? "true" : "false", n);
         buf_appendf(&b, "\"extensions\":{\"enabled\":%s,\"entries\":%zu,"
-                        "\"python3\":%s},",
+                        "\"python3\":%s,\"capabilities\":",
                     ctx->extensions_enabled ? "true" : "false",
                     extension_entries, python ? "true" : "false");
+        buf_appends(&b, capabilities ? capabilities : "{}");
+        buf_appends(&b, "},");
         buf_appendf(&b, "\"sandbox\":\"none\",\"sandbox_note\":\"os sandbox not "
                         "implemented in this build; commands run unsandboxed\",");
         buf_appendf(&b, "\"hosts\":{\"cursor_sdk_bridge\":%s,\"codex\":%s,\"acp_agents\":",
@@ -122,6 +135,7 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         for (int i = 0; i < TNY_BK_COUNT; i++)
             printf("  %s %s\n", health[i] == 0 ? "ok " : "warn", lines[i]);
     }
+    free(capabilities);
     buf_free(&acp_found);
     return 0;
 }

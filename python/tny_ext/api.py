@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, Callable, List, Optional, Tuple, Union
 
+from .capabilities import CapabilityView
 from .events import HookEvent, event_name
 
 
@@ -28,8 +29,9 @@ class ExtensionAPI:
         api.on(AgentSettledEvent, settled_handler)
     """
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, capabilities: Optional[CapabilityView] = None) -> None:
         self.name = name
+        self.capabilities = capabilities or CapabilityView.empty()
         self._handlers: List[HandlerRegistration] = []
 
     def on(self, event: EventSelector, handler: Optional[Handler] = None) -> Any:

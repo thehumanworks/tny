@@ -6,6 +6,8 @@
 #ifndef TNY_EXTENSIONS_H
 #define TNY_EXTENSIONS_H
 
+#include "core/backend.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -64,6 +66,12 @@ tny_extensions_state tny_extensions_get_state(const tny_extensions *extensions);
 size_t tny_extensions_entry_count(const tny_extensions *extensions);
 /* A short manager-owned status string; never contains child stderr. */
 const char *tny_extensions_status(const tny_extensions *extensions);
+
+/* Select the provider family used for action diagnostics and the setup-time
+ * capability snapshot. The immutable snapshot contains every provider matrix
+ * so runtime handlers can query with event.provider after a TUI switch. */
+void tny_extensions_set_provider(tny_extensions *extensions,
+                                 tny_backend_id provider);
 
 /* Run every handler subscribed to event_name, serially. event_json must be a
  * bounded JSON object produced from tny's normalized event schema, not a raw

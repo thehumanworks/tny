@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define CX_CONNECT_TIMEOUT_MS 15000 /* spawn -> listening */
 #define CX_ATTACH_TIMEOUT_MS  5000
@@ -483,6 +484,22 @@ static void first_line(char *s) {
     if (nl) *nl = 0;
 }
 
+static bool cx_bin_on_path(const char *bin) {
+    if (strchr(bin, '/')) return access(bin, X_OK) == 0;
+    const char *path = getenv("PATH");
+    if (!path) return false;
+    char *copy = xstrdup(path);
+    bool found = false;
+    for (char *item = strtok(copy, ":"); item && !found;
+         item = strtok(NULL, ":")) {
+        char *candidate = path_join(item, bin);
+        found = access(candidate, X_OK) == 0;
+        free(candidate);
+    }
+    free(copy);
+    return found;
+}
+
 static int cx_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
     if (ctx->codex_ws && *ctx->codex_ws) {
         snprintf(line, linelen, "codex: attach to %.160s (no spawn)", ctx->codex_ws);
@@ -491,6 +508,13 @@ static int cx_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
     char bin[512];
     snprintf(bin, sizeof bin, "%s",
              ctx->codex_bin && *ctx->codex_bin ? ctx->codex_bin : "codex");
+    if (getenv("TNY_DOCTOR_NO_SPAWN")) {
+        bool found = cx_bin_on_path(bin);
+        snprintf(line, linelen, "codex: %s%s",
+                 found ? bin : "not found",
+                 found ? " found (probe skipped)" : "");
+        return found ? 0 : 1;
+    }
     char ver[256];
     char *vargv[] = {bin, (char *)"--version", NULL};
     if (cx_capture(vargv, ver, sizeof ver, 4000) != 0) {

@@ -8,16 +8,25 @@ sys.path.insert(0, str(ROOT / "python"))
 
 from tny_ext import (  # noqa: E402
     BeforeAgentStartEvent,
+    CapabilityView,
     ContextAction,
     ContinueAction,
     ExtensionAPI,
     PermissionRequestEvent,
     TurnEndEvent,
     UnknownEvent,
+    annotate_tool,
+    block_prompt,
     context,
     continue_with,
+    decide_permission,
+    deny_tool,
+    replace_tool_result,
+    rewrite_tool,
+    transform_prompt,
 )
 from tny_ext.actions import action_to_dict  # noqa: E402
+from tny_ext.capabilities import capability_view_from_dict  # noqa: E402
 from tny_ext.events import event_from_dict  # noqa: E402
 
 
@@ -109,6 +118,78 @@ class ActionTests(unittest.TestCase):
     def test_invalid_continuation_kind_is_rejected(self):
         with self.assertRaises(ValueError):
             ContinueAction("again", message_kind="assistant")
+
+    def test_contracted_control_actions_have_frozen_wire_names(self):
+        self.assertEqual(
+            action_to_dict(transform_prompt("safer prompt")),
+            {"kind": "prompt_transform", "type": "prompt_transform", "prompt": "safer prompt"},
+        )
+        self.assertEqual(action_to_dict(block_prompt("policy"))["kind"], "prompt_block")
+        self.assertEqual(
+            action_to_dict(rewrite_tool({"path": "README.md"}))["arguments"],
+            {"path": "README.md"},
+        )
+        self.assertEqual(action_to_dict(deny_tool("outside workspace"))["kind"], "tool_deny")
+        self.assertEqual(
+            action_to_dict(decide_permission("allow_once"))["decision"], "allow_once"
+        )
+        self.assertEqual(action_to_dict(annotate_tool("checked"))["kind"], "tool_annotate")
+        self.assertEqual(
+            action_to_dict(replace_tool_result("redacted", is_error=True))["is_error"], True
+        )
+        with self.assertRaises(ValueError):
+            decide_permission("allow_always")
+
+
+class CapabilityTests(unittest.TestCase):
+    def test_view_is_immutable_and_preserves_unknown_entries_and_states(self):
+        view = capability_view_from_dict(
+            {
+                "schema_version": 1,
+                "selected_provider": "openai",
+                "extension_runtime": {"enabled": True, "python": "available"},
+                "providers": {
+                    "openai": {
+                        "provider": "openai",
+                        "runtime": "native",
+                        "entries": {
+                            "extensions.prompt.observe": {
+                                "state": "supported",
+                                "reason": "implemented",
+                            },
+                            "extensions.future.mode": {
+                                "state": "experimental_later",
+                                "reason": "future",
+                                "nested": {"values": [1, 2]},
+                            },
+                        },
+                    }
+                },
+                "future_top_level": {"enabled": True},
+            }
+        )
+        self.assertIsInstance(view, CapabilityView)
+        self.assertTrue(view.extension_enabled)
+        self.assertEqual(view.selected_provider, "openai")
+        self.assertIsNotNone(view.selected)
+        self.assertTrue(view.selected.supports("extensions.prompt.observe"))
+        future = view.selected.get("extensions.future.mode")
+        self.assertIsNotNone(future)
+        self.assertEqual(future.state, "experimental_later")
+        self.assertFalse(future.known_state)
+        self.assertEqual(future.extra["nested"]["values"], (1, 2))
+        with self.assertRaises(TypeError):
+            view.extra["future_top_level"] = False
+        with self.assertRaises(TypeError):
+            future.extra["nested"]["new"] = True
+
+    def test_extension_api_keeps_legacy_constructor_and_explicit_view(self):
+        legacy = ExtensionAPI("legacy")
+        self.assertEqual(legacy.capabilities.selected_provider, "unknown")
+        view = capability_view_from_dict(
+            {"schema_version": 1, "selected_provider": "codex", "providers": {}}
+        )
+        self.assertIs(ExtensionAPI("modern", view).capabilities, view)
 
 
 class RegistrationTests(unittest.TestCase):

@@ -47,6 +47,11 @@ for raw in sys.stdin:
                         "handler_id": "invalid",
                         "extension": names[0],
                     },
+                    {
+                        "event": "custom_message",
+                        "handler_id": "future_action",
+                        "extension": names[0],
+                    },
                 ]
             )
         if len(names) > 1:
@@ -110,6 +115,15 @@ for raw in sys.stdin:
                 "id": request_id,
                 "ok": True,
                 "action": {"kind": "teleport", "content": "somewhere"},
+            }
+        elif handler == "future_action":
+            response = {
+                "id": request_id,
+                "ok": True,
+                "action": {
+                    "kind": "permission_decision",
+                    "decision": "allow_once",
+                },
             }
         else:
             response = {

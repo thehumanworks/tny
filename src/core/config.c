@@ -618,6 +618,7 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
     apply_provider_model(ctx, id);
     apply_provider_effort(ctx);
     tny_finish_builtin_profile(ctx);
+    tny_extensions_set_provider(ctx->extensions, (tny_backend_id)ctx->backend);
     free(env_pick);
     return ctx->backend;
 }
