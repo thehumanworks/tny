@@ -498,6 +498,33 @@ TEST session_roundtrip(void) {
     PASS();
 }
 
+TEST session_tool_argument_rewrite_is_targeted_and_no_match_terminates(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session_state *s = session_new(ctx);
+    session_add_text(s, "user", "prompt");
+    session_add_assistant(
+        s, NULL,
+        "[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{"
+        "\"name\":\"list_files\",\"arguments\":\"{\\\"path\\\":\\\"old\\\"}\"}}]");
+    char *before = jwrite(s->doc);
+    session_replace_tool_arguments(s, "missing", "{\"path\":\"never\"}");
+    char *after = jwrite(s->doc);
+    ASSERT_STR_EQ(before, after);
+    free(before);
+    free(after);
+
+    session_replace_tool_arguments(s, "call_1", "{\"path\":\"new\"}");
+    after = jwrite(s->doc);
+    ASSERT(after && strstr(after, "{\\\"path\\\":\\\"new\\\"}"));
+    ASSERT_FALSE(strstr(after, "{\\\"path\\\":\\\"old\\\"}"));
+    free(after);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST session_result_handles(void) {
     ensure_env();
     write_settings("{}");
@@ -2449,6 +2476,7 @@ SUITE(core_suite) {
     RUN_TEST(codex_registry_roundtrip);
     RUN_TEST(codex_registry_rejects_bad_entries);
     RUN_TEST(session_roundtrip);
+    RUN_TEST(session_tool_argument_rewrite_is_targeted_and_no_match_terminates);
     RUN_TEST(session_result_handles);
     RUN_TEST(session_compaction);
     RUN_TEST(session_recovery_roundtrip);

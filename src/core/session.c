@@ -251,10 +251,12 @@ void session_replace_tool_arguments(tny_session_state *s, const char *tool_call_
     if (!s || !tool_call_id || !arguments_json) return;
     yyjson_mut_val *messages = session_messages(s);
     size_t count = yyjson_mut_arr_size(messages);
-    for (size_t i = count; i > 0; i--) {
-        yyjson_mut_val *message = yyjson_mut_arr_get(messages, i - 1);
+    size_t i = count;
+    while (i) {
+        i--;
+        yyjson_mut_val *message = yyjson_mut_arr_get(messages, i);
         yyjson_mut_val *calls = yyjson_mut_obj_get(message, "tool_calls");
-        if (!calls || !yyjson_mut_is_arr(calls)) continue;
+        if (!yyjson_mut_is_arr(calls)) continue;
         size_t idx, max;
         yyjson_mut_val *call;
         yyjson_mut_arr_foreach(calls, idx, max, call) {
@@ -262,7 +264,7 @@ void session_replace_tool_arguments(tny_session_state *s, const char *tool_call_
             const char *value = id ? yyjson_mut_get_str(id) : NULL;
             if (!value || strcmp(value, tool_call_id) != 0) continue;
             yyjson_mut_val *function = yyjson_mut_obj_get(call, "function");
-            if (function && yyjson_mut_is_obj(function))
+            if (yyjson_mut_is_obj(function))
                 yyjson_mut_obj_put(function,
                     yyjson_mut_strcpy(s->doc, "arguments"),
                     yyjson_mut_strcpy(s->doc, arguments_json));
@@ -289,10 +291,10 @@ void session_record_tool_audit(
                              original_arguments ? original_arguments : "{}");
     yyjson_mut_obj_add_strcpy(s->doc, entry, "effective_arguments",
                              effective_arguments ? effective_arguments : "{}");
-    if (control_extension && *control_extension)
+    if (control_extension)
         yyjson_mut_obj_add_strcpy(s->doc, entry, "control_extension",
                                  control_extension);
-    if (control_reason && *control_reason)
+    if (control_reason)
         yyjson_mut_obj_add_strcpy(s->doc, entry, "control_reason",
                                  control_reason);
     yyjson_mut_obj_add_strcpy(s->doc, entry, "original_result",
@@ -301,14 +303,14 @@ void session_record_tool_audit(
     yyjson_mut_obj_add_strcpy(s->doc, entry, "effective_result",
                              effective_result ? effective_result : "");
     yyjson_mut_obj_add_bool(s->doc, entry, "effective_ok", effective_ok);
-    if (replacement_extension && *replacement_extension)
+    if (replacement_extension)
         yyjson_mut_obj_add_strcpy(s->doc, entry, "replacement_extension",
                                  replacement_extension);
     if (annotations_json) {
         yyjson_doc *annotations = jparse(annotations_json,
                                          strlen(annotations_json));
         yyjson_val *root = annotations ? yyjson_doc_get_root(annotations) : NULL;
-        if (root && yyjson_is_arr(root)) {
+        if (yyjson_is_arr(root)) {
             yyjson_mut_val *copy = yyjson_val_mut_copy(s->doc, root);
             if (copy)
                 yyjson_mut_obj_put(entry,
