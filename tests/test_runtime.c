@@ -21,6 +21,7 @@ typedef struct {
     int steer_count;
     int permission_responses;
     tny_perm_decision permission_decision;
+    int cancels;
 } fake_runtime_backend;
 
 static int fake_connect(tny_backend *b, char *err, size_t errlen) {
@@ -42,6 +43,7 @@ static int fake_send(tny_backend *b, const char *p, const char **images,
 }
 static void fake_cancel(tny_backend *b) {
     fake_runtime_backend *f = b->impl;
+    f->cancels++;
     tny_backend_event ev = {0}; ev.kind = TNY_EV_TURN_END;
     ev.stop = TNY_STOP_INTERRUPTED;
     f->cb(&ev, f->ud);
@@ -229,6 +231,7 @@ TEST runtime_copies_events_and_suppresses_duplicate_terminal(void) {
     ASSERT_EQ(TNY_ENGINE_NEXT_DRAINED,
               tny_engine_next_event(x.engine, 0, &ev, err, sizeof err));
     fixture_free(&x);
+
     PASS();
 }
 
@@ -787,6 +790,24 @@ TEST runtime_permission_fold_is_correlated_suppressed_and_deny_sticky(void) {
     ASSERT_EQ(TNY_STOP_DENIED, stop);
     ASSERT_EQ(1, x.fake->permission_responses);
     ASSERT_EQ(TNY_PERM_DECISION_DENY, x.fake->permission_decision);
+    fixture_free(&x);
+
+    const char *stop_source =
+        "from tny_ext import PermissionRequestEvent, stop\n"
+        "def setup(api):\n"
+        "    @api.on(PermissionRequestEvent)\n"
+        "    def halt(event):\n"
+        "        return stop('cancel permission')\n";
+    x = fixture_new_ext(5, stop_source, 0);
+    x.ctx->backend = TNY_BK_OPENAI;
+    tny_extensions_set_provider(x.ctx->extensions, TNY_BK_OPENAI);
+    ASSERT_EQ(0, tny_engine_start(x.engine, "permission", NULL,
+                                  err, sizeof err));
+    stop = TNY_STOP_ERROR;
+    ASSERT(drain_engine(x.engine, &stop) > 0);
+    ASSERT_EQ(TNY_STOP_INTERRUPTED, stop);
+    ASSERT_EQ(0, x.fake->permission_responses);
+    ASSERT_EQ(1, x.fake->cancels);
     fixture_free(&x);
     PASS();
 }

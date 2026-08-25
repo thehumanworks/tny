@@ -37,6 +37,7 @@ from tny_ext import (
     PostToolFailureEvent,
     PostToolUseEvent,
     PreToolUseEvent,
+    ProviderRequestEvent,
     UserPromptSubmitEvent,
     annotate_tool,
     block_prompt,
@@ -94,10 +95,17 @@ def setup(api):
         if os.environ.get("TNY_TEST_SLOW_PRE") == "1" and event.tool_name == "write_file":
             open(os.environ["TNY_TEST_SLOW_MARKER"], "w", encoding="utf-8").write("entered")
             time.sleep(1.0)
+        if os.environ.get("TNY_TEST_STOP_PRE") == "1" and event.tool_name == "write_file":
+            return stop("stop before tool")
         if os.environ.get("TNY_TEST_DENY_TOOL") == "1" and event.tool_name == "write_file":
             return deny_tool("integration deny")
         if os.environ.get("TNY_TEST_INVALID_REWRITE") == "1" and event.tool_name == "write_file":
             return rewrite_tool({"path": "invalid.txt"})
+        if os.environ.get("TNY_TEST_REWRITE") == "1" and event.tool_id == "call_1":
+            return rewrite_tool({"path": "missing"})
+
+    @api.on(PreToolUseEvent)
+    def final_rewrite(event):
         if os.environ.get("TNY_TEST_REWRITE") == "1" and event.tool_id == "call_1":
             return rewrite_tool({"path": "."})
 
@@ -124,8 +132,15 @@ def setup(api):
     @api.on(PermissionRequestEvent)
     def decide(event):
         decision = os.environ.get("TNY_TEST_PERMISSION_DECISION")
+        if decision == "stop":
+            return stop("stop permission")
         if decision:
             return decide_permission(decision, "integration permission")
+
+    @api.on(ProviderRequestEvent)
+    def reject_invalid_observational_action(event):
+        if os.environ.get("TNY_TEST_INVALID_OBSERVE") == "1":
+            return replace_tool_result("not accepted here")
 
     @api.on(AgentEndEvent)
     def continue_once(event):
@@ -218,6 +233,7 @@ def main():
             assert tool_audit[0]["effective_result"] == "REPLACED-TOOL-RESULT", tool_audit
             assert tool_audit[0]["original_result"] != tool_audit[0]["effective_result"], tool_audit
             assert tool_audit[0]["annotations"][0]["content"] == "integration annotation", tool_audit
+            assert tool_audit[0]["annotations"][0]["display"] is True, tool_audit
 
             assert os.path.exists(event_log), (stderr, output)
             events = [json.loads(line) for line in open(event_log, encoding="utf-8")]
@@ -396,6 +412,24 @@ def main():
                 assert not os.path.exists(target)
                 assert permission_event_count() == before_permissions + 1
 
+                before_permissions = permission_event_count()
+                permission_stopped = subprocess.run(
+                    [TNY, "--permission-mode", "ask", "--cwd", workspace,
+                     "ask", "--json", "stop extension permission"],
+                    env=dict(permission_env, TNY_TEST_PERMISSION_DECISION="stop"),
+                    capture_output=True, timeout=30)
+                assert permission_stopped.returncode == 130, permission_stopped.stderr.decode()
+                assert not os.path.exists(target)
+                assert permission_event_count() == before_permissions + 1
+
+                pre_stopped = subprocess.run(
+                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
+                     "stop before native tool"],
+                    env=dict(permission_env, TNY_TEST_STOP_PRE="1"),
+                    capture_output=True, timeout=30)
+                assert pre_stopped.returncode == 130, pre_stopped.stderr.decode()
+                assert not os.path.exists(target)
+
                 tool_denied = subprocess.run(
                     [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
                      "pre-tool deny"],
@@ -411,6 +445,19 @@ def main():
                     capture_output=True, timeout=30)
                 assert invalid.returncode == 0, invalid.stderr.decode()
                 assert not os.path.exists(os.path.join(workspace, "invalid.txt"))
+                invalid_json = json.loads(invalid.stdout)
+                invalid_sessions = glob.glob(os.path.join(
+                    home, ".tny", "sessions", "*", invalid_json["session_id"],
+                    "session.json"))
+                assert len(invalid_sessions) == 1, invalid_sessions
+                invalid_doc = json.load(open(invalid_sessions[0], encoding="utf-8"))
+                invalid_audit = [entry for entry in invalid_doc.get("extension_audit", [])
+                                 if entry.get("kind") == "tool"]
+                assert len(invalid_audit) == 1, invalid_audit
+                assert invalid_audit[0]["effective_arguments"] == '{"path":"invalid.txt"}'
+                assert invalid_audit[0]["original_ok"] is False
+                assert invalid_audit[0]["effective_ok"] is False
+                assert invalid_audit[0]["annotations"][0]["display"] is False
 
                 # SIGINT arriving while Python is in a bounded pre-tool hook
                 # is consumed by the runtime probe before the write executes.
@@ -456,6 +503,19 @@ def main():
                     message.get("content") == "integration annotation"
                     for message in stopped_json["extension_messages"]
                 ), stopped_json
+                assert len(stopped_json["tool_calls"]) == 2, stopped_json
+                assert stopped_json["tool_calls"][0]["status"] == "success"
+                assert stopped_json["tool_calls"][1]["status"] == "error"
+
+                invalid_observe = subprocess.run(
+                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
+                     "invalid provider action"],
+                    env=dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
+                             TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="0",
+                             TNY_TEST_INVALID_OBSERVE="1"),
+                    capture_output=True, timeout=30)
+                assert invalid_observe.returncode == 0, invalid_observe.stderr.decode()
+                assert b"invalid_action" in invalid_observe.stderr, invalid_observe.stderr
             finally:
                 stop_mock.terminate()
                 stop_mock.wait(timeout=5)

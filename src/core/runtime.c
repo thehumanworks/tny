@@ -217,7 +217,6 @@ typedef enum {
 
 typedef struct {
     bool stop;
-    bool continued;
     bool blocked;
     bool transformed;
     bool permission_decided;
@@ -689,7 +688,6 @@ static extension_fold fold_extension_result(tny_engine *e, const char *event,
                 ? target : &e->extension_followup;
             append_custom_context(destination, a);
             queue_action_message(e, a, true);
-            if (phase == EXT_PHASE_AGENT_END) fold.continued = true;
             continue;
         }
         if (a->kind == TNY_EXTENSION_ACTION_CONTINUE) {
@@ -702,7 +700,6 @@ static extension_fold fold_extension_result(tny_engine *e, const char *event,
             if (custom) append_custom_context(&e->extension_followup, a);
             else append_user_followup(&e->extension_followup, a);
             queue_action_message(e, a, custom);
-            fold.continued = true;
             continue;
         }
         if (a->kind >= TNY_EXTENSION_ACTION_TOOL_REWRITE)
@@ -1095,7 +1092,7 @@ static void native_pre_tool(tny_engine *e, const char *json,
     if (deny) {
         response->deny = true;
         native_set_attribution(response, deny);
-    } else if (rewrite && rewrite->arguments_json) {
+    } else if (rewrite) {
         response->arguments_json = dup_cstr(rewrite->arguments_json);
         native_set_attribution(response, rewrite);
     }
@@ -1185,8 +1182,7 @@ static void native_post_tool(tny_engine *e,
     bool effective_ok = response->result_replaced
         ? !response->result_is_error : request->original_ok;
     bool audited = response->result_replaced || annotation_count > 0 ||
-        (request->control_extension && *request->control_extension) ||
-        (request->control_reason && *request->control_reason) ||
+        request->control_extension != NULL || request->control_reason != NULL ||
         strcmp(request->original_arguments_json ? request->original_arguments_json : "{}",
                request->arguments_json ? request->arguments_json : "{}") != 0;
     if (audited) {
@@ -1221,8 +1217,9 @@ static void native_openai_control(
     tny_engine *e = ud;
     if (!e || !request || !response) return;
     if (!e->extensions) {
-        if (e->cancel_probe && e->cancel_probe(e->cancel_probe_ud))
-            response->stop = true;
+        if (e->cancel_probe) {
+            if (e->cancel_probe(e->cancel_probe_ud)) response->stop = true;
+        }
         return;
     }
     if (e->native_control_active) {
@@ -1238,7 +1235,11 @@ static void native_openai_control(
         end_extension_message(e);
         event = "pre_tool_use";
         break;
-    case TNY_OPENAI_CONTROL_PERMISSION: event = "permission_request"; break;
+    case TNY_OPENAI_CONTROL_PERMISSION:
+        free(e->native_observed_permission_id);
+        e->native_observed_permission_id = dup_cstr(request->tool_id);
+        event = "permission_request";
+        break;
     case TNY_OPENAI_CONTROL_POST_TOOL:
         event = request->original_ok ? "post_tool_use" : "post_tool_failure";
         break;
@@ -1251,10 +1252,6 @@ static void native_openai_control(
     if (!event) {
         e->native_control_active = false;
         return;
-    }
-    if (request->kind == TNY_OPENAI_CONTROL_PERMISSION) {
-        free(e->native_observed_permission_id);
-        e->native_observed_permission_id = dup_cstr(request->tool_id);
     }
     char *json = native_control_json(e, request, event);
     if (!json) {
