@@ -83,6 +83,8 @@ def main() -> int:
         capabilities = result["extensions"]["capabilities"]
         assert capabilities["schema_version"] == 1
         assert capabilities["selected_provider"] == "cursor"
+        expected_python = "unavailable" if os.environ.get("TNY_TEST_EXPECT_WASM") else "available"
+        assert capabilities["extension_runtime"]["python"] == expected_python
         assert set(capabilities["providers"]) == {"openai", "cursor", "codex", "acp"}
         for provider in capabilities["providers"].values():
             assert len(provider["entries"]) == 29
