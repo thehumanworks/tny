@@ -51,6 +51,19 @@ def main() -> int:
                 "TNY_EXTENSION_HOST": str(bin_dir / "python3"),
             }
         )
+        startup = subprocess.run(
+            [str(TNY), "--provider", "openai", "status", "--json"],
+            cwd=str(ROOT),
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10,
+            check=True,
+        )
+        json.loads(startup.stdout)
+        assert not marker.exists(), "extension-free startup executed a sentinel"
+
         completed = subprocess.run(
             [str(TNY), "--provider", "cursor", "doctor", "--json"],
             cwd=str(ROOT),

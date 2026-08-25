@@ -291,6 +291,12 @@ TEST extension_capability_matrices_are_typed_and_secret_free(void) {
     ASSERT_EQ(TNY_EXT_CAP_SUPPORTED,
               tny_extension_capability_get(TNY_BK_OPENAI,
                                            TNY_EXT_CAP_PERMISSION_OBSERVE));
+    ASSERT_EQ(TNY_EXT_CAP_SUPPORTED,
+              tny_extension_capability_get(TNY_BK_OPENAI,
+                                           TNY_EXT_CAP_PROMPT_OBSERVE));
+    ASSERT_STR_EQ("implemented",
+                  tny_extension_capability_reason(
+                      TNY_BK_OPENAI, TNY_EXT_CAP_PROMPT_OBSERVE));
     ASSERT_EQ(TNY_EXT_CAP_UNAVAILABLE,
               tny_extension_capability_get(TNY_BK_CODEX,
                                            TNY_EXT_CAP_PERMISSION_ALLOW_ONCE));
@@ -300,9 +306,26 @@ TEST extension_capability_matrices_are_typed_and_secret_free(void) {
     ASSERT_STR_EQ("protocol_missing",
                   tny_extension_capability_reason(
                       TNY_BK_CURSOR, TNY_EXT_CAP_PERMISSION_ALLOW_ONCE));
+    ASSERT_STR_EQ("protocol_missing",
+                  tny_extension_capability_reason(
+                      TNY_BK_CURSOR, TNY_EXT_CAP_PERMISSION_ABSTAIN));
     ASSERT_EQ(TNY_EXT_CAP_UNSUPPORTED,
               tny_extension_capability_get(TNY_BK_ACP,
                                            TNY_EXT_CAP_TOOL_POST_REPLACE));
+    ASSERT_EQ(TNY_EXT_CAP_UNAVAILABLE,
+              tny_extension_capability_get(
+                  TNY_BK_OPENAI, (tny_extension_capability_id)-1));
+    ASSERT_EQ(TNY_EXT_CAP_UNAVAILABLE,
+              tny_extension_capability_get(
+                  TNY_BK_OPENAI,
+                  (tny_extension_capability_id)TNY_EXT_CAP_COUNT));
+    ASSERT_STR_EQ("unknown_provider_or_capability",
+                  tny_extension_capability_reason(
+                      TNY_BK_OPENAI,
+                      (tny_extension_capability_id)TNY_EXT_CAP_COUNT));
+    ASSERT_STR_EQ("unknown_provider_or_capability",
+                  tny_extension_capability_reason(
+                      TNY_BK_OPENAI, (tny_extension_capability_id)-1));
 
     static const char secret[] = "CAPABILITY_SENTINEL_SECRET";
     setenv("OPENAI_API_KEY", secret, 1);
@@ -318,12 +341,24 @@ TEST extension_capability_matrices_are_typed_and_secret_free(void) {
     ASSERT(jget_bool(runtime, "enabled", false));
     ASSERT_STR_EQ("unavailable", jget_str(runtime, "python"));
     yyjson_val *providers = jget(root, "providers");
+    ASSERT_EQ(TNY_BK_COUNT, (int)yyjson_obj_size(providers));
     yyjson_val *cursor = jget(providers, "cursor");
     ASSERT_STR_EQ("host", jget_str(cursor, "runtime"));
     yyjson_val *entries = jget(cursor, "entries");
     yyjson_val *permission = jget(entries, "extensions.permission.observe");
     ASSERT_STR_EQ("unsupported", jget_str(permission, "state"));
     ASSERT_STR_EQ("protocol_missing", jget_str(permission, "reason"));
+    yyjson_doc_free(doc);
+    free(json);
+
+    json = tny_extension_capabilities_json(TNY_BK_OPENAI, false, false);
+    ASSERT(json);
+    doc = jparse(json, strlen(json));
+    ASSERT(doc);
+    root = yyjson_doc_get_root(doc);
+    runtime = jget(root, "extension_runtime");
+    ASSERT_FALSE(jget_bool(runtime, "enabled", true));
+    ASSERT_STR_EQ("unavailable", jget_str(runtime, "python"));
     yyjson_doc_free(doc);
     free(json);
     unsetenv("OPENAI_API_KEY");
@@ -378,6 +413,7 @@ TEST extensions_negotiate_schema_and_send_selected_capabilities(void) {
     ASSERT(f.host);
     setenv("TNY_EXTENSION_HOST", f.host, 1);
     setenv("FAKE_REQUIRE_SELECTED_PROVIDER", "codex", 1);
+    setenv("FAKE_REQUIRE_RUNTIME_AVAILABLE", "1", 1);
     tny_extensions *x = tny_extensions_new(f.tny, f.workspace, 200);
     ASSERT(x);
     tny_extensions_set_provider(x, TNY_BK_CODEX);
@@ -389,6 +425,7 @@ TEST extensions_negotiate_schema_and_send_selected_capabilities(void) {
     tny_extension_result_free(&result);
     tny_extensions_free(x);
     unsetenv("FAKE_REQUIRE_SELECTED_PROVIDER");
+    unsetenv("FAKE_REQUIRE_RUNTIME_AVAILABLE");
 
     setenv("FAKE_EXTENSION_SCHEMA_MAJOR", "2", 1);
     x = tny_extensions_new(f.tny, f.workspace, 200);

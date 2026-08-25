@@ -28,6 +28,17 @@ for raw in sys.stdin:
             sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
             sys.stdout.flush()
             continue
+        if os.environ.get("FAKE_REQUIRE_RUNTIME_AVAILABLE"):
+            runtime = request.get("capabilities", {}).get("extension_runtime", {})
+            if runtime != {"enabled": True, "python": "available"}:
+                response = {
+                    "id": request_id,
+                    "ok": False,
+                    "error": "extension runtime capability mismatch",
+                }
+                sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
+                sys.stdout.flush()
+                continue
         names = [extension_name(path) for path in request.get("entries", [])]
         subscriptions = []
         if names:

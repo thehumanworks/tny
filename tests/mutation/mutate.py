@@ -86,6 +86,18 @@ TARGETS = [
     # --fast capability (TNY_CAP_FAST): new functions whole, only the
     # tier/fast lines inside the pre-existing ones.
     ("src/core/backend.c", ["tny_backend_caps"], None),
+    # extension parity contract (#54): pure provider matrices, negotiated host
+    # setup, typed unsupported diagnostics, and side-effect-free doctor JSON.
+    ("src/core/extension_caps.c",
+     ["tny_extension_capability_get", "tny_extension_capability_reason",
+      "tny_extension_capabilities_json"], None,
+     "tests/integration/test_extension_contract.py"),
+    ("src/core/extensions.c", ["initialize_host", "append_action"],
+     r"jget_int\(schema|schema_valid|selected_provider|unsupported_capability|unavailable_capability",
+     "tests/integration/test_extension_capabilities.py"),
+    ("src/cli/cmd_doctor.c", ["cmd_doctor"],
+     r"NO_SPAWN|capabilit",
+     "tests/integration/test_extension_capabilities.py"),
     ("src/core/config.c", ["tny_tier_is_fast"], None),
     ("src/cli/args.c", ["cli_parse_globals", "cli_make_ctx"],
      r"fast|tier|TNY_CAP"),

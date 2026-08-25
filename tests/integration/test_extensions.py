@@ -40,6 +40,13 @@ def record(event):
         }, separators=(",", ":")) + "\n")
 
 def setup(api):
+    selected = api.capabilities.selected
+    assert api.capabilities.schema_version == 1
+    assert api.capabilities.selected_provider == "openai"
+    assert selected is not None
+    assert selected.runtime == "native"
+    assert selected.supports("extensions.prompt.observe")
+    assert selected.state("extensions.prompt.transform") == "unavailable"
     api.on("*", record)
 
     @api.on(BeforeAgentStartEvent)
