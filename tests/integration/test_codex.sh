@@ -63,7 +63,7 @@ ok "mock app-server listening on $url"
 # --effort xhigh must land as turn/start.effort (the mock asserts the value)
 HOME="$TNY_HOME" "$TNY" --cwd "$tmp/ws" --backend codex --codex-ws "$url" \
        --ws-token-file "$tmp/token" --effort xhigh \
-       ask --json --yolo "hi" > "$tmp/run1.out" 2> "$tmp/run1.err"
+       ask --json --yolo --print-usage "hi" > "$tmp/run1.out" 2> "$tmp/run1.err"
 rc1=$?
 
 [ $rc1 -eq 0 ] && ok "run 1 exit 0" || bad "run 1 exit $rc1 (stderr below)"
@@ -96,6 +96,9 @@ if [ -n "$sid" ]; then
   grep -q 'CODEX-MOCK-OK' "$tmp/run2.out" \
     && ok "run 2 streamed CODEX-MOCK-OK" \
     || bad "run 2 output did not contain CODEX-MOCK-OK"
+  grep -q 'tokens:' "$tmp/run2.err" \
+    && bad "run 2 printed usage without --print-usage" \
+    || ok "run 2 kept usage silent by default"
 fi
 
 # --- run 3: the host answers -32001 first; the client must back off ------

@@ -113,6 +113,7 @@ static const char *ask_help =
 "  --continue-recovery  Replay the interrupted response before this turn\n"
 "  --ephemeral          Keep conversation/session artifacts in memory only\n"
 "  --no-save            Compatibility alias for --ephemeral\n"
+"  --print-usage        Report token usage on stderr (also TNY_PRINT_USAGE=1)\n"
 "  --auto               Auto-review unresolved permissions (native loop)\n"
 "  --yolo               Disable permission checks and sandbox (the default)\n"
 "  --                   Treat every following argument as prompt text\n"

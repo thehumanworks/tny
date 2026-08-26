@@ -269,6 +269,10 @@ Stdout: assistant Markdown (or one JSON object with `--json`).
 Stderr: progress, tool lines, diagnostics.
 Exit 0 finished, 1 startup/config, 2 run failed, 130 interrupted.
 
+Token/context usage is silent by default. `--print-usage` (or
+`TNY_PRINT_USAGE=1`) reports it on stderr, always on its own line after the
+answer.
+
 JSON object (keep field names stable):
 
 ```json

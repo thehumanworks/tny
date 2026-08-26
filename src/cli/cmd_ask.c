@@ -60,6 +60,7 @@ typedef struct {
     buf_t extension_messages; /* visible custom/user messages, JSON items */
     tny_engine *engine;
     tny_perm_mode perm_mode;
+    bool print_usage;
 } ask_state;
 
 static void ask_event_cb(const tny_backend_event *ev, void *ud) {
@@ -139,6 +140,15 @@ static void ask_event_cb(const tny_backend_event *ev, void *ud) {
         fprintf(stderr, "plan: %.*s\n", (int)ev->text_len, ev->text);
         break;
     case TNY_EV_USAGE:
+        if (!st->print_usage) break;
+        /* streamed stdout may lack a trailing newline; finish that line so
+         * the usage never glues onto the answer on a terminal */
+        if (!st->json && st->output.len &&
+            st->output.data[st->output.len - 1] != '\n') {
+            fputs("\n", stdout);
+            fflush(stdout);
+            buf_appends(&st->output, "\n");
+        }
         if (ev->context_size > 0)
             fprintf(stderr, "context: %lld/%lld%s\n",
                     (long long)ev->context_used, (long long)ev->context_size,
@@ -198,6 +208,8 @@ static int load_output_schema(tny_ctx *ctx, const char *value) {
 int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = g->json, use_stdin = false, ephemeral = ctx->no_save;
     bool continue_recovery = false;
+    const char *usage_env = getenv("TNY_PRINT_USAGE");
+    bool print_usage = usage_env && strcmp(usage_env, "1") == 0;
     const char *resume = g->resume;
     const char *output_schema = NULL;
     const char *images[17] = {0};
@@ -216,6 +228,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 ephemeral = true;
             else if (strcmp(a, "--no-color") == 0) ctx->no_color = true;
             else if (strcmp(a, "--continue-recovery") == 0) continue_recovery = true;
+            else if (strcmp(a, "--print-usage") == 0) print_usage = true;
             else if (strcmp(a, "--auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
             else if (strcmp(a, "--yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
             else if (strcmp(a, "--resume") == 0 && i + 1 < argc) resume = argv[++i];
@@ -359,6 +372,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     st.json = json;
     st.engine = engine;
     st.perm_mode = ctx->perm_mode;
+    st.print_usage = print_usage;
     tny_engine_set_cancel_probe(engine, ask_cancel_probe, NULL);
 
     signal(SIGINT, on_sigint);
