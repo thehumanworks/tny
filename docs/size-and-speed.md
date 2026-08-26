@@ -72,3 +72,21 @@ hyperfine --warmup 3 './build/tny --version' 'fx --version'
 ```
 
 Publish the table in the root README once numbers are real. Until then, beat **6.436 MiB macOS / 11.12 MiB static Linux** and the budgets above. Do not UPX.
+
+## SDK event-schema foundation (ABI 0.3)
+
+The public event-schema/view work is required to remain effectively free on
+CLI startup because the default executable does not call the public ABI. On the
+same macOS arm64 host, comparing parent commit `471885e` with this worktree:
+
+| Metric | parent | ABI 0.3 worktree | delta |
+| --- | ---: | ---: | ---: |
+| stripped `tny` | 579,152 B | 579,152 B | 0 B |
+| `libtny.0.dylib` | 372,016 B | 355,664 B | -16,352 B |
+| `tny --version` median, `hyperfine -N`, 100 runs | 1.833 ms | 1.837 ms | +0.004 ms |
+| `tny --version` mean | 1.852 ms | 1.855 ms | +0.003 ms |
+
+The dylib reduction is not attributed to the feature: the new ABI adds two
+exports, so the smaller link result is treated as toolchain/dead-strip layout
+variance rather than an optimisation claim. The relevant gate is that CLI size
+and startup did not regress measurably.
