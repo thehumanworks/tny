@@ -155,19 +155,19 @@ try:
     data = json.load(open(path))
 except (OSError, ValueError):
     data = {}
-data["acp"] = {"agents": {"fixture": {
-    "command": [os.environ["AGENT_PATH"]], "model": "selected-model"
-}}}
+data["acp"] = {"fixture": {
+    "command": os.environ["AGENT_PATH"], "model": "selected-model"
+}}
 with open(path, "w") as fh:
     json.dump(data, fh)
 '
-OUTP=$("$TNY" --provider acp:fixture ask --json --yolo "profile model" \
+OUTP=$("$TNY" --provider acp@fixture ask --json --yolo "profile model" \
        2>"$TMP/err-profile") || fail "named profile exited $? ($(cat "$TMP/err-profile"))"
-[ "$(printf '%s' "$OUTP" | field provider)" = "acp:fixture" ] \
+[ "$(printf '%s' "$OUTP" | field provider)" = "acp@fixture" ] \
     || fail "named profile output was $(printf '%s' "$OUTP" | field provider)"
 [ "$(state model_at_prompt)" = "selected-model" ] \
     || fail "named profile prompt ran with model $(state model_at_prompt)"
-echo "ok  settings acp.agents profile selected its configured model"
+echo "ok  settings acp profile selected its configured model"
 
 # ---- the agent dying mid-turn must end the turn, not hang ----
 set +e

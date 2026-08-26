@@ -207,6 +207,9 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     if (g->codex_ws) { free(ctx->codex_ws); ctx->codex_ws = xstrdup(g->codex_ws); }
     if (g->codex_bin) { free(ctx->codex_bin); ctx->codex_bin = xstrdup(g->codex_bin); }
     if (g->ws_token_file) { free(ctx->ws_token_file); ctx->ws_token_file = xstrdup(g->ws_token_file); }
+    /* Mark an explicit speed choice before provider resolution so a settings
+     * default cannot run first. Capability validation stays after resolve. */
+    if (g->fast) ctx->service_tier_explicit = true;
     if (g->agent_argv) {
         int n = 0;
         while (g->agent_argv[n]) n++;
@@ -273,6 +276,7 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         }
         free(ctx->service_tier);
         ctx->service_tier = xstrdup("fast");
+        ctx->service_tier_from_settings = false;
     }
     return ctx;
 }

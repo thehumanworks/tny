@@ -22,6 +22,7 @@ Do not start product code until you have read this index and the files it names.
 | Doc | Why |
 | --- | --- |
 | [cli.md](cli.md) | Command tree, flags, agent-friendly output |
+| [settings.md](settings.md) | settings.json defaults, schema, named providers and ACP agents |
 | [tui.md](tui.md) | Interactive shell, slash commands, keys |
 | [libtny.md](libtny.md) | Experimental headless C embedding ABI |
 | [extensions.md](extensions.md) | Trusted Python event hooks, actions, ordering, provider limits |

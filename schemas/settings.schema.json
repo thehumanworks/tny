@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/thehumanworks/tny/main/schemas/settings.schema.json",
+  "title": "tny settings.json",
+  "description": "User configuration for ~/.tny/settings.json. Command-line flags and environment variables override these defaults.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema URL used by editors for validation and completion."
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Default provider. Built-ins include openai, cursor, codex, acp, claude, and grok. Named ACP agents use acp@NAME."
+    },
+    "model": {
+      "$ref": "#/$defs/providerStringDefault",
+      "description": "Default model globally or by provider. Command-line --model wins."
+    },
+    "models": {
+      "type": "object",
+      "description": "Models last selected for individual providers. tny updates this map after successful use.",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "effort": {
+      "$ref": "#/$defs/providerStringDefault",
+      "description": "Reasoning effort globally or by provider. Canonical values: off, light, medium, high, xhigh, max, default; provider-advertised values are also accepted."
+    },
+    "fast": {
+      "$ref": "#/$defs/providerFastDefault",
+      "description": "Paid fast tier globally or by provider. Unsupported providers fail clearly."
+    },
+    "permission_mode": {
+      "enum": ["ask", "auto", "yolo"],
+      "description": "Default permission mode."
+    },
+    "last_provider": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Provider most recently used. tny maintains this field; provider takes precedence when explicitly configured."
+    },
+    "last_backend": {
+      "type": "string",
+      "minLength": 1,
+      "deprecated": true,
+      "description": "Legacy alias for last_provider."
+    },
+    "openai": { "$ref": "#/$defs/openAIProfile" },
+    "acp": {
+      "type": "object",
+      "description": "Named ACP agents. Select one with --provider acp@NAME.",
+      "propertyNames": { "pattern": "^[A-Za-z0-9_-]+$" },
+      "additionalProperties": { "$ref": "#/$defs/acpAgent" }
+    },
+    "extensions": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "max_iterations": { "type": "integer", "minimum": 0, "maximum": 1000000, "default": 0 },
+        "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 600000, "default": 5000 }
+      },
+      "additionalProperties": false
+    },
+    "permission": {
+      "type": "object",
+      "description": "Persistent permission rules. Tool/category keys map patterns to allow, deny, or ask.",
+      "additionalProperties": true
+    },
+    "workspaces": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/workspace" }
+    },
+    "web_search_url": {
+      "type": "string",
+      "description": "Web-search endpoint template containing {query}."
+    }
+  },
+  "patternProperties": {
+    "^(?!\\$schema$|provider$|model$|models$|effort$|fast$|permission_mode$|last_provider$|last_backend$|openai$|acp$|extensions$|permission$|workspaces$|web_search_url$)[A-Za-z0-9_-]+$": {
+      "$ref": "#/$defs/openAIProfile",
+      "description": "Named OpenAI-compatible provider profile."
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "providerStringDefault": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      ]
+    },
+    "providerFastDefault": {
+      "oneOf": [
+        { "$ref": "#/$defs/fastValue" },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/fastValue" }
+        }
+      ]
+    },
+    "fastValue": {
+      "oneOf": [
+        { "type": "boolean" },
+        { "enum": ["fast", "priority", "default", "off"] }
+      ]
+    },
+    "openAIProfile": {
+      "type": "object",
+      "properties": {
+        "base_url": { "type": "string", "minLength": 1 },
+        "api_key": { "type": "string", "minLength": 1, "description": "Stored secret. Prefer api_key_env when possible." },
+        "api_key_env": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "wire_api": { "enum": ["responses", "chat"] },
+        "auth_header_name": { "type": "string", "minLength": 1 },
+        "auth_header_prefix": { "type": "string" },
+        "max_tokens_field": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "acpAgent": {
+      "type": "object",
+      "required": ["command"],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Executable name/path, or a ws:// or wss:// URL."
+        },
+        "args": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "default": []
+        },
+        "model": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "workspace": {
+      "type": "object",
+      "properties": {
+        "permission_mode": { "enum": ["ask", "auto", "yolo"] },
+        "additional_dirs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "permission": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    }
+  }
+}

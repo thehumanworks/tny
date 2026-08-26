@@ -130,16 +130,28 @@ static yyjson_val *custom_provider_obj(tny_ctx *ctx, const char *name) {
 }
 
 /* Named ACP agents live in a namespace separate from OpenAI-compatible
- * profiles: settings.acp.agents.NAME is selected as --provider acp:NAME. */
+ * profiles. The canonical settings shape is `acp.NAME`; the earlier
+ * `acp.agents.NAME` nesting remains readable for compatibility. Selectors use
+ * `acp@NAME` (preferred) or the legacy `acp:NAME` spelling. */
+static const char *acp_provider_name(const char *provider) {
+    if (!provider) return NULL;
+    if (str_starts(provider, "acp@") || str_starts(provider, "acp:"))
+        return provider[4] ? provider + 4 : NULL;
+    return NULL;
+}
+
+static yyjson_val *acp_profiles_obj(tny_ctx *ctx) {
+    if (!ctx || !ctx->settings) return NULL;
+    yyjson_val *acp = jget(yyjson_doc_get_root(ctx->settings), "acp");
+    if (!yyjson_is_obj(acp)) return NULL;
+    yyjson_val *legacy = jget(acp, "agents");
+    return yyjson_is_obj(legacy) ? legacy : acp;
+}
+
 static yyjson_val *acp_profile_obj(tny_ctx *ctx, const char *provider) {
-    static const char prefix[] = "acp:";
-    if (!ctx || !ctx->settings || !provider ||
-        strncmp(provider, prefix, sizeof prefix - 1) != 0 ||
-        !provider[sizeof prefix - 1])
-        return NULL;
-    yyjson_val *root = yyjson_doc_get_root(ctx->settings);
-    yyjson_val *agents = jget(jget(root, "acp"), "agents");
-    yyjson_val *profile = jget(agents, provider + sizeof prefix - 1);
+    const char *name = acp_provider_name(provider);
+    if (!name) return NULL;
+    yyjson_val *profile = jget(acp_profiles_obj(ctx), name);
     return yyjson_is_obj(profile) ? profile : NULL;
 }
 
@@ -169,7 +181,7 @@ static void clear_profile_agent(tny_ctx *ctx) {
 /* Validate only when selected, then copy every argv string out of yyjson's
  * document storage. Returns -1 with a user-facing diagnostic on bad config. */
 static int apply_acp_profile(tny_ctx *ctx, const char *provider) {
-    const char *name = provider + strlen("acp:");
+    const char *name = acp_provider_name(provider);
     if (!acp_profile_name_valid(name)) {
         fprintf(stderr, "tny: invalid ACP provider '%s': names use letters, "
                         "digits, - and _\n", provider);
@@ -178,40 +190,65 @@ static int apply_acp_profile(tny_ctx *ctx, const char *provider) {
     yyjson_val *profile = acp_profile_obj(ctx, provider);
     if (!profile) {
         fprintf(stderr, "tny: ACP provider '%s' is not defined under "
-                        "settings.json acp.agents.%s\n", provider, name);
+                        "settings.json acp.%s\n", provider, name);
         return -1;
     }
-    yyjson_val *command = jget(profile, "command");
-    if (!yyjson_is_arr(command) || yyjson_arr_size(command) == 0) {
-        fprintf(stderr, "tny: settings.json acp.agents.%s.command must be a "
-                        "nonempty string array\n", name);
+    yyjson_val *command_val = jget(profile, "command");
+    yyjson_val *args = jget(profile, "args");
+    bool legacy_command = yyjson_is_arr(command_val);
+    const char *command = yyjson_is_str(command_val)
+                            ? yyjson_get_str(command_val) : NULL;
+    if ((!command || !*command) && !legacy_command) {
+        fprintf(stderr, "tny: settings.json acp.%s.command must be a "
+                        "nonempty string\n", name);
         return -1;
     }
-    size_t argc = yyjson_arr_size(command);
+    if (legacy_command && args) {
+        fprintf(stderr, "tny: settings.json acp.%s cannot combine legacy "
+                        "command array with args\n", name);
+        return -1;
+    }
+    if (args && !yyjson_is_arr(args)) {
+        fprintf(stderr, "tny: settings.json acp.%s.args must be a string "
+                        "array when present\n", name);
+        return -1;
+    }
+    yyjson_val *parts = legacy_command ? command_val : args;
+    size_t nparts = yyjson_is_arr(parts) ? yyjson_arr_size(parts) : 0;
+    size_t argc = legacy_command ? nparts : nparts + 1;
+    if (argc == 0) {
+        fprintf(stderr, "tny: settings.json acp.%s.command must not be empty\n",
+                name);
+        return -1;
+    }
     char **argv = calloc(argc + 1, sizeof *argv);
     if (!argv) return -1; /* OOM: no observable profile state changed */
-    size_t idx, max;
+    size_t out = 0, idx, max;
     yyjson_val *v;
-    yyjson_arr_foreach(command, idx, max, v) {
+    if (!legacy_command) argv[out++] = xstrdup(command);
+    if ((!legacy_command && !argv[0])) { free(argv); return -1; }
+    if (yyjson_is_arr(parts)) yyjson_arr_foreach(parts, idx, max, v) {
         const char *arg = yyjson_is_str(v) ? yyjson_get_str(v) : NULL;
         if (!arg || !*arg) {
-            fprintf(stderr, "tny: settings.json acp.agents.%s.command[%zu] "
-                            "must be a nonempty string\n", name, idx);
-            for (size_t i = 0; i < idx; i++) free(argv[i]);
+            fprintf(stderr, "tny: settings.json acp.%s.%s[%zu] must be a "
+                            "nonempty string\n", name,
+                            legacy_command ? "command" : "args", idx);
+            for (size_t i = 0; i < out; i++) free(argv[i]);
             free(argv);
             return -1;
         }
-        argv[idx] = xstrdup(arg);
-        if (!argv[idx]) {
-            for (size_t i = 0; i < idx; i++) free(argv[i]);
+        argv[out] = xstrdup(arg);
+        if (!argv[out]) {
+            for (size_t i = 0; i < out; i++) free(argv[i]);
             free(argv);
             return -1; /* OOM: allocator fault injection is out of scope */
         }
+        out++;
     }
     if ((str_starts(argv[0], "ws://") || str_starts(argv[0], "wss://")) &&
         argc != 1) {
-        fprintf(stderr, "tny: settings.json acp.agents.%s.command must contain "
-                        "only the WebSocket URL for a remote agent\n", name);
+        fprintf(stderr, "tny: settings.json acp.%s.args must be empty for a "
+                        "remote WebSocket agent\n", name);
         for (size_t i = 0; i < argc; i++) free(argv[i]);
         free(argv);
         return -1;
@@ -221,8 +258,8 @@ static int apply_acp_profile(tny_ctx *ctx, const char *provider) {
     if (model_val) {
         model = yyjson_is_str(model_val) ? yyjson_get_str(model_val) : NULL;
         if (!model || !*model) {
-            fprintf(stderr, "tny: settings.json acp.agents.%s.model must be "
-                            "a nonempty string when present\n", name);
+            fprintf(stderr, "tny: settings.json acp.%s.model must be a "
+                            "nonempty string when present\n", name);
             for (size_t i = 0; i < argc; i++) free(argv[i]);
             free(argv);
             return -1;
@@ -466,9 +503,8 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     ctx->context_enabled = true;
     ctx->sandbox_mode = xstrdup("auto");
 
-    /* settings-level. Models are per-provider ("models" object, applied in
-     * tny_resolve_backend) — a global model would leak one provider's id
-     * into another's thread/start. */
+    /* settings-level defaults. Provider/model/effort/fast are completed in
+     * tny_resolve_backend because named providers need their effective name. */
     const char *s;
     if ((s = jget_str(wso, "permission_mode")) || (s = jget_str(sroot, "permission_mode"))) {
         if (strcmp(s, "auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
@@ -614,24 +650,71 @@ const char *tny_settings_provider_model(tny_ctx *ctx, const char *provider) {
     return jget_str(jget(yyjson_doc_get_root(ctx->settings), "models"), provider);
 }
 
-/* Once the provider is known, pick its model: --model beats the saved
- * per-provider entry beats the provider object's/profile model (named ACP
- * agents and openai-compatible profiles) beats the provider default. ACP
- * profile defaults and builtin subscription defaults are installed before
- * this function, so a saved entry replaces them and absence preserves them. */
+/* A scalar applies globally. An object applies per provider. Empty/default
+ * mean "use the provider default" for fields that support an unset value. */
+static const char *provider_setting(tny_ctx *ctx, const char *key) {
+    if (!ctx->settings) return NULL;
+    yyjson_val *v = jget(yyjson_doc_get_root(ctx->settings), key);
+    if (yyjson_is_str(v)) return yyjson_get_str(v);
+    if (yyjson_is_obj(v)) return jget_str(v, tny_provider_name(ctx));
+    return NULL;
+}
+
+/* Once the provider is known, pick its model: --model beats the explicit
+ * scalar/object `model` default, then the remembered `models.NAME` entry,
+ * provider profile model, environment fallback, and provider default. */
 static void apply_provider_model(tny_ctx *ctx, int id) {
     if (ctx->model_from_flag) return;
     const char *name = tny_provider_name(ctx);
-    const char *m = tny_settings_provider_model(ctx, name);
+    const char *m = provider_setting(ctx, "model");
+    if (!m) m = tny_settings_provider_model(ctx, name);
     if (!m && id == TNY_BK_OPENAI && ctx->settings)
         m = jget_str(jget(yyjson_doc_get_root(ctx->settings), name), "model");
     if (!m && id == TNY_BK_ACP && ctx->provider_name)
         m = jget_str(acp_profile_obj(ctx, ctx->provider_name), "model");
-    if (!m || !*m) m = derived_env_value(name, "_DEFAULT_MODEL");
-    if (m && *m) {
+    if ((!m || !*m || strcmp(m, "default") == 0) && !ctx->model)
+        m = derived_env_value(name, "_DEFAULT_MODEL");
+    if (m && *m && strcmp(m, "default") != 0) {
         free(ctx->model);
         ctx->model = xstrdup(m);
+    } else if (m && strcmp(m, "default") == 0) {
+        free(ctx->model);
+        ctx->model = NULL;
     }
+}
+
+/* settings `fast`: boolean true selects the paid tier, false selects the
+ * standard tier; string fast|priority|default is also accepted. It is applied
+ * after provider resolution so unsupported providers can fail clearly. */
+static int apply_provider_fast(tny_ctx *ctx) {
+    if (ctx->service_tier_explicit) return 0;
+    if (ctx->service_tier_from_settings) {
+        free(ctx->service_tier);
+        ctx->service_tier = NULL;
+        ctx->service_tier_from_settings = false;
+    }
+    if (!ctx->settings) return 0;
+    yyjson_val *v = jget(yyjson_doc_get_root(ctx->settings), "fast");
+    if (yyjson_is_obj(v)) v = jget(v, tny_provider_name(ctx));
+    const char *tier = NULL;
+    if (yyjson_is_bool(v)) tier = yyjson_get_bool(v) ? "fast" : "default";
+    else if (yyjson_is_str(v)) tier = yyjson_get_str(v);
+    if (!tier || !*tier) return 0;
+    if (strcmp(tier, "fast") != 0 && strcmp(tier, "priority") != 0 &&
+        strcmp(tier, "default") != 0 && strcmp(tier, "off") != 0) {
+        fprintf(stderr, "tny: settings.json fast must be true, false, fast, "
+                        "priority, or default\n");
+        return -1;
+    }
+    if (!(tny_backend_caps((tny_backend_id)ctx->backend) & TNY_CAP_FAST)) {
+        fprintf(stderr, "tny: settings.json fast is not supported by provider "
+                        "'%s'\n", tny_provider_name(ctx));
+        return -1;
+    }
+    free(ctx->service_tier);
+    ctx->service_tier = xstrdup(tny_tier_is_fast(tier) ? "fast" : "default");
+    ctx->service_tier_from_settings = true;
+    return 0;
 }
 
 /* Settings-default reasoning effort (docs/adr/0015), applied once the
@@ -648,10 +731,7 @@ static void apply_provider_effort(tny_ctx *ctx) {
     ctx->reasoning_effort = NULL;
     ctx->effort_from_settings = false;
     if (!ctx->settings) return;
-    yyjson_val *e = jget(yyjson_doc_get_root(ctx->settings), "effort");
-    const char *v = NULL;
-    if (yyjson_is_str(e)) v = yyjson_get_str(e);
-    else if (yyjson_is_obj(e)) v = jget_str(e, tny_provider_name(ctx));
+    const char *v = provider_setting(ctx, "effort");
     if (v && *v && strcmp(v, "default") != 0) {
         ctx->reasoning_effort = xstrdup(v);
         ctx->effort_from_settings = true;
@@ -660,12 +740,13 @@ static void apply_provider_effort(tny_ctx *ctx) {
 
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
     int id = -1;
+    if (!flag_value) flag_value = tny_settings_get_str(ctx, "provider");
     const char *custom_name = NULL;
     const char *builtin_profile = NULL; /* claude|grok (profiles.c) */
-    const char *acp_profile = NULL;     /* full selector: acp:NAME */
+    const char *acp_profile = NULL;     /* full selector: acp@NAME */
     char *env_pick = NULL;
     if (flag_value) {
-        if (str_starts(flag_value, "acp:")) {
+        if (str_starts(flag_value, "acp@") || str_starts(flag_value, "acp:")) {
             id = TNY_BK_ACP; /* apply_acp_profile gives the precise error */
             acp_profile = flag_value;
         } else {
@@ -684,8 +765,9 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
         if (id == -1) {
             fprintf(stderr,
                     "tny: unknown provider '%s' (cursor|codex|acp|openai|"
-                    "claude|grok, a settings.json object with a base_url, or "
-                    "NAME_BASE_URL in the environment)\n", flag_value);
+                    "claude|grok|acp@NAME, a settings.json object with a "
+                    "base_url, or NAME_BASE_URL in the environment)\n",
+                    flag_value);
             return -1;
         }
     }
@@ -769,6 +851,10 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
     }
     apply_provider_model(ctx, id);
     apply_provider_effort(ctx);
+    if (apply_provider_fast(ctx) != 0) {
+        free(env_pick);
+        return -1;
+    }
     tny_finish_builtin_profile(ctx);
     tny_extensions_set_provider(ctx->extensions, (tny_backend_id)ctx->backend);
     free(env_pick);
@@ -883,8 +969,9 @@ int tny_provider_write_profile(tny_ctx *ctx, const char *name,
     }
     /* reserved top-level settings keys must never become profiles */
     static const char *const reserved[] = {
-        "workspaces", "models", "permission", "effort", "extensions",
-        "last_provider", NULL};
+        "$schema", "workspaces", "models", "model", "provider", "fast",
+        "permission", "permission_mode", "effort", "extensions", "acp",
+        "last_provider", "last_backend", "web_search_url", NULL};
     for (int i = 0; reserved[i]; i++)
         if (strcmp(name, reserved[i]) == 0) {
             snprintf(errbuf, errlen, "'%s' is a reserved settings key", name);
@@ -1092,13 +1179,14 @@ char *tny_provider_names_joined(tny_ctx *ctx) {
         if (!bu || !*bu || !tny_custom_provider_exists(ctx, name)) continue;
         buf_appendf(&b, "|%s", name);
     }
-    yyjson_val *agents = jget(jget(root, "acp"), "agents");
+    yyjson_val *agents = acp_profiles_obj(ctx);
     if (yyjson_is_obj(agents)) yyjson_obj_foreach(agents, idx, max, k, v) {
         const char *name = yyjson_get_str(k);
         /* Invalid commands are still listed: selection validates them and
          * reports the exact field. Invalid names cannot form a provider ID. */
-        if (!name || !acp_profile_name_valid(name) || !yyjson_is_obj(v)) continue;
-        buf_appendf(&b, "|acp:%s", name);
+        if (!name || strcmp(name, "agents") == 0 ||
+            !acp_profile_name_valid(name) || !yyjson_is_obj(v)) continue;
+        buf_appendf(&b, "|acp@%s", name);
     }
     int n_env = 0;
     char **env = tny_env_provider_names(&n_env);

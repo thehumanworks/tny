@@ -31,9 +31,10 @@ typedef struct tny_ctx {
 
     /* selection */
     int    backend;         /* tny_backend_id, resolved */
-    char  *provider_name;   /* effective named profile (OpenAI or acp:NAME) */
+    char  *provider_name;   /* effective named profile (OpenAI or acp@NAME) */
     char  *model;
-    bool   model_from_flag; /* --model on the command line beats saved models */
+    bool   model_from_flag; /* --model on the command line beats settings and
+                             * saved models */
     tny_perm_mode perm_mode;
     bool   json_out;
     bool   no_save;
@@ -77,6 +78,9 @@ typedef struct tny_ctx {
      * "fast"/"priority" = the paid fast tier, "default" = standard. Each
      * backend maps this to its own wire field. */
     char *service_tier;
+    bool  service_tier_explicit; /* --fast / TUI /fast was used; settings
+                                  * defaults must not replace it */
+    bool  service_tier_from_settings; /* recompute on provider switches */
 
 
     /* reasoning effort (all providers). Canonical levels are
@@ -91,7 +95,7 @@ typedef struct tny_ctx {
                                  * of leaking one provider's default */
     /* acp */
     char **agent_argv;      /* NULL-terminated, or NULL */
-    bool   agent_from_profile; /* agent_argv belongs to acp.agents.NAME */
+    bool   agent_from_profile; /* agent_argv belongs to settings acp.NAME */
 
     /* repo limits (.tny.json — never authority, only limits) */
     int    max_steps;              /* 0 = unlimited (default); a cap comes
@@ -157,15 +161,15 @@ void tny_ctx_clear_extra_headers(tny_ctx *ctx);
 void tny_ctx_add_extra_header(tny_ctx *ctx, const char *line);
 
 /* Effective provider name: a settings profile name ("openrouter" or
- * "acp:claude") when active, else the builtin backend name. Never NULL after
+ * "acp@claude") when active, else the builtin backend name. Never NULL after
  * tny_resolve_backend. */
 const char *tny_provider_name(const tny_ctx *ctx);
 /* True when `name` is a user-named OpenAI-compatible provider: a top-level
  * settings.json object with a base_url, or NAME_BASE_URL set in the
  * environment. Builtin names (openai|cursor|codex|acp) are never custom. */
 bool tny_custom_provider_exists(tny_ctx *ctx, const char *name);
-/* True when provider is an `acp:NAME` selector whose NAME is present under
- * settings.json acp.agents. The profile is validated when selected, so an
+/* True when provider is an `acp@NAME` (or legacy `acp:NAME`) selector whose
+ * NAME is present under settings.json acp. The profile is validated when selected, so an
  * unused malformed entry never breaks startup. */
 bool tny_acp_profile_exists(tny_ctx *ctx, const char *provider);
 /* malloc'd env-var name holding the profile's API key: its api_key_env,

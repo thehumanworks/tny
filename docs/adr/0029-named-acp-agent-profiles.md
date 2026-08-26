@@ -1,7 +1,7 @@
 # 0029 — Named ACP agents are namespaced providers
 
 Date: 2026-08-26
-Status: accepted
+Status: accepted; canonical shape and selector amended by ADR 0030
 
 ## Context
 

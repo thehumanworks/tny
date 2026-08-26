@@ -7,7 +7,7 @@ tny implements **both** sides:
 | Mode | Command | Role |
 | --- | --- | --- |
 | Client | `tny --backend acp --agent <exe> -- <args>` | Drive other agents |
-| Named client | `tny --provider acp:<name>` | Drive an agent from `settings.json` |
+| Named client | `tny --provider acp@<name>` | Drive an agent from `settings.json` |
 | Server | `tny acp` | Expose the **native** OpenAI-compatible loop to editors |
 
 ## Transport (stdio, or WebSocket for remote agents)
@@ -52,7 +52,7 @@ Model selection uses ACP v1 session configuration. After `session/new` or
 `session/load`, tny finds the agent-advertised select option whose category is
 `model` (falling back to the conventional id `model`) and sends
 `session/set_config_option` before the first prompt. `--model` wins over a
-saved `models["acp:<name>"]`, which wins over the named profile's `model`.
+saved `models["acp@<name>"]`, which wins over the named profile's `model`.
 When an explicit model is unavailable, session setup fails clearly instead of
 silently using the agent default. With no configured model, tny leaves the
 agent default untouched.
@@ -81,24 +81,25 @@ Config:
 ```json
 {
   "acp": {
-    "agents": {
-      "claude-code": {
-        "command": ["npx", "-y", "@agentclientprotocol/claude-agent-acp"],
-        "model": "claude-sonnet-4-6"
-      },
-      "gemini": { "command": ["gemini", "--acp"] },
-      "cursor": { "command": ["agent", "acp"] },
-      "remote": { "command": ["wss://agent.example/acp"] }
-    }
+    "claude-code": {
+      "command": "npx",
+      "args": ["-y", "@agentclientprotocol/claude-agent-acp"],
+      "model": "claude-sonnet-4-6"
+    },
+    "gemini": { "command": "gemini", "args": ["--acp"] },
+    "cursor": { "command": "agent", "args": ["acp"] },
+    "remote": { "command": "wss://agent.example/acp" }
   }
 }
 ```
 
-Select these as `--provider acp:claude-code`, `--provider acp:gemini`, and so
-on; `/provider acp:claude-code` uses the same namespace in the TUI. The prefix
+Select these as `--provider acp@claude-code`, `--provider acp@gemini`, and so
+on; `/provider acp@claude-code` uses the same namespace in the TUI. The prefix
 is deliberate: bare `claude` and `cursor` already name other tny providers.
-Defining an entry does not auto-select it, while `last_provider:"acp:<name>"`
-restores a previously used entry. `--provider acp --agent CMD -- args` remains
+Defining an entry does not auto-select it, while `last_provider:"acp@<name>"`
+restores a previously used entry. The older `acp.agents.NAME` command-array
+shape and `acp:NAME` selector remain readable for compatibility. `--provider
+acp --agent CMD -- args` remains
 the unconfigured ad-hoc form. Commands inherit the user's environment and must
 authenticate themselves; credentials do not belong in these profiles.
 

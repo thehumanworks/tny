@@ -504,9 +504,9 @@ void tui_command(tui *t, const char *line) {
             bool known = tny_backend_from_name(arg) >= 0 ||
                          tny_builtin_profile_exists(arg) ||
                          tny_custom_provider_exists(t->ctx, arg) ||
-                         str_starts(arg, "acp:");
+                         str_starts(arg, "acp@") || str_starts(arg, "acp:");
             if (!known) tui_err(t, "unknown provider (openai|cursor|codex|acp|"
-                                   "claude|grok|acp:NAME, a settings.json profile, or "
+                                   "claude|grok|acp@NAME, a settings.json profile, or "
                                    "NAME_BASE_URL) — /provider setup adds one");
             else {
                 if (t->turn_active) tui_sys(t, "finish the turn first");
@@ -560,6 +560,8 @@ void tui_command(tui *t, const char *line) {
                 tui_prewarm_drop(t); /* the warm-up thread reads the tier */
                 free(t->ctx->service_tier);
                 t->ctx->service_tier = xstrdup(next);
+                t->ctx->service_tier_explicit = true;
+                t->ctx->service_tier_from_settings = false;
                 drop_backend(t); /* the tier rides on session creation */
                 tui_linef(t, "  service tier: %s%s", next,
                           tny_tier_is_fast(next)

@@ -104,18 +104,18 @@ SETTINGS="$TMP/home/.tny/settings.json" "$PY" -c '
 import json, os
 path = os.environ["SETTINGS"]
 data = json.load(open(path))
-data["acp"] = {"agents": {"fixture": {"command": ["python3", "-V"],
-                                         "model": "selected-model"}}}
+data["acp"] = {"fixture": {"command": "python3", "args": ["-V"],
+                            "model": "selected-model"}}
 with open(path, "w") as fh:
     json.dump(data, fh)
 '
 OUT=$(HOME="$TMP/home" "$TNY" provider --json 2>&1) || fail "provider listing failed"
 contains "$OUT" "opencode"
-contains "$OUT" '"name":"acp:fixture"'
+contains "$OUT" '"name":"acp@fixture"'
 contains "$OUT" '"backend":"acp"'
 OUT=$(HOME="$TMP/home" "$TNY" provider list --json 2>&1) || fail "provider list failed"
 contains "$OUT" "opencode"
-contains "$OUT" '"name":"acp:fixture"'
+contains "$OUT" '"name":"acp@fixture"'
 HOME="$TMP/home" "$TNY" provider frobnicate > /dev/null 2> "$TMP/err7" \
     && fail "unknown subcommand accepted"
 contains "$(cat "$TMP/err7")" "unknown subcommand"

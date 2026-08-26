@@ -35,3 +35,4 @@ these as `docs/adr/NNNN`.
 | [0027](0027-python-event-hooks.md) | Trusted global Python extensions consume versioned normalized events through one optional persistent host; `agent_end` may continue with visible context, `agent_settled` is final |
 | [0028](0028-extension-parity-contract.md) | Extension parity is capability-scoped; one versioned vocabulary, immutable provider matrix, deterministic folding, and explicit unsupported states govern all lanes |
 | [0029](0029-named-acp-agent-profiles.md) | Reusable ACP commands resolve as `acp:NAME`; requested models are applied through advertised session config options before the first prompt |
+| [0030](0030-settings-schema-and-acp-map.md) | Publish a settings JSON Schema; provider/model/effort/fast become user defaults; canonical ACP profiles use `acp.NAME` and `acp@NAME` with legacy compatibility |

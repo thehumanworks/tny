@@ -276,8 +276,8 @@ def test_slash_palette(home, ws):
     os.makedirs(os.path.join(home, ".tny"), exist_ok=True)
     with open(os.path.join(home, ".tny", "settings.json"), "w") as f:
         f.write('{"openrouter":{"base_url":"https://openrouter.test/v1"},'
-                '"acp":{"agents":{"claude-code":'
-                '{"command":["claude-agent-acp"]}}}}')
+                '"acp":{"claude-code":'
+                '{"command":"claude-agent-acp"}}}')
     t = Term([TNY], base_env(home, {"ORWELL_BASE_URL": "https://orwell.test/v1"}), ws)
     try:
         t.expect(BANNER)
@@ -286,7 +286,7 @@ def test_slash_palette(home, ws):
         t.send("prov")
         # The hint is clipped to the terminal width; prove the settings ACP
         # profile is included before the env-only tail that may be off-screen.
-        t.expect("openai|cursor|codex|acp|claude|grok|openrouter|acp:claude-code|", 5.0)
+        t.expect("openai|cursor|codex|acp|claude|grok|openrouter|acp@claude-code|", 5.0)
         t.send("\x7f" * 4)                 # back to a bare "/"
         t.send("help\r")
         t.expect("ctrl-o transcript", 5.0)
@@ -558,13 +558,14 @@ def test_prewarm_spawns_acp_agent(home, ws):
     os.makedirs(os.path.dirname(settings), exist_ok=True)
     previous = open(settings, "rb").read() if os.path.exists(settings) else None
     with open(settings, "w") as f:
-        json.dump({"acp": {"agents": {"tui-fixture": {
+        json.dump({"acp": {"tui-fixture": {
             # Resolve the real interpreter: the pty env overrides HOME, which
             # breaks version-manager shims used by /usr/bin/env python3.
-            "command": [sys.executable, agent], "model": "selected-model"
-        }}}}, f)
+            "command": sys.executable, "args": [agent],
+            "model": "selected-model"
+        }}}, f)
     state = os.path.join(home, "acp-prewarm-state.json")
-    t = Term([TNY, "--provider", "acp:tui-fixture"],
+    t = Term([TNY, "--provider", "acp@tui-fixture"],
              base_env(home, {"FAKE_ACP_STATE": state}), ws)
     try:
         t.expect(BANNER)

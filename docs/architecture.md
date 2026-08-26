@@ -64,7 +64,7 @@ not a separate provider lifecycle.
 
 | Path | Contents |
 | --- | --- |
-| `~/.tny/settings.json` | Model, permission mode, named provider/ACP-agent profiles, UI, per-workspace overrides |
+| `~/.tny/settings.json` | Provider/model/effort/fast defaults, permission mode, named provider/ACP-agent profiles, UI, per-workspace overrides ([schema](../schemas/settings.schema.json)) |
 | `~/.tny/mcp.json` | Trusted MCP servers only (never repo-local MCP) |
 | `~/.tny/sessions/` | Transcripts and recovery checkpoints |
 | `~/.tny/skills/` | Managed skill installs |

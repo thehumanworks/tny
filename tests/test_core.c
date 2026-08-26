@@ -800,9 +800,47 @@ TEST custom_named_provider_profiles(void) {
     PASS();
 }
 
-/* settings.acp.agents profiles are addressed in the acp:NAME namespace.
- * Their argv is process-owned (not a yyjson pointer), their model is scoped
+/* Named ACP profiles are addressed in the acp@NAME namespace (with the
+ * earlier acp.agents/acp: shape kept compatible). Their argv is process-owned
+ * (not a yyjson pointer), their model is scoped
  * to the effective provider ID, and switching away drops profile argv. */
+TEST settings_general_defaults(void) {
+    ensure_env();
+    codex_auth_write(false);
+    unsetenv("TNY_REASONING_EFFORT");
+    write_settings(
+        "{\"provider\":\"codex\",\"model\":{\"codex\":\"cfg-model\"},"
+        "\"models\":{\"codex\":\"remembered-model\"},"
+        "\"effort\":\"high\",\"fast\":{\"codex\":true}}"
+    );
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
+    ASSERT_STR_EQ("cfg-model", ctx->model);
+    ASSERT_STR_EQ("high", ctx->reasoning_effort);
+    ASSERT_STR_EQ("fast", ctx->service_tier);
+    /* A per-provider fast default must not leak through a TUI provider switch. */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_EQ(NULL, ctx->service_tier);
+    tny_ctx_free(ctx);
+
+    /* Leading flags beat every corresponding settings default. */
+    cli_globals g = {0};
+    g.cwd = g_ws;
+    g.backend = "openai";
+    g.model = "flag-model";
+    g.effort = "light";
+    ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    ASSERT_EQ(TNY_BK_OPENAI, ctx->backend);
+    ASSERT_STR_EQ("flag-model", ctx->model);
+    ASSERT_STR_EQ("light", ctx->reasoning_effort);
+    ASSERT_EQ(NULL, ctx->service_tier); /* codex-only fast object entry */
+    tny_ctx_free(ctx);
+    write_settings("{}");
+    PASS();
+}
+
 TEST acp_named_provider_profiles(void) {
     ensure_env();
     codex_auth_write(false);
@@ -854,6 +892,26 @@ TEST acp_named_provider_profiles(void) {
     ASSERT_STR_EQ("acp:claude", tny_provider_name(ctx));
     ASSERT_STR_EQ("claude-agent-acp", ctx->agent_argv[0]);
     tny_ctx_free(ctx);
+    /* Preferred shape + selector: command string and separate args array. */
+    write_settings(
+        "{\"acp\":{\"claude\":{\"command\":\"npx\","
+        "\"args\":[\"-y\",\"@agentclientprotocol/claude-agent-acp\"]},"
+        "\"pi\":{\"command\":\"pi-acp\"}}}"
+    );
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp@claude"));
+    ASSERT_STR_EQ("acp@claude", tny_provider_name(ctx));
+    ASSERT_STR_EQ("npx", ctx->agent_argv[0]);
+    ASSERT_STR_EQ("-y", ctx->agent_argv[1]);
+    ASSERT_STR_EQ("@agentclientprotocol/claude-agent-acp", ctx->agent_argv[2]);
+    ASSERT_EQ(NULL, ctx->agent_argv[3]);
+    tny_ctx_free(ctx);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp@pi"));
+    ASSERT_STR_EQ("pi-acp", ctx->agent_argv[0]);
+    ASSERT_EQ(NULL, ctx->agent_argv[1]);
+    tny_ctx_free(ctx);
+
     write_settings("{}");
     PASS();
 }
@@ -903,7 +961,7 @@ TEST acp_profiles_validate_when_selected(void) {
     write_settings(
         "{\"acp\":{\"agents\":{"
         "\"bad name\":{\"command\":[\"x\"]},"
-        "\"missing\":{},\"not_array\":{\"command\":\"x\"},"
+        "\"missing\":{},\"not_array\":{\"command\":7},"
         "\"empty\":{\"command\":[]},"
         "\"non_string\":{\"command\":[\"x\",7]},"
         "\"empty_arg\":{\"command\":[\"x\",\"\"]},"
@@ -969,7 +1027,7 @@ TEST acp_profiles_list_without_auto_select(void) {
     ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
     ASSERT_STR_EQ("openai", tny_provider_name(ctx));
     char *names = tny_provider_names_joined(ctx);
-    ASSERT(strstr(names, "|acp:claude") != NULL);
+    ASSERT(strstr(names, "|acp@claude") != NULL);
     ASSERT(strstr(names, "acp:bad name") == NULL);
     ASSERT(strstr(names, "|acp:|") == NULL);
     free(names);
@@ -2647,6 +2705,7 @@ SUITE(core_suite) {
     RUN_TEST(backend_default_cursor_key_from_env);
     RUN_TEST(provider_last_used_and_scoped_models);
     RUN_TEST(custom_named_provider_profiles);
+    RUN_TEST(settings_general_defaults);
     RUN_TEST(acp_named_provider_profiles);
     RUN_TEST(acp_profile_model_precedence);
     RUN_TEST(acp_profiles_validate_when_selected);

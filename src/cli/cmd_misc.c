@@ -358,16 +358,20 @@ static bool executable_on_path(const char *bin) {
     return found;
 }
 
-/* One provider-list row for settings.acp.agents.NAME. Never render argv:
- * command arguments may contain local paths or user mistakes that should not
- * become diagnostic output. */
+/* One provider-list row for settings.acp.NAME (legacy acp.agents supported).
+ * Never render argv: command arguments may contain local paths or user
+ * mistakes that should not become diagnostic output. */
 static void acp_provider_row(tny_ctx *ctx, buf_t *b, bool json,
                              const char *name, yyjson_val *profile) {
     if (!acp_name_valid(name) || !yyjson_is_obj(profile)) return;
     yyjson_val *command = jget(profile, "command");
-    bool valid = yyjson_is_arr(command) && yyjson_arr_size(command) > 0;
-    const char *exe = NULL;
-    if (valid) {
+    yyjson_val *args = jget(profile, "args");
+    bool legacy = yyjson_is_arr(command);
+    bool valid = legacy ? yyjson_arr_size(command) > 0
+                        : yyjson_is_str(command) && *yyjson_get_str(command);
+    const char *exe = legacy ? NULL : yyjson_get_str(command);
+    if (valid && args && (!yyjson_is_arr(args) || legacy)) valid = false;
+    if (valid && legacy) {
         size_t idx, max;
         yyjson_val *v;
         yyjson_arr_foreach(command, idx, max, v) {
@@ -375,9 +379,18 @@ static void acp_provider_row(tny_ctx *ctx, buf_t *b, bool json,
             if (!arg || !*arg) { valid = false; break; }
             if (idx == 0) exe = arg;
         }
+    } else if (valid && yyjson_is_arr(args)) {
+        size_t idx, max;
+        yyjson_val *v;
+        yyjson_arr_foreach(args, idx, max, v) {
+            const char *arg = yyjson_is_str(v) ? yyjson_get_str(v) : NULL;
+            if (!arg || !*arg) { valid = false; break; }
+        }
     }
     bool remote = exe && (str_starts(exe, "ws://") || str_starts(exe, "wss://"));
-    if (remote && yyjson_arr_size(command) != 1) valid = false;
+    size_t nargs = yyjson_is_arr(args) ? yyjson_arr_size(args) : 0;
+    if (remote && ((legacy && yyjson_arr_size(command) != 1) || nargs != 0))
+        valid = false;
     yyjson_val *model = jget(profile, "model");
     if (model && (!yyjson_is_str(model) || !*yyjson_get_str(model))) valid = false;
     bool healthy = valid && (remote || executable_on_path(exe));
@@ -387,7 +400,7 @@ static void acp_provider_row(tny_ctx *ctx, buf_t *b, bool json,
                                       : "configured ACP agent; command not found on PATH";
     buf_t full;
     buf_init(&full);
-    buf_appendf(&full, "acp:%s", name);
+    buf_appendf(&full, "acp@%s", name);
     bool active = ctx->provider_name && strcmp(ctx->provider_name, full.data) == 0;
     if (json) {
         buf_appends(b, ",{\"name\":");
@@ -485,9 +498,13 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             if (!bu || !*bu || !tny_custom_provider_exists(ctx, name)) continue;
             custom_provider_row(ctx, &b, json, name, bu, "settings");
         }
-        yyjson_val *agents = jget(jget(root, "acp"), "agents");
+        yyjson_val *acp = jget(root, "acp");
+        yyjson_val *agents = jget(acp, "agents");
+        if (!yyjson_is_obj(agents)) agents = acp;
         if (yyjson_is_obj(agents)) yyjson_obj_foreach(agents, idx, max, k, v) {
-            acp_provider_row(ctx, &b, json, yyjson_get_str(k), v);
+            const char *name = yyjson_get_str(k);
+            if (name && strcmp(name, "agents") != 0)
+                acp_provider_row(ctx, &b, json, name, v);
         }
     }
     int n_env = 0;
