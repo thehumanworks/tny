@@ -52,7 +52,6 @@ tny resume [last|&lt;id&gt;]      # interactive resume
 tny acp                     # ACP server (native loop only)
 tny sessions
 tny session last|&lt;id&gt;
-tny session stop &lt;id&gt;       # stop a background task ([--kill])
 tny providers
 tny models
 tny permissions
@@ -84,8 +83,6 @@ tny -c                      # resume last for this workspace</code></pre>
     <tr><td>openai</td><td><code>--base-url</code>, <code>--api-key-env</code>, <code>OPENAI_BASE_URL</code>, <code>OPENAI_API_KEY</code></td></tr>
   </tbody>
 </table>
-<h2 id="background">Background one-shots</h2>
-<p><code>tny ask -B</code> detaches the turn: the parent prints the session id in milliseconds, a forked child runs the turn and stores the result in the session. <code>tny session stop &lt;id&gt;</code> cancels it (<code>--kill</code> as last resort); <code>tny ask --resume &lt;id&gt; --steer</code> interrupts a running turn and redirects it — bare <code>--resume</code> refuses while a turn runs. Details on <a href="ask.html#background">tny ask</a> and <a href="sessions.html#status">Sessions</a>.</p>
 <h2 id="json-cmds">JSON where it matters</h2>
 <p><code>--json</code> is accepted on <code>ask</code>, <code>status</code>, <code>doctor</code>, <code>permissions</code>, <code>models</code>, <code>session</code>, <code>sessions</code>, <code>workspace</code>, and <code>usage</code>.</p>
 <h2 id="examples">Examples</h2>
@@ -94,11 +91,8 @@ tny -c                      # resume last for this workspace</code></pre>
 <div class="cmd"><div class="left"><span class="prompt">$</span><code>tny ask --json --provider openai &quot;list exported symbols&quot;</code></div><button type="button" data-copy="tny ask --json --provider openai &quot;list exported symbols&quot;" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
 <div class="cmd"><div class="left"><span class="prompt">$</span><code>tny --provider cursor ask --model composer-2 &quot;fix the leak&quot;</code></div><button type="button" data-copy="tny --provider cursor ask --model composer-2 &quot;fix the leak&quot;" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
 <div class="cmd"><div class="left"><span class="prompt">$</span><code>tny --provider acp --agent gemini -- --acp</code></div><button type="button" data-copy="tny --provider acp --agent gemini -- --acp" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
-<div class="cmd"><div class="left"><span class="prompt">$</span><code>id=$(tny ask -B &quot;audit the Makefile&quot;)</code></div><button type="button" data-copy="id=$(tny ask -B &quot;audit the Makefile&quot;)" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
-<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny session $id --json | jq .result</code></div><button type="button" data-copy="tny session $id --json | jq .result" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
-<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny ask --resume $id --steer &quot;drop that — check the tests instead&quot;</code></div><button type="button" data-copy="tny ask --resume $id --steer &quot;drop that — check the tests instead&quot;" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
 </article>
-    <aside class="toc"><p>on this page</p><a href="#tree">Command tree</a><a href="#globals">Global flags</a><a href="#help">Help</a><a href="#provider-flags">Provider flags</a><a href="#background">Background</a><a href="#json-cmds">JSON</a><a href="#examples">Examples</a></aside>
+    <aside class="toc"><p>on this page</p><a href="#tree">Command tree</a><a href="#globals">Global flags</a><a href="#help">Help</a><a href="#provider-flags">Provider flags</a><a href="#json-cmds">JSON</a><a href="#examples">Examples</a></aside>
   </main>
 </div>
 <script src="../assets/site.js"></script>
