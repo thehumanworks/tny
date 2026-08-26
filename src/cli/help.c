@@ -36,8 +36,8 @@ void help_root(void) {
 "  --ssh TARGET           Run every workspace tool (files, grep, terminal)\n"
 "                         on user@host[:port] over OpenSSH; tny stays local\n"
 "  --ssh-cwd DIR          Remote working directory for --ssh (default: login dir)\n"
-"  --provider NAME        cursor | codex | acp | openai | claude | grok | a\n"
-"                         named settings.json profile with a base_url\n"
+"  --provider NAME        cursor | codex | acp | openai | claude | grok, a\n"
+"                         named API profile, or settings ACP agent acp:NAME\n"
 "                         (--backend also works)\n"
 "  --cwd DIR              Primary workspace (default: current directory)\n"
 "  --model ID             Model for this run\n"
@@ -67,7 +67,8 @@ void help_root(void) {
 "Provider flags:\n"
 "  cursor: --bridge-bin PATH        (env CURSOR_SDK_BRIDGE_BIN, CURSOR_API_KEY)\n"
 "  codex:  --codex-ws URL --codex-bin PATH --ws-token-file PATH\n"
-"  acp:    --agent CMD -- args...   e.g. tny --provider acp --agent gemini -- --acp\n"
+"  acp:    --agent CMD -- args... for ad-hoc agents; acp:NAME selects an\n"
+"          acp.agents.NAME command from ~/.tny/settings.json\n"
 "  openai: --base-url URL --api-key-env NAME (env OPENAI_BASE_URL, OPENAI_API_KEY)\n"
 "          --wire-api responses|chat  Wire protocol (default responses;\n"
 "                         chat for legacy-only providers, docs/adr/0016)\n"
@@ -92,7 +93,8 @@ void help_root(void) {
 "  tny --provider codex ask \"run the tests\"\n"
 "  tny --effort xhigh ask \"prove this lock-free queue is correct\"\n"
 "  tny --provider codex --fast ask \"quick: run the tests\"\n"
-"  tny --provider acp --agent gemini -- --acp\n",
+"  tny --provider acp --agent gemini -- --acp\n"
+"  tny --provider acp:claude-code --model claude-sonnet-4-6\n",
     stdout);
 }
 

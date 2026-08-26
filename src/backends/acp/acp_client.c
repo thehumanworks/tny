@@ -20,6 +20,101 @@ static void fail_turn(ac_impl *o, const char *msg) {
     ac_emit_end(o, TNY_STOP_ERROR);
 }
 
+/* schema-v1.20.0 permits either a flat SessionConfigSelectOption[] or a
+ * SessionConfigSelectGroup[] whose entries carry their own options array. */
+static bool ac_config_has_value(yyjson_val *options, const char *wanted) {
+    if (!options || !yyjson_is_arr(options)) return false;
+    size_t idx, max;
+    yyjson_val *entry;
+    yyjson_arr_foreach(options, idx, max, entry) {
+        const char *value = jget_str(entry, "value");
+        if (value && strcmp(value, wanted) == 0) return true;
+        yyjson_val *group = jget(entry, "options");
+        if (group && ac_config_has_value(group, wanted)) return true;
+    }
+    return false;
+}
+
+static yyjson_val *ac_find_model_config(yyjson_val *configs) {
+    if (!configs || !yyjson_is_arr(configs)) return NULL;
+    size_t idx, max;
+    yyjson_val *config;
+
+    /* The semantic category is authoritative when present. */
+    yyjson_arr_foreach(configs, idx, max, config) {
+        const char *type = jget_str(config, "type");
+        const char *category = jget_str(config, "category");
+        if (type && category && strcmp(type, "select") == 0 &&
+            strcmp(category, "model") == 0)
+            return config;
+    }
+    /* Older agents commonly omit category and use the conventional id. */
+    yyjson_arr_foreach(configs, idx, max, config) {
+        const char *type = jget_str(config, "type");
+        const char *id = jget_str(config, "id");
+        if (type && id && strcmp(type, "select") == 0 &&
+            strcmp(id, "model") == 0)
+            return config;
+    }
+    return NULL;
+}
+
+static int ac_set_requested_model(ac_impl *o, yyjson_val *session_result,
+                                  const char *session_id, char *e, size_t el) {
+    const char *wanted = o->ctx->model;
+    if (!wanted || !*wanted) return 0;
+
+    yyjson_val *config = ac_find_model_config(jget(session_result, "configOptions"));
+    if (!config) {
+        snprintf(e, el, "acp: agent did not advertise a selectable model option");
+        return -1;
+    }
+    const char *config_id = jget_str(config, "id");
+    if (!config_id || !ac_config_has_value(jget(config, "options"), wanted)) {
+        snprintf(e, el, "acp: requested model '%.*s' is not advertised by the agent",
+                 120, wanted);
+        return -1;
+    }
+
+    buf_t p;
+    buf_init(&p);
+    buf_appends(&p, "{\"sessionId\":");
+    jescape(&p, session_id);
+    buf_appends(&p, ",\"configId\":");
+    jescape(&p, config_id);
+    buf_appends(&p, ",\"value\":");
+    jescape(&p, wanted);
+    buf_appends(&p, "}");
+    yyjson_doc *doc = ac_rpc(o, "session/set_config_option", p.data, e, el);
+    buf_free(&p);
+    if (!doc) return -1;
+
+    yyjson_val *result = jget(yyjson_doc_get_root(doc), "result");
+    yyjson_val *confirmed = NULL;
+    yyjson_val *configs = jget(result, "configOptions");
+    if (configs && yyjson_is_arr(configs)) {
+        size_t idx, max;
+        yyjson_val *candidate;
+        yyjson_arr_foreach(configs, idx, max, candidate) {
+            const char *id = jget_str(candidate, "id");
+            if (id && strcmp(id, config_id) == 0) {
+                confirmed = candidate;
+                break;
+            }
+        }
+    }
+    const char *current = confirmed ? jget_str(confirmed, "currentValue") : NULL;
+    if (!current || strcmp(current, wanted) != 0) {
+        snprintf(e, el,
+                 "acp: agent did not confirm requested model '%.*s' after configuration",
+                 120, wanted);
+        yyjson_doc_free(doc);
+        return -1;
+    }
+    yyjson_doc_free(doc);
+    return 0;
+}
+
 /* ---------- vtable ---------- */
 
 static void ac_disconnect(tny_backend *b) {
@@ -102,6 +197,12 @@ static int ac_create_or_resume(tny_backend *b, const char *ptr, char *e, size_t 
         buf_appends(&p, ",\"mcpServers\":[]}");
         doc = ac_rpc(o, "session/load", p.data, e, el);
         if (doc) {
+            yyjson_val *result = jget(yyjson_doc_get_root(doc), "result");
+            if (ac_set_requested_model(o, result, ptr, e, el) != 0) {
+                yyjson_doc_free(doc);
+                buf_free(&p);
+                return -1;
+            }
             yyjson_doc_free(doc);
             free(o->session_id);
             o->session_id = xstrdup(ptr);
@@ -127,6 +228,11 @@ static int ac_create_or_resume(tny_backend *b, const char *ptr, char *e, size_t 
     const char *sid = jget_str(jget(yyjson_doc_get_root(doc), "result"), "sessionId");
     if (!sid) {
         snprintf(e, el, "acp: session/new returned no sessionId");
+        yyjson_doc_free(doc);
+        return -1;
+    }
+    yyjson_val *result = jget(yyjson_doc_get_root(doc), "result");
+    if (ac_set_requested_model(o, result, sid, e, el) != 0) {
         yyjson_doc_free(doc);
         return -1;
     }

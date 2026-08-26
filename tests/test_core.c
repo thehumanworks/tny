@@ -800,6 +800,184 @@ TEST custom_named_provider_profiles(void) {
     PASS();
 }
 
+/* settings.acp.agents profiles are addressed in the acp:NAME namespace.
+ * Their argv is process-owned (not a yyjson pointer), their model is scoped
+ * to the effective provider ID, and switching away drops profile argv. */
+TEST acp_named_provider_profiles(void) {
+    ensure_env();
+    codex_auth_write(false);
+    unsetenv("CURSOR_API_KEY");
+    unsetenv("OPENAI_API_KEY");
+    write_settings(
+        "{\"acp\":{\"agents\":{"
+        "\"claude\":{\"command\":[\"npx\",\"-y\",\"claude-agent-acp\"],"
+        "\"model\":\"profile-model\"},"
+        "\"gemini\":{\"command\":[\"gemini\",\"--acp\"]}}},"
+        "\"models\":{\"acp:claude\":\"saved-model\"}}"
+    );
+
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(tny_acp_profile_exists(ctx, "acp:claude"));
+    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:claude"));
+    ASSERT_STR_EQ("acp:claude", tny_provider_name(ctx));
+    ASSERT(ctx->agent_from_profile);
+    ASSERT_STR_EQ("npx", ctx->agent_argv[0]);
+    ASSERT_STR_EQ("-y", ctx->agent_argv[1]);
+    ASSERT_STR_EQ("claude-agent-acp", ctx->agent_argv[2]);
+    ASSERT_EQ(NULL, ctx->agent_argv[3]);
+    ASSERT_STR_EQ("saved-model", ctx->model); /* saved beats profile */
+
+    /* Rewriting settings frees and reparses its yyjson doc. The copied argv
+     * remains valid, proving no document-storage pointer escaped. */
+    ASSERT_EQ(0, tny_settings_set_str(ctx, "marker", "reparsed"));
+    ASSERT_STR_EQ("claude-agent-acp", ctx->agent_argv[2]);
+
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_EQ(NULL, ctx->agent_argv); /* profile argv does not leak */
+    ASSERT_FALSE(ctx->agent_from_profile);
+    ASSERT_EQ(NULL, ctx->model);      /* ACP model does not leak either */
+
+    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:gemini"));
+    ASSERT_STR_EQ("gemini", ctx->agent_argv[0]);
+    ASSERT_STR_EQ("--acp", ctx->agent_argv[1]);
+    ASSERT_EQ(NULL, ctx->model);      /* no saved/profile model -> agent default */
+    tny_ctx_free(ctx);
+
+    /* A previously used namespaced profile is restored like every other
+     * effective provider; defining the profile alone is not auto-selection. */
+    write_settings(
+        "{\"last_provider\":\"acp:claude\",\"acp\":{\"agents\":{"
+        "\"claude\":{\"command\":[\"claude-agent-acp\"]}}}}"
+    );
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("acp:claude", tny_provider_name(ctx));
+    ASSERT_STR_EQ("claude-agent-acp", ctx->agent_argv[0]);
+    tny_ctx_free(ctx);
+    write_settings("{}");
+    PASS();
+}
+
+TEST acp_profile_model_precedence(void) {
+    ensure_env();
+    setenv("ACP_A_DEFAULT_MODEL", "env-default", 1);
+    write_settings(
+        "{\"acp\":{\"agents\":{\"a\":{\"command\":[\"agent-a\"],"
+        "\"model\":\"profile\"}}},\"models\":{\"acp:a\":\"saved\"}}"
+    );
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:a"));
+    ASSERT_STR_EQ("saved", ctx->model);
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws);
+    ctx->model = xstrdup("flag");
+    ctx->model_from_flag = true;
+    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:a"));
+    ASSERT_STR_EQ("flag", ctx->model);
+    tny_ctx_free(ctx);
+
+    write_settings(
+        "{\"acp\":{\"agents\":{\"a\":{\"command\":[\"agent-a\"],"
+        "\"model\":\"profile\"}}}}"
+    );
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:a"));
+    ASSERT_STR_EQ("profile", ctx->model);
+    tny_ctx_free(ctx);
+
+    write_settings(
+        "{\"acp\":{\"agents\":{\"a\":{\"command\":[\"agent-a\"]}}}}"
+    );
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:a"));
+    ASSERT_STR_EQ("env-default", ctx->model);
+    tny_ctx_free(ctx);
+    unsetenv("ACP_A_DEFAULT_MODEL");
+    write_settings("{}");
+    PASS();
+}
+
+TEST acp_profiles_validate_when_selected(void) {
+    ensure_env();
+    write_settings(
+        "{\"acp\":{\"agents\":{"
+        "\"bad name\":{\"command\":[\"x\"]},"
+        "\"missing\":{},\"not_array\":{\"command\":\"x\"},"
+        "\"empty\":{\"command\":[]},"
+        "\"non_string\":{\"command\":[\"x\",7]},"
+        "\"empty_arg\":{\"command\":[\"x\",\"\"]},"
+        "\"remote_args\":{\"command\":[\"wss://agent.test/acp\",\"extra\"]},"
+        "\"bad_model\":{\"command\":[\"x\"],\"model\":7}}}}"
+    );
+    const char *bad[] = {
+        "acp:", "acp:unknown", "acp:bad name", "acp:missing",
+        "acp:not_array", "acp:empty", "acp:non_string",
+        "acp:empty_arg", "acp:remote_args", "acp:bad_model"
+    };
+    for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) {
+        tny_ctx *ctx = tny_ctx_load(g_ws);
+        ASSERT_EQ(-1, tny_resolve_backend(ctx, bad[i]));
+        tny_ctx_free(ctx);
+    }
+
+    /* Pin every inclusive boundary in the profile-name alphabet. */
+    write_settings(
+        "{\"acp\":{\"agents\":{"
+        "\"a\":{\"command\":[\"x\"]},\"z\":{\"command\":[\"x\"]},"
+        "\"A\":{\"command\":[\"x\"]},\"Z\":{\"command\":[\"x\"]},"
+        "\"0\":{\"command\":[\"x\"]},\"9\":{\"command\":[\"x\"]},"
+        "\"-\":{\"command\":[\"x\"]},\"_\":{\"command\":[\"x\"]}}}}"
+    );
+    const char *edges[] = {"a", "z", "A", "Z", "0", "9", "-", "_"};
+    for (size_t i = 0; i < sizeof edges / sizeof *edges; i++) {
+        char provider[8];
+        snprintf(provider, sizeof provider, "acp:%s", edges[i]);
+        tny_ctx *edge_ctx = tny_ctx_load(g_ws);
+        ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(edge_ctx, provider));
+        tny_ctx_free(edge_ctx);
+    }
+
+    /* Explicit --agent is the ad-hoc `acp` form, never an override for a
+     * named profile. Resolver rejects the ambiguous combination. */
+    write_settings(
+        "{\"acp\":{\"agents\":{\"named\":{\"command\":[\"profile\"]}}}}"
+    );
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->agent_argv = calloc(2, sizeof *ctx->agent_argv);
+    ctx->agent_argv[0] = xstrdup("explicit");
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, "acp:named"));
+    ASSERT_STR_EQ("explicit", ctx->agent_argv[0]);
+    ASSERT_FALSE(ctx->agent_from_profile);
+    tny_ctx_free(ctx);
+    write_settings("{}");
+    PASS();
+}
+
+TEST acp_profiles_list_without_auto_select(void) {
+    ensure_env();
+    codex_auth_write(false);
+    unsetenv("CURSOR_API_KEY");
+    unsetenv("OPENAI_API_KEY");
+    unsetenv("OPENAI_BASE_URL");
+    write_settings(
+        "{\"acp\":{\"agents\":{\"\":{\"command\":[\"empty\"]},"
+        "\"claude\":{\"command\":[\"claude\"]},"
+        "\"bad name\":{\"command\":[\"bad\"]}}}}"
+    );
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
+    char *names = tny_provider_names_joined(ctx);
+    ASSERT(strstr(names, "|acp:claude") != NULL);
+    ASSERT(strstr(names, "acp:bad name") == NULL);
+    ASSERT(strstr(names, "|acp:|") == NULL);
+    free(names);
+    tny_ctx_free(ctx);
+    write_settings("{}");
+    PASS();
+}
+
 /* Providers can also be defined purely by environment variables:
  * NAME_BASE_URL makes NAME a valid provider, NAME_API_KEY supplies the key,
  * NAME_DEFAULT_MODEL the fallback model. Exactly one BASE_URL+API_KEY pair
@@ -2469,6 +2647,10 @@ SUITE(core_suite) {
     RUN_TEST(backend_default_cursor_key_from_env);
     RUN_TEST(provider_last_used_and_scoped_models);
     RUN_TEST(custom_named_provider_profiles);
+    RUN_TEST(acp_named_provider_profiles);
+    RUN_TEST(acp_profile_model_precedence);
+    RUN_TEST(acp_profiles_validate_when_selected);
+    RUN_TEST(acp_profiles_list_without_auto_select);
     RUN_TEST(provider_profile_stored_api_key);
     RUN_TEST(provider_write_profile_rules);
     RUN_TEST(max_steps_default_and_overrides);

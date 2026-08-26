@@ -7,6 +7,7 @@ tny implements **both** sides:
 | Mode | Command | Role |
 | --- | --- | --- |
 | Client | `tny --backend acp --agent <exe> -- <args>` | Drive other agents |
+| Named client | `tny --provider acp:<name>` | Drive an agent from `settings.json` |
 | Server | `tny acp` | Expose the **native** OpenAI-compatible loop to editors |
 
 ## Transport (stdio, or WebSocket for remote agents)
@@ -30,10 +31,12 @@ In v1, **`session/prompt` stays pending for the whole turn**. Completion is `{ "
 1. `initialize` with `protocolVersion: 1`, client capabilities, `clientInfo` `{ name: "tny", title: "tny", version }`. Accept the agent's chosen version.
 2. `authenticate` (v1 name) only if `authMethods` is non-empty. Cursor uses `methodId: "cursor_login"`; prefer pre-auth.
 3. `session/new` or `session/load` / `session/resume`.
-4. `session/prompt` with `ContentBlock[]`. Stream arrives as `session/update`.
-5. **Always** reply to `session/request_permission` or the agent hangs.
-6. `session/cancel` (notification), then wait for `stopReason: "cancelled"`.
-7. `session/close`.
+4. If a model was requested, apply the advertised model config option with
+   `session/set_config_option` and verify the returned current value.
+5. `session/prompt` with `ContentBlock[]`. Stream arrives as `session/update`.
+6. **Always** reply to `session/request_permission` or the agent hangs.
+7. `session/cancel` (notification), then wait for `stopReason: "cancelled"`.
+8. `session/close`.
 
 Do not advertise `fs` or `terminal` unless tny implements them. Do not multiplex MCP on the ACP pipes. Optional spawn table: [registry.json](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json).
 
@@ -45,7 +48,19 @@ Baseline: `initialize`, `session/new`, `session/prompt`, `session/cancel`. Auth:
 
 fx's ACP server (v1, for parity on `tny acp`) also implements `session/load`, `session/set_config_option`, `session/set_mode`. Modes there: `ask` (approve sensitive tools), `code` (auto-review).
 
-Reasoning effort: protocolVersion 1 has no portable knob. Newer agents expose it as a session config option (thought-level category) via `session/set_config_option`; tny's client does not consume config options yet, so `--effort` on `--provider acp` emits one status line and the agent's default applies ([ADR 0009](../adr/0009-reasoning-effort.md)). Wire it through config options when the client learns to parse them.
+Model selection uses ACP v1 session configuration. After `session/new` or
+`session/load`, tny finds the agent-advertised select option whose category is
+`model` (falling back to the conventional id `model`) and sends
+`session/set_config_option` before the first prompt. `--model` wins over a
+saved `models["acp:<name>"]`, which wins over the named profile's `model`.
+When an explicit model is unavailable, session setup fails clearly instead of
+silently using the agent default. With no configured model, tny leaves the
+agent default untouched.
+
+Reasoning effort remains separate: ACP v1 has no fixed effort field. Newer
+agents expose it as a session config option (`thought_level` category), but tny
+does not consume that option yet, so `--effort` on an ACP provider emits one
+status line and the agent default applies ([ADR 0009](../adr/0009-reasoning-effort.md)).
 
 ## Methods (client ← agent)
 
@@ -67,12 +82,25 @@ Config:
 {
   "acp": {
     "agents": {
+      "claude-code": {
+        "command": ["npx", "-y", "@agentclientprotocol/claude-agent-acp"],
+        "model": "claude-sonnet-4-6"
+      },
       "gemini": { "command": ["gemini", "--acp"] },
-      "cursor": { "command": ["agent", "acp"] }
+      "cursor": { "command": ["agent", "acp"] },
+      "remote": { "command": ["wss://agent.example/acp"] }
     }
   }
 }
 ```
+
+Select these as `--provider acp:claude-code`, `--provider acp:gemini`, and so
+on; `/provider acp:claude-code` uses the same namespace in the TUI. The prefix
+is deliberate: bare `claude` and `cursor` already name other tny providers.
+Defining an entry does not auto-select it, while `last_provider:"acp:<name>"`
+restores a previously used entry. `--provider acp --agent CMD -- args` remains
+the unconfigured ad-hoc form. Commands inherit the user's environment and must
+authenticate themselves; credentials do not belong in these profiles.
 
 ## `tny acp` (server, native loop)
 

@@ -275,14 +275,18 @@ def test_slash_palette(home, ws):
     # settings.json profile, and a NAME_BASE_URL env provider.
     os.makedirs(os.path.join(home, ".tny"), exist_ok=True)
     with open(os.path.join(home, ".tny", "settings.json"), "w") as f:
-        f.write('{"openrouter":{"base_url":"https://openrouter.test/v1"}}')
+        f.write('{"openrouter":{"base_url":"https://openrouter.test/v1"},'
+                '"acp":{"agents":{"claude-code":'
+                '{"command":["claude-agent-acp"]}}}}')
     t = Term([TNY], base_env(home, {"ORWELL_BASE_URL": "https://orwell.test/v1"}), ws)
     try:
         t.expect(BANNER)
         t.send("/")
         t.expect("clear the screen", 5.0)   # palette listed commands
         t.send("prov")
-        t.expect("openai|cursor|codex|acp|claude|grok|openrouter|orwell", 5.0)
+        # The hint is clipped to the terminal width; prove the settings ACP
+        # profile is included before the env-only tail that may be off-screen.
+        t.expect("openai|cursor|codex|acp|claude|grok|openrouter|acp:claude-code|", 5.0)
         t.send("\x7f" * 4)                 # back to a bare "/"
         t.send("help\r")
         t.expect("ctrl-o transcript", 5.0)
@@ -550,10 +554,18 @@ def test_prewarm_spawns_acp_agent(home, ws):
     """docs/adr/0002: with a host provider selected, the TUI spawns and
     initializes the host right after the first paint — before any prompt."""
     agent = os.path.join(HERE, "fake_acp_agent.py")
-    # resolve the real interpreter: the pty env overrides HOME, which breaks
-    # version-manager shims that `#!/usr/bin/env python3` would resolve to
-    t = Term([TNY, "--provider", "acp", "--agent", sys.executable, "--", agent],
-             base_env(home), ws)
+    settings = os.path.join(home, ".tny", "settings.json")
+    os.makedirs(os.path.dirname(settings), exist_ok=True)
+    previous = open(settings, "rb").read() if os.path.exists(settings) else None
+    with open(settings, "w") as f:
+        json.dump({"acp": {"agents": {"tui-fixture": {
+            # Resolve the real interpreter: the pty env overrides HOME, which
+            # breaks version-manager shims used by /usr/bin/env python3.
+            "command": [sys.executable, agent], "model": "selected-model"
+        }}}}, f)
+    state = os.path.join(home, "acp-prewarm-state.json")
+    t = Term([TNY, "--provider", "acp:tui-fixture"],
+             base_env(home, {"FAKE_ACP_STATE": state}), ws)
     try:
         t.expect(BANNER)
         end = time.time() + 8
@@ -568,6 +580,7 @@ def test_prewarm_spawns_acp_agent(home, ws):
         # the warm host is adopted by the first turn, not respawned
         t.send("hello\r")
         t.expect("Hello from the fake ACP agent.", 20.0)
+        assert json.load(open(state))["model_at_prompt"] == "selected-model"
         agents = [c for c in children_of(t.proc.pid) if "fake_acp_agent" in c[1]]
         assert len(agents) == 1, "prewarmed agent was not adopted: %r" % agents
         assert agents[0][0] == spawned[0][0], "agent was respawned for the turn"
@@ -590,7 +603,13 @@ def test_prewarm_spawns_acp_agent(home, ws):
         assert t.wait() == 0
     finally:
         t.close()
-    print("ok  acp host pre-warmed at startup, adopted, and re-warmed by /new")
+        if previous is None:
+            if os.path.exists(settings):
+                os.remove(settings)
+        else:
+            with open(settings, "wb") as f:
+                f.write(previous)
+    print("ok  named acp profile selected its model, pre-warmed, adopted, and re-warmed")
 
 
 def test_version_fast_path():

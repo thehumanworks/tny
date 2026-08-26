@@ -76,6 +76,10 @@ TARGETS = [
       "env_sole_detected_provider", "load_openai_profile",
       "apply_custom_provider", "apply_provider_model", "tny_resolve_backend"],
      None),
+    ("src/core/config.c",
+     ["acp_profile_obj", "tny_acp_profile_exists", "acp_profile_name_valid",
+      "clear_profile_agent", "apply_acp_profile"],
+     r"^(?!for )", "tests/integration/test_acp.sh", "acp-profile"),
     ("src/core/config.c", ["tny_effort_canonical", "tny_effort_wire",
                            "apply_provider_effort"], None),
     # mid-turn input: steer or queue (docs/adr/0011)
@@ -188,6 +192,9 @@ TARGETS = [
     # loop internals predate the transport seam and are latency-shaped.
     ("src/backends/acp/acp_proc.c", ["ac_pump_reads"], r"ws",
      "tests/integration/test_acp_ws.sh"),
+    ("src/backends/acp/acp_client.c",
+     ["ac_config_has_value", "ac_find_model_config", "ac_set_requested_model"],
+     None, "tests/integration/test_acp.sh"),
     ("src/backends/openai/responses.c", None, None,
      "tests/integration/test_openai.py"),
     ("src/backends/openai/openai.c",
@@ -309,6 +316,16 @@ EQUIVALENT = [
     # malformed-session unit test pins the contract either way).
     "responses.c:if (tcs && yyjson_mut_is_arr(tcs)) add_function_calls(d, arr, tcs);",
     "responses.c:if (js && yyjson_is_obj(js)) {",
+    # yyjson's array foreach is type/NULL safe. Flipping these container guards
+    # can enter the loop body for a non-array, but it still performs zero
+    # iterations and produces the same missing-option/confirmation result.
+    "acp_client.c:if (!options || !yyjson_is_arr(options)) return false;",
+    "acp_client.c:if (!configs || !yyjson_is_arr(configs)) return NULL;",
+    "acp_client.c:if (configs && yyjson_is_arr(configs)) {",
+    # The config profile parser cannot deterministically inject calloc/strdup
+    # failure; both branches leave the previously selected profile untouched.
+    "config.c:if (!argv) return -1; /* OOM: no observable profile state changed */",
+    "config.c:return -1; /* OOM: allocator fault injection is out of scope */",
 ]
 
 

@@ -22,7 +22,8 @@ fail() {
 }
 contains() { case "$1" in *"$2"*) ;; *) fail "missing '$2' in: $1" ;; esac; }
 
-FAKE_ACP_STATE=$TMP/state.json "$PY" "$WRAP" 0 > "$TMP/wrap.out" 2> "$TMP/wrap.err" &
+FAKE_ACP_STATE=$TMP/state.json FAKE_ACP_GROUPED_MODELS=1 \
+    "$PY" "$WRAP" 0 > "$TMP/wrap.out" 2> "$TMP/wrap.err" &
 WSPID=$!
 i=0
 PORT=
@@ -36,18 +37,22 @@ done
 
 # ---- turn 1: full turn over the WebSocket transport --------------------
 OUT1=$(HOME="$TMP/home" "$TNY" --cwd "$TMP/ws" --backend acp \
-    --agent "ws://127.0.0.1:$PORT" ask --json --yolo "hello over ws" \
+    --agent "ws://127.0.0.1:$PORT" --model ws-model \
+    ask --json --yolo "hello over ws" \
     2> "$TMP/err1") || fail "run 1 exited $? ($(cat "$TMP/err1"))"
 TEXT=$(printf '%s' "$OUT1" | "$PY" -c 'import json,sys; print(json.load(sys.stdin)["output"])')
 contains "$TEXT" "Hello from the fake ACP agent."
 SID=$(printf '%s' "$OUT1" | "$PY" -c 'import json,sys; print(json.load(sys.stdin)["session_id"])')
 [ -n "$SID" ] || fail "no session id"
+MODEL_STATE=$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1])).get("model_at_prompt"))' \
+    "$TMP/state.json")
+[ "$MODEL_STATE" = "ws-model" ] || fail "ws prompt ran with model $MODEL_STATE"
 grep -q "fake-agent:" "$TMP/wrap.err" || fail "agent stderr was not forwarded through the wrapper"
-echo "ok  turn 1 over ws: streamed text, session $SID"
+echo "ok  turn 1 over ws: grouped model selected, streamed text, session $SID"
 
 # ---- turn 2: resume rides session/load over the same transport ---------
 OUT2=$(HOME="$TMP/home" FAKE_ACP_STATE=$TMP/state.json "$TNY" --cwd "$TMP/ws" \
-    --backend acp --agent "ws://127.0.0.1:$PORT" ask --json --yolo \
+    --backend acp --agent "ws://127.0.0.1:$PORT" --model ws-model ask --json --yolo \
     --resume "$SID" "again" 2> "$TMP/err2") \
     || fail "run 2 exited $? ($(cat "$TMP/err2"))"
 TEXT2=$(printf '%s' "$OUT2" | "$PY" -c 'import json,sys; print(json.load(sys.stdin)["output"])')

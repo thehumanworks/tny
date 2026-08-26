@@ -34,3 +34,4 @@ these as `docs/adr/NNNN`.
 | [0026](0026-color-vs-attribute-sgr.md) | `NO_COLOR` gates SGR colors only — bold/dim/reverse are structural; `--color=always`/`CLICOLOR_FORCE` force, `--color=never`/`--no-color` silence all SGR; dumb mode announces itself |
 | [0027](0027-python-event-hooks.md) | Trusted global Python extensions consume versioned normalized events through one optional persistent host; `agent_end` may continue with visible context, `agent_settled` is final |
 | [0028](0028-extension-parity-contract.md) | Extension parity is capability-scoped; one versioned vocabulary, immutable provider matrix, deterministic folding, and explicit unsupported states govern all lanes |
+| [0029](0029-named-acp-agent-profiles.md) | Reusable ACP commands resolve as `acp:NAME`; requested models are applied through advertised session config options before the first prompt |

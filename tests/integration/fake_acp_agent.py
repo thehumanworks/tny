@@ -24,6 +24,12 @@ DIE = bool(os.environ.get("FAKE_ACP_DIE"))
 # FAKE_ACP_SLOW_MS: hold the turn open this long before answering, so a
 # TUI test can type a second message while the turn is still running.
 SLOW_MS = int(os.environ.get("FAKE_ACP_SLOW_MS", "0"))
+GROUPED_MODELS = bool(os.environ.get("FAKE_ACP_GROUPED_MODELS"))
+NO_MODELS = bool(os.environ.get("FAKE_ACP_NO_MODELS"))
+NO_MODEL_VALUES = bool(os.environ.get("FAKE_ACP_NO_MODEL_VALUES"))
+REJECT_MODEL = bool(os.environ.get("FAKE_ACP_REJECT_MODEL"))
+BAD_MODEL_CONFIRM = bool(os.environ.get("FAKE_ACP_BAD_MODEL_CONFIRM"))
+CURRENT_MODEL = "default-model"
 
 
 def log(msg):
@@ -86,6 +92,58 @@ def state_read():
         return {}
 
 
+def model_config(current=None):
+    """Return both schema-v1.20.0 select shapes used by client tests."""
+    current = current or CURRENT_MODEL
+    values = [
+        {"value": "default-model", "name": "Default model"},
+        {"value": "selected-model", "name": "Selected model"},
+        {"value": "ws-model", "name": "WebSocket model"},
+    ]
+    if GROUPED_MODELS:
+        config = {
+            "id": "engine",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": current,
+            "options": [
+                {"group": "stable", "name": "Stable", "options": values[:2]},
+                {"group": "remote", "name": "Remote", "options": values[2:]},
+            ],
+        }
+        if NO_MODEL_VALUES:
+            config.pop("options")
+        return config
+    # Deliberately omit category to exercise the conventional id fallback.
+    config = {
+        "id": "model",
+        "name": "Model",
+        "type": "select",
+        "currentValue": current,
+        "options": values,
+    }
+    if NO_MODEL_VALUES:
+        config.pop("options")
+    return config
+
+
+def config_options(current=None):
+    # An unrelated select before the model proves the client matches configId
+    # in the set response rather than accepting the first option blindly.
+    mode = {"id": "mode", "name": "Mode", "category": "mode",
+            "type": "select", "currentValue": "ask",
+            "options": [{"value": "ask", "name": "Ask"}]}
+    return [mode, model_config(current)]
+
+
+def session_result(session_id=None):
+    res = {} if session_id is None else {"sessionId": session_id}
+    if not NO_MODELS:
+        res["configOptions"] = config_options()
+    return res
+
+
 def request_permission(session_id, req_id):
     """Ask the client, then block until it answers that exact id."""
     send({
@@ -121,6 +179,7 @@ def run_prompt(msg):
     blocks = msg["params"].get("prompt", [])
     asked = " ".join(b.get("text", "") for b in blocks if b.get("type") == "text")
     state_write("last_prompt", asked)
+    state_write("model_at_prompt", CURRENT_MODEL)
     if SLOW_MS:
         import time
         time.sleep(SLOW_MS / 1000.0)
@@ -178,6 +237,7 @@ def run_prompt(msg):
 
 
 def main():
+    global CURRENT_MODEL
     while True:
         try:
             msg = read_message()
@@ -205,7 +265,7 @@ def main():
             state_write("new_cwd", params.get("cwd"))
             state_write("session_id", SESSION_ID)
             state_write("loaded", False)
-            result(msg["id"], {"sessionId": SESSION_ID})
+            result(msg["id"], session_result(SESSION_ID))
         elif method == "session/load":
             want = state_read().get("session_id", SESSION_ID)
             got = params.get("sessionId")
@@ -216,7 +276,25 @@ def main():
             state_write("loaded", True)
             update(got, {"sessionUpdate": "agent_message_chunk",
                          "content": {"type": "text", "text": "(replayed history)"}})
-            result(msg["id"], None)
+            result(msg["id"], session_result())
+        elif method == "session/set_config_option":
+            if REJECT_MODEL:
+                error(msg["id"], -32602, "model selection rejected by fixture")
+                continue
+            expected_id = "engine" if GROUPED_MODELS else "model"
+            value = params.get("value")
+            state_write("set_config_id", params.get("configId"))
+            state_write("set_config_value", value)
+            if params.get("sessionId") != SESSION_ID or params.get("configId") != expected_id:
+                error(msg["id"], -32602, "invalid model configuration request")
+                continue
+            advertised = {"default-model", "selected-model", "ws-model"}
+            if value not in advertised:
+                error(msg["id"], -32602, "unknown model")
+                continue
+            CURRENT_MODEL = value
+            confirmed = "default-model" if BAD_MODEL_CONFIRM else CURRENT_MODEL
+            result(msg["id"], {"configOptions": config_options(confirmed)})
         elif method == "session/prompt":
             run_prompt(msg)
         elif method == "session/cancel":

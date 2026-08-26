@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <poll.h>
+#include <unistd.h>
 
 static bool wants_json(const cli_globals *g, int argc, char **argv) {
     if (g->json) return true;
@@ -330,6 +331,77 @@ static void custom_provider_row(tny_ctx *ctx, buf_t *b, bool json,
     }
 }
 
+static bool acp_name_valid(const char *name) {
+    if (!name || !*name) return false;
+    for (const char *p = name; *p; p++) {
+        char c = *p;
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '-' || c == '_'))
+            return false;
+    }
+    return true;
+}
+
+static bool executable_on_path(const char *bin) {
+    if (!bin || !*bin) return false;
+    if (strchr(bin, '/')) return access(bin, X_OK) == 0;
+    const char *path = getenv("PATH");
+    if (!path) return false;
+    char *dup = xstrdup(path);
+    bool found = false;
+    for (char *p = strtok(dup, ":"); p && !found; p = strtok(NULL, ":")) {
+        char *full = path_join(p, bin);
+        found = full && access(full, X_OK) == 0;
+        free(full);
+    }
+    free(dup);
+    return found;
+}
+
+/* One provider-list row for settings.acp.agents.NAME. Never render argv:
+ * command arguments may contain local paths or user mistakes that should not
+ * become diagnostic output. */
+static void acp_provider_row(tny_ctx *ctx, buf_t *b, bool json,
+                             const char *name, yyjson_val *profile) {
+    if (!acp_name_valid(name) || !yyjson_is_obj(profile)) return;
+    yyjson_val *command = jget(profile, "command");
+    bool valid = yyjson_is_arr(command) && yyjson_arr_size(command) > 0;
+    const char *exe = NULL;
+    if (valid) {
+        size_t idx, max;
+        yyjson_val *v;
+        yyjson_arr_foreach(command, idx, max, v) {
+            const char *arg = yyjson_is_str(v) ? yyjson_get_str(v) : NULL;
+            if (!arg || !*arg) { valid = false; break; }
+            if (idx == 0) exe = arg;
+        }
+    }
+    bool remote = exe && (str_starts(exe, "ws://") || str_starts(exe, "wss://"));
+    if (remote && yyjson_arr_size(command) != 1) valid = false;
+    yyjson_val *model = jget(profile, "model");
+    if (model && (!yyjson_is_str(model) || !*yyjson_get_str(model))) valid = false;
+    bool healthy = valid && (remote || executable_on_path(exe));
+    const char *hint = !valid ? "invalid settings.json ACP profile"
+                            : healthy ? (remote ? "configured remote ACP agent"
+                                                : "configured ACP agent; command resolves")
+                                      : "configured ACP agent; command not found on PATH";
+    buf_t full;
+    buf_init(&full);
+    buf_appendf(&full, "acp:%s", name);
+    bool active = ctx->provider_name && strcmp(ctx->provider_name, full.data) == 0;
+    if (json) {
+        buf_appends(b, ",{\"name\":");
+        jescape(b, full.data);
+        buf_appendf(b, ",\"backend\":\"acp\",\"active\":%s,\"healthy\":%s,\"hint\":",
+                    active ? "true" : "false", healthy ? "true" : "false");
+        jescape(b, hint);
+        buf_appends(b, "}");
+    } else {
+        buf_appendf(b, "%s %s — %s\n", active ? "*" : " ", full.data, hint);
+    }
+    buf_free(&full);
+}
+
 int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = wants_json(g, argc, argv);
     buf_t b;
@@ -412,6 +484,10 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             const char *bu = jget_str(v, "base_url");
             if (!bu || !*bu || !tny_custom_provider_exists(ctx, name)) continue;
             custom_provider_row(ctx, &b, json, name, bu, "settings");
+        }
+        yyjson_val *agents = jget(jget(root, "acp"), "agents");
+        if (yyjson_is_obj(agents)) yyjson_obj_foreach(agents, idx, max, k, v) {
+            acp_provider_row(ctx, &b, json, yyjson_get_str(k), v);
         }
     }
     int n_env = 0;

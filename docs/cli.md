@@ -27,8 +27,9 @@ tny setup                   # write provider config from flags/env
 Global flags are **leading**:
 
 ```text
-tny --provider cursor|codex|acp|openai|NAME [command]   # --backend is an alias;
-                            # NAME = a settings.json provider profile (below)
+tny --provider cursor|codex|acp|openai|NAME|acp:AGENT [command]
+                            # --backend is an alias; NAME = an OpenAI-compatible
+                            # profile; acp:AGENT = settings acp.agents.AGENT
 tny --cwd DIR
 tny --model ID
 tny --effort LEVEL          # reasoning effort (--reasoning-effort is an alias)
@@ -131,6 +132,44 @@ key env, and saved model (see
 detection is a lazy in-memory scan at provider-resolution time — startup
 paths (`--help`, `--version`, first TUI paint) never run it.
 
+### Named ACP agents ([ADR 0029](adr/0029-named-acp-agent-profiles.md))
+
+Reusable ACP commands live under `acp.agents` and are selected through the
+namespaced provider ID `acp:NAME`:
+
+```json
+{
+  "acp": {
+    "agents": {
+      "claude": {
+        "command": ["npx", "-y", "@agentclientprotocol/claude-agent-acp"],
+        "model": "claude-sonnet-4-6"
+      },
+      "gemini": { "command": ["gemini", "--acp"] }
+    }
+  }
+}
+```
+
+```sh
+tny --provider acp:claude
+tny --provider acp:gemini ask "review this repository"
+```
+
+`command` must be a nonempty array of nonempty strings. `model` is optional;
+both fields are validated only when that profile is selected, so an unused bad
+entry cannot break another provider's startup. Profile names use letters,
+digits, `-`, and `_`. Defining a profile does not select it; after it is used,
+normal `last_provider` persistence may restore it on the next launch.
+
+The effective provider name is the full `acp:NAME`, so sessions and
+`models["acp:NAME"]` stay isolated from other ACP agents. Model precedence is
+`--model` > `models["acp:NAME"]` > the profile's `model` >
+`ACP_NAME_DEFAULT_MODEL` > the agent default (profile punctuation becomes `_`
+in the environment variable).
+The ad-hoc form remains `--provider acp --agent CMD -- ARGS`; `--agent` cannot
+be combined with `--provider acp:NAME`.
+
 ### `tny provider setup` ([ADR 0018](adr/0018-provider-setup-stored-keys.md))
 
 The guided way to add one:
@@ -154,7 +193,7 @@ providers; the page URL hash additionally accepts
 
 `--provider` default, in order:
 
-1. the provider (and its saved model) last used, recorded in `~/.tny/settings.json` (`last_provider`, `models.{provider}`) — named providers included
+1. the provider (and its saved model) last used, recorded in `~/.tny/settings.json` (`last_provider`, `models.{provider}`) — named OpenAI-compatible and `acp:NAME` providers included
 2. `openai` if `OPENAI_BASE_URL` or `OPENAI_API_KEY` is set
 3. the env-defined provider if **exactly one** `NAME_BASE_URL` + `NAME_API_KEY` pair is set (a lone `*_BASE_URL` from an unrelated tool never hijacks the default; keyless local gateways need an explicit `--provider NAME` once — `last_provider` remembers it)
 4. `codex` if a `codex login` exists (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`) — subscriptions need no API key

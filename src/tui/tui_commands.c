@@ -503,9 +503,10 @@ void tui_command(tui *t, const char *line) {
         if (arg && *arg) {
             bool known = tny_backend_from_name(arg) >= 0 ||
                          tny_builtin_profile_exists(arg) ||
-                         tny_custom_provider_exists(t->ctx, arg);
+                         tny_custom_provider_exists(t->ctx, arg) ||
+                         str_starts(arg, "acp:");
             if (!known) tui_err(t, "unknown provider (openai|cursor|codex|acp|"
-                                   "claude|grok, a settings.json profile, or "
+                                   "claude|grok|acp:NAME, a settings.json profile, or "
                                    "NAME_BASE_URL) — /provider setup adds one");
             else {
                 if (t->turn_active) tui_sys(t, "finish the turn first");
@@ -516,17 +517,22 @@ void tui_command(tui *t, const char *line) {
                     char *previous_effort = t->ctx->reasoning_effort
                         ? xstrdup(t->ctx->reasoning_effort) : NULL;
                     /* full resolve: also swaps in the provider's saved model */
-                    tny_resolve_backend(t->ctx, arg);
-                    tny_engine_model_changed(t->engine, previous_model,
-                                             t->ctx->model, "provider");
-                    tny_engine_effort_changed(t->engine, previous_effort,
-                                              t->ctx->reasoning_effort,
-                                              "provider");
+                    int resolved = tny_resolve_backend(t->ctx, arg);
+                    if (resolved < 0) {
+                        tui_err(t, "provider switch failed; check settings.json");
+                        if (!t->engine) tui_prewarm_start(t);
+                    } else {
+                        tny_engine_model_changed(t->engine, previous_model,
+                                                 t->ctx->model, "provider");
+                        tny_engine_effort_changed(t->engine, previous_effort,
+                                                  t->ctx->reasoning_effort,
+                                                  "provider");
+                        drop_backend(t);
+                        tny_settings_remember_use(t->ctx);
+                        tui_sys(t, "provider switched");
+                    }
                     free(previous_model);
                     free(previous_effort);
-                    drop_backend(t);
-                    tny_settings_remember_use(t->ctx);
-                    tui_sys(t, "provider switched");
                 }
             }
         }

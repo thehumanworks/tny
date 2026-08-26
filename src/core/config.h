@@ -31,7 +31,7 @@ typedef struct tny_ctx {
 
     /* selection */
     int    backend;         /* tny_backend_id, resolved */
-    char  *provider_name;   /* user-named openai-compatible profile, or NULL */
+    char  *provider_name;   /* effective named profile (OpenAI or acp:NAME) */
     char  *model;
     bool   model_from_flag; /* --model on the command line beats saved models */
     tny_perm_mode perm_mode;
@@ -91,6 +91,7 @@ typedef struct tny_ctx {
                                  * of leaking one provider's default */
     /* acp */
     char **agent_argv;      /* NULL-terminated, or NULL */
+    bool   agent_from_profile; /* agent_argv belongs to acp.agents.NAME */
 
     /* repo limits (.tny.json — never authority, only limits) */
     int    max_steps;              /* 0 = unlimited (default); a cap comes
@@ -155,14 +156,18 @@ void tny_finish_builtin_profile(tny_ctx *ctx);
 void tny_ctx_clear_extra_headers(tny_ctx *ctx);
 void tny_ctx_add_extra_header(tny_ctx *ctx, const char *line);
 
-/* Effective provider name: the settings.json profile name ("openrouter")
- * when a user-named OpenAI-compatible profile is active, else the builtin
- * backend name. Never NULL after tny_resolve_backend. */
+/* Effective provider name: a settings profile name ("openrouter" or
+ * "acp:claude") when active, else the builtin backend name. Never NULL after
+ * tny_resolve_backend. */
 const char *tny_provider_name(const tny_ctx *ctx);
 /* True when `name` is a user-named OpenAI-compatible provider: a top-level
  * settings.json object with a base_url, or NAME_BASE_URL set in the
  * environment. Builtin names (openai|cursor|codex|acp) are never custom. */
 bool tny_custom_provider_exists(tny_ctx *ctx, const char *name);
+/* True when provider is an `acp:NAME` selector whose NAME is present under
+ * settings.json acp.agents. The profile is validated when selected, so an
+ * unused malformed entry never breaks startup. */
+bool tny_acp_profile_exists(tny_ctx *ctx, const char *provider);
 /* malloc'd env-var name holding the profile's API key: its api_key_env,
  * or NAME_API_KEY derived from the profile name. NULL if no such profile. */
 char *tny_custom_provider_key_env(tny_ctx *ctx, const char *name);
