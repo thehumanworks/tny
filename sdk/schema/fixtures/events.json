@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "events": [
+    {
+      "id": 0,
+      "type": "text_delta",
+      "fields": [
+        "text",
+        "message_id"
+      ]
+    },
+    {
+      "id": 1,
+      "type": "thinking",
+      "fields": [
+        "text",
+        "message_id"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "tool_start",
+      "fields": [
+        "tool_name",
+        "tool_id",
+        "tool_detail"
+      ]
+    },
+    {
+      "id": 3,
+      "type": "tool_end",
+      "fields": [
+        "tool_name",
+        "tool_id",
+        "tool_detail",
+        "tool_ok"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "permission_request",
+      "fields": [
+        "permission_id",
+        "permission_summary",
+        "permission_options"
+      ]
+    },
+    {
+      "id": 5,
+      "type": "plan",
+      "fields": [
+        "text",
+        "message_id"
+      ]
+    },
+    {
+      "id": 6,
+      "type": "usage",
+      "fields": [
+        "input_tokens",
+        "output_tokens",
+        "context_used",
+        "context_size",
+        "cost",
+        "has_cost"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "turn_end",
+      "fields": [
+        "stop_reason"
+      ]
+    },
+    {
+      "id": 8,
+      "type": "error",
+      "fields": [
+        "text",
+        "error_code"
+      ]
+    },
+    {
+      "id": 9,
+      "type": "status",
+      "fields": [
+        "text",
+        "message_id"
+      ]
+    },
+    {
+      "id": 10,
+      "type": "steer_rejected",
+      "fields": [
+        "text",
+        "message_id"
+      ]
+    },
+    {
+      "id": 11,
+      "type": "custom_message",
+      "fields": [
+        "text",
+        "message_id",
+        "message_type"
+      ]
+    },
+    {
+      "id": 12,
+      "type": "user_message",
+      "fields": [
+        "text",
+        "message_id"
+      ]
+    },
+    {
+      "id": 13,
+      "type": "tool_progress",
+      "fields": [
+        "tool_name",
+        "tool_id",
+        "tool_detail"
+      ]
+    }
+  ],
+  "unknown_event": {
+    "id": 4294967295,
+    "type": "future_event",
+    "payload": {
+      "future": true
+    }
+  }
+}

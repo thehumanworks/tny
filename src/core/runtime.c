@@ -72,6 +72,9 @@ static char *dup_cstr(const char *s) {
 }
 
 static void free_fields(tny_owned_event *o) {
+    free(o->provider);
+    free(o->session_id);
+    free(o->turn_id);
     free((char *)o->ev.text);
     free((char *)o->ev.message_id);
     free((char *)o->ev.tool_name);
@@ -98,10 +101,26 @@ static bool copy_field(const char *src, size_t n, const char **dst,
     return true;
 }
 
-static tny_owned_event *event_copy(const tny_backend_event *ev) {
+static tny_owned_event *event_copy(tny_engine *e, const tny_backend_event *ev) {
     tny_owned_event *o = calloc(1, sizeof *o);
     if (!o) return NULL;
     o->ev = *ev;
+    o->sequence = ++e->session->extension_event_sequence;
+    o->timestamp_ms = monotonic_ms();
+    o->provider = dup_cstr(tny_provider_name(e->ctx));
+    o->session_id = dup_cstr(e->session->id);
+    char turn_id[160];
+    snprintf(turn_id, sizeof turn_id, "%s:%llu:%d",
+             e->session->id,
+             (unsigned long long)e->session->extension_agent_sequence,
+             e->extension_continuations);
+    o->turn_id = dup_cstr(turn_id);
+    if (!o->provider || !o->session_id || !o->turn_id) {
+        tny_owned_event_free(o);
+        return NULL;
+    }
+    o->owned_bytes += strlen(o->provider) + strlen(o->session_id) +
+                      strlen(o->turn_id) + 3;
     if (!copy_field(ev->text, ev->text ? ev->text_len : 0,
                     &o->ev.text, &o->owned_bytes) ||
         !copy_field(ev->message_id,
@@ -147,7 +166,7 @@ static void queue_event(tny_engine *e, const tny_backend_event *ev) {
      * and agent_end has either continued or allowed settlement. */
     if (ev->kind == TNY_EV_TURN_END && e->pending_terminal) return;
 
-    tny_owned_event *copy = event_copy(ev);
+    tny_owned_event *copy = event_copy(e, ev);
     if (!copy) { e->overflow_pending = true; return; }
     bool reserved = is_reserved_kind(ev->kind);
     size_t count_limit = reserved ? ENGINE_EVENT_MAX

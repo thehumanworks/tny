@@ -16,6 +16,11 @@ typedef struct tny_engine tny_engine;
 
 typedef struct tny_owned_event {
     tny_backend_event ev;
+    uint64_t sequence;
+    int64_t timestamp_ms;
+    char *provider;
+    char *session_id;
+    char *turn_id;
     size_t owned_bytes;
     bool hooks_done;
     bool suppressed;

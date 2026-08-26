@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "events": [
+    {"id":0,"c":"TNY_EVENT_TEXT_DELTA","type":"text_delta","fields":["text","message_id"]},
+    {"id":1,"c":"TNY_EVENT_THINKING","type":"thinking","fields":["text","message_id"]},
+    {"id":2,"c":"TNY_EVENT_TOOL_START","type":"tool_start","fields":["tool_name","tool_id","tool_detail"]},
+    {"id":3,"c":"TNY_EVENT_TOOL_END","type":"tool_end","fields":["tool_name","tool_id","tool_detail","tool_ok"]},
+    {"id":4,"c":"TNY_EVENT_PERMISSION","type":"permission_request","fields":["permission_id","permission_summary","permission_options"]},
+    {"id":5,"c":"TNY_EVENT_PLAN","type":"plan","fields":["text","message_id"]},
+    {"id":6,"c":"TNY_EVENT_USAGE","type":"usage","fields":["input_tokens","output_tokens","context_used","context_size","cost","has_cost"]},
+    {"id":7,"c":"TNY_EVENT_TURN_END","type":"turn_end","fields":["stop_reason"]},
+    {"id":8,"c":"TNY_EVENT_ERROR","type":"error","fields":["text","error_code"]},
+    {"id":9,"c":"TNY_EVENT_STATUS","type":"status","fields":["text","message_id"]},
+    {"id":10,"c":"TNY_EVENT_STEER_REJECTED","type":"steer_rejected","fields":["text","message_id"]},
+    {"id":11,"c":"TNY_EVENT_CUSTOM_MESSAGE","type":"custom_message","fields":["text","message_id","message_type"]},
+    {"id":12,"c":"TNY_EVENT_USER_MESSAGE","type":"user_message","fields":["text","message_id"]},
+    {"id":13,"c":"TNY_EVENT_TOOL_PROGRESS","type":"tool_progress","fields":["tool_name","tool_id","tool_detail"]}
+  ],
+  "envelope": ["schema_version","sequence","timestamp_ms","provider","session_id","turn_id","type"],
+  "compatibility": {
+    "unknown_events": "preserve",
+    "unknown_fields": "ignore",
+    "field_additions": "minor-compatible"
+  }
+}

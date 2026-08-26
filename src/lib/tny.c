@@ -466,6 +466,62 @@ static tny_owned_event *event_owned(const tny_event *event) {
     return (tny_owned_event *)(uintptr_t)event;
 }
 
+static int32_t public_error_code(const tny_owned_event *owned) {
+    if (!owned || owned->ev.kind != TNY_EV_ERROR) return TNY_STATUS_OK;
+    switch (owned->ev.error_code) {
+    case TNY_EVENT_ERROR_IO: return TNY_STATUS_IO;
+    case TNY_EVENT_ERROR_PROTOCOL: return TNY_STATUS_PROTOCOL;
+    case TNY_EVENT_ERROR_BACKPRESSURE: return TNY_STATUS_BACKPRESSURE;
+    case TNY_EVENT_ERROR_AUTH: return TNY_STATUS_AUTH;
+    default: return TNY_STATUS_INTERNAL;
+    }
+}
+
+void tny_event_view_init(tny_event_view_v0 *view) {
+    if (!view) return;
+    memset(view, 0, sizeof *view);
+    view->struct_size = sizeof *view;
+}
+
+int32_t tny_event_read(const tny_event *event, tny_event_view_v0 *view) {
+    if (!event || !view) return TNY_STATUS_INVALID_ARGUMENT;
+    size_t required = offsetof(tny_event_view_v0, provider);
+    if (view->struct_size < required) return TNY_STATUS_INVALID_ARGUMENT;
+    uint32_t caller_size = view->struct_size;
+    tny_event_view_v0 full;
+    tny_event_view_init(&full);
+    tny_owned_event *owned = event_owned(event);
+    full.kind = public_kind(owned->ev.kind);
+    full.schema_version = TNY_EVENT_SCHEMA_VERSION;
+    full.tool_ok = owned->ev.tool_ok ? 1u : 0u;
+    full.permission_options = (uint32_t)owned->ev.perm_options;
+    full.stop_reason = (uint32_t)owned->ev.stop;
+    full.error_code = public_error_code(owned);
+    full.has_cost = owned->ev.has_cost ? 1u : 0u;
+    full.sequence = owned->sequence;
+    full.timestamp_ms = owned->timestamp_ms;
+    full.input_tokens = owned->ev.in_tokens;
+    full.output_tokens = owned->ev.out_tokens;
+    full.context_used = owned->ev.context_used;
+    full.context_size = owned->ev.context_size;
+    full.cost = owned->ev.cost;
+    full.provider = cstr_bytes(owned->provider);
+    full.session_id = cstr_bytes(owned->session_id);
+    full.turn_id = cstr_bytes(owned->turn_id);
+    full.text = bytes_of(owned->ev.text, owned->ev.text_len);
+    full.message_id = cstr_bytes(owned->ev.message_id);
+    full.tool_name = cstr_bytes(owned->ev.tool_name);
+    full.tool_id = cstr_bytes(owned->ev.tool_id);
+    full.tool_detail = cstr_bytes(owned->ev.tool_detail);
+    full.permission_id = cstr_bytes(owned->ev.perm_id);
+    full.permission_summary = cstr_bytes(owned->ev.perm_summary);
+    full.message_type = cstr_bytes(owned->ev.message_type);
+    size_t n = caller_size < sizeof full ? caller_size : sizeof full;
+    memcpy(view, &full, n);
+    view->struct_size = caller_size;
+    return TNY_STATUS_OK;
+}
+
 uint32_t tny_event_get_kind(const tny_event *event) {
     tny_owned_event *owned = event_owned(event);
     return owned ? public_kind(owned->ev.kind) : TNY_EVENT_ERROR;
@@ -508,15 +564,7 @@ uint32_t tny_event_stop_reason(const tny_event *e) {
     return owned ? (uint32_t)owned->ev.stop : TNY_STOP_REASON_ERROR;
 }
 int32_t tny_event_error_code(const tny_event *e) {
-    tny_owned_event *owned = event_owned(e);
-    if (!owned || owned->ev.kind != TNY_EV_ERROR) return TNY_STATUS_OK;
-    switch (owned->ev.error_code) {
-    case TNY_EVENT_ERROR_IO: return TNY_STATUS_IO;
-    case TNY_EVENT_ERROR_PROTOCOL: return TNY_STATUS_PROTOCOL;
-    case TNY_EVENT_ERROR_BACKPRESSURE: return TNY_STATUS_BACKPRESSURE;
-    case TNY_EVENT_ERROR_AUTH: return TNY_STATUS_AUTH;
-    default: return TNY_STATUS_INTERNAL;
-    }
+    return public_error_code(event_owned(e));
 }
 void tny_event_free(tny_event *event) {
     tny_owned_event_free(event_owned(event));
