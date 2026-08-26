@@ -13,6 +13,7 @@ tny resume [last|<id>]      # interactive resume
 tny acp                     # ACP server (native loop only)
 tny sessions
 tny session last|<id>
+tny session stop <id>       # stop a background task ([--kill])
 tny providers               # list configured providers and doctor hints
 tny models
 tny permissions
@@ -264,6 +265,7 @@ tny ask "summarize this repository"
 printf 'summarize src/\n' | tny ask --stdin
 tny ask --json --ephemeral "list the public CLI"
 tny ask --resume last "now add tests"
+tny ask -B "audit the Makefile"        # detach; prints the session id
 tny ask --provider cursor --model composer-2 "find the login bug"
 tny --provider codex --effort xhigh ask "prove this queue is lock-free"
 tny ask --yolo --cwd /tmp/ws "run the test suite"
@@ -297,6 +299,85 @@ JSON object (keep field names stable):
 ```
 
 `--json` is required on `ask`, `status`, `doctor`, `permissions`, `models`, `session`, `sessions`, `workspace`, `usage`.
+
+## Background one-shots (`tny ask -B`)
+
+`-B` / `--background` runs the identical ask turn detached and defers its
+output into the session instead of stdout
+([ADR 0031](adr/0031-background-ask.md)). The parent prints the session id
+and exits in milliseconds; a forked child runs the turn and finalizes the
+session with `status`, `exit_code`, and `result` — the `result` object is
+byte-for-byte what foreground `tny ask --json` would have printed, for every
+backend.
+
+```sh
+id=$(tny ask -B "audit the Makefile")
+tny session $id                    # status: running (pid N), live partials
+tny session $id --json | jq .result
+tny session stop $id               # SIGTERM the task's process group
+tny ask --resume $id "now fix it"  # follow up once it is done
+tny ask --resume $id --steer "drop that — check the tests instead"
+```
+
+Output shape: plain mode prints the bare session id on stdout; `--json`
+prints `{"kind":"ask_background","session_id":…,"pid":…}`. The parent's
+exit code covers the **launch only** — 0 launched, 1 precondition failure.
+Turn failures never reach the parent; they surface as the session's
+`status`/`exit_code`/`result`.
+
+Where the output goes: the answer lands in the session transcript and the
+`result` field; the child's stderr/stdout (progress, tool lines) go to
+`<session-dir>/task.log`. See
+[features/sessions.md](features/sessions.md) for the on-disk layout,
+status lifecycle, and staleness rules.
+
+Composition and preconditions:
+
+- `-B --resume <id>` backgrounds a follow-up turn on an existing session.
+- `-B` rejects `--ephemeral` (exit 1): the printed id would point at
+  nothing.
+- `--stdin` works: stdin is drained fully before the id is printed.
+- `--continue-recovery` is allowed.
+
+### `tny session stop <id>` (+ `--kill`)
+
+Stops a running background task by signaling its **process group**
+(SIGTERM): the turn cancels cleanly, spawned backend hosts die with the
+group, and the session finalizes `status:"interrupted"` with partial output
+preserved. On a finished session `stop` is a clean no-op that reports the
+status. If the child ignores SIGTERM, `stop` reports a timeout and suggests
+`--kill`, which SIGKILLs the group and writes the terminal status on the
+child's behalf. `--json` emits `{"kind":"session_stop","status":…}`.
+
+```sh
+tny session stop $id
+tny session stop $id --kill        # last resort for a wedged task
+```
+
+### Resuming a running session
+
+Bare `--resume` on a session whose turn is still running fails, exit 1:
+
+```text
+tny: session <id> is still running (pid N)
+```
+
+Taking over must be explicit: `--steer "…"` is interrupt-and-redirect. It
+runs the stop sequence (group-SIGTERM, bounded wait), then resumes with the
+new prompt, folding the checkpointed partial output into the transcript so
+the model sees what it was doing before the interrupt. **Pending tool work
+is abandoned by design** — this is "drop that, do this instead", not a
+live mid-turn steer (that remains a future ADR; the TUI's in-turn steering
+is [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md)). On a session
+that is not running, `--steer` is a plain resume. If the stop sequence
+times out, steer errors and suggests `session stop --kill`; it never
+SIGKILLs on its own. `--steer` composes with `-B`: redirect, then
+re-detach.
+
+wasm behavior: `-B` is **native only** — the browser build has no
+`fork(2)` and fails with a clean error
+(`tny: --background is not available in the browser build`, exit 1) before
+any backend work.
 
 ## Provider-specific flags
 

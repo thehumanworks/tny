@@ -68,6 +68,8 @@ typedef struct tny_ctx {
     char *codex_ws;
     char *codex_bin;
     char *ws_token_file;
+    bool  no_host_registry; /* background ask child: never publish a spawned
+                             * host as an attach target (docs/adr/0031) */
     /* remote tool runtime (core/ssh.c, docs/adr/0022): when ssh_host is set
      * every workspace tool runs on that host over one ControlMaster */
     char *ssh_host;        /* user@host or [v6], NULL = local tools */

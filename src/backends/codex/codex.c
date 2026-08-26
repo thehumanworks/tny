@@ -148,8 +148,11 @@ static int cx_connect(tny_backend *b, char *errbuf, size_t errlen) {
         return -1;
     }
     /* the host is fully up: publish it so one-shot runs attach instead of
-     * spawning their own (best effort; a failed write just costs them that) */
-    if (o->child > 0 && cx_registry_write(o->ws_url, o->child) == 0)
+     * spawning their own (best effort; a failed write just costs them that).
+     * Background children keep quiet: an invisible process must not become
+     * the foreground attach target (docs/adr/0031 decision 8). */
+    if (o->child > 0 && !o->ctx->no_host_registry &&
+        cx_registry_write(o->ws_url, o->child) == 0)
         o->wrote_registry = true;
     return 0;
 }

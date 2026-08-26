@@ -214,6 +214,8 @@ jobs:
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
             python3 tests/integration/test_extension_capabilities.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_extension_contract.py
+          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
+            python3 tests/integration/test_background.py
           make wasm-size-check
 
       - name: Browser smoke (xterm.js page runs the artifact)

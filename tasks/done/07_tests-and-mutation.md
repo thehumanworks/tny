@@ -10,10 +10,23 @@ tests; this task is the cross-cutting suite and the mutation run.
     valid 16-hex id; poll `session.json` until `status:"done"`; assert the
     answer is in the transcript and `task.log` has the tool trace.
   - **JSON shape**: `-B --json` object has `kind`, `session_id`, `pid`.
-  - **Stale pid**: kill the child mid-run; `tny session <id>` reports
-    running-but-stale; lock is released (flock) so `--resume` works.
+  - **Result parity**: for a host-backend (stub) run, the stored `result`
+    object equals what foreground `--json` prints for the same fixture —
+    byte-for-byte modulo timing fields. This is the core contract.
+  - **Stale detection**: `kill -9` the child mid-run; lock self-releases;
+    `tny session <id>` reports running-but-stale; `--resume` works.
   - **Lock contention**: `--resume` during a live run fails with the
     documented message and exit 1.
+  - **Stop**: `tny session stop` mid-stream → `interrupted`, partials
+    preserved, spawned stub host dead (group signal), lock free.
+    `stop --kill` on a SIGTERM-ignoring stub → terminal status written by
+    stop; no orphans.
+  - **Steer fidelity per backend** (the 04c obligation): interrupt a live
+    turn with `--resume --steer` against native, codex-spawned,
+    codex-attached, cursor, and ACP stubs — assert the steered follow-up
+    sees prior conversation context and the transcript shows
+    partial + interrupt + new prompt. Steer on a wedged child errors with
+    the `--kill` suggestion without killing.
   - **Detach hygiene**: child survives parent's terminal/pgroup teardown
     (spawn under a setsid wrapper, kill the group, child completes).
   - **No orphans**: after `done`, no spawned host processes remain

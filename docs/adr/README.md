@@ -36,3 +36,4 @@ these as `docs/adr/NNNN`.
 | [0028](0028-extension-parity-contract.md) | Extension parity is capability-scoped; one versioned vocabulary, immutable provider matrix, deterministic folding, and explicit unsupported states govern all lanes |
 | [0029](0029-named-acp-agent-profiles.md) | Reusable ACP commands resolve as `acp:NAME`; requested models are applied through advertised session config options before the first prompt |
 | [0030](0030-settings-schema-and-acp-map.md) | Publish a settings JSON Schema; provider/model/effort/fast become user defaults; canonical ACP profiles use `acp.NAME` and `acp@NAME` with legacy compatibility |
+| [0031](0031-background-ask.md) | `tny ask -B` detaches the turn into a forked child keyed by the session id; flock is truth, pid file is control, session.json is the record; `session stop` signals the group, `--resume --steer` is interrupt-and-redirect |

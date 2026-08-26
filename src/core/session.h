@@ -5,6 +5,7 @@
 #ifndef TNY_SESSION_H
 #define TNY_SESSION_H
 
+#include <sys/types.h>
 #include "core/config.h"
 
 typedef struct {
@@ -27,6 +28,7 @@ typedef struct {
     char *extension_previous_session_id;
     session_mem_result *mem_results; /* large results in ephemeral mode */
     int n_mem_results;
+    int lock_fd;           /* <dir>/lock flock fd, -1 when not held */
 } tny_session_state;
 
 /* Create a fresh session for this workspace (not yet saved). */
@@ -88,6 +90,42 @@ int  session_message_count(tny_session_state *s);
 /* Index of first message the model should see verbatim + summary text. */
 int  session_compact_boundary(tny_session_state *s, const char **summary);
 
+/* Runtime status for background tasks (docs/adr/0031). Top-level fields
+ * `status` ("running"|"done"|"error"|"interrupted"), `exit_code` and
+ * `result` (the exact object foreground `ask --json` would have printed).
+ * Old sessions simply lack all of them. */
+void session_set_status_running(tny_session_state *s);
+/* result_json is a serialized JSON object or NULL; a value that fails to
+ * parse is dropped rather than corrupting the doc. */
+void session_set_status_finished(tny_session_state *s, const char *status,
+                                 int exit_code, const char *result_json);
+const char *session_status(tny_session_state *s); /* NULL if absent */
+
+/* Writer lock: flock(LOCK_EX|LOCK_NB) on <dir>/lock, held for the duration
+ * of a turn. The lock lives on the open file description, so a forked child
+ * inherits it and the parent exiting does not release it. 0 ok (idempotent
+ * when already held), -1 when another process holds it. */
+int  session_lock_acquire(tny_session_state *s);
+void session_lock_release(tny_session_state *s); /* also runs in session_close */
+/* Reader liveness probe (no session open): true while some process holds
+ * the writer lock. Missing lock file means not running. */
+bool session_is_running(tny_ctx *ctx, const char *id);
+
+/* <dir>/pid is the control channel for `session stop` — liveness is always
+ * the lock probe, never kill(pid,0). */
+int   session_write_pid(tny_session_state *s, pid_t pid);
+pid_t session_read_pid(tny_ctx *ctx, const char *id); /* -1 absent/garbage */
+
+/* Stop sequence (docs/adr/0031 decisions 6, 7a): group-SIGTERM the holder,
+ * bounded wait for the flock to free (~5 s; TNY_STOP_TIMEOUT_MS overrides,
+ * tests use it). force_kill escalates to group-SIGKILL and writes the
+ * terminal status ("interrupted", 137) on the child's behalf — the only
+ * non-child terminal write. Returns 0 stopped, 1 was not running (caller
+ * no-ops), 2 timed out and still running (suggest --kill), -1 error with
+ * err filled. */
+int session_stop(tny_ctx *ctx, const char *id, bool force_kill,
+                 char *err, size_t errsz);
+
 /* Recovery checkpoint. */
 void  session_recovery_write(tny_session_state *s, const char *partial);
 char *session_recovery_read(tny_session_state *s);
@@ -96,6 +134,8 @@ void  session_recovery_clear(tny_session_state *s);
 /* Listing. */
 typedef struct {
     char *id, *title, *updated, *backend, *model, *workspace;
+    char *status;  /* stored status field; NULL for pre-0031 sessions */
+    bool running;  /* live writer-lock probe at list time */
     int turns;
 } session_meta;
 

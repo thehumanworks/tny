@@ -109,7 +109,13 @@ static const char *ask_help =
 "  --image PATH         Attach an image file; repeatable\n"
 "  --output-schema X    Constrain the final answer to a JSON Schema (file\n"
 "                       path or inline JSON; openai provider only)\n"
+"  -B, --background     Detach: print the session id, run the turn in a\n"
+"                       forked child; answer lands in the session `result`\n"
+"                       (native only; the browser build errors, docs/adr/0031)\n"
 "  --resume <last|id>   Continue the latest workspace session or an id\n"
+"                       (fails while a background turn holds the session)\n"
+"  --steer              With --resume on a running session: interrupt it and\n"
+"                       redirect with TEXT (pending tool work is abandoned)\n"
 "  --continue-recovery  Replay the interrupted response before this turn\n"
 "  --ephemeral          Keep conversation/session artifacts in memory only\n"
 "  --no-save            Compatibility alias for --ephemeral\n"
@@ -127,6 +133,8 @@ static const char *ask_help =
 "  printf 'summarize src/\\n' | tny ask --stdin\n"
 "  tny ask --json --ephemeral \"list the public CLI\"\n"
 "  tny ask --resume last \"now add tests\"\n"
+"  id=$(tny ask -B \"audit the Makefile\")   # detached; `tny session $id` to read\n"
+"  tny ask --resume $id --steer \"drop that — check the tests instead\"\n"
 "  tny ask --output-schema schema.json \"extract the TODOs as JSON\"\n"
 "  tny --provider cursor ask --model composer-2 \"find the login bug\"\n";
 
@@ -141,13 +149,18 @@ static const char *sessions_help =
 
 static const char *session_help =
 "Usage: tny session <last|id> [--json]\n"
+"       tny session stop <id> [--kill]\n"
 "       tny session recover <id>\n"
 "\n"
-"Inspect one saved session, or copy a recoverable corrupt session.\n"
+"Inspect one saved session, stop a running background task, or copy a\n"
+"recoverable corrupt session. `stop` SIGTERMs the task's process group\n"
+"(spawned hosts included) and the session finalizes status \"interrupted\";\n"
+"--kill escalates to SIGKILL if the task ignores SIGTERM (docs/adr/0031).\n"
 "\n"
 "Examples:\n"
 "  tny session last\n"
-"  tny session 4f2a1c90aa317b22 --json\n";
+"  tny session 4f2a1c90aa317b22 --json\n"
+"  tny session stop 4f2a1c90aa317b22\n";
 
 static const char *workspace_help =
 "Usage: tny workspace list|add|remove|clear [DIR] [--json]\n"

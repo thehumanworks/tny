@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tny ask -B — background one-shots</title>
+<style>
+  .viz-root, :root {
+    color-scheme: light;
+    --page:           #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;  /* parent process */
+    --series-2:       #eb6834;  /* child process  */
+    --status-good:    #0ca30c;
+    --status-warn:    #fab219;
+    --status-serious: #ec835a;
+    --status-crit:    #d03b3b;
+    --code-bg:        #f0efec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --page:           #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --series-2:       #d95926;
+      --code-bg:        #262624;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--text-primary);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.02em; }
+  h1 code { font-size: 24px; }
+  h2 { font-size: 17px; margin: 44px 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--text-secondary); margin: 0 0 16px; }
+  .kicker { color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 2px; }
+  code, pre {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px;
+    background: var(--code-bg); border-radius: 5px; padding: 1px 5px;
+  }
+  pre { padding: 12px 14px; overflow-x: auto; line-height: 1.6; }
+  pre code { background: none; padding: 0; }
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px 20px; margin-top: 12px;
+  }
+  .principle {
+    border-left: 3px solid var(--series-1); padding: 10px 16px; margin: 18px 0 0;
+    background: var(--surface-1); border-radius: 0 10px 10px 0;
+    font-size: 16px;
+  }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 18px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+  .tile .v { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; }
+  .tile .l { color: var(--text-secondary); font-size: 13px; margin-top: 2px; }
+  @media (max-width: 700px) { .tiles { grid-template-columns: 1fr; } }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th { text-align: left; color: var(--text-muted); font-weight: 500; font-size: 12px;
+       text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 10px 6px 0; }
+  td { padding: 8px 10px 8px 0; border-top: 1px solid var(--grid); vertical-align: top; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 550; white-space: nowrap; }
+  .chip .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .legend { display: flex; gap: 18px; font-size: 13px; color: var(--text-secondary); margin: 2px 0 8px; }
+  .legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  [data-tip] { cursor: help; }
+  span[data-tip], .u { text-decoration: underline dotted var(--text-muted); text-underline-offset: 3px; }
+  #tt {
+    position: fixed; z-index: 10; max-width: 360px; pointer-events: none;
+    background: var(--text-primary); color: var(--page);
+    border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.5;
+    opacity: 0; transition: opacity .08s; box-shadow: 0 4px 18px rgba(0,0,0,.25);
+  }
+  #tt code { background: rgba(128,128,128,.35); color: inherit; }
+  #tt.on { opacity: 1; }
+  .tree { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; line-height: 1.9; }
+  .tree .b { color: var(--text-muted); }
+  .fsm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .state { border: 1.5px solid; border-radius: 999px; padding: 5px 14px; font-size: 13px; font-weight: 550;
+           background: var(--surface-1); display: inline-flex; gap: 7px; align-items: center; }
+  .arrow { color: var(--text-muted); font-size: 15px; }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; font-weight: 550; font-size: 14px; padding: 6px 0; color: var(--text-secondary); }
+  summary:hover { color: var(--text-primary); }
+  .good  { color: var(--status-good); }
+  .crit  { color: var(--status-crit); }
+  .note  { font-size: 13px; color: var(--text-muted); }
+  .svgwrap { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px 12px 6px; margin-top: 10px; }
+  svg text { font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--text-secondary); }
+  svg .lane-label { font-weight: 600; fill: var(--text-primary); }
+  svg .tick { fill: var(--text-muted); font-size: 11px; }
+  svg rect[data-tip]:hover { filter: brightness(1.12); }
+  /* equivalence panel */
+  .equiv { display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: center; margin-top: 12px; }
+  .equiv pre { margin: 0; }
+  .equiv .eq { font-size: 26px; color: var(--text-muted); text-align: center; }
+  @media (max-width: 700px) { .equiv { grid-template-columns: 1fr; } .equiv .eq { transform: rotate(90deg); } }
+  /* trio */
+  .trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
+  @media (max-width: 700px) { .trio { grid-template-columns: 1fr; } }
+  .trio .card { margin-top: 0; }
+  .trio .role { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+  .trio .name { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 14px; font-weight: 600; margin: 2px 0 6px; }
+  .trio p { margin: 0; font-size: 13px; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<div id="tt" role="tooltip"></div>
+<main class="viz-root">
+
+  <p class="kicker">tny · planned feature · tasks/todo/01–07 · adr 0031</p>
+  <h1><code>tny ask -B</code> — fire a turn, get an ID, walk away</h1>
+  <p class="sub"><span class="note">Dotted-underlined things have tooltips — hover or tab to them.</span></p>
+
+  <div class="principle">
+    <b>One sentence:</b> <code>-B</code> runs the <i>identical</i> ask turn and defers its output into the session instead of stdout.
+    Nothing else changes — same backends, same permissions, same session commands.
+  </div>
+
+  <div class="card">
+    <div class="equiv">
+      <pre><code><span style="color:var(--text-muted)"># foreground</span>
+tny ask --json "review this" \
+  &gt; answer.json</code></pre>
+      <div class="eq" data-tip="The stored <code>result</code> is byte-for-byte the JSON object the foreground command would have printed — built from the same event stream. This is what makes <code>-B</code> work identically for <b>codex and cursor</b>, whose transcripts store only a resume pointer: the answer is captured at the event layer, not the transcript layer.">≡</div>
+      <pre><code><span style="color:var(--text-muted)"># background</span>
+id=$(tny ask -B "review this")
+tny session $id --json | jq .result</code></pre>
+    </div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile" data-tip="The parent parses flags, reads the prompt, takes the session lock, writes <code>session.json</code> with <code>status:&quot;running&quot;</code>, forks, prints the id, and exits. It never contacts a backend — connecting happens in the child.">
+      <div class="v">~10 ms</div><div class="l">until your shell is free and the ID is printed</div>
+    </div>
+    <div class="tile" data-tip="One <code>fork()</code> + <code>setsid()</code>. No tmux server, no daemon, no pty. The child reparents to init and survives your terminal closing — and because <code>setsid</code> makes it a process-group leader, <code>tny session stop</code> can later signal it <i>and every host it spawned</i> in one shot.">
+      <div class="v">1 process</div><div class="l">a plain detached child — no tmux, no daemon</div>
+    </div>
+    <div class="tile" data-tip="A background task IS a tny session — same 16-hex id from <code>gen_id()</code>, same directory, same commands. It gains <code>status</code>, <code>exit_code</code>, <code>result</code>, a <code>task.log</code>, a lock, and two new verbs: <code>tny session stop</code> and <code>--resume --steer</code>.">
+      <div class="v">0 new concepts</div><div class="l">the ID is a session — every existing command works</div>
+    </div>
+  </div>
+
+  <h2>Is it tmux? No.</h2>
+  <p class="sub">tmux keeps a live terminal you re-attach to. <code>-B</code> keeps a <b>result</b> you read from disk.</p>
+  <div class="card" style="padding: 8px 20px 14px;">
+    <table>
+      <tr><th style="width:32%"></th><th>tmux session</th><th><code>tny ask -B</code></th></tr>
+      <tr><td class="note">What runs</td>
+          <td>a shell inside a pty, under a tmux server</td>
+          <td>one forked <code>tny</code> child, <span data-tip="<code>setsid()</code> detaches it from your terminal and process group — a closed ssh session or the TUI's process-group kills can't touch it."><u>setsid-detached</u></span>, no terminal at all</td></tr>
+      <tr><td class="note">How you "look at it"</td>
+          <td>re-attach to a live screen</td>
+          <td>read files: <code>tny session &lt;id&gt;</code> shows status, live partials, then the result; <code>task.log</code> has the streaming tool trace</td></tr>
+      <tr><td class="note">Interacting mid-run</td>
+          <td>type into it</td>
+          <td><code>stop</code> it, or take over: <span data-tip="<code>tny ask --resume $id --steer &quot;…&quot;</code> = interrupt the running turn (the stop sequence), then resume with your new prompt, partial work folded into the transcript. Explicit by design — bare <code>--resume</code> still refuses, so a badly-timed poll can never silently cancel a turn."><code>--resume --steer</code> interrupts &amp; redirects</span></td></tr>
+      <tr><td class="note">When it ends</td>
+          <td>session lingers until killed</td>
+          <td>child exits on its own; the session keeps <code>status: done</code> + the full <code>result</code> forever</td></tr>
+    </table>
+  </div>
+
+  <h2>Three artifacts, one job each</h2>
+  <p class="sub">The design separates <b>truth</b>, <b>control</b>, and <b>record</b> — so no artifact ever has to lie.</p>
+  <div class="trio">
+    <div class="card" data-tip="Held exclusively (<code>flock</code>) by whichever process is running a turn — the background child takes it <i>before</i> the fork and inherits it across. The kernel releases it the instant the holder dies, however it dies. Readers check liveness with a non-blocking shared probe: probe succeeds while status says running ⇒ the child crashed. Immune to PID reuse — no <code>kill(pid,0)</code> guessing.">
+      <div class="role">truth</div><div class="name">lock</div>
+      <p>Is a turn running <i>right now</i>? The kernel answers — self-releasing on any death, no stale-lock cleanup, ever.</p>
+    </div>
+    <div class="card" data-tip="Written by the child as its first act after <code>setsid()</code>. Only used as the signal target for <code>tny session stop</code> — never for liveness (that's the lock's job). <code>stop</code> signals the process <i>group</i> (<code>kill(-pid)</code>), and only while the lock probe confirms a live holder, guarding against recycled pids.">
+      <div class="role">control</div><div class="name">pid</div>
+      <p>Where to send <code>stop</code>. Group-signalled, so spawned hosts die with the child — no orphans by construction.</p>
+    </div>
+    <div class="card" data-tip="Atomic-rename writes (<code>file_write_atomic</code> — already in tny), so a poller can never read torn JSON. The child is the <i>sole writer</i> after the fork; the parent's single save happens before it. Gains <code>status</code>, <code>exit_code</code>, and <code>result</code> on top of the normal transcript.">
+      <div class="role">record</div><div class="name">session.json</div>
+      <p>What happened — durable. Status, exit code, and the <code>result</code> object that <i>is</i> the answer.</p>
+    </div>
+  </div>
+
+  <h2>Lifecycle</h2>
+  <p class="sub">Two processes, one session directory. Hover the segments. <span class="note">Time axis not to scale.</span></p>
+  <div class="svgwrap">
+    <div class="legend">
+      <span><span class="sw" style="background:var(--series-1)"></span>parent — your shell blocks only on this</span>
+      <span><span class="sw" style="background:var(--series-2)"></span>child — detached, sole writer, keeps working</span>
+    </div>
+    <svg viewBox="0 0 800 190" width="100%" role="img" aria-label="Timeline: the parent parses the prompt, acquires the session lock, saves the session as running, forks, prints the id and exits within milliseconds; the detached child writes its pid, connects to the backend, runs the turn for seconds to minutes, then finalizes the session with the result and releases the lock.">
+      <line x1="120" y1="18" x2="120" y2="140" stroke="var(--grid)"/>
+      <line x1="330" y1="18" x2="330" y2="140" stroke="var(--grid)"/>
+      <line x1="780" y1="18" x2="780" y2="140" stroke="var(--grid)"/>
+      <!-- parent lane -->
+      <text x="0" y="47" class="lane-label">parent</text>
+      <rect x="120" y="34" width="56" height="20" rx="4" fill="var(--series-1)"
+            tabindex="0" data-tip="<b>Parse + prompt</b><br>Flags parsed; prompt read fully from argv or stdin <i>before</i> detaching — stdin won't exist afterwards. <code>git diff | tny ask -B --stdin &quot;review&quot;</code> works."/>
+      <rect x="178" y="34" width="52" height="20" rx="4" fill="var(--series-1)"
+            tabindex="0" data-tip="<b>Acquire lock</b><br>Exclusive <code>flock</code>, non-blocking, taken <i>before</i> the fork. If this is <code>-B --resume</code> on a session that's already running, it fails right here — before any process is spawned."/>
+      <rect x="232" y="34" width="48" height="20" rx="4" fill="var(--series-1)"
+            tabindex="0" data-tip="<b>Save session</b><br>The parent's single write: <code>session.json</code> with <code>status:&quot;running&quot;</code>. The id is findable on disk before it's ever printed — read-after-launch cannot race."/>
+      <rect x="282" y="34" width="46" height="20" rx="4" fill="var(--series-1)"
+            tabindex="0" data-tip="<b>fork → print id → exit 0</b><br><code>fflush(NULL)</code> first (or the child replays buffered stdio into the log). Plain mode prints the bare id; <code>--json</code> prints <code>{&quot;kind&quot;:&quot;ask_background&quot;,&quot;session_id&quot;:…,&quot;pid&quot;:…}</code>. Parent exit code covers the <i>launch only</i> — turn failures live in <code>status</code>."/>
+      <text x="336" y="48" class="tick">⏻ exits — lock survives via the child's inherited fd</text>
+      <!-- child lane -->
+      <text x="0" y="103" class="lane-label">child</text>
+      <rect x="330" y="90" width="62" height="20" rx="4" fill="var(--series-2)"
+            tabindex="0" data-tip="<b>setsid + pid + redirect</b><br>New process session and group (survives terminal close; makes group-kill possible for <code>stop</code>). Writes <code>&lt;dir&gt;/pid</code>. stdin ← <code>/dev/null</code>; stdout+stderr → <code>task.log</code>."/>
+      <rect x="394" y="90" width="76" height="20" rx="4" fill="var(--series-2)"
+            tabindex="0" data-tip="<b>Connect backend</b><br>Same as foreground: native loop, or attach/spawn codex, cursor bridge, ACP. A spawned codex host is <i>not</i> published to the attach registry — an invisible process must never become a foreground attach target."/>
+      <rect x="472" y="90" width="240" height="20" rx="4" fill="var(--series-2)"
+            tabindex="0" data-tip="<b>The turn runs</b> (seconds–minutes)<br>Model streams, tools execute. Streamed text is checkpointed into the session every few seconds — reading mid-run shows real progress. Permissions never block: yolo auto-approves, ask-mode denies and ends the turn. SIGTERM feeds the same cancel path as Ctrl-C in the foreground."/>
+      <rect x="714" y="90" width="66" height="20" rx="4" fill="var(--series-2)"
+            tabindex="0" data-tip="<b>Finalize + unlock</b><br>Every exit path — success, connect failure, dead host, error — writes <code>status</code> (<code>done/error/interrupted</code>), <code>exit_code</code>, and the <code>result</code> object, then releases the lock. Spawned hosts are shut down."/>
+      <line x1="0" y1="140" x2="800" y2="140" stroke="var(--baseline)"/>
+      <text x="120" y="158" class="tick">0</text>
+      <text x="316" y="158" class="tick">~10 ms</text>
+      <text x="700" y="158" class="tick">seconds – minutes</text>
+      <text x="120" y="180" class="tick">segment details are in the tooltips — hover any bar</text>
+    </svg>
+  </div>
+
+  <h2>Where it lives on disk</h2>
+  <div class="card tree">
+    <div><span class="b">~/.tny/sessions/</span><span data-tip="Sessions are scoped per workspace (a hash of the cwd). Resolve the id from the directory you launched in — or <code>tny sessions --all</code> to cross workspaces."><u>&lt;ws-hash&gt;</u></span><span class="b">/</span>3f9a1c2e77b04d58<span class="b">/</span></div>
+    <div>├── <span data-tip="The durable record: transcript, <code>status</code>, <code>exit_code</code>, and <code>result</code> — the exact object foreground <code>--json</code> would have printed. Atomic-rename writes; the child is the sole writer post-fork."><u>session.json</u></span> &nbsp;<span class="b">← status, result, transcript</span></div>
+    <div>├── <span data-tip="stdout + stderr of the detached child: the streamed answer and the ⏺ tool trace. <code>tail -f</code> it for a live view."><u>task.log</u></span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="b">← live stream + tool trace</span></div>
+    <div>├── <span data-tip="Signal target for <code>tny session stop</code>. Control only — liveness comes from the lock probe, so a recycled pid can't fool a reader."><u>pid</u></span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="b">← stop target</span></div>
+    <div>└── <span data-tip="Exclusive <code>flock</code> held for the duration of any turn — background or foreground. Self-releases on any death. Readers probe it (shared, non-blocking) to answer 'is this actually running?'"><u>lock</u></span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="b">← one writer, kernel-enforced</span></div>
+  </div>
+
+  <h2>Session states</h2>
+  <div class="fsm">
+    <span class="state" style="border-color:var(--series-1)" data-tip="Written before the parent even prints the id. Lock held, partials accumulating. A just-forked child may not have written <code>pid</code> yet — readers treat running-with-no-pid as 'starting' (a milliseconds-wide window).">⏵ running</span>
+    <span class="arrow">→</span>
+    <span class="state" style="border-color:var(--status-good)" data-tip="Turn completed; <code>exit_code: 0</code>; <code>result</code> holds the answer. Now a perfectly normal session — resume it, list it, read it.">✓ done</span>
+    <span class="arrow">/</span>
+    <span class="state" style="border-color:var(--status-crit)" data-tip="Connect failure, engine error, or an attached host that died mid-run (e.g. its owning TUI exited). The reason is in <code>result.error</code> and <code>task.log</code> — never a silent hang.">✗ error</span>
+    <span class="arrow">/</span>
+    <span class="state" style="border-color:var(--status-warn)" data-tip="<code>tny session stop</code> or a signal. The engine cancelled cleanly; whatever streamed before the stop is preserved in <code>result</code>. After <code>stop --kill</code>, the stop command itself writes this status once the lock frees.">⏸ interrupted</span>
+    <span class="arrow" style="margin-left:8px">⤷</span>
+    <span class="state" style="border-color:var(--status-serious)" data-tip="Derived, never stored: <code>status:&quot;running&quot;</code> but the lock probe succeeds — the child died without finalizing (kill&nbsp;-9, reboot). The flock is already free, so <code>--resume</code> just works.">⚠ stale</span>
+  </div>
+  <p class="note" style="margin-top:10px">"stale" is computed by readers from <b>status ⨯ lock probe</b> — a crashed child can't update its own status, but it can't keep holding a kernel lock either. The disagreement <i>is</i> the detection.</p>
+
+  <h2>The agent playbook</h2>
+  <p class="sub">What a script or another agent driving the tny CLI does — and exactly what it gets back.</p>
+
+  <div class="card" style="padding-top:14px">
+    <pre><code><span style="color:var(--text-muted)"># 1 · launch — returns in ~10 ms</span>
+id=$(tny ask -B "audit the Makefile for missing deps")
+
+<span style="color:var(--text-muted)"># 2 · poll until finished</span>
+tny session $id --json | jq -r .status        <span style="color:var(--text-muted)"># running → done</span>
+
+<span style="color:var(--text-muted)"># 3 · read the answer (works for codex/cursor too) — or watch live</span>
+tny session $id --json | jq .result
+tail -f ~/.tny/sessions/*/$id/task.log
+
+<span style="color:var(--text-muted)"># 4 · hung or no longer needed? end it cleanly</span>
+tny session stop $id                          <span style="color:var(--text-muted)"># SIGTERM the group → interrupted</span>
+
+<span style="color:var(--text-muted)"># 5 · changed your mind mid-run? interrupt &amp; redirect (re-detach with -B)</span>
+tny ask -B --resume $id --steer "drop that — check the tests instead"
+
+<span style="color:var(--text-muted)"># 6 · continue the conversation (after it ends)</span>
+tny ask --resume $id "now fix what you found"</code></pre>
+  </div>
+
+  <div class="card" style="padding: 8px 20px 14px;">
+    <table>
+      <tr><th style="width:34%">You do</th><th>While <span class="chip"><span class="dot" style="background:var(--series-1)"></span>running</span></th><th>After <span class="chip"><span class="dot" style="background:var(--status-good)"></span>done</span></th></tr>
+      <tr><td><code>tny session $id</code></td>
+          <td><span class="good">✓</span> <code>running (pid N)</code> + <span data-tip="The child checkpoints streamed text every few seconds via the existing recovery machinery. The display says 'partial output: N bytes (live)' — it does not misadvertise <code>--continue-recovery</code> while the run is alive."><u>live partial output</u></span></td>
+          <td><span class="good">✓</span> status, exit code, the <code>result</code> answer</td></tr>
+      <tr><td><code>tny session $id --json</code></td>
+          <td><span class="good">✓</span> raw doc incl. <code>status</code></td>
+          <td><span class="good">✓</span> same + <code>exit_code</code>, <code>result</code></td></tr>
+      <tr><td><code>tny sessions</code></td>
+          <td><span class="good">✓</span> listed with a <code>⏵ running</code> marker</td>
+          <td><span class="good">✓</span> normal listing</td></tr>
+      <tr><td><code>tny session stop $id</code></td>
+          <td><span class="good">✓</span> group-SIGTERM → clean cancel → <code>interrupted</code>; <span data-tip="For a child that ignores SIGTERM or is wedged in a way the cancel probe can't reach: <code>stop --kill</code> SIGKILLs the group, waits for the flock to free, then writes the terminal status itself — the only case where a non-child writes one."><u>--kill escalates</u></span></td>
+          <td>clean no-op (reports final status)</td></tr>
+      <tr><td><code>tny ask --resume $id "…"</code></td>
+          <td><span class="crit">✗</span> exits 1: <code>session $id is still running (pid N)</code> — <span data-tip="A guardrail, not a limitation: taking over must be explicit (<code>--steer</code>), or a badly-timed poll would silently cancel a long turn. The check happens at lock-acquire, before anything is spawned."><u>why?</u></span></td>
+          <td><span class="good">✓</span> continues the same conversation</td></tr>
+      <tr><td><code>tny ask --resume $id --steer "…"</code></td>
+          <td><span class="good">✓</span> interrupt &amp; redirect: stop sequence → resume with the new prompt, <span data-tip="The checkpointed partial is folded into the transcript (the <code>--continue-recovery</code> machinery), so the model sees what it was doing before the interrupt. Honest caveat: pending tool calls are <b>abandoned</b> — this is 'drop that, do this instead', not a live steer. If the child ignores SIGTERM, steer errors and suggests <code>stop --kill</code>; it never SIGKILLs on its own. Composes with <code>-B</code> to re-detach."><u>partial work kept</u></span></td>
+          <td><span class="good">✓</span> plain resume (<code>--steer</code> is a no-op)</td></tr>
+      <tr><td><code>tny resume $id</code> (TUI)</td>
+          <td><span class="crit">✗</span> same lock, same message</td>
+          <td><span class="good">✓</span> opens interactively</td></tr>
+      <tr><td><code>kill -9</code> the child</td>
+          <td><span class="good">✓</span> tolerated: lock self-releases, session reads <span class="chip"><span class="dot" style="background:var(--status-serious)"></span>⚠ stale</span> — but prefer <code>stop</code>, which also reaps spawned hosts</td>
+          <td>—</td></tr>
+      <tr><td>steer <i>without</i> losing in-flight work</td>
+          <td><span class="crit">✗</span> <span data-tip="A true mid-turn steer injects text into the <i>live</i> turn — pending tools finish, the model keeps its momentum. The engine already does this for the TUI (ADR-0011); a detached child just needs an IPC channel (control socket via <code>tny_poll</code>). That transport is the one thing deferred — <code>--steer</code> covers 'drop that, do this instead' today."><u>the one v2 item</u></span></td>
+          <td>n/a</td></tr>
+    </table>
+  </div>
+
+  <h2>Guarantees an agent can rely on</h2>
+  <div class="card" style="padding: 8px 20px 14px;">
+    <table>
+      <tr><td style="border-top:none; width:38%"><b>The ID never races the disk</b></td>
+          <td style="border-top:none">printed only after <code>session.json</code> exists with <code>status:"running"</code> — <code>tny session $id</code> works the instant the shell returns</td></tr>
+      <tr><td><b>The result is the foreground output</b></td>
+          <td><code>result</code> ≡ what <code>ask --json</code> would have printed — captured at the event layer, so it holds for codex/cursor/ACP whose transcripts store only a resume pointer</td></tr>
+      <tr><td><b>Liveness cannot be fooled</b></td>
+          <td>truth is a kernel <code>flock</code>, not a pid: self-releases on any death, immune to PID reuse, zero cleanup code</td></tr>
+      <tr><td><b>Every ending is recorded</b></td>
+          <td>all exit paths finalize <code>status</code> + <code>exit_code</code> + <code>result</code>; the one uncatchable case (kill&nbsp;-9) is still <i>detectable</i> as stale, and <code>stop --kill</code> even closes that gap by writing the status itself</td></tr>
+      <tr><td><b>No orphans, no hijacks</b></td>
+          <td>hosts the child spawned share its process group and die with it on <code>stop</code>; hosts it merely attached to are never killed; the child never registers itself as an attach target for foreground tny</td></tr>
+      <tr><td><b>Never wedges on approvals</b></td>
+          <td>same as foreground ask: <span data-tip="Default permission mode is yolo (ADR-0001) — auto-approve. Explicit <code>--auto</code>/ask mode denies unresolvable requests and ends the turn with exit 2, recorded in <code>result</code>. A background task can fail; it cannot hang on a question.">yolo approves, ask-mode denies</span> — a background task can end badly, but can't wait on a human</td></tr>
+    </table>
+  </div>
+
+  <details>
+    <summary>Fine print &amp; known limits</summary>
+    <div class="card">
+      <ul style="margin:4px 0; padding-left:20px; color:var(--text-secondary)">
+        <li><b>Parent exit code covers the launch only.</b> <code>$?</code> is 0 once the child is off; the turn's outcome lives exclusively in <code>status</code>/<code>result.exit_code</code>. Scripts must poll, not trust <code>$?</code>.</li>
+        <li><b>flock is advisory</b> and unreliable on some network filesystems (NFS home dirs). Local <code>~/.tny</code> is the supported case.</li>
+        <li><b>The lock work also fixes a latent bug:</b> two concurrent <code>ask --resume</code> on one session can corrupt it <i>today</i>; the retrofit closes that for foreground and TUI paths too.</li>
+        <li><b>No <code>--timeout</code> in v1</b> — a hung turn holds <code>running</code> honestly (live pid, held lock); <code>stop</code> is the remedy. A watchdog flag is a natural v1.1.</li>
+        <li><b><code>--steer</code> abandons pending tool calls by design.</b> It is interrupt-and-redirect, not a live steer. Its fidelity is fixture-tested per backend — notably a spawned codex host dies with the group, so the steered resume rides on the host pointer plus codex's own on-disk session.</li>
+        <li><b>wasm / browser build:</b> no <code>fork(2)</code> — <code>-B</code> fails immediately with a clean error, enforced in wasm CI (ADR-0017 parity).</li>
+        <li><b><code>--ephemeral</code> is rejected</b> (nothing on disk for the id to point at). <b><code>--resume -B</code> composes</b> — background a follow-up turn; the pre-fork lock serializes it.</li>
+        <li><b>Recycled-pgid guard:</b> <code>stop</code> signals only while the lock probe confirms a live holder — it will not fire signals at a pid that has been reused.</li>
+      </ul>
+    </div>
+  </details>
+
+  <p class="note" style="margin-top:36px">Plan: <code>tasks/todo/01…07</code> (incl. <code>04c_session-stop-and-steer.md</code>) · contract: <code>docs/adr/0031-background-ask.md</code> · truth = lock, control = pid, record = session.json</p>
+</main>
+
+<script>
+  const tt = document.getElementById('tt');
+  let anchor = null;
+  function show(el) {
+    anchor = el;
+    tt.innerHTML = el.getAttribute('data-tip');
+    tt.classList.add('on');
+    place(el);
+  }
+  function place(el) {
+    const r = el.getBoundingClientRect();
+    tt.style.left = '0px'; tt.style.top = '0px';
+    const w = tt.offsetWidth, h = tt.offsetHeight;
+    let x = r.left + r.width / 2 - w / 2;
+    x = Math.max(8, Math.min(x, innerWidth - w - 8));
+    let y = r.top - h - 10;
+    if (y < 8) y = r.bottom + 10;
+    tt.style.left = x + 'px'; tt.style.top = y + 'px';
+  }
+  function hide() { anchor = null; tt.classList.remove('on'); }
+  document.querySelectorAll('[data-tip]').forEach(el => {
+    el.addEventListener('mouseenter', () => show(el));
+    el.addEventListener('mouseleave', hide);
+    el.addEventListener('focus', () => show(el));
+    el.addEventListener('blur', hide);
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+  });
+  addEventListener('scroll', () => anchor && place(anchor), { passive: true });
+</script>
+</body>
+</html>

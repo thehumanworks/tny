@@ -55,8 +55,20 @@
 <pre><code>~/.tny/sessions/&lt;workspace-hash&gt;/&lt;id&gt;/
   session.json      # metadata, messages, tool steps (redacted)
   results/          # large tool-result blobs
-  recovery.json     # partial assistant text + last event offset</code></pre>
+  recovery.json     # partial assistant text + last event offset
+  lock              # flock target: a turn is running here
+  pid               # background child's pid — signal target for stop
+  task.log          # background child's stderr/stdout</code></pre>
 <p><code>session.json</code> never stores API keys or MCP header values.</p>
+<h2 id="status">Runtime status</h2>
+<p>Background one-shots (<code>tny ask -B</code>) add three fields to <code>session.json</code>: <code>status</code>, <code>exit_code</code>, and <code>result</code> — the exact JSON foreground <code>tny ask --json</code> would have printed. For host backends, whose transcripts hold only a resume pointer, <code>result</code> is how the answer is read back. Older sessions lack all three; readers treat absence as "not a background task".</p>
+<pre><code>running ──► done          # turn finished; exit_code + result stored
+        ──► error         # connect or engine failure; reason recorded
+        ──► interrupted   # stopped (session stop, steer takeover, signal)</code></pre>
+<p><strong>Stale</strong> is derived, never stored: <code>status:"running"</code> while the <code>lock</code> flock is free means the writer crashed. Listings mark running sessions, and <code>tny session &lt;id&gt;</code> reports <code>running (pid N)</code> or <code>running (stale — process gone)</code>.</p>
+<p><code>tny session stop &lt;id&gt;</code> signals the task's process group with SIGTERM: the turn cancels, spawned hosts die with the group, and the session finalizes <code>interrupted</code> with partial output preserved. <code>--kill</code> is the last resort for a wedged task.</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny session stop &lt;id&gt;</code></div><button type="button" data-copy="tny session stop &lt;id&gt;" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tny session stop &lt;id&gt; --kill</code></div><button type="button" data-copy="tny session stop &lt;id&gt; --kill" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
 <h2 id="hosts">Host mapping</h2>
 <p>Host backends store their own threads. tny keeps a thin local alias so <code>tny resume last</code> still works.</p>
 <table>
@@ -73,7 +85,7 @@
 <h2 id="recover">Recovery</h2>
 <p>Streaming text and tool progress persist continuously. <code>/continue</code> and <code>tny ask --resume last --continue-recovery</code> replay from <code>recovery.json</code>. <code>tny session recover &lt;id&gt;</code> copies a corrupt session. <code>tny doctor</code> prints the recover command when it can fix a file.</p>
 </article>
-    <aside class="toc"><p>on this page</p><a href="#id">Identity</a><a href="#disk">On disk</a><a href="#hosts">Host mapping</a><a href="#compact">Compaction</a><a href="#recover">Recovery</a></aside>
+    <aside class="toc"><p>on this page</p><a href="#id">Identity</a><a href="#disk">On disk</a><a href="#status">Runtime status</a><a href="#hosts">Host mapping</a><a href="#compact">Compaction</a><a href="#recover">Recovery</a></aside>
   </main>
 </div>
 <script src="../assets/site.js"></script>

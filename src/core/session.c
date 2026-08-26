@@ -5,6 +5,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <time.h>
+#include <unistd.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 
 static char *sessions_root(tny_ctx *ctx) {
@@ -31,6 +36,7 @@ static void put_str(tny_session_state *s, const char *k, const char *v) {
 tny_session_state *session_new(tny_ctx *ctx) {
     tny_session_state *s = calloc(1, sizeof *s);
     if (!s) return NULL;
+    s->lock_fd = -1;
     s->ctx = ctx;
     s->extension_start_reason = xstrdup("new");
     s->id = gen_id();
@@ -70,6 +76,7 @@ tny_session_state *session_open(tny_ctx *ctx, const char *id_or_last) {
     if (!doc) { free(id); free(dir); return NULL; }
     tny_session_state *s = calloc(1, sizeof *s);
     if (!s) { yyjson_doc_free(doc); free(id); free(dir); return NULL; }
+    s->lock_fd = -1;
     s->ctx = ctx;
     s->extension_start_reason = xstrdup("resume");
     s->id = id;
@@ -97,6 +104,7 @@ int session_save(tny_session_state *s) {
 
 void session_close(tny_session_state *s) {
     if (!s) return;
+    session_lock_release(s);
     free(s->id);
     free(s->dir);
     free(s->extension_start_reason);
@@ -205,6 +213,177 @@ void session_get_usage(tny_session_state *s, int64_t *in_tok, int64_t *out_tok) 
     yyjson_mut_val *u = yyjson_mut_obj_get(root_of(s), "usage");
     *in_tok = u ? yyjson_mut_get_int(yyjson_mut_obj_get(u, "in")) : 0;
     *out_tok = u ? yyjson_mut_get_int(yyjson_mut_obj_get(u, "out")) : 0;
+}
+
+/* ---- background status / writer lock / pid (docs/adr/0031) ---- */
+
+void session_set_status_running(tny_session_state *s) {
+    if (!s) return;
+    put_str(s, "status", "running");
+    /* a resumed finished session goes live again: drop the stale record */
+    yyjson_mut_obj_remove_key(root_of(s), "exit_code");
+    yyjson_mut_obj_remove_key(root_of(s), "result");
+}
+
+void session_set_status_finished(tny_session_state *s, const char *status,
+                                 int exit_code, const char *result_json) {
+    if (!s || !status) return;
+    put_str(s, "status", status);
+    yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "exit_code"),
+                       yyjson_mut_int(s->doc, exit_code));
+    if (!result_json) return;
+    yyjson_doc *r = jparse(result_json, strlen(result_json));
+    if (!r) return; /* unparseable result: store nothing, keep the doc sane */
+    yyjson_val *root = yyjson_doc_get_root(r);
+    if (yyjson_is_obj(root)) {
+        yyjson_mut_val *v = yyjson_val_mut_copy(s->doc, root);
+        if (v)
+            yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "result"), v);
+    }
+    yyjson_doc_free(r);
+}
+
+const char *session_status(tny_session_state *s) {
+    if (!s) return NULL;
+    yyjson_mut_val *v = yyjson_mut_obj_get(root_of(s), "status");
+    return v ? yyjson_mut_get_str(v) : NULL;
+}
+
+int session_lock_acquire(tny_session_state *s) {
+    if (!s || s->ctx->no_save) return 0;
+    if (s->lock_fd >= 0) return 0; /* already held by this state */
+    if (mkdir_p(s->dir) != 0) return -1;
+    char *file = path_join(s->dir, "lock");
+    /* O_CLOEXEC: spawned hosts must not inherit the writer lock — only the
+     * fork()ed background child (no exec) keeps it. */
+    int fd = open(file, O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+    free(file);
+    if (fd < 0) return -1;
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        close(fd);
+        return -1; /* another process is running a turn on this session */
+    }
+    s->lock_fd = fd;
+    return 0;
+}
+
+void session_lock_release(tny_session_state *s) {
+    if (!s || s->lock_fd < 0) return;
+    close(s->lock_fd); /* flock releases with the last fd of the description */
+    s->lock_fd = -1;
+}
+
+/* Shared probe for a session directory's writer lock. */
+static bool lock_dir_held(const char *dir) {
+    char *file = path_join(dir, "lock");
+    int fd = open(file, O_RDONLY | O_CLOEXEC);
+    free(file);
+    if (fd < 0) return false; /* never backgrounded / already cleaned */
+    bool held = flock(fd, LOCK_SH | LOCK_NB) != 0;
+    close(fd); /* success: close drops our shared lock immediately */
+    return held;
+}
+
+bool session_is_running(tny_ctx *ctx, const char *id) {
+    if (!ctx || !id || ctx->no_save) return false;
+    char *root = sessions_root(ctx);
+    char *dir = path_join(root, id);
+    free(root);
+    bool held = lock_dir_held(dir);
+    free(dir);
+    return held;
+}
+
+int session_write_pid(tny_session_state *s, pid_t pid) {
+    if (!s || s->ctx->no_save) return -1;
+    if (mkdir_p(s->dir) != 0) return -1;
+    char buf[32];
+    int n = snprintf(buf, sizeof buf, "%ld\n", (long)pid);
+    char *file = path_join(s->dir, "pid");
+    int rc = file_write_atomic(file, buf, (size_t)n);
+    free(file);
+    return rc;
+}
+
+pid_t session_read_pid(tny_ctx *ctx, const char *id) {
+    if (!ctx || !id) return -1;
+    char *root = sessions_root(ctx);
+    char *dir = path_join(root, id);
+    char *file = path_join(dir, "pid");
+    free(root);
+    free(dir);
+    size_t len = 0;
+    char *data = file_slurp(file, &len);
+    free(file);
+    if (!data) return -1;
+    char *end = NULL;
+    long v = strtol(data, &end, 10);
+    bool ok = end != data && v > 0 &&
+              (*end == 0 || *end == '\n' || *end == '\r');
+    free(data);
+    return ok ? (pid_t)v : -1;
+}
+
+/* Bounded wait for the writer lock to free. A plain sleep with no fds to
+ * watch, so this stays a nanosleep loop rather than tny_poll (which needs
+ * a pollable fd; docs/adr/0017's rule targets fd waits). */
+static bool stop_wait(tny_ctx *ctx, const char *id, int total_ms) {
+    int waited = 0;
+    for (;;) {
+        if (!session_is_running(ctx, id)) return true;
+        if (waited >= total_ms) return false;
+        struct timespec ts = {0, 100L * 1000000L};
+        nanosleep(&ts, NULL);
+        waited += 100;
+    }
+}
+
+int session_stop(tny_ctx *ctx, const char *id, bool force_kill,
+                 char *err, size_t errsz) {
+    if (err && errsz) err[0] = 0;
+    if (!session_is_running(ctx, id)) return 1; /* caller no-ops */
+    pid_t pid = session_read_pid(ctx, id);
+    if (pid <= 0) {
+        snprintf(err, errsz, "session %s is running but has no pid file; "
+                 "cannot signal it", id);
+        return -1;
+    }
+    int timeout_ms = 5000;
+    const char *env = getenv("TNY_STOP_TIMEOUT_MS");
+    if (env && atoi(env) > 0) timeout_ms = atoi(env);
+    /* Recycled-pgid guard (docs/adr/0031 decision 6): signal the process
+     * GROUP, and only while the lock probe confirms a live holder. */
+    if (session_is_running(ctx, id)) kill(-pid, SIGTERM);
+    if (stop_wait(ctx, id, timeout_ms))
+        return 0; /* the child finalized "interrupted" itself */
+    if (!force_kill) return 2; /* still running; caller suggests --kill */
+    if (session_is_running(ctx, id)) kill(-pid, SIGKILL);
+    if (!stop_wait(ctx, id, 2000)) {
+        snprintf(err, errsz, "session %s did not release its lock after "
+                 "SIGKILL", id);
+        return -1;
+    }
+    /* The only case where a non-child writes a terminal status: the killed
+     * child could not finalize, so record the outcome on its behalf. */
+    tny_session_state *s = session_open(ctx, id);
+    if (!s) {
+        snprintf(err, errsz, "session %s: cannot open after kill", id);
+        return -1;
+    }
+    if (session_lock_acquire(s) != 0) {
+        session_close(s);
+        snprintf(err, errsz, "session %s: another writer took over after "
+                 "kill", id);
+        return -1;
+    }
+    session_set_status_finished(s, "interrupted", 137, NULL);
+    int rc = session_save(s);
+    session_close(s);
+    if (rc != 0) {
+        snprintf(err, errsz, "session %s: cannot write terminal status", id);
+        return -1;
+    }
+    return 0;
 }
 
 void session_set_extension_start(tny_session_state *s, const char *reason,
@@ -543,7 +722,13 @@ static void scan_ws_dir(const char *wsdir, const char *wsname, session_meta **ar
         if ((v = jget_str(r, "backend"))) m->backend = xstrdup(v);
         if ((v = jget_str(r, "model"))) m->model = xstrdup(v);
         if ((v = jget_str(r, "workspace"))) m->workspace = xstrdup(v);
+        if ((v = jget_str(r, "status"))) m->status = xstrdup(v);
         m->turns = (int)jget_int(r, "turns", 0);
+        buf_t ld;
+        buf_init(&ld);
+        buf_appendf(&ld, "%s/%s", wsdir, e->d_name);
+        m->running = lock_dir_held(ld.data); /* one flock probe per entry */
+        buf_free(&ld);
         yyjson_doc_free(doc);
         (void)wsname;
     }
@@ -583,6 +768,7 @@ session_meta *session_list(tny_ctx *ctx, bool all, int limit, const char *cursor
         for (int i = 0; i < start; i++) {
             free(arr[i].id); free(arr[i].title); free(arr[i].updated);
             free(arr[i].backend); free(arr[i].model); free(arr[i].workspace);
+            free(arr[i].status);
         }
         memmove(arr, arr + start, sizeof *arr * (size_t)(n - start));
         n -= start;
@@ -591,6 +777,7 @@ session_meta *session_list(tny_ctx *ctx, bool all, int limit, const char *cursor
     for (int i = m; i < n; i++) {
         free(arr[i].id); free(arr[i].title); free(arr[i].updated);
         free(arr[i].backend); free(arr[i].model); free(arr[i].workspace);
+        free(arr[i].status);
     }
     *count = m;
     return arr;
@@ -604,6 +791,7 @@ void session_meta_free(session_meta *m, int count) {
         free(m[i].backend);
         free(m[i].model);
         free(m[i].workspace);
+        free(m[i].status);
     }
     free(m);
 }

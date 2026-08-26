@@ -14,9 +14,14 @@ transcript.
   final text lands in the transcript). This reuses the exact format
   `--continue-recovery` already reads.
 - `tny session <id>` (`src/cli/cmd_sessions.c`): print `status:` including
-  `running (pid N)`, `running (stale — pid N is gone)` via the 02a helper,
-  and `exit code` when finished. `--json` passes the raw fields through
-  (it already dumps the doc — verify the new fields appear).
+  `running (pid N)` and `running (stale — process gone)` via the lock-probe
+  helper, `exit code` when finished, and the stored `result` text — this
+  is how codex/cursor answers are read, since host transcripts hold only a
+  resume pointer. `--json` passes the raw fields through (it already dumps
+  the doc — verify `status`/`exit_code`/`result` appear).
+- Recovery-hint display must branch on status (ADR decision 11): a live
+  run must not advertise `--continue-recovery` (which is lock-blocked
+  anyway) — show "partial output: N bytes (live)" instead.
 - `tny sessions` list: mark running sessions (e.g. a `⏵ running` column or
   suffix) in both text and `--json` output.
 - Optional, cut if time-boxed: `tny session tail <id>` streaming
