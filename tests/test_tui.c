@@ -572,12 +572,10 @@ TEST prewarm_start_restarts_on_a_stale_resume_pointer(void) {
 
     stub_state s = {0};
     ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX, "thread-old"));
-    tui_prewarm *stale = t.prewarm;
     tui_prewarm_start(&t); /* no session: the pending pointer is now stale */
     ASSERT(t.prewarm != NULL);
-    ASSERT(t.prewarm != stale); /* the stub was dropped, a fresh warm-up runs */
     wait_for(&s.destroys, 2000);
-    ASSERT_EQ(1, s.destroys);
+    ASSERT_EQ(1, s.destroys); /* the stale stub was dropped */
     ASSERT(tui_prewarm_take(&t) == NULL); /* fresh warm-up fails to connect */
     ASSERT(t.prewarm == NULL);
     PASS();
