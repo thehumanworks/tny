@@ -47,10 +47,30 @@ runtime -> session -> event
   native file descriptors.
 - Event string views are owned by the event and remain valid until
   `tny_event_free`.
+- ABI 0.3 adds the append-only `tny_event_view_v0` snapshot. Call
+  `tny_event_view_init`, then `tny_event_read`; the view exposes the canonical
+  event schema version, sequence, monotonic timestamp, provider/session/turn
+  identity, message id, complete usage/context/cost values, and the existing
+  event-specific fields in one FFI-friendly read. Existing getters remain
+  supported.
 - Asynchronous `ERROR` events expose the same stable status categories through
   `tny_event_error_code` before the terminal event.
 - Inputs retained past a call are copied. ABI 0 accepts UTF-8 without embedded
   NUL bytes.
+
+## Canonical event schema
+
+`sdk/schema/events.json` is the source of truth for the public runtime event
+vocabulary. `python3 sdk/schema/check.py` verifies the C numeric constants and
+regenerates committed TypeScript/Python type fixtures deterministically. The
+compatibility contract is [ADR 0030](adr/0030-public-event-schema.md): new
+optional fields are additive, consumers ignore unknown fields, and language
+SDKs preserve unknown future event kinds instead of failing the stream.
+
+The public schema currently covers text/thinking, tool lifecycle, permission,
+plan, usage, turn-end, error, status, steer rejection, custom/user messages,
+and tool progress. Structured tool arguments/results are intentionally a
+separate bounded-data extension.
 
 ## Configuration and permissions
 

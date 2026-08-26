@@ -14,6 +14,8 @@ LIBTNY_0 {
     tny_session_respond_permission;
     tny_session_cancel;
     tny_session_free;
+    tny_event_view_init;
+    tny_event_read;
     tny_event_get_kind;
     tny_event_text;
     tny_event_tool_name;

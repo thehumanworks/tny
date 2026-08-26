@@ -32,6 +32,24 @@ class RuntimeOptions(ctypes.Structure):
     ]
 
 
+class EventView(ctypes.Structure):
+    _fields_ = [
+        ("struct_size", ctypes.c_uint32), ("kind", ctypes.c_uint32),
+        ("schema_version", ctypes.c_uint32), ("tool_ok", ctypes.c_uint32),
+        ("permission_options", ctypes.c_uint32), ("stop_reason", ctypes.c_uint32),
+        ("error_code", ctypes.c_int32), ("has_cost", ctypes.c_uint32),
+        ("sequence", ctypes.c_uint64), ("timestamp_ms", ctypes.c_int64),
+        ("input_tokens", ctypes.c_int64), ("output_tokens", ctypes.c_int64),
+        ("context_used", ctypes.c_int64), ("context_size", ctypes.c_int64),
+        ("cost", ctypes.c_double),
+        ("provider", TnyBytes), ("session_id", TnyBytes), ("turn_id", TnyBytes),
+        ("text", TnyBytes), ("message_id", TnyBytes),
+        ("tool_name", TnyBytes), ("tool_id", TnyBytes), ("tool_detail", TnyBytes),
+        ("permission_id", TnyBytes), ("permission_summary", TnyBytes),
+        ("message_type", TnyBytes), ("reserved", ctypes.c_uint64 * 8),
+    ]
+
+
 def as_bytes(value):
     raw = value.encode()
     return raw, TnyBytes(raw, len(raw))
@@ -60,6 +78,9 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
                                            ctypes.POINTER(ctypes.c_void_p),
                                            ctypes.POINTER(ctypes.c_void_p)]
     lib.tny_session_next_event.restype = ctypes.c_int32
+    lib.tny_event_view_init.argtypes = [ctypes.POINTER(EventView)]
+    lib.tny_event_read.argtypes = [ctypes.c_void_p, ctypes.POINTER(EventView)]
+    lib.tny_event_read.restype = ctypes.c_int32
     lib.tny_event_get_kind.argtypes = [ctypes.c_void_p]
     lib.tny_event_get_kind.restype = ctypes.c_uint32
     lib.tny_event_text.argtypes = [ctypes.c_void_p]
@@ -150,6 +171,7 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
     saw_permission = False
     stop_reason = None
     error_codes = []
+    event_sequences = []
     prompts = ["list files in .", "again"] if repeat else ["list files in ."]
     for prompt_text in prompts:
         prompt_raw, prompt = as_bytes(prompt_text)
@@ -172,6 +194,21 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
                 break
             assert status == 1, status
             kind = lib.tny_event_get_kind(event)
+            view = EventView()
+            lib.tny_event_view_init(ctypes.byref(view))
+            assert view.struct_size == ctypes.sizeof(EventView)
+            if not event_sequences:
+                tiny = EventView()
+                tiny.struct_size = 8
+                assert lib.tny_event_read(event, ctypes.byref(tiny)) == -1
+            assert lib.tny_event_read(event, ctypes.byref(view)) == 0
+            assert view.schema_version == 1 and view.kind == kind
+            assert view.sequence > 0 and view.timestamp_ms >= 0
+            assert ctypes.string_at(view.provider.ptr, view.provider.len) == b"openai"
+            assert view.session_id.len > 0 and view.turn_id.len > 0
+            if event_sequences:
+                assert view.sequence > event_sequences[-1]
+            event_sequences.append(view.sequence)
             if kind == 0:
                 view = lib.tny_event_text(event)
                 output.extend(ctypes.string_at(view.ptr, view.len))

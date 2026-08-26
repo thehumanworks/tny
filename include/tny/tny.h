@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 #define TNY_ABI_MAJOR 0u
-#define TNY_ABI_MINOR 2u
+#define TNY_ABI_MINOR 3u
 #define TNY_ABI_VERSION ((TNY_ABI_MAJOR << 16) | TNY_ABI_MINOR)
 
 /* Non-error outcomes. */
@@ -92,6 +92,39 @@ typedef struct {
     uint64_t len;
 } tny_bytes;
 
+
+#define TNY_EVENT_SCHEMA_VERSION 1u
+
+typedef struct {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t schema_version;
+    uint32_t tool_ok;
+    uint32_t permission_options;
+    uint32_t stop_reason;
+    int32_t error_code;
+    uint32_t has_cost;
+    uint64_t sequence;
+    int64_t timestamp_ms;
+    int64_t input_tokens;
+    int64_t output_tokens;
+    int64_t context_used;
+    int64_t context_size;
+    double cost;
+    tny_bytes provider;
+    tny_bytes session_id;
+    tny_bytes turn_id;
+    tny_bytes text;
+    tny_bytes message_id;
+    tny_bytes tool_name;
+    tny_bytes tool_id;
+    tny_bytes tool_detail;
+    tny_bytes permission_id;
+    tny_bytes permission_summary;
+    tny_bytes message_type;
+    uint64_t reserved[8];
+} tny_event_view_v0;
+
 typedef struct {
     uint32_t struct_size;
     uint32_t permission_mode;
@@ -141,6 +174,8 @@ TNY_API int32_t TNY_CALL tny_session_cancel(
     tny_session *session, tny_error **out_error);
 TNY_API void TNY_CALL tny_session_free(tny_session *session);
 
+TNY_API void TNY_CALL tny_event_view_init(tny_event_view_v0 *view);
+TNY_API int32_t TNY_CALL tny_event_read(const tny_event *event, tny_event_view_v0 *view);
 TNY_API uint32_t TNY_CALL tny_event_get_kind(const tny_event *event);
 TNY_API tny_bytes TNY_CALL tny_event_text(const tny_event *event);
 TNY_API tny_bytes TNY_CALL tny_event_tool_name(const tny_event *event);

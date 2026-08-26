@@ -12,6 +12,8 @@ _tny_session_steer
 _tny_session_respond_permission
 _tny_session_cancel
 _tny_session_free
+_tny_event_view_init
+_tny_event_read
 _tny_event_get_kind
 _tny_event_text
 _tny_event_tool_name

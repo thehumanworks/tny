@@ -3,7 +3,9 @@
 Phases 0–8 describe the completed path from the original research skeleton to
 the current product. New architecture work follows the accepted ADRs and must
 preserve the gates below; [ADR 0023](adr/0023-libtny-embedding-abi.md) defines
-the ordered extraction and verification gates for `libtny`.
+the ordered extraction and verification gates for `libtny`. ABI 0.3 begins the
+SDK foundation with the canonical public event registry and sized event view
+([ADR 0030](adr/0030-public-event-schema.md), issues #62/#63).
 
 ## Phase 0 — skeleton
 
