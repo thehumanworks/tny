@@ -76,7 +76,7 @@ jobs:
         run: |
           set -eu
           if [ "$(uname -s)" = Darwin ]; then
-            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576
+            export MOCK_CHUNK_WIDTH=1048576
           fi
           python -m unittest discover -s sdk/python/tests -p 'test_*.py' -v
           mypy --strict sdk/python/src/tny sdk/python/tests/typecheck_usage.py
@@ -91,7 +91,7 @@ jobs:
           if [ "$(uname -s)" = Darwin ]; then
             export MACOSX_DEPLOYMENT_TARGET=13.0
             conformance_timeout=1200
-            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
+            export MOCK_CHUNK_WIDTH=1048576 \
               TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
               TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
@@ -129,7 +129,7 @@ jobs:
           if [ "$(uname -s)" = Darwin ]; then
             export MACOSX_DEPLOYMENT_TARGET=13.0
             conformance_timeout=1200
-            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
+            export MOCK_CHUNK_WIDTH=1048576 \
               TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
               TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
@@ -230,7 +230,7 @@ jobs:
           if [ "$(uname -s)" = Darwin ]; then
             export MACOSX_DEPLOYMENT_TARGET=13.0
             conformance_timeout=1200
-            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
+            export MOCK_CHUNK_WIDTH=1048576 \
               TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
               TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
@@ -271,7 +271,7 @@ jobs:
           if [ "$(uname -s)" = Darwin ]; then
             export MACOSX_DEPLOYMENT_TARGET=13.0
             conformance_timeout=1200
-            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
+            export MOCK_CHUNK_WIDTH=1048576 \
               TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
               TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
