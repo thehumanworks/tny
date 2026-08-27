@@ -56,7 +56,6 @@ for (const command of commands) {
       ...process.env,
       TNY_CONFORMANCE_SENTINEL: request.secret_sentinel,
       TNY_SDK_PACKAGE_ROOT: sdkRoot,
-      ...(command.id === "libtny_ctypes" ? { TNY_LIBTNY_CORE_ONLY: "1" } : {}),
     },
   });
   if (run.stdout) process.stderr.write(run.stdout);
@@ -75,7 +74,6 @@ if (executions.every((execution) => execution.exit_code === 0)) {
       id: "backpressure_fixture", executable: "./build/tny-test",
       args: ["-s", "runtime_suite", "-t", "runtime_overflow_keeps_error_and_single_terminal", "-e"],
     },
-    { id: "libtny_ctypes", executable: "python3", args: ["tests/integration/test_libtny.py"] },
   ]) {
     const run = spawnSync(command.executable, command.args, {
       cwd: repoRoot, encoding: "utf8", env: process.env,
@@ -119,8 +117,9 @@ const scenarios = [
   passed("unknown_future_event",
     ["numeric_kind_preserved", "payload_preserved", "known_union_not_aliased"],
     ["node_basic"]),
-  successful.has("libtny_ctypes") && successful.has("node_invalid") &&
-  successful.has("node_gc") && successful.has("node_stress")
+  successful.has("node_basic") && successful.has("node_invalid") &&
+  successful.has("node_gc") && successful.has("node_stress") &&
+  successful.has("node_workers")
     ? {
         id: "ownership_and_misuse", status: "pass",
         assertions: [
@@ -130,7 +129,7 @@ const scenarios = [
           "oversized_struct_prefix_safe", "parent_close_releases_children",
           "repeated_lifecycle",
         ],
-        evidence: ["libtny_ctypes", "node_invalid", "node_gc", "node_stress"],
+        evidence: ["node_basic", "node_invalid", "node_gc", "node_stress", "node_workers"],
         events: [],
       }
     : { id: "ownership_and_misuse", status: "not_run", reason: "lifetime evidence failed" },
