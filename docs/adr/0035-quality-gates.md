@@ -55,7 +55,11 @@ Ruff 0.14.0 via pipx; shfmt and actionlint via `go install`). Pinning
 matters: formatter output changes between major versions.
 
 Scope is first-party only: `third_party/`, generated artifacts, and built
-`docs/assets/wasm` stay exempt everywhere.
+`docs/assets/wasm` stay exempt everywhere. `src/net/net_wasm.c` remains in the
+C checks, but its EM_JS/EM_ASYNC_JS region is marked `clang-format off` because
+clang-format tokenizes JavaScript `=>`/`===` as C operators and otherwise
+produces invalid generated JavaScript; the wasm build and JS syntax gates
+verify that embedded region instead.
 
 ## Consequences
 
