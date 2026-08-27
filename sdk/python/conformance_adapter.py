@@ -48,7 +48,13 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def execution(identifier: str, command: list[str], *, env: dict[str, str] | None = None) -> dict[str, object]:
+def qualified(scenario: str, *assertions: str) -> list[str]:
+    return [f"{scenario}:{assertion}" for assertion in assertions]
+
+
+def execution(identifier: str, command: list[str], *,
+              env: dict[str, str] | None = None,
+              assertions: list[str] | None = None) -> dict[str, object]:
     completed = subprocess.run(
         command,
         cwd=ROOT,
@@ -60,7 +66,7 @@ def execution(identifier: str, command: list[str], *, env: dict[str, str] | None
     )
     if completed.returncode != 0:
         raise RuntimeError("required execution failed")
-    return {"id": identifier, "exit_code": 0}
+    return {"id": identifier, "exit_code": 0, "assertions": assertions or []}
 
 
 def free_port() -> int:
@@ -104,6 +110,8 @@ def record(event: tny.AnyEvent) -> dict[str, object]:
     }
     if isinstance(event, tny.TurnEndEvent):
         value["stop_reason"] = STOP_REASONS[event.stop_reason]
+    if isinstance(event, tny.ErrorEvent):
+        value["error_code"] = event.error_code
     if isinstance(event, tny.SteerRejectedEvent):
         value["text"] = event.text.decode("utf-8", "strict")
     return value
@@ -224,6 +232,9 @@ def execute_steer_resume_probe(
         raise RuntimeError("Python steer/resume probe failed")
     return json.loads(completed.stdout), {
         "id": "python_steer_resume_probe", "exit_code": completed.returncode,
+        "assertions": qualified(
+            "resume_and_steer_rejection", "rejected_text_preserved",
+            "resume_same_session", "teardown_and_reopen"),
     }
 
 
@@ -411,16 +422,18 @@ def main() -> int:
             ownership_env = dict(
                 installed_env, TNY_TEST_LIBRARY=str(native_artifact)
             )
-            ownership_tests = [
-                "sdk.python.tests.test_sdk.SDKTests.test_input_sizing_utf8_and_parent_lifecycle_misuse",
-                "sdk.python.tests.test_sdk.SDKTests.test_repeated_create_close_and_owner_thread",
-                "sdk.python.tests.test_sdk.SDKTests.test_abi_05_allows_multiple_python_runtimes",
-                "sdk.python.tests.test_sdk.SDKTests.test_async_runtime_gc_closes_on_owner_executor",
-            ]
             executions.append(execution(
                 "python_installed_ownership_suite",
-                [sys.executable, "-m", "unittest", *ownership_tests],
+                [sys.executable, "-m", "unittest", "discover", "-s",
+                 "sdk/python/tests", "-p", "test_sdk.py", "-q"],
                 env=ownership_env,
+                assertions=qualified(
+                    "ownership_and_misuse", "inputs_copied",
+                    "event_and_error_lifetimes", "double_free_prevention",
+                    "wrong_thread_rejected", "invalid_utf8_rejected",
+                    "embedded_nul_rejected", "unknown_constants_rejected",
+                    "undersized_struct_rejected", "oversized_struct_prefix_safe",
+                    "parent_close_releases_children", "repeated_lifecycle"),
             ))
             sdk_execution = "python_installed_ownership_suite"
         else:
@@ -445,11 +458,48 @@ def main() -> int:
                         "-q",
                     ],
                     env=test_env,
+                    assertions=qualified(
+                        "ownership_and_misuse", "inputs_copied",
+                        "event_and_error_lifetimes", "double_free_prevention",
+                        "wrong_thread_rejected", "invalid_utf8_rejected",
+                        "embedded_nul_rejected", "unknown_constants_rejected",
+                        "undersized_struct_rejected", "oversized_struct_prefix_safe",
+                        "parent_close_releases_children", "repeated_lifecycle"),
                 )
             ]
             sdk_execution = "python_sdk_unit_suite"
         library, snapshot, traces = python_live_scenarios(native_artifact, secret)
-        executions.append({"id": "python_live_scenarios", "exit_code": 0})
+        if library.abi_minor >= 7:
+            callback_env = dict(
+                installed_env if USE_INSTALLED else test_env,
+                TNY_TEST_LIBRARY=str(native_artifact),
+            )
+            executions.append(execution(
+                "python_callback_acceptance",
+                [sys.executable, "-m", "unittest", "discover", "-s",
+                 "sdk/python/tests", "-p", "test_callbacks.py", "-q"],
+                env=callback_env,
+            ))
+        executions.append({
+            "id": "python_live_scenarios", "exit_code": 0,
+            "assertions": (
+                qualified(
+                    "success_two_turns", "create_and_open",
+                    "sequence_strictly_increases", "timestamps_monotonic",
+                    "provider_session_turn_present", "borrowed_bytes_copied_before_free",
+                    "second_turn_same_session") +
+                qualified(
+                    "permission_allow_and_stale_reject", "parked_before_response",
+                    "stale_id_bad_state", "duplicate_id_bad_state") +
+                qualified("permission_deny", "denied_tool_not_executed") +
+                qualified(
+                    "cancel_and_drain", "cancel_idempotent", "exactly_one_terminal",
+                    "drained_after_terminal", "cross_thread_wake") +
+                qualified(
+                    "auth_error", "stable_auth_category", "no_raw_provider_body",
+                    "no_credentials")
+            ),
+        })
         traces["resume_and_steer_rejection"], steer_execution = (
             execute_steer_resume_probe(native_artifact, secret)
         )
@@ -471,27 +521,36 @@ def main() -> int:
             not isinstance(unknown, event_class)
             for _name, event_class in tny.EVENT_TYPES_BY_KIND.values()
         )
-        traces["unknown_future_event"] = [record(unknown)]
-        executions.append({"id": "python_unknown_decoder", "exit_code": 0})
+        unknown_record = record(unknown)
+        unknown_record["kind"] = unknown.kind
+        unknown_record["payload"] = {
+            key: value.decode("utf-8", "strict") if isinstance(value, bytes)
+            else str(value)
+            for key, value in unknown.payload.items()
+        }
+        traces["unknown_future_event"] = [unknown_record]
+        executions.append({
+            "id": "python_unknown_decoder", "exit_code": 0,
+            "assertions": qualified(
+                "unknown_future_event", "numeric_kind_preserved",
+                "payload_preserved", "known_union_not_aliased"),
+        })
 
         executions.extend([
             execution("python_build_c_fixtures", ["make", "debug"]),
             execution("python_network_split_fixture", [
                 "./build/tny-test", "-s", "net_suite", "-t",
                 "chunked_survives_every_split_boundary", "-e",
-            ]),
+            ], assertions=qualified(
+                "network_split_boundaries",
+                "existing_chunked_fixture_every_split_boundary")),
             execution("python_backpressure_fixture", [
                 "./build/tny-test", "-s", "runtime_suite", "-t",
                 "runtime_overflow_keeps_error_and_single_terminal", "-e",
-            ]),
+            ], assertions=qualified(
+                "slow_consumer_backpressure", "memory_bounded",
+                "stable_backpressure_category", "terminal_reserved")),
         ])
-        traces["slow_consumer_backpressure"] = [
-            {"type": "error", "sequence": 1, "timestamp_ms": 1},
-            {
-                "type": "turn_end", "sequence": 2, "timestamp_ms": 2,
-                "stop_reason": "error",
-            },
-        ]
         traces["network_split_boundaries"] = []
 
         capabilities = {
@@ -514,22 +573,18 @@ def main() -> int:
             "linkage": snapshot.linkage.decode("utf-8", "strict"),
         }
         evidence = {
-            "success_two_turns": ["python_live_scenarios", sdk_execution],
+            "success_two_turns": ["python_live_scenarios"],
             "resume_and_steer_rejection": [
                 "python_steer_resume_probe"
             ],
             "permission_allow_and_stale_reject": [
-                "python_live_scenarios", sdk_execution
+                "python_live_scenarios"
             ],
-            "permission_deny": ["python_live_scenarios", sdk_execution],
-            "cancel_and_drain": ["python_live_scenarios", sdk_execution],
-            "auth_error": ["python_live_scenarios", sdk_execution],
-            "unknown_future_event": [
-                "python_unknown_decoder", sdk_execution
-            ],
-            "ownership_and_misuse": [
-                sdk_execution, "python_live_scenarios"
-            ],
+            "permission_deny": ["python_live_scenarios"],
+            "cancel_and_drain": ["python_live_scenarios"],
+            "auth_error": ["python_live_scenarios"],
+            "unknown_future_event": ["python_unknown_decoder"],
+            "ownership_and_misuse": [sdk_execution],
             "slow_consumer_backpressure": ["python_backpressure_fixture"],
             "network_split_boundaries": ["python_network_split_fixture"],
         }

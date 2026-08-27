@@ -1,29 +1,19 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-
-const glibc = process.platform !== "linux" ||
-  Boolean(process.report?.getReport?.().header?.glibcVersionRuntime);
-const supported = glibc &&
-  (process.platform === "darwin" && process.arch === "arm64") ||
-  (glibc && process.platform === "linux" && (process.arch === "x64" || process.arch === "arm64"));
-
-if (!supported) {
-  throw new Error(
-    `@thehumanworks/tny: unsupported platform ${process.platform}-${process.arch}; ` +
-      "the experimental native SDK supports darwin-arm64 and glibc linux-x64/linux-arm64 only",
-  );
-}
+import { resolveNativeAddon } from "../scripts/native-loader.mjs";
 
 const require = createRequire(import.meta.url);
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 let native;
 try {
-  native = require(join(packageRoot, "build/Release/tny.node"));
+  const { addonPath } = resolveNativeAddon({ packageRoot });
+  native = require(addonPath);
 } catch (cause) {
+  if (cause?.name === "TnyLoadError") throw cause;
   const error = new Error(
-    `@thehumanworks/tny: failed to load the native addon for ${process.platform}-${process.arch}. ` +
-      "Install a matched platform tarball, or run npm rebuild with TNY_ROOT/TNY_LIB_DIR for libtny ABI 0.5 or newer.",
+    `@thehumanworks/tny: verified native addon failed to load for ` +
+      `${process.platform}-${process.arch}: ${cause?.message || cause}`,
     { cause },
   );
   error.name = "TnyLoadError";

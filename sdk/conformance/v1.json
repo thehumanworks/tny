@@ -130,9 +130,7 @@
       "id": "slow_consumer_backpressure",
       "release_required": true,
       "requires": ["bounded_event_queue"],
-      "events": ["error", "turn_end"],
-      "terminal": "error",
-      "terminal_count": 1,
+      "events": [],
       "assertions": ["memory_bounded", "stable_backpressure_category", "terminal_reserved"]
     },
     {

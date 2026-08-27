@@ -39,7 +39,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_negative_fixtures_are_release_blocking_and_write_nothing(self) -> None:
         fixtures = sorted(path.name for path in FIXTURES.glob("*.json"))
-        self.assertGreaterEqual(len(fixtures), 9)
+        self.assertGreaterEqual(len(fixtures), 12)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             artifact = root / "libtny.fixture"

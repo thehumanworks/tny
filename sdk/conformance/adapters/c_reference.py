@@ -40,14 +40,22 @@ reference = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(reference)
 
 
-def run_command(identifier: str, command: list[str], timeout: int = 180) -> dict[str, object]:
+def qualified(scenario: str, *assertions: str) -> list[str]:
+    return [f"{scenario}:{assertion}" for assertion in assertions]
+
+
+def run_command(identifier: str, command: list[str], timeout: int = 180,
+                assertions: list[str] | None = None) -> dict[str, object]:
     completed = subprocess.run(
         command, cwd=ROOT, stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL, timeout=timeout, check=False,
     )
     if completed.returncode != 0:
         raise RuntimeError(f"{identifier} failed with exit code {completed.returncode}")
-    return {"id": identifier, "exit_code": completed.returncode}
+    return {
+        "id": identifier, "exit_code": completed.returncode,
+        "assertions": assertions or [],
+    }
 
 
 def run_json_command(identifier: str, command: list[str], payload: object,
@@ -83,7 +91,12 @@ def unknown_event_probe(libpath: str):
         trace = [json.loads(completed.stdout)]
     return trace, [
         compile_execution,
-        {"id": "unknown_event_probe", "exit_code": completed.returncode},
+        {
+            "id": "unknown_event_probe", "exit_code": completed.returncode,
+            "assertions": qualified(
+                "unknown_future_event", "numeric_kind_preserved",
+                "payload_preserved", "known_union_not_aliased"),
+        },
     ]
 
 
@@ -167,6 +180,8 @@ def collect(lib: object, session: ctypes.c_void_p, error: ctypes.c_void_p,
         }
         if view.kind == 7:
             record["stop_reason"] = STOP_REASONS[int(view.stop_reason)]
+        if view.kind == 8:
+            record["error_code"] = int(view.error_code)
         if view.kind == 10:
             record["text"] = copied(view.text)
         events.append(record)
@@ -425,24 +440,62 @@ def main() -> int:
     executions = [
         run_command("build_c_fixtures", ["make", "debug"]),
         run_command("reference_c_and_ctypes", [sys.executable,
-                    "tests/integration/test_libtny.py"], timeout=COMMAND_TIMEOUT),
+                    "tests/integration/test_libtny.py"], timeout=COMMAND_TIMEOUT,
+                    assertions=qualified(
+                        "ownership_and_misuse", "event_and_error_lifetimes",
+                        "wrong_thread_rejected", "undersized_struct_rejected",
+                        "parent_close_releases_children", "repeated_lifecycle")),
         run_command("network_split_fixture", ["./build/tny-test", "-s", "net_suite",
-                    "-t", "chunked_survives_every_split_boundary", "-e"]),
+                    "-t", "chunked_survives_every_split_boundary", "-e"],
+                    assertions=qualified(
+                        "network_split_boundaries",
+                        "existing_chunked_fixture_every_split_boundary")),
         run_command("backpressure_fixture", ["./build/tny-test", "-s", "runtime_suite",
-                    "-t", "runtime_overflow_keeps_error_and_single_terminal", "-e"]),
+                    "-t", "runtime_overflow_keeps_error_and_single_terminal", "-e"],
+                    assertions=qualified(
+                        "slow_consumer_backpressure", "memory_bounded",
+                        "stable_backpressure_category", "terminal_reserved")),
     ]
     lib, snapshot, traces = live_probe(libpath, request["secret_sentinel"])
-    executions.append({"id": "live_abi_probe", "exit_code": 0})
+    executions.append({
+        "id": "live_abi_probe", "exit_code": 0,
+        "assertions": (
+            qualified(
+                "success_two_turns", "create_and_open",
+                "sequence_strictly_increases", "timestamps_monotonic",
+                "provider_session_turn_present", "borrowed_bytes_copied_before_free",
+                "second_turn_same_session") +
+            qualified(
+                "permission_allow_and_stale_reject", "parked_before_response",
+                "stale_id_bad_state", "duplicate_id_bad_state") +
+            qualified("permission_deny", "denied_tool_not_executed") +
+            qualified(
+                "cancel_and_drain", "cancel_idempotent", "exactly_one_terminal",
+                "drained_after_terminal", "cross_thread_wake") +
+            qualified(
+                "auth_error", "stable_auth_category", "no_raw_provider_body",
+                "no_credentials")
+        ),
+    })
     traces["resume_and_steer_rejection"], steer_execution = run_json_command(
         "live_steer_resume_probe",
         [sys.executable, str(Path(__file__).resolve()), "--steer-resume-probe"],
         {"artifact": libpath, "secret": request["secret_sentinel"]},
         timeout=STEER_TIMEOUT,
     )
+    steer_execution["assertions"] = qualified(
+        "resume_and_steer_rejection", "rejected_text_preserved",
+        "resume_same_session", "teardown_and_reopen")
     executions.append(steer_execution)
     traces["unknown_future_event"], unknown_executions = unknown_event_probe(libpath)
     executions.extend(unknown_executions)
-    executions.append({"id": "live_misuse_probe", "exit_code": 0})
+    executions.append({
+        "id": "live_misuse_probe", "exit_code": 0,
+        "assertions": qualified(
+            "ownership_and_misuse", "inputs_copied", "double_free_prevention",
+            "invalid_utf8_rejected", "embedded_nul_rejected",
+            "unknown_constants_rejected", "oversized_struct_prefix_safe"),
+    })
     abi = int(lib.tny_abi_version())
     library_version = copied(lib.tny_library_version())
     capabilities = {
@@ -459,25 +512,16 @@ def main() -> int:
         "cancel_model", "event_queue_max", "event_reserved", "transport", "linkage",
     )}
     evidence = {
-        "success_two_turns": ["live_abi_probe", "reference_c_and_ctypes"],
+        "success_two_turns": ["live_abi_probe"],
         "resume_and_steer_rejection": ["live_steer_resume_probe"],
-        "permission_allow_and_stale_reject": ["live_abi_probe", "reference_c_and_ctypes"],
-        "permission_deny": ["live_abi_probe", "reference_c_and_ctypes"],
-        "cancel_and_drain": ["live_abi_probe", "reference_c_and_ctypes"],
-        "auth_error": ["live_abi_probe", "reference_c_and_ctypes"],
+        "permission_allow_and_stale_reject": ["live_abi_probe"],
+        "permission_deny": ["live_abi_probe"],
+        "cancel_and_drain": ["live_abi_probe"],
+        "auth_error": ["live_abi_probe"],
         "unknown_future_event": ["unknown_event_probe"],
         "ownership_and_misuse": ["reference_c_and_ctypes", "live_misuse_probe"],
         "slow_consumer_backpressure": ["backpressure_fixture"],
         "network_split_boundaries": ["network_split_fixture"],
-    }
-    synthetic = {
-        "ownership_and_misuse": [],
-        "slow_consumer_backpressure": [
-            {"type": "error", "sequence": 1, "timestamp_ms": 1},
-            {"type": "turn_end", "sequence": 2, "timestamp_ms": 2,
-             "stop_reason": "error"},
-        ],
-        "network_split_boundaries": [],
     }
     scenarios = []
     for scenario in CONTRACT["scenarios"]:
@@ -486,7 +530,7 @@ def main() -> int:
             "id": identifier, "status": "pass",
             "assertions": scenario["assertions"],
             "evidence": evidence[identifier],
-            "events": traces.get(identifier, synthetic.get(identifier, [])),
+            "events": traces.get(identifier, []),
         })
     report = {
         "conformance_version": request["conformance_version"],

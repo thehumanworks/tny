@@ -10,8 +10,10 @@
 #include <string.h>
 #include <errno.h>
 #include <pthread.h>
+#include <signal.h>
 #include <unistd.h>
 #include <poll.h>
+#include <sys/socket.h>
 
 #ifdef __APPLE__
 #include <Security/SecureTransport.h>
@@ -29,6 +31,64 @@ struct nstream {
     void *ssl;
 #endif
 };
+
+#define NSTREAM_WRITE_TIMEOUT_MS 5000
+
+/* A socket write may raise SIGPIPE before reporting EPIPE. Embedders own the
+ * process-wide signal disposition, so protect only this calling thread and
+ * consume only a signal that became pending during our write. */
+typedef struct {
+    sigset_t pipe_set;
+    sigset_t old_set;
+    bool active;
+    bool already_blocked;
+    bool pending_before;
+} sigpipe_guard;
+
+static void sigpipe_guard_begin(sigpipe_guard *g) {
+    memset(g, 0, sizeof *g);
+    sigemptyset(&g->pipe_set);
+    sigaddset(&g->pipe_set, SIGPIPE);
+    if (pthread_sigmask(SIG_BLOCK, &g->pipe_set, &g->old_set) != 0) return;
+    g->active = true;
+    g->already_blocked = sigismember(&g->old_set, SIGPIPE) == 1;
+    if (!g->already_blocked) {
+        sigset_t pending;
+        if (sigpending(&pending) == 0)
+            g->pending_before = sigismember(&pending, SIGPIPE) == 1;
+    }
+}
+
+static void sigpipe_guard_end(sigpipe_guard *g) {
+    int saved_errno = errno;
+    if (g->active && !g->already_blocked && !g->pending_before) {
+        sigset_t pending;
+        if (sigpending(&pending) == 0 &&
+            sigismember(&pending, SIGPIPE) == 1) {
+            int signo = 0;
+            (void)sigwait(&g->pipe_set, &signo);
+        }
+    }
+    if (g->active) (void)pthread_sigmask(SIG_SETMASK, &g->old_set, NULL);
+    errno = saved_errno;
+}
+
+static int deadline_left_ms(int64_t deadline) {
+    int64_t left = deadline - monotonic_ms();
+    return left > 0 ? (int)left : 0;
+}
+
+static int wait_until(int fd, short events, int64_t deadline) {
+    for (;;) {
+        int left = deadline_left_ms(deadline);
+        if (left == 0) return -1;
+        struct pollfd pf = {fd, events, 0};
+        int rc = tny_poll(&pf, 1, left);
+        if (rc > 0) return 0;
+        if (rc < 0 && errno == EINTR) continue;
+        return -1;
+    }
+}
 
 #ifdef __APPLE__
 /* SecureTransport is dlopen'd on first TLS use: linking the Security +
@@ -105,7 +165,10 @@ static OSStatus st_write(SSLConnectionRef conn, const void *data, size_t *len) {
     int fd = (int)(intptr_t)conn;
     size_t want = *len, put = 0;
     while (put < want) {
+        sigpipe_guard guard;
+        sigpipe_guard_begin(&guard);
         ssize_t n = write(fd, (const char *)data + put, want - put);
+        sigpipe_guard_end(&guard);
         if (n > 0) { put += (size_t)n; continue; }
         if (errno == EAGAIN || errno == EWOULDBLOCK) { *len = put; return errSSLWouldBlock; }
         if (errno == EINTR) continue;
@@ -245,13 +308,22 @@ static void ossl_wait(int fd, int want, int timeout_ms) {
 nstream *nstream_from_fd(int fd) {
     nstream *s = calloc(1, sizeof *s);
     if (!s) return NULL;
+#ifdef __APPLE__
+    /* SecureTransport may perform socket writes outside its configured write
+     * callback during handshake/close. SO_NOSIGPIPE is descriptor-local and
+     * therefore protects every such path without changing host signal state. */
+    int no_sigpipe = 1;
+    (void)setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE,
+                     &no_sigpipe, sizeof no_sigpipe);
+#endif
     s->fd = fd;
     return s;
 }
 
 nstream *nstream_connect(const char *host, int port, bool tls,
                          int timeout_ms, char *err, size_t errlen) {
-    int fd = tcp_connect(host, port, timeout_ms);
+    int64_t deadline = monotonic_ms() + (timeout_ms > 0 ? timeout_ms : 0);
+    int fd = tcp_connect(host, port, deadline_left_ms(deadline));
     if (fd < 0) {
         snprintf(err, errlen, "connect %s:%d failed", host, port);
         return NULL;
@@ -259,6 +331,11 @@ nstream *nstream_connect(const char *host, int port, bool tls,
     nstream *s = nstream_from_fd(fd);
     if (!s) { close(fd); return NULL; }
     if (!tls) return s;
+    if (deadline_left_ms(deadline) == 0) {
+        snprintf(err, errlen, "connect %s:%d timed out", host, port);
+        nstream_close(s);
+        return NULL;
+    }
 #ifdef __APPLE__
     if (st_api_load() != 0) {
         snprintf(err, errlen, "TLS unavailable: Security.framework failed to load");
@@ -272,11 +349,12 @@ nstream *nstream_connect(const char *host, int port, bool tls,
     st_api.set_peer(s->ssl, host, strlen(host));
     st_api.set_min(s->ssl, kTLSProtocol12);
     OSStatus rc;
-    int64_t deadline = now_ms() + timeout_ms;
     while ((rc = st_api.handshake(s->ssl)) == errSSLWouldBlock) {
-        if (now_ms() > deadline) { rc = errSecIO; break; }
+        int left = deadline_left_ms(deadline);
+        if (left == 0) { rc = errSecIO; break; }
         struct pollfd pf = {fd, POLLIN | POLLOUT, 0};
-        tny_poll(&pf, 1, 100);
+        if (left > 100) left = 100;
+        tny_poll(&pf, 1, left);
     }
     if (rc != noErr) {
         snprintf(err, errlen, "TLS handshake with %s failed (%d)", host, (int)rc);
@@ -299,9 +377,13 @@ nstream *nstream_connect(const char *host, int port, bool tls,
     ossl.ssl_ctrl(ssl, OSSL_CTRL_SET_TLSEXT_HOST, OSSL_TLSEXT_NAME_HOST,
                   (void *)(uintptr_t)host);
     ossl.set1_host(ssl, host);
-    int64_t deadline = now_ms() + timeout_ms;
     int rc;
-    while ((rc = ossl.handshake(ssl)) != 1) {
+    for (;;) {
+        sigpipe_guard guard;
+        sigpipe_guard_begin(&guard);
+        rc = ossl.handshake(ssl);
+        sigpipe_guard_end(&guard);
+        if (rc == 1) break;
         int e = ossl.get_error(ssl, rc);
         if (!ossl_want_retry(e)) {
             long vr = ossl.verify_result(ssl);
@@ -315,13 +397,15 @@ nstream *nstream_connect(const char *host, int port, bool tls,
             nstream_close(s);
             return NULL;
         }
-        if (now_ms() > deadline) {
+        int left = deadline_left_ms(deadline);
+        if (left == 0) {
             snprintf(err, errlen, "TLS handshake with %s timed out", host);
             ossl.ssl_free(ssl);
             nstream_close(s);
             return NULL;
         }
-        ossl_wait(fd, e, 100);
+        if (left > 100) left = 100;
+        ossl_wait(fd, e, left);
     }
     s->ssl = ssl;
     return s;
@@ -364,17 +448,18 @@ ssize_t nstream_read(nstream *s, void *buf, size_t cap) {
 }
 
 int nstream_write_all(nstream *s, const void *data, size_t len) {
+    int64_t deadline = monotonic_ms() + NSTREAM_WRITE_TIMEOUT_MS;
 #ifdef __APPLE__
     if (s->ssl) {
         size_t off = 0;
         while (off < len) {
             size_t put = 0;
-            OSStatus rc = st_api.write(s->ssl, (const char *)data + off, len - off, &put);
+            OSStatus rc = st_api.write(s->ssl, (const char *)data + off,
+                                       len - off, &put);
             off += put;
             if (rc == noErr) continue;
             if (rc == errSSLWouldBlock) {
-                struct pollfd pf = {s->fd, POLLOUT, 0};
-                tny_poll(&pf, 1, 5000);
+                if (wait_until(s->fd, POLLOUT, deadline) != 0) return -1;
                 continue;
             }
             return -1;
@@ -387,22 +472,31 @@ int nstream_write_all(nstream *s, const void *data, size_t len) {
         while (off < len) {
             size_t left = len - off;
             int want = left > INT_MAX ? INT_MAX : (int)left;
-            int n = ossl.write((ossl_ssl *)s->ssl, (const char *)data + off, want);
+            sigpipe_guard guard;
+            sigpipe_guard_begin(&guard);
+            int n = ossl.write((ossl_ssl *)s->ssl,
+                               (const char *)data + off, want);
+            sigpipe_guard_end(&guard);
             if (n > 0) { off += (size_t)n; continue; }
             int e = ossl.get_error((ossl_ssl *)s->ssl, n);
             if (!ossl_want_retry(e)) return -1;
-            ossl_wait(s->fd, e, 5000);
+            int left_ms = deadline_left_ms(deadline);
+            if (left_ms == 0) return -1;
+            ossl_wait(s->fd, e, left_ms);
+            if (deadline_left_ms(deadline) == 0) return -1;
         }
         return 0;
     }
 #endif
     size_t off = 0;
     while (off < len) {
+        sigpipe_guard guard;
+        sigpipe_guard_begin(&guard);
         ssize_t n = write(s->fd, (const char *)data + off, len - off);
+        sigpipe_guard_end(&guard);
         if (n > 0) { off += (size_t)n; continue; }
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            struct pollfd pf = {s->fd, POLLOUT, 0};
-            tny_poll(&pf, 1, 5000);
+            if (wait_until(s->fd, POLLOUT, deadline) != 0) return -1;
             continue;
         }
         if (n < 0 && errno == EINTR) continue;
@@ -417,12 +511,17 @@ void nstream_close(nstream *s) {
     if (!s) return;
 #ifdef __APPLE__
     if (s->ssl) {
+        /* SSLClose may emit close_notify through st_write, which owns the
+         * per-thread SIGPIPE guard. */
         st_api.close(s->ssl);
         st_api.cf_release(s->ssl);
     }
 #elif defined(__linux__)
     if (s->ssl) {
+        sigpipe_guard guard;
+        sigpipe_guard_begin(&guard);
         ossl.shutdown((ossl_ssl *)s->ssl); /* best-effort close_notify */
+        sigpipe_guard_end(&guard);
         ossl.ssl_free((ossl_ssl *)s->ssl);
     }
 #endif

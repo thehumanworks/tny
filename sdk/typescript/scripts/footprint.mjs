@@ -10,9 +10,18 @@ const release = join(packageRoot, "build/Release");
 const libraryName = process.platform === "darwin" ? "libtny.0.dylib" : "libtny.so.0";
 const temporary = mkdtempSync(join(tmpdir(), "tny-node-footprint-"));
 const packed = spawnSync("npm", ["pack", "--json", "--pack-destination", temporary], {
-  cwd: packageRoot, encoding: "utf8",
+  cwd: packageRoot,
+  encoding: "utf8",
+  env: {
+    ...process.env,
+    npm_config_cache: join(temporary, "npm-cache"),
+    npm_config_audit: "false",
+    npm_config_fund: "false",
+    npm_config_offline: "true",
+  },
 });
-if (packed.status !== 0) throw new Error("npm pack failed while measuring footprint");
+if (packed.status !== 0)
+  throw new Error(`npm pack failed while measuring footprint: ${packed.stderr}`);
 const jsonStart = packed.stdout.lastIndexOf("[\n  {");
 if (jsonStart < 0) throw new Error("npm pack did not return JSON metadata");
 const archive = join(temporary, JSON.parse(packed.stdout.slice(jsonStart))[0].filename);

@@ -1,4 +1,6 @@
 """Python SDK for the experimental libtny ABI 0.5 runtime."""
+from importlib.metadata import PackageNotFoundError, version as _distribution_version
+
 from ._binding import (
     Capabilities as Capabilities,
     Library as Library,
@@ -6,6 +8,15 @@ from ._binding import (
 )
 from .aio import AsyncRuntime as AsyncRuntime
 from .aio import AsyncSession as AsyncSession
+from .aio import AsyncToolRegistration as AsyncToolRegistration
+from .callbacks import (
+    AsyncCustomTool as AsyncCustomTool,
+    CustomTool as CustomTool,
+    HostServices as HostServices,
+    ToolRegistration as ToolRegistration,
+    ToolResult as ToolResult,
+    ToolSensitivity as ToolSensitivity,
+)
 from .conformance import build_conformance_report as build_conformance_report
 from .conformance import write_conformance_report as write_conformance_report
 from .errors import (
@@ -33,18 +44,24 @@ from .runtime import Runtime as Runtime
 from .runtime import RuntimeConfig as RuntimeConfig
 from .runtime import Session as Session
 
-__version__ = "0.5.0a1"
+try:
+    __version__ = _distribution_version("tny")
+except PackageNotFoundError:
+    # Source-tree imports have no installed distribution metadata. This value
+    # is deliberately non-publishable; release wheels always use tag metadata.
+    __version__ = "0.0.0.dev0"
 
 __all__ = (
-    "AsyncRuntime", "AsyncSession", "AuthenticationError",
+    "AsyncCustomTool", "AsyncRuntime", "AsyncSession", "AsyncToolRegistration",
+    "AuthenticationError",
     "BackpressureError", "BadStateError", "BusyError", "CancellationToken",
-    "Capabilities",
+    "Capabilities", "CustomTool", "HostServices",
     "build_conformance_report",
     "CancelledError", "ConfigurationError", "InternalError",
     "InvalidArgumentError", "Library", "OutOfMemoryError",
     "PermissionDecision", "PermissionMode", "ProtocolError", "Runtime",
     "RuntimeConfig", "Session", "TnyError", "TnyIOError", "TnyTimeoutError",
-    "UnsupportedError",
+    "ToolRegistration", "ToolResult", "ToolSensitivity", "UnsupportedError",
     "discover_library",
     "write_conformance_report",
 ) + _event_all

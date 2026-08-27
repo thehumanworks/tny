@@ -16,7 +16,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   version:
@@ -30,7 +30,7 @@ jobs:
           python-version: "3.14"
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: "24.8.0"
       - name: Build and compare tny --version to the tag
         run: |
           set -eu
@@ -43,6 +43,12 @@ jobs:
             echo "error: binary reports $got, tag is v$tag" >&2
             exit 1
           fi
+      - name: Validate canonical SDK versions from the tag
+        run: |
+          set -eu
+          node sdk/typescript/scripts/release-version.mjs "$GITHUB_REF_NAME" > /tmp/tny-sdk-versions.json
+          TNY_RELEASE_TAG="$GITHUB_REF_NAME" TNY_REQUIRE_RELEASE_TAG=1 \
+            python -c 'import json,sys; sys.path.insert(0,"sdk/python"); from release_version import build_version; value=json.load(open("/tmp/tny-sdk-versions.json")); assert build_version() == value["python"]'
 
   build:
     name: ${{ matrix.name }}
@@ -56,17 +62,23 @@ jobs:
           - name: linux-x86_64
             os: ubuntu-24.04
             triple: linux-x86_64
+            node_package: linux-x64
             size_max: "1572864"
           - name: linux-aarch64
             os: ubuntu-24.04-arm
             triple: linux-aarch64
+            node_package: linux-arm64
             size_max: "1572864"
           - name: darwin-arm64
             os: macos-15
             triple: darwin-arm64
+            node_package: darwin-arm64
             size_max: "1887436"
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.8.0"
 
       - name: Require Apple Silicon (not Intel x86)
         if: matrix.triple == 'darwin-arm64'
@@ -142,6 +154,7 @@ jobs:
             conformance_timeout=1200
           fi
           export TNY_VERSION="${GITHUB_REF_NAME#v}"
+          export TNY_RELEASE_TAG="$GITHUB_REF_NAME" TNY_REQUIRE_RELEASE_TAG=1
           library="$PWD/dist/libtny-root/usr/local/lib/${{ startsWith(matrix.triple, 'darwin') && 'libtny.0.dylib' || 'libtny.so.0' }}"
           metadata="$PWD/dist/libtny-root/usr/local/share/tny/ARTIFACT.json"
           sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$metadata")"
@@ -151,6 +164,18 @@ jobs:
             'build>=1.2' 'cffi>=1.16' \
             'delocate>=0.13; platform_system == "Darwin"' \
             'mypy>=1.11' 'setuptools>=77' 'wheel>=0.45'
+          dependency_wheelhouse="$(mktemp -d)"
+          python -m pip download --disable-pip-version-check --only-binary=:all: \
+            --dest "$dependency_wheelhouse" 'cffi>=1.16'
+
+          PYTHONPATH="$repo/sdk/python/src" python - "$library" <<'PY'
+          import os
+          import sys
+          import tny
+          library = tny.Library(sys.argv[1])
+          actual = library.version.decode("utf-8", "strict")
+          assert actual == os.environ["TNY_VERSION"], (actual, os.environ["TNY_VERSION"])
+          PY
 
           PYTHONPATH="$repo/sdk/python/src" TNY_TEST_LIBRARY="$library" \
             python -m unittest discover -s sdk/python/tests -p 'test_*.py' -v
@@ -180,7 +205,12 @@ jobs:
           python_stage="$(mktemp -d)"
           python -m venv "$python_stage/venv"
           "$python_stage/venv/bin/python" -m pip install \
-            --disable-pip-version-check "$release_wheel"
+            --disable-pip-version-check --no-index \
+            --find-links "$dependency_wheelhouse" "$release_wheel"
+          python_version="$(PYTHONPATH="$repo/sdk/python" python -c 'from release_version import version_from_tag; import os; print(version_from_tag(os.environ["GITHUB_REF_NAME"]))')"
+          "$python_stage/venv/bin/python" -c \
+            'import importlib.metadata,sys,tny; expected=sys.argv[1]; assert tny.__version__ == expected == importlib.metadata.version("tny")' \
+            "$python_version"
           TNY_CONFORMANCE_USE_INSTALLED=1 python sdk/conformance/run.py \
             --artifact "$release_wheel" \
             --report "$repo/dist/sdk/conformance-${{ matrix.triple }}-python-wheel.json" \
@@ -198,12 +228,19 @@ jobs:
             --report "$repo/dist/sdk/conformance-${{ matrix.triple }}-typescript.json" \
             --timeout "$conformance_timeout" \
             -- node sdk/typescript/test/conformance-adapter.mjs
-          package_stage="$(mktemp -d)"
-          (cd sdk/typescript && npm pack --pack-destination "$package_stage")
-          package="$(find "$package_stage" -name '*.tgz' -type f -print -quit)"
-          cp "$package" "$repo/dist/sdk/tny-typescript-${{ matrix.triple }}.tgz"
+          node sdk/typescript/scripts/package-release.mjs \
+            --tag "$GITHUB_REF_NAME" --triple "${{ matrix.triple }}" \
+            --wheel "$release_wheel" --commit "$GITHUB_SHA" \
+            --out "$repo/dist/sdk"
+          npm_version="$(node -e 'import("./sdk/typescript/scripts/release-version.mjs").then(({versionsFromTag}) => process.stdout.write(versionsFromTag(process.env.GITHUB_REF_NAME).npm))')"
+          package="$repo/dist/sdk/thehumanworks-tny-${npm_version}.tgz"
+          native_package="$repo/dist/sdk/thehumanworks-tny-${{ matrix.node_package }}-${npm_version}.tgz"
+          test -f "$package" -a -f "$native_package"
+          python scripts/validate_sdk_release.py --tag "$GITHUB_REF_NAME" \
+            --root "$repo/dist/sdk" --commit "$GITHUB_SHA" --allow-partial
+          TNY_NATIVE_PACKAGE_TARBALL="$native_package" \
           python sdk/conformance/run.py \
-            --artifact "$repo/dist/sdk/tny-typescript-${{ matrix.triple }}.tgz" \
+            --artifact "$package" \
             --report "$repo/dist/sdk/conformance-${{ matrix.triple }}-typescript-package.json" \
             --timeout "$conformance_timeout" \
             -- node sdk/typescript/test/conformance-adapter.mjs
@@ -213,7 +250,9 @@ jobs:
             TNY_EXPECTED_LIB_SHA256
           cd "$install_stage"
           npm init -y >/dev/null
-          npm install "$repo/dist/sdk/tny-typescript-${{ matrix.triple }}.tgz"
+          npm_config_audit=false npm_config_fund=false npm_config_offline=true \
+            npm_config_cache="$install_stage/npm-cache" \
+            npm install "$native_package" "$package"
           mkdir workspace
           node --input-type=module - "$install_stage/workspace" <<'JS'
           import { Runtime } from "@thehumanworks/tny";
@@ -322,9 +361,11 @@ jobs:
 
   publish:
     name: publish release
-    needs: [build, musl, windows]
+    needs: [build, musl, windows, validate-registries]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -338,10 +379,130 @@ jobs:
         run: |
           set -eu
           cd assets
-          sha256sum tny-* libtny-* conformance-* > SHA256SUMS
+          sha256sum tny-* libtny-* conformance-* thehumanworks-* > SHA256SUMS
           ls -l
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "tny $GITHUB_REF_NAME" \
             --generate-notes \
-            tny-* libtny-* conformance-* SHA256SUMS
+            tny-* libtny-* conformance-* thehumanworks-* SHA256SUMS
+
+  validate-registries:
+    name: validate complete SDK registry set
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-tny-*
+          path: registry-assets
+      - name: Verify versions, contents, hashes, and cross-runner identity
+        run: |
+          set -eu
+          python scripts/validate_sdk_release.py \
+            --tag "$GITHUB_REF_NAME" --root registry-assets --commit "$GITHUB_SHA"
+
+  publish-npm:
+    name: publish npm SDKs with trusted publishing
+    if: vars.TNY_REGISTRY_PUBLICATION_ENABLED == 'true'
+    needs: [publish, validate-registries]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.8.0"
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-tny-*
+          path: registry-assets
+      - name: Fail closed unless the owner license is publishable
+        run: |
+          set -eu
+          python scripts/validate_sdk_release.py --tag "$GITHUB_REF_NAME" \
+            --root registry-assets --commit "$GITHUB_SHA" \
+            --require-publishable-license --repo "$PWD"
+      - name: Publish or verify native packages, then the meta package
+        run: |
+          set -eu
+          npm_version="$(node -e 'import("./sdk/typescript/scripts/release-version.mjs").then(({versionsFromTag}) => process.stdout.write(versionsFromTag(process.env.GITHUB_REF_NAME).npm))')"
+          node scripts/publish_npm_release.mjs --root registry-assets \
+            --version "$npm_version" --readback-attempts 30
+
+  publish-pypi:
+    name: publish Python SDK with trusted publishing
+    if: vars.TNY_REGISTRY_PUBLICATION_ENABLED == 'true'
+    needs: [publish, validate-registries]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-tny-*
+          path: registry-assets
+      - name: Fail closed unless the owner license is publishable
+        id: pypi-plan
+        run: |
+          set -eu
+          python scripts/validate_sdk_release.py --tag "$GITHUB_REF_NAME" \
+            --root registry-assets --commit "$GITHUB_SHA" \
+            --require-publishable-license --repo "$PWD"
+          mkdir -p dist/pypi
+          find registry-assets -name 'tny-*.whl' -type f -exec cp {} dist/pypi/ \;
+          python_version="$(PYTHONPATH="$PWD/sdk/python" python -c 'from release_version import version_from_tag; import os; print(version_from_tag(os.environ["GITHUB_REF_NAME"]))')"
+          python scripts/publish_pypi_release.py --mode plan --root dist/pypi \
+            --version "$python_version" --github-output "$GITHUB_OUTPUT"
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        if: steps.pypi-plan.outputs.publish_required == 'true'
+        with:
+          packages-dir: dist/pypi
+          attestations: true
+      - name: Verify PyPI JSON, downloads, and clean installed import
+        run: |
+          set -eu
+          python_version="$(PYTHONPATH="$PWD/sdk/python" python -c 'from release_version import version_from_tag; import os; print(version_from_tag(os.environ["GITHUB_REF_NAME"]))')"
+          python scripts/publish_pypi_release.py --mode readback --root dist/pypi \
+            --version "$python_version" --download-dir dist/pypi-readback --attempts 30
+          python -m venv /tmp/tny-pypi-readback
+          PIP_EXTRA_INDEX_URL= /tmp/tny-pypi-readback/bin/python -m pip install --disable-pip-version-check \
+            --no-cache-dir --index-url https://pypi.org/simple/ "tny==$python_version"
+          /tmp/tny-pypi-readback/bin/python - "$python_version" "${GITHUB_REF_NAME#v}" <<'PY'
+          import importlib.metadata
+          import sys
+          import tny
+          assert importlib.metadata.version("tny") == tny.__version__ == sys.argv[1]
+          assert tny.Library().version.decode("utf-8", "strict") == sys.argv[2]
+          PY
+
+  registry-publication-status:
+    name: coordinate SDK registry publication status
+    if: always() && vars.TNY_REGISTRY_PUBLICATION_ENABLED == 'true'
+    needs: [publish-npm, publish-pypi]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require both registries to be verified
+        env:
+          NPM_RESULT: ${{ needs.publish-npm.result }}
+          PYPI_RESULT: ${{ needs.publish-pypi.result }}
+        run: |
+          set -eu
+          printf 'npm=%s pypi=%s\n' "$NPM_RESULT" "$PYPI_RESULT" >> "$GITHUB_STEP_SUMMARY"
+          test "$NPM_RESULT" = success
+          test "$PYPI_RESULT" = success

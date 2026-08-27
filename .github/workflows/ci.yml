@@ -242,9 +242,26 @@ jobs:
             build/wasm/tny-web.wasm
           if-no-files-found: error
 
+  tsan:
+    name: linux-x86_64-tsan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Stress independent libtny runtimes under ThreadSanitizer
+        env:
+          CC: gcc
+          TNY_TSAN_WORKERS: "4"
+          TNY_TSAN_CYCLES: "20"
+        run: |
+          set -eu
+          gcc --version | head -1
+          make test-libtny-tsan
+
   ci:
     name: ci
-    needs: [build, musl, windows, wasm]
+    needs: [build, musl, windows, wasm, tsan]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -255,3 +272,4 @@ jobs:
           test "${{ needs.musl.result }}" = "success"
           test "${{ needs.windows.result }}" = "success"
           test "${{ needs.wasm.result }}" = "success"
+          test "${{ needs.tsan.result }}" = "success"

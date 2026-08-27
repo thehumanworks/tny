@@ -6,6 +6,7 @@
 #include "core/image.h"
 #include "core/instructions.h"
 #include "core/skills.h"
+#include "lib/custom_tools.h"
 #include "net/net.h"
 #include "util/alloc.h"
 #include "util/util.h"
@@ -18,7 +19,9 @@
 
 #define OPENAI_DEFAULT_MODEL "gpt-4.1-mini"
 
-typedef enum { ST_IDLE, ST_HEADERS, ST_BODY, ST_WAIT_PERMISSION } oa_state;
+typedef enum {
+    ST_IDLE, ST_HEADERS, ST_BODY, ST_WAIT_PERMISSION, ST_WAIT_CUSTOM
+} oa_state;
 
 typedef struct {
     char *id;
@@ -29,6 +32,15 @@ typedef struct {
     char *control_extension;
     char *control_reason;
 } oa_pending_perm;
+
+typedef struct {
+    char *id;
+    tools_call call;
+    char *original_args;
+    char *effective_args;
+    char *control_extension;
+    char *control_reason;
+} oa_pending_custom;
 
 typedef struct {
     tny_ctx *ctx;
@@ -61,6 +73,7 @@ typedef struct {
     int tool_batch_failed;
     bool tool_batch_active;
     oa_pending_perm pending_perm;
+    oa_pending_custom pending_custom;
     char *steer;            /* user text parked by steer(): appended as a
                              * user message before the next POST (adr/0011) */
     char errbuf[512];
@@ -74,6 +87,17 @@ static void pending_perm_clear(oa_impl *o) {
     free(o->pending_perm.control_reason);
     tools_call_free(&o->pending_perm.call);
     memset(&o->pending_perm, 0, sizeof o->pending_perm);
+}
+
+static void pending_custom_clear(oa_impl *o, bool invalidate) {
+    if (invalidate) tools_call_invalidate_async(&o->pending_custom.call);
+    free(o->pending_custom.id);
+    free(o->pending_custom.original_args);
+    free(o->pending_custom.effective_args);
+    free(o->pending_custom.control_extension);
+    free(o->pending_custom.control_reason);
+    tools_call_free(&o->pending_custom.call);
+    memset(&o->pending_custom, 0, sizeof o->pending_custom);
 }
 
 static void permission_block(oa_impl *o) { o->env.perm_blocked = true; }
@@ -727,9 +751,11 @@ static void complete_tool(oa_impl *o, const char *cid, const char *name,
     control_response_free(&response);
 }
 
-static void execute_call(oa_impl *o, const char *cid, const char *original_args,
-                         const char *effective_args, const char *control_extension,
-                         const char *control_reason, tools_call *call) {
+static int run_tools(oa_impl *o);
+
+static int execute_call(oa_impl *o, const char *cid, const char *original_args,
+                        const char *effective_args, const char *control_extension,
+                        const char *control_reason, tools_call *call) {
     tny_backend_event start = {0};
     start.kind = TNY_EV_TOOL_START;
     start.tool_name = call->name;
@@ -740,12 +766,68 @@ static void execute_call(oa_impl *o, const char *cid, const char *original_args,
     char *result = o->cancelled
         ? tool_err("interrupted before %s ran", call->name)
         : tools_call_execute(&o->env, call);
-    if (!result) return;
+    if (!result) return tools_call_pending(call) ? 1 : -1;
     bool ok = !str_starts(result, "error:");
     subagent_control(o, TNY_OPENAI_CONTROL_SUBAGENT_END, cid, call, result, ok);
     complete_tool(o, cid, call->name, original_args, effective_args,
                   control_extension, control_reason, result);
     free(result);
+    return 0;
+}
+
+static int execute_or_park(oa_impl *o, const char *cid,
+                           const char *original_args,
+                           const char *effective_args,
+                           const char *control_extension,
+                           const char *control_reason, tools_call *call) {
+    int status = execute_call(o, cid, original_args, effective_args,
+                              control_extension, control_reason, call);
+    if (status != 1) return status;
+    oa_pending_custom *pending = &o->pending_custom;
+    pending->id = xstrdup(cid);
+    pending->original_args = xstrdup(original_args ? original_args : "{}");
+    pending->effective_args = xstrdup(effective_args ? effective_args : "{}");
+    pending->control_extension = control_extension
+        ? xstrdup(control_extension) : NULL;
+    pending->control_reason = control_reason ? xstrdup(control_reason) : NULL;
+    if (!pending->id || !pending->original_args || !pending->effective_args ||
+        (control_extension && !pending->control_extension) ||
+        (control_reason && !pending->control_reason)) {
+        tools_call_invalidate_async(call);
+        pending_custom_clear(o, false);
+        return -1;
+    }
+    pending->call = *call;
+    memset(call, 0, sizeof *call);
+    o->state = ST_WAIT_CUSTOM;
+    return 1;
+}
+
+static int finish_custom_completion(oa_impl *o) {
+    oa_pending_custom *pending = &o->pending_custom;
+    char *result = NULL;
+    bool is_error = false;
+    int ready = tools_call_take_async(&pending->call, &result, &is_error);
+    if (ready == 0) return 0;
+    if (ready < 0) return -1;
+    if (is_error && !str_starts(result, "error:")) {
+        char *wrapped = tool_err("%s", result);
+        free(result);
+        result = wrapped;
+        if (!result) return -1;
+    }
+    char *bounded = tool_bound_result(&o->env, result, strlen(result));
+    free(result);
+    result = bounded;
+    if (!result) return -1;
+    complete_tool(o, pending->id, pending->call.name,
+                  pending->original_args, pending->effective_args,
+                  pending->control_extension, pending->control_reason, result);
+    free(result);
+    pending_custom_clear(o, false);
+    o->tool_index++;
+    o->state = ST_BODY;
+    return run_tools(o);
 }
 
 static void finish_cancelled_call(oa_impl *o, const char *cid, const char *name,
@@ -931,12 +1013,15 @@ static int run_tools(oa_impl *o) {
                 continue;
             }
             if (call.verdict == PERM_ALLOW) {
-                execute_call(o, cid, args, effective_args, control_extension,
-                             control_reason, &call);
+                int executed = execute_or_park(
+                    o, cid, args, effective_args, control_extension,
+                    control_reason, &call);
                 tools_call_free(&call);
                 free(effective_args);
                 free(control_extension);
                 free(control_reason);
+                if (executed < 0) return -1;
+                if (executed > 0) return 0;
                 o->tool_index++;
                 continue;
             }
@@ -979,12 +1064,15 @@ static int run_tools(oa_impl *o) {
             }
             if (response.permission == TNY_OPENAI_PERMISSION_ALLOW_ONCE) {
                 control_response_free(&response);
-                execute_call(o, cid, args, effective_args, control_extension,
-                             control_reason, &call);
+                int executed = execute_or_park(
+                    o, cid, args, effective_args, control_extension,
+                    control_reason, &call);
                 tools_call_free(&call);
                 free(effective_args);
                 free(control_extension);
                 free(control_reason);
+                if (executed < 0) return -1;
+                if (executed > 0) return 0;
                 o->tool_index++;
                 continue;
             }
@@ -995,6 +1083,7 @@ static int run_tools(oa_impl *o) {
                                                            o->env.prompt_ud);
                 if (decision == TNY_PERM_DECISION_ALLOW_ALWAYS)
                     tools_call_grant(&o->env, &call);
+                int executed = 0;
                 if (decision == TNY_PERM_DECISION_DENY) {
                     permission_block(o);
                     char *result = tool_err("permission denied for %s", call.name);
@@ -1002,13 +1091,16 @@ static int run_tools(oa_impl *o) {
                                   control_extension, "user denied", result);
                     free(result);
                 } else {
-                    execute_call(o, cid, args, effective_args, control_extension,
-                                 control_reason, &call);
+                    executed = execute_or_park(
+                        o, cid, args, effective_args, control_extension,
+                        control_reason, &call);
                 }
                 tools_call_free(&call);
                 free(effective_args);
                 free(control_extension);
                 free(control_reason);
+                if (executed < 0) return -1;
+                if (executed > 0) return 0;
                 o->tool_index++;
                 continue;
             }
@@ -1054,8 +1146,14 @@ static int run_tools(oa_impl *o) {
                           "user denied", result);
             free(result);
         } else {
-            execute_call(o, p->id, p->original_args, p->effective_args,
-                         p->control_extension, p->control_reason, &p->call);
+            int executed = execute_or_park(
+                o, p->id, p->original_args, p->effective_args,
+                p->control_extension, p->control_reason, &p->call);
+            pending_perm_clear(o);
+            if (executed < 0) return -1;
+            if (executed > 0) return 0;
+            o->tool_index++;
+            continue;
         }
         pending_perm_clear(o);
         o->tool_index++;
@@ -1187,6 +1285,7 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images,
     o->usage_in = o->usage_out = 0;
     o->env.perm_blocked = false;
     pending_perm_clear(o);
+    pending_custom_clear(o, true);
     o->tool_batch_active = false;
     o->tool_index = 0;
     o->tool_batch_failed = 0;
@@ -1241,6 +1340,18 @@ static void oa_cancel(tny_backend *b) {
     bool had_tool_batch = o->tool_batch_active;
     if (had_tool_batch) {
         char idbuf[16];
+        if (o->pending_custom.id) {
+            oa_pending_custom *pending = &o->pending_custom;
+            tools_call_invalidate_async(&pending->call);
+            char *result = tool_err("interrupted before %s completed",
+                                    pending->call.name);
+            complete_tool(o, pending->id, pending->call.name,
+                          pending->original_args, pending->effective_args,
+                          pending->control_extension, "cancelled", result);
+            free(result);
+            pending_custom_clear(o, false);
+            o->tool_index++;
+        }
         if (o->pending_perm.id) {
             oa_pending_perm *pending = &o->pending_perm;
             char *result = tool_err("interrupted before %s ran",
@@ -1285,6 +1396,14 @@ static void oa_respond_permission(tny_backend *b, const char *id, tny_perm_decis
 
 static int oa_pollfds(tny_backend *b, struct pollfd *fds, int max) {
     oa_impl *o = b->impl;
+    if (o->state == ST_WAIT_CUSTOM && max >= 1) {
+        int fd = custom_tools_wake_fd(o->ctx->custom_tools);
+        if (fd < 0) return 0;
+        fds[0].fd = fd;
+        fds[0].events = POLLIN;
+        fds[0].revents = 0;
+        return 1;
+    }
     if (o->state == ST_IDLE || o->state == ST_WAIT_PERMISSION ||
         !o->conn || max < 1) return 0;
     fds[0].fd = http_fd(o->conn);
@@ -1294,8 +1413,12 @@ static int oa_pollfds(tny_backend *b, struct pollfd *fds, int max) {
 }
 
 static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
-    (void)fds; (void)n;
     oa_impl *o = b->impl;
+    if (o->state == ST_WAIT_CUSTOM) {
+        if (n > 0 && fds[0].revents)
+            custom_tools_wake_drain(o->ctx->custom_tools);
+        return finish_custom_completion(o);
+    }
     if (o->state == ST_IDLE || o->state == ST_WAIT_PERMISSION || !o->conn) return 0;
 
     if (o->state == ST_HEADERS) {
@@ -1412,6 +1535,7 @@ static void oa_destroy(tny_backend *b) {
     oa_disconnect(b);
     oa_calls_reset(&o->calls);
     pending_perm_clear(o);
+    pending_custom_clear(o, true);
     free(o->steer);
     buf_free(&o->text);
     buf_free(&o->toolcall_log);

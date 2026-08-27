@@ -57,6 +57,11 @@ runtime -> session -> event
   returned. Freeing a runtime/session concurrently with cancel, or making any
   other concurrent call, is unsupported. Join scheduler tasks first, then
   release event, session and runtime handles on the owner thread.
+- ABI 0.8 makes `tny_session_destroy(&session)` and
+  `tny_runtime_destroy(&runtime)` authoritative teardown. They null the
+  caller's slot before releasing storage and return OK when repeated on that
+  same null slot. Legacy raw `*_free(handle)` remains one-shot compatibility;
+  a stale copied raw pointer is invalid C storage and is not made safe.
 - Every successful turn start ends in exactly one `TNY_EVENT_TURN_END`.
 - `tny_session_next_event` returns event, timeout, or drained without exposing
   native file descriptors.
@@ -131,9 +136,10 @@ Process-spawning or ambient-state tools (`subagent`, skills/install, memory,
 and interactive clarification) are also omitted from ABI 0.
 
 Credentials are copied, never persisted by libtny, omitted from errors/events,
-and wiped from library-owned long-lived storage at teardown. ABI 0 remains
-experimental: deep legacy allocation paths may still terminate the process on
-allocator exhaustion, as recorded in ADR 0023.
+and wiped from library-owned long-lived storage at teardown. Every allocation
+path reachable through the public runtime is contained by the ABI fault scope:
+pre-turn exhaustion returns `TNY_STATUS_OOM`, while an active turn settles with
+the reserved OOM error and exactly one terminal without terminating the host.
 
 ## Structured capabilities
 
@@ -161,6 +167,10 @@ bits for static packaging, MCP, custom in-process tools, terminal embedding,
 Windows, wasm, and fully static TLS clear. Cursor, Codex, and ACP provider bits
 are also clear. Built-in native tools are not “custom tools.”
 
+ABI 0.6 additionally advertises `TNY_CAP_FEATURE_HOST_SERVICES` as available.
+It is enabled only for a runtime created through the v1 entry point with a
+copied host-services table.
+
 The snapshot also names the platform, architecture, HTTP transport, TLS
 implementation, and linkage, and reports owner-thread/cross-thread-wake cancel
 semantics plus the event queue and payload budgets. TLS can be available but
@@ -175,6 +185,83 @@ initializer and query/create symbols. A manually initialized smaller supported
 prefix is filled only through its declared size; a prefix smaller than the
 documented scalar core is rejected. Borrowed byte views are scoped to the
 runtime.
+
+## Host services (ABI 0.6)
+
+Embedders that need host callbacks use `tny_runtime_options_v1_init`, initialize
+a `tny_host_services_v1` with `tny_host_services_v1_init`, and call
+`tny_runtime_create_v1`. The v1 options embed the complete frozen v0 options;
+the old initializer, layout, and `tny_runtime_create` remain binary compatible.
+The service table begins with ABI version, declared size, and `user_data`.
+libtny copies its known prefix during creation, so the table storage may be
+released immediately; `user_data` itself remains host-owned and must outlive
+the runtime.
+
+Callbacks are synchronous, owner-thread-only, and non-reentrant. Calling back
+into the same runtime from a callback returns `TNY_STATUS_BAD_STATE`.
+`tny_session_cancel` remains ADR 0033's only cross-thread operation. Callback
+input views and storage buffers are borrowed for the duration of the call only.
+C++ callbacks are `noexcept`; Python and other FFI trampolines must catch all
+language exceptions and return a stable negative `TNY_STATUS_*` value. libtny
+normalizes an invalid callback result to `TNY_STATUS_INTERNAL`, returns typed
+errors with static redacted text, and never includes caller URLs, keys,
+credentials, prompts, or provider bodies in diagnostics.
+
+`tny_runtime_host_monotonic_ms` and
+`tny_runtime_host_secure_random` use safe native defaults when callbacks are
+absent. Host time also supplies event timestamps and runtime deadlines; a bad
+host clock cannot stall internal progress because libtny falls back to its
+native monotonic clock. Native randomness reads the OS CSPRNG and fails closed.
+The storage load/store calls carry only an opaque key, byte buffer, and
+monotonically advancing revision—never the private session schema. URL-open and
+explicit scheduler notification are similarly typed requests. Storage,
+URL-open, and notification return `TNY_STATUS_UNSUPPORTED` when absent.
+
+Diagnostics contain redacted libtny lifecycle/service messages and are never
+required for correctness. Event enqueue invokes scheduler notification when
+present, but pull delivery stays authoritative. The final `runtime destroying`
+diagnostic is synchronous; once `tny_runtime_free` returns, the copied table is
+zeroed and no stale callback can run. See
+[ADR 0035](adr/0035-libtny-host-services.md).
+
+## Custom tools (ABI 0.7)
+
+Initialize `tny_tool_spec_v1`, fill a unique name, description, object JSON
+schema, sensitivity, limits, callback and `user_data`, then call
+`tny_runtime_register_tool` before creating a session. Registration copies all
+descriptor bytes. Built-in/alias/`mcp_` names, duplicates, invalid UTF-8 or
+schemas, excessive limits, and post-session registration are rejected. Active
+custom schemas are appended to the native OpenAI tool list; built-ins are not
+rewritten.
+The executable schema subset is object root, single-`type` property schemas,
+`required`, and boolean `additionalProperties`; unsupported or nested keywords
+are rejected.
+
+The native permission engine classifies sensitivity before invocation, so a
+denied tool cannot enter host code. The callback runs on the owner thread under
+the same non-reentrant guard as host services. It either returns a synchronous
+borrowed UTF-8 result or parks an async call. Async workers complete only through
+`tny_tool_call_complete`, passing the exact generation and a bounded
+`tny_tool_result_v1`. Completion copies bytes, is thread-safe, wakes a blocked
+`next_event`, and rejects wrong-generation, double, cancelled, or unregistered
+calls with `TNY_STATUS_BAD_STATE`.
+
+Arguments are valid only during invocation and completion result bytes only
+during `tny_tool_call_complete`; recipients copy anything retained. NUL or
+malformed UTF-8, oversized arguments/results, invalid positive callback values,
+and malformed result structs fail closed. Session cancel/close invalidates
+pending calls. Join host completion workers before runtime destruction, then
+call `tny_tool_call_release` exactly once per async handle and unregister after
+closing the session. Registry and host references are separate: close detaches
+and invalidates its reference, so a late completion safely returns
+`TNY_STATUS_BAD_STATE`; memory is reclaimed when the host releases. Unregister
+guarantees no later invocation callback. `tny_capabilities_v1` reports all
+registry and byte limits. See
+[ADR 0037](adr/0037-libtny-custom-tools.md).
+At most 64 registration objects are admitted during one runtime lifetime,
+including inactive tombstones, bounding memory while preserving deterministic
+repeated-handle rejection. The wasm CLI does not expose this registration API
+and claims no async custom-tool parity.
 
 ## TLS and platform capability
 
@@ -196,3 +283,22 @@ the Python `ctypes` FFI, drives simultaneous isolated runtimes, repeats
 out-of-order teardown, wakes a blocked event pull by cancelling from another
 thread, checks one interrupted terminal, and proves a native permission can
 park and resume without executing a denied write.
+
+`make test-libtny-tsan` is the Linux x86_64 race gate. It builds libtny and a
+native C host with GCC ThreadSanitizer from process startup, then stresses four
+independent owner-thread runtimes and concurrent scheduler-thread cancellation
+across repeated simultaneous strict-mock turns. Exact-one interrupted terminal,
+drain, a successful post-cancel turn, isolation, wrong-thread rejection and
+owner-ordered teardown are checked inside the native host. Python only owns the
+mock-server lifecycle; it never
+loads the TSan library. The target is not advertised on macOS, arm64, musl,
+Windows, or wasm; their existing functional and sanitizer jobs remain separate
+and must not be described as TSan evidence.
+
+The native `libtny-sanitizer-host` starts with ASan/UBSan already linked. It
+repeats pointer-to-pointer destruction, parent-owned active-session cleanup,
+partial-constructor cleanup, and a hostile provider request for an unadvertised
+process tool; that tool cannot spawn and the library writes no host stdio.
+Linux keeps LeakSanitizer enabled. Darwin's ASan runtime reports leak detection
+unsupported, so macOS runs the same native host with ASan/UBSan while Linux is
+the leak-sensitive gate.

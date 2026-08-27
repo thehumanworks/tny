@@ -15,6 +15,8 @@ from setuptools.command.build_py import build_py as _build_py
 from setuptools.errors import SetupError
 from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 
+from release_version import build_version
+
 SUPPORTED_NAMES = {"libtny.0.dylib", "libtny.so.0"}
 MAX_MANIFEST_BYTES = 16 * 1024
 
@@ -118,6 +120,19 @@ class TnyDistribution(Distribution):
 class BuildPy(_build_py):
     def run(self) -> None:
         super().run()
+        package_license = Path(self.build_lib, "tny", "LICENSE")
+        repository = Path(__file__).resolve().parents[2]
+        root_licenses = [
+            repository / name
+            for name in ("LICENSE", "LICENSE.txt", "LICENSE.md")
+            if (repository / name).is_file()
+        ]
+        if len(root_licenses) > 1:
+            raise SetupError("repository has multiple candidate root licenses")
+        if root_licenses:
+            shutil.copy2(root_licenses[0], package_license)
+        elif package_license.exists():
+            package_license.unlink()
         target_dir = Path(self.build_lib, "tny", ".libs")
         source = _validated_bundle()
         if source is None:
@@ -145,6 +160,7 @@ class BdistWheel(_bdist_wheel):
 
 
 setup(
+    version=build_version(),
     distclass=TnyDistribution,
     cmdclass={"build_py": BuildPy, "bdist_wheel": BdistWheel},
 )

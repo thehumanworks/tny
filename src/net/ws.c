@@ -119,9 +119,25 @@ ws_conn *ws_connect(const char *url, const char *bearer, int timeout_ms,
     buf_appendf(&req, "Host: %s\r\n", host_hdr);
     buf_appends(&req, "Upgrade: websocket\r\nConnection: Upgrade\r\n");
     buf_appendf(&req, "Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n", key.data);
-    if (bearer && *bearer) buf_appendf(&req, "Authorization: Bearer %s\r\n", bearer);
-    buf_appends(&req, "\r\n");
-    int wrc = nstream_write_all(s, req.data, req.len);
+    size_t tail = 2; /* final CRLF */
+    bool overflow = false;
+    if (bearer && *bearer) {
+        size_t bearer_len = strlen(bearer);
+        const size_t auth_fixed = sizeof("Authorization: Bearer \r\n") - 1;
+        if (bearer_len > SIZE_MAX - tail - auth_fixed)
+            overflow = true;
+        else
+            tail += auth_fixed + bearer_len;
+    }
+    if (!overflow) buf_reserve(&req, tail);
+    if (!overflow && !buf_oom(&req)) {
+        if (bearer && *bearer)
+            buf_appendf(&req, "Authorization: Bearer %s\r\n", bearer);
+        buf_appends(&req, "\r\n");
+    }
+    int wrc = overflow || buf_oom(&req)
+        ? -1 : nstream_write_all(s, req.data, req.len);
+    if (req.data) secure_zero(req.data, req.cap);
     buf_free(&req);
     if (wrc != 0) {
         snprintf(err, errlen, "ws handshake write failed");

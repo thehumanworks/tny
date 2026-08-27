@@ -149,7 +149,7 @@ test("simultaneous runtimes remain isolated", async () => {
   ]);
   assert.notEqual(firstSession.id, secondSession.id);
   await first.close();
-  assert.equal((await second.getCapabilities()).abiMinor, 5);
+  assert.equal((await second.getCapabilities()).abiMinor >= 5, true);
   await secondSession.close();
   await second.close();
 });

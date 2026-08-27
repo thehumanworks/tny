@@ -147,6 +147,10 @@ def load_lib(libpath):
     lib.tny_error_free.argtypes = [ctypes.c_void_p]
     lib.tny_session_free.argtypes = [ctypes.c_void_p]
     lib.tny_runtime_free.argtypes = [ctypes.c_void_p]
+    lib.tny_session_destroy.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+    lib.tny_session_destroy.restype = ctypes.c_int32
+    lib.tny_runtime_destroy.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+    lib.tny_runtime_destroy.restype = ctypes.c_int32
     return lib
 
 
@@ -239,13 +243,13 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
     assert prefix_caps.schema_version == 1 and prefix_caps.provider_selected == 1
 
     caps = capabilities()
-    assert caps.schema_version == 1 and caps.abi_version & 0xffff == 5
+    assert caps.schema_version == 1 and caps.abi_version & 0xffff == 8
     assert caps.provider_selected == 1 and caps.provider_initialized == 0
     assert caps.endpoint_reachability == 0
     assert caps.threading_model == 1 and caps.cancel_model == 2
     assert caps.provider_available_mask == 1
-    assert caps.feature_available_mask & 0x87 == 0x87
-    assert not caps.feature_available_mask & ~0x87
+    assert caps.feature_available_mask & 0x8A7 == 0x8A7
+    assert not caps.feature_available_mask & ~0x8A7
     expected_enabled = 0x84 | (0x2 if persistence else 0)
     if base_url.startswith("https://"):
         expected_enabled |= 0x1
@@ -397,6 +401,41 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
     lib.tny_session_free(session)
     lib.tny_runtime_free(runtime)
     return bytes(output), saw_permission, stop_reason, error_codes
+
+
+def destroy_contract(libpath):
+    lib = load_lib(libpath)
+    with tempfile.TemporaryDirectory() as root:
+        workspace = os.path.join(root, "workspace")
+        state = os.path.join(root, "state")
+        os.makedirs(workspace)
+        opts, keep = runtime_options(
+            lib, "http://127.0.0.1:1/v1", workspace, state,
+            api_key="destroy-test")
+        runtime = ctypes.c_void_p()
+        session = ctypes.c_void_p()
+        error = ctypes.c_void_p()
+        assert lib.tny_runtime_create(ctypes.byref(opts), ctypes.byref(runtime),
+                                      ctypes.byref(error)) == 0
+        assert lib.tny_session_create(runtime, ctypes.byref(session),
+                                      ctypes.byref(error)) == 0
+        assert lib.tny_session_destroy(ctypes.byref(session)) == 0
+        assert not session.value
+        assert lib.tny_session_destroy(ctypes.byref(session)) == 0
+        assert lib.tny_runtime_destroy(ctypes.byref(runtime)) == 0
+        assert not runtime.value
+        assert lib.tny_runtime_destroy(ctypes.byref(runtime)) == 0
+
+        invalid = RuntimeOptions.from_buffer_copy(opts)
+        invalid.struct_size = 4
+        assert lib.tny_runtime_create(ctypes.byref(invalid),
+                                      ctypes.byref(runtime),
+                                      ctypes.byref(error)) == -1
+        assert not runtime.value
+        if error.value:
+            lib.tny_error_free(error)
+        assert lib.tny_runtime_destroy(ctypes.byref(runtime)) == 0
+        del keep
 
 
 def run_cancel_wake(libpath, base_url, workspace, state):
@@ -625,6 +664,9 @@ def main():
               for line in symbols.splitlines() if line.split() and
               line.split()[-1].split("@")[0].removeprefix("_").startswith("tny_")}
     assert actual == expected, (sorted(actual - expected), sorted(expected - actual))
+
+    stage("idempotent pointer-to-pointer destruction")
+    destroy_contract(libpath)
 
     stage("synchronous error classification")
     with tempfile.TemporaryDirectory() as root:

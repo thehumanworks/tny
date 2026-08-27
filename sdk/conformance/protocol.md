@@ -24,6 +24,23 @@ codes, and one result for every scenario. Passing scenarios list the exact
 assertion IDs from `v1.json`, reference at least one successful execution, and
 include the normalized events that were actually observed.
 
+Every execution has this shape:
+
+```json
+{
+  "id": "stable-probe-id",
+  "exit_code": 0,
+  "assertions": ["scenario_id:assertion_id"]
+}
+```
+
+`assertions` is the machine-readable output contract of that executable probe,
+not a scenario-wide label. Every assertion claimed by a passing scenario must
+be qualified and claimed by at least one of that scenario's referenced
+executions. Unknown assertion IDs, evidence from another scenario, duplicate
+claims, failed executions, and broad executions which claim no assertion for
+the referencing scenario are release-blocking.
+
 The steer/resume scenario uses the contract's fixed `rejected_text` and exact
 ordered terminal reasons (`interrupted`, then `done`). The validator requires
 one matching `steer_rejected` event immediately before the interrupted terminal;
@@ -41,3 +58,19 @@ capability claims against the raw ABI snapshot, validates event order and
 terminal state, and scans the complete response for forbidden fields and the
 sentinel. Adding a language lane therefore needs only an adapter command; it
 does not copy the transcript or report-validation logic.
+
+Compatibility note
+------------------
+
+The semantic conformance contract remains v1: scenario IDs, assertion IDs, and
+event meanings have not been renumbered. The mandatory qualified execution
+bindings tighten the pre-release protocol-v1 report shape. Older reports with
+only `{id, exit_code}` execution records are deliberately rejected because
+they cannot establish which probe executed an assertion. This fail-closed
+change is intentional; no released artifact relied on the ambiguous shape.
+
+The queue-overflow fixture reports no invented event transcript. Its three
+assertions are established by the focused executable C probe, which observes
+the real bounded count, backpressure category, and reserved terminal slot. An
+adapter must leave `events` empty when a probe does not export the observed
+events in machine-readable form.

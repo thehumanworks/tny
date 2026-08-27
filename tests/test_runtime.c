@@ -349,7 +349,8 @@ TEST runtime_next_event_waits_without_spinning(void) {
 }
 
 TEST runtime_oom_uses_reserved_error_and_terminal_once(void) {
-    fixture x = fixture_new(3);
+    tny_engine_fail_oom(NULL); /* partial-constructor cleanup is harmless */
+    fixture x = fixture_new(0);
     char err[128];
     ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
     tny_engine_fail_oom(x.engine);
@@ -371,6 +372,18 @@ TEST runtime_oom_uses_reserved_error_and_terminal_once(void) {
     ASSERT_EQ(1, x.fake->cancels);
     ASSERT_EQ(1, errors);
     ASSERT_EQ(1, terminals);
+
+    ASSERT_EQ(0, tny_engine_start(x.engine, "after oom", NULL,
+                                  err, sizeof err));
+    ASSERT_EQ(TNY_ENGINE_NEXT_EVENT,
+              tny_engine_next_event(x.engine, 0, &ev, err, sizeof err));
+    ASSERT_EQ(TNY_EV_TEXT_DELTA, ev->ev.kind);
+    tny_owned_event_free(ev);
+    ASSERT_EQ(TNY_ENGINE_NEXT_EVENT,
+              tny_engine_next_event(x.engine, 0, &ev, err, sizeof err));
+    ASSERT_EQ(TNY_EV_TURN_END, ev->ev.kind);
+    ASSERT_EQ(TNY_STOP_DONE, ev->ev.stop);
+    tny_owned_event_free(ev);
     fixture_free(&x);
     PASS();
 }

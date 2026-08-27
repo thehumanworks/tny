@@ -21,6 +21,7 @@ int set_nonblock(int fd, bool nb) {
 }
 
 int tcp_connect(const char *host, int port, int timeout_ms) {
+    int64_t deadline = monotonic_ms() + (timeout_ms > 0 ? timeout_ms : 0);
     char portstr[16];
     snprintf(portstr, sizeof portstr, "%d", port);
     struct addrinfo hints = {0}, *res = NULL;
@@ -29,19 +30,37 @@ int tcp_connect(const char *host, int port, int timeout_ms) {
     if (getaddrinfo(host, portstr, &hints, &res) != 0) return -1;
     int fd = -1;
     for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
+        int64_t left64 = deadline - monotonic_ms();
+        if (left64 < 0) break;
+        int left = (int)left64;
         fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (fd < 0) continue;
-        set_nonblock(fd, true);
+        if (set_nonblock(fd, true) != 0) {
+            close(fd);
+            fd = -1;
+            continue;
+        }
         int rc = connect(fd, ai->ai_addr, ai->ai_addrlen);
         if (rc == 0) break;
         if (errno == EINPROGRESS) {
-            struct pollfd pf = {fd, POLLOUT, 0};
-            if (tny_poll(&pf, 1, timeout_ms) == 1) {
-                int soerr = 0;
-                socklen_t sl = sizeof soerr;
-                getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &sl);
-                if (soerr == 0) break;
+            for (;;) {
+                left64 = deadline - monotonic_ms();
+                if (left64 < 0) break;
+                left = (int)left64;
+                struct pollfd pf = {fd, POLLOUT, 0};
+                rc = tny_poll(&pf, 1, left);
+                if (rc < 0 && errno == EINTR) continue;
+                if (rc == 1) {
+                    int soerr = 0;
+                    socklen_t sl = sizeof soerr;
+                    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &sl) == 0 &&
+                        soerr == 0)
+                        break;
+                    rc = -1;
+                }
+                break;
             }
+            if (rc == 1) break;
         }
         close(fd);
         fd = -1;

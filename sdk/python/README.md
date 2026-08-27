@@ -60,6 +60,19 @@ tagging. `TNY_BUNDLE_SHA256` optionally pins the digest. Alternatively,
 `sha256`, `os`, and `arch` fields. Linux wheel claims require Linux CI and
 `auditwheel`; they are not inferred from a macOS build.
 
+Wheel versions come only from a canonical release tag. Stable
+`vMAJOR.MINOR.PATCH` tags map directly; the narrow
+`vMAJOR.MINOR.PATCH-(a|b|rc).N` prerelease form maps to canonical PEP 440 (for
+example, `v1.2.3-rc.4` becomes `1.2.3rc4`). Registry builds fail if the tag is
+missing or noncanonical. Trusted PyPI publication is separately gated by an
+owner license, an explicit repository opt-in, and the protected publisher
+environment; the current unlicensed package cannot pass that gate. Once a root
+license exists, its exact bytes must be included in every wheel. Publication
+rejects partial or hash-mismatched existing releases, then verifies PyPI JSON,
+downloads and hashes all three wheels, and performs a clean installed
+import/native-library readback. Ordinary release-wheel install tests use a
+local cffi dependency wheelhouse with network access disabled.
+
 ## Ownership and concurrency
 
 `Runtime` and `Session` are context managers. Explicit `close()` is required;
@@ -86,15 +99,40 @@ API keys and base URLs are omitted from configuration reprs. Native diagnostics
 are retained as bytes on `TnyError.message` for explicit inspection but do not
 enter `str(error)`, `repr(error)`, or tracebacks automatically.
 
-## Explicit ABI 0.5+ limitations
+## ABI 0.7 callbacks and remaining limitations
 
 `Runtime.capabilities` is copied from `tny_runtime_get_capabilities`; no
-borrowed native field survives runtime closure. The current ABI has no
-custom-tool callback registration, host-service callback registration,
-MCP ownership or provider other than the
-native OpenAI-compatible backend. The Python SDK does not approximate these
-features. Callback lifetime/GIL acceptance criteria remain blocked until the C
-ABI adds callback registration and unregister/drain semantics.
+borrowed native field survives runtime closure. Basic runtime/session use stays
+compatible with ABI 0.5. Passing `HostServices` requires ABI 0.6. Registering
+`CustomTool` / `AsyncCustomTool` and reading custom-tool limits requires ABI
+0.7 and uses the extended capability snapshot.
+
+Host-service handlers are synchronous, execute on the native runtime owner,
+receive copied `bytes`, and cannot re-enter that runtime. Custom-tool handlers
+also receive exact argument bytes. Synchronous handlers return NUL-free,
+strictly valid UTF-8 `bytes` or `ToolResult`; binary result payloads are not an
+ABI 0.7 feature, and `ToolResult` content is redacted from its representation.
+Asyncio handlers use the same result contract and complete through the sole thread-safe native
+completion call. The SDK retains every cffi closure, handler, user object, and
+outstanding call until unregister/runtime close has invalidated native state and
+each async host reference has been released exactly once. `BaseException` is
+caught at every trampoline; exception text is never placed in native errors or
+reports. Explicit close remains required. GC/interpreter finalization is a
+leak-safe fallback and never knowingly calls a stale native handle.
+
+Async completion authority is retired only after a successful completion, an
+already-invalid native call, an accepted session cancellation, or explicit
+session/unregister invalidation. If completion and best-effort cancellation
+both fail, the adapter retains the host reference until close publishes native
+invalidation, then releases it exactly once. Cancellation of the scheduler
+Future is not treated as handler termination: close waits for the coroutine's
+actual `finally` acknowledgement and the completion callback's pending-empty
+acknowledgement before dropping Python references.
+
+See `examples/sync_custom_tool.py` and `examples/async_custom_tool.py`. MCP
+ownership and providers other than the native OpenAI-compatible backend remain
+unavailable; capability discovery, rather than ABI/platform guesses, governs
+all optional behavior.
 
 ## Shared conformance adapter
 

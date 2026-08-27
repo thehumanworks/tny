@@ -14,14 +14,24 @@ project licensing. It is not an ABI-1 or production-stability claim.
 - Apple Silicon macOS
 - glibc Linux on x64 or arm64
 
-The install script builds the addon against the enclosing tny checkout. For an
-installed libtny, set `TNY_INCLUDE_DIR` and `TNY_LIB_DIR`; alternatively set
-`TNY_ROOT`. The versioned shared library is staged beside the addon and the
-addon uses a loader-relative rpath. Unsupported systems, a missing library, or
-an ABI older than 0.5 fail with a targeted diagnostic.
+Registry releases use one JavaScript-only `@thehumanworks/tny` meta package.
+It has exact-version optional dependencies on the three native payloads:
+`@thehumanworks/tny-darwin-arm64`, `@thehumanworks/tny-linux-x64`, and
+`@thehumanworks/tny-linux-arm64`. npm selects the compatible payload. The
+runtime validates its package name and version, target, ABI manifest, and both
+native SHA-256 values before loading the addon. Missing optional packages,
+musl, the wrong CPU, tampering, and ABI versions older than 0.5 produce targeted
+`TnyLoadError` diagnostics.
+
+The repository checkout is deliberately private/non-publishable and has no
+automatic install build. Source users explicitly build against the enclosing
+checkout, or set `TNY_INCLUDE_DIR` and `TNY_LIB_DIR` (alternatively `TNY_ROOT`)
+for an installed libtny. The versioned shared library is staged beside the
+addon and uses a loader-relative rpath.
 
 ```sh
-TNY_ROOT=/path/to/tny npm install /path/to/tny/sdk/typescript
+cd /path/to/tny
+TNY_ROOT="$PWD" npm --prefix sdk/typescript run build
 ```
 
 ## Use
@@ -83,12 +93,11 @@ ordinary turn traffic. The view reports these limitations explicitly:
 - SecureTransport on macOS and dynamically loaded system OpenSSL on glibc
   Linux.
 
-Platform release tarballs bundle a matched addon and shared library with a
+Each platform package bundles a matched addon and shared library with a
 loader-relative rpath. Installation verifies hashes, Mach-O/ELF architecture,
-ABI/capability size, and the build host's deployment contract. The manifest is
-authoritative: current local macOS artifacts have a macOS 27.0 floor; Linux
-artifacts record and require their build-time glibc version. No older macOS or
-glibc baseline is claimed without a corresponding CI artifact.
+ABI/capability size, and the build host's deployment contract. Release CI sets
+the macOS 13 deployment target; Linux artifacts record and require their
+derived glibc floor, which may not exceed 2.34.
 
 Release builds may set `TNY_LIB_DIR`, `TNY_EXPECTED_LIB_SHA256`, and
 `TNY_ARTIFACT_METADATA` to bind the addon to a separately staged libtny
@@ -97,6 +106,18 @@ derive referenced GLIBC symbol versions and reject release floors above 2.34.
 
 `npm run footprint` records byte counts and SHA-256 values for the addon,
 staged library, and generated `.tgz`; it does not make a performance claim.
+
+Package versions come only from the release tag. Stable tags use
+`vMAJOR.MINOR.PATCH`; prereleases use the deliberately narrow
+`vMAJOR.MINOR.PATCH-(a|b|rc).N` form. CI creates a byte-identical meta package
+on every native runner, one target-specific payload per runner, offline package
+content reports, source-commit-bound SHA provenance inputs, and SPDX SBOM
+inputs. Registry publication verifies existing versions by integrity, publishes
+all three verified native payloads before the meta package, and ends with a
+clean registry install/native-load readback. A partial rerun resumes only when
+every existing package digest is identical. Registry
+publication remains disabled until the repository owner adopts a license and
+configures the protected trusted-publisher environment.
 
 Explicit async `close()`/`Symbol.asyncDispose` is the supported lifecycle.
 Finalizers request cleanup only as a last-resort safety net.

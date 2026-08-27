@@ -1,6 +1,7 @@
 /* tools.c — registry, permission gate, dispatch, result bounding. */
 #include "core/tools.h"
 #include "core/image.h"
+#include "lib/custom_tools.h"
 #include "util/alloc.h"
 #include "util/util.h"
 
@@ -109,6 +110,21 @@ static bool schema_tool_disabled(const tools_env *env, const char *name) {
            strcmp(name, "ask_user_question") == 0;
 }
 
+static char *append_custom_schema(char *base, custom_tool_registry *registry) {
+    char *custom = custom_tools_schema_json(registry);
+    if (!base || !custom) { free(base); free(custom); return NULL; }
+    if (strcmp(custom, "[]") == 0) { free(custom); return base; }
+    size_t base_len = strlen(base), custom_len = strlen(custom);
+    buf_t merged;
+    buf_init(&merged);
+    if (base_len > 1) buf_append(&merged, base, base_len - 1);
+    if (base_len > 2) buf_appends(&merged, ",");
+    buf_append(&merged, custom + 1, custom_len - 1);
+    free(base);
+    free(custom);
+    return buf_detach(&merged);
+}
+
 char *tools_schema_json(tools_env *env) {
     if (env && env->ctx && (env->ctx->mcp_disabled || env->ctx->library_mode)) {
         yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
@@ -127,13 +143,15 @@ char *tools_schema_json(tools_env *env) {
             char *json = jwrite(mut);
             yyjson_mut_doc_free(mut);
             yyjson_doc_free(doc);
-            if (json) return json;
+            if (json) return append_custom_schema(
+                json, env->ctx->custom_tools);
         } else {
             yyjson_mut_doc_free(mut);
             yyjson_doc_free(doc);
         }
     }
-    return xstrdup(SCHEMA_JSON);
+    return append_custom_schema(xstrdup(SCHEMA_JSON),
+                                env && env->ctx ? env->ctx->custom_tools : NULL);
 }
 
 static bool json_type_matches(yyjson_val *value, const char *type) {
@@ -147,12 +165,63 @@ static bool json_type_matches(yyjson_val *value, const char *type) {
     return true; /* unknown future schema type is validated by the tool */
 }
 
-static int validate_call_schema(const char *name, yyjson_val *args,
-                                char **error) {
+static int validate_parameters(const char *name, yyjson_val *args,
+                               yyjson_val *parameters, char **error) {
     if (!args || !yyjson_is_obj(args)) {
         *error = tool_err("arguments for %s must be a JSON object", name);
         return -1;
     }
+    if (!parameters || !yyjson_is_obj(parameters)) {
+        *error = tool_err("unknown tool %s", name);
+        return -1;
+    }
+    yyjson_val *required = jget(parameters, "required");
+    if (required && yyjson_is_arr(required)) {
+        size_t idx, max;
+        yyjson_val *field;
+        yyjson_arr_foreach(required, idx, max, field) {
+            const char *key = yyjson_get_str(field);
+            if (key && !jget(args, key)) {
+                *error = tool_err("%s needs argument %s", name, key);
+                return -1;
+            }
+        }
+    }
+    yyjson_val *properties = jget(parameters, "properties");
+    if (properties && yyjson_is_obj(properties)) {
+        size_t idx, max;
+        yyjson_val *key_value, *schema;
+        yyjson_obj_foreach(properties, idx, max, key_value, schema) {
+            const char *key = yyjson_get_str(key_value);
+            yyjson_val *value = key ? jget(args, key) : NULL;
+            if (!value) continue;
+            const char *type = jget_str(schema, "type");
+            if (type && !json_type_matches(value, type)) {
+                *error = tool_err("%s argument %s must be %s", name, key, type);
+                return -1;
+            }
+        }
+    }
+    yyjson_val *additional = jget(parameters, "additionalProperties");
+    if (additional && yyjson_is_bool(additional) &&
+        !yyjson_get_bool(additional) && yyjson_is_obj(args)) {
+        size_t idx, max;
+        yyjson_val *argument_key, *argument_value;
+        yyjson_obj_foreach(args, idx, max, argument_key, argument_value) {
+            (void)argument_value;
+            const char *key = yyjson_get_str(argument_key);
+            if (!key || !properties || !jget(properties, key)) {
+                *error = tool_err("%s does not allow argument %s", name,
+                                  key ? key : "<invalid>");
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
+static int validate_call_schema(const char *name, yyjson_val *args,
+                                char **error) {
     yyjson_doc *schemas = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
     yyjson_val *root = schemas ? yyjson_doc_get_root(schemas) : NULL;
     yyjson_val *parameters = NULL;
@@ -173,37 +242,9 @@ static int validate_call_schema(const char *name, yyjson_val *args,
         *error = tool_err("unknown tool %s", name);
         return -1;
     }
-    yyjson_val *required = jget(parameters, "required");
-    if (required && yyjson_is_arr(required)) {
-        size_t idx, max;
-        yyjson_val *field;
-        yyjson_arr_foreach(required, idx, max, field) {
-            const char *key = yyjson_get_str(field);
-            if (key && !jget(args, key)) {
-                *error = tool_err("%s needs argument %s", name, key);
-                yyjson_doc_free(schemas);
-                return -1;
-            }
-        }
-    }
-    yyjson_val *properties = jget(parameters, "properties");
-    if (properties && yyjson_is_obj(properties)) {
-        size_t idx, max;
-        yyjson_val *key_value, *schema;
-        yyjson_obj_foreach(properties, idx, max, key_value, schema) {
-            const char *key = yyjson_get_str(key_value);
-            yyjson_val *value = key ? jget(args, key) : NULL;
-            if (!value) continue;
-            const char *type = jget_str(schema, "type");
-            if (type && !json_type_matches(value, type)) {
-                *error = tool_err("%s argument %s must be %s", name, key, type);
-                yyjson_doc_free(schemas);
-                return -1;
-            }
-        }
-    }
+    int status = validate_parameters(name, args, parameters, error);
     yyjson_doc_free(schemas);
-    return 0;
+    return status;
 }
 
 /* Extract one path-like human detail used for permission rules/prompts. */
@@ -255,8 +296,25 @@ int tools_call_prepare(tools_env *env, const char *name,
     }
     call->doc = args_json ? jparse(args_json, strlen(args_json)) : NULL;
     call->args = call->doc ? yyjson_doc_get_root(call->doc) : NULL;
-    if (validate_call_schema(call->name, call->args, &call->error) != 0)
+    call->custom = custom_tools_find(env->ctx->custom_tools, call->name);
+    if (call->custom) {
+        if (!args_json || strlen(args_json) >
+                custom_tool_argument_limit(call->custom)) {
+            call->error = tool_err("arguments for %s exceed the registered limit",
+                                   call->name);
+            return -1;
+        }
+        yyjson_doc *schema = jparse(custom_tool_schema(call->custom),
+                                    strlen(custom_tool_schema(call->custom)));
+        yyjson_val *parameters = schema ? yyjson_doc_get_root(schema) : NULL;
+        int valid = validate_parameters(call->name, call->args, parameters,
+                                        &call->error);
+        yyjson_doc_free(schema);
+        if (valid != 0) return -1;
+    } else if (validate_call_schema(call->name, call->args,
+                                    &call->error) != 0) {
         return -1;
+    }
     if (strcmp(call->name, "mcp_select_tool") == 0) {
         const char *server = jget_str(call->args, "server");
         const char *tool = jget_str(call->args, "tool");
@@ -270,7 +328,9 @@ int tools_call_prepare(tools_env *env, const char *name,
     if (strcmp(call->name, "rename_file") == 0 ||
         strcmp(call->name, "copy_file") == 0)
         call->detail2 = path_detail(env, call->args, "new_path");
-    call->verdict = perm_check(env->perm, call->permission_tool, call->detail);
+    call->verdict = call->custom && !custom_tool_sensitive(call->custom)
+        ? PERM_ALLOW
+        : perm_check(env->perm, call->permission_tool, call->detail);
     if (call->detail2) {
         perm_verdict second = perm_check(env->perm, call->permission_tool,
                                          call->detail2);
@@ -298,9 +358,32 @@ void tools_call_grant(tools_env *env, const tools_call *call) {
         perm_grant(env->perm, call->permission_tool, call->detail2);
 }
 
-char *tools_call_execute(tools_env *env, const tools_call *call) {
+char *tools_call_execute(tools_env *env, tools_call *call) {
     const char *name = call->name;
     yyjson_val *args = call->args;
+
+    if (call->custom) {
+        char *result = NULL;
+        bool is_error = false;
+        char *arguments = call->doc ? yyjson_write(call->doc, 0, NULL) : NULL;
+        if (!arguments) return tool_err("could not copy custom tool arguments");
+        int32_t status = custom_tool_invoke(
+            call->custom, arguments, &call->custom_call, &result, &is_error);
+        free(arguments);
+        if (status == TNY_TOOL_INVOKE_ASYNC) return NULL;
+        if (status != TNY_STATUS_OK)
+            return tool_err("custom tool %s callback failed (%d)", name,
+                            (int)status);
+        if (is_error && !str_starts(result, "error:")) {
+            char *wrapped = tool_err("%s", result);
+            free(result);
+            result = wrapped;
+            if (!result) return NULL;
+        }
+        char *bounded = tool_bound_result(env, result, strlen(result));
+        free(result);
+        return bounded;
+    }
 
     bool handled;
     char *out = tool_ssh_execute(env, name, args, &handled);
@@ -310,6 +393,19 @@ char *tools_call_execute(tools_env *env, const tools_call *call) {
     if (!handled) out = tool_ext_execute(env, name, args, &handled);
     if (!handled) out = tool_err("unknown tool %s", name);
     return out;
+}
+
+bool tools_call_pending(const tools_call *call) {
+    return call && call->custom_call;
+}
+
+int tools_call_take_async(tools_call *call, char **result, bool *is_error) {
+    return call && call->custom_call
+        ? custom_tool_take(call->custom_call, result, is_error) : -1;
+}
+
+void tools_call_invalidate_async(tools_call *call) {
+    if (call && call->custom_call) custom_tool_invalidate(call->custom_call);
 }
 
 void tools_call_free(tools_call *call) {

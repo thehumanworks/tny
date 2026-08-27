@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 #define TNY_ABI_MAJOR 0u
-#define TNY_ABI_MINOR 5u
+#define TNY_ABI_MINOR 8u
 #define TNY_ABI_VERSION ((TNY_ABI_MAJOR << 16) | TNY_ABI_MINOR)
 
 /* Non-error outcomes. */
@@ -86,11 +86,112 @@ typedef struct tny_runtime tny_runtime;
 typedef struct tny_session tny_session;
 typedef struct tny_event tny_event;
 typedef struct tny_error tny_error;
+typedef struct tny_tool_registration tny_tool_registration;
+typedef struct tny_tool_call tny_tool_call;
 
 typedef struct {
     const char *ptr;
     uint64_t len;
 } tny_bytes;
+
+#ifdef __cplusplus
+#  define TNY_CALLBACK_NOEXCEPT noexcept
+#else
+#  define TNY_CALLBACK_NOEXCEPT
+#endif
+
+#define TNY_HOST_SERVICES_ABI_VERSION 1u
+#define TNY_RUNTIME_OPTIONS_ABI_VERSION 1u
+#define TNY_DIAGNOSTIC_DEBUG 0u
+#define TNY_DIAGNOSTIC_INFO  1u
+#define TNY_DIAGNOSTIC_WARN  2u
+#define TNY_DIAGNOSTIC_ERROR 3u
+
+typedef int32_t (TNY_CALL *tny_host_diagnostic_fn)(
+    void *user_data, uint32_t level, tny_bytes component,
+    tny_bytes message) TNY_CALLBACK_NOEXCEPT;
+typedef int32_t (TNY_CALL *tny_host_monotonic_ms_fn)(
+    void *user_data, int64_t *out_ms) TNY_CALLBACK_NOEXCEPT;
+typedef int32_t (TNY_CALL *tny_host_secure_random_fn)(
+    void *user_data, void *buffer, uint64_t buffer_size) TNY_CALLBACK_NOEXCEPT;
+typedef int32_t (TNY_CALL *tny_host_storage_load_fn)(
+    void *user_data, tny_bytes key, uint64_t *out_revision,
+    void *buffer, uint64_t buffer_capacity,
+    uint64_t *out_size) TNY_CALLBACK_NOEXCEPT;
+typedef int32_t (TNY_CALL *tny_host_storage_store_fn)(
+    void *user_data, tny_bytes key, uint64_t expected_revision,
+    const void *data, uint64_t data_size,
+    uint64_t *out_revision) TNY_CALLBACK_NOEXCEPT;
+typedef int32_t (TNY_CALL *tny_host_open_url_fn)(
+    void *user_data, tny_bytes url) TNY_CALLBACK_NOEXCEPT;
+typedef int32_t (TNY_CALL *tny_host_notify_scheduler_fn)(
+    void *user_data) TNY_CALLBACK_NOEXCEPT;
+
+/* Frozen host-services v1 table. libtny copies the declared prefix during
+ * runtime creation; the table itself may be released immediately afterward.
+ * user_data and resources reachable from it must outlive the runtime. All
+ * callbacks are synchronous, owner-thread-only and non-reentrant. Borrowed
+ * input buffers are valid only for the callback. A callback returns a stable
+ * TNY_STATUS_* value and must never unwind across this C boundary. */
+typedef struct {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    void *user_data;
+    tny_host_diagnostic_fn diagnostic;
+    tny_host_monotonic_ms_fn monotonic_ms;
+    tny_host_secure_random_fn secure_random;
+    tny_host_storage_load_fn storage_load;
+    tny_host_storage_store_fn storage_store;
+    tny_host_open_url_fn open_url;
+    tny_host_notify_scheduler_fn notify_scheduler;
+    uint64_t reserved[8];
+} tny_host_services_v1;
+
+#define TNY_TOOL_SPEC_ABI_VERSION 1u
+#define TNY_TOOL_RESULT_ABI_VERSION 1u
+#define TNY_TOOL_INVOKE_SYNC  0
+#define TNY_TOOL_INVOKE_ASYNC 1
+#define TNY_TOOL_SENSITIVITY_SAFE      0u
+#define TNY_TOOL_SENSITIVITY_SENSITIVE 1u
+#define TNY_CUSTOM_TOOL_MAX_COUNT 64u
+#define TNY_CUSTOM_TOOL_NAME_MAX 64u
+#define TNY_CUSTOM_TOOL_DESCRIPTION_MAX 4096u
+#define TNY_CUSTOM_TOOL_SCHEMA_MAX 65536u
+#define TNY_CUSTOM_TOOL_ARGUMENTS_MAX 262144u
+#define TNY_CUSTOM_TOOL_RESULT_MAX 1048576u
+
+typedef struct {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    tny_bytes data;
+    uint32_t is_error;
+    uint32_t reserved_scalar;
+    uint64_t reserved[4];
+} tny_tool_result_v1;
+
+typedef int32_t (TNY_CALL *tny_tool_invoke_fn)(
+    void *user_data, tny_tool_call *call, uint64_t generation,
+    tny_bytes arguments_json,
+    tny_tool_result_v1 *out_result) TNY_CALLBACK_NOEXCEPT;
+
+/* Frozen custom-tool v1 descriptor. Every byte view and callback pointer is
+ * copied by registration. user_data remains host-owned through unregister.
+ * invoke runs synchronously on the runtime owner and may return SYNC with a
+ * borrowed result, ASYNC for later completion, or a stable TNY_STATUS_* error. */
+typedef struct {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    void *user_data;
+    tny_bytes name;
+    tny_bytes description;
+    tny_bytes input_schema_json;
+    uint32_t sensitivity;
+    uint32_t reserved_scalar;
+    uint64_t max_argument_bytes;
+    uint64_t max_result_bytes;
+    tny_tool_invoke_fn invoke;
+    uint64_t reserved[8];
+} tny_tool_spec_v1;
 
 
 #define TNY_EVENT_SCHEMA_VERSION 1u
@@ -151,6 +252,7 @@ typedef struct {
 #define TNY_CAP_FEATURE_WINDOWS          (UINT64_C(1) << 8)
 #define TNY_CAP_FEATURE_WASM             (UINT64_C(1) << 9)
 #define TNY_CAP_FEATURE_FULLY_STATIC_TLS (UINT64_C(1) << 10)
+#define TNY_CAP_FEATURE_HOST_SERVICES     (UINT64_C(1) << 11)
 
 #define TNY_ENDPOINT_REACHABILITY_UNKNOWN     0u
 #define TNY_ENDPOINT_REACHABILITY_REACHABLE   1u
@@ -189,6 +291,18 @@ typedef struct {
     uint64_t reserved[8];
 } tny_capabilities_v0;
 
+typedef struct {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    tny_capabilities_v0 base;
+    uint32_t custom_tool_max_count;
+    uint32_t custom_tool_name_max;
+    uint64_t custom_tool_schema_max;
+    uint64_t custom_tool_arguments_max;
+    uint64_t custom_tool_result_max;
+    uint64_t reserved[8];
+} tny_capabilities_v1;
+
 /* Frozen-v0 runtime options. Future options require a v1 type and new
  * initializer/create entry point; reserved is not appendable storage. */
 typedef struct {
@@ -207,6 +321,16 @@ typedef struct {
     uint64_t reserved[8];
 } tny_runtime_options_v0;
 
+/* v1 is a new initializer target; v0 remains frozen and is embedded by value.
+ * Future v1-compatible additions may consume only this v1 reserved tail. */
+typedef struct {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    tny_runtime_options_v0 runtime;
+    const tny_host_services_v1 *host_services;
+    uint64_t reserved[8];
+} tny_runtime_options_v1;
+
 /* ABI 0 uses a fixed 15-second native connection deadline. Destruction closes
  * an active OpenAI HTTP transport without waiting for provider completion.
  * Process-spawning tools are unavailable in public runtimes. */
@@ -214,7 +338,12 @@ typedef struct {
 TNY_API uint32_t TNY_CALL tny_abi_version(void);
 TNY_API tny_bytes TNY_CALL tny_library_version(void);
 TNY_API void TNY_CALL tny_runtime_options_init(tny_runtime_options_v0 *options);
+TNY_API void TNY_CALL tny_runtime_options_v1_init(tny_runtime_options_v1 *options);
+TNY_API void TNY_CALL tny_host_services_v1_init(tny_host_services_v1 *services);
+TNY_API void TNY_CALL tny_tool_spec_v1_init(tny_tool_spec_v1 *spec);
+TNY_API void TNY_CALL tny_tool_result_v1_init(tny_tool_result_v1 *result);
 TNY_API void TNY_CALL tny_capabilities_init(tny_capabilities_v0 *capabilities);
+TNY_API void TNY_CALL tny_capabilities_v1_init(tny_capabilities_v1 *capabilities);
 
 /* ABI 0 handles are owner-thread-affine except tny_session_cancel, which is
  * safe and idempotent from any thread. The owner must keep the session alive
@@ -226,9 +355,55 @@ TNY_API void TNY_CALL tny_capabilities_init(tny_capabilities_v0 *capabilities);
 TNY_API int32_t TNY_CALL tny_runtime_create(
     const tny_runtime_options_v0 *options,
     tny_runtime **out_runtime, tny_error **out_error);
+TNY_API int32_t TNY_CALL tny_runtime_create_v1(
+    const tny_runtime_options_v1 *options,
+    tny_runtime **out_runtime, tny_error **out_error);
 TNY_API void TNY_CALL tny_runtime_free(tny_runtime *runtime);
+/* Authoritative repeat-safe teardown. The owner passes its handle slot; on a
+ * valid owner call libtny nulls it before releasing children and storage. */
+TNY_API int32_t TNY_CALL tny_runtime_destroy(tny_runtime **runtime);
 TNY_API int32_t TNY_CALL tny_runtime_get_capabilities(
     const tny_runtime *runtime, tny_capabilities_v0 *capabilities);
+TNY_API int32_t TNY_CALL tny_runtime_get_capabilities_v1(
+    const tny_runtime *runtime, tny_capabilities_v1 *capabilities);
+
+TNY_API int32_t TNY_CALL tny_runtime_register_tool(
+    tny_runtime *runtime, const tny_tool_spec_v1 *spec,
+    tny_tool_registration **out_registration, tny_error **out_error);
+TNY_API int32_t TNY_CALL tny_tool_registration_unregister(
+    tny_tool_registration *registration, tny_error **out_error);
+TNY_API uint64_t TNY_CALL tny_tool_call_generation(const tny_tool_call *call);
+/* Thread-safe while the owning runtime remains alive. The result is copied
+ * before return. A generation mismatch, second completion, cancellation, or
+ * unregistered tool returns TNY_STATUS_BAD_STATE and never invokes a callback. */
+TNY_API int32_t TNY_CALL tny_tool_call_complete(
+    tny_tool_call *call, uint64_t generation,
+    const tny_tool_result_v1 *result, tny_error **out_error);
+/* Release the host's async-call reference. Call exactly once after the final
+ * completion attempt; after return the handle must not be touched. */
+TNY_API void TNY_CALL tny_tool_call_release(tny_tool_call *call);
+
+/* Direct service requests use the same callback guard as internal calls.
+ * Native monotonic/random defaults are available without host callbacks.
+ * Storage, URL opening and explicit scheduler notification return
+ * TNY_STATUS_UNSUPPORTED when their callback is absent. */
+TNY_API int32_t TNY_CALL tny_runtime_host_monotonic_ms(
+    tny_runtime *runtime, int64_t *out_ms, tny_error **out_error);
+TNY_API int32_t TNY_CALL tny_runtime_host_secure_random(
+    tny_runtime *runtime, void *buffer, uint64_t buffer_size,
+    tny_error **out_error);
+TNY_API int32_t TNY_CALL tny_runtime_host_storage_load(
+    tny_runtime *runtime, tny_bytes key, uint64_t *out_revision,
+    void *buffer, uint64_t buffer_capacity, uint64_t *out_size,
+    tny_error **out_error);
+TNY_API int32_t TNY_CALL tny_runtime_host_storage_store(
+    tny_runtime *runtime, tny_bytes key, uint64_t expected_revision,
+    const void *data, uint64_t data_size, uint64_t *out_revision,
+    tny_error **out_error);
+TNY_API int32_t TNY_CALL tny_runtime_host_open_url(
+    tny_runtime *runtime, tny_bytes url, tny_error **out_error);
+TNY_API int32_t TNY_CALL tny_runtime_host_notify_scheduler(
+    tny_runtime *runtime, tny_error **out_error);
 
 TNY_API int32_t TNY_CALL tny_session_create(
     tny_runtime *runtime, tny_session **out_session, tny_error **out_error);
@@ -249,6 +424,7 @@ TNY_API int32_t TNY_CALL tny_session_respond_permission(
 TNY_API int32_t TNY_CALL tny_session_cancel(
     tny_session *session, tny_error **out_error);
 TNY_API void TNY_CALL tny_session_free(tny_session *session);
+TNY_API int32_t TNY_CALL tny_session_destroy(tny_session **session);
 
 TNY_API void TNY_CALL tny_event_view_init(tny_event_view_v0 *view);
 TNY_API int32_t TNY_CALL tny_event_read(const tny_event *event, tny_event_view_v0 *view);

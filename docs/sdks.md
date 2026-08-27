@@ -44,9 +44,14 @@ connect/TLS handshake remains an owner-thread operation bounded by the native
 15-second deadline; environment teardown may wait for that bound rather than
 preempting an in-progress handshake.
 
-Release tarballs contain a matched addon, libtny library, and integrity
-manifest. Source compilation remains an explicit fallback requiring libtny
-headers and a C11 compiler. See
+Registry packaging uses one platform-neutral `@thehumanworks/tny` meta package
+with exact-version optional dependencies on
+`@thehumanworks/tny-darwin-arm64`, `@thehumanworks/tny-linux-x64`, and
+`@thehumanworks/tny-linux-arm64`. Each platform package contains exactly one
+matched addon, libtny library, and integrity manifest. The loader rejects a
+missing, wrong-platform, wrong-version, ABI-incompatible, or SHA-mismatched
+payload before loading native code. Source compilation remains an explicit
+checkout fallback requiring libtny headers and a C11 compiler. See
 [`sdk/typescript/README.md`](../sdk/typescript/README.md).
 
 ## Platforms and authority
@@ -74,7 +79,29 @@ artifact hashes, native dependency/rpath inspection, macOS 13 deployment, and
 glibc 2.34 compatibility. The cross-language conformance runner is the release
 gate; structural JSON alone is not certification.
 
+Release versions have one authority: a canonical `vMAJOR.MINOR.PATCH` tag, or
+the deliberately narrow `vMAJOR.MINOR.PATCH-(a|b|rc).N` prerelease form. The
+tag body is the npm SemVer; Python receives its canonical PEP 440 equivalent
+(for example, `v1.2.3-rc.4` becomes npm `1.2.3-rc.4` and Python `1.2.3rc4`).
+Any other tag form, a package-version mismatch, divergent meta packages from
+different runners, incomplete platform package set, or artifact hash mismatch
+fails the release before GitHub publication. Release jobs also retain offline
+package-content reports, source-commit-bound SHA provenance descriptors, and
+SPDX SBOM inputs. All native runners use the same exact Node distribution; the
+aggregate validator rejects differing Node/npm identities, duplicate native
+packages or wheel targets, macOS deployment floors above 13.0, and content
+reports which cannot be reproduced from their archives.
+
 The repository currently has no project license grant. Owner-published GitHub
 artifacts carry `LicenseRef-UNLICENSED` metadata and third-party notices but
 grant downstream recipients no reuse rights. PyPI/npm registry publication
-waits for the repository owner to choose a license.
+waits for the repository owner to choose a license. Trusted-publisher jobs are
+additionally gated by the repository variable
+`TNY_REGISTRY_PUBLICATION_ENABLED=true` and the protected `npm` / `pypi`
+environments. Even if enabled accidentally, the offline validator fails closed
+while the root license or SDK license metadata remains unpublishable.
+After a license is adopted, its exact root bytes must be present in every npm
+package and wheel. Publication is idempotent: identical existing versions are
+verified, while partial or digest-mismatched versions fail. Native npm packages
+are verified before the meta package, and final npm/PyPI clean-install,
+native-load, download-hash, and import readbacks must both succeed.

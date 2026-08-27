@@ -6,6 +6,8 @@
 #include "core/perm.h"
 #include "core/runtime.h"
 #include "core/session.h"
+#include "lib/custom_tools.h"
+#include "lib/host_services.h"
 #include "util/alloc.h"
 #include "util/util.h"
 
@@ -28,6 +30,8 @@ struct tny_runtime {
     pthread_t owner;
     pid_t owner_pid;
     uint32_t endpoint_reachability;
+    tny_host_services_state *host_services;
+    custom_tool_registry *custom_tools;
 };
 
 struct tny_session {
@@ -125,7 +129,9 @@ static int32_t copy_bytes(tny_bytes value, bool required, const char *field,
 
 static bool on_owner(const tny_runtime *runtime) {
     return runtime && runtime->owner_pid == getpid() &&
-           pthread_equal(runtime->owner, pthread_self());
+           pthread_equal(runtime->owner, pthread_self()) &&
+           !tny_host_services_in_callback(runtime->host_services) &&
+           !custom_tools_in_callback(runtime->custom_tools);
 }
 
 static int32_t require_owner(const tny_runtime *runtime, tny_error **error) {
@@ -199,10 +205,49 @@ void tny_runtime_options_init(tny_runtime_options_v0 *o) {
     o->max_tool_result_bytes = 32768;
 }
 
+void tny_runtime_options_v1_init(tny_runtime_options_v1 *o) {
+    if (!o) return;
+    memset(o, 0, sizeof *o);
+    o->abi_version = TNY_RUNTIME_OPTIONS_ABI_VERSION;
+    o->struct_size = sizeof *o;
+    tny_runtime_options_init(&o->runtime);
+}
+
+void tny_host_services_v1_init(tny_host_services_v1 *services) {
+    if (!services) return;
+    memset(services, 0, sizeof *services);
+    services->abi_version = TNY_HOST_SERVICES_ABI_VERSION;
+    services->struct_size = sizeof *services;
+}
+
+void tny_tool_spec_v1_init(tny_tool_spec_v1 *spec) {
+    if (!spec) return;
+    memset(spec, 0, sizeof *spec);
+    spec->abi_version = TNY_TOOL_SPEC_ABI_VERSION;
+    spec->struct_size = sizeof *spec;
+    spec->max_argument_bytes = TNY_CUSTOM_TOOL_ARGUMENTS_MAX;
+    spec->max_result_bytes = TNY_CUSTOM_TOOL_RESULT_MAX;
+}
+
+void tny_tool_result_v1_init(tny_tool_result_v1 *result) {
+    if (!result) return;
+    memset(result, 0, sizeof *result);
+    result->abi_version = TNY_TOOL_RESULT_ABI_VERSION;
+    result->struct_size = sizeof *result;
+}
+
 void tny_capabilities_init(tny_capabilities_v0 *capabilities) {
     if (!capabilities) return;
     memset(capabilities, 0, sizeof *capabilities);
     capabilities->struct_size = sizeof *capabilities;
+}
+
+void tny_capabilities_v1_init(tny_capabilities_v1 *capabilities) {
+    if (!capabilities) return;
+    memset(capabilities, 0, sizeof *capabilities);
+    capabilities->abi_version = 1;
+    capabilities->struct_size = sizeof *capabilities;
+    tny_capabilities_init(&capabilities->base);
 }
 
 static int32_t validate_options(const tny_runtime_options_v0 *o,
@@ -312,14 +357,67 @@ fail:
     return scoped_status(rc, error);
 }
 
+int32_t tny_runtime_create_v1(const tny_runtime_options_v1 *o,
+                              tny_runtime **out, tny_error **error) {
+    tny_alloc_scope_begin("runtime_create_v1");
+    if (out) *out = NULL;
+    if (error) *error = NULL;
+    size_t required = offsetof(tny_runtime_options_v1, reserved);
+    if (!o || o->abi_version != TNY_RUNTIME_OPTIONS_ABI_VERSION ||
+        o->struct_size < required)
+        return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                   "runtime v1 options are missing, unsupported, or too small"), error);
+    if (o->struct_size >= sizeof *o) {
+        for (size_t i = 0; i < sizeof o->reserved / sizeof o->reserved[0]; i++)
+            if (o->reserved[i] != 0)
+                return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                           "reserved runtime v1 options must be zero"), error);
+    }
+    tny_host_services_state *services = NULL;
+    int32_t status = tny_host_services_copy(o->host_services, &services);
+    if (status != TNY_STATUS_OK)
+        return scoped_status(failf(error, status,
+                                   "host-services table is invalid or could not be copied"), error);
+    status = tny_runtime_create(&o->runtime, out, error);
+    if (status != TNY_STATUS_OK) {
+        tny_host_services_free(services);
+        return status;
+    }
+    (*out)->host_services = services;
+    (*out)->ctx->host_services = services;
+    tny_host_services_diagnostic(services, TNY_DIAGNOSTIC_INFO,
+                                 "runtime created");
+    return TNY_STATUS_OK;
+}
+
 static void session_release(tny_session *session);
 
 void tny_runtime_free(tny_runtime *runtime) {
+    tny_alloc_scope_begin("runtime_free");
     if (!runtime) return;
     if (!on_owner(runtime)) return;
+    tny_host_services_diagnostic(runtime->host_services, TNY_DIAGNOSTIC_INFO,
+                                 "runtime destroying");
+    tny_host_services_close(runtime->host_services);
+    runtime->ctx->host_services = NULL;
     if (runtime->session) session_release(runtime->session);
+    if (runtime->custom_tools) {
+        runtime->ctx->custom_tools = NULL;
+        custom_tools_free(runtime->custom_tools);
+    }
     tny_ctx_free(runtime->ctx);
+    tny_host_services_free(runtime->host_services);
     free(runtime);
+}
+
+int32_t tny_runtime_destroy(tny_runtime **slot) {
+    if (!slot) return TNY_STATUS_INVALID_ARGUMENT;
+    tny_runtime *runtime = *slot;
+    if (!runtime) return TNY_STATUS_OK;
+    if (!on_owner(runtime)) return TNY_STATUS_BAD_STATE;
+    *slot = NULL;
+    tny_runtime_free(runtime);
+    return TNY_STATUS_OK;
 }
 
 int32_t tny_runtime_get_capabilities(const tny_runtime *runtime,
@@ -344,7 +442,9 @@ int32_t tny_runtime_get_capabilities(const tny_runtime *runtime,
     full.provider_available_mask = TNY_PROVIDER_MASK_OPENAI;
     full.feature_available_mask = TNY_CAP_FEATURE_PERSISTENCE |
                                   TNY_CAP_FEATURE_SHARED_LIBRARY |
-                                  TNY_CAP_FEATURE_CROSS_THREAD_CANCEL;
+                                  TNY_CAP_FEATURE_CROSS_THREAD_CANCEL |
+                                  TNY_CAP_FEATURE_HOST_SERVICES |
+                                  TNY_CAP_FEATURE_CUSTOM_TOOLS;
     full.feature_enabled_mask = TNY_CAP_FEATURE_SHARED_LIBRARY |
                                 TNY_CAP_FEATURE_CROSS_THREAD_CANCEL;
     if (cap_tls_available()) {
@@ -354,6 +454,10 @@ int32_t tny_runtime_get_capabilities(const tny_runtime *runtime,
     }
     if (!runtime->ctx->no_save)
         full.feature_enabled_mask |= TNY_CAP_FEATURE_PERSISTENCE;
+    if (runtime->host_services)
+        full.feature_enabled_mask |= TNY_CAP_FEATURE_HOST_SERVICES;
+    if (custom_tools_active_count(runtime->custom_tools))
+        full.feature_enabled_mask |= TNY_CAP_FEATURE_CUSTOM_TOOLS;
     /* Keep synchronized with the private queue budgets in core/runtime.c.
      * They are reported values, not ABI layout or caller-configurable knobs. */
     full.event_queue_max = 256u;
@@ -371,6 +475,186 @@ int32_t tny_runtime_get_capabilities(const tny_runtime *runtime,
     memcpy(capabilities, &full, n);
     capabilities->struct_size = caller_size;
     return TNY_STATUS_OK;
+}
+
+int32_t tny_runtime_get_capabilities_v1(const tny_runtime *runtime,
+                                        tny_capabilities_v1 *capabilities) {
+    if (!runtime || !capabilities) return TNY_STATUS_INVALID_ARGUMENT;
+    if (!on_owner(runtime)) return TNY_STATUS_BAD_STATE;
+    if (capabilities->abi_version != 1 ||
+        capabilities->struct_size < offsetof(tny_capabilities_v1, reserved))
+        return TNY_STATUS_INVALID_ARGUMENT;
+    uint32_t caller_size = capabilities->struct_size;
+    tny_capabilities_v1 full;
+    tny_capabilities_v1_init(&full);
+    if (tny_runtime_get_capabilities(runtime, &full.base) != TNY_STATUS_OK)
+        return TNY_STATUS_BAD_STATE;
+    full.custom_tool_max_count = TNY_CUSTOM_TOOL_MAX_COUNT;
+    full.custom_tool_name_max = TNY_CUSTOM_TOOL_NAME_MAX;
+    full.custom_tool_schema_max = TNY_CUSTOM_TOOL_SCHEMA_MAX;
+    full.custom_tool_arguments_max = TNY_CUSTOM_TOOL_ARGUMENTS_MAX;
+    full.custom_tool_result_max = TNY_CUSTOM_TOOL_RESULT_MAX;
+    size_t size = caller_size < sizeof full ? caller_size : sizeof full;
+    memcpy(capabilities, &full, size);
+    capabilities->struct_size = caller_size;
+    return TNY_STATUS_OK;
+}
+
+int32_t tny_runtime_register_tool(
+    tny_runtime *runtime, const tny_tool_spec_v1 *spec,
+    tny_tool_registration **out, tny_error **error) {
+    if (error) *error = NULL;
+    if (out) *out = NULL;
+    int32_t status = require_owner(runtime, error);
+    if (status != TNY_STATUS_OK) return status;
+    tny_alloc_scope_begin("tool_register");
+    if (!out || !spec) return failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                    "tool spec and output are required");
+    if (runtime->session)
+        return failf(error, TNY_STATUS_BAD_STATE,
+                     "custom tools must be registered before session creation");
+    if (!runtime->custom_tools) {
+        runtime->custom_tools = custom_tools_new();
+        if (!runtime->custom_tools)
+            return failf(error, TNY_STATUS_OOM, "out of memory");
+        runtime->ctx->custom_tools = runtime->custom_tools;
+    }
+    status = custom_tools_register(runtime->custom_tools, runtime, spec, out);
+    if (status != TNY_STATUS_OK)
+        return scoped_status(failf(error, status,
+                                   "custom tool registration rejected"), error);
+    return scoped_status(TNY_STATUS_OK, error);
+}
+
+int32_t tny_tool_registration_unregister(
+    tny_tool_registration *registration, tny_error **error) {
+    if (error) *error = NULL;
+    tny_runtime *runtime = custom_tool_registration_runtime(registration);
+    int32_t status = require_owner(runtime, error);
+    if (status != TNY_STATUS_OK) return status;
+    if (runtime->session)
+        return failf(error, TNY_STATUS_BUSY,
+                     "close the session before unregistering a custom tool");
+    status = custom_tools_unregister(registration);
+    return status == TNY_STATUS_OK ? status
+        : failf(error, status, "custom tool is already unregistered");
+}
+
+int32_t tny_tool_call_complete(tny_tool_call *call, uint64_t generation,
+                               const tny_tool_result_v1 *result,
+                               tny_error **error) {
+    if (error) *error = NULL;
+    tny_alloc_scope_begin("tool_complete");
+    int32_t status = custom_tool_complete(call, generation, result);
+    return status == TNY_STATUS_OK ? scoped_status(status, error)
+        : scoped_status(failf(error, status,
+                              "custom tool completion rejected"), error);
+}
+
+static int32_t host_result(tny_runtime *runtime, const char *service,
+                           int32_t status, tny_error **error) {
+    if (status == TNY_STATUS_OK) return status;
+    tny_host_services_diagnostic(runtime->host_services, TNY_DIAGNOSTIC_WARN,
+                                 "host callback returned a typed failure");
+    return failf(error, status, "host %s callback failed", service);
+}
+
+int32_t tny_runtime_host_monotonic_ms(tny_runtime *runtime, int64_t *out_ms,
+                                      tny_error **error) {
+    if (error) *error = NULL;
+    int32_t status = require_owner(runtime, error);
+    if (status != TNY_STATUS_OK) return status;
+    if (!out_ms) return failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                              "out_ms is required");
+    return host_result(runtime, "monotonic", tny_host_services_monotonic(
+        runtime->host_services, out_ms), error);
+}
+
+int32_t tny_runtime_host_secure_random(tny_runtime *runtime, void *buffer,
+                                       uint64_t size, tny_error **error) {
+    if (error) *error = NULL;
+    int32_t status = require_owner(runtime, error);
+    if (status != TNY_STATUS_OK) return status;
+    if (size && !buffer) return failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                      "random buffer is required");
+    status = tny_host_services_random(runtime->host_services, buffer, size);
+    if (status != TNY_STATUS_OK && buffer && size <= SIZE_MAX)
+        memset(buffer, 0, (size_t)size);
+    return host_result(runtime, "secure-random", status, error);
+}
+
+int32_t tny_runtime_host_storage_load(
+    tny_runtime *runtime, tny_bytes key, uint64_t *out_revision,
+    void *buffer, uint64_t capacity, uint64_t *out_size, tny_error **error) {
+    if (error) *error = NULL;
+    int32_t status = require_owner(runtime, error);
+    if (status != TNY_STATUS_OK) return status;
+    char *key_copy = NULL;
+    status = copy_bytes(key, true, "storage key", &key_copy, error);
+    if (status != TNY_STATUS_OK) return status;
+    tny_bytes copied_key = cstr_bytes(key_copy);
+    status = tny_host_services_storage_load(
+        runtime->host_services, copied_key, out_revision, buffer, capacity,
+        out_size);
+    free(key_copy);
+    return host_result(runtime, "storage-load", status, error);
+}
+
+int32_t tny_runtime_host_storage_store(
+    tny_runtime *runtime, tny_bytes key, uint64_t expected_revision,
+    const void *data, uint64_t size, uint64_t *out_revision,
+    tny_error **error) {
+    if (error) *error = NULL;
+    int32_t status = require_owner(runtime, error);
+    if (status != TNY_STATUS_OK) return status;
+    if (size > SIZE_MAX || (size && !data))
+        return failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                     "storage data is invalid or too large");
+    char *key_copy = NULL;
+    status = copy_bytes(key, true, "storage key", &key_copy, error);
+    if (status != TNY_STATUS_OK) return status;
+    void *data_copy = NULL;
+    if (size) {
+        data_copy = malloc((size_t)size);
+        if (!data_copy) {
+            free(key_copy);
+            return failf(error, TNY_STATUS_OOM, "out of memory");
+        }
+        memcpy(data_copy, data, (size_t)size);
+    }
+    status = tny_host_services_storage_store(
+        runtime->host_services, cstr_bytes(key_copy), expected_revision,
+        data_copy, size, out_revision);
+    if (data_copy) {
+        volatile unsigned char *wipe = data_copy;
+        for (uint64_t i = 0; i < size; i++) wipe[i] = 0;
+        free(data_copy);
+    }
+    free(key_copy);
+    return host_result(runtime, "storage-store", status, error);
+}
+
+int32_t tny_runtime_host_open_url(tny_runtime *runtime, tny_bytes url,
+                                  tny_error **error) {
+    if (error) *error = NULL;
+    int32_t status = require_owner(runtime, error);
+    if (status != TNY_STATUS_OK) return status;
+    char *url_copy = NULL;
+    status = copy_bytes(url, true, "URL", &url_copy, error);
+    if (status != TNY_STATUS_OK) return status;
+    status = tny_host_services_open_url(runtime->host_services,
+                                        cstr_bytes(url_copy));
+    free(url_copy);
+    return host_result(runtime, "open-url", status, error);
+}
+
+int32_t tny_runtime_host_notify_scheduler(tny_runtime *runtime,
+                                          tny_error **error) {
+    if (error) *error = NULL;
+    int32_t status = require_owner(runtime, error);
+    if (status != TNY_STATUS_OK) return status;
+    return host_result(runtime, "notify-scheduler",
+                       tny_host_services_notify(runtime->host_services), error);
 }
 
 static int32_t make_session(tny_runtime *runtime, tny_session_state *state,
@@ -452,6 +736,8 @@ tny_bytes tny_session_id(const tny_session *session) {
 
 static void session_release(tny_session *session) {
     if (!session) return;
+    if (session->runtime)
+        custom_tools_invalidate_all(session->runtime->custom_tools);
     tny_engine_free(session->engine);
     perm_free(session->perm);
     session_close(session->state);
@@ -462,8 +748,19 @@ static void session_release(tny_session *session) {
 }
 
 void tny_session_free(tny_session *session) {
+    tny_alloc_scope_begin("session_free");
     if (!session || !on_owner(session->runtime)) return;
     session_release(session);
+}
+
+int32_t tny_session_destroy(tny_session **slot) {
+    if (!slot) return TNY_STATUS_INVALID_ARGUMENT;
+    tny_session *session = *slot;
+    if (!session) return TNY_STATUS_OK;
+    if (!on_owner(session->runtime)) return TNY_STATUS_BAD_STATE;
+    *slot = NULL;
+    tny_session_free(session);
+    return TNY_STATUS_OK;
 }
 
 int32_t tny_session_send(tny_session *session, tny_bytes prompt,

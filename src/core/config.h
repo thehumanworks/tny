@@ -7,6 +7,8 @@
 #include "json/json.h"
 
 struct tny_extensions;
+struct tny_host_services_state;
+struct custom_tool_registry;
 
 /* TNY_VERSION lives in build/generated/tny_version.h, written by make from
  * `git describe` (docs/adr/0014). The fallback keeps editors and static
@@ -41,6 +43,8 @@ typedef struct tny_ctx {
     bool   no_color;         /* --no-color | --color=never: no SGR at all */
     bool   force_color;      /* --color=always: SGR even piped, beats NO_COLOR */
     bool   library_mode;     /* deterministic embed: never write host stdio */
+    struct tny_host_services_state *host_services; /* borrowed from lib runtime */
+    struct custom_tool_registry *custom_tools; /* borrowed from lib runtime */
 
     /* optional Python extensions (~/.tny/extensions). CLI contexts enable
      * discovery by default; explicit/libtny contexts keep it off unless a

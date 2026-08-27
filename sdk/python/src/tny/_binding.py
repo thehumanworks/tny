@@ -29,6 +29,7 @@ FEATURE_MCP = 1 << 4
 FEATURE_CUSTOM_TOOLS = 1 << 5
 FEATURE_CROSS_THREAD_CANCEL = 1 << 7
 FEATURE_WINDOWS = 1 << 8
+FEATURE_HOST_SERVICES = 1 << 11
 
 CDEF = r"""
 typedef unsigned int uint32_t;
@@ -39,6 +40,8 @@ typedef struct tny_runtime tny_runtime;
 typedef struct tny_session tny_session;
 typedef struct tny_event tny_event;
 typedef struct tny_error tny_error;
+typedef struct tny_tool_registration tny_tool_registration;
+typedef struct tny_tool_call tny_tool_call;
 typedef struct { const char *ptr; uint64_t len; } tny_bytes;
 typedef struct {
     uint32_t struct_size; uint32_t permission_mode; uint32_t persistence;
@@ -47,6 +50,37 @@ typedef struct {
     tny_bytes model; tny_bytes base_url; tny_bytes api_key;
     tny_bytes wire_api; uint64_t reserved[8];
 } tny_runtime_options_v0;
+typedef int32_t (*tny_host_diagnostic_fn)(void *, uint32_t, tny_bytes, tny_bytes);
+typedef int32_t (*tny_host_monotonic_ms_fn)(void *, int64_t *);
+typedef int32_t (*tny_host_secure_random_fn)(void *, void *, uint64_t);
+typedef int32_t (*tny_host_storage_load_fn)(void *, tny_bytes, uint64_t *, void *, uint64_t, uint64_t *);
+typedef int32_t (*tny_host_storage_store_fn)(void *, tny_bytes, uint64_t, const void *, uint64_t, uint64_t *);
+typedef int32_t (*tny_host_open_url_fn)(void *, tny_bytes);
+typedef int32_t (*tny_host_notify_scheduler_fn)(void *);
+typedef struct {
+    uint32_t abi_version; uint32_t struct_size; void *user_data;
+    tny_host_diagnostic_fn diagnostic; tny_host_monotonic_ms_fn monotonic_ms;
+    tny_host_secure_random_fn secure_random; tny_host_storage_load_fn storage_load;
+    tny_host_storage_store_fn storage_store; tny_host_open_url_fn open_url;
+    tny_host_notify_scheduler_fn notify_scheduler; uint64_t reserved[8];
+} tny_host_services_v1;
+typedef struct {
+    uint32_t abi_version; uint32_t struct_size; tny_runtime_options_v0 runtime;
+    const tny_host_services_v1 *host_services; uint64_t reserved[8];
+} tny_runtime_options_v1;
+typedef struct {
+    uint32_t abi_version; uint32_t struct_size; tny_bytes data;
+    uint32_t is_error; uint32_t reserved_scalar; uint64_t reserved[4];
+} tny_tool_result_v1;
+typedef int32_t (*tny_tool_invoke_fn)(void *, tny_tool_call *, uint64_t,
+                                      tny_bytes, tny_tool_result_v1 *);
+typedef struct {
+    uint32_t abi_version; uint32_t struct_size; void *user_data;
+    tny_bytes name; tny_bytes description; tny_bytes input_schema_json;
+    uint32_t sensitivity; uint32_t reserved_scalar;
+    uint64_t max_argument_bytes; uint64_t max_result_bytes;
+    tny_tool_invoke_fn invoke; uint64_t reserved[8];
+} tny_tool_spec_v1;
 typedef struct {
     uint32_t struct_size; uint32_t kind; uint32_t schema_version;
     uint32_t tool_ok; uint32_t permission_options; uint32_t stop_reason;
@@ -71,13 +105,41 @@ typedef struct {
     tny_bytes architecture; tny_bytes transport; tny_bytes tls_implementation;
     tny_bytes linkage; uint64_t reserved[8];
 } tny_capabilities_v0;
+typedef struct {
+    uint32_t abi_version; uint32_t struct_size; tny_capabilities_v0 base;
+    uint32_t custom_tool_max_count; uint32_t custom_tool_name_max;
+    uint64_t custom_tool_schema_max; uint64_t custom_tool_arguments_max;
+    uint64_t custom_tool_result_max; uint64_t reserved[8];
+} tny_capabilities_v1;
 uint32_t tny_abi_version(void);
 tny_bytes tny_library_version(void);
 void tny_runtime_options_init(tny_runtime_options_v0 *);
+void tny_runtime_options_v1_init(tny_runtime_options_v1 *);
+void tny_host_services_v1_init(tny_host_services_v1 *);
+void tny_tool_spec_v1_init(tny_tool_spec_v1 *);
+void tny_tool_result_v1_init(tny_tool_result_v1 *);
 void tny_capabilities_init(tny_capabilities_v0 *);
+void tny_capabilities_v1_init(tny_capabilities_v1 *);
 int32_t tny_runtime_create(const tny_runtime_options_v0 *, tny_runtime **, tny_error **);
+int32_t tny_runtime_create_v1(const tny_runtime_options_v1 *, tny_runtime **, tny_error **);
 void tny_runtime_free(tny_runtime *);
 int32_t tny_runtime_get_capabilities(const tny_runtime *, tny_capabilities_v0 *);
+int32_t tny_runtime_get_capabilities_v1(const tny_runtime *, tny_capabilities_v1 *);
+int32_t tny_runtime_register_tool(tny_runtime *, const tny_tool_spec_v1 *,
+                                  tny_tool_registration **, tny_error **);
+int32_t tny_tool_registration_unregister(tny_tool_registration *, tny_error **);
+uint64_t tny_tool_call_generation(const tny_tool_call *);
+int32_t tny_tool_call_complete(tny_tool_call *, uint64_t,
+                               const tny_tool_result_v1 *, tny_error **);
+void tny_tool_call_release(tny_tool_call *);
+int32_t tny_runtime_host_monotonic_ms(tny_runtime *, int64_t *, tny_error **);
+int32_t tny_runtime_host_secure_random(tny_runtime *, void *, uint64_t, tny_error **);
+int32_t tny_runtime_host_storage_load(tny_runtime *, tny_bytes, uint64_t *,
+                                      void *, uint64_t, uint64_t *, tny_error **);
+int32_t tny_runtime_host_storage_store(tny_runtime *, tny_bytes, uint64_t,
+                                       const void *, uint64_t, uint64_t *, tny_error **);
+int32_t tny_runtime_host_open_url(tny_runtime *, tny_bytes, tny_error **);
+int32_t tny_runtime_host_notify_scheduler(tny_runtime *, tny_error **);
 int32_t tny_session_create(tny_runtime *, tny_session **, tny_error **);
 int32_t tny_session_open(tny_runtime *, tny_bytes, tny_session **, tny_error **);
 tny_bytes tny_session_id(const tny_session *);
@@ -118,6 +180,11 @@ class Capabilities:
     transport: bytes
     tls_implementation: bytes
     linkage: bytes
+    custom_tool_max_count: int = 0
+    custom_tool_name_max: int = 0
+    custom_tool_schema_max: int = 0
+    custom_tool_arguments_max: int = 0
+    custom_tool_result_max: int = 0
 
     @property
     def owner_thread_affine(self) -> bool:
@@ -133,7 +200,7 @@ class Capabilities:
 
     @property
     def host_service_callbacks(self) -> bool:
-        return False
+        return bool(self.feature_enabled_mask & FEATURE_HOST_SERVICES)
 
     @property
     def provider(self) -> str:
@@ -239,13 +306,30 @@ class Library:
                 self.native.tny_error_free(error)
         raise error_from_status(code, message)
 
-    def read_capabilities(self, runtime: Any) -> Capabilities:
+    def read_capabilities(self, runtime: Any, *, extended: bool = False) -> Capabilities:
         """Copy the complete borrowed capability snapshot from a live runtime."""
         view = self.ffi.new("tny_capabilities_v0 *")
         self.native.tny_capabilities_init(view)
         status = int(self.native.tny_runtime_get_capabilities(runtime, view))
         if status != STATUS_OK:
             self.raise_status(status, self.ffi.NULL)
+        limits = (0, 0, 0, 0, 0)
+        if extended and self.abi_minor >= 7:
+            extended_view = self.ffi.new("tny_capabilities_v1 *")
+            self.native.tny_capabilities_v1_init(extended_view)
+            extended_status = int(
+                self.native.tny_runtime_get_capabilities_v1(runtime, extended_view)
+            )
+            if extended_status != STATUS_OK:
+                self.raise_status(extended_status, self.ffi.NULL)
+            view = self.ffi.addressof(extended_view[0], "base")
+            limits = (
+                int(extended_view.custom_tool_max_count),
+                int(extended_view.custom_tool_name_max),
+                int(extended_view.custom_tool_schema_max),
+                int(extended_view.custom_tool_arguments_max),
+                int(extended_view.custom_tool_result_max),
+            )
         snapshot = Capabilities(
             schema_version=int(view.schema_version),
             abi_version=int(view.abi_version),
@@ -267,6 +351,11 @@ class Library:
             transport=copy_bytes(self.ffi, view.transport),
             tls_implementation=copy_bytes(self.ffi, view.tls_implementation),
             linkage=copy_bytes(self.ffi, view.linkage),
+            custom_tool_max_count=limits[0],
+            custom_tool_name_max=limits[1],
+            custom_tool_schema_max=limits[2],
+            custom_tool_arguments_max=limits[3],
+            custom_tool_result_max=limits[4],
         )
         self.capabilities = snapshot
         return snapshot

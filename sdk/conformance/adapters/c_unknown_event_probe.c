@@ -31,6 +31,7 @@ int main(void) {
     if (legacy.len != view.text.len ||
         memcmp(legacy.ptr, view.text.ptr, (size_t)view.text.len) != 0)
         return 4;
-    printf("{\"type\":\"unknown\",\"sequence\":7,\"timestamp_ms\":8}\n");
+    printf("{\"type\":\"unknown\",\"sequence\":7,\"timestamp_ms\":8,"
+           "\"kind\":65535,\"payload\":{\"text\":\"future-payload\"}}\n");
     return 0;
 }
