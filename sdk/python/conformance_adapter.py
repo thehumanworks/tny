@@ -32,6 +32,9 @@ STEER_TEXT = next(
     scenario["rejected_text"] for scenario in CONTRACT["scenarios"]
     if scenario["id"] == "resume_and_steer_rejection"
 )
+COMMAND_TIMEOUT = int(os.environ.get("TNY_CONFORMANCE_COMMAND_TIMEOUT", "180"))
+if COMMAND_TIMEOUT < 1:
+    raise ValueError("TNY_CONFORMANCE_COMMAND_TIMEOUT must be positive")
 
 
 def sha256_file(path: Path) -> str:
@@ -369,7 +372,7 @@ def shared_reference(
         input=json.dumps(request, sort_keys=True) + "\n",
         text=True,
         capture_output=True,
-        timeout=180,
+        timeout=COMMAND_TIMEOUT,
         check=False,
     )
     if completed.returncode != 0:

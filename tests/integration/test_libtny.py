@@ -15,8 +15,10 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MOCK = os.path.join(ROOT, "tests", "integration", "mock_openai.py")
 MOCK_READY_TIMEOUT = 10.0
-TURN_TIMEOUT = 45.0
-SUITE_TIMEOUT = 120.0
+TURN_TIMEOUT = float(os.environ.get("TNY_TEST_TURN_TIMEOUT", "45"))
+SUITE_TIMEOUT = float(os.environ.get("TNY_TEST_SUITE_TIMEOUT", "120"))
+if TURN_TIMEOUT <= 0 or SUITE_TIMEOUT <= 0:
+    raise ValueError("libtny test timeouts must be positive")
 
 
 class TnyBytes(ctypes.Structure):

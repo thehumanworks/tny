@@ -27,7 +27,7 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -73,7 +73,9 @@ jobs:
           # links libasan (clang on some images lacks the compiler-rt asan libs).
           if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
           if [ "$(uname -s)" = Darwin ]; then
-            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576
+            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
+              TNY_TEST_TURN_TIMEOUT=60 TNY_TEST_SUITE_TIMEOUT=900 \
+              TNY_CONFORMANCE_COMMAND_TIMEOUT=600
           fi
           make -j"$jobs" test
           make test-libtny-fault

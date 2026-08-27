@@ -26,6 +26,9 @@ STEER_TEXT = next(
     scenario["rejected_text"] for scenario in CONTRACT["scenarios"]
     if scenario["id"] == "resume_and_steer_rejection"
 )
+COMMAND_TIMEOUT = int(os.environ.get("TNY_CONFORMANCE_COMMAND_TIMEOUT", "180"))
+if COMMAND_TIMEOUT < 1:
+    raise ValueError("TNY_CONFORMANCE_COMMAND_TIMEOUT must be positive")
 
 spec = importlib.util.spec_from_file_location(
     "libtny_reference", ROOT / "tests/integration/test_libtny.py")
@@ -419,7 +422,7 @@ def main() -> int:
     executions = [
         run_command("build_c_fixtures", ["make", "debug"]),
         run_command("reference_c_and_ctypes", [sys.executable,
-                    "tests/integration/test_libtny.py"]),
+                    "tests/integration/test_libtny.py"], timeout=COMMAND_TIMEOUT),
         run_command("network_split_fixture", ["./build/tny-test", "-s", "net_suite",
                     "-t", "chunked_survives_every_split_boundary", "-e"]),
         run_command("backpressure_fixture", ["./build/tny-test", "-s", "runtime_suite",
