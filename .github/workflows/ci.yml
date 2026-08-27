@@ -82,7 +82,6 @@ jobs:
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
           fi
           make -j"$jobs" test
-          make test-abi
           make test-libtny-fault
           make size-check SIZE_MAX="${{ matrix.size_max }}"
           make pack TRIPLE="${{ matrix.triple }}"
@@ -90,6 +89,19 @@ jobs:
           ./dist/tny-${{ matrix.triple }} ask --help >/dev/null
           file ./dist/tny-${{ matrix.triple }} || true
           uname -s -m
+
+      - name: Verify or seed immutable ABI1 consumer fixture
+        id: abi-fixtures
+        run: make test-abi
+
+      - name: Upload missing immutable ABI1 fixture seed
+        if: ${{ failure() && steps.abi-fixtures.outcome == 'failure' && runner.os == 'Linux' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: abi1-fixture-seed-${{ matrix.triple }}
+          path: build/abi-fixture-seed
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Stage libtny ABI-1 and frozen ABI-0 compatibility artifacts
         run: |

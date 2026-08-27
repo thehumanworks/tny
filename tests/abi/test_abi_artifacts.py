@@ -47,6 +47,88 @@ def link(compiler: str, source: Path, output: Path, include: Path,
     ])
 
 
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def linux_fixture_key(machine: str) -> str:
+    normalized = machine.lower()
+    if normalized in {"x86_64", "amd64"}:
+        return "linux-x86_64"
+    if normalized in {"aarch64", "arm64"}:
+        return "linux-aarch64"
+    raise ValueError(f"unsupported Linux ABI fixture architecture: {machine}")
+
+
+def minimum_glibc(version_info: str) -> str:
+    versions = {
+        tuple(int(part) for part in match.split("."))
+        for match in re.findall(r"\bGLIBC_(\d+(?:\.\d+)+)\b", version_info)
+    }
+    if not versions:
+        raise ValueError("consumer has no recorded GLIBC version requirement")
+    value = max(versions)
+    return ".".join(str(part) for part in value)
+
+
+def linux_seed_fragment(*, key: str, binary: Path, compiler: str,
+                        target: str, glibc: str, header: Path,
+                        source: Path) -> dict[str, object]:
+    return {
+        "header_sha256": sha256(header),
+        "sources": {source.name: sha256(source)},
+        "binaries": {
+            key: {
+                "path": f"../bin/{key}/abi1-consumer",
+                "sha256": sha256(binary),
+                "compiler": compiler,
+                "target": target,
+                "minimum_os": "linux-glibc",
+                "minimum_glibc": glibc,
+                "header_sha256": sha256(header),
+                "source_sha256": sha256(source),
+            }
+        },
+    }
+
+
+def seed_linux_fixture(compiler: str, key: str) -> Path:
+    """Build a review artifact, never a passing-job replacement fixture."""
+    minimum = ROOT / "tests/abi/fixtures/abi1-min"
+    source = minimum / "consumer.c"
+    header = minimum / "include/tny/tny.h"
+    output = BUILD / "abi-fixture-seed" / key
+    output.mkdir(parents=True, exist_ok=True)
+    binary = output / "abi1-consumer"
+    # Link the SONAME directly without RPATH/RUNPATH. Compatibility jobs load
+    # the committed binary with a sanitized LD_LIBRARY_PATH pointing at lib1.
+    run([
+        compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+        "-I", str(minimum / "include"), str(source), str(PRIMARY),
+        "-o", str(binary),
+    ])
+    dynamic = run(["readelf", "-d", "--wide", str(binary)]).stdout
+    if "libtny.so.1" not in dynamic:
+        raise AssertionError("seed consumer does not require libtny.so.1")
+    if "(RPATH)" in dynamic or "(RUNPATH)" in dynamic:
+        raise AssertionError("seed consumer contains a checkout-specific runtime path")
+    versions = run(["readelf", "--version-info", "--wide", str(binary)]).stdout
+    fragment = linux_seed_fragment(
+        key=key,
+        binary=binary,
+        compiler=run([compiler, "--version"]).stdout.splitlines()[0],
+        target=run([compiler, "-dumpmachine"]).stdout.strip(),
+        glibc=minimum_glibc(versions),
+        header=header,
+        source=source,
+    )
+    (output / "manifest-entry.json").write_text(
+        json.dumps(fragment, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return output
+
+
 def compiled_candidate(compiler: str, baseline: dict[str, object]) -> dict[str, object]:
     candidate = json.loads(json.dumps(baseline))
     header = (ROOT / "include/tny/tny.h").read_text()
@@ -159,6 +241,12 @@ class AbiArtifactTests(unittest.TestCase):
         key = "macos-arm64" if IS_MAC else f"linux-{platform.machine()}"
         entry = manifest["binaries"].get(key)
         if entry is None:
+            if platform.system() == "Linux":
+                key = linux_fixture_key(platform.machine())
+                seed = seed_linux_fixture(self.cc, key)
+                self.fail(
+                    f"immutable ABI1 fixture missing for {key}; generated "
+                    f"review seed at {seed.relative_to(ROOT)}")
             self.fail(f"immutable ABI1 fixture missing for {key}")
         binary = (manifest_path.parent / entry["path"]).resolve()
         self.assertEqual(hashlib.sha256(binary.read_bytes()).hexdigest(),
@@ -169,6 +257,37 @@ class AbiArtifactTests(unittest.TestCase):
         else:
             environment["LD_LIBRARY_PATH"] = str(PRIMARY.parent)
         run([str(binary)], env=environment)
+
+    def test_linux_fixture_seed_helpers_are_deterministic(self) -> None:
+        self.assertEqual(linux_fixture_key("x86_64"), "linux-x86_64")
+        self.assertEqual(linux_fixture_key("AMD64"), "linux-x86_64")
+        self.assertEqual(linux_fixture_key("aarch64"), "linux-aarch64")
+        self.assertEqual(linux_fixture_key("arm64"), "linux-aarch64")
+        with self.assertRaises(ValueError):
+            linux_fixture_key("riscv64")
+        version_info = "Name: GLIBC_2.2.5\nName: GLIBC_2.34\nName: GLIBC_2.17\n"
+        self.assertEqual(minimum_glibc(version_info), "2.34")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "abi1-consumer"
+            header = root / "tny.h"
+            source = root / "consumer.c"
+            binary.write_bytes(b"ELF-fixture")
+            header.write_text("header\n")
+            source.write_text("source\n")
+            first = linux_seed_fragment(
+                key="linux-x86_64", binary=binary, compiler="cc 1.0",
+                target="x86_64-linux-gnu", glibc="2.34",
+                header=header, source=source)
+            second = linux_seed_fragment(
+                key="linux-x86_64", binary=binary, compiler="cc 1.0",
+                target="x86_64-linux-gnu", glibc="2.34",
+                header=header, source=source)
+        self.assertEqual(first, second)
+        encoded = json.dumps(first, indent=2, sort_keys=True) + "\n"
+        self.assertNotIn(os.fspath(ROOT), encoded)
+        self.assertEqual(first["binaries"]["linux-x86_64"]["minimum_glibc"],
+                         "2.34")
 
     def test_frozen_abi0_consumers_and_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as workspace:

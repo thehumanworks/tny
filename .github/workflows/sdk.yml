@@ -145,7 +145,7 @@ jobs:
           import sys
           import tny
           library = tny.Library()
-          assert library.abi_major == 0
+          assert library.abi_major == 1
           runtime = tny.Runtime(tny.RuntimeConfig(workspace=sys.argv[1]), library=library)
           assert runtime.capabilities.library_version
           runtime.close()
