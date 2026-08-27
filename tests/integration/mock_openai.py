@@ -198,11 +198,14 @@ class Handler(BaseHTTPRequestHandler):
     def _reject(self, msg):
         self._json(400, {"error": {"message": msg}})
 
-    def _start_stream(self):
+    def _start_stream(self, content_length: int | None = None):
         self.send_response(200)
         self._cors()
         self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Transfer-Encoding", "chunked")
+        if content_length is None:
+            self.send_header("Transfer-Encoding", "chunked")
+        else:
+            self.send_header("Content-Length", str(content_length))
         if CONNECTION_CLOSE and not DROP_REUSED_ONCE:
             self.send_header("Connection", "close")
             self.close_connection = True
@@ -271,7 +274,6 @@ class Handler(BaseHTTPRequestHandler):
             need("schema" in structured["json_schema"], f"bad {structured}")
             need("name" in structured["json_schema"], f"bad {structured}")
 
-        self._start_stream()
         if CHAT_ERROR:
             frames = [
                 {
@@ -479,10 +481,18 @@ class Handler(BaseHTTPRequestHandler):
                     "usage": {"prompt_tokens": 200, "completion_tokens": 20},
                 }
             )
-        for f in frames:
-            self._chunk(sse(f))
-        self._chunk(b"data: [DONE]\n\n")
-        self._chunk(b"")  # final chunk
+        pieces = [*(sse(f) for f in frames), b"data: [DONE]\n\n"]
+        if CONNECTION_CLOSE and not DROP_REUSED_ONCE:
+            wire = b"".join(pieces)
+            self._start_stream(len(wire))
+            self.wfile.write(wire)
+            self.wfile.flush()
+            self._finish_close()
+        else:
+            self._start_stream()
+            for piece in pieces:
+                self._chunk(piece)
+            self._chunk(b"")  # final chunk
 
     # ---- Responses API wire ----
 
@@ -578,7 +588,6 @@ class Handler(BaseHTTPRequestHandler):
             },
         ]
 
-        self._start_stream()
         if not outputs:
             if FAIL_RESPONSE:
                 events = [
@@ -849,22 +858,25 @@ class Handler(BaseHTTPRequestHandler):
         # pays the platform's stale-socket retry deadline. One explicit fixture
         # mode retains the abrupt, unterminated close regression.
         wire = b"".join(sse_typed(e) for e in events)
-        for i in range(0, len(wire), CHUNK_WIDTH):
-            self._chunk(wire[i : i + CHUNK_WIDTH])
         # The deterministic reused-read retry requires a clean first response;
         # it takes precedence when a broader CI lane requests truncated
         # terminal fixtures for other scenarios.
         truncated_terminal = TRUNCATED_TERMINAL and not DROP_REUSED_ONCE
-        if not truncated_terminal:
-            self._chunk(b"")
-        self.close_connection = truncated_terminal or (
-            CONNECTION_CLOSE and not DROP_REUSED_ONCE
-        )
-        if CONNECTION_CLOSE and not DROP_REUSED_ONCE:
-            # Explicitly send the write-side FIN after the complete response.
-            # Hosted macOS otherwise defers this tiny terminal write on some
-            # loopback runs until the client's stale-read deadline.
+        if CONNECTION_CLOSE and not DROP_REUSED_ONCE and not truncated_terminal:
+            # Content-Length avoids a hosted-macOS/Python interaction that can
+            # defer the tiny chunked terminator until the client's stale-read
+            # deadline. Other fixtures retain chunked split-boundary coverage.
+            self._start_stream(len(wire))
+            self.wfile.write(wire)
+            self.wfile.flush()
             self._finish_close()
+        else:
+            self._start_stream()
+            for i in range(0, len(wire), CHUNK_WIDTH):
+                self._chunk(wire[i : i + CHUNK_WIDTH])
+            if not truncated_terminal:
+                self._chunk(b"")
+            self.close_connection = truncated_terminal
 
     def _answer_text(self, req, tool_output, structured):
         if SENSITIVE:
