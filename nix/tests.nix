@@ -4,6 +4,7 @@
 {
   lib,
   stdenv,
+  darwin,
   nodejs,
   openssl,
   procps,
@@ -25,12 +26,22 @@ stdenv.mkDerivation {
     openssl.bin # tests/integration/test_https.py mints a throwaway cert
   ]
   # tests/integration/test_tui.py reads `ps` to prove the TUI pre-warm spawned
-  # exactly one host. Darwin's ps is in the sandbox already.
-  ++ lib.optionals stdenv.hostPlatform.isLinux [ procps ];
+  # exactly one host. A builder's PATH holds only its inputs, so macOS needs an
+  # explicit ps too — /bin/ps is on the disk but never on the PATH.
+  ++ lib.optionals stdenv.hostPlatform.isLinux [ procps ]
+  ++ lib.optionals stdenv.hostPlatform.isDarwin [ darwin.ps ];
 
   # The debug/test binary is -O0, and glibc's features.h emits a #warning when
   # _FORTIFY_SOURCE is set without optimization. The Makefile builds -Werror.
   hardeningDisable = [ "fortify" ];
+
+  # cc-wrapper appends its link flags to every call it cannot prove is
+  # compile-only, and `-fsyntax-only` is not on that list. The installed-header
+  # check in tests/integration/test_libtny.py compiles stdin with -Werror and so
+  # sees a stack of -L store paths it never links: clang reports each as
+  # "argument unused during compilation" and the check fails. gcc says nothing,
+  # hence the guard rather than an unconditional flag.
+  NIX_CFLAGS_COMPILE = lib.optionalString stdenv.cc.isClang "-Wno-unused-command-line-argument";
 
   # The TLS suites assert a real handshake failure, not "libssl not found", so
   # the dlopen in src/net/stream.c has to resolve here too. RUNPATH — what the

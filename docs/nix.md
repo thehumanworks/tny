@@ -149,6 +149,17 @@ direnv allow               # .envrc enters the dev shell on cd
 `nix flake check` is the hermetic way to run the suite: it runs the same
 `make test` CI runs, in a sandbox, with `LD_LIBRARY_PATH` pointed at OpenSSL.
 
+Two things the suite normally borrows from the host are spelled out for the
+builder, whose PATH holds only its own inputs. `tests/integration/test_tui.py`
+reads `ps` to prove the pre-warm spawned exactly one host, so the derivation
+carries `procps` on Linux and `darwin.ps` on macOS. And cc-wrapper appends its
+link flags to any call it cannot prove is compile-only — `-fsyntax-only` among
+them — so the installed-header check in `tests/integration/test_libtny.py` gets
+`-L` paths it never links, which clang reports as unused arguments and `-Werror`
+turns into a failure; the derivation and the dev shell answer that with
+`-Wno-unused-command-line-argument` wherever the compiler is clang. The dev
+shell keeps your PATH, so it needs the flag but not `ps`.
+
 The dev shell deliberately does **not** export `LD_LIBRARY_PATH` — a store
 OpenSSL on that path is inherited by every process you start from the shell and
 pulls a second glibc into host binaries. It sets an OpenSSL RUNPATH through

@@ -37,6 +37,11 @@ mkShell {
   # process started from the shell and shadows the host's own libraries.
   NIX_LDFLAGS = lib.optionalString stdenv.hostPlatform.isLinux "-rpath ${lib.getLib openssl}/lib";
 
+  # See nix/tests.nix: those same link flags reach the `-fsyntax-only` header
+  # check in tests/integration/test_libtny.py, where clang counts them as unused
+  # arguments and -Werror turns them into a failure.
+  NIX_CFLAGS_COMPILE = lib.optionalString stdenv.cc.isClang "-Wno-unused-command-line-argument";
+
   shellHook = ''
     echo "tny dev shell — make | make test | make size-check | make bench"
   '';
