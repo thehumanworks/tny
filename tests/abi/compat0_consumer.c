@@ -17,8 +17,7 @@ int main(int argc, char **argv) {
     options.base_url = bytes(argv[2]);
     options.api_key = bytes("abi0-fixture-key");
     tny_runtime *runtime = NULL;
-    if (tny_runtime_create(&options, &runtime, NULL) != TNY_STATUS_OK || !runtime)
-        return 3;
+    if (tny_runtime_create(&options, &runtime, NULL) != TNY_STATUS_OK || !runtime) return 3;
     tny_capabilities_v0 capabilities;
     tny_capabilities_init(&capabilities);
     if (tny_runtime_get_capabilities(runtime, &capabilities) != TNY_STATUS_OK ||

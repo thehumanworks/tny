@@ -49,16 +49,13 @@ jobs:
           shellcheck --version
 
       - name: make quality
-        run: make quality
+        run: make quality ANALYZER_CC=gcc-14
 
       - name: make warn-strict (gcc + clang)
         run: |
           set -eu
           make warn-strict CC=gcc-14
           make warn-strict CC=clang
-
-      - name: make analyze (gcc -fanalyzer)
-        run: make analyze ANALYZER_CC=gcc-14
 
   build:
     name: ${{ matrix.name }}
@@ -340,13 +337,14 @@ jobs:
 
   ci:
     name: ci
-    needs: [build, musl, windows, wasm, tsan, fuzz]
+    needs: [quality, build, musl, windows, wasm, tsan, fuzz]
     if: always()
     runs-on: ubuntu-24.04
     steps:
       - name: All platform jobs succeeded
         run: |
           set -eu
+          test "${{ needs.quality.result }}" = "success"
           test "${{ needs.build.result }}" = "success"
           test "${{ needs.musl.result }}" = "success"
           test "${{ needs.windows.result }}" = "success"

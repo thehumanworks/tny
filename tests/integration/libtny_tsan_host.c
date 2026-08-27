@@ -10,10 +10,10 @@
 #include <time.h>
 
 #define CANCEL_THREADS 4
-#define CANCEL_ROUNDS 100
+#define CANCEL_ROUNDS  100
 #define DEFAULT_CYCLES 12
-#define PATH_CAP 1024
-#define ID_CAP 128
+#define PATH_CAP       1024
+#define ID_CAP         128
 
 typedef struct shared_state shared_state;
 
@@ -42,8 +42,7 @@ typedef struct {
     int index;
 } cancel_arg;
 
-static void publish_startup(shared_state *shared, int index,
-                            tny_session *session, int failed) {
+static void publish_startup(shared_state *shared, int index, tny_session *session, int failed) {
     pthread_mutex_lock(&shared->mutex);
     shared->sessions[index] = session;
     shared->startup_failed |= failed;
@@ -57,10 +56,8 @@ static tny_bytes bytes(const char *value) {
     return out;
 }
 
-static int report_error(const char *operation, int32_t status,
-                        tny_error *error) {
-    fprintf(stderr, "tsan-host: %s failed with status %d", operation,
-            (int)status);
+static int report_error(const char *operation, int32_t status, tny_error *error) {
+    fprintf(stderr, "tsan-host: %s failed with status %d", operation, (int)status);
     if (error != NULL) {
         tny_bytes message = tny_error_message(error);
         fprintf(stderr, ": %.*s", (int)message.len, message.ptr);
@@ -84,12 +81,12 @@ static void *owner_main(void *opaque) {
     char workspace[PATH_CAP];
     char state_dir[PATH_CAP];
     char api_key[64];
-    if (snprintf(workspace, sizeof workspace, "%s/workspace-%d", arg->root,
-                 arg->index) >= (int)sizeof workspace ||
-        snprintf(state_dir, sizeof state_dir, "%s/state-%d", arg->root,
-                 arg->index) >= (int)sizeof state_dir ||
-        snprintf(api_key, sizeof api_key, "tsan-owner-%d-not-real",
-                 arg->index) >= (int)sizeof api_key) {
+    if (snprintf(workspace, sizeof workspace, "%s/workspace-%d", arg->root, arg->index) >=
+            (int)sizeof workspace ||
+        snprintf(state_dir, sizeof state_dir, "%s/state-%d", arg->root, arg->index) >=
+            (int)sizeof state_dir ||
+        snprintf(api_key, sizeof api_key, "tsan-owner-%d-not-real", arg->index) >=
+            (int)sizeof api_key) {
         arg->result = 1;
         publish_startup(shared, arg->index, NULL, 1);
         return NULL;
@@ -97,8 +94,7 @@ static void *owner_main(void *opaque) {
 
     tny_runtime_options_v0 options;
     if (tny_runtime_options_init(&options, sizeof options) != TNY_STATUS_OK) {
-        arg->result = report_error("runtime_options_init",
-                                   TNY_STATUS_INTERNAL, NULL);
+        arg->result = report_error("runtime_options_init", TNY_STATUS_INTERNAL, NULL);
         publish_startup(shared, arg->index, NULL, 1);
         return NULL;
     }
@@ -113,8 +109,7 @@ static void *owner_main(void *opaque) {
     tny_runtime *runtime = NULL;
     tny_session *session = NULL;
     tny_error *error = NULL;
-    int32_t status = tny_runtime_create(
-        &options, sizeof options, &runtime, &error);
+    int32_t status = tny_runtime_create(&options, sizeof options, &runtime, &error);
     if (status != TNY_STATUS_OK) {
         arg->result = report_error("runtime_create", status, error);
         publish_startup(shared, arg->index, NULL, 1);
@@ -122,21 +117,16 @@ static void *owner_main(void *opaque) {
     }
 
     tny_capabilities_v0 capabilities;
-    if (tny_capabilities_init(&capabilities, sizeof capabilities) !=
-        TNY_STATUS_OK) {
-        arg->result = report_error("capabilities_init", TNY_STATUS_INTERNAL,
-                                   NULL);
+    if (tny_capabilities_init(&capabilities, sizeof capabilities) != TNY_STATUS_OK) {
+        arg->result = report_error("capabilities_init", TNY_STATUS_INTERNAL, NULL);
         tny_runtime_free(runtime);
         publish_startup(shared, arg->index, NULL, 1);
         return NULL;
     }
-    status = tny_runtime_get_capabilities(
-        runtime, &capabilities, sizeof capabilities);
-    if (status != TNY_STATUS_OK ||
-        capabilities.threading_model != TNY_THREADING_OWNER_THREAD ||
+    status = tny_runtime_get_capabilities(runtime, &capabilities, sizeof capabilities);
+    if (status != TNY_STATUS_OK || capabilities.threading_model != TNY_THREADING_OWNER_THREAD ||
         capabilities.cancel_model != TNY_CANCEL_CROSS_THREAD_ASYNC_WAKE ||
-        !(capabilities.feature_enabled_mask &
-          TNY_CAP_FEATURE_CROSS_THREAD_CANCEL)) {
+        !(capabilities.feature_enabled_mask & TNY_CAP_FEATURE_CROSS_THREAD_CANCEL)) {
         arg->result = report_error("runtime_get_capabilities", status, error);
         tny_runtime_free(runtime);
         publish_startup(shared, arg->index, NULL, 1);
@@ -187,30 +177,25 @@ static void *owner_main(void *opaque) {
         }
         if (tny_event_get_kind(event) == TNY_EVENT_TURN_END) {
             terminals++;
-            if (tny_event_stop_reason(event) == TNY_STOP_REASON_INTERRUPTED)
-                interrupted++;
+            if (tny_event_stop_reason(event) == TNY_STOP_REASON_INTERRUPTED) interrupted++;
         }
         tny_event_free(event);
     }
     if (terminals != 1 || interrupted != 1 || !drained) {
-        fprintf(stderr,
-                "tsan-host: owner %d got terminals=%d interrupted=%d drained=%d\n",
+        fprintf(stderr, "tsan-host: owner %d got terminals=%d interrupted=%d drained=%d\n",
                 arg->index, terminals, interrupted, drained);
         arg->result = 1;
     }
 
     pthread_mutex_lock(&shared->mutex);
-    while (!shared->cancelers_done)
-        pthread_cond_wait(&shared->condition, &shared->mutex);
+    while (!shared->cancelers_done) pthread_cond_wait(&shared->condition, &shared->mutex);
     shared->sessions[arg->index] = NULL;
     pthread_mutex_unlock(&shared->mutex);
 
     if (!arg->result) {
-        status = tny_session_send(session, bytes("post-cancel isolation turn"),
-                                  &error);
+        status = tny_session_send(session, bytes("post-cancel isolation turn"), &error);
         if (status != TNY_STATUS_OK) {
-            arg->result = report_error("post-cancel session_send", status,
-                                       error);
+            arg->result = report_error("post-cancel session_send", status, error);
         } else {
             int done_terminals = 0;
             int second_drained = 0;
@@ -223,8 +208,7 @@ static void *owner_main(void *opaque) {
                     break;
                 }
                 if (status != TNY_STATUS_EVENT || event == NULL) {
-                    arg->result = report_error("post-cancel next_event", status,
-                                               error);
+                    arg->result = report_error("post-cancel next_event", status, error);
                     break;
                 }
                 if (tny_event_get_kind(event) == TNY_EVENT_TURN_END &&
@@ -233,8 +217,7 @@ static void *owner_main(void *opaque) {
                 tny_event_free(event);
             }
             if (done_terminals != 1 || !second_drained) {
-                fprintf(stderr,
-                        "tsan-host: owner %d post-cancel terminals=%d drained=%d\n",
+                fprintf(stderr, "tsan-host: owner %d post-cancel terminals=%d drained=%d\n",
                         arg->index, done_terminals, second_drained);
                 arg->result = 1;
             }
@@ -246,8 +229,8 @@ static void *owner_main(void *opaque) {
     return NULL;
 }
 
-static void mark_cancel_failure(shared_state *shared, const char *operation,
-                                int32_t status, tny_error *error) {
+static void mark_cancel_failure(shared_state *shared, const char *operation, int32_t status,
+                                tny_error *error) {
     report_error(operation, status, error);
     pthread_mutex_lock(&shared->mutex);
     shared->cancel_failure = 1;
@@ -262,13 +245,11 @@ static void *cancel_main(void *opaque) {
             tny_session *session = shared->sessions[index];
             if (arg->index == 0 && round == 0) {
                 tny_error *wrong_error = NULL;
-                int32_t wrong = tny_session_steer(
-                    session, bytes("wrong-thread-mutation"), &wrong_error);
+                int32_t wrong =
+                    tny_session_steer(session, bytes("wrong-thread-mutation"), &wrong_error);
                 if (wrong != TNY_STATUS_BAD_STATE)
-                    mark_cancel_failure(shared, "wrong-thread steer", wrong,
-                                        wrong_error);
-                else if (wrong_error != NULL)
-                    tny_error_free(wrong_error);
+                    mark_cancel_failure(shared, "wrong-thread steer", wrong, wrong_error);
+                else if (wrong_error != NULL) tny_error_free(wrong_error);
             }
             tny_error *error = NULL;
             int32_t status = tny_session_cancel(session, &error);
@@ -288,16 +269,14 @@ static int parse_cycles(void) {
     return (int)parsed;
 }
 
-static int run_cycle(int workers, const char *root, char **urls,
-                     int cycle) {
+static int run_cycle(int workers, const char *root, char **urls, int cycle) {
     shared_state shared;
     memset(&shared, 0, sizeof shared);
     shared.workers = workers;
     shared.sessions = calloc((size_t)workers, sizeof(*shared.sessions));
     owner_arg *owners = calloc((size_t)workers, sizeof(*owners));
     pthread_t *owner_threads = calloc((size_t)workers, sizeof(*owner_threads));
-    if (shared.sessions == NULL || owners == NULL || owner_threads == NULL)
-        return 1;
+    if (shared.sessions == NULL || owners == NULL || owner_threads == NULL) return 1;
     if (pthread_mutex_init(&shared.mutex, NULL) != 0 ||
         pthread_cond_init(&shared.condition, NULL) != 0)
         return 1;
@@ -311,28 +290,23 @@ static int run_cycle(int workers, const char *root, char **urls,
         owners[index].index = index;
         owners[index].root = cycle_root;
         owners[index].base_url = urls[index];
-        if (pthread_create(&owner_threads[index], NULL, owner_main,
-                           &owners[index]) != 0)
-            return 1;
+        if (pthread_create(&owner_threads[index], NULL, owner_main, &owners[index]) != 0) return 1;
     }
 
     pthread_mutex_lock(&shared.mutex);
-    while (shared.ready != workers)
-        pthread_cond_wait(&shared.condition, &shared.mutex);
+    while (shared.ready != workers) pthread_cond_wait(&shared.condition, &shared.mutex);
     int startup_failed = shared.startup_failed;
     pthread_mutex_unlock(&shared.mutex);
 
     if (startup_failed) {
         for (int index = 0; index < workers; index++) {
-            if (shared.sessions[index] != NULL)
-                tny_session_cancel(shared.sessions[index], NULL);
+            if (shared.sessions[index] != NULL) tny_session_cancel(shared.sessions[index], NULL);
         }
         pthread_mutex_lock(&shared.mutex);
         shared.cancelers_done = 1;
         pthread_cond_broadcast(&shared.condition);
         pthread_mutex_unlock(&shared.mutex);
-        for (int index = 0; index < workers; index++)
-            pthread_join(owner_threads[index], NULL);
+        for (int index = 0; index < workers; index++) pthread_join(owner_threads[index], NULL);
         return 1;
     }
 
@@ -343,12 +317,10 @@ static int run_cycle(int workers, const char *root, char **urls,
     for (int index = 0; index < CANCEL_THREADS; index++) {
         cancelers[index].shared = &shared;
         cancelers[index].index = index;
-        if (pthread_create(&cancel_threads[index], NULL, cancel_main,
-                           &cancelers[index]) != 0)
+        if (pthread_create(&cancel_threads[index], NULL, cancel_main, &cancelers[index]) != 0)
             return 1;
     }
-    for (int index = 0; index < CANCEL_THREADS; index++)
-        pthread_join(cancel_threads[index], NULL);
+    for (int index = 0; index < CANCEL_THREADS; index++) pthread_join(cancel_threads[index], NULL);
 
     pthread_mutex_lock(&shared.mutex);
     shared.cancelers_done = 1;
@@ -388,7 +360,7 @@ int main(int argc, char **argv) {
     for (int cycle = 0; cycle < cycles; cycle++) {
         if (run_cycle(workers, argv[1], &argv[2], cycle)) return 1;
     }
-    printf("libtny-tsan: %d cycles, %d isolated runtimes, %d cancels/session/cycle\n",
-           cycles, workers, CANCEL_THREADS * CANCEL_ROUNDS);
+    printf("libtny-tsan: %d cycles, %d isolated runtimes, %d cancels/session/cycle\n", cycles,
+           workers, CANCEL_THREADS * CANCEL_ROUNDS);
     return 0;
 }

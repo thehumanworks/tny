@@ -20,7 +20,7 @@ uninitialized struct on early failure) plus eight leak-on-OOM realloc sites.
 
 ## Decision
 
-`make quality` is the single authoritative aggregate:
+`make quality` is the single authoritative aggregate for the current host:
 
 - `format-check` — clang-format (`.clang-format`), `ruff format --check`
   (`ruff.toml`), and `shfmt -d -i 4 -ci -sr` over first-party C, Python, and
@@ -38,7 +38,8 @@ uninitialized struct on early failure) plus eight leak-on-OOM realloc sites.
   CI runs it with both gcc and clang so Linux-only code gets both compilers'
   diagnostics.
 - `analyze` — GCC `-fanalyzer` (path-sensitive leaks, use-after-free,
-  fd/stream misuse), Linux CI lane; complementary to clang-tidy.
+  fd/stream misuse), included by `make quality` on Linux and skipped with an
+  explicit message on non-Linux developer hosts; complementary to clang-tidy.
 - `lint-py` — `ruff check` (rules E4/E7/E9/F/B/I). `sdk/schema/generated/`
   is excluded: it must stay byte-identical to the generator's output.
 - `lint-sh` — ShellCheck (`.shellcheckrc` documents the two disabled
@@ -54,9 +55,14 @@ matrix, with pinned tool versions (clang-format 21.1.2, clang-tidy 22.1.8,
 Ruff 0.14.0 via pipx; shfmt and actionlint via `go install`). Pinning
 matters: formatter output changes between major versions.
 
-Scope is first-party only: `third_party/`, generated artifacts, and built
-`docs/assets/wasm` stay exempt everywhere. `src/net/net_wasm.c` remains in the
-C checks, but its EM_JS/EM_ASYNC_JS region is marked `clang-format off` because
+The final required `ci` aggregate depends on the `quality` job as well as all
+platform, wasm, TSan, and fuzz jobs, so static-analysis failures cannot be
+masked by otherwise green builds.
+
+Scope is first-party only: tracked C/header and shell inputs are discovered
+from Git, while `third_party/`, frozen ABI fixtures, generated artifacts, and
+built `docs/assets/wasm` stay exempt. `src/net/net_wasm.c` remains in the C
+checks, but its EM_JS/EM_ASYNC_JS region is marked `clang-format off` because
 clang-format tokenizes JavaScript `=>`/`===` as C operators and otherwise
 produces invalid generated JavaScript; the wasm build and JS syntax gates
 verify that embedded region instead.

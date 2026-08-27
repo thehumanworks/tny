@@ -106,6 +106,7 @@ CI fails the job if the stripped binary exceeds the Must column in
 ## Local
 
 ```sh
+make quality           # formatting, lint, tidy, strict warnings; GCC analyzer on Linux
 make test              # unit (ASan) + integration fixtures
 make test-abi          # ABI baseline, old consumers, exports, artifacts
 make test-sdks         # Python and TypeScript SDK + conformance adapters

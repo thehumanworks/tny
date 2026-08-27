@@ -21,8 +21,8 @@ int main(void) {
     tny_event_view_v0 view;
     if (tny_event_view_init(&view, sizeof view) != TNY_STATUS_OK) return 1;
     if (tny_event_read(event, &view, sizeof view) != TNY_STATUS_OK) return 1;
-    if (tny_event_get_kind(event) != UINT32_C(65535) ||
-        view.kind != UINT32_C(65535) || view.kind <= TNY_EVENT_TOOL_PROGRESS)
+    if (tny_event_get_kind(event) != UINT32_C(65535) || view.kind != UINT32_C(65535) ||
+        view.kind <= TNY_EVENT_TOOL_PROGRESS)
         return 2;
     if (view.text.len != sizeof(payload) - 1 ||
         memcmp(view.text.ptr, payload, sizeof(payload) - 1) != 0)

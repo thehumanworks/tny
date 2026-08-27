@@ -8,12 +8,9 @@
 #include <string.h>
 #include <time.h>
 
-_Static_assert(sizeof(tny_runtime_options_v0) == 200,
-               "frozen runtime options v0 changed");
-_Static_assert(sizeof(tny_host_services_v1) == 136,
-               "host services v1 layout changed");
-_Static_assert(sizeof(tny_runtime_options_v1) == 280,
-               "runtime options v1 layout changed");
+_Static_assert(sizeof(tny_runtime_options_v0) == 200, "frozen runtime options v0 changed");
+_Static_assert(sizeof(tny_host_services_v1) == 136, "host services v1 layout changed");
+_Static_assert(sizeof(tny_runtime_options_v1) == 280, "runtime options v1 layout changed");
 
 typedef struct {
     tny_runtime *runtime;
@@ -34,8 +31,7 @@ typedef struct {
     size_t order_len;
 } host_state;
 
-static int contains(const char *haystack, size_t haystack_len,
-                    const char *needle) {
+static int contains(const char *haystack, size_t haystack_len, const char *needle) {
     size_t needle_len = strlen(needle);
     if (needle_len > haystack_len) return 0;
     for (size_t i = 0; i <= haystack_len - needle_len; i++)
@@ -44,23 +40,18 @@ static int contains(const char *haystack, size_t haystack_len,
 }
 
 static void ordered(host_state *state, char marker) {
-    if (state->order_len < sizeof state->order)
-        state->order[state->order_len++] = marker;
+    if (state->order_len < sizeof state->order) state->order[state->order_len++] = marker;
 }
 
-static int32_t diagnostic(void *opaque, uint32_t level, tny_bytes component,
-                          tny_bytes message) {
+static int32_t diagnostic(void *opaque, uint32_t level, tny_bytes component, tny_bytes message) {
     host_state *state = opaque;
-    if (!state->alive || level > TNY_DIAGNOSTIC_ERROR ||
-        component.len != 6 || memcmp(component.ptr, "libtny", 6) != 0 ||
-        !message.ptr || !message.len)
+    if (!state->alive || level > TNY_DIAGNOSTIC_ERROR || component.len != 6 ||
+        memcmp(component.ptr, "libtny", 6) != 0 || !message.ptr || !message.len)
         return TNY_STATUS_INTERNAL;
-    if (contains(message.ptr, (size_t)message.len, "secret"))
-        return TNY_STATUS_INTERNAL;
-    ordered(state, contains(message.ptr, (size_t)message.len,
-                            "destroying") ? 'D' :
-                   contains(message.ptr, (size_t)message.len,
-                            "created") ? 'C' : 'W');
+    if (contains(message.ptr, (size_t)message.len, "secret")) return TNY_STATUS_INTERNAL;
+    ordered(state, contains(message.ptr, (size_t)message.len, "destroying") ? 'D'
+                   : contains(message.ptr, (size_t)message.len, "created")  ? 'C'
+                                                                            : 'W');
     state->diagnostic_calls++;
     return TNY_STATUS_OK;
 }
@@ -68,10 +59,9 @@ static int32_t diagnostic(void *opaque, uint32_t level, tny_bytes component,
 static void check_reentrant(host_state *state) {
     if (!state->runtime) return;
     tny_capabilities_v0 capabilities;
-    if (tny_capabilities_init(&capabilities, sizeof capabilities) != TNY_STATUS_OK)
-        return;
-    state->reentrant_status = tny_runtime_get_capabilities(
-        state->runtime, &capabilities, sizeof capabilities);
+    if (tny_capabilities_init(&capabilities, sizeof capabilities) != TNY_STATUS_OK) return;
+    state->reentrant_status =
+        tny_runtime_get_capabilities(state->runtime, &capabilities, sizeof capabilities);
 }
 
 static int32_t clock_ms(void *opaque, int64_t *out_ms) {
@@ -80,8 +70,7 @@ static int32_t clock_ms(void *opaque, int64_t *out_ms) {
     check_reentrant(state);
     state->monotonic_calls++;
     if (state->clock_status) return state->clock_status;
-    *out_ms = state->clock_override
-        ? state->clock_override : 1000 + state->monotonic_calls;
+    *out_ms = state->clock_override ? state->clock_override : 1000 + state->monotonic_calls;
     return TNY_STATUS_OK;
 }
 
@@ -94,9 +83,8 @@ static int32_t random_bytes(void *opaque, void *buffer, uint64_t size) {
     return TNY_STATUS_OK;
 }
 
-static int32_t storage_store(void *opaque, tny_bytes key,
-                             uint64_t expected_revision, const void *data,
-                             uint64_t size, uint64_t *out_revision) {
+static int32_t storage_store(void *opaque, tny_bytes key, uint64_t expected_revision,
+                             const void *data, uint64_t size, uint64_t *out_revision) {
     host_state *state = opaque;
     ordered(state, 'S');
     check_reentrant(state);
@@ -110,14 +98,12 @@ static int32_t storage_store(void *opaque, tny_bytes key,
     return TNY_STATUS_OK;
 }
 
-static int32_t storage_load(void *opaque, tny_bytes key,
-                            uint64_t *out_revision, void *buffer,
+static int32_t storage_load(void *opaque, tny_bytes key, uint64_t *out_revision, void *buffer,
                             uint64_t capacity, uint64_t *out_size) {
     host_state *state = opaque;
     ordered(state, 'L');
     check_reentrant(state);
-    if (key.len != 7 || memcmp(key.ptr, "session", 7) != 0)
-        return TNY_STATUS_BAD_STATE;
+    if (key.len != 7 || memcmp(key.ptr, "session", 7) != 0) return TNY_STATUS_BAD_STATE;
     *out_size = state->stored_size;
     *out_revision = state->revision;
     if (capacity < state->stored_size) return TNY_STATUS_BACKPRESSURE;
@@ -165,8 +151,7 @@ static void *wrong_thread(void *opaque) {
 }
 
 static int create_options(const char *workspace, const char *base_url,
-                          tny_runtime_options_v1 *options,
-                          tny_host_services_v1 *services) {
+                          tny_runtime_options_v1 *options, tny_host_services_v1 *services) {
     if (tny_runtime_options_v1_init(options, sizeof *options) != TNY_STATUS_OK ||
         tny_host_services_v1_init(services, sizeof *services) != TNY_STATUS_OK)
         return 0;
@@ -189,8 +174,7 @@ int main(int argc, char **argv) {
     if (!create_options(argv[1], argv[2], &options, &services)) return 3;
 
     tny_host_services_v1 invalid_services;
-    if (tny_host_services_v1_init(
-            &invalid_services, sizeof invalid_services) != TNY_STATUS_OK)
+    if (tny_host_services_v1_init(&invalid_services, sizeof invalid_services) != TNY_STATUS_OK)
         return 1;
     invalid_services.abi_version = 2;
     tny_runtime_options_v1 invalid_options = options;
@@ -220,70 +204,64 @@ int main(int argc, char **argv) {
     memset(&services, 0, sizeof services); /* creation copied the table */
 
     tny_capabilities_v0 capabilities;
-    if (tny_capabilities_init(&capabilities, sizeof capabilities) != TNY_STATUS_OK)
-        return 1;
-    if (tny_runtime_get_capabilities(
-            runtime, &capabilities, sizeof capabilities) != TNY_STATUS_OK ||
+    if (tny_capabilities_init(&capabilities, sizeof capabilities) != TNY_STATUS_OK) return 1;
+    if (tny_runtime_get_capabilities(runtime, &capabilities, sizeof capabilities) !=
+            TNY_STATUS_OK ||
         !(capabilities.feature_enabled_mask & TNY_CAP_FEATURE_HOST_SERVICES))
         return 5;
 
     int64_t first = 0, second = 0;
     if (tny_runtime_host_monotonic_ms(runtime, &first, &error) != TNY_STATUS_OK ||
-        tny_runtime_host_monotonic_ms(runtime, &second, &error) != TNY_STATUS_OK ||
-        first != 1001 || second != 1002 || state.reentrant_status != TNY_STATUS_BAD_STATE)
+        tny_runtime_host_monotonic_ms(runtime, &second, &error) != TNY_STATUS_OK || first != 1001 ||
+        second != 1002 || state.reentrant_status != TNY_STATUS_BAD_STATE)
         return 6;
     state.clock_status = TNY_STATUS_IO;
-    if (tny_runtime_host_monotonic_ms(runtime, &first, &error) != TNY_STATUS_IO)
-        return 26;
-    tny_error_free(error); error = NULL;
+    if (tny_runtime_host_monotonic_ms(runtime, &first, &error) != TNY_STATUS_IO) return 26;
+    tny_error_free(error);
+    error = NULL;
     state.clock_status = 0;
     state.clock_override = INT64_MAX;
-    if (tny_runtime_host_monotonic_ms(runtime, &first, &error) !=
-        TNY_STATUS_PROTOCOL)
-        return 27;
-    tny_error_free(error); error = NULL;
+    if (tny_runtime_host_monotonic_ms(runtime, &first, &error) != TNY_STATUS_PROTOCOL) return 27;
+    tny_error_free(error);
+    error = NULL;
     state.clock_override = 0;
-    if (tny_runtime_host_monotonic_ms(runtime, &first, &error) != TNY_STATUS_OK ||
-        first < second)
+    if (tny_runtime_host_monotonic_ms(runtime, &first, &error) != TNY_STATUS_OK || first < second)
         return 28;
     unsigned char random[16] = {0};
-    if (tny_runtime_host_secure_random(runtime, random, sizeof random, &error) !=
-        TNY_STATUS_OK || random[0] != 0xA5 || random[15] != 0xA5)
+    if (tny_runtime_host_secure_random(runtime, random, sizeof random, &error) != TNY_STATUS_OK ||
+        random[0] != 0xA5 || random[15] != 0xA5)
         return 7;
 
     unsigned char input[] = {0, 1, 2, 3};
     uint64_t revision = 0;
-    if (tny_runtime_host_storage_store(runtime, view("session"), 0, input,
-                                       sizeof input, &revision, &error) !=
-        TNY_STATUS_OK || revision != 1)
+    if (tny_runtime_host_storage_store(runtime, view("session"), 0, input, sizeof input, &revision,
+                                       &error) != TNY_STATUS_OK ||
+        revision != 1)
         return 8;
     memset(input, 0xFF, sizeof input);
     unsigned char output[16] = {0};
     uint64_t size = 0;
-    if (tny_runtime_host_storage_load(runtime, view("session"), &revision,
-                                      output, sizeof output, &size, &error) !=
-        TNY_STATUS_OK || revision != 1 || size != 4 || output[2] != 2)
+    if (tny_runtime_host_storage_load(runtime, view("session"), &revision, output, sizeof output,
+                                      &size, &error) != TNY_STATUS_OK ||
+        revision != 1 || size != 4 || output[2] != 2)
         return 9;
     state.omit_revision = 1;
-    if (tny_runtime_host_storage_store(runtime, view("session"), revision,
-                                       input, sizeof input, &revision, &error) !=
-        TNY_STATUS_PROTOCOL)
+    if (tny_runtime_host_storage_store(runtime, view("session"), revision, input, sizeof input,
+                                       &revision, &error) != TNY_STATUS_PROTOCOL)
         return 29;
-    tny_error_free(error); error = NULL;
+    tny_error_free(error);
+    error = NULL;
     state.omit_revision = 0;
-    if (tny_runtime_host_open_url(runtime, view("https://example.invalid"),
-                                  &error) != TNY_STATUS_OK ||
+    if (tny_runtime_host_open_url(runtime, view("https://example.invalid"), &error) !=
+            TNY_STATUS_OK ||
         tny_runtime_host_notify_scheduler(runtime, &error) != TNY_STATUS_OK)
         return 10;
-    if (state.order_len < 15 ||
-        memcmp(state.order, "CMMMWMWMRSLSWON", 15) != 0)
-        return 24;
+    if (state.order_len < 15 || memcmp(state.order, "CMMMWMWMRSLSWON", 15) != 0) return 24;
 
     int notify_before_turn = state.notify_calls;
     tny_session *session = NULL;
     if (tny_session_create(runtime, &session, &error) != TNY_STATUS_OK ||
-        tny_session_send(session, view("strict host-services turn"), &error) !=
-            TNY_STATUS_OK)
+        tny_session_send(session, view("strict host-services turn"), &error) != TNY_STATUS_OK)
         return 18;
     int terminals = 0;
     int64_t previous_timestamp = -1;
@@ -293,8 +271,7 @@ int main(int argc, char **argv) {
         if (next == TNY_STATUS_DRAINED) break;
         if (next != TNY_STATUS_EVENT || !event) return 19;
         tny_event_view_v0 event_view;
-        if (tny_event_view_init(&event_view, sizeof event_view) != TNY_STATUS_OK)
-            return 1;
+        if (tny_event_view_init(&event_view, sizeof event_view) != TNY_STATUS_OK) return 1;
         if (tny_event_read(event, &event_view, sizeof event_view) != TNY_STATUS_OK ||
             event_view.timestamp_ms < previous_timestamp)
             return 20;
@@ -310,18 +287,19 @@ int main(int argc, char **argv) {
      * callback before child teardown and no child cleanup may call back. */
 
     state.fail_open = 1;
-    int32_t failed = tny_runtime_host_open_url(
-        runtime, view("https://secret.invalid/token"), &error);
+    int32_t failed =
+        tny_runtime_host_open_url(runtime, view("https://secret.invalid/token"), &error);
     if (failed != TNY_STATUS_IO || !error || tny_error_code(error) != TNY_STATUS_IO ||
         error_contains(error, "secret"))
         return 11;
     tny_error_free(error);
     error = NULL;
     state.fail_open = 2;
-    if (tny_runtime_host_open_url(runtime, view("https://example.invalid"),
-                                  &error) != TNY_STATUS_INTERNAL)
+    if (tny_runtime_host_open_url(runtime, view("https://example.invalid"), &error) !=
+        TNY_STATUS_INTERNAL)
         return 30;
-    tny_error_free(error); error = NULL;
+    tny_error_free(error);
+    error = NULL;
 
     thread_call call = {runtime, 0};
     pthread_t thread;
@@ -342,15 +320,15 @@ int main(int argc, char **argv) {
     tny_host_services_v1 empty_services;
     if (!create_options(argv[1], argv[2], &empty_options, &empty_services)) return 15;
     runtime = NULL;
-    if (tny_runtime_create_v1(
-            &empty_options, sizeof empty_options, &runtime, &error) != TNY_STATUS_OK)
+    if (tny_runtime_create_v1(&empty_options, sizeof empty_options, &runtime, &error) !=
+        TNY_STATUS_OK)
         return 16;
     unsigned char native_random[8] = {0};
     if (tny_runtime_host_monotonic_ms(runtime, &first, &error) != TNY_STATUS_OK ||
-        tny_runtime_host_secure_random(runtime, native_random,
-                                       sizeof native_random, &error) != TNY_STATUS_OK ||
-        tny_runtime_host_open_url(runtime, view("https://example.invalid"),
-                                  &error) != TNY_STATUS_UNSUPPORTED)
+        tny_runtime_host_secure_random(runtime, native_random, sizeof native_random, &error) !=
+            TNY_STATUS_OK ||
+        tny_runtime_host_open_url(runtime, view("https://example.invalid"), &error) !=
+            TNY_STATUS_UNSUPPORTED)
         return 17;
     tny_error_free(error);
     tny_runtime_free(runtime);

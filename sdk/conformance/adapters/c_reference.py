@@ -26,10 +26,7 @@ STEER_TEXT = next(
     for scenario in CONTRACT["scenarios"]
     if scenario["id"] == "resume_and_steer_rejection"
 )
-COMMAND_TIMEOUT = int(os.environ.get("TNY_CONFORMANCE_COMMAND_TIMEOUT", "180"))
 STEER_TIMEOUT = int(os.environ.get("TNY_CONFORMANCE_STEER_TIMEOUT", "30"))
-if COMMAND_TIMEOUT < 1:
-    raise ValueError("TNY_CONFORMANCE_COMMAND_TIMEOUT must be positive")
 if STEER_TIMEOUT < 1:
     raise ValueError("TNY_CONFORMANCE_STEER_TIMEOUT must be positive")
 
@@ -344,7 +341,7 @@ def misuse_probe(
     lib.tny_error_free(unknown_error)
 
     # Oversized callers are prefix-safe: bytes beyond the frozen v0 layout are
-    # untouched, while undersized layouts are already covered by test_libtny.
+    # untouched. lifecycle_probe covers undersized callers independently.
     class OversizedCapabilities(ctypes.Structure):
         _fields_ = reference.Capabilities._fields_ + [("guard", ctypes.c_ubyte * 32)]
 
@@ -366,6 +363,121 @@ def misuse_probe(
     lib.tny_runtime_free(None)
     lib.tny_session_free(session)
     lib.tny_runtime_free(runtime)
+
+
+def lifecycle_probe(libpath: str, secret: str) -> dict[str, object]:
+    """Exercise the ownership contract without rerunning the full integration suite."""
+    lib = reference.load_lib(libpath)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        workspace = root / "workspace"
+        workspace.mkdir()
+        options, keep = reference.runtime_options(
+            lib,
+            "http://127.0.0.1:1/v1",
+            str(workspace),
+            None,
+            api_key=secret,
+            persistence=0,
+        )
+        assert keep
+
+        undersized = reference.RuntimeOptions.from_buffer_copy(options)
+        undersized.struct_size = 4
+        runtime = ctypes.c_void_p()
+        error = ctypes.c_void_p()
+        assert (
+            lib.tny_runtime_create(
+                ctypes.byref(undersized),
+                ctypes.sizeof(undersized),
+                ctypes.byref(runtime),
+                ctypes.byref(error),
+            )
+            == -1
+        )
+        assert not runtime.value and error.value
+        lib.tny_error_free(error)
+
+        for iteration in range(64):
+            runtime = ctypes.c_void_p()
+            session = ctypes.c_void_p()
+            error = ctypes.c_void_p()
+            assert (
+                lib.tny_runtime_create(
+                    ctypes.byref(options),
+                    ctypes.sizeof(options),
+                    ctypes.byref(runtime),
+                    ctypes.byref(error),
+                )
+                == 0
+            )
+            assert (
+                lib.tny_session_create(
+                    runtime, ctypes.byref(session), ctypes.byref(error)
+                )
+                == 0
+            )
+            if iteration == 0:
+                cross_thread: list[int] = []
+                cross_thread_errors: list[bool] = []
+
+                def check_wrong_thread(
+                    session: ctypes.c_void_p = session,
+                    runtime: ctypes.c_void_p = runtime,
+                    cross_thread: list[int] = cross_thread,
+                    cross_thread_errors: list[bool] = cross_thread_errors,
+                ) -> None:
+                    thread_error = ctypes.c_void_p()
+                    cross_thread.append(
+                        lib.tny_session_cancel(session, ctypes.byref(thread_error))
+                    )
+                    capabilities = reference.Capabilities()
+                    assert (
+                        lib.tny_capabilities_init(
+                            ctypes.byref(capabilities), ctypes.sizeof(capabilities)
+                        )
+                        == 0
+                    )
+                    cross_thread.append(
+                        lib.tny_runtime_get_capabilities(
+                            runtime,
+                            ctypes.byref(capabilities),
+                            ctypes.sizeof(capabilities),
+                        )
+                    )
+                    cross_thread_errors.append(bool(thread_error.value))
+
+                thread = threading.Thread(target=check_wrong_thread)
+                thread.start()
+                thread.join(timeout=2)
+                assert (
+                    not thread.is_alive()
+                    and cross_thread == [0, -2]
+                    and cross_thread_errors == [False]
+                )
+            if iteration % 2:
+                assert lib.tny_session_destroy(ctypes.byref(session)) == 0
+                assert not session.value
+                assert lib.tny_session_destroy(ctypes.byref(session)) == 0
+                assert lib.tny_runtime_destroy(ctypes.byref(runtime)) == 0
+                assert not runtime.value
+                assert lib.tny_runtime_destroy(ctypes.byref(runtime)) == 0
+            else:
+                # Parent teardown owns and releases its still-open child.
+                lib.tny_runtime_free(runtime)
+
+    return {
+        "id": "live_lifecycle_probe",
+        "exit_code": 0,
+        "assertions": qualified(
+            "ownership_and_misuse",
+            "double_free_prevention",
+            "wrong_thread_rejected",
+            "undersized_struct_rejected",
+            "parent_close_releases_children",
+            "repeated_lifecycle",
+        ),
+    }
 
 
 def steer_resume_probe(libpath: str, secret: str) -> list[dict[str, object]]:
@@ -574,19 +686,6 @@ def main() -> int:
     executions = [
         run_command("build_c_fixtures", ["make", "debug"]),
         run_command(
-            "reference_c_and_ctypes",
-            [sys.executable, "tests/integration/test_libtny.py"],
-            timeout=COMMAND_TIMEOUT,
-            assertions=qualified(
-                "ownership_and_misuse",
-                "event_and_error_lifetimes",
-                "wrong_thread_rejected",
-                "undersized_struct_rejected",
-                "parent_close_releases_children",
-                "repeated_lifecycle",
-            ),
-        ),
-        run_command(
             "network_split_fixture",
             [
                 "./build/tny-test",
@@ -619,6 +718,7 @@ def main() -> int:
             ),
         ),
     ]
+    executions.append(lifecycle_probe(libpath, request["secret_sentinel"]))
     lib, snapshot, traces = live_probe(libpath, request["secret_sentinel"])
     executions.append(
         {
@@ -654,6 +754,10 @@ def main() -> int:
                     "no_raw_provider_body",
                     "no_credentials",
                 )
+                + qualified(
+                    "ownership_and_misuse",
+                    "event_and_error_lifetimes",
+                )
             ),
         }
     )
@@ -679,7 +783,6 @@ def main() -> int:
             "assertions": qualified(
                 "ownership_and_misuse",
                 "inputs_copied",
-                "double_free_prevention",
                 "invalid_utf8_rejected",
                 "embedded_nul_rejected",
                 "unknown_constants_rejected",
@@ -719,7 +822,11 @@ def main() -> int:
         "cancel_and_drain": ["live_abi_probe"],
         "auth_error": ["live_abi_probe"],
         "unknown_future_event": ["unknown_event_probe"],
-        "ownership_and_misuse": ["reference_c_and_ctypes", "live_misuse_probe"],
+        "ownership_and_misuse": [
+            "live_abi_probe",
+            "live_lifecycle_probe",
+            "live_misuse_probe",
+        ],
         "slow_consumer_backpressure": ["backpressure_fixture"],
         "network_split_boundaries": ["network_split_fixture"],
     }

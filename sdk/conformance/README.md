@@ -24,6 +24,11 @@ invokes the existing focused C fixtures for queue backpressure and
 `chunked_survives_every_split_boundary`. A compiled reference probe feeds an
 unknown internal event through the public event reader and verifies that its
 numeric kind and payload survive without aliasing a known event constant.
+An in-process lifecycle probe covers undersized layouts, wrong-thread access,
+idempotent pointer destruction, repeated create/close cycles, and parent-owned
+child teardown without rerunning the full integration suite in every SDK
+matrix lane; `make test` continues to run that broader suite once per native
+platform.
 The queue fixture is bound to its three exact assertion IDs and does not invent
 an error/terminal transcript that the fixture did not emit.
 

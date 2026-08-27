@@ -609,11 +609,12 @@ SHFMT        ?= shfmt
 ACTIONLINT   ?= actionlint
 ANALYZER_CC  ?= gcc
 
-# First-party scopes only; third_party/ and generated code stay exempt.
-FMT_SRC := $(wildcard src/*.c src/*.h src/*/*.c src/*/*.h src/*/*/*.c src/*/*/*.h \
-           include/tny/*.h tests/*.c \
-           sdk/typescript/native/*.c sdk/typescript/native/*.h)
-SH_SRC  := docs/setup.sh site/setup.sh $(wildcard tests/integration/*.sh)
+# First-party scopes only; third_party/ and frozen ABI fixtures stay exempt.
+# Derive these lists from the tracked tree so new source and shell files enter
+# the quality gate automatically instead of depending on maintained globs.
+FMT_SRC := $(shell git ls-files -- '*.c' '*.h' | \
+	grep -Ev '^(third_party/|tests/abi/fixtures/)')
+SH_SRC  := $(shell git ls-files -- '*.sh')
 SHFMT_FLAGS := -i 4 -ci -sr
 JS_SRC  := docs/assets/site.js docs/assets/term-core.js docs/assets/term-wasm.js \
            $(wildcard site/assets/*.js src/wasm/*.js tests/site/*.js \
@@ -676,7 +677,16 @@ lint-js:
 	@for f in $(JS_SRC); do node --check $$f || exit 1; done
 	@echo "lint-js: $(words $(JS_SRC)) files clean"
 
-quality: format-check tidy warn-strict lint-py lint-sh lint-workflows lint-js
+ifeq ($(UNAME_S),Linux)
+  QUALITY_ANALYZE := analyze
+else
+  QUALITY_ANALYZE :=
+endif
+
+quality: format-check tidy warn-strict lint-py lint-sh lint-workflows lint-js $(QUALITY_ANALYZE)
+	@if [ -z "$(QUALITY_ANALYZE)" ]; then \
+		echo "quality: GCC -fanalyzer skipped on $(UNAME_S); CI runs it on Linux"; \
+	fi
 
 .PHONY: format format-check tidy warn-strict analyze lint-py lint-sh lint-workflows lint-js quality
 
