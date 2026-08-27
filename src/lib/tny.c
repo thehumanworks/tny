@@ -519,15 +519,23 @@ static int32_t runtime_create_v1_full(const tny_runtime_options_v1 *o,
     return TNY_STATUS_OK;
 }
 
+static bool prefix_capacity_valid(const void *value, uint64_t capacity,
+                                  uint32_t minimum, uint32_t frozen,
+                                  const uint32_t *boundaries,
+                                  size_t boundary_count) {
+    return value && capacity >= minimum && capacity <= UINT32_MAX &&
+           record_size_boundary(capacity, frozen, boundaries, boundary_count);
+}
+
 static int32_t input_prefix_size(const void *value, uint64_t capacity,
                                  uint32_t declared_size, uint32_t minimum,
                                  uint32_t frozen,
                                  const uint32_t *boundaries,
                                  size_t boundary_count,
                                  const char *label, tny_error **error) {
-    if (!value || capacity < minimum || capacity > UINT32_MAX ||
+    if (!prefix_capacity_valid(value, capacity, minimum, frozen,
+                               boundaries, boundary_count) ||
         declared_size < minimum || declared_size > capacity ||
-        !record_size_boundary(capacity, frozen, boundaries, boundary_count) ||
         !record_size_boundary(declared_size, frozen, boundaries, boundary_count))
         return failf(error, TNY_STATUS_INVALID_ARGUMENT,
                      "%s capacity or declared size is invalid", label);
@@ -540,7 +548,14 @@ int32_t tny_runtime_create(const tny_runtime_options_v0 *o,
     tny_alloc_scope_begin("runtime_create");
     if (out) *out = NULL;
     if (error) *error = NULL;
-    uint32_t declared = o && capacity >= sizeof(uint32_t) ? o->struct_size : 0;
+    if (!prefix_capacity_valid(
+            o, capacity, TNY_RUNTIME_OPTIONS_V0_MIN_SIZE,
+            TNY_RUNTIME_OPTIONS_V0_FROZEN_SIZE,
+            OPTIONS0_BOUNDARIES, ARRAY_COUNT(OPTIONS0_BOUNDARIES)))
+        return scoped_status(
+            failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                  "runtime options capacity or declared size is invalid"), error);
+    uint32_t declared = o->struct_size;
     int32_t status = input_prefix_size(
         o, capacity, declared, TNY_RUNTIME_OPTIONS_V0_MIN_SIZE,
         TNY_RUNTIME_OPTIONS_V0_FROZEN_SIZE,
@@ -562,8 +577,15 @@ int32_t tny_runtime_create_v1(const tny_runtime_options_v1 *o,
     tny_alloc_scope_begin("runtime_create_v1");
     if (out) *out = NULL;
     if (error) *error = NULL;
-    uint32_t declared = o && capacity >= 2 * sizeof(uint32_t)
-        ? o->struct_size : 0;
+    if (!prefix_capacity_valid(
+            o, capacity, TNY_RUNTIME_OPTIONS_V1_MIN_SIZE,
+            TNY_RUNTIME_OPTIONS_V1_FROZEN_SIZE,
+            OPTIONS1_BOUNDARIES, ARRAY_COUNT(OPTIONS1_BOUNDARIES)))
+        return scoped_status(
+            failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                  "runtime v1 options capacity or declared size is invalid"),
+            error);
+    uint32_t declared = o->struct_size;
     int32_t status = input_prefix_size(
         o, capacity, declared, TNY_RUNTIME_OPTIONS_V1_MIN_SIZE,
         TNY_RUNTIME_OPTIONS_V1_FROZEN_SIZE,
@@ -704,17 +726,21 @@ static bool output_prefix_valid(const void *value, uint64_t capacity,
                                 uint32_t frozen,
                                 const uint32_t *boundaries,
                                 size_t boundary_count) {
-    return value && capacity >= minimum && capacity <= UINT32_MAX &&
+    return prefix_capacity_valid(value, capacity, minimum, frozen,
+                                 boundaries, boundary_count) &&
            declared_size >= minimum && declared_size <= capacity &&
-           record_size_boundary(capacity, frozen, boundaries, boundary_count) &&
            record_size_boundary(declared_size, frozen, boundaries, boundary_count);
 }
 
 int32_t tny_runtime_get_capabilities(
     const tny_runtime *runtime, tny_capabilities_v0 *capabilities,
     uint64_t capacity) {
-    uint32_t declared = capabilities && capacity >= sizeof(uint32_t)
-        ? capabilities->struct_size : 0;
+    if (!prefix_capacity_valid(
+            capabilities, capacity, TNY_CAPABILITIES_V0_MIN_SIZE,
+            TNY_CAPABILITIES_V0_FROZEN_SIZE,
+            CAPS0_BOUNDARIES, ARRAY_COUNT(CAPS0_BOUNDARIES)))
+        return TNY_STATUS_INVALID_ARGUMENT;
+    uint32_t declared = capabilities->struct_size;
     if (!output_prefix_valid(capabilities, capacity, declared,
                              TNY_CAPABILITIES_V0_MIN_SIZE,
                              TNY_CAPABILITIES_V0_FROZEN_SIZE,
@@ -734,8 +760,12 @@ int32_t tny_runtime_get_capabilities(
 int32_t tny_runtime_get_capabilities_v1(
     const tny_runtime *runtime, tny_capabilities_v1 *capabilities,
     uint64_t capacity) {
-    uint32_t declared = capabilities && capacity >= 2 * sizeof(uint32_t)
-        ? capabilities->struct_size : 0;
+    if (!prefix_capacity_valid(
+            capabilities, capacity, TNY_CAPABILITIES_V1_MIN_SIZE,
+            TNY_CAPABILITIES_V1_FROZEN_SIZE,
+            CAPS1_BOUNDARIES, ARRAY_COUNT(CAPS1_BOUNDARIES)))
+        return TNY_STATUS_INVALID_ARGUMENT;
+    uint32_t declared = capabilities->struct_size;
     if (!output_prefix_valid(capabilities, capacity, declared,
                              TNY_CAPABILITIES_V1_MIN_SIZE,
                              TNY_CAPABILITIES_V1_FROZEN_SIZE,
@@ -1278,8 +1308,12 @@ int32_t tny_event_view_init(tny_event_view_v0 *view, uint64_t capacity) {
 
 int32_t tny_event_read(const tny_event *event, tny_event_view_v0 *view,
                        uint64_t capacity) {
-    uint32_t declared = view && capacity >= sizeof(uint32_t)
-        ? view->struct_size : 0;
+    if (!prefix_capacity_valid(
+            view, capacity, TNY_EVENT_VIEW_V0_MIN_SIZE,
+            TNY_EVENT_VIEW_V0_FROZEN_SIZE,
+            EVENT0_BOUNDARIES, ARRAY_COUNT(EVENT0_BOUNDARIES)))
+        return TNY_STATUS_INVALID_ARGUMENT;
+    uint32_t declared = view->struct_size;
     if (!event || !output_prefix_valid(view, capacity, declared,
                                        TNY_EVENT_VIEW_V0_MIN_SIZE,
                                        TNY_EVENT_VIEW_V0_FROZEN_SIZE,

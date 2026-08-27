@@ -83,6 +83,7 @@ jobs:
           fi
           make -j"$jobs" test
           make test-libtny-fault
+          make test-libtny-fuzz-smoke
           make size-check SIZE_MAX="${{ matrix.size_max }}"
           make pack TRIPLE="${{ matrix.triple }}"
           ./dist/tny-${{ matrix.triple }} --version
@@ -275,9 +276,35 @@ jobs:
           gcc --version | head -1
           make test-libtny-tsan
 
+  fuzz:
+    name: linux-x86_64-fuzz
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fuzz ABI1 capacity and custom-tool validators
+        env:
+          FUZZ_CC: clang
+          FUZZ_RUNS: "20000"
+          FUZZ_SECONDS: "60"
+        run: |
+          set -eu
+          clang --version | head -1
+          make test-libtny-fuzz
+
+      - name: Upload libFuzzer crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: libtny-fuzz-crashes-linux-x86_64
+          path: build/fuzz-artifacts
+          if-no-files-found: ignore
+          retention-days: 14
+
   ci:
     name: ci
-    needs: [build, musl, windows, wasm, tsan]
+    needs: [build, musl, windows, wasm, tsan, fuzz]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -289,3 +316,4 @@ jobs:
           test "${{ needs.windows.result }}" = "success"
           test "${{ needs.wasm.result }}" = "success"
           test "${{ needs.tsan.result }}" = "success"
+          test "${{ needs.fuzz.result }}" = "success"

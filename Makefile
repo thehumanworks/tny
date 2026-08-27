@@ -159,6 +159,19 @@ TSAN_PIC_OBJS := $(LIB_SRC:%.c=$(OBJ_TSAN_PIC)/%.o) \
                  $(TP:%.c=$(OBJ_TSAN_PIC)/%.o)
 TSAN_PIC_CFLAGS := $(PIC_CFLAGS) -O1 -g -fsanitize=thread \
                    -fno-omit-frame-pointer
+FUZZ_CC ?= clang
+OBJ_FUZZ := $(BUILD)/fuzz-libfuzzer/obj
+FUZZ_OBJS := $(LIB_SRC:%.c=$(OBJ_FUZZ)/%.o) \
+             $(TP:%.c=$(OBJ_FUZZ)/%.o)
+FUZZ_CFLAGS := $(PIC_CFLAGS) -O1 -g -fno-omit-frame-pointer \
+               -fsanitize=fuzzer-no-link,address,undefined
+FUZZ_HARNESS_CFLAGS := $(PIC_CFLAGS) -O1 -g -fno-omit-frame-pointer \
+                       -fsanitize=fuzzer,address,undefined
+FUZZ_SMOKE_BIN := $(BUILD)/fuzz/libtny-fuzz-smoke
+FUZZ_BIN := $(BUILD)/fuzz-libfuzzer/libtny-fuzz
+FUZZ_CORPUS := $(wildcard tests/fuzz/corpus-v1/*)
+FUZZ_RUNS ?= 10000
+FUZZ_SECONDS ?= 30
 SAN_HOST := $(BUILD)/fault-san/libtny-sanitizer-host
 ABI0_COMPAT_COMMIT := 510a95c2ef89aa9ec02a66d8b0a5cadd953025a8
 ABI0_COMPAT_ARCHIVE ?=
@@ -243,7 +256,7 @@ else
   SIZE_MAX ?= 1572864
 endif
 
-.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation size size-check pack smoke bench clean install install-lib lib-shared lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
+.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib lib-shared lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
 all: release
 
@@ -287,6 +300,10 @@ $(OBJ_FAULT_SAN_PIC)/%.o: %.c | $(VERSION_H)
 $(OBJ_TSAN_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(TSAN_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(TSAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
+
+$(OBJ_FUZZ)/%.o: %.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(FUZZ_CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FUZZ_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FUZZ_CFLAGS)) -MMD -MP -c -o $@ $<
 
 ifeq ($(LIBTNY_SHARED_SUPPORTED),1)
 lib-shared: $(LIB_LINK) $(LIB_COMPAT0_REAL)
@@ -451,6 +468,41 @@ test-libtny-mutation:
 	python3 tests/mutation/mutate.py --focus libtny-fault-mutation
 	python3 tests/mutation/mutate.py --focus libtny-custom-tools
 
+$(FUZZ_SMOKE_BIN): tests/fuzz/fuzz_libtny.c $(sort $(TEST_OBJS))
+	@mkdir -p $(@D)
+	$(CC) $(DBG_CFLAGS) -DTNY_FUZZ_STANDALONE=1 -o $@ $< \
+		$(sort $(TEST_OBJS)) $(DBG_LDFLAGS)
+
+test-libtny-fuzz-smoke: $(FUZZ_SMOKE_BIN)
+	$(FUZZ_SMOKE_BIN) --self-test
+	@rc=0; $(FUZZ_SMOKE_BIN) --negative-self-test || rc=$$?; \
+	if [ "$$rc" -ne 1 ]; then \
+		echo "error: fuzz negative self-test returned $$rc, expected 1" >&2; \
+		exit 1; \
+	else \
+		echo "fuzz negative self-test: expected missing-class rejection"; \
+	fi
+	$(FUZZ_SMOKE_BIN) $(FUZZ_CORPUS)
+
+$(FUZZ_BIN): tests/fuzz/fuzz_libtny.c $(FUZZ_OBJS)
+	@mkdir -p $(@D) $(BUILD)/fuzz-artifacts
+	$(FUZZ_CC) $(FUZZ_HARNESS_CFLAGS) \
+		-o $@ $< $(FUZZ_OBJS) \
+		$(if $(filter Linux,$(UNAME_S)),-pthread -ldl,)
+
+ifeq ($(UNAME_S)-$(UNAME_M),Linux-x86_64)
+test-libtny-fuzz: $(FUZZ_BIN)
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+		$(FUZZ_BIN) -runs=$(FUZZ_RUNS) -max_total_time=$(FUZZ_SECONDS) \
+		-timeout=5 -max_len=131072 -rss_limit_mb=1024 \
+		-artifact_prefix=$(BUILD)/fuzz-artifacts/ tests/fuzz/corpus-v1
+else
+test-libtny-fuzz:
+	@echo "error: libtny libFuzzer gate is supported only on Linux x86_64" >&2
+	@exit 2
+endif
+
 test-libtny-fault-sanitize: lib-shared-fault-sanitize $(SAN_HOST)
 ifeq ($(UNAME_S),Darwin)
 	@runtime="$$($(CC) --print-resource-dir)/lib/darwin/libclang_rt.asan_osx_dynamic.dylib"; \
@@ -601,5 +653,5 @@ clean:
 # Header dependencies emitted by -MMD; a header edit rebuilds its users.
 -include $(REL_OBJS:.o=.d) $(LIB_PIC_OBJS:.o=.d) \
          $(FAULT_PIC_OBJS:.o=.d) $(FAULT_SAN_PIC_OBJS:.o=.d) \
-         $(TSAN_PIC_OBJS:.o=.d) $(TEST_OBJS:.o=.d) \
+         $(TSAN_PIC_OBJS:.o=.d) $(FUZZ_OBJS:.o=.d) $(TEST_OBJS:.o=.d) \
          $(TEST_SRC:%.c=$(OBJ_DBG)/%.d)

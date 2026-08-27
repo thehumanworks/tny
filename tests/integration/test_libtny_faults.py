@@ -515,6 +515,8 @@ def sweep(script, libpath, scenario, scope, base_url):
 
 def start_mock(**settings):
     port = free_port()
+    settings.setdefault("MOCK_CONNECTION_CLOSE", "1")
+    settings.setdefault("MOCK_CHUNK_WIDTH", "1048576")
     env = dict(os.environ, MOCK_EXPECT_WIRE="responses", **settings)
     mock = subprocess.Popen(
         [sys.executable, os.path.join(HERE, "mock_openai.py"), str(port)],
