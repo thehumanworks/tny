@@ -620,10 +620,13 @@ def test_version_fast_path():
     # shape: no v prefix, one line, starts like a version or a bare hash
     assert got and "\n" not in got and not got.startswith("v"), out
     assert re.match(r"^[0-9a-zA-Z][0-9a-zA-Z.+-]*$", got), out
-    # a build from this checkout must agree with git describe
-    desc = subprocess.run(["git", "describe", "--tags", "--always", "--dirty"],
-                          capture_output=True, text=True, cwd=ROOT, timeout=10)
-    if desc.returncode == 0 and desc.stdout.strip():
+    # a build from this checkout must agree with git describe. A git-less
+    # source tree (release tarball, Nix build) has nothing to compare against
+    # and passes TNY_VERSION explicitly instead — docs/adr/0014.
+    desc = (subprocess.run(["git", "describe", "--tags", "--always", "--dirty"],
+                           capture_output=True, text=True, cwd=ROOT, timeout=10)
+            if shutil.which("git") else None)
+    if desc is not None and desc.returncode == 0 and desc.stdout.strip():
         # tolerate a dirty-flag flip between build and test run
         want = desc.stdout.strip().lstrip("v").replace("-dirty", "")
         assert got.replace("-dirty", "") == want, (got, want)
