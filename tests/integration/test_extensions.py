@@ -172,7 +172,8 @@ def main():
         [sys.executable, MOCK, str(port)],
         env=dict(os.environ, MOCK_EXPECT_WIRE="responses",
                  MOCK_EXPECT_EXTENSION_REWRITE="1",
-                 MOCK_EXPECT_TOOL_OUTPUT="REPLACED-TOOL-RESULT"),
+                 MOCK_EXPECT_TOOL_OUTPUT="REPLACED-TOOL-RESULT",
+                 MOCK_DROP_REUSED_ONCE="1"),
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
     )

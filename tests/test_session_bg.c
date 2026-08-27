@@ -20,6 +20,16 @@ typedef struct {
     char *old_home;
 } bg_env;
 
+static bool bg_chmod_denies_owner_writes(void) {
+#if defined(__CYGWIN__) || defined(__MSYS__)
+    /* Their chmod mode bits on Windows do not reliably make an NTFS
+     * directory unwritable to its owner. */
+    return false;
+#else
+    return geteuid() != 0; /* root can rewrite chmod(0500) directories */
+#endif
+}
+
 static void bg_env_begin(bg_env *e) {
     memset(e, 0, sizeof *e);
     const char *old = getenv("HOME");
@@ -272,7 +282,7 @@ TEST bg_api_null_and_ephemeral_contract(void) {
 /* Filesystem failure is an error, not a silent success: an uncreatable
  * session dir and an unwritable one must fail lock/pid acquisition. */
 TEST bg_lock_and_pid_report_fs_failure(void) {
-    if (geteuid() == 0) SKIP(); /* root ignores permission bits */
+    if (!bg_chmod_denies_owner_writes()) SKIP();
     bg_env e;
     bg_env_begin(&e);
     tny_ctx *ctx = tny_ctx_load(e.workspace);
@@ -394,7 +404,7 @@ TEST bg_stop_without_pid_file_errors(void) {
 /* stop --kill on an unwritable session dir: the SIGKILL lands but the
  * terminal status cannot be recorded — that is an error, not a success. */
 TEST bg_stop_kill_unwritable_status_errors(void) {
-    if (geteuid() == 0) SKIP(); /* root can rewrite chmod(0500) directories */
+    if (!bg_chmod_denies_owner_writes()) SKIP();
     bg_env e;
     bg_env_begin(&e);
     tny_ctx *ctx = tny_ctx_load(e.workspace);

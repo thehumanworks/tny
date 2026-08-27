@@ -2,6 +2,8 @@
 """Build a clean C consumer and run a full libtny turn against the mock."""
 import os
 import ctypes
+import faulthandler
+import select
 import socket
 import re
 import subprocess
@@ -12,6 +14,9 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MOCK = os.path.join(ROOT, "tests", "integration", "mock_openai.py")
+MOCK_READY_TIMEOUT = 10.0
+TURN_TIMEOUT = 45.0
+SUITE_TIMEOUT = 120.0
 
 
 class TnyBytes(ctypes.Structure):
@@ -281,9 +286,10 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
         cross_thread.append(lib.tny_runtime_get_capabilities(
             runtime, ctypes.byref(thread_caps)))
         lib.tny_error_free(thread_error)
-    thread = threading.Thread(target=wrong_thread_cancel)
+    thread = threading.Thread(target=wrong_thread_cancel, daemon=True)
     thread.start()
-    thread.join()
+    thread.join(timeout=2)
+    assert not thread.is_alive()
     assert cross_thread == [0, -2]
     output = bytearray()
     saw_permission = False
@@ -292,6 +298,7 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
     event_sequences = []
     prompts = ["list files in .", "again"] if repeat else ["list files in ."]
     for prompt_text in prompts:
+        turn_deadline = time.monotonic() + TURN_TIMEOUT
         prior_reachability = capabilities().endpoint_reachability
         prompt_raw, prompt = as_bytes(prompt_text)
         keep.append(prompt_raw)
@@ -314,6 +321,9 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
             status = lib.tny_session_next_event(session, 5000, ctypes.byref(event),
                                                 ctypes.byref(error))
             if status == 2:
+                if time.monotonic() >= turn_deadline:
+                    raise AssertionError(
+                        f"libtny turn did not settle within {TURN_TIMEOUT:.0f}s")
                 continue
             if status == 3:
                 break
@@ -365,6 +375,7 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
                                     ctypes.byref(error)) == 0
         assert lib.tny_session_cancel(session, ctypes.byref(error)) == 0
         cancelled = None
+        cancel_deadline = time.monotonic() + TURN_TIMEOUT
         while True:
             event = ctypes.c_void_p()
             status = lib.tny_session_next_event(session, 5000,
@@ -372,6 +383,9 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
                                                 ctypes.byref(error))
             if status == 3:
                 break
+            if status == 2 and time.monotonic() >= cancel_deadline:
+                raise AssertionError(
+                    f"libtny cancellation did not settle within {TURN_TIMEOUT:.0f}s")
             assert status in (1, 2), status
             if status == 1:
                 if lib.tny_event_get_kind(event) == 7:
@@ -407,10 +421,11 @@ def run_cancel_wake(libpath, base_url, workspace, state):
                 session, ctypes.byref(thread_error)))
             assert not thread_error.value
 
-    scheduler = threading.Thread(target=cancel_from_scheduler)
+    scheduler = threading.Thread(target=cancel_from_scheduler, daemon=True)
     scheduler.start()
     started = time.monotonic()
     terminals = []
+    deadline = started + TURN_TIMEOUT
     while True:
         event = ctypes.c_void_p()
         status = lib.tny_session_next_event(session, 5000,
@@ -418,6 +433,9 @@ def run_cancel_wake(libpath, base_url, workspace, state):
                                             ctypes.byref(error))
         if status == 3:
             break
+        if status == 2 and time.monotonic() >= deadline:
+            raise AssertionError(
+                f"cross-thread cancellation did not settle within {TURN_TIMEOUT:.0f}s")
         assert status == 1, status
         if lib.tny_event_get_kind(event) == 7:
             terminals.append(lib.tny_event_stop_reason(event))
@@ -502,6 +520,11 @@ def verify_fork_rejection(libpath, workspace):
         os.write(write_fd, f"{cap_status},{cancel_status}".encode())
         os._exit(0)
     os.close(write_fd)
+    if not select.select([read_fd], [], [], 5.0)[0]:
+        os.kill(pid, 9)
+        os.waitpid(pid, 0)
+        os.close(read_fd)
+        raise AssertionError("fork-rejection child did not respond within 5s")
     child_result = os.read(read_fd, 64)
     os.close(read_fd)
     _, status = os.waitpid(pid, 0)
@@ -519,12 +542,70 @@ def free_port():
     return port
 
 
+def stage(name):
+    print(f"test_libtny: stage {name}", file=sys.stderr, flush=True)
+
+
+def start_mock(**extra_env):
+    """Start the fixture on a kernel-assigned port with bounded readiness."""
+    process = subprocess.Popen(
+        [sys.executable, MOCK, "0"],
+        env=dict(os.environ, **extra_env),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert process.stdout is not None and process.stderr is not None
+    deadline = time.monotonic() + MOCK_READY_TIMEOUT
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            stderr = process.stderr.read().decode("utf-8", "replace")
+            stop_mock(process)
+            raise AssertionError(
+                f"mock exited before ready (rc={process.returncode}): {stderr}")
+        remaining = max(0.0, deadline - time.monotonic())
+        if select.select([process.stdout], [], [], min(0.1, remaining))[0]:
+            line = process.stdout.readline().decode("utf-8", "replace").strip()
+            if not line:
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
+                stderr = process.stderr.read().decode("utf-8", "replace")
+                stop_mock(process)
+                raise AssertionError(
+                    f"mock closed stdout before ready (rc={process.returncode}): "
+                    f"{stderr}")
+            match = re.fullmatch(r"ready on (\d+)", line)
+            if not match:
+                stop_mock(process)
+                raise AssertionError(f"unexpected mock ready line: {line!r}")
+            return process, int(match.group(1))
+    stop_mock(process)
+    raise AssertionError(
+        f"mock did not become ready within {MOCK_READY_TIMEOUT:.0f}s")
+
+
+def stop_mock(process):
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+    if process.stdout is not None:
+        process.stdout.close()
+    if process.stderr is not None:
+        process.stderr.close()
+
+
 def main():
     if sys.platform not in ("darwin", "linux"):
         print("test_libtny: skip (ABI 0 ships on Darwin/Linux only)")
         return
+    stage("build shared library")
     subprocess.run(["make", "lib-shared"], cwd=ROOT, check=True,
-                   stdout=subprocess.DEVNULL)
+                   stdout=subprocess.DEVNULL, timeout=120)
     libdir = os.path.join(ROOT, "build", "lib")
     libname = "libtny.0.dylib" if sys.platform == "darwin" else "libtny.so.0"
     libpath = os.path.join(libdir, libname)
@@ -543,6 +624,7 @@ def main():
               line.split()[-1].split("@")[0].removeprefix("_").startswith("tny_")}
     assert actual == expected, (sorted(actual - expected), sorted(expected - actual))
 
+    stage("synchronous error classification")
     with tempfile.TemporaryDirectory() as root:
         workspace = os.path.join(root, "workspace")
         state = os.path.join(root, "state")
@@ -554,6 +636,7 @@ def main():
 
     # Installed header/library must work without source-tree include or lib
     # paths. The no-argument run reaches main and returns its usage status.
+    stage("clean-prefix consumers")
     with tempfile.TemporaryDirectory() as install_root:
         prefix = os.path.join(install_root, "prefix")
         subprocess.run(["make", "install-lib", "PREFIX=" + prefix], cwd=ROOT,
@@ -596,6 +679,7 @@ def main():
         "-L" + libdir, "-ltny", "-Wl,-rpath," + rpath, "-o", exe,
     ], check=True)
 
+    stage("multi-runtime teardown and fork rejection")
     with tempfile.TemporaryDirectory() as root:
         workspace_a = os.path.join(root, "teardown-a")
         workspace_b = os.path.join(root, "teardown-b")
@@ -604,13 +688,10 @@ def main():
         stress_independent_teardown(libpath, workspace_a, workspace_b)
         verify_fork_rejection(libpath, workspace_a)
 
-    port = free_port()
-    mock = subprocess.Popen([sys.executable, MOCK, str(port)],
-                            env=dict(os.environ, MOCK_EXPECT_WIRE="responses",
-                                     MOCK_REJECT_INSTRUCTIONS="HOME-SECRET"),
-                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    stage("strict mock turns and ephemeral state")
+    mock, port = start_mock(MOCK_EXPECT_WIRE="responses",
+                            MOCK_REJECT_INSTRUCTIONS="HOME-SECRET")
     try:
-        assert "ready" in mock.stdout.readline().decode()
         with tempfile.TemporaryDirectory() as root:
             workspace = os.path.join(root, "workspace")
             state = os.path.join(root, "state")
@@ -673,19 +754,41 @@ def main():
             assert not os.listdir(ephemeral_home)
             assert set(os.listdir(ephemeral_workspace)) == before
     finally:
-        mock.terminate()
-        mock.wait(timeout=5)
+        stop_mock(mock)
+
+    # Keep one real truncated-terminal shield. The response is logically
+    # complete, but its chunked transport is known dead and must be discarded
+    # before the tool-output POST rather than retained as a stale keep-alive.
+    stage("abrupt terminal transport close")
+    mock, port = start_mock(MOCK_EXPECT_WIRE="responses",
+                            MOCK_TRUNCATED_TERMINAL="1")
+    try:
+        with tempfile.TemporaryDirectory() as root:
+            workspace = os.path.join(root, "workspace")
+            state = os.path.join(root, "state")
+            os.makedirs(workspace)
+            started = time.monotonic()
+            output, permission, stop, errors = run_ctypes(
+                libpath, f"http://127.0.0.1:{port}/v1", workspace, state)
+            elapsed = time.monotonic() - started
+            assert b"MOCK-OK" in output and not permission and stop == 0
+            assert not errors
+            assert elapsed < TURN_TIMEOUT
+            print(f"test_libtny: terminal close settled in {elapsed:.3f}s",
+                  file=sys.stderr, flush=True)
+    finally:
+        stop_mock(mock)
 
     # Two owner threads drive isolated runtimes at the same time. Distinct
     # endpoints, workspaces, credentials and state roots must not interfere.
-    ports = [free_port(), free_port()]
-    mocks = [subprocess.Popen(
-        [sys.executable, MOCK, str(port)],
-        env=dict(os.environ, MOCK_EXPECT_WIRE="responses", MOCK_SLOW_MS="150"),
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) for port in ports]
+    stage("simultaneous owner threads")
+    started_mocks = []
     try:
-        for process in mocks:
-            assert "ready" in process.stdout.readline().decode()
+        for _ in range(2):
+            started_mocks.append(
+                start_mock(MOCK_EXPECT_WIRE="responses", MOCK_SLOW_MS="150"))
+        mocks = [item[0] for item in started_mocks]
+        ports = [item[1] for item in started_mocks]
         with tempfile.TemporaryDirectory() as root:
             results = [None, None]
             def drive(index):
@@ -695,7 +798,8 @@ def main():
                 results[index] = run_ctypes(
                     libpath, f"http://127.0.0.1:{ports[index]}/v1",
                     workspace, state, api_key=f"runtime-{index}-key")
-            owners = [threading.Thread(target=drive, args=(i,)) for i in range(2)]
+            owners = [threading.Thread(target=drive, args=(i,), daemon=True)
+                      for i in range(2)]
             for owner in owners:
                 owner.start()
             for owner in owners:
@@ -706,19 +810,14 @@ def main():
                 assert b"MOCK-OK" in output and not permission and stop == 0
                 assert not errors
     finally:
-        for process in mocks:
-            process.terminate()
-            process.wait(timeout=5)
+        for process, _port in started_mocks:
+            stop_mock(process)
 
     # A scheduler-thread cancel must interrupt a blocking 5-second provider
     # wait promptly and settle with exactly one interrupted terminal.
-    port = free_port()
-    mock = subprocess.Popen([sys.executable, MOCK, str(port)],
-                            env=dict(os.environ, MOCK_EXPECT_WIRE="responses",
-                                     MOCK_SLOW_MS="5000"),
-                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    stage("cross-thread cancellation wake")
+    mock, port = start_mock(MOCK_EXPECT_WIRE="responses", MOCK_SLOW_MS="5000")
     try:
-        assert "ready" in mock.stdout.readline().decode()
         with tempfile.TemporaryDirectory() as root:
             workspace = os.path.join(root, "workspace")
             state = os.path.join(root, "state")
@@ -726,17 +825,12 @@ def main():
             run_cancel_wake(libpath, f"http://127.0.0.1:{port}/v1",
                             workspace, state)
     finally:
-        mock.terminate()
-        mock.wait(timeout=5)
+        stop_mock(mock)
 
     # Public ask mode parks a sensitive native call until the embedder answers.
-    port = free_port()
-    mock = subprocess.Popen([sys.executable, MOCK, str(port)],
-                            env=dict(os.environ, MOCK_EXPECT_WIRE="responses",
-                                     MOCK_SENSITIVE="1"),
-                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    stage("permission parking")
+    mock, port = start_mock(MOCK_EXPECT_WIRE="responses", MOCK_SENSITIVE="1")
     try:
-        assert "ready" in mock.stdout.readline().decode()
         with tempfile.TemporaryDirectory() as root:
             workspace = os.path.join(root, "workspace")
             state = os.path.join(root, "state")
@@ -747,17 +841,13 @@ def main():
             assert permission and not output and stop == 2 and not errors
             assert not os.path.exists(os.path.join(workspace, "permission.txt"))
     finally:
-        mock.terminate()
-        mock.wait(timeout=5)
+        stop_mock(mock)
 
     # Post-start authentication failures are typed ERROR events followed by
     # exactly one error terminal, not an unclassified string or sync failure.
-    port = free_port()
-    mock = subprocess.Popen([sys.executable, MOCK, str(port)],
-                            env=dict(os.environ, MOCK_HTTP_STATUS="401"),
-                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    stage("asynchronous authentication error")
+    mock, port = start_mock(MOCK_HTTP_STATUS="401")
     try:
-        assert "ready" in mock.stdout.readline().decode()
         with tempfile.TemporaryDirectory() as root:
             workspace = os.path.join(root, "workspace")
             state = os.path.join(root, "state")
@@ -767,11 +857,11 @@ def main():
             assert not output and not permission and stop == 4
             assert errors == [-6], errors
     finally:
-        mock.terminate()
-        mock.wait(timeout=5)
+        stop_mock(mock)
 
     # A failed ordinary connection attempt updates reachability without the
     # capability query itself probing the endpoint.
+    stage("unreachable endpoint capability")
     dead_port = free_port()
     with tempfile.TemporaryDirectory() as root:
         workspace = os.path.join(root, "workspace")
@@ -785,4 +875,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    faulthandler.dump_traceback_later(SUITE_TIMEOUT, exit=True)
+    try:
+        main()
+    finally:
+        faulthandler.cancel_dump_traceback_later()

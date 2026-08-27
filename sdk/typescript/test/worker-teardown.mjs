@@ -11,9 +11,28 @@ import { Runtime, sdkPackageRoot } from "./sdk.mjs";
 const sdkUrl = pathToFileURL(join(sdkPackageRoot, "dist/index.mjs")).href;
 const addonPath = join(sdkPackageRoot, "build/Release/tny.node");
 const threadCount = () => {
+  if (process.platform === "linux") return readdirSync("/proc/self/task").length;
+  if (process.platform !== "darwin")
+    throw new Error(`thread counting is unsupported on ${process.platform}`);
   const result = spawnSync("ps", ["-M", "-p", String(process.pid)], { encoding: "utf8" });
-  return result.status === 0 ? Math.max(0, result.stdout.trim().split("\n").length - 1) : 0;
+  if (result.status !== 0)
+    throw new Error(`ps thread count failed with status ${result.status ?? "unknown"}`);
+  const lines = result.stdout.trim().split("\n");
+  if (lines.length < 2) throw new Error("ps returned no thread rows");
+  return lines.length - 1;
 };
+
+function boundedInteger(name, fallback, minimum, maximum) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  if (!/^(0|[1-9][0-9]*)$/.test(raw))
+    throw new Error(`${name} must be an integer from ${minimum} through ${maximum}`);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum)
+    throw new Error(`${name} must be an integer from ${minimum} through ${maximum}`);
+  return value;
+}
+
 const baselineThreads = threadCount();
 const baselineFds = readdirSync("/dev/fd").length;
 
@@ -34,11 +53,47 @@ function workerSource(withSession) {
 
 async function createAndTerminate(withSession) {
   const worker = new Worker(workerSource(withSession), { eval: true, type: "module" });
-  await new Promise((resolve, reject) => {
-    worker.once("message", resolve);
-    worker.once("error", reject);
-  });
-  await worker.terminate();
+  let timer;
+  try {
+    await new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error("worker runtime setup timed out")), 15000);
+      worker.once("message", resolve);
+      worker.once("error", reject);
+      worker.once("exit", (code) => {
+        if (code !== 0) reject(new Error(`worker exited ${code} before ready`));
+      });
+    });
+  } finally {
+    clearTimeout(timer);
+    let terminationTimer;
+    try {
+      await Promise.race([
+        worker.terminate(),
+        new Promise((_, reject) => {
+          terminationTimer = setTimeout(
+            () => reject(new Error("worker environment teardown timed out")), 15000);
+        }),
+      ]);
+    } catch (error) {
+      worker.unref();
+      throw error;
+    } finally {
+      clearTimeout(terminationTimer);
+    }
+  }
+}
+
+async function runBatched(count, concurrency, withSession) {
+  let completed = 0;
+  for (let offset = 0; offset < count; offset += concurrency) {
+    const batch = Math.min(concurrency, count - offset);
+    await Promise.all(Array.from({ length: batch }, async () => {
+      await createAndTerminate(withSession);
+      completed += 1;
+    }));
+  }
+  assert.equal(completed, count, "every requested worker cycle completed");
+  return completed;
 }
 
 const root = mkdtempSync(join(tmpdir(), "tny-cross-env-"));
@@ -63,11 +118,14 @@ await foreign.terminate();
 await mainSession.close();
 await mainRuntime.close();
 
-const runtimeCycles = Number(process.env.TNY_WORKER_RUNTIME_CYCLES || 200);
-const sessionCycles = Number(process.env.TNY_WORKER_SESSION_CYCLES || 50);
-for (let index = 0; index < runtimeCycles; index++) await createAndTerminate(false);
-for (let index = 0; index < sessionCycles; index++) await createAndTerminate(true);
+const runtimeCycles = boundedInteger("TNY_WORKER_RUNTIME_CYCLES", 200, 0, 100000);
+const sessionCycles = boundedInteger("TNY_WORKER_SESSION_CYCLES", 50, 0, 100000);
+const concurrency = boundedInteger("TNY_WORKER_CONCURRENCY", 10, 1, 64);
+const completedCycles =
+  await runBatched(runtimeCycles, concurrency, false) +
+  await runBatched(sessionCycles, concurrency, true);
+assert.equal(completedCycles, runtimeCycles + sessionCycles);
 await new Promise((resolve) => setTimeout(resolve, 100));
 assert.ok(threadCount() <= baselineThreads + 3, "worker owner threads returned near baseline");
 assert.ok(readdirSync("/dev/fd").length <= baselineFds + 6, "worker file descriptors returned near baseline");
-console.log(`${runtimeCycles + sessionCycles} worker teardown cycles and cross-environment handle rejection passed`);
+console.log(`${completedCycles} worker teardown cycles and cross-environment handle rejection passed`);

@@ -1347,6 +1347,15 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             continue;
         }
         /* 0 = body complete; -1 = transport error mid-stream */
+        if (bn < 0) {
+            /* A terminal SSE event can make the logical response complete
+             * before an abruptly closed chunked body reports its truncated
+             * transport.  That socket is known dead: retaining it makes the
+             * tool-result POST depend on the OS eventually surfacing a stale
+             * keep-alive read failure (tens of seconds on some macOS hosts).
+             * Discard it now; step_finished opens a fresh connection. */
+            oa_disconnect(b);
+        }
         if (bn < 0 && !o->stream_done) {
             /* keep partial text recoverable */
             if (o->text.len) session_recovery_write(o->env.session, o->text.data);
