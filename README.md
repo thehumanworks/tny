@@ -76,6 +76,19 @@ RPC delay):
 What remains is the model's own time to first token — client-side, tny is
 not the bottleneck.
 
+## Install with Nix
+
+```sh
+nix run github:thehumanworks/tny                    # no install
+nix profile install github:thehumanworks/tny        # put tny on PATH
+```
+
+The flake builds from source — same tree CI builds — and exposes `tny`,
+`tny-unwrapped`, `libtny`, an overlay, a dev shell, and `nix flake check`
+running the full `make test` suite. Non-flake users get `nix-build -A tny` and
+`nix-shell`. Details, including the TLS and version specifics Nix needs:
+[docs/nix.md](docs/nix.md), [ADR 0035](docs/adr/0035-nix-flake-packaging.md).
+
 ## Build & test
 
 ```sh

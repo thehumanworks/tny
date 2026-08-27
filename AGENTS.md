@@ -44,6 +44,7 @@ src/backends/{cursor,codex,acp,openai}/
 src/net/ src/mcp/
 third_party/   # yyjson, picohttpparser, wslay, greatest — pinned VERSION files
 tests/         # unit (test_*.c), integration/ fixtures+mocks, mutation/, bench/
+nix/           # flake packaging; calls the Makefile, never forks it
 docs/          # this contract; update when behavior changes
 ```
 
@@ -55,6 +56,7 @@ docs/          # this contract; update when behavior changes
 - Mutation-test changes the unit suite might cover only nominally: `tests/mutation/mutate.py`.
 - Live Cursor/Codex calls need user-provided keys; default CI uses fixtures and the bridge curl smoke test.
 - Protocol mocks send whole frames per read — real transports split anywhere. Streaming parsers need split-boundary tests (see `chunked_survives_every_split_boundary` in `tests/test_net.c`).
+- `nix flake check` runs the same suite hermetically (`docs/nix.md`, ADR 0035). If you add a make target, a test fixture directory, or a tool the suite shells out to, update `nix/source.nix` and `nix/tests.nix` in the same change — the sandbox has only what those files name.
 
 ## wasm build (docs/adr/0017)
 

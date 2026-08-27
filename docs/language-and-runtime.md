@@ -51,6 +51,12 @@ native Win32 is later. Intel Mac is not a CI or publish target
 
 Pin third-party versions in `third_party/*/VERSION`. Generated nanopb output lives in `gen/` and is not hand-edited.
 
+Nix builds go through the same Makefile ([nix.md](nix.md),
+[ADR 0035](adr/0035-nix-flake-packaging.md)) and add no library to the bill of
+materials: OpenSSL stays `dlopen`'d and unlinked, reaching the binary as a
+RUNPATH entry rather than a `-lssl`. `nix/*.nix` is packaging, not a build
+system — if a make target changes, the flake follows it, never forks it.
+
 ## Layout (when code starts)
 
 See [architecture.md](architecture.md). Keep every translation unit under ~500 lines. One backend directory per protocol. Shared net code has no knowledge of agents.
