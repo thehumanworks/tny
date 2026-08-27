@@ -15,7 +15,7 @@ fi
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/tny-codex.XXXXXX")
 mock_pid=""
-# shellcheck disable=SC2329  # invoked via the EXIT trap below
+# shellcheck disable=SC2317,SC2329  # invoked via the EXIT trap below
 cleanup() {
     [ -n "$mock_pid" ] && kill "$mock_pid" 2> /dev/null
     rm -rf "$tmp"
