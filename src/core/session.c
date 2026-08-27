@@ -763,6 +763,7 @@ static int cmp_meta_updated(const void *a, const void *b) {
 }
 
 static void scan_ws_dir(const char *wsdir, const char *wsname, session_meta **arr, int *n) {
+    if (!wsdir) return;
     DIR *d = opendir(wsdir);
     if (!d) return;
     struct dirent *e;
@@ -808,7 +809,7 @@ session_meta *session_list(tny_ctx *ctx, bool all, int limit, const char *cursor
     int n = 0;
     if (all) {
         char *root = path_join(ctx->tny_dir, "sessions");
-        DIR *d = opendir(root);
+        DIR *d = root ? opendir(root) : NULL;
         if (d) {
             struct dirent *e;
             while ((e = readdir(d))) {
