@@ -1,7 +1,9 @@
 _tny_abi_version
 _tny_library_version
 _tny_runtime_options_init
+_tny_capabilities_init
 _tny_runtime_create
+_tny_runtime_get_capabilities
 _tny_runtime_free
 _tny_session_create
 _tny_session_open

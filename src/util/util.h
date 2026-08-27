@@ -12,6 +12,7 @@ typedef struct {
     char  *data;
     size_t len;
     size_t cap;
+    bool   oom; /* sticky: append operations become no-ops after exhaustion */
 } buf_t;
 
 void  buf_init(buf_t *b);
@@ -24,6 +25,7 @@ void  buf_clear(buf_t *b);
 /* Remove the first n bytes (cheap front-consume for stream parsers). */
 void  buf_consume(buf_t *b, size_t n);
 char *buf_detach(buf_t *b); /* caller frees */
+bool  buf_oom(const buf_t *b);
 
 /* ---- strings ---- */
 char *xstrdup(const char *s);
@@ -51,7 +53,7 @@ bool  dir_exists(const char *path);
 /* ---- codecs / ids ---- */
 void   b64_encode(const uint8_t *in, size_t n, buf_t *out);
 size_t b64_decode(const char *in, uint8_t *out, size_t outcap); /* returns bytes or 0 */
-void   sha1(const uint8_t *in, size_t n, uint8_t out[20]);
+bool   sha1(const uint8_t *in, size_t n, uint8_t out[20]);
 uint64_t fnv1a(const void *data, size_t n);
 /* 16 lowercase hex chars from CSPRNG + time; caller frees */
 char  *gen_id(void);

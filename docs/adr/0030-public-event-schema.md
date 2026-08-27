@@ -52,6 +52,10 @@ builds do not require TypeScript tooling or runtime code generation.
 - Consumers must ignore fields they do not understand.
 - Language SDKs must retain an `unknown` representation for future event kinds
   rather than rejecting the stream.
+- The generated `UnknownEvent` uses the reserved `type: "unknown"` discriminant,
+  retains the unknown numeric `kind`, and keeps any provider-neutral original
+  type separately. It must not use `type: string`, which overlaps every known
+  literal and defeats TypeScript exhaustiveness checks.
 - A schema-major change requires an explicit compatibility decision and new
   conformance fixtures.
 - `tny_event_view_v0.struct_size` is caller supplied. Older/smaller supported

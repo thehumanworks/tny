@@ -69,12 +69,16 @@ leading `--wire-api responses|chat` flag (beats both, one run).**
   already ignores `event:` lines; dispatch is on the payload's `type`.
 - The wire is read from ctx per POST, so `/provider` switches and settings
   edits apply on the next request with no rebind.
-- **Stale keep-alive retry covers reads, not just writes.** The strict
-  mock closes the connection abruptly after each terminal event (as SSE
-  providers routinely do), which exposed a real gap: a reused connection
-  that dies before any response byte now re-POSTs once on a fresh
+- **Dead response sockets are never retained.** An explicit strict-mock mode
+  closes the chunked connection abruptly after a terminal event (as SSE
+  providers routinely do). If that close reports a truncated body after the
+  terminal event, the logical response remains complete but the known-dead
+  socket is discarded before a tool-result POST. A separate deterministic
+  fixture drops a reused POST before its first response byte; that cleanly
+  completed keep-alive re-POSTs once on a fresh
   connection instead of failing the turn with "connection lost before
-  response".
+  response". A complete response carrying HTTP/1.1 `Connection: close` is
+  also discarded before the next POST rather than waiting for EOF discovery.
 
 ## Consequences
 

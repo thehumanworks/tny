@@ -40,7 +40,8 @@ typedef enum {
     TNY_EVENT_ERROR_PROTOCOL,
     TNY_EVENT_ERROR_BACKPRESSURE,
     TNY_EVENT_ERROR_AUTH,
-    TNY_EVENT_ERROR_INTERNAL
+    TNY_EVENT_ERROR_INTERNAL,
+    TNY_EVENT_ERROR_OOM
 } tny_event_error_kind;
 
 /* Options a host offers for a permission request. Map onto y / a / n. */

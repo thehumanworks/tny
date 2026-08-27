@@ -35,11 +35,16 @@ fx talks to Vercel AI Gateway and can *be* an ACP server. It does not ship Curso
 The native harness is being extracted behind an experimental headless C ABI
 (`libtny`, [ADR 0023](adr/0023-libtny-embedding-abi.md)). The CLI, TUI, ACP
 server, and C embedders share one runtime; the public ABI does not expose the
-private backend or `tny_backend_event` structs.
+private backend or `tny_backend_event` structs. Python/cffi and native
+TypeScript/Node-API packages are thin scheduler and type adapters over that
+same ABI ([SDK contract](sdks.md)); they do not contain provider-wire logic.
 
 ## Non-goals (v1)
 
-- A JS `createFxAgent()`-style embedding API (fx has this; defer). The binary itself *does* compile to wasm and runs the GitHub Pages landing terminal ([ADR 0017](adr/0017-wasm-browser-parity.md)); what stays out of scope is a JS API surface around it, not the native C ABI.
+- A browser/wasm JavaScript embedding API. The binary itself compiles to wasm
+  for the GitHub Pages terminal ([ADR 0017](adr/0017-wasm-browser-parity.md));
+  the native Node-API SDK is a separate shared-library artifact and does not
+  imply browser support.
 - Reimplementing Cursor or Codex agent loops inside tny.
 - Bundling `cursor-sdk-bridge` or `codex` into the tny binary (spawn or attach).
 - Vercel OAuth, AI Gateway team picker, or `fx login` lock-in.

@@ -2359,6 +2359,38 @@ TEST responses_tools_flatten(void) {
     PASS();
 }
 
+TEST embedded_tool_schema_has_no_process_spawning_tools(void) {
+    ensure_env();
+    tny_ctx *ctx = tny_ctx_new_explicit(g_ws, g_home);
+    ASSERT(ctx);
+    perm_engine *perm = perm_new(ctx);
+    ASSERT(perm);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char *schema = tools_schema_json(&env);
+    ASSERT(schema);
+    yyjson_doc *doc = jparse(schema, strlen(schema));
+    ASSERT(doc);
+    yyjson_val *item;
+    size_t idx, max;
+    yyjson_arr_foreach(yyjson_doc_get_root(doc), idx, max, item) {
+        const char *name = jget_str(jget(item, "function"), "name");
+        ASSERT(name);
+        ASSERT(strcmp(name, "terminal") != 0);
+        ASSERT(strcmp(name, "open_file") != 0);
+        ASSERT(strcmp(name, "subagent") != 0);
+    }
+    tools_call call;
+    ASSERT_EQ(-1, tools_call_prepare(
+        &env, "terminal", "{\"command\":\"true\"}", &call));
+    ASSERT(call.error && strstr(call.error, "unavailable"));
+    tools_call_free(&call);
+    yyjson_doc_free(doc);
+    free(schema);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 /* Chat response_format wrappers flatten into the Responses text.format
  * object: json_schema members hoisted, no nested "json_schema" key. */
 TEST responses_text_format_flattens(void) {
@@ -2767,6 +2799,7 @@ SUITE(core_suite) {
     RUN_TEST(responses_input_translates_image_parts);
     RUN_TEST(responses_input_skips_malformed);
     RUN_TEST(responses_tools_flatten);
+    RUN_TEST(embedded_tool_schema_has_no_process_spawning_tools);
     RUN_TEST(responses_text_format_flattens);
     RUN_TEST(wire_api_resolution);
     RUN_TEST(wire_api_flag);

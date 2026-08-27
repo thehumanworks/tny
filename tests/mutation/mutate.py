@@ -42,8 +42,8 @@ TARGETS = [
     ("src/tui/tui.c", ["ensure_backend", "drain_engine_events",
                        "tui_submit"], None),
     ("src/core/runtime.c", ["queue_event", "after_backend",
-                            "tny_engine_next_event"],
-     r"terminal|overflow|forcing|BACKPRESSURE|deadline|monotonic|poll",
+                            "tny_engine_fail_oom", "tny_engine_next_event"],
+     r"terminal|overflow|forcing|BACKPRESSURE|OOM|oom|deadline|monotonic|poll",
      "tests/integration/test_libtny.py"),
     # extension control plane (#55): prompt/tool/permission precedence,
     # exact-once native boundaries, suppressed resolved permissions, and

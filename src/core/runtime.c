@@ -3,10 +3,13 @@
 #include "backends/openai/openai.h"
 #include "core/extension_caps.h"
 #include "core/extensions.h"
+#include "util/alloc.h"
 #include "util/tny_poll.h"
+#include "util/tny_wake.h"
 #include "util/util.h"
 
 #include <errno.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +27,10 @@ struct tny_engine {
     void *prompt_ud;
     tny_engine_cancel_probe cancel_probe;
     void *cancel_probe_ud;
+    tny_wake cancel_wake;
+    atomic_bool cancel_requested;
+    atomic_bool cancel_armed;
+    bool threadsafe_cancel;
 
     tny_backend *bk;
     bool active;
@@ -31,6 +38,7 @@ struct tny_engine {
     bool terminal_popped;
     bool finalize_pending;
     bool overflow_pending;
+    bool oom_pending;
     bool forcing_error;
     tny_stop_reason stop;
     char *prompt_text;
@@ -56,6 +64,8 @@ struct tny_engine {
     tny_owned_event *tail;
     size_t queue_count;
     size_t queue_bytes;
+    tny_owned_event *oom_error_reserve;
+    tny_owned_event *oom_terminal_reserve;
 };
 
 static char *dup_bytes(const char *s, size_t n) {
@@ -105,6 +115,17 @@ static tny_owned_event *event_copy(tny_engine *e, const tny_backend_event *ev) {
     tny_owned_event *o = calloc(1, sizeof *o);
     if (!o) return NULL;
     o->ev = *ev;
+    /* Never leave borrowed callback pointers in an object that may take a
+     * partial-allocation cleanup path.  A failed earlier field copy must not
+     * free provider/tool memory which the event does not own. */
+    o->ev.text = NULL;
+    o->ev.message_id = NULL;
+    o->ev.tool_name = NULL;
+    o->ev.tool_id = NULL;
+    o->ev.tool_detail = NULL;
+    o->ev.perm_id = NULL;
+    o->ev.perm_summary = NULL;
+    o->ev.message_type = NULL;
     o->sequence = ++e->session->extension_event_sequence;
     o->timestamp_ms = monotonic_ms();
     o->provider = dup_cstr(tny_provider_name(e->ctx));
@@ -146,6 +167,44 @@ static tny_owned_event *event_copy(tny_engine *e, const tny_backend_event *ev) {
     return o;
 }
 
+static tny_owned_event *reserve_event(tny_engine *e, tny_event_kind kind) {
+    tny_owned_event *o = calloc(1, sizeof *o);
+    if (!o) return NULL;
+    o->ev.kind = kind;
+    o->provider = dup_cstr(tny_provider_name(e->ctx));
+    o->session_id = dup_cstr(e->session->id);
+    /* A session id, 64-bit sequence and continuation counter fit comfortably.
+     * The fixed allocation is made before the session is published so OOM
+     * settlement itself does not allocate. */
+    o->turn_id = calloc(1, 192);
+    if (kind == TNY_EV_ERROR) {
+        o->ev.text = dup_cstr("out of memory");
+        o->ev.text_len = strlen("out of memory");
+        o->ev.error_code = TNY_EVENT_ERROR_OOM;
+    } else {
+        o->ev.stop = TNY_STOP_ERROR;
+    }
+    if (!o->provider || !o->session_id || !o->turn_id ||
+        (kind == TNY_EV_ERROR && !o->ev.text)) {
+        tny_owned_event_free(o);
+        return NULL;
+    }
+    o->owned_bytes = strlen(o->provider) + strlen(o->session_id) + 192 + 2;
+    if (o->ev.text) o->owned_bytes += o->ev.text_len + 1;
+    return o;
+}
+
+static void prepare_reserved_event(tny_engine *e, tny_owned_event *o) {
+    o->sequence = ++e->session->extension_event_sequence;
+    o->timestamp_ms = monotonic_ms();
+    snprintf(o->turn_id, 192, "%s:%llu:%d", e->session->id,
+             (unsigned long long)e->session->extension_agent_sequence,
+             e->extension_continuations);
+    o->next = NULL;
+    o->hooks_done = true;
+    o->suppressed = false;
+}
+
 static bool is_reserved_kind(tny_event_kind kind) {
     return kind == TNY_EV_ERROR || kind == TNY_EV_TURN_END;
 }
@@ -167,7 +226,11 @@ static void queue_event(tny_engine *e, const tny_backend_event *ev) {
     if (ev->kind == TNY_EV_TURN_END && e->pending_terminal) return;
 
     tny_owned_event *copy = event_copy(e, ev);
-    if (!copy) { e->overflow_pending = true; return; }
+    if (!copy) {
+        if (tny_alloc_scope_failed()) e->oom_pending = true;
+        else e->overflow_pending = true;
+        return;
+    }
     bool reserved = is_reserved_kind(ev->kind);
     size_t count_limit = reserved ? ENGINE_EVENT_MAX
                                   : ENGINE_EVENT_MAX - ENGINE_RESERVED_EVENTS;
@@ -281,6 +344,7 @@ static const char *event_error_name(tny_event_error_kind code) {
     case TNY_EVENT_ERROR_BACKPRESSURE: return "backpressure";
     case TNY_EVENT_ERROR_AUTH: return "auth";
     case TNY_EVENT_ERROR_INTERNAL: return "internal";
+    case TNY_EVENT_ERROR_OOM: return "oom";
     default: return "unknown";
     }
 }
@@ -819,6 +883,11 @@ static int start_backend_iteration(tny_engine *e, const char *prompt,
     }
     if (effective.len) buf_appends(&effective, "\n\n");
     buf_appends(&effective, prompt);
+    if (buf_oom(&effective) || tny_alloc_scope_failed()) {
+        if (err && errlen) snprintf(err, errlen, "out of memory");
+        buf_free(&effective);
+        return -1;
+    }
 
     buf_clear(&e->turn_text);
     buf_clear(&e->message_text);
@@ -1282,6 +1351,7 @@ static void commit_pending_terminal(tny_engine *e) {
     e->pending_terminal = NULL;
     e->terminal = true;
     e->active = false;
+    atomic_store_explicit(&e->cancel_armed, false, memory_order_release);
     e->stop = terminal->ev.stop;
     terminal->hooks_done = true;
     append_owned(e, terminal);
@@ -1385,7 +1455,10 @@ static void finalize_turn(tny_engine *e) {
 }
 
 static void after_backend(tny_engine *e, int dispatch_rc) {
-    if (e->overflow_pending && !e->terminal && !e->pending_terminal) {
+    if (tny_alloc_scope_failed()) e->oom_pending = true;
+    if (e->oom_pending && !e->terminal) {
+        tny_engine_fail_oom(e);
+    } else if (e->overflow_pending && !e->terminal && !e->pending_terminal) {
         e->overflow_pending = false;
         e->forcing_error = true;
         synth_error(e, TNY_EVENT_ERROR_BACKPRESSURE,
@@ -1424,9 +1497,19 @@ tny_engine *tny_engine_new(tny_ctx *ctx, tny_session_state *session,
     e->perm = perm;
     e->prompt = prompt;
     e->prompt_ud = prompt_ud;
+    e->cancel_wake.read_fd = -1;
+    e->cancel_wake.write_fd = -1;
+    atomic_init(&e->cancel_requested, false);
+    atomic_init(&e->cancel_armed, false);
     buf_init(&e->turn_text);
     buf_init(&e->message_text);
     buf_init(&e->extension_followup);
+    e->oom_error_reserve = reserve_event(e, TNY_EV_ERROR);
+    e->oom_terminal_reserve = reserve_event(e, TNY_EV_TURN_END);
+    if (!e->oom_error_reserve || !e->oom_terminal_reserve) {
+        tny_engine_free(e);
+        return NULL;
+    }
     if (ctx->extensions_enabled && !ctx->library_mode)
         e->extensions = ctx->extensions; /* borrowed; ctx outlives engine */
     return e;
@@ -1481,6 +1564,22 @@ void tny_engine_set_cancel_probe(tny_engine *e,
     e->cancel_probe_ud = ud;
 }
 
+int tny_engine_enable_threadsafe_cancel(tny_engine *e) {
+    if (!e || e->threadsafe_cancel || e->active) return -1;
+    if (tny_wake_init(&e->cancel_wake) != 0) return -1;
+    e->threadsafe_cancel = true;
+    return 0;
+}
+
+void tny_engine_request_cancel(tny_engine *e) {
+    if (!e || !e->threadsafe_cancel ||
+        !atomic_load_explicit(&e->cancel_armed, memory_order_acquire))
+        return;
+    if (!atomic_exchange_explicit(&e->cancel_requested, true,
+                                  memory_order_acq_rel))
+        tny_wake_signal(&e->cancel_wake);
+}
+
 int tny_engine_start(tny_engine *e, const char *prompt, const char **images,
                      char *err, size_t errlen) {
     if (!e || !e->bk || !prompt || e->active || e->head ||
@@ -1501,6 +1600,8 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images,
     e->extension_stop_requested = false;
     e->extension_cancel_sent = false;
     e->extension_continuations = 0;
+    atomic_store_explicit(&e->cancel_requested, false, memory_order_release);
+    tny_wake_drain(&e->cancel_wake);
     free(e->native_observed_permission_id);
     e->native_observed_permission_id = NULL;
     e->session->extension_agent_sequence++;
@@ -1515,6 +1616,11 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images,
         e->prepared_requeue_text = NULL;
     } else {
         prompt_fold = prepare_user_prompt(e, prompt, images, "user", &effective);
+    }
+    if (buf_oom(&effective) || tny_alloc_scope_failed()) {
+        if (err && errlen) snprintf(err, errlen, "out of memory");
+        buf_free(&effective);
+        return -1;
     }
     if (prompt_fold.stop || prompt_fold.blocked) {
         e->active = true;
@@ -1541,6 +1647,8 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images,
         buf_clear(&e->extension_followup);
         return -1; /* start failure creates no event stream */
     }
+    if (e->active)
+        atomic_store_explicit(&e->cancel_armed, true, memory_order_release);
     after_backend(e, 0);
     return 0;
 }
@@ -1584,6 +1692,36 @@ void tny_engine_cancel(tny_engine *e) {
     if (!e || !e->active || !e->bk || !e->bk->cancel) return;
     e->bk->cancel(e->bk);
     after_backend(e, 0);
+}
+
+void tny_engine_fail_oom(tny_engine *e) {
+    if (!e || e->terminal) return;
+    tny_alloc_scope_clear();
+    e->oom_pending = false;
+    e->overflow_pending = false;
+    e->forcing_error = true;
+    if (e->bk && e->active && e->bk->cancel) e->bk->cancel(e->bk);
+    if (e->pending_terminal) {
+        tny_owned_event_free(e->pending_terminal);
+        e->pending_terminal = NULL;
+    }
+    tny_owned_event *error = e->oom_error_reserve;
+    tny_owned_event *terminal = e->oom_terminal_reserve;
+    e->oom_error_reserve = NULL;
+    e->oom_terminal_reserve = NULL;
+    if (error) {
+        prepare_reserved_event(e, error);
+        append_owned(e, error);
+    }
+    if (terminal) {
+        prepare_reserved_event(e, terminal);
+        append_owned(e, terminal);
+    }
+    e->terminal = true;
+    e->active = false;
+    e->terminal_popped = false;
+    e->stop = TNY_STOP_ERROR;
+    atomic_store_explicit(&e->cancel_armed, false, memory_order_release);
 }
 
 void tny_engine_respond_permission(tny_engine *e, const char *id,
@@ -1635,6 +1773,11 @@ tny_engine_next tny_engine_next_event(tny_engine *e, int timeout_ms,
         if (err && errlen) snprintf(err, errlen, "invalid next_event arguments");
         return TNY_ENGINE_NEXT_ERROR;
     }
+    if (e->threadsafe_cancel &&
+        atomic_exchange_explicit(&e->cancel_requested, false,
+                                 memory_order_acq_rel) &&
+        e->active)
+        tny_engine_cancel(e);
     tny_owned_event *queued = tny_engine_pop_event(e);
     if (queued) { *out = queued; return TNY_ENGINE_NEXT_EVENT; }
     if (e->terminal_popped) return TNY_ENGINE_NEXT_DRAINED;
@@ -1645,8 +1788,16 @@ tny_engine_next tny_engine_next_event(tny_engine *e, int timeout_ms,
 
     int64_t deadline = monotonic_ms() + timeout_ms;
     do {
-        struct pollfd fds[8];
+        struct pollfd fds[9];
         int n = tny_engine_pollfds(e, fds, 8);
+        int backend_n = n;
+        int wake_index = -1;
+        if (e->threadsafe_cancel) {
+            wake_index = n++;
+            fds[wake_index].fd = tny_wake_fd(&e->cancel_wake);
+            fds[wake_index].events = POLLIN;
+            fds[wake_index].revents = 0;
+        }
         int remaining = (int)(deadline - monotonic_ms());
         if (remaining < 0) remaining = 0;
         int pr = tny_poll(n ? fds : NULL, (nfds_t)n, remaining);
@@ -1658,7 +1809,14 @@ tny_engine_next tny_engine_next_event(tny_engine *e, int timeout_ms,
             synth_terminal(e, TNY_STOP_ERROR);
             after_backend(e, 0);
         } else {
-            tny_engine_dispatch(e, fds, n);
+            if (wake_index >= 0 && fds[wake_index].revents) {
+                tny_wake_drain(&e->cancel_wake);
+                if (atomic_exchange_explicit(&e->cancel_requested, false,
+                                             memory_order_acq_rel) &&
+                    e->active)
+                    tny_engine_cancel(e);
+            }
+            tny_engine_dispatch(e, fds, backend_n);
         }
         queued = tny_engine_pop_event(e);
         if (queued) { *out = queued; return TNY_ENGINE_NEXT_EVENT; }
@@ -1785,12 +1943,15 @@ void tny_engine_workspace_changed(tny_engine *e, const char *action,
 
 void tny_engine_free(tny_engine *e) {
     if (!e) return;
+    atomic_store_explicit(&e->cancel_armed, false, memory_order_release);
     if (e->active) tny_engine_cancel(e);
     if (!e->preserve_session_on_free) tny_engine_end_session(e, "exit");
     drop_backend(e);
     tny_owned_event *event;
     while ((event = tny_engine_pop_event(e))) tny_owned_event_free(event);
     tny_owned_event_free(e->pending_terminal);
+    tny_owned_event_free(e->oom_error_reserve);
+    tny_owned_event_free(e->oom_terminal_reserve);
     buf_free(&e->turn_text);
     buf_free(&e->message_text);
     buf_free(&e->extension_followup);
@@ -1798,5 +1959,6 @@ void tny_engine_free(tny_engine *e) {
     free(e->prepared_requeue_text);
     free(e->native_observed_permission_id);
     free(e->current_message_id);
+    tny_wake_close(&e->cancel_wake);
     free(e);
 }

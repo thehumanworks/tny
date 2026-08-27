@@ -7,11 +7,13 @@
 #include "core/instructions.h"
 #include "core/skills.h"
 #include "net/net.h"
+#include "util/alloc.h"
 #include "util/util.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <poll.h>
 
 #define OPENAI_DEFAULT_MODEL "gpt-4.1-mini"
@@ -202,6 +204,7 @@ static char *build_request_chat(oa_impl *o) {
     buf_t sys;
     buf_init(&sys);
     build_system_prompt(o, &sys);
+    if (buf_oom(&sys)) { buf_free(&sys); buf_free(&b); return NULL; }
     buf_appends(&b, "{\"role\":\"system\",\"content\":");
     jescape(&b, sys.data);
     buf_appends(&b, "}");
@@ -219,7 +222,7 @@ static char *build_request_chat(oa_impl *o) {
     size_t total = yyjson_mut_arr_size(msgs);
     for (size_t i = (size_t)boundary; i < total; i++) {
         yyjson_mut_val *m = yyjson_mut_arr_get(msgs, i);
-        char *mj = yyjson_mut_val_write(m, 0, NULL);
+        char *mj = jwrite_mut_val(m);
         if (mj) {
             buf_appends(&b, ",");
             buf_appends(&b, mj);
@@ -229,6 +232,7 @@ static char *build_request_chat(oa_impl *o) {
     buf_appends(&b, "]");
 
     char *schema = tools_schema_json(&o->env);
+    if (!schema) { buf_free(&b); return NULL; }
     buf_appendf(&b, ",\"tools\":%s,\"tool_choice\":\"auto\"", schema);
     free(schema);
     if (o->ctx->output_schema)
@@ -262,6 +266,7 @@ static char *build_request_rsp(oa_impl *o) {
     buf_t sys;
     buf_init(&sys);
     build_system_prompt(o, &sys);
+    if (buf_oom(&sys)) { buf_free(&sys); buf_free(&b); return NULL; }
     buf_appends(&b, ",\"instructions\":");
     jescape(&b, sys.data);
     buf_free(&sys);
@@ -273,6 +278,7 @@ static char *build_request_rsp(oa_impl *o) {
     free(input);
 
     char *schema = tools_schema_json(&o->env);
+    if (!schema) { buf_free(&b); return NULL; }
     char *flat = tny_openai_responses_tools(schema);
     buf_appendf(&b, ",\"tools\":%s,\"tool_choice\":\"auto\"", flat ? flat : "[]");
     free(flat);
@@ -363,12 +369,22 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen,
     buf_init(&path);
     buf_appendf(&path, "%s%s", http_prefix(o->conn),
                 o->wire_chat ? "/chat/completions" : "/responses");
+    if (!body || buf_oom(&auth) || buf_oom(&path) ||
+        tny_alloc_scope_failed()) {
+        snprintf(errbuf, errlen, "out of memory");
+        buf_free(&path);
+        if (auth.data) secure_zero(auth.data, auth.len);
+        buf_free(&auth);
+        free(body);
+        return -1;
+    }
     tny_openai_control_response control = provider_control(
         o, TNY_OPENAI_CONTROL_PROVIDER_REQUEST, 0);
     if (control.stop) {
         o->cancelled = true;
         control_response_free(&control);
         buf_free(&path);
+        if (auth.data) secure_zero(auth.data, auth.len);
         buf_free(&auth);
         free(body);
         emit_turn_end(o, TNY_STOP_INTERRUPTED);
@@ -405,6 +421,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen,
         }
     }
     buf_free(&path);
+    if (auth.data) secure_zero(auth.data, auth.len);
     buf_free(&auth);
     free(body);
     if (rc != 0) {
@@ -473,25 +490,28 @@ static void on_sse_event_chat(const char *data, size_t len, void *ud) {
     }
     yyjson_val *delta = jget(choice, "delta");
     if (!delta) delta = jget(choice, "message"); /* non-stream fallback */
-    const char *content = jget_str(delta, "content");
-    if (content && *content) {
-        buf_appends(&o->text, content);
-        emit_text(o, TNY_EV_TEXT_DELTA, content, strlen(content));
+    size_t content_len = 0;
+    const char *content = jget_strn(delta, "content", &content_len);
+    if (content && content_len) {
+        buf_append(&o->text, content, content_len);
+        emit_text(o, TNY_EV_TEXT_DELTA, content, content_len);
     }
-    const char *reasoning = jget_str(delta, "reasoning_content");
-    if (!reasoning) reasoning = jget_str(delta, "reasoning");
-    if (reasoning && *reasoning)
-        emit_text(o, TNY_EV_THINKING, reasoning, strlen(reasoning));
+    size_t reasoning_len = 0;
+    const char *reasoning = jget_strn(delta, "reasoning_content", &reasoning_len);
+    if (!reasoning) reasoning = jget_strn(delta, "reasoning", &reasoning_len);
+    if (reasoning && reasoning_len)
+        emit_text(o, TNY_EV_THINKING, reasoning, reasoning_len);
     else {
         yyjson_val *details = jget(delta, "reasoning_details");
         size_t idx, max;
         yyjson_val *detail;
         if (details && yyjson_is_arr(details)) {
             yyjson_arr_foreach(details, idx, max, detail) {
-                const char *text = jget_str(detail, "text");
-                if (!text) text = jget_str(detail, "summary");
-                if (text && *text)
-                    emit_text(o, TNY_EV_THINKING, text, strlen(text));
+                size_t text_len = 0;
+                const char *text = jget_strn(detail, "text", &text_len);
+                if (!text) text = jget_strn(detail, "summary", &text_len);
+                if (text && text_len)
+                    emit_text(o, TNY_EV_THINKING, text, text_len);
             }
         }
     }
@@ -524,15 +544,17 @@ static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
     if (!type) { yyjson_doc_free(doc); return; }
 
     if (strcmp(type, "response.output_text.delta") == 0) {
-        const char *d = jget_str(root, "delta");
-        if (d && *d) {
-            buf_appends(&o->text, d);
-            emit_text(o, TNY_EV_TEXT_DELTA, d, strlen(d));
+        size_t delta_len = 0;
+        const char *d = jget_strn(root, "delta", &delta_len);
+        if (d && delta_len) {
+            buf_append(&o->text, d, delta_len);
+            emit_text(o, TNY_EV_TEXT_DELTA, d, delta_len);
         }
     } else if (strcmp(type, "response.reasoning_summary_text.delta") == 0 ||
                strcmp(type, "response.reasoning_text.delta") == 0) {
-        const char *d = jget_str(root, "delta");
-        if (d && *d) emit_text(o, TNY_EV_THINKING, d, strlen(d));
+        size_t delta_len = 0;
+        const char *d = jget_strn(root, "delta", &delta_len);
+        if (d && delta_len) emit_text(o, TNY_EV_THINKING, d, delta_len);
     } else if (strcmp(type, "response.output_item.added") == 0 ||
                strcmp(type, "response.output_item.done") == 0) {
         yyjson_val *item = jget(root, "item");
@@ -677,6 +699,7 @@ static void complete_tool(oa_impl *o, const char *cid, const char *name,
                           const char *original_args, const char *effective_args,
                           const char *control_extension,
                           const char *control_reason, char *original_result) {
+    if (!original_result) return;
     bool original_ok = !str_starts(original_result, "error:");
     emit_tool_end(o, cid, name, original_result, original_ok);
 
@@ -717,6 +740,7 @@ static void execute_call(oa_impl *o, const char *cid, const char *original_args,
     char *result = o->cancelled
         ? tool_err("interrupted before %s ran", call->name)
         : tools_call_execute(&o->env, call);
+    if (!result) return;
     bool ok = !str_starts(result, "error:");
     subagent_control(o, TNY_OPENAI_CONTROL_SUBAGENT_END, cid, call, result, ok);
     complete_tool(o, cid, call->name, original_args, effective_args,
@@ -809,6 +833,7 @@ static int finish_tool_batch(oa_impl *o) {
 static int run_tools(oa_impl *o) {
     char idbuf[16];
     while (o->tool_index < o->calls.n) {
+        if (tny_alloc_scope_failed()) return -1;
         oa_call *pc = &o->calls.calls[o->tool_index];
         const char *cid = oa_call_id(pc, o->tool_index, idbuf, sizeof idbuf);
         const char *name = pc->name ? pc->name : "unknown";
@@ -835,6 +860,14 @@ static int run_tools(oa_impl *o) {
                 ? xstrdup(response.extension) : NULL;
             char *control_reason = response.reason
                 ? xstrdup(response.reason) : NULL;
+            if (!effective_args || (response.extension && !control_extension) ||
+                (response.reason && !control_reason)) {
+                free(effective_args);
+                free(control_extension);
+                free(control_reason);
+                control_response_free(&response);
+                return -1;
+            }
             if (response.stop || response.deny) {
                 if (response.stop) o->cancelled = true;
                 char *result = response.stop
@@ -981,8 +1014,19 @@ static int run_tools(oa_impl *o) {
             }
 
             o->pending_perm.id = xstrdup(cid);
-            o->pending_perm.call = call; /* transfer parsed args + summary */
             o->pending_perm.original_args = xstrdup(args);
+            if (!o->pending_perm.id || !o->pending_perm.original_args) {
+                free(o->pending_perm.id);
+                free(o->pending_perm.original_args);
+                o->pending_perm.id = NULL;
+                o->pending_perm.original_args = NULL;
+                tools_call_free(&call);
+                free(effective_args);
+                free(control_extension);
+                free(control_reason);
+                return -1;
+            }
+            o->pending_perm.call = call; /* transfer parsed args + summary */
             o->pending_perm.effective_args = effective_args;
             o->pending_perm.control_extension = control_extension;
             o->pending_perm.control_reason = control_reason;
@@ -1016,7 +1060,7 @@ static int run_tools(oa_impl *o) {
         pending_perm_clear(o);
         o->tool_index++;
     }
-    return finish_tool_batch(o);
+    return tny_alloc_scope_failed() ? -1 : finish_tool_batch(o);
 }
 
 static int step_finished(oa_impl *o) {
@@ -1103,6 +1147,20 @@ static int oa_connect(tny_backend *b, char *errbuf, size_t errlen) {
 static void oa_disconnect(tny_backend *b) {
     oa_impl *o = b->impl;
     if (o->conn) { http_close(o->conn); o->conn = NULL; }
+}
+
+static bool response_requests_close(oa_impl *o) {
+    const char *value = o && o->conn ? http_header(o->conn, "Connection") : NULL;
+    while (value && *value) {
+        while (*value == ' ' || *value == '\t' || *value == ',') value++;
+        const char *end = value;
+        while (*end && *end != ',') end++;
+        while (end > value && (end[-1] == ' ' || end[-1] == '\t')) end--;
+        if ((size_t)(end - value) == 5 && strncasecmp(value, "close", 5) == 0)
+            return true;
+        value = *end ? end + 1 : end;
+    }
+    return false;
 }
 
 static int oa_create_or_resume(tny_backend *b, const char *ptr, char *e, size_t el) {
@@ -1304,6 +1362,17 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             continue;
         }
         /* 0 = body complete; -1 = transport error mid-stream */
+        bool close_response = bn == 0 && response_requests_close(o);
+        if (bn < 0 || close_response) {
+            /* A terminal SSE event can make the logical response complete
+             * before an abruptly closed chunked body reports its truncated
+             * transport.  That socket is known dead: retaining it makes the
+             * tool-result POST depend on the OS eventually surfacing a stale
+             * keep-alive read failure (tens of seconds on some macOS hosts).
+             * A completed `Connection: close` response is equally unusable.
+             * Discard either now; step_finished opens a fresh connection. */
+            oa_disconnect(b);
+        }
         if (bn < 0 && !o->stream_done) {
             /* keep partial text recoverable */
             if (o->text.len) session_recovery_write(o->env.session, o->text.data);
@@ -1387,7 +1456,7 @@ char *tny_openai_response_format(const char *schema_json, size_t len) {
         yyjson_doc_free(doc);
         return NULL;
     }
-    yyjson_mut_doc *m = yyjson_mut_doc_new(NULL);
+    yyjson_mut_doc *m = yyjson_mut_doc_new(jallocator());
     if (!m) { yyjson_doc_free(doc); return NULL; }
     yyjson_mut_val *copy = yyjson_val_mut_copy(m, root);
     const char *type = jget_str(root, "type");

@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <pthread.h>
 #include <unistd.h>
 #include <poll.h>
 
@@ -46,7 +47,7 @@ static struct {
     void (*cf_release)(CFTypeRef);
 } st_api;
 
-static int st_api_load(void) {
+static int st_api_load_impl(void) {
     if (st_api.create) return 0;
     void *sec = dlopen("/System/Library/Frameworks/Security.framework/Security",
                        RTLD_LAZY | RTLD_LOCAL);
@@ -70,6 +71,18 @@ static int st_api_load(void) {
     /* set last: it is the "loaded" flag */
     *(void **)&st_api.create = dlsym(sec, "SSLCreateContext");
     return st_api.create ? 0 : -1;
+}
+
+static pthread_once_t st_api_once = PTHREAD_ONCE_INIT;
+static int st_api_load_result = -1;
+
+static void st_api_load_once(void) {
+    st_api_load_result = st_api_load_impl();
+}
+
+static int st_api_load(void) {
+    return pthread_once(&st_api_once, st_api_load_once) == 0
+        ? st_api_load_result : -1;
 }
 
 static OSStatus st_read(SSLConnectionRef conn, void *data, size_t *len) {
@@ -157,7 +170,7 @@ static const char *const ossl_ca_bundles[] = {
     NULL,
 };
 
-static int ossl_load(void) {
+static int ossl_load_impl(void) {
     if (ossl.ctx) return 0;
     void *h = dlopen("libssl.so.3", RTLD_NOW | RTLD_LOCAL);
     if (!h) h = dlopen("libssl.so.1.1", RTLD_NOW | RTLD_LOCAL);
@@ -204,6 +217,18 @@ static int ossl_load(void) {
     }
     ossl.ctx = ctx; /* set last: it is the "loaded" flag */
     return 0;
+}
+
+static pthread_once_t ossl_once = PTHREAD_ONCE_INIT;
+static int ossl_load_result = -1;
+
+static void ossl_load_once(void) {
+    ossl_load_result = ossl_load_impl();
+}
+
+static int ossl_load(void) {
+    return pthread_once(&ossl_once, ossl_load_once) == 0
+        ? ossl_load_result : -1;
 }
 
 static bool ossl_want_retry(int e) {

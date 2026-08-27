@@ -29,6 +29,15 @@ Env knobs:
   MOCK_INCOMPLETE     responses wire: the final answer ends in
                       response.incomplete (token cutoff) — the partial text
                       is preserved and the stop reason remains non-success
+  MOCK_TRUNCATED_TERMINAL
+                      responses wire: omit the final chunk and close after the
+                      terminal event, proving the dead socket is discarded
+  MOCK_DROP_REUSED_ONCE
+                      responses wire: close the first tool-output POST before
+                      headers, exercising the reused-connection read retry
+  MOCK_CONNECTION_CLOSE
+                      send complete responses with Connection: close
+  MOCK_CHUNK_WIDTH    responses wire HTTP chunk width (default 17)
 
 The responses wire streams TWO parallel tool calls (list_files +
 glob_files). The second one's output_item.added carries only the item id;
@@ -36,19 +45,20 @@ call_id, name arrive in output_item.done, whose empty `arguments` must
 never wipe the delta-assembled string. Junk events ride along (items
 without a type, deltas without/with empty payloads, an unknown
 output_index) — tny must skip them without crashing. Every responses
-stream ends with an abrupt connection close after the terminal event (no
-final chunk): completeness comes from response.completed/failed, not the
-transport.
+stream normally ends with a valid final chunk and remains reusable. The
+explicit truncated-terminal mode closes abruptly after the terminal event:
+completeness still comes from response.completed/failed, not the transport.
 
 Usage: mock_openai.py [port] [certfile keyfile]
 With certfile/keyfile the mock serves HTTPS (used by test_https.py).
 """
 import json
 import os
+import socket
 import ssl
 import sys
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 EXPECT_WIRE = os.environ.get("MOCK_EXPECT_WIRE")
 EXPECT_EFFORT = os.environ.get("MOCK_EXPECT_EFFORT")
@@ -67,6 +77,13 @@ PARALLEL = os.environ.get("MOCK_PARALLEL") == "1"
 SENSITIVE = os.environ.get("MOCK_SENSITIVE") == "1"
 HTTP_STATUS = int(os.environ.get("MOCK_HTTP_STATUS", "0"))
 ERROR_SECRET = os.environ.get("MOCK_ERROR_SECRET", "mock status failure")
+TRUNCATED_TERMINAL = os.environ.get("MOCK_TRUNCATED_TERMINAL") == "1"
+DROP_REUSED_ONCE = os.environ.get("MOCK_DROP_REUSED_ONCE") == "1"
+CONNECTION_CLOSE = os.environ.get("MOCK_CONNECTION_CLOSE") == "1"
+CHUNK_WIDTH = int(os.environ.get("MOCK_CHUNK_WIDTH", "17"))
+if CHUNK_WIDTH < 1:
+    raise ValueError("MOCK_CHUNK_WIDTH must be positive")
+_drop_reused_done = False
 EXPECT_EXTENSION_REWRITE = os.environ.get("MOCK_EXPECT_EXTENSION_REWRITE") == "1"
 EXPECT_TOOL_OUTPUT = os.environ.get("MOCK_EXPECT_TOOL_OUTPUT")
 
@@ -121,11 +138,20 @@ def unpaired_tool_calls(messages):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
+    def setup(self):
+        super().setup()
+        self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
     def log_message(self, *a):
         pass
 
     def _chunk(self, data: bytes):
         self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
+        # Keep-alive responses cannot rely on connection teardown to flush the
+        # fixture's writer. This is intentionally explicit because hosted
+        # macOS/Python combinations otherwise defer chunks until the client's
+        # stale-response deadline even though the handler has produced them.
+        self.wfile.flush()
 
     def _cors(self):
         # the browser wasm build (docs/adr/0017) calls this mock cross-origin;
@@ -138,8 +164,12 @@ class Handler(BaseHTTPRequestHandler):
         self._cors()
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if CONNECTION_CLOSE and not DROP_REUSED_ONCE:
+            self.send_header("Connection", "close")
+            self.close_connection = True
         self.end_headers()
         self.wfile.write(body)
+        self.wfile.flush()
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -159,6 +189,9 @@ class Handler(BaseHTTPRequestHandler):
         self._cors()
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Transfer-Encoding", "chunked")
+        if CONNECTION_CLOSE and not DROP_REUSED_ONCE:
+            self.send_header("Connection", "close")
+            self.close_connection = True
         self.end_headers()
 
     def do_GET(self):
@@ -292,6 +325,7 @@ class Handler(BaseHTTPRequestHandler):
     # ---- Responses API wire ----
 
     def _post_responses(self, req):
+        global _drop_reused_done
         need("messages" not in req, "responses request must not carry messages")
         need(req.get("store") is False, "responses request must send store:false")
         need(req.get("stream") is True, "responses request must stream")
@@ -327,6 +361,14 @@ class Handler(BaseHTTPRequestHandler):
             need(outputs[0].get("output") == EXPECT_TOOL_OUTPUT,
                  f"effective tool output is {outputs[0].get('output')!r}, "
                  f"want {EXPECT_TOOL_OUTPUT!r}")
+        if DROP_REUSED_ONCE and outputs and not _drop_reused_done:
+            # Deterministic read-side stale keep-alive: the first request has
+            # completed cleanly, this reused POST reaches the server, and the
+            # connection dies before a response byte. The client's one retry
+            # must reopen and replay this same POST.
+            _drop_reused_done = True
+            self.close_connection = True
+            return
         if not outputs and SLOW_MS:
             time.sleep(SLOW_MS / 1000.0)
         if outputs and EXPECT_STEER:
@@ -464,21 +506,22 @@ class Handler(BaseHTTPRequestHandler):
                                             "usage": {"input_tokens": 200,
                                                       "output_tokens": 20}}})
 
-        # one byte stream, re-chunked at an arbitrary width so SSE events
-        # split mid-line, mid-JSON, and mid-UTF-8 across reads. After the
-        # terminal event the connection closes abruptly — NO final chunk:
-        # completeness is response.completed/failed, not a clean transport
-        # close, and tny must reopen the connection for the next POST.
+        # One byte stream, re-chunked at an arbitrary width so SSE events split
+        # mid-line, mid-JSON, and mid-UTF-8 across reads. Most tests keep this
+        # HTTP/1.1 connection valid and reusable; otherwise every SDK scenario
+        # pays the platform's stale-socket retry deadline. One explicit fixture
+        # mode retains the abrupt, unterminated close regression.
         wire = b"".join(sse_typed(e) for e in events)
-        for i in range(0, len(wire), 17):
-            self._chunk(wire[i:i+17])
-        if os.environ.get("MOCK_CLEAN_EOF"):
-            # browser fetch() (the wasm build's transport) discards the tail
-            # of a truncated chunked body instead of delivering bytes-then-
-            # error the way sockets and undici do; the browser smoke test
-            # needs the terminating chunk (docs/adr/0017 footguns)
+        for i in range(0, len(wire), CHUNK_WIDTH):
+            self._chunk(wire[i:i+CHUNK_WIDTH])
+        # The deterministic reused-read retry requires a clean first response;
+        # it takes precedence when a broader CI lane requests truncated
+        # terminal fixtures for other scenarios.
+        truncated_terminal = TRUNCATED_TERMINAL and not DROP_REUSED_ONCE
+        if not truncated_terminal:
             self._chunk(b"")
-        self.close_connection = True
+        self.close_connection = truncated_terminal or (
+            CONNECTION_CLOSE and not DROP_REUSED_ONCE)
 
     def _answer_text(self, req, tool_output, structured):
         if SENSITIVE:
@@ -495,10 +538,16 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
-    srv = HTTPServer(("127.0.0.1", port), Handler)
+    # Keep-alive fixtures must not monopolize the accept loop: browser parity
+    # opens a second page while Chromium may retain the first page's idle
+    # connection. A threaded fixture mirrors a real provider and lets both
+    # clients progress independently.
+    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     if len(sys.argv) > 3:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(certfile=sys.argv[2], keyfile=sys.argv[3])
         srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
-    print(f"ready on {port}", flush=True)
+    # Port 0 lets callers hand allocation to the kernel, avoiding the racy
+    # bind-close-spawn sequence which can lose a chosen port to another process.
+    print(f"ready on {srv.server_address[1]}", flush=True)
     srv.serve_forever()

@@ -232,11 +232,26 @@ or exits/aborts the embedding host for ordinary failures. Diagnostics go to a
 non-reentrant owner-thread logger sink. Child stderr is captured/drained, never
 left inherited in a way that can corrupt host output or block a child.
 
-The first artifact remains explicitly experimental and process-fatal allocator
-exhaustion may remain in deep legacy paths until the reachable allocation
-audit is complete. `TNY_STATUS_OOM` is guaranteed only for audited public and
-runtime-boundary allocations during ABI 0. The ABI is not called stable while
-that limitation remains.
+The shared-library build contains an allocation boundary covering the public
+adapter, runtime, OpenAI-native loop, transport buffers, and yyjson documents.
+Allocation exhaustion before a turn starts returns `TNY_STATUS_OOM`; after a
+turn starts the engine uses a constructor-time reserved `ERROR` (`OOM`) plus
+`TURN_END` pair, so settlement itself does not need to allocate. The CLI keeps
+ordinary libc allocation calls and does not pay for the test injector.
+
+The library path does not print to host stdout/stderr or install fatal handlers.
+Its OpenAI transport has no provider child process. Native tools which spawn a
+process (`terminal`, `open_file`, and `subagent`) are neither advertised nor
+accepted in library mode, so public teardown has no child process which can
+outlive it. An active HTTP stream is cancelled by closing its transport during
+session/runtime destruction. Connection establishment remains bounded by the
+native 15-second connection deadline, and `next_event` remains bounded by the
+caller's validated deadline.
+
+Every library-owned API-key copy is released through `secure_free`; the
+temporary HTTP authorization header is explicitly zeroed before its buffer is
+released on success, cancellation, and failure paths. Caller memory and process
+environment storage remain outside the library's ownership.
 
 ## Verification gates
 
@@ -248,6 +263,8 @@ Implementation is accepted only with:
   permission pause/resume, stale permission response, steering rejection, and
   queue overflow;
 - repeated create/close and second-runtime-busy tests under ASan/UBSan;
+- `make test-libtny-fault`, which builds a test-only fault-injection library and
+  sweeps named public-call allocation scopes in isolated host processes;
 - bounded child shutdown with no leaked host/MCP process;
 - standalone C11 and C++ header compilation;
 - a clean-prefix shared-library C consumer and one Python `ctypes` consumer;
@@ -256,6 +273,16 @@ Implementation is accepted only with:
 - local trusted/untrusted TLS fixtures on each published library platform;
 - `make size-check` and the existing startup/TTFT gates with no regression;
 - the existing wasm CLI parity suite, without adding a public JS library.
+
+The current issue-24 fault lane is deliberately bounded: allocation indices
+1–48 for runtime/session construction, 1–96 for turn start, 1–48 for event
+pull and permission response, plus active-turn teardown. Each case has a
+20-second process timeout and asserts empty host stdout/stderr. The ordinary C
+suite runs under ASan/UBSan; the test-only fault shared library is not itself
+sanitizer-instrumented. Exhaustive allocation-count discovery, a sanitizer-
+instrumented fault host, and a completed focused mutation run remain required
+before treating issue 24 as fully closed. The native connection setup bound is
+15 seconds; the tested active-stream teardown bound is one second.
 
 ## Consequences
 

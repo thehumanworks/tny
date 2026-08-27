@@ -1,0 +1,5 @@
+include README.md UNLICENSED LICENSE-METADATA.json THIRD_PARTY_NOTICES.md
+include conformance_adapter.py
+recursive-include examples *.py
+recursive-include tests *.py
+recursive-include src *.py py.typed

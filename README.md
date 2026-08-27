@@ -96,6 +96,15 @@ CI (`.github/workflows/ci.yml`) builds the stripped binary on Linux
 x86_64 and aarch64 (glibc + musl static), Darwin arm64 (Apple Silicon
 only — not Intel x86), and Windows x86_64 (MSYS2). See [docs/ci.md](docs/ci.md).
 
+## SDKs
+
+The experimental [Python/cffi and TypeScript/Node-API SDKs](docs/sdks.md)
+embed the same native `libtny` loop. They provide typed events, explicit
+lifecycle management, permissions, steering, cancellation, sync/async Python
+iteration, and pull-driven TypeScript async iteration without duplicating
+provider logic. Supported native SDK targets are macOS arm64 and Linux glibc
+x86_64/aarch64.
+
 ## Docs
 
 Public site (Geist Mono, fx.sh-style): [thehumanworks.github.io/tny](https://thehumanworks.github.io/tny/).

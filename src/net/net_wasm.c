@@ -16,6 +16,7 @@
 #ifdef __EMSCRIPTEN__
 
 #include "net/net.h"
+#include "util/tny_wake.h"
 #include "util/tny_poll.h"
 
 #include <emscripten.h>
@@ -98,6 +99,20 @@ int tny_poll(struct pollfd *fds, nfds_t n, int timeout_ms) {
     js_wait_any(left);
   }
 }
+
+/* Public libtny is native-only. Shared runtime code still references the wake
+ * surface, so wasm supplies a clean unavailable stub at the existing poll
+ * seam rather than compiling POSIX pipe code into the browser target. */
+int tny_wake_init(tny_wake *wake) {
+  if (wake) { wake->read_fd = -1; wake->write_fd = -1; }
+  return -1;
+}
+void tny_wake_close(tny_wake *wake) {
+  if (wake) { wake->read_fd = -1; wake->write_fd = -1; }
+}
+int tny_wake_fd(const tny_wake *wake) { (void)wake; return -1; }
+void tny_wake_signal(tny_wake *wake) { (void)wake; }
+void tny_wake_drain(tny_wake *wake) { (void)wake; }
 
 int set_nonblock(int fd, bool nb) {
   int fl = fcntl(fd, F_GETFL, 0);

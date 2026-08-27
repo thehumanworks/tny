@@ -124,7 +124,12 @@ LIB_APP_EXCLUDE := src/main.c $(wildcard src/cli/*.c src/tui/*.c) \
 LIB_SRC := $(SRC_PUBLIC_API) $(filter-out $(LIB_APP_EXCLUDE),$(SRC_SHARED)) $(SRC_NATIVE)
 OBJ_PIC := $(BUILD)/pic
 LIB_PIC_OBJS := $(LIB_SRC:%.c=$(OBJ_PIC)/%.o) $(TP:%.c=$(OBJ_PIC)/%.o)
-PIC_CFLAGS := $(REL_CFLAGS) -fPIC -fvisibility=hidden
+PIC_CFLAGS := $(REL_CFLAGS) -fPIC -fvisibility=hidden \
+              -include src/util/alloc_override.h
+OBJ_FAULT_PIC := $(BUILD)/fault-pic
+FAULT_PIC_OBJS := $(LIB_SRC:%.c=$(OBJ_FAULT_PIC)/%.o) \
+                  $(TP:%.c=$(OBJ_FAULT_PIC)/%.o)
+FAULT_PIC_CFLAGS := $(PIC_CFLAGS) -DTNY_ALLOC_TESTING=1
 ifeq ($(UNAME_S),Darwin)
   LIB_REAL := $(BUILD)/lib/libtny.0.dylib
   LIB_LINK := $(BUILD)/lib/libtny.dylib
@@ -133,12 +138,16 @@ ifeq ($(UNAME_S),Darwin)
                  -Wl,-dead_strip \
                  -Wl,-exported_symbols_list,abi/libtny.exports.macos
   LIB_EXPORT_FILE := abi/libtny.exports.macos
+  LIB_FAULT_REAL := $(BUILD)/lib-fault/libtny.0.dylib
+  LIB_FAULT_LINK := $(BUILD)/lib-fault/libtny.dylib
 else
   LIB_REAL := $(BUILD)/lib/libtny.so.0
   LIB_LINK := $(BUILD)/lib/libtny.so
   LIB_LDFLAGS := -shared -Wl,-soname,libtny.so.0 -Wl,--gc-sections \
                  -Wl,--version-script,abi/libtny.map -pthread -ldl
   LIB_EXPORT_FILE := abi/libtny.map
+  LIB_FAULT_REAL := $(BUILD)/lib-fault/libtny.so.0
+  LIB_FAULT_LINK := $(BUILD)/lib-fault/libtny.so
 endif
 
 TEST_SRC := $(wildcard tests/*.c)
@@ -157,7 +166,7 @@ else
   SIZE_MAX ?= 1572864
 endif
 
-.PHONY: all release debug test test-unit test-event-schema test-extensions-python size size-check pack smoke bench clean install install-lib lib-shared site FORCE
+.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-sdk-python test-sdk-typescript test-sdks test-libtny-fault size size-check pack smoke bench clean install install-lib lib-shared lib-shared-fault site FORCE
 
 all: release
 
@@ -188,9 +197,15 @@ $(OBJ_DBG)/%.o: %.c | $(VERSION_H)
 
 $(OBJ_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CC) $(PIC_CFLAGS) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
+	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(PIC_CFLAGS)) -MMD -MP -c -o $@ $<
+
+$(OBJ_FAULT_PIC)/%.o: %.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FAULT_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FAULT_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
 
 lib-shared: $(LIB_LINK)
+
+lib-shared-fault: $(LIB_FAULT_LINK)
 
 $(LIB_REAL): $(LIB_PIC_OBJS) $(LIB_EXPORT_FILE)
 	@mkdir -p $(@D)
@@ -199,6 +214,14 @@ $(LIB_REAL): $(LIB_PIC_OBJS) $(LIB_EXPORT_FILE)
 $(LIB_LINK): $(LIB_REAL)
 	@mkdir -p $(@D)
 	@cd $(@D) && ln -sf $(notdir $(LIB_REAL)) $(notdir $@)
+
+$(LIB_FAULT_REAL): $(FAULT_PIC_OBJS) $(LIB_EXPORT_FILE)
+	@mkdir -p $(@D)
+	$(CC) -o $@ $(FAULT_PIC_OBJS) $(LIB_LDFLAGS)
+
+$(LIB_FAULT_LINK): $(LIB_FAULT_REAL)
+	@mkdir -p $(@D)
+	@cd $(@D) && ln -sf $(notdir $(LIB_FAULT_REAL)) $(notdir $@)
 
 $(TEST_BIN): $(TEST_OBJS) $(TEST_SRC:%.c=$(OBJ_DBG)/%.o)
 	@mkdir -p $(@D)
@@ -212,10 +235,42 @@ test-unit: $(TEST_BIN)
 test-event-schema:
 	python3 sdk/schema/check.py
 
+test-conformance-contract:
+	python3 sdk/conformance/check.py
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+		-s tests/conformance -p 'test_*.py' -v
+
 test-extensions-python:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/extensions -p 'test_*.py' -v
 
-test: test-unit test-event-schema test-extensions-python release
+# SDK tests intentionally stay outside `make test`: normal CLI/libtny builds
+# require neither cffi nor Node.js. The dedicated SDK workflow installs them.
+test-sdk-python: lib-shared
+	PYTHONPATH=$(CURDIR)/sdk/python/src \
+	TNY_TEST_LIBRARY=$(LIB_REAL) \
+	python3 -m unittest discover -s sdk/python/tests -p 'test_*.py' -v
+	mkdir -p $(BUILD)/conformance
+	PYTHONPATH=$(CURDIR)/sdk/python/src \
+	TNY_TEST_LIBRARY=$(LIB_REAL) \
+	python3 sdk/conformance/run.py --artifact $(LIB_REAL) \
+		--report $(BUILD)/conformance/python.json -- \
+		python3 sdk/python/conformance_adapter.py
+
+test-sdk-typescript: lib-shared
+	npm --prefix sdk/typescript run build
+	npm --prefix sdk/typescript test
+	mkdir -p $(BUILD)/conformance
+	python3 sdk/conformance/run.py \
+		--artifact sdk/typescript/build/Release/tny.node \
+		--report $(BUILD)/conformance/typescript.json -- \
+		node sdk/typescript/test/conformance-adapter.mjs
+
+test-sdks: test-sdk-python test-sdk-typescript
+
+test-libtny-fault: lib-shared-fault
+	python3 tests/integration/test_libtny_faults.py $(LIB_FAULT_REAL)
+
+test: test-unit test-event-schema test-conformance-contract test-extensions-python release
 	@if [ -x tests/integration/run.sh ]; then tests/integration/run.sh; fi
 
 size: release

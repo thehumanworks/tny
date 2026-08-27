@@ -1,6 +1,7 @@
 /* tools.c — registry, permission gate, dispatch, result bounding. */
 #include "core/tools.h"
 #include "core/image.h"
+#include "util/alloc.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -102,7 +103,8 @@ static bool schema_tool_disabled(const tools_env *env, const char *name) {
     if (!env || !env->ctx || !name) return false;
     if (env->ctx->mcp_disabled && str_starts(name, "mcp_")) return true;
     if (!env->ctx->library_mode) return false;
-    return strcmp(name, "subagent") == 0 || strcmp(name, "skill") == 0 ||
+    return strcmp(name, "subagent") == 0 || strcmp(name, "terminal") == 0 ||
+           strcmp(name, "open_file") == 0 || strcmp(name, "skill") == 0 ||
            strcmp(name, "install_skill") == 0 || strcmp(name, "memory") == 0 ||
            strcmp(name, "ask_user_question") == 0;
 }
@@ -111,7 +113,7 @@ char *tools_schema_json(tools_env *env) {
     if (env && env->ctx && (env->ctx->mcp_disabled || env->ctx->library_mode)) {
         yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
         yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
-        yyjson_mut_doc *mut = yyjson_mut_doc_new(NULL);
+        yyjson_mut_doc *mut = yyjson_mut_doc_new(jallocator());
         yyjson_mut_val *out = mut ? yyjson_mut_arr(mut) : NULL;
         if (root && out) {
             size_t idx, max;
@@ -244,7 +246,13 @@ int tools_call_prepare(tools_env *env, const char *name,
     if (!env || !name || !call) return -1;
     memset(call, 0, sizeof *call);
     call->name = xstrdup(canonical_name(name));
-    call->permission_tool = xstrdup(call->name);
+    call->permission_tool = call->name ? xstrdup(call->name) : NULL;
+    if (!call->name || !call->permission_tool) return -1;
+    if (schema_tool_disabled(env, call->name)) {
+        call->error = tool_err("tool %s is unavailable in embedded runtimes",
+                               call->name);
+        return -1;
+    }
     call->doc = args_json ? jparse(args_json, strlen(args_json)) : NULL;
     call->args = call->doc ? yyjson_doc_get_root(call->doc) : NULL;
     if (validate_call_schema(call->name, call->args, &call->error) != 0)
@@ -279,6 +287,7 @@ int tools_call_prepare(tools_env *env, const char *name,
         if (call->detail2) buf_appendf(&summary, " -> %s", call->detail2);
         call->summary = buf_detach(&summary);
     }
+    if (tny_alloc_scope_failed()) return -1;
     return 0;
 }
 

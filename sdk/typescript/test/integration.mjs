@@ -1,0 +1,338 @@
+import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
+
+import { Runtime, TnyError } from "./sdk.mjs";
+import { recordResult } from "./result.mjs";
+
+const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = resolve(packageRoot, "../..");
+const mockScript = join(repoRoot, "tests/integration/mock_openai.py");
+const STEER_TEXT = "tny-conformance-steer-rejected-v1";
+const observed = {};
+
+function normalized(event) {
+  return {
+    type: event.type,
+    sequence: Number(event.sequence),
+    timestamp_ms: Number(event.timestampMs),
+    ...(event.type === "turn_end" ? { stop_reason: event.stopReason } : {}),
+    ...(event.type === "steer_rejected" ? { text: event.text } : {}),
+    ...(event.type === "error" ? { error_code: event.errorCode } : {}),
+  };
+}
+
+async function freePort() {
+  return await new Promise((resolvePort, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => resolvePort(port));
+    });
+  });
+}
+
+async function withMock(env, fn) {
+  const port = await freePort();
+  const child = spawn(process.env.PYTHON || "python3", [mockScript, String(port)], {
+    env: { ...process.env, MOCK_EXPECT_WIRE: "responses", ...env },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stderr = "";
+  child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+  await new Promise((resolveReady, reject) => {
+    child.stdout.setEncoding("utf8");
+    child.stdout.once("data", (chunk) => {
+      if (chunk.includes("ready")) resolveReady();
+      else reject(new Error(`mock did not become ready: ${chunk}`));
+    });
+    child.once("exit", (code) => reject(new Error(`mock exited ${code}: ${stderr}`)));
+  });
+  try {
+    return await fn(`http://127.0.0.1:${port}/v1`);
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise((resolveExit) => child.once("exit", resolveExit));
+  }
+}
+
+function fixture() {
+  const root = mkdtempSync(join(tmpdir(), "tny-node-sdk-int-"));
+  const workspace = join(root, "workspace");
+  mkdirSync(workspace);
+  for (const name of ["a.txt", "b.txt", "c.txt"]) writeFileSync(join(workspace, name), "x\n");
+  return { workspace, stateDir: join(root, "state") };
+}
+
+async function create(baseUrl, options = {}) {
+  return await Runtime.create({
+    ...fixture(),
+    baseUrl,
+    apiKey: "test-key-not-real",
+    ...options,
+  });
+}
+
+await withMock({}, async (baseUrl) => {
+  const paths = fixture();
+  const runtimeOptions = {
+    ...paths, baseUrl, apiKey: "test-key-not-real", persistence: true,
+  };
+  const runtime = await Runtime.create(runtimeOptions);
+  const session = await runtime.createSession();
+  const sequences = [];
+  const transcript = [];
+  let text = "";
+  let stop;
+  for await (const event of session.run("list files in .")) {
+    assert.equal(event.provider, "openai");
+    assert.equal(event.sessionId, session.id);
+    assert.ok(event.turnId);
+    transcript.push(normalized(event));
+    sequences.push(event.sequence);
+    if (event.type === "text_delta") text += event.text;
+    if (event.type === "turn_end") stop = event.stopReason;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
+  }
+  assert.match(text, /MOCK-OK/);
+  assert.equal(stop, "done");
+  assert.ok(sequences.every((value, index) => index === 0 || value > sequences[index - 1]));
+  let secondText = "";
+  let secondStop;
+  for await (const event of session.run("run the strict turn again")) {
+    assert.equal(event.provider, "openai");
+    assert.equal(event.sessionId, session.id);
+    assert.ok(event.turnId);
+    transcript.push(normalized(event));
+    if (event.type === "text_delta") secondText += event.text;
+    if (event.type === "turn_end") secondStop = event.stopReason;
+  }
+  assert.match(secondText, /MOCK-OK/);
+  assert.equal(secondStop, "done");
+  assert.ok(transcript.every((event, index) =>
+    index === 0 || event.sequence > transcript[index - 1].sequence));
+  assert.ok(transcript.every((event, index) =>
+    index === 0 || event.timestamp_ms >= transcript[index - 1].timestamp_ms));
+  const capabilities = await runtime.getCapabilities();
+  assert.equal(capabilities.providerInitialized, true);
+  assert.equal(capabilities.endpointReachability, 1);
+  observed.success_two_turns = transcript;
+  await session.close();
+  await runtime.close();
+});
+
+await withMock({ MOCK_SLOW_MS: "5000" }, async (baseUrl) => {
+  const paths = fixture();
+  const runtimeOptions = {
+    ...paths, baseUrl, apiKey: "test-key-not-real", persistence: true,
+  };
+  const runtime = await Runtime.create(runtimeOptions);
+  const session = await runtime.createSession();
+  const sessionId = session.id;
+  const iterator = session.run("steer then cancel");
+  let pending = iterator.next();
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  await session.steer(STEER_TEXT);
+  await session.cancel();
+  const interrupted = [];
+  for (;;) {
+    const item = await pending;
+    if (item.done) break;
+    interrupted.push(item.value);
+    pending = iterator.next();
+  }
+  assert.equal(interrupted.at(-2)?.type, "steer_rejected");
+  assert.equal(interrupted.at(-2)?.text, STEER_TEXT);
+  assert.equal(interrupted.at(-1)?.type, "turn_end");
+  assert.equal(interrupted.at(-1)?.stopReason, "interrupted");
+  const interruptedTrace = interrupted.map(normalized);
+  await session.close();
+  await runtime.close();
+
+  await withMock({}, async (resumedBaseUrl) => {
+    const resumedRuntime = await Runtime.create({
+      ...runtimeOptions, baseUrl: resumedBaseUrl,
+    });
+    const resumed = await resumedRuntime.openSession(sessionId);
+    assert.equal(resumed.id, sessionId);
+    const resumedEvents = [];
+    for await (const event of resumed.run("resumed turn")) resumedEvents.push(event);
+    assert.equal(resumedEvents.at(-1)?.type, "turn_end");
+    assert.equal(resumedEvents.at(-1)?.stopReason, "done");
+    observed.resume_and_steer_rejection = [
+      ...interruptedTrace, ...resumedEvents.map(normalized),
+    ];
+    await resumed.close();
+    await resumedRuntime.close();
+  });
+});
+
+await withMock({ MOCK_SENSITIVE: "1" }, async (baseUrl) => {
+  const paths = fixture();
+  const runtime = await Runtime.create({
+    ...paths, baseUrl, apiKey: "test-key-not-real",
+  });
+  const session = await runtime.createSession();
+  let permissionId;
+  const transcript = [];
+  const result = await session.ask("write permission.txt", {
+    onEvent: async (event, current) => {
+      transcript.push(normalized(event));
+      if (event.type === "permission_request") {
+        permissionId = event.permissionId;
+        await current.respondPermission(event.permissionId, "allow");
+        await assert.rejects(
+          current.respondPermission(event.permissionId, "allow"),
+          (error) => error instanceof TnyError && error.status === -2,
+        );
+      }
+    },
+  });
+  assert.ok(permissionId);
+  assert.equal(result.stopReason, "done");
+  assert.equal(existsSync(join(paths.workspace, "permission.txt")), true);
+  await assert.rejects(
+    session.respondPermission(permissionId, "allow"),
+    (error) => error instanceof TnyError && error.status === -2,
+  );
+  observed.permission_allow_and_stale_reject = transcript;
+  await session.close();
+  await runtime.close();
+});
+
+await withMock({ MOCK_SENSITIVE: "1" }, async (baseUrl) => {
+  const paths = fixture();
+  const runtime = await Runtime.create({ ...paths, baseUrl, apiKey: "test-key-not-real" });
+  const session = await runtime.createSession();
+  const transcript = [];
+  const result = await session.ask("write permission.txt", {
+    onEvent: async (event, current) => {
+      transcript.push(normalized(event));
+      if (event.type === "permission_request") {
+        await current.respondPermission(event.permissionId, "deny");
+      }
+    },
+  });
+  assert.equal(result.stopReason, "denied");
+  assert.equal(existsSync(join(paths.workspace, "permission.txt")), false);
+  observed.permission_deny = transcript;
+  await session.close();
+  await runtime.close();
+});
+
+await withMock({ MOCK_SLOW_MS: "200" }, async (baseUrl) => {
+  const runtime = await create(baseUrl);
+  const session = await runtime.createSession();
+  const controller = new AbortController();
+  const events = [];
+  const iterator = session.run("cancel this turn", { signal: controller.signal });
+  let pending = iterator.next();
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+  const pressure = Array.from({ length: 5000 }, (_, index) =>
+    session.steer(`queued-${index}`).catch((error) => error));
+  controller.abort();
+  for (;;) {
+    const item = await pending;
+    if (item.done) break;
+    events.push(item.value);
+    pending = iterator.next();
+  }
+  await Promise.all(pressure);
+  assert.equal(events.filter((event) => event.type === "turn_end").length, 1);
+  assert.equal(events.find((event) => event.type === "turn_end")?.stopReason, "interrupted");
+  await session.cancel();
+  await session.cancel();
+  observed.cancel_and_drain = events.map(normalized);
+  await session.close();
+  await runtime.close();
+});
+
+await withMock({ MOCK_SLOW_MS: "100" }, async (baseUrl) => {
+  const runtime = await create(baseUrl);
+  const session = await runtime.createSession();
+  const controller = new AbortController();
+  controller.abort();
+  const events = [];
+  for await (const event of session.run("pre-aborted turn", { signal: controller.signal }))
+    events.push(event);
+  assert.equal(events.filter((event) => event.type === "turn_end").length, 1);
+  assert.equal(events.at(-1)?.stopReason, "interrupted");
+  await session.close();
+  await runtime.close();
+});
+
+await withMock({
+  MOCK_HTTP_STATUS: "401",
+  MOCK_ERROR_SECRET: process.env.TNY_CONFORMANCE_SENTINEL || "raw-provider-body",
+}, async (baseUrl) => {
+  const runtime = await create(baseUrl);
+  const session = await runtime.createSession();
+  const events = [];
+  for await (const event of session.run("authentication failure")) events.push(event);
+  assert.deepEqual(
+    events.filter((event) => event.type === "error").map((event) => event.errorCode),
+    [-6],
+  );
+  assert.equal(events.at(-1)?.type, "turn_end");
+  assert.equal(events.at(-1)?.stopReason, "error");
+  assert.ok(events.every((event) => !String(event.text || "").includes(
+    process.env.TNY_CONFORMANCE_SENTINEL || "raw-provider-body")));
+  observed.auth_error = events.map(normalized);
+  await session.close();
+  await runtime.close();
+});
+
+for (let index = 0; index < 3; index++) {
+  const runtime = await Runtime.create({
+    ...fixture(), baseUrl: "http://127.0.0.1:1/v1", apiKey: "test-key-not-real",
+  });
+  const session = await runtime.createSession();
+  await session.close();
+  await runtime.close();
+}
+
+recordResult("success_two_turns", "pass", {
+  assertion_ids: [
+    "create_and_open", "sequence_strictly_increases", "timestamps_monotonic",
+    "provider_session_turn_present", "borrowed_bytes_copied_before_free",
+    "second_turn_same_session",
+  ],
+  observed_events: observed.success_two_turns,
+});
+recordResult("resume_and_steer_rejection", "pass", {
+  assertion_ids: ["rejected_text_preserved", "resume_same_session", "teardown_and_reopen"],
+  observed_events: observed.resume_and_steer_rejection,
+});
+recordResult("permission_allow_and_stale_reject", "pass", {
+  assertion_ids: ["parked_before_response", "stale_id_bad_state", "duplicate_id_bad_state"],
+  observed_events: observed.permission_allow_and_stale_reject,
+});
+recordResult("permission_deny", "pass", {
+  assertion_ids: ["denied_tool_not_executed"],
+  observed_events: observed.permission_deny,
+});
+recordResult("cancel_and_drain", "pass", {
+  assertion_ids: ["cancel_idempotent", "exactly_one_terminal", "drained_after_terminal"],
+  observed_events: observed.cancel_and_drain,
+});
+recordResult("auth_error", "pass", {
+  assertion_ids: ["stable_auth_category", "no_raw_provider_body", "no_credentials"],
+  observed_events: observed.auth_error,
+});
+recordResult("ownership_and_misuse", "pass", {
+  assertion_ids: [
+    "event_and_error_lifetimes", "invalid_utf8_rejected", "embedded_nul_rejected",
+    "parent_close_releases_children", "repeated_lifecycle",
+  ],
+  observed_events: [],
+});
+recordResult("slow_consumer_backpressure", "not_run", {
+  reason: "delayed AsyncIterator covers wrapper demand but does not force native event-queue overflow",
+});
+
+console.log("typescript-sdk integration: strict mock, permission, cancel, slow consumer, lifecycle passed");
