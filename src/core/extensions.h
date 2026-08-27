@@ -14,10 +14,10 @@
 typedef struct tny_extensions tny_extensions;
 
 typedef enum {
-    TNY_EXTENSIONS_EMPTY = 0,      /* no ~/.tny/extensions entries */
-    TNY_EXTENSIONS_DORMANT,        /* entries found; host not spawned yet */
+    TNY_EXTENSIONS_EMPTY = 0, /* no ~/.tny/extensions entries */
+    TNY_EXTENSIONS_DORMANT,   /* entries found; host not spawned yet */
     TNY_EXTENSIONS_READY,
-    TNY_EXTENSIONS_UNAVAILABLE     /* optional host/python unavailable */
+    TNY_EXTENSIONS_UNAVAILABLE /* optional host/python unavailable */
 } tny_extensions_state;
 
 typedef enum {
@@ -46,23 +46,23 @@ typedef enum {
 
 typedef struct {
     tny_extension_action_kind kind;
-    char *extension;   /* extension name, owned */
-    char *content;     /* context/continuation content, owned */
-    char *custom_type; /* optional custom context/message type, owned */
-    char *reason;      /* optional stop reason, owned */
+    char *extension;      /* extension name, owned */
+    char *content;        /* context/continuation content, owned */
+    char *custom_type;    /* optional custom context/message type, owned */
+    char *reason;         /* optional stop reason, owned */
     char *arguments_json; /* tool rewrite object, compact JSON, owned */
     tny_extension_message_kind message_kind;
     tny_extension_permission_decision permission_decision;
-    bool display;      /* action should be visible in the transcript */
-    bool is_error;     /* effective replacement result error flag */
+    bool display;  /* action should be visible in the transcript */
+    bool is_error; /* effective replacement result error flag */
 } tny_extension_action;
 
 typedef struct {
     char *extension; /* extension name when known, owned */
     char *handler_id;
-    char *event;     /* normalized event name, empty for discovery failures */
-    char *code;      /* stable manager/host category, owned */
-    char *message;   /* bounded diagnostic, owned; never host stderr */
+    char *event;   /* normalized event name, empty for discovery failures */
+    char *code;    /* stable manager/host category, owned */
+    char *message; /* bounded diagnostic, owned; never host stderr */
 } tny_extension_failure;
 
 typedef struct {
@@ -74,8 +74,7 @@ typedef struct {
 
 /* Scan <tny_dir>/extensions for direct *.py files and one-level */
 /* <name>/index.py entries. Discovery is deterministic and does not spawn. */
-tny_extensions *tny_extensions_new(const char *tny_dir, const char *cwd,
-                                   int handler_timeout_ms);
+tny_extensions *tny_extensions_new(const char *tny_dir, const char *cwd, int handler_timeout_ms);
 void tny_extensions_free(tny_extensions *extensions);
 
 tny_extensions_state tny_extensions_get_state(const tny_extensions *extensions);
@@ -86,17 +85,15 @@ const char *tny_extensions_status(const tny_extensions *extensions);
 /* Select the provider family used for action diagnostics and the setup-time
  * capability snapshot. The immutable snapshot contains every provider matrix
  * so runtime handlers can query with event.provider after a TUI switch. */
-void tny_extensions_set_provider(tny_extensions *extensions,
-                                 tny_backend_id provider);
+void tny_extensions_set_provider(tny_extensions *extensions, tny_backend_id provider);
 
 /* Run every handler subscribed to event_name, serially. event_json must be a
  * bounded JSON object produced from tny's normalized event schema, not a raw
  * provider payload. Missing Python/host, handler exceptions, bad responses,
  * and timeouts are reported in out->failures and return 0 (fail open).
  * -1 is reserved for invalid caller input or local allocation failure. */
-int tny_extensions_invoke(tny_extensions *extensions,
-                          const char *event_name, const char *event_json,
-                          tny_extension_result *out);
+int tny_extensions_invoke(tny_extensions *extensions, const char *event_name,
+                          const char *event_json, tny_extension_result *out);
 
 void tny_extension_result_free(tny_extension_result *result);
 

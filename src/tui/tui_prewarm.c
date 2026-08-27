@@ -32,14 +32,14 @@
 
 struct tui_prewarm {
     pthread_mutex_t mu;
-    pthread_cond_t  cv;
-    tny_backend    *bk;
-    int             backend_id;
-    char           *resume_pointer; /* frozen at start; NULL for a new session */
-    bool            resuming;  /* create_or_resume in flight: it reads ctx */
-    bool            done;      /* connect() + create_or_resume() returned */
-    bool            ok;        /* ...and both succeeded */
-    bool            abandoned; /* main thread gave up: thread owns cleanup */
+    pthread_cond_t cv;
+    tny_backend *bk;
+    int backend_id;
+    char *resume_pointer; /* frozen at start; NULL for a new session */
+    bool resuming;        /* create_or_resume in flight: it reads ctx */
+    bool done;            /* connect() + create_or_resume() returned */
+    bool ok;              /* ...and both succeeded */
+    bool abandoned;       /* main thread gave up: thread owns cleanup */
 };
 
 static void prewarm_free(tui_prewarm *p) {
@@ -66,8 +66,7 @@ static void *prewarm_main(void *arg) {
          * thread, so the session must not be touched from here */
         p->resuming = !p->abandoned;
         pthread_mutex_unlock(&p->mu);
-        if (p->resuming)
-            rc = p->bk->create_or_resume(p->bk, p->resume_pointer, err, sizeof err);
+        if (p->resuming) rc = p->bk->create_or_resume(p->bk, p->resume_pointer, err, sizeof err);
     }
 
     pthread_mutex_lock(&p->mu);
@@ -90,23 +89,22 @@ static void *prewarm_main(void *arg) {
  * the first prompt with today's error, not spawn doomed processes early. */
 bool tui_prewarm_applicable(const struct tny_ctx *ctx, int backend_id) {
     switch (backend_id) {
-    case TNY_BK_CODEX:
-        return true; /* spawn or --codex-ws attach; auth errors surface later */
+    case TNY_BK_CODEX: return true; /* spawn or --codex-ws attach; auth errors surface later */
     case TNY_BK_CURSOR: {
         const char *key = getenv("CURSOR_API_KEY");
         return key && *key;
     }
-    case TNY_BK_ACP:
-        return ctx->agent_argv && ctx->agent_argv[0];
-    default:
-        return false;
+    case TNY_BK_ACP: return ctx->agent_argv && ctx->agent_argv[0];
+    default: return false;
     }
 }
 
-int tui_prewarm_launch(tui *t, tny_backend *bk, int backend_id,
-                       const char *resume_pointer) {
+int tui_prewarm_launch(tui *t, tny_backend *bk, int backend_id, const char *resume_pointer) {
     tui_prewarm *p = calloc(1, sizeof *p);
-    if (!p) { bk->destroy(bk); return -1; }
+    if (!p) {
+        bk->destroy(bk);
+        return -1;
+    }
     p->bk = bk;
     p->backend_id = backend_id;
     p->resume_pointer = resume_pointer ? xstrdup(resume_pointer) : NULL;
@@ -141,8 +139,7 @@ static const char *resume_pointer_for(tui *t) {
     const char *hp = session_host_pointer(t->session);
     if (!hp) return NULL;
     const char *owner = session_backend(t->session);
-    if (owner && strcmp(owner, tny_provider_name(t->ctx)) != 0)
-        return NULL;
+    if (owner && strcmp(owner, tny_provider_name(t->ctx)) != 0) return NULL;
     return hp;
 }
 
@@ -151,7 +148,7 @@ void tui_prewarm_start(tui *t) {
     if (t->prewarm) {
         if (t->prewarm->backend_id == t->ctx->backend &&
             same_pointer(t->prewarm->resume_pointer, hp))
-            return; /* already warming exactly this */
+            return;          /* already warming exactly this */
         tui_prewarm_drop(t); /* stale provider or session: never adopt it */
     }
     if (!tui_prewarm_applicable(t->ctx, t->ctx->backend)) return;
@@ -193,8 +190,7 @@ void tui_prewarm_drop(tui *t) {
     if (p->resuming && !p->done) {
         /* create_or_resume is reading ctx right now: outlast it so the
          * caller may mutate model/tier/workspace state the moment we return */
-        while (!p->done)
-            pthread_cond_wait(&p->cv, &p->mu);
+        while (!p->done) pthread_cond_wait(&p->cv, &p->mu);
         pthread_mutex_unlock(&p->mu); /* thread saw abandoned == false */
         backend_discard(p->bk);
         prewarm_free(p);

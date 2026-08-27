@@ -1,0 +1,20 @@
+# First-party C style (src/, include/, tests/*.c, sdk/typescript/native/).
+# third_party/ is vendored and exempt. Enforced by `make format-check`.
+BasedOnStyle: LLVM
+Language: Cpp
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 100
+PointerAlignment: Right
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLoopsOnASingleLine: true
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortBlocksOnASingleLine: Always
+AllowShortEnumsOnASingleLine: true
+KeepEmptyLinesAtTheStartOfBlocks: false
+SpaceAfterCStyleCast: false
+AlignConsecutiveMacros: Consecutive
+AlignEscapedNewlines: Left
+IndentCaseLabels: false
+SortIncludes: Never

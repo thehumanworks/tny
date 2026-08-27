@@ -1,4 +1,5 @@
 """Offline publication-state tests; no package registry is contacted."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -60,8 +61,9 @@ class PyPIPublicationTests(unittest.TestCase):
     def test_download_hash_is_verified_before_writing(self) -> None:
         values = expected()
         remote = release(values)
-        with tempfile.TemporaryDirectory() as directory, self.assertRaisesRegex(
-            ValueError, "downloaded PyPI hash mismatch"
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            self.assertRaisesRegex(ValueError, "downloaded PyPI hash mismatch"),
         ):
             publisher.download_and_verify(
                 remote, values, Path(directory), fetch_bytes=lambda _url: b"not-a-wheel"

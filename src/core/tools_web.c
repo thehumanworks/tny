@@ -40,7 +40,10 @@ static char *fetch_url(tools_env *env, const char *url, int redirects) {
             return res;
         }
     }
-    if (status < 0) { http_close(c); return tool_err("no response from %s", url); }
+    if (status < 0) {
+        http_close(c);
+        return tool_err("no response from %s", url);
+    }
     buf_t body;
     buf_init(&body);
     int64_t deadline = now_ms() + 60000;

@@ -12,7 +12,8 @@ export TNY
 
 fail=0
 run() {
-    name=$1; shift
+    name=$1
+    shift
     echo "== integration: $name"
     if "$@"; then
         echo "   ok"
@@ -29,7 +30,7 @@ for t in tests/integration/test_*.sh; do
     # macos-15 runners: python under a throwaway HOME exceeds the 30 s
     # cursor ready-line timeout. Local Darwin still runs the fixture.
     if [ -n "${CI:-}" ] && [ "$(uname -s)" = Darwin ] &&
-       [ "$(basename "$t")" = test_cursor.sh ]; then
+        [ "$(basename "$t")" = test_cursor.sh ]; then
         echo "== integration: test_cursor"
         echo "   skip: darwin CI (cursor mock ready-line vs macos python)"
         continue

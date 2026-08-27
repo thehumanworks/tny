@@ -12,6 +12,7 @@ the stdio tests do.
 
 Usage: fake_acp_agent_ws.py PORT   (0 picks a free port; prints "ready on N")
 """
+
 import base64
 import hashlib
 import json
@@ -49,12 +50,16 @@ def handshake(conn):
     if headers is None or "sec-websocket-key" not in headers:
         conn.close()
         return None
-    accept = base64.b64encode(hashlib.sha1(
-        (headers["sec-websocket-key"] + GUID).encode()).digest()).decode()
-    conn.sendall((
-        "HTTP/1.1 101 Switching Protocols\r\n"
-        "Upgrade: websocket\r\nConnection: Upgrade\r\n"
-        "Sec-WebSocket-Accept: %s\r\n\r\n" % accept).encode())
+    accept = base64.b64encode(
+        hashlib.sha1((headers["sec-websocket-key"] + GUID).encode()).digest()
+    ).decode()
+    conn.sendall(
+        (
+            "HTTP/1.1 101 Switching Protocols\r\n"
+            "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+            "Sec-WebSocket-Accept: %s\r\n\r\n" % accept
+        ).encode()
+    )
     return rest
 
 
@@ -86,9 +91,12 @@ def serve(conn):
     # frames go out from two threads (agent stdout pump, ping-pong reply);
     # interleaved sends would corrupt the framing
     wlock = threading.Lock()
-    proc = subprocess.Popen([sys.executable, AGENT],
-                            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=sys.stderr.fileno())
+    proc = subprocess.Popen(
+        [sys.executable, AGENT],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=sys.stderr.fileno(),
+    )
 
     def pump_out():
         for line in proc.stdout:
@@ -98,8 +106,9 @@ def serve(conn):
             try:
                 with wlock:
                     send_text(conn, line)
-                print("ws-agent: frame out %dB" % len(line), file=sys.stderr,
-                      flush=True)
+                print(
+                    "ws-agent: frame out %dB" % len(line), file=sys.stderr, flush=True
+                )
             except OSError:
                 break
         try:
@@ -138,13 +147,13 @@ def serve(conn):
                 buf = recv_exact(conn, buf, off + 4)
                 if buf is None:
                     break
-                mask = buf[off:off + 4]
+                mask = buf[off : off + 4]
                 off += 4
             buf = recv_exact(conn, buf, off + ln)
             if buf is None:
                 break
-            payload = buf[off:off + ln]
-            buf = buf[off + ln:]
+            payload = buf[off : off + ln]
+            buf = buf[off + ln :]
             if masked:
                 payload = bytes(c ^ mask[i % 4] for i, c in enumerate(payload))
             if opcode == 0x8:  # close
@@ -155,8 +164,12 @@ def serve(conn):
                 continue
             if opcode != 0x1:
                 if opcode == 0x0:
-                    print("ws-agent: unexpected continuation frame (client "
-                          "fragmented a message)", file=sys.stderr, flush=True)
+                    print(
+                        "ws-agent: unexpected continuation frame (client "
+                        "fragmented a message)",
+                        file=sys.stderr,
+                        flush=True,
+                    )
                 continue
             # sanity: one JSON object per frame
             try:

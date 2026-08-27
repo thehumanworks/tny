@@ -35,14 +35,16 @@ void ac_emit_end(ac_impl *o, tny_stop_reason stop) {
 
 ac_perm *ac_perm_find(ac_impl *o, const char *id_raw) {
     for (int i = 0; i < o->nperms; i++)
-        if (o->perms[i].id_raw && strcmp(o->perms[i].id_raw, id_raw) == 0)
-            return &o->perms[i];
+        if (o->perms[i].id_raw && strcmp(o->perms[i].id_raw, id_raw) == 0) return &o->perms[i];
     return NULL;
 }
 
 void ac_perm_drop(ac_impl *o, ac_perm *p) {
-    free(p->id_raw); free(p->allow_once); free(p->allow_always);
-    free(p->reject); free(p->summary);
+    free(p->id_raw);
+    free(p->allow_once);
+    free(p->allow_always);
+    free(p->reject);
+    free(p->summary);
     int idx = (int)(p - o->perms);
     o->perms[idx] = o->perms[--o->nperms];
     memset(&o->perms[o->nperms], 0, sizeof(ac_perm));
@@ -76,8 +78,8 @@ static void handle_permission(ac_impl *o, yyjson_val *msg, yyjson_val *params) {
                 if (!p->allow_always) p->allow_always = xstrdup(oid);
             } else if (kind && strcmp(kind, "allow_once") == 0) {
                 if (!p->allow_once) p->allow_once = xstrdup(oid);
-            } else if (kind && (strcmp(kind, "reject_once") == 0 ||
-                                strcmp(kind, "reject_always") == 0)) {
+            } else if (kind &&
+                       (strcmp(kind, "reject_once") == 0 || strcmp(kind, "reject_always") == 0)) {
                 if (!p->reject) p->reject = xstrdup(oid);
             } else if (!p->allow_once) {
                 p->allow_once = xstrdup(oid); /* unknown kind: treat as allow-once */
@@ -93,8 +95,8 @@ static void handle_permission(ac_impl *o, yyjson_val *msg, yyjson_val *params) {
     const char *kind = jget_str(tc, "kind");
     buf_t sum;
     buf_init(&sum);
-    buf_appendf(&sum, "%.200s%s%.40s", title ? title : "tool call",
-                kind ? " (" : "", kind ? kind : "");
+    buf_appendf(&sum, "%.200s%s%.40s", title ? title : "tool call", kind ? " (" : "",
+                kind ? kind : "");
     if (kind) buf_appends(&sum, ")");
     p->summary = buf_detach(&sum);
 
@@ -116,7 +118,7 @@ static void append_tool_content(yyjson_val *content, buf_t *out) {
     yyjson_arr_foreach(content, idx, max, c) {
         yyjson_val *inner = jget(c, "content");
         const char *t = jget_str(inner ? inner : c, "text");
-        if (!t) t = jget_str(c, "newText");   /* diff blocks */
+        if (!t) t = jget_str(c, "newText"); /* diff blocks */
         if (!t) continue;
         if (out->len) buf_appends(out, "\n");
         buf_appends(out, t);
@@ -128,8 +130,7 @@ static void update_tool_call(ac_impl *o, yyjson_val *u, const char *kind) {
     const char *id = jget_str(u, "toolCallId");
     const char *title = jget_str(u, "title");
     const char *status = jget_str(u, "status");
-    bool done = status && (strcmp(status, "completed") == 0 ||
-                           strcmp(status, "failed") == 0);
+    bool done = status && (strcmp(status, "completed") == 0 || strcmp(status, "failed") == 0);
     buf_t detail;
     buf_init(&detail);
     append_tool_content(jget(u, "content"), &detail);
@@ -187,12 +188,10 @@ void ac_handle_update(ac_impl *o, yyjson_val *params) {
     const char *kind = jget_str(u, "sessionUpdate");
     if (!kind) return;
 
-    if (strcmp(kind, "agent_message_chunk") == 0 ||
-        strcmp(kind, "agent_thought_chunk") == 0) {
+    if (strcmp(kind, "agent_message_chunk") == 0 || strcmp(kind, "agent_thought_chunk") == 0) {
         yyjson_val *c = jget(u, "content");
         const char *type = jget_str(c, "type");
-        const char *text = (!type || strcmp(type, "text") == 0)
-                               ? jget_str(c, "text") : NULL;
+        const char *text = (!type || strcmp(type, "text") == 0) ? jget_str(c, "text") : NULL;
         if (!text) return;
         bool thought = strcmp(kind, "agent_thought_chunk") == 0;
         tny_backend_event ev = {0};
@@ -240,8 +239,7 @@ void ac_handle_update(ac_impl *o, yyjson_val *params) {
 
 /* ---------- agent → client requests ---------- */
 
-void ac_handle_agent_request(ac_impl *o, yyjson_val *msg, const char *method,
-                             yyjson_val *params) {
+void ac_handle_agent_request(ac_impl *o, yyjson_val *msg, const char *method, yyjson_val *params) {
     if (strcmp(method, "session/request_permission") == 0) {
         if (!o->turn_active) {
             char *id = acp_id_text(msg);
@@ -256,10 +254,8 @@ void ac_handle_agent_request(ac_impl *o, yyjson_val *msg, const char *method,
     /* Cursor's ACP surface blocks on these; acknowledge so the turn moves on
      * (docs/backends/acp.md "Cursor-as-ACP"). tny has no answer to invent, so
      * the ack is empty and the request is surfaced as a status line. */
-    if (strcmp(method, "cursor/ask_question") == 0 ||
-        strcmp(method, "cursor/create_plan") == 0 ||
-        strcmp(method, "cursor/update_todos") == 0 ||
-        strcmp(method, "cursor/task") == 0) {
+    if (strcmp(method, "cursor/ask_question") == 0 || strcmp(method, "cursor/create_plan") == 0 ||
+        strcmp(method, "cursor/update_todos") == 0 || strcmp(method, "cursor/task") == 0) {
         const char *q = jget_str(params, "question");
         if (!q) q = jget_str(params, "title");
         buf_t s;
@@ -273,8 +269,10 @@ void ac_handle_agent_request(ac_impl *o, yyjson_val *msg, const char *method,
     }
     buf_t m;
     buf_init(&m);
-    buf_appendf(&m, "tny does not implement %.100s (no fs/terminal capabilities "
-                    "advertised)", method);
+    buf_appendf(&m,
+                "tny does not implement %.100s (no fs/terminal capabilities "
+                "advertised)",
+                method);
     ac_tx_error(o, id, ACP_E_NO_METHOD, m.data);
     buf_free(&m);
     free(id);
@@ -303,8 +301,7 @@ void ac_handle_prompt_response(ac_impl *o, yyjson_val *msg) {
     } else if (strcmp(reason, "refusal") == 0) {
         ac_emit_text(o, TNY_EV_ERROR, "agent refused the request", 25);
         ac_emit_end(o, TNY_STOP_DENIED);
-    } else if (strcmp(reason, "max_tokens") == 0 ||
-               strcmp(reason, "max_turn_requests") == 0) {
+    } else if (strcmp(reason, "max_tokens") == 0 || strcmp(reason, "max_turn_requests") == 0) {
         ac_emit_text(o, TNY_EV_ERROR, reason, strlen(reason));
         ac_emit_end(o, TNY_STOP_STEP_LIMIT);
     } else {

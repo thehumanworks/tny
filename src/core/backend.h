@@ -55,16 +55,16 @@ struct tny_backend {
      * pre-warm thread (docs/adr/0002): must not print to the terminal, may
      * read ctx (the TUI drops any pending warm-up before mutating the
      * model/tier/workspace fields) but must not write it. */
-    int (*create_or_resume)(tny_backend *b, const char *resume_pointer,
-                            char *errbuf, size_t errlen);
+    int (*create_or_resume)(tny_backend *b, const char *resume_pointer, char *errbuf,
+                            size_t errlen);
     /* Serialized pointer for session storage; malloc'd, may return NULL. */
     char *(*session_pointer)(tny_backend *b);
 
     /* Start one turn. Non-blocking after the initial write. Events flow
      * through cb until TNY_EV_TURN_END. images: NULL-terminated array of
      * file paths or NULL. */
-    int (*send)(tny_backend *b, const char *prompt, const char **images,
-                tny_backend_event_cb cb, void *ud, char *errbuf, size_t errlen);
+    int (*send)(tny_backend *b, const char *prompt, const char **images, tny_backend_event_cb cb,
+                void *ud, char *errbuf, size_t errlen);
 
     /* Deliver more user text into the turn that is running (docs/adr/0011).
      * 0 = on its way — the backend now owns delivery: a later refusal, or a
@@ -79,8 +79,7 @@ struct tny_backend {
      * TURN_END (stop=INTERRUPTED) when the host confirms. */
     void (*cancel)(tny_backend *b);
 
-    void (*respond_permission)(tny_backend *b, const char *perm_id,
-                               tny_perm_decision d);
+    void (*respond_permission)(tny_backend *b, const char *perm_id, tny_perm_decision d);
 
     /* Fill fds the frontend should poll while a turn is active.
      * Returns count written (<= max). */

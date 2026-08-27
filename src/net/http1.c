@@ -6,12 +6,12 @@
 /* net stays agent-agnostic (no core/ includes); take the generated version
  * header directly for the User-Agent string (docs/adr/0014). */
 #if defined(__has_include)
-#  if __has_include("tny_version.h")
-#    include "tny_version.h"
-#  endif
+#if __has_include("tny_version.h")
+#include "tny_version.h"
+#endif
 #endif
 #ifndef TNY_VERSION
-#  define TNY_VERSION "0.0.0-dev"
+#define TNY_VERSION "0.0.0-dev"
 #endif
 
 #include <stdio.h>
@@ -45,17 +45,17 @@ struct http_conn {
     bool tls;
     char prefix[1024];
 
-    buf_t in;               /* raw unparsed input */
+    buf_t in; /* raw unparsed input */
     /* response state */
-    char  hdr_names[MAX_HEADERS][64];
-    char  hdr_values[MAX_HEADERS][512];
-    int   n_hdrs;
+    char hdr_names[MAX_HEADERS][64];
+    char hdr_values[MAX_HEADERS][512];
+    int n_hdrs;
     body_mode mode;
-    size_t body_left;       /* BODY_LENGTH: bytes remaining */
-    size_t chunk_left;      /* BODY_CHUNKED: bytes left in current chunk */
-    int   chunk_skip;       /* CRLF bytes after chunk data not yet arrived */
-    bool  chunk_final;      /* saw 0-size chunk */
-    bool  body_done;
+    size_t body_left;  /* BODY_LENGTH: bytes remaining */
+    size_t chunk_left; /* BODY_CHUNKED: bytes left in current chunk */
+    int chunk_skip;    /* CRLF bytes after chunk data not yet arrived */
+    bool chunk_final;  /* saw 0-size chunk */
+    bool body_done;
 };
 
 const char *http_prefix(http_conn *c) { return c->prefix; }
@@ -70,12 +70,18 @@ http_conn *http_open(const char *base_url, char *err, size_t errlen) {
     bool tls;
     if (strcmp(u.scheme, "https") == 0) tls = true;
     else if (strcmp(u.scheme, "http") == 0) tls = false;
-    else { snprintf(err, errlen, "unsupported scheme %s", u.scheme); return NULL; }
+    else {
+        snprintf(err, errlen, "unsupported scheme %s", u.scheme);
+        return NULL;
+    }
 
     nstream *s = nstream_connect(u.host, u.port, tls, 15000, err, errlen);
     if (!s) return NULL;
     http_conn *c = calloc(1, sizeof *c);
-    if (!c) { nstream_close(s); return NULL; }
+    if (!c) {
+        nstream_close(s);
+        return NULL;
+    }
     c->s = s;
     c->base = u;
     c->tls = tls;
@@ -94,15 +100,18 @@ http_conn *http_from_fd(int fd) {
     nstream *s = nstream_from_fd(fd);
     if (!s) return NULL;
     http_conn *c = calloc(1, sizeof *c);
-    if (!c) { nstream_close(s); return NULL; }
+    if (!c) {
+        nstream_close(s);
+        return NULL;
+    }
     c->s = s;
     snprintf(c->base.host, sizeof c->base.host, "%s", "localhost");
     buf_init(&c->in);
     return c;
 }
 
-int http_request(http_conn *c, const char *method, const char *path,
-                 const char **headers, const char *body, size_t body_len) {
+int http_request(http_conn *c, const char *method, const char *path, const char **headers,
+                 const char *body, size_t body_len) {
     buf_t req;
     buf_init(&req);
     buf_appendf(&req, "%s %s HTTP/1.1\r\n", method, path);
@@ -128,11 +137,9 @@ int http_request(http_conn *c, const char *method, const char *path,
     if (!overflow && body) {
         /* "Content-Length: " + uint64 decimal + CRLF, then the body. */
         const size_t framing_max = sizeof("Content-Length: ") - 1 + 20 + 2;
-        if (framing_max > SIZE_MAX - tail ||
-            body_len > SIZE_MAX - tail - framing_max)
+        if (framing_max > SIZE_MAX - tail || body_len > SIZE_MAX - tail - framing_max)
             overflow = true;
-        else
-            tail += framing_max + body_len;
+        else tail += framing_max + body_len;
     }
     if (!overflow) buf_reserve(&req, tail);
     if (headers)
@@ -140,8 +147,7 @@ int http_request(http_conn *c, const char *method, const char *path,
     if (body) buf_appendf(&req, "Content-Length: %zu\r\n", body_len);
     buf_appends(&req, "\r\n");
     if (body) buf_append(&req, body, body_len);
-    int rc = overflow || buf_oom(&req)
-        ? -1 : nstream_write_all(c->s, req.data, req.len);
+    int rc = overflow || buf_oom(&req) ? -1 : nstream_write_all(c->s, req.data, req.len);
     if (req.data) secure_zero(req.data, req.cap);
     buf_free(&req);
     /* reset response state */
@@ -160,7 +166,10 @@ static int fill(http_conn *c, int timeout_ms) {
     int64_t deadline = now_ms() + timeout_ms;
     for (;;) {
         ssize_t n = nstream_read(c->s, tmp, sizeof tmp);
-        if (n > 0) { buf_append(&c->in, tmp, (size_t)n); return 1; }
+        if (n > 0) {
+            buf_append(&c->in, tmp, (size_t)n);
+            return 1;
+        }
         if (n == 0) return 0;
         if (n == -1) return -1;
         /* -2: would-block. A poll wake is not always app data — TLS 1.3
@@ -182,8 +191,8 @@ int http_read_response(http_conn *c, int timeout_ms) {
         size_t msg_len;
         struct phr_header hdrs[MAX_HEADERS];
         size_t n_hdrs = MAX_HEADERS;
-        int pret = phr_parse_response(c->in.data, c->in.len, &minor, &status,
-                                      &msg, &msg_len, hdrs, &n_hdrs, 0);
+        int pret = phr_parse_response(c->in.data, c->in.len, &minor, &status, &msg, &msg_len, hdrs,
+                                      &n_hdrs, 0);
         if (pret > 0) {
             c->n_hdrs = (int)n_hdrs;
             c->mode = BODY_EOF;
@@ -203,7 +212,10 @@ int http_read_response(http_conn *c, int timeout_ms) {
                 c->body_left = (size_t)strtoull(cl, NULL, 10);
                 if (c->body_left == 0) c->body_done = true;
             }
-            if (status == 204 || status == 304) { c->mode = BODY_NONE; c->body_done = true; }
+            if (status == 204 || status == 304) {
+                c->mode = BODY_NONE;
+                c->body_done = true;
+            }
             buf_consume(&c->in, (size_t)pret);
             return status;
         }
@@ -261,7 +273,10 @@ static ssize_t chunked_read(http_conn *c, char *out, size_t cap) {
             size_t linelen = (size_t)(nl - c->in.data) + 1;
             unsigned long sz = strtoul(c->in.data, NULL, 16);
             buf_consume(&c->in, linelen);
-            if (sz == 0) { c->chunk_final = true; continue; }
+            if (sz == 0) {
+                c->chunk_final = true;
+                continue;
+            }
             c->chunk_left = sz;
         }
         if (c->in.len == 0) return (ssize_t)produced;
@@ -307,8 +322,11 @@ ssize_t http_body_read(http_conn *c, char *out, size_t cap) {
         int fr = fill(c, 0);
         if (fr == -2) return -2; /* nothing buffered right now */
         if (fr == 0) {           /* EOF */
-            if (c->mode == BODY_EOF) { c->body_done = true; return 0; }
-            return -1;           /* truncated chunked / length body */
+            if (c->mode == BODY_EOF) {
+                c->body_done = true;
+                return 0;
+            }
+            return -1; /* truncated chunked / length body */
         }
         if (fr == -1) return -1;
     }

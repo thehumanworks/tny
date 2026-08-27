@@ -32,7 +32,7 @@ int tcp_connect(const char *host, int port, int timeout_ms) {
     for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
         int64_t left64 = deadline - monotonic_ms();
         if (left64 < 0) break;
-        int left = (int)left64;
+        int left;
         fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (fd < 0) continue;
         if (set_nonblock(fd, true) != 0) {
@@ -53,9 +53,7 @@ int tcp_connect(const char *host, int port, int timeout_ms) {
                 if (rc == 1) {
                     int soerr = 0;
                     socklen_t sl = sizeof soerr;
-                    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &sl) == 0 &&
-                        soerr == 0)
-                        break;
+                    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &sl) == 0 && soerr == 0) break;
                     rc = -1;
                 }
                 break;
@@ -78,9 +76,15 @@ int unix_connect(const char *path) {
     if (fd < 0) return -1;
     struct sockaddr_un sa = {0};
     sa.sun_family = AF_UNIX;
-    if (strlen(path) >= sizeof sa.sun_path) { close(fd); return -1; }
+    if (strlen(path) >= sizeof sa.sun_path) {
+        close(fd);
+        return -1;
+    }
     strcpy(sa.sun_path, path);
-    if (connect(fd, (struct sockaddr *)&sa, sizeof sa) != 0) { close(fd); return -1; }
+    if (connect(fd, (struct sockaddr *)&sa, sizeof sa) != 0) {
+        close(fd);
+        return -1;
+    }
     set_nonblock(fd, true);
     return fd;
 }

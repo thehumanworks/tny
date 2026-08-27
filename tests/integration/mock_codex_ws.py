@@ -19,6 +19,7 @@ Assertions (any failure prints MOCK-FAIL and sets exit status 1):
   * turn/start shape: threadId + input[0] = {type:text, text, text_elements}
   * the approval request comes back as a result with a decision
 """
+
 import base64
 import hashlib
 import json
@@ -37,6 +38,8 @@ def knob_delay(name):
     ms = int(os.environ.get(name, "0"))
     if ms:
         time.sleep(ms / 1000.0)
+
+
 MARKER = "CODEX-MOCK-OK"
 THREAD_ID = "thr_mock_0001"
 APPROVAL_ID = 9001
@@ -78,6 +81,7 @@ def fail(msg):
 
 # ---------------------------------------------------------------- handshake
 
+
 def read_head(conn):
     data = b""
     while b"\r\n\r\n" not in data:
@@ -98,8 +102,11 @@ def read_head(conn):
 
 
 def refuse(conn, status):
-    conn.sendall(("HTTP/1.1 %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                  % status).encode())
+    conn.sendall(
+        (
+            "HTTP/1.1 %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" % status
+        ).encode()
+    )
 
 
 def handshake(conn):
@@ -124,13 +131,18 @@ def handshake(conn):
         fail("upgrade request missing Sec-WebSocket-Key/Upgrade")
         return None
     accept = base64.b64encode(hashlib.sha1((key + GUID).encode()).digest()).decode()
-    conn.sendall(("HTTP/1.1 101 Switching Protocols\r\n"
-                  "Upgrade: websocket\r\nConnection: Upgrade\r\n"
-                  "Sec-WebSocket-Accept: %s\r\n\r\n" % accept).encode())
+    conn.sendall(
+        (
+            "HTTP/1.1 101 Switching Protocols\r\n"
+            "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+            "Sec-WebSocket-Accept: %s\r\n\r\n" % accept
+        ).encode()
+    )
     return rest
 
 
 # ------------------------------------------------------------- frame codec
+
 
 class WS:
     def __init__(self, conn, pre=b""):
@@ -163,15 +175,15 @@ class WS:
         mask = b"\0\0\0\0"
         if masked:
             self._need(off + 4)
-            mask = self.buf[off:off + 4]
+            mask = self.buf[off : off + 4]
             off += 4
         else:
             fail("client frame was not masked (RFC6455 requires it)")
         if ln > 16 * 1024 * 1024:
             raise EOFError
         self._need(off + ln)
-        payload = bytearray(self.buf[off:off + ln])
-        self.buf = self.buf[off + ln:]
+        payload = bytearray(self.buf[off : off + ln])
+        self.buf = self.buf[off + ln :]
         for i in range(len(payload)):
             payload[i] ^= mask[i % 4]
         return op, bytes(payload)
@@ -226,10 +238,13 @@ class WS:
 
 # --------------------------------------------------------------- transcript
 
+
 def run_turn(ws, req_id, msg):
     params = msg.get("params") or {}
     if params.get("threadId") != THREAD_ID:
-        fail("turn/start threadId=%r, expected %r" % (params.get("threadId"), THREAD_ID))
+        fail(
+            "turn/start threadId=%r, expected %r" % (params.get("threadId"), THREAD_ID)
+        )
     inp = params.get("input")
     if not isinstance(inp, list) or not inp or not isinstance(inp[0], dict):
         fail("turn/start input is not a non-empty array of objects: %r" % (inp,))
@@ -257,16 +272,31 @@ def run_turn(ws, req_id, msg):
     ws.send_json({"method": "turn/started", "params": {"turn": {"id": turn_id}}})
 
     item = "item_msg_%d" % turn_no
-    ws.send_json({"method": "item/started",
-                  "params": {"item": {"id": item, "type": "agentMessage"}}})
+    ws.send_json(
+        {
+            "method": "item/started",
+            "params": {"item": {"id": item, "type": "agentMessage"}},
+        }
+    )
     for i in range(0, len(MARKER), 4):
-        ws.send_json({"method": "item/reasoning/delta",
-                      "params": {"itemId": "item_think_1", "delta": "thinking…"}})
-        ws.send_json({"method": "item/agentMessage/delta",
-                      "params": {"itemId": item, "delta": MARKER[i:i + 4]}})
-    ws.send_json({"method": "item/completed",
-                  "params": {"item": {"id": item, "type": "agentMessage",
-                                      "text": MARKER}}})
+        ws.send_json(
+            {
+                "method": "item/reasoning/delta",
+                "params": {"itemId": "item_think_1", "delta": "thinking…"},
+            }
+        )
+        ws.send_json(
+            {
+                "method": "item/agentMessage/delta",
+                "params": {"itemId": item, "delta": MARKER[i : i + 4]},
+            }
+        )
+    ws.send_json(
+        {
+            "method": "item/completed",
+            "params": {"item": {"id": item, "type": "agentMessage", "text": MARKER}},
+        }
+    )
 
     late_steer_ids = []
     if STEER_WAIT_MS and turn_no == 1:
@@ -287,21 +317,37 @@ def run_turn(ws, req_id, msg):
             if p.get("threadId") != THREAD_ID:
                 fail("turn/steer threadId=%r" % p.get("threadId"))
             if p.get("expectedTurnId") != turn_id:
-                ws.send_json({"id": sid, "error": {"code": -32600,
-                              "message": "expectedTurnId does not match the active turn"}})
+                ws.send_json(
+                    {
+                        "id": sid,
+                        "error": {
+                            "code": -32600,
+                            "message": "expectedTurnId does not match the active turn",
+                        },
+                    }
+                )
                 note("turn/steer rejected (stale turn id %r)" % p.get("expectedTurnId"))
                 continue
             si = p.get("input")
-            if (not isinstance(si, list) or not si or si[0].get("type") != "text"
-                    or not si[0].get("text") or si[0].get("text_elements") != []):
+            if (
+                not isinstance(si, list)
+                or not si
+                or si[0].get("type") != "text"
+                or not si[0].get("text")
+                or si[0].get("text_elements") != []
+            ):
                 fail("turn/steer input is not UserInput[] text: %r" % (si,))
                 continue
             STEER_SEEN.append(si[0]["text"])
             if STEER_REJECT == "now":
                 # a non-steerable turn (/review, manual /compact) rejects the
                 # request but the turn itself keeps running (docs/adr/0013)
-                ws.send_json({"id": sid, "error": {"code": -32600,
-                              "message": "turn is not steerable"}})
+                ws.send_json(
+                    {
+                        "id": sid,
+                        "error": {"code": -32600, "message": "turn is not steerable"},
+                    }
+                )
                 note("turn/steer rejected now (text=%r)" % si[0]["text"])
                 continue
             if STEER_REJECT == "late":
@@ -313,23 +359,59 @@ def run_turn(ws, req_id, msg):
             note("turn/steer ok (text=%r)" % si[0]["text"])
             ws.send_json({"id": sid, "result": {"turnId": turn_id}})
             # the host replays steered input as a userMessage item (tny hides it)
-            ws.send_json({"method": "item/completed",
-                          "params": {"item": {"id": "item_user_2", "type": "userMessage",
-                                              "text": si[0]["text"]}}})
-            ws.send_json({"method": "item/started",
-                          "params": {"item": {"id": "item_msg_2", "type": "agentMessage"}}})
-            ws.send_json({"method": "item/agentMessage/delta",
-                          "params": {"itemId": "item_msg_2",
-                                     "delta": "STEER-OK:" + si[0]["text"]}})
-            ws.send_json({"method": "item/completed",
-                          "params": {"item": {"id": "item_msg_2", "type": "agentMessage",
-                                              "text": "STEER-OK:" + si[0]["text"]}}})
+            ws.send_json(
+                {
+                    "method": "item/completed",
+                    "params": {
+                        "item": {
+                            "id": "item_user_2",
+                            "type": "userMessage",
+                            "text": si[0]["text"],
+                        }
+                    },
+                }
+            )
+            ws.send_json(
+                {
+                    "method": "item/started",
+                    "params": {"item": {"id": "item_msg_2", "type": "agentMessage"}},
+                }
+            )
+            ws.send_json(
+                {
+                    "method": "item/agentMessage/delta",
+                    "params": {
+                        "itemId": "item_msg_2",
+                        "delta": "STEER-OK:" + si[0]["text"],
+                    },
+                }
+            )
+            ws.send_json(
+                {
+                    "method": "item/completed",
+                    "params": {
+                        "item": {
+                            "id": "item_msg_2",
+                            "type": "agentMessage",
+                            "text": "STEER-OK:" + si[0]["text"],
+                        }
+                    },
+                }
+            )
         ws.conn.settimeout(30)
 
-    ws.send_json({"method": "item/commandExecution/requestApproval",
-                  "id": APPROVAL_ID,
-                  "params": {"itemId": "item_cmd_1", "command": ["ls", "-la"],
-                             "cwd": "/tmp", "reason": "command needs approval"}})
+    ws.send_json(
+        {
+            "method": "item/commandExecution/requestApproval",
+            "id": APPROVAL_ID,
+            "params": {
+                "itemId": "item_cmd_1",
+                "command": ["ls", "-la"],
+                "cwd": "/tmp",
+                "reason": "command needs approval",
+            },
+        }
+    )
     decision = None
     while decision is None:
         reply = ws.recv_json()
@@ -351,25 +433,52 @@ def run_turn(ws, req_id, msg):
     else:
         note("approval answered decision=%s" % decision)
 
-    cmd_item = {"id": "item_cmd_%d" % turn_no, "type": "commandExecution",
-                "command": ["ls", "-la"], "cwd": "/tmp"}
+    cmd_item = {
+        "id": "item_cmd_%d" % turn_no,
+        "type": "commandExecution",
+        "command": ["ls", "-la"],
+        "cwd": "/tmp",
+    }
     ws.send_json({"method": "item/started", "params": {"item": dict(cmd_item)}})
     done = dict(cmd_item)
     done.update({"status": "completed", "exitCode": 0})
     ws.send_json({"method": "item/completed", "params": {"item": done}})
     if STEER_REJECT:
         # a per-turn marker so the test can tell turn 2 answered the re-send
-        ws.send_json({"method": "item/completed",
-                      "params": {"item": {"id": "item_done_%d" % turn_no,
-                                          "type": "agentMessage",
-                                          "text": "TURN%d-DONE" % turn_no}}})
-    ws.send_json({"method": "turn/tokenCount",
-                  "params": {"usage": {"input_tokens": 123, "output_tokens": 45}}})
-    ws.send_json({"method": "turn/completed",
-                  "params": {"turn": {"id": turn_id, "status": "completed"}}})
+        ws.send_json(
+            {
+                "method": "item/completed",
+                "params": {
+                    "item": {
+                        "id": "item_done_%d" % turn_no,
+                        "type": "agentMessage",
+                        "text": "TURN%d-DONE" % turn_no,
+                    }
+                },
+            }
+        )
+    ws.send_json(
+        {
+            "method": "turn/tokenCount",
+            "params": {"usage": {"input_tokens": 123, "output_tokens": 45}},
+        }
+    )
+    ws.send_json(
+        {
+            "method": "turn/completed",
+            "params": {"turn": {"id": turn_id, "status": "completed"}},
+        }
+    )
     for sid in late_steer_ids:
-        ws.send_json({"id": sid, "error": {"code": -32600,
-                      "message": "expectedTurnId does not match the active turn"}})
+        ws.send_json(
+            {
+                "id": sid,
+                "error": {
+                    "code": -32600,
+                    "message": "expectedTurnId does not match the active turn",
+                },
+            }
+        )
         note("turn/steer rejected late (after turn/completed)")
 
 
@@ -393,15 +502,23 @@ def serve(conn, index):
         if method is None:
             continue  # a response to one of our requests, handled inline
         if method != "initialize" and not initialized and req_id is not None:
-            ws.send_json({"id": req_id, "error": {"code": -32002,
-                                                  "message": "Not initialized"}})
+            ws.send_json(
+                {"id": req_id, "error": {"code": -32002, "message": "Not initialized"}}
+            )
             fail("%s arrived before initialize" % method)
             continue
         if busy and method in ("thread/start", "turn/start") and method not in busied:
             busied.add(method)
             note("answering %s with -32001 (overload drill)" % method)
-            ws.send_json({"id": req_id, "error": {"code": -32001,
-                                                  "message": "Server overloaded; retry later."}})
+            ws.send_json(
+                {
+                    "id": req_id,
+                    "error": {
+                        "code": -32001,
+                        "message": "Server overloaded; retry later.",
+                    },
+                }
+            )
             continue
         if method == "initialize":
             knob_delay("MOCK_INIT_DELAY_MS")
@@ -411,10 +528,20 @@ def serve(conn, index):
             if info.get("name") != "tny":
                 fail("clientInfo.name=%r, expected 'tny'" % info.get("name"))
             initialized = True
-            note("initialize ok (client=%r v%r)" % (info.get("name"), info.get("version")))
-            ws.send_json({"id": req_id, "result": {"userAgent": "mock-codex/0.0.1",
-                                                   "platformFamily": "unix",
-                                                   "platformOs": "mock"}})
+            note(
+                "initialize ok (client=%r v%r)"
+                % (info.get("name"), info.get("version"))
+            )
+            ws.send_json(
+                {
+                    "id": req_id,
+                    "result": {
+                        "userAgent": "mock-codex/0.0.1",
+                        "platformFamily": "unix",
+                        "platformOs": "mock",
+                    },
+                }
+            )
         elif method == "initialized":
             note("initialized notification received")
         elif method == "thread/start":
@@ -427,8 +554,10 @@ def serve(conn, index):
             tier = (msg.get("params") or {}).get("serviceTier")
             if index == int(os.environ.get("MOCK_FAST_CONN", "0")):
                 if tier != "priority":
-                    fail("thread/start serviceTier=%r, expected 'priority' (--fast)"
-                         % (tier,))
+                    fail(
+                        "thread/start serviceTier=%r, expected 'priority' (--fast)"
+                        % (tier,)
+                    )
                 else:
                     note("thread/start serviceTier=priority ok")
             elif tier is not None:
@@ -449,15 +578,27 @@ def serve(conn, index):
             # catalog with per-model reasoning efforts; "hidden" must be
             # skipped by tny's normalization (docs/backends/codex-app-server.md)
             note("model/list served")
-            ws.send_json({"id": req_id, "result": {"data": [
-                {"id": "mock-codex-model", "displayName": "Mock Codex",
-                 "supportedReasoningEfforts": [
-                     {"reasoningEffort": "low"},
-                     {"reasoningEffort": "medium"},
-                     {"reasoningEffort": "high"},
-                     {"reasoningEffort": "xhigh"}],
-                 "defaultReasoningEffort": "medium"},
-                {"id": "mock-hidden-model", "hidden": True}]}})
+            ws.send_json(
+                {
+                    "id": req_id,
+                    "result": {
+                        "data": [
+                            {
+                                "id": "mock-codex-model",
+                                "displayName": "Mock Codex",
+                                "supportedReasoningEfforts": [
+                                    {"reasoningEffort": "low"},
+                                    {"reasoningEffort": "medium"},
+                                    {"reasoningEffort": "high"},
+                                    {"reasoningEffort": "xhigh"},
+                                ],
+                                "defaultReasoningEffort": "medium",
+                            },
+                            {"id": "mock-hidden-model", "hidden": True},
+                        ]
+                    },
+                }
+            )
         elif method == "account/login/start":
             # v2 auth endpoints (docs/backends/codex-app-server.md): the
             # browser flow returns authUrl; the device-code flow returns
@@ -466,18 +607,36 @@ def serve(conn, index):
             p = msg.get("params") or {}
             t = p.get("type")
             if t == "chatgptDeviceCode":
-                ws.send_json({"id": req_id, "result": {
-                    "type": "chatgptDeviceCode", "loginId": "login_mock_1",
-                    "verificationUrl": "https://auth.openai.example/codex/device",
-                    "userCode": "MOCK-CODE-1234"}})
+                ws.send_json(
+                    {
+                        "id": req_id,
+                        "result": {
+                            "type": "chatgptDeviceCode",
+                            "loginId": "login_mock_1",
+                            "verificationUrl": "https://auth.openai.example/codex/device",
+                            "userCode": "MOCK-CODE-1234",
+                        },
+                    }
+                )
             elif t == "chatgpt":
-                ws.send_json({"id": req_id, "result": {
-                    "type": "chatgpt", "loginId": "login_mock_1",
-                    "authUrl": "https://auth.openai.example/oauth?mock=1"}})
+                ws.send_json(
+                    {
+                        "id": req_id,
+                        "result": {
+                            "type": "chatgpt",
+                            "loginId": "login_mock_1",
+                            "authUrl": "https://auth.openai.example/oauth?mock=1",
+                        },
+                    }
+                )
             else:
                 fail("account/login/start type=%r is not chatgpt/chatgptDeviceCode" % t)
-                ws.send_json({"id": req_id, "error": {"code": -32602,
-                                                      "message": "bad login type"}})
+                ws.send_json(
+                    {
+                        "id": req_id,
+                        "error": {"code": -32602, "message": "bad login type"},
+                    }
+                )
                 continue
             note("account/login/start type=%s ok" % t)
             # MOCK_LOGIN_FAIL_CONN=<n>: on that connection, answer with a
@@ -485,20 +644,38 @@ def serve(conn, index):
             # client must treat missing success as failure, never as a
             # completed login.
             if index == int(os.environ.get("MOCK_LOGIN_FAIL_CONN", "0")):
-                ws.send_json({"method": "account/login/completed",
-                              "params": {"loginId": "login_mock_1",
-                                         "error": "mock denied the login"}})
+                ws.send_json(
+                    {
+                        "method": "account/login/completed",
+                        "params": {
+                            "loginId": "login_mock_1",
+                            "error": "mock denied the login",
+                        },
+                    }
+                )
             else:
-                ws.send_json({"method": "account/login/completed",
-                              "params": {"loginId": "login_mock_1",
-                                         "success": True, "error": None}})
-                ws.send_json({"method": "account/updated",
-                              "params": {"authMode": "chatgpt", "planType": "plus"}})
+                ws.send_json(
+                    {
+                        "method": "account/login/completed",
+                        "params": {
+                            "loginId": "login_mock_1",
+                            "success": True,
+                            "error": None,
+                        },
+                    }
+                )
+                ws.send_json(
+                    {
+                        "method": "account/updated",
+                        "params": {"authMode": "chatgpt", "planType": "plus"},
+                    }
+                )
         elif method == "turn/interrupt":
             ws.send_json({"id": req_id, "result": {}})
         elif req_id is not None:
-            ws.send_json({"id": req_id, "error": {"code": -32601,
-                                                  "message": "unknown method"}})
+            ws.send_json(
+                {"id": req_id, "error": {"code": -32601, "message": "unknown method"}}
+            )
 
 
 def main():
@@ -525,8 +702,10 @@ def main():
     if EXPECT_EFFORT and not EFFORT_SEEN:
         fail("expected turn/start effort=%r but no turn carried one" % EXPECT_EFFORT)
     if EXPECT_RESEND and EXPECT_RESEND not in PROMPTS[1:]:
-        fail("rejected steer text %r never came back as a turn/start prompt "
-             "(prompts seen: %r)" % (EXPECT_RESEND, PROMPTS))
+        fail(
+            "rejected steer text %r never came back as a turn/start prompt "
+            "(prompts seen: %r)" % (EXPECT_RESEND, PROMPTS)
+        )
     print("MOCK-DONE failures=%d" % len(FAILURES), flush=True)
     sys.exit(1 if FAILURES else 0)
 

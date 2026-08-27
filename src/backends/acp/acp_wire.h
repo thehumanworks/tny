@@ -12,7 +12,7 @@
 #include "util/util.h"
 
 #define ACP_PROTOCOL_VERSION 1
-#define ACP_MAX_MSG (8u * 1024u * 1024u)
+#define ACP_MAX_MSG          (8u * 1024u * 1024u)
 
 /* JSON-RPC error codes (the -32000 range is ours). */
 #define ACP_E_PARSE     (-32700)
@@ -26,12 +26,12 @@
 
 typedef struct {
     buf_t buf;
-    bool  overflow; /* a line blew the cap: the stream is unusable */
+    bool overflow; /* a line blew the cap: the stream is unusable */
 } acp_reader;
 
-void  acp_reader_init(acp_reader *r);
-void  acp_reader_free(acp_reader *r);
-void  acp_reader_feed(acp_reader *r, const char *data, size_t n);
+void acp_reader_init(acp_reader *r);
+void acp_reader_free(acp_reader *r);
+void acp_reader_feed(acp_reader *r, const char *data, size_t n);
 /* Next complete line (NUL-terminated, malloc'd, no CR/LF). NULL if none. */
 char *acp_reader_next(acp_reader *r, size_t *len_out);
 

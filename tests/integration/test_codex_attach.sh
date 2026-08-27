@@ -13,15 +13,18 @@ TMP=$(mktemp -d)
 trap 'kill $MPID 2>/dev/null; rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/ws" "$TMP/home"
 
-fail() { echo "FAIL: $*" >&2; exit 1; }
-contains() { case "$1" in *"$2"*) ;; *) fail "missing '$2' in: $1" ;; esac; }
+fail() {
+    echo "FAIL: $*" >&2
+    exit 1
+}
+contains() { case "$1" in *"$2"*) ;; *) fail "missing '$2' in: $1" ;; esac }
 
 "$PY" "$MOCK" 0 > "$TMP/mock.out" 2> "$TMP/mock.err" &
 MPID=$!
 i=0
 PORT=
 while [ $i -lt 300 ]; do
-    PORT=$(sed -n 's/^ready on //p' "$TMP/mock.out" 2>/dev/null)
+    PORT=$(sed -n 's/^ready on //p' "$TMP/mock.out" 2> /dev/null)
     [ -n "$PORT" ] && break
     i=$((i + 1))
     sleep 0.1

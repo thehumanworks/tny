@@ -9,7 +9,11 @@ from tny_ext import ExtensionAPI, HookEvent
 
 def _log_path() -> Path:
     configured = os.environ.get("TNY_EVENT_LOG")
-    return Path(configured).expanduser() if configured else Path.home() / ".tny" / "events.jsonl"
+    return (
+        Path(configured).expanduser()
+        if configured
+        else Path.home() / ".tny" / "events.jsonl"
+    )
 
 
 def setup(api: ExtensionAPI) -> None:

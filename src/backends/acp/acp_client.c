@@ -44,23 +44,20 @@ static yyjson_val *ac_find_model_config(yyjson_val *configs) {
     yyjson_arr_foreach(configs, idx, max, config) {
         const char *type = jget_str(config, "type");
         const char *category = jget_str(config, "category");
-        if (type && category && strcmp(type, "select") == 0 &&
-            strcmp(category, "model") == 0)
+        if (type && category && strcmp(type, "select") == 0 && strcmp(category, "model") == 0)
             return config;
     }
     /* Older agents commonly omit category and use the conventional id. */
     yyjson_arr_foreach(configs, idx, max, config) {
         const char *type = jget_str(config, "type");
         const char *id = jget_str(config, "id");
-        if (type && id && strcmp(type, "select") == 0 &&
-            strcmp(id, "model") == 0)
-            return config;
+        if (type && id && strcmp(type, "select") == 0 && strcmp(id, "model") == 0) return config;
     }
     return NULL;
 }
 
-static int ac_set_requested_model(ac_impl *o, yyjson_val *session_result,
-                                  const char *session_id, char *e, size_t el) {
+static int ac_set_requested_model(ac_impl *o, yyjson_val *session_result, const char *session_id,
+                                  char *e, size_t el) {
     const char *wanted = o->ctx->model;
     if (!wanted || !*wanted) return 0;
 
@@ -71,8 +68,7 @@ static int ac_set_requested_model(ac_impl *o, yyjson_val *session_result,
     }
     const char *config_id = jget_str(config, "id");
     if (!config_id || !ac_config_has_value(jget(config, "options"), wanted)) {
-        snprintf(e, el, "acp: requested model '%.*s' is not advertised by the agent",
-                 120, wanted);
+        snprintf(e, el, "acp: requested model '%.*s' is not advertised by the agent", 120, wanted);
         return -1;
     }
 
@@ -105,8 +101,7 @@ static int ac_set_requested_model(ac_impl *o, yyjson_val *session_result,
     }
     const char *current = confirmed ? jget_str(confirmed, "currentValue") : NULL;
     if (!current || strcmp(current, wanted) != 0) {
-        snprintf(e, el,
-                 "acp: agent did not confirm requested model '%.*s' after configuration",
+        snprintf(e, el, "acp: agent did not confirm requested model '%.*s' after configuration",
                  120, wanted);
         yyjson_doc_free(doc);
         return -1;
@@ -119,7 +114,10 @@ static int ac_set_requested_model(ac_impl *o, yyjson_val *session_result,
 
 static void ac_disconnect(tny_backend *b) {
     ac_impl *o = b->impl;
-    if (o->ws) { ws_close(o->ws); o->ws = NULL; }
+    if (o->ws) {
+        ws_close(o->ws);
+        o->ws = NULL;
+    }
     if (o->pid > 0) {
         pid_t pgid = o->pid; /* the spawn made the agent its group leader */
         if (o->in_fd >= 0) close(o->in_fd);
@@ -127,7 +125,10 @@ static void ac_disconnect(tny_backend *b) {
         int status = 0;
         for (int i = 0; i < 50; i++) {
             pid_t r = waitpid(o->pid, &status, WNOHANG);
-            if (r == o->pid || r < 0) { o->pid = 0; break; }
+            if (r == o->pid || r < 0) {
+                o->pid = 0;
+                break;
+            }
             struct pollfd p = {o->out_fd, POLLIN, 0};
             tny_poll(&p, o->out_fd >= 0 ? 1 : 0, 10);
         }
@@ -138,9 +139,18 @@ static void ac_disconnect(tny_backend *b) {
         }
         kill(-pgid, SIGKILL); /* sweep wrapper-forked descendants */
     }
-    if (o->in_fd >= 0) { close(o->in_fd); o->in_fd = -1; }
-    if (o->out_fd >= 0) { close(o->out_fd); o->out_fd = -1; }
-    if (o->err_fd >= 0) { close(o->err_fd); o->err_fd = -1; }
+    if (o->in_fd >= 0) {
+        close(o->in_fd);
+        o->in_fd = -1;
+    }
+    if (o->out_fd >= 0) {
+        close(o->out_fd);
+        o->out_fd = -1;
+    }
+    if (o->err_fd >= 0) {
+        close(o->err_fd);
+        o->err_fd = -1;
+    }
 }
 
 static int ac_connect(tny_backend *b, char *errbuf, size_t errlen) {
@@ -155,13 +165,16 @@ static int ac_connect(tny_backend *b, char *errbuf, size_t errlen) {
     buf_t p;
     buf_init(&p);
     buf_appendf(&p,
-        "{\"protocolVersion\":%d,\"clientCapabilities\":{\"fs\":{\"readTextFile\":false,"
-        "\"writeTextFile\":false},\"terminal\":false},\"clientInfo\":{\"name\":\"tny\","
-        "\"title\":\"tny\",\"version\":\"%s\"}}",
-        ACP_PROTOCOL_VERSION, TNY_VERSION);
+                "{\"protocolVersion\":%d,\"clientCapabilities\":{\"fs\":{\"readTextFile\":false,"
+                "\"writeTextFile\":false},\"terminal\":false},\"clientInfo\":{\"name\":\"tny\","
+                "\"title\":\"tny\",\"version\":\"%s\"}}",
+                ACP_PROTOCOL_VERSION, TNY_VERSION);
     yyjson_doc *doc = ac_rpc(o, "initialize", p.data, errbuf, errlen);
     buf_free(&p);
-    if (!doc) { ac_disconnect(b); return -1; }
+    if (!doc) {
+        ac_disconnect(b);
+        return -1;
+    }
 
     yyjson_val *res = jget(yyjson_doc_get_root(doc), "result");
     int64_t ver = jget_int(res, "protocolVersion", ACP_PROTOCOL_VERSION);
@@ -171,8 +184,7 @@ static int ac_connect(tny_backend *b, char *errbuf, size_t errlen) {
     yyjson_doc_free(doc);
 
     if (ver != ACP_PROTOCOL_VERSION) {
-        snprintf(errbuf, errlen,
-                 "acp: agent negotiated protocolVersion %lld; tny speaks %d",
+        snprintf(errbuf, errlen, "acp: agent negotiated protocolVersion %lld; tny speaks %d",
                  (long long)ver, ACP_PROTOCOL_VERSION);
         ac_disconnect(b);
         return -1;
@@ -247,16 +259,15 @@ static char *ac_session_pointer(tny_backend *b) {
     return o->session_id ? xstrdup(o->session_id) : NULL;
 }
 
-static int ac_send(tny_backend *b, const char *prompt, const char **images,
-                   tny_backend_event_cb cb, void *ud, char *errbuf, size_t errlen) {
+static int ac_send(tny_backend *b, const char *prompt, const char **images, tny_backend_event_cb cb,
+                   void *ud, char *errbuf, size_t errlen) {
     ac_impl *o = b->impl;
     if (!o->session_id) {
         snprintf(errbuf, errlen, "acp: no session (call create_or_resume first)");
         return -1;
     }
     if (images && images[0]) {
-        snprintf(errbuf, errlen,
-                 "acp: image prompts are not supported by the ACP client backend");
+        snprintf(errbuf, errlen, "acp: image prompts are not supported by the ACP client backend");
         return -1;
     }
     o->cb = cb;
@@ -306,14 +317,12 @@ static void ac_cancel(tny_backend *b) {
     buf_free(&p);
     /* Answer everything still pending so the agent can unwind. */
     while (o->nperms) {
-        ac_tx_result(o, o->perms[0].id_raw,
-                     "{\"outcome\":{\"outcome\":\"cancelled\"}}");
+        ac_tx_result(o, o->perms[0].id_raw, "{\"outcome\":{\"outcome\":\"cancelled\"}}");
         ac_perm_drop(o, &o->perms[0]);
     }
 }
 
-static void ac_respond_permission(tny_backend *b, const char *perm_id,
-                                  tny_perm_decision d) {
+static void ac_respond_permission(tny_backend *b, const char *perm_id, tny_perm_decision d) {
     ac_impl *o = b->impl;
     if (!perm_id) return;
     ac_perm *p = ac_perm_find(o, perm_id);
@@ -328,12 +337,8 @@ static void ac_respond_permission(tny_backend *b, const char *perm_id,
     case TNY_PERM_DECISION_ALLOW_ALWAYS:
         choice = p->allow_always ? p->allow_always : p->allow_once;
         break;
-    case TNY_PERM_DECISION_ALLOW:
-        choice = p->allow_once ? p->allow_once : p->allow_always;
-        break;
-    default:
-        choice = p->reject;
-        break;
+    case TNY_PERM_DECISION_ALLOW: choice = p->allow_once ? p->allow_once : p->allow_always; break;
+    default: choice = p->reject; break;
     }
     if (!choice) {
         /* The agent offered nothing usable for this decision: cancel instead
@@ -358,7 +363,8 @@ static int ac_pollfds(tny_backend *b, struct pollfd *fds, int max) {
 }
 
 static int ac_dispatch(tny_backend *b, struct pollfd *fds, int n) {
-    (void)fds; (void)n;
+    (void)fds;
+    (void)n;
     ac_impl *o = b->impl;
     if (!o->ws && o->out_fd < 0) return 0;
     int rc = ac_pump_reads(o);
@@ -374,12 +380,10 @@ static int ac_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             char msg[160];
             if (code == 127)
                 snprintf(msg, sizeof msg, "acp: agent '%s' could not be executed",
-                         o->ctx->agent_argv && o->ctx->agent_argv[0]
-                             ? o->ctx->agent_argv[0] : "?");
+                         o->ctx->agent_argv && o->ctx->agent_argv[0] ? o->ctx->agent_argv[0] : "?");
             else if (code >= 0)
                 snprintf(msg, sizeof msg, "acp: agent exited (status %d) mid-turn", code);
-            else
-                snprintf(msg, sizeof msg, "acp: agent closed the connection mid-turn");
+            else snprintf(msg, sizeof msg, "acp: agent closed the connection mid-turn");
             fail_turn(o, msg);
         }
         return -1;
@@ -394,13 +398,11 @@ static int ac_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
         return 1;
     }
     if (ac_agent_is_ws(ctx->agent_argv[0])) {
-        snprintf(line, linelen, "acp: remote agent %.80s (WebSocket)",
-                 ctx->agent_argv[0]);
+        snprintf(line, linelen, "acp: remote agent %.80s (WebSocket)", ctx->agent_argv[0]);
         return 0;
     }
     if (!ac_on_path(ctx->agent_argv[0])) {
-        snprintf(line, linelen, "acp: agent '%.80s' not found on PATH",
-                 ctx->agent_argv[0]);
+        snprintf(line, linelen, "acp: agent '%.80s' not found on PATH", ctx->agent_argv[0]);
         return 1;
     }
     snprintf(line, linelen, "acp: agent '%.80s' resolves", ctx->agent_argv[0]);
@@ -422,7 +424,11 @@ static void ac_destroy(tny_backend *b) {
 tny_backend *tny_backend_acp_new(struct tny_ctx *ctx) {
     tny_backend *b = calloc(1, sizeof *b);
     ac_impl *o = calloc(1, sizeof *o);
-    if (!b || !o) { free(b); free(o); return NULL; }
+    if (!b || !o) {
+        free(b);
+        free(o);
+        return NULL;
+    }
     o->ctx = ctx;
     o->in_fd = o->out_fd = o->err_fd = -1;
     o->next_id = 1;

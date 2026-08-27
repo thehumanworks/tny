@@ -23,7 +23,6 @@ from tny_ext.actions import action_to_dict
 from tny_ext.capabilities import capability_view_from_dict
 from tny_ext.events import event_from_dict
 
-
 PROTOCOL_VERSION = 1
 EVENT_SCHEMA_VERSION = 1
 ACTION_SCHEMA_VERSION = 1
@@ -47,7 +46,9 @@ def _entry_path(entry: str, cwd: Optional[str]) -> Tuple[str, bool]:
     if os.path.isdir(resolved):
         index = os.path.join(resolved, "index.py")
         if not os.path.isfile(index):
-            raise FileNotFoundError("extension directory has no index.py: %s" % resolved)
+            raise FileNotFoundError(
+                "extension directory has no index.py: %s" % resolved
+            )
         return index, True
     if not os.path.isfile(resolved):
         raise FileNotFoundError("extension entry does not exist: %s" % resolved)
@@ -69,13 +70,21 @@ def _temporary_sys_path(path: str) -> Any:
             pass
 
 
-def _load_module(entry: str, ordinal: int, cwd: Optional[str]) -> Tuple[ModuleType, str, str]:
+def _load_module(
+    entry: str, ordinal: int, cwd: Optional[str]
+) -> Tuple[ModuleType, str, str]:
     path, is_package = _entry_path(entry, cwd)
     extension_dir = os.path.dirname(path)
-    extension_name = os.path.basename(extension_dir) if is_package else os.path.splitext(os.path.basename(path))[0]
+    extension_name = (
+        os.path.basename(extension_dir)
+        if is_package
+        else os.path.splitext(os.path.basename(path))[0]
+    )
     module_name = "_tny_extension_%d_%s" % (ordinal, extension_name.replace("-", "_"))
     if is_package:
-        spec = importlib.util.spec_from_file_location(module_name, path, submodule_search_locations=[extension_dir])
+        spec = importlib.util.spec_from_file_location(
+            module_name, path, submodule_search_locations=[extension_dir]
+        )
     else:
         spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
@@ -97,11 +106,20 @@ def _run_awaitable(value: Any) -> Any:
     return value
 
 
-def _failure(kind: str, error: BaseException, debug: bool, **fields: Any) -> Dict[str, Any]:
-    result: Dict[str, Any] = {"kind": kind, "message": str(error) or type(error).__name__}
+def _failure(
+    kind: str, error: BaseException, debug: bool, **fields: Any
+) -> Dict[str, Any]:
+    result: Dict[str, Any] = {
+        "kind": kind,
+        "message": str(error) or type(error).__name__,
+    }
     result.update(fields)
     if debug:
-        rendered = "".join(traceback.format_exception(type(error), error, error.__traceback__, limit=12))
+        rendered = "".join(
+            traceback.format_exception(
+                type(error), error, error.__traceback__, limit=12
+            )
+        )
         if len(rendered) > MAX_TRACEBACK_CHARS:
             rendered = rendered[-MAX_TRACEBACK_CHARS:]
         result["traceback"] = rendered
@@ -121,7 +139,9 @@ class ExtensionHost:
         entries_value = request.get("entries")
         if entries_value is None and isinstance(request.get("entry"), str):
             entries_value = [request.get("entry")]
-        if not isinstance(entries_value, list) or not all(isinstance(item, str) for item in entries_value):
+        if not isinstance(entries_value, list) or not all(
+            isinstance(item, str) for item in entries_value
+        ):
             raise ValueError("initialize.entries must be an array of paths")
         cwd = request.get("cwd")
         if cwd is not None and not isinstance(cwd, str):
@@ -160,12 +180,20 @@ class ExtensionHost:
                     module, name, path = _load_module(entry, ordinal, cwd)
                     setup = getattr(module, "setup", None)
                     if not callable(setup):
-                        raise TypeError("extension must define callable setup(api): %s" % path)
+                        raise TypeError(
+                            "extension must define callable setup(api): %s" % path
+                        )
                     api = ExtensionAPI(name, capabilities)
                     _run_awaitable(setup(api))
                 for registration in api.registrations:
-                    handler_id = "%d:%s:%d" % (ordinal, registration.event, registration.index)
-                    loaded = LoadedHandler(handler_id, registration.event, name, registration.handler)
+                    handler_id = "%d:%s:%d" % (
+                        ordinal,
+                        registration.event,
+                        registration.index,
+                    )
+                    loaded = LoadedHandler(
+                        handler_id, registration.event, name, registration.handler
+                    )
                     self.handlers[handler_id] = loaded
                     subscriptions.append(
                         {
@@ -175,9 +203,13 @@ class ExtensionHost:
                             "entry": path,
                         }
                     )
-                extensions.append({"entry": path, "name": name, "handlers": len(api.registrations)})
+                extensions.append(
+                    {"entry": path, "name": name, "handlers": len(api.registrations)}
+                )
             except BaseException as error:
-                load_errors.append(_failure("load_error", error, self.debug, extension=entry))
+                load_errors.append(
+                    _failure("load_error", error, self.debug, extension=entry)
+                )
         self.initialized = True
         return {
             "protocol": PROTOCOL_VERSION,
@@ -203,7 +235,10 @@ class ExtensionHost:
         loaded = self.handlers[handler_id]
         event = event_from_dict(event_value)
         if loaded.event != "*" and event.type != loaded.event:
-            raise ValueError("handler %s subscribes to %s, not %s" % (handler_id, loaded.event, event.type))
+            raise ValueError(
+                "handler %s subscribes to %s, not %s"
+                % (handler_id, loaded.event, event.type)
+            )
         try:
             with contextlib.redirect_stdout(sys.stderr):
                 result = _run_awaitable(loaded.callback(event))
@@ -244,7 +279,9 @@ class ExtensionHost:
     def respond(self, request_id: Any, body: Mapping[str, Any], ok: bool) -> None:
         response: Dict[str, Any] = {"id": request_id, "ok": ok}
         response.update(body)
-        self.protocol_out.write(json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n")
+        self.protocol_out.write(
+            json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n"
+        )
         self.protocol_out.flush()
 
 
@@ -268,11 +305,17 @@ def main() -> int:
             if should_exit:
                 return 0
         except (ValueError, TypeError, json.JSONDecodeError) as error:
-            host.respond(request_id, {"error": _failure("protocol_error", error, host.debug)}, False)
+            host.respond(
+                request_id,
+                {"error": _failure("protocol_error", error, host.debug)},
+                False,
+            )
         except BaseException as error:
             # A host bug should still be a bounded response instead of corrupting
             # or abruptly closing the JSONL stream.
-            host.respond(request_id, {"error": _failure("host_error", error, host.debug)}, False)
+            host.respond(
+                request_id, {"error": _failure("host_error", error, host.debug)}, False
+            )
     return 0
 
 

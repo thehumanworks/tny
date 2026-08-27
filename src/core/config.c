@@ -32,8 +32,16 @@ int tny_parse_max_steps(const char *s) {
 void tny_color_resolve(const tny_ctx *ctx, bool tty, bool *color, bool *attr) {
     const char *f = getenv("CLICOLOR_FORCE");
     bool force = ctx->force_color || (f && *f && strcmp(f, "0") != 0);
-    if (ctx->no_color) { *color = false; *attr = false; return; }
-    if (force) { *color = true; *attr = true; return; }
+    if (ctx->no_color) {
+        *color = false;
+        *attr = false;
+        return;
+    }
+    if (force) {
+        *color = true;
+        *attr = true;
+        return;
+    }
     *attr = tty;
     *color = tty && !getenv("NO_COLOR");
 }
@@ -42,9 +50,7 @@ bool tny_tier_is_fast(const char *tier) {
     return tier && (strcmp(tier, "fast") == 0 || strcmp(tier, "priority") == 0);
 }
 
-bool tny_wire_is_chat(const char *wire_api) {
-    return wire_api && strcmp(wire_api, "chat") == 0;
-}
+bool tny_wire_is_chat(const char *wire_api) { return wire_api && strcmp(wire_api, "chat") == 0; }
 
 static const char *bk_names[TNY_BK_COUNT] = {"openai", "cursor", "codex", "acp"};
 
@@ -58,12 +64,9 @@ static const struct {
     const char *cursor; /* ModelSelection params candidate value */
 } EFFORTS[] = {
     /* "max" is not an OpenAI chat-completions value: clamp it to xhigh. */
-    {"off",    "none",   "none",   "none"},
-    {"light",  "low",    "low",    "low"},
-    {"medium", "medium", "medium", "medium"},
-    {"high",   "high",   "high",   "high"},
-    {"xhigh",  "xhigh",  "xhigh",  "xhigh"},
-    {"max",    "xhigh",  "max",    "max"},
+    {"off", "none", "none", "none"},          {"light", "low", "low", "low"},
+    {"medium", "medium", "medium", "medium"}, {"high", "high", "high", "high"},
+    {"xhigh", "xhigh", "xhigh", "xhigh"},     {"max", "xhigh", "max", "max"},
 };
 #define N_EFFORTS ((int)(sizeof EFFORTS / sizeof *EFFORTS))
 
@@ -80,9 +83,9 @@ const char *tny_effort_wire(int backend, const char *v) {
         if (strcmp(EFFORTS[i].level, v) != 0) continue;
         switch (backend) {
         case TNY_BK_OPENAI: return EFFORTS[i].openai;
-        case TNY_BK_CODEX:  return EFFORTS[i].codex;
+        case TNY_BK_CODEX: return EFFORTS[i].codex;
         case TNY_BK_CURSOR: return EFFORTS[i].cursor;
-        default:            return EFFORTS[i].level;
+        default: return EFFORTS[i].level;
         }
     }
     return v; /* provider-advertised token: trust the catalog */
@@ -112,8 +115,7 @@ static yyjson_val *ws_obj(tny_ctx *ctx) {
 }
 
 const char *tny_provider_name(const tny_ctx *ctx) {
-    return ctx->provider_name ? ctx->provider_name
-                              : tny_backend_name((tny_backend_id)ctx->backend);
+    return ctx->provider_name ? ctx->provider_name : tny_backend_name((tny_backend_id)ctx->backend);
 }
 
 /* Any top-level settings object with a base_url is a user-named
@@ -163,8 +165,8 @@ static bool acp_profile_name_valid(const char *name) {
     if (!name || !*name) return false;
     for (const char *p = name; *p; p++) {
         char c = *p;
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-              (c >= '0' && c <= '9') || c == '-' || c == '_'))
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+              c == '-' || c == '_'))
             return false;
     }
     return true;
@@ -183,42 +185,50 @@ static void clear_profile_agent(tny_ctx *ctx) {
 static int apply_acp_profile(tny_ctx *ctx, const char *provider) {
     const char *name = acp_provider_name(provider);
     if (!acp_profile_name_valid(name)) {
-        fprintf(stderr, "tny: invalid ACP provider '%s': names use letters, "
-                        "digits, - and _\n", provider);
+        fprintf(stderr,
+                "tny: invalid ACP provider '%s': names use letters, "
+                "digits, - and _\n",
+                provider);
         return -1;
     }
     yyjson_val *profile = acp_profile_obj(ctx, provider);
     if (!profile) {
-        fprintf(stderr, "tny: ACP provider '%s' is not defined under "
-                        "settings.json acp.%s\n", provider, name);
+        fprintf(stderr,
+                "tny: ACP provider '%s' is not defined under "
+                "settings.json acp.%s\n",
+                provider, name);
         return -1;
     }
     yyjson_val *command_val = jget(profile, "command");
     yyjson_val *args = jget(profile, "args");
     bool legacy_command = yyjson_is_arr(command_val);
-    const char *command = yyjson_is_str(command_val)
-                            ? yyjson_get_str(command_val) : NULL;
+    const char *command = yyjson_is_str(command_val) ? yyjson_get_str(command_val) : NULL;
     if ((!command || !*command) && !legacy_command) {
-        fprintf(stderr, "tny: settings.json acp.%s.command must be a "
-                        "nonempty string\n", name);
+        fprintf(stderr,
+                "tny: settings.json acp.%s.command must be a "
+                "nonempty string\n",
+                name);
         return -1;
     }
     if (legacy_command && args) {
-        fprintf(stderr, "tny: settings.json acp.%s cannot combine legacy "
-                        "command array with args\n", name);
+        fprintf(stderr,
+                "tny: settings.json acp.%s cannot combine legacy "
+                "command array with args\n",
+                name);
         return -1;
     }
     if (args && !yyjson_is_arr(args)) {
-        fprintf(stderr, "tny: settings.json acp.%s.args must be a string "
-                        "array when present\n", name);
+        fprintf(stderr,
+                "tny: settings.json acp.%s.args must be a string "
+                "array when present\n",
+                name);
         return -1;
     }
     yyjson_val *parts = legacy_command ? command_val : args;
     size_t nparts = yyjson_is_arr(parts) ? yyjson_arr_size(parts) : 0;
     size_t argc = legacy_command ? nparts : nparts + 1;
     if (argc == 0) {
-        fprintf(stderr, "tny: settings.json acp.%s.command must not be empty\n",
-                name);
+        fprintf(stderr, "tny: settings.json acp.%s.command must not be empty\n", name);
         return -1;
     }
     char **argv = calloc(argc + 1, sizeof *argv);
@@ -226,29 +236,34 @@ static int apply_acp_profile(tny_ctx *ctx, const char *provider) {
     size_t out = 0, idx, max;
     yyjson_val *v;
     if (!legacy_command) argv[out++] = xstrdup(command);
-    if ((!legacy_command && !argv[0])) { free(argv); return -1; }
-    if (yyjson_is_arr(parts)) yyjson_arr_foreach(parts, idx, max, v) {
-        const char *arg = yyjson_is_str(v) ? yyjson_get_str(v) : NULL;
-        if (!arg || !*arg) {
-            fprintf(stderr, "tny: settings.json acp.%s.%s[%zu] must be a "
-                            "nonempty string\n", name,
-                            legacy_command ? "command" : "args", idx);
-            for (size_t i = 0; i < out; i++) free(argv[i]);
-            free(argv);
-            return -1;
-        }
-        argv[out] = xstrdup(arg);
-        if (!argv[out]) {
-            for (size_t i = 0; i < out; i++) free(argv[i]);
-            free(argv);
-            return -1; /* OOM: allocator fault injection is out of scope */
-        }
-        out++;
+    if ((!legacy_command && !argv[0])) {
+        free(argv);
+        return -1;
     }
-    if ((str_starts(argv[0], "ws://") || str_starts(argv[0], "wss://")) &&
-        argc != 1) {
-        fprintf(stderr, "tny: settings.json acp.%s.args must be empty for a "
-                        "remote WebSocket agent\n", name);
+    if (yyjson_is_arr(parts)) yyjson_arr_foreach(parts, idx, max, v) {
+            const char *arg = yyjson_is_str(v) ? yyjson_get_str(v) : NULL;
+            if (!arg || !*arg) {
+                fprintf(stderr,
+                        "tny: settings.json acp.%s.%s[%zu] must be a "
+                        "nonempty string\n",
+                        name, legacy_command ? "command" : "args", idx);
+                for (size_t i = 0; i < out; i++) free(argv[i]);
+                free(argv);
+                return -1;
+            }
+            argv[out] = xstrdup(arg);
+            if (!argv[out]) {
+                for (size_t i = 0; i < out; i++) free(argv[i]);
+                free(argv);
+                return -1; /* OOM: allocator fault injection is out of scope */
+            }
+            out++;
+        }
+    if ((str_starts(argv[0], "ws://") || str_starts(argv[0], "wss://")) && argc != 1) {
+        fprintf(stderr,
+                "tny: settings.json acp.%s.args must be empty for a "
+                "remote WebSocket agent\n",
+                name);
         for (size_t i = 0; i < argc; i++) free(argv[i]);
         free(argv);
         return -1;
@@ -258,17 +273,21 @@ static int apply_acp_profile(tny_ctx *ctx, const char *provider) {
     if (model_val) {
         model = yyjson_is_str(model_val) ? yyjson_get_str(model_val) : NULL;
         if (!model || !*model) {
-            fprintf(stderr, "tny: settings.json acp.%s.model must be a "
-                            "nonempty string when present\n", name);
+            fprintf(stderr,
+                    "tny: settings.json acp.%s.model must be a "
+                    "nonempty string when present\n",
+                    name);
             for (size_t i = 0; i < argc; i++) free(argv[i]);
             free(argv);
             return -1;
         }
     }
     if (ctx->agent_argv && !ctx->agent_from_profile) {
-        fprintf(stderr, "tny: --agent cannot be combined with named ACP "
-                        "provider '%s'; use --provider acp for an ad-hoc "
-                        "command\n", provider);
+        fprintf(stderr,
+                "tny: --agent cannot be combined with named ACP "
+                "provider '%s'; use --provider acp for an ad-hoc "
+                "command\n",
+                provider);
         for (size_t i = 0; i < argc; i++) free(argv[i]);
         free(argv);
         return -1;
@@ -340,8 +359,7 @@ char **tny_env_provider_names(int *count) {
         const char *eq = strchr(s, '=');
         if (!eq || !eq[1]) continue; /* no value: the provider is not set */
         size_t klen = (size_t)(eq - s);
-        if (klen <= suf || memcmp(s + klen - suf, "_BASE_URL", suf) != 0)
-            continue;
+        if (klen <= suf || memcmp(s + klen - suf, "_BASE_URL", suf) != 0) continue;
         size_t plen = klen - suf;
         char *name = malloc(plen + 1);
         if (!name) continue;
@@ -350,16 +368,31 @@ char **tny_env_provider_names(int *count) {
             char c = s[i];
             if (c >= 'A' && c <= 'Z') name[i] = (char)(c - 'A' + 'a');
             else if ((c >= '0' && c <= '9') || c == '_') name[i] = c;
-            else { ok = false; break; }
+            else {
+                ok = false;
+                break;
+            }
         }
         name[plen] = 0;
-        if (!ok || tny_backend_from_name(name) >= 0) { free(name); continue; }
+        if (!ok || tny_backend_from_name(name) >= 0) {
+            free(name);
+            continue;
+        }
         bool dup = false;
         for (int i = 0; i < n; i++)
-            if (strcmp(v[i], name) == 0) { dup = true; break; }
-        if (dup) { free(name); continue; }
+            if (strcmp(v[i], name) == 0) {
+                dup = true;
+                break;
+            }
+        if (dup) {
+            free(name);
+            continue;
+        }
         char **nv = realloc(v, sizeof(char *) * (size_t)(n + 2));
-        if (!nv) { free(name); break; }
+        if (!nv) {
+            free(name);
+            break;
+        }
         v = nv;
         v[n++] = name;
         v[n] = NULL;
@@ -418,7 +451,7 @@ static void load_openai_profile(tny_ctx *ctx) {
     if (!wa || !*wa) wa = jget_str(oa, "wire_api");
     free(ctx->wire_api);
     ctx->wire_api = wa && *wa ? xstrdup(wa) : NULL; /* NULL = responses */
-    tny_ctx_clear_extra_headers(ctx); /* builtin-profile headers must not leak */
+    tny_ctx_clear_extra_headers(ctx);               /* builtin-profile headers must not leak */
 }
 
 /* Point ctx at a named provider: settings profile, env vars, or both
@@ -472,7 +505,10 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
         }
     } else {
         char tmp[PATH_MAX];
-        if (!getcwd(tmp, sizeof tmp)) { free(ctx); return NULL; }
+        if (!getcwd(tmp, sizeof tmp)) {
+            free(ctx);
+            return NULL;
+        }
         ctx->cwd = xstrdup(tmp);
     }
     snprintf(ctx->ws_hash, sizeof ctx->ws_hash, "%016llx",
@@ -525,15 +561,12 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
         ctx->extensions_enabled = jget_bool(ext, "enabled", true);
         int64_t cap = jget_int(ext, "max_iterations", 0);
         int64_t timeout = jget_int(ext, "timeout_ms", 5000);
-        if (cap >= 0 && cap <= 1000000)
-            ctx->max_extension_iterations = (int)cap;
-        if (timeout >= 1 && timeout <= 600000)
-            ctx->extension_timeout_ms = (int)timeout;
+        if (cap >= 0 && cap <= 1000000) ctx->max_extension_iterations = (int)cap;
+        if (timeout >= 1 && timeout <= 600000) ctx->extension_timeout_ms = (int)timeout;
     }
     const char *ext_env = getenv("TNY_EXTENSIONS");
-    if (ext_env && (strcmp(ext_env, "0") == 0 ||
-                    strcmp(ext_env, "false") == 0 ||
-                    strcmp(ext_env, "off") == 0))
+    if (ext_env &&
+        (strcmp(ext_env, "0") == 0 || strcmp(ext_env, "false") == 0 || strcmp(ext_env, "off") == 0))
         ctx->extensions_enabled = false;
 
     /* reasoning effort: env here; a settings.json default is applied after
@@ -563,7 +596,10 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
             (size_t)jget_int(rroot, "max_tool_result_bytes", (int64_t)ctx->max_tool_result_bytes);
         ctx->context_enabled = jget_bool(rroot, "context", ctx->context_enabled);
         const char *sb = jget_str(rroot, "sandbox");
-        if (sb) { free(ctx->sandbox_mode); ctx->sandbox_mode = xstrdup(sb); }
+        if (sb) {
+            free(ctx->sandbox_mode);
+            ctx->sandbox_mode = xstrdup(sb);
+        }
     }
 
     /* saved extra dirs for this workspace */
@@ -573,20 +609,20 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
         yyjson_val *v;
         yyjson_arr_foreach(dirs, idx, max, v) {
             if (!yyjson_is_str(v)) continue;
-            ctx->extra_dirs = realloc(ctx->extra_dirs,
-                                      sizeof(char *) * (size_t)(ctx->n_extra_dirs + 1));
+            char **grown =
+                realloc(ctx->extra_dirs, sizeof(char *) * (size_t)(ctx->n_extra_dirs + 1));
+            if (!grown) break;
+            ctx->extra_dirs = grown;
             ctx->extra_dirs[ctx->n_extra_dirs++] = xstrdup(yyjson_get_str(v));
         }
     }
     (void)instructions_refresh(ctx);
     if (ctx->extensions_enabled) {
-        tny_extensions *extensions = tny_extensions_new(
-            ctx->tny_dir, ctx->cwd, ctx->extension_timeout_ms);
-        if (extensions &&
-            tny_extensions_get_state(extensions) != TNY_EXTENSIONS_EMPTY)
+        tny_extensions *extensions =
+            tny_extensions_new(ctx->tny_dir, ctx->cwd, ctx->extension_timeout_ms);
+        if (extensions && tny_extensions_get_state(extensions) != TNY_EXTENSIONS_EMPTY)
             ctx->extensions = extensions;
-        else
-            tny_extensions_free(extensions);
+        else tny_extensions_free(extensions);
     }
     return ctx;
 }
@@ -597,7 +633,10 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
     if (!ctx) return NULL;
     ctx->cwd = path_abs(cwd);
     ctx->tny_dir = path_abs(state_dir);
-    if (!ctx->cwd || !ctx->tny_dir) { tny_ctx_free(ctx); return NULL; }
+    if (!ctx->cwd || !ctx->tny_dir) {
+        tny_ctx_free(ctx);
+        return NULL;
+    }
     snprintf(ctx->ws_hash, sizeof ctx->ws_hash, "%016llx",
              (unsigned long long)fnv1a(ctx->cwd, strlen(ctx->cwd)));
     ctx->settings_path = path_join(ctx->tny_dir, "settings.json");
@@ -605,7 +644,7 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
     ctx->backend = TNY_BK_OPENAI;
     ctx->provider_name = xstrdup("openai");
     ctx->perm_mode = TNY_MODE_ASK;
-    ctx->max_steps = 0; /* unlimited unless the embedder sets a cap */
+    ctx->max_steps = 0;              /* unlimited unless the embedder sets a cap */
     ctx->extensions_enabled = false; /* explicit embedders opt into authority */
     ctx->max_extension_iterations = 0;
     ctx->extension_timeout_ms = 5000;
@@ -707,8 +746,10 @@ static int apply_provider_fast(tny_ctx *ctx) {
         return -1;
     }
     if (!(tny_backend_caps((tny_backend_id)ctx->backend) & TNY_CAP_FAST)) {
-        fprintf(stderr, "tny: settings.json fast is not supported by provider "
-                        "'%s'\n", tny_provider_name(ctx));
+        fprintf(stderr,
+                "tny: settings.json fast is not supported by provider "
+                "'%s'\n",
+                tny_provider_name(ctx));
         return -1;
     }
     free(ctx->service_tier);
@@ -723,7 +764,7 @@ static int apply_provider_fast(tny_ctx *ctx) {
  * `"effort"` is either one string for every provider or a per-provider
  * object like `"models"`; "default"/empty entries mean provider default. */
 static void apply_provider_effort(tny_ctx *ctx) {
-    if (ctx->effort_explicit) return;               /* --effort / /effort */
+    if (ctx->effort_explicit) return;                                /* --effort / /effort */
     if (ctx->reasoning_effort && !ctx->effort_from_settings) return; /* env */
     /* (re)compute for the provider that just resolved: a per-provider
      * settings value must not leak into a /provider switch */
@@ -893,7 +934,9 @@ static int settings_edit(tny_ctx *ctx, settings_edit_fn fn, void *ud) {
     return rc;
 }
 
-struct kv { const char *k, *v; };
+struct kv {
+    const char *k, *v;
+};
 
 static void edit_set_str(yyjson_mut_doc *doc, yyjson_mut_val *root, void *ud) {
     struct kv *kv = ud;
@@ -912,39 +955,34 @@ struct profile_edit {
     const tny_provider_fields *f;
 };
 
-static void edit_provider_profile(yyjson_mut_doc *doc, yyjson_mut_val *root,
-                                  void *ud) {
+static void edit_provider_profile(yyjson_mut_doc *doc, yyjson_mut_val *root, void *ud) {
     struct profile_edit *pe = ud;
     yyjson_mut_val *o = yyjson_mut_obj_get(root, pe->name);
     if (!o || !yyjson_mut_is_obj(o)) {
         o = yyjson_mut_obj(doc);
         yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, pe->name), o);
     }
-    const struct { const char *k, *v; } kv[] = {
-        {"base_url", pe->f->base_url},
-        {"api_key", pe->f->api_key},
-        {"api_key_env", pe->f->api_key_env},
-        {"model", pe->f->model},
+    const struct {
+        const char *k, *v;
+    } kv[] = {
+        {"base_url", pe->f->base_url},       {"api_key", pe->f->api_key},
+        {"api_key_env", pe->f->api_key_env}, {"model", pe->f->model},
         {"wire_api", pe->f->wire_api},
     };
     for (size_t i = 0; i < sizeof kv / sizeof *kv; i++)
         if (kv[i].v)
-            yyjson_mut_obj_put(o, yyjson_mut_strcpy(doc, kv[i].k),
-                               yyjson_mut_strcpy(doc, kv[i].v));
+            yyjson_mut_obj_put(o, yyjson_mut_strcpy(doc, kv[i].k), yyjson_mut_strcpy(doc, kv[i].v));
     /* a stored key and a key env var are alternatives: setting one clears
      * the other so the effective source is what the user just chose */
-    if (pe->f->api_key)
-        yyjson_mut_obj_remove_key(o, "api_key_env");
-    if (pe->f->api_key_env)
-        yyjson_mut_obj_remove_key(o, "api_key");
+    if (pe->f->api_key) yyjson_mut_obj_remove_key(o, "api_key_env");
+    if (pe->f->api_key_env) yyjson_mut_obj_remove_key(o, "api_key");
 }
 
 /* Merge fields into the profile `name` ("openai" or a custom name; other
  * builtins are rejected). NULL fields keep their current values. When a
  * raw api_key is stored, settings.json drops to 0600. 0 ok, -1 error
  * (reason in errbuf). */
-int tny_provider_write_profile(tny_ctx *ctx, const char *name,
-                               const tny_provider_fields *f,
+int tny_provider_write_profile(tny_ctx *ctx, const char *name, const tny_provider_fields *f,
                                char *errbuf, size_t errlen) {
     if (!name || !*name) {
         snprintf(errbuf, errlen, "provider setup needs a name");
@@ -954,35 +992,35 @@ int tny_provider_write_profile(tny_ctx *ctx, const char *name,
     if (builtin >= 0 && builtin != TNY_BK_OPENAI) {
         snprintf(errbuf, errlen,
                  "'%s' is a host provider; only openai-compatible profiles "
-                 "take base_url/api_key", name);
+                 "take base_url/api_key",
+                 name);
         return -1;
     }
     for (const char *p = name; *p; p++) {
         char c = *p;
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-              (c >= '0' && c <= '9') || c == '-' || c == '_')) {
-            snprintf(errbuf, errlen,
-                     "provider names use letters, digits, - and _ (got '%s')",
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+              c == '-' || c == '_')) {
+            snprintf(errbuf, errlen, "provider names use letters, digits, - and _ (got '%s')",
                      name);
             return -1;
         }
     }
     /* reserved top-level settings keys must never become profiles */
     static const char *const reserved[] = {
-        "$schema", "workspaces", "models", "model", "provider", "fast",
-        "permission", "permission_mode", "effort", "extensions", "acp",
-        "last_provider", "last_backend", "web_search_url", NULL};
+        "$schema", "workspaces",    "models",          "model",          "provider",
+        "fast",    "permission",    "permission_mode", "effort",         "extensions",
+        "acp",     "last_provider", "last_backend",    "web_search_url", NULL};
     for (int i = 0; reserved[i]; i++)
         if (strcmp(name, reserved[i]) == 0) {
             snprintf(errbuf, errlen, "'%s' is a reserved settings key", name);
             return -1;
         }
-    bool exists = builtin == TNY_BK_OPENAI ||
-                  custom_provider_obj(ctx, name) != NULL;
+    bool exists = builtin == TNY_BK_OPENAI || custom_provider_obj(ctx, name) != NULL;
     if (!exists && (!f->base_url || !*f->base_url)) {
         snprintf(errbuf, errlen,
                  "new provider '%s' needs --base-url (an OpenAI-compatible "
-                 "/v1 endpoint)", name);
+                 "/v1 endpoint)",
+                 name);
         return -1;
     }
     struct profile_edit pe = {name, f};
@@ -990,8 +1028,7 @@ int tny_provider_write_profile(tny_ctx *ctx, const char *name,
         snprintf(errbuf, errlen, "could not write %s", ctx->settings_path);
         return -1;
     }
-    if (f->api_key && *f->api_key)
-        chmod(ctx->settings_path, 0600); /* it now holds a secret */
+    if (f->api_key && *f->api_key) chmod(ctx->settings_path, 0600); /* it now holds a secret */
     return 0;
 }
 
@@ -1005,8 +1042,7 @@ static void edit_remember_use(yyjson_mut_doc *doc, yyjson_mut_val *root, void *u
         models = yyjson_mut_obj(doc);
         yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "models"), models);
     }
-    yyjson_mut_obj_put(models, yyjson_mut_strcpy(doc, kv->k),
-                       yyjson_mut_strcpy(doc, kv->v));
+    yyjson_mut_obj_put(models, yyjson_mut_strcpy(doc, kv->k), yyjson_mut_strcpy(doc, kv->v));
 }
 
 int tny_settings_remember_use(tny_ctx *ctx) {
@@ -1020,7 +1056,11 @@ int tny_settings_remember_use(tny_ctx *ctx) {
     return settings_edit(ctx, edit_remember_use, &kv);
 }
 
-struct ws_edit { tny_ctx *ctx; const char *dir; int op; }; /* 0 add, 1 remove, 2 clear */
+struct ws_edit {
+    tny_ctx *ctx;
+    const char *dir;
+    int op;
+}; /* 0 add, 1 remove, 2 clear */
 
 static yyjson_mut_val *ws_mut_obj(yyjson_mut_doc *doc, yyjson_mut_val *root, const char *cwd) {
     yyjson_mut_val *all = yyjson_mut_obj_get(root, "workspaces");
@@ -1079,8 +1119,7 @@ int tny_workspace_add(tny_ctx *ctx, const char *dir) {
                 break;
             }
         }
-        char **next = realloc(ctx->extra_dirs,
-                              sizeof(char *) * (size_t)(ctx->n_extra_dirs + 1));
+        char **next = realloc(ctx->extra_dirs, sizeof(char *) * (size_t)(ctx->n_extra_dirs + 1));
         if (next) {
             ctx->extra_dirs = next;
             ctx->extra_dirs[ctx->n_extra_dirs++] = xstrdup(abs);
@@ -1146,8 +1185,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->service_tier);
     free(ctx->reasoning_effort);
     free(ctx->instructions_snapshot);
-    for (int i = 0; i < ctx->n_instruction_paths; i++)
-        free(ctx->instruction_paths[i]);
+    for (int i = 0; i < ctx->n_instruction_paths; i++) free(ctx->instruction_paths[i]);
     free(ctx->instruction_paths);
     if (ctx->agent_argv) {
         for (char **p = ctx->agent_argv; *p; p++) free(*p);
@@ -1172,22 +1210,23 @@ char *tny_provider_names_joined(tny_ctx *ctx) {
     size_t idx, max;
     yyjson_val *k, *v;
     if (yyjson_is_obj(root)) yyjson_obj_foreach(root, idx, max, k, v) {
-        const char *name = yyjson_get_str(k);
-        if (!name || !yyjson_is_obj(v)) continue;
-        if (tny_builtin_profile_exists(name)) continue; /* already listed */
-        const char *bu = jget_str(v, "base_url");
-        if (!bu || !*bu || !tny_custom_provider_exists(ctx, name)) continue;
-        buf_appendf(&b, "|%s", name);
-    }
+            const char *name = yyjson_get_str(k);
+            if (!name || !yyjson_is_obj(v)) continue;
+            if (tny_builtin_profile_exists(name)) continue; /* already listed */
+            const char *bu = jget_str(v, "base_url");
+            if (!bu || !*bu || !tny_custom_provider_exists(ctx, name)) continue;
+            buf_appendf(&b, "|%s", name);
+        }
     yyjson_val *agents = acp_profiles_obj(ctx);
     if (yyjson_is_obj(agents)) yyjson_obj_foreach(agents, idx, max, k, v) {
-        const char *name = yyjson_get_str(k);
-        /* Invalid commands are still listed: selection validates them and
-         * reports the exact field. Invalid names cannot form a provider ID. */
-        if (!name || strcmp(name, "agents") == 0 ||
-            !acp_profile_name_valid(name) || !yyjson_is_obj(v)) continue;
-        buf_appendf(&b, "|acp@%s", name);
-    }
+            const char *name = yyjson_get_str(k);
+            /* Invalid commands are still listed: selection validates them and
+             * reports the exact field. Invalid names cannot form a provider ID. */
+            if (!name || strcmp(name, "agents") == 0 || !acp_profile_name_valid(name) ||
+                !yyjson_is_obj(v))
+                continue;
+            buf_appendf(&b, "|acp@%s", name);
+        }
     int n_env = 0;
     char **env = tny_env_provider_names(&n_env);
     for (int i = 0; i < n_env; i++) {

@@ -9,12 +9,11 @@ child process, exactly as it would a Python or Node embedding process.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -166,15 +165,29 @@ def compile_harness(tmp: Path) -> Path:
     source.write_text(HARNESS)
     cmd = [
         os.environ.get("CC", "cc"),
-        "-std=c11", "-Wall", "-Wextra", "-Werror",
-        "-Wno-deprecated-declarations", "-pthread",
-        "-D_DARWIN_C_SOURCE", "-D_DEFAULT_SOURCE", "-D_BSD_SOURCE",
-        "-Iinclude", "-Isrc", "-Ithird_party/picohttpparser",
+        "-std=c11",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-Wno-deprecated-declarations",
+        "-pthread",
+        "-D_DARWIN_C_SOURCE",
+        "-D_DEFAULT_SOURCE",
+        "-D_BSD_SOURCE",
+        "-Iinclude",
+        "-Isrc",
+        "-Ithird_party/picohttpparser",
         str(source),
-        "src/net/tcp.c", "src/net/stream.c", "src/net/http1.c", "src/net/url.c",
-        "src/util/util.c", "src/util/tny_poll.c",
+        "src/net/tcp.c",
+        "src/net/stream.c",
+        "src/net/http1.c",
+        "src/net/url.c",
+        "src/util/util.c",
+        "src/util/tny_poll.c",
         "third_party/picohttpparser/picohttpparser.c",
-        "-ldl", "-o", str(binary),
+        "-ldl",
+        "-o",
+        str(binary),
     ]
     if sys.platform == "darwin":
         cmd.remove("-ldl")

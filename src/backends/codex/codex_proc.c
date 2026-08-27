@@ -30,9 +30,15 @@ int cx_pick_port(void) {
     sa.sin_family = AF_INET;
     sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     sa.sin_port = 0;
-    if (bind(fd, (struct sockaddr *)&sa, sizeof sa) != 0) { close(fd); return -1; }
+    if (bind(fd, (struct sockaddr *)&sa, sizeof sa) != 0) {
+        close(fd);
+        return -1;
+    }
     socklen_t sl = sizeof sa;
-    if (getsockname(fd, (struct sockaddr *)&sa, &sl) != 0) { close(fd); return -1; }
+    if (getsockname(fd, (struct sockaddr *)&sa, &sl) != 0) {
+        close(fd);
+        return -1;
+    }
     int port = ntohs(sa.sin_port);
     close(fd);
     return port;
@@ -90,7 +96,10 @@ int cx_spawn(cx_impl *o, int port, char *err, size_t errlen) {
  * Forward it only under TNY_DEBUG; otherwise keep a short tail so a
  * startup failure can still show what the host said. */
 static void cx_emit_stderr_line(cx_impl *o) {
-    if (!o->child_line.data) { buf_clear(&o->child_line); return; }
+    if (!o->child_line.data) {
+        buf_clear(&o->child_line);
+        return;
+    }
     char *s = str_trim(o->child_line.data);
     if (*s) {
         if (!o->ctx->library_mode && tny_debug())
@@ -150,7 +159,10 @@ void cx_stop_child(cx_impl *o) {
     }
     if (o->child_err >= 0) {
         cx_drain_child_stderr(o);
-        if (o->child_err >= 0) { close(o->child_err); o->child_err = -1; }
+        if (o->child_err >= 0) {
+            close(o->child_err);
+            o->child_err = -1;
+        }
     }
     if (o->child <= 0) return;
     if (!o->child_reaped) {
@@ -159,14 +171,17 @@ void cx_stop_child(cx_impl *o) {
         for (;;) {
             int st = 0;
             pid_t r = waitpid(o->child, &st, WNOHANG);
-            if (r == o->child || (r < 0 && errno != EINTR)) { o->child_reaped = true; break; }
+            if (r == o->child || (r < 0 && errno != EINTR)) {
+                o->child_reaped = true;
+                break;
+            }
             if (now_ms() > deadline) break;
             tny_poll(NULL, 0, 20);
         }
         if (!o->child_reaped) {
             if (kill(-o->child, SIGKILL) != 0) kill(o->child, SIGKILL);
             int st = 0;
-            while (waitpid(o->child, &st, 0) < 0 && errno == EINTR) { }
+            while (waitpid(o->child, &st, 0) < 0 && errno == EINTR) {}
             o->child_reaped = true;
         } else {
             /* the direct child is gone; sweep any forked descendants */
@@ -182,10 +197,17 @@ int cx_capture(char *const argv[], char *out, size_t outcap, int timeout_ms) {
     out[0] = 0;
     if (pipe(pfd) != 0) return -1;
     pid_t pid = fork();
-    if (pid < 0) { close(pfd[0]); close(pfd[1]); return -1; }
+    if (pid < 0) {
+        close(pfd[0]);
+        close(pfd[1]);
+        return -1;
+    }
     if (pid == 0) {
         int devnull = open("/dev/null", O_RDONLY);
-        if (devnull >= 0) { dup2(devnull, STDIN_FILENO); close(devnull); }
+        if (devnull >= 0) {
+            dup2(devnull, STDIN_FILENO);
+            close(devnull);
+        }
         dup2(pfd[1], STDOUT_FILENO);
         dup2(pfd[1], STDERR_FILENO);
         if (pfd[1] > STDERR_FILENO) close(pfd[1]);
@@ -212,7 +234,10 @@ int cx_capture(char *const argv[], char *out, size_t outcap, int timeout_ms) {
                 out[used] = 0;
                 continue;
             }
-            if (n == 0) { eof = true; break; }
+            if (n == 0) {
+                eof = true;
+                break;
+            }
             if (errno == EINTR) continue;
             break;
         }
@@ -221,9 +246,16 @@ int cx_capture(char *const argv[], char *out, size_t outcap, int timeout_ms) {
     int status = 0, rc = -1;
     for (;;) {
         pid_t r = waitpid(pid, &status, eof ? 0 : WNOHANG);
-        if (r == pid) { rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1; break; }
+        if (r == pid) {
+            rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+            break;
+        }
         if (r < 0 && errno == EINTR) continue;
-        if (now_ms() > deadline + 500) { kill(pid, SIGKILL); waitpid(pid, &status, 0); break; }
+        if (now_ms() > deadline + 500) {
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
+            break;
+        }
         tny_poll(NULL, 0, 20);
     }
     return rc;

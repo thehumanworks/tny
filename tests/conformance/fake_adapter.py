@@ -5,9 +5,8 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 contract = json.loads((ROOT / "sdk/conformance/v1.json").read_text())
@@ -19,7 +18,9 @@ def events_for(scenario: dict[str, object]) -> list[dict[str, object]]:
     terminal_index = 0
     for index, event_type in enumerate(scenario["events"], 1):
         event: dict[str, object] = {
-            "type": event_type, "sequence": index, "timestamp_ms": index,
+            "type": event_type,
+            "sequence": index,
+            "timestamp_ms": index,
         }
         if event_type == "turn_end":
             if "terminal_reasons" in scenario:
@@ -60,22 +61,27 @@ response = {
         "transport": "native-http1",
         "linkage": "shared",
     },
-    "executions": [{
-        "id": "fixture",
-        "exit_code": 0,
-        "assertions": [
-            f"{scenario['id']}:{assertion}"
-            for scenario in contract["scenarios"]
-            for assertion in scenario["assertions"]
-        ],
-    }],
-    "scenarios": [{
-        "id": scenario["id"],
-        "status": "pass",
-        "assertions": scenario["assertions"],
-        "evidence": ["fixture"],
-        "events": events_for(scenario),
-    } for scenario in contract["scenarios"]],
+    "executions": [
+        {
+            "id": "fixture",
+            "exit_code": 0,
+            "assertions": [
+                f"{scenario['id']}:{assertion}"
+                for scenario in contract["scenarios"]
+                for assertion in scenario["assertions"]
+            ],
+        }
+    ],
+    "scenarios": [
+        {
+            "id": scenario["id"],
+            "status": "pass",
+            "assertions": scenario["assertions"],
+            "evidence": ["fixture"],
+            "events": events_for(scenario),
+        }
+        for scenario in contract["scenarios"]
+    ],
 }
 
 mutation_path = os.environ.get("TNY_CONFORMANCE_MUTATION")
@@ -115,11 +121,13 @@ if mutation_path:
             "success_two_turns:not_in_the_contract"
         )
     elif kind == "unreferenced_assertion_claim":
-        response["executions"].append({
-            "id": "dangling",
-            "exit_code": 0,
-            "assertions": ["success_two_turns:create_and_open"],
-        })
+        response["executions"].append(
+            {
+                "id": "dangling",
+                "exit_code": 0,
+                "assertions": ["success_two_turns:create_and_open"],
+            }
+        )
     else:
         raise RuntimeError(f"unknown fixture mutation {kind}")
 

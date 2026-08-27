@@ -41,5 +41,5 @@ these as `docs/adr/NNNN`.
 | [0033](0033-libtny-multi-runtime-cancel.md) | libtny supports independent runtimes; cancel is the sole cross-thread-safe operation and wakes the owner through the tny_poll seam |
 | [0034](0034-native-python-and-node-sdks.md) | Python/cffi and TypeScript/Node-API packages are thin native schedulers over libtny with bounded ownership, cancellation and packaging contracts |
 | [0035](0035-libtny-host-services.md) | libtny host callbacks use a copied, versioned, owner-thread and non-reentrant v1 service table |
-| [0036](0036-libtny-abi-1.md) | ABI 1 candidate freezes capacity-aware prefix negotiation and ABI0.8 compatibility; activation awaits immutable Linux consumers and full matrices |
+| [0036](0036-libtny-abi-1.md) | Active ABI 1 freezes capacity-aware prefix negotiation and ABI0.8 compatibility after immutable Linux consumers and full matrices passed |
 | [0037](0037-libtny-custom-tools.md) | libtny custom tools use copied specs, native permission gating and generation-tagged async completion |

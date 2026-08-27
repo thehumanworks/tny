@@ -10,9 +10,9 @@ typedef struct {
     int write_fd;
 } tny_wake;
 
-int  tny_wake_init(tny_wake *wake);
+int tny_wake_init(tny_wake *wake);
 void tny_wake_close(tny_wake *wake);
-int  tny_wake_fd(const tny_wake *wake);
+int tny_wake_fd(const tny_wake *wake);
 void tny_wake_signal(tny_wake *wake);
 void tny_wake_drain(tny_wake *wake);
 

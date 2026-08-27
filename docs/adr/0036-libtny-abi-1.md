@@ -1,8 +1,7 @@
 # 0036 — libtny ABI 1 freezes a sized-prefix C contract and platform compatibility policy
 
 Date: 2026-08-27
-Status: accepted candidate; activation pending immutable Linux x86_64/aarch64
-consumer fixtures and full platform matrices
+Status: accepted and active
 
 ## Context
 
@@ -22,19 +21,19 @@ integer returned by `tny_abi_version()`.
 
 ### Activation and baseline
 
-[`abi/baseline-v1.json`](../../abi/baseline-v1.json) is the candidate LP64,
+[`abi/baseline-v1.json`](../../abi/baseline-v1.json) is the active LP64,
 little-endian ABI 1.0 prefix. It records every numeric constant, public struct
 size/alignment/field offset, exported symbol, ELF version node, SONAME, and
-Mach-O version rule. Native macOS review has passed, but the state remains
-`candidate-pending-platform-fixtures` until immutable Linux x86_64/aarch64
-consumers and the full platform matrices pass. The final ABI0.8 compatibility source is
-commit `510a95c2ef89aa9ec02a66d8b0a5cadd953025a8`; its archive, header,
-layouts, signatures, and allowlists are pinned by `abi/compat0.json`.
+Mach-O version rule. Native macOS review, immutable Linux x86_64/aarch64
+consumer verification, and the full platform/conformance/SDK matrices passed
+before activation. The final ABI0.8 compatibility source is commit
+`510a95c2ef89aa9ec02a66d8b0a5cadd953025a8`; its archive, header, layouts,
+signatures, and allowlists are pinned by `abi/compat0.json`.
 
-The accepted candidate becomes immutable in the same commit that changes the
-baseline state to active. A baseline edit after activation requires an
-explicit compatibility explanation and the checker must still accept the
-previous baseline as the old-consumer contract.
+The accepted prefix became immutable when the baseline state changed to
+`active`. A baseline edit after activation requires an explicit compatibility
+explanation and the checker must still accept the previous baseline as the
+old-consumer contract.
 
 ### Data model and calling convention
 

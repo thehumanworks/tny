@@ -15,8 +15,7 @@
 
 static void trim(char *s) {
     size_t n = strlen(s);
-    while (n && (s[n - 1] == '\n' || s[n - 1] == '\r' || s[n - 1] == ' ' ||
-                 s[n - 1] == '\t'))
+    while (n && (s[n - 1] == '\n' || s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\t'))
         s[--n] = 0;
     size_t i = 0;
     while (s[i] == ' ' || s[i] == '\t') i++;
@@ -64,9 +63,11 @@ static int provider_setup(tny_ctx *ctx, int argc, char **argv) {
         else if (strcmp(a, "--model") == 0 && i + 1 < argc) model = argv[++i];
         else if (strcmp(a, "--wire-api") == 0 && i + 1 < argc) wire_api = argv[++i];
         else if (a[0] == '-') {
-            fprintf(stderr, "tny: provider setup: unknown flag %s\n"
+            fprintf(stderr,
+                    "tny: provider setup: unknown flag %s\n"
                     "Example: tny provider setup openrouter "
-                    "--base-url https://openrouter.ai/api/v1 --api-key sk-…\n", a);
+                    "--base-url https://openrouter.ai/api/v1 --api-key sk-…\n",
+                    a);
             return 1;
         } else if (!name) name = a;
         else {
@@ -79,8 +80,7 @@ static int provider_setup(tny_ctx *ctx, int argc, char **argv) {
                         "pick one\n");
         return 1;
     }
-    if (wire_api && strcmp(wire_api, "responses") != 0 &&
-        strcmp(wire_api, "chat") != 0) {
+    if (wire_api && strcmp(wire_api, "responses") != 0 && strcmp(wire_api, "chat") != 0) {
         fprintf(stderr, "tny: --wire-api must be responses|chat\n");
         return 1;
     }
@@ -89,33 +89,38 @@ static int provider_setup(tny_ctx *ctx, int argc, char **argv) {
     char *p_name = NULL, *p_base = NULL, *p_key = NULL, *p_model = NULL;
     if (tty && !name) {
         p_name = prompt_line("provider name (e.g. openrouter): ", false);
-        if (!p_name || !*p_name) { free(p_name); fprintf(stderr, "tny: cancelled\n"); return 1; }
+        if (!p_name || !*p_name) {
+            free(p_name);
+            fprintf(stderr, "tny: cancelled\n");
+            return 1;
+        }
         name = p_name;
     }
     if (!name) {
-        fprintf(stderr,
-                "tny: provider setup needs a NAME (and flags when not on a "
-                "terminal)\nExample: tny provider setup openrouter "
-                "--base-url https://openrouter.ai/api/v1 "
-                "--api-key-env OPENROUTER_API_KEY\n");
+        fprintf(stderr, "tny: provider setup needs a NAME (and flags when not on a "
+                        "terminal)\nExample: tny provider setup openrouter "
+                        "--base-url https://openrouter.ai/api/v1 "
+                        "--api-key-env OPENROUTER_API_KEY\n");
         return 1;
     }
-    bool exists = tny_custom_provider_exists(ctx, name) ||
-                  strcmp(name, "openai") == 0;
+    bool exists = tny_custom_provider_exists(ctx, name) || strcmp(name, "openai") == 0;
     if (tty && !base_url && !exists) {
         p_base = prompt_line("base url (OpenAI-compatible /v1 endpoint): ", false);
         if (p_base && *p_base) base_url = p_base;
     }
     if (base_url && !base_url_ok(base_url)) {
-        fprintf(stderr, "tny: base url must be http(s)://host[/prefix] "
-                        "(got '%s')\n", base_url);
-        free(p_name); free(p_base);
+        fprintf(stderr,
+                "tny: base url must be http(s)://host[/prefix] "
+                "(got '%s')\n",
+                base_url);
+        free(p_name);
+        free(p_base);
         return 1;
     }
     if (tty && !api_key && !api_key_env) {
-        p_key = prompt_line(
-            "api key (stored in ~/.tny/settings.json; $ENV_NAME to read an "
-            "env var instead; empty to skip): ", true);
+        p_key = prompt_line("api key (stored in ~/.tny/settings.json; $ENV_NAME to read an "
+                            "env var instead; empty to skip): ",
+                            true);
         if (p_key && p_key[0] == '$' && p_key[1]) api_key_env = p_key + 1;
         else if (p_key && *p_key) api_key = p_key;
     }
@@ -137,20 +142,23 @@ static int provider_setup(tny_ctx *ctx, int argc, char **argv) {
             printf("note: $%s is not set in this shell\n", api_key_env);
         printf("try: tny --provider %s ask \"hello\"\n", name);
     }
-    free(p_name); free(p_base); free(p_key); free(p_model);
+    free(p_name);
+    free(p_base);
+    free(p_key);
+    free(p_model);
     return rc == 0 ? 0 : 1;
 }
 
 int cmd_provider(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
-    if (argc >= 1 && strcmp(argv[0], "setup") == 0)
-        return provider_setup(ctx, argc - 1, argv + 1);
+    if (argc >= 1 && strcmp(argv[0], "setup") == 0) return provider_setup(ctx, argc - 1, argv + 1);
     if (argc == 0 || argv[0][0] == '-') /* bare / `provider --json`: list */
         return cmd_backends(ctx, g, argc, argv);
-    if (strcmp(argv[0], "list") == 0)
-        return cmd_backends(ctx, g, argc - 1, argv + 1);
-    fprintf(stderr, "tny: provider: unknown subcommand '%s'\n"
+    if (strcmp(argv[0], "list") == 0) return cmd_backends(ctx, g, argc - 1, argv + 1);
+    fprintf(stderr,
+            "tny: provider: unknown subcommand '%s'\n"
             "Usage: tny provider [list] | tny provider setup NAME "
             "[--base-url URL] [--api-key KEY | --api-key-env ENV] "
-            "[--model M] [--wire-api responses|chat]\n", argv[0]);
+            "[--model M] [--wire-api responses|chat]\n",
+            argv[0]);
     return 1;
 }

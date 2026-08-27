@@ -595,6 +595,91 @@ install-lib: lib-shared
 site:
 	python3 scripts/site_build.py
 
+# ---- quality gates (docs/adr/0035) --------------------------------------
+# `make quality` is the authoritative first-party lint/format/analysis
+# aggregate; CI runs it in a fast job before the platform matrix. Tool
+# versions are pinned in .github/workflows/ci.yml; locally you can point
+# the variables at pinned wrappers, e.g.
+#   make quality CLANG_FORMAT='uvx clang-format@21.1.2' CLANG_TIDY='uvx clang-tidy@22.1.8'
+CLANG_FORMAT ?= clang-format
+CLANG_TIDY   ?= clang-tidy
+RUFF         ?= ruff
+SHELLCHECK   ?= shellcheck
+SHFMT        ?= shfmt
+ACTIONLINT   ?= actionlint
+ANALYZER_CC  ?= gcc
+
+# First-party scopes only; third_party/ and generated code stay exempt.
+FMT_SRC := $(wildcard src/*.c src/*.h src/*/*.c src/*/*.h src/*/*/*.c src/*/*/*.h \
+           include/tny/*.h tests/*.c \
+           sdk/typescript/native/*.c sdk/typescript/native/*.h)
+SH_SRC  := docs/setup.sh site/setup.sh $(wildcard tests/integration/*.sh)
+SHFMT_FLAGS := -i 4 -ci -sr
+JS_SRC  := docs/assets/site.js docs/assets/term-core.js docs/assets/term-wasm.js \
+           $(wildcard site/assets/*.js src/wasm/*.js tests/site/*.js \
+           sdk/typescript/scripts/*.mjs sdk/typescript/test/*.mjs) \
+           sdk/typescript/dist/index.mjs
+
+# clang-tidy analyzes the native translation units with the release flag
+# set (minus -Werror; WarningsAsErrors in .clang-tidy is the gate).
+TIDY_SRC    := $(SRC) $(SRC_PUBLIC_API)
+TIDY_CFLAGS  = $(STD) $(filter-out -Werror,$(WARN)) $(INC) $(DEFS)
+ifeq ($(UNAME_S),Darwin)
+  TIDY_CFLAGS += -isysroot $(shell xcrun --show-sdk-path)
+endif
+
+# Stricter first-party diagnostics than the build's $(WARN); suppressions:
+# format-nonliteral (buf_appendf takes caller fmts), overlength-strings
+# (embedded JSON tool schemas exceed the C99 4095 minimum).
+WARN_STRICT = -Wpedantic -Wformat=2 -Wno-format-nonliteral -Wno-overlength-strings \
+              -Wshadow -Wstrict-prototypes -Wmissing-prototypes -Wundef \
+              -Wwrite-strings -Wvla
+
+format:
+	$(CLANG_FORMAT) -i $(FMT_SRC)
+	$(RUFF) format .
+	$(SHFMT) -w $(SHFMT_FLAGS) $(SH_SRC)
+
+format-check:
+	$(CLANG_FORMAT) --dry-run --Werror $(FMT_SRC)
+	$(RUFF) format --check .
+	$(SHFMT) -d $(SHFMT_FLAGS) $(SH_SRC)
+
+tidy: $(VERSION_H)
+	$(CLANG_TIDY) --quiet $(TIDY_SRC) -- $(TIDY_CFLAGS)
+
+warn-strict: $(VERSION_H)
+	$(CC) $(REL_CFLAGS) $(WARN_STRICT) -fsyntax-only $(SRC) $(SRC_PUBLIC_API)
+
+# GCC's path-sensitive analyzer (leaks, use-after-free, fd/stream misuse).
+# Complementary to clang-tidy; Linux CI runs it, gcc is required.
+# double-free is off: it misreads the oom-flag-guarded free in buf_detach
+# (src/util/util.c) and flags every caller of path_join.
+analyze: $(VERSION_H)
+	@for f in $(SRC) $(SRC_PUBLIC_API); do \
+		$(ANALYZER_CC) $(STD) $(WARN) $(INC) $(DEFS) -fanalyzer -O1 \
+			-Wno-analyzer-double-free \
+			-c -o /dev/null $$f || exit 1; \
+	done
+	@echo "analyze: $(words $(SRC) $(SRC_PUBLIC_API)) files clean"
+
+lint-py:
+	$(RUFF) check .
+
+lint-sh:
+	$(SHELLCHECK) $(SH_SRC)
+
+lint-workflows:
+	$(ACTIONLINT)
+
+lint-js:
+	@for f in $(JS_SRC); do node --check $$f || exit 1; done
+	@echo "lint-js: $(words $(JS_SRC)) files clean"
+
+quality: format-check tidy warn-strict lint-py lint-sh lint-workflows lint-js
+
+.PHONY: format format-check tidy warn-strict analyze lint-py lint-sh lint-workflows lint-js quality
+
 # ---- wasm (docs/adr/0017): the same sources, the browser/node seams ----
 # Two links from one object set: tny.js (node, NODERAWFS — what CI drives
 # through the existing integration suite) and tny-web.mjs (browser, MEMFS —

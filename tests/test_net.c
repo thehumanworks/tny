@@ -13,7 +13,7 @@
 
 typedef struct {
     char *events[32];
-    int   n;
+    int n;
 } sse_col;
 
 static void sse_col_cb(const char *data, size_t len, void *ud) {
@@ -27,9 +27,9 @@ static void sse_col_free(sse_col *c) {
 
 typedef struct {
     uint8_t flags[32];
-    char   *payloads[32];
-    size_t  lens[32];
-    int     n;
+    char *payloads[32];
+    size_t lens[32];
+    int n;
 } frame_col;
 
 static void frame_col_cb(uint8_t flags, const char *payload, size_t len, void *ud) {
@@ -177,7 +177,7 @@ TEST connect_keepalives_skipped(void) {
 
 TEST connect_oversized_rejected(void) {
     /* declared length far beyond the 64 MiB cap must fail, not allocate */
-    const char hdr[5] = { 0x00, 0x7f, (char)0xff, (char)0xff, (char)0xff };
+    const char hdr[5] = {0x00, 0x7f, (char)0xff, (char)0xff, (char)0xff};
     connect_decoder d;
     connect_decoder_init(&d);
     frame_col c = {0};
@@ -216,8 +216,7 @@ TEST url_parse_forms(void) {
  * draining the parser between writes so every possible read boundary is
  * exercised — including the CRLF-after-chunk-data split that once made the
  * decoder mistake the leftover bytes for the terminating 0-chunk. */
-static int chunked_drive(const char *resp, size_t resp_len, int slice,
-                         buf_t *body) {
+static int chunked_drive(const char *resp, size_t resp_len, int slice, buf_t *body) {
     int sv[2];
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return -1;
     set_nonblock(sv[0], true);
@@ -226,19 +225,28 @@ static int chunked_drive(const char *resp, size_t resp_len, int slice,
     int rc = 0;
     for (size_t off = 0; off < resp_len && rc == 0;) {
         size_t n = (size_t)slice < resp_len - off ? (size_t)slice : resp_len - off;
-        if (write(sv[1], resp + off, n) != (ssize_t)n) { rc = -1; break; }
+        if (write(sv[1], resp + off, n) != (ssize_t)n) {
+            rc = -1;
+            break;
+        }
         off += n;
         if (status == -2) {
             status = http_read_response(c, 0);
             if (status == -2) continue;
-            if (status != 200) { rc = -1; break; }
+            if (status != 200) {
+                rc = -1;
+                break;
+            }
         }
         for (;;) {
             char tmp[64];
             ssize_t bn = http_body_read(c, tmp, sizeof tmp);
-            if (bn > 0) { buf_append(body, tmp, (size_t)bn); continue; }
-            if (bn == -2) break;      /* would-block: feed the next slice */
-            rc = bn == 0 ? 1 : -1;    /* 1 done, -1 framing error */
+            if (bn > 0) {
+                buf_append(body, tmp, (size_t)bn);
+                continue;
+            }
+            if (bn == -2) break;   /* would-block: feed the next slice */
+            rc = bn == 0 ? 1 : -1; /* 1 done, -1 framing error */
             break;
         }
     }
@@ -308,11 +316,10 @@ TEST tls_to_plain_http_server_fails_cleanly(void) {
         ASSERT_EQ(0, getsockname(lfd, (struct sockaddr *)&sa, &sl));
         ASSERT_EQ(0, listen(lfd, 1));
         pthread_t th;
-        ASSERT_EQ(0, pthread_create(&th, NULL, tls_junk_server,
-                                    (void *)(intptr_t)lfd));
+        ASSERT_EQ(0, pthread_create(&th, NULL, tls_junk_server, (void *)(intptr_t)lfd));
         char err[256] = "";
-        nstream *s = nstream_connect("127.0.0.1", (int)ntohs(sa.sin_port),
-                                     true, 3000, err, sizeof err);
+        nstream *s =
+            nstream_connect("127.0.0.1", (int)ntohs(sa.sin_port), true, 3000, err, sizeof err);
         pthread_join(th, NULL);
         close(lfd);
         ASSERT_EQ(NULL, s);

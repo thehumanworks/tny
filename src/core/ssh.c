@@ -118,11 +118,20 @@ static char *control_path(void) {
 
 static int base_argv(tny_ctx *ctx, const char **av, int n, bool batch) {
     av[n++] = "ssh";
-    av[n++] = "-o"; av[n++] = "ControlMaster=auto";
-    av[n++] = "-o"; av[n++] = "ControlPersist=600";
-    av[n++] = "-o"; av[n++] = ctx->ssh_control; /* "ControlPath=..." */
-    if (batch) { av[n++] = "-o"; av[n++] = "BatchMode=yes"; }
-    if (ctx->ssh_port[0]) { av[n++] = "-p"; av[n++] = ctx->ssh_port; }
+    av[n++] = "-o";
+    av[n++] = "ControlMaster=auto";
+    av[n++] = "-o";
+    av[n++] = "ControlPersist=600";
+    av[n++] = "-o";
+    av[n++] = ctx->ssh_control; /* "ControlPath=..." */
+    if (batch) {
+        av[n++] = "-o";
+        av[n++] = "BatchMode=yes";
+    }
+    if (ctx->ssh_port[0]) {
+        av[n++] = "-p";
+        av[n++] = ctx->ssh_port;
+    }
     av[n++] = "--";
     av[n++] = ctx->ssh_host;
     return n;
@@ -138,8 +147,8 @@ static void ensure_control(tny_ctx *ctx) {
     ctx->ssh_control = buf_detach(&b);
 }
 
-int ssh_run(tny_ctx *ctx, const char *script, const char *in, size_t inlen,
-            int timeout_s, size_t out_cap, buf_t *out, bool *truncated, bool *timed_out) {
+int ssh_run(tny_ctx *ctx, const char *script, const char *in, size_t inlen, int timeout_s,
+            size_t out_cap, buf_t *out, bool *truncated, bool *timed_out) {
     *truncated = false;
     *timed_out = false;
     if (!ctx->ssh_host) {
@@ -162,13 +171,24 @@ int ssh_run(tny_ctx *ctx, const char *script, const char *in, size_t inlen,
     av[n] = NULL;
 
     int inpipe[2], outpipe[2];
-    if (pipe(inpipe) != 0 || pipe(outpipe) != 0) {
+    if (pipe(inpipe) != 0) {
+        buf_free(&cmd);
+        buf_appends(out, "ssh: pipe failed");
+        return 255;
+    }
+    if (pipe(outpipe) != 0) {
+        close(inpipe[0]);
+        close(inpipe[1]);
         buf_free(&cmd);
         buf_appends(out, "ssh: pipe failed");
         return 255;
     }
     pid_t pid = fork();
     if (pid < 0) {
+        close(inpipe[0]);
+        close(inpipe[1]);
+        close(outpipe[0]);
+        close(outpipe[1]);
         buf_free(&cmd);
         buf_appends(out, "ssh: fork failed");
         return 255;
@@ -177,7 +197,10 @@ int ssh_run(tny_ctx *ctx, const char *script, const char *in, size_t inlen,
         dup2(inpipe[0], 0);
         dup2(outpipe[1], 1);
         dup2(outpipe[1], 2);
-        close(inpipe[0]); close(inpipe[1]); close(outpipe[0]); close(outpipe[1]);
+        close(inpipe[0]);
+        close(inpipe[1]);
+        close(outpipe[0]);
+        close(outpipe[1]);
         setpgid(0, 0);
         execvp("ssh", (char *const *)av);
         _exit(255);
@@ -190,7 +213,10 @@ int ssh_run(tny_ctx *ctx, const char *script, const char *in, size_t inlen,
     fcntl(inpipe[1], F_SETFL, fcntl(inpipe[1], F_GETFL) | O_NONBLOCK);
     size_t written = 0;
     if (!in) inlen = 0;
-    if (inlen == 0) { close(inpipe[1]); inpipe[1] = -1; }
+    if (inlen == 0) {
+        close(inpipe[1]);
+        inpipe[1] = -1;
+    }
 
     int64_t deadline = timeout_s > 0 ? now_ms() + (int64_t)timeout_s * 1000 : 0;
     for (;;) {
@@ -201,23 +227,38 @@ int ssh_run(tny_ctx *ctx, const char *script, const char *in, size_t inlen,
         int wait = 500;
         if (deadline) {
             int64_t left = deadline - now_ms();
-            if (left <= 0) { *timed_out = true; break; }
+            if (left <= 0) {
+                *timed_out = true;
+                break;
+            }
             if (left < wait) wait = (int)left;
         }
         int pr = tny_poll(pf, (nfds_t)np, wait);
-        if (pr < 0) { if (errno == EINTR) continue; break; }
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
         if (pr == 0) continue;
         if (np == 2 && (pf[1].revents & (POLLOUT | POLLERR | POLLHUP))) {
             ssize_t w = write(inpipe[1], in + written, inlen - written);
             if (w > 0) written += (size_t)w;
-            if (w < 0 && errno != EAGAIN && errno != EINTR) { close(inpipe[1]); inpipe[1] = -1; }
-            if (written >= inlen) { close(inpipe[1]); inpipe[1] = -1; }
+            if (w < 0 && errno != EAGAIN && errno != EINTR) {
+                close(inpipe[1]);
+                inpipe[1] = -1;
+            }
+            if (written >= inlen) {
+                close(inpipe[1]);
+                inpipe[1] = -1;
+            }
         }
         if (pf[0].revents & (POLLIN | POLLHUP | POLLERR)) {
             char tmp[8192];
             ssize_t r = read(outpipe[0], tmp, sizeof tmp);
             if (r == 0) break;
-            if (r < 0) { if (errno == EINTR || errno == EAGAIN) continue; break; }
+            if (r < 0) {
+                if (errno == EINTR || errno == EAGAIN) continue;
+                break;
+            }
             if (out->len < out_cap) buf_append(out, tmp, (size_t)r);
             else *truncated = true;
         }
@@ -244,10 +285,16 @@ int ssh_connect(tny_ctx *ctx, char *err, size_t errlen) {
     const char *av[SSH_MAX_ARGS];
     int n = 0;
     av[n++] = "ssh";
-    av[n++] = "-o"; av[n++] = "ControlMaster=auto";
-    av[n++] = "-o"; av[n++] = "ControlPersist=600";
-    av[n++] = "-o"; av[n++] = ctx->ssh_control;
-    if (ctx->ssh_port[0]) { av[n++] = "-p"; av[n++] = ctx->ssh_port; }
+    av[n++] = "-o";
+    av[n++] = "ControlMaster=auto";
+    av[n++] = "-o";
+    av[n++] = "ControlPersist=600";
+    av[n++] = "-o";
+    av[n++] = ctx->ssh_control;
+    if (ctx->ssh_port[0]) {
+        av[n++] = "-p";
+        av[n++] = ctx->ssh_port;
+    }
     av[n++] = "--";
     av[n++] = ctx->ssh_host;
     av[n++] = "true";
@@ -271,24 +318,26 @@ int ssh_connect(tny_ctx *ctx, char *err, size_t errlen) {
     }
     /* Resolve the remote working directory once so every tool sees absolute
      * paths and the permission log is unambiguous. */
-    const char *want = ctx->ssh_cwd ? ctx->ssh_cwd : ".";
+    char *unresolved = ctx->ssh_cwd;
+    ctx->ssh_cwd = NULL; /* ssh_run must not cd into the unresolved dir first */
+    const char *want = unresolved ? unresolved : ".";
     buf_t script, out;
     buf_init(&script);
     buf_init(&out);
     buf_appends(&script, "cd ");
     ssh_shell_quote(&script, want);
     buf_appends(&script, " && pwd");
-    free(ctx->ssh_cwd);
-    ctx->ssh_cwd = NULL; /* ssh_run must not cd into the unresolved dir first */
     bool tr, to;
     int rc = ssh_run(ctx, script.data, NULL, 0, 30, 4096, &out, &tr, &to);
     buf_free(&script);
     if (rc != 0 || !out.len) {
         snprintf(err, errlen, "remote directory %s: %s", want,
                  out.len ? out.data : "not reachable");
+        free(unresolved);
         buf_free(&out);
         return -1;
     }
+    free(unresolved);
     while (out.len && (out.data[out.len - 1] == '\n' || out.data[out.len - 1] == '\r'))
         out.data[--out.len] = 0;
     ctx->ssh_cwd = buf_detach(&out);
@@ -300,23 +349,38 @@ void ssh_disconnect(tny_ctx *ctx) {
         const char *av[SSH_MAX_ARGS];
         int n = 0;
         av[n++] = "ssh";
-        av[n++] = "-o"; av[n++] = ctx->ssh_control;
-        av[n++] = "-O"; av[n++] = "exit";
-        if (ctx->ssh_port[0]) { av[n++] = "-p"; av[n++] = ctx->ssh_port; }
+        av[n++] = "-o";
+        av[n++] = ctx->ssh_control;
+        av[n++] = "-O";
+        av[n++] = "exit";
+        if (ctx->ssh_port[0]) {
+            av[n++] = "-p";
+            av[n++] = ctx->ssh_port;
+        }
         av[n++] = "--";
         av[n++] = ctx->ssh_host;
         av[n] = NULL;
         pid_t pid = fork();
         if (pid == 0) {
             int dn = open("/dev/null", O_RDWR);
-            if (dn >= 0) { dup2(dn, 0); dup2(dn, 1); dup2(dn, 2); }
+            if (dn >= 0) {
+                dup2(dn, 0);
+                dup2(dn, 1);
+                dup2(dn, 2);
+            }
             execvp("ssh", (char *const *)av);
             _exit(255);
         }
-        if (pid > 0) { int st; waitpid(pid, &st, 0); }
+        if (pid > 0) {
+            int st;
+            waitpid(pid, &st, 0);
+        }
     }
-    free(ctx->ssh_host); ctx->ssh_host = NULL;
-    free(ctx->ssh_cwd); ctx->ssh_cwd = NULL;
-    free(ctx->ssh_control); ctx->ssh_control = NULL;
+    free(ctx->ssh_host);
+    ctx->ssh_host = NULL;
+    free(ctx->ssh_cwd);
+    ctx->ssh_cwd = NULL;
+    free(ctx->ssh_control);
+    ctx->ssh_control = NULL;
     ctx->ssh_port[0] = 0;
 }

@@ -523,7 +523,7 @@ jobs:
           python scripts/publish_pypi_release.py --mode readback --root dist/pypi \
             --version "$python_version" --download-dir dist/pypi-readback --attempts 30
           python -m venv /tmp/tny-pypi-readback
-          PIP_EXTRA_INDEX_URL= /tmp/tny-pypi-readback/bin/python -m pip install --disable-pip-version-check \
+          PIP_EXTRA_INDEX_URL='' /tmp/tny-pypi-readback/bin/python -m pip install --disable-pip-version-check \
             --no-cache-dir --index-url https://pypi.org/simple/ "tny==$python_version"
           /tmp/tny-pypi-readback/bin/python - "$python_version" "${GITHUB_REF_NAME#v}" <<'PY'
           import importlib.metadata

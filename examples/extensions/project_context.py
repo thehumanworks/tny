@@ -12,7 +12,6 @@ from tny_ext import (
     context,
 )
 
-
 MAX_CONTEXT_CHARS = 16_384
 
 

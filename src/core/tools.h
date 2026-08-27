@@ -14,7 +14,7 @@ struct tny_tool_registration;
 struct tny_tool_call;
 
 typedef struct tools_env {
-    tny_ctx     *ctx;
+    tny_ctx *ctx;
     tny_session_state *session;
     perm_engine *perm;
     /* Interactive approval hook (TUI). NULL means PROMPT cannot be resolved:
@@ -31,7 +31,7 @@ typedef struct tools_env {
     /* Paths queued by read_image. Flushed as a user-role image_url
      * message after the role:tool results (docs/adr/0008). */
     char *pending_images[9];
-    int   n_pending_images;
+    int n_pending_images;
 } tools_env;
 
 /* One parsed tool invocation. Preparing performs canonicalization and the
@@ -59,8 +59,7 @@ char *tools_schema_json(tools_env *env);
  * (bounded; large output is stored as a session result handle). Never NULL. */
 char *tools_execute(tools_env *env, const char *name, const char *args_json);
 
-int tools_call_prepare(tools_env *env, const char *name,
-                       const char *args_json, tools_call *call);
+int tools_call_prepare(tools_env *env, const char *name, const char *args_json, tools_call *call);
 void tools_call_grant(tools_env *env, const tools_call *call);
 char *tools_call_execute(tools_env *env, tools_call *call);
 bool tools_call_pending(const tools_call *call);

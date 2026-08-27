@@ -27,8 +27,7 @@ static void capture_event(const tny_backend_event *ev, void *ud) {
         capture->event.tool_id = capture->tool_id;
     }
     if (ev->tool_detail) {
-        snprintf(capture->tool_detail, sizeof capture->tool_detail, "%s",
-                 ev->tool_detail);
+        snprintf(capture->tool_detail, sizeof capture->tool_detail, "%s", ev->tool_detail);
         capture->event.tool_detail = capture->tool_detail;
     }
     capture->count++;
@@ -55,8 +54,7 @@ TEST fmt_builders_produce_exact_json(void) {
         b.data);
     buf_clear(&b);
     acp_fmt_request(&b, 1, "initialize", NULL);
-    ASSERT_STR_EQ("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
-                  b.data);
+    ASSERT_STR_EQ("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}", b.data);
     buf_clear(&b);
     acp_fmt_notify(&b, "session/cancel", "{\"sessionId\":\"s\"}");
     ASSERT_STR_EQ(

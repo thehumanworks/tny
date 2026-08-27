@@ -14,57 +14,57 @@ struct custom_tool_registry;
  * `git describe` (docs/adr/0014). The fallback keeps editors and static
  * analysis working without a build. */
 #if defined(__has_include)
-#  if __has_include("tny_version.h")
-#    include "tny_version.h"
-#  endif
+#if __has_include("tny_version.h")
+#include "tny_version.h"
+#endif
 #endif
 #ifndef TNY_VERSION
-#  define TNY_VERSION "0.0.0-dev"
+#define TNY_VERSION "0.0.0-dev"
 #endif
 
 typedef enum { TNY_MODE_ASK = 0, TNY_MODE_AUTO, TNY_MODE_YOLO } tny_perm_mode;
 
 typedef struct tny_ctx {
     /* workspace */
-    char  *cwd;             /* absolute primary workspace */
-    char   ws_hash[17];     /* fnv1a hex of cwd */
-    char **extra_dirs;      /* --add-dir + saved workspace dirs */
-    int    n_extra_dirs;
+    char *cwd;         /* absolute primary workspace */
+    char ws_hash[17];  /* fnv1a hex of cwd */
+    char **extra_dirs; /* --add-dir + saved workspace dirs */
+    int n_extra_dirs;
 
     /* selection */
-    int    backend;         /* tny_backend_id, resolved */
-    char  *provider_name;   /* effective named profile (OpenAI or acp@NAME) */
-    char  *model;
-    bool   model_from_flag; /* --model on the command line beats settings and
-                             * saved models */
+    int backend;         /* tny_backend_id, resolved */
+    char *provider_name; /* effective named profile (OpenAI or acp@NAME) */
+    char *model;
+    bool model_from_flag; /* --model on the command line beats settings and
+                           * saved models */
     tny_perm_mode perm_mode;
-    bool   json_out;
-    bool   no_save;
-    bool   no_color;         /* --no-color | --color=never: no SGR at all */
-    bool   force_color;      /* --color=always: SGR even piped, beats NO_COLOR */
-    bool   library_mode;     /* deterministic embed: never write host stdio */
+    bool json_out;
+    bool no_save;
+    bool no_color;     /* --no-color | --color=never: no SGR at all */
+    bool force_color;  /* --color=always: SGR even piped, beats NO_COLOR */
+    bool library_mode; /* deterministic embed: never write host stdio */
     struct tny_host_services_state *host_services; /* borrowed from lib runtime */
-    struct custom_tool_registry *custom_tools; /* borrowed from lib runtime */
+    struct custom_tool_registry *custom_tools;     /* borrowed from lib runtime */
 
     /* optional Python extensions (~/.tny/extensions). CLI contexts enable
      * discovery by default; explicit/libtny contexts keep it off unless a
      * later public ABI opts in. A zero continuation cap means unlimited. */
-    bool   extensions_enabled;
-    int    max_extension_iterations;
-    int    extension_timeout_ms;
+    bool extensions_enabled;
+    int max_extension_iterations;
+    int extension_timeout_ms;
     struct tny_extensions *extensions; /* process-owned persistent host */
 
     /* openai-compatible provider */
     char *base_url;
-    char *api_key;          /* resolved secret; never persisted by tny */
-    char *auth_header_name; /* default Authorization */
+    char *api_key;            /* resolved secret; never persisted by tny */
+    char *auth_header_name;   /* default Authorization */
     char *auth_header_prefix; /* default "Bearer " */
-    char *max_tokens_field; /* NULL = omit */
-    char *wire_api;         /* "responses" (default) | "chat" (docs/adr/0016) */
-    char *output_schema;    /* normalized response_format JSON, or NULL */
-    char **extra_headers;   /* NULL-terminated extra request header lines set
-                             * by builtin profiles (claude oauth beta, grok
-                             * proxy auth — docs/adr/0019); never persisted */
+    char *max_tokens_field;   /* NULL = omit */
+    char *wire_api;           /* "responses" (default) | "chat" (docs/adr/0016) */
+    char *output_schema;      /* normalized response_format JSON, or NULL */
+    char **extra_headers;     /* NULL-terminated extra request header lines set
+                               * by builtin profiles (claude oauth beta, grok
+                               * proxy auth — docs/adr/0019); never persisted */
 
     /* cursor */
     char *bridge_bin;
@@ -72,54 +72,53 @@ typedef struct tny_ctx {
     char *codex_ws;
     char *codex_bin;
     char *ws_token_file;
-    bool  no_host_registry; /* background ask child: never publish a spawned
-                             * host as an attach target (docs/adr/0031) */
+    bool no_host_registry; /* background ask child: never publish a spawned
+                            * host as an attach target (docs/adr/0031) */
     /* remote tool runtime (core/ssh.c, docs/adr/0022): when ssh_host is set
      * every workspace tool runs on that host over one ControlMaster */
-    char *ssh_host;        /* user@host or [v6], NULL = local tools */
-    char  ssh_port[6];     /* "" = ssh default */
-    char *ssh_cwd;         /* remote working dir (absolute after connect) */
-    char *ssh_control;     /* "ControlPath=…" option string */
+    char *ssh_host;    /* user@host or [v6], NULL = local tools */
+    char ssh_port[6];  /* "" = ssh default */
+    char *ssh_cwd;     /* remote working dir (absolute after connect) */
+    char *ssh_control; /* "ControlPath=…" option string */
     /* Speed tier for providers with TNY_CAP_FAST: NULL = provider default,
      * "fast"/"priority" = the paid fast tier, "default" = standard. Each
      * backend maps this to its own wire field. */
     char *service_tier;
-    bool  service_tier_explicit; /* --fast / TUI /fast was used; settings
-                                  * defaults must not replace it */
-    bool  service_tier_from_settings; /* recompute on provider switches */
-
+    bool service_tier_explicit;      /* --fast / TUI /fast was used; settings
+                                      * defaults must not replace it */
+    bool service_tier_from_settings; /* recompute on provider switches */
 
     /* reasoning effort (all providers). Canonical levels are
      * TNY_EFFORT_LEVELS; other tokens are provider-advertised values passed
      * through verbatim. NULL = provider default (field omitted on the wire). */
     char *reasoning_effort;
-    bool  effort_explicit;  /* --effort / TUI /effort was used (any value,
-                             * "default" included): settings defaults must
-                             * never override an explicit choice */
-    bool  effort_from_settings; /* current value came from settings.json, so
-                                 * switching provider recomputes it instead
-                                 * of leaking one provider's default */
+    bool effort_explicit;      /* --effort / TUI /effort was used (any value,
+                                * "default" included): settings defaults must
+                                * never override an explicit choice */
+    bool effort_from_settings; /* current value came from settings.json, so
+                                * switching provider recomputes it instead
+                                * of leaking one provider's default */
     /* acp */
-    char **agent_argv;      /* NULL-terminated, or NULL */
-    bool   agent_from_profile; /* agent_argv belongs to settings acp.NAME */
+    char **agent_argv;       /* NULL-terminated, or NULL */
+    bool agent_from_profile; /* agent_argv belongs to settings acp.NAME */
 
     /* repo limits (.tny.json — never authority, only limits) */
-    int    max_steps;              /* 0 = unlimited (default); a cap comes
-                                    * from --max-steps, /max-steps, or the
-                                    * repo's .tny.json "steps" */
-    size_t max_tool_result_bytes;  /* default 32768 */
-    bool   context_enabled;        /* AGENTS.md loading */
-    char  *instructions_snapshot;  /* cached request/event snapshot */
+    int max_steps;                /* 0 = unlimited (default); a cap comes
+                                   * from --max-steps, /max-steps, or the
+                                   * repo's .tny.json "steps" */
+    size_t max_tool_result_bytes; /* default 32768 */
+    bool context_enabled;         /* AGENTS.md loading */
+    char *instructions_snapshot;  /* cached request/event snapshot */
     char **instruction_paths;
-    int    n_instruction_paths;
-    char   instructions_digest[17];
-    bool   instructions_snapshot_ready;
-    bool   mcp_disabled;           /* `tny acp` server: client owns MCP */
-    char  *sandbox_mode;           /* "none" | "auto" | "os" */
+    int n_instruction_paths;
+    char instructions_digest[17];
+    bool instructions_snapshot_ready;
+    bool mcp_disabled;  /* `tny acp` server: client owns MCP */
+    char *sandbox_mode; /* "none" | "auto" | "os" */
 
     /* paths */
-    char *tny_dir;          /* ~/.tny */
-    char *settings_path;    /* ~/.tny/settings.json */
+    char *tny_dir;       /* ~/.tny */
+    char *settings_path; /* ~/.tny/settings.json */
 
     /* parsed docs kept for rule lookups (may be NULL) */
     yyjson_doc *settings;
@@ -133,7 +132,7 @@ tny_ctx *tny_ctx_load(const char *cwd_flag);
  * provider/authority loading. Caller supplies an existing workspace and an
  * explicit state directory. Defaults to ask mode and the OpenAI backend. */
 tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir);
-void     tny_ctx_free(tny_ctx *ctx);
+void tny_ctx_free(tny_ctx *ctx);
 
 /* Resolve backend per docs/cli.md when no --backend flag was given. */
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value);
@@ -157,8 +156,8 @@ char *tny_grok_session_token(void);
 /* Native xAI sign-in (grok_login.c, docs/adr/0021): RFC 8628 device-code
  * login and logout against auth.x.ai — no grok CLI needed — plus the
  * refresh-token exchange run before each token read. */
-int  tny_grok_login(void);
-int  tny_grok_logout(void);
+int tny_grok_login(void);
+int tny_grok_logout(void);
 void tny_grok_refresh_if_stale(void);
 void tny_apply_builtin_profile(tny_ctx *ctx, const char *name);
 /* Post-model-resolution fixups (grok proxy model-override header). */
@@ -207,14 +206,13 @@ int tny_settings_set_str(tny_ctx *ctx, const char *key, const char *value);
  * (docs/adr/0018). */
 typedef struct {
     const char *base_url;
-    const char *api_key;      /* stored in settings.json; env still wins */
+    const char *api_key; /* stored in settings.json; env still wins */
     const char *api_key_env;
     const char *model;
-    const char *wire_api;     /* "responses" | "chat" */
+    const char *wire_api; /* "responses" | "chat" */
 } tny_provider_fields;
 
-int tny_provider_write_profile(tny_ctx *ctx, const char *name,
-                               const tny_provider_fields *f,
+int tny_provider_write_profile(tny_ctx *ctx, const char *name, const tny_provider_fields *f,
                                char *errbuf, size_t errlen);
 const char *tny_settings_get_str(tny_ctx *ctx, const char *key);
 

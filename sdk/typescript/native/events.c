@@ -12,22 +12,19 @@ static void note_status(napi_status status) {
 
 static napi_value create_record(napi_env env) {
     napi_value source, object;
-    napi_status status = napi_create_string_utf8(
-        env, "({__proto__:null})", NAPI_AUTO_LENGTH, &source);
+    napi_status status =
+        napi_create_string_utf8(env, "({__proto__:null})", NAPI_AUTO_LENGTH, &source);
     if (status == napi_ok) status = napi_run_script(env, source, &object);
     note_status(status);
     return status == napi_ok ? object : NULL;
 }
 
-static napi_status set_named(napi_env env, napi_value object, const char *name,
-                             napi_value value) {
+static napi_status set_named(napi_env env, napi_value object, const char *name, napi_value value) {
     napi_property_descriptor property = {
-        name, NULL, NULL, NULL, NULL, value,
-        napi_writable | napi_enumerable | napi_configurable, NULL
-    };
-    napi_status status = object && value
-        ? napi_define_properties(env, object, 1u, &property)
-        : napi_invalid_arg;
+        name, NULL, NULL, NULL, NULL, value, napi_writable | napi_enumerable | napi_configurable,
+        NULL};
+    napi_status status =
+        object && value ? napi_define_properties(env, object, 1u, &property) : napi_invalid_arg;
     note_status(status);
     return status;
 }
@@ -42,8 +39,10 @@ static napi_value js_string(napi_env env, const char *value) {
 
 static napi_value js_owned(napi_env env, sdk_owned_bytes value) {
     napi_value result;
-    napi_status status = value.len > SIZE_MAX ? napi_invalid_arg :
-        napi_create_string_utf8(env, value.ptr ? value.ptr : "", (size_t)value.len, &result);
+    napi_status status =
+        value.len > SIZE_MAX
+            ? napi_invalid_arg
+            : napi_create_string_utf8(env, value.ptr ? value.ptr : "", (size_t)value.len, &result);
     note_status(status);
     return status == napi_ok ? result : NULL;
 }
@@ -92,11 +91,9 @@ static napi_value js_double(napi_env env, double value) {
 
 static const char *event_type(uint32_t kind) {
     static const char *types[] = {
-        "text_delta", "thinking", "tool_start", "tool_end",
-        "permission_request", "plan", "usage", "turn_end", "error",
-        "status", "steer_rejected", "custom_message", "user_message",
-        "tool_progress"
-    };
+        "text_delta",     "thinking",       "tool_start",   "tool_end",     "permission_request",
+        "plan",           "usage",          "turn_end",     "error",        "status",
+        "steer_rejected", "custom_message", "user_message", "tool_progress"};
     return kind < sizeof(types) / sizeof(types[0]) ? types[kind] : NULL;
 }
 
@@ -151,9 +148,7 @@ napi_value sdk_event_to_js(napi_env env, const event_copy *event) {
         set_named(env, payload, "contextUsed", js_big_int(env, event->context_used));
         set_named(env, payload, "contextSize", js_big_int(env, event->context_size));
         set_named(env, payload, "hasCost", js_bool(env, event->has_cost));
-        if (event->has_cost) {
-            set_named(env, payload, "cost", js_double(env, event->cost));
-        }
+        if (event->has_cost) { set_named(env, payload, "cost", js_double(env, event->cost)); }
         set_named(env, object, "payload", payload);
         return build_status == napi_ok ? object : NULL;
     }
@@ -192,9 +187,7 @@ napi_value sdk_event_to_js(napi_env env, const event_copy *event) {
         set_named(env, object, "contextUsed", js_big_int(env, event->context_used));
         set_named(env, object, "contextSize", js_big_int(env, event->context_size));
         set_named(env, object, "hasCost", js_bool(env, event->has_cost));
-        if (event->has_cost) {
-            set_named(env, object, "cost", js_double(env, event->cost));
-        }
+        if (event->has_cost) { set_named(env, object, "cost", js_double(env, event->cost)); }
         break;
     case TNY_EVENT_TURN_END:
         set_named(env, object, "stopReason", js_string(env, stop_reason(event->stop_reason)));
@@ -203,8 +196,7 @@ napi_value sdk_event_to_js(napi_env env, const event_copy *event) {
         set_named(env, object, "text", js_string(env, stable_error_text(event->error_code)));
         set_named(env, object, "errorCode", js_int32(env, event->error_code));
         break;
-    default:
-        break;
+    default: break;
     }
     return build_status == napi_ok ? object : NULL;
 }

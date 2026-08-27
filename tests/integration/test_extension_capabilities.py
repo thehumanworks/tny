@@ -10,9 +10,10 @@ import subprocess
 import sys
 import tempfile
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-TNY = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else os.environ.get("TNY", ROOT / "build" / "tny"))
+TNY = pathlib.Path(
+    sys.argv[1] if len(sys.argv) > 1 else os.environ.get("TNY", ROOT / "build" / "tny")
+)
 
 
 def executable(path: pathlib.Path, marker: pathlib.Path) -> None:
@@ -83,7 +84,9 @@ def main() -> int:
         capabilities = result["extensions"]["capabilities"]
         assert capabilities["schema_version"] == 1
         assert capabilities["selected_provider"] == "cursor"
-        expected_python = "unavailable" if os.environ.get("TNY_TEST_EXPECT_WASM") else "available"
+        expected_python = (
+            "unavailable" if os.environ.get("TNY_TEST_EXPECT_WASM") else "available"
+        )
         assert capabilities["extension_runtime"]["python"] == expected_python
         assert set(capabilities["providers"]) == {"openai", "cursor", "codex", "acp"}
         for provider in capabilities["providers"].values():

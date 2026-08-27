@@ -15,14 +15,14 @@
 struct ws_conn {
     nstream *s;
     wslay_event_context_ptr ctx;
-    buf_t pre;        /* bytes read past the handshake, fed to wslay first */
+    buf_t pre; /* bytes read past the handshake, fed to wslay first */
     ws_msg_cb cb;
     void *ud;
     bool dead;
 };
 
-static ssize_t recv_cb(wslay_event_context_ptr ctx, uint8_t *buf, size_t len,
-                       int flags, void *user_data) {
+static ssize_t recv_cb(wslay_event_context_ptr ctx, uint8_t *buf, size_t len, int flags,
+                       void *user_data) {
     (void)flags;
     ws_conn *w = user_data;
     if (w->pre.len) {
@@ -41,8 +41,8 @@ static ssize_t recv_cb(wslay_event_context_ptr ctx, uint8_t *buf, size_t len,
     return -1;
 }
 
-static ssize_t send_cb(wslay_event_context_ptr ctx, const uint8_t *data,
-                       size_t len, int flags, void *user_data) {
+static ssize_t send_cb(wslay_event_context_ptr ctx, const uint8_t *data, size_t len, int flags,
+                       void *user_data) {
     (void)flags;
     ws_conn *w = user_data;
     if (nstream_write_all(w->s, data, len) != 0) {
@@ -52,9 +52,9 @@ static ssize_t send_cb(wslay_event_context_ptr ctx, const uint8_t *data,
     return (ssize_t)len;
 }
 
-static int genmask_cb(wslay_event_context_ptr ctx, uint8_t *buf, size_t len,
-                      void *user_data) {
-    (void)ctx; (void)user_data;
+static int genmask_cb(wslay_event_context_ptr ctx, uint8_t *buf, size_t len, void *user_data) {
+    (void)ctx;
+    (void)user_data;
     int fd = open("/dev/urandom", O_RDONLY);
     if (fd >= 0) {
         ssize_t got = read(fd, buf, len);
@@ -65,8 +65,7 @@ static int genmask_cb(wslay_event_context_ptr ctx, uint8_t *buf, size_t len,
     return 0;
 }
 
-static void on_msg_cb(wslay_event_context_ptr ctx,
-                      const struct wslay_event_on_msg_recv_arg *arg,
+static void on_msg_cb(wslay_event_context_ptr ctx, const struct wslay_event_on_msg_recv_arg *arg,
                       void *user_data) {
     (void)ctx;
     ws_conn *w = user_data;
@@ -75,8 +74,7 @@ static void on_msg_cb(wslay_event_context_ptr ctx,
     /* ping/pong handled by wslay; binary frames ignored per codex doc */
 }
 
-ws_conn *ws_connect(const char *url, const char *bearer, int timeout_ms,
-                    char *err, size_t errlen) {
+ws_conn *ws_connect(const char *url, const char *bearer, int timeout_ms, char *err, size_t errlen) {
     url_parts u;
     if (url_parse(url, &u) != 0) {
         snprintf(err, errlen, "bad ws URL: %s", url);
@@ -87,7 +85,10 @@ ws_conn *ws_connect(const char *url, const char *bearer, int timeout_ms,
     const char *req_path = u.path;
     if (strcmp(u.scheme, "unix") == 0) {
         int fd = unix_connect(u.path);
-        if (fd < 0) { snprintf(err, errlen, "unix connect %s failed", u.path); return NULL; }
+        if (fd < 0) {
+            snprintf(err, errlen, "unix connect %s failed", u.path);
+            return NULL;
+        }
         s = nstream_from_fd(fd);
         host_hdr = "localhost";
         req_path = "/rpc"; /* dummy upgrade URL per codex-app-server.md */
@@ -102,7 +103,10 @@ ws_conn *ws_connect(const char *url, const char *bearer, int timeout_ms,
     }
 
     ws_conn *w = calloc(1, sizeof *w);
-    if (!w) { nstream_close(s); return NULL; }
+    if (!w) {
+        nstream_close(s);
+        return NULL;
+    }
     w->s = s;
     buf_init(&w->pre);
 
@@ -124,19 +128,15 @@ ws_conn *ws_connect(const char *url, const char *bearer, int timeout_ms,
     if (bearer && *bearer) {
         size_t bearer_len = strlen(bearer);
         const size_t auth_fixed = sizeof("Authorization: Bearer \r\n") - 1;
-        if (bearer_len > SIZE_MAX - tail - auth_fixed)
-            overflow = true;
-        else
-            tail += auth_fixed + bearer_len;
+        if (bearer_len > SIZE_MAX - tail - auth_fixed) overflow = true;
+        else tail += auth_fixed + bearer_len;
     }
     if (!overflow) buf_reserve(&req, tail);
     if (!overflow && !buf_oom(&req)) {
-        if (bearer && *bearer)
-            buf_appendf(&req, "Authorization: Bearer %s\r\n", bearer);
+        if (bearer && *bearer) buf_appendf(&req, "Authorization: Bearer %s\r\n", bearer);
         buf_appends(&req, "\r\n");
     }
-    int wrc = overflow || buf_oom(&req)
-        ? -1 : nstream_write_all(s, req.data, req.len);
+    int wrc = overflow || buf_oom(&req) ? -1 : nstream_write_all(s, req.data, req.len);
     if (req.data) secure_zero(req.data, req.cap);
     buf_free(&req);
     if (wrc != 0) {
@@ -168,10 +168,16 @@ ws_conn *ws_connect(const char *url, const char *bearer, int timeout_ms,
         size_t msg_len;
         struct phr_header hdrs[32];
         size_t nh = 32;
-        int pret = phr_parse_response(resp.data, resp.len, &minor, &status,
-                                      &msg, &msg_len, hdrs, &nh, 0);
-        if (pret > 0) { hdr_end = (size_t)pret; break; }
-        if (pret == -1) { status = -1; break; }
+        int pret =
+            phr_parse_response(resp.data, resp.len, &minor, &status, &msg, &msg_len, hdrs, &nh, 0);
+        if (pret > 0) {
+            hdr_end = (size_t)pret;
+            break;
+        }
+        if (pret == -1) {
+            status = -1;
+            break;
+        }
     }
     if (status != 101) {
         snprintf(err, errlen, "ws upgrade failed (status %d)", status);
@@ -181,13 +187,10 @@ ws_conn *ws_connect(const char *url, const char *bearer, int timeout_ms,
         return NULL;
     }
     buf_free(&key);
-    if (resp.len > hdr_end)
-        buf_append(&w->pre, resp.data + hdr_end, resp.len - hdr_end);
+    if (resp.len > hdr_end) buf_append(&w->pre, resp.data + hdr_end, resp.len - hdr_end);
     buf_free(&resp);
 
-    struct wslay_event_callbacks cbs = {
-        recv_cb, send_cb, genmask_cb, NULL, NULL, NULL, on_msg_cb
-    };
+    struct wslay_event_callbacks cbs = {recv_cb, send_cb, genmask_cb, NULL, NULL, NULL, on_msg_cb};
     if (wslay_event_context_client_init(&w->ctx, &cbs, w) != 0) {
         snprintf(err, errlen, "wslay init failed");
         ws_close(w);
@@ -204,15 +207,16 @@ int ws_send_text(ws_conn *w, const char *data, size_t len) {
 
 int ws_fd(ws_conn *w) { return nstream_fd(w->s); }
 
-bool ws_want_write(ws_conn *w) {
-    return w->ctx && wslay_event_want_write(w->ctx);
-}
+bool ws_want_write(ws_conn *w) { return w->ctx && wslay_event_want_write(w->ctx); }
 
 int ws_pump(ws_conn *w, ws_msg_cb cb, void *ud) {
     if (w->dead) return -1;
     w->cb = cb;
     w->ud = ud;
-    if (wslay_event_recv(w->ctx) != 0) { w->dead = true; return -1; }
+    if (wslay_event_recv(w->ctx) != 0) {
+        w->dead = true;
+        return -1;
+    }
     if (wslay_event_want_write(w->ctx) && wslay_event_send(w->ctx) != 0) {
         w->dead = true;
         return -1;

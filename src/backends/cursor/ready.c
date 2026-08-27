@@ -28,8 +28,7 @@ static bool copy_field(char *dst, size_t cap, const char *src) {
     return true;
 }
 
-int cursor_ready_parse(const char *line, size_t len, cursor_ready *out,
-                       char *err, size_t errlen) {
+int cursor_ready_parse(const char *line, size_t len, cursor_ready *out, char *err, size_t errlen) {
     if (!cursor_ready_is_line(line, len)) return 0;
     if (len > READY_MAX_LINE) {
         snprintf(err, errlen, "bridge ready line is implausibly large");
@@ -37,10 +36,13 @@ int cursor_ready_parse(const char *line, size_t len, cursor_ready *out,
     }
     const char *json = line + (sizeof(CURSOR_READY_PREFIX) - 1);
     size_t jlen = len - (sizeof(CURSOR_READY_PREFIX) - 1);
-    while (jlen && (json[jlen - 1] == '\r' || json[jlen - 1] == '\n' ||
-                    json[jlen - 1] == ' ' || json[jlen - 1] == '\t'))
+    while (jlen && (json[jlen - 1] == '\r' || json[jlen - 1] == '\n' || json[jlen - 1] == ' ' ||
+                    json[jlen - 1] == '\t'))
         jlen--;
-    while (jlen && (*json == ' ' || *json == '\t')) { json++; jlen--; }
+    while (jlen && (*json == ' ' || *json == '\t')) {
+        json++;
+        jlen--;
+    }
     if (!jlen) {
         snprintf(err, errlen, "bridge ready line has no JSON payload");
         return -1;
@@ -56,14 +58,12 @@ int cursor_ready_parse(const char *line, size_t len, cursor_ready *out,
 
     cursor_ready r;
     memset(&r, 0, sizeof r);
-    r.schema_version = (int)jget_int(root, "schemaVersion",
-                                     jget_int(root, "schema_version", 0));
+    r.schema_version = (int)jget_int(root, "schemaVersion", jget_int(root, "schema_version", 0));
     copy_field(r.transport, sizeof r.transport, jget_str(root, "transport"));
     copy_field(r.protocol, sizeof r.protocol, jget_str(root, "protocol"));
     copy_field(r.auth_token_file, sizeof r.auth_token_file,
                field(root, "authTokenFile", "auth_token_file"));
-    copy_field(r.auth_token, sizeof r.auth_token,
-               field(root, "authToken", "auth_token"));
+    copy_field(r.auth_token, sizeof r.auth_token, field(root, "authToken", "auth_token"));
 
     const char *url = jget_str(root, "url");
     if (url && *url) {

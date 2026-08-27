@@ -8,8 +8,7 @@
 /* All return malloc'd strings for the tool message. */
 char *mcp_features(tools_env *env);
 char *mcp_search_tools(tools_env *env, const char *query);
-char *mcp_call_tool(tools_env *env, const char *server, const char *tool,
-                    const char *args_json);
+char *mcp_call_tool(tools_env *env, const char *server, const char *tool, const char *args_json);
 
 /* Kill spawned MCP servers (process teardown). */
 void mcp_shutdown_all(void);

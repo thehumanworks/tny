@@ -39,16 +39,17 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             buf_appends(&b, ",\"reasoning_effort\":");
             jescape(&b, ctx->reasoning_effort);
         }
-        buf_appendf(&b, ",\"auth\":\"%s\",\"permission_mode\":\"%s\",\"sandbox\":\"%s\","
-                        "\"workspace\":",
+        buf_appendf(&b,
+                    ",\"auth\":\"%s\",\"permission_mode\":\"%s\",\"sandbox\":\"%s\","
+                    "\"workspace\":",
                     auth ? "ok" : "missing", tny_perm_mode_name(ctx->perm_mode),
                     strcmp(ctx->sandbox_mode, "os") == 0 ? "os" : "none");
         jescape(&b, ctx->cwd);
-        buf_appendf(&b, ",\"sessions\":%d,\"agent_step_limit\":%d,"
-                        "\"extensions_enabled\":%s,"
-                        "\"extension_iteration_limit\":%d}\n",
-                    n, ctx->max_steps,
-                    ctx->extensions_enabled ? "true" : "false",
+        buf_appendf(&b,
+                    ",\"sessions\":%d,\"agent_step_limit\":%d,"
+                    "\"extensions_enabled\":%s,"
+                    "\"extension_iteration_limit\":%d}\n",
+                    n, ctx->max_steps, ctx->extensions_enabled ? "true" : "false",
                     ctx->max_extension_iterations);
         fwrite(b.data, 1, b.len, stdout);
         buf_free(&b);
@@ -59,17 +60,14 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (ctx->reasoning_effort) printf("effort:     %s\n", ctx->reasoning_effort);
         printf("auth:       %s\n", auth ? "ok" : "missing (set OPENAI_API_KEY or run tny setup)");
         printf("permission: %s\n", tny_perm_mode_name(ctx->perm_mode));
-        printf("sandbox:    %s\n", strcmp(ctx->sandbox_mode, "os") == 0 ? "os (unsupported: effective none)" : "none");
+        printf("sandbox:    %s\n",
+               strcmp(ctx->sandbox_mode, "os") == 0 ? "os (unsupported: effective none)" : "none");
         printf("workspace:  %s\n", ctx->cwd);
-        for (int i = 0; i < ctx->n_extra_dirs; i++)
-            printf("extra dir:  %s\n", ctx->extra_dirs[i]);
+        for (int i = 0; i < ctx->n_extra_dirs; i++) printf("extra dir:  %s\n", ctx->extra_dirs[i]);
         printf("sessions:   %d\n", n);
-        printf("extensions: %s (continuations: ",
-               ctx->extensions_enabled ? "enabled" : "disabled");
-        if (ctx->max_extension_iterations > 0)
-            printf("max %d)\n", ctx->max_extension_iterations);
-        else
-            printf("unlimited)\n");
+        printf("extensions: %s (continuations: ", ctx->extensions_enabled ? "enabled" : "disabled");
+        if (ctx->max_extension_iterations > 0) printf("max %d)\n", ctx->max_extension_iterations);
+        else printf("unlimited)\n");
     }
     return 0;
 }
@@ -100,8 +98,7 @@ int cmd_permissions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
 static void models_print(tny_ctx *ctx, const char *json_arr, bool json) {
     const char *name = tny_provider_name(ctx);
     if (json) {
-        printf("{\"kind\":\"models\",\"provider\":\"%s\",\"models\":%s}\n", name,
-               json_arr);
+        printf("{\"kind\":\"models\",\"provider\":\"%s\",\"models\":%s}\n", name, json_arr);
         return;
     }
     yyjson_doc *doc = jparse(json_arr, strlen(json_arr));
@@ -115,15 +112,14 @@ static void models_print(tny_ctx *ctx, const char *json_arr, bool json) {
             if (!id) continue;
             n++;
             bool active = ctx->model && strcmp(ctx->model, id) == 0;
-            printf("%s%s%s%s", id, nm ? "  —  " : "", nm ? nm : "",
-                   active ? "  (active)" : "");
+            printf("%s%s%s%s", id, nm ? "  —  " : "", nm ? nm : "", active ? "  (active)" : "");
             yyjson_val *ef = jget(m, "efforts");
             if (ef && yyjson_is_arr(ef) && yyjson_arr_size(ef)) {
                 size_t ei, emax;
                 yyjson_val *e;
                 printf("  [effort:");
-                yyjson_arr_foreach(ef, ei, emax, e)
-                    if (yyjson_is_str(e)) printf(" %s", yyjson_get_str(e));
+                yyjson_arr_foreach(ef, ei, emax, e) if (yyjson_is_str(e))
+                    printf(" %s", yyjson_get_str(e));
                 printf("]");
             }
             printf("\n");
@@ -226,13 +222,15 @@ int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
 
     if (status != 200) {
         if (status == 401 || status == 403)
-            fprintf(stderr, "tny: /models refused the credentials (HTTP %d): %s; "
-                    "showing configured\n", status,
-                    ctx->api_key ? "check the API key"
-                                 : "no API key in this environment");
+            fprintf(stderr,
+                    "tny: /models refused the credentials (HTTP %d): %s; "
+                    "showing configured\n",
+                    status, ctx->api_key ? "check the API key" : "no API key in this environment");
         else
-            fprintf(stderr, "tny: provider has no /models (HTTP %d); "
-                    "showing configured\n", status);
+            fprintf(stderr,
+                    "tny: provider has no /models (HTTP %d); "
+                    "showing configured\n",
+                    status);
         buf_free(&body);
         return models_fallback(ctx, json);
     }
@@ -284,18 +282,15 @@ int cmd_workspace(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             buf_free(&b);
         } else {
             printf("primary: %s\n", ctx->cwd);
-            for (int i = 0; i < ctx->n_extra_dirs; i++)
-                printf("extra:   %s\n", ctx->extra_dirs[i]);
+            for (int i = 0; i < ctx->n_extra_dirs; i++) printf("extra:   %s\n", ctx->extra_dirs[i]);
             if (!ctx->n_extra_dirs) printf("(no additional directories)\n");
         }
         return 0;
     }
-    if (strcmp(sub, "add") == 0 && argc > 1)
-        return tny_workspace_add(ctx, argv[1]) == 0 ? 0 : 1;
+    if (strcmp(sub, "add") == 0 && argc > 1) return tny_workspace_add(ctx, argv[1]) == 0 ? 0 : 1;
     if (strcmp(sub, "remove") == 0 && argc > 1)
         return tny_workspace_remove(ctx, argv[1]) == 0 ? 0 : 1;
-    if (strcmp(sub, "clear") == 0)
-        return tny_workspace_clear(ctx) == 0 ? 0 : 1;
+    if (strcmp(sub, "clear") == 0) return tny_workspace_clear(ctx) == 0 ? 0 : 1;
     fprintf(stderr, "tny: workspace list|add DIR|remove DIR|clear\n");
     return 1;
 }
@@ -303,9 +298,8 @@ int cmd_workspace(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
 /* One `tny providers` row for a user-named OpenAI-compatible provider.
  * profile_bu is the settings base_url or NULL; NAME_BASE_URL beats it,
  * mirroring resolution. */
-static void custom_provider_row(tny_ctx *ctx, buf_t *b, bool json,
-                                const char *name, const char *profile_bu,
-                                const char *origin) {
+static void custom_provider_row(tny_ctx *ctx, buf_t *b, bool json, const char *name,
+                                const char *profile_bu, const char *origin) {
     char *buvar = tny_provider_env_var(name, "_BASE_URL");
     const char *envbu = buvar ? getenv(buvar) : NULL;
     free(buvar);
@@ -314,16 +308,15 @@ static void custom_provider_row(tny_ctx *ctx, buf_t *b, bool json,
     const char *key = keyvar ? getenv(keyvar) : NULL;
     bool healthy = (key && *key) || (bu && str_starts(bu, "http://"));
     char line[256];
-    snprintf(line, sizeof line, "openai-compatible (%s): base_url %s (key env %s%s)",
-             origin, bu ? bu : "?", keyvar ? keyvar : "?",
-             key && *key ? "" : " unset");
+    snprintf(line, sizeof line, "openai-compatible (%s): base_url %s (key env %s%s)", origin,
+             bu ? bu : "?", keyvar ? keyvar : "?", key && *key ? "" : " unset");
     free(keyvar);
     bool active = ctx->provider_name && strcmp(ctx->provider_name, name) == 0;
     if (json) {
         buf_appends(b, ",{\"name\":");
         jescape(b, name);
-        buf_appendf(b, ",\"active\":%s,\"healthy\":%s,\"hint\":",
-                    active ? "true" : "false", healthy ? "true" : "false");
+        buf_appendf(b, ",\"active\":%s,\"healthy\":%s,\"hint\":", active ? "true" : "false",
+                    healthy ? "true" : "false");
         jescape(b, line);
         buf_appends(b, "}");
     } else {
@@ -335,8 +328,8 @@ static bool acp_name_valid(const char *name) {
     if (!name || !*name) return false;
     for (const char *p = name; *p; p++) {
         char c = *p;
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-              (c >= '0' && c <= '9') || c == '-' || c == '_'))
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+              c == '-' || c == '_'))
             return false;
     }
     return true;
@@ -361,14 +354,14 @@ static bool executable_on_path(const char *bin) {
 /* One provider-list row for settings.acp.NAME (legacy acp.agents supported).
  * Never render argv: command arguments may contain local paths or user
  * mistakes that should not become diagnostic output. */
-static void acp_provider_row(tny_ctx *ctx, buf_t *b, bool json,
-                             const char *name, yyjson_val *profile) {
+static void acp_provider_row(tny_ctx *ctx, buf_t *b, bool json, const char *name,
+                             yyjson_val *profile) {
     if (!acp_name_valid(name) || !yyjson_is_obj(profile)) return;
     yyjson_val *command = jget(profile, "command");
     yyjson_val *args = jget(profile, "args");
     bool legacy = yyjson_is_arr(command);
-    bool valid = legacy ? yyjson_arr_size(command) > 0
-                        : yyjson_is_str(command) && *yyjson_get_str(command);
+    bool valid =
+        legacy ? yyjson_arr_size(command) > 0 : yyjson_is_str(command) && *yyjson_get_str(command);
     const char *exe = legacy ? NULL : yyjson_get_str(command);
     if (valid && args && (!yyjson_is_arr(args) || legacy)) valid = false;
     if (valid && legacy) {
@@ -376,7 +369,10 @@ static void acp_provider_row(tny_ctx *ctx, buf_t *b, bool json,
         yyjson_val *v;
         yyjson_arr_foreach(command, idx, max, v) {
             const char *arg = yyjson_is_str(v) ? yyjson_get_str(v) : NULL;
-            if (!arg || !*arg) { valid = false; break; }
+            if (!arg || !*arg) {
+                valid = false;
+                break;
+            }
             if (idx == 0) exe = arg;
         }
     } else if (valid && yyjson_is_arr(args)) {
@@ -384,20 +380,22 @@ static void acp_provider_row(tny_ctx *ctx, buf_t *b, bool json,
         yyjson_val *v;
         yyjson_arr_foreach(args, idx, max, v) {
             const char *arg = yyjson_is_str(v) ? yyjson_get_str(v) : NULL;
-            if (!arg || !*arg) { valid = false; break; }
+            if (!arg || !*arg) {
+                valid = false;
+                break;
+            }
         }
     }
     bool remote = exe && (str_starts(exe, "ws://") || str_starts(exe, "wss://"));
     size_t nargs = yyjson_is_arr(args) ? yyjson_arr_size(args) : 0;
-    if (remote && ((legacy && yyjson_arr_size(command) != 1) || nargs != 0))
-        valid = false;
+    if (remote && ((legacy && yyjson_arr_size(command) != 1) || nargs != 0)) valid = false;
     yyjson_val *model = jget(profile, "model");
     if (model && (!yyjson_is_str(model) || !*yyjson_get_str(model))) valid = false;
     bool healthy = valid && (remote || executable_on_path(exe));
-    const char *hint = !valid ? "invalid settings.json ACP profile"
-                            : healthy ? (remote ? "configured remote ACP agent"
-                                                : "configured ACP agent; command resolves")
-                                      : "configured ACP agent; command not found on PATH";
+    const char *hint = !valid    ? "invalid settings.json ACP profile"
+                       : healthy ? (remote ? "configured remote ACP agent"
+                                           : "configured ACP agent; command resolves")
+                                 : "configured ACP agent; command not found on PATH";
     buf_t full;
     buf_init(&full);
     buf_appendf(&full, "acp@%s", name);
@@ -430,14 +428,13 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (json) {
             if (i) buf_appends(&b, ",");
             buf_appendf(&b, "{\"name\":\"%s\",\"active\":%s,\"healthy\":%s,\"hint\":",
-                        tny_backend_name((tny_backend_id)i),
-                        active ? "true" : "false",
+                        tny_backend_name((tny_backend_id)i), active ? "true" : "false",
                         healthy == 0 ? "true" : "false");
             jescape(&b, line);
             buf_appends(&b, "}");
         } else {
-            buf_appendf(&b, "%s %s — %s\n", active ? "*" : " ",
-                        tny_backend_name((tny_backend_id)i), line);
+            buf_appendf(&b, "%s %s — %s\n", active ? "*" : " ", tny_backend_name((tny_backend_id)i),
+                        line);
         }
     }
     /* builtin subscription profiles (docs/adr/0019); a settings/env profile
@@ -452,10 +449,13 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             const char *source = NULL;
             char *tok = tny_claude_token(&source);
             healthy = tok != NULL;
-            if (tok) { memset(tok, 0, strlen(tok)); free(tok); }
-            snprintf(line, sizeof line, healthy
-                         ? "claude: credential from %s (Anthropic OpenAI-compat)"
-                         : "claude: no credential (run `tny --provider claude login`)%s",
+            if (tok) {
+                memset(tok, 0, strlen(tok));
+                free(tok);
+            }
+            snprintf(line, sizeof line,
+                     healthy ? "claude: credential from %s (Anthropic OpenAI-compat)"
+                             : "claude: no credential (run `tny --provider claude login`)%s",
                      healthy ? source : "");
         } else {
             char *sess = tny_grok_session_token();
@@ -477,8 +477,8 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (json) {
             buf_appends(&b, ",{\"name\":");
             jescape(&b, name);
-            buf_appendf(&b, ",\"active\":%s,\"healthy\":%s,\"hint\":",
-                        active ? "true" : "false", healthy ? "true" : "false");
+            buf_appendf(&b, ",\"active\":%s,\"healthy\":%s,\"hint\":", active ? "true" : "false",
+                        healthy ? "true" : "false");
             jescape(&b, line);
             buf_appends(&b, "}");
         } else {
@@ -492,20 +492,19 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         size_t idx, max;
         yyjson_val *k, *v;
         if (yyjson_is_obj(root)) yyjson_obj_foreach(root, idx, max, k, v) {
-            const char *name = yyjson_get_str(k);
-            if (!name || !yyjson_is_obj(v)) continue;
-            const char *bu = jget_str(v, "base_url");
-            if (!bu || !*bu || !tny_custom_provider_exists(ctx, name)) continue;
-            custom_provider_row(ctx, &b, json, name, bu, "settings");
-        }
+                const char *name = yyjson_get_str(k);
+                if (!name || !yyjson_is_obj(v)) continue;
+                const char *bu = jget_str(v, "base_url");
+                if (!bu || !*bu || !tny_custom_provider_exists(ctx, name)) continue;
+                custom_provider_row(ctx, &b, json, name, bu, "settings");
+            }
         yyjson_val *acp = jget(root, "acp");
         yyjson_val *agents = jget(acp, "agents");
         if (!yyjson_is_obj(agents)) agents = acp;
         if (yyjson_is_obj(agents)) yyjson_obj_foreach(agents, idx, max, k, v) {
-            const char *name = yyjson_get_str(k);
-            if (name && strcmp(name, "agents") != 0)
-                acp_provider_row(ctx, &b, json, name, v);
-        }
+                const char *name = yyjson_get_str(k);
+                if (name && strcmp(name, "agents") != 0) acp_provider_row(ctx, &b, json, name, v);
+            }
     }
     int n_env = 0;
     char **envnames = tny_env_provider_names(&n_env);
@@ -513,7 +512,10 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         const char *name = envnames[i];
         yyjson_val *root = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
         const char *in_settings = jget_str(jget(root, name), "base_url");
-        if (in_settings && *in_settings) { free(envnames[i]); continue; /* listed above */ }
+        if (in_settings && *in_settings) {
+            free(envnames[i]);
+            continue; /* listed above */
+        }
         custom_provider_row(ctx, &b, json, name, NULL, "env");
         free(envnames[i]);
     }
@@ -542,10 +544,11 @@ int cmd_usage(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     session_meta_free(m, n);
     if (json)
         printf("{\"kind\":\"usage\",\"sessions\":%d,\"input_tokens\":%lld,"
-               "\"output_tokens\":%lld}\n", n, (long long)tin, (long long)tout);
-    else
-        printf("workspace sessions: %d\ninput tokens:  %lld\noutput tokens: %lld\n",
+               "\"output_tokens\":%lld}\n",
                n, (long long)tin, (long long)tout);
+    else
+        printf("workspace sessions: %d\ninput tokens:  %lld\noutput tokens: %lld\n", n,
+               (long long)tin, (long long)tout);
     return 0;
 }
 
@@ -557,29 +560,29 @@ int cmd_setup(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         else if (strcmp(argv[i], "--model") == 0) model = argv[++i];
     }
     if (!base_url && !key_env && !model) {
-        fprintf(stderr,
-                "tny: setup needs flags (no interactive prompts)\n"
-                "Example:\n  tny setup --base-url https://openrouter.ai/api/v1 "
-                "--api-key-env OPENROUTER_API_KEY --model anthropic/claude-sonnet-4.6\n");
+        fprintf(stderr, "tny: setup needs flags (no interactive prompts)\n"
+                        "Example:\n  tny setup --base-url https://openrouter.ai/api/v1 "
+                        "--api-key-env OPENROUTER_API_KEY --model anthropic/claude-sonnet-4.6\n");
         return 1;
     }
     /* merge into settings "openai" object */
-    yyjson_mut_doc *doc = ctx->settings ? yyjson_doc_mut_copy(ctx->settings, NULL)
-                                        : yyjson_mut_doc_new(NULL);
-    if (!yyjson_mut_doc_get_root(doc))
-        yyjson_mut_doc_set_root(doc, yyjson_mut_obj(doc));
+    yyjson_mut_doc *doc =
+        ctx->settings ? yyjson_doc_mut_copy(ctx->settings, NULL) : yyjson_mut_doc_new(NULL);
+    if (!yyjson_mut_doc_get_root(doc)) yyjson_mut_doc_set_root(doc, yyjson_mut_obj(doc));
     yyjson_mut_val *root = yyjson_mut_doc_get_root(doc);
     yyjson_mut_val *oa = yyjson_mut_obj_get(root, "openai");
     if (!oa) {
         oa = yyjson_mut_obj(doc);
         yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "openai"), oa);
     }
-    if (base_url) yyjson_mut_obj_put(oa, yyjson_mut_strcpy(doc, "base_url"),
-                                     yyjson_mut_strcpy(doc, base_url));
-    if (key_env) yyjson_mut_obj_put(oa, yyjson_mut_strcpy(doc, "api_key_env"),
-                                    yyjson_mut_strcpy(doc, key_env));
-    if (model) yyjson_mut_obj_put(oa, yyjson_mut_strcpy(doc, "model"),
-                                  yyjson_mut_strcpy(doc, model));
+    if (base_url)
+        yyjson_mut_obj_put(oa, yyjson_mut_strcpy(doc, "base_url"),
+                           yyjson_mut_strcpy(doc, base_url));
+    if (key_env)
+        yyjson_mut_obj_put(oa, yyjson_mut_strcpy(doc, "api_key_env"),
+                           yyjson_mut_strcpy(doc, key_env));
+    if (model)
+        yyjson_mut_obj_put(oa, yyjson_mut_strcpy(doc, "model"), yyjson_mut_strcpy(doc, model));
     char *out = jwrite_pretty(doc);
     yyjson_mut_doc_free(doc);
     if (!out) return 1;
@@ -591,8 +594,7 @@ int cmd_setup(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         return 1;
     }
     printf("wrote provider config to %s\n", ctx->settings_path);
-    if (key_env && !getenv(key_env))
-        printf("note: $%s is not set in this shell\n", key_env);
+    if (key_env && !getenv(key_env)) printf("note: $%s is not set in this shell\n", key_env);
     return 0;
 }
 
@@ -604,8 +606,7 @@ static int login_claude(tny_ctx *ctx) {
     const char *source = NULL;
     char *tok = tny_claude_token(&source);
     if (tok) {
-        printf("Claude credential found (%s) — `tny --provider claude` uses it.\n",
-               source);
+        printf("Claude credential found (%s) — `tny --provider claude` uses it.\n", source);
         memset(tok, 0, strlen(tok));
         free(tok);
         return 0;
@@ -613,7 +614,8 @@ static int login_claude(tny_ctx *ctx) {
     const char *bin = getenv("TNY_CLAUDE_BIN");
     if (!bin || !*bin) bin = "claude";
     printf("No Claude credential. Starting `%s setup-token` (browser sign-in;\n"
-           "requires a Pro/Max/Team/Enterprise subscription)…\n", bin);
+           "requires a Pro/Max/Team/Enterprise subscription)…\n",
+           bin);
     fflush(stdout);
     buf_t cmd;
     buf_init(&cmd);
@@ -624,7 +626,8 @@ static int login_claude(tny_ctx *ctx) {
         fprintf(stderr,
                 "tny: `%s setup-token` failed. Install the Claude Code CLI "
                 "(or set TNY_CLAUDE_BIN), run `claude /login` once, or set "
-                "CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY.\n", bin);
+                "CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY.\n",
+                bin);
         return 1;
     }
     printf("Copy the token it printed and export it:\n"
@@ -644,15 +647,15 @@ int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     (void)g;
     bool device = false;
     for (int i = 0; i < argc; i++)
-        if (strcmp(argv[i], "--device") == 0 ||
-            strcmp(argv[i], "--device-code") == 0)
+        if (strcmp(argv[i], "--device") == 0 || strcmp(argv[i], "--device-code") == 0)
             device = true;
     const char *pn = tny_provider_name(ctx);
     if (strcmp(pn, "claude") == 0) return login_claude(ctx);
     if (strcmp(pn, "grok") == 0) return login_grok(ctx);
+    const char *cursor_key = getenv("CURSOR_API_KEY");
     switch (ctx->backend) {
     case TNY_BK_CURSOR:
-        printf(getenv("CURSOR_API_KEY") && *getenv("CURSOR_API_KEY")
+        printf(cursor_key && *cursor_key
                    ? "CURSOR_API_KEY is set — the bridge will use it.\n"
                    : "Set CURSOR_API_KEY (user or service-account key) for the SDK bridge.\n");
         return 0;
@@ -664,15 +667,16 @@ int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         printf("ACP agents authenticate themselves; pre-authorize the agent CLI.\n");
         return 0;
     default:
-        printf(ctx->api_key
-                   ? "Provider key found.\n"
-                   : "Set OPENAI_API_KEY (or run tny setup --api-key-env NAME).\n");
+        printf(ctx->api_key ? "Provider key found.\n"
+                            : "Set OPENAI_API_KEY (or run tny setup --api-key-env NAME).\n");
         return ctx->api_key ? 0 : 1;
     }
 }
 
 int cmd_logout(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
-    (void)g; (void)argc; (void)argv;
+    (void)g;
+    (void)argc;
+    (void)argv;
     const char *pn = tny_provider_name(ctx);
     if (strcmp(pn, "claude") == 0) {
         printf("Unset CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY, or remove "

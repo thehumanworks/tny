@@ -8,16 +8,16 @@
 #include <stddef.h>
 
 typedef enum {
-    TNY_EV_TEXT_DELTA,   /* assistant text fragment */
-    TNY_EV_THINKING,     /* reasoning fragment (render dim) */
-    TNY_EV_TOOL_START,   /* tool call began */
-    TNY_EV_TOOL_END,     /* tool call finished */
-    TNY_EV_PERMISSION,   /* backend needs an approval decision */
-    TNY_EV_PLAN,         /* plan / todo update, plain text */
-    TNY_EV_USAGE,        /* token usage numbers */
-    TNY_EV_TURN_END,     /* turn finished (see stop) */
-    TNY_EV_ERROR,        /* fatal-for-this-turn error */
-    TNY_EV_STATUS,       /* one-line progress note (stderr / status area) */
+    TNY_EV_TEXT_DELTA,     /* assistant text fragment */
+    TNY_EV_THINKING,       /* reasoning fragment (render dim) */
+    TNY_EV_TOOL_START,     /* tool call began */
+    TNY_EV_TOOL_END,       /* tool call finished */
+    TNY_EV_PERMISSION,     /* backend needs an approval decision */
+    TNY_EV_PLAN,           /* plan / todo update, plain text */
+    TNY_EV_USAGE,          /* token usage numbers */
+    TNY_EV_TURN_END,       /* turn finished (see stop) */
+    TNY_EV_ERROR,          /* fatal-for-this-turn error */
+    TNY_EV_STATUS,         /* one-line progress note (stderr / status area) */
     TNY_EV_STEER_REJECTED, /* a steer() the host accepted was refused later.
                             * text (+len) carries the rejected user text; the
                             * frontend re-queues it (docs/adr/0011, 0013) */
@@ -46,34 +46,34 @@ typedef enum {
 
 /* Options a host offers for a permission request. Map onto y / a / n. */
 typedef enum {
-    TNY_PERM_ALLOW_ONCE   = 1 << 0,
+    TNY_PERM_ALLOW_ONCE = 1 << 0,
     TNY_PERM_ALLOW_ALWAYS = 1 << 1, /* session grant */
-    TNY_PERM_DENY         = 1 << 2
+    TNY_PERM_DENY = 1 << 2
 } tny_perm_options;
 
 typedef struct {
     tny_event_kind kind;
     /* TEXT_DELTA / THINKING / PLAN / STATUS / ERROR: text (+len) */
     const char *text;
-    size_t      text_len;
+    size_t text_len;
     const char *message_id; /* provider message/item id when available */
     /* TOOL_START / TOOL_END */
     const char *tool_name;
     const char *tool_id;
-    const char *tool_detail;  /* short human line: args summary or result summary */
-    bool        tool_ok;      /* TOOL_END */
+    const char *tool_detail; /* short human line: args summary or result summary */
+    bool tool_ok;            /* TOOL_END */
     /* PERMISSION */
     const char *perm_id;      /* opaque id to pass to respond_permission */
     const char *perm_summary; /* what is being requested */
-    int         perm_options; /* tny_perm_options bitmask */
+    int perm_options;         /* tny_perm_options bitmask */
     /* CUSTOM_MESSAGE: stable extension-defined discriminator. USER_MESSAGE
      * leaves it NULL. Both use text (+len). */
     const char *message_type;
     /* USAGE */
-    int64_t     in_tokens, out_tokens;
-    int64_t     context_used, context_size;
-    double      cost;
-    bool        has_cost;
+    int64_t in_tokens, out_tokens;
+    int64_t context_used, context_size;
+    double cost;
+    bool has_cost;
     /* TURN_END */
     tny_stop_reason stop;
     /* ERROR: stable internal category mapped by the public ABI. */

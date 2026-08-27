@@ -1,4 +1,5 @@
 """Build pure discovery wheels or validated platform wheels with libtny."""
+
 from __future__ import annotations
 
 import hashlib
@@ -124,9 +125,11 @@ def _validated_bundle() -> Path | None:
         )
         if manifest.get("dynamic_identity") != expected_identity:
             raise SetupError("bundled libtny dynamic identity is invalid")
-        if (not isinstance(manifest.get("abi_minor"), int) or
-                not isinstance(manifest.get("library_version"), str) or
-                not manifest["library_version"]):
+        if (
+            not isinstance(manifest.get("abi_minor"), int)
+            or not isinstance(manifest.get("library_version"), str)
+            or not manifest["library_version"]
+        ):
             raise SetupError("bundled libtny ABI/library version metadata is invalid")
     return source
 

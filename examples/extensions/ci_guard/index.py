@@ -2,7 +2,13 @@
 
 from typing import Optional
 
-from tny_ext import AgentEndEvent, ContinueAction, ExtensionAPI, ToolEndEvent, continue_with
+from tny_ext import (
+    AgentEndEvent,
+    ContinueAction,
+    ExtensionAPI,
+    ToolEndEvent,
+    continue_with,
+)
 
 from .rules import FailedTools
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Plan and verify idempotent PyPI publication using JSON and artifact hashes."""
+
 from __future__ import annotations
 
 import argparse
@@ -25,25 +26,37 @@ def expected_wheels(root: Path, version: str) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for path in sorted(root.rglob("tny-*.whl")):
         with zipfile.ZipFile(path) as archive:
-            metadata_names = [name for name in archive.namelist() if name.endswith(".dist-info/METADATA")]
+            metadata_names = [
+                name
+                for name in archive.namelist()
+                if name.endswith(".dist-info/METADATA")
+            ]
             if len(metadata_names) != 1:
                 raise ValueError(f"{path}: wheel has no unique METADATA")
             metadata = archive.read(metadata_names[0]).decode("utf-8")
-        if f"\nName: tny\n" not in f"\n{metadata}" or f"\nVersion: {version}\n" not in f"\n{metadata}":
+        if (
+            "\nName: tny\n" not in f"\n{metadata}"
+            or f"\nVersion: {version}\n" not in f"\n{metadata}"
+        ):
             raise ValueError(f"{path}: wheel metadata does not match tny {version}")
         value = {"path": path, "sha256": sha256(path)}
         prior = result.get(path.name)
         if prior:
-            relation = "non-identical" if prior["sha256"] != value["sha256"] else "duplicate"
+            relation = (
+                "non-identical" if prior["sha256"] != value["sha256"] else "duplicate"
+            )
             raise ValueError(f"{relation} wheel {path.name}")
         result[path.name] = value
     if len(result) != 3:
-        raise ValueError(f"expected exactly three platform wheels, got {sorted(result)}")
+        raise ValueError(
+            f"expected exactly three platform wheels, got {sorted(result)}"
+        )
     return result
 
 
-def assess_release(release: dict[str, Any] | None,
-                   expected: dict[str, dict[str, Any]]) -> bool:
+def assess_release(
+    release: dict[str, Any] | None, expected: dict[str, dict[str, Any]]
+) -> bool:
     """Return whether publication is needed; reject partial or mismatched reruns."""
     if release is None:
         return True
@@ -78,21 +91,31 @@ def fetch_release(base_url: str, version: str) -> dict[str, Any] | None:
         raise ValueError(f"PyPI JSON readback failed: HTTP {error.code}") from error
 
 
-def download_and_verify(release: dict[str, Any], expected: dict[str, dict[str, Any]],
-                        destination: Path,
-                        fetch_bytes: Callable[[str], bytes] | None = None) -> None:
+def download_and_verify(
+    release: dict[str, Any],
+    expected: dict[str, dict[str, Any]],
+    destination: Path,
+    fetch_bytes: Callable[[str], bytes] | None = None,
+) -> None:
     destination.mkdir(parents=True, exist_ok=True)
+
     def default_fetch(url: str) -> bytes:
         with urllib.request.urlopen(url, timeout=60) as response:
             return response.read()
 
     fetch = fetch_bytes or default_fetch
-    urls = {item["filename"]: item for item in release.get("urls", []) if item.get("packagetype") == "bdist_wheel"}
+    urls = {
+        item["filename"]: item
+        for item in release.get("urls", [])
+        if item.get("packagetype") == "bdist_wheel"
+    }
     for filename in sorted(expected):
         item = urls[filename]
         data = fetch(item["url"])
         actual = hashlib.sha256(data).hexdigest()
-        if actual != expected[filename]["sha256"] or actual != item.get("digests", {}).get("sha256"):
+        if actual != expected[filename]["sha256"] or actual != item.get(
+            "digests", {}
+        ).get("sha256"):
             raise ValueError(f"downloaded PyPI hash mismatch for {filename}")
         (destination / filename).write_bytes(data)
 
@@ -121,7 +144,11 @@ def main() -> int:
         release = fetch_release(args.base_url, args.version)
         required = assess_release(release, expected)
         write_output(args.github_output, "publish_required", str(required).lower())
-        print(json.dumps({"version": args.version, "publish_required": required}, sort_keys=True))
+        print(
+            json.dumps(
+                {"version": args.version, "publish_required": required}, sort_keys=True
+            )
+        )
         return 0
     release = None
     for attempt in range(1, args.attempts + 1):

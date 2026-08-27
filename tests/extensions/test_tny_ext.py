@@ -2,7 +2,6 @@ import pathlib
 import sys
 import unittest
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "python"))
 
@@ -51,7 +50,9 @@ class EventTests(unittest.TestCase):
             }
         )
         self.assertIsInstance(event, BeforeAgentStartEvent)
-        self.assertEqual((event.event_id, event.sequence, event.provider), ("event-7", 7, "openai"))
+        self.assertEqual(
+            (event.event_id, event.sequence, event.provider), ("event-7", 7, "openai")
+        )
         self.assertEqual(event.prompt, "hello")
         self.assertEqual(event.system_prompt, "system")
         self.assertEqual(event.images[0]["data"], "x")
@@ -59,16 +60,26 @@ class EventTests(unittest.TestCase):
 
     def test_internal_permission_alias_uses_public_typed_event(self):
         event = event_from_dict(
-            {"type": "permission", "perm_id": "p1", "perm_summary": "run", "perm_options": 7}
+            {
+                "type": "permission",
+                "perm_id": "p1",
+                "perm_summary": "run",
+                "perm_options": 7,
+            }
         )
         self.assertIsInstance(event, PermissionRequestEvent)
-        self.assertEqual((event.permission_id, event.summary, event.options), ("p1", "run", 7))
+        self.assertEqual(
+            (event.permission_id, event.summary, event.options), ("p1", "run", 7)
+        )
         self.assertEqual(event.type, "permission")
 
     def test_stop_reason_accepts_string_or_structured_wire_value(self):
         simple = event_from_dict({"type": "turn_end", "stop": "completed"})
         structured = event_from_dict(
-            {"type": "turn_end", "payload": {"stop": {"reason": "interrupted", "provider": "cancelled"}}}
+            {
+                "type": "turn_end",
+                "payload": {"stop": {"reason": "interrupted", "provider": "cancelled"}},
+            }
         )
         self.assertIsInstance(simple, TurnEndEvent)
         self.assertEqual(simple.stop.reason, "completed")
@@ -76,7 +87,9 @@ class EventTests(unittest.TestCase):
         self.assertEqual(structured.stop.details["provider"], "cancelled")
 
     def test_unknown_event_is_forward_compatible(self):
-        event = event_from_dict({"type": "provider_added_later", "nested": {"ok": True}})
+        event = event_from_dict(
+            {"type": "provider_added_later", "nested": {"ok": True}}
+        )
         self.assertIsInstance(event, UnknownEvent)
         self.assertEqual(event.payload, {"nested": {"ok": True}})
 
@@ -84,10 +97,19 @@ class EventTests(unittest.TestCase):
         cases = {
             "user_prompt_submit": (
                 "UserPromptSubmitEvent",
-                {"prompt": "ship", "source": "user", "submission_id": "p1", "images": []},
+                {
+                    "prompt": "ship",
+                    "source": "user",
+                    "submission_id": "p1",
+                    "images": [],
+                },
                 ("source", "user"),
             ),
-            "turn_start": ("TurnStartEvent", {"iteration": 2, "source": "continuation"}, ("iteration", 2)),
+            "turn_start": (
+                "TurnStartEvent",
+                {"iteration": 2, "source": "continuation"},
+                ("iteration", 2),
+            ),
             "message_start": (
                 "MessageStartEvent",
                 {"message_id": "m1", "role": "assistant", "content_type": "text"},
@@ -95,23 +117,54 @@ class EventTests(unittest.TestCase):
             ),
             "message_update": (
                 "MessageUpdateEvent",
-                {"message_id": "m1", "role": "assistant", "content_type": "text", "text": "a"},
+                {
+                    "message_id": "m1",
+                    "role": "assistant",
+                    "content_type": "text",
+                    "text": "a",
+                },
                 ("text", "a"),
             ),
             "message_end": (
                 "MessageEndEvent",
-                {"message_id": "m1", "role": "assistant", "content_type": "text", "text": "all"},
+                {
+                    "message_id": "m1",
+                    "role": "assistant",
+                    "content_type": "text",
+                    "text": "all",
+                },
                 ("text", "all"),
             ),
-            "pre_compact": ("PreCompactEvent", {"trigger": "manual", "message_count": 8}, ("trigger", "manual")),
+            "pre_compact": (
+                "PreCompactEvent",
+                {"trigger": "manual", "message_count": 8},
+                ("trigger", "manual"),
+            ),
             "post_compact": (
                 "PostCompactEvent",
-                {"trigger": "manual", "before_count": 8, "after_count": 2, "summary": "bounded"},
+                {
+                    "trigger": "manual",
+                    "before_count": 8,
+                    "after_count": 2,
+                    "summary": "bounded",
+                },
                 ("after_count", 2),
             ),
-            "compact_failed": ("CompactFailedEvent", {"trigger": "threshold", "error": "oom"}, ("error", "oom")),
-            "model_change": ("ModelChangeEvent", {"previous": "a", "current": "b", "source": "command"}, ("current", "b")),
-            "effort_change": ("EffortChangeEvent", {"previous": "low", "current": "high", "source": "command"}, ("current", "high")),
+            "compact_failed": (
+                "CompactFailedEvent",
+                {"trigger": "threshold", "error": "oom"},
+                ("error", "oom"),
+            ),
+            "model_change": (
+                "ModelChangeEvent",
+                {"previous": "a", "current": "b", "source": "command"},
+                ("current", "b"),
+            ),
+            "effort_change": (
+                "EffortChangeEvent",
+                {"previous": "low", "current": "high", "source": "command"},
+                ("current", "high"),
+            ),
             "instructions_change": (
                 "InstructionsChangeEvent",
                 {"paths": ["AGENTS.md"], "digest": "abc", "count": 1},
@@ -122,34 +175,70 @@ class EventTests(unittest.TestCase):
                 {"action": "add", "path": "/tmp/ws", "directories": ["/tmp/ws"]},
                 ("directories", ("/tmp/ws",)),
             ),
-            "subagent_start": ("SubagentStartEvent", {"subagent_id": "s1", "action": "create"}, ("subagent_id", "s1")),
+            "subagent_start": (
+                "SubagentStartEvent",
+                {"subagent_id": "s1", "action": "create"},
+                ("subagent_id", "s1"),
+            ),
             "subagent_end": (
                 "SubagentEndEvent",
-                {"subagent_id": "s1", "action": "create", "outcome": "done", "ok": True},
+                {
+                    "subagent_id": "s1",
+                    "action": "create",
+                    "outcome": "done",
+                    "ok": True,
+                },
                 ("ok", True),
             ),
             "pre_tool_use": (
                 "PreToolUseEvent",
-                {"tool_name": "read_file", "tool_id": "t1", "arguments": {"path": "a"}, "original_arguments": {"path": "b"}},
+                {
+                    "tool_name": "read_file",
+                    "tool_id": "t1",
+                    "arguments": {"path": "a"},
+                    "original_arguments": {"path": "b"},
+                },
                 ("arguments", {"path": "a"}),
             ),
             "post_tool_use": (
                 "PostToolUseEvent",
-                {"tool_name": "read_file", "tool_id": "t1", "result": "ok", "original_ok": True},
+                {
+                    "tool_name": "read_file",
+                    "tool_id": "t1",
+                    "result": "ok",
+                    "original_ok": True,
+                },
                 ("original_ok", True),
             ),
             "post_tool_failure": (
                 "PostToolFailureEvent",
-                {"tool_name": "read_file", "tool_id": "t1", "result": "error", "original_ok": False},
+                {
+                    "tool_name": "read_file",
+                    "tool_id": "t1",
+                    "result": "error",
+                    "original_ok": False,
+                },
                 ("original_ok", False),
             ),
-            "post_tool_batch": ("PostToolBatchEvent", {"tool_ids": ["t1", "t2"], "failed": 1}, ("tool_ids", ("t1", "t2"))),
+            "post_tool_batch": (
+                "PostToolBatchEvent",
+                {"tool_ids": ["t1", "t2"], "failed": 1},
+                ("tool_ids", ("t1", "t2")),
+            ),
             "provider_request": (
                 "ProviderRequestEvent",
-                {"method": "POST", "endpoint": "/v1/responses", "metadata": {"wire": "responses"}},
+                {
+                    "method": "POST",
+                    "endpoint": "/v1/responses",
+                    "metadata": {"wire": "responses"},
+                },
                 ("endpoint", "/v1/responses"),
             ),
-            "provider_response": ("ProviderResponseEvent", {"status": 200, "metadata": {"stream": True}}, ("status", 200)),
+            "provider_response": (
+                "ProviderResponseEvent",
+                {"status": 200, "metadata": {"stream": True}},
+                ("status", 200),
+            ),
         }
         for event_type, (class_name, payload, field) in cases.items():
             with self.subTest(event_type=event_type):
@@ -199,20 +288,29 @@ class ActionTests(unittest.TestCase):
     def test_contracted_control_actions_have_frozen_wire_names(self):
         self.assertEqual(
             action_to_dict(transform_prompt("safer prompt")),
-            {"kind": "prompt_transform", "type": "prompt_transform", "prompt": "safer prompt"},
+            {
+                "kind": "prompt_transform",
+                "type": "prompt_transform",
+                "prompt": "safer prompt",
+            },
         )
         self.assertEqual(action_to_dict(block_prompt("policy"))["kind"], "prompt_block")
         self.assertEqual(
             action_to_dict(rewrite_tool({"path": "README.md"}))["arguments"],
             {"path": "README.md"},
         )
-        self.assertEqual(action_to_dict(deny_tool("outside workspace"))["kind"], "tool_deny")
+        self.assertEqual(
+            action_to_dict(deny_tool("outside workspace"))["kind"], "tool_deny"
+        )
         self.assertEqual(
             action_to_dict(decide_permission("allow_once"))["decision"], "allow_once"
         )
-        self.assertEqual(action_to_dict(annotate_tool("checked"))["kind"], "tool_annotate")
         self.assertEqual(
-            action_to_dict(replace_tool_result("redacted", is_error=True))["is_error"], True
+            action_to_dict(annotate_tool("checked"))["kind"], "tool_annotate"
+        )
+        self.assertEqual(
+            action_to_dict(replace_tool_result("redacted", is_error=True))["is_error"],
+            True,
         )
         with self.assertRaises(ValueError):
             decide_permission("allow_always")
@@ -282,7 +380,10 @@ class RegistrationTests(unittest.TestCase):
 
         returned = api.on(BeforeAgentStartEvent, second)
         self.assertIs(returned, second)
-        self.assertEqual([item.event for item in api.registrations], ["agent_end", "before_agent_start"])
+        self.assertEqual(
+            [item.event for item in api.registrations],
+            ["agent_end", "before_agent_start"],
+        )
         self.assertEqual([item.index for item in api.registrations], [0, 1])
 
 

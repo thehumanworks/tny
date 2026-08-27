@@ -1,4 +1,5 @@
 """asyncio adapters that preserve libtny's single owner thread."""
+
 from __future__ import annotations
 
 import asyncio
@@ -9,7 +10,7 @@ from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from functools import partial
-from typing import TypeVar, TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from ._binding import Library
 from .errors import BadStateError
@@ -64,14 +65,21 @@ def _finalize_owner(
 class AsyncRuntime:
     """Async runtime whose native calls are serialized on one worker thread."""
 
-    def __init__(self, config: RuntimeConfig, *, library: Library | None = None,
-                 library_path: str | os.PathLike[str] | None = None,
-                 host_services: HostServices | None = None) -> None:
+    def __init__(
+        self,
+        config: RuntimeConfig,
+        *,
+        library: Library | None = None,
+        library_path: str | os.PathLike[str] | None = None,
+        host_services: HostServices | None = None,
+    ) -> None:
         self._config = config
         self._library = library
         self._library_path = library_path
         self._host_services = host_services
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="libtny-owner")
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="libtny-owner"
+        )
         self._lifecycle_lock = asyncio.Lock()
         self._closed = False
         self._executor_shutdown = False
@@ -82,8 +90,9 @@ class AsyncRuntime:
             self, _finalize_owner, self._executor, self._runtime_holder
         )
 
-    async def _call(self, function: Callable[..., T], *args: object,
-                    **kwargs: object) -> T:
+    async def _call(
+        self, function: Callable[..., T], *args: object, **kwargs: object
+    ) -> T:
         if self._executor_shutdown:
             raise BadStateError(-2)
         loop = asyncio.get_running_loop()
@@ -102,7 +111,10 @@ class AsyncRuntime:
             creation = loop.run_in_executor(
                 self._executor,
                 partial(
-                    Runtime, config, library=library, library_path=library_path,
+                    Runtime,
+                    config,
+                    library=library,
+                    library_path=library_path,
                     host_services=host_services,
                 ),
             )
@@ -219,8 +231,11 @@ class AsyncSession:
     async def steer(self, text: str | bytes) -> None:
         await self._runtime._call(self._sync.steer, text)
 
-    async def respond_permission(self, request: PermissionRequestEvent | str | bytes,
-                                 decision: PermissionDecision) -> None:
+    async def respond_permission(
+        self,
+        request: PermissionRequestEvent | str | bytes,
+        decision: PermissionDecision,
+    ) -> None:
         await self._runtime._call(self._sync.respond_permission, request, decision)
 
     async def cancel(self) -> None:
@@ -233,11 +248,15 @@ class AsyncSession:
         drained = False
         try:
             while True:
+
                 def one_event() -> tuple[bool, AnyEvent | None]:
                     try:
-                        return True, self._sync.next_event(0.05, cancellation=self._token)
+                        return True, self._sync.next_event(
+                            0.05, cancellation=self._token
+                        )
                     except StopIteration:
                         return False, None
+
                 has_event, event = await self._runtime._call(one_event)
                 if not has_event:
                     drained = True
@@ -251,8 +270,9 @@ class AsyncSession:
             if not drained and not self.closed:
                 await self._cancel_and_drain()
 
-    async def run(self, prompt: str | bytes, *,
-                  raise_on_error: bool = False) -> AsyncIterator[AnyEvent]:
+    async def run(
+        self, prompt: str | bytes, *, raise_on_error: bool = False
+    ) -> AsyncIterator[AnyEvent]:
         send_task = asyncio.create_task(self.send(prompt))
         try:
             await asyncio.shield(send_task)
@@ -275,6 +295,7 @@ class AsyncSession:
             pass
         deadline = asyncio.get_running_loop().time() + 5.0
         while not self.closed:
+
             def one_event() -> bool:
                 try:
                     self._sync.next_event(0.1, cancellation=self._token)
@@ -283,6 +304,7 @@ class AsyncSession:
                     return False
                 except BadStateError:
                     return False
+
             if not await self._runtime._call(one_event):
                 return
             if asyncio.get_running_loop().time() >= deadline:

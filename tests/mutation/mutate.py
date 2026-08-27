@@ -17,10 +17,10 @@ Usage:  python3 tests/mutation/mutate.py [--fast] [--only FILE_SUBSTR]
 
 Runtime is dominated by one `make debug` relink per mutant (~2-4 s each).
 """
+
 import argparse
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -34,112 +34,255 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # (path, function names or None, line regex or None[, integration test]) —
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
-    ("src/net/stream.c", None, r"ossl|OSSL",
-     "tests/integration/test_https.py"),
+    ("src/net/stream.c", None, r"ossl|OSSL", "tests/integration/test_https.py"),
     ("src/tui/tui_prewarm.c", None, None),
-    ("src/tui/tui_draw.c", ["tui_push_ansi", "tui_overlay_budget", "overlay_rows",
-                            "tui_overlay_linef", "tui_overlay_clear"], None),
-    ("src/tui/tui.c", ["ensure_backend", "drain_engine_events",
-                       "tui_submit"], None),
-    ("src/core/runtime.c", ["queue_event", "after_backend",
-                            "tny_engine_fail_oom", "tny_engine_next_event"],
-     r"terminal|overflow|forcing|BACKPRESSURE|OOM|oom|deadline|monotonic|poll",
-     "tests/integration/test_libtny.py"),
-    ("src/core/runtime.c", ["tny_engine_fail_oom"],
-     r"terminal|ERROR|error|OOM|oom|overflow|forcing|active|terminal_popped",
-     "tests/integration/test_libtny.py", "libtny-safety"),
-    ("src/core/runtime.c", ["queue_event", "after_backend"],
-     r"tny_alloc_scope_failed\(\)",
-     "tests/integration/test_libtny_mutation_fault.py", "libtny-fault-mutation"),
-    ("src/core/tools_fs.c", ["walk"],
-     r"(!dir|!nrel|!nabs|!walk|!cb).*false",
-     "tests/integration/test_libtny_mutation_fault.py", "tools-fs-oom"),
+    (
+        "src/tui/tui_draw.c",
+        [
+            "tui_push_ansi",
+            "tui_overlay_budget",
+            "overlay_rows",
+            "tui_overlay_linef",
+            "tui_overlay_clear",
+        ],
+        None,
+    ),
+    ("src/tui/tui.c", ["ensure_backend", "drain_engine_events", "tui_submit"], None),
+    (
+        "src/core/runtime.c",
+        [
+            "queue_event",
+            "after_backend",
+            "tny_engine_fail_oom",
+            "tny_engine_next_event",
+        ],
+        r"terminal|overflow|forcing|BACKPRESSURE|OOM|oom|deadline|monotonic|poll",
+        "tests/integration/test_libtny.py",
+    ),
+    (
+        "src/core/runtime.c",
+        ["tny_engine_fail_oom"],
+        r"terminal|ERROR|error|OOM|oom|overflow|forcing|active|terminal_popped",
+        "tests/integration/test_libtny.py",
+        "libtny-safety",
+    ),
+    (
+        "src/core/runtime.c",
+        ["queue_event", "after_backend"],
+        r"tny_alloc_scope_failed\(\)",
+        "tests/integration/test_libtny_mutation_fault.py",
+        "libtny-fault-mutation",
+    ),
+    (
+        "src/core/tools_fs.c",
+        ["walk"],
+        r"(!dir|!nrel|!nabs|!walk|!cb).*false",
+        "tests/integration/test_libtny_mutation_fault.py",
+        "tools-fs-oom",
+    ),
     # extension control plane (#55): prompt/tool/permission precedence,
     # exact-once native boundaries, suppressed resolved permissions, and
     # terminal settlement after cancellation/deny.
-    ("src/core/runtime.c",
-     ["fold_extension_result", "process_queued_extension_hooks"],
-     r"^(?!for ).*(permission|PERMISSION|suppressed|respond_permission|fold\.stop|fold\.blocked|deny|allow|selected)",
-     "tests/integration/test_extensions.py", "extension-control"),
-    ("src/core/runtime.c",
-     ["native_pre_tool", "native_permission", "native_post_tool",
-      "native_observe", "native_openai_control"],
-     r"^(?!for ).*(stop|deny|rewrite|replacement|annotation|result_|audited|control_|cancel_probe|native_control|PERMISSION)",
-     "tests/integration/test_extensions.py", "extension-control"),
-    ("src/core/runtime.c", ["resolve_pending_terminal"],
-     r"continue_requested|TNY_STOP_DENIED|TNY_STOP_INTERRUPTED|\bstop\b",
-     "tests/integration/test_extensions.py", "extension-control"),
-    ("src/core/session.c",
-     ["session_replace_tool_arguments", "session_record_tool_audit"],
-     None, "tests/integration/test_extensions.py", "extension-control"),
+    (
+        "src/core/runtime.c",
+        ["fold_extension_result", "process_queued_extension_hooks"],
+        r"^(?!for ).*(permission|PERMISSION|suppressed|respond_permission|fold\.stop|fold\.blocked|deny|allow|selected)",
+        "tests/integration/test_extensions.py",
+        "extension-control",
+    ),
+    (
+        "src/core/runtime.c",
+        [
+            "native_pre_tool",
+            "native_permission",
+            "native_post_tool",
+            "native_observe",
+            "native_openai_control",
+        ],
+        r"^(?!for ).*(stop|deny|rewrite|replacement|annotation|result_|audited|control_|cancel_probe|native_control|PERMISSION)",
+        "tests/integration/test_extensions.py",
+        "extension-control",
+    ),
+    (
+        "src/core/runtime.c",
+        ["resolve_pending_terminal"],
+        r"continue_requested|TNY_STOP_DENIED|TNY_STOP_INTERRUPTED|\bstop\b",
+        "tests/integration/test_extensions.py",
+        "extension-control",
+    ),
+    (
+        "src/core/session.c",
+        ["session_replace_tool_arguments", "session_record_tool_audit"],
+        None,
+        "tests/integration/test_extensions.py",
+        "extension-control",
+    ),
     # background one-shots (docs/adr/0031): status record, lock truth, stop
-    ("src/core/session.c",
-     ["session_set_status_running", "session_set_status_finished",
-      "session_lock_acquire", "session_lock_release", "session_is_running",
-      "session_write_pid", "session_read_pid", "lock_dir_held",
-      "stop_wait", "session_stop"],
-     None, "tests/integration/test_background.py", "background"),
-    ("src/cli/cmd_ask.c", ["bg_finalize", "ask_result_json"], None,
-     "tests/integration/test_background.py", "background"),
-    ("src/cli/cmd_sessions.c", ["cmd_session_stop"], None,
-     "tests/integration/test_background.py", "background"),
-    ("src/core/tools.c", ["tools_call_prepare", "tools_call_execute"], None,
-     "tests/integration/test_extensions.py", "extension-control"),
-    ("src/lib/custom_tools.c",
-     ["result_copy", "custom_tool_complete", "custom_tool_take",
-      "custom_tool_invalidate", "custom_tools_invalidate_all"],
-     r"tny_wake_signal|call->completed|call->generation !=|call->epoch !=",
-     "tests/integration/test_libtny_custom_tools.py", "libtny-custom-tools"),
+    (
+        "src/core/session.c",
+        [
+            "session_set_status_running",
+            "session_set_status_finished",
+            "session_lock_acquire",
+            "session_lock_release",
+            "session_is_running",
+            "session_write_pid",
+            "session_read_pid",
+            "lock_dir_held",
+            "stop_wait",
+            "session_stop",
+        ],
+        None,
+        "tests/integration/test_background.py",
+        "background",
+    ),
+    (
+        "src/cli/cmd_ask.c",
+        ["bg_finalize", "ask_result_json"],
+        None,
+        "tests/integration/test_background.py",
+        "background",
+    ),
+    (
+        "src/cli/cmd_sessions.c",
+        ["cmd_session_stop"],
+        None,
+        "tests/integration/test_background.py",
+        "background",
+    ),
+    (
+        "src/core/tools.c",
+        ["tools_call_prepare", "tools_call_execute"],
+        None,
+        "tests/integration/test_extensions.py",
+        "extension-control",
+    ),
+    (
+        "src/lib/custom_tools.c",
+        [
+            "result_copy",
+            "custom_tool_complete",
+            "custom_tool_take",
+            "custom_tool_invalidate",
+            "custom_tools_invalidate_all",
+        ],
+        r"tny_wake_signal|call->completed|call->generation !=|call->epoch !=",
+        "tests/integration/test_libtny_custom_tools.py",
+        "libtny-custom-tools",
+    ),
     ("src/core/tools.c", ["tools_execute"], None),
     ("src/tui/tui_input.c", ["do_key"], r"overlay"),
     ("src/core/config.c", ["tny_ctx_load"], r"perm_mode|permission_mode"),
     # named openai-compatible providers (settings.json profiles + env vars)
-    ("src/core/config.c",
-     ["tny_provider_name", "custom_provider_obj", "tny_provider_env_var",
-      "derived_env_value", "tny_custom_provider_exists",
-      "tny_custom_provider_key_env", "tny_env_provider_names",
-      "env_sole_detected_provider", "load_openai_profile",
-      "apply_custom_provider", "apply_provider_model", "tny_resolve_backend"],
-     None),
-    ("src/core/config.c",
-     ["acp_profile_obj", "tny_acp_profile_exists", "acp_profile_name_valid",
-      "clear_profile_agent", "apply_acp_profile"],
-     r"^(?!for )", "tests/integration/test_acp.sh", "acp-profile"),
-    ("src/core/config.c", ["tny_effort_canonical", "tny_effort_wire",
-                           "apply_provider_effort"], None),
+    (
+        "src/core/config.c",
+        [
+            "tny_provider_name",
+            "custom_provider_obj",
+            "tny_provider_env_var",
+            "derived_env_value",
+            "tny_custom_provider_exists",
+            "tny_custom_provider_key_env",
+            "tny_env_provider_names",
+            "env_sole_detected_provider",
+            "load_openai_profile",
+            "apply_custom_provider",
+            "apply_provider_model",
+            "tny_resolve_backend",
+        ],
+        None,
+    ),
+    (
+        "src/core/config.c",
+        [
+            "acp_profile_obj",
+            "tny_acp_profile_exists",
+            "acp_profile_name_valid",
+            "clear_profile_agent",
+            "apply_acp_profile",
+        ],
+        r"^(?!for )",
+        "tests/integration/test_acp.sh",
+        "acp-profile",
+    ),
+    (
+        "src/core/config.c",
+        ["tny_effort_canonical", "tny_effort_wire", "apply_provider_effort"],
+        None,
+    ),
     # mid-turn input: steer or queue (docs/adr/0011)
-    ("src/tui/tui.c", ["tui_queue_push", "tui_queue_clear", "queue_pop",
-                       "tui_cancel_turn", "after_turn", "tui_submit"],
-     r"queue|steer"),
-    ("src/backends/openai/openai.c", ["take_steer", "oa_steer", "step_finished",
-                                      "emit_turn_end"],
-     r"steer"),
-    ("src/backends/openai/openai.c",
-     ["run_tools"],
-     r"^(?!for ).*(response\.|TNY_OPENAI_PERMISSION|control_|tools_call_prepare|call\.verdict|\bPERM_(DENY|ALLOW|PROMPT)\b|execute_call|cancelled|finish_cancelled|session_replace_tool_arguments|session_save|permission_block)",
-     "tests/integration/test_extensions.py", "extension-control"),
-    ("src/backends/openai/openai.c", ["permission_block"], None,
-     "tests/integration/test_extensions.py", "extension-control"),
-    ("src/backends/openai/openai.c",
-     ["finish_tool_batch"],
-     r"tool_batch_control|session_save|o->cancelled|perm_blocked|emit_turn_end|batch_stop",
-     "tests/integration/test_extensions.py", "extension-control"),
-    ("src/backends/openai/openai.c",
-     ["complete_tool", "execute_call", "finish_cancelled_call",
-      "tool_batch_control"],
-     r"^(?!for ).*(response\.|result|original_ok|effective_ok|transformed|cancelled|tool_batch_failed|session_add_tool_result|emit_tool_end|control_call|TNY_OPENAI_CONTROL)",
-     "tests/integration/test_extensions.py", "extension-control"),
-    ("src/backends/openai/openai.c", ["provider_control", "start_post_mode"],
-     r"provider_attempt|provider_request_sequence|provider_control|TNY_OPENAI_CONTROL_PROVIDER|logical_request|attempt",
-     "tests/integration/test_extensions.py", "extension-control"),
-    ("src/backends/openai/openai.c", ["subagent_control"], None,
-     "tests/integration/test_ephemeral.py", "extension-control"),
-    ("src/backends/openai/openai.c",
-     ["oa_respond_permission", "oa_cancel"], None,
-     "tests/integration/test_openai.py"),
+    (
+        "src/tui/tui.c",
+        [
+            "tui_queue_push",
+            "tui_queue_clear",
+            "queue_pop",
+            "tui_cancel_turn",
+            "after_turn",
+            "tui_submit",
+        ],
+        r"queue|steer",
+    ),
+    (
+        "src/backends/openai/openai.c",
+        ["take_steer", "oa_steer", "step_finished", "emit_turn_end"],
+        r"steer",
+    ),
+    (
+        "src/backends/openai/openai.c",
+        ["run_tools"],
+        r"^(?!for ).*(response\.|TNY_OPENAI_PERMISSION|control_|tools_call_prepare|call\.verdict|\bPERM_(DENY|ALLOW|PROMPT)\b|execute_call|cancelled|finish_cancelled|session_replace_tool_arguments|session_save|permission_block)",
+        "tests/integration/test_extensions.py",
+        "extension-control",
+    ),
+    (
+        "src/backends/openai/openai.c",
+        ["permission_block"],
+        None,
+        "tests/integration/test_extensions.py",
+        "extension-control",
+    ),
+    (
+        "src/backends/openai/openai.c",
+        ["finish_tool_batch"],
+        r"tool_batch_control|session_save|o->cancelled|perm_blocked|emit_turn_end|batch_stop",
+        "tests/integration/test_extensions.py",
+        "extension-control",
+    ),
+    (
+        "src/backends/openai/openai.c",
+        [
+            "complete_tool",
+            "execute_call",
+            "finish_cancelled_call",
+            "tool_batch_control",
+        ],
+        r"^(?!for ).*(response\.|result|original_ok|effective_ok|transformed|cancelled|tool_batch_failed|session_add_tool_result|emit_tool_end|control_call|TNY_OPENAI_CONTROL)",
+        "tests/integration/test_extensions.py",
+        "extension-control",
+    ),
+    (
+        "src/backends/openai/openai.c",
+        ["provider_control", "start_post_mode"],
+        r"provider_attempt|provider_request_sequence|provider_control|TNY_OPENAI_CONTROL_PROVIDER|logical_request|attempt",
+        "tests/integration/test_extensions.py",
+        "extension-control",
+    ),
+    (
+        "src/backends/openai/openai.c",
+        ["subagent_control"],
+        None,
+        "tests/integration/test_ephemeral.py",
+        "extension-control",
+    ),
+    (
+        "src/backends/openai/openai.c",
+        ["oa_respond_permission", "oa_cancel"],
+        None,
+        "tests/integration/test_openai.py",
+    ),
     # streamed tool_call assembly: parallel calls, gateway index reuse
-    ("src/backends/openai/toolcalls.c", None, None,
-     "tests/integration/test_openai.py"),
+    ("src/backends/openai/toolcalls.c", None, None, "tests/integration/test_openai.py"),
     ("src/backends/codex/codex.c", ["cx_steer"], None),
     # --ssh remote tool runtime (docs/adr/0022): target parsing, the quoting
     # + stdin/timeout primitive, and every remote tool script
@@ -148,102 +291,186 @@ TARGETS = [
     # native grok device-code login / refresh / logout (docs/adr/0021)
     ("src/core/grok_login.c", None, None),
     # steer-text ownership + turn-end sweep (docs/adr/0013)
-    ("src/backends/codex/codex_rpc.c", ["cx_end_turn", "cx_request"],
-     r"steer|STEER|registered|CXR_FREE"),
+    (
+        "src/backends/codex/codex_rpc.c",
+        ["cx_end_turn", "cx_request"],
+        r"steer|STEER|registered|CXR_FREE",
+    ),
     ("src/backends/codex/codex_msg.c", ["cx_response"], r"steer|STEER|CXR"),
     # --fast capability (TNY_CAP_FAST): new functions whole, only the
     # tier/fast lines inside the pre-existing ones.
     ("src/core/backend.c", ["tny_backend_caps"], None),
     # extension parity contract (#54): pure provider matrices, negotiated host
     # setup, typed unsupported diagnostics, and side-effect-free doctor JSON.
-    ("src/core/extension_caps.c",
-     ["tny_extension_capability_get", "tny_extension_capability_reason",
-      "tny_extension_capabilities_json"], None,
-     "tests/integration/test_extension_contract.py"),
-    ("src/core/extensions.c", ["initialize_host", "append_action"],
-     r"jget_int\(schema|schema_valid|selected_provider|unsupported_capability|unavailable_capability",
-     "tests/integration/test_extension_capabilities.py"),
-    ("src/cli/cmd_doctor.c", ["cmd_doctor"],
-     r"NO_SPAWN|capabilit",
-     "tests/integration/test_extension_capabilities.py"),
+    (
+        "src/core/extension_caps.c",
+        [
+            "tny_extension_capability_get",
+            "tny_extension_capability_reason",
+            "tny_extension_capabilities_json",
+        ],
+        None,
+        "tests/integration/test_extension_contract.py",
+    ),
+    (
+        "src/core/extensions.c",
+        ["initialize_host", "append_action"],
+        r"jget_int\(schema|schema_valid|selected_provider|unsupported_capability|unavailable_capability",
+        "tests/integration/test_extension_capabilities.py",
+    ),
+    (
+        "src/cli/cmd_doctor.c",
+        ["cmd_doctor"],
+        r"NO_SPAWN|capabilit",
+        "tests/integration/test_extension_capabilities.py",
+    ),
     ("src/core/config.c", ["tny_tier_is_fast"], None),
-    ("src/cli/args.c", ["cli_parse_globals", "cli_make_ctx"],
-     r"fast|tier|TNY_CAP"),
+    ("src/cli/args.c", ["cli_parse_globals", "cli_make_ctx"], r"fast|tier|TNY_CAP"),
     ("src/tui/tui_commands.c", ["tui_command"], r"fast|tier"),
-    ("src/backends/codex/codex.c", ["cx_start_thread"], r"tier|serviceTier",
-     "tests/integration/test_codex.sh"),
-    ("src/backends/openai/openai.c", ["build_request_chat"], r"tier",
-     "tests/integration/test_openai.py"),
-    ("src/backends/cursor/cursor.c",
-     ["cursor_append_model_params", "append_options"], r"fast|tier",
-     "tests/integration/test_cursor.sh"),
+    (
+        "src/backends/codex/codex.c",
+        ["cx_start_thread"],
+        r"tier|serviceTier",
+        "tests/integration/test_codex.sh",
+    ),
+    (
+        "src/backends/openai/openai.c",
+        ["build_request_chat"],
+        r"tier",
+        "tests/integration/test_openai.py",
+    ),
+    (
+        "src/backends/cursor/cursor.c",
+        ["cursor_append_model_params", "append_options"],
+        r"fast|tier",
+        "tests/integration/test_cursor.sh",
+    ),
     # cursor SdkMessage envelope + tool_call union mapping (the opaque-tool
     # fix): the rewritten tool mapper whole, only the unwrap/result lines
     # inside the pre-existing handlers.
-    ("src/backends/cursor/map.c",
-     ["variant_tool_name", "tok_count", "emit_tool"], None,
-     "tests/integration/test_cursor.sh"),
-    ("src/backends/cursor/map.c", ["handle_sdk", "handle_result"],
-     r"inner|itype|\brr\b|\bst\b|EXPIRED|ERROR",
-     "tests/integration/test_cursor.sh"),
+    (
+        "src/backends/cursor/map.c",
+        ["variant_tool_name", "tok_count", "emit_tool"],
+        None,
+        "tests/integration/test_cursor.sh",
+    ),
+    (
+        "src/backends/cursor/map.c",
+        ["handle_sdk", "handle_result"],
+        r"inner|itype|\brr\b|\bst\b|EXPIRED|ERROR",
+        "tests/integration/test_cursor.sh",
+    ),
     # Responses API default wire (docs/adr/0016): the translation file and
     # the new backend functions whole, only the wire/stream_failed lines
     # inside the pre-existing ones.
     # provider setup (docs/adr/0018): key precedence and the profile writer
     # whole (unit-killed); the CLI flag parser and wizard against the
     # provider-setup / tui fixtures.
-    ("src/core/config.c",
-     ["tny_provider_write_profile", "edit_provider_profile"], None),
-    ("src/core/config.c", ["apply_custom_provider", "load_openai_profile"],
-     r"api_key"),
-    ("src/cli/cmd_provider.c", ["provider_setup", "cmd_provider",
-                                "base_url_ok"], None,
-     "tests/integration/test_provider_setup.sh"),
-    ("src/tui/tui_commands.c",
-     ["tui_wizard_start", "tui_wizard_feed", "tui_wizard_cancel",
-      "wiz_finish", "wiz_base_ok"], None),
+    (
+        "src/core/config.c",
+        ["tny_provider_write_profile", "edit_provider_profile"],
+        None,
+    ),
+    ("src/core/config.c", ["apply_custom_provider", "load_openai_profile"], r"api_key"),
+    (
+        "src/cli/cmd_provider.c",
+        ["provider_setup", "cmd_provider", "base_url_ok"],
+        None,
+        "tests/integration/test_provider_setup.sh",
+    ),
+    (
+        "src/tui/tui_commands.c",
+        [
+            "tui_wizard_start",
+            "tui_wizard_feed",
+            "tui_wizard_cancel",
+            "wiz_finish",
+            "wiz_base_ok",
+        ],
+        None,
+    ),
     # wasm parity seams (docs/adr/0017): the poll wrapper, the relocated
     # URL parser, and the ACP ws transport (builders + routing + pump).
     ("src/util/tny_poll.c", None, None),
     ("src/net/url.c", None, None),
-    ("src/backends/acp/acp_wire.c",
-     ["acp_fmt_request", "acp_fmt_notify", "acp_fmt_result"], None,
-     "tests/integration/test_acp.sh"),
-    ("src/backends/acp/acp_proc.c",
-     ["ac_agent_is_ws", "ac_tx_request", "ac_tx_notify", "ac_tx_result",
-      "ac_tx_error", "push_fd", "ac_transport_pollfds", "ac_connect_ws"],
-     None, "tests/integration/test_acp_ws.sh"),
+    (
+        "src/backends/acp/acp_wire.c",
+        ["acp_fmt_request", "acp_fmt_notify", "acp_fmt_result"],
+        None,
+        "tests/integration/test_acp.sh",
+    ),
+    (
+        "src/backends/acp/acp_proc.c",
+        [
+            "ac_agent_is_ws",
+            "ac_tx_request",
+            "ac_tx_notify",
+            "ac_tx_result",
+            "ac_tx_error",
+            "push_fd",
+            "ac_transport_pollfds",
+            "ac_connect_ws",
+        ],
+        None,
+        "tests/integration/test_acp_ws.sh",
+    ),
     # ac_pump_reads: only the ws lines this change added; the stdio read
     # loop internals predate the transport seam and are latency-shaped.
-    ("src/backends/acp/acp_proc.c", ["ac_pump_reads"], r"ws",
-     "tests/integration/test_acp_ws.sh"),
-    ("src/backends/acp/acp_client.c",
-     ["ac_config_has_value", "ac_find_model_config", "ac_set_requested_model"],
-     None, "tests/integration/test_acp.sh"),
-    ("src/backends/openai/responses.c", None, None,
-     "tests/integration/test_openai.py"),
-    ("src/backends/openai/openai.c",
-     ["build_request_rsp", "on_sse_event_rsp", "rsp_call_by_index",
-      "on_sse_event"], r"^(?!.*reasoning_)",
-     "tests/integration/test_openai.py"),
+    (
+        "src/backends/acp/acp_proc.c",
+        ["ac_pump_reads"],
+        r"ws",
+        "tests/integration/test_acp_ws.sh",
+    ),
+    (
+        "src/backends/acp/acp_client.c",
+        ["ac_config_has_value", "ac_find_model_config", "ac_set_requested_model"],
+        None,
+        "tests/integration/test_acp.sh",
+    ),
+    ("src/backends/openai/responses.c", None, None, "tests/integration/test_openai.py"),
+    (
+        "src/backends/openai/openai.c",
+        ["build_request_rsp", "on_sse_event_rsp", "rsp_call_by_index", "on_sse_event"],
+        r"^(?!.*reasoning_)",
+        "tests/integration/test_openai.py",
+    ),
     # thinking deltas are dropped by `ask` (stderr noise); only the TUI
     # renders them, so these lines answer to the TUI suite
     ("src/backends/openai/openai.c", ["on_sse_event_rsp"], r"reasoning_"),
-    ("src/backends/openai/openai.c", ["start_post", "oa_dispatch"],
-     r"wire|stream_failed", "tests/integration/test_openai.py"),
-    ("src/core/config.c",
-     ["tny_wire_is_chat", "load_openai_profile", "apply_custom_provider"],
-     r"wire", "tests/integration/test_openai.py"),
-    ("src/cli/args.c", ["cli_parse_globals", "cli_make_ctx"], r"wire",
-     "tests/integration/test_openai.py"),
+    (
+        "src/backends/openai/openai.c",
+        ["start_post", "oa_dispatch"],
+        r"wire|stream_failed",
+        "tests/integration/test_openai.py",
+    ),
+    (
+        "src/core/config.c",
+        ["tny_wire_is_chat", "load_openai_profile", "apply_custom_provider"],
+        r"wire",
+        "tests/integration/test_openai.py",
+    ),
+    (
+        "src/cli/args.c",
+        ["cli_parse_globals", "cli_make_ctx"],
+        r"wire",
+        "tests/integration/test_openai.py",
+    ),
     # builtin subscription profiles: claude/grok (docs/adr/0019). The login
     # ceremonies (codex_login.c, cmd_login) are interactive/process-spawning
     # and answer to tests/integration/test_codex.sh run 7 instead.
     ("src/core/profiles.c", None, None),
-    ("src/core/config.c", ["tny_resolve_backend", "tny_provider_names_joined"],
-     r"builtin|claude|grok"),
-    ("src/backends/codex/codex_msg.c", ["cx_notification"], r"login",
-     "tests/integration/test_codex.sh"),
+    (
+        "src/core/config.c",
+        ["tny_resolve_backend", "tny_provider_names_joined"],
+        r"builtin|claude|grok",
+    ),
+    (
+        "src/backends/codex/codex_msg.c",
+        ["cx_notification"],
+        r"login",
+        "tests/integration/test_codex.sh",
+    ),
     # color vs attribute split (docs/adr/0026): the resolver and the flag
     # parsing whole; the status row's two renderings answer to the unit
     # tests, the dumb-mode note + POLLNVAL exit to test_tui.py
@@ -254,13 +481,21 @@ TARGETS = [
 
 # operator substitutions applied to one site at a time
 OPS = [
-    (r"==", "!="), (r"!=", "=="),
-    (r"<=", "<"), (r">=", ">"),
-    (r"(?<![<>=!])<(?![<=])", "<="), (r"(?<![<>=!-])>(?![>=])", ">="),
-    (r"&&", "||"), (r"\|\|", "&&"),
-    (r"\btrue\b", "false"), (r"\bfalse\b", "true"),
-    (r"\breturn -1\b", "return 0"), (r"\breturn 0\b", "return -1"),
-    (r"\+ 1\b", "- 1"), (r"- 1\b", "+ 1"), (r"\+\+", "--"),
+    (r"==", "!="),
+    (r"!=", "=="),
+    (r"<=", "<"),
+    (r">=", ">"),
+    (r"(?<![<>=!])<(?![<=])", "<="),
+    (r"(?<![<>=!-])>(?![>=])", ">="),
+    (r"&&", "||"),
+    (r"\|\|", "&&"),
+    (r"\btrue\b", "false"),
+    (r"\bfalse\b", "true"),
+    (r"\breturn -1\b", "return 0"),
+    (r"\breturn 0\b", "return -1"),
+    (r"\+ 1\b", "- 1"),
+    (r"- 1\b", "+ 1"),
+    (r"\+\+", "--"),
     (r"\bTNY_MODE_YOLO\b", "TNY_MODE_ASK"),
 ]
 
@@ -413,27 +648,48 @@ def gen_mutants(path, names, line_re):
             content = lines[ln - 1].strip()
             if line_re and not re.search(line_re, content):
                 continue
-            if content.startswith("/*") or content.startswith("*") or content.startswith("//"):
+            if (
+                content.startswith("/*")
+                or content.startswith("*")
+                or content.startswith("//")
+            ):
                 continue
             # skip matches inside a trailing comment on a code line
-            ls = m.start() - (len(text[:m.start()].split("\n")[-1]))
-            before = text[ls:m.start()]
-            if "//" in before or ("/*" in before and "*/" not in before.split("/*")[-1]):
+            ls = m.start() - (len(text[: m.start()].split("\n")[-1]))
+            before = text[ls : m.start()]
+            if "//" in before or (
+                "/*" in before and "*/" not in before.split("/*")[-1]
+            ):
                 continue
             key = "%s:%s" % (os.path.basename(path), content)
             if any(eq in key for eq in EQUIVALENT):
                 continue
-            mutated = text[:m.start()] + re.sub(pat, repl.replace("\\", "\\\\"),
-                                                m.group(0)) + text[m.end():]
-            out.append({"file": path, "line": ln, "op": "%s -> %s" % (m.group(0), repl),
-                        "content": content, "text": mutated})
+            mutated = (
+                text[: m.start()]
+                + re.sub(pat, repl.replace("\\", "\\\\"), m.group(0))
+                + text[m.end() :]
+            )
+            out.append(
+                {
+                    "file": path,
+                    "line": ln,
+                    "op": "%s -> %s" % (m.group(0), repl),
+                    "content": content,
+                    "text": mutated,
+                }
+            )
     return out
 
 
 def run(cmd, timeout, cwd=ROOT):
     try:
-        r = subprocess.run(cmd, cwd=cwd, timeout=timeout,
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        r = subprocess.run(
+            cmd,
+            cwd=cwd,
+            timeout=timeout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
         return r.returncode, r.stdout.decode("utf-8", "replace")
     except subprocess.TimeoutExpired:
         return -9, "(timeout after %ss)" % timeout
@@ -522,8 +778,10 @@ def main():
     print("killed by int : %d" % killed_int)
     print("survived      : %d" % len(survivors))
     for mu in survivors:
-        print("  %s:%d  %s   | %s" % (os.path.relpath(mu["file"], ROOT),
-                                      mu["line"], mu["op"], mu["content"]))
+        print(
+            "  %s:%d  %s   | %s"
+            % (os.path.relpath(mu["file"], ROOT), mu["line"], mu["op"], mu["content"])
+        )
     if total:
         print("kill ratio    : %.1f%%" % (100.0 * (killed_unit + killed_int) / total))
     return 1 if survivors else 0

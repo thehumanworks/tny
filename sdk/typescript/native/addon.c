@@ -12,22 +12,19 @@ static void note_status(napi_status status) {
 
 static napi_value create_record(napi_env env) {
     napi_value source, object;
-    napi_status status = napi_create_string_utf8(
-        env, "({__proto__:null})", NAPI_AUTO_LENGTH, &source);
+    napi_status status =
+        napi_create_string_utf8(env, "({__proto__:null})", NAPI_AUTO_LENGTH, &source);
     if (status == napi_ok) status = napi_run_script(env, source, &object);
     note_status(status);
     return status == napi_ok ? object : NULL;
 }
 
-static napi_status set_named(napi_env env, napi_value object, const char *name,
-                             napi_value value) {
+static napi_status set_named(napi_env env, napi_value object, const char *name, napi_value value) {
     napi_property_descriptor property = {
-        name, NULL, NULL, NULL, NULL, value,
-        napi_writable | napi_enumerable | napi_configurable, NULL
-    };
-    napi_status status = object && value
-        ? napi_define_properties(env, object, 1u, &property)
-        : napi_invalid_arg;
+        name, NULL, NULL, NULL, NULL, value, napi_writable | napi_enumerable | napi_configurable,
+        NULL};
+    napi_status status =
+        object && value ? napi_define_properties(env, object, 1u, &property) : napi_invalid_arg;
     note_status(status);
     return status;
 }
@@ -42,8 +39,10 @@ static napi_value js_string(napi_env env, const char *value) {
 
 static napi_value js_owned(napi_env env, sdk_owned_bytes value) {
     napi_value result;
-    napi_status status = value.len > SIZE_MAX ? napi_invalid_arg :
-        napi_create_string_utf8(env, value.ptr ? value.ptr : "", (size_t)value.len, &result);
+    napi_status status =
+        value.len > SIZE_MAX
+            ? napi_invalid_arg
+            : napi_create_string_utf8(env, value.ptr ? value.ptr : "", (size_t)value.len, &result);
     note_status(status);
     return status == napi_ok ? result : NULL;
 }
@@ -95,16 +94,22 @@ static napi_value capabilities_to_js(napi_env env, const capability_copy *capabi
     set_named(env, object, "abiVersion", js_uint32(env, capabilities->abi_version));
     set_named(env, object, "providerSelected", js_uint32(env, capabilities->provider_selected));
     set_named(env, object, "providerInitialized", js_bool(env, capabilities->provider_initialized));
-    set_named(env, object, "endpointReachability", js_uint32(env, capabilities->endpoint_reachability));
+    set_named(env, object, "endpointReachability",
+              js_uint32(env, capabilities->endpoint_reachability));
     set_named(env, object, "threadingModel", js_uint32(env, capabilities->threading_model));
     set_named(env, object, "cancelModel", js_uint32(env, capabilities->cancel_model));
-    set_named(env, object, "providerAvailableMask", js_big_uint(env, capabilities->provider_available_mask));
-    set_named(env, object, "featureAvailableMask", js_big_uint(env, capabilities->feature_available_mask));
-    set_named(env, object, "featureEnabledMask", js_big_uint(env, capabilities->feature_enabled_mask));
+    set_named(env, object, "providerAvailableMask",
+              js_big_uint(env, capabilities->provider_available_mask));
+    set_named(env, object, "featureAvailableMask",
+              js_big_uint(env, capabilities->feature_available_mask));
+    set_named(env, object, "featureEnabledMask",
+              js_big_uint(env, capabilities->feature_enabled_mask));
     set_named(env, object, "eventQueueMax", js_uint32(env, capabilities->event_queue_max));
     set_named(env, object, "eventReserved", js_uint32(env, capabilities->event_reserved));
-    set_named(env, object, "eventPayloadBytesMax", js_big_uint(env, capabilities->event_payload_bytes_max));
-    set_named(env, object, "eventReservedBytes", js_big_uint(env, capabilities->event_reserved_bytes));
+    set_named(env, object, "eventPayloadBytesMax",
+              js_big_uint(env, capabilities->event_payload_bytes_max));
+    set_named(env, object, "eventReservedBytes",
+              js_big_uint(env, capabilities->event_reserved_bytes));
     set_named(env, object, "libraryVersion", js_owned(env, capabilities->library_version));
     set_named(env, object, "platformFamily", js_owned(env, capabilities->platform_family));
     set_named(env, object, "architecture", js_owned(env, capabilities->architecture));
@@ -141,9 +146,7 @@ static void complete_on_js(napi_env env, napi_value js_callback, void *context, 
             set_named(env, value, "capabilities", capabilities_to_js(env, &cmd->capabilities));
             break;
         }
-        case RESULT_CAPABILITIES:
-            value = capabilities_to_js(env, &cmd->capabilities);
-            break;
+        case RESULT_CAPABILITIES: value = capabilities_to_js(env, &cmd->capabilities); break;
         case RESULT_SESSION:
             value = create_record(env);
             set_named(env, value, "sessionHandle", js_uint32(env, cmd->session_handle));
@@ -159,9 +162,7 @@ static void complete_on_js(napi_env env, napi_value js_callback, void *context, 
             }
             break;
         case RESULT_VOID:
-        default:
-            note_status(napi_get_undefined(env, &value));
-            break;
+        default: note_status(napi_get_undefined(env, &value)); break;
         }
     }
     (void)napi_is_exception_pending(env, &pending);
@@ -194,9 +195,7 @@ static void tsfn_finalize(napi_env env, void *data, void *hint) {
     free(token);
 }
 
-static void env_cleanup(void *data) {
-    sdk_cleanup_env((napi_env)data);
-}
+static void env_cleanup(void *data) { sdk_cleanup_env((napi_env)data); }
 
 static napi_value rejected_promise(napi_env env, int32_t status, const char *message) {
     napi_deferred deferred;
@@ -213,7 +212,8 @@ static napi_value enqueue_existing(napi_env env, runtime_state *state, command *
     (void)napi_create_promise(env, &cmd->deferred, &promise);
     (void)napi_ref_threadsafe_function(env, state->tsfn);
     if (!sdk_queue_push(state, cmd)) {
-        (void)napi_reject_deferred(env, cmd->deferred,
+        (void)napi_reject_deferred(
+            env, cmd->deferred,
             make_error(env, TNY_STATUS_BACKPRESSURE, "native command queue is closed or full"));
         (void)napi_unref_threadsafe_function(env, state->tsfn);
         sdk_runtime_release(state);
@@ -222,14 +222,12 @@ static napi_value enqueue_existing(napi_env env, runtime_state *state, command *
     return promise;
 }
 
-static int32_t cancel_state(runtime_state *state, uint32_t session_handle,
-                            tny_error **error) {
+static int32_t cancel_state(runtime_state *state, uint32_t session_handle, tny_error **error) {
     int32_t status = TNY_STATUS_OK;
     pthread_mutex_lock(&state->session_mutex);
     if (!state->session || (session_handle && session_handle != state->session_handle))
         status = TNY_STATUS_BAD_STATE;
-    else
-        status = tny_session_cancel(state->session, error);
+    else status = tny_session_cancel(state->session, error);
     pthread_mutex_unlock(&state->session_mutex);
     return status;
 }
@@ -244,7 +242,8 @@ static napi_value cancel_direct(napi_env env, napi_callback_info info) {
     int32_t status;
     if (napi_get_cb_info(env, info, &argc, argv, NULL, NULL) != napi_ok || argc != 2u ||
         !sdk_arg_uint32(env, argv[0], &runtime_id) ||
-        !sdk_arg_uint32(env, argv[1], &session_handle)) return NULL;
+        !sdk_arg_uint32(env, argv[1], &session_handle))
+        return NULL;
     state = sdk_runtime_acquire(runtime_id, env);
     if (!state) return rejected_promise(env, TNY_STATUS_BAD_STATE, "runtime is closed");
     status = cancel_state(state, session_handle, &error);
@@ -256,7 +255,8 @@ static napi_value cancel_direct(napi_env env, napi_callback_info info) {
     if (status == TNY_STATUS_OK) {
         if (error) tny_error_free(error);
         if (napi_get_undefined(env, &value) != napi_ok ||
-            napi_resolve_deferred(env, deferred, value) != napi_ok) return NULL;
+            napi_resolve_deferred(env, deferred, value) != napi_ok)
+            return NULL;
     } else {
         char *message = sdk_take_error(status, error);
         value = make_error(env, status, message);
@@ -274,7 +274,8 @@ static napi_value create_runtime(napi_env env, napi_callback_info info) {
     command *cmd;
     tsfn_token *token;
     if (napi_get_cb_info(env, info, &argc, argv, NULL, NULL) != napi_ok || argc != 1u)
-        return rejected_promise(env, TNY_STATUS_INVALID_ARGUMENT, "createRuntime requires an options object");
+        return rejected_promise(env, TNY_STATUS_INVALID_ARGUMENT,
+                                "createRuntime requires an options object");
     (void)napi_typeof(env, argv[0], &type);
     if (type != napi_object) {
         (void)napi_throw_type_error(env, NULL, "createRuntime requires an options object");
@@ -283,7 +284,8 @@ static napi_value create_runtime(napi_env env, napi_callback_info info) {
     state = (runtime_state *)calloc(1u, sizeof(*state));
     cmd = (command *)calloc(1u, sizeof(*cmd));
     if (!state || !cmd) {
-        free(state); free(cmd);
+        free(state);
+        free(cmd);
         return rejected_promise(env, TNY_STATUS_OOM, "out of memory creating native runtime");
     }
     cmd->kind = CMD_RUNTIME_CREATE;
@@ -307,8 +309,8 @@ static napi_value create_runtime(napi_env env, napi_callback_info info) {
     atomic_init(&token->state, state);
     state->token = token;
     (void)napi_create_string_utf8(env, "tny native owner", NAPI_AUTO_LENGTH, &name);
-    if (napi_create_threadsafe_function(env, NULL, NULL, name, COMMAND_CAPACITY, 1u,
-                                        token, tsfn_finalize, NULL, complete_on_js,
+    if (napi_create_threadsafe_function(env, NULL, NULL, name, COMMAND_CAPACITY, 1u, token,
+                                        tsfn_finalize, NULL, complete_on_js,
                                         &state->tsfn) != napi_ok) {
         state->token = NULL;
         free(token);
@@ -343,7 +345,8 @@ static napi_value dispatch(napi_env env, napi_callback_info info, command_kind k
     runtime_state *state;
     command *cmd;
     if (napi_get_cb_info(env, info, &argc, argv, NULL, NULL) != napi_ok || argc < 1u ||
-        !sdk_arg_uint32(env, argv[0], &runtime_id)) return NULL;
+        !sdk_arg_uint32(env, argv[0], &runtime_id))
+        return NULL;
     state = sdk_runtime_acquire(runtime_id, env);
     if (!state) return rejected_promise(env, TNY_STATUS_BAD_STATE, "runtime is closed");
     cmd = (command *)calloc(1u, sizeof(*cmd));
@@ -355,29 +358,37 @@ static napi_value dispatch(napi_env env, napi_callback_info info, command_kind k
     if (kind == CMD_SESSION_CREATE || kind == CMD_SESSION_OPEN) {
         if (kind == CMD_SESSION_OPEN) {
             if (argc < 2u || !sdk_arg_string(env, argv[1], &cmd->text)) {
-                sdk_free_command(cmd); sdk_runtime_release(state); return NULL;
+                sdk_free_command(cmd);
+                sdk_runtime_release(state);
+                return NULL;
             }
         }
     } else if (kind != CMD_RUNTIME_CLOSE && kind != CMD_CAPABILITIES) {
         if (argc < 2u || !sdk_arg_uint32(env, argv[1], &session_id)) {
-            sdk_free_command(cmd); sdk_runtime_release(state); return NULL;
+            sdk_free_command(cmd);
+            sdk_runtime_release(state);
+            return NULL;
         }
         cmd->session_handle = session_id;
     }
     if (kind == CMD_SEND || kind == CMD_STEER || kind == CMD_PERMISSION) {
         if (argc < 3u || !sdk_arg_string(env, argv[2], &cmd->text)) {
-            sdk_free_command(cmd); sdk_runtime_release(state); return NULL;
+            sdk_free_command(cmd);
+            sdk_runtime_release(state);
+            return NULL;
         }
     }
     if (kind == CMD_PERMISSION) {
         if (argc < 4u || !sdk_arg_uint32(env, argv[3], &cmd->decision)) {
-            sdk_free_command(cmd); sdk_runtime_release(state); return NULL;
+            sdk_free_command(cmd);
+            sdk_runtime_release(state);
+            return NULL;
         }
     }
     if (kind == CMD_RUNTIME_CLOSE || kind == CMD_SESSION_CLOSE) {
         tny_error *cancel_error = NULL;
-        (void)cancel_state(state,
-            kind == CMD_SESSION_CLOSE ? cmd->session_handle : 0u, &cancel_error);
+        (void)cancel_state(state, kind == CMD_SESSION_CLOSE ? cmd->session_handle : 0u,
+                           &cancel_error);
         if (cancel_error) tny_error_free(cancel_error);
     }
     {
@@ -394,7 +405,8 @@ static napi_value decode_test_event(napi_env env, napi_callback_info info) {
     uint32_t kind;
     event_copy event;
     if (napi_get_cb_info(env, info, &argc, argv, NULL, NULL) != napi_ok || argc != 1u ||
-        !sdk_arg_uint32(env, argv[0], &kind)) return NULL;
+        !sdk_arg_uint32(env, argv[0], &kind))
+        return NULL;
     memset(&event, 0, sizeof(event));
     event.kind = kind;
     event.schema_version = TNY_EVENT_SCHEMA_VERSION;
@@ -416,7 +428,10 @@ static napi_value decode_test_event(napi_env env, napi_callback_info info) {
     return sdk_event_to_js(env, &event);
 }
 
-#define DISPATCH_FN(name, kind) static napi_value name(napi_env env, napi_callback_info info) { return dispatch(env, info, kind); }
+#define DISPATCH_FN(name, kind)                                     \
+    static napi_value name(napi_env env, napi_callback_info info) { \
+        return dispatch(env, info, kind);                           \
+    }
 DISPATCH_FN(create_session, CMD_SESSION_CREATE)
 DISPATCH_FN(open_session, CMD_SESSION_OPEN)
 DISPATCH_FN(send_prompt, CMD_SEND)
@@ -444,8 +459,8 @@ static napi_value module_init(napi_env env, napi_value exports) {
         {"closeRuntime", NULL, close_runtime, NULL, NULL, NULL, napi_default, NULL},
         {"__testDecodeEvent", NULL, decode_test_event, NULL, NULL, NULL, napi_default, NULL},
     };
-    (void)napi_define_properties(env, exports,
-        sizeof(properties) / sizeof(properties[0]), properties);
+    (void)napi_define_properties(env, exports, sizeof(properties) / sizeof(properties[0]),
+                                 properties);
     sdk_define_probe(env, exports);
     return exports;
 }

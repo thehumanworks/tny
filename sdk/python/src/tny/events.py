@@ -1,4 +1,5 @@
 """Immutable, Python-owned representations of the public event schema."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -191,10 +192,20 @@ def decode_unknown_event_fixture(
 
 
 KnownEvent = (
-    TextDeltaEvent | ThinkingEvent | ToolStartEvent | ToolEndEvent |
-    PermissionRequestEvent | PlanEvent | UsageEvent | TurnEndEvent |
-    ErrorEvent | StatusEvent | SteerRejectedEvent | CustomMessageEvent |
-    UserMessageEvent | ToolProgressEvent
+    TextDeltaEvent
+    | ThinkingEvent
+    | ToolStartEvent
+    | ToolEndEvent
+    | PermissionRequestEvent
+    | PlanEvent
+    | UsageEvent
+    | TurnEndEvent
+    | ErrorEvent
+    | StatusEvent
+    | SteerRejectedEvent
+    | CustomMessageEvent
+    | UserMessageEvent
+    | ToolProgressEvent
 )
 AnyEvent = KnownEvent | UnknownEvent
 
@@ -214,12 +225,27 @@ class EventStreamError(RuntimeError):
 
 
 __all__ = (
-    "AnyEvent", "CustomMessageEvent", "ErrorEvent", "Event",
+    "AnyEvent",
+    "CustomMessageEvent",
+    "ErrorEvent",
+    "Event",
     "EVENT_TYPES_BY_KIND",
     "decode_unknown_event_fixture",
-    "EventStreamError", "KnownEvent", "PermissionOptions",
-    "PermissionRequestEvent", "PlanEvent", "StatusEvent", "SteerRejectedEvent",
-    "StopReason", "TextDeltaEvent", "ThinkingEvent", "ToolEndEvent",
-    "ToolProgressEvent", "ToolStartEvent", "TurnEndEvent", "UnknownEvent",
-    "UsageEvent", "UserMessageEvent",
+    "EventStreamError",
+    "KnownEvent",
+    "PermissionOptions",
+    "PermissionRequestEvent",
+    "PlanEvent",
+    "StatusEvent",
+    "SteerRejectedEvent",
+    "StopReason",
+    "TextDeltaEvent",
+    "ThinkingEvent",
+    "ToolEndEvent",
+    "ToolProgressEvent",
+    "ToolStartEvent",
+    "TurnEndEvent",
+    "UnknownEvent",
+    "UsageEvent",
+    "UserMessageEvent",
 )

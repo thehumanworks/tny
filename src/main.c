@@ -7,7 +7,6 @@
 #include "cli/cli.h"
 #include "core/backend.h"
 
-
 int main(int argc, char **argv) {
     /* fast paths: no allocation, no config */
     if (argc >= 2) {
@@ -31,21 +30,21 @@ int main(int argc, char **argv) {
     char **cargv = cmd ? argv + ci + 1 : NULL;
 
     /* per-command --help without loading config */
-    if (cmd && cargc >= 1 &&
-        (strcmp(cargv[0], "--help") == 0 || strcmp(cargv[0], "-h") == 0)) {
+    if (cmd && cargc >= 1 && (strcmp(cargv[0], "--help") == 0 || strcmp(cargv[0], "-h") == 0)) {
         if (help_for(cmd)) return 0;
     }
-    if (cmd && strcmp(cmd, "--version") == 0) { fputs(TNY_VERSION "\n", stdout); return 0; }
+    if (cmd && strcmp(cmd, "--version") == 0) {
+        fputs(TNY_VERSION "\n", stdout);
+        return 0;
+    }
 
     tny_ctx *ctx = cli_make_ctx(&g);
     if (!ctx) return 1;
 
     int rc;
     if (!cmd) {
-        if (g.resume_picker || g.resume_last || g.resume)
-            rc = cmd_resume(ctx, &g, 0, NULL);
-        else
-            rc = cmd_tui(ctx, &g);
+        if (g.resume_picker || g.resume_last || g.resume) rc = cmd_resume(ctx, &g, 0, NULL);
+        else rc = cmd_tui(ctx, &g);
     } else if (strcmp(cmd, "ask") == 0) {
         rc = cmd_ask(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "resume") == 0) {

@@ -29,16 +29,23 @@ void acp_srv_log(const char *fmt, ...) {
 /* ---------- session lifecycle ---------- */
 
 static void drop_session(acp_srv *s) {
-    if (s->engine) { tny_engine_free(s->engine); s->engine = NULL; }
-    if (s->perm) { perm_free(s->perm); s->perm = NULL; }
-    if (s->session) { session_close(s->session); s->session = NULL; }
+    if (s->engine) {
+        tny_engine_free(s->engine);
+        s->engine = NULL;
+    }
+    if (s->perm) {
+        perm_free(s->perm);
+        s->perm = NULL;
+    }
+    if (s->session) {
+        session_close(s->session);
+        s->session = NULL;
+    }
     free(s->session_id);
     s->session_id = NULL;
 }
 
-static bool acp_srv_cancel_probe(void *ud) {
-    return ((acp_srv *)ud)->cancel_requested;
-}
+static bool acp_srv_cancel_probe(void *ud) { return ((acp_srv *)ud)->cancel_requested; }
 
 /* Attach a fresh native backend to `sess`. Returns an error string or NULL. */
 static const char *attach_backend(acp_srv *s, tny_session_state *sess, char *err, size_t errlen) {
@@ -51,9 +58,7 @@ static const char *attach_backend(acp_srv *s, tny_session_state *sess, char *err
     tny_engine_set_cancel_probe(s->engine, acp_srv_cancel_probe, s);
     tny_backend *bk = tny_backend_create(TNY_BK_OPENAI, s->ctx);
     if (!bk) return "cannot create the native backend";
-    if (tny_engine_prepare(s->engine, bk, TNY_ENGINE_PREPARE_FRESH,
-                           err, errlen) != 0)
-        return err;
+    if (tny_engine_prepare(s->engine, bk, TNY_ENGINE_PREPARE_FRESH, err, errlen) != 0) return err;
     session_set_meta(sess, "openai", s->ctx->model ? s->ctx->model : "default");
     return NULL;
 }
@@ -67,15 +72,16 @@ static bool have_credential(tny_ctx *ctx) {
 static void handle_initialize(acp_srv *s, const char *id, yyjson_val *params) {
     int64_t ver = jget_int(params, "protocolVersion", ACP_PROTOCOL_VERSION);
     if (ver < ACP_PROTOCOL_VERSION) {
-        acp_send_error(s->out_fd, id, ACP_E_INVALID,
-                       "tny speaks ACP protocolVersion 1");
+        acp_send_error(s->out_fd, id, ACP_E_INVALID, "tny speaks ACP protocolVersion 1");
         return;
     }
     if (!have_credential(s->ctx)) {
         buf_t m;
         buf_init(&m);
-        buf_appendf(&m, "no provider credential: set OPENAI_API_KEY (base_url %s). "
-                        "Run `tny setup` or `tny doctor` first.", s->ctx->base_url);
+        buf_appendf(&m,
+                    "no provider credential: set OPENAI_API_KEY (base_url %s). "
+                    "Run `tny setup` or `tny doctor` first.",
+                    s->ctx->base_url);
         acp_send_error(s->out_fd, id, ACP_E_AUTH, m.data);
         buf_free(&m);
         return;
@@ -83,11 +89,11 @@ static void handle_initialize(acp_srv *s, const char *id, yyjson_val *params) {
     buf_t r;
     buf_init(&r);
     buf_appendf(&r,
-        "{\"protocolVersion\":%d,\"agentCapabilities\":{\"loadSession\":%s,"
-        "\"promptCapabilities\":{\"image\":false,\"audio\":false,"
-        "\"embeddedContext\":true}},\"authMethods\":[],"
-        "\"agentInfo\":{\"name\":\"tny\",\"title\":\"tny\",\"version\":\"%s\"}}",
-        ACP_PROTOCOL_VERSION, s->ctx->no_save ? "false" : "true", TNY_VERSION);
+                "{\"protocolVersion\":%d,\"agentCapabilities\":{\"loadSession\":%s,"
+                "\"promptCapabilities\":{\"image\":false,\"audio\":false,"
+                "\"embeddedContext\":true}},\"authMethods\":[],"
+                "\"agentInfo\":{\"name\":\"tny\",\"title\":\"tny\",\"version\":\"%s\"}}",
+                ACP_PROTOCOL_VERSION, s->ctx->no_save ? "false" : "true", TNY_VERSION);
     acp_send_result(s->out_fd, id, r.data);
     buf_free(&r);
     s->initialized = true;
@@ -103,15 +109,15 @@ static void warn_client_mcp(yyjson_val *params) {
     yyjson_val *mcp = jget(params, "mcpServers");
     if (mcp && yyjson_is_arr(mcp) && yyjson_arr_size(mcp) > 0)
         acp_srv_log("ignoring %zu client mcpServers: MCP bridging is not "
-                    "implemented in this build", yyjson_arr_size(mcp));
+                    "implemented in this build",
+                    yyjson_arr_size(mcp));
 }
 
 static void handle_new(acp_srv *s, const char *id, yyjson_val *params) {
     if (!require_init(s, id)) return;
     const char *cwd = jget_str(params, "cwd");
     if (cwd && strcmp(cwd, s->ctx->cwd) != 0)
-        acp_srv_log("client asked for cwd %s; serving the launch workspace %s",
-                    cwd, s->ctx->cwd);
+        acp_srv_log("client asked for cwd %s; serving the launch workspace %s", cwd, s->ctx->cwd);
     warn_client_mcp(params);
 
     tny_session_state *sess = session_new(s->ctx);
@@ -183,8 +189,7 @@ static void handle_load(acp_srv *s, const char *id, yyjson_val *params) {
     warn_client_mcp(params);
     tny_session_state *sess = session_open(s->ctx, sid);
     if (!sess) {
-        acp_send_error(s->out_fd, id, ACP_E_PARAMS,
-                       "no such session in this workspace");
+        acp_send_error(s->out_fd, id, ACP_E_PARAMS, "no such session in this workspace");
         return;
     }
     char err[256];
@@ -201,8 +206,7 @@ static void handle_load(acp_srv *s, const char *id, yyjson_val *params) {
 static void handle_prompt(acp_srv *s, const char *id, yyjson_val *params) {
     if (!require_init(s, id)) return;
     const char *sid = jget_str(params, "sessionId");
-    if (!s->session || !s->session_id ||
-        (sid && strcmp(sid, s->session_id) != 0)) {
+    if (!s->session || !s->session_id || (sid && strcmp(sid, s->session_id) != 0)) {
         acp_send_error(s->out_fd, id, ACP_E_PARAMS, "unknown sessionId");
         return;
     }
@@ -217,8 +221,10 @@ static void handle_prompt(acp_srv *s, const char *id, yyjson_val *params) {
     if (!acp_blocks_to_text(jget(params, "prompt"), &text, &bad)) {
         buf_t m;
         buf_init(&m);
-        buf_appendf(&m, "content block type '%.40s' is not supported by tny acp "
-                        "(text and embedded resources only)", bad ? bad : "?");
+        buf_appendf(&m,
+                    "content block type '%.40s' is not supported by tny acp "
+                    "(text and embedded resources only)",
+                    bad ? bad : "?");
         acp_send_error(s->out_fd, id, ACP_E_PARAMS, m.data);
         buf_free(&m);
         buf_free(&text);
@@ -271,13 +277,12 @@ static void handle_set_mode(acp_srv *s, const char *id, yyjson_val *params) {
 
 /* ---------- dispatch ---------- */
 
-static void handle_request(acp_srv *s, const char *id, const char *method,
-                           yyjson_val *params) {
-    if (strcmp(method, "initialize") == 0)            handle_initialize(s, id, params);
-    else if (strcmp(method, "authenticate") == 0)     acp_send_result(s->out_fd, id, "null");
-    else if (strcmp(method, "session/new") == 0)      handle_new(s, id, params);
-    else if (strcmp(method, "session/load") == 0)     handle_load(s, id, params);
-    else if (strcmp(method, "session/prompt") == 0)   handle_prompt(s, id, params);
+static void handle_request(acp_srv *s, const char *id, const char *method, yyjson_val *params) {
+    if (strcmp(method, "initialize") == 0) handle_initialize(s, id, params);
+    else if (strcmp(method, "authenticate") == 0) acp_send_result(s->out_fd, id, "null");
+    else if (strcmp(method, "session/new") == 0) handle_new(s, id, params);
+    else if (strcmp(method, "session/load") == 0) handle_load(s, id, params);
+    else if (strcmp(method, "session/prompt") == 0) handle_prompt(s, id, params);
     else if (strcmp(method, "session/set_mode") == 0) handle_set_mode(s, id, params);
     else if (strcmp(method, "session/set_config_option") == 0)
         acp_send_result(s->out_fd, id, "null");
@@ -306,8 +311,7 @@ static void handle_response(acp_srv *s, yyjson_val *msg) {
     const char *opt = jget_str(out, "optionId");
     if (outcome && strcmp(outcome, "selected") == 0 && opt) {
         if (strcmp(opt, "allow") == 0) s->perm_result = TNY_PERM_DECISION_ALLOW;
-        else if (strcmp(opt, "allow-always") == 0)
-            s->perm_result = TNY_PERM_DECISION_ALLOW_ALWAYS;
+        else if (strcmp(opt, "allow-always") == 0) s->perm_result = TNY_PERM_DECISION_ALLOW_ALWAYS;
         else s->perm_result = TNY_PERM_DECISION_DENY;
     } else {
         if (outcome && strcmp(outcome, "cancelled") == 0) s->cancel_requested = true;
@@ -319,7 +323,10 @@ static void handle_response(acp_srv *s, yyjson_val *msg) {
 static void handle_message(acp_srv *s, yyjson_val *msg) {
     if (!msg || !yyjson_is_obj(msg)) return;
     const char *method = jget_str(msg, "method");
-    if (!method) { handle_response(s, msg); return; }
+    if (!method) {
+        handle_response(s, msg);
+        return;
+    }
     yyjson_val *params = jget(msg, "params");
 
     if (!jget(msg, "id")) { /* notification */
@@ -331,8 +338,7 @@ static void handle_message(acp_srv *s, yyjson_val *msg) {
     }
     char *id = acp_id_text(msg);
     if (s->turn_active) {
-        acp_send_error(s->out_fd, id, ACP_E_INTERNAL,
-                       "tny acp serves one prompt at a time");
+        acp_send_error(s->out_fd, id, ACP_E_INTERNAL, "tny acp serves one prompt at a time");
     } else {
         handle_request(s, id, method, params);
     }
@@ -346,8 +352,14 @@ int acp_srv_pump(acp_srv *s, int timeout_ms) {
     if (pr > 0) {
         char tmp[16384];
         ssize_t n = read(s->in_fd, tmp, sizeof tmp);
-        if (n == 0) { s->eof = true; return -1; }
-        if (n < 0 && errno != EINTR && errno != EAGAIN) { s->eof = true; return -1; }
+        if (n == 0) {
+            s->eof = true;
+            return -1;
+        }
+        if (n < 0 && errno != EINTR && errno != EAGAIN) {
+            s->eof = true;
+            return -1;
+        }
         if (n > 0) acp_reader_feed(&s->rd, tmp, (size_t)n);
     }
     if (s->rd.overflow) {
@@ -359,7 +371,10 @@ int acp_srv_pump(acp_srv *s, int timeout_ms) {
         size_t len = 0;
         char *line = acp_reader_next(&s->rd, &len);
         if (!line) break;
-        if (!len) { free(line); continue; }
+        if (!len) {
+            free(line);
+            continue;
+        }
         yyjson_doc *doc = jparse(line, len);
         free(line);
         if (!doc) {
@@ -412,8 +427,8 @@ int cmd_acp_server(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     acp_reader_init(&s.rd);
     buf_init(&s.last_error);
 
-    acp_srv_log("serving the native loop on stdio (workspace %s, %s)",
-                ctx->cwd, ctx->no_save ? "ephemeral" : "persistent");
+    acp_srv_log("serving the native loop on stdio (workspace %s, %s)", ctx->cwd,
+                ctx->no_save ? "ephemeral" : "persistent");
     while (!s.eof) {
         if (acp_srv_pump(&s, 1000) != 0) break;
     }

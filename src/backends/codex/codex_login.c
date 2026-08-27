@@ -78,8 +78,7 @@ int tny_codex_login(tny_ctx *ctx, bool device) {
     fprintf(stderr, "connecting to codex app-server…\n");
     if (b->connect(b, err, sizeof err) != 0) {
         fprintf(stderr, "tny: %s\n", err);
-        fprintf(stderr, "falling back to `%s login`\n",
-                ctx->codex_bin ? ctx->codex_bin : "codex");
+        fprintf(stderr, "falling back to `%s login`\n", ctx->codex_bin ? ctx->codex_bin : "codex");
         b->destroy(b);
         return login_via_cli(ctx);
     }
@@ -88,15 +87,13 @@ int tny_codex_login(tny_ctx *ctx, bool device) {
     o->login_ok = false;
     o->login_err[0] = 0;
 
-    const char *params = device ? "{\"type\":\"chatgptDeviceCode\"}"
-                                : "{\"type\":\"chatgpt\"}";
-    yyjson_doc *doc = cx_request_sync(o, "account/login/start", params,
-                                      CX_LOGIN_START_TIMEOUT_MS, err, sizeof err);
+    const char *params = device ? "{\"type\":\"chatgptDeviceCode\"}" : "{\"type\":\"chatgpt\"}";
+    yyjson_doc *doc = cx_request_sync(o, "account/login/start", params, CX_LOGIN_START_TIMEOUT_MS,
+                                      err, sizeof err);
     if (!doc) {
         /* -32601 (or any refusal): let the codex CLI own the ceremony */
         fprintf(stderr, "tny: %s\n", err);
-        fprintf(stderr, "falling back to `%s login`\n",
-                ctx->codex_bin ? ctx->codex_bin : "codex");
+        fprintf(stderr, "falling back to `%s login`\n", ctx->codex_bin ? ctx->codex_bin : "codex");
         b->destroy(b);
         return login_via_cli(ctx);
     }
@@ -135,18 +132,16 @@ int tny_codex_login(tny_ctx *ctx, bool device) {
             goto out;
         }
         if (now_ms() > deadline) {
-            fprintf(stderr, "tny: login timed out after %d minutes\n",
-                    CX_LOGIN_WAIT_MS / 60000);
+            fprintf(stderr, "tny: login timed out after %d minutes\n", CX_LOGIN_WAIT_MS / 60000);
             login_cancel(o, login_id);
             goto out;
         }
     }
     if (o->login_ok) {
-        printf("Signed in.%s\n",
-               tny_codex_auth_present()
-                   ? " The codex login is saved — try `tny --provider codex "
-                     "ask \"hi\"`."
-                   : "");
+        printf("Signed in.%s\n", tny_codex_auth_present()
+                                     ? " The codex login is saved — try `tny --provider codex "
+                                       "ask \"hi\"`."
+                                     : "");
         rc = 0;
     } else {
         fprintf(stderr, "tny: codex login failed: %s\n",

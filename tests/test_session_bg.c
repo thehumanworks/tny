@@ -251,7 +251,7 @@ TEST bg_api_null_and_ephemeral_contract(void) {
     tny_ctx *ctx = tny_ctx_load(e.workspace);
     ASSERT(ctx);
 
-    session_set_status_running(NULL);              /* no-op, no crash */
+    session_set_status_running(NULL); /* no-op, no crash */
     session_set_status_finished(NULL, "done", 0, NULL);
     session_lock_release(NULL);
     ASSERT_EQ(-1, session_write_pid(NULL, 1));
@@ -338,8 +338,7 @@ TEST bg_lock_acquire_noop_for_ephemeral(void) {
  * milliseconds-wide "starting" window, ADR decision 4). ignore_term installs
  * SIG_IGN for SIGTERM before signaling readiness. Returns the child pid; the
  * parent has consumed the ready byte when this returns. */
-static pid_t spawn_lock_holder_opt(tny_ctx *ctx, const char *id,
-                                   bool ignore_term, bool write_pid) {
+static pid_t spawn_lock_holder_opt(tny_ctx *ctx, const char *id, bool ignore_term, bool write_pid) {
     int to_parent[2];
     if (pipe(to_parent) != 0) return -1;
     pid_t pid = fork();

@@ -14,8 +14,11 @@ trap 'kill $MPID 2>/dev/null; rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/ws" "$TMP/home"
 touch "$TMP/ws/a.txt" "$TMP/ws/b.txt"
 
-fail() { echo "FAIL: $*" >&2; exit 1; }
-contains() { case "$1" in *"$2"*) ;; *) fail "missing '$2' in: $1" ;; esac; }
+fail() {
+    echo "FAIL: $*" >&2
+    exit 1
+}
+contains() { case "$1" in *"$2"*) ;; *) fail "missing '$2' in: $1" ;; esac }
 
 PORT=$("$PY" -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
 MOCK_EXPECT_WIRE=responses "$PY" "$MOCK" "$PORT" > "$TMP/mock.out" 2> "$TMP/mock.err" &
@@ -23,12 +26,12 @@ MPID=$!
 # macOS CI pythons cold-start slowly (see run.sh's cursor note): allow 30 s
 i=0
 while [ $i -lt 300 ]; do
-    grep -q "ready" "$TMP/mock.out" 2>/dev/null && break
+    grep -q "ready" "$TMP/mock.out" 2> /dev/null && break
     i=$((i + 1))
     sleep 0.1
 done
-grep -q "ready" "$TMP/mock.out" \
-    || fail "openai mock did not start ($(tail -3 "$TMP/mock.err" 2>/dev/null))"
+grep -q "ready" "$TMP/mock.out" ||
+    fail "openai mock did not start ($(tail -3 "$TMP/mock.err" 2> /dev/null))"
 
 # every run below must resolve the key from settings.json, never the shell
 unset OPENAI_API_KEY OPENAI_BASE_URL || true
@@ -38,10 +41,10 @@ OUT=$(HOME="$TMP/home" "$TNY" provider setup opencode \
     --base-url "http://127.0.0.1:$PORT/v1" --api-key sk-setup-not-real \
     --model mock-model 2>&1) || fail "setup exited $? ($OUT)"
 contains "$OUT" "provider 'opencode'"
-grep -q '"api_key": "sk-setup-not-real"' "$TMP/home/.tny/settings.json" \
-    || fail "key not stored: $(cat "$TMP/home/.tny/settings.json")"
-grep -q '"last_provider": "opencode"' "$TMP/home/.tny/settings.json" \
-    || fail "last_provider not set"
+grep -q '"api_key": "sk-setup-not-real"' "$TMP/home/.tny/settings.json" ||
+    fail "key not stored: $(cat "$TMP/home/.tny/settings.json")"
+grep -q '"last_provider": "opencode"' "$TMP/home/.tny/settings.json" ||
+    fail "last_provider not set"
 case "$(ls -l "$TMP/home/.tny/settings.json" | cut -c1-10)" in
     -rw-------) ;;
     *) fail "settings.json not 0600 after storing a key: $(ls -l "$TMP/home/.tny/settings.json")" ;;
@@ -76,8 +79,8 @@ echo "ok  error paths refuse cleanly"
 # ---- wire-api rides the profile; bad values refused ---------------------
 HOME="$TMP/home" "$TNY" provider setup opencode --wire-api chat \
     > /dev/null 2>&1 || fail "wire-api update failed"
-grep -q '"wire_api": "chat"' "$TMP/home/.tny/settings.json" \
-    || fail "wire_api not stored"
+grep -q '"wire_api": "chat"' "$TMP/home/.tny/settings.json" ||
+    fail "wire_api not stored"
 HOME="$TMP/home" "$TNY" provider setup opencode --wire-api grpc \
     > /dev/null 2> "$TMP/err5" && fail "bad wire-api accepted"
 contains "$(cat "$TMP/err5")" "responses|chat"
@@ -89,8 +92,8 @@ echo "ok  --wire-api stored and validated"
 HOME="$TMP/home" "$TNY" provider setup securecorp \
     --base-url https://secure.example/v1 --api-key-env SECURECORP_KEY \
     > /dev/null 2>&1 || fail "https base url refused"
-grep -q '"https://secure.example/v1"' "$TMP/home/.tny/settings.json" \
-    || fail "https base url not stored"
+grep -q '"https://secure.example/v1"' "$TMP/home/.tny/settings.json" ||
+    fail "https base url not stored"
 echo "ok  https base url accepted"
 
 # ---- a dangling flag (no value) is an error, not a silent skip ----------
@@ -116,8 +119,8 @@ contains "$OUT" '"backend":"acp"'
 OUT=$(HOME="$TMP/home" "$TNY" provider list --json 2>&1) || fail "provider list failed"
 contains "$OUT" "opencode"
 contains "$OUT" '"name":"acp@fixture"'
-HOME="$TMP/home" "$TNY" provider frobnicate > /dev/null 2> "$TMP/err7" \
-    && fail "unknown subcommand accepted"
+HOME="$TMP/home" "$TNY" provider frobnicate > /dev/null 2> "$TMP/err7" &&
+    fail "unknown subcommand accepted"
 contains "$(cat "$TMP/err7")" "unknown subcommand"
 echo "ok  provider / provider list / unknown subcommand"
 
@@ -126,10 +129,10 @@ echo "ok  provider / provider list / unknown subcommand"
 # over a node pty stalls on line delivery, and interactive setup on wasm is
 # the TUI wizard (pty-tested in test_tui.py, browser-tested in
 # test_site_wasm.py). Prompts here are asserted native-only.
-if grep -q "exec node" "$TNY" 2>/dev/null; then
+if grep -q "exec node" "$TNY" 2> /dev/null; then
     echo "ok  interactive prompts skipped on wasm-node (TUI wizard covers it)"
 else
-"$PY" - "$TNY" "$TMP" "$PORT" <<'PYEOF' || fail "interactive pty flow failed"
+    "$PY" - "$TNY" "$TMP" "$PORT" << 'PYEOF' || fail "interactive pty flow failed"
 import os, pty, select, sys, time
 tny, tmp, port = sys.argv[1], sys.argv[2], sys.argv[3]
 home = os.path.join(tmp, "ptyhome")
@@ -213,14 +216,14 @@ assert b"base url" not in buf, buf[-400:]
 drive(["provider", "setup"], [("provider name", "")], expect_rc=1)
 print("pty flows ok")
 PYEOF
-echo "ok  interactive prompts (pty): env-key, masked key, existing skip, cancel"
+    echo "ok  interactive prompts (pty): env-key, masked key, existing skip, cancel"
 fi
 
 # ---- --api-key-env replaces a stored key; env var feeds the turn --------
 HOME="$TMP/home" "$TNY" provider setup opencode \
     --api-key-env OPENCODE_KEY_VAR > /dev/null 2>&1 || fail "key-env update failed"
-grep -q '"api_key"' "$TMP/home/.tny/settings.json" \
-    && fail "stored key survived --api-key-env"
+grep -q '"api_key"' "$TMP/home/.tny/settings.json" &&
+    fail "stored key survived --api-key-env"
 OUT=$(HOME="$TMP/home" OPENCODE_KEY_VAR=sk-env-not-real "$TNY" --cwd "$TMP/ws" \
     ask --json --no-save "list files in ." 2>&1) || fail "env-key ask failed: $OUT"
 contains "$OUT" "MOCK-OK"

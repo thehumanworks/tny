@@ -12,8 +12,7 @@ void sse_parser_free(sse_parser *p) {
     buf_free(&p->data);
 }
 
-static void handle_line(sse_parser *p, const char *line, size_t len,
-                        sse_event_cb cb, void *ud) {
+static void handle_line(sse_parser *p, const char *line, size_t len, sse_event_cb cb, void *ud) {
     if (len == 0) { /* blank line: dispatch accumulated event */
         if (p->data.len) {
             cb(p->data.data, p->data.len, ud);
@@ -25,7 +24,10 @@ static void handle_line(sse_parser *p, const char *line, size_t len,
     if (len >= 5 && memcmp(line, "data:", 5) == 0) {
         const char *v = line + 5;
         size_t vl = len - 5;
-        if (vl && v[0] == ' ') { v++; vl--; }
+        if (vl && v[0] == ' ') {
+            v++;
+            vl--;
+        }
         if (p->data.len) buf_appends(&p->data, "\n");
         buf_append(&p->data, v, vl);
     }

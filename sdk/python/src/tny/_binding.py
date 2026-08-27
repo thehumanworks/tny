@@ -1,4 +1,5 @@
 """Private cffi ABI-mode declarations for stable libtny ABI 1."""
+
 from __future__ import annotations
 
 import ctypes.util
@@ -310,7 +311,9 @@ class Library:
                 self.native.tny_error_free(error)
         raise error_from_status(code, message)
 
-    def read_capabilities(self, runtime: Any, *, extended: bool = False) -> Capabilities:
+    def read_capabilities(
+        self, runtime: Any, *, extended: bool = False
+    ) -> Capabilities:
         """Copy the complete borrowed capability snapshot from a live runtime."""
         view = self.ffi.new("tny_capabilities_v0 *")
         size = self.ffi.sizeof("tny_capabilities_v0")

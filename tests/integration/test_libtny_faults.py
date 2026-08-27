@@ -50,8 +50,11 @@ def instrument(lib):
     lib.tny_alloc_test_scope_injected.restype = ctypes.c_bool
     lib.tny_tools_test_walk.argtypes = [ctypes.c_char_p]
     lib.tny_tools_test_walk.restype = ctypes.c_int
-    lib.tny_session_steer.argtypes = [ctypes.c_void_p, byte_type,
-                                      ctypes.POINTER(ctypes.c_void_p)]
+    lib.tny_session_steer.argtypes = [
+        ctypes.c_void_p,
+        byte_type,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
     lib.tny_session_steer.restype = ctypes.c_int32
     lib.tny_session_id.argtypes = [ctypes.c_void_p]
     lib.tny_session_id.restype = byte_type
@@ -75,19 +78,32 @@ def create_pair(lib, base_url, root, persistence=0):
     os.makedirs(workspace, exist_ok=True)
     os.makedirs(state, exist_ok=True)
     opts, keep = runtime_options(
-        lib, base_url, workspace, state, api_key="fault-test-key",
-        persistence=persistence)
+        lib,
+        base_url,
+        workspace,
+        state,
+        api_key="fault-test-key",
+        persistence=persistence,
+    )
     runtime = ctypes.c_void_p()
     session = ctypes.c_void_p()
     error = ctypes.c_void_p()
-    if lib.tny_runtime_create(
-            ctypes.byref(opts), ctypes.sizeof(opts), ctypes.byref(runtime),
-            ctypes.byref(error)) != 0 or not runtime.value:
+    if (
+        lib.tny_runtime_create(
+            ctypes.byref(opts),
+            ctypes.sizeof(opts),
+            ctypes.byref(runtime),
+            ctypes.byref(error),
+        )
+        != 0
+        or not runtime.value
+    ):
         die(20)
     free_error(lib, error)
-    if lib.tny_session_create(
-            runtime, ctypes.byref(session),
-            ctypes.byref(error)) != 0 or not session.value:
+    if (
+        lib.tny_session_create(runtime, ctypes.byref(session), ctypes.byref(error)) != 0
+        or not session.value
+    ):
         die(21)
     free_error(lib, error)
     return runtime, session, error, keep
@@ -107,14 +123,16 @@ def seed_walk_workspace(root):
 def next_event(lib, session, error, stats=None):
     event = ctypes.c_void_p()
     status = lib.tny_session_next_event(
-        session, 5000, ctypes.byref(event), ctypes.byref(error))
+        session, 5000, ctypes.byref(event), ctypes.byref(error)
+    )
     if stats is not None:
         observe(lib, stats)
     return status, event
 
 
-def drain(lib, session, error, stats=None, expect_oom=None,
-          require_oom_if_injected=False):
+def drain(
+    lib, session, error, stats=None, expect_oom=None, require_oom_if_injected=False
+):
     kinds = []
     errors = []
     for _ in range(128):
@@ -159,12 +177,10 @@ def wait_permission(lib, session, error):
 
 
 def make_persisted_session(lib, base_url, root):
-    runtime, session, error, keep = create_pair(
-        lib, base_url, root, persistence=1)
+    runtime, session, error, keep = create_pair(lib, base_url, root, persistence=1)
     raw, prompt = as_bytes("persist before session_open fault sweep")
     keep.append(raw)
-    if lib.tny_session_send(
-            session, prompt, ctypes.byref(error)) != 0:
+    if lib.tny_session_send(session, prompt, ctypes.byref(error)) != 0:
         die(42)
     drain(lib, session, error)
     value = lib.tny_session_id(session)
@@ -192,15 +208,20 @@ def child_case(libpath, scenario, base_url, report_path):
             state = os.path.join(root, "state")
             os.makedirs(workspace)
             opts, keep = runtime_options(
-                lib, base_url, workspace, state, api_key="fault-test-key")
+                lib, base_url, workspace, state, api_key="fault-test-key"
+            )
             runtime = ctypes.c_void_p()
             error = ctypes.c_void_p()
             rc = lib.tny_runtime_create(
-                ctypes.byref(opts), ctypes.sizeof(opts), ctypes.byref(runtime),
-                ctypes.byref(error))
+                ctypes.byref(opts),
+                ctypes.sizeof(opts),
+                ctypes.byref(runtime),
+                ctypes.byref(error),
+            )
             injected = observe(lib, stats)
-            if ((injected and (rc != OOM or runtime.value)) or
-                    (not injected and (rc != 0 or not runtime.value))):
+            if (injected and (rc != OOM or runtime.value)) or (
+                not injected and (rc != 0 or not runtime.value)
+            ):
                 die(10)
             free_error(lib, error)
             if runtime.value:
@@ -212,19 +233,28 @@ def child_case(libpath, scenario, base_url, report_path):
             state = os.path.join(root, "state")
             os.makedirs(workspace)
             opts, keep = runtime_options(
-                lib, base_url, workspace, state, api_key="fault-test-key")
+                lib, base_url, workspace, state, api_key="fault-test-key"
+            )
             runtime = ctypes.c_void_p()
             session = ctypes.c_void_p()
             error = ctypes.c_void_p()
-            if lib.tny_runtime_create(
-                    ctypes.byref(opts), ctypes.sizeof(opts), ctypes.byref(runtime),
-                    ctypes.byref(error)) != 0:
+            if (
+                lib.tny_runtime_create(
+                    ctypes.byref(opts),
+                    ctypes.sizeof(opts),
+                    ctypes.byref(runtime),
+                    ctypes.byref(error),
+                )
+                != 0
+            ):
                 die(11)
             rc = lib.tny_session_create(
-                runtime, ctypes.byref(session), ctypes.byref(error))
+                runtime, ctypes.byref(session), ctypes.byref(error)
+            )
             injected = observe(lib, stats)
-            if ((injected and (rc != OOM or session.value)) or
-                    (not injected and (rc != 0 or not session.value))):
+            if (injected and (rc != OOM or session.value)) or (
+                not injected and (rc != 0 or not session.value)
+            ):
                 die(12)
             free_error(lib, error)
             if session.value:
@@ -237,33 +267,45 @@ def child_case(libpath, scenario, base_url, report_path):
             workspace = os.path.join(root, "workspace")
             state = os.path.join(root, "state")
             opts, more_keep = runtime_options(
-                lib, base_url, workspace, state, api_key="fault-test-key")
+                lib, base_url, workspace, state, api_key="fault-test-key"
+            )
             keep.extend(more_keep)
             runtime = ctypes.c_void_p()
             session = ctypes.c_void_p()
             error = ctypes.c_void_p()
-            if lib.tny_runtime_create(
-                    ctypes.byref(opts), ctypes.sizeof(opts), ctypes.byref(runtime),
-                    ctypes.byref(error)) != 0:
+            if (
+                lib.tny_runtime_create(
+                    ctypes.byref(opts),
+                    ctypes.sizeof(opts),
+                    ctypes.byref(runtime),
+                    ctypes.byref(error),
+                )
+                != 0
+            ):
                 die(13)
             raw_id, session_view = as_bytes(session_id)
             keep.append(raw_id)
             rc = lib.tny_session_open(
-                runtime, session_view, ctypes.byref(session),
-                ctypes.byref(error))
+                runtime, session_view, ctypes.byref(session), ctypes.byref(error)
+            )
             injected = observe(lib, stats)
-            if ((injected and (rc != OOM or session.value)) or
-                    (not injected and (rc != 0 or not session.value))):
+            if (injected and (rc != OOM or session.value)) or (
+                not injected and (rc != 0 or not session.value)
+            ):
                 die(14)
             free_error(lib, error)
             if session.value:
                 lib.tny_session_free(session)
             lib.tny_runtime_free(runtime)
 
-        elif scenario in ("session_send", "session_send_rearm", "next_event",
-                          "session_steer", "respond_permission"):
-            runtime, session, error, keep = create_pair(
-                lib, base_url, root)
+        elif scenario in (
+            "session_send",
+            "session_send_rearm",
+            "next_event",
+            "session_steer",
+            "respond_permission",
+        ):
+            runtime, session, error, keep = create_pair(lib, base_url, root)
             if scenario == "session_send_rearm":
                 target_scope = os.environ.get("TNY_TEST_ALLOC_SCOPE", "")
                 target_index = os.environ.get("TNY_TEST_ALLOC_FAIL_AT")
@@ -271,8 +313,7 @@ def child_case(libpath, scenario, base_url, report_path):
                 os.environ["TNY_TEST_ALLOC_FAIL_AT"] = "1"
                 raw, prompt = as_bytes("consume oom reserves before rearm")
                 keep.append(raw)
-                if lib.tny_session_send(
-                        session, prompt, ctypes.byref(error)) != 0:
+                if lib.tny_session_send(session, prompt, ctypes.byref(error)) != 0:
                     die(43)
                 drain(lib, session, error, expect_oom=True)
                 os.environ["TNY_TEST_ALLOC_SCOPE"] = target_scope
@@ -284,8 +325,7 @@ def child_case(libpath, scenario, base_url, report_path):
             if scenario in ("session_send", "session_send_rearm"):
                 raw, prompt = as_bytes("allocation fault turn")
                 keep.append(raw)
-                rc = lib.tny_session_send(
-                    session, prompt, ctypes.byref(error))
+                rc = lib.tny_session_send(session, prompt, ctypes.byref(error))
                 injected = observe(lib, stats)
                 if rc not in (0, OOM) or (injected and rc == 0 and error.value):
                     die(15)
@@ -302,76 +342,73 @@ def child_case(libpath, scenario, base_url, report_path):
                 seed_walk_workspace(root)
                 raw, prompt = as_bytes("allocation fault event")
                 keep.append(raw)
-                if lib.tny_session_send(
-                        session, prompt, ctypes.byref(error)) != 0:
+                if lib.tny_session_send(session, prompt, ctypes.byref(error)) != 0:
                     die(16)
-                drain(lib, session, error, stats=stats,
-                      require_oom_if_injected=True)
+                drain(lib, session, error, stats=stats, require_oom_if_injected=True)
 
             elif scenario == "session_steer":
                 raw, prompt = as_bytes("slow active turn")
                 keep.append(raw)
-                if lib.tny_session_send(
-                        session, prompt, ctypes.byref(error)) != 0:
+                if lib.tny_session_send(session, prompt, ctypes.byref(error)) != 0:
                     die(17)
                 raw_steer, steer = as_bytes("follow-up steering")
                 keep.append(raw_steer)
-                rc = lib.tny_session_steer(
-                    session, steer, ctypes.byref(error))
+                rc = lib.tny_session_steer(session, steer, ctypes.byref(error))
                 injected = observe(lib, stats)
                 if rc not in (0, OOM):
                     die(18)
                 free_error(lib, error)
                 if rc == OOM:
                     os.environ["TNY_TEST_ALLOC_SCOPE"] = "disabled"
-                    if lib.tny_session_cancel(
-                            session, ctypes.byref(error)) != 0:
+                    if lib.tny_session_cancel(session, ctypes.byref(error)) != 0:
                         die(19)
-                drain(lib, session, error,
-                      expect_oom=injected if rc == 0 else False)
+                drain(lib, session, error, expect_oom=injected if rc == 0 else False)
 
             else:
                 raw, prompt = as_bytes("request a sensitive operation")
                 keep.append(raw)
-                if lib.tny_session_send(
-                        session, prompt, ctypes.byref(error)) != 0:
+                if lib.tny_session_send(session, prompt, ctypes.byref(error)) != 0:
                     die(22)
                 permission = wait_permission(lib, session, error)
                 raw_id, permission_id = as_bytes(permission)
                 keep.append(raw_id)
                 rc = lib.tny_session_respond_permission(
-                    session, permission_id, 2, ctypes.byref(error))
+                    session, permission_id, 2, ctypes.byref(error)
+                )
                 injected = observe(lib, stats)
                 if rc not in (0, OOM):
                     die(23)
                 free_error(lib, error)
                 if rc == OOM:
                     os.environ["TNY_TEST_ALLOC_SCOPE"] = "disabled"
-                    if lib.tny_session_respond_permission(
-                            session, permission_id, 2,
-                            ctypes.byref(error)) != 0:
+                    if (
+                        lib.tny_session_respond_permission(
+                            session, permission_id, 2, ctypes.byref(error)
+                        )
+                        != 0
+                    ):
                         die(24)
-                drain(lib, session, error,
-                      expect_oom=injected if rc == 0 else False)
+                drain(lib, session, error, expect_oom=injected if rc == 0 else False)
             lib.tny_session_free(session)
             lib.tny_runtime_free(runtime)
 
-        elif scenario in ("session_free_active", "runtime_free_active",
-                          "session_free_cancelled", "runtime_free_cancelled"):
+        elif scenario in (
+            "session_free_active",
+            "runtime_free_active",
+            "session_free_cancelled",
+            "runtime_free_cancelled",
+        ):
             target_session = scenario.startswith("session_")
             for cycle in range(3):
                 cycle_root = os.path.join(root, str(cycle))
                 os.makedirs(cycle_root)
-                runtime, session, error, keep = create_pair(
-                    lib, base_url, cycle_root)
+                runtime, session, error, keep = create_pair(lib, base_url, cycle_root)
                 raw, prompt = as_bytes("slow active teardown")
                 keep.append(raw)
-                if lib.tny_session_send(
-                        session, prompt, ctypes.byref(error)) != 0:
+                if lib.tny_session_send(session, prompt, ctypes.byref(error)) != 0:
                     die(25)
                 if scenario.endswith("_cancelled"):
-                    if lib.tny_session_cancel(
-                            session, ctypes.byref(error)) != 0:
+                    if lib.tny_session_cancel(session, ctypes.byref(error)) != 0:
                         die(45)
                     free_error(lib, error)
                 started = time.monotonic()
@@ -385,15 +422,12 @@ def child_case(libpath, scenario, base_url, report_path):
                 if target_session:
                     lib.tny_runtime_free(runtime)
 
-        elif scenario in ("session_free_permission",
-                          "runtime_free_permission"):
+        elif scenario in ("session_free_permission", "runtime_free_permission"):
             target_session = scenario.startswith("session_")
-            runtime, session, error, keep = create_pair(
-                lib, base_url, root)
+            runtime, session, error, keep = create_pair(lib, base_url, root)
             raw, prompt = as_bytes("request a sensitive operation")
             keep.append(raw)
-            if lib.tny_session_send(
-                    session, prompt, ctypes.byref(error)) != 0:
+            if lib.tny_session_send(session, prompt, ctypes.byref(error)) != 0:
                 die(46)
             wait_permission(lib, session, error)
             started = time.monotonic()
@@ -409,8 +443,7 @@ def child_case(libpath, scenario, base_url, report_path):
 
         elif scenario in ("session_free_failed", "runtime_free_failed"):
             target_session = scenario.startswith("session_")
-            runtime, session, error, keep = create_pair(
-                lib, base_url, root)
+            runtime, session, error, keep = create_pair(lib, base_url, root)
             raw, prompt = as_bytes("unreachable teardown")
             keep.append(raw)
             rc = lib.tny_session_send(session, prompt, ctypes.byref(error))
@@ -439,15 +472,13 @@ def child_repeat_oom(libpath, base_url):
         for turn in range(2):
             raw, prompt = as_bytes(f"repeat oom turn {turn}")
             keep.append(raw)
-            if lib.tny_session_send(
-                    session, prompt, ctypes.byref(error)) != 0:
+            if lib.tny_session_send(session, prompt, ctypes.byref(error)) != 0:
                 die(50)
             drain(lib, session, error, expect_oom=True)
         os.environ["TNY_TEST_ALLOC_SCOPE"] = "disabled"
         raw, prompt = as_bytes("successful retry after two oom turns")
         keep.append(raw)
-        if lib.tny_session_send(
-                session, prompt, ctypes.byref(error)) != 0:
+        if lib.tny_session_send(session, prompt, ctypes.byref(error)) != 0:
             die(52)
         drain(lib, session, error, expect_oom=False)
         lib.tny_session_free(session)
@@ -471,12 +502,17 @@ def run_child(script, args, env, timeout=20):
             env["LD_PRELOAD"] = asan_runtime
     executable = env.get("TNY_TEST_PYTHON_EXEC", sys.executable)
     run = subprocess.run(
-        [executable, script, *args], env=env,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+        [executable, script, *args],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout,
+    )
     if run.returncode != 0 or run.stdout or run.stderr:
         raise AssertionError(
             f"child {args}: rc={run.returncode} "
-            f"stdout={run.stdout!r} stderr={run.stderr!r}")
+            f"stdout={run.stdout!r} stderr={run.stderr!r}"
+        )
 
 
 def run_measured(script, libpath, scenario, scope, base_url, fail_at=None):
@@ -494,8 +530,7 @@ def run_measured(script, libpath, scenario, scope, base_url, fail_at=None):
                 env.pop("TNY_TEST_ALLOC_FAIL_AT", None)
             else:
                 env["TNY_TEST_ALLOC_FAIL_AT"] = str(fail_at)
-            run_child(script,
-                      ["--child", libpath, scenario, base_url, report], env)
+            run_child(script, ["--child", libpath, scenario, base_url, report], env)
             with open(report, encoding="ascii") as value:
                 count, injected = (int(item) for item in value.read().split())
             maximum = max(maximum, count)
@@ -503,7 +538,8 @@ def run_measured(script, libpath, scenario, scope, base_url, fail_at=None):
                 return count
     raise AssertionError(
         f"{scenario} allocation {fail_at} was not reached in {attempts} "
-        f"fresh processes (maximum observed {maximum})")
+        f"fresh processes (maximum observed {maximum})"
+    )
 
 
 def sweep(script, libpath, scenario, scope, base_url):
@@ -520,7 +556,10 @@ def start_mock(**settings):
     env = dict(os.environ, MOCK_EXPECT_WIRE="responses", **settings)
     mock = subprocess.Popen(
         [sys.executable, os.path.join(HERE, "mock_openai.py"), str(port)],
-        env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
     if "ready" not in mock.stdout.readline().decode():
         mock.terminate()
         mock.wait(timeout=5)
@@ -544,22 +583,24 @@ def main():
     results = {}
 
     results["tools_fs_walk"] = sweep(
-        script, libpath, "tools_fs_walk", "tools_fs_walk", "unused")
+        script, libpath, "tools_fs_walk", "tools_fs_walk", "unused"
+    )
 
     mock, base_url = start_mock(MOCK_SLOW_MS="150")
     try:
         for scenario, scope in (
-                ("runtime_create", "runtime_create"),
-                ("session_create", "session_create"),
-                ("session_open", "session_open"),
-                ("session_send", "session_send"),
-                ("session_send_rearm", "session_send"),
-                ("next_event", "next_event"),
-                ("session_steer", "session_steer")):
-            results[scenario] = sweep(
-                script, libpath, scenario, scope, base_url)
-        env = dict(os.environ, TNY_TEST_ALLOC_SCOPE="next_event",
-                   TNY_TEST_ALLOC_FAIL_AT="1")
+            ("runtime_create", "runtime_create"),
+            ("session_create", "session_create"),
+            ("session_open", "session_open"),
+            ("session_send", "session_send"),
+            ("session_send_rearm", "session_send"),
+            ("next_event", "next_event"),
+            ("session_steer", "session_steer"),
+        ):
+            results[scenario] = sweep(script, libpath, scenario, scope, base_url)
+        env = dict(
+            os.environ, TNY_TEST_ALLOC_SCOPE="next_event", TNY_TEST_ALLOC_FAIL_AT="1"
+        )
         run_child(script, ["--repeat-oom", libpath, base_url], env)
     finally:
         mock.terminate()
@@ -568,13 +609,13 @@ def main():
     sensitive, sensitive_url = start_mock(MOCK_SENSITIVE="1")
     try:
         results["respond_permission"] = sweep(
-            script, libpath, "respond_permission",
-            "respond_permission", sensitive_url)
+            script, libpath, "respond_permission", "respond_permission", sensitive_url
+        )
         for scenario, scope in (
-                ("session_free_permission", "session_free"),
-                ("runtime_free_permission", "runtime_free")):
-            results[scenario] = sweep(
-                script, libpath, scenario, scope, sensitive_url)
+            ("session_free_permission", "session_free"),
+            ("runtime_free_permission", "runtime_free"),
+        ):
+            results[scenario] = sweep(script, libpath, scenario, scope, sensitive_url)
     finally:
         sensitive.terminate()
         sensitive.wait(timeout=5)
@@ -582,22 +623,22 @@ def main():
     slow, slow_url = start_mock(MOCK_SLOW_MS="5000")
     try:
         for scenario, scope in (
-                ("session_free_active", "session_free"),
-                ("runtime_free_active", "runtime_free"),
-                ("session_free_cancelled", "session_free"),
-                ("runtime_free_cancelled", "runtime_free")):
-            results[scenario] = sweep(
-                script, libpath, scenario, scope, slow_url)
+            ("session_free_active", "session_free"),
+            ("runtime_free_active", "runtime_free"),
+            ("session_free_cancelled", "session_free"),
+            ("runtime_free_cancelled", "runtime_free"),
+        ):
+            results[scenario] = sweep(script, libpath, scenario, scope, slow_url)
     finally:
         slow.terminate()
         slow.wait(timeout=5)
 
     unreachable_url = f"http://127.0.0.1:{free_port()}/v1"
     for scenario, scope in (
-            ("session_free_failed", "session_free"),
-            ("runtime_free_failed", "runtime_free")):
-        results[scenario] = sweep(
-            script, libpath, scenario, scope, unreachable_url)
+        ("session_free_failed", "session_free"),
+        ("runtime_free_failed", "runtime_free"),
+    ):
+        results[scenario] = sweep(script, libpath, scenario, scope, unreachable_url)
 
     counts = ", ".join(f"{name}={count}" for name, count in results.items())
     print("test_libtny_faults: exhaustive allocation sweeps passed; " + counts)

@@ -10,11 +10,14 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 TNY=${1:-$ROOT/build-cursor/tny}
 MOCK=$ROOT/tests/integration/mock_bridge.py
 
-fail() { echo "FAIL: $*" >&2; exit 1; }
+fail() {
+    echo "FAIL: $*" >&2
+    exit 1
+}
 
 [ -x "$TNY" ] || fail "no tny binary at $TNY (run: make BUILD=build-cursor release)"
 [ -f "$MOCK" ] || fail "missing $MOCK"
-command -v python3 >/dev/null 2>&1 || fail "python3 is required"
+command -v python3 > /dev/null 2>&1 || fail "python3 is required"
 chmod +x "$MOCK"
 
 # Resolve the interpreter *before* HOME is a throwaway dir. macOS shims
@@ -33,8 +36,8 @@ mkdir -p "$HOME" "$WS" "$MOCK_DIR"
 echo "hello" > "$WS/README.md"
 
 export HOME
-export TNY_MOCK_DIR=$MOCK_DIR
-export TNY_MOCK_CWD=$WS
+export TNY_MOCK_DIR="$MOCK_DIR"
+export TNY_MOCK_CWD="$WS"
 export CURSOR_API_KEY=key_mock_deadbeef
 unset CURSOR_SDK_BRIDGE_BIN
 
@@ -46,10 +49,12 @@ chmod +x "$WRAP"
 MOCK=$WRAP
 
 run() { # run <outfile> <errfile> <ask args...>
-    _out=$1; _err=$2; shift 2
+    _out=$1
+    _err=$2
+    shift 2
     set +e
     "$TNY" --backend cursor --bridge-bin "$MOCK" --cwd "$WS" ask --json "$@" \
-        >"$_out" 2>"$_err"
+        > "$_out" 2> "$_err"
     _code=$?
     set -e
     return $_code
@@ -63,7 +68,7 @@ check_mock_assertions() {
 }
 
 check_no_secret_leak() { # check_no_secret_leak <file>...
-    _tok=$(tr -d '\n' < "$MOCK_DIR/auth.token" 2>/dev/null || true)
+    _tok=$(tr -d '\n' < "$MOCK_DIR/auth.token" 2> /dev/null || true)
     for f in "$@"; do
         if grep -q "cursor-sdk-bridge ready" "$f"; then
             fail "the bridge ready line leaked into $f"
@@ -107,7 +112,7 @@ check_no_secret_leak "$TMP/1.out" "$TMP/1.err"
 
 SESSION=$(sed -n 's/.*"session_id":"\([^"]*\)".*/\1/p' "$TMP/1.out")
 [ -n "$SESSION" ] || fail "no session_id in the JSON output"
-STORED=$(cat "$HOME"/.tny/sessions/*/"$SESSION"/session.json 2>/dev/null | tr -d ' \n' |
+STORED=$(cat "$HOME"/.tny/sessions/*/"$SESSION"/session.json 2> /dev/null | tr -d ' \n' |
     sed -n 's/.*"host_pointer":"\([^"]*\)".*/\1/p')
 [ "$STORED" = "$AGENT" ] || fail "session stored host pointer '$STORED', want '$AGENT'"
 
@@ -132,7 +137,7 @@ echo "== run 3: --effort light -> catalog value low"
 export TNY_MOCK_EXPECT_EFFORT=low
 set +e
 "$TNY" --backend cursor --bridge-bin "$MOCK" --cwd "$WS" --effort light \
-    ask --json --no-save "hi again" >"$TMP/3.out" 2>"$TMP/3.err"
+    ask --json --no-save "hi again" > "$TMP/3.out" 2> "$TMP/3.err"
 _code=$?
 set -e
 unset TNY_MOCK_EXPECT_EFFORT
@@ -150,7 +155,7 @@ check_no_secret_leak "$TMP/3.out" "$TMP/3.err"
 echo "== run 4: --fast"
 set +e
 TNY_MOCK_FAST=1 "$TNY" --backend cursor --bridge-bin "$MOCK" --cwd "$WS" --fast \
-    ask --json --no-save "quick" >"$TMP/4.out" 2>"$TMP/4.err"
+    ask --json --no-save "quick" > "$TMP/4.out" 2> "$TMP/4.err"
 CODE=$?
 set -e
 if [ $CODE -ne 0 ]; then
@@ -166,7 +171,7 @@ echo "== run 5: --effort light --fast"
 export TNY_MOCK_EXPECT_EFFORT=low
 set +e
 TNY_MOCK_FAST=1 "$TNY" --backend cursor --bridge-bin "$MOCK" --cwd "$WS" \
-    --effort light --fast ask --json --no-save "both" >"$TMP/5.out" 2>"$TMP/5.err"
+    --effort light --fast ask --json --no-save "both" > "$TMP/5.out" 2> "$TMP/5.err"
 CODE=$?
 set -e
 unset TNY_MOCK_EXPECT_EFFORT
@@ -179,8 +184,8 @@ check_mock_assertions
 check_no_secret_leak "$TMP/5.out" "$TMP/5.err"
 
 # ---- the host must not outlive tny ----
-if [ -f "$MOCK_DIR/pid.txt" ] && kill -0 "$(cat "$MOCK_DIR/pid.txt")" 2>/dev/null; then
-    kill -9 "$(cat "$MOCK_DIR/pid.txt")" 2>/dev/null || true
+if [ -f "$MOCK_DIR/pid.txt" ] && kill -0 "$(cat "$MOCK_DIR/pid.txt")" 2> /dev/null; then
+    kill -9 "$(cat "$MOCK_DIR/pid.txt")" 2> /dev/null || true
     fail "the mock bridge survived tny exit"
 fi
 

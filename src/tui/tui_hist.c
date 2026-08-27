@@ -16,7 +16,8 @@ static char *hist_path(void) {
 
 void tui_hist_load(tui *t) {
     if (t->ctx->no_save) {
-        tui_sys(t, "ephemeral mode · session, recovery, results, and prompt history stay in memory");
+        tui_sys(t,
+                "ephemeral mode · session, recovery, results, and prompt history stay in memory");
         return;
     }
     char *p = hist_path();
@@ -33,12 +34,21 @@ void tui_hist_load(tui *t) {
                 buf_t b;
                 buf_init(&b);
                 for (char *q = line; *q; q++) {
-                    if (q[0] == '\\' && q[1] == 'n') { buf_appends(&b, "\n"); q++; }
-                    else if (q[0] == '\\' && q[1] == '\\') { buf_appends(&b, "\\"); q++; }
-                    else buf_append(&b, q, 1);
+                    if (q[0] == '\\' && q[1] == 'n') {
+                        buf_appends(&b, "\n");
+                        q++;
+                    } else if (q[0] == '\\' && q[1] == '\\') {
+                        buf_appends(&b, "\\");
+                        q++;
+                    } else buf_append(&b, q, 1);
                 }
-                t->hist = realloc(t->hist, sizeof(char *) * (size_t)(t->n_hist + 1));
-                t->hist[t->n_hist++] = buf_detach(&b);
+                char **grown = realloc(t->hist, sizeof(char *) * (size_t)(t->n_hist + 1));
+                if (!grown) {
+                    buf_free(&b);
+                } else {
+                    t->hist = grown;
+                    t->hist[t->n_hist++] = buf_detach(&b);
+                }
             }
             line = data + i + 1;
         }
@@ -59,7 +69,9 @@ void tui_hist_add(tui *t, const char *line) {
         t->hist_pos = t->n_hist;
         return;
     }
-    t->hist = realloc(t->hist, sizeof(char *) * (size_t)(t->n_hist + 1));
+    char **grown = realloc(t->hist, sizeof(char *) * (size_t)(t->n_hist + 1));
+    if (!grown) return;
+    t->hist = grown;
     t->hist[t->n_hist++] = xstrdup(line);
     t->hist_pos = t->n_hist;
 
@@ -88,4 +100,3 @@ void tui_hist_free(tui *t) {
     free(t->hist_draft);
     t->hist_draft = NULL;
 }
-

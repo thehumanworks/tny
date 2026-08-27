@@ -30,8 +30,8 @@ void ssh_disconnect(struct tny_ctx *ctx);
  * (capped at out_cap bytes; *truncated set when exceeded). timeout_s <= 0
  * means no timeout. Returns the exit code (124 + *timed_out on timeout,
  * 255 when ssh itself failed). Never prompts: BatchMode. */
-int ssh_run(struct tny_ctx *ctx, const char *script, const char *in, size_t inlen,
-            int timeout_s, size_t out_cap, buf_t *out, bool *truncated, bool *timed_out);
+int ssh_run(struct tny_ctx *ctx, const char *script, const char *in, size_t inlen, int timeout_s,
+            size_t out_cap, buf_t *out, bool *truncated, bool *timed_out);
 
 /* Append s to b as one single-quoted POSIX shell word. */
 void ssh_shell_quote(buf_t *b, const char *s);

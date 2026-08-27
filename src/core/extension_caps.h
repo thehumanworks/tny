@@ -53,18 +53,16 @@ typedef enum {
 
 size_t tny_extension_capability_count(void);
 const char *tny_extension_capability_name(tny_extension_capability_id id);
-tny_extension_capability_state tny_extension_capability_get(
-    tny_backend_id provider, tny_extension_capability_id id);
-const char *tny_extension_capability_state_name(
-    tny_extension_capability_state state);
-const char *tny_extension_capability_reason(
-    tny_backend_id provider, tny_extension_capability_id id);
+tny_extension_capability_state tny_extension_capability_get(tny_backend_id provider,
+                                                            tny_extension_capability_id id);
+const char *tny_extension_capability_state_name(tny_extension_capability_state state);
+const char *tny_extension_capability_reason(tny_backend_id provider,
+                                            tny_extension_capability_id id);
 
 /* Deterministic, malloc'd JSON.  This query is static: it never discovers or
  * imports extensions, starts Python/a provider, reads credentials, or performs
  * network I/O. */
-char *tny_extension_capabilities_json(tny_backend_id selected_provider,
-                                      bool extensions_enabled,
+char *tny_extension_capabilities_json(tny_backend_id selected_provider, bool extensions_enabled,
                                       bool python_available);
 
 #endif

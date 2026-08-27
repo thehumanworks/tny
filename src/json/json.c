@@ -9,9 +9,7 @@ yyjson_val *jget(yyjson_val *obj, const char *key) {
     return yyjson_obj_get(obj, key);
 }
 
-const char *jget_str(yyjson_val *obj, const char *key) {
-    return jget_strn(obj, key, NULL);
-}
+const char *jget_str(yyjson_val *obj, const char *key) { return jget_strn(obj, key, NULL); }
 
 const char *jget_strn(yyjson_val *obj, const char *key, size_t *len_out) {
     yyjson_val *v = jget(obj, key);
@@ -44,8 +42,7 @@ bool jget_bool(yyjson_val *obj, const char *key, bool dflt) {
 }
 
 yyjson_doc *jparse(const char *data, size_t len) {
-    return data ? yyjson_read_opts((char *)(uintptr_t)data, len, 0,
-                                   jallocator(), NULL) : NULL;
+    return data ? yyjson_read_opts((char *)(uintptr_t)data, len, 0, jallocator(), NULL) : NULL;
 }
 
 yyjson_doc *jparse_file(const char *path) {
@@ -62,8 +59,7 @@ char *jwrite(yyjson_mut_doc *doc) {
 }
 
 char *jwrite_pretty(yyjson_mut_doc *doc) {
-    return yyjson_mut_write_opts(doc, YYJSON_WRITE_PRETTY_TWO_SPACES,
-                                 jallocator(), NULL, NULL);
+    return yyjson_mut_write_opts(doc, YYJSON_WRITE_PRETTY_TWO_SPACES, jallocator(), NULL, NULL);
 }
 
 char *jwrite_val(yyjson_val *val) {
@@ -75,7 +71,10 @@ char *jwrite_mut_val(yyjson_mut_val *val) {
 }
 
 void jescape(buf_t *b, const char *s) {
-    if (!b || !s) { if (b) b->oom = true; return; }
+    if (!b || !s) {
+        if (b) b->oom = true;
+        return;
+    }
     buf_appends(b, "\"");
     for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
         switch (*p) {
@@ -108,8 +107,6 @@ static void json_free(void *ctx, void *ptr) {
 }
 
 const yyjson_alc *jallocator(void) {
-    static const yyjson_alc allocator = {
-        json_malloc, json_realloc, json_free, NULL
-    };
+    static const yyjson_alc allocator = {json_malloc, json_realloc, json_free, NULL};
     return &allocator;
 }

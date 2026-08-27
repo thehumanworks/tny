@@ -41,11 +41,12 @@ static void ensure_env(void) {
     buf_t b;
     buf_init(&b);
     buf_appendf(&b,
-        "#!/bin/sh\n"
-        "printf '%%s\\n' \"$@\" > '%s'\n"
-        "for last; do :; done\n"
-        "if [ \"$2\" = exit ] || [ \"$last\" = true ]; then exit 0; fi\n"
-        "HOME='%s' exec sh -c \"$last\"\n", g_log, g_remote);
+                "#!/bin/sh\n"
+                "printf '%%s\\n' \"$@\" > '%s'\n"
+                "for last; do :; done\n"
+                "if [ \"$2\" = exit ] || [ \"$last\" = true ]; then exit 0; fi\n"
+                "HOME='%s' exec sh -c \"$last\"\n",
+                g_log, g_remote);
     file_write_atomic(fake, b.data, b.len);
     buf_free(&b);
     chmod(fake, 0755);
@@ -61,7 +62,10 @@ static tny_ctx *remote_ctx(void) {
     char err[256];
     if (ssh_target_set(ctx, "alice@example.test:2222", err, sizeof err) != 0) abort();
     ctx->ssh_cwd = xstrdup(g_remote);
-    if (ssh_connect(ctx, err, sizeof err) != 0) { fprintf(stderr, "%s\n", err); abort(); }
+    if (ssh_connect(ctx, err, sizeof err) != 0) {
+        fprintf(stderr, "%s\n", err);
+        abort();
+    }
     return ctx;
 }
 
@@ -208,8 +212,9 @@ TEST file_tools_round_trip(void) {
              "{\"path\":\"sub/a.txt\",\"old_string\":\"l\",\"new_string\":\"L\"}");
     ASSERT(strstr(r, "occurs 3 times"));
     free(r);
-    r = call(&env, "edit_file",
-             "{\"path\":\"sub/a.txt\",\"old_string\":\"l\",\"new_string\":\"L\",\"replace_all\":true}");
+    r = call(
+        &env, "edit_file",
+        "{\"path\":\"sub/a.txt\",\"old_string\":\"l\",\"new_string\":\"L\",\"replace_all\":true}");
     ASSERT(strstr(r, "replaced 3 occurrences"));
     free(r);
 
@@ -282,7 +287,8 @@ TEST terminal_runs_remotely(void) {
     tools_env env = {0};
     env.ctx = ctx;
     env.perm = perm;
-    char *r = tools_execute(&env, "terminal", "{\"command\":\"pwd; echo \\\"it's\\\" $HOME; exit 2\"}");
+    char *r =
+        tools_execute(&env, "terminal", "{\"command\":\"pwd; echo \\\"it's\\\" $HOME; exit 2\"}");
     ASSERT(strstr(r, "exit code: 2\n"));
     ASSERT(strstr(r, g_remote));
     ASSERT(strstr(r, "it's"));

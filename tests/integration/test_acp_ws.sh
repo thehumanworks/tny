@@ -16,11 +16,14 @@ mkdir -p "$TMP/ws" "$TMP/home"
 fail() {
     echo "FAIL: $*" >&2
     for f in "$TMP"/wrap*.err "$TMP"/wrap*.out; do
-        [ -s "$f" ] && { echo "--- $(basename "$f"):" >&2; tail -20 "$f" >&2; }
+        [ -s "$f" ] && {
+            echo "--- $(basename "$f"):" >&2
+            tail -20 "$f" >&2
+        }
     done
     exit 1
 }
-contains() { case "$1" in *"$2"*) ;; *) fail "missing '$2' in: $1" ;; esac; }
+contains() { case "$1" in *"$2"*) ;; *) fail "missing '$2' in: $1" ;; esac }
 
 FAKE_ACP_STATE=$TMP/state.json FAKE_ACP_GROUPED_MODELS=1 \
     "$PY" "$WRAP" 0 > "$TMP/wrap.out" 2> "$TMP/wrap.err" &
@@ -28,7 +31,7 @@ WSPID=$!
 i=0
 PORT=
 while [ $i -lt 300 ]; do
-    PORT=$(sed -n 's/^ready on //p' "$TMP/wrap.out" 2>/dev/null)
+    PORT=$(sed -n 's/^ready on //p' "$TMP/wrap.out" 2> /dev/null)
     [ -n "$PORT" ] && break
     i=$((i + 1))
     sleep 0.1
@@ -53,8 +56,8 @@ echo "ok  turn 1 over ws: grouped model selected, streamed text, session $SID"
 # ---- turn 2: resume rides session/load over the same transport ---------
 OUT2=$(HOME="$TMP/home" FAKE_ACP_STATE=$TMP/state.json "$TNY" --cwd "$TMP/ws" \
     --backend acp --agent "ws://127.0.0.1:$PORT" --model ws-model ask --json --yolo \
-    --resume "$SID" "again" 2> "$TMP/err2") \
-    || fail "run 2 exited $? ($(cat "$TMP/err2"))"
+    --resume "$SID" "again" 2> "$TMP/err2") ||
+    fail "run 2 exited $? ($(cat "$TMP/err2"))"
 TEXT2=$(printf '%s' "$OUT2" | "$PY" -c 'import json,sys; print(json.load(sys.stdin)["output"])')
 contains "$TEXT2" "Hello from the fake ACP agent."
 echo "ok  turn 2 over ws: resumed"
@@ -73,25 +76,28 @@ WS2PID=$!
 i=0
 PORT2=
 while [ $i -lt 300 ]; do
-    PORT2=$(sed -n 's/^ready on //p' "$TMP/wrap2.out" 2>/dev/null)
+    PORT2=$(sed -n 's/^ready on //p' "$TMP/wrap2.out" 2> /dev/null)
     [ -n "$PORT2" ] && break
     i=$((i + 1))
     sleep 0.1
 done
-[ -n "$PORT2" ] || { kill $WS2PID 2>/dev/null; fail "second ws wrapper did not start"; }
+[ -n "$PORT2" ] || {
+    kill $WS2PID 2> /dev/null
+    fail "second ws wrapper did not start"
+}
 HOME="$TMP/home" "$TNY" --cwd "$TMP/ws" --backend acp \
     --agent "ws://127.0.0.1:$PORT2" ask --json --yolo --no-save "die please" \
     > "$TMP/out4" 2> "$TMP/err4"
 rc=$?
-kill $WS2PID 2>/dev/null
+kill $WS2PID 2> /dev/null
 [ "$rc" -eq 2 ] || fail "mid-turn ws death should exit 2, got $rc ($(cat "$TMP/err4"))"
-grep -q "closed the connection mid-turn" "$TMP/err4" \
-    || fail "no mid-turn close error: $(cat "$TMP/err4")"
+grep -q "closed the connection mid-turn" "$TMP/err4" ||
+    fail "no mid-turn close error: $(cat "$TMP/err4")"
 echo "ok  mid-turn ws close ends the turn with an error"
 
 # ---- doctor: a ws agent resolves without a PATH lookup -----------------
 DOC=$(HOME="$TMP/home" "$TNY" --backend acp --agent "ws://127.0.0.1:$PORT" \
-    doctor --json 2>/dev/null) || true
+    doctor --json 2> /dev/null) || true
 contains "$DOC" "remote agent"
 echo "ok  doctor reports the remote agent"
 

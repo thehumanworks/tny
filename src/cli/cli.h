@@ -7,25 +7,25 @@
 
 /* Leading global flags, parsed before the subcommand. */
 typedef struct {
-    const char *backend;     /* --backend */
-    const char *cwd;         /* --cwd */
-    const char *model;       /* --model */
-    const char *effort;      /* --effort | --reasoning-effort */
-    const char *perm_mode;   /* --permission-mode | --yolo | --auto */
-    const char *max_steps;   /* --max-steps N|unlimited (0 = no cap) */
+    const char *backend;                  /* --backend */
+    const char *cwd;                      /* --cwd */
+    const char *model;                    /* --model */
+    const char *effort;                   /* --effort | --reasoning-effort */
+    const char *perm_mode;                /* --permission-mode | --yolo | --auto */
+    const char *max_steps;                /* --max-steps N|unlimited (0 = no cap) */
     const char *max_extension_iterations; /* 0/unlimited = no cap */
-    bool        no_extensions; /* --no-extensions */
-    bool        fast;        /* --fast (providers with TNY_CAP_FAST) */
-    const char **add_dirs;   /* --add-dir, repeatable */
-    int         n_add_dirs;
-    bool        json;        /* --json */
-    const char *color;       /* --color auto|always|never (--no-color = never) */
-    const char *ssh;         /* --ssh user@host[:port] */
-    const char *ssh_cwd;     /* --ssh-cwd DIR (remote) */
-    bool        ephemeral;   /* --ephemeral | --no-save */
-    bool        resume_picker;   /* -r */
-    bool        resume_last;     /* -c / --continue */
-    const char *resume;      /* --resume value */
+    bool no_extensions;                   /* --no-extensions */
+    bool fast;                            /* --fast (providers with TNY_CAP_FAST) */
+    const char **add_dirs;                /* --add-dir, repeatable */
+    int n_add_dirs;
+    bool json;           /* --json */
+    const char *color;   /* --color auto|always|never (--no-color = never) */
+    const char *ssh;     /* --ssh user@host[:port] */
+    const char *ssh_cwd; /* --ssh-cwd DIR (remote) */
+    bool ephemeral;      /* --ephemeral | --no-save */
+    bool resume_picker;  /* -r */
+    bool resume_last;    /* -c / --continue */
+    const char *resume;  /* --resume value */
     /* backend-specific */
     const char *bridge_bin;
     const char *codex_ws;
@@ -34,7 +34,7 @@ typedef struct {
     const char **agent_argv; /* --agent CMD -- args…, NULL-terminated */
     const char *base_url;
     const char *api_key_env;
-    const char *wire_api;    /* --wire-api responses|chat */
+    const char *wire_api; /* --wire-api responses|chat */
 } cli_globals;
 
 /* Parse leading globals; returns index of the subcommand in argv or -1 on

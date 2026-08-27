@@ -14,25 +14,21 @@
 
 #define UNARY_TIMEOUT_MS 30000
 
-void cursor_error_line(const char *body, size_t len, const char *fallback,
-                       char *out, size_t outlen) {
+void cursor_error_line(const char *body, size_t len, const char *fallback, char *out,
+                       size_t outlen) {
     yyjson_doc *doc = len ? jparse(body, len) : NULL;
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
     yyjson_val *e = jget(root, "error");
     if (!e) e = root; /* unary Connect errors are the bare error object */
     const char *msg = jget_str(e, "message");
     const char *code = jget_str(e, "code");
-    if (msg && *msg)
-        snprintf(out, outlen, "%s%s%.200s", code ? code : "", code ? ": " : "", msg);
-    else if (code && *code)
-        snprintf(out, outlen, "%.100s", code);
-    else
-        snprintf(out, outlen, "%s", fallback);
+    if (msg && *msg) snprintf(out, outlen, "%s%s%.200s", code ? code : "", code ? ": " : "", msg);
+    else if (code && *code) snprintf(out, outlen, "%.100s", code);
+    else snprintf(out, outlen, "%s", fallback);
     yyjson_doc_free(doc);
 }
 
-static void auth_headers(const char *token, const char *ctype, buf_t *auth,
-                         const char *hdrs[5]) {
+static void auth_headers(const char *token, const char *ctype, buf_t *auth, const char *hdrs[5]) {
     buf_appendf(auth, "Authorization: Bearer %s", token);
     hdrs[0] = ctype;
     hdrs[1] = "Connect-Protocol-Version: 1";
@@ -50,12 +46,14 @@ void cursor_rpc_init(cursor_rpc *r, const char *base_url, const char *token) {
 }
 
 void cursor_rpc_close(cursor_rpc *r) {
-    if (r->conn) { http_close(r->conn); r->conn = NULL; }
+    if (r->conn) {
+        http_close(r->conn);
+        r->conn = NULL;
+    }
 }
 
 /* Read the whole response body with a deadline. -1 on error. */
-static int read_body(http_conn *c, buf_t *out, int64_t deadline,
-                     char *err, size_t errlen) {
+static int read_body(http_conn *c, buf_t *out, int64_t deadline, char *err, size_t errlen) {
     for (;;) {
         char tmp[8192];
         ssize_t n = http_body_read(c, tmp, sizeof tmp);
@@ -75,16 +73,15 @@ static int read_body(http_conn *c, buf_t *out, int64_t deadline,
             continue;
         }
         if (out->len + (size_t)n > CURSOR_MAX_MSG_BYTES) {
-            snprintf(err, errlen, "bridge response exceeds %u bytes",
-                     CURSOR_MAX_MSG_BYTES);
+            snprintf(err, errlen, "bridge response exceeds %u bytes", CURSOR_MAX_MSG_BYTES);
             return -1;
         }
         buf_append(out, tmp, (size_t)n);
     }
 }
 
-char *cursor_rpc_unary(cursor_rpc *r, const char *service, const char *method,
-                       const char *body, int timeout_ms, char *err, size_t errlen) {
+char *cursor_rpc_unary(cursor_rpc *r, const char *service, const char *method, const char *body,
+                       int timeout_ms, char *err, size_t errlen) {
     char path[256];
     snprintf(path, sizeof path, "%s/%s", service, method);
     buf_t auth;
@@ -98,8 +95,7 @@ char *cursor_rpc_unary(cursor_rpc *r, const char *service, const char *method,
             char oerr[256];
             r->conn = http_open(r->base_url, oerr, sizeof oerr);
             if (!r->conn) {
-                snprintf(err, errlen, "cannot reach the bridge at %s: %s",
-                         r->base_url, oerr);
+                snprintf(err, errlen, "cannot reach the bridge at %s: %s", r->base_url, oerr);
                 buf_free(&auth);
                 return NULL;
             }
@@ -143,12 +139,10 @@ char *cursor_rpc_unary(cursor_rpc *r, const char *service, const char *method,
         char detail[300];
         char fallback[64];
         snprintf(fallback, sizeof fallback, "HTTP %d", status);
-        cursor_error_line(out.data ? out.data : "", out.len, fallback,
-                          detail, sizeof detail);
+        cursor_error_line(out.data ? out.data : "", out.len, fallback, detail, sizeof detail);
         if (status == 401 || status == 403)
             snprintf(err, errlen, "%s rejected: bridge auth failed (%s)", method, detail);
-        else
-            snprintf(err, errlen, "%s failed: %s", method, detail);
+        else snprintf(err, errlen, "%s failed: %s", method, detail);
         buf_free(&out);
         return NULL;
     }
@@ -167,18 +161,19 @@ void cursor_stream_init(cursor_stream *s, const char *base_url, const char *toke
 }
 
 void cursor_stream_stop(cursor_stream *s) {
-    if (s->conn) { http_close(s->conn); s->conn = NULL; }
+    if (s->conn) {
+        http_close(s->conn);
+        s->conn = NULL;
+    }
     connect_decoder_free(&s->dec);
     connect_decoder_init(&s->dec);
     s->state = CS_IDLE;
 }
 
-int cursor_stream_fd(cursor_stream *s) {
-    return s->conn ? http_fd(s->conn) : -1;
-}
+int cursor_stream_fd(cursor_stream *s) { return s->conn ? http_fd(s->conn) : -1; }
 
-int cursor_stream_start(cursor_stream *s, const char *service, const char *method,
-                        const char *body, char *err, size_t errlen) {
+int cursor_stream_start(cursor_stream *s, const char *service, const char *method, const char *body,
+                        char *err, size_t errlen) {
     cursor_stream_stop(s);
     char oerr[256];
     s->conn = http_open(s->base_url, oerr, sizeof oerr);
@@ -208,8 +203,7 @@ int cursor_stream_start(cursor_stream *s, const char *service, const char *metho
     return 0;
 }
 
-int cursor_stream_pump(cursor_stream *s, connect_frame_cb cb, void *ud,
-                       char *err, size_t errlen) {
+int cursor_stream_pump(cursor_stream *s, connect_frame_cb cb, void *ud, char *err, size_t errlen) {
     if (s->state == CS_IDLE || !s->conn) return 1;
 
     if (s->state == CS_HEADERS) {
@@ -226,12 +220,11 @@ int cursor_stream_pump(cursor_stream *s, connect_frame_cb cb, void *ud,
             char detail[300];
             char fallback[64];
             snprintf(fallback, sizeof fallback, "HTTP %d", status);
-            cursor_error_line(body.data ? body.data : "", body.len, fallback,
-                              detail, sizeof detail);
+            cursor_error_line(body.data ? body.data : "", body.len, fallback, detail,
+                              sizeof detail);
             if (status == 401 || status == 403)
                 snprintf(err, errlen, "bridge auth failed (%s)", detail);
-            else
-                snprintf(err, errlen, "bridge stream failed: %s", detail);
+            else snprintf(err, errlen, "bridge stream failed: %s", detail);
             buf_free(&body);
             return -1;
         }

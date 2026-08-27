@@ -15,11 +15,11 @@
 #define REC_MAX 16
 typedef struct {
     tny_event_kind kind[REC_MAX];
-    char *text[REC_MAX];   /* text events */
-    char *name[REC_MAX];   /* tool_name */
-    char *id[REC_MAX];     /* tool_id */
-    char *detail[REC_MAX]; /* tool_detail */
-    bool ok[REC_MAX];      /* tool_ok */
+    char *text[REC_MAX];           /* text events */
+    char *name[REC_MAX];           /* tool_name */
+    char *id[REC_MAX];             /* tool_id */
+    char *detail[REC_MAX];         /* tool_detail */
+    bool ok[REC_MAX];              /* tool_ok */
     tny_stop_reason stop[REC_MAX]; /* TURN_END */
     int n;
 } rec_t;
@@ -67,9 +67,7 @@ static void impl_free(cu_impl *o) {
     buf_free(&o->last_tool_start);
 }
 
-static void feed(cu_impl *o, const char *json) {
-    cu_on_frame(0, json, strlen(json), o);
-}
+static void feed(cu_impl *o, const char *json) { cu_on_frame(0, json, strlen(json), o); }
 
 /* ---- the SdkMessage envelope: type + Struct payload in `message` ---- */
 
@@ -333,10 +331,9 @@ TEST tool_call_repeated_running_frames_are_deduped(void) {
     memset(&r, 0, sizeof r);
     impl_init(&o, &r);
 
-    const char *running =
-        "{\"sdkMessage\":{\"type\":\"tool_call\",\"message\":{"
-        "\"type\":\"tool_call\",\"call_id\":\"call-3\",\"name\":\"edit\","
-        "\"status\":\"running\",\"args\":{\"path\":\"out.txt\"}}}}";
+    const char *running = "{\"sdkMessage\":{\"type\":\"tool_call\",\"message\":{"
+                          "\"type\":\"tool_call\",\"call_id\":\"call-3\",\"name\":\"edit\","
+                          "\"status\":\"running\",\"args\":{\"path\":\"out.txt\"}}}}";
     feed(&o, running);
     feed(&o, running); /* re-emitted while the tool executes: dropped */
     /* changed args stream through */

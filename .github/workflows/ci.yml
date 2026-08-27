@@ -24,6 +24,42 @@ permissions:
   contents: read
 
 jobs:
+  # Fast first-party quality gate (docs/adr/0035): format, clang-tidy,
+  # strict warnings (gcc + clang), GCC -fanalyzer, Ruff, ShellCheck, shfmt,
+  # actionlint, JS syntax. Tool versions are pinned here — formatter output
+  # changes between major versions, so bumps are deliberate.
+  quality:
+    name: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install pinned linters
+        run: |
+          set -eu
+          pipx install clang-format==21.1.2
+          pipx install clang-tidy==22.1.8
+          pipx install ruff==0.14.0
+          sudo apt-get update -q
+          sudo apt-get install -y -q gcc-14
+          go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+          shellcheck --version
+
+      - name: make quality
+        run: make quality
+
+      - name: make warn-strict (gcc + clang)
+        run: |
+          set -eu
+          make warn-strict CC=gcc-14
+          make warn-strict CC=clang
+
+      - name: make analyze (gcc -fanalyzer)
+        run: make analyze ANALYZER_CC=gcc-14
+
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}

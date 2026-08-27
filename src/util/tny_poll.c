@@ -7,9 +7,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-int tny_poll(struct pollfd *fds, nfds_t n, int timeout_ms) {
-    return poll(fds, n, timeout_ms);
-}
+int tny_poll(struct pollfd *fds, nfds_t n, int timeout_ms) { return poll(fds, n, timeout_ms); }
 
 static int fd_flags(int fd, int get, int set, int add) {
     int flags = fcntl(fd, get, 0);
@@ -43,15 +41,14 @@ void tny_wake_close(tny_wake *wake) {
     wake->write_fd = -1;
 }
 
-int tny_wake_fd(const tny_wake *wake) {
-    return wake ? wake->read_fd : -1;
-}
+int tny_wake_fd(const tny_wake *wake) { return wake ? wake->read_fd : -1; }
 
 void tny_wake_signal(tny_wake *wake) {
     if (!wake || wake->write_fd < 0) return;
     unsigned char byte = 1;
     ssize_t n;
-    do n = write(wake->write_fd, &byte, sizeof byte); while (n < 0 && errno == EINTR);
+    do n = write(wake->write_fd, &byte, sizeof byte);
+    while (n < 0 && errno == EINTR);
     /* EAGAIN means an earlier byte already guarantees a wake. */
 }
 

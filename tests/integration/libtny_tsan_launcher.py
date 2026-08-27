@@ -4,12 +4,11 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import socket
 import subprocess
 import sys
 import tempfile
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MOCK = ROOT / "tests/integration/mock_openai.py"
@@ -49,7 +48,9 @@ def start_mock() -> tuple[subprocess.Popen[bytes], str]:
     assert process.stdout is not None
     ready = process.stdout.readline()
     if b"ready" not in ready:
-        raise RuntimeError(f"TSan strict mock failed before ready (rc={process.poll()})")
+        raise RuntimeError(
+            f"TSan strict mock failed before ready (rc={process.poll()})"
+        )
     return process, f"http://127.0.0.1:{port}/v1"
 
 

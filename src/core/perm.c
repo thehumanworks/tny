@@ -5,11 +5,13 @@
 #include <string.h>
 #include <stdio.h>
 
-static const char *SAFE_TOOLS[] = {
-    "list_files", "glob_files", "grep_files", "read_file", "read_image", "file_info",
-    "semantic_search", "read_tool_result", "mcp_search_tools", "mcp_select_tool",
-    "mcp_features", "skill", "ask_user_question", NULL
-};
+static const char *SAFE_TOOLS[] = {"list_files",        "glob_files",
+                                   "grep_files",        "read_file",
+                                   "read_image",        "file_info",
+                                   "semantic_search",   "read_tool_result",
+                                   "mcp_search_tools",  "mcp_select_tool",
+                                   "mcp_features",      "skill",
+                                   "ask_user_question", NULL};
 
 bool perm_tool_is_safe(const char *tool) {
     for (int i = 0; SAFE_TOOLS[i]; i++)
@@ -59,10 +61,15 @@ void perm_grant(perm_engine *p, const char *tool, const char *detail) {
     char *key = grant_key(tool, detail);
     if (!key) return;
     for (int i = 0; i < p->n_grants; i++)
-        if (strcmp(p->grants[i], key) == 0) { free(key); return; }
-    char **next = realloc(p->grants,
-                          sizeof(char *) * (size_t)(p->n_grants + 1));
-    if (!next) { free(key); return; }
+        if (strcmp(p->grants[i], key) == 0) {
+            free(key);
+            return;
+        }
+    char **next = realloc(p->grants, sizeof(char *) * (size_t)(p->n_grants + 1));
+    if (!next) {
+        free(key);
+        return;
+    }
     p->grants = next;
     p->grants[p->n_grants++] = key;
 }
@@ -72,7 +79,10 @@ static bool grant_hit(perm_engine *p, const char *tool, const char *detail) {
     if (!key) return false;
     bool hit = false;
     for (int i = 0; i < p->n_grants; i++)
-        if (strcmp(p->grants[i], key) == 0) { hit = true; break; }
+        if (strcmp(p->grants[i], key) == 0) {
+            hit = true;
+            break;
+        }
     free(key);
     return hit;
 }
@@ -128,8 +138,7 @@ perm_verdict perm_check(perm_engine *p, const char *tool, const char *detail) {
 
     /* read-only tools are free inside the workspace; path escapes prompt */
     if (perm_tool_is_safe(tool)) {
-        if (detail && detail[0] == '/' && !perm_path_allowed(ctx, detail))
-            goto sensitive;
+        if (detail && detail[0] == '/' && !perm_path_allowed(ctx, detail)) goto sensitive;
         return PERM_ALLOW;
     }
 
@@ -152,13 +161,11 @@ sensitive:;
          * clearly-safe read-style commands; everything else stays PROMPT
          * (TUI asks, `ask` fails closed). */
         const char *cat = rule_category(tool);
-        if (strcmp(cat, "edit") == 0 && detail && perm_path_allowed(ctx, detail))
-            return PERM_ALLOW;
+        if (strcmp(cat, "edit") == 0 && detail && perm_path_allowed(ctx, detail)) return PERM_ALLOW;
         if (strcmp(cat, "bash") == 0 && detail) {
             static const char *safe_prog[] = {
-                "ls", "cat", "head", "tail", "grep", "rg", "find", "wc",
-                "git status", "git log", "git diff", "git show", NULL
-            };
+                "ls", "cat",        "head",    "tail",     "grep",     "rg", "find",
+                "wc", "git status", "git log", "git diff", "git show", NULL};
             for (int i = 0; safe_prog[i]; i++)
                 if (str_starts(detail, safe_prog[i])) return PERM_ALLOW;
         }

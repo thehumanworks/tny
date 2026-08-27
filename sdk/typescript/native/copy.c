@@ -12,9 +12,7 @@ char *sdk_copy_n(const char *value, size_t len) {
     copy[len] = '\0';
     return copy;
 }
-char *sdk_copy_cstr(const char *value) {
-    return value ? sdk_copy_n(value, strlen(value)) : NULL;
-}
+char *sdk_copy_cstr(const char *value) { return value ? sdk_copy_n(value, strlen(value)) : NULL; }
 
 char *sdk_copy_bytes(tny_bytes value) {
     if (!value.ptr || value.len == 0u) return sdk_copy_n("", 0u);
@@ -140,7 +138,11 @@ int sdk_snapshot_event(tny_event *source, event_copy **out) {
     event->context_used = view.context_used;
     event->context_size = view.context_size;
     event->cost = view.cost;
-#define COPY_VIEW_FIELD(name) do { event->name = sdk_copy_owned(view.name); if (!event->name.ptr) goto oom; } while (0)
+#define COPY_VIEW_FIELD(name)                    \
+    do {                                         \
+        event->name = sdk_copy_owned(view.name); \
+        if (!event->name.ptr) goto oom;          \
+    } while (0)
     COPY_VIEW_FIELD(provider);
     COPY_VIEW_FIELD(session_id);
     COPY_VIEW_FIELD(turn_id);
@@ -180,7 +182,11 @@ int sdk_snapshot_capabilities(tny_runtime *runtime, capability_copy *copy) {
     copy->event_reserved = view.event_reserved;
     copy->event_payload_bytes_max = view.event_payload_bytes_max;
     copy->event_reserved_bytes = view.event_reserved_bytes;
-#define COPY_CAPABILITY_FIELD(name) do { copy->name = sdk_copy_owned(view.name); if (!copy->name.ptr) goto oom; } while (0)
+#define COPY_CAPABILITY_FIELD(name)             \
+    do {                                        \
+        copy->name = sdk_copy_owned(view.name); \
+        if (!copy->name.ptr) goto oom;          \
+    } while (0)
     COPY_CAPABILITY_FIELD(library_version);
     COPY_CAPABILITY_FIELD(platform_family);
     COPY_CAPABILITY_FIELD(architecture);

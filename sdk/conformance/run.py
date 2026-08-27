@@ -6,22 +6,23 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 from validate import ConformanceError, sha256_file, validate_report
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="run a libtny conformance adapter (command follows --)")
+        description="run a libtny conformance adapter (command follows --)"
+    )
     parser.add_argument("--artifact", required=True, type=Path)
-    parser.add_argument("--contract", type=Path,
-                        default=ROOT / "sdk/conformance/v1.json")
+    parser.add_argument(
+        "--contract", type=Path, default=ROOT / "sdk/conformance/v1.json"
+    )
     parser.add_argument("--report", type=Path)
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("command", nargs=argparse.REMAINDER)
@@ -37,9 +38,10 @@ def main() -> int:
     contract_bytes = contract_path.read_bytes()
     contract = json.loads(contract_bytes)
     artifact_sha = sha256_file(artifact)
-    sentinel = "tny-conformance-secret-" + hashlib.sha256(
-        contract_bytes + artifact_sha.encode("ascii")
-    ).hexdigest()[:20]
+    sentinel = (
+        "tny-conformance-secret-"
+        + hashlib.sha256(contract_bytes + artifact_sha.encode("ascii")).hexdigest()[:20]
+    )
     request = {
         "adapter_protocol_version": contract["adapter_protocol_version"],
         "conformance_version": contract["conformance_version"],
@@ -49,13 +51,19 @@ def main() -> int:
     }
     try:
         completed = subprocess.run(
-            command, input=json.dumps(request, sort_keys=True) + "\n",
-            text=True, capture_output=True, timeout=args.timeout, check=False,
+            command,
+            input=json.dumps(request, sort_keys=True) + "\n",
+            text=True,
+            capture_output=True,
+            timeout=args.timeout,
+            check=False,
             cwd=ROOT,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
-        print(f"conformance: adapter could not complete: {type(error).__name__}",
-              file=sys.stderr)
+        print(
+            f"conformance: adapter could not complete: {type(error).__name__}",
+            file=sys.stderr,
+        )
         return 2
     if completed.returncode != 0:
         # Adapter diagnostics may themselves contain caller credentials. The

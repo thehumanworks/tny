@@ -35,8 +35,8 @@
 #define GROK_OAUTH_ISSUER    "https://auth.x.ai"
 #define GROK_OAUTH_CLIENT_ID "b1a00492-073a-47ea-816f-4c329264a828"
 /* grok-build's frozen default client scope set. */
-#define GROK_OAUTH_SCOPES                                                     \
-    "openid profile email offline_access grok-cli:access api:access "        \
+#define GROK_OAUTH_SCOPES                                             \
+    "openid profile email offline_access grok-cli:access api:access " \
     "conversations:read conversations:write workspaces:read workspaces:write"
 #define GROK_DEVICE_GRANT "urn:ietf:params:oauth:grant-type:device_code"
 #define GROK_LEGACY_SCOPE "https://accounts.x.ai/sign-in"
@@ -46,7 +46,7 @@
 #define SLOW_DOWN_INCREMENT_S   5
 #define MIN_CODE_EXPIRY_S       (10 * 60)
 /* Refresh this long before expires_at so a token never dies mid-turn. */
-#define REFRESH_EARLY_S         60
+#define REFRESH_EARLY_S 60
 
 static const char *grok_issuer(void) {
     const char *v = getenv("GROK_OAUTH2_ISSUER");
@@ -74,12 +74,10 @@ static void form_append(buf_t *b, const char *key, const char *val) {
     buf_appends(b, "=");
     for (const unsigned char *p = (const unsigned char *)val; *p; p++) {
         unsigned char c = *p;
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-            (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' ||
-            c == '~')
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+            c == '-' || c == '.' || c == '_' || c == '~')
             buf_appendf(b, "%c", c);
-        else
-            buf_appendf(b, "%%%02X", c);
+        else buf_appendf(b, "%%%02X", c);
     }
 }
 
@@ -96,8 +94,7 @@ static void iso8601_from_epoch(int64_t t, char out[32]) {
  * UTC ("…Z"), so no offset handling. -1 on parse failure. */
 static int64_t iso8601_to_epoch(const char *s) {
     int y, mo, d, h, mi, sec;
-    if (!s || sscanf(s, "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &sec) != 6)
-        return -1;
+    if (!s || sscanf(s, "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &sec) != 6) return -1;
     /* days-from-civil (public-domain calendar algorithm) */
     int64_t yy = y - (mo < 2);
     int64_t era = (yy >= 0 ? yy : yy - 399) / 400;
@@ -128,7 +125,10 @@ static yyjson_doc *jwt_payload(const char *jwt) {
         else if (*p == '_') *p = '/';
     }
     uint8_t *raw = malloc(n + 4);
-    if (!raw) { free(std); return NULL; }
+    if (!raw) {
+        free(std);
+        return NULL;
+    }
     size_t rn = b64_decode(std, raw, n + 4);
     free(std);
     yyjson_doc *doc = rn ? jparse((const char *)raw, rn) : NULL;
@@ -139,8 +139,7 @@ static yyjson_doc *jwt_payload(const char *jwt) {
 /* ---------- HTTP: POST a form, slurp the JSON body ---------- */
 
 /* Returns the HTTP status, or -1 with err filled. Body bytes land in out. */
-static int oauth_post_form(const char *issuer, const char *path,
-                           const char *form, buf_t *out,
+static int oauth_post_form(const char *issuer, const char *path, const char *form, buf_t *out,
                            char *err, size_t errlen) {
     http_conn *c = http_open(issuer, err, errlen);
     if (!c) return -1;
@@ -169,15 +168,13 @@ static int oauth_post_form(const char *issuer, const char *path,
     }
     buf_free(&p);
     http_close(c);
-    if (status < 0 && err && !*err)
-        snprintf(err, errlen, "no response from %s", issuer);
+    if (status < 0 && err && !*err) snprintf(err, errlen, "no response from %s", issuer);
     return status;
 }
 
 /* ---------- auth.json store ---------- */
 
-static void put_str(yyjson_mut_doc *m, yyjson_mut_val *obj, const char *k,
-                    const char *v) {
+static void put_str(yyjson_mut_doc *m, yyjson_mut_val *obj, const char *k, const char *v) {
     yyjson_mut_obj_put(obj, yyjson_mut_strcpy(m, k), yyjson_mut_strcpy(m, v));
 }
 
@@ -187,7 +184,10 @@ static int store_save(yyjson_mut_doc *m, const char *path) {
     char *dir = xstrdup(path);
     if (dir) {
         char *slash = strrchr(dir, '/');
-        if (slash) { *slash = 0; mkdir_p(dir); }
+        if (slash) {
+            *slash = 0;
+            mkdir_p(dir);
+        }
         free(dir);
     }
     int rc = file_write_atomic(path, json, strlen(json));
@@ -206,20 +206,25 @@ static yyjson_mut_doc *store_load(const char *path) {
         yyjson_doc_free(old);
     }
     if (!root || !yyjson_mut_is_obj(root)) root = yyjson_mut_obj(m);
-    if (!root) { yyjson_mut_doc_free(m); return NULL; }
+    if (!root) {
+        yyjson_mut_doc_free(m);
+        return NULL;
+    }
     yyjson_mut_doc_set_root(m, root);
     return m;
 }
 
 /* Write/replace the "{issuer}::{client_id}" entry after a fresh login. */
-static int store_put_login(const char *issuer, const char *client_id,
-                           yyjson_val *tokens) {
+static int store_put_login(const char *issuer, const char *client_id, yyjson_val *tokens) {
     const char *access = jget_str(tokens, "access_token");
     if (!access || !*access) return -1;
     char *path = grok_auth_json_path();
     if (!path) return -1;
     yyjson_mut_doc *m = store_load(path);
-    if (!m) { free(path); return -1; }
+    if (!m) {
+        free(path);
+        return -1;
+    }
 
     yyjson_mut_val *e = yyjson_mut_obj(m);
     put_str(m, e, "key", access);
@@ -251,8 +256,7 @@ static int store_put_login(const char *issuer, const char *client_id,
     while (ilen && issuer[ilen - 1] == '/') ilen--;
     buf_append(&scope, issuer, ilen);
     buf_appendf(&scope, "::%s", client_id);
-    yyjson_mut_obj_put(yyjson_mut_doc_get_root(m),
-                       yyjson_mut_strcpy(m, scope.data), e);
+    yyjson_mut_obj_put(yyjson_mut_doc_get_root(m), yyjson_mut_strcpy(m, scope.data), e);
     buf_free(&scope);
 
     int rc = store_save(m, path);
@@ -268,8 +272,8 @@ static void print_oauth_error(const char *what, int status, const buf_t *body) {
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
     const char *desc = jget_str(root, "error_description");
     if (!desc) desc = jget_str(root, "error");
-    fprintf(stderr, "tny: %s failed (HTTP %d)%s%s\n", what, status,
-            desc ? ": " : "", desc ? desc : "");
+    fprintf(stderr, "tny: %s failed (HTTP %d)%s%s\n", what, status, desc ? ": " : "",
+            desc ? desc : "");
     yyjson_doc_free(doc);
 }
 
@@ -284,8 +288,7 @@ int tny_grok_login(void) {
     form_append(&form, "client_id", client_id);
     form_append(&form, "scope", GROK_OAUTH_SCOPES);
     form_append(&form, "referrer", "grok-build");
-    int status = oauth_post_form(issuer, "/oauth2/device/code", form.data,
-                                 &body, err, sizeof err);
+    int status = oauth_post_form(issuer, "/oauth2/device/code", form.data, &body, err, sizeof err);
     buf_free(&form);
     if (status < 0) {
         fprintf(stderr, "tny: cannot reach %s: %s\n", issuer, err);
@@ -293,8 +296,10 @@ int tny_grok_login(void) {
         return 1;
     }
     if (status == 404) {
-        fprintf(stderr, "tny: %s has no device-code endpoint; set XAI_API_KEY "
-                        "to use api.x.ai directly.\n", issuer);
+        fprintf(stderr,
+                "tny: %s has no device-code endpoint; set XAI_API_KEY "
+                "to use api.x.ai directly.\n",
+                issuer);
         buf_free(&body);
         return 1;
     }
@@ -322,7 +327,9 @@ int tny_grok_login(void) {
     yyjson_doc_free(doc);
     buf_free(&body);
     if (!device_code || !user_code || !display_uri) {
-        free(device_code); free(user_code); free(display_uri);
+        free(device_code);
+        free(user_code);
+        free(display_uri);
         fprintf(stderr, "tny: malformed device-code response from %s\n", issuer);
         return 1;
     }
@@ -331,7 +338,8 @@ int tny_grok_login(void) {
            "  %s\n\n"
            "and confirm this code (only continue with a code you requested):\n\n"
            "  %s\n\n"
-           "Waiting for authorization…\n", display_uri, user_code);
+           "Waiting for authorization…\n",
+           display_uri, user_code);
     fflush(stdout);
     free(display_uri);
 
@@ -354,8 +362,8 @@ int tny_grok_login(void) {
         form_append(&poll_form, "device_code", device_code);
         form_append(&poll_form, "client_id", client_id);
         err[0] = 0;
-        status = oauth_post_form(issuer, "/oauth2/token", poll_form.data,
-                                 &poll_body, err, sizeof err);
+        status =
+            oauth_post_form(issuer, "/oauth2/token", poll_form.data, &poll_body, err, sizeof err);
         buf_free(&poll_form);
         if (status < 0) {
             fprintf(stderr, "tny: cannot reach %s: %s\n", issuer, err);
@@ -365,8 +373,7 @@ int tny_grok_login(void) {
         if (status >= 200 && status < 300) {
             yyjson_doc *tok = jparse(poll_body.data, poll_body.len);
             buf_free(&poll_body);
-            int saved = tok ? store_put_login(issuer, client_id,
-                                              yyjson_doc_get_root(tok)) : -1;
+            int saved = tok ? store_put_login(issuer, client_id, yyjson_doc_get_root(tok)) : -1;
             yyjson_doc_free(tok);
             if (saved == 0) {
                 printf("grok session saved (~/.grok/auth.json) — "
@@ -381,8 +388,7 @@ int tny_grok_login(void) {
         yyjson_doc *edoc = jparse(poll_body.data, poll_body.len);
         buf_free(&poll_body);
         const char *e = jget_str(yyjson_doc_get_root(edoc), "error");
-        const char *desc =
-            jget_str(yyjson_doc_get_root(edoc), "error_description");
+        const char *desc = jget_str(yyjson_doc_get_root(edoc), "error_description");
         if (e && strcmp(e, "authorization_pending") == 0) {
             yyjson_doc_free(edoc);
             continue;
@@ -398,9 +404,8 @@ int tny_grok_login(void) {
             fprintf(stderr, "tny: device code expired; run `tny --provider "
                             "grok login` again.\n");
         else
-            fprintf(stderr, "tny: token exchange failed (HTTP %d)%s%s\n",
-                    status, desc || e ? ": " : "",
-                    desc ? desc : (e ? e : ""));
+            fprintf(stderr, "tny: token exchange failed (HTTP %d)%s%s\n", status,
+                    desc || e ? ": " : "", desc ? desc : (e ? e : ""));
         yyjson_doc_free(edoc);
         break;
     }
@@ -419,7 +424,10 @@ void tny_grok_refresh_if_stale(void) {
     char *path = grok_auth_json_path();
     if (!path) return;
     yyjson_mut_doc *m = store_load(path);
-    if (!m) { free(path); return; }
+    if (!m) {
+        free(path);
+        return;
+    }
     yyjson_mut_val *root = yyjson_mut_doc_get_root(m);
 
     yyjson_mut_val *entry = NULL;
@@ -438,7 +446,11 @@ void tny_grok_refresh_if_stale(void) {
         entry = v;
         break;
     }
-    if (!entry) { yyjson_mut_doc_free(m); free(path); return; }
+    if (!entry) {
+        yyjson_mut_doc_free(m);
+        free(path);
+        return;
+    }
 
     /* Copies: the strings live in the doc we are about to mutate. */
     char *iss = xstrdup(yyjson_mut_get_str(yyjson_mut_obj_get(entry, "oidc_issuer")));
@@ -452,8 +464,7 @@ void tny_grok_refresh_if_stale(void) {
     form_append(&form, "refresh_token", ref);
     form_append(&form, "client_id", cid);
     char err[256] = "";
-    int status = oauth_post_form(iss, "/oauth2/token", form.data, &body,
-                                 err, sizeof err);
+    int status = oauth_post_form(iss, "/oauth2/token", form.data, &body, err, sizeof err);
     buf_free(&form);
     memset(ref, 0, strlen(ref));
     free(ref);
@@ -481,8 +492,7 @@ void tny_grok_refresh_if_stale(void) {
         }
         yyjson_doc_free(tok);
     } else if (tny_debug()) {
-        fprintf(stderr, "tny: grok token refresh failed (HTTP %d): %s\n",
-                status, err);
+        fprintf(stderr, "tny: grok token refresh failed (HTTP %d): %s\n", status, err);
     }
     buf_free(&body);
     yyjson_mut_doc_free(m);
@@ -501,12 +511,16 @@ int tny_grok_logout(void) {
     if (!file_exists(path)) {
         printf("no grok session (~/.grok/auth.json missing)%s\n",
                getenv("XAI_API_KEY") ? "; unset XAI_API_KEY to drop the "
-                                       "API-key fallback" : "");
+                                       "API-key fallback"
+                                     : "");
         free(path);
         return 0;
     }
     yyjson_mut_doc *m = store_load(path);
-    if (!m) { free(path); return 1; }
+    if (!m) {
+        free(path);
+        return 1;
+    }
     yyjson_mut_val *root = yyjson_mut_doc_get_root(m);
     const char *issuer = grok_issuer();
     size_t ilen = strlen(issuer);
@@ -520,14 +534,16 @@ int tny_grok_logout(void) {
         while ((k = yyjson_mut_obj_iter_next(&it)) != NULL) {
             const char *key = yyjson_mut_get_str(k);
             yyjson_mut_val *v = yyjson_mut_obj_iter_get_val(k);
-            const char *iss =
-                yyjson_mut_get_str(yyjson_mut_obj_get(v, "oidc_issuer"));
-            bool ours = (key && strcmp(key, GROK_LEGACY_SCOPE) == 0) ||
-                        (key && strncmp(key, issuer, ilen) == 0 &&
-                         key[ilen] == ':' && key[ilen + 1] == ':') ||
-                        (iss && strncmp(iss, issuer, ilen) == 0 &&
-                         (iss[ilen] == 0 || iss[ilen] == '/'));
-            if (ours) { victim = k; break; }
+            const char *iss = yyjson_mut_get_str(yyjson_mut_obj_get(v, "oidc_issuer"));
+            bool ours =
+                (key && strcmp(key, GROK_LEGACY_SCOPE) == 0) ||
+                (key && strncmp(key, issuer, ilen) == 0 && key[ilen] == ':' &&
+                 key[ilen + 1] == ':') ||
+                (iss && strncmp(iss, issuer, ilen) == 0 && (iss[ilen] == 0 || iss[ilen] == '/'));
+            if (ours) {
+                victim = k;
+                break;
+            }
         }
         if (!victim) break;
         yyjson_mut_obj_remove_key(root, yyjson_mut_get_str(victim));
@@ -546,8 +562,7 @@ int tny_grok_logout(void) {
         if (rc == 0)
             printf("grok session removed from ~/.grok/auth.json "
                    "(other issuers kept).\n");
-        else
-            fprintf(stderr, "tny: cannot rewrite %s\n", path);
+        else fprintf(stderr, "tny: cannot rewrite %s\n", path);
     }
     if (getenv("XAI_API_KEY"))
         printf("XAI_API_KEY is still set — unset it to drop the API-key "

@@ -303,3 +303,16 @@ jobs:
             dist/node/*.tgz
             dist/conformance/typescript-*.json
           if-no-files-found: error
+
+  sdk:
+    name: sdk
+    needs: [packaging-contract, python, node]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every SDK and packaging lane
+        run: |
+          test "${{ needs.packaging-contract.result }}" = "success"
+          test "${{ needs.python.result }}" = "success"
+          test "${{ needs.node.result }}" = "success"

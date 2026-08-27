@@ -11,12 +11,12 @@
 #include <string.h>
 
 #if defined(__has_feature)
-#  if __has_feature(address_sanitizer)
-#    define TNY_FUZZ_ASAN 1
-#  endif
+#if __has_feature(address_sanitizer)
+#define TNY_FUZZ_ASAN 1
+#endif
 #endif
 #if defined(__SANITIZE_ADDRESS__)
-#  define TNY_FUZZ_ASAN 1
+#define TNY_FUZZ_ASAN 1
 #endif
 #ifdef TNY_FUZZ_ASAN
 #include <sanitizer/asan_interface.h>
@@ -54,8 +54,7 @@ static void guarded_free(guarded_buffer *guard) {
     if (!guard || !guard->allocation) return;
 #ifdef TNY_FUZZ_ASAN
     __asan_unpoison_memory_region(guard->allocation, REDZONE_SIZE);
-    __asan_unpoison_memory_region(
-        guard->value + guard->capacity, guard->suffix_size);
+    __asan_unpoison_memory_region(guard->value + guard->capacity, guard->suffix_size);
 #endif
     for (size_t index = 0; index < REDZONE_SIZE; index++)
         if (guard->allocation[index] != REDZONE_BYTE) abort();
@@ -94,8 +93,7 @@ static uint64_t capacity_at(const uint8_t *data, size_t size, size_t index) {
     return value % 385u;
 }
 
-static uint64_t selected_capacity(const uint8_t *data, size_t size,
-                                  size_t index) {
+static uint64_t selected_capacity(const uint8_t *data, size_t size, size_t index) {
     switch (byte_at(data, size, index)) {
     case 0xfc: return UINT32_MAX;
     case 0xfd: return (uint64_t)UINT32_MAX + 1u;
@@ -106,35 +104,34 @@ static uint64_t selected_capacity(const uint8_t *data, size_t size,
 }
 
 static void capacity_status(int32_t status) {
-    invariant(status == TNY_STATUS_OK ||
-              status == TNY_STATUS_INVALID_ARGUMENT);
-    observed_classes |= status == TNY_STATUS_OK
-        ? CLASS_CAPACITY_OK : CLASS_CAPACITY_REJECT;
+    invariant(status == TNY_STATUS_OK || status == TNY_STATUS_INVALID_ARGUMENT);
+    observed_classes |= status == TNY_STATUS_OK ? CLASS_CAPACITY_OK : CLASS_CAPACITY_REJECT;
 }
 
-#define EXERCISE_INIT(TYPE, FUNCTION, CAPACITY) do { \
-    uint64_t selected_ = (CAPACITY); \
-    if (selected_ == UINT32_MAX) { \
-        guarded_buffer storage_ = guarded_new(sizeof(TYPE), 0xa5); \
-        invariant(storage_.allocation != NULL); \
-        int32_t status_ = FUNCTION((TYPE *)storage_.value, selected_); \
-        invariant(status_ == TNY_STATUS_OK); \
-        capacity_status(status_); \
-        guarded_free(&storage_); \
-    } else if (selected_ > UINT32_MAX) { \
-        guarded_buffer storage_ = guarded_new(0, 0xa5); \
-        invariant(storage_.allocation != NULL); \
-        int32_t status_ = FUNCTION((TYPE *)storage_.value, selected_); \
-        invariant(status_ == TNY_STATUS_INVALID_ARGUMENT); \
-        capacity_status(status_); \
-        guarded_free(&storage_); \
-    } else { \
-        guarded_buffer storage_ = guarded_new((size_t)selected_, 0xa5); \
-        invariant(storage_.allocation != NULL); \
-        capacity_status(FUNCTION((TYPE *)storage_.value, selected_)); \
-        guarded_free(&storage_); \
-    } \
-} while (0)
+#define EXERCISE_INIT(TYPE, FUNCTION, CAPACITY)                             \
+    do {                                                                    \
+        uint64_t selected_ = (CAPACITY);                                    \
+        if (selected_ == UINT32_MAX) {                                      \
+            guarded_buffer storage_ = guarded_new(sizeof(TYPE), 0xa5);      \
+            invariant(storage_.allocation != NULL);                         \
+            int32_t status_ = FUNCTION((TYPE *)storage_.value, selected_);  \
+            invariant(status_ == TNY_STATUS_OK);                            \
+            capacity_status(status_);                                       \
+            guarded_free(&storage_);                                        \
+        } else if (selected_ > UINT32_MAX) {                                \
+            guarded_buffer storage_ = guarded_new(0, 0xa5);                 \
+            invariant(storage_.allocation != NULL);                         \
+            int32_t status_ = FUNCTION((TYPE *)storage_.value, selected_);  \
+            invariant(status_ == TNY_STATUS_INVALID_ARGUMENT);              \
+            capacity_status(status_);                                       \
+            guarded_free(&storage_);                                        \
+        } else {                                                            \
+            guarded_buffer storage_ = guarded_new((size_t)selected_, 0xa5); \
+            invariant(storage_.allocation != NULL);                         \
+            capacity_status(FUNCTION((TYPE *)storage_.value, selected_));   \
+            guarded_free(&storage_);                                        \
+        }                                                                   \
+    } while (0)
 
 static void exercise_initializers(const uint8_t *data, size_t size) {
     EXERCISE_INIT(tny_runtime_options_v0, tny_runtime_options_init,
@@ -143,16 +140,11 @@ static void exercise_initializers(const uint8_t *data, size_t size) {
                   selected_capacity(data, size, 2));
     EXERCISE_INIT(tny_host_services_v1, tny_host_services_v1_init,
                   selected_capacity(data, size, 4));
-    EXERCISE_INIT(tny_tool_spec_v1, tny_tool_spec_v1_init,
-                  selected_capacity(data, size, 6));
-    EXERCISE_INIT(tny_tool_result_v1, tny_tool_result_v1_init,
-                  selected_capacity(data, size, 8));
-    EXERCISE_INIT(tny_capabilities_v0, tny_capabilities_init,
-                  selected_capacity(data, size, 10));
-    EXERCISE_INIT(tny_capabilities_v1, tny_capabilities_v1_init,
-                  selected_capacity(data, size, 12));
-    EXERCISE_INIT(tny_event_view_v0, tny_event_view_init,
-                  selected_capacity(data, size, 14));
+    EXERCISE_INIT(tny_tool_spec_v1, tny_tool_spec_v1_init, selected_capacity(data, size, 6));
+    EXERCISE_INIT(tny_tool_result_v1, tny_tool_result_v1_init, selected_capacity(data, size, 8));
+    EXERCISE_INIT(tny_capabilities_v0, tny_capabilities_init, selected_capacity(data, size, 10));
+    EXERCISE_INIT(tny_capabilities_v1, tny_capabilities_v1_init, selected_capacity(data, size, 12));
+    EXERCISE_INIT(tny_event_view_v0, tny_event_view_init, selected_capacity(data, size, 14));
 }
 
 static tny_bytes bytes_of(const char *value) {
@@ -160,22 +152,19 @@ static tny_bytes bytes_of(const char *value) {
 }
 
 static void valid_runtime_options(tny_runtime_options_v0 *options) {
-    invariant(tny_runtime_options_init(options, sizeof *options) ==
-              TNY_STATUS_OK);
+    invariant(tny_runtime_options_init(options, sizeof *options) == TNY_STATUS_OK);
     options->workspace = bytes_of(".");
     options->base_url = bytes_of("http://127.0.0.1:1/v1");
     options->api_key = bytes_of("fuzz-owned-key");
 }
 
-static guarded_buffer guarded_record(uint64_t capacity, size_t frozen_size,
-                                     uint8_t fill) {
+static guarded_buffer guarded_record(uint64_t capacity, size_t frozen_size, uint8_t fill) {
     invariant(capacity >= UINT32_MAX);
     return guarded_new(capacity == UINT32_MAX ? frozen_size : 0, fill);
 }
 
 static void expect_extreme_status(int32_t status, uint64_t capacity) {
-    invariant(status == (capacity == UINT32_MAX
-                         ? TNY_STATUS_OK : TNY_STATUS_INVALID_ARGUMENT));
+    invariant(status == (capacity == UINT32_MAX ? TNY_STATUS_OK : TNY_STATUS_INVALID_ARGUMENT));
     capacity_status(status);
 }
 
@@ -193,9 +182,8 @@ static void exercise_extreme_capacity(unsigned endpoint, uint64_t capacity) {
         invariant(input.allocation != NULL);
         if (capacity == UINT32_MAX) memcpy(input.value, &full, sizeof full);
         tny_runtime *runtime = NULL;
-        int32_t status = tny_runtime_create(
-            (const tny_runtime_options_v0 *)input.value, capacity,
-            &runtime, NULL);
+        int32_t status = tny_runtime_create((const tny_runtime_options_v0 *)input.value, capacity,
+                                            &runtime, NULL);
         expect_extreme_status(status, capacity);
         guarded_free(&input);
         if (runtime) invariant(tny_runtime_destroy(&runtime) == TNY_STATUS_OK);
@@ -204,16 +192,14 @@ static void exercise_extreme_capacity(unsigned endpoint, uint64_t capacity) {
 
     if (endpoint == 1) {
         tny_runtime_options_v1 full;
-        invariant(tny_runtime_options_v1_init(&full, sizeof full) ==
-                  TNY_STATUS_OK);
+        invariant(tny_runtime_options_v1_init(&full, sizeof full) == TNY_STATUS_OK);
         valid_runtime_options(&full.runtime);
         guarded_buffer input = guarded_record(capacity, sizeof full, 0xa5);
         invariant(input.allocation != NULL);
         if (capacity == UINT32_MAX) memcpy(input.value, &full, sizeof full);
         tny_runtime *runtime = NULL;
-        int32_t status = tny_runtime_create_v1(
-            (const tny_runtime_options_v1 *)input.value, capacity,
-            &runtime, NULL);
+        int32_t status = tny_runtime_create_v1((const tny_runtime_options_v1 *)input.value,
+                                               capacity, &runtime, NULL);
         expect_extreme_status(status, capacity);
         guarded_free(&input);
         if (runtime) invariant(tny_runtime_destroy(&runtime) == TNY_STATUS_OK);
@@ -228,9 +214,8 @@ static void exercise_extreme_capacity(unsigned endpoint, uint64_t capacity) {
         if (capacity == UINT32_MAX) memcpy(output.value, &full, sizeof full);
         tny_owned_event event;
         memset(&event, 0, sizeof event);
-        int32_t status = tny_event_read(
-            (const tny_event *)&event, (tny_event_view_v0 *)output.value,
-            capacity);
+        int32_t status =
+            tny_event_read((const tny_event *)&event, (tny_event_view_v0 *)output.value, capacity);
         expect_extreme_status(status, capacity);
         guarded_free(&output);
         return;
@@ -239,8 +224,7 @@ static void exercise_extreme_capacity(unsigned endpoint, uint64_t capacity) {
     tny_runtime_options_v0 options;
     valid_runtime_options(&options);
     tny_runtime *runtime = NULL;
-    invariant(tny_runtime_create(&options, sizeof options, &runtime, NULL) ==
-              TNY_STATUS_OK);
+    invariant(tny_runtime_create(&options, sizeof options, &runtime, NULL) == TNY_STATUS_OK);
     invariant(runtime != NULL);
     if (endpoint == 2) {
         tny_capabilities_v0 full;
@@ -248,20 +232,19 @@ static void exercise_extreme_capacity(unsigned endpoint, uint64_t capacity) {
         guarded_buffer output = guarded_record(capacity, sizeof full, 0x5a);
         invariant(output.allocation != NULL);
         if (capacity == UINT32_MAX) memcpy(output.value, &full, sizeof full);
-        int32_t status = tny_runtime_get_capabilities(
-            runtime, (tny_capabilities_v0 *)output.value, capacity);
+        int32_t status =
+            tny_runtime_get_capabilities(runtime, (tny_capabilities_v0 *)output.value, capacity);
         expect_extreme_status(status, capacity);
         guarded_free(&output);
     } else {
         invariant(endpoint == 3);
         tny_capabilities_v1 full;
-        invariant(tny_capabilities_v1_init(&full, sizeof full) ==
-                  TNY_STATUS_OK);
+        invariant(tny_capabilities_v1_init(&full, sizeof full) == TNY_STATUS_OK);
         guarded_buffer output = guarded_record(capacity, sizeof full, 0x5a);
         invariant(output.allocation != NULL);
         if (capacity == UINT32_MAX) memcpy(output.value, &full, sizeof full);
-        int32_t status = tny_runtime_get_capabilities_v1(
-            runtime, (tny_capabilities_v1 *)output.value, capacity);
+        int32_t status =
+            tny_runtime_get_capabilities_v1(runtime, (tny_capabilities_v1 *)output.value, capacity);
         expect_extreme_status(status, capacity);
         guarded_free(&output);
     }
@@ -276,8 +259,7 @@ static void exercise_runtime(const uint8_t *data, size_t size) {
     full.api_key = bytes_of("fuzz-owned-key");
     full.reserved[0] = UINT64_MAX;
 
-    uint64_t capacity = (byte_at(data, size, 18) & 1u)
-        ? capacity_at(data, size, 16) : sizeof full;
+    uint64_t capacity = (byte_at(data, size, 18) & 1u) ? capacity_at(data, size, 16) : sizeof full;
     guarded_buffer input = guarded_new((size_t)capacity, 0xa5);
     invariant(input.allocation != NULL);
     size_t copied = capacity < sizeof full ? (size_t)capacity : sizeof full;
@@ -292,57 +274,50 @@ static void exercise_runtime(const uint8_t *data, size_t size) {
     }
 
     tny_runtime *runtime = NULL;
-    int32_t status = tny_runtime_create(
-        (tny_runtime_options_v0 *)input.value, capacity, &runtime, NULL);
+    int32_t status =
+        tny_runtime_create((tny_runtime_options_v0 *)input.value, capacity, &runtime, NULL);
     guarded_free(&input);
     invariant((status == TNY_STATUS_OK) == (runtime != NULL));
     if (status == TNY_STATUS_OK) {
         observed_classes |= CLASS_CREATE_OK;
-        uint64_t query_capacity = (byte_at(data, size, 21) & 1u)
-            ? capacity_at(data, size, 22) : sizeof(tny_capabilities_v0);
+        uint64_t query_capacity = (byte_at(data, size, 21) & 1u) ? capacity_at(data, size, 22)
+                                                                 : sizeof(tny_capabilities_v0);
         guarded_buffer output = guarded_new((size_t)query_capacity, 0x5a);
         invariant(output.allocation != NULL);
-        int32_t initialized = tny_capabilities_init(
-            (tny_capabilities_v0 *)output.value, query_capacity);
+        int32_t initialized =
+            tny_capabilities_init((tny_capabilities_v0 *)output.value, query_capacity);
         capacity_status(initialized);
-        int32_t queried = tny_runtime_get_capabilities(
-            runtime, (tny_capabilities_v0 *)output.value, query_capacity);
-        invariant((queried == TNY_STATUS_OK) ==
-                  (initialized == TNY_STATUS_OK));
+        int32_t queried = tny_runtime_get_capabilities(runtime, (tny_capabilities_v0 *)output.value,
+                                                       query_capacity);
+        invariant((queried == TNY_STATUS_OK) == (initialized == TNY_STATUS_OK));
         guarded_free(&output);
-        uint64_t query_v1_capacity = (byte_at(data, size, 27) & 1u)
-            ? capacity_at(data, size, 28) : sizeof(tny_capabilities_v1);
-        guarded_buffer output_v1 = guarded_new(
-            (size_t)query_v1_capacity, 0x6b);
+        uint64_t query_v1_capacity = (byte_at(data, size, 27) & 1u) ? capacity_at(data, size, 28)
+                                                                    : sizeof(tny_capabilities_v1);
+        guarded_buffer output_v1 = guarded_new((size_t)query_v1_capacity, 0x6b);
         invariant(output_v1.allocation != NULL);
-        int32_t initialized_v1 = tny_capabilities_v1_init(
-            (tny_capabilities_v1 *)output_v1.value, query_v1_capacity);
+        int32_t initialized_v1 =
+            tny_capabilities_v1_init((tny_capabilities_v1 *)output_v1.value, query_v1_capacity);
         capacity_status(initialized_v1);
         int32_t queried_v1 = tny_runtime_get_capabilities_v1(
-            runtime, (tny_capabilities_v1 *)output_v1.value,
-            query_v1_capacity);
-        invariant((queried_v1 == TNY_STATUS_OK) ==
-                  (initialized_v1 == TNY_STATUS_OK));
+            runtime, (tny_capabilities_v1 *)output_v1.value, query_v1_capacity);
+        invariant((queried_v1 == TNY_STATUS_OK) == (initialized_v1 == TNY_STATUS_OK));
         guarded_free(&output_v1);
         invariant(tny_runtime_destroy(&runtime) == TNY_STATUS_OK && !runtime);
     } else {
-        invariant(status == TNY_STATUS_INVALID_ARGUMENT ||
-                  status == TNY_STATUS_CONFIG || status == TNY_STATUS_OOM ||
-                  status == TNY_STATUS_UNSUPPORTED);
+        invariant(status == TNY_STATUS_INVALID_ARGUMENT || status == TNY_STATUS_CONFIG ||
+                  status == TNY_STATUS_OOM || status == TNY_STATUS_UNSUPPORTED);
         observed_classes |= CLASS_CREATE_REJECT;
     }
 
     tny_runtime_options_v1 full_v1;
-    invariant(tny_runtime_options_v1_init(&full_v1, sizeof full_v1) ==
-              TNY_STATUS_OK);
+    invariant(tny_runtime_options_v1_init(&full_v1, sizeof full_v1) == TNY_STATUS_OK);
     full_v1.runtime = full;
     full_v1.reserved[0] = UINT64_MAX;
-    uint64_t capacity_v1 = (byte_at(data, size, 30) & 1u)
-        ? capacity_at(data, size, 31) : sizeof full_v1;
+    uint64_t capacity_v1 =
+        (byte_at(data, size, 30) & 1u) ? capacity_at(data, size, 31) : sizeof full_v1;
     guarded_buffer input_v1 = guarded_new((size_t)capacity_v1, 0xc3);
     invariant(input_v1.allocation != NULL);
-    copied = capacity_v1 < sizeof full_v1
-        ? (size_t)capacity_v1 : sizeof full_v1;
+    copied = capacity_v1 < sizeof full_v1 ? (size_t)capacity_v1 : sizeof full_v1;
     if (copied) memcpy(input_v1.value, &full_v1, copied);
     if (capacity_v1 >= 2 * sizeof(uint32_t)) {
         uint32_t declared = (uint32_t)capacity_v1;
@@ -353,28 +328,27 @@ static void exercise_runtime(const uint8_t *data, size_t size) {
         memcpy(input_v1.value, &unknown_abi, sizeof unknown_abi);
     }
     runtime = NULL;
-    status = tny_runtime_create_v1(
-        (tny_runtime_options_v1 *)input_v1.value, capacity_v1, &runtime, NULL);
+    status = tny_runtime_create_v1((tny_runtime_options_v1 *)input_v1.value, capacity_v1, &runtime,
+                                   NULL);
     guarded_free(&input_v1);
     invariant((status == TNY_STATUS_OK) == (runtime != NULL));
     if (status == TNY_STATUS_OK) {
         observed_classes |= CLASS_CREATE_OK;
         invariant(tny_runtime_destroy(&runtime) == TNY_STATUS_OK && !runtime);
     } else {
-        invariant(status == TNY_STATUS_INVALID_ARGUMENT ||
-                  status == TNY_STATUS_CONFIG || status == TNY_STATUS_OOM ||
-                  status == TNY_STATUS_UNSUPPORTED);
+        invariant(status == TNY_STATUS_INVALID_ARGUMENT || status == TNY_STATUS_CONFIG ||
+                  status == TNY_STATUS_OOM || status == TNY_STATUS_UNSUPPORTED);
         observed_classes |= CLASS_CREATE_REJECT;
     }
 
     uint64_t event_capacity = capacity_at(data, size, 24);
     guarded_buffer event_storage = guarded_new((size_t)event_capacity, 0x33);
     invariant(event_storage.allocation != NULL);
-    int32_t event_init = tny_event_view_init(
-        (tny_event_view_v0 *)event_storage.value, event_capacity);
+    int32_t event_init =
+        tny_event_view_init((tny_event_view_v0 *)event_storage.value, event_capacity);
     capacity_status(event_init);
-    invariant(tny_event_read(NULL, (tny_event_view_v0 *)event_storage.value,
-                             event_capacity) == TNY_STATUS_INVALID_ARGUMENT);
+    invariant(tny_event_read(NULL, (tny_event_view_v0 *)event_storage.value, event_capacity) ==
+              TNY_STATUS_INVALID_ARGUMENT);
     guarded_free(&event_storage);
 }
 
@@ -388,9 +362,8 @@ typedef struct {
     bool null_result;
 } callback_state;
 
-static int32_t fuzz_invoke(void *opaque, tny_tool_call *call,
-                           uint64_t generation, tny_bytes arguments,
-                           tny_tool_result_v1 *result) {
+static int32_t fuzz_invoke(void *opaque, tny_tool_call *call, uint64_t generation,
+                           tny_bytes arguments, tny_tool_result_v1 *result) {
     callback_state *state = opaque;
     invariant(call != NULL && generation != 0);
     invariant(arguments.ptr != NULL || arguments.len == 0);
@@ -412,20 +385,22 @@ static int32_t fuzz_invoke(void *opaque, tny_tool_call *call,
 static const char *schema_choice(uint8_t selector) {
     static const char *const schemas[] = {
         "{\"type\":\"object\"}",
-        "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}},\"required\":[\"value\"]}",
+        "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}},\"required\":["
+        "\"value\"]}",
         "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\",\"pattern\":\".*\"}}}",
         "{\"type\":",
-        "{\"type\":\"object\",\"properties\":{\"nested\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"string\"}}}}}",
+        "{\"type\":\"object\",\"properties\":{\"nested\":{\"type\":\"object\",\"properties\":{"
+        "\"x\":{\"type\":\"string\"}}}}}",
         "{\"type\":\"array\"}",
-        "{\"type\":\"object\",\"properties\":{\"items\":{\"type\":\"array\"}},\"additionalProperties\":false}",
+        "{\"type\":\"object\",\"properties\":{\"items\":{\"type\":\"array\"}},"
+        "\"additionalProperties\":false}",
     };
     return schemas[selector % (sizeof schemas / sizeof schemas[0])];
 }
 
 static void note_result_status(int32_t status) {
     if (status == TNY_STATUS_OK) observed_classes |= CLASS_RESULT_OK;
-    else if (status == TNY_STATUS_INVALID_ARGUMENT ||
-             status == TNY_STATUS_BACKPRESSURE ||
+    else if (status == TNY_STATUS_INVALID_ARGUMENT || status == TNY_STATUS_BACKPRESSURE ||
              status == TNY_STATUS_INTERNAL)
         observed_classes |= CLASS_RESULT_REJECT;
     else invariant(status == TNY_STATUS_OOM || status == TNY_STATUS_BAD_STATE);
@@ -439,10 +414,9 @@ static void exercise_custom_tools(const uint8_t *data, size_t size) {
     memset(&state, 0, sizeof state);
     state.mode = byte_at(data, size, 1) % 3u;
     state.result_size = byte_at(data, size, 6) % 33u;
-    state.result_abi = (byte_at(data, size, 8) & 1u)
-        ? UINT32_MAX : TNY_TOOL_RESULT_ABI_VERSION;
-    state.result_struct_size = (byte_at(data, size, 9) & 1u)
-        ? byte_at(data, size, 10) : (uint32_t)sizeof(tny_tool_result_v1);
+    state.result_abi = (byte_at(data, size, 8) & 1u) ? UINT32_MAX : TNY_TOOL_RESULT_ABI_VERSION;
+    state.result_struct_size = (byte_at(data, size, 9) & 1u) ? byte_at(data, size, 10)
+                                                             : (uint32_t)sizeof(tny_tool_result_v1);
     state.result_is_error = byte_at(data, size, 11) % 3u;
     state.null_result = (byte_at(data, size, 7) & 1u) != 0;
     for (size_t index = 0; index < sizeof state.result_bytes; index++)
@@ -454,21 +428,17 @@ static void exercise_custom_tools(const uint8_t *data, size_t size) {
     uint8_t name_selector = byte_at(data, size, 3) % 3u;
     uint32_t sensitivity = byte_at(data, size, 4) % 4u;
     bool raw_schema = size && data[0] == '{';
-    bool schema_must_reject = !raw_schema && schema_selector >= 2u &&
-                              schema_selector <= 5u;
+    bool schema_must_reject = !raw_schema && schema_selector >= 2u && schema_selector <= 5u;
     bool descriptor_otherwise_valid = name_selector == 0u && sensitivity <= 1u;
     const char *schema = schema_choice(schema_selector);
-    const char *name = name_selector == 1u
-        ? "list_files" : "fuzz_tool";
+    const char *name = name_selector == 1u ? "list_files" : "fuzz_tool";
     spec.user_data = &state;
     spec.name = name_selector == 2u
-        ? (tny_bytes){(const char *)data,
-                      size < 65 ? (uint64_t)size : UINT64_C(65)}
-        : bytes_of(name);
+                    ? (tny_bytes){(const char *)data, size < 65 ? (uint64_t)size : UINT64_C(65)}
+                    : bytes_of(name);
     spec.description = bytes_of("owned fuzz callback");
-    spec.input_schema_json = raw_schema
-        ? (tny_bytes){(const char *)data, (uint64_t)size}
-        : bytes_of(schema);
+    spec.input_schema_json =
+        raw_schema ? (tny_bytes){(const char *)data, (uint64_t)size} : bytes_of(schema);
     spec.sensitivity = sensitivity;
     spec.max_argument_bytes = 16;
     spec.max_result_bytes = 16;
@@ -477,14 +447,12 @@ static void exercise_custom_tools(const uint8_t *data, size_t size) {
     spec.reserved[0] = UINT64_MAX;
 
     tny_tool_registration *registration = NULL;
-    int32_t registered = custom_tools_register(
-        registry, &state, &spec, &registration);
+    int32_t registered = custom_tools_register(registry, &state, &spec, &registration);
     if (schema_must_reject && descriptor_otherwise_valid)
         invariant(registered == TNY_STATUS_INVALID_ARGUMENT);
     if (registered != TNY_STATUS_OK) {
         invariant(!registration);
-        invariant(registered == TNY_STATUS_INVALID_ARGUMENT ||
-                  registered == TNY_STATUS_OOM);
+        invariant(registered == TNY_STATUS_INVALID_ARGUMENT || registered == TNY_STATUS_OOM);
         if (schema_must_reject && descriptor_otherwise_valid)
             observed_classes |= CLASS_SCHEMA_REJECT;
         custom_tools_free(registry);
@@ -501,8 +469,7 @@ static void exercise_custom_tools(const uint8_t *data, size_t size) {
     tny_tool_call *call = NULL;
     char *result = NULL;
     bool is_error = false;
-    int32_t invoked = custom_tool_invoke(
-        registration, arguments, &call, &result, &is_error);
+    int32_t invoked = custom_tool_invoke(registration, arguments, &call, &result, &is_error);
     if (invoked == TNY_TOOL_INVOKE_ASYNC) {
         invariant(call != NULL && result == NULL);
         uint64_t generation = tny_tool_call_generation(call);
@@ -517,8 +484,7 @@ static void exercise_custom_tools(const uint8_t *data, size_t size) {
         completion.is_error = state.result_is_error;
         completion.reserved_scalar = UINT32_MAX;
         completion.reserved[0] = UINT64_MAX;
-        invariant(custom_tool_complete(call, generation + 1, &completion) ==
-                  TNY_STATUS_BAD_STATE);
+        invariant(custom_tool_complete(call, generation + 1, &completion) == TNY_STATUS_BAD_STATE);
         observed_classes |= CLASS_GENERATION_REJECT;
         int32_t completed = custom_tool_complete(call, generation, &completion);
         note_result_status(completed);
@@ -531,8 +497,7 @@ static void exercise_custom_tools(const uint8_t *data, size_t size) {
             invariant(completed == TNY_STATUS_OK);
             observed_classes |= CLASS_RESULT_OK;
         }
-        invariant(custom_tool_complete(call, generation, &completion) ==
-                  TNY_STATUS_BAD_STATE);
+        invariant(custom_tool_complete(call, generation, &completion) == TNY_STATUS_BAD_STATE);
         observed_classes |= CLASS_GENERATION_REJECT;
         invariant(custom_tool_take(call, &result, &is_error) == 1);
         free(result);
@@ -549,8 +514,7 @@ static void exercise_custom_tools(const uint8_t *data, size_t size) {
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     exercise_initializers(data, size);
     uint64_t extreme = selected_capacity(data, size, 95);
-    if (extreme >= UINT32_MAX)
-        exercise_extreme_capacity(byte_at(data, size, 94) % 5u, extreme);
+    if (extreme >= UINT32_MAX) exercise_extreme_capacity(byte_at(data, size, 94) % 5u, extreme);
     exercise_runtime(data, size);
     exercise_custom_tools(data, size);
     return 0;
@@ -562,16 +526,24 @@ static int read_file(const char *path, uint8_t **out, size_t *out_size) {
     *out_size = 0;
     FILE *file = fopen(path, "rb");
     if (!file) return -1;
-    if (fseek(file, 0, SEEK_END) != 0) { fclose(file); return -1; }
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return -1;
+    }
     long end = ftell(file);
     if (end < 0 || end > (1 << 20) || fseek(file, 0, SEEK_SET) != 0) {
         fclose(file);
         return -1;
     }
     uint8_t *data = malloc((size_t)end + 1);
-    if (!data) { fclose(file); return -1; }
+    if (!data) {
+        fclose(file);
+        return -1;
+    }
     if (end && fread(data, 1, (size_t)end, file) != (size_t)end) {
-        free(data); fclose(file); return -1;
+        free(data);
+        fclose(file);
+        return -1;
     }
     fclose(file);
     *out = data;
@@ -585,17 +557,16 @@ static int self_test(bool negative) {
     LLVMFuzzerTestOneInput(valid, sizeof valid);
     if (!negative) {
         for (uint64_t capacity = 0; capacity <= 384; capacity++) {
-            EXERCISE_INIT(tny_runtime_options_v0, tny_runtime_options_init,
-                          capacity);
+            EXERCISE_INIT(tny_runtime_options_v0, tny_runtime_options_init, capacity);
         }
         static const uint64_t huge_capacities[] = {
-            UINT32_MAX, (uint64_t)UINT32_MAX + 1u, UINT64_MAX,
+            UINT32_MAX,
+            (uint64_t)UINT32_MAX + 1u,
+            UINT64_MAX,
         };
-        for (size_t index = 0;
-             index < sizeof huge_capacities / sizeof huge_capacities[0];
+        for (size_t index = 0; index < sizeof huge_capacities / sizeof huge_capacities[0];
              index++) {
-            EXERCISE_INIT(tny_runtime_options_v0, tny_runtime_options_init,
-                          huge_capacities[index]);
+            EXERCISE_INIT(tny_runtime_options_v0, tny_runtime_options_init, huge_capacities[index]);
             for (unsigned endpoint = 0; endpoint < 5; endpoint++)
                 exercise_extreme_capacity(endpoint, huge_capacities[index]);
         }
@@ -611,16 +582,13 @@ static int self_test(bool negative) {
         async_invalid[6] = 20;
         LLVMFuzzerTestOneInput(async_invalid, sizeof async_invalid);
     }
-    fprintf(stderr, "fuzz classes: 0x%03x required: 0x%03x\n",
-            observed_classes, CLASS_REQUIRED);
+    fprintf(stderr, "fuzz classes: 0x%03x required: 0x%03x\n", observed_classes, CLASS_REQUIRED);
     return observed_classes == CLASS_REQUIRED ? 0 : 1;
 }
 
 int main(int argc, char **argv) {
-    if (argc == 2 && strcmp(argv[1], "--self-test") == 0)
-        return self_test(false);
-    if (argc == 2 && strcmp(argv[1], "--negative-self-test") == 0)
-        return self_test(true);
+    if (argc == 2 && strcmp(argv[1], "--self-test") == 0) return self_test(false);
+    if (argc == 2 && strcmp(argv[1], "--negative-self-test") == 0) return self_test(true);
     for (int index = 1; index < argc; index++) {
         uint8_t *data = NULL;
         size_t size = 0;

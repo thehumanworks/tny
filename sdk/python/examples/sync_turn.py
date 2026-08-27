@@ -1,4 +1,5 @@
 """Run one synchronous turn. Configure endpoint/key for your provider."""
+
 import os
 
 from tny import Runtime, RuntimeConfig, TextDeltaEvent

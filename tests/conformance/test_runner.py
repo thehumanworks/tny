@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER = ROOT / "sdk/conformance/run.py"
@@ -19,10 +18,24 @@ class RunnerTests(unittest.TestCase):
         environment = dict(os.environ)
         if mutation:
             environment["TNY_CONFORMANCE_MUTATION"] = os.fspath(FIXTURES / mutation)
-        return subprocess.run([
-            sys.executable, os.fspath(RUNNER), "--artifact", os.fspath(artifact),
-            "--report", os.fspath(report), "--", sys.executable, os.fspath(ADAPTER),
-        ], cwd=ROOT, env=environment, capture_output=True, text=True, timeout=20)
+        return subprocess.run(
+            [
+                sys.executable,
+                os.fspath(RUNNER),
+                "--artifact",
+                os.fspath(artifact),
+                "--report",
+                os.fspath(report),
+                "--",
+                sys.executable,
+                os.fspath(ADAPTER),
+            ],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
 
     def test_valid_report_is_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

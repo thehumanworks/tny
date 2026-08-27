@@ -1,13 +1,14 @@
 # libtny ABI compatibility
 
-The implemented native ABI1.0 candidate is not yet active. Its
-machine-readable state is `candidate-pending-platform-fixtures` in
-[`abi/baseline-v1.json`](../abi/baseline-v1.json), pending immutable Linux
-x86_64/aarch64 consumers and full platform matrices. The final ABI0.8
-compatibility artifact and header are built from exact commit `510a95c` and
-verified against [`abi/compat0.json`](../abi/compat0.json).
+The native ABI1.0 baseline is active. Its machine-readable state is `active`
+in [`abi/baseline-v1.json`](../abi/baseline-v1.json). Activation followed
+immutable Linux x86_64/aarch64 consumer verification and the complete
+supported-platform, conformance, sanitizer, fuzz, SDK, and packaging matrices.
+The final ABI0.8 compatibility artifact and header are built from exact commit
+`510a95c` and verified against
+[`abi/compat0.json`](../abi/compat0.json).
 
-## Compatibility promises after activation
+## Compatibility promises
 
 | Change | Patch | Minor | New ABI major |
 | --- | --- | --- | --- |
@@ -98,6 +99,7 @@ against the current library. Checked-in minimum/current source fixtures compile
 against both supported headers. The repository also keeps deliberate negative
 fixtures; a compatibility job which does not reject them is itself failing.
 
-ABI 1 cannot activate on schema checks alone. Full conformance, sanitizers,
+ABI 1 was not activated on schema checks alone. Full conformance, sanitizers,
 fault injection, fuzzing, focused mutation, TLS, native platform, size/startup,
-SDK, and clean-package gates must all pass.
+SDK, and clean-package gates passed before activation and remain
+release-blocking.

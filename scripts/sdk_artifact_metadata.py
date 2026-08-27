@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Describe one libtny binary for language-package integrity checks."""
 
-import hashlib
 import ctypes
+import hashlib
 import json
 import re
 import struct
@@ -23,9 +23,7 @@ def target(path: Path) -> tuple[str, str]:
         if architecture and path.name == "libtny.so.1":
             return "linux", architecture
     if header.startswith(b"\xcf\xfa\xed\xfe") and len(header) >= 8:
-        architecture = {0x0100000C: "arm64"}.get(
-            struct.unpack_from("<I", header, 4)[0]
-        )
+        architecture = {0x0100000C: "arm64"}.get(struct.unpack_from("<I", header, 4)[0])
         if architecture and path.name == "libtny.1.dylib":
             return "darwin", architecture
     raise SystemExit("unsupported libtny artifact target")
@@ -46,21 +44,25 @@ def main() -> None:
     version_view = native.tny_library_version()
     library_version = (
         ctypes.string_at(version_view.ptr, version_view.len).decode("utf-8", "strict")
-        if version_view.ptr and version_view.len else ""
+        if version_view.ptr and version_view.len
+        else ""
     )
     if not library_version:
         raise SystemExit("SDK artifact has no library version")
     if os_name == "linux":
-        dynamic = subprocess.check_output(
-            ["readelf", "-d", library], text=True
-        )
+        dynamic = subprocess.check_output(["readelf", "-d", library], text=True)
         match = re.search(r"\(SONAME\).*?\[([^]]+)\]", dynamic)
         identity = {"kind": "soname", "value": match.group(1) if match else ""}
         if identity["value"] != "libtny.so.1":
             raise SystemExit("SDK artifact has the wrong ELF SONAME")
     else:
-        lines = subprocess.check_output(["otool", "-D", library], text=True).splitlines()
-        identity = {"kind": "install_name", "value": lines[1].strip() if len(lines) > 1 else ""}
+        lines = subprocess.check_output(
+            ["otool", "-D", library], text=True
+        ).splitlines()
+        identity = {
+            "kind": "install_name",
+            "value": lines[1].strip() if len(lines) > 1 else "",
+        }
         if identity["value"] != "@rpath/libtny.1.dylib":
             raise SystemExit("SDK artifact has the wrong Mach-O install name")
     metadata = {

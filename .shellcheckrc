@@ -1,0 +1,6 @@
+# make lint-sh runs shellcheck over every tracked *.sh.
+# SC2015: `check && ok || fail` is the integration suites' assertion idiom
+#         (ok never fails), not a mistaken if-then-else.
+# SC2012: `ls -l | cut` is the portable permission-bits read; stat(1) flags
+#         differ between GNU and BSD.
+disable=SC2015,SC2012

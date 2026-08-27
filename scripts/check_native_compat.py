@@ -32,9 +32,7 @@ def main() -> None:
             raise SystemExit("Mach-O artifact has no LC_BUILD_VERSION minos")
         observed = max(values, key=version)
         if version(observed) > version(args.max_macos_min):
-            raise SystemExit(
-                f"Mach-O minimum {observed} exceeds {args.max_macos_min}"
-            )
+            raise SystemExit(f"Mach-O minimum {observed} exceeds {args.max_macos_min}")
         print(f"native compatibility: macOS minimum {observed}")
         return
     if header.startswith(b"\x7fELF"):
@@ -49,9 +47,7 @@ def main() -> None:
         values = re.findall(r"GLIBC_([0-9]+\.[0-9]+)", output)
         observed = max(values, key=version) if values else "0.0"
         if version(observed) > version(args.max_glibc):
-            raise SystemExit(
-                f"ELF requires glibc {observed}, exceeds {args.max_glibc}"
-            )
+            raise SystemExit(f"ELF requires glibc {observed}, exceeds {args.max_glibc}")
         print(f"native compatibility: glibc >= {observed}")
         return
     raise SystemExit("unsupported native artifact format")

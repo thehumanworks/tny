@@ -6,16 +6,16 @@
 #include "backends/cursor/cursor.h"
 
 typedef struct {
-    tny_ctx      *ctx;
+    tny_ctx *ctx;
     cursor_bridge bridge;
-    cursor_rpc    rpc;
+    cursor_rpc rpc;
     cursor_stream stream;
-    bool          connected;
+    bool connected;
 
-    char *api_key;    /* CURSOR_API_KEY (never logged) */
-    char *model;      /* explicit model id: local agents require one */
-    char *agent_id;   /* session pointer */
-    char *run_id;     /* current run, for CancelRun */
+    char *api_key;  /* CURSOR_API_KEY (never logged) */
+    char *model;    /* explicit model id: local agents require one */
+    char *agent_id; /* session pointer */
+    char *run_id;   /* current run, for CancelRun */
 
     /* reasoning effort resolved against the ListModels catalog: model params
      * travel as ModelSelection.params [{id,value}] and both ids and values
@@ -26,15 +26,15 @@ typedef struct {
     char *effort_note;  /* one-shot status line when resolution degraded */
 
     tny_backend_event_cb cb;
-    void        *ud;
-    bool         active;     /* a turn is in flight */
-    bool         ended;      /* TURN_END already emitted for this turn */
-    bool         got_text;   /* suppress duplicate text from `result` */
-    bool         saw_error;
-    bool         usage_sent;
-    buf_t        last_status; /* failure text often lives on status.message */
-    buf_t        last_tool_start; /* id+name+detail: drop re-emitted `running` frames */
-    int64_t      in_tok, out_tok;
+    void *ud;
+    bool active;   /* a turn is in flight */
+    bool ended;    /* TURN_END already emitted for this turn */
+    bool got_text; /* suppress duplicate text from `result` */
+    bool saw_error;
+    bool usage_sent;
+    buf_t last_status;     /* failure text often lives on status.message */
+    buf_t last_tool_start; /* id+name+detail: drop re-emitted `running` frames */
+    int64_t in_tok, out_tok;
 } cu_impl;
 
 void cu_emit(cu_impl *o, const tny_backend_event *ev);

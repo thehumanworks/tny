@@ -47,16 +47,13 @@ TNY_ALLOC_TEST_VISIBLE size_t tny_alloc_test_scope_count(void) {
     return alloc_state.allocation_index;
 }
 
-TNY_ALLOC_TEST_VISIBLE bool tny_alloc_test_scope_injected(void) {
-    return alloc_state.injected;
-}
+TNY_ALLOC_TEST_VISIBLE bool tny_alloc_test_scope_injected(void) { return alloc_state.injected; }
 #undef TNY_ALLOC_TEST_VISIBLE
 #endif
 
 static bool should_fail(void) {
     alloc_state.allocation_index++;
-    if (alloc_state.fail_at &&
-        alloc_state.allocation_index == alloc_state.fail_at) {
+    if (alloc_state.fail_at && alloc_state.allocation_index == alloc_state.fail_at) {
         alloc_state.failed = true;
         alloc_state.injected = true;
         errno = ENOMEM;

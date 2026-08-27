@@ -22,7 +22,10 @@ static char *self_exe(void) {
 #else
     char buf[4096];
     ssize_t n = readlink("/proc/self/exe", buf, sizeof buf - 1);
-    if (n > 0) { buf[n] = 0; return xstrdup(buf); }
+    if (n > 0) {
+        buf[n] = 0;
+        return xstrdup(buf);
+    }
 #endif
     return xstrdup("tny");
 }
@@ -63,12 +66,10 @@ static char *t_memory(tools_env *env, yyjson_val *args) {
         const char *value = jget_str(args, "value");
         if (!key || !value) result = tool_err("set needs key and value");
         else {
-            yyjson_mut_doc *m = doc ? yyjson_doc_mut_copy(doc, NULL)
-                                    : yyjson_mut_doc_new(NULL);
-            if (!yyjson_mut_doc_get_root(m))
-                yyjson_mut_doc_set_root(m, yyjson_mut_obj(m));
-            yyjson_mut_obj_put(yyjson_mut_doc_get_root(m),
-                               yyjson_mut_strcpy(m, key), yyjson_mut_strcpy(m, value));
+            yyjson_mut_doc *m = doc ? yyjson_doc_mut_copy(doc, NULL) : yyjson_mut_doc_new(NULL);
+            if (!yyjson_mut_doc_get_root(m)) yyjson_mut_doc_set_root(m, yyjson_mut_obj(m));
+            yyjson_mut_obj_put(yyjson_mut_doc_get_root(m), yyjson_mut_strcpy(m, key),
+                               yyjson_mut_strcpy(m, value));
             char *out = jwrite_pretty(m);
             yyjson_mut_doc_free(m);
             if (out) {
@@ -137,8 +138,7 @@ static char *t_subagent(tools_env *env, yyjson_val *args) {
     if (!action) return tool_err("missing action (create|message|inspect|lifecycle)");
     if (!env->ctx->api_key && env->ctx->backend == TNY_BK_OPENAI)
         return tool_err("subagents need the native provider configured");
-    if (env->ctx->no_save &&
-        (strcmp(action, "message") == 0 || strcmp(action, "inspect") == 0))
+    if (env->ctx->no_save && (strcmp(action, "message") == 0 || strcmp(action, "inspect") == 0))
         return tool_err("ephemeral subagents are one-shot and cannot be resumed or inspected");
 
     char *exe = self_exe();
@@ -149,9 +149,14 @@ static char *t_subagent(tools_env *env, yyjson_val *args) {
     if (strcmp(action, "create") == 0 || strcmp(action, "message") == 0) {
         const char *prompt = jget_str(args, "prompt");
         const char *id = jget_str(args, "id");
-        if (!prompt) { free(exe); buf_free(&cmd); return tool_err("missing prompt"); }
+        if (!prompt) {
+            free(exe);
+            buf_free(&cmd);
+            return tool_err("missing prompt");
+        }
         if (strcmp(action, "message") == 0 && !id) {
-            free(exe); buf_free(&cmd);
+            free(exe);
+            buf_free(&cmd);
             return tool_err("message needs the subagent id");
         }
         buf_appendf(&cmd, "'%s' --cwd '%s' ", exe, env->ctx->cwd);
@@ -208,17 +213,17 @@ static char *t_subagent(tools_env *env, yyjson_val *args) {
             else {
                 buf_t r;
                 buf_init(&r);
-                buf_appendf(&r, "subagent %s: %d turns, title: %s", id,
-                            session_turns(child),
+                buf_appendf(&r, "subagent %s: %d turns, title: %s", id, session_turns(child),
                             session_title(child) ? session_title(child) : "(none)");
                 session_close(child);
                 result = buf_detach(&r);
             }
         }
     } else if (strcmp(action, "lifecycle") == 0) {
-        result = xstrdup(env->ctx->no_save
-            ? "ephemeral subagents are one-shot processes; child sessions are not stored"
-            : "subagents are one-shot processes; sessions persist under tny sessions");
+        result = xstrdup(
+            env->ctx->no_save
+                ? "ephemeral subagents are one-shot processes; child sessions are not stored"
+                : "subagents are one-shot processes; sessions persist under tny sessions");
     } else {
         result = tool_err("unknown action %s", action);
     }
@@ -247,9 +252,11 @@ static char *t_read_image(tools_env *env, yyjson_val *args) {
     env->pending_images[env->n_pending_images++] = abs;
     buf_t b;
     buf_init(&b);
-    buf_appendf(&b, "Image loaded: %s (%s, %zu bytes). The pixels follow in the "
-                    "next user message — describe what you see; do not call "
-                    "read_file on this path.", abs, mime, len);
+    buf_appendf(&b,
+                "Image loaded: %s (%s, %zu bytes). The pixels follow in the "
+                "next user message — describe what you see; do not call "
+                "read_file on this path.",
+                abs, mime, len);
     return buf_detach(&b);
 }
 
@@ -286,8 +293,8 @@ char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool 
     if (strcmp(name, "mcp_select_tool") == 0) {
         yyjson_val *a = jget(args, "arguments");
         char *aj = a ? jwrite_val(a) : NULL;
-        char *res = mcp_call_tool(env, jget_str(args, "server"),
-                                  jget_str(args, "tool"), aj ? aj : "{}");
+        char *res =
+            mcp_call_tool(env, jget_str(args, "server"), jget_str(args, "tool"), aj ? aj : "{}");
         free(aj);
         return res;
     }

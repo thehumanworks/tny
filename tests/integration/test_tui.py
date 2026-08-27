@@ -11,6 +11,8 @@ Covers:
 
 Pure stdlib: pty, os, select, subprocess, termios.
 """
+
+import fcntl
 import json
 import os
 import pty
@@ -25,19 +27,22 @@ import tempfile
 import termios
 import threading
 import time
-import fcntl
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-TNY = (sys.argv[1] if len(sys.argv) > 1 else
-       os.environ.get("TNY", os.path.join(ROOT, "build", "tny")))
+TNY = (
+    sys.argv[1]
+    if len(sys.argv) > 1
+    else os.environ.get("TNY", os.path.join(ROOT, "build", "tny"))
+)
 MOCK = os.path.join(HERE, "mock_openai.py")
 
 # The version is derived from git at build time (docs/adr/0014); read it from
 # the binary once and assert against that, never against a literal.
-VERSION = subprocess.run([TNY, "--version"], capture_output=True, text=True,
-                         timeout=10).stdout.strip()
+VERSION = subprocess.run(
+    [TNY, "--version"], capture_output=True, text=True, timeout=10
+).stdout.strip()
 BANNER = f"tny {VERSION}"
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][B0]|\r")
@@ -133,8 +138,15 @@ class Term:
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 100, 0, 0))
         self.before = termios.tcgetattr(self.slave)
         self.proc = subprocess.Popen(
-            argv, stdin=self.slave, stdout=self.slave, stderr=self.slave,
-            env=env, cwd=cwd, close_fds=True, start_new_session=True)
+            argv,
+            stdin=self.slave,
+            stdout=self.slave,
+            stderr=self.slave,
+            env=env,
+            cwd=cwd,
+            close_fds=True,
+            start_new_session=True,
+        )
         self.buf = ""
 
     def pump(self, timeout):
@@ -156,12 +168,14 @@ class Term:
         while time.time() < end:
             if needle in clean(self.buf):
                 if absent and absent in clean(self.buf):
-                    raise AssertionError("unexpected %r in output:\n%s"
-                                         % (absent, clean(self.buf)))
+                    raise AssertionError(
+                        "unexpected %r in output:\n%s" % (absent, clean(self.buf))
+                    )
                 return
             self.pump(0.25)
-        raise AssertionError("timed out waiting for %r; got:\n%s"
-                             % (needle, clean(self.buf)))
+        raise AssertionError(
+            "timed out waiting for %r; got:\n%s" % (needle, clean(self.buf))
+        )
 
     def send(self, s):
         os.write(self.master, s.encode())
@@ -177,8 +191,9 @@ class Term:
             if needle in self.screen():
                 return
             self.pump(0.25)
-        raise AssertionError("timed out waiting for %r on screen; screen:\n%s"
-                             % (needle, self.screen()))
+        raise AssertionError(
+            "timed out waiting for %r on screen; screen:\n%s" % (needle, self.screen())
+        )
 
     def expect_gone_from_screen(self, needle, timeout=10.0):
         end = time.time() + timeout
@@ -186,8 +201,9 @@ class Term:
             if needle not in self.screen():
                 return
             self.pump(0.25)
-        raise AssertionError("%r still on screen; screen:\n%s"
-                             % (needle, self.screen()))
+        raise AssertionError(
+            "%r still on screen; screen:\n%s" % (needle, self.screen())
+        )
 
     def wait(self, timeout=10.0):
         end = time.time() + timeout
@@ -243,17 +259,20 @@ def test_first_paint_is_lazy(home, ws):
 
 
 def test_turn_streams(home, ws, port):
-    env = base_env(home, {
-        "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % port,
-        "OPENAI_API_KEY": "test-key-not-a-secret",
-    })
+    env = base_env(
+        home,
+        {
+            "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % port,
+            "OPENAI_API_KEY": "test-key-not-a-secret",
+        },
+    )
     t = Term([TNY], env, ws)
     try:
         t.expect(BANNER)
         t.send("list the files here\r")
-        t.expect("list_files", 20.0)       # tool one-liner from the mock turn 1
-        t.expect("pondering", 20.0)        # reasoning summary rendered dim
-        t.expect("MOCK-OK", 20.0)          # streamed answer from turn 2
+        t.expect("list_files", 20.0)  # tool one-liner from the mock turn 1
+        t.expect("pondering", 20.0)  # reasoning summary rendered dim
+        t.expect("MOCK-OK", 20.0)  # streamed answer from turn 2
         assert "✓" in t.buf, "no tool-ok marker:\n%s" % clean(t.buf)
         t.send("/quit\r")
         rc = t.wait()
@@ -275,19 +294,21 @@ def test_slash_palette(home, ws):
     # settings.json profile, and a NAME_BASE_URL env provider.
     os.makedirs(os.path.join(home, ".tny"), exist_ok=True)
     with open(os.path.join(home, ".tny", "settings.json"), "w") as f:
-        f.write('{"openrouter":{"base_url":"https://openrouter.test/v1"},'
-                '"acp":{"claude-code":'
-                '{"command":"claude-agent-acp"}}}')
+        f.write(
+            '{"openrouter":{"base_url":"https://openrouter.test/v1"},'
+            '"acp":{"claude-code":'
+            '{"command":"claude-agent-acp"}}}'
+        )
     t = Term([TNY], base_env(home, {"ORWELL_BASE_URL": "https://orwell.test/v1"}), ws)
     try:
         t.expect(BANNER)
         t.send("/")
-        t.expect("clear the screen", 5.0)   # palette listed commands
+        t.expect("clear the screen", 5.0)  # palette listed commands
         t.send("prov")
         # The hint is clipped to the terminal width; prove the settings ACP
         # profile is included before the env-only tail that may be off-screen.
         t.expect("openai|cursor|codex|acp|claude|grok|openrouter|acp@claude-code|", 5.0)
-        t.send("\x7f" * 4)                 # back to a bare "/"
+        t.send("\x7f" * 4)  # back to a bare "/"
         t.send("help\r")
         t.expect("ctrl-o transcript", 5.0)
         t.send("/permissions auto\r")
@@ -304,6 +325,7 @@ class ApprovalHandler(BaseHTTPRequestHandler):
     """Asks for a write_file (not a safe tool) so the y/a/n UI has to run.
     Speaks the default Responses API wire (docs/adr/0016); anything hitting
     /chat/completions is a 404-class failure the test will surface."""
+
     protocol_version = "HTTP/1.1"
 
     def log_message(self, *a):
@@ -316,8 +338,7 @@ class ApprovalHandler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", "0"))
         req = json.loads(self.rfile.read(n))
         assert self.path.endswith("/responses"), self.path
-        answered = any(i.get("type") == "function_call_output"
-                       for i in req["input"])
+        answered = any(i.get("type") == "function_call_output" for i in req["input"])
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Transfer-Encoding", "chunked")
@@ -325,18 +346,28 @@ class ApprovalHandler(BaseHTTPRequestHandler):
         if not answered:
             args = json.dumps({"path": "note.txt", "content": "hi"})
             events = [
-                {"type": "response.output_item.added", "output_index": 0,
-                 "item": {"type": "function_call", "id": "fc_w",
-                          "call_id": "call_w", "name": "write_file",
-                          "arguments": args}},
-                {"type": "response.completed",
-                 "response": {"status": "completed"}},
+                {
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "item": {
+                        "type": "function_call",
+                        "id": "fc_w",
+                        "call_id": "call_w",
+                        "name": "write_file",
+                        "arguments": args,
+                    },
+                },
+                {"type": "response.completed", "response": {"status": "completed"}},
             ]
         else:
-            events = [{"type": "response.output_text.delta", "output_index": 0,
-                       "delta": "DENIED-OK"},
-                      {"type": "response.completed",
-                       "response": {"status": "completed"}}]
+            events = [
+                {
+                    "type": "response.output_text.delta",
+                    "output_index": 0,
+                    "delta": "DENIED-OK",
+                },
+                {"type": "response.completed", "response": {"status": "completed"}},
+            ]
         for e in events:
             self._chunk(("data: %s\n\n" % json.dumps(e)).encode())
         self._chunk(b"")
@@ -347,10 +378,13 @@ def test_approval_ui(home, ws):
     docs/adr/0001 made yolo the default)."""
     srv = HTTPServer(("127.0.0.1", 0), ApprovalHandler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    env = base_env(home, {
-        "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % srv.server_port,
-        "OPENAI_API_KEY": "test-key-not-a-secret",
-    })
+    env = base_env(
+        home,
+        {
+            "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % srv.server_port,
+            "OPENAI_API_KEY": "test-key-not-a-secret",
+        },
+    )
     t = Term([TNY, "--permission-mode", "ask"], env, ws)
     try:
         t.expect(BANNER)
@@ -378,10 +412,13 @@ def test_yolo_default_auto_approves(home, ws):
         os.unlink(note)
     srv = HTTPServer(("127.0.0.1", 0), ApprovalHandler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    env = base_env(home, {
-        "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % srv.server_port,
-        "OPENAI_API_KEY": "test-key-not-a-secret",
-    })
+    env = base_env(
+        home,
+        {
+            "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % srv.server_port,
+            "OPENAI_API_KEY": "test-key-not-a-secret",
+        },
+    )
     t = Term([TNY], env, ws)
     try:
         t.expect(BANNER)
@@ -444,11 +481,12 @@ def test_no_color_keeps_the_status_bar(home, ws):
     t = Term([TNY], base_env(home, {"NO_COLOR": "1"}), ws)
     try:
         t.expect(BANNER)
-        t.expect("yolo")                       # the status row painted
+        t.expect("yolo")  # the status row painted
         assert "\x1b[7m" in t.buf, "status bar lost reverse video:\n%r" % t.buf
         assert "\x1b[1m" in t.buf, "banner lost bold:\n%r" % t.buf
-        assert not COLOR_SGR.search(t.buf), \
+        assert not COLOR_SGR.search(t.buf), (
             "color SGR leaked under NO_COLOR:\n%r" % t.buf
+        )
         t.send("/quit\r")
         assert t.wait() == 0
         assert t.restored(), "terminal left in raw mode"
@@ -463,13 +501,15 @@ def test_color_never_drops_all_sgr(home, ws):
     t = Term([TNY, "--color=never"], base_env(home), ws)
     try:
         t.expect(BANNER)
-        assert not re.search(r"\x1b\[[0-9;]*m", t.buf), \
+        assert not re.search(r"\x1b\[[0-9;]*m", t.buf), (
             "SGR leaked under --color=never:\n%r" % t.buf
+        )
         t.expect_on_screen("── openai  default  yolo")
         t.send("/quit\r")
         assert t.wait() == 0
-        assert not re.search(r"\x1b\[[0-9;]*m", t.buf), \
+        assert not re.search(r"\x1b\[[0-9;]*m", t.buf), (
             "SGR leaked during --color=never shutdown:\n%r" % t.buf
+        )
     finally:
         t.close()
     print("ok  --color=never: no SGR, status row reads ── … ──")
@@ -496,8 +536,14 @@ def test_dumb_mode_announces_itself(home, ws):
     and exits 0 on stdin EOF. /dev/null polls back POLLNVAL on macOS —
     treating it as anything but EOF livelocks the loop (docs/adr/0026)."""
     proc = subprocess.run(
-        [TNY], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, env=base_env(home), cwd=ws, timeout=15)
+        [TNY],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=base_env(home),
+        cwd=ws,
+        timeout=15,
+    )
     out = proc.stdout.decode("utf-8", "replace")
     assert proc.returncode == 0, (proc.returncode, out)
     assert "not a terminal: status bar disabled" in out, out
@@ -508,12 +554,21 @@ def test_dumb_mode_announces_itself(home, ws):
 def test_dumb_mode_turn_status(home, ws, port):
     """Dumb mode has no status row, so a turn leaves a plain status line in
     the transcript when it ends (docs/adr/0026)."""
-    env = base_env(home, {
-        "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % port,
-        "OPENAI_API_KEY": "test-key-not-a-secret",
-    })
-    proc = subprocess.Popen([TNY], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, env=env, cwd=ws)
+    env = base_env(
+        home,
+        {
+            "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % port,
+            "OPENAI_API_KEY": "test-key-not-a-secret",
+        },
+    )
+    proc = subprocess.Popen(
+        [TNY],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=env,
+        cwd=ws,
+    )
     try:
         proc.stdin.write(b"list the files here\n")
         proc.stdin.flush()
@@ -528,7 +583,7 @@ def test_dumb_mode_turn_status(home, ws, port):
                 out += chunk
         text = out.decode("utf-8", "replace")
         assert "not a terminal: status bar disabled" in text, text
-        assert "MOCK-OK" in text, text          # the turn actually ran
+        assert "MOCK-OK" in text, text  # the turn actually ran
         assert "── openai" in text and " tok ──" in text, text
         assert "\x1b" not in text, "escape leaked into a pipe:\n%r" % text
         proc.stdin.close()
@@ -540,8 +595,9 @@ def test_dumb_mode_turn_status(home, ws, port):
 
 
 def children_of(pid):
-    out = subprocess.run(["ps", "-ax", "-o", "pid=,ppid=,command="],
-                         capture_output=True, text=True).stdout
+    out = subprocess.run(
+        ["ps", "-ax", "-o", "pid=,ppid=,command="], capture_output=True, text=True
+    ).stdout
     kids = []
     for line in out.splitlines():
         parts = line.split(None, 2)
@@ -558,15 +614,26 @@ def test_prewarm_spawns_acp_agent(home, ws):
     os.makedirs(os.path.dirname(settings), exist_ok=True)
     previous = open(settings, "rb").read() if os.path.exists(settings) else None
     with open(settings, "w") as f:
-        json.dump({"acp": {"tui-fixture": {
-            # Resolve the real interpreter: the pty env overrides HOME, which
-            # breaks version-manager shims used by /usr/bin/env python3.
-            "command": sys.executable, "args": [agent],
-            "model": "selected-model"
-        }}}, f)
+        json.dump(
+            {
+                "acp": {
+                    "tui-fixture": {
+                        # Resolve the real interpreter: the pty env overrides HOME, which
+                        # breaks version-manager shims used by /usr/bin/env python3.
+                        "command": sys.executable,
+                        "args": [agent],
+                        "model": "selected-model",
+                    }
+                }
+            },
+            f,
+        )
     state = os.path.join(home, "acp-prewarm-state.json")
-    t = Term([TNY, "--provider", "acp@tui-fixture"],
-             base_env(home, {"FAKE_ACP_STATE": state}), ws)
+    t = Term(
+        [TNY, "--provider", "acp@tui-fixture"],
+        base_env(home, {"FAKE_ACP_STATE": state}),
+        ws,
+    )
     try:
         t.expect(BANNER)
         end = time.time() + 8
@@ -576,8 +643,10 @@ def test_prewarm_spawns_acp_agent(home, ws):
             if spawned:
                 break
             t.pump(0.2)
-        assert spawned, ("agent not pre-warmed after startup; children: %r\n%s"
-                        % (children_of(t.proc.pid), clean(t.buf)))
+        assert spawned, "agent not pre-warmed after startup; children: %r\n%s" % (
+            children_of(t.proc.pid),
+            clean(t.buf),
+        )
         # the warm host is adopted by the first turn, not respawned
         t.send("hello\r")
         t.expect("Hello from the fake ACP agent.", 20.0)
@@ -593,13 +662,18 @@ def test_prewarm_spawns_acp_agent(home, ws):
         end = time.time() + 8
         fresh = []
         while time.time() < end:
-            fresh = [c for c in children_of(t.proc.pid)
-                     if "fake_acp_agent" in c[1] and c[0] != first_pid]
+            fresh = [
+                c
+                for c in children_of(t.proc.pid)
+                if "fake_acp_agent" in c[1] and c[0] != first_pid
+            ]
             if fresh:
                 break
             t.pump(0.2)
-        assert fresh, ("no re-warmed agent after /new; children: %r\n%s"
-                       % (children_of(t.proc.pid), clean(t.buf)))
+        assert fresh, "no re-warmed agent after /new; children: %r\n%s" % (
+            children_of(t.proc.pid),
+            clean(t.buf),
+        )
         t.send("/quit\r")
         assert t.wait() == 0
     finally:
@@ -610,7 +684,9 @@ def test_prewarm_spawns_acp_agent(home, ws):
         else:
             with open(settings, "wb") as f:
                 f.write(previous)
-    print("ok  named acp profile selected its model, pre-warmed, adopted, and re-warmed")
+    print(
+        "ok  named acp profile selected its model, pre-warmed, adopted, and re-warmed"
+    )
 
 
 def test_version_fast_path():
@@ -621,8 +697,13 @@ def test_version_fast_path():
     assert got and "\n" not in got and not got.startswith("v"), out
     assert re.match(r"^[0-9a-zA-Z][0-9a-zA-Z.+-]*$", got), out
     # a build from this checkout must agree with git describe
-    desc = subprocess.run(["git", "describe", "--tags", "--always", "--dirty"],
-                          capture_output=True, text=True, cwd=ROOT, timeout=10)
+    desc = subprocess.run(
+        ["git", "describe", "--tags", "--always", "--dirty"],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        timeout=10,
+    )
     if desc.returncode == 0 and desc.stdout.strip():
         # tolerate a dirty-flag flip between build and test run
         want = desc.stdout.strip().lstrip("v").replace("-dirty", "")
@@ -631,7 +712,6 @@ def test_version_fast_path():
     hlp = subprocess.run([TNY, "--help"], capture_output=True, text=True, timeout=10)
     assert f"tny v{got}" in hlp.stdout, hlp.stdout[:200]
     print("ok  --version fast path reports the build version (%s)" % got)
-
 
 
 def test_provider_setup_wizard(home, ws, port):
@@ -659,13 +739,17 @@ def test_provider_setup_wizard(home, ws, port):
         t.expect("base url", 10.0)
         t.send("/cancel\r")
         t.expect("cancelled", 10.0)
-        assert "droppedprov" not in open(
-            os.path.join(wizhome, ".tny", "settings.json")).read()
+        assert (
+            "droppedprov"
+            not in open(os.path.join(wizhome, ".tny", "settings.json")).read()
+        )
         t.send("/quit\r")
         rc = t.wait()
         assert rc == 0, "exit %s\n%s" % (rc, clean(t.buf))
-        print("ok  /provider setup wizard: profile written, turn ran, "
-              "/cancel left settings alone")
+        print(
+            "ok  /provider setup wizard: profile written, turn ran, "
+            "/cancel left settings alone"
+        )
     finally:
         t.close()
         shutil.rmtree(wizhome, ignore_errors=True)
@@ -680,21 +764,26 @@ def test_steer_mid_turn(home, ws):
     mock = subprocess.Popen(
         [sys.executable, MOCK, str(port)],
         env=dict(os.environ, MOCK_SLOW_MS="1500", MOCK_EXPECT_STEER="also count them"),
-        stdout=subprocess.PIPE, text=True)
+        stdout=subprocess.PIPE,
+        text=True,
+    )
     try:
         assert "ready" in mock.stdout.readline()
-        env = base_env(home, {
-            "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % port,
-            "OPENAI_API_KEY": "test-key-not-a-secret",
-        })
+        env = base_env(
+            home,
+            {
+                "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % port,
+                "OPENAI_API_KEY": "test-key-not-a-secret",
+            },
+        )
         t = Term([TNY, "--provider", "openai"], env, ws)
         try:
             t.expect(BANNER)
             t.send("list the files here\r")
-            t.expect("working", 5.0)            # the turn is live (mock is slow)
+            t.expect("working", 5.0)  # the turn is live (mock is slow)
             t.send("also count them\r")
-            t.expect("steer", 5.0)              # echoed with the steer tag
-            t.expect("STEER-OK", 20.0)          # mock saw it as the last user msg
+            t.expect("steer", 5.0)  # echoed with the steer tag
+            t.expect("STEER-OK", 20.0)  # mock saw it as the last user msg
             assert "already running" not in clean(t.buf), clean(t.buf)
             t.send("/quit\r")
             assert t.wait() == 0
@@ -711,10 +800,16 @@ def test_queue_sends_after_turn(home, ws):
     queue row, not the transcript, and is sent once the first turn ends. Esc
     during a turn drops whatever is queued."""
     agent = os.path.join(HERE, "fake_acp_agent.py")
-    env = base_env(home, {"FAKE_ACP_SLOW_MS": "1500",
-                          "FAKE_ACP_STATE": os.path.join(home, "acp-state.json")})
-    t = Term([TNY, "--provider", "acp", "--agent", sys.executable, "--", agent],
-             env, ws)
+    env = base_env(
+        home,
+        {
+            "FAKE_ACP_SLOW_MS": "1500",
+            "FAKE_ACP_STATE": os.path.join(home, "acp-state.json"),
+        },
+    )
+    t = Term(
+        [TNY, "--provider", "acp", "--agent", sys.executable, "--", agent], env, ws
+    )
     try:
         t.expect(BANNER)
         t.send("first question\r")
@@ -723,7 +818,7 @@ def test_queue_sends_after_turn(home, ws):
         t.expect("queued (1): second question", 5.0)
         assert "already running" not in clean(t.buf), clean(t.buf)
         t.expect("[asked: first question]", 20.0)
-        t.expect("[asked: second question]", 20.0)   # sent after turn 1 ended
+        t.expect("[asked: second question]", 20.0)  # sent after turn 1 ended
         t.expect("ALLOWED.", 20.0)
         # esc while a turn runs drops the queue
         t.send("third question\r")
@@ -732,8 +827,8 @@ def test_queue_sends_after_turn(home, ws):
         t.expect("queued (1): fourth question", 5.0)
         t.send("\x1b")
         t.expect("dropped 1 queued message", 10.0)
-        t.expect("DENIED.", 20.0)   # the fake agent finishes turn 3 cancelled
-        time.sleep(1.0)             # long enough for a wrongly-sent turn 4 to echo
+        t.expect("DENIED.", 20.0)  # the fake agent finishes turn 3 cancelled
+        time.sleep(1.0)  # long enough for a wrongly-sent turn 4 to echo
         assert "[asked: fourth question]" not in clean(t.buf), clean(t.buf)
         t.send("/quit\r")
         assert t.wait() == 0
@@ -752,8 +847,7 @@ def test_clipboard_image_pastes_path(home, ws):
     agent = os.path.join(HERE, "fake_acp_agent.py")
     helpers = tempfile.mkdtemp(prefix="tny-clipboard-")
     helper_body = (
-        "#!%s\n" % sys.executable +
-        "import os, sys\n"
+        "#!%s\n" % sys.executable + "import os, sys\n"
         "data = b'\\x89PNG\\r\\n\\x1a\\n' + b'\\x00' * 8\n"
         "if os.path.basename(sys.argv[0]) == 'pngpaste':\n"
         "    open(sys.argv[1], 'wb').write(data)\n"
@@ -766,19 +860,24 @@ def test_clipboard_image_pastes_path(home, ws):
             f.write(helper_body)
         os.chmod(helper, 0o755)
 
-    env = base_env(home, {"PATH": helpers + os.pathsep +
-                          os.environ.get("PATH", "/usr/bin:/bin")})
-    t = Term([TNY, "--provider", "acp", "--agent", sys.executable, "--", agent],
-             env, ws)
+    env = base_env(
+        home, {"PATH": helpers + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin")}
+    )
+    t = Term(
+        [TNY, "--provider", "acp", "--agent", sys.executable, "--", agent], env, ws
+    )
     pasted = None
     try:
         t.expect(BANNER)
-        t.send("\x16")                  # Ctrl-V
+        t.send("\x16")  # Ctrl-V
         prefix = "tny-paste-%d-" % t.proc.pid
         end = time.time() + 10
         while time.time() < end:
-            matches = [name for name in os.listdir("/tmp")
-                       if name.startswith(prefix) and name.endswith(".png")]
+            matches = [
+                name
+                for name in os.listdir("/tmp")
+                if name.startswith(prefix) and name.endswith(".png")
+            ]
             if matches:
                 pasted = os.path.join("/tmp", matches[0])
                 break
@@ -788,14 +887,14 @@ def test_clipboard_image_pastes_path(home, ws):
         assert "[Image #" not in t.screen(), t.screen()
 
         t.send("\r")
-        t.expect("[asked: `%s`]" % pasted, 20.0,
-                 absent="image prompts are not supported")
+        t.expect(
+            "[asked: `%s`]" % pasted, 20.0, absent="image prompts are not supported"
+        )
         t.expect("Hello from the fake ACP agent.", 20.0)
 
         t.send("/clear\r")
         t.send("after clear\r")
-        t.expect("[asked: after clear]", 20.0,
-                 absent="image prompts are not supported")
+        t.expect("[asked: after clear]", 20.0, absent="image prompts are not supported")
         t.send("/quit\r")
         assert t.wait() == 0
     finally:
@@ -812,24 +911,34 @@ def test_codex_steer_mid_turn(home, ws):
     mock_ws = os.path.join(HERE, "mock_codex_ws.py")
     mock = subprocess.Popen(
         [sys.executable, mock_ws, "0"],
-        env=dict(os.environ, MOCK_CONNECTIONS="1", MOCK_BUSY_CONN="0",
-                 MOCK_STEER_WAIT_MS="2500"),
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        env=dict(
+            os.environ,
+            MOCK_CONNECTIONS="1",
+            MOCK_BUSY_CONN="0",
+            MOCK_STEER_WAIT_MS="2500",
+        ),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
     try:
         line = mock.stdout.readline()
         assert "ready" in line, line
         port = int(line.split()[-1])
-        t = Term([TNY, "--provider", "codex", "--codex-ws",
-                  "ws://127.0.0.1:%d" % port], base_env(home), ws)
+        t = Term(
+            [TNY, "--provider", "codex", "--codex-ws", "ws://127.0.0.1:%d" % port],
+            base_env(home),
+            ws,
+        )
         try:
             t.expect(BANNER)
             t.send("hello codex\r")
-            t.expect("thinking", 20.0)            # turn/start accepted, streaming
+            t.expect("thinking", 20.0)  # turn/start accepted, streaming
             t.send("and steer this\r")
-            t.expect("steer", 5.0)                # transcript tag
+            t.expect("steer", 5.0)  # transcript tag
             t.expect("STEER-OK:and steer this", 20.0)
             assert "already running" not in clean(t.buf), clean(t.buf)
-            t.expect("ls -la", 20.0)              # the turn's tool item: turn ending
+            t.expect("ls -la", 20.0)  # the turn's tool item: turn ending
             time.sleep(1.0)
             t.send("/quit\r")
             assert t.wait() == 0
@@ -855,22 +964,33 @@ def test_codex_steer_rejected_requeues(home, ws, mode):
     mock_ws = os.path.join(HERE, "mock_codex_ws.py")
     mock = subprocess.Popen(
         [sys.executable, mock_ws, "0"],
-        env=dict(os.environ, MOCK_CONNECTIONS="1", MOCK_BUSY_CONN="0",
-                 MOCK_STEER_WAIT_MS="2500", MOCK_STEER_REJECT=mode,
-                 MOCK_EXPECT_RESEND="please requeue me"),
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        env=dict(
+            os.environ,
+            MOCK_CONNECTIONS="1",
+            MOCK_BUSY_CONN="0",
+            MOCK_STEER_WAIT_MS="2500",
+            MOCK_STEER_REJECT=mode,
+            MOCK_EXPECT_RESEND="please requeue me",
+        ),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
     try:
         line = mock.stdout.readline()
         assert "ready" in line, line
         port = int(line.split()[-1])
-        t = Term([TNY, "--provider", "codex", "--codex-ws",
-                  "ws://127.0.0.1:%d" % port], base_env(home), ws)
+        t = Term(
+            [TNY, "--provider", "codex", "--codex-ws", "ws://127.0.0.1:%d" % port],
+            base_env(home),
+            ws,
+        )
         try:
             t.expect(BANNER)
             t.send("hello codex\r")
-            t.expect("thinking", 20.0)          # turn 1 accepted, streaming
+            t.expect("thinking", 20.0)  # turn 1 accepted, streaming
             t.send("please requeue me\r")
-            t.expect("steer", 5.0)              # sent as turn/steer first
+            t.expect("steer", 5.0)  # sent as turn/steer first
             t.expect("TURN1-DONE", 20.0)
             # the rejected text is re-queued and submitted as turn 2
             t.expect("TURN2-DONE", 20.0)
@@ -895,8 +1015,9 @@ def main():
         print("build first: make BUILD=build-tui release", file=sys.stderr)
         return 1
     port = free_port()
-    mock = subprocess.Popen([sys.executable, MOCK, str(port)],
-                            stdout=subprocess.PIPE, text=True)
+    mock = subprocess.Popen(
+        [sys.executable, MOCK, str(port)], stdout=subprocess.PIPE, text=True
+    )
     try:
         line = mock.stdout.readline()
         assert "ready" in line, line

@@ -8,11 +8,11 @@
 #include "util/util.h"
 
 /* Read helpers (immutable docs). All tolerate NULL nodes. */
-const char *jget_str(yyjson_val *obj, const char *key);       /* NULL if absent */
+const char *jget_str(yyjson_val *obj, const char *key); /* NULL if absent */
 const char *jget_strn(yyjson_val *obj, const char *key, size_t *len_out);
-int64_t     jget_int(yyjson_val *obj, const char *key, int64_t dflt);
-double      jget_num(yyjson_val *obj, const char *key, double dflt);
-bool        jget_bool(yyjson_val *obj, const char *key, bool dflt);
+int64_t jget_int(yyjson_val *obj, const char *key, int64_t dflt);
+double jget_num(yyjson_val *obj, const char *key, double dflt);
+bool jget_bool(yyjson_val *obj, const char *key, bool dflt);
 yyjson_val *jget(yyjson_val *obj, const char *key);
 
 /* The shared allocator lets libtny observe yyjson exhaustion in the same

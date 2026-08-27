@@ -16,8 +16,7 @@ static bool status_wants_json(const cli_globals *g, int argc, char **argv) {
     return false;
 }
 
-int cmd_status_ephemeral(tny_ctx *ctx, const cli_globals *g,
-                         int argc, char **argv) {
+int cmd_status_ephemeral(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = status_wants_json(g, argc, argv);
     int n = 0;
     session_meta *m = session_list(ctx, false, 100, NULL, &n);
@@ -47,8 +46,7 @@ int cmd_status_ephemeral(tny_ctx *ctx, const cli_globals *g,
                     ",\"sessions\":%d,\"agent_step_limit\":%d,"
                     "\"extensions_enabled\":%s,"
                     "\"extension_iteration_limit\":%d}\n",
-                    n, ctx->max_steps,
-                    ctx->extensions_enabled ? "true" : "false",
+                    n, ctx->max_steps, ctx->extensions_enabled ? "true" : "false",
                     ctx->max_extension_iterations);
         fwrite(b.data, 1, b.len, stdout);
         buf_free(&b);
@@ -56,25 +54,18 @@ int cmd_status_ephemeral(tny_ctx *ctx, const cli_globals *g,
         printf("tny v%s\n", TNY_VERSION);
         printf("provider:   %s\n", bk);
         printf("model:      %s\n", model);
-        if (ctx->reasoning_effort)
-            printf("effort:     %s\n", ctx->reasoning_effort);
-        printf("auth:       %s\n",
-               auth ? "ok" : "missing (set OPENAI_API_KEY or run tny setup)");
+        if (ctx->reasoning_effort) printf("effort:     %s\n", ctx->reasoning_effort);
+        printf("auth:       %s\n", auth ? "ok" : "missing (set OPENAI_API_KEY or run tny setup)");
         printf("permission: %s\n", tny_perm_mode_name(ctx->perm_mode));
         printf("sandbox:    %s\n",
-               strcmp(ctx->sandbox_mode, "os") == 0
-                   ? "os (unsupported: effective none)" : "none");
+               strcmp(ctx->sandbox_mode, "os") == 0 ? "os (unsupported: effective none)" : "none");
         printf("mode:       ephemeral (conversation artifacts stay in memory)\n");
         printf("workspace:  %s\n", ctx->cwd);
-        for (int i = 0; i < ctx->n_extra_dirs; i++)
-            printf("extra dir:  %s\n", ctx->extra_dirs[i]);
+        for (int i = 0; i < ctx->n_extra_dirs; i++) printf("extra dir:  %s\n", ctx->extra_dirs[i]);
         printf("sessions:   %d saved (not loaded by this process)\n", n);
-        printf("extensions: %s (continuations: ",
-               ctx->extensions_enabled ? "enabled" : "disabled");
-        if (ctx->max_extension_iterations > 0)
-            printf("max %d)\n", ctx->max_extension_iterations);
-        else
-            printf("unlimited)\n");
+        printf("extensions: %s (continuations: ", ctx->extensions_enabled ? "enabled" : "disabled");
+        if (ctx->max_extension_iterations > 0) printf("max %d)\n", ctx->max_extension_iterations);
+        else printf("unlimited)\n");
     }
     return 0;
 }

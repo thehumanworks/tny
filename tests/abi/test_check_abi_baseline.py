@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Focused compatibility-policy checks for the proposed ABI 1 baseline."""
+
 from __future__ import annotations
 
 import copy
@@ -27,11 +28,15 @@ spec.loader.exec_module(checker)
 
 
 class AbiBaselineTests(unittest.TestCase):
-    def run_checker(self, candidate: Path | None = None) -> subprocess.CompletedProcess[str]:
+    def run_checker(
+        self, candidate: Path | None = None
+    ) -> subprocess.CompletedProcess[str]:
         command = [sys.executable, str(CHECKER), "--baseline", str(BASELINE)]
         if candidate is not None:
             command.extend(["--candidate", str(candidate)])
-        return subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+        return subprocess.run(
+            command, cwd=ROOT, text=True, capture_output=True, check=False
+        )
 
     def test_baseline_schema_and_self_comparison_pass(self) -> None:
         schema = self.run_checker()
@@ -65,11 +70,12 @@ class AbiBaselineTests(unittest.TestCase):
         view["fields"].append({"name": "future_value", "offset": 328, "size": 8})
         with tempfile.TemporaryDirectory() as directory:
             signatures = json.loads(
-                (ROOT / "abi/signatures-v1.json").read_text(encoding="utf-8"))
-            signatures["exports"]["tny_future_query"] = (
-                "int32_t tny_future_query(void)")
+                (ROOT / "abi/signatures-v1.json").read_text(encoding="utf-8")
+            )
+            signatures["exports"]["tny_future_query"] = "int32_t tny_future_query(void)"
             signatures["callbacks"]["tny_future_callback_fn"] = (
-                "int32_t(TNY_CALL*)(void*,uint64_t)")
+                "int32_t(TNY_CALL*)(void*,uint64_t)"
+            )
             signature_path = Path(directory) / "signatures.json"
             signature_bytes = (json.dumps(signatures, sort_keys=True) + "\n").encode()
             signature_path.write_bytes(signature_bytes)
@@ -86,11 +92,18 @@ class AbiBaselineTests(unittest.TestCase):
         baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
         additions = (
             ("constants", "TNY_FUTURE_CONSTANT", 999),
-            ("structs", "tny_future_struct", {
-                "size": 8, "alignment": 8, "minimum_size": 8,
-                "extensibility": "fixed", "append_from": 8,
-                "fields": [{"name": "value", "offset": 0, "size": 8}],
-            }),
+            (
+                "structs",
+                "tny_future_struct",
+                {
+                    "size": 8,
+                    "alignment": 8,
+                    "minimum_size": 8,
+                    "extensibility": "fixed",
+                    "append_from": 8,
+                    "fields": [{"name": "value", "offset": 0, "size": 8}],
+                },
+            ),
         )
         for domain, name, value in additions:
             candidate = copy.deepcopy(baseline)
@@ -105,9 +118,9 @@ class AbiBaselineTests(unittest.TestCase):
     def test_same_minor_callback_typedef_is_rejected(self) -> None:
         candidate = json.loads(BASELINE.read_text(encoding="utf-8"))
         signatures = json.loads(
-            (ROOT / "abi/signatures-v1.json").read_text(encoding="utf-8"))
-        signatures["callbacks"]["tny_illegal_callback_fn"] = (
-            "int32_t(TNY_CALL*)(void*)")
+            (ROOT / "abi/signatures-v1.json").read_text(encoding="utf-8")
+        )
+        signatures["callbacks"]["tny_illegal_callback_fn"] = "int32_t(TNY_CALL*)(void*)"
         with tempfile.TemporaryDirectory() as directory:
             signature_path = Path(directory) / "signatures.json"
             signature_bytes = (json.dumps(signatures, sort_keys=True) + "\n").encode()
@@ -121,8 +134,9 @@ class AbiBaselineTests(unittest.TestCase):
             result = self.run_checker(path)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(
-            "new callback typedefs require a later ABI minor: "
-            "tny_illegal_callback_fn", result.stderr)
+            "new callback typedefs require a later ABI minor: tny_illegal_callback_fn",
+            result.stderr,
+        )
 
     def test_new_symbol_cannot_enter_the_frozen_1_0_node(self) -> None:
         candidate = copy.deepcopy(json.loads(BASELINE.read_text(encoding="utf-8")))
@@ -137,15 +151,25 @@ class AbiBaselineTests(unittest.TestCase):
     def test_macho_product_version_policy(self) -> None:
         def check(value: str, *extra: str) -> subprocess.CompletedProcess[str]:
             return subprocess.run(
-                [sys.executable, str(CHECKER), "--baseline", str(BASELINE),
-                 "--mach-version", value, *extra], cwd=ROOT, text=True,
-                capture_output=True, check=False)
+                [
+                    sys.executable,
+                    str(CHECKER),
+                    "--baseline",
+                    str(BASELINE),
+                    "--mach-version",
+                    value,
+                    *extra,
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
 
         prerelease = check("1.2.3-rc.1")
         self.assertEqual(prerelease.returncode, 0, prerelease.stderr)
         self.assertEqual(prerelease.stdout, "1.2.3\n")
-        development = check("0.2.1-22-g510a95c-dirty",
-                            "--development-fallback")
+        development = check("0.2.1-22-g510a95c-dirty", "--development-fallback")
         self.assertEqual(development.returncode, 0, development.stderr)
         self.assertEqual(development.stdout, "1.0.0\n")
         for invalid in ("0.2.1", "1.256.0", "not-semver"):
@@ -157,9 +181,19 @@ class AbiBaselineTests(unittest.TestCase):
             path = Path(directory) / "baseline.json"
             path.write_text(json.dumps(baseline))
             regressed = subprocess.run(
-                [sys.executable, str(CHECKER), "--baseline", str(path),
-                 "--mach-version", "1.1.9"], cwd=ROOT, text=True,
-                capture_output=True, check=False)
+                [
+                    sys.executable,
+                    str(CHECKER),
+                    "--baseline",
+                    str(path),
+                    "--mach-version",
+                    "1.1.9",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
         self.assertNotEqual(regressed.returncode, 0)
         self.assertIn("regressed", regressed.stderr)
 
@@ -192,18 +226,33 @@ class AbiBaselineTests(unittest.TestCase):
             )
             for field in definition["fields"]:
                 lines.append(
-                    f'_Static_assert(offsetof({name}, {field["name"]}) == {field["offset"]}, '
+                    f"_Static_assert(offsetof({name}, {field['name']}) == {field['offset']}, "
                     f'"offsetof {name}.{field["name"]}");'
                 )
                 lines.append(
-                    f'_Static_assert(sizeof((({name} *)0)->{field["name"]}) == {field["size"]}, '
+                    f"_Static_assert(sizeof((({name} *)0)->{field['name']}) == {field['size']}, "
                     f'"sizeof {name}.{field["name"]}");'
                 )
         lines.append("int main(void) { return 0; }")
         completed = subprocess.run(
-            [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", str(ROOT / "include"),
-             "-x", "c", "-", "-fsyntax-only"],
-            input="\n".join(lines), text=True, capture_output=True, cwd=ROOT, check=False,
+            [
+                compiler,
+                "-std=c11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-I",
+                str(ROOT / "include"),
+                "-x",
+                "c",
+                "-",
+                "-fsyntax-only",
+            ],
+            input="\n".join(lines),
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            check=False,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 

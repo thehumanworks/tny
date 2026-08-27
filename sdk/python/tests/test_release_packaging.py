@@ -1,4 +1,5 @@
 """Release metadata tests that never contact a package registry."""
+
 from __future__ import annotations
 
 import os
@@ -28,17 +29,21 @@ class ReleaseVersionTests(unittest.TestCase):
             "v1.2.3-preview.1",
             "v1.2.3+dirty",
         ):
-            with self.subTest(value=value), self.assertRaisesRegex(
-                ValueError, "invalid release tag"
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(ValueError, "invalid release tag"),
             ):
                 version_from_tag(value)
 
     def test_registry_build_requires_an_explicit_tag(self) -> None:
-        with patch.dict(
-            os.environ,
-            {"TNY_REQUIRE_RELEASE_TAG": "1"},
-            clear=True,
-        ), self.assertRaisesRegex(ValueError, "TNY_RELEASE_TAG is required"):
+        with (
+            patch.dict(
+                os.environ,
+                {"TNY_REQUIRE_RELEASE_TAG": "1"},
+                clear=True,
+            ),
+            self.assertRaisesRegex(ValueError, "TNY_RELEASE_TAG is required"),
+        ):
             build_version()
 
     def test_runtime_version_is_not_independently_hardcoded(self) -> None:

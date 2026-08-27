@@ -1,4 +1,5 @@
 """Public import surface checked with mypy --strict."""
+
 from __future__ import annotations
 
 import tny
@@ -33,10 +34,14 @@ def consume(runtime: tny.Runtime, session: tny.Session, event: tny.AnyEvent) -> 
 def callback_types(config: tny.RuntimeConfig) -> None:
     services = tny.HostServices(monotonic_ms=host_clock)
     runtime = tny.Runtime(config, host_services=services)
-    registration: tny.ToolRegistration = runtime.register_tool(tny.CustomTool(
-        name=b"host_echo", description=b"echo",
-        input_schema_json=b'{"type":"object"}', handler=sync_tool,
-    ))
+    registration: tny.ToolRegistration = runtime.register_tool(
+        tny.CustomTool(
+            name=b"host_echo",
+            description=b"echo",
+            input_schema_json=b'{"type":"object"}',
+            handler=sync_tool,
+        )
+    )
     _: int = runtime.host_monotonic_ms()
     registration.close()
     runtime.close()
@@ -46,8 +51,10 @@ async def async_callback_types(config: tny.RuntimeConfig) -> None:
     runtime = tny.AsyncRuntime(config, host_services=tny.HostServices())
     registration: tny.AsyncToolRegistration = await runtime.register_tool(
         tny.AsyncCustomTool(
-            name=b"host_async", description=b"async",
-            input_schema_json=b'{"type":"object"}', handler=async_tool,
+            name=b"host_async",
+            description=b"async",
+            input_schema_json=b'{"type":"object"}',
+            handler=async_tool,
         )
     )
     await registration.close()

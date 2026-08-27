@@ -2,15 +2,16 @@
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Dict, Mapping, Optional, Tuple
-
+from typing import Any, Mapping, Optional, Tuple
 
 KNOWN_STATES = ("supported", "unsupported", "unavailable")
 
 
 def _freeze(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+        return MappingProxyType(
+            {str(key): _freeze(item) for key, item in value.items()}
+        )
     if isinstance(value, (list, tuple)):
         return tuple(_freeze(item) for item in value)
     return value
@@ -97,7 +98,9 @@ class CapabilityView:
 
 def _entry(name: str, value: Any) -> CapabilityEntry:
     if not isinstance(value, Mapping):
-        return CapabilityEntry(name=name, state="unknown", extra=_freeze({"value": value}))
+        return CapabilityEntry(
+            name=name, state="unknown", extra=_freeze({"value": value})
+        )
     known = {"state", "reason"}
     return CapabilityEntry(
         name=name,
@@ -139,7 +142,9 @@ def capability_view_from_dict(value: Any) -> CapabilityView:
     providers_value = value.get("providers")
     providers = ()
     if isinstance(providers_value, Mapping):
-        providers = tuple(_provider(str(key), item) for key, item in providers_value.items())
+        providers = tuple(
+            _provider(str(key), item) for key, item in providers_value.items()
+        )
     known = {"schema_version", "selected_provider", "extension_runtime", "providers"}
     return CapabilityView(
         schema_version=schema,

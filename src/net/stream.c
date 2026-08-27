@@ -54,8 +54,7 @@ static void sigpipe_guard_begin(sigpipe_guard *g) {
     g->already_blocked = sigismember(&g->old_set, SIGPIPE) == 1;
     if (!g->already_blocked) {
         sigset_t pending;
-        if (sigpending(&pending) == 0)
-            g->pending_before = sigismember(&pending, SIGPIPE) == 1;
+        if (sigpending(&pending) == 0) g->pending_before = sigismember(&pending, SIGPIPE) == 1;
     }
 }
 
@@ -63,8 +62,7 @@ static void sigpipe_guard_end(sigpipe_guard *g) {
     int saved_errno = errno;
     if (g->active && !g->already_blocked && !g->pending_before) {
         sigset_t pending;
-        if (sigpending(&pending) == 0 &&
-            sigismember(&pending, SIGPIPE) == 1) {
+        if (sigpending(&pending) == 0 && sigismember(&pending, SIGPIPE) == 1) {
             int signo = 0;
             (void)sigwait(&g->pipe_set, &signo);
         }
@@ -109,24 +107,22 @@ static struct {
 
 static int st_api_load_impl(void) {
     if (st_api.create) return 0;
-    void *sec = dlopen("/System/Library/Frameworks/Security.framework/Security",
-                       RTLD_LAZY | RTLD_LOCAL);
-    void *cf = dlopen(
-        "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",
-        RTLD_LAZY | RTLD_LOCAL);
+    void *sec =
+        dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_LAZY | RTLD_LOCAL);
+    void *cf = dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",
+                      RTLD_LAZY | RTLD_LOCAL);
     if (!sec || !cf) return -1;
-    *(void **)&st_api.set_io     = dlsym(sec, "SSLSetIOFuncs");
-    *(void **)&st_api.set_conn   = dlsym(sec, "SSLSetConnection");
-    *(void **)&st_api.set_peer   = dlsym(sec, "SSLSetPeerDomainName");
-    *(void **)&st_api.set_min    = dlsym(sec, "SSLSetProtocolVersionMin");
-    *(void **)&st_api.handshake  = dlsym(sec, "SSLHandshake");
-    *(void **)&st_api.read       = dlsym(sec, "SSLRead");
-    *(void **)&st_api.write      = dlsym(sec, "SSLWrite");
-    *(void **)&st_api.close      = dlsym(sec, "SSLClose");
+    *(void **)&st_api.set_io = dlsym(sec, "SSLSetIOFuncs");
+    *(void **)&st_api.set_conn = dlsym(sec, "SSLSetConnection");
+    *(void **)&st_api.set_peer = dlsym(sec, "SSLSetPeerDomainName");
+    *(void **)&st_api.set_min = dlsym(sec, "SSLSetProtocolVersionMin");
+    *(void **)&st_api.handshake = dlsym(sec, "SSLHandshake");
+    *(void **)&st_api.read = dlsym(sec, "SSLRead");
+    *(void **)&st_api.write = dlsym(sec, "SSLWrite");
+    *(void **)&st_api.close = dlsym(sec, "SSLClose");
     *(void **)&st_api.cf_release = dlsym(cf, "CFRelease");
-    if (!st_api.set_io || !st_api.set_conn || !st_api.set_peer ||
-        !st_api.set_min || !st_api.handshake || !st_api.read ||
-        !st_api.write || !st_api.close || !st_api.cf_release)
+    if (!st_api.set_io || !st_api.set_conn || !st_api.set_peer || !st_api.set_min ||
+        !st_api.handshake || !st_api.read || !st_api.write || !st_api.close || !st_api.cf_release)
         return -1;
     /* set last: it is the "loaded" flag */
     *(void **)&st_api.create = dlsym(sec, "SSLCreateContext");
@@ -136,13 +132,10 @@ static int st_api_load_impl(void) {
 static pthread_once_t st_api_once = PTHREAD_ONCE_INIT;
 static int st_api_load_result = -1;
 
-static void st_api_load_once(void) {
-    st_api_load_result = st_api_load_impl();
-}
+static void st_api_load_once(void) { st_api_load_result = st_api_load_impl(); }
 
 static int st_api_load(void) {
-    return pthread_once(&st_api_once, st_api_load_once) == 0
-        ? st_api_load_result : -1;
+    return pthread_once(&st_api_once, st_api_load_once) == 0 ? st_api_load_result : -1;
 }
 
 static OSStatus st_read(SSLConnectionRef conn, void *data, size_t *len) {
@@ -150,9 +143,18 @@ static OSStatus st_read(SSLConnectionRef conn, void *data, size_t *len) {
     size_t want = *len, got = 0;
     while (got < want) {
         ssize_t n = read(fd, (char *)data + got, want - got);
-        if (n > 0) { got += (size_t)n; continue; }
-        if (n == 0) { *len = got; return errSSLClosedGraceful; }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) { *len = got; return errSSLWouldBlock; }
+        if (n > 0) {
+            got += (size_t)n;
+            continue;
+        }
+        if (n == 0) {
+            *len = got;
+            return errSSLClosedGraceful;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            *len = got;
+            return errSSLWouldBlock;
+        }
         if (errno == EINTR) continue;
         *len = got;
         return errSecIO;
@@ -169,8 +171,14 @@ static OSStatus st_write(SSLConnectionRef conn, const void *data, size_t *len) {
         sigpipe_guard_begin(&guard);
         ssize_t n = write(fd, (const char *)data + put, want - put);
         sigpipe_guard_end(&guard);
-        if (n > 0) { put += (size_t)n; continue; }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) { *len = put; return errSSLWouldBlock; }
+        if (n > 0) {
+            put += (size_t)n;
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            *len = put;
+            return errSSLWouldBlock;
+        }
         if (errno == EINTR) continue;
         *len = put;
         return errSecIO;
@@ -185,20 +193,20 @@ static OSStatus st_write(SSLConnectionRef conn, const void *data, size_t *len) {
  * SecureTransport shim: no link-time libssl dependency, zero cost for
  * plain-http and non-TLS commands, and the binary stays small. In a musl
  * static publish build dlopen returns NULL and https fails cleanly. */
-typedef struct ossl_ctx ossl_ctx;   /* SSL_CTX */
-typedef struct ossl_ssl ossl_ssl;   /* SSL */
+typedef struct ossl_ctx ossl_ctx; /* SSL_CTX */
+typedef struct ossl_ssl ossl_ssl; /* SSL */
 
 /* Stable OpenSSL >= 1.1.0 ABI constants (ssl.h / tls1.h). */
-#define OSSL_VERIFY_PEER            1
-#define OSSL_CTRL_SET_TLSEXT_HOST   55   /* SSL_CTRL_SET_TLSEXT_HOSTNAME */
-#define OSSL_TLSEXT_NAME_HOST       0    /* TLSEXT_NAMETYPE_host_name */
-#define OSSL_CTRL_SET_MIN_PROTO     123  /* SSL_CTRL_SET_MIN_PROTO_VERSION */
-#define OSSL_TLS1_2_VERSION         0x0303
-#define OSSL_ERROR_WANT_READ        2
-#define OSSL_ERROR_WANT_WRITE       3
-#define OSSL_ERROR_ZERO_RETURN      6
-#define OSSL_ERROR_SYSCALL          5
-#define OSSL_X509_V_OK              0
+#define OSSL_VERIFY_PEER          1
+#define OSSL_CTRL_SET_TLSEXT_HOST 55  /* SSL_CTRL_SET_TLSEXT_HOSTNAME */
+#define OSSL_TLSEXT_NAME_HOST     0   /* TLSEXT_NAMETYPE_host_name */
+#define OSSL_CTRL_SET_MIN_PROTO   123 /* SSL_CTRL_SET_MIN_PROTO_VERSION */
+#define OSSL_TLS1_2_VERSION       0x0303
+#define OSSL_ERROR_WANT_READ      2
+#define OSSL_ERROR_WANT_WRITE     3
+#define OSSL_ERROR_ZERO_RETURN    6
+#define OSSL_ERROR_SYSCALL        5
+#define OSSL_X509_V_OK            0
 
 static struct {
     const void *(*client_method)(void);
@@ -239,31 +247,29 @@ static int ossl_load_impl(void) {
     if (!h) h = dlopen("libssl.so.1.1", RTLD_NOW | RTLD_LOCAL);
     if (!h) h = dlopen("libssl.so", RTLD_NOW | RTLD_LOCAL);
     if (!h) return -1;
-    *(void **)&ossl.client_method    = dlsym(h, "TLS_client_method");
-    *(void **)&ossl.ctx_new          = dlsym(h, "SSL_CTX_new");
-    *(void **)&ossl.ctx_ctrl         = dlsym(h, "SSL_CTX_ctrl");
-    *(void **)&ossl.ctx_set_verify   = dlsym(h, "SSL_CTX_set_verify");
+    *(void **)&ossl.client_method = dlsym(h, "TLS_client_method");
+    *(void **)&ossl.ctx_new = dlsym(h, "SSL_CTX_new");
+    *(void **)&ossl.ctx_ctrl = dlsym(h, "SSL_CTX_ctrl");
+    *(void **)&ossl.ctx_set_verify = dlsym(h, "SSL_CTX_set_verify");
     *(void **)&ossl.ctx_default_paths = dlsym(h, "SSL_CTX_set_default_verify_paths");
-    *(void **)&ossl.ctx_load_verify  = dlsym(h, "SSL_CTX_load_verify_locations");
-    *(void **)&ossl.ssl_new          = dlsym(h, "SSL_new");
-    *(void **)&ossl.set_fd           = dlsym(h, "SSL_set_fd");
-    *(void **)&ossl.ssl_ctrl         = dlsym(h, "SSL_ctrl");
-    *(void **)&ossl.set1_host        = dlsym(h, "SSL_set1_host");
-    *(void **)&ossl.handshake        = dlsym(h, "SSL_connect");
-    *(void **)&ossl.read             = dlsym(h, "SSL_read");
-    *(void **)&ossl.write            = dlsym(h, "SSL_write");
-    *(void **)&ossl.get_error        = dlsym(h, "SSL_get_error");
-    *(void **)&ossl.verify_result    = dlsym(h, "SSL_get_verify_result");
+    *(void **)&ossl.ctx_load_verify = dlsym(h, "SSL_CTX_load_verify_locations");
+    *(void **)&ossl.ssl_new = dlsym(h, "SSL_new");
+    *(void **)&ossl.set_fd = dlsym(h, "SSL_set_fd");
+    *(void **)&ossl.ssl_ctrl = dlsym(h, "SSL_ctrl");
+    *(void **)&ossl.set1_host = dlsym(h, "SSL_set1_host");
+    *(void **)&ossl.handshake = dlsym(h, "SSL_connect");
+    *(void **)&ossl.read = dlsym(h, "SSL_read");
+    *(void **)&ossl.write = dlsym(h, "SSL_write");
+    *(void **)&ossl.get_error = dlsym(h, "SSL_get_error");
+    *(void **)&ossl.verify_result = dlsym(h, "SSL_get_verify_result");
     /* dlsym searches libssl's own deps, so this finds libcrypto's symbol */
-    *(void **)&ossl.verify_str       = dlsym(h, "X509_verify_cert_error_string");
-    *(void **)&ossl.shutdown         = dlsym(h, "SSL_shutdown");
-    *(void **)&ossl.ssl_free         = dlsym(h, "SSL_free");
-    if (!ossl.client_method || !ossl.ctx_new || !ossl.ctx_ctrl ||
-        !ossl.ctx_set_verify || !ossl.ctx_default_paths ||
-        !ossl.ctx_load_verify || !ossl.ssl_new || !ossl.set_fd ||
-        !ossl.ssl_ctrl || !ossl.set1_host || !ossl.handshake ||
-        !ossl.read || !ossl.write || !ossl.get_error ||
-        !ossl.verify_result || !ossl.shutdown || !ossl.ssl_free)
+    *(void **)&ossl.verify_str = dlsym(h, "X509_verify_cert_error_string");
+    *(void **)&ossl.shutdown = dlsym(h, "SSL_shutdown");
+    *(void **)&ossl.ssl_free = dlsym(h, "SSL_free");
+    if (!ossl.client_method || !ossl.ctx_new || !ossl.ctx_ctrl || !ossl.ctx_set_verify ||
+        !ossl.ctx_default_paths || !ossl.ctx_load_verify || !ossl.ssl_new || !ossl.set_fd ||
+        !ossl.ssl_ctrl || !ossl.set1_host || !ossl.handshake || !ossl.read || !ossl.write ||
+        !ossl.get_error || !ossl.verify_result || !ossl.shutdown || !ossl.ssl_free)
         return -1;
     ossl_ctx *ctx = ossl.ctx_new(ossl.client_method());
     if (!ctx) return -1;
@@ -285,13 +291,10 @@ static int ossl_load_impl(void) {
 static pthread_once_t ossl_once = PTHREAD_ONCE_INIT;
 static int ossl_load_result = -1;
 
-static void ossl_load_once(void) {
-    ossl_load_result = ossl_load_impl();
-}
+static void ossl_load_once(void) { ossl_load_result = ossl_load_impl(); }
 
 static int ossl_load(void) {
-    return pthread_once(&ossl_once, ossl_load_once) == 0
-        ? ossl_load_result : -1;
+    return pthread_once(&ossl_once, ossl_load_once) == 0 ? ossl_load_result : -1;
 }
 
 static bool ossl_want_retry(int e) {
@@ -313,15 +316,14 @@ nstream *nstream_from_fd(int fd) {
      * callback during handshake/close. SO_NOSIGPIPE is descriptor-local and
      * therefore protects every such path without changing host signal state. */
     int no_sigpipe = 1;
-    (void)setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE,
-                     &no_sigpipe, sizeof no_sigpipe);
+    (void)setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof no_sigpipe);
 #endif
     s->fd = fd;
     return s;
 }
 
-nstream *nstream_connect(const char *host, int port, bool tls,
-                         int timeout_ms, char *err, size_t errlen) {
+nstream *nstream_connect(const char *host, int port, bool tls, int timeout_ms, char *err,
+                         size_t errlen) {
     int64_t deadline = monotonic_ms() + (timeout_ms > 0 ? timeout_ms : 0);
     int fd = tcp_connect(host, port, deadline_left_ms(deadline));
     if (fd < 0) {
@@ -329,7 +331,10 @@ nstream *nstream_connect(const char *host, int port, bool tls,
         return NULL;
     }
     nstream *s = nstream_from_fd(fd);
-    if (!s) { close(fd); return NULL; }
+    if (!s) {
+        close(fd);
+        return NULL;
+    }
     if (!tls) return s;
     if (deadline_left_ms(deadline) == 0) {
         snprintf(err, errlen, "connect %s:%d timed out", host, port);
@@ -343,7 +348,11 @@ nstream *nstream_connect(const char *host, int port, bool tls,
         return NULL;
     }
     s->ssl = st_api.create(NULL, kSSLClientSide, kSSLStreamType);
-    if (!s->ssl) { snprintf(err, errlen, "TLS context failed"); nstream_close(s); return NULL; }
+    if (!s->ssl) {
+        snprintf(err, errlen, "TLS context failed");
+        nstream_close(s);
+        return NULL;
+    }
     st_api.set_io(s->ssl, st_read, st_write);
     st_api.set_conn(s->ssl, (SSLConnectionRef)(intptr_t)fd);
     st_api.set_peer(s->ssl, host, strlen(host));
@@ -351,7 +360,10 @@ nstream *nstream_connect(const char *host, int port, bool tls,
     OSStatus rc;
     while ((rc = st_api.handshake(s->ssl)) == errSSLWouldBlock) {
         int left = deadline_left_ms(deadline);
-        if (left == 0) { rc = errSecIO; break; }
+        if (left == 0) {
+            rc = errSecIO;
+            break;
+        }
         struct pollfd pf = {fd, POLLIN | POLLOUT, 0};
         if (left > 100) left = 100;
         tny_poll(&pf, 1, left);
@@ -371,11 +383,14 @@ nstream *nstream_connect(const char *host, int port, bool tls,
         return NULL;
     }
     ossl_ssl *ssl = ossl.ssl_new(ossl.ctx);
-    if (!ssl) { snprintf(err, errlen, "TLS context failed"); nstream_close(s); return NULL; }
+    if (!ssl) {
+        snprintf(err, errlen, "TLS context failed");
+        nstream_close(s);
+        return NULL;
+    }
     ossl.set_fd(ssl, fd);
     /* SNI (SSL_set_tlsext_host_name macro) + hostname verification */
-    ossl.ssl_ctrl(ssl, OSSL_CTRL_SET_TLSEXT_HOST, OSSL_TLSEXT_NAME_HOST,
-                  (void *)(uintptr_t)host);
+    ossl.ssl_ctrl(ssl, OSSL_CTRL_SET_TLSEXT_HOST, OSSL_TLSEXT_NAME_HOST, (void *)(uintptr_t)host);
     ossl.set1_host(ssl, host);
     int rc;
     for (;;) {
@@ -388,11 +403,9 @@ nstream *nstream_connect(const char *host, int port, bool tls,
         if (!ossl_want_retry(e)) {
             long vr = ossl.verify_result(ssl);
             if (vr != OSSL_X509_V_OK && ossl.verify_str)
-                snprintf(err, errlen, "TLS certificate for %s rejected: %s",
-                         host, ossl.verify_str(vr));
-            else
-                snprintf(err, errlen, "TLS handshake with %s failed (%d)",
-                         host, e);
+                snprintf(err, errlen, "TLS certificate for %s rejected: %s", host,
+                         ossl.verify_str(vr));
+            else snprintf(err, errlen, "TLS handshake with %s failed (%d)", host, e);
             ossl.ssl_free(ssl);
             nstream_close(s);
             return NULL;
@@ -410,8 +423,7 @@ nstream *nstream_connect(const char *host, int port, bool tls,
     s->ssl = ssl;
     return s;
 #else
-    snprintf(err, errlen,
-             "https not built on this platform yet; use an http:// base URL");
+    snprintf(err, errlen, "https not built on this platform yet; use an http:// base URL");
     nstream_close(s);
     return NULL;
 #endif
@@ -454,8 +466,7 @@ int nstream_write_all(nstream *s, const void *data, size_t len) {
         size_t off = 0;
         while (off < len) {
             size_t put = 0;
-            OSStatus rc = st_api.write(s->ssl, (const char *)data + off,
-                                       len - off, &put);
+            OSStatus rc = st_api.write(s->ssl, (const char *)data + off, len - off, &put);
             off += put;
             if (rc == noErr) continue;
             if (rc == errSSLWouldBlock) {
@@ -474,10 +485,12 @@ int nstream_write_all(nstream *s, const void *data, size_t len) {
             int want = left > INT_MAX ? INT_MAX : (int)left;
             sigpipe_guard guard;
             sigpipe_guard_begin(&guard);
-            int n = ossl.write((ossl_ssl *)s->ssl,
-                               (const char *)data + off, want);
+            int n = ossl.write((ossl_ssl *)s->ssl, (const char *)data + off, want);
             sigpipe_guard_end(&guard);
-            if (n > 0) { off += (size_t)n; continue; }
+            if (n > 0) {
+                off += (size_t)n;
+                continue;
+            }
             int e = ossl.get_error((ossl_ssl *)s->ssl, n);
             if (!ossl_want_retry(e)) return -1;
             int left_ms = deadline_left_ms(deadline);
@@ -494,7 +507,10 @@ int nstream_write_all(nstream *s, const void *data, size_t len) {
         sigpipe_guard_begin(&guard);
         ssize_t n = write(s->fd, (const char *)data + off, len - off);
         sigpipe_guard_end(&guard);
-        if (n > 0) { off += (size_t)n; continue; }
+        if (n > 0) {
+            off += (size_t)n;
+            continue;
+        }
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             if (wait_until(s->fd, POLLOUT, deadline) != 0) return -1;
             continue;

@@ -19,9 +19,7 @@
 
 #define OPENAI_DEFAULT_MODEL "gpt-4.1-mini"
 
-typedef enum {
-    ST_IDLE, ST_HEADERS, ST_BODY, ST_WAIT_PERMISSION, ST_WAIT_CUSTOM
-} oa_state;
+typedef enum { ST_IDLE, ST_HEADERS, ST_BODY, ST_WAIT_PERMISSION, ST_WAIT_CUSTOM } oa_state;
 
 typedef struct {
     char *id;
@@ -54,28 +52,28 @@ typedef struct {
     tny_openai_control_cb control;
     void *control_ud;
 
-    buf_t text;             /* assistant text this step */
-    oa_callset calls;       /* streamed tool_calls this step (toolcalls.c) */
-    int  step;
+    buf_t text;       /* assistant text this step */
+    oa_callset calls; /* streamed tool_calls this step (toolcalls.c) */
+    int step;
     bool cancelled;
-    bool conn_reused;       /* this POST rode a kept-alive connection */
-    bool wire_chat;         /* this POST rides the legacy chat wire */
-    bool stream_done;       /* saw [DONE] / response.completed */
-    bool stream_failed;     /* responses wire signalled a terminal error */
+    bool conn_reused;           /* this POST rode a kept-alive connection */
+    bool wire_chat;             /* this POST rides the legacy chat wire */
+    bool stream_done;           /* saw [DONE] / response.completed */
+    bool stream_failed;         /* responses wire signalled a terminal error */
     tny_stop_reason final_stop; /* provider terminal reason for this step */
     char finish_reason[32];
     int64_t usage_in, usage_out;
     uint64_t provider_request_sequence;
     int provider_attempt;
 
-    buf_t toolcall_log;     /* JSON array text for ask --json */
-    int tool_index;         /* next call in the recorded assistant batch */
+    buf_t toolcall_log; /* JSON array text for ask --json */
+    int tool_index;     /* next call in the recorded assistant batch */
     int tool_batch_failed;
     bool tool_batch_active;
     oa_pending_perm pending_perm;
     oa_pending_custom pending_custom;
-    char *steer;            /* user text parked by steer(): appended as a
-                             * user message before the next POST (adr/0011) */
+    char *steer; /* user text parked by steer(): appended as a
+                  * user message before the next POST (adr/0011) */
     char errbuf[512];
 } oa_impl;
 
@@ -111,8 +109,8 @@ static void control_response_free(tny_openai_control_response *response) {
     memset(response, 0, sizeof *response);
 }
 
-static tny_openai_control_response control_call(
-    oa_impl *o, const tny_openai_control_request *request) {
+static tny_openai_control_response control_call(oa_impl *o,
+                                                const tny_openai_control_request *request) {
     tny_openai_control_response response = {0};
     if (o->control) o->control(request, &response, o->control_ud);
     return response;
@@ -141,8 +139,7 @@ static void emit_text(oa_impl *o, tny_event_kind k, const char *t, size_t n) {
     emit(o, &ev);
 }
 
-static void emit_error(oa_impl *o, tny_event_error_kind code,
-                       const char *text, size_t len) {
+static void emit_error(oa_impl *o, tny_event_error_kind code, const char *text, size_t len) {
     tny_backend_event ev = {0};
     ev.kind = TNY_EV_ERROR;
     ev.error_code = code;
@@ -181,20 +178,19 @@ static void build_system_prompt(oa_impl *o, buf_t *sys) {
          * local workspace only supplies config. Say so, or the model
          * "corrects" pwd against the local path it was told about. */
         buf_appendf(sys,
-            "You are working in a REMOTE environment: every workspace tool "
-            "(files, grep, terminal) executes over SSH on %s. The local "
-            "machine running tny is not your workspace.\n"
-            "Current working directory (remote): %s\n"
-            "Relative paths resolve against it; the terminal starts there.\n",
-            o->ctx->ssh_host, o->ctx->ssh_cwd);
+                    "You are working in a REMOTE environment: every workspace tool "
+                    "(files, grep, terminal) executes over SSH on %s. The local "
+                    "machine running tny is not your workspace.\n"
+                    "Current working directory (remote): %s\n"
+                    "Relative paths resolve against it; the terminal starts there.\n",
+                    o->ctx->ssh_host, o->ctx->ssh_cwd);
     } else {
         buf_appendf(sys, "Primary workspace: %s\n", o->ctx->cwd);
         for (int i = 0; i < o->ctx->n_extra_dirs; i++)
             buf_appendf(sys, "Additional workspace directory: %s\n", o->ctx->extra_dirs[i]);
     }
-    buf_appends(sys,
-        "Use the provided tools to inspect and change the workspace. Prefer "
-        "small, verifiable steps. When you are done, answer in Markdown.\n");
+    buf_appends(sys, "Use the provided tools to inspect and change the workspace. Prefer "
+                     "small, verifiable steps. When you are done, answer in Markdown.\n");
     instructions_collect(o->ctx, sys);
     /* skill catalog: names only, lazy bodies */
     if (!o->ctx->library_mode) {
@@ -221,14 +217,17 @@ static char *build_request_chat(oa_impl *o) {
      * compatible routers also accept). Omitted otherwise: "default" is
      * what the API applies anyway, and strict providers reject unknown
      * request members. */
-    if (tny_tier_is_fast(o->ctx->service_tier))
-        buf_appends(&b, ",\"service_tier\":\"priority\"");
+    if (tny_tier_is_fast(o->ctx->service_tier)) buf_appends(&b, ",\"service_tier\":\"priority\"");
     buf_appends(&b, ",\"stream\":true,\"messages\":[");
 
     buf_t sys;
     buf_init(&sys);
     build_system_prompt(o, &sys);
-    if (buf_oom(&sys)) { buf_free(&sys); buf_free(&b); return NULL; }
+    if (buf_oom(&sys)) {
+        buf_free(&sys);
+        buf_free(&b);
+        return NULL;
+    }
     buf_appends(&b, "{\"role\":\"system\",\"content\":");
     jescape(&b, sys.data);
     buf_appends(&b, "}");
@@ -256,13 +255,14 @@ static char *build_request_chat(oa_impl *o) {
     buf_appends(&b, "]");
 
     char *schema = tools_schema_json(&o->env);
-    if (!schema) { buf_free(&b); return NULL; }
+    if (!schema) {
+        buf_free(&b);
+        return NULL;
+    }
     buf_appendf(&b, ",\"tools\":%s,\"tool_choice\":\"auto\"", schema);
     free(schema);
-    if (o->ctx->output_schema)
-        buf_appendf(&b, ",\"response_format\":%s", o->ctx->output_schema);
-    if (o->ctx->max_tokens_field)
-        buf_appendf(&b, ",\"%s\":8192", o->ctx->max_tokens_field);
+    if (o->ctx->output_schema) buf_appendf(&b, ",\"response_format\":%s", o->ctx->output_schema);
+    if (o->ctx->max_tokens_field) buf_appendf(&b, ",\"%s\":8192", o->ctx->max_tokens_field);
     /* read per request, so /effort applies from the next turn */
     if (o->ctx->reasoning_effort && *o->ctx->reasoning_effort) {
         buf_appends(&b, ",\"reasoning_effort\":");
@@ -283,14 +283,17 @@ static char *build_request_rsp(oa_impl *o) {
     buf_init(&b);
     buf_appends(&b, "{\"model\":");
     jescape(&b, model_of(o));
-    if (tny_tier_is_fast(o->ctx->service_tier))
-        buf_appends(&b, ",\"service_tier\":\"priority\"");
+    if (tny_tier_is_fast(o->ctx->service_tier)) buf_appends(&b, ",\"service_tier\":\"priority\"");
     buf_appends(&b, ",\"stream\":true,\"store\":false");
 
     buf_t sys;
     buf_init(&sys);
     build_system_prompt(o, &sys);
-    if (buf_oom(&sys)) { buf_free(&sys); buf_free(&b); return NULL; }
+    if (buf_oom(&sys)) {
+        buf_free(&sys);
+        buf_free(&b);
+        return NULL;
+    }
     buf_appends(&b, ",\"instructions\":");
     jescape(&b, sys.data);
     buf_free(&sys);
@@ -302,7 +305,10 @@ static char *build_request_rsp(oa_impl *o) {
     free(input);
 
     char *schema = tools_schema_json(&o->env);
-    if (!schema) { buf_free(&b); return NULL; }
+    if (!schema) {
+        buf_free(&b);
+        return NULL;
+    }
     char *flat = tny_openai_responses_tools(schema);
     buf_appendf(&b, ",\"tools\":%s,\"tool_choice\":\"auto\"", flat ? flat : "[]");
     free(flat);
@@ -317,8 +323,7 @@ static char *build_request_rsp(oa_impl *o) {
     }
     /* max_tokens_field set means the user wants a completion cap; the
      * Responses wire spells it max_output_tokens whatever the chat quirk */
-    if (o->ctx->max_tokens_field)
-        buf_appends(&b, ",\"max_output_tokens\":8192");
+    if (o->ctx->max_tokens_field) buf_appends(&b, ",\"max_output_tokens\":8192");
     if (o->ctx->reasoning_effort && *o->ctx->reasoning_effort) {
         buf_appends(&b, ",\"reasoning\":{\"effort\":");
         jescape(&b, tny_effort_wire(TNY_BK_OPENAI, o->ctx->reasoning_effort));
@@ -328,13 +333,12 @@ static char *build_request_rsp(oa_impl *o) {
     return buf_detach(&b);
 }
 
-static tny_openai_control_response provider_control(
-    oa_impl *o, tny_openai_control_kind kind, int status) {
+static tny_openai_control_response provider_control(oa_impl *o, tny_openai_control_kind kind,
+                                                    int status) {
     char request_id[192];
     snprintf(request_id, sizeof request_id, "%s:%llu:request:%llu",
              o->env.session ? o->env.session->id : "session",
-             (unsigned long long)(o->env.session
-                 ? o->env.session->extension_agent_sequence : 0),
+             (unsigned long long)(o->env.session ? o->env.session->extension_agent_sequence : 0),
              (unsigned long long)o->provider_request_sequence);
     tny_openai_control_request provider = {0};
     provider.kind = kind;
@@ -350,8 +354,7 @@ static tny_openai_control_response provider_control(
     return control_call(o, &provider);
 }
 
-static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen,
-                           bool retry) {
+static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) {
     char err[256] = {0};
     if (retry) o->provider_attempt++;
     else {
@@ -366,8 +369,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen,
              * exposing a configured URL or provider-supplied response text. */
             if (str_starts(err, "TLS ") || str_starts(err, "https not built"))
                 snprintf(errbuf, errlen, "%s", err);
-            else
-                snprintf(errbuf, errlen, "could not connect to provider");
+            else snprintf(errbuf, errlen, "could not connect to provider");
             return -1;
         }
     }
@@ -377,8 +379,8 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen,
     char *body = o->wire_chat ? build_request_chat(o) : build_request_rsp(o);
     buf_t auth;
     buf_init(&auth);
-    buf_appendf(&auth, "%s: %s%s", o->ctx->auth_header_name,
-                o->ctx->auth_header_prefix, o->ctx->api_key ? o->ctx->api_key : "");
+    buf_appendf(&auth, "%s: %s%s", o->ctx->auth_header_name, o->ctx->auth_header_prefix,
+                o->ctx->api_key ? o->ctx->api_key : "");
     const char *hdrs[12];
     int hn = 0;
     hdrs[hn++] = "Content-Type: application/json";
@@ -386,15 +388,13 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen,
     if (o->ctx->api_key) hdrs[hn++] = auth.data;
     /* builtin-profile headers (claude oauth beta, grok proxy auth/model
      * routing — docs/adr/0019) */
-    for (char **e = o->ctx->extra_headers; e && *e && hn < 11; e++)
-        hdrs[hn++] = *e;
+    for (char **e = o->ctx->extra_headers; e && *e && hn < 11; e++) hdrs[hn++] = *e;
     hdrs[hn] = NULL;
     buf_t path;
     buf_init(&path);
     buf_appendf(&path, "%s%s", http_prefix(o->conn),
                 o->wire_chat ? "/chat/completions" : "/responses");
-    if (!body || buf_oom(&auth) || buf_oom(&path) ||
-        tny_alloc_scope_failed()) {
+    if (!body || buf_oom(&auth) || buf_oom(&path) || tny_alloc_scope_failed()) {
         snprintf(errbuf, errlen, "out of memory");
         buf_free(&path);
         if (auth.data) secure_zero(auth.data, auth.len);
@@ -402,8 +402,8 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen,
         free(body);
         return -1;
     }
-    tny_openai_control_response control = provider_control(
-        o, TNY_OPENAI_CONTROL_PROVIDER_REQUEST, 0);
+    tny_openai_control_response control =
+        provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_REQUEST, 0);
     if (control.stop) {
         o->cancelled = true;
         control_response_free(&control);
@@ -433,11 +433,9 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen,
                 rc = -1;
             } else {
                 control_response_free(&control);
-                rc = http_request(o->conn, "POST", path.data, hdrs, body,
-                                  strlen(body));
+                rc = http_request(o->conn, "POST", path.data, hdrs, body, strlen(body));
                 if (rc != 0) {
-                    control = provider_control(
-                        o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
+                    control = provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
                     if (control.stop) o->cancelled = true;
                     control_response_free(&control);
                 }
@@ -499,16 +497,17 @@ static void on_sse_event_chat(const char *data, size_t len, void *ud) {
         o->usage_out = jget_int(usage, "completion_tokens", o->usage_out);
     }
     yyjson_val *choice = yyjson_arr_get_first(jget(root, "choices"));
-    if (!choice) { yyjson_doc_free(doc); return; }
+    if (!choice) {
+        yyjson_doc_free(doc);
+        return;
+    }
     const char *fr = jget_str(choice, "finish_reason");
     if (fr) {
         snprintf(o->finish_reason, sizeof o->finish_reason, "%s", fr);
         if (strcmp(fr, "length") == 0) o->final_stop = TNY_STOP_STEP_LIMIT;
-        else if (strcmp(fr, "content_filter") == 0)
-            o->final_stop = TNY_STOP_DENIED;
+        else if (strcmp(fr, "content_filter") == 0) o->final_stop = TNY_STOP_DENIED;
         else if (strcmp(fr, "error") == 0) {
-            emit_error(o, TNY_EVENT_ERROR_PROTOCOL,
-                       "provider ended the stream with an error", 39);
+            emit_error(o, TNY_EVENT_ERROR_PROTOCOL, "provider ended the stream with an error", 39);
             o->stream_failed = true;
         }
     }
@@ -523,8 +522,7 @@ static void on_sse_event_chat(const char *data, size_t len, void *ud) {
     size_t reasoning_len = 0;
     const char *reasoning = jget_strn(delta, "reasoning_content", &reasoning_len);
     if (!reasoning) reasoning = jget_strn(delta, "reasoning", &reasoning_len);
-    if (reasoning && reasoning_len)
-        emit_text(o, TNY_EV_THINKING, reasoning, reasoning_len);
+    if (reasoning && reasoning_len) emit_text(o, TNY_EV_THINKING, reasoning, reasoning_len);
     else {
         yyjson_val *details = jget(delta, "reasoning_details");
         size_t idx, max;
@@ -534,8 +532,7 @@ static void on_sse_event_chat(const char *data, size_t len, void *ud) {
                 size_t text_len = 0;
                 const char *text = jget_strn(detail, "text", &text_len);
                 if (!text) text = jget_strn(detail, "summary", &text_len);
-                if (text && text_len)
-                    emit_text(o, TNY_EV_THINKING, text, text_len);
+                if (text && text_len) emit_text(o, TNY_EV_THINKING, text, text_len);
             }
         }
     }
@@ -565,7 +562,10 @@ static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
     if (!doc) return;
     yyjson_val *root = yyjson_doc_get_root(doc);
     const char *type = jget_str(root, "type");
-    if (!type) { yyjson_doc_free(doc); return; }
+    if (!type) {
+        yyjson_doc_free(doc);
+        return;
+    }
 
     if (strcmp(type, "response.output_text.delta") == 0) {
         size_t delta_len = 0;
@@ -622,13 +622,11 @@ static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
         /* token/limit cutoff: keep the partial text, end the step cleanly
          * (the chat wire treats finish_reason "length" the same way) */
         yyjson_val *response = jget(root, "response");
-        const char *reason = jget_str(jget(response, "incomplete_details"),
-                                      "reason");
-        o->final_stop = reason && strstr(reason, "content_filter")
-            ? TNY_STOP_DENIED : TNY_STOP_STEP_LIMIT;
+        const char *reason = jget_str(jget(response, "incomplete_details"), "reason");
+        o->final_stop =
+            reason && strstr(reason, "content_filter") ? TNY_STOP_DENIED : TNY_STOP_STEP_LIMIT;
         o->stream_done = true;
-    } else if (strcmp(type, "response.failed") == 0 ||
-               strcmp(type, "error") == 0) {
+    } else if (strcmp(type, "response.failed") == 0 || strcmp(type, "error") == 0) {
         const char *message = "provider stream reported an error";
         emit_error(o, TNY_EVENT_ERROR_PROTOCOL, message, strlen(message));
         o->stream_done = true;
@@ -645,21 +643,19 @@ static void on_sse_event(const char *data, size_t len, void *ud) {
 
 /* ---------- step completion ---------- */
 
-static void log_toolcall(oa_impl *o, const char *name, bool original_ok,
-                         bool effective_ok, bool transformed) {
+static void log_toolcall(oa_impl *o, const char *name, bool original_ok, bool effective_ok,
+                         bool transformed) {
     if (o->toolcall_log.len > 1) buf_appends(&o->toolcall_log, ",");
     buf_appends(&o->toolcall_log, "{\"name\":");
     jescape(&o->toolcall_log, name);
     if (!transformed && original_ok == effective_ok) {
-        buf_appendf(&o->toolcall_log, ",\"status\":\"%s\"}",
-                    effective_ok ? "success" : "error");
+        buf_appendf(&o->toolcall_log, ",\"status\":\"%s\"}", effective_ok ? "success" : "error");
         return;
     }
     buf_appendf(&o->toolcall_log,
                 ",\"status\":\"%s\",\"original_status\":\"%s\","
                 "\"result_transformed\":%s}",
-                effective_ok ? "success" : "error",
-                original_ok ? "success" : "error",
+                effective_ok ? "success" : "error", original_ok ? "success" : "error",
                 transformed ? "true" : "false");
 }
 
@@ -669,8 +665,7 @@ static void finish_turn_ok(oa_impl *o) {
     session_bump_turns(s);
     if (session_save(s) != 0) {
         const char *message = "could not persist completed turn";
-        emit_error(o, TNY_EVENT_ERROR_IO,
-                   message, strlen(message));
+        emit_error(o, TNY_EVENT_ERROR_IO, message, strlen(message));
         emit_turn_end(o, TNY_STOP_ERROR);
         return;
     }
@@ -687,8 +682,8 @@ static void finish_turn_ok(oa_impl *o) {
     emit_turn_end(o, o->final_stop);
 }
 
-static void emit_tool_end(oa_impl *o, const char *cid, const char *name,
-                          const char *result, bool ok) {
+static void emit_tool_end(oa_impl *o, const char *cid, const char *name, const char *result,
+                          bool ok) {
     tny_backend_event ev = {0};
     ev.kind = TNY_EV_TOOL_END;
     ev.tool_name = name;
@@ -698,20 +693,18 @@ static void emit_tool_end(oa_impl *o, const char *cid, const char *name,
     emit(o, &ev);
 }
 
-static void subagent_control(oa_impl *o, tny_openai_control_kind kind,
-                             const char *cid, const tools_call *call,
-                             const char *result, bool ok) {
+static void subagent_control(oa_impl *o, tny_openai_control_kind kind, const char *cid,
+                             const tools_call *call, const char *result, bool ok) {
     if (!o->control || !call || strcmp(call->name, "subagent") != 0) return;
     const char *action = jget_str(call->args, "action");
-    if (!action || (strcmp(action, "create") != 0 &&
-                    strcmp(action, "message") != 0)) return;
+    if (!action || (strcmp(action, "create") != 0 && strcmp(action, "message") != 0)) return;
     const char *requested_id = jget_str(call->args, "id");
     tny_openai_control_request request = {0};
     request.kind = kind;
     request.subagent_id = requested_id && *requested_id ? requested_id : cid;
     request.subagent_action = action;
-    request.subagent_outcome = kind == TNY_OPENAI_CONTROL_SUBAGENT_END
-        ? (ok ? "done" : "error") : NULL;
+    request.subagent_outcome =
+        kind == TNY_OPENAI_CONTROL_SUBAGENT_END ? (ok ? "done" : "error") : NULL;
     request.subagent_ok = ok;
     request.result = result;
     tny_openai_control_response response = control_call(o, &request);
@@ -719,9 +712,8 @@ static void subagent_control(oa_impl *o, tny_openai_control_kind kind,
     control_response_free(&response);
 }
 
-static void complete_tool(oa_impl *o, const char *cid, const char *name,
-                          const char *original_args, const char *effective_args,
-                          const char *control_extension,
+static void complete_tool(oa_impl *o, const char *cid, const char *name, const char *original_args,
+                          const char *effective_args, const char *control_extension,
                           const char *control_reason, char *original_result) {
     if (!original_result) return;
     bool original_ok = !str_starts(original_result, "error:");
@@ -738,13 +730,11 @@ static void complete_tool(oa_impl *o, const char *cid, const char *name,
     request.control_extension = control_extension;
     request.control_reason = control_reason;
     tny_openai_control_response response = control_call(o, &request);
-    const char *effective_result = response.result_replaced
-        ? response.result : original_result;
-    bool effective_ok = response.result_replaced
-        ? !response.result_is_error : original_ok;
-    bool transformed = response.result_replaced ||
-        strcmp(original_args ? original_args : "{}",
-               effective_args ? effective_args : "{}") != 0;
+    const char *effective_result = response.result_replaced ? response.result : original_result;
+    bool effective_ok = response.result_replaced ? !response.result_is_error : original_ok;
+    bool transformed =
+        response.result_replaced ||
+        strcmp(original_args ? original_args : "{}", effective_args ? effective_args : "{}") != 0;
     log_toolcall(o, name, original_ok, effective_ok, transformed);
     if (!effective_ok) o->tool_batch_failed++;
     session_add_tool_result(o->env.session, cid, effective_result);
@@ -763,32 +753,28 @@ static int execute_call(oa_impl *o, const char *cid, const char *original_args,
     start.tool_detail = effective_args;
     emit(o, &start);
     subagent_control(o, TNY_OPENAI_CONTROL_SUBAGENT_START, cid, call, NULL, false);
-    char *result = o->cancelled
-        ? tool_err("interrupted before %s ran", call->name)
-        : tools_call_execute(&o->env, call);
+    char *result = o->cancelled ? tool_err("interrupted before %s ran", call->name)
+                                : tools_call_execute(&o->env, call);
     if (!result) return tools_call_pending(call) ? 1 : -1;
     bool ok = !str_starts(result, "error:");
     subagent_control(o, TNY_OPENAI_CONTROL_SUBAGENT_END, cid, call, result, ok);
-    complete_tool(o, cid, call->name, original_args, effective_args,
-                  control_extension, control_reason, result);
+    complete_tool(o, cid, call->name, original_args, effective_args, control_extension,
+                  control_reason, result);
     free(result);
     return 0;
 }
 
-static int execute_or_park(oa_impl *o, const char *cid,
-                           const char *original_args,
-                           const char *effective_args,
-                           const char *control_extension,
+static int execute_or_park(oa_impl *o, const char *cid, const char *original_args,
+                           const char *effective_args, const char *control_extension,
                            const char *control_reason, tools_call *call) {
-    int status = execute_call(o, cid, original_args, effective_args,
-                              control_extension, control_reason, call);
+    int status = execute_call(o, cid, original_args, effective_args, control_extension,
+                              control_reason, call);
     if (status != 1) return status;
     oa_pending_custom *pending = &o->pending_custom;
     pending->id = xstrdup(cid);
     pending->original_args = xstrdup(original_args ? original_args : "{}");
     pending->effective_args = xstrdup(effective_args ? effective_args : "{}");
-    pending->control_extension = control_extension
-        ? xstrdup(control_extension) : NULL;
+    pending->control_extension = control_extension ? xstrdup(control_extension) : NULL;
     pending->control_reason = control_reason ? xstrdup(control_reason) : NULL;
     if (!pending->id || !pending->original_args || !pending->effective_args ||
         (control_extension && !pending->control_extension) ||
@@ -820,9 +806,9 @@ static int finish_custom_completion(oa_impl *o) {
     free(result);
     result = bounded;
     if (!result) return -1;
-    complete_tool(o, pending->id, pending->call.name,
-                  pending->original_args, pending->effective_args,
-                  pending->control_extension, pending->control_reason, result);
+    complete_tool(o, pending->id, pending->call.name, pending->original_args,
+                  pending->effective_args, pending->control_extension, pending->control_reason,
+                  result);
     free(result);
     pending_custom_clear(o, false);
     o->tool_index++;
@@ -830,8 +816,7 @@ static int finish_custom_completion(oa_impl *o) {
     return run_tools(o);
 }
 
-static void finish_cancelled_call(oa_impl *o, const char *cid, const char *name,
-                                  const char *args) {
+static void finish_cancelled_call(oa_impl *o, const char *cid, const char *name, const char *args) {
     char *result = tool_err("interrupted before %s ran", name);
     complete_tool(o, cid, name, args, args, NULL, "cancelled", result);
     free(result);
@@ -935,13 +920,10 @@ static int run_tools(oa_impl *o) {
             pre.arguments_json = args;
             pre.original_arguments_json = args;
             tny_openai_control_response response = control_call(o, &pre);
-            const char *effective = response.arguments_json
-                ? response.arguments_json : args;
+            const char *effective = response.arguments_json ? response.arguments_json : args;
             char *effective_args = xstrdup(effective);
-            char *control_extension = response.extension
-                ? xstrdup(response.extension) : NULL;
-            char *control_reason = response.reason
-                ? xstrdup(response.reason) : NULL;
+            char *control_extension = response.extension ? xstrdup(response.extension) : NULL;
+            char *control_reason = response.reason ? xstrdup(response.reason) : NULL;
             if (!effective_args || (response.extension && !control_extension) ||
                 (response.reason && !control_reason)) {
                 free(effective_args);
@@ -953,11 +935,11 @@ static int run_tools(oa_impl *o) {
             if (response.stop || response.deny) {
                 if (response.stop) o->cancelled = true;
                 char *result = response.stop
-                    ? tool_err("interrupted before %s ran", name)
-                    : tool_err("extension denied %s: %s", name,
-                               response.reason ? response.reason : "denied");
-                complete_tool(o, cid, name, args, effective_args,
-                              control_extension, control_reason, result);
+                                   ? tool_err("interrupted before %s ran", name)
+                                   : tool_err("extension denied %s: %s", name,
+                                              response.reason ? response.reason : "denied");
+                complete_tool(o, cid, name, args, effective_args, control_extension, control_reason,
+                              result);
                 free(result);
                 free(effective_args);
                 free(control_extension);
@@ -972,8 +954,8 @@ static int run_tools(oa_impl *o) {
             if (tools_call_prepare(&o->env, name, effective_args, &call) != 0) {
                 char *result = call.error ? xstrdup(call.error)
                                           : tool_err("cannot prepare tool call %s", name);
-                complete_tool(o, cid, name, args, effective_args,
-                              control_extension, control_reason, result);
+                complete_tool(o, cid, name, args, effective_args, control_extension, control_reason,
+                              result);
                 free(result);
                 tools_call_free(&call);
                 free(effective_args);
@@ -987,23 +969,22 @@ static int run_tools(oa_impl *o) {
             session_replace_tool_arguments(o->env.session, cid, effective_args);
             if (session_save(o->env.session) != 0) {
                 char *result = tool_err("could not persist admitted tool call");
-                complete_tool(o, cid, call.name, args, effective_args,
-                              control_extension, control_reason, result);
+                complete_tool(o, cid, call.name, args, effective_args, control_extension,
+                              control_reason, result);
                 free(result);
                 tools_call_free(&call);
                 free(effective_args);
                 free(control_extension);
                 free(control_reason);
-                emit_error(o, TNY_EVENT_ERROR_IO,
-                           "could not persist admitted tool call", 36);
+                emit_error(o, TNY_EVENT_ERROR_IO, "could not persist admitted tool call", 36);
                 emit_turn_end(o, TNY_STOP_ERROR);
                 return -1;
             }
             if (call.verdict == PERM_DENY) {
                 char *result = tool_err("permission denied for %s", call.name);
                 permission_block(o);
-                complete_tool(o, cid, call.name, args, effective_args,
-                              control_extension, "permission rule denied", result);
+                complete_tool(o, cid, call.name, args, effective_args, control_extension,
+                              "permission rule denied", result);
                 free(result);
                 tools_call_free(&call);
                 free(effective_args);
@@ -1013,9 +994,8 @@ static int run_tools(oa_impl *o) {
                 continue;
             }
             if (call.verdict == PERM_ALLOW) {
-                int executed = execute_or_park(
-                    o, cid, args, effective_args, control_extension,
-                    control_reason, &call);
+                int executed = execute_or_park(o, cid, args, effective_args, control_extension,
+                                               control_reason, &call);
                 tools_call_free(&call);
                 free(effective_args);
                 free(control_extension);
@@ -1033,9 +1013,8 @@ static int run_tools(oa_impl *o) {
             permission.arguments_json = effective_args;
             permission.original_arguments_json = args;
             permission.permission_summary = call.summary;
-            permission.permission_options = TNY_PERM_ALLOW_ONCE |
-                                            TNY_PERM_ALLOW_ALWAYS |
-                                            TNY_PERM_DENY;
+            permission.permission_options =
+                TNY_PERM_ALLOW_ONCE | TNY_PERM_ALLOW_ALWAYS | TNY_PERM_DENY;
             response = control_call(o, &permission);
             if (response.extension) {
                 free(control_extension);
@@ -1045,14 +1024,12 @@ static int run_tools(oa_impl *o) {
                 free(control_reason);
                 control_reason = xstrdup(response.reason);
             }
-            if (response.stop ||
-                response.permission == TNY_OPENAI_PERMISSION_DENY) {
+            if (response.stop || response.permission == TNY_OPENAI_PERMISSION_DENY) {
                 if (!response.stop) permission_block(o);
-                char *result = response.stop
-                    ? tool_err("interrupted before %s ran", call.name)
-                    : tool_err("permission denied for %s", call.name);
-                complete_tool(o, cid, call.name, args, effective_args,
-                              control_extension, control_reason, result);
+                char *result = response.stop ? tool_err("interrupted before %s ran", call.name)
+                                             : tool_err("permission denied for %s", call.name);
+                complete_tool(o, cid, call.name, args, effective_args, control_extension,
+                              control_reason, result);
                 free(result);
                 control_response_free(&response);
                 tools_call_free(&call);
@@ -1064,9 +1041,8 @@ static int run_tools(oa_impl *o) {
             }
             if (response.permission == TNY_OPENAI_PERMISSION_ALLOW_ONCE) {
                 control_response_free(&response);
-                int executed = execute_or_park(
-                    o, cid, args, effective_args, control_extension,
-                    control_reason, &call);
+                int executed = execute_or_park(o, cid, args, effective_args, control_extension,
+                                               control_reason, &call);
                 tools_call_free(&call);
                 free(effective_args);
                 free(control_extension);
@@ -1079,21 +1055,19 @@ static int run_tools(oa_impl *o) {
             control_response_free(&response);
 
             if (o->env.prompt) {
-                tny_perm_decision decision = o->env.prompt(call.name, call.summary,
-                                                           o->env.prompt_ud);
-                if (decision == TNY_PERM_DECISION_ALLOW_ALWAYS)
-                    tools_call_grant(&o->env, &call);
+                tny_perm_decision decision =
+                    o->env.prompt(call.name, call.summary, o->env.prompt_ud);
+                if (decision == TNY_PERM_DECISION_ALLOW_ALWAYS) tools_call_grant(&o->env, &call);
                 int executed = 0;
                 if (decision == TNY_PERM_DECISION_DENY) {
                     permission_block(o);
                     char *result = tool_err("permission denied for %s", call.name);
-                    complete_tool(o, cid, call.name, args, effective_args,
-                                  control_extension, "user denied", result);
+                    complete_tool(o, cid, call.name, args, effective_args, control_extension,
+                                  "user denied", result);
                     free(result);
                 } else {
-                    executed = execute_or_park(
-                        o, cid, args, effective_args, control_extension,
-                        control_reason, &call);
+                    executed = execute_or_park(o, cid, args, effective_args, control_extension,
+                                               control_reason, &call);
                 }
                 tools_call_free(&call);
                 free(effective_args);
@@ -1128,27 +1102,22 @@ static int run_tools(oa_impl *o) {
             request.kind = TNY_EV_PERMISSION;
             request.perm_id = o->pending_perm.id;
             request.perm_summary = o->pending_perm.call.summary;
-            request.perm_options = TNY_PERM_ALLOW_ONCE |
-                                   TNY_PERM_ALLOW_ALWAYS |
-                                   TNY_PERM_DENY;
+            request.perm_options = TNY_PERM_ALLOW_ONCE | TNY_PERM_ALLOW_ALWAYS | TNY_PERM_DENY;
             emit(o, &request);
             return 0;
         }
 
         oa_pending_perm *p = &o->pending_perm;
-        if (p->decision == TNY_PERM_DECISION_ALLOW_ALWAYS)
-            tools_call_grant(&o->env, &p->call);
+        if (p->decision == TNY_PERM_DECISION_ALLOW_ALWAYS) tools_call_grant(&o->env, &p->call);
         if (p->decision == TNY_PERM_DECISION_DENY) {
             permission_block(o);
             char *result = tool_err("permission denied for %s", p->call.name);
-            complete_tool(o, p->id, p->call.name, p->original_args,
-                          p->effective_args, p->control_extension,
-                          "user denied", result);
+            complete_tool(o, p->id, p->call.name, p->original_args, p->effective_args,
+                          p->control_extension, "user denied", result);
             free(result);
         } else {
-            int executed = execute_or_park(
-                o, p->id, p->original_args, p->effective_args,
-                p->control_extension, p->control_reason, &p->call);
+            int executed = execute_or_park(o, p->id, p->original_args, p->effective_args,
+                                           p->control_extension, p->control_reason, &p->call);
             pending_perm_clear(o);
             if (executed < 0) return -1;
             if (executed > 0) return 0;
@@ -1194,9 +1163,10 @@ static int step_finished(oa_impl *o) {
         for (int i = 0; i < o->calls.n; i++) {
             oa_call *pc = &o->calls.calls[i];
             if (i) buf_appends(&tcj, ",");
-            buf_appendf(&tcj, "{\"id\":\"%s\",\"type\":\"function\",\"function\":{\"name\":\"%s\",\"arguments\":",
-                        oa_call_id(pc, i, idbuf, sizeof idbuf),
-                        pc->name ? pc->name : "unknown");
+            buf_appendf(
+                &tcj,
+                "{\"id\":\"%s\",\"type\":\"function\",\"function\":{\"name\":\"%s\",\"arguments\":",
+                oa_call_id(pc, i, idbuf, sizeof idbuf), pc->name ? pc->name : "unknown");
             jescape(&tcj, pc->args.data ? pc->args.data : "{}");
             buf_appends(&tcj, "}}");
         }
@@ -1204,8 +1174,7 @@ static int step_finished(oa_impl *o) {
         session_add_assistant(s, o->text.len ? o->text.data : NULL, tcj.data);
         buf_free(&tcj);
         if (session_save(s) != 0) {
-            emit_error(o, TNY_EVENT_ERROR_IO,
-                       "could not persist proposed tool batch", 37);
+            emit_error(o, TNY_EVENT_ERROR_IO, "could not persist proposed tool batch", 37);
             emit_turn_end(o, TNY_STOP_ERROR);
             return -1;
         }
@@ -1219,8 +1188,7 @@ static int step_finished(oa_impl *o) {
 
 static int oa_connect(tny_backend *b, char *errbuf, size_t errlen) {
     oa_impl *o = b->impl;
-    if (!o->ctx->api_key &&
-        !str_starts(o->ctx->base_url, "http://")) {
+    if (!o->ctx->api_key && !str_starts(o->ctx->base_url, "http://")) {
         const char *pn = o->ctx->provider_name;
         if (pn && strcmp(pn, "claude") == 0)
             snprintf(errbuf, errlen,
@@ -1244,7 +1212,10 @@ static int oa_connect(tny_backend *b, char *errbuf, size_t errlen) {
 
 static void oa_disconnect(tny_backend *b) {
     oa_impl *o = b->impl;
-    if (o->conn) { http_close(o->conn); o->conn = NULL; }
+    if (o->conn) {
+        http_close(o->conn);
+        o->conn = NULL;
+    }
 }
 
 static bool response_requests_close(oa_impl *o) {
@@ -1254,15 +1225,17 @@ static bool response_requests_close(oa_impl *o) {
         const char *end = value;
         while (*end && *end != ',') end++;
         while (end > value && (end[-1] == ' ' || end[-1] == '\t')) end--;
-        if ((size_t)(end - value) == 5 && strncasecmp(value, "close", 5) == 0)
-            return true;
+        if ((size_t)(end - value) == 5 && strncasecmp(value, "close", 5) == 0) return true;
         value = *end ? end + 1 : end;
     }
     return false;
 }
 
 static int oa_create_or_resume(tny_backend *b, const char *ptr, char *e, size_t el) {
-    (void)b; (void)ptr; (void)e; (void)el;
+    (void)b;
+    (void)ptr;
+    (void)e;
+    (void)el;
     return 0; /* session handling is local */
 }
 
@@ -1271,8 +1244,8 @@ static char *oa_session_pointer(tny_backend *b) {
     return NULL;
 }
 
-static int oa_send(tny_backend *b, const char *prompt, const char **images,
-                   tny_backend_event_cb cb, void *ud, char *errbuf, size_t errlen) {
+static int oa_send(tny_backend *b, const char *prompt, const char **images, tny_backend_event_cb cb,
+                   void *ud, char *errbuf, size_t errlen) {
     oa_impl *o = b->impl;
     if (!o->env.session || !o->env.perm) {
         snprintf(errbuf, errlen, "native backend not bound to a session");
@@ -1299,8 +1272,7 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images,
     session_set_meta(s, "openai", model_of(o));
 
     if (images && images[0]) {
-        if (session_add_user_images(s, prompt, images, errbuf, errlen) != 0)
-            return -1;
+        if (session_add_user_images(s, prompt, images, errbuf, errlen) != 0) return -1;
     } else {
         session_add_text(s, "user", prompt);
     }
@@ -1323,7 +1295,10 @@ static int oa_steer(tny_backend *b, const char *text, char *errbuf, size_t errle
         /* two steers before a boundary: keep both, in order */
         size_t n = strlen(o->steer) + strlen(text) + 3;
         char *both = malloc(n);
-        if (!both) { snprintf(errbuf, errlen, "out of memory"); return -1; }
+        if (!both) {
+            snprintf(errbuf, errlen, "out of memory");
+            return -1;
+        }
         snprintf(both, n, "%s\n\n%s", o->steer, text);
         free(o->steer);
         o->steer = both;
@@ -1343,32 +1318,27 @@ static void oa_cancel(tny_backend *b) {
         if (o->pending_custom.id) {
             oa_pending_custom *pending = &o->pending_custom;
             tools_call_invalidate_async(&pending->call);
-            char *result = tool_err("interrupted before %s completed",
-                                    pending->call.name);
-            complete_tool(o, pending->id, pending->call.name,
-                          pending->original_args, pending->effective_args,
-                          pending->control_extension, "cancelled", result);
+            char *result = tool_err("interrupted before %s completed", pending->call.name);
+            complete_tool(o, pending->id, pending->call.name, pending->original_args,
+                          pending->effective_args, pending->control_extension, "cancelled", result);
             free(result);
             pending_custom_clear(o, false);
             o->tool_index++;
         }
         if (o->pending_perm.id) {
             oa_pending_perm *pending = &o->pending_perm;
-            char *result = tool_err("interrupted before %s ran",
-                                    pending->call.name);
-            complete_tool(o, pending->id, pending->call.name,
-                          pending->original_args, pending->effective_args,
-                          pending->control_extension, "cancelled", result);
+            char *result = tool_err("interrupted before %s ran", pending->call.name);
+            complete_tool(o, pending->id, pending->call.name, pending->original_args,
+                          pending->effective_args, pending->control_extension, "cancelled", result);
             free(result);
             pending_perm_clear(o);
             o->tool_index++;
         }
         for (int i = o->tool_index; i < o->calls.n; i++) {
             oa_call *pc = &o->calls.calls[i];
-            finish_cancelled_call(o,
-                oa_call_id(pc, i, idbuf, sizeof idbuf),
-                pc->name ? pc->name : "unknown",
-                pc->args.data ? pc->args.data : "{}");
+            finish_cancelled_call(o, oa_call_id(pc, i, idbuf, sizeof idbuf),
+                                  pc->name ? pc->name : "unknown",
+                                  pc->args.data ? pc->args.data : "{}");
         }
         o->tool_index = o->calls.n;
         oa_disconnect(b);
@@ -1386,9 +1356,7 @@ static void oa_cancel(tny_backend *b) {
 
 static void oa_respond_permission(tny_backend *b, const char *id, tny_perm_decision d) {
     oa_impl *o = b->impl;
-    if (!id || !o->pending_perm.id ||
-        strcmp(id, o->pending_perm.id) != 0)
-        return;
+    if (!id || !o->pending_perm.id || strcmp(id, o->pending_perm.id) != 0) return;
     o->pending_perm.decision = d;
     if (d == TNY_PERM_DECISION_DENY) permission_block(o);
     run_tools(o);
@@ -1404,8 +1372,7 @@ static int oa_pollfds(tny_backend *b, struct pollfd *fds, int max) {
         fds[0].revents = 0;
         return 1;
     }
-    if (o->state == ST_IDLE || o->state == ST_WAIT_PERMISSION ||
-        !o->conn || max < 1) return 0;
+    if (o->state == ST_IDLE || o->state == ST_WAIT_PERMISSION || !o->conn || max < 1) return 0;
     fds[0].fd = http_fd(o->conn);
     fds[0].events = POLLIN;
     fds[0].revents = 0;
@@ -1415,8 +1382,7 @@ static int oa_pollfds(tny_backend *b, struct pollfd *fds, int max) {
 static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     oa_impl *o = b->impl;
     if (o->state == ST_WAIT_CUSTOM) {
-        if (n > 0 && fds[0].revents)
-            custom_tools_wake_drain(o->ctx->custom_tools);
+        if (n > 0 && fds[0].revents) custom_tools_wake_drain(o->ctx->custom_tools);
         return finish_custom_completion(o);
     }
     if (o->state == ST_IDLE || o->state == ST_WAIT_PERMISSION || !o->conn) return 0;
@@ -1433,8 +1399,8 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 http_close(o->conn);
                 o->conn = NULL;
                 char rerr[512];
-                tny_openai_control_response failed = provider_control(
-                    o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
+                tny_openai_control_response failed =
+                    provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
                 if (failed.stop) o->cancelled = true;
                 control_response_free(&failed);
                 if (start_post_mode(o, rerr, sizeof rerr, true) == 0) return 0;
@@ -1442,13 +1408,12 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 emit_turn_end(o, TNY_STOP_ERROR);
                 return -1;
             }
-            emit_error(o, TNY_EVENT_ERROR_IO,
-                       "connection lost before response", 31);
+            emit_error(o, TNY_EVENT_ERROR_IO, "connection lost before response", 31);
             emit_turn_end(o, TNY_STOP_ERROR);
             return -1;
         }
-        tny_openai_control_response control = provider_control(
-            o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, status);
+        tny_openai_control_response control =
+            provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, status);
         if (control.stop) {
             o->cancelled = true;
             control_response_free(&control);
@@ -1499,8 +1464,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         if (bn < 0 && !o->stream_done) {
             /* keep partial text recoverable */
             if (o->text.len) session_recovery_write(o->env.session, o->text.data);
-            emit_error(o, TNY_EVENT_ERROR_IO,
-                       "stream aborted mid-response", 27);
+            emit_error(o, TNY_EVENT_ERROR_IO, "stream aborted mid-response", 27);
             emit_turn_end(o, TNY_STOP_ERROR);
             return -1;
         }
@@ -1518,8 +1482,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
 static int oa_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
     const char *wire = tny_wire_is_chat(ctx->wire_api) ? ", wire chat" : "";
     if (ctx->api_key) {
-        snprintf(line, linelen, "openai: key present, base_url %s%s",
-                 ctx->base_url, wire);
+        snprintf(line, linelen, "openai: key present, base_url %s%s", ctx->base_url, wire);
         return 0;
     }
     if (str_starts(ctx->base_url, "http://")) {
@@ -1544,12 +1507,9 @@ static void oa_destroy(tny_backend *b) {
     free(b);
 }
 
-void tny_backend_openai_bind(tny_backend *b, tny_session_state *session,
-                             perm_engine *perm,
+void tny_backend_openai_bind(tny_backend *b, tny_session_state *session, perm_engine *perm,
                              tny_perm_decision (*prompt)(const char *, const char *, void *),
-                             void *prompt_ud,
-                             tny_openai_control_cb control,
-                             void *control_ud) {
+                             void *prompt_ud, tny_openai_control_cb control, void *control_ud) {
     oa_impl *o = b->impl;
     o->env.session = session;
     o->env.perm = perm;
@@ -1567,8 +1527,7 @@ int tny_backend_openai_steps(tny_backend *b) {
 const char *tny_backend_openai_toolcalls_json(tny_backend *b) {
     oa_impl *o = b->impl;
     if (!o->toolcall_log.len) return "[]";
-    if (o->toolcall_log.data[o->toolcall_log.len - 1] != ']')
-        buf_appends(&o->toolcall_log, "]");
+    if (o->toolcall_log.data[o->toolcall_log.len - 1] != ']') buf_appends(&o->toolcall_log, "]");
     return o->toolcall_log.data;
 }
 
@@ -1581,7 +1540,10 @@ char *tny_openai_response_format(const char *schema_json, size_t len) {
         return NULL;
     }
     yyjson_mut_doc *m = yyjson_mut_doc_new(jallocator());
-    if (!m) { yyjson_doc_free(doc); return NULL; }
+    if (!m) {
+        yyjson_doc_free(doc);
+        return NULL;
+    }
     yyjson_mut_val *copy = yyjson_val_mut_copy(m, root);
     const char *type = jget_str(root, "type");
     yyjson_mut_val *rf;
@@ -1593,8 +1555,7 @@ char *tny_openai_response_format(const char *schema_json, size_t len) {
         yyjson_mut_val *js;
         if (jget(root, "schema")) {
             js = copy; /* already a json_schema object ({name, schema, …}) */
-            if (!jget(root, "name"))
-                yyjson_mut_obj_add_str(m, js, "name", "output");
+            if (!jget(root, "name")) yyjson_mut_obj_add_str(m, js, "name", "output");
         } else {
             js = yyjson_mut_obj(m);
             yyjson_mut_obj_add_str(m, js, "name", "output");
@@ -1613,7 +1574,11 @@ char *tny_openai_response_format(const char *schema_json, size_t len) {
 tny_backend *tny_backend_openai_new(struct tny_ctx *ctx) {
     tny_backend *b = calloc(1, sizeof *b);
     oa_impl *o = calloc(1, sizeof *o);
-    if (!b || !o) { free(b); free(o); return NULL; }
+    if (!b || !o) {
+        free(b);
+        free(o);
+        return NULL;
+    }
     o->ctx = ctx;
     o->env.ctx = ctx;
     buf_init(&o->text);

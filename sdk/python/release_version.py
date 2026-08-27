@@ -1,4 +1,5 @@
 """Strict release-tag to PEP 440 version conversion for package builds."""
+
 from __future__ import annotations
 
 import os
@@ -20,7 +21,9 @@ def version_from_tag(tag: str) -> str:
             "vMAJOR.MINOR.PATCH-(a|b|rc).N with no build metadata"
         )
     base = ".".join(match.group(index) for index in range(1, 4))
-    value = base if match.group(4) is None else f"{base}{match.group(4)}{match.group(5)}"
+    value = (
+        base if match.group(4) is None else f"{base}{match.group(4)}{match.group(5)}"
+    )
     # The accepted grammar is deliberately narrower than PEP 440: the stable
     # release and a/b/rc forms emitted here are already canonical, so build
     # metadata and normalizing aliases can never silently change registry identity.
