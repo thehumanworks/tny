@@ -39,3 +39,4 @@ __pycache__/
 
 .claude/worktrees
 site/assets/wasm/
+.worktrees
