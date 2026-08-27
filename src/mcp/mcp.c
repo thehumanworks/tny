@@ -119,7 +119,13 @@ static mcp_server *start_server(tools_env *env, const char *name, yyjson_val *co
         return NULL;
     }
     pid_t pid = fork();
-    if (pid < 0) return NULL;
+    if (pid < 0) {
+        close(inpipe[0]);
+        close(inpipe[1]);
+        close(outpipe[0]);
+        close(outpipe[1]);
+        return NULL;
+    }
     if (pid == 0) {
         dup2(inpipe[0], 0);
         dup2(outpipe[1], 1);
