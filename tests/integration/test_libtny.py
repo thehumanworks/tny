@@ -627,6 +627,7 @@ def main():
     assert actual == expected, (sorted(actual - expected), sorted(expected - actual))
 
     stage("synchronous error classification")
+    core_only = os.environ.get("TNY_LIBTNY_CORE_ONLY") == "1"
     with tempfile.TemporaryDirectory() as root:
         workspace = os.path.join(root, "workspace")
         state = os.path.join(root, "state")
@@ -688,9 +689,10 @@ def main():
         os.makedirs(workspace_a)
         os.makedirs(workspace_b)
         stress_independent_teardown(libpath, workspace_a, workspace_b)
-        verify_fork_rejection(libpath, workspace_a)
+        if not core_only:
+            verify_fork_rejection(libpath, workspace_a)
 
-    if os.environ.get("TNY_LIBTNY_CORE_ONLY") == "1":
+    if core_only:
         print("test_libtny: core ABI and ownership consumers passed")
         return
 

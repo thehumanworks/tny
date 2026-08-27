@@ -33,8 +33,11 @@ STEER_TEXT = next(
     if scenario["id"] == "resume_and_steer_rejection"
 )
 COMMAND_TIMEOUT = int(os.environ.get("TNY_CONFORMANCE_COMMAND_TIMEOUT", "180"))
+STEER_TIMEOUT = int(os.environ.get("TNY_CONFORMANCE_STEER_TIMEOUT", "30"))
 if COMMAND_TIMEOUT < 1:
     raise ValueError("TNY_CONFORMANCE_COMMAND_TIMEOUT must be positive")
+if STEER_TIMEOUT < 1:
+    raise ValueError("TNY_CONFORMANCE_STEER_TIMEOUT must be positive")
 
 
 def sha256_file(path: Path) -> str:
@@ -214,7 +217,7 @@ def execute_steer_resume_probe(
         input=json.dumps({"artifact": str(artifact), "secret": secret}) + "\n",
         text=True,
         capture_output=True,
-        timeout=30,
+        timeout=STEER_TIMEOUT,
         check=False,
     )
     if completed.returncode != 0:

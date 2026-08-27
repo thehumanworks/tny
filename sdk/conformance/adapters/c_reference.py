@@ -27,8 +27,11 @@ STEER_TEXT = next(
     if scenario["id"] == "resume_and_steer_rejection"
 )
 COMMAND_TIMEOUT = int(os.environ.get("TNY_CONFORMANCE_COMMAND_TIMEOUT", "180"))
+STEER_TIMEOUT = int(os.environ.get("TNY_CONFORMANCE_STEER_TIMEOUT", "30"))
 if COMMAND_TIMEOUT < 1:
     raise ValueError("TNY_CONFORMANCE_COMMAND_TIMEOUT must be positive")
+if STEER_TIMEOUT < 1:
+    raise ValueError("TNY_CONFORMANCE_STEER_TIMEOUT must be positive")
 
 spec = importlib.util.spec_from_file_location(
     "libtny_reference", ROOT / "tests/integration/test_libtny.py")
@@ -434,6 +437,7 @@ def main() -> int:
         "live_steer_resume_probe",
         [sys.executable, str(Path(__file__).resolve()), "--steer-resume-probe"],
         {"artifact": libpath, "secret": request["secret_sentinel"]},
+        timeout=STEER_TIMEOUT,
     )
     executions.append(steer_execution)
     traces["unknown_future_event"], unknown_executions = unknown_event_probe(libpath)

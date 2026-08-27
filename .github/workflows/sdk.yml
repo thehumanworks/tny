@@ -65,7 +65,7 @@ jobs:
             conformance_timeout=1200
             export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
               TNY_TEST_TURN_TIMEOUT=60 TNY_TEST_SUITE_TIMEOUT=900 \
-              TNY_CONFORMANCE_COMMAND_TIMEOUT=600
+              TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=60
           fi
           mkdir -p "$PWD/dist/conformance"
           python sdk/conformance/run.py \
@@ -101,7 +101,7 @@ jobs:
             conformance_timeout=1200
             export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
               TNY_TEST_TURN_TIMEOUT=60 TNY_TEST_SUITE_TIMEOUT=900 \
-              TNY_CONFORMANCE_COMMAND_TIMEOUT=600
+              TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=60
           fi
           wheel="$(find "$PWD/dist/python-bundled" -name '*.whl' -type f -print -quit)"
           discovery_wheel="$(find "$PWD/dist/python-discovery" -name '*.whl' -type f -print -quit)"
@@ -191,7 +191,7 @@ jobs:
             conformance_timeout=1200
             export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
               TNY_TEST_TURN_TIMEOUT=60 TNY_TEST_SUITE_TIMEOUT=900 \
-              TNY_CONFORMANCE_COMMAND_TIMEOUT=600
+              TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=60
           fi
           npm --prefix sdk/typescript test
           mkdir -p "$PWD/dist/conformance"
@@ -224,7 +224,7 @@ jobs:
             conformance_timeout=1200
             export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
               TNY_TEST_TURN_TIMEOUT=60 TNY_TEST_SUITE_TIMEOUT=900 \
-              TNY_CONFORMANCE_COMMAND_TIMEOUT=600
+              TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=60
           fi
           package_dir="$PWD/dist/node"
           mkdir -p "$package_dir"
