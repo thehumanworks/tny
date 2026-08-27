@@ -8,10 +8,11 @@
     let
       inherit (nixpkgs) lib;
 
+      # No x86_64-darwin: Intel Mac is not a tny target (docs/ci.md), and
+      # nixpkgs has dropped the platform.
       systems = [
         "aarch64-darwin"
         "aarch64-linux"
-        "x86_64-darwin"
         "x86_64-linux"
       ];
 
