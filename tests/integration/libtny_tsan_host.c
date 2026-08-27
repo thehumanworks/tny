@@ -96,8 +96,12 @@ static void *owner_main(void *opaque) {
     }
 
     tny_runtime_options_v0 options;
-    if (tny_runtime_options_init(&options, sizeof options) != TNY_STATUS_OK)
-        return report_error("runtime_options_init", TNY_STATUS_INTERNAL, NULL);
+    if (tny_runtime_options_init(&options, sizeof options) != TNY_STATUS_OK) {
+        arg->result = report_error("runtime_options_init",
+                                   TNY_STATUS_INTERNAL, NULL);
+        publish_startup(shared, arg->index, NULL, 1);
+        return NULL;
+    }
     options.workspace = bytes(workspace);
     options.state_dir = bytes(state_dir);
     options.provider = bytes("openai");
@@ -118,8 +122,14 @@ static void *owner_main(void *opaque) {
     }
 
     tny_capabilities_v0 capabilities;
-    if (tny_capabilities_init(&capabilities, sizeof capabilities) != TNY_STATUS_OK)
-        return report_error("capabilities_init", TNY_STATUS_INTERNAL, NULL);
+    if (tny_capabilities_init(&capabilities, sizeof capabilities) !=
+        TNY_STATUS_OK) {
+        arg->result = report_error("capabilities_init", TNY_STATUS_INTERNAL,
+                                   NULL);
+        tny_runtime_free(runtime);
+        publish_startup(shared, arg->index, NULL, 1);
+        return NULL;
+    }
     status = tny_runtime_get_capabilities(
         runtime, &capabilities, sizeof capabilities);
     if (status != TNY_STATUS_OK ||

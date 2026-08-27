@@ -259,7 +259,11 @@ static void execute_create(runtime_state *state, command *cmd) {
     uint32_t abi = tny_abi_version();
     uint32_t major = abi >> 16u;
     uint32_t minor = abi & 0xffffu;
-    if (major != SDK_ABI_MAJOR || minor < SDK_ABI_MINOR) {
+    int incompatible = major != SDK_ABI_MAJOR;
+#if SDK_ABI_MINOR > 0
+    incompatible = incompatible || minor < SDK_ABI_MINOR;
+#endif
+    if (incompatible) {
         char message[192];
         sdk_wipe_owned_bytes(&cmd->create.api_key);
         (void)snprintf(message, sizeof(message),
