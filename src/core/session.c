@@ -478,6 +478,7 @@ void session_replace_tool_arguments(tny_session_state *s, const char *tool_call_
         size_t idx, max;
         yyjson_mut_val *call;
         yyjson_mut_arr_foreach(calls, idx, max, call) {
+            if (!call) break;
             yyjson_mut_val *id = yyjson_mut_obj_get(call, "id");
             const char *value = id ? yyjson_mut_get_str(id) : NULL;
             if (!value || strcmp(value, tool_call_id) != 0) continue;
@@ -694,6 +695,7 @@ int session_compact(tny_session_state *s, bool force) {
                 size_t idx, max;
                 yyjson_mut_val *tc;
                 yyjson_mut_arr_foreach(tcs, idx, max, tc) {
+                    if (!tc) break;
                     yyjson_mut_val *fn = yyjson_mut_obj_get(tc, "function");
                     const char *name = yyjson_mut_get_str(yyjson_mut_obj_get(fn, "name"));
                     const char *args = yyjson_mut_get_str(yyjson_mut_obj_get(fn, "arguments"));

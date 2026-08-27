@@ -149,6 +149,7 @@ static void replay_history(acp_srv *s) {
     size_t i, max;
     yyjson_mut_val *m;
     yyjson_mut_arr_foreach(msgs, i, max, m) {
+        if (!m) break;
         yyjson_mut_val *rv = yyjson_mut_obj_get(m, "role");
         yyjson_mut_val *cv = yyjson_mut_obj_get(m, "content");
         const char *role = yyjson_mut_get_str(rv);

@@ -316,6 +316,7 @@ static void cmd_transcript(tui *t) {
     size_t idx, max;
     yyjson_mut_val *m;
     yyjson_mut_arr_foreach(msgs, idx, max, m) {
+        if (!m) break;
         yyjson_mut_val *r = yyjson_mut_obj_get(m, "role");
         yyjson_mut_val *c = yyjson_mut_obj_get(m, "content");
         const char *role = r ? yyjson_mut_get_str(r) : NULL;

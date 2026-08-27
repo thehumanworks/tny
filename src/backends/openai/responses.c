@@ -38,6 +38,7 @@ static void add_parts_message(yyjson_mut_doc *d, yyjson_mut_val *arr, const char
     size_t idx, max;
     yyjson_mut_val *p;
     yyjson_mut_arr_foreach(parts, idx, max, p) {
+        if (!p) break;
         const char *type = mstr(p, "type");
         if (type && strcmp(type, "text") == 0) {
             const char *t = mstr(p, "text");
@@ -64,6 +65,7 @@ static void add_function_calls(yyjson_mut_doc *d, yyjson_mut_val *arr, yyjson_mu
     size_t idx, max;
     yyjson_mut_val *tc;
     yyjson_mut_arr_foreach(tcs, idx, max, tc) {
+        if (!tc) break;
         yyjson_mut_val *fn = yyjson_mut_obj_get(tc, "function");
         const char *id = mstr(tc, "id");
         const char *name = fn ? mstr(fn, "name") : NULL;

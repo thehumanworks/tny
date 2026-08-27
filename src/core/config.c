@@ -1089,6 +1089,7 @@ static void edit_ws(yyjson_mut_doc *doc, yyjson_mut_val *root, void *ud) {
         size_t idx, max;
         yyjson_mut_val *v;
         yyjson_mut_arr_foreach(arr, idx, max, v) {
+            if (!v) break;
             const char *s = yyjson_mut_get_str(v);
             if (!s) continue;
             if (e->op == 1 && strcmp(s, e->dir) == 0) continue;
