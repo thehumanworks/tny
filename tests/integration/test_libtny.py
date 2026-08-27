@@ -854,11 +854,11 @@ def stop_mock(process):
 
 def main():
     if sys.platform not in ("darwin", "linux"):
-        print("test_libtny: skip (ABI 0 ships on Darwin/Linux only)")
+        print("test_libtny: skip (ABI 1 ships on Darwin/Linux only)")
         return
     stage("build shared library")
     subprocess.run(
-        ["make", "lib-shared"],
+        ["make", "lib-shared-active"],
         cwd=ROOT,
         check=True,
         stdout=subprocess.DEVNULL,
@@ -917,7 +917,7 @@ def main():
     with tempfile.TemporaryDirectory() as install_root:
         prefix = os.path.join(install_root, "prefix")
         subprocess.run(
-            ["make", "install-lib", "PREFIX=" + prefix],
+            ["make", "install-lib-active", "PREFIX=" + prefix],
             cwd=ROOT,
             check=True,
             stdout=subprocess.DEVNULL,

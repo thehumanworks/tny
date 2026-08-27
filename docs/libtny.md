@@ -6,7 +6,7 @@ does not expose tny's backend, yyjson, session-store, or pollfd layouts.
 
 The lifecycle design is [ADR 0023](adr/0023-libtny-embedding-abi.md), amended
 for concurrency by [ADR 0033](adr/0033-libtny-multi-runtime-cancel.md) and
-frozen for compatibility by [ADR 0036](adr/0036-libtny-abi-1.md).
+frozen for compatibility by [ADR 0037](adr/0037-libtny-abi-1.md).
 
 ## Supported artifacts
 
@@ -230,7 +230,7 @@ required for correctness. Event enqueue invokes scheduler notification when
 present, but pull delivery stays authoritative. The final `runtime destroying`
 diagnostic is synchronous; once `tny_runtime_free` returns, the copied table is
 zeroed and no stale callback can run. See
-[ADR 0035](adr/0035-libtny-host-services.md).
+[ADR 0036](adr/0036-libtny-host-services.md).
 
 ## Custom tools (ABI 0.7)
 
@@ -265,7 +265,7 @@ and invalidates its reference, so a late completion safely returns
 `TNY_STATUS_BAD_STATE`; memory is reclaimed when the host releases. Unregister
 guarantees no later invocation callback. `tny_capabilities_v1` reports all
 registry and byte limits. See
-[ADR 0037](adr/0037-libtny-custom-tools.md).
+[ADR 0038](adr/0038-libtny-custom-tools.md).
 At most 64 registration objects are admitted during one runtime lifetime,
 including inactive tombstones, bounding memory while preserving deterministic
 repeated-handle rejection. The wasm CLI does not expose this registration API

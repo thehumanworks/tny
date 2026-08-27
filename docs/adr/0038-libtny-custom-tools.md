@@ -1,4 +1,4 @@
-# 0037 — libtny custom tools use copied specs and generation-tagged completion
+# 0038 — libtny custom tools use copied specs and generation-tagged completion
 
 Date: 2026-08-27
 Status: accepted

@@ -13,6 +13,10 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 
+#ifndef TNY_SHELL_PATH
+#define TNY_SHELL_PATH "/bin/sh"
+#endif
+
 #define SHELL_MAX_OUT (512u * 1024u)
 
 static char *run_background(tools_env *env, const char *cmd) {
@@ -44,7 +48,7 @@ static char *run_background(tools_env *env, const char *cmd) {
             close(devnull);
         }
         if (chdir(env->ctx->cwd) != 0) _exit(127);
-        execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+        execl(TNY_SHELL_PATH, "sh", "-c", cmd, (char *)NULL);
         _exit(127);
     }
     buf_t out;
@@ -86,7 +90,7 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
         close(pipefd[1]);
         if (chdir(env->ctx->cwd) != 0) _exit(127);
         setpgid(0, 0);
-        execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+        execl(TNY_SHELL_PATH, "sh", "-c", cmd, (char *)NULL);
         _exit(127);
     }
     close(pipefd[1]);

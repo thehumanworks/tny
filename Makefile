@@ -9,7 +9,9 @@ WARN     = -Wall -Wextra -Werror -Wno-deprecated-declarations
 INC      = -Iinclude -Isrc -Ithird_party -Ithird_party/yyjson -Ithird_party/picohttpparser \
            -Ithird_party/wslay -Ithird_party/wslay/wslay -Ithird_party/greatest
 DEFS     = -DHAVE_ARPA_INET_H -DHAVE_NETINET_IN_H -D_DARWIN_C_SOURCE \
-           -D_DEFAULT_SOURCE -D_BSD_SOURCE
+           -D_DEFAULT_SOURCE -D_BSD_SOURCE \
+           -DTNY_SHELL_PATH=\"$(TNY_SHELL_PATH)\"
+TNY_SHELL_PATH ?= /bin/sh
 
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
 UNAME_M := $(shell uname -m 2>/dev/null || echo unknown)
@@ -256,7 +258,7 @@ else
   SIZE_MAX ?= 1572864
 endif
 
-.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib lib-shared lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
+.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
 all: release
 
@@ -306,10 +308,11 @@ $(OBJ_FUZZ)/%.o: %.c | $(VERSION_H)
 	$(FUZZ_CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FUZZ_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FUZZ_CFLAGS)) -MMD -MP -c -o $@ $<
 
 ifeq ($(LIBTNY_SHARED_SUPPORTED),1)
-lib-shared: $(LIB_LINK) $(LIB_COMPAT0_REAL)
+lib-shared-active: $(LIB_LINK)
+lib-shared: lib-shared-active $(LIB_COMPAT0_REAL)
 lib-shared-compat0: $(LIB_COMPAT0_REAL)
 else
-lib-shared lib-shared-compat0:
+lib-shared lib-shared-active lib-shared-compat0:
 	@echo "error: ABI 1 shared libtny is supported only on macOS arm64 and glibc Linux x86_64/aarch64 dynamic builds" >&2
 	@exit 2
 endif
@@ -576,6 +579,15 @@ install: release
 	cp python/tny_ext/*.py python/tny_ext/py.typed \
 		$(DESTDIR)$(PREFIX)/lib/tny/tny_ext/
 
+install-lib-active: lib-shared-active
+	mkdir -p $(DESTDIR)$(PREFIX)/include/tny \
+		$(DESTDIR)$(PREFIX)/lib/pkgconfig
+	cp include/tny/tny.h $(DESTDIR)$(PREFIX)/include/tny/tny.h
+	cp -P $(LIB_REAL) $(LIB_LINK) $(DESTDIR)$(PREFIX)/lib/
+	sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@VERSION@|$(TNY_VERSION)|g' \
+		libtny.pc.in > \
+		$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny.pc
+
 install-lib: lib-shared
 	mkdir -p $(DESTDIR)$(PREFIX)/include/tny \
 		$(DESTDIR)$(PREFIX)/include/tny-0/tny \
@@ -595,7 +607,7 @@ install-lib: lib-shared
 site:
 	python3 scripts/site_build.py
 
-# ---- quality gates (docs/adr/0035) --------------------------------------
+# ---- quality gates (docs/adr/0039) --------------------------------------
 # `make quality` is the authoritative first-party lint/format/analysis
 # aggregate; CI runs it in a fast job before the platform matrix. Tool
 # versions are pinned in .github/workflows/ci.yml; locally you can point

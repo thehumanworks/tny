@@ -1,4 +1,4 @@
-# 0035 — First-party quality gates: `make quality` and a fast CI job
+# 0039 — First-party quality gates: `make quality` and a fast CI job
 
 Date: 2026-08-27
 Status: accepted

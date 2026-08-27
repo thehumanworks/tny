@@ -19,10 +19,18 @@ workflow (`.github/workflows/ci.yml`).
 The Pages workflow also builds `tny-web.mjs` with emsdk and publishes it
 under `assets/wasm/` — the landing terminal is the CI-tested artifact.
 
+A separate `nix` workflow (`.github/workflows/nix.yml`) runs `nix flake check`
+on `ubuntu-24.04` and `macos-15`: it builds `packages.tny` (whose `checkPhase`
+is `make size-check`), `packages.libtny`, and `checks.tests` — the whole
+`make test` suite in a sandbox — then smokes the built binary and asserts it
+reports this commit's revision. See [nix.md](nix.md) and
+[ADR 0035](adr/0035-nix-flake-packaging.md). It publishes no artifact; Nix
+users build from source.
+
 The Linux glibc and Darwin jobs also stage active ABI-1 `libtny` plus the
 frozen ABI-0.8 compatibility library/header/pkg-config identity as
 `libtny-<os>-<arch>`. MSYS2, musl-static, and wasm do not publish a public
-shared-library artifact ([ADR 0036](adr/0036-libtny-abi-1.md)).
+shared-library artifact ([ADR 0037](adr/0037-libtny-abi-1.md)).
 
 The dedicated SDK workflow (`.github/workflows/sdk.yml`) runs the Python and
 Node version/platform matrices, cross-language conformance, clean package
@@ -113,4 +121,5 @@ make test-sdks         # Python and TypeScript SDK + conformance adapters
 make size-check        # fail if over the host budget
 make STATIC=1 release  # musl static, on Alpine or a musl toolchain
 make pack TRIPLE=linux-x86_64
+nix flake check        # the same suite, hermetically (docs/nix.md)
 ```

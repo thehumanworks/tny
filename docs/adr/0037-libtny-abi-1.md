@@ -1,4 +1,4 @@
-# 0036 — libtny ABI 1 freezes a sized-prefix C contract and platform compatibility policy
+# 0037 — libtny ABI 1 freezes a sized-prefix C contract and platform compatibility policy
 
 Date: 2026-08-27
 Status: accepted and active
@@ -190,7 +190,7 @@ compatibility job. Source fixtures are checked in and compile with `-std=c11
 -Wall -Wextra -Werror` plus a C++17 `-Werror` header consumer.
 
 This ADR supersedes ADR 0023 for compatibility and packaging policy. ADRs
-0023, 0032, 0033, 0035 and 0037 remain authoritative for lifecycle,
+0023, 0032, 0033, 0036 and 0038 remain authoritative for lifecycle,
 capability, host-service and custom-tool semantics.
 
 ## Consequences

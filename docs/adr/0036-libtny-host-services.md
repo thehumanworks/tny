@@ -1,4 +1,4 @@
-# 0035 — libtny host services use a copied, non-reentrant v1 table
+# 0036 — libtny host services use a copied, non-reentrant v1 table
 
 Date: 2026-08-27
 Status: accepted

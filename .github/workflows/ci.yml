@@ -24,7 +24,7 @@ permissions:
   contents: read
 
 jobs:
-  # Fast first-party quality gate (docs/adr/0035): format, clang-tidy,
+  # Fast first-party quality gate (docs/adr/0039): format, clang-tidy,
   # strict warnings (gcc + clang), GCC -fanalyzer, Ruff, ShellCheck, shfmt,
   # actionlint, JS syntax. Tool versions are pinned here — formatter output
   # changes between major versions, so bumps are deliberate.

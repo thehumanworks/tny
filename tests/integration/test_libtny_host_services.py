@@ -341,7 +341,7 @@ def python_callback_consumer(library: Path, workspace: Path) -> None:
 
 
 def main() -> None:
-    run(["make", "lib-shared"])
+    run(["make", "lib-shared-active"])
     suffix = "libtny.1.dylib" if platform.system() == "Darwin" else "libtny.so.1"
     library = (ROOT / "build/lib" / suffix).resolve(strict=True)
     with tempfile.TemporaryDirectory(prefix="tny-host-services-") as temporary:

@@ -1,5 +1,5 @@
 /* libtny ABI 1 — stable headless embedding API.
- * See docs/adr/0036-libtny-abi-1.md. */
+ * See docs/adr/0037-libtny-abi-1.md. */
 #ifndef LIBTNY_TNY_H
 #define LIBTNY_TNY_H
 

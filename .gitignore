@@ -1,5 +1,7 @@
 # Build
 /build/
+/result
+/result-*
 /build-*/
 /dist/
 /out/

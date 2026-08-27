@@ -220,7 +220,7 @@ def main() -> None:
     prebuilt_host = os.environ.get("TNY_CUSTOM_TOOL_HOST")
     library: Path | None = None
     if not prebuilt_host:
-        subprocess.run(["make", "lib-shared"], cwd=ROOT, check=True, timeout=180)
+        subprocess.run(["make", "lib-shared-active"], cwd=ROOT, check=True, timeout=180)
         suffix = "libtny.1.dylib" if platform.system() == "Darwin" else "libtny.so.1"
         library = (ROOT / "build/lib" / suffix).resolve(strict=True)
     port = free_port()

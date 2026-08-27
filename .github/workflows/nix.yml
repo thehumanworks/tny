@@ -1,0 +1,85 @@
+# Keep the flake honest (docs/nix.md, docs/adr/0035).
+#
+# `nix flake check` builds packages.tny (which gates the size budget in its
+# checkPhase), packages.libtny, and checks.tests — the whole `make test` suite
+# in a sandbox. Fixture-only; no live keys.
+#
+# No path filter: checks.tests reads docs/, site/ and scripts/ as well as the
+# sources, so almost any change can move it.
+#
+# Linux runs x86_64, macOS runs Apple Silicon only. Never add an Intel Mac
+# runner — aarch64-darwin is the only Darwin system the flake claims.
+
+name: nix
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: nix-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: nix-linux-x86_64
+            os: ubuntu-24.04
+          - name: nix-darwin-arm64
+            os: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Require Apple Silicon (not Intel x86)
+        if: runner.os == 'macOS'
+        run: |
+          set -eu
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "aarch64-darwin is the only Darwin system the flake claims." >&2
+            exit 1
+          fi
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: nix flake check
+        run: nix flake check --print-build-logs
+
+      - name: Smoke the built binary
+        run: |
+          set -eu
+          nix build .#tny --print-build-logs
+          ./result/bin/tny --version
+          ./result/bin/tny --help > /dev/null
+          ./result/bin/tny doctor --json > /dev/null
+
+      # No version string is committed (docs/adr/0014); the flake stamps its
+      # own revision, so a build from this checkout must report this commit.
+      - name: Version reports the flake revision
+        run: |
+          set -eu
+          got=$(./result/bin/tny --version | sed 's/-dirty$//')
+          want=$(git rev-parse HEAD | cut -c1-7)
+          echo "tny --version=$got  HEAD=$want"
+          test "$got" = "$want"
+
+      - name: Non-flake entry points still evaluate
+        run: |
+          set -eu
+          nix-instantiate default.nix -A tny > /dev/null
+          nix-instantiate default.nix -A libtny > /dev/null
+          nix-instantiate shell.nix > /dev/null
