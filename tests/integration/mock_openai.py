@@ -166,9 +166,10 @@ class Handler(BaseHTTPRequestHandler):
     def _finish_close(self):
         if CONNECTION_CLOSE and not DROP_REUSED_ONCE:
             try:
-                self.connection.shutdown(socket.SHUT_WR)
+                self.connection.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
+            self.connection.close()
 
     def _json(self, code, obj):
         body = json.dumps(obj).encode()
