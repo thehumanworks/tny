@@ -7,6 +7,79 @@
 #include <stdlib.h>
 #include <string.h>
 
+void cli_print_still_running(tny_ctx *ctx, const char *id) {
+    pid_t p = session_read_pid(ctx, id);
+    if (p > 0)
+        fprintf(stderr, "tny: session %s is still running (pid %d)\n",
+                id, (int)p);
+    else
+        fprintf(stderr, "tny: session %s is still running\n", id);
+    fprintf(stderr,
+            "  watch:     tny session %s\n"
+            "  stop:      tny session stop %s\n"
+            "  take over: tny ask --resume %s --steer \"new prompt\"\n",
+            id, id, id);
+}
+
+/* One line, newlines flattened, truncated at a UTF-8 boundary. */
+static void print_excerpt(const char *s, size_t max) {
+    size_t len = strlen(s);
+    size_t n = len;
+    if (n > max) {
+        n = max;
+        while (n && ((unsigned char)s[n] & 0xC0) == 0x80) n--; /* boundary */
+    }
+    for (size_t i = 0; i < n; i++)
+        putchar(s[i] == '\n' || s[i] == '\r' || s[i] == '\t' ? ' ' : s[i]);
+    if (n < len) printf("… (%zu bytes)", len);
+}
+
+/* Print body text; guarantee exactly one trailing newline. */
+static void print_block(const char *s) {
+    size_t len = strlen(s);
+    fwrite(s, 1, len, stdout);
+    if (!len || s[len - 1] != '\n') printf("\n");
+}
+
+/* Readable transcript: full user/assistant text, one compact line per tool
+ * call (⏺, mirroring the ask progress lines) and per tool result (✓). */
+static void print_transcript(yyjson_mut_val *msgs) {
+    size_t i, n;
+    yyjson_mut_val *m;
+    yyjson_mut_arr_foreach(msgs, i, n, m) {
+        const char *role = yyjson_mut_get_str(yyjson_mut_obj_get(m, "role"));
+        const char *content = yyjson_mut_get_str(yyjson_mut_obj_get(m, "content"));
+        if (!role) continue;
+        if (strcmp(role, "tool") == 0) {
+            printf("  ✓ ");
+            print_excerpt(content ? content : "", 120);
+            printf("\n");
+            continue;
+        }
+        yyjson_mut_val *tcs = yyjson_mut_obj_get(m, "tool_calls");
+        bool has_text = content && *content;
+        if (has_text || !tcs) {
+            printf("\n%s:\n", role);
+            print_block(has_text ? content : "(empty)");
+        }
+        if (yyjson_mut_is_arr(tcs)) {
+            if (!has_text) printf("\n%s:\n", role);
+            size_t j, jn;
+            yyjson_mut_val *tc;
+            yyjson_mut_arr_foreach(tcs, j, jn, tc) {
+                yyjson_mut_val *fn = yyjson_mut_obj_get(tc, "function");
+                const char *name = fn
+                    ? yyjson_mut_get_str(yyjson_mut_obj_get(fn, "name")) : NULL;
+                const char *args = fn
+                    ? yyjson_mut_get_str(yyjson_mut_obj_get(fn, "arguments")) : NULL;
+                printf("  ⏺ %s ", name ? name : "?");
+                print_excerpt(args ? args : "", 100);
+                printf("\n");
+            }
+        }
+    }
+}
+
 int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = g->json, all = false;
     int limit = 25;
@@ -199,6 +272,7 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         yyjson_mut_val *msgs = session_messages(s);
         size_t total = msgs ? yyjson_mut_arr_size(msgs) : 0;
         printf("messages: %zu\n", total);
+        if (total) print_transcript(msgs);
         /* Stored result: the read surface for host-backend answers (their
          * transcripts hold only a resume pointer). */
         if (!live && st && strcmp(st, "running") != 0) {
@@ -207,19 +281,25 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             const char *out = res
                 ? yyjson_mut_get_str(yyjson_mut_obj_get(res, "output")) : NULL;
             if (out && *out) {
-                printf("result:\n%s", out);
-                if (out[strlen(out) - 1] != '\n') printf("\n");
+                printf("\nresult:\n");
+                print_block(out);
             }
         }
         char *rec = session_recovery_read(s);
         if (rec) {
             if (live)
-                printf("partial output: %zu bytes (live)\n", strlen(rec));
+                printf("\npartial output (live, %zu bytes):\n", strlen(rec));
             else
-                printf("recoverable partial response: %zu bytes "
-                       "(tny ask --resume %s --continue-recovery)\n",
+                printf("\nrecoverable partial response (%zu bytes; resume: "
+                       "tny ask --resume %s --continue-recovery):\n",
                        strlen(rec), s->id);
+            print_block(rec);
             free(rec);
+        } else if (live) {
+            /* Nothing streamed yet: say so instead of leaving an empty
+             * screen, and point at the child's progress log. */
+            printf("\n(no output yet — partial text appears here as the "
+                   "task streams; tool progress: %s/task.log)\n", s->dir);
         }
     }
     session_close(s);
@@ -242,12 +322,7 @@ int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     if (probe && session_lock_acquire(probe) != 0) {
         /* another process (a background child or foreground resume) is
          * running a turn on this session (docs/adr/0031 decision 7) */
-        pid_t p = session_read_pid(ctx, probe->id);
-        if (p > 0)
-            fprintf(stderr, "tny: session %s is still running (pid %d)\n",
-                    probe->id, (int)p);
-        else
-            fprintf(stderr, "tny: session %s is still running\n", probe->id);
+        cli_print_still_running(ctx, probe->id);
         session_close(probe);
         return 1;
     }

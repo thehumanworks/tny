@@ -48,6 +48,10 @@ int cli_ssh_attach(tny_ctx *ctx, const char *target, const char *remote_cwd);
 /* Build ctx from globals (loads settings). NULL = startup error. */
 tny_ctx *cli_make_ctx(const cli_globals *g);
 
+/* "session <id> is still running (pid N)" + watch/stop/steer hints, on
+ * stderr. Shared by every lock-refusal path (docs/adr/0031 decision 7). */
+void cli_print_still_running(tny_ctx *ctx, const char *id);
+
 /* Commands. Each returns the process exit code. */
 int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

@@ -170,6 +170,15 @@ def main():
                 "task.log is empty"
             child = int(open(os.path.join(sdir, "pid")).read())
             poll(lambda: pid_gone(child), 10, "happy-path child exit")
+            # plain `tny session <id>` must be readable: transcript text and
+            # the stored result, not just counts (04b observability)
+            rv0 = subprocess.run([TNY, "--cwd", ctx.ws, "session", sid],
+                                 env=env, capture_output=True, timeout=15)
+            assert rv0.returncode == 0, rv0.stderr.decode()
+            view = rv0.stdout.decode()
+            assert "user:" in view and "list files in ." in view, view
+            assert "result:" in view and "MOCK-OK" in view, view
+            assert "⏺ list_files" in view, view
             print("ok: happy path")
 
             # ---- result parity: stored result == foreground --json ----
@@ -221,7 +230,27 @@ def main():
                 f"exit {rc.returncode}: {rc.stderr.decode()}"
             want = f"tny: session {hsid} is still running (pid {hpid})"
             assert want in rc.stderr.decode(), rc.stderr.decode()
+            # the refusal must be actionable: watch / stop / steer hints
+            assert f"tny session stop {hsid}" in rc.stderr.decode(), \
+                rc.stderr.decode()
+            assert "--steer" in rc.stderr.decode(), rc.stderr.decode()
             print("ok: lock contention refusal")
+
+            # ---- live readability: nothing streamed yet says so; a
+            # checkpointed partial is printed as text, not a byte count ----
+            rl0 = subprocess.run([TNY, "--cwd", ctx.ws, "session", hsid],
+                                 env=env, capture_output=True, timeout=15)
+            assert rl0.returncode == 0, rl0.stderr.decode()
+            assert "no output yet" in rl0.stdout.decode(), rl0.stdout.decode()
+            with open(os.path.join(hdir, "recovery.json"), "w") as f:
+                json.dump({"partial": "PARTIAL-SO-FAR"}, f)
+            rl1 = subprocess.run([TNY, "--cwd", ctx.ws, "session", hsid],
+                                 env=env, capture_output=True, timeout=15)
+            assert rl1.returncode == 0, rl1.stderr.decode()
+            lview = rl1.stdout.decode()
+            assert "partial output (live" in lview, lview
+            assert "PARTIAL-SO-FAR" in lview, lview
+            print("ok: live partial readable")
 
             rs = subprocess.run(
                 [TNY, "--cwd", ctx.ws, "session", "stop", hsid],

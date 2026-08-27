@@ -331,6 +331,14 @@ Where the output goes: the answer lands in the session transcript and the
 [features/sessions.md](features/sessions.md) for the on-disk layout,
 status lifecycle, and staleness rules.
 
+Reading the output: plain `tny session <id>` is human-readable — after the
+stats it prints the transcript (full user/assistant text; one compact `⏺`
+line per tool call, `✓` per tool result), then the stored `result` for a
+finished run or the live checkpointed partial text for a running one
+(refreshed on a ~2 s cadence; rerun the command to poll). A live run with
+nothing streamed yet says so and points at `task.log`. `--json` dumps the
+raw document for scripts.
+
 Composition and preconditions:
 
 - `-B --resume <id>` backgrounds a follow-up turn on an existing session.
@@ -360,6 +368,9 @@ Bare `--resume` on a session whose turn is still running fails, exit 1:
 
 ```text
 tny: session <id> is still running (pid N)
+  watch:     tny session <id>
+  stop:      tny session stop <id>
+  take over: tny ask --resume <id> --steer "new prompt"
 ```
 
 Taking over must be explicit: `--steer "…"` is interrupt-and-redirect. It

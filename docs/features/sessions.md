@@ -53,7 +53,9 @@ flock is *free* means the writer crashed. Liveness is the lock probe (a
 non-blocking shared flock attempt), not `kill(pid,0)` — immune to PID
 reuse, and `flock`'s self-release on crash means no stale-lock cleanup
 exists, ever. `tny session <id>` reports `running (pid N)` or
-`running (stale — process gone)` accordingly, and only advertises
+`running (stale — process gone)` accordingly, prints the transcript and the
+checkpointed partial text of a live run (so a backgrounded turn is readable
+while it streams — rerun to poll), and only advertises
 `--continue-recovery` for runs that are no longer live. A `running` session
 with no `pid` file yet is "starting" (a milliseconds-wide window between
 fork and the child's first writes).

@@ -219,15 +219,6 @@ static void bg_finalize(tny_ctx *ctx, tny_session_state *session, ask_state *st,
     session_lock_release(session);
 }
 
-static void print_still_running(tny_ctx *ctx, const char *id) {
-    pid_t p = session_read_pid(ctx, id);
-    if (p > 0)
-        fprintf(stderr, "tny: session %s is still running (pid %d)\n",
-                id, (int)p);
-    else
-        fprintf(stderr, "tny: session %s is still running\n", id);
-}
-
 /* --output-schema VALUE: inline JSON when VALUE starts with '{', otherwise a
  * file path. Normalizes into ctx->output_schema (response_format JSON).
  * Returns 0 ok, -1 error (message already printed). */
@@ -455,7 +446,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 steer_takeover = true;
                 continue_recovery = true;
             } else {
-                print_still_running(ctx, sid);
+                cli_print_still_running(ctx, sid);
                 free(sid);
                 abort_backend(bk, connecting && job.rc == 0);
                 session_close(session);
@@ -465,7 +456,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             free(sid);
         }
         if (lrc != 0) {
-            print_still_running(ctx, session->id);
+            cli_print_still_running(ctx, session->id);
             abort_backend(bk, connecting && job.rc == 0);
             session_close(session);
             buf_free(&prompt);
