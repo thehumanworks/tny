@@ -221,6 +221,18 @@ def assert_tls_close_is_guarded() -> None:
     ), "SecureTransport callback writes are not guarded"
     assert re.search(
         r"sigpipe_guard_begin\(&guard\);\s*"
+        r"rc = st_api\.handshake\(.+?sigpipe_guard_end\(&guard\);",
+        source,
+        re.DOTALL,
+    ), "SecureTransport handshake is not guarded"
+    assert re.search(
+        r"sigpipe_guard_begin\(&guard\);\s*"
+        r"st_api\.close\(.+?sigpipe_guard_end\(&guard\);",
+        source,
+        re.DOTALL,
+    ), "SecureTransport close is not guarded"
+    assert re.search(
+        r"sigpipe_guard_begin\(&guard\);\s*"
         r"ossl\.shutdown\(.+?sigpipe_guard_end\(&guard\);",
         source,
         re.DOTALL,

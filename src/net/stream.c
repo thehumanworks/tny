@@ -358,7 +358,12 @@ nstream *nstream_connect(const char *host, int port, bool tls, int timeout_ms, c
     st_api.set_peer(s->ssl, host, strlen(host));
     st_api.set_min(s->ssl, kTLSProtocol12);
     OSStatus rc;
-    while ((rc = st_api.handshake(s->ssl)) == errSSLWouldBlock) {
+    for (;;) {
+        sigpipe_guard guard;
+        sigpipe_guard_begin(&guard);
+        rc = st_api.handshake(s->ssl);
+        sigpipe_guard_end(&guard);
+        if (rc != errSSLWouldBlock) break;
         int left = deadline_left_ms(deadline);
         if (left == 0) {
             rc = errSecIO;
@@ -527,9 +532,12 @@ void nstream_close(nstream *s) {
     if (!s) return;
 #ifdef __APPLE__
     if (s->ssl) {
-        /* SSLClose may emit close_notify through st_write, which owns the
-         * per-thread SIGPIPE guard. */
+        /* SecureTransport usually emits close_notify through st_write, but
+         * guard the framework call too: some OS revisions write directly. */
+        sigpipe_guard guard;
+        sigpipe_guard_begin(&guard);
         st_api.close(s->ssl);
+        sigpipe_guard_end(&guard);
         st_api.cf_release(s->ssl);
     }
 #elif defined(__linux__)
