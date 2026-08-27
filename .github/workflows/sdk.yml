@@ -48,7 +48,9 @@ jobs:
           TNY_TEST_LIBRARY: ${{ github.workspace }}/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}
         run: |
           set -eu
-          if [ "$(uname -s)" = Darwin ]; then export MOCK_CONNECTION_CLOSE=1; fi
+          if [ "$(uname -s)" = Darwin ]; then
+            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576
+          fi
           python -m unittest discover -s sdk/python/tests -p 'test_*.py' -v
           mypy --strict sdk/python/src/tny sdk/python/tests/typecheck_usage.py
       - name: Run reference ABI conformance
@@ -61,7 +63,7 @@ jobs:
           conformance_timeout=180
           if [ "$(uname -s)" = Darwin ]; then
             conformance_timeout=600
-            export MOCK_CONNECTION_CLOSE=1
+            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576
           fi
           mkdir -p "$PWD/dist/conformance"
           python sdk/conformance/run.py \
@@ -95,7 +97,7 @@ jobs:
           conformance_timeout=180
           if [ "$(uname -s)" = Darwin ]; then
             conformance_timeout=600
-            export MOCK_CONNECTION_CLOSE=1
+            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576
           fi
           wheel="$(find "$PWD/dist/python-bundled" -name '*.whl' -type f -print -quit)"
           discovery_wheel="$(find "$PWD/dist/python-discovery" -name '*.whl' -type f -print -quit)"
@@ -183,7 +185,7 @@ jobs:
           conformance_timeout=180
           if [ "$(uname -s)" = Darwin ]; then
             conformance_timeout=600
-            export MOCK_CONNECTION_CLOSE=1
+            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576
           fi
           npm --prefix sdk/typescript test
           mkdir -p "$PWD/dist/conformance"
@@ -214,7 +216,7 @@ jobs:
           conformance_timeout=180
           if [ "$(uname -s)" = Darwin ]; then
             conformance_timeout=600
-            export MOCK_CONNECTION_CLOSE=1
+            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576
           fi
           package_dir="$PWD/dist/node"
           mkdir -p "$package_dir"

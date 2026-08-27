@@ -37,6 +37,7 @@ Env knobs:
                       headers, exercising the reused-connection read retry
   MOCK_CONNECTION_CLOSE
                       send complete responses with Connection: close
+  MOCK_CHUNK_WIDTH    responses wire HTTP chunk width (default 17)
 
 The responses wire streams TWO parallel tool calls (list_files +
 glob_files). The second one's output_item.added carries only the item id;
@@ -53,6 +54,7 @@ With certfile/keyfile the mock serves HTTPS (used by test_https.py).
 """
 import json
 import os
+import socket
 import ssl
 import sys
 import time
@@ -78,6 +80,9 @@ ERROR_SECRET = os.environ.get("MOCK_ERROR_SECRET", "mock status failure")
 TRUNCATED_TERMINAL = os.environ.get("MOCK_TRUNCATED_TERMINAL") == "1"
 DROP_REUSED_ONCE = os.environ.get("MOCK_DROP_REUSED_ONCE") == "1"
 CONNECTION_CLOSE = os.environ.get("MOCK_CONNECTION_CLOSE") == "1"
+CHUNK_WIDTH = int(os.environ.get("MOCK_CHUNK_WIDTH", "17"))
+if CHUNK_WIDTH < 1:
+    raise ValueError("MOCK_CHUNK_WIDTH must be positive")
 _drop_reused_done = False
 EXPECT_EXTENSION_REWRITE = os.environ.get("MOCK_EXPECT_EXTENSION_REWRITE") == "1"
 EXPECT_TOOL_OUTPUT = os.environ.get("MOCK_EXPECT_TOOL_OUTPUT")
@@ -132,6 +137,10 @@ def unpaired_tool_calls(messages):
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+
+    def setup(self):
+        super().setup()
+        self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
     def log_message(self, *a):
         pass
@@ -503,8 +512,8 @@ class Handler(BaseHTTPRequestHandler):
         # pays the platform's stale-socket retry deadline. One explicit fixture
         # mode retains the abrupt, unterminated close regression.
         wire = b"".join(sse_typed(e) for e in events)
-        for i in range(0, len(wire), 17):
-            self._chunk(wire[i:i+17])
+        for i in range(0, len(wire), CHUNK_WIDTH):
+            self._chunk(wire[i:i+CHUNK_WIDTH])
         # The deterministic reused-read retry requires a clean first response;
         # it takes precedence when a broader CI lane requests truncated
         # terminal fixtures for other scenarios.
