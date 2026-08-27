@@ -44,6 +44,7 @@ static void print_transcript(yyjson_mut_val *msgs) {
     size_t i, n;
     yyjson_mut_val *m;
     yyjson_mut_arr_foreach(msgs, i, n, m) {
+        if (!m) break;
         const char *role = yyjson_mut_get_str(yyjson_mut_obj_get(m, "role"));
         const char *content = yyjson_mut_get_str(yyjson_mut_obj_get(m, "content"));
         if (!role) continue;
@@ -64,6 +65,7 @@ static void print_transcript(yyjson_mut_val *msgs) {
             size_t j, jn;
             yyjson_mut_val *tc;
             yyjson_mut_arr_foreach(tcs, j, jn, tc) {
+                if (!tc) break;
                 yyjson_mut_val *fn = yyjson_mut_obj_get(tc, "function");
                 const char *name = fn ? yyjson_mut_get_str(yyjson_mut_obj_get(fn, "name")) : NULL;
                 const char *args =
