@@ -77,7 +77,8 @@ leading `--wire-api responses|chat` flag (beats both, one run).**
   fixture drops a reused POST before its first response byte; that cleanly
   completed keep-alive re-POSTs once on a fresh
   connection instead of failing the turn with "connection lost before
-  response".
+  response". A complete response carrying HTTP/1.1 `Connection: close` is
+  also discarded before the next POST rather than waiting for EOF discovery.
 
 ## Consequences
 

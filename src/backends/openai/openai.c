@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <poll.h>
 
 #define OPENAI_DEFAULT_MODEL "gpt-4.1-mini"
@@ -1148,6 +1149,20 @@ static void oa_disconnect(tny_backend *b) {
     if (o->conn) { http_close(o->conn); o->conn = NULL; }
 }
 
+static bool response_requests_close(oa_impl *o) {
+    const char *value = o && o->conn ? http_header(o->conn, "Connection") : NULL;
+    while (value && *value) {
+        while (*value == ' ' || *value == '\t' || *value == ',') value++;
+        const char *end = value;
+        while (*end && *end != ',') end++;
+        while (end > value && (end[-1] == ' ' || end[-1] == '\t')) end--;
+        if ((size_t)(end - value) == 5 && strncasecmp(value, "close", 5) == 0)
+            return true;
+        value = *end ? end + 1 : end;
+    }
+    return false;
+}
+
 static int oa_create_or_resume(tny_backend *b, const char *ptr, char *e, size_t el) {
     (void)b; (void)ptr; (void)e; (void)el;
     return 0; /* session handling is local */
@@ -1347,13 +1362,15 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             continue;
         }
         /* 0 = body complete; -1 = transport error mid-stream */
-        if (bn < 0) {
+        bool close_response = bn == 0 && response_requests_close(o);
+        if (bn < 0 || close_response) {
             /* A terminal SSE event can make the logical response complete
              * before an abruptly closed chunked body reports its truncated
              * transport.  That socket is known dead: retaining it makes the
              * tool-result POST depend on the OS eventually surfacing a stale
              * keep-alive read failure (tens of seconds on some macOS hosts).
-             * Discard it now; step_finished opens a fresh connection. */
+             * A completed `Connection: close` response is equally unusable.
+             * Discard either now; step_finished opens a fresh connection. */
             oa_disconnect(b);
         }
         if (bn < 0 && !o->stream_done) {

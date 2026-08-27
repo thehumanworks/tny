@@ -35,6 +35,8 @@ Env knobs:
   MOCK_DROP_REUSED_ONCE
                       responses wire: close the first tool-output POST before
                       headers, exercising the reused-connection read retry
+  MOCK_CONNECTION_CLOSE
+                      send complete responses with Connection: close
 
 The responses wire streams TWO parallel tool calls (list_files +
 glob_files). The second one's output_item.added carries only the item id;
@@ -75,6 +77,7 @@ HTTP_STATUS = int(os.environ.get("MOCK_HTTP_STATUS", "0"))
 ERROR_SECRET = os.environ.get("MOCK_ERROR_SECRET", "mock status failure")
 TRUNCATED_TERMINAL = os.environ.get("MOCK_TRUNCATED_TERMINAL") == "1"
 DROP_REUSED_ONCE = os.environ.get("MOCK_DROP_REUSED_ONCE") == "1"
+CONNECTION_CLOSE = os.environ.get("MOCK_CONNECTION_CLOSE") == "1"
 _drop_reused_done = False
 EXPECT_EXTENSION_REWRITE = os.environ.get("MOCK_EXPECT_EXTENSION_REWRITE") == "1"
 EXPECT_TOOL_OUTPUT = os.environ.get("MOCK_EXPECT_TOOL_OUTPUT")
@@ -152,8 +155,12 @@ class Handler(BaseHTTPRequestHandler):
         self._cors()
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if CONNECTION_CLOSE and not DROP_REUSED_ONCE:
+            self.send_header("Connection", "close")
+            self.close_connection = True
         self.end_headers()
         self.wfile.write(body)
+        self.wfile.flush()
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -173,6 +180,9 @@ class Handler(BaseHTTPRequestHandler):
         self._cors()
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Transfer-Encoding", "chunked")
+        if CONNECTION_CLOSE and not DROP_REUSED_ONCE:
+            self.send_header("Connection", "close")
+            self.close_connection = True
         self.end_headers()
 
     def do_GET(self):
@@ -501,7 +511,8 @@ class Handler(BaseHTTPRequestHandler):
         truncated_terminal = TRUNCATED_TERMINAL and not DROP_REUSED_ONCE
         if not truncated_terminal:
             self._chunk(b"")
-        self.close_connection = truncated_terminal
+        self.close_connection = truncated_terminal or (
+            CONNECTION_CLOSE and not DROP_REUSED_ONCE)
 
     def _answer_text(self, req, tool_output, structured):
         if SENSITIVE:
