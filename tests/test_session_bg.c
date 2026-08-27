@@ -394,6 +394,7 @@ TEST bg_stop_without_pid_file_errors(void) {
 /* stop --kill on an unwritable session dir: the SIGKILL lands but the
  * terminal status cannot be recorded — that is an error, not a success. */
 TEST bg_stop_kill_unwritable_status_errors(void) {
+    if (geteuid() == 0) SKIP(); /* root can rewrite chmod(0500) directories */
     bg_env e;
     bg_env_begin(&e);
     tny_ctx *ctx = tny_ctx_load(e.workspace);
