@@ -72,6 +72,7 @@ jobs:
           # Ubuntu's cc is gcc; macOS is clang. Keep Linux on gcc so ASan
           # links libasan (clang on some images lacks the compiler-rt asan libs).
           if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
+          if [ "$(uname -s)" = Darwin ]; then export MOCK_TRUNCATED_TERMINAL=1; fi
           make -j"$jobs" test
           make test-libtny-fault
           make size-check SIZE_MAX="${{ matrix.size_max }}"

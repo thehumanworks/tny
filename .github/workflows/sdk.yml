@@ -48,6 +48,7 @@ jobs:
           TNY_TEST_LIBRARY: ${{ github.workspace }}/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}
         run: |
           set -eu
+          if [ "$(uname -s)" = Darwin ]; then export MOCK_TRUNCATED_TERMINAL=1; fi
           python -m unittest discover -s sdk/python/tests -p 'test_*.py' -v
           mypy --strict sdk/python/src/tny sdk/python/tests/typecheck_usage.py
       - name: Run reference ABI conformance
@@ -58,7 +59,10 @@ jobs:
         run: |
           set -eu
           conformance_timeout=180
-          if [ "$(uname -s)" = Darwin ]; then conformance_timeout=600; fi
+          if [ "$(uname -s)" = Darwin ]; then
+            conformance_timeout=600
+            export MOCK_TRUNCATED_TERMINAL=1
+          fi
           mkdir -p "$PWD/dist/conformance"
           python sdk/conformance/run.py \
             --artifact "$PWD/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}" \
@@ -89,7 +93,10 @@ jobs:
         run: |
           set -eu
           conformance_timeout=180
-          if [ "$(uname -s)" = Darwin ]; then conformance_timeout=600; fi
+          if [ "$(uname -s)" = Darwin ]; then
+            conformance_timeout=600
+            export MOCK_TRUNCATED_TERMINAL=1
+          fi
           wheel="$(find "$PWD/dist/python-bundled" -name '*.whl' -type f -print -quit)"
           discovery_wheel="$(find "$PWD/dist/python-discovery" -name '*.whl' -type f -print -quit)"
           envdir="$(mktemp -d)"
@@ -174,7 +181,10 @@ jobs:
         run: |
           set -eu
           conformance_timeout=180
-          if [ "$(uname -s)" = Darwin ]; then conformance_timeout=600; fi
+          if [ "$(uname -s)" = Darwin ]; then
+            conformance_timeout=600
+            export MOCK_TRUNCATED_TERMINAL=1
+          fi
           npm --prefix sdk/typescript test
           mkdir -p "$PWD/dist/conformance"
           python3 sdk/conformance/run.py \
@@ -202,7 +212,10 @@ jobs:
         run: |
           set -eu
           conformance_timeout=180
-          if [ "$(uname -s)" = Darwin ]; then conformance_timeout=600; fi
+          if [ "$(uname -s)" = Darwin ]; then
+            conformance_timeout=600
+            export MOCK_TRUNCATED_TERMINAL=1
+          fi
           package_dir="$PWD/dist/node"
           mkdir -p "$package_dir"
           (cd sdk/typescript && npm pack --pack-destination "$package_dir")

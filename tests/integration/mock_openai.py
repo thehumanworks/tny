@@ -495,9 +495,13 @@ class Handler(BaseHTTPRequestHandler):
         wire = b"".join(sse_typed(e) for e in events)
         for i in range(0, len(wire), 17):
             self._chunk(wire[i:i+17])
-        if not TRUNCATED_TERMINAL:
+        # The deterministic reused-read retry requires a clean first response;
+        # it takes precedence when a broader CI lane requests truncated
+        # terminal fixtures for other scenarios.
+        truncated_terminal = TRUNCATED_TERMINAL and not DROP_REUSED_ONCE
+        if not truncated_terminal:
             self._chunk(b"")
-        self.close_connection = TRUNCATED_TERMINAL
+        self.close_connection = truncated_terminal
 
     def _answer_text(self, req, tool_output, structured):
         if SENSITIVE:
