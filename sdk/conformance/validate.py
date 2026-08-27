@@ -216,8 +216,9 @@ def validate_report(report: Any, contract: Mapping[str, Any], artifact: Path,
         execution_ids.add(execution["id"])
         if execution["exit_code"] == 0:
             successful.add(execution["id"])
-    _need(successful == execution_ids,
-          "every recorded adapter execution must exit successfully")
+    failed_executions = sorted(execution_ids - successful)
+    _need(not failed_executions,
+          f"adapter executions failed: {failed_executions}")
 
     capabilities = report["capabilities"]
     results = report["scenarios"]

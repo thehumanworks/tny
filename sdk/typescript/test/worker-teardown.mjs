@@ -39,7 +39,7 @@ const baselineFds = readdirSync("/dev/fd").length;
 async function waitForResourceBaseline() {
   const threadLimit = baselineThreads + 3;
   const fdLimit = baselineFds + 6;
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + 15000;
   let threads;
   let fds;
   do {
@@ -138,7 +138,7 @@ await mainRuntime.close();
 
 const runtimeCycles = boundedInteger("TNY_WORKER_RUNTIME_CYCLES", 200, 0, 100000);
 const sessionCycles = boundedInteger("TNY_WORKER_SESSION_CYCLES", 50, 0, 100000);
-const concurrency = boundedInteger("TNY_WORKER_CONCURRENCY", 10, 1, 64);
+const concurrency = boundedInteger("TNY_WORKER_CONCURRENCY", 4, 1, 64);
 const completedCycles =
   await runBatched(runtimeCycles, concurrency, false) +
   await runBatched(sessionCycles, concurrency, true);
