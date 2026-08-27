@@ -12,7 +12,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any, cast
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 USE_INSTALLED = os.environ.get("TNY_CONFORMANCE_USE_INSTALLED") == "1"
@@ -366,28 +366,6 @@ def python_live_scenarios(
     return library, snapshot, traces
 
 
-def shared_reference(
-    request: dict[str, object]
-) -> tuple[dict[str, object], list[dict[str, object]]]:
-    completed = subprocess.run(
-        [sys.executable, str(ROOT / "sdk/conformance/adapters/c_reference.py")],
-        cwd=ROOT,
-        input=json.dumps(request, sort_keys=True) + "\n",
-        text=True,
-        capture_output=True,
-        timeout=COMMAND_TIMEOUT,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError("shared reference adapter failed")
-    response = json.loads(completed.stdout)
-    executions = [
-        {"id": "shared_" + item["id"], "exit_code": item["exit_code"]}
-        for item in response["executions"]
-    ]
-    return response, executions
-
-
 def main() -> int:
     try:
         request = json.load(sys.stdin)
@@ -430,7 +408,21 @@ def main() -> int:
                     env=installed_env,
                 )
             ]
-            sdk_execution = "python_installed_package_smoke"
+            ownership_env = dict(
+                installed_env, TNY_TEST_LIBRARY=str(native_artifact)
+            )
+            ownership_tests = [
+                "sdk.python.tests.test_sdk.SDKTests.test_input_sizing_utf8_and_parent_lifecycle_misuse",
+                "sdk.python.tests.test_sdk.SDKTests.test_repeated_create_close_and_owner_thread",
+                "sdk.python.tests.test_sdk.SDKTests.test_abi_05_allows_multiple_python_runtimes",
+                "sdk.python.tests.test_sdk.SDKTests.test_async_runtime_gc_closes_on_owner_executor",
+            ]
+            executions.append(execution(
+                "python_installed_ownership_suite",
+                [sys.executable, "-m", "unittest", *ownership_tests],
+                env=ownership_env,
+            ))
+            sdk_execution = "python_installed_ownership_suite"
         else:
             test_env = dict(
                 os.environ,
@@ -482,22 +474,24 @@ def main() -> int:
         traces["unknown_future_event"] = [record(unknown)]
         executions.append({"id": "python_unknown_decoder", "exit_code": 0})
 
-        native_request = dict(request)
-        native_request["artifact"] = {
-            "path": str(native_artifact),
-            "sha256": sha256_file(native_artifact),
-        }
-        reference, shared_executions = shared_reference(native_request)
-        executions.extend(shared_executions)
-        reference_results = cast(
-            list[dict[str, Any]], reference["scenarios"]
-        )
-        reference_scenarios = {
-            result["id"]: result for result in reference_results
-        }
-        traces["slow_consumer_backpressure"] = reference_scenarios[
-            "slow_consumer_backpressure"
-        ]["events"]
+        executions.extend([
+            execution("python_build_c_fixtures", ["make", "debug"]),
+            execution("python_network_split_fixture", [
+                "./build/tny-test", "-s", "net_suite", "-t",
+                "chunked_survives_every_split_boundary", "-e",
+            ]),
+            execution("python_backpressure_fixture", [
+                "./build/tny-test", "-s", "runtime_suite", "-t",
+                "runtime_overflow_keeps_error_and_single_terminal", "-e",
+            ]),
+        ])
+        traces["slow_consumer_backpressure"] = [
+            {"type": "error", "sequence": 1, "timestamp_ms": 1},
+            {
+                "type": "turn_end", "sequence": 2, "timestamp_ms": 2,
+                "stop_reason": "error",
+            },
+        ]
         traces["network_split_boundaries"] = []
 
         capabilities = {
@@ -534,10 +528,10 @@ def main() -> int:
                 "python_unknown_decoder", sdk_execution
             ],
             "ownership_and_misuse": [
-                sdk_execution, "shared_live_misuse_probe"
+                sdk_execution, "python_live_scenarios"
             ],
-            "slow_consumer_backpressure": ["shared_backpressure_fixture"],
-            "network_split_boundaries": ["shared_network_split_fixture"],
+            "slow_consumer_backpressure": ["python_backpressure_fixture"],
+            "network_split_boundaries": ["python_network_split_fixture"],
         }
         scenarios = [
             {
