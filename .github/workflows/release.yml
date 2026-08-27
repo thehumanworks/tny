@@ -85,7 +85,8 @@ jobs:
           if [ "$(uname -s)" = Darwin ]; then
             export MACOSX_DEPLOYMENT_TARGET=13.0
             export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
-              TNY_TEST_TURN_TIMEOUT=60 TNY_TEST_SUITE_TIMEOUT=900 \
+              TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
+              TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
           fi
           # version from the pushed tag; shallow checkouts have no tags for
@@ -135,7 +136,8 @@ jobs:
           if [ "$(uname -s)" = Darwin ]; then
             export MACOSX_DEPLOYMENT_TARGET=13.0
             export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
-              TNY_TEST_TURN_TIMEOUT=60 TNY_TEST_SUITE_TIMEOUT=900 \
+              TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
+              TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
             conformance_timeout=1200
           fi
