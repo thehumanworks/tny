@@ -164,6 +164,9 @@ def main():
                        OPENAI_API_KEY="test-key-not-real",
                        SSL_CERT_FILE=cert)
             env.pop("SSL_CERT_DIR", None)
+            # A Nix-built OpenSSL reads NIX_SSL_CERT_FILE in preference to
+            # SSL_CERT_FILE, and nix-build sets it to a nonexistent path.
+            env.pop("NIX_SSL_CERT_FILE", None)
 
             # trusted CA: the full tool turn must stream over https
             r = subprocess.run(

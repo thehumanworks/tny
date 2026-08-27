@@ -47,6 +47,13 @@ Do not initialize backends until the user sends a turn or `ask` starts. Human
 `doctor` may spawn bounded health probes; `doctor --json` is a side-effect-free
 configuration/capability query and never starts a provider or Python.
 
+Packaged builds pay the budget too. The Nix package
+([ADR 0035](adr/0035-nix-flake-packaging.md)) runs `make size-check` in its
+`checkPhase` and adds a `makeBinaryWrapper` — a compiled wrapper, not a shell
+script — for `python3` and the CA bundle, measured at ~0.3 ms on Linux x86_64
+(0.73 ms wrapped vs 0.42 ms unwrapped). A shell wrapper would cost several
+times that; `packages.tny-unwrapped` skips it entirely.
+
 ## How we stay under fx
 
 1. C11, no C++ stdlib, no Zig runtime extras.
