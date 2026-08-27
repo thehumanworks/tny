@@ -9,15 +9,19 @@ static void remember_path(tny_ctx *ctx, const char *path, bool record) {
                           sizeof(char *) * (size_t)(ctx->n_instruction_paths + 1));
     if (!next) return;
     ctx->instruction_paths = next;
-    ctx->instruction_paths[ctx->n_instruction_paths++] = xstrdup(path);
+    char *copy = xstrdup(path);
+    if (!copy) return;
+    ctx->instruction_paths[ctx->n_instruction_paths++] = copy;
 }
 
 static void append_dir_instructions(tny_ctx *ctx, const char *dir, buf_t *out,
                                     bool record) {
     char *f = path_join(dir, "AGENTS.md");
+    if (!f) return;
     if (!file_exists(f)) {
         free(f);
         f = path_join(dir, "CLAUDE.md");
+        if (!f) return;
         if (!file_exists(f)) { free(f); return; }
     }
     size_t len = 0;
@@ -43,6 +47,7 @@ static void collect_raw(tny_ctx *ctx, buf_t *out, bool record) {
     }
 
     char *home = path_home();
+    if (!home) return;
     size_t home_len = strlen(home);
     char *tny_home = path_join(home, ".tny");
     append_dir_instructions(ctx, tny_home, out, record);
@@ -59,7 +64,7 @@ static void collect_raw(tny_ctx *ctx, buf_t *out, bool record) {
                           i > home_len && cwd[home_len] == '/';
         if (is_cwd || below_home) {
             char *prefix = xstrndup(cwd, i);
-            append_dir_instructions(ctx, prefix, out, record);
+            if (prefix) append_dir_instructions(ctx, prefix, out, record);
             free(prefix);
         }
     }

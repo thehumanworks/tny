@@ -1,0 +1,146 @@
+{
+  "conformance_version": 1,
+  "adapter_protocol_version": 1,
+  "event_schema_version": 1,
+  "minimum_abi": "0.5",
+  "required_capabilities": [
+    "native_openai",
+    "permissions",
+    "cancellation",
+    "persistence",
+    "steering",
+    "unknown_event_preservation",
+    "bounded_event_queue"
+  ],
+  "report_required": [
+    "conformance_version",
+    "adapter_protocol_version",
+    "adapter",
+    "sdk",
+    "sdk_version",
+    "abi_version",
+    "library_version",
+    "platform",
+    "transport",
+    "artifact",
+    "capabilities",
+    "capability_snapshot",
+    "executions",
+    "scenarios"
+  ],
+  "forbidden_report_fields": [
+    "api_key",
+    "authorization",
+    "cookie",
+    "provider_body",
+    "provider_headers",
+    "request_headers",
+    "response_headers"
+  ],
+  "scenarios": [
+    {
+      "id": "success_two_turns",
+      "release_required": true,
+      "requires": ["native_openai"],
+      "events": ["text_delta", "usage", "turn_end", "text_delta", "usage", "turn_end"],
+      "terminal": "done",
+      "terminal_count": 2,
+      "assertions": [
+        "create_and_open",
+        "sequence_strictly_increases",
+        "timestamps_monotonic",
+        "provider_session_turn_present",
+        "borrowed_bytes_copied_before_free",
+        "second_turn_same_session"
+      ]
+    },
+    {
+      "id": "resume_and_steer_rejection",
+      "release_required": true,
+      "requires": ["persistence", "steering"],
+      "events": ["steer_rejected", "turn_end", "text_delta", "turn_end"],
+      "terminal_reasons": ["interrupted", "done"],
+      "rejected_text": "tny-conformance-steer-rejected-v1",
+      "allow_reopen_clock_reset": true,
+      "assertions": ["rejected_text_preserved", "resume_same_session", "teardown_and_reopen"]
+    },
+    {
+      "id": "permission_allow_and_stale_reject",
+      "release_required": true,
+      "requires": ["permissions"],
+      "events": ["permission_request", "tool_start", "tool_end", "turn_end"],
+      "terminal": "done",
+      "terminal_count": 1,
+      "assertions": ["parked_before_response", "stale_id_bad_state", "duplicate_id_bad_state"]
+    },
+    {
+      "id": "permission_deny",
+      "release_required": true,
+      "requires": ["permissions"],
+      "events": ["permission_request", "turn_end"],
+      "terminal": "denied",
+      "terminal_count": 1,
+      "assertions": ["denied_tool_not_executed"]
+    },
+    {
+      "id": "cancel_and_drain",
+      "release_required": true,
+      "requires": ["cancellation"],
+      "events": ["turn_end"],
+      "terminal": "interrupted",
+      "terminal_count": 1,
+      "assertions": ["cancel_idempotent", "exactly_one_terminal", "drained_after_terminal", "cross_thread_wake"]
+    },
+    {
+      "id": "auth_error",
+      "release_required": true,
+      "requires": ["native_openai"],
+      "events": ["error", "turn_end"],
+      "terminal": "error",
+      "terminal_count": 1,
+      "assertions": ["stable_auth_category", "no_raw_provider_body", "no_credentials"]
+    },
+    {
+      "id": "unknown_future_event",
+      "release_required": true,
+      "requires": ["unknown_event_preservation"],
+      "events": ["unknown"],
+      "assertions": ["numeric_kind_preserved", "payload_preserved", "known_union_not_aliased"]
+    },
+    {
+      "id": "ownership_and_misuse",
+      "release_required": true,
+      "requires": [],
+      "events": [],
+      "assertions": [
+        "inputs_copied",
+        "event_and_error_lifetimes",
+        "double_free_prevention",
+        "wrong_thread_rejected",
+        "invalid_utf8_rejected",
+        "embedded_nul_rejected",
+        "unknown_constants_rejected",
+        "undersized_struct_rejected",
+        "oversized_struct_prefix_safe",
+        "parent_close_releases_children",
+        "repeated_lifecycle"
+      ]
+    },
+    {
+      "id": "slow_consumer_backpressure",
+      "release_required": true,
+      "requires": ["bounded_event_queue"],
+      "events": ["error", "turn_end"],
+      "terminal": "error",
+      "terminal_count": 1,
+      "assertions": ["memory_bounded", "stable_backpressure_category", "terminal_reserved"]
+    },
+    {
+      "id": "network_split_boundaries",
+      "release_required": true,
+      "requires": ["native_openai"],
+      "events": [],
+      "assertions": ["existing_chunked_fixture_every_split_boundary"]
+    }
+  ]
+}

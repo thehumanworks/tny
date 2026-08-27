@@ -14,6 +14,7 @@
 
 static char *sessions_root(tny_ctx *ctx) {
     char *sess = path_join(ctx->tny_dir, "sessions");
+    if (!sess) return NULL;
     char *ws = path_join(sess, ctx->ws_hash);
     free(sess);
     return ws;
@@ -29,8 +30,11 @@ static bool valid_session_id(const char *id) {
 
 static yyjson_mut_val *root_of(tny_session_state *s) { return yyjson_mut_doc_get_root(s->doc); }
 
-static void put_str(tny_session_state *s, const char *k, const char *v) {
-    yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, k), yyjson_mut_strcpy(s->doc, v));
+static bool put_str(tny_session_state *s, const char *k, const char *v) {
+    if (!s || !s->doc || !k || !v) return false;
+    yyjson_mut_val *key = yyjson_mut_strcpy(s->doc, k);
+    yyjson_mut_val *value = yyjson_mut_strcpy(s->doc, v);
+    return key && value && yyjson_mut_obj_put(root_of(s), key, value);
 }
 
 tny_session_state *session_new(tny_ctx *ctx) {
@@ -41,18 +45,37 @@ tny_session_state *session_new(tny_ctx *ctx) {
     s->extension_start_reason = xstrdup("new");
     s->id = gen_id();
     char *root = sessions_root(ctx);
-    s->dir = path_join(root, s->id);
+    s->dir = root && s->id ? path_join(root, s->id) : NULL;
     free(root);
-    s->doc = yyjson_mut_doc_new(NULL);
-    yyjson_mut_doc_set_root(s->doc, yyjson_mut_obj(s->doc));
-    put_str(s, "id", s->id);
-    put_str(s, "workspace", ctx->cwd);
+    s->doc = yyjson_mut_doc_new(jallocator());
+    yyjson_mut_val *doc_root = s->doc ? yyjson_mut_obj(s->doc) : NULL;
+    if (!s->extension_start_reason || !s->id || !s->dir || !s->doc ||
+        !doc_root) {
+        session_close(s);
+        return NULL;
+    }
+    yyjson_mut_doc_set_root(s->doc, doc_root);
+    if (!put_str(s, "id", s->id) || !put_str(s, "workspace", ctx->cwd)) {
+        session_close(s);
+        return NULL;
+    }
     char *ts = now_iso8601();
-    put_str(s, "created", ts);
-    put_str(s, "updated", ts);
+    if (!ts || !put_str(s, "created", ts) || !put_str(s, "updated", ts)) {
+        free(ts);
+        session_close(s);
+        return NULL;
+    }
     free(ts);
-    yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "turns"), yyjson_mut_int(s->doc, 0));
-    yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "messages"), yyjson_mut_arr(s->doc));
+    yyjson_mut_val *turns_key = yyjson_mut_strcpy(s->doc, "turns");
+    yyjson_mut_val *turns = yyjson_mut_int(s->doc, 0);
+    yyjson_mut_val *messages_key = yyjson_mut_strcpy(s->doc, "messages");
+    yyjson_mut_val *messages = yyjson_mut_arr(s->doc);
+    if (!turns_key || !turns || !messages_key || !messages ||
+        !yyjson_mut_obj_put(root_of(s), turns_key, turns) ||
+        !yyjson_mut_obj_put(root_of(s), messages_key, messages)) {
+        session_close(s);
+        return NULL;
+    }
     return s;
 }
 
@@ -68,10 +91,10 @@ tny_session_state *session_open(tny_ctx *ctx, const char *id_or_last) {
     }
     if (!valid_session_id(id)) { free(id); return NULL; }
     char *root = sessions_root(ctx);
-    char *dir = path_join(root, id);
+    char *dir = root ? path_join(root, id) : NULL;
     free(root);
-    char *file = path_join(dir, "session.json");
-    yyjson_doc *doc = jparse_file(file);
+    char *file = dir ? path_join(dir, "session.json") : NULL;
+    yyjson_doc *doc = file ? jparse_file(file) : NULL;
     free(file);
     if (!doc) { free(id); free(dir); return NULL; }
     tny_session_state *s = calloc(1, sizeof *s);
@@ -81,16 +104,19 @@ tny_session_state *session_open(tny_ctx *ctx, const char *id_or_last) {
     s->extension_start_reason = xstrdup("resume");
     s->id = id;
     s->dir = dir;
-    s->doc = yyjson_doc_mut_copy(doc, NULL);
+    s->doc = yyjson_doc_mut_copy(doc, jallocator());
     yyjson_doc_free(doc);
-    if (!s->doc) { session_close(s); return NULL; }
+    if (!s->extension_start_reason || !s->doc) {
+        session_close(s);
+        return NULL;
+    }
     return s;
 }
 
 int session_save(tny_session_state *s) {
     if (s->ctx->no_save) return 0;
     char *ts = now_iso8601();
-    put_str(s, "updated", ts);
+    if (!ts || !put_str(s, "updated", ts)) { free(ts); return -1; }
     free(ts);
     if (mkdir_p(s->dir) != 0) return -1;
     char *out = jwrite(s->doc);
@@ -501,7 +527,9 @@ void session_record_tool_audit(
 }
 
 char *session_store_result(tny_session_state *s, const char *data, size_t len) {
+    if (!s || !data) return NULL;
     char *handle = gen_id();
+    if (!handle) return NULL;
     if (s->ctx->no_save) {
         session_mem_result *next = realloc(
             s->mem_results,
@@ -511,21 +539,33 @@ char *session_store_result(tny_session_state *s, const char *data, size_t len) {
             return NULL;
         }
         s->mem_results = next;
-        session_mem_result *r = &s->mem_results[s->n_mem_results++];
-        r->handle = xstrdup(handle);
-        r->data = xstrndup(data, len);
+        session_mem_result *r = &s->mem_results[s->n_mem_results];
+        memset(r, 0, sizeof *r);
+        char *handle_copy = xstrdup(handle);
+        char *data_copy = xstrndup(data, len);
+        if (!handle_copy || !data_copy) {
+            free(handle_copy);
+            free(data_copy);
+            free(handle);
+            return NULL;
+        }
+        r->handle = handle_copy;
+        r->data = data_copy;
         r->len = len;
+        s->n_mem_results++;
         return handle;
     }
     char *rdir = path_join(s->dir, "results");
-    mkdir_p(rdir);
+    if (!rdir || mkdir_p(rdir) != 0) { free(rdir); free(handle); return NULL; }
     char *fname = malloc(strlen(handle) + 5);
+    if (!fname) { free(rdir); free(handle); return NULL; }
     sprintf(fname, "%s.txt", handle);
     char *file = path_join(rdir, fname);
-    file_write_atomic(file, data, len);
+    int rc = file ? file_write_atomic(file, data, len) : -1;
     free(rdir);
     free(fname);
     free(file);
+    if (rc != 0) { free(handle); return NULL; }
     return handle;
 }
 
@@ -654,7 +694,7 @@ int session_compact(tny_session_state *s, bool force) {
 void session_recovery_write(tny_session_state *s, const char *partial) {
     if (s->ctx->no_save) return;
     mkdir_p(s->dir);
-    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(jallocator());
     yyjson_mut_val *r = yyjson_mut_obj(doc);
     yyjson_mut_doc_set_root(doc, r);
     yyjson_mut_obj_put(r, yyjson_mut_strcpy(doc, "partial"), yyjson_mut_strcpy(doc, partial));

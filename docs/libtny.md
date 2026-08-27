@@ -4,7 +4,8 @@
 used by `tny ask`, the TUI, and `tny acp`. It is not a second agent loop and it
 does not expose tny's backend, yyjson, session-store, or pollfd layouts.
 
-The design and compatibility contract are [ADR 0023](adr/0023-libtny-embedding-abi.md).
+The design and compatibility contract is [ADR 0023](adr/0023-libtny-embedding-abi.md),
+as amended for concurrency by [ADR 0033](adr/0033-libtny-multi-runtime-cancel.md).
 
 ## Supported artifacts
 
@@ -39,24 +40,53 @@ and releases children before parents.
 runtime -> session -> event
 ```
 
-- ABI 0 permits one public runtime per process, one open session, and one
-  active turn. A second runtime returns `TNY_STATUS_BUSY`.
-- Handles are owner-thread-affine, including cancellation.
+- ABI 0.5 permits multiple independent public runtimes per process. Each
+  runtime still permits one open session and one active turn. Workspaces,
+  credentials, state roots, backend state, event queues and children belong
+  to their runtime; public runtimes continue to disable process-global MCP.
+- A runtime and its session have the thread that created the runtime as their
+  owner. Every operation except `tny_session_cancel` remains owner-thread
+  affine. Status-returning calls made on another thread fail with
+  `TNY_STATUS_BAD_STATE`; wrong-thread void teardown calls do nothing.
+- `tny_session_cancel` is idempotent and may be called by a scheduler thread.
+  It atomically records the request and signals a nonblocking self-pipe in the
+  owner thread's `tny_poll` set. A blocked `tny_session_next_event` wakes
+  promptly, applies backend cancellation on the owner thread, and must still
+  be drained through exactly one interrupted `TNY_EVENT_TURN_END`.
+- The owner must keep the session alive until every concurrent cancel call has
+  returned. Freeing a runtime/session concurrently with cancel, or making any
+  other concurrent call, is unsupported. Join scheduler tasks first, then
+  release event, session and runtime handles on the owner thread.
 - Every successful turn start ends in exactly one `TNY_EVENT_TURN_END`.
 - `tny_session_next_event` returns event, timeout, or drained without exposing
   native file descriptors.
 - Event string views are owned by the event and remain valid until
   `tny_event_free`.
-- ABI 0.3 adds the append-only `tny_event_view_v0` snapshot. Call
+- ABI 0.3 adds the frozen-layout `tny_event_view_v0` snapshot. Call
   `tny_event_view_init`, then `tny_event_read`; the view exposes the canonical
   event schema version, sequence, monotonic timestamp, provider/session/turn
   identity, message id, complete usage/context/cost values, and the existing
   event-specific fields in one FFI-friendly read. Existing getters remain
   supported.
+- ABI 0.4 adds the frozen-layout `tny_capabilities_v0` snapshot. Its borrowed
+  string views remain valid until the runtime is freed.
+- ABI 0.5 enables `TNY_CAP_FEATURE_CROSS_THREAD_CANCEL` and reports
+  `TNY_CANCEL_CROSS_THREAD_ASYNC_WAKE`. No public symbols or existing struct
+  fields changed.
 - Asynchronous `ERROR` events expose the same stable status categories through
   `tny_event_error_code` before the terminal event.
 - Inputs retained past a call are copied. ABI 0 accepts UTF-8 without embedded
   NUL bytes.
+
+### Forks
+
+Runtime and session handles belong to the process that created them. After
+`fork()`, status-returning operations on an inherited handle return
+`TNY_STATUS_BAD_STATE`; inherited void teardown calls are ignored. The child
+must not attempt to continue or free the inherited runtime. In a
+multi-threaded host it should use only async-signal-safe operations until
+`exec()`, as required by POSIX, then create a fresh runtime in the new process.
+The parent runtime is unaffected.
 
 ## Canonical event schema
 
@@ -74,15 +104,24 @@ separate bounded-data extension.
 
 ## Configuration and permissions
 
-Call `tny_runtime_options_init`, then provide an existing workspace and an
-explicit state directory. The public API does not read tny settings or choose
-a provider from the environment. ABI 0 embeds the native OpenAI-compatible
-loop. Cursor, Codex, and ACP remain CLI providers until their authority and
-host-state contracts are explicit.
+Call `tny_runtime_options_init`, then provide an existing workspace. An
+explicit state directory is required when `persistence == 1`. When
+`persistence == 0`, `state_dir` may be empty: the process-local session keeps
+its generated id and event metadata in memory and libtny creates no settings,
+sessions, history, or other state path. Existing ephemeral callers may still
+pass a state directory; it is not materialized. `tny_session_open` remains
+unavailable for an ephemeral runtime because there is no durable session to
+open.
+
+The public API does not read tny settings or choose a provider from the
+environment. ABI 0 embeds the native OpenAI-compatible loop. Cursor, Codex,
+and ACP remain CLI providers until their authority and host-state contracts
+are explicit.
 
 The default permission policy is `TNY_PERMISSION_ASK`, unlike the CLI's
 deliberate yolo default. `max_steps` defaults to 0 (unlimited, matching the
-CLI; [ADR 0024](adr/0024-unlimited-steps-default.md)); a positive value caps
+CLI; [ADR 0024](adr/0024-unlimited-steps-default.md)); a positive value through
+`INT32_MAX` caps
 model calls per turn and ends the turn with `TNY_STOP_REASON_STEP_LIMIT`. A sensitive native or host request emits a permission
 event and parks until `tny_session_respond_permission`, cancellation, or close.
 MCP is disabled and omitted from the advertised tool schema in ABI 0.
@@ -96,12 +135,53 @@ and wiped from library-owned long-lived storage at teardown. ABI 0 remains
 experimental: deep legacy allocation paths may still terminate the process on
 allocator exhaustion, as recorded in ADR 0023.
 
+## Structured capabilities
+
+Initialize `tny_capabilities_v0` with `tny_capabilities_init`, then call
+`tny_runtime_get_capabilities`. The call is owner-thread-affine and
+side-effect-free: it never opens an endpoint, initializes a provider, reads
+configuration, or writes state.
+
+The snapshot separates:
+
+- `provider_available_mask`: providers compiled and supported by this public
+  library (OpenAI only in ABI 0.5);
+- `provider_selected`: the runtime's selected provider;
+- `provider_initialized`: whether its local backend has completed
+  initialization;
+- `endpoint_reachability`: `UNKNOWN` until normal turn traffic observes a
+  result, then the last known `REACHABLE` or `UNREACHABLE` state. The query
+  itself is not a probe.
+
+`feature_available_mask` reports compiled/library support, while
+`feature_enabled_mask` reports selection for this runtime. ABI 0.5 advertises
+shared-library packaging, optional session persistence, the platform TLS
+implementation, and cross-thread cancellation. It deliberately leaves the
+bits for static packaging, MCP, custom in-process tools, terminal embedding,
+Windows, wasm, and fully static TLS clear. Cursor, Codex, and ACP provider bits
+are also clear. Built-in native tools are not “custom tools.”
+
+The snapshot also names the platform, architecture, HTTP transport, TLS
+implementation, and linkage, and reports owner-thread/cross-thread-wake cancel
+semantics plus the event queue and payload budgets. TLS can be available but
+not enabled when this runtime selects an `http://` endpoint.
+
+Capability structs are sized with a frozen v0 layout. Callers must initialize
+`struct_size` and ignore unknown mask bits and scalar values. Every ABI-0
+`*_v0` layout is frozen, including its reserved tail: its initializer writes
+the complete v0 size, so adding fields would overflow binaries built with an
+older header. Future growth therefore uses a distinct v1 struct plus new
+initializer and query/create symbols. A manually initialized smaller supported
+prefix is filled only through its declared size; a prefix smaller than the
+documented scalar core is rejected. Borrowed byte views are scoped to the
+runtime.
+
 ## TLS and platform capability
 
-macOS uses SecureTransport and Linux glibc loads the system OpenSSL
-dynamically. ABI 0 publishes only those shared-library platform families;
-runtime TLS probing is deferred until it can report more than compile-time
-facts.
+macOS reports `macos` / `securetransport`; Linux glibc reports
+`linux-glibc` / `openssl-dynamic`. `tls_implementation` describes compiled
+support and the TLS feature's enabled bit says whether the selected endpoint
+uses it. Reachability is learned only from normal runtime traffic.
 
 A static archive linked into an otherwise dynamic Linux application could
 still load system OpenSSL; the unsupported case is a **fully static musl final
@@ -111,6 +191,8 @@ host-supplied transports, and bundled static TLS are separate follow-ups.
 ## Verification
 
 `tests/integration/test_libtny.py` installs into a clean prefix, compiles C and
-C++ consumers, runs a complete strict-mock turn through the dylib/so, exercises
-the Python `ctypes` FFI, verifies second-runtime rejection, and proves a native
-permission can park and resume without executing a denied write.
+C++ consumers, runs complete strict-mock turns through the dylib/so, exercises
+the Python `ctypes` FFI, drives simultaneous isolated runtimes, repeats
+out-of-order teardown, wakes a blocked event pull by cancelling from another
+thread, checks one interrupted terminal, and proves a native permission can
+park and resume without executing a denied write.

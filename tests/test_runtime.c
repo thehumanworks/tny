@@ -348,6 +348,33 @@ TEST runtime_next_event_waits_without_spinning(void) {
     PASS();
 }
 
+TEST runtime_oom_uses_reserved_error_and_terminal_once(void) {
+    fixture x = fixture_new(3);
+    char err[128];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
+    tny_engine_fail_oom(x.engine);
+    tny_engine_fail_oom(x.engine); /* settled calls are idempotent */
+    int errors = 0, terminals = 0;
+    tny_owned_event *ev = NULL;
+    while ((ev = tny_engine_pop_event(x.engine))) {
+        if (ev->ev.kind == TNY_EV_ERROR) {
+            errors++;
+            ASSERT_EQ(TNY_EVENT_ERROR_OOM, ev->ev.error_code);
+            ASSERT_STR_EQ("out of memory", ev->ev.text);
+        }
+        if (ev->ev.kind == TNY_EV_TURN_END) {
+            terminals++;
+            ASSERT_EQ(TNY_STOP_ERROR, ev->ev.stop);
+        }
+        tny_owned_event_free(ev);
+    }
+    ASSERT_EQ(1, x.fake->cancels);
+    ASSERT_EQ(1, errors);
+    ASSERT_EQ(1, terminals);
+    fixture_free(&x);
+    PASS();
+}
+
 TEST runtime_extension_continues_visibly_then_settles(void) {
     const char *source =
         "from tny_ext import AgentEndEvent, continue_with\n"
@@ -844,6 +871,7 @@ SUITE(runtime_suite) {
     RUN_TEST(runtime_overflow_keeps_error_and_single_terminal);
     RUN_TEST(runtime_cancel_emits_one_interrupted_terminal);
     RUN_TEST(runtime_next_event_waits_without_spinning);
+    RUN_TEST(runtime_oom_uses_reserved_error_and_terminal_once);
     RUN_TEST(runtime_extension_continues_visibly_then_settles);
     RUN_TEST(runtime_extension_positive_continuation_cap_settles);
     RUN_TEST(runtime_extension_failure_is_visible_and_fail_open);

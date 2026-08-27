@@ -1,0 +1,58 @@
+{
+  "name": "@thehumanworks/tny",
+  "version": "0.1.0-experimental.0",
+  "description": "Experimental native Node.js SDK for libtny",
+  "type": "module",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist/",
+    "native/",
+    "scripts/",
+    "build/Release/manifest.json",
+    "build/Release/*.node",
+    "build/Release/libtny.*",
+    "README.md",
+    "LICENSE-METADATA.json",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "install": "node scripts/build.mjs",
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs",
+    "footprint": "node scripts/footprint.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:invalid": "node test/invalid-options.mjs",
+    "test:hostile": "node test/hostile-prototype.mjs",
+    "test:gc": "node --expose-gc test/gc.mjs",
+    "test:stress": "node test/stress.mjs",
+    "test:workers": "node test/worker-teardown.mjs",
+    "test:nul": "node test/nul-provider.mjs",
+    "test:wake": "node test/wake-cancel.mjs",
+    "test:integration": "node test/integration.mjs",
+    "conformance": "node test/run-local-adapter.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ],
+  "keywords": [
+    "tny",
+    "node-api",
+    "agent"
+  ],
+  "license": "UNLICENSED"
+}

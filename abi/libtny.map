@@ -3,7 +3,9 @@ LIBTNY_0 {
     tny_abi_version;
     tny_library_version;
     tny_runtime_options_init;
+    tny_capabilities_init;
     tny_runtime_create;
+    tny_runtime_get_capabilities;
     tny_runtime_free;
     tny_session_create;
     tny_session_open;

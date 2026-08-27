@@ -37,3 +37,6 @@ these as `docs/adr/NNNN`.
 | [0029](0029-named-acp-agent-profiles.md) | Reusable ACP commands resolve as `acp:NAME`; requested models are applied through advertised session config options before the first prompt |
 | [0030](0030-settings-schema-and-acp-map.md) | Publish a settings JSON Schema; provider/model/effort/fast become user defaults; canonical ACP profiles use `acp.NAME` and `acp@NAME` with legacy compatibility |
 | [0031](0031-background-ask.md) | `tny ask -B` detaches the turn into a forked child keyed by the session id; flock is truth, pid file is control, session.json is the record; `session stop` signals the group, `--resume --steer` is interrupt-and-redirect |
+| [0032](0032-libtny-capability-discovery.md) | libtny capabilities are a sized, side-effect-free snapshot separating availability, selection, initialization, reachability and packaging |
+| [0033](0033-libtny-multi-runtime-cancel.md) | libtny supports independent runtimes; cancel is the sole cross-thread-safe operation and wakes the owner through the tny_poll seam |
+| [0034](0034-native-python-and-node-sdks.md) | Python/cffi and TypeScript/Node-API packages are thin native schedulers over libtny with bounded ownership, cancellation and packaging contracts |

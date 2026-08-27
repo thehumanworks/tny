@@ -24,6 +24,15 @@ developer tree (`include/tny/tny.h`, shared library, and pkg-config metadata)
 as `libtny-<os>-<arch>`. MSYS2, musl-static, and wasm do not publish a public
 library artifact in ABI 0 ([ADR 0023](adr/0023-libtny-embedding-abi.md)).
 
+Tagged release jobs also package those supported shared-library installs as
+`libtny-<os>-<arch>.tar.gz`. Each archive contains the public header,
+versioned library and linker name, pkg-config metadata, exact export manifests,
+libtny documentation, explicit license metadata, and a deterministic per-file
+SHA-256 manifest. The release-level `SHA256SUMS` covers both CLI and libtny
+archives. SDK builds must consume one of these immutable inputs or an
+explicitly supplied local install and record its artifact hash in their
+conformance report.
+
 The Pages workflow (`.github/workflows/pages.yml`) is separate. GitHub
 Pages for this repo deploys from the branch (`main:/docs`, legacy build),
 so the workflow rebuilds the static site from `site/` and commits the
@@ -58,6 +67,10 @@ is needed — the tag is the single source of truth.
 
 macOS CI **must** be arm64. The darwin job runs on `macos-15` (M1) and
 exits if `uname -m` is not `arm64`.
+Tagged libtny and SDK artifacts set `MACOSX_DEPLOYMENT_TARGET=13.0`; release
+inspection must reject a dylib, addon, or wheel that raises that minimum.
+Linux glibc SDK artifacts similarly fail compatibility inspection if they
+require symbols newer than glibc 2.34; musl remains unsupported for libtny.
 
 Do **not** add `macos-15-intel`, `macos-26-intel`, `macos-*-large`, or any
 other x86_64 Mac runner. Intel Mac is not a product target.

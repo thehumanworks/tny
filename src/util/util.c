@@ -12,33 +12,48 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
-static void *xrealloc(void *p, size_t n) {
-    void *q = realloc(p, n);
-    if (!q) { fprintf(stderr, "tny: out of memory\n"); abort(); }
-    return q;
+void buf_init(buf_t *b) {
+    b->data = NULL;
+    b->len = 0;
+    b->cap = 0;
+    b->oom = false;
 }
-
-void buf_init(buf_t *b) { b->data = NULL; b->len = 0; b->cap = 0; }
 void buf_free(buf_t *b) { free(b->data); buf_init(b); }
 
 void buf_reserve(buf_t *b, size_t extra) {
+    if (b->oom) return;
+    if (extra > SIZE_MAX - b->len - 1) { b->oom = true; return; }
     size_t need = b->len + extra + 1;
     if (need <= b->cap) return;
     size_t cap = b->cap ? b->cap : 64;
-    while (cap < need) cap *= 2;
-    b->data = xrealloc(b->data, cap);
+    while (cap < need) {
+        if (cap > SIZE_MAX / 2) { cap = need; break; }
+        cap *= 2;
+    }
+    char *next = realloc(b->data, cap);
+    if (!next) { b->oom = true; return; }
+    b->data = next;
     b->cap = cap;
 }
 
 void buf_append(buf_t *b, const void *data, size_t n) {
-    if (!n) { buf_reserve(b, 0); b->data[b->len] = 0; return; }
+    if (b->oom) return;
+    if (!n) {
+        buf_reserve(b, 0);
+        if (!b->oom) b->data[b->len] = 0;
+        return;
+    }
     buf_reserve(b, n);
+    if (b->oom) return;
     memcpy(b->data + b->len, data, n);
     b->len += n;
     b->data[b->len] = 0;
 }
 
-void buf_appends(buf_t *b, const char *s) { buf_append(b, s, strlen(s)); }
+void buf_appends(buf_t *b, const char *s) {
+    if (!s) { b->oom = true; return; }
+    buf_append(b, s, strlen(s));
+}
 
 void buf_appendf(buf_t *b, const char *fmt, ...) {
     va_list ap, ap2;
@@ -48,6 +63,7 @@ void buf_appendf(buf_t *b, const char *fmt, ...) {
     va_end(ap);
     if (n < 0) { va_end(ap2); return; }
     buf_reserve(b, (size_t)n);
+    if (b->oom) { va_end(ap2); return; }
     vsnprintf(b->data + b->len, (size_t)n + 1, fmt, ap2);
     va_end(ap2);
     b->len += (size_t)n;
@@ -63,8 +79,18 @@ void buf_consume(buf_t *b, size_t n) {
 }
 
 char *buf_detach(buf_t *b) {
+    if (b->oom) {
+        free(b->data);
+        buf_init(b);
+        return NULL;
+    }
     if (!b->data) {
         buf_reserve(b, 0);
+        if (b->oom) {
+            free(b->data);
+            buf_init(b);
+            return NULL;
+        }
         b->data[0] = 0;
     }
     char *p = b->data;
@@ -72,16 +98,21 @@ char *buf_detach(buf_t *b) {
     return p;
 }
 
+bool buf_oom(const buf_t *b) { return b && b->oom; }
+
 char *xstrdup(const char *s) {
     if (!s) return NULL;
     size_t n = strlen(s);
-    char *p = xrealloc(NULL, n + 1);
+    char *p = malloc(n + 1);
+    if (!p) return NULL;
     memcpy(p, s, n + 1);
     return p;
 }
 
 char *xstrndup(const char *s, size_t n) {
-    char *p = xrealloc(NULL, n + 1);
+    if (n == SIZE_MAX) return NULL;
+    char *p = malloc(n + 1);
+    if (!p) return NULL;
     memcpy(p, s, n);
     p[n] = 0;
     return p;
@@ -129,6 +160,7 @@ bool glob_match(const char *p, const char *s) {
 }
 
 char *path_join(const char *a, const char *b) {
+    if (!a || !b) return NULL;
     buf_t buf;
     buf_init(&buf);
     buf_appends(&buf, a);
@@ -270,12 +302,12 @@ size_t b64_decode(const char *in, uint8_t *out, size_t outcap) {
 /* Minimal SHA-1 (needed only for the WebSocket accept key). */
 static uint32_t rol(uint32_t x, int c) { return (x << c) | (x >> (32 - c)); }
 
-void sha1(const uint8_t *in, size_t n, uint8_t out[20]) {
+bool sha1(const uint8_t *in, size_t n, uint8_t out[20]) {
     uint32_t h[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
     uint64_t ml = (uint64_t)n * 8;
     size_t total = ((n + 8) / 64 + 1) * 64;
     uint8_t *msg = calloc(1, total);
-    if (!msg) abort();
+    if (!msg) return false;
     memcpy(msg, in, n);
     msg[n] = 0x80;
     for (int i = 0; i < 8; i++) msg[total - 1 - (size_t)i] = (uint8_t)(ml >> (8 * i));
@@ -304,6 +336,7 @@ void sha1(const uint8_t *in, size_t n, uint8_t out[20]) {
         out[4 * i + 2] = (uint8_t)(h[i] >> 8);
         out[4 * i + 3] = (uint8_t)h[i];
     }
+    return true;
 }
 
 uint64_t fnv1a(const void *data, size_t n) {
@@ -329,7 +362,7 @@ char *gen_id(void) {
         memcpy(r, &t, sizeof r);
     }
     char *s = malloc(17);
-    if (!s) abort();
+    if (!s) return NULL;
     for (int i = 0; i < 8; i++) sprintf(s + 2 * i, "%02x", r[i]);
     return s;
 }
@@ -360,7 +393,7 @@ char *now_iso8601(void) {
     struct tm tm;
     gmtime_r(&t, &tm);
     char *s = malloc(24);
-    if (!s) abort();
+    if (!s) return NULL;
     strftime(s, 24, "%Y-%m-%dT%H:%M:%SZ", &tm);
     return s;
 }

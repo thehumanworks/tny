@@ -81,7 +81,7 @@ static void add_function_calls(yyjson_mut_doc *d, yyjson_mut_val *arr,
 
 char *tny_openai_responses_input(yyjson_mut_val *msgs, int boundary,
                                  const char *summary) {
-    yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
+    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
     if (!d) return NULL;
     yyjson_mut_val *arr = yyjson_mut_arr(d);
     yyjson_mut_doc_set_root(d, arr);
@@ -130,7 +130,7 @@ char *tny_openai_responses_tools(const char *chat_tools_json) {
     if (!doc) return NULL;
     yyjson_val *root = yyjson_doc_get_root(doc);
     if (!yyjson_is_arr(root)) { yyjson_doc_free(doc); return NULL; }
-    yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
+    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
     if (!d) { yyjson_doc_free(doc); return NULL; }
     yyjson_mut_val *arr = yyjson_mut_arr(d);
     yyjson_mut_doc_set_root(d, arr);
@@ -169,7 +169,7 @@ char *tny_openai_responses_text_format(const char *response_format_json) {
         yyjson_doc_free(doc);
         return NULL;
     }
-    yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
+    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
     if (!d) { yyjson_doc_free(doc); return NULL; }
     yyjson_mut_val *fmt = yyjson_mut_obj(d);
     yyjson_mut_doc_set_root(d, fmt);

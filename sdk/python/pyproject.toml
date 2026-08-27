@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=77", "wheel>=0.45"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tny"
+version = "0.5.0a1"
+description = "Safe Python bindings for the experimental libtny headless runtime"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["cffi>=1.16"]
+license = "LicenseRef-UNLICENSED"
+license-files = ["UNLICENSED", "LICENSE-METADATA.json", "THIRD_PARTY_NOTICES.md"]
+authors = [{name = "The Human Works"}]
+keywords = ["agent", "libtny", "sdk"]
+classifiers = [
+  "Private :: Do Not Upload",
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Operating System :: MacOS :: MacOS X",
+  "Operating System :: POSIX :: Linux",
+  "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/thehumanworks/tny"
+Issues = "https://github.com/thehumanworks/tny/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tny = ["py.typed", ".libs/*"]

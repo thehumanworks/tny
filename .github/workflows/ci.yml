@@ -73,6 +73,7 @@ jobs:
           # links libasan (clang on some images lacks the compiler-rt asan libs).
           if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
           make -j"$jobs" test
+          make test-libtny-fault
           make size-check SIZE_MAX="${{ matrix.size_max }}"
           make pack TRIPLE="${{ matrix.triple }}"
           ./dist/tny-${{ matrix.triple }} --version

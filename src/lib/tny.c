@@ -6,15 +6,16 @@
 #include "core/perm.h"
 #include "core/runtime.h"
 #include "core/session.h"
+#include "util/alloc.h"
 #include "util/util.h"
 
 #include <pthread.h>
 #include <stdarg.h>
-#include <stdatomic.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 struct tny_error {
     int32_t code;
@@ -25,6 +26,8 @@ struct tny_runtime {
     tny_ctx *ctx;
     struct tny_session *session;
     pthread_t owner;
+    pid_t owner_pid;
+    uint32_t endpoint_reachability;
 };
 
 struct tny_session {
@@ -37,8 +40,6 @@ struct tny_session {
     uint32_t terminal;
     uint32_t drained;
 };
-
-static atomic_bool public_runtime_live = false;
 
 static tny_bytes bytes_of(const char *s, uint64_t len) {
     tny_bytes b = {s, s ? len : 0};
@@ -65,6 +66,19 @@ static int32_t failf(tny_error **out, int32_t code, const char *fmt, ...) {
         }
     }
     return code;
+}
+
+static int32_t scoped_status(int32_t status, tny_error **error) {
+    if (!tny_alloc_scope_failed()) return status;
+    tny_alloc_scope_clear();
+    if (error && *error) {
+        (*error)->code = TNY_STATUS_OOM;
+        free((*error)->message);
+        (*error)->message = strdup("out of memory");
+    } else {
+        (void)failf(error, TNY_STATUS_OOM, "out of memory");
+    }
+    return TNY_STATUS_OOM;
 }
 
 static bool utf8_valid(const unsigned char *s, uint64_t n) {
@@ -110,12 +124,15 @@ static int32_t copy_bytes(tny_bytes value, bool required, const char *field,
 }
 
 static bool on_owner(const tny_runtime *runtime) {
-    return runtime && pthread_equal(runtime->owner, pthread_self());
+    return runtime && runtime->owner_pid == getpid() &&
+           pthread_equal(runtime->owner, pthread_self());
 }
 
 static int32_t require_owner(const tny_runtime *runtime, tny_error **error) {
     if (!runtime) return failf(error, TNY_STATUS_INVALID_ARGUMENT,
                                "runtime is required");
+    if (runtime->owner_pid != getpid())
+        return TNY_STATUS_BAD_STATE;
     if (!on_owner(runtime)) return failf(error, TNY_STATUS_BAD_STATE,
                                          "libtny handle used from a non-owner thread");
     return TNY_STATUS_OK;
@@ -135,6 +152,44 @@ static int32_t status_from_message(const char *message, int32_t fallback) {
 uint32_t tny_abi_version(void) { return TNY_ABI_VERSION; }
 tny_bytes tny_library_version(void) { return cstr_bytes(TNY_VERSION); }
 
+static const char *cap_platform(void) {
+#if defined(__APPLE__)
+    return "macos";
+#elif defined(__linux__) && defined(__GLIBC__)
+    return "linux-glibc";
+#else
+    return "unsupported";
+#endif
+}
+
+static const char *cap_architecture(void) {
+#if defined(__aarch64__) || defined(__arm64__)
+    return "arm64";
+#elif defined(__x86_64__) || defined(_M_X64)
+    return "x86_64";
+#else
+    return "unknown";
+#endif
+}
+
+static const char *cap_tls(void) {
+#if defined(__APPLE__)
+    return "securetransport";
+#elif defined(__linux__) && defined(__GLIBC__)
+    return "openssl-dynamic";
+#else
+    return "none";
+#endif
+}
+
+static bool cap_tls_available(void) {
+#if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__))
+    return true;
+#else
+    return false;
+#endif
+}
+
 void tny_runtime_options_init(tny_runtime_options_v0 *o) {
     if (!o) return;
     memset(o, 0, sizeof *o);
@@ -142,6 +197,12 @@ void tny_runtime_options_init(tny_runtime_options_v0 *o) {
     o->permission_mode = TNY_PERMISSION_ASK;
     o->max_steps = 0; /* unlimited; embedders opt into a cap */
     o->max_tool_result_bytes = 32768;
+}
+
+void tny_capabilities_init(tny_capabilities_v0 *capabilities) {
+    if (!capabilities) return;
+    memset(capabilities, 0, sizeof *capabilities);
+    capabilities->struct_size = sizeof *capabilities;
 }
 
 static int32_t validate_options(const tny_runtime_options_v0 *o,
@@ -153,6 +214,9 @@ static int32_t validate_options(const tny_runtime_options_v0 *o,
     if (o->permission_mode > TNY_PERMISSION_YOLO || o->persistence > 1)
         return failf(error, TNY_STATUS_INVALID_ARGUMENT,
                      "invalid permission or persistence option");
+    if (o->max_steps > INT32_MAX)
+        return failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                     "max_steps exceeds the supported signed runtime range");
     /* max_steps: 0 = unlimited, any positive value caps the loop */
     if (o->max_tool_result_bytes == 0 || o->max_tool_result_bytes > (16u << 20))
         return failf(error, TNY_STATUS_INVALID_ARGUMENT,
@@ -168,17 +232,13 @@ static int32_t validate_options(const tny_runtime_options_v0 *o,
 
 int32_t tny_runtime_create(const tny_runtime_options_v0 *o,
                            tny_runtime **out, tny_error **error) {
+    tny_alloc_scope_begin("runtime_create");
     if (out) *out = NULL;
     if (error) *error = NULL;
-    if (!out) return failf(error, TNY_STATUS_INVALID_ARGUMENT,
-                           "out_runtime is required");
+    if (!out) return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                         "out_runtime is required"), error);
     int32_t rc = validate_options(o, error);
-    if (rc != TNY_STATUS_OK) return rc;
-    bool expected = false;
-    if (!atomic_compare_exchange_strong(&public_runtime_live, &expected, true))
-        return failf(error, TNY_STATUS_BUSY,
-                     "ABI 0 supports one public runtime per process");
-
+    if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
     char *workspace = NULL, *state_dir = NULL, *provider = NULL;
     char *model = NULL, *base_url = NULL, *api_key = NULL, *wire = NULL;
 #define COPY(field, required_, slot) do { \
@@ -186,7 +246,7 @@ int32_t tny_runtime_create(const tny_runtime_options_v0 *o,
     if (rc != TNY_STATUS_OK) goto fail; \
 } while (0)
     COPY(workspace, true, workspace);
-    COPY(state_dir, true, state_dir);
+    COPY(state_dir, o->persistence != 0, state_dir);
     COPY(provider, false, provider);
     COPY(model, false, model);
     COPY(base_url, false, base_url);
@@ -202,7 +262,12 @@ int32_t tny_runtime_create(const tny_runtime_options_v0 *o,
                    "provider '%s' is not supported by ABI 0", selected);
         goto fail;
     }
-    tny_ctx *ctx = tny_ctx_new_explicit(workspace, state_dir);
+    /* An ephemeral context still needs an internal absolute path base for its
+     * in-memory session representation. Reusing the workspace is safe because
+     * no-save is set below before a session can be created, and no state path
+     * is ever materialized. */
+    tny_ctx *ctx = tny_ctx_new_explicit(workspace,
+                                        state_dir ? state_dir : workspace);
     if (!ctx) { rc = failf(error, TNY_STATUS_CONFIG,
                            "workspace or state directory is invalid"); goto fail; }
     ctx->backend = backend;
@@ -229,6 +294,14 @@ int32_t tny_runtime_create(const tny_runtime_options_v0 *o,
                                                   "out of memory"); goto fail; }
     runtime->ctx = ctx;
     runtime->owner = pthread_self();
+    runtime->owner_pid = getpid();
+    runtime->endpoint_reachability = TNY_ENDPOINT_REACHABILITY_UNKNOWN;
+    if (tny_alloc_scope_failed()) {
+        tny_ctx_free(ctx);
+        free(runtime);
+        rc = TNY_STATUS_OOM;
+        goto fail;
+    }
     *out = runtime;
     free(workspace); free(state_dir);
     return TNY_STATUS_OK;
@@ -236,18 +309,68 @@ int32_t tny_runtime_create(const tny_runtime_options_v0 *o,
 fail:
     free(workspace); free(state_dir); free(provider); free(model);
     free(base_url); secure_free(api_key); free(wire);
-    atomic_store(&public_runtime_live, false);
-    return rc;
+    return scoped_status(rc, error);
 }
 
 static void session_release(tny_session *session);
 
 void tny_runtime_free(tny_runtime *runtime) {
     if (!runtime) return;
+    if (!on_owner(runtime)) return;
     if (runtime->session) session_release(runtime->session);
     tny_ctx_free(runtime->ctx);
     free(runtime);
-    atomic_store(&public_runtime_live, false);
+}
+
+int32_t tny_runtime_get_capabilities(const tny_runtime *runtime,
+                                     tny_capabilities_v0 *capabilities) {
+    if (!runtime || !capabilities) return TNY_STATUS_INVALID_ARGUMENT;
+    if (!on_owner(runtime)) return TNY_STATUS_BAD_STATE;
+    size_t required = offsetof(tny_capabilities_v0, library_version);
+    if (capabilities->struct_size < required)
+        return TNY_STATUS_INVALID_ARGUMENT;
+
+    uint32_t caller_size = capabilities->struct_size;
+    tny_capabilities_v0 full;
+    tny_capabilities_init(&full);
+    full.schema_version = TNY_CAPABILITY_SCHEMA_VERSION;
+    full.abi_version = TNY_ABI_VERSION;
+    full.provider_selected = TNY_PROVIDER_OPENAI;
+    full.provider_initialized = runtime->session &&
+        tny_engine_ready(runtime->session->engine) ? 1u : 0u;
+    full.endpoint_reachability = runtime->endpoint_reachability;
+    full.threading_model = TNY_THREADING_OWNER_THREAD;
+    full.cancel_model = TNY_CANCEL_CROSS_THREAD_ASYNC_WAKE;
+    full.provider_available_mask = TNY_PROVIDER_MASK_OPENAI;
+    full.feature_available_mask = TNY_CAP_FEATURE_PERSISTENCE |
+                                  TNY_CAP_FEATURE_SHARED_LIBRARY |
+                                  TNY_CAP_FEATURE_CROSS_THREAD_CANCEL;
+    full.feature_enabled_mask = TNY_CAP_FEATURE_SHARED_LIBRARY |
+                                TNY_CAP_FEATURE_CROSS_THREAD_CANCEL;
+    if (cap_tls_available()) {
+        full.feature_available_mask |= TNY_CAP_FEATURE_TLS;
+        if (str_starts(runtime->ctx->base_url, "https://"))
+            full.feature_enabled_mask |= TNY_CAP_FEATURE_TLS;
+    }
+    if (!runtime->ctx->no_save)
+        full.feature_enabled_mask |= TNY_CAP_FEATURE_PERSISTENCE;
+    /* Keep synchronized with the private queue budgets in core/runtime.c.
+     * They are reported values, not ABI layout or caller-configurable knobs. */
+    full.event_queue_max = 256u;
+    full.event_reserved = 2u;
+    full.event_payload_bytes_max = UINT64_C(1024) * UINT64_C(1024);
+    full.event_reserved_bytes = 1024u;
+    full.library_version = tny_library_version();
+    full.platform_family = cstr_bytes(cap_platform());
+    full.architecture = cstr_bytes(cap_architecture());
+    full.transport = cstr_bytes("native-http1");
+    full.tls_implementation = cstr_bytes(cap_tls());
+    full.linkage = cstr_bytes("shared");
+
+    size_t n = caller_size < sizeof full ? caller_size : sizeof full;
+    memcpy(capabilities, &full, n);
+    capabilities->struct_size = caller_size;
+    return TNY_STATUS_OK;
 }
 
 static int32_t make_session(tny_runtime *runtime, tny_session_state *state,
@@ -266,6 +389,11 @@ static int32_t make_session(tny_runtime *runtime, tny_session_state *state,
         session_release(session);
         return failf(error, TNY_STATUS_OOM, "out of memory");
     }
+    if (tny_engine_enable_threadsafe_cancel(session->engine) != 0) {
+        session_release(session);
+        return failf(error, TNY_STATUS_IO,
+                     "could not initialize the cancellation wake source");
+    }
     runtime->session = session;
     *out = session;
     return TNY_STATUS_OK;
@@ -273,37 +401,52 @@ static int32_t make_session(tny_runtime *runtime, tny_session_state *state,
 
 int32_t tny_session_create(tny_runtime *runtime, tny_session **out,
                            tny_error **error) {
+    tny_alloc_scope_begin("session_create");
     if (out) *out = NULL;
     if (error) *error = NULL;
     int32_t rc = require_owner(runtime, error);
-    if (rc != TNY_STATUS_OK) return rc;
-    if (!out) return failf(error, TNY_STATUS_INVALID_ARGUMENT,
-                           "out_session is required");
-    if (runtime->session) return failf(error, TNY_STATUS_BAD_STATE,
-                                       "runtime already has an open session");
-    return make_session(runtime, session_new(runtime->ctx), out, error);
+    if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
+    if (!out) return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                         "out_session is required"), error);
+    if (runtime->session)
+        return scoped_status(failf(error, TNY_STATUS_BAD_STATE,
+                                   "runtime already has an open session"), error);
+    rc = make_session(runtime, session_new(runtime->ctx), out, error);
+    if (tny_alloc_scope_failed() && *out) {
+        session_release(*out);
+        *out = NULL;
+    }
+    return scoped_status(rc, error);
 }
 
 int32_t tny_session_open(tny_runtime *runtime, tny_bytes id,
                          tny_session **out, tny_error **error) {
+    tny_alloc_scope_begin("session_open");
     if (out) *out = NULL;
     if (error) *error = NULL;
     int32_t rc = require_owner(runtime, error);
-    if (rc != TNY_STATUS_OK) return rc;
-    if (!out) return failf(error, TNY_STATUS_INVALID_ARGUMENT,
-                           "out_session is required");
-    if (runtime->session) return failf(error, TNY_STATUS_BAD_STATE,
-                                       "runtime already has an open session");
+    if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
+    if (!out) return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                         "out_session is required"), error);
+    if (runtime->session)
+        return scoped_status(failf(error, TNY_STATUS_BAD_STATE,
+                                   "runtime already has an open session"), error);
     char *session_id = NULL;
     rc = copy_bytes(id, true, "session id", &session_id, error);
-    if (rc != TNY_STATUS_OK) return rc;
+    if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
     tny_session_state *state = session_open(runtime->ctx, session_id);
     free(session_id);
-    return make_session(runtime, state, out, error);
+    rc = make_session(runtime, state, out, error);
+    if (tny_alloc_scope_failed() && *out) {
+        session_release(*out);
+        *out = NULL;
+    }
+    return scoped_status(rc, error);
 }
 
 tny_bytes tny_session_id(const tny_session *session) {
-    return session && session->state ? cstr_bytes(session->state->id)
+    return session && on_owner(session->runtime) && session->state
+                                     ? cstr_bytes(session->state->id)
                                      : bytes_of(NULL, 0);
 }
 
@@ -318,38 +461,53 @@ static void session_release(tny_session *session) {
     free(session);
 }
 
-void tny_session_free(tny_session *session) { session_release(session); }
+void tny_session_free(tny_session *session) {
+    if (!session || !on_owner(session->runtime)) return;
+    session_release(session);
+}
 
 int32_t tny_session_send(tny_session *session, tny_bytes prompt,
                          tny_error **error) {
+    tny_alloc_scope_begin("session_send");
     if (error) *error = NULL;
-    if (!session) return failf(error, TNY_STATUS_INVALID_ARGUMENT,
-                               "session is required");
+    if (!session) return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                             "session is required"), error);
     int32_t rc = require_owner(session->runtime, error);
-    if (rc != TNY_STATUS_OK) return rc;
-    if (session->active) return failf(error, TNY_STATUS_BAD_STATE,
-                                      "session already has an active turn");
+    if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
+    if (session->active)
+        return scoped_status(failf(error, TNY_STATUS_BAD_STATE,
+                                   "session already has an active turn"), error);
     char *text = NULL;
     rc = copy_bytes(prompt, true, "prompt", &text, error);
-    if (rc != TNY_STATUS_OK) return rc;
+    if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
     if (!tny_engine_ready(session->engine)) {
-        char errbuf[512];
+        char errbuf[512] = {0};
         tny_backend *backend = tny_backend_openai_new(session->runtime->ctx);
-        if (!backend ||
-            tny_engine_prepare(session->engine, backend,
+        if (!backend) {
+            free(text);
+            return scoped_status(
+                failf(error, TNY_STATUS_OOM, "out of memory"), error);
+        }
+        if (tny_engine_prepare(session->engine, backend,
                                TNY_ENGINE_PREPARE_FRESH,
                                errbuf, sizeof errbuf) != 0) {
             free(text);
-            return failf(error, status_from_message(errbuf, TNY_STATUS_CONFIG),
-                         "%s", errbuf);
+            int32_t status = status_from_message(errbuf, TNY_STATUS_CONFIG);
+            if (status == TNY_STATUS_IO || status == TNY_STATUS_TIMEOUT_ERROR)
+                session->runtime->endpoint_reachability =
+                    TNY_ENDPOINT_REACHABILITY_UNREACHABLE;
+            return scoped_status(failf(error, status, "%s", errbuf), error);
         }
     }
     char errbuf[512];
     if (tny_engine_start(session->engine, text, NULL,
                          errbuf, sizeof errbuf) != 0) {
         free(text);
-        return failf(error, status_from_message(errbuf, TNY_STATUS_IO),
-                     "%s", errbuf);
+        int32_t status = status_from_message(errbuf, TNY_STATUS_IO);
+        if (status == TNY_STATUS_IO || status == TNY_STATUS_TIMEOUT_ERROR)
+            session->runtime->endpoint_reachability =
+                TNY_ENDPOINT_REACHABILITY_UNREACHABLE;
+        return scoped_status(failf(error, status, "%s", errbuf), error);
     }
     free(text);
     free(session->permission_id);
@@ -357,24 +515,29 @@ int32_t tny_session_send(tny_session *session, tny_bytes prompt,
     session->active = 1;
     session->terminal = 0;
     session->drained = 0;
+    if (tny_alloc_scope_failed()) tny_engine_fail_oom(session->engine);
     return TNY_STATUS_OK;
 }
 
 static uint32_t public_kind(tny_event_kind kind) { return (uint32_t)kind; }
+static int32_t public_error_code(const tny_owned_event *owned);
 
 int32_t tny_session_next_event(tny_session *session, uint32_t timeout_ms,
                                tny_event **out, tny_error **error) {
+    tny_alloc_scope_begin("next_event");
     if (out) *out = NULL;
     if (error) *error = NULL;
-    if (!session || !out) return failf(error, TNY_STATUS_INVALID_ARGUMENT,
-                                       "session and out_event are required");
+    if (!session || !out)
+        return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                   "session and out_event are required"), error);
     if (timeout_ms > 600000u)
-        return failf(error, TNY_STATUS_INVALID_ARGUMENT,
-                     "next_event timeout exceeds 600000 ms");
+        return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                   "next_event timeout exceeds 600000 ms"), error);
     int32_t rc = require_owner(session->runtime, error);
-    if (rc != TNY_STATUS_OK) return rc;
+    if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
     if (!session->active && !session->terminal)
-        return failf(error, TNY_STATUS_BAD_STATE, "no turn has started");
+        return scoped_status(failf(error, TNY_STATUS_BAD_STATE,
+                                   "no turn has started"), error);
     if (session->drained) return TNY_STATUS_DRAINED;
     tny_owned_event *owned = NULL;
     char errbuf[512];
@@ -388,13 +551,16 @@ int32_t tny_session_next_event(tny_session *session, uint32_t timeout_ms,
         return TNY_STATUS_DRAINED;
     }
     if (next == TNY_ENGINE_NEXT_ERROR)
-        return failf(error, TNY_STATUS_IO, "%s", errbuf);
+        return scoped_status(failf(error, TNY_STATUS_IO, "%s", errbuf), error);
     if (owned->ev.kind == TNY_EV_PERMISSION) {
         free(session->permission_id);
         session->permission_id = strdup(owned->ev.perm_id ? owned->ev.perm_id : "");
         if (!session->permission_id) {
             tny_owned_event_free(owned);
-            return failf(error, TNY_STATUS_OOM, "out of memory");
+            tny_engine_fail_oom(session->engine);
+            owned = tny_engine_pop_event(session->engine);
+            if (!owned)
+                return scoped_status(TNY_STATUS_OOM, error);
         }
     } else if (owned->ev.kind == TNY_EV_TURN_END) {
         session->active = 0;
@@ -403,44 +569,71 @@ int32_t tny_session_next_event(tny_session *session, uint32_t timeout_ms,
         free(session->permission_id);
         session->permission_id = NULL;
     }
+    if (owned->ev.kind == TNY_EV_ERROR) {
+        int32_t status = public_error_code(owned);
+        if (status == TNY_STATUS_AUTH || status == TNY_STATUS_PROTOCOL)
+            session->runtime->endpoint_reachability =
+                TNY_ENDPOINT_REACHABILITY_REACHABLE;
+        else if (status == TNY_STATUS_IO)
+            session->runtime->endpoint_reachability =
+                TNY_ENDPOINT_REACHABILITY_UNREACHABLE;
+    } else if ((owned->ev.kind != TNY_EV_TURN_END ||
+                (owned->ev.stop != TNY_STOP_INTERRUPTED &&
+                 owned->ev.stop != TNY_STOP_ERROR)) &&
+               owned->ev.kind != TNY_EV_USER_MESSAGE &&
+               owned->ev.kind != TNY_EV_STEER_REJECTED) {
+        /* Provider-derived data or a successful terminal proves a response
+         * was observed. A query never initiates this transition itself. */
+        session->runtime->endpoint_reachability =
+            TNY_ENDPOINT_REACHABILITY_REACHABLE;
+    }
     *out = (tny_event *)owned;
     return TNY_STATUS_EVENT;
 }
 
 int32_t tny_session_steer(tny_session *session, tny_bytes value,
                           tny_error **error) {
+    tny_alloc_scope_begin("session_steer");
     if (error) *error = NULL;
-    if (!session) return failf(error, TNY_STATUS_INVALID_ARGUMENT, "session is required");
+    if (!session) return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                             "session is required"), error);
     int32_t rc = require_owner(session->runtime, error);
-    if (rc != TNY_STATUS_OK) return rc;
-    if (!session->active) return failf(error, TNY_STATUS_BAD_STATE,
-                                       "no turn is active");
+    if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
+    if (!session->active)
+        return scoped_status(failf(error, TNY_STATUS_BAD_STATE,
+                                   "no turn is active"), error);
     char *text = NULL;
     rc = copy_bytes(value, true, "steer text", &text, error);
-    if (rc != TNY_STATUS_OK) return rc;
+    if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
     char errbuf[512];
     int erc = tny_engine_steer(session->engine, text, errbuf, sizeof errbuf);
     free(text);
+    if (tny_alloc_scope_failed()) {
+        tny_engine_fail_oom(session->engine);
+        return TNY_STATUS_OK;
+    }
     return erc == 0 ? TNY_STATUS_OK
-                    : failf(error, TNY_STATUS_BAD_STATE, "%s", errbuf);
+                    : scoped_status(failf(error, TNY_STATUS_BAD_STATE,
+                                          "%s", errbuf), error);
 }
 
 int32_t tny_session_respond_permission(tny_session *session,
                                        tny_bytes request_id,
                                        uint32_t decision, tny_error **error) {
+    tny_alloc_scope_begin("respond_permission");
     if (error) *error = NULL;
     if (!session || decision > TNY_PERMISSION_DENY)
-        return failf(error, TNY_STATUS_INVALID_ARGUMENT,
-                     "session or permission decision is invalid");
+        return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                   "session or permission decision is invalid"), error);
     int32_t rc = require_owner(session->runtime, error);
-    if (rc != TNY_STATUS_OK) return rc;
+    if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
     char *id = NULL;
     rc = copy_bytes(request_id, true, "permission id", &id, error);
-    if (rc != TNY_STATUS_OK) return rc;
+    if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
     if (!session->permission_id || strcmp(session->permission_id, id) != 0) {
         free(id);
-        return failf(error, TNY_STATUS_BAD_STATE,
-                     "permission id is stale or belongs to another turn");
+        return scoped_status(failf(error, TNY_STATUS_BAD_STATE,
+                                   "permission id is stale or belongs to another turn"), error);
     }
     tny_perm_decision internal = decision == TNY_PERMISSION_ALLOW
         ? TNY_PERM_DECISION_ALLOW
@@ -449,16 +642,17 @@ int32_t tny_session_respond_permission(tny_session *session,
     tny_engine_respond_permission(session->engine, id, internal);
     free(session->permission_id); session->permission_id = NULL;
     free(id);
+    if (tny_alloc_scope_failed()) tny_engine_fail_oom(session->engine);
     return TNY_STATUS_OK;
 }
 
 int32_t tny_session_cancel(tny_session *session, tny_error **error) {
+    tny_alloc_scope_begin("session_cancel");
     if (error) *error = NULL;
-    if (!session) return failf(error, TNY_STATUS_INVALID_ARGUMENT, "session is required");
-    int32_t rc = require_owner(session->runtime, error);
-    if (rc != TNY_STATUS_OK) return rc;
-    if (!session->active) return TNY_STATUS_OK;
-    tny_engine_cancel(session->engine);
+    if (!session) return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                             "session is required"), error);
+    if (session->runtime->owner_pid != getpid()) return TNY_STATUS_BAD_STATE;
+    tny_engine_request_cancel(session->engine);
     return TNY_STATUS_OK;
 }
 
@@ -473,6 +667,7 @@ static int32_t public_error_code(const tny_owned_event *owned) {
     case TNY_EVENT_ERROR_PROTOCOL: return TNY_STATUS_PROTOCOL;
     case TNY_EVENT_ERROR_BACKPRESSURE: return TNY_STATUS_BACKPRESSURE;
     case TNY_EVENT_ERROR_AUTH: return TNY_STATUS_AUTH;
+    case TNY_EVENT_ERROR_OOM: return TNY_STATUS_OOM;
     default: return TNY_STATUS_INTERNAL;
     }
 }

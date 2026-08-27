@@ -1,0 +1,219 @@
+name: sdk
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: sdk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: python-${{ matrix.name }}-${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: linux-x64, os: ubuntu-24.04, python: "3.10"}
+          - {name: linux-x64, os: ubuntu-24.04, python: "3.12"}
+          - {name: linux-x64, os: ubuntu-24.04, python: "3.14"}
+          - {name: linux-arm64, os: ubuntu-24.04-arm, python: "3.14"}
+          - {name: macos-arm64, os: macos-15, python: "3.14"}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Build libtny and install SDK test tools
+        run: |
+          set -eu
+          if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
+          if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
+          make lib-shared
+          python scripts/check_native_compat.py \
+            "$PWD/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}"
+          python -m pip install --disable-pip-version-check \
+            'cffi>=1.16' 'build>=1.2' 'mypy>=1.11' 'setuptools>=77' 'wheel>=0.45'
+      - name: Run SDK tests and strict type checks
+        env:
+          PYTHONPATH: ${{ github.workspace }}/sdk/python/src
+          TNY_TEST_LIBRARY: ${{ github.workspace }}/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}
+        run: |
+          set -eu
+          python -m unittest discover -s sdk/python/tests -p 'test_*.py' -v
+          mypy --strict sdk/python/src/tny sdk/python/tests/typecheck_usage.py
+      - name: Run reference ABI conformance
+        if: matrix.python == '3.14'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/sdk/python/src
+          TNY_TEST_LIBRARY: ${{ github.workspace }}/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}
+        run: |
+          set -eu
+          mkdir -p "$PWD/dist/conformance"
+          python sdk/conformance/run.py \
+            --artifact "$PWD/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}" \
+            --report "$PWD/dist/conformance/reference-${{ matrix.name }}.json" \
+            -- python sdk/conformance/adapters/c_reference.py
+          python sdk/conformance/run.py \
+            --artifact "$TNY_TEST_LIBRARY" \
+            --report "$PWD/dist/conformance/python-${{ matrix.name }}.json" \
+            -- python sdk/python/conformance_adapter.py
+      - name: Build discovery and bundled wheels
+        run: |
+          set -eu
+          python -m build --sdist --outdir "$PWD/dist/python-source" sdk/python
+          python -m build --wheel --outdir "$PWD/dist/python-discovery" sdk/python
+          library="$PWD/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}"
+          metadata="$PWD/build/lib/ARTIFACT.json"
+          python scripts/sdk_artifact_metadata.py "$library" "$metadata"
+          sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$metadata")"
+          TNY_BUNDLE_LIBRARY="$library" TNY_BUNDLE_SHA256="$sha" \
+            TNY_BUNDLE_MANIFEST="$metadata" python -m build --wheel \
+            --outdir "$PWD/dist/python-bundled" sdk/python
+      - name: Clean bundled-wheel install and discovery
+        env:
+          RUN_WHEEL_CONFORMANCE: ${{ matrix.python == '3.14' }}
+          TNY_TEST_LIBRARY: ${{ github.workspace }}/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}
+        run: |
+          set -eu
+          wheel="$(find "$PWD/dist/python-bundled" -name '*.whl' -type f -print -quit)"
+          discovery_wheel="$(find "$PWD/dist/python-discovery" -name '*.whl' -type f -print -quit)"
+          envdir="$(mktemp -d)"
+          python -m venv "$envdir/venv"
+          "$envdir/venv/bin/python" -m pip install --disable-pip-version-check "$wheel"
+          work="$envdir/workspace"
+          mkdir -p "$work"
+          "$envdir/venv/bin/python" - "$work" <<'PY'
+          import sys
+          import tny
+          library = tny.Library()
+          assert library.abi_major == 0
+          runtime = tny.Runtime(tny.RuntimeConfig(workspace=sys.argv[1]), library=library)
+          assert runtime.capabilities.library_version
+          runtime.close()
+          print("clean bundled wheel loaded", library)
+          PY
+          python -m venv "$envdir/discovery-venv"
+          "$envdir/discovery-venv/bin/python" -m pip install \
+            --disable-pip-version-check "$discovery_wheel"
+          TNY_LIBRARY_PATH="$TNY_TEST_LIBRARY" \
+            "$envdir/discovery-venv/bin/python" - "$work" <<'PY'
+          import sys
+          import tny
+          library = tny.Library()
+          with tny.Runtime(tny.RuntimeConfig(workspace=sys.argv[1]), library=library):
+              pass
+          print("clean discovery wheel loaded", library)
+          PY
+          if [ "$RUN_WHEEL_CONFORMANCE" = true ]; then
+            mkdir -p "$PWD/dist/conformance"
+            TNY_CONFORMANCE_USE_INSTALLED=1 python sdk/conformance/run.py \
+              --artifact "$wheel" \
+              --report "$PWD/dist/conformance/python-wheel-${{ matrix.name }}.json" \
+              -- "$envdir/venv/bin/python" sdk/python/conformance_adapter.py
+          fi
+      - name: Inspect wheel dependencies
+        run: |
+          set -eu
+          wheel="$(find "$PWD/dist/python-bundled" -name '*.whl' -type f -print -quit)"
+          if [ "$(uname -s)" = Darwin ]; then
+            python -m pip install --disable-pip-version-check delocate
+            delocate-listdeps "$wheel"
+          else
+            python -m pip install --disable-pip-version-check auditwheel
+            auditwheel show "$wheel"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-sdk-${{ matrix.name }}-py${{ matrix.python }}
+          path: |
+            dist/python-*
+            dist/conformance/*.json
+          if-no-files-found: error
+
+  node:
+    name: node-${{ matrix.name }}-${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: linux-x64, os: ubuntu-24.04, node: 20}
+          - {name: linux-x64, os: ubuntu-24.04, node: 26}
+          - {name: linux-arm64, os: ubuntu-24.04-arm, node: 24}
+          - {name: macos-arm64, os: macos-15, node: 24}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Build native SDK
+        run: |
+          set -eu
+          if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
+          if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
+          make lib-shared
+          npm --prefix sdk/typescript run build
+      - name: Test, typecheck and run conformance
+        run: |
+          set -eu
+          npm --prefix sdk/typescript test
+          mkdir -p "$PWD/dist/conformance"
+          python3 sdk/conformance/run.py \
+            --artifact "$PWD/sdk/typescript/build/Release/tny.node" \
+            --report "$PWD/dist/conformance/typescript-${{ matrix.name }}-node${{ matrix.node }}.json" \
+            -- node sdk/typescript/test/conformance-adapter.mjs
+          npm exec --yes --package=typescript -- \
+            tsc --strict --noEmit --module nodenext --moduleResolution nodenext \
+            --target es2022 --lib es2022,esnext.disposable,dom \
+            sdk/typescript/test/typecheck.ts
+      - name: Inspect native dependencies and rpath
+        run: |
+          set -eu
+          addon="$PWD/sdk/typescript/build/Release/tny.node"
+          python3 scripts/check_native_compat.py "$addon"
+          if [ "$(uname -s)" = Darwin ]; then
+            otool -L "$addon"
+            otool -l "$addon" | grep -A3 LC_RPATH
+          else
+            ldd "$addon"
+            readelf -d "$addon" | grep -E 'RPATH|RUNPATH'
+          fi
+      - name: Pack and clean-install the npm package
+        run: |
+          set -eu
+          package_dir="$PWD/dist/node"
+          mkdir -p "$package_dir"
+          (cd sdk/typescript && npm pack --pack-destination "$package_dir")
+          package="$(find "$package_dir" -name '*.tgz' -type f -print -quit)"
+          python3 sdk/conformance/run.py --artifact "$package" \
+            --report "$PWD/dist/conformance/typescript-package-${{ matrix.name }}-node${{ matrix.node }}.json" \
+            -- node sdk/typescript/test/conformance-adapter.mjs
+          envdir="$(mktemp -d)"
+          cd "$envdir"
+          npm init -y >/dev/null
+          npm install "$package"
+          mkdir workspace
+          node --input-type=module - "$envdir/workspace" <<'JS'
+          import { Runtime } from "@thehumanworks/tny";
+          const runtime = await Runtime.create({ workspace: process.argv[2] });
+          if (!runtime.capabilities.libraryVersion) throw new Error("missing capabilities");
+          await runtime.close();
+          console.log("clean npm package loaded");
+          JS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: typescript-sdk-${{ matrix.name }}-node${{ matrix.node }}
+          path: |
+            dist/node/*.tgz
+            dist/conformance/typescript-*.json
+          if-no-files-found: error

@@ -3,6 +3,7 @@ export const EVENT_SCHEMA_VERSION = 1 as const;
 export type TnyStopReason = "done" | "interrupted" | "denied" | "step_limit" | "error" | (string & {});
 export interface TnyEventEnvelope {
   schemaVersion: number;
+  kind: number;
   sequence: bigint;
   timestampMs: bigint;
   provider: string;
@@ -29,18 +30,21 @@ export const eventKinds = {
 export type TnyEventType = keyof typeof eventKinds;
 
 export interface TextDeltaEvent extends TnyEventEnvelope {
+  kind: typeof eventKinds.text_delta;
   type: 'text_delta';
   text: string;
   messageId?: string;
 }
 
 export interface ThinkingEvent extends TnyEventEnvelope {
+  kind: typeof eventKinds.thinking;
   type: 'thinking';
   text: string;
   messageId?: string;
 }
 
 export interface ToolStartEvent extends TnyEventEnvelope {
+  kind: typeof eventKinds.tool_start;
   type: 'tool_start';
   toolName: string;
   toolId: string;
@@ -48,6 +52,7 @@ export interface ToolStartEvent extends TnyEventEnvelope {
 }
 
 export interface ToolEndEvent extends TnyEventEnvelope {
+  kind: typeof eventKinds.tool_end;
   type: 'tool_end';
   toolName: string;
   toolId: string;
@@ -56,6 +61,7 @@ export interface ToolEndEvent extends TnyEventEnvelope {
 }
 
 export interface PermissionRequestEvent extends TnyEventEnvelope {
+  kind: typeof eventKinds.permission_request;
   type: 'permission_request';
   permissionId: string;
   permissionSummary: string;
@@ -63,12 +69,14 @@ export interface PermissionRequestEvent extends TnyEventEnvelope {
 }
 
 export interface PlanEvent extends TnyEventEnvelope {
+  kind: typeof eventKinds.plan;
   type: 'plan';
   text: string;
   messageId?: string;
 }
 
 export interface UsageEvent extends TnyEventEnvelope {
+  kind: typeof eventKinds.usage;
   type: 'usage';
   inputTokens: bigint;
   outputTokens: bigint;
@@ -79,29 +87,34 @@ export interface UsageEvent extends TnyEventEnvelope {
 }
 
 export interface TurnEndEvent extends TnyEventEnvelope {
+  kind: typeof eventKinds.turn_end;
   type: 'turn_end';
   stopReason: TnyStopReason;
 }
 
 export interface ErrorEvent extends TnyEventEnvelope {
+  kind: typeof eventKinds.error;
   type: 'error';
   text: string;
   errorCode: number;
 }
 
 export interface StatusEvent extends TnyEventEnvelope {
+  kind: typeof eventKinds.status;
   type: 'status';
   text: string;
   messageId?: string;
 }
 
 export interface SteerRejectedEvent extends TnyEventEnvelope {
+  kind: typeof eventKinds.steer_rejected;
   type: 'steer_rejected';
   text: string;
   messageId?: string;
 }
 
 export interface CustomMessageEvent extends TnyEventEnvelope {
+  kind: typeof eventKinds.custom_message;
   type: 'custom_message';
   text: string;
   messageId?: string;
@@ -109,12 +122,14 @@ export interface CustomMessageEvent extends TnyEventEnvelope {
 }
 
 export interface UserMessageEvent extends TnyEventEnvelope {
+  kind: typeof eventKinds.user_message;
   type: 'user_message';
   text: string;
   messageId?: string;
 }
 
 export interface ToolProgressEvent extends TnyEventEnvelope {
+  kind: typeof eventKinds.tool_progress;
   type: 'tool_progress';
   toolName: string;
   toolId: string;
@@ -122,7 +137,8 @@ export interface ToolProgressEvent extends TnyEventEnvelope {
 }
 
 export interface UnknownEvent extends TnyEventEnvelope {
-  type: string;
+  type: 'unknown';
+  originalType?: string;
   payload: Readonly<Record<string, unknown>>;
 }
 

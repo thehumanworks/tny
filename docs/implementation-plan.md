@@ -5,7 +5,9 @@ the current product. New architecture work follows the accepted ADRs and must
 preserve the gates below; [ADR 0023](adr/0023-libtny-embedding-abi.md) defines
 the ordered extraction and verification gates for `libtny`. ABI 0.3 begins the
 SDK foundation with the canonical public event registry and sized event view
-([ADR 0030](adr/0030-public-event-schema.md), issues #62/#63).
+([ADR 0030](adr/0030-public-event-schema.md), issues #62/#63). ABI 0.5 removes
+the public-runtime singleton and adds scheduler-safe cancellation through the
+single `tny_poll` seam ([ADR 0033](adr/0033-libtny-multi-runtime-cancel.md)).
 
 ## Phase 0 — skeleton
 

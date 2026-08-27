@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 #define TNY_ABI_MAJOR 0u
-#define TNY_ABI_MINOR 3u
+#define TNY_ABI_MINOR 5u
 #define TNY_ABI_VERSION ((TNY_ABI_MAJOR << 16) | TNY_ABI_MINOR)
 
 /* Non-error outcomes. */
@@ -95,6 +95,8 @@ typedef struct {
 
 #define TNY_EVENT_SCHEMA_VERSION 1u
 
+/* Frozen-v0 event snapshot. Its reserved tail is part of the frozen size.
+ * Future growth requires a v1 type plus new initializer/read symbols. */
 typedef struct {
     uint32_t struct_size;
     uint32_t kind;
@@ -125,14 +127,78 @@ typedef struct {
     uint64_t reserved[8];
 } tny_event_view_v0;
 
+#define TNY_CAPABILITY_SCHEMA_VERSION 1u
+
+#define TNY_PROVIDER_NONE   0u
+#define TNY_PROVIDER_OPENAI 1u
+#define TNY_PROVIDER_CURSOR 2u
+#define TNY_PROVIDER_CODEX  3u
+#define TNY_PROVIDER_ACP    4u
+
+#define TNY_PROVIDER_MASK_OPENAI (UINT64_C(1) << 0)
+#define TNY_PROVIDER_MASK_CURSOR (UINT64_C(1) << 1)
+#define TNY_PROVIDER_MASK_CODEX  (UINT64_C(1) << 2)
+#define TNY_PROVIDER_MASK_ACP    (UINT64_C(1) << 3)
+
+#define TNY_CAP_FEATURE_TLS              (UINT64_C(1) << 0)
+#define TNY_CAP_FEATURE_PERSISTENCE      (UINT64_C(1) << 1)
+#define TNY_CAP_FEATURE_SHARED_LIBRARY   (UINT64_C(1) << 2)
+#define TNY_CAP_FEATURE_STATIC_LIBRARY   (UINT64_C(1) << 3)
+#define TNY_CAP_FEATURE_MCP              (UINT64_C(1) << 4)
+#define TNY_CAP_FEATURE_CUSTOM_TOOLS     (UINT64_C(1) << 5)
+#define TNY_CAP_FEATURE_TERMINAL         (UINT64_C(1) << 6)
+#define TNY_CAP_FEATURE_CROSS_THREAD_CANCEL (UINT64_C(1) << 7)
+#define TNY_CAP_FEATURE_WINDOWS          (UINT64_C(1) << 8)
+#define TNY_CAP_FEATURE_WASM             (UINT64_C(1) << 9)
+#define TNY_CAP_FEATURE_FULLY_STATIC_TLS (UINT64_C(1) << 10)
+
+#define TNY_ENDPOINT_REACHABILITY_UNKNOWN     0u
+#define TNY_ENDPOINT_REACHABILITY_REACHABLE   1u
+#define TNY_ENDPOINT_REACHABILITY_UNREACHABLE 2u
+
+#define TNY_THREADING_OWNER_THREAD 1u
+#define TNY_CANCEL_OWNER_THREAD_ASYNC 1u
+#define TNY_CANCEL_CROSS_THREAD_ASYNC_WAKE 2u
+
+/* Frozen-v0 runtime capability snapshot. Byte views are borrowed from the
+ * runtime (or immutable library storage) and remain valid until the runtime
+ * is freed. Unknown mask bits and scalar values must be ignored. A future
+ * larger snapshot uses a v1 type and new init/query symbols. */
+typedef struct {
+    uint32_t struct_size;
+    uint32_t schema_version;
+    uint32_t abi_version;
+    uint32_t provider_selected;
+    uint32_t provider_initialized;
+    uint32_t endpoint_reachability;
+    uint32_t threading_model;
+    uint32_t cancel_model;
+    uint64_t provider_available_mask;
+    uint64_t feature_available_mask;
+    uint64_t feature_enabled_mask;
+    uint32_t event_queue_max;
+    uint32_t event_reserved;
+    uint64_t event_payload_bytes_max;
+    uint64_t event_reserved_bytes;
+    tny_bytes library_version;
+    tny_bytes platform_family;
+    tny_bytes architecture;
+    tny_bytes transport;
+    tny_bytes tls_implementation;
+    tny_bytes linkage;
+    uint64_t reserved[8];
+} tny_capabilities_v0;
+
+/* Frozen-v0 runtime options. Future options require a v1 type and new
+ * initializer/create entry point; reserved is not appendable storage. */
 typedef struct {
     uint32_t struct_size;
     uint32_t permission_mode;
     uint32_t persistence; /* 0 = process-local, 1 = save under state_dir */
-    uint32_t max_steps;   /* model calls per turn; 0 = unlimited (default) */
+    uint32_t max_steps;   /* 0 = unlimited; otherwise <= INT32_MAX */
     uint64_t max_tool_result_bytes;
     tny_bytes workspace;  /* required existing directory */
-    tny_bytes state_dir;  /* required; created lazily when persistence is on */
+    tny_bytes state_dir;  /* required iff persistence=1; not created when 0 */
     tny_bytes provider;   /* empty or "openai" in ABI 0 */
     tny_bytes model;      /* empty = provider default */
     tny_bytes base_url;   /* OpenAI-compatible provider only */
@@ -141,18 +207,28 @@ typedef struct {
     uint64_t reserved[8];
 } tny_runtime_options_v0;
 
+/* ABI 0 uses a fixed 15-second native connection deadline. Destruction closes
+ * an active OpenAI HTTP transport without waiting for provider completion.
+ * Process-spawning tools are unavailable in public runtimes. */
+
 TNY_API uint32_t TNY_CALL tny_abi_version(void);
 TNY_API tny_bytes TNY_CALL tny_library_version(void);
 TNY_API void TNY_CALL tny_runtime_options_init(tny_runtime_options_v0 *options);
+TNY_API void TNY_CALL tny_capabilities_init(tny_capabilities_v0 *capabilities);
 
-/* ABI 0 handles are owner-thread-affine, including cancel. Inputs are valid
- * only for the call; libtny copies retained UTF-8. Event views remain valid
- * until tny_event_free. Free child handles before their parents. */
+/* ABI 0 handles are owner-thread-affine except tny_session_cancel, which is
+ * safe and idempotent from any thread. The owner must keep the session alive
+ * until every concurrent cancel call has returned; free and all other calls
+ * remain owner-thread-only. Inputs are valid only for the call; libtny copies
+ * retained UTF-8. Event views remain valid until tny_event_free. Free child
+ * handles before their parents. */
 
 TNY_API int32_t TNY_CALL tny_runtime_create(
     const tny_runtime_options_v0 *options,
     tny_runtime **out_runtime, tny_error **out_error);
 TNY_API void TNY_CALL tny_runtime_free(tny_runtime *runtime);
+TNY_API int32_t TNY_CALL tny_runtime_get_capabilities(
+    const tny_runtime *runtime, tny_capabilities_v0 *capabilities);
 
 TNY_API int32_t TNY_CALL tny_session_create(
     tny_runtime *runtime, tny_session **out_session, tny_error **out_error);

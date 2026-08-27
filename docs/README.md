@@ -25,6 +25,7 @@ Do not start product code until you have read this index and the files it names.
 | [settings.md](settings.md) | settings.json defaults, schema, named providers and ACP agents |
 | [tui.md](tui.md) | Interactive shell, slash commands, keys |
 | [libtny.md](libtny.md) | Experimental headless C embedding ABI |
+| [sdks.md](sdks.md) | Python/cffi and TypeScript/Node-API SDK contracts |
 | [extensions.md](extensions.md) | Trusted Python event hooks, actions, ordering, provider limits |
 
 ## Backends

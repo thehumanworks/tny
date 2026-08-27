@@ -23,7 +23,7 @@ TS_HEADER = [
     f"export const EVENT_SCHEMA_VERSION = {schema['schema_version']} as const;",
     'export type TnyStopReason = "done" | "interrupted" | "denied" | "step_limit" | "error" | (string & {});',
     "export interface TnyEventEnvelope {",
-    "  schemaVersion: number;", "  sequence: bigint;", "  timestampMs: bigint;",
+    "  schemaVersion: number;", "  kind: number;", "  sequence: bigint;", "  timestampMs: bigint;",
     "  provider: string;", "  sessionId: string;", "  turnId: string;", "}",
     "export const eventKinds = {",
 ]
@@ -32,12 +32,15 @@ for e in events: ts.append(f"  {e['type']}: {e['id']},")
 ts += ["} as const;", "", "export type TnyEventType = keyof typeof eventKinds;", ""]
 for e in events:
     name=''.join(x.title() for x in e['type'].split('_'))+'Event'
-    ts += [f"export interface {name} extends TnyEventEnvelope {{", f"  type: {e['type']!r};"]
+    ts += [f"export interface {name} extends TnyEventEnvelope {{",
+           f"  kind: typeof eventKinds.{e['type']};", f"  type: {e['type']!r};"]
     for f in e['fields']:
         if f in FIELD_TS: ts.append("  "+FIELD_TS[f]+";")
     ts += ["}", ""]
 types=[''.join(x.title() for x in e['type'].split('_'))+'Event' for e in events]
-ts += ["export interface UnknownEvent extends TnyEventEnvelope {", "  type: string;", "  payload: Readonly<Record<string, unknown>>;", "}", "",
+ts += ["export interface UnknownEvent extends TnyEventEnvelope {",
+       "  type: 'unknown';", "  originalType?: string;",
+       "  payload: Readonly<Record<string, unknown>>;", "}", "",
        "export type KnownTnyEvent ="]
 for i,n in enumerate(types): ts.append(f"  {'|' if i else ' '} {n}")
 ts[-1] += ";"

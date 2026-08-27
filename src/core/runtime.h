@@ -56,11 +56,20 @@ int tny_engine_prepare(tny_engine *e, tny_backend *prepared,
  * after every bounded Python invocation and before side effects/POSTs. */
 void tny_engine_set_cancel_probe(tny_engine *e,
                                  tny_engine_cancel_probe probe, void *ud);
+/* Enable/request the libtny cancellation path. Enabling is owner-thread-only
+ * and must happen before the engine is published. request_cancel() is the one
+ * engine operation safe from another thread; it coalesces requests and wakes
+ * a blocked next_event through the tny_poll fd set. */
+int tny_engine_enable_threadsafe_cancel(tny_engine *e);
+void tny_engine_request_cancel(tny_engine *e);
 int tny_engine_start(tny_engine *e, const char *prompt, const char **images,
                      char *err, size_t errlen);
 int tny_engine_steer(tny_engine *e, const char *text,
                      char *err, size_t errlen);
 void tny_engine_cancel(tny_engine *e);
+/* Settle an active public turn with the preallocated OOM error/terminal pair.
+ * Safe only on the owner thread. */
+void tny_engine_fail_oom(tny_engine *e);
 void tny_engine_respond_permission(tny_engine *e, const char *id,
                                    tny_perm_decision decision);
 

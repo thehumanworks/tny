@@ -57,14 +57,19 @@ static char *grant_key(const char *tool, const char *detail) {
 
 void perm_grant(perm_engine *p, const char *tool, const char *detail) {
     char *key = grant_key(tool, detail);
+    if (!key) return;
     for (int i = 0; i < p->n_grants; i++)
         if (strcmp(p->grants[i], key) == 0) { free(key); return; }
-    p->grants = realloc(p->grants, sizeof(char *) * (size_t)(p->n_grants + 1));
+    char **next = realloc(p->grants,
+                          sizeof(char *) * (size_t)(p->n_grants + 1));
+    if (!next) { free(key); return; }
+    p->grants = next;
     p->grants[p->n_grants++] = key;
 }
 
 static bool grant_hit(perm_engine *p, const char *tool, const char *detail) {
     char *key = grant_key(tool, detail);
+    if (!key) return false;
     bool hit = false;
     for (int i = 0; i < p->n_grants; i++)
         if (strcmp(p->grants[i], key) == 0) { hit = true; break; }

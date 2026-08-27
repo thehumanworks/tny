@@ -25,6 +25,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
       - name: Build and compare tny --version to the tag
         run: |
           set -eu
@@ -76,10 +82,12 @@ jobs:
           set -eu
           jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
           if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
+          if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
           # version from the pushed tag; shallow checkouts have no tags for
           # `git describe` (docs/adr/0014)
           export TNY_VERSION="${GITHUB_REF_NAME#v}"
-          make -j"$jobs" release
+          make -j"$jobs" test
+          make test-libtny-fault
           make size-check SIZE_MAX="${{ matrix.size_max }}"
           make pack TRIPLE="${{ matrix.triple }}"
           ./dist/tny-${{ matrix.triple }} --version
@@ -91,10 +99,118 @@ jobs:
           cp python/tny_ext/*.py python/tny_ext/py.typed dist/stage/lib/tny/tny_ext/
           tar -C dist/stage -czf dist/tny-${{ matrix.triple }}.tar.gz tny lib
 
+      - name: Package immutable libtny SDK input
+        run: |
+          set -eu
+          export TNY_VERSION="${GITHUB_REF_NAME#v}"
+          root="$PWD/dist/libtny-root"
+          make lib-shared
+          make install-lib DESTDIR="$root" PREFIX=/usr/local
+          mkdir -p "$root/usr/local/share/tny/abi" "$root/usr/local/share/doc/tny"
+          cp abi/libtny.map abi/libtny.exports.macos "$root/usr/local/share/tny/abi/"
+          cp docs/libtny.md THIRD_PARTY_NOTICES.md "$root/usr/local/share/doc/tny/"
+          cp LICENSE-METADATA.json "$root/usr/local/share/tny/"
+          library="$(find "$root/usr/local/lib" \
+            \( -name 'libtny.0.dylib' -o -name 'libtny.so.0' \) \
+            -type f -print -quit)"
+          test -n "$library"
+          python3 scripts/check_native_compat.py "$library"
+          python3 scripts/sdk_artifact_metadata.py "$library" \
+            "$root/usr/local/share/tny/ARTIFACT.json"
+          python3 scripts/artifact_manifest.py "$root" \
+            "$root/usr/local/share/tny/MANIFEST.sha256"
+          tar -C "$root" -czf "dist/libtny-${{ matrix.triple }}.tar.gz" usr/local
+
+      - name: Build, certify, and package language SDKs
+        run: |
+          set -eu
+          repo="$PWD"
+          if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
+          if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
+          export TNY_VERSION="${GITHUB_REF_NAME#v}"
+          library="$PWD/dist/libtny-root/usr/local/lib/${{ startsWith(matrix.triple, 'darwin') && 'libtny.0.dylib' || 'libtny.so.0' }}"
+          metadata="$PWD/dist/libtny-root/usr/local/share/tny/ARTIFACT.json"
+          sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$metadata")"
+          mkdir -p "$PWD/dist/sdk"
+          python -m pip install --disable-pip-version-check \
+            'auditwheel>=6.4; platform_system == "Linux"' \
+            'build>=1.2' 'cffi>=1.16' \
+            'delocate>=0.13; platform_system == "Darwin"' \
+            'mypy>=1.11' 'setuptools>=77' 'wheel>=0.45'
+
+          PYTHONPATH="$repo/sdk/python/src" TNY_TEST_LIBRARY="$library" \
+            python -m unittest discover -s sdk/python/tests -p 'test_*.py' -v
+          PYTHONPATH="$repo/sdk/python/src" mypy --strict \
+            sdk/python/src/tny sdk/python/tests/typecheck_usage.py \
+            sdk/python/conformance_adapter.py
+          wheel_stage="$(mktemp -d)"
+          TNY_BUNDLE_LIBRARY="$library" TNY_BUNDLE_SHA256="$sha" \
+            TNY_BUNDLE_MANIFEST="$metadata" python -m build --wheel \
+            --outdir "$wheel_stage" sdk/python
+          wheel="$(find "$wheel_stage" -name '*.whl' -type f -print -quit)"
+          if [ "$(uname -s)" = Darwin ]; then
+            delocate-listdeps "$wheel"
+            cp "$wheel" "$repo/dist/sdk/"
+          else
+            auditwheel show "$wheel"
+            auditwheel repair --wheel-dir "$repo/dist/sdk" "$wheel"
+          fi
+          release_wheel="$(find "$repo/dist/sdk" -name 'tny-*.whl' -type f -print -quit)"
+          test -n "$release_wheel"
+
+          PYTHONPATH="$repo/sdk/python/src" TNY_TEST_LIBRARY="$library" \
+            python sdk/conformance/run.py --artifact "$library" \
+            --report "$repo/dist/sdk/conformance-${{ matrix.triple }}-reference.json" \
+            -- python sdk/conformance/adapters/c_reference.py
+          python_stage="$(mktemp -d)"
+          python -m venv "$python_stage/venv"
+          "$python_stage/venv/bin/python" -m pip install \
+            --disable-pip-version-check "$release_wheel"
+          TNY_CONFORMANCE_USE_INSTALLED=1 python sdk/conformance/run.py \
+            --artifact "$release_wheel" \
+            --report "$repo/dist/sdk/conformance-${{ matrix.triple }}-python-wheel.json" \
+            -- "$python_stage/venv/bin/python" sdk/python/conformance_adapter.py
+
+          export TNY_INCLUDE_DIR="$repo/dist/libtny-root/usr/local/include"
+          export TNY_LIB_DIR="$repo/dist/libtny-root/usr/local/lib"
+          export TNY_ARTIFACT_METADATA="$metadata"
+          export TNY_EXPECTED_LIB_SHA256="$sha"
+          npm --prefix sdk/typescript run build
+          npm --prefix sdk/typescript test
+          python sdk/conformance/run.py \
+            --artifact "$repo/sdk/typescript/build/Release/tny.node" \
+            --report "$repo/dist/sdk/conformance-${{ matrix.triple }}-typescript.json" \
+            -- node sdk/typescript/test/conformance-adapter.mjs
+          package_stage="$(mktemp -d)"
+          (cd sdk/typescript && npm pack --pack-destination "$package_stage")
+          package="$(find "$package_stage" -name '*.tgz' -type f -print -quit)"
+          cp "$package" "$repo/dist/sdk/tny-typescript-${{ matrix.triple }}.tgz"
+          python sdk/conformance/run.py \
+            --artifact "$repo/dist/sdk/tny-typescript-${{ matrix.triple }}.tgz" \
+            --report "$repo/dist/sdk/conformance-${{ matrix.triple }}-typescript-package.json" \
+            -- node sdk/typescript/test/conformance-adapter.mjs
+
+          install_stage="$(mktemp -d)"
+          unset TNY_INCLUDE_DIR TNY_LIB_DIR TNY_ARTIFACT_METADATA \
+            TNY_EXPECTED_LIB_SHA256
+          cd "$install_stage"
+          npm init -y >/dev/null
+          npm install "$repo/dist/sdk/tny-typescript-${{ matrix.triple }}.tgz"
+          mkdir workspace
+          node --input-type=module - "$install_stage/workspace" <<'JS'
+          import { Runtime } from "@thehumanworks/tny";
+          const runtime = await Runtime.create({ workspace: process.argv[2] });
+          if ((runtime.abiVersion & 0xffff) < 5) throw new Error("ABI too old");
+          await runtime.close();
+          JS
+
       - uses: actions/upload-artifact@v7
         with:
           name: release-tny-${{ matrix.triple }}
-          path: dist/tny-${{ matrix.triple }}.tar.gz
+          path: |
+            dist/tny-${{ matrix.triple }}.tar.gz
+            dist/libtny-${{ matrix.triple }}.tar.gz
+            dist/sdk/*
           if-no-files-found: error
 
   musl:
@@ -204,10 +320,10 @@ jobs:
         run: |
           set -eu
           cd assets
-          sha256sum tny-* > SHA256SUMS
+          sha256sum tny-* libtny-* conformance-* > SHA256SUMS
           ls -l
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "tny $GITHUB_REF_NAME" \
             --generate-notes \
-            tny-* SHA256SUMS
+            tny-* libtny-* conformance-* SHA256SUMS
