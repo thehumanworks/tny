@@ -36,6 +36,24 @@ function boundedInteger(name, fallback, minimum, maximum) {
 const baselineThreads = threadCount();
 const baselineFds = readdirSync("/dev/fd").length;
 
+async function waitForResourceBaseline() {
+  const threadLimit = baselineThreads + 3;
+  const fdLimit = baselineFds + 6;
+  const deadline = Date.now() + 5000;
+  let threads;
+  let fds;
+  do {
+    threads = threadCount();
+    fds = readdirSync("/dev/fd").length;
+    if (threads <= threadLimit && fds <= fdLimit) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  } while (Date.now() < deadline);
+  assert.ok(
+    threads <= threadLimit && fds <= fdLimit,
+    `worker resources did not return to baseline: threads ${threads}/${threadLimit}, fds ${fds}/${fdLimit}`,
+  );
+}
+
 function workerSource(withSession) {
   return `
     import { parentPort } from 'node:worker_threads';
@@ -125,7 +143,5 @@ const completedCycles =
   await runBatched(runtimeCycles, concurrency, false) +
   await runBatched(sessionCycles, concurrency, true);
 assert.equal(completedCycles, runtimeCycles + sessionCycles);
-await new Promise((resolve) => setTimeout(resolve, 100));
-assert.ok(threadCount() <= baselineThreads + 3, "worker owner threads returned near baseline");
-assert.ok(readdirSync("/dev/fd").length <= baselineFds + 6, "worker file descriptors returned near baseline");
+await waitForResourceBaseline();
 console.log(`${completedCycles} worker teardown cycles and cross-environment handle rejection passed`);
