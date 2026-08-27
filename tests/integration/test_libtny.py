@@ -690,6 +690,10 @@ def main():
         stress_independent_teardown(libpath, workspace_a, workspace_b)
         verify_fork_rejection(libpath, workspace_a)
 
+    if os.environ.get("TNY_LIBTNY_CORE_ONLY") == "1":
+        print("test_libtny: core ABI and ownership consumers passed")
+        return
+
     stage("strict mock turns and ephemeral state")
     mock, port = start_mock(MOCK_EXPECT_WIRE="responses",
                             MOCK_REJECT_INSTRUCTIONS="HOME-SECRET")

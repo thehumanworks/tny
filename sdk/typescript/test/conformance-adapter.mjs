@@ -56,6 +56,7 @@ for (const command of commands) {
       ...process.env,
       TNY_CONFORMANCE_SENTINEL: request.secret_sentinel,
       TNY_SDK_PACKAGE_ROOT: sdkRoot,
+      ...(command.id === "libtny_ctypes" ? { TNY_LIBTNY_CORE_ONLY: "1" } : {}),
     },
   });
   if (run.stdout) process.stderr.write(run.stdout);
@@ -111,7 +112,7 @@ const scenarios = [
   passed("permission_deny", ["denied_tool_not_executed"], ["node_integration"]),
   passed("cancel_and_drain",
     ["cancel_idempotent", "exactly_one_terminal", "drained_after_terminal", "cross_thread_wake"],
-    ["node_integration", "node_wake", "libtny_ctypes"]),
+    ["node_integration", "node_wake"]),
   passed("auth_error",
     ["stable_auth_category", "no_raw_provider_body", "no_credentials"],
     ["node_integration"]),
