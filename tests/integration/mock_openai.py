@@ -135,6 +135,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def _chunk(self, data: bytes):
         self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
+        # Keep-alive responses cannot rely on connection teardown to flush the
+        # fixture's writer. This is intentionally explicit because hosted
+        # macOS/Python combinations otherwise defer chunks until the client's
+        # stale-response deadline even though the handler has produced them.
+        self.wfile.flush()
 
     def _cors(self):
         # the browser wasm build (docs/adr/0017) calls this mock cross-origin;
