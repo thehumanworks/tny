@@ -125,8 +125,12 @@ jobs:
         run: |
           set -eu
           repo="$PWD"
+          conformance_timeout=180
           if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
-          if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
+          if [ "$(uname -s)" = Darwin ]; then
+            export MACOSX_DEPLOYMENT_TARGET=13.0
+            conformance_timeout=600
+          fi
           export TNY_VERSION="${GITHUB_REF_NAME#v}"
           library="$PWD/dist/libtny-root/usr/local/lib/${{ startsWith(matrix.triple, 'darwin') && 'libtny.0.dylib' || 'libtny.so.0' }}"
           metadata="$PWD/dist/libtny-root/usr/local/share/tny/ARTIFACT.json"
@@ -161,6 +165,7 @@ jobs:
           PYTHONPATH="$repo/sdk/python/src" TNY_TEST_LIBRARY="$library" \
             python sdk/conformance/run.py --artifact "$library" \
             --report "$repo/dist/sdk/conformance-${{ matrix.triple }}-reference.json" \
+            --timeout "$conformance_timeout" \
             -- python sdk/conformance/adapters/c_reference.py
           python_stage="$(mktemp -d)"
           python -m venv "$python_stage/venv"
@@ -169,6 +174,7 @@ jobs:
           TNY_CONFORMANCE_USE_INSTALLED=1 python sdk/conformance/run.py \
             --artifact "$release_wheel" \
             --report "$repo/dist/sdk/conformance-${{ matrix.triple }}-python-wheel.json" \
+            --timeout "$conformance_timeout" \
             -- "$python_stage/venv/bin/python" sdk/python/conformance_adapter.py
 
           export TNY_INCLUDE_DIR="$repo/dist/libtny-root/usr/local/include"
@@ -180,6 +186,7 @@ jobs:
           python sdk/conformance/run.py \
             --artifact "$repo/sdk/typescript/build/Release/tny.node" \
             --report "$repo/dist/sdk/conformance-${{ matrix.triple }}-typescript.json" \
+            --timeout "$conformance_timeout" \
             -- node sdk/typescript/test/conformance-adapter.mjs
           package_stage="$(mktemp -d)"
           (cd sdk/typescript && npm pack --pack-destination "$package_stage")
@@ -188,6 +195,7 @@ jobs:
           python sdk/conformance/run.py \
             --artifact "$repo/dist/sdk/tny-typescript-${{ matrix.triple }}.tgz" \
             --report "$repo/dist/sdk/conformance-${{ matrix.triple }}-typescript-package.json" \
+            --timeout "$conformance_timeout" \
             -- node sdk/typescript/test/conformance-adapter.mjs
 
           install_stage="$(mktemp -d)"

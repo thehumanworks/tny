@@ -54,7 +54,7 @@ import os
 import ssl
 import sys
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 EXPECT_WIRE = os.environ.get("MOCK_EXPECT_WIRE")
 EXPECT_EFFORT = os.environ.get("MOCK_EXPECT_EFFORT")
@@ -509,7 +509,11 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
-    srv = HTTPServer(("127.0.0.1", port), Handler)
+    # Keep-alive fixtures must not monopolize the accept loop: browser parity
+    # opens a second page while Chromium may retain the first page's idle
+    # connection. A threaded fixture mirrors a real provider and lets both
+    # clients progress independently.
+    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     if len(sys.argv) > 3:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(certfile=sys.argv[2], keyfile=sys.argv[3])

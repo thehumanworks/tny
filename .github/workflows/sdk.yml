@@ -57,14 +57,18 @@ jobs:
           TNY_TEST_LIBRARY: ${{ github.workspace }}/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}
         run: |
           set -eu
+          conformance_timeout=180
+          if [ "$(uname -s)" = Darwin ]; then conformance_timeout=600; fi
           mkdir -p "$PWD/dist/conformance"
           python sdk/conformance/run.py \
             --artifact "$PWD/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}" \
             --report "$PWD/dist/conformance/reference-${{ matrix.name }}.json" \
+            --timeout "$conformance_timeout" \
             -- python sdk/conformance/adapters/c_reference.py
           python sdk/conformance/run.py \
             --artifact "$TNY_TEST_LIBRARY" \
             --report "$PWD/dist/conformance/python-${{ matrix.name }}.json" \
+            --timeout "$conformance_timeout" \
             -- python sdk/python/conformance_adapter.py
       - name: Build discovery and bundled wheels
         run: |
@@ -84,6 +88,8 @@ jobs:
           TNY_TEST_LIBRARY: ${{ github.workspace }}/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}
         run: |
           set -eu
+          conformance_timeout=180
+          if [ "$(uname -s)" = Darwin ]; then conformance_timeout=600; fi
           wheel="$(find "$PWD/dist/python-bundled" -name '*.whl' -type f -print -quit)"
           discovery_wheel="$(find "$PWD/dist/python-discovery" -name '*.whl' -type f -print -quit)"
           envdir="$(mktemp -d)"
@@ -118,6 +124,7 @@ jobs:
             TNY_CONFORMANCE_USE_INSTALLED=1 python sdk/conformance/run.py \
               --artifact "$wheel" \
               --report "$PWD/dist/conformance/python-wheel-${{ matrix.name }}.json" \
+              --timeout "$conformance_timeout" \
               -- "$envdir/venv/bin/python" sdk/python/conformance_adapter.py
           fi
       - name: Inspect wheel dependencies
@@ -166,11 +173,14 @@ jobs:
       - name: Test, typecheck and run conformance
         run: |
           set -eu
+          conformance_timeout=180
+          if [ "$(uname -s)" = Darwin ]; then conformance_timeout=600; fi
           npm --prefix sdk/typescript test
           mkdir -p "$PWD/dist/conformance"
           python3 sdk/conformance/run.py \
             --artifact "$PWD/sdk/typescript/build/Release/tny.node" \
             --report "$PWD/dist/conformance/typescript-${{ matrix.name }}-node${{ matrix.node }}.json" \
+            --timeout "$conformance_timeout" \
             -- node sdk/typescript/test/conformance-adapter.mjs
           npm exec --yes --package=typescript -- \
             tsc --strict --noEmit --module nodenext --moduleResolution nodenext \
@@ -191,12 +201,15 @@ jobs:
       - name: Pack and clean-install the npm package
         run: |
           set -eu
+          conformance_timeout=180
+          if [ "$(uname -s)" = Darwin ]; then conformance_timeout=600; fi
           package_dir="$PWD/dist/node"
           mkdir -p "$package_dir"
           (cd sdk/typescript && npm pack --pack-destination "$package_dir")
           package="$(find "$package_dir" -name '*.tgz' -type f -print -quit)"
           python3 sdk/conformance/run.py --artifact "$package" \
             --report "$PWD/dist/conformance/typescript-package-${{ matrix.name }}-node${{ matrix.node }}.json" \
+            --timeout "$conformance_timeout" \
             -- node sdk/typescript/test/conformance-adapter.mjs
           envdir="$(mktemp -d)"
           cd "$envdir"
