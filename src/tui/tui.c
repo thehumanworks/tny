@@ -652,7 +652,9 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         fds[0].revents = 0;
         int nb = 0;
         if (t.turn_active && t.engine) nb = tny_engine_pollfds(t.engine, fds + 1, 8);
-        int pr = tny_poll(fds, (nfds_t)(1 + nb), t.turn_active ? 40 : 400);
+        nfds_t nfds = 1;
+        if (nb > 0) nfds += (nfds_t)nb;
+        int pr = tny_poll(fds, nfds, t.turn_active ? 40 : 400);
         if (pr < 0 && errno != EINTR) break;
 
         if (g_winch) {
