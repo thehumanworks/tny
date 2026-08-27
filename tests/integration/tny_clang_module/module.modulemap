@@ -1,0 +1,4 @@
+module CTny {
+  header "../../../include/tny/tny.h"
+  export *
+}

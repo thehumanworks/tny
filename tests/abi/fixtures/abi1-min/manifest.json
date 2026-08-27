@@ -1,0 +1,18 @@
+{
+  "abi": "1.0",
+  "header_sha256": "c832678e6600cca85d4c65501fc95d34d4ef2c67a5e1ab302e8ba852e245cf4f",
+  "sources": {
+    "consumer.c": "f404e4332fefc3e8dfb12fc21b5ef3cff69787582b19951b069a7f4f582d1b28",
+    "consumer.cpp": "5c465bc30b523636063e0818120d146440e32403152f0101cc31e04959996e6d"
+  },
+  "binaries": {
+    "macos-arm64": {
+      "path": "../bin/macos-arm64/abi1-consumer",
+      "sha256": "0e4b6783a5133f245da06ad7e4020bbf354f0aba626355a1a7a88a91709e958b",
+      "compiler": "Apple clang version 21.0.0 (clang-2100.3.30.1)",
+      "target": "arm64-apple-darwin27.0.0",
+      "minimum_os": "macOS 13.0",
+      "sdk": "macOS 27.0"
+    }
+  }
+}

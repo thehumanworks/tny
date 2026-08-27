@@ -23,7 +23,7 @@ MOCK = ROOT / "tests" / "integration" / "mock_openai.py"
 LIBRARY = Path(os.environ.get(
     "TNY_TEST_LIBRARY",
     ROOT / "build" / "lib" /
-    ("libtny.0.dylib" if sys.platform == "darwin" else "libtny.so.0"),
+    ("libtny.1.dylib" if sys.platform == "darwin" else "libtny.so.1"),
 ))
 
 
@@ -82,7 +82,7 @@ class SDKTests(unittest.TestCase):
         )
 
     def test_metadata_capabilities_and_secret_safe_repr(self) -> None:
-        self.assertGreaterEqual(self.library.abi_minor, 5)
+        self.assertEqual((self.library.abi_major, self.library.abi_minor), (1, 0))
         with tny.Runtime(
             self.config("https://api.example.invalid/v1"), library=self.library
         ) as runtime:
@@ -159,7 +159,7 @@ class SDKTests(unittest.TestCase):
             runtime.close()
         gc.collect()
 
-    def test_abi_05_allows_multiple_python_runtimes(self) -> None:
+    def test_abi1_allows_multiple_python_runtimes(self) -> None:
         config = self.config("https://api.example.invalid/v1")
         first = tny.Runtime(config, library=self.library)
         second = tny.Runtime(config, library=self.library)
@@ -195,21 +195,28 @@ class SDKTests(unittest.TestCase):
         self.assertEqual(ffi.offsetof("tny_event_view_v0", "provider"), 88)
         self.assertEqual(ffi.offsetof("tny_capabilities_v0", "library_version"), 80)
         options = ffi.new("tny_runtime_options_v0 *")
-        native.tny_runtime_options_init(options)
+        options_size = ffi.sizeof("tny_runtime_options_v0")
+        self.assertEqual(native.tny_runtime_options_init(options, options_size), 0)
         options.struct_size = 4
         out = ffi.new("tny_runtime **")
         error = ffi.new("tny_error **")
-        self.assertEqual(native.tny_runtime_create(options, out, error), -1)
+        self.assertEqual(
+            native.tny_runtime_create(options, options_size, out, error), -1
+        )
         if error[0] != ffi.NULL:
             native.tny_error_free(error[0])
 
         capabilities = ffi.new("tny_capabilities_v0 *")
-        native.tny_capabilities_init(capabilities)
+        capabilities_size = ffi.sizeof("tny_capabilities_v0")
+        self.assertEqual(
+            native.tny_capabilities_init(capabilities, capabilities_size), 0
+        )
         capabilities.struct_size = 4
         self.assertEqual(
-            native.tny_runtime_get_capabilities(runtime._handle, capabilities), -1
+            native.tny_runtime_get_capabilities(
+                runtime._handle, capabilities, capabilities_size
+            ), -1
         )
-
         runtime.close()
         self.assertTrue(session.closed)
         self.assertTrue(runtime.closed)
@@ -222,6 +229,15 @@ class SDKTests(unittest.TestCase):
                 ),
                 library=self.library,
             )
+
+    def test_explicit_abi0_library_is_rejected(self) -> None:
+        legacy = ROOT / "build" / "lib" / (
+            "libtny.0.dylib" if sys.platform == "darwin" else "libtny.so.0"
+        )
+        if not legacy.is_file():
+            self.skipTest("explicit ABI0 compatibility artifact is not staged")
+        with self.assertRaises(tny.UnsupportedError):
+            tny.Library(legacy)
 
     def test_sync_full_turn_events_are_python_owned_bytes(self) -> None:
         """Conformance: success_two_turns and slow_consumer_backpressure basics."""

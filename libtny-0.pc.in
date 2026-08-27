@@ -1,0 +1,10 @@
+prefix=@PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include/tny-0
+
+Name: libtny-0
+Description: Frozen libtny ABI 0.8 compatibility runtime
+Version: @VERSION@
+Libs: -L${libdir} @COMPAT_LIBS@
+Cflags: -I${includedir}

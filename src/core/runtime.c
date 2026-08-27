@@ -3,6 +3,7 @@
 #include "backends/openai/openai.h"
 #include "core/extension_caps.h"
 #include "core/extensions.h"
+#include "lib/host_services.h"
 #include "util/alloc.h"
 #include "util/tny_poll.h"
 #include "util/tny_wake.h"
@@ -68,6 +69,10 @@ struct tny_engine {
     tny_owned_event *oom_terminal_reserve;
 };
 
+static int64_t engine_monotonic_ms(const tny_engine *e) {
+    return tny_host_services_monotonic_or_native(e->ctx->host_services);
+}
+
 static char *dup_bytes(const char *s, size_t n) {
     if (!s) return NULL;
     char *p = malloc(n + 1);
@@ -127,7 +132,7 @@ static tny_owned_event *event_copy(tny_engine *e, const tny_backend_event *ev) {
     o->ev.perm_summary = NULL;
     o->ev.message_type = NULL;
     o->sequence = ++e->session->extension_event_sequence;
-    o->timestamp_ms = monotonic_ms();
+    o->timestamp_ms = engine_monotonic_ms(e);
     o->provider = dup_cstr(tny_provider_name(e->ctx));
     o->session_id = dup_cstr(e->session->id);
     char turn_id[160];
@@ -194,9 +199,38 @@ static tny_owned_event *reserve_event(tny_engine *e, tny_event_kind kind) {
     return o;
 }
 
+/* Replenish a consumed OOM pair only while no turn is active. Public events
+ * remain independently owned by their caller, so recycling them from
+ * tny_event_free would couple event lifetime to the session. Building both
+ * replacements transactionally also leaves a retryable state if allocation
+ * fails part-way through the pre-turn re-arm. */
+static bool ensure_oom_reserves(tny_engine *e) {
+    if (e->oom_error_reserve && e->oom_terminal_reserve) return true;
+    tny_owned_event *error = e->oom_error_reserve;
+    tny_owned_event *terminal = e->oom_terminal_reserve;
+    bool new_error = false;
+    bool new_terminal = false;
+    if (!error) {
+        error = reserve_event(e, TNY_EV_ERROR);
+        new_error = true;
+    }
+    if (error && !terminal) {
+        terminal = reserve_event(e, TNY_EV_TURN_END);
+        new_terminal = true;
+    }
+    if (!error || !terminal) {
+        if (new_error) tny_owned_event_free(error);
+        if (new_terminal) tny_owned_event_free(terminal);
+        return false;
+    }
+    e->oom_error_reserve = error;
+    e->oom_terminal_reserve = terminal;
+    return true;
+}
+
 static void prepare_reserved_event(tny_engine *e, tny_owned_event *o) {
     o->sequence = ++e->session->extension_event_sequence;
-    o->timestamp_ms = monotonic_ms();
+    o->timestamp_ms = engine_monotonic_ms(e);
     snprintf(o->turn_id, 192, "%s:%llu:%d", e->session->id,
              (unsigned long long)e->session->extension_agent_sequence,
              e->extension_continuations);
@@ -215,6 +249,7 @@ static void append_owned(tny_engine *e, tny_owned_event *copy) {
     e->tail = copy;
     e->queue_count++;
     e->queue_bytes += copy->owned_bytes;
+    tny_host_services_notify_advisory(e->ctx->host_services);
 }
 
 static void queue_event(tny_engine *e, const tny_backend_event *ev) {
@@ -371,7 +406,7 @@ static void event_json_begin(tny_engine *e, buf_t *b, const char *type) {
     buf_appends(b, ",\"turn_id\":");
     jescape(b, turn_id);
     buf_appendf(b, ",\"timestamp_ms\":%lld,\"payload\":{",
-                (long long)monotonic_ms());
+                (long long)engine_monotonic_ms(e));
 }
 
 static char *backend_event_json(tny_engine *e, const tny_backend_event *ev) {
@@ -1504,9 +1539,7 @@ tny_engine *tny_engine_new(tny_ctx *ctx, tny_session_state *session,
     buf_init(&e->turn_text);
     buf_init(&e->message_text);
     buf_init(&e->extension_followup);
-    e->oom_error_reserve = reserve_event(e, TNY_EV_ERROR);
-    e->oom_terminal_reserve = reserve_event(e, TNY_EV_TURN_END);
-    if (!e->oom_error_reserve || !e->oom_terminal_reserve) {
+    if (!ensure_oom_reserves(e)) {
         tny_engine_free(e);
         return NULL;
     }
@@ -1585,6 +1618,10 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images,
     if (!e || !e->bk || !prompt || e->active || e->head ||
         e->pending_terminal || (e->terminal && !e->terminal_popped)) {
         if (err && errlen) snprintf(err, errlen, "runtime is not ready for a turn");
+        return -1;
+    }
+    if (!ensure_oom_reserves(e)) {
+        if (err && errlen) snprintf(err, errlen, "out of memory");
         return -1;
     }
     free(e->prompt_text);
@@ -1786,7 +1823,7 @@ tny_engine_next tny_engine_next_event(tny_engine *e, int timeout_ms,
         return TNY_ENGINE_NEXT_ERROR;
     }
 
-    int64_t deadline = monotonic_ms() + timeout_ms;
+    int64_t deadline = engine_monotonic_ms(e) + timeout_ms;
     do {
         struct pollfd fds[9];
         int n = tny_engine_pollfds(e, fds, 8);
@@ -1798,7 +1835,7 @@ tny_engine_next tny_engine_next_event(tny_engine *e, int timeout_ms,
             fds[wake_index].events = POLLIN;
             fds[wake_index].revents = 0;
         }
-        int remaining = (int)(deadline - monotonic_ms());
+        int remaining = (int)(deadline - engine_monotonic_ms(e));
         if (remaining < 0) remaining = 0;
         int pr = tny_poll(n ? fds : NULL, (nfds_t)n, remaining);
         if (pr < 0) {
@@ -1821,7 +1858,7 @@ tny_engine_next tny_engine_next_event(tny_engine *e, int timeout_ms,
         queued = tny_engine_pop_event(e);
         if (queued) { *out = queued; return TNY_ENGINE_NEXT_EVENT; }
         if (e->terminal_popped) return TNY_ENGINE_NEXT_DRAINED;
-        if (monotonic_ms() >= deadline)
+        if (engine_monotonic_ms(e) >= deadline)
             return TNY_ENGINE_NEXT_TIMEOUT;
     } while (e->active);
 

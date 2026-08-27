@@ -38,6 +38,7 @@ Env knobs:
   MOCK_CONNECTION_CLOSE
                       send complete responses with Connection: close
   MOCK_CHUNK_WIDTH    responses wire HTTP chunk width (default 17)
+  MOCK_CUSTOM_TOOL    request this custom tool once, then validate its output
 
 The responses wire streams TWO parallel tool calls (list_files +
 glob_files). The second one's output_item.added carries only the item id;
@@ -86,6 +87,7 @@ if CHUNK_WIDTH < 1:
 _drop_reused_done = False
 EXPECT_EXTENSION_REWRITE = os.environ.get("MOCK_EXPECT_EXTENSION_REWRITE") == "1"
 EXPECT_TOOL_OUTPUT = os.environ.get("MOCK_EXPECT_TOOL_OUTPUT")
+CUSTOM_TOOL = os.environ.get("MOCK_CUSTOM_TOOL")
 
 
 def sse(obj):
@@ -401,6 +403,23 @@ class Handler(BaseHTTPRequestHandler):
                                   "error": {"code": "server_error",
                                             "message": FAIL_RESPONSE}}},
                 ]
+            elif CUSTOM_TOOL:
+                custom_arguments = (os.environ.get("MOCK_HALLUCINATED_ARGUMENTS")
+                                    if CUSTOM_TOOL == "terminal" else None)
+                item = {"type": "function_call", "id": "fc_custom",
+                        "call_id": "custom_1", "name": CUSTOM_TOOL,
+                        "arguments": custom_arguments or "{\"value\":\"hello\"}"}
+                events = [
+                    {"type": "response.created", "response": {"status": "in_progress"}},
+                    {"type": "response.output_item.added", "output_index": 0,
+                     "item": item},
+                    {"type": "response.output_item.done", "output_index": 0,
+                     "item": dict(item, status="completed")},
+                    {"type": "response.completed",
+                     "response": {"status": "completed",
+                                  "usage": {"input_tokens": 10,
+                                            "output_tokens": 2}}},
+                ]
             elif SENSITIVE:
                 item = {"type": "function_call", "id": "fc_sensitive",
                         "call_id": "sensitive_1", "name": "write_file",
@@ -460,7 +479,14 @@ class Handler(BaseHTTPRequestHandler):
             # arguments included, and both results answered
             calls = {i["call_id"]: i for i in items
                      if i.get("type") == "function_call"}
-            if SENSITIVE:
+            if CUSTOM_TOOL:
+                need(set(calls) == {"custom_1"},
+                     f"custom call not echoed exactly: {sorted(calls)}")
+                need(calls["custom_1"].get("name") == CUSTOM_TOOL,
+                     f"custom tool name changed: {calls['custom_1']}")
+                need([o.get("call_id") for o in outputs] == ["custom_1"],
+                     f"custom output wrong: {outputs}")
+            elif SENSITIVE:
                 need(set(calls) == {"sensitive_1"},
                      f"sensitive call not echoed exactly: {sorted(calls)}")
                 need([o.get("call_id") for o in outputs] == ["sensitive_1"],

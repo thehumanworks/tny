@@ -3,6 +3,7 @@
 #          make pack, make bench, make install, make site
 
 CC      ?= cc
+GIT     ?= git
 STD      = -std=c11
 WARN     = -Wall -Wextra -Werror -Wno-deprecated-declarations
 INC      = -Iinclude -Isrc -Ithird_party -Ithird_party/yyjson -Ithird_party/picohttpparser \
@@ -12,6 +13,16 @@ DEFS     = -DHAVE_ARPA_INET_H -DHAVE_NETINET_IN_H -D_DARWIN_C_SOURCE \
 
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
 UNAME_M := $(shell uname -m 2>/dev/null || echo unknown)
+ifeq ($(UNAME_S),Darwin)
+  # macOS dyld strips sanitizer insertion variables before Python can spawn
+  # children. Prefer the framework's real app executable (not its launcher),
+  # while allowing CI/toolchain callers to override discovery explicitly.
+  DARWIN_PYTHON_APPS := $(wildcard \
+    /opt/homebrew/opt/python@*/Frameworks/Python.framework/Versions/*/Resources/Python.app/Contents/MacOS/Python \
+    /usr/local/opt/python@*/Frameworks/Python.framework/Versions/*/Resources/Python.app/Contents/MacOS/Python)
+  SANITIZER_PYTHON ?= $(or $(firstword $(DARWIN_PYTHON_APPS)),\
+    $(shell candidate="$$(python3 -c 'import sys; print(sys.prefix + "/Resources/Python.app/Contents/MacOS/Python")' 2>/dev/null)"; if test -x "$$candidate"; then printf '%s' "$$candidate"; else command -v python3; fi))
+endif
 
 # Version comes from git at build time (docs/adr/0014): the nearest v* tag,
 # plus -N-g<hash>[-dirty] between releases. Release CI overrides it with the
@@ -20,6 +31,10 @@ UNAME_M := $(shell uname -m 2>/dev/null || echo unknown)
 TNY_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
 ifeq ($(strip $(TNY_VERSION)),)
   TNY_VERSION := 0.0.0-unknown
+endif
+ifeq ($(UNAME_S),Darwin)
+  LIBTNY_MACH_CURRENT_VERSION := $(shell python3 scripts/check_abi_baseline.py \
+    --mach-version '$(TNY_VERSION)' --development-fallback 2>/dev/null)
 endif
 
 # MSYS2/Cygwin are POSIX enough to compile the existing sources. Native
@@ -95,7 +110,7 @@ SRC_PUBLIC_API := $(wildcard src/lib/*.c)
 SRC_ALL := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c \
         src/net/*.c src/mcp/*.c src/tui/*.c \
         src/backends/openai/*.c src/backends/acp/*.c src/backends/codex/*.c \
-        src/backends/cursor/*.c)
+        src/backends/cursor/*.c) src/lib/host_services.c src/lib/custom_tools.c
 
 # Per-platform source lists (docs/adr/0017). Native transports (sockets, TLS,
 # hand-rolled HTTP/1.1 + wslay WebSocket) and the poll(2) wrapper are excluded
@@ -117,44 +132,106 @@ TP_WASM := third_party/yyjson/yyjson.c
 
 REL_OBJS := $(SRC:%.c=$(OBJ_REL)/%.o) $(TP:%.c=$(OBJ_REL)/%.o)
 
-# libtny ABI 0: headless runtime only. ACP server/turn are application
+# libtny ABI 1: headless runtime only. ACP server/turn are application
 # adapters; the ACP client wire remains a library backend.
 LIB_APP_EXCLUDE := src/main.c $(wildcard src/cli/*.c src/tui/*.c) \
                    src/backends/acp/acp_server.c src/backends/acp/acp_turn.c
-LIB_SRC := $(SRC_PUBLIC_API) $(filter-out $(LIB_APP_EXCLUDE),$(SRC_SHARED)) $(SRC_NATIVE)
+LIB_SRC := $(SRC_PUBLIC_API) \
+           $(filter-out $(LIB_APP_EXCLUDE) $(SRC_PUBLIC_API),$(SRC_SHARED)) \
+           $(SRC_NATIVE)
 OBJ_PIC := $(BUILD)/pic
 LIB_PIC_OBJS := $(LIB_SRC:%.c=$(OBJ_PIC)/%.o) $(TP:%.c=$(OBJ_PIC)/%.o)
 PIC_CFLAGS := $(REL_CFLAGS) -fPIC -fvisibility=hidden \
+              -DTNY_SHARED_LIBRARY_BUILD=1 \
               -include src/util/alloc_override.h
 OBJ_FAULT_PIC := $(BUILD)/fault-pic
 FAULT_PIC_OBJS := $(LIB_SRC:%.c=$(OBJ_FAULT_PIC)/%.o) \
                   $(TP:%.c=$(OBJ_FAULT_PIC)/%.o)
 FAULT_PIC_CFLAGS := $(PIC_CFLAGS) -DTNY_ALLOC_TESTING=1
+OBJ_FAULT_SAN_PIC := $(BUILD)/fault-san-pic
+FAULT_SAN_PIC_OBJS := $(LIB_SRC:%.c=$(OBJ_FAULT_SAN_PIC)/%.o) \
+                      $(TP:%.c=$(OBJ_FAULT_SAN_PIC)/%.o)
+FAULT_SAN_PIC_CFLAGS := $(FAULT_PIC_CFLAGS) -O1 -g \
+                        -fsanitize=address,undefined \
+                        -fno-omit-frame-pointer
+OBJ_TSAN_PIC := $(BUILD)/tsan-pic
+TSAN_PIC_OBJS := $(LIB_SRC:%.c=$(OBJ_TSAN_PIC)/%.o) \
+                 $(TP:%.c=$(OBJ_TSAN_PIC)/%.o)
+TSAN_PIC_CFLAGS := $(PIC_CFLAGS) -O1 -g -fsanitize=thread \
+                   -fno-omit-frame-pointer
+SAN_HOST := $(BUILD)/fault-san/libtny-sanitizer-host
+ABI0_COMPAT_COMMIT := 510a95c2ef89aa9ec02a66d8b0a5cadd953025a8
+ABI0_COMPAT_ARCHIVE ?=
+ABI0_COMPAT_ARCHIVE_SHA256 := 8718336dbde47f3f8427bf6b3a724127e3ed24b61eaedb6f315523ec2a00c2f6
+ABI0_COMPAT_ROOT := $(BUILD)/compat0/$(ABI0_COMPAT_COMMIT)
+ABI0_COMPAT_SRC := $(ABI0_COMPAT_ROOT)/src
+ABI0_COMPAT_BUILD := $(abspath $(ABI0_COMPAT_ROOT)/out)
+ABI0_COMPAT_STAMP := $(ABI0_COMPAT_ROOT)/.source-verified
 ifeq ($(UNAME_S),Darwin)
-  LIB_REAL := $(BUILD)/lib/libtny.0.dylib
+  LIB_REAL := $(BUILD)/lib/libtny.1.dylib
   LIB_LINK := $(BUILD)/lib/libtny.dylib
-  LIB_LDFLAGS := -dynamiclib -Wl,-install_name,@rpath/libtny.0.dylib \
-                 -Wl,-compatibility_version,1.0 -Wl,-current_version,1.0 \
+  LIB_COMPAT0_REAL := $(BUILD)/lib/libtny.0.dylib
+  ABI0_COMPAT_BUILT := $(ABI0_COMPAT_BUILD)/lib/libtny.0.dylib
+  LIB_LDFLAGS := -dynamiclib -Wl,-install_name,@rpath/libtny.1.dylib \
+                 -Wl,-compatibility_version,1.0.0 \
+                 -Wl,-current_version,$(LIBTNY_MACH_CURRENT_VERSION) \
                  -Wl,-dead_strip \
                  -Wl,-exported_symbols_list,abi/libtny.exports.macos
   LIB_EXPORT_FILE := abi/libtny.exports.macos
-  LIB_FAULT_REAL := $(BUILD)/lib-fault/libtny.0.dylib
+  LIB_FAULT_REAL := $(BUILD)/lib-fault/libtny.1.dylib
   LIB_FAULT_LINK := $(BUILD)/lib-fault/libtny.dylib
+  LIB_FAULT_SAN_REAL := $(BUILD)/lib-fault-san/libtny.1.dylib
+  LIB_FAULT_SAN_LINK := $(BUILD)/lib-fault-san/libtny.dylib
+  LIB_FAULT_LDFLAGS := -dynamiclib \
+                       -Wl,-install_name,@rpath/libtny.1.dylib \
+                       -Wl,-compatibility_version,1.0.0 \
+                       -Wl,-current_version,$(LIBTNY_MACH_CURRENT_VERSION) \
+                       -Wl,-dead_strip
+  ABI0_COMPAT_LIBS := -ltny.0
 else
-  LIB_REAL := $(BUILD)/lib/libtny.so.0
+  LIB_REAL := $(BUILD)/lib/libtny.so.1
   LIB_LINK := $(BUILD)/lib/libtny.so
-  LIB_LDFLAGS := -shared -Wl,-soname,libtny.so.0 -Wl,--gc-sections \
+  LIB_COMPAT0_REAL := $(BUILD)/lib/libtny.so.0
+  ABI0_COMPAT_BUILT := $(ABI0_COMPAT_BUILD)/lib/libtny.so.0
+  LIB_LDFLAGS := -shared -Wl,-soname,libtny.so.1 -Wl,--gc-sections \
                  -Wl,--version-script,abi/libtny.map -pthread -ldl
   LIB_EXPORT_FILE := abi/libtny.map
-  LIB_FAULT_REAL := $(BUILD)/lib-fault/libtny.so.0
+  LIB_FAULT_REAL := $(BUILD)/lib-fault/libtny.so.1
   LIB_FAULT_LINK := $(BUILD)/lib-fault/libtny.so
+  LIB_FAULT_SAN_REAL := $(BUILD)/lib-fault-san/libtny.so.1
+  LIB_FAULT_SAN_LINK := $(BUILD)/lib-fault-san/libtny.so
+  LIB_FAULT_LDFLAGS := -shared -Wl,-soname,libtny.so.1 \
+                       -Wl,--gc-sections -pthread -ldl
+  LIB_TSAN_REAL := $(BUILD)/lib-tsan/libtny.so.1
+  LIB_TSAN_LINK := $(BUILD)/lib-tsan/libtny.so
+  TSAN_HOST := $(BUILD)/tsan/libtny-tsan-host
+  TSAN_CUSTOM_HOST := $(BUILD)/tsan/libtny-custom-tools-tsan
+  ABI0_COMPAT_LIBS := -l:libtny.so.0
 endif
 
 TEST_SRC := $(wildcard tests/*.c)
-TEST_DEPS := $(filter-out src/main.c,$(SRC)) $(TP)
+TEST_DEPS := $(filter-out src/main.c,$(SRC)) $(SRC_PUBLIC_API) $(TP)
 TEST_OBJS := $(TEST_DEPS:%.c=$(OBJ_DBG)/%.o)
 
 PREFIX ?= $(HOME)/.local
+
+# ABI 1 shared artifacts are intentionally limited to the active baseline.
+# CLI/wasm/static builds still compile shared internals but are not libtny
+# packages and must not advertise shared/static linkage capabilities.
+LIBTNY_SHARED_SUPPORTED := 0
+ifeq ($(STATIC),0)
+  ifeq ($(UNAME_S),Darwin)
+    ifeq ($(UNAME_M),arm64)
+      LIBTNY_SHARED_SUPPORTED := 1
+    endif
+  else ifeq ($(UNAME_S),Linux)
+    ifneq ($(filter x86_64 aarch64 arm64,$(UNAME_M)),)
+      ifneq ($(shell getconf GNU_LIBC_VERSION 2>/dev/null),)
+        LIBTNY_SHARED_SUPPORTED := 1
+      endif
+    endif
+  endif
+endif
 
 # Size budgets (docs/size-and-speed.md). Override SIZE_MAX in CI per target.
 # 1.5 MiB Linux, 1.8 MiB Darwin, 2.0 MiB Windows (MSYS-linked).
@@ -166,7 +243,7 @@ else
   SIZE_MAX ?= 1572864
 endif
 
-.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-sdk-python test-sdk-typescript test-sdks test-libtny-fault size size-check pack smoke bench clean install install-lib lib-shared lib-shared-fault site FORCE
+.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation size size-check pack smoke bench clean install install-lib lib-shared lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
 all: release
 
@@ -203,25 +280,115 @@ $(OBJ_FAULT_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FAULT_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FAULT_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
 
-lib-shared: $(LIB_LINK)
+$(OBJ_FAULT_SAN_PIC)/%.o: %.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FAULT_SAN_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FAULT_SAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
+
+$(OBJ_TSAN_PIC)/%.o: %.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(TSAN_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(TSAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
+
+ifeq ($(LIBTNY_SHARED_SUPPORTED),1)
+lib-shared: $(LIB_LINK) $(LIB_COMPAT0_REAL)
+lib-shared-compat0: $(LIB_COMPAT0_REAL)
+else
+lib-shared lib-shared-compat0:
+	@echo "error: ABI 1 shared libtny is supported only on macOS arm64 and glibc Linux x86_64/aarch64 dynamic builds" >&2
+	@exit 2
+endif
 
 lib-shared-fault: $(LIB_FAULT_LINK)
 
+lib-shared-fault-sanitize: $(LIB_FAULT_SAN_LINK)
+
+ifeq ($(UNAME_S),Linux)
+lib-shared-tsan: $(LIB_TSAN_LINK)
+else
+lib-shared-tsan:
+	@echo "error: libtny TSan is supported only by the Linux compiler lane" >&2
+	@exit 2
+endif
+
 $(LIB_REAL): $(LIB_PIC_OBJS) $(LIB_EXPORT_FILE)
 	@mkdir -p $(@D)
+	@test -n "$(if $(filter Darwin,$(UNAME_S)),$(LIBTNY_MACH_CURRENT_VERSION),ok)" || \
+		python3 scripts/check_abi_baseline.py --mach-version '$(TNY_VERSION)' \
+			--development-fallback
 	$(CC) -o $@ $(LIB_PIC_OBJS) $(LIB_LDFLAGS)
 
 $(LIB_LINK): $(LIB_REAL)
 	@mkdir -p $(@D)
 	@cd $(@D) && ln -sf $(notdir $(LIB_REAL)) $(notdir $@)
 
+$(ABI0_COMPAT_STAMP): abi/compat0.json scripts/check_abi_baseline.py
+	@mkdir -p $(ABI0_COMPAT_SRC)
+	@if $(GIT) cat-file -e $(ABI0_COMPAT_COMMIT)^{commit} 2>/dev/null; then \
+		$(GIT) archive $(ABI0_COMPAT_COMMIT) | tar -x -C $(ABI0_COMPAT_SRC); \
+	elif test -n "$(ABI0_COMPAT_ARCHIVE)" && \
+		test -f "$(ABI0_COMPAT_ARCHIVE)"; then \
+		actual=$$(shasum -a 256 "$(ABI0_COMPAT_ARCHIVE)" | awk '{print $$1}'); \
+		test "$$actual" = "$(ABI0_COMPAT_ARCHIVE_SHA256)" || { \
+			echo "error: ABI0_COMPAT_ARCHIVE hash mismatch" >&2; exit 1; }; \
+		tar -xf "$(ABI0_COMPAT_ARCHIVE)" -C $(ABI0_COMPAT_SRC); \
+	else \
+		echo "error: frozen ABI0 commit unavailable; use a full checkout or set ABI0_COMPAT_ARCHIVE to the verified git archive" >&2; \
+		exit 1; \
+	fi
+	python3 scripts/check_abi_baseline.py --compat0 abi/compat0.json \
+		--compat0-source-root $(ABI0_COMPAT_SRC)
+	@touch $@
+
+$(LIB_COMPAT0_REAL): $(ABI0_COMPAT_STAMP)
+	$(MAKE) -C $(ABI0_COMPAT_SRC) BUILD=$(ABI0_COMPAT_BUILD) \
+		CC='$(CC)' TNY_VERSION='$(TNY_VERSION)' lib-shared
+	@mkdir -p $(@D)
+	cp $(ABI0_COMPAT_BUILT) $@
+
 $(LIB_FAULT_REAL): $(FAULT_PIC_OBJS) $(LIB_EXPORT_FILE)
 	@mkdir -p $(@D)
-	$(CC) -o $@ $(FAULT_PIC_OBJS) $(LIB_LDFLAGS)
+	$(CC) -o $@ $(FAULT_PIC_OBJS) $(LIB_FAULT_LDFLAGS)
 
 $(LIB_FAULT_LINK): $(LIB_FAULT_REAL)
 	@mkdir -p $(@D)
 	@cd $(@D) && ln -sf $(notdir $(LIB_FAULT_REAL)) $(notdir $@)
+
+$(LIB_FAULT_SAN_REAL): $(FAULT_SAN_PIC_OBJS) $(LIB_EXPORT_FILE)
+	@mkdir -p $(@D)
+	$(CC) -o $@ $(FAULT_SAN_PIC_OBJS) $(LIB_FAULT_LDFLAGS) \
+		-fsanitize=address,undefined
+
+$(LIB_FAULT_SAN_LINK): $(LIB_FAULT_SAN_REAL)
+	@mkdir -p $(@D)
+	@cd $(@D) && ln -sf $(notdir $(LIB_FAULT_SAN_REAL)) $(notdir $@)
+
+$(SAN_HOST): tests/integration/libtny_sanitizer_host.c $(LIB_FAULT_SAN_REAL)
+	@mkdir -p $(@D)
+	$(CC) $(STD) $(WARN) -Iinclude -O1 -g -fno-omit-frame-pointer \
+		-fsanitize=address,undefined -o $@ $< $(LIB_FAULT_SAN_REAL) \
+		$(if $(filter Linux,$(UNAME_S)),-pthread -ldl,) \
+		-Wl,-rpath,$(abspath $(dir $(LIB_FAULT_SAN_REAL)))
+
+ifeq ($(UNAME_S),Linux)
+$(LIB_TSAN_REAL): $(TSAN_PIC_OBJS) $(LIB_EXPORT_FILE)
+	@mkdir -p $(@D)
+	$(CC) -o $@ $(TSAN_PIC_OBJS) $(LIB_LDFLAGS) -fsanitize=thread
+
+$(LIB_TSAN_LINK): $(LIB_TSAN_REAL)
+	@mkdir -p $(@D)
+	@cd $(@D) && ln -sf $(notdir $(LIB_TSAN_REAL)) $(notdir $@)
+
+$(TSAN_HOST): tests/integration/libtny_tsan_host.c $(LIB_TSAN_REAL)
+	@mkdir -p $(@D)
+	$(CC) $(STD) $(WARN) -Iinclude -O1 -g -fno-omit-frame-pointer \
+		-fsanitize=thread -o $@ $< $(LIB_TSAN_REAL) -pthread -ldl \
+		-Wl,-rpath,$(abspath $(dir $(LIB_TSAN_REAL)))
+
+$(TSAN_CUSTOM_HOST): tests/integration/libtny_custom_tools.c $(LIB_TSAN_REAL)
+	@mkdir -p $(@D)
+	$(CC) $(STD) $(WARN) -Iinclude -O1 -g -fno-omit-frame-pointer \
+		-fsanitize=thread -o $@ $< $(LIB_TSAN_REAL) -pthread -ldl \
+		-Wl,-rpath,$(abspath $(dir $(LIB_TSAN_REAL)))
+endif
 
 $(TEST_BIN): $(TEST_OBJS) $(TEST_SRC:%.c=$(OBJ_DBG)/%.o)
 	@mkdir -p $(@D)
@@ -242,6 +409,14 @@ test-conformance-contract:
 
 test-extensions-python:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/extensions -p 'test_*.py' -v
+
+test-abi: TNY_VERSION=1.0.0
+test-abi: lib-shared
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+		-s tests/abi -p 'test_*.py' -v
+	python3 scripts/check_abi_baseline.py --compat0 abi/compat0.json
+	python3 scripts/check_abi_baseline.py \
+		--candidate $(BUILD)/abi/libtny-v1-current.json
 
 # SDK tests intentionally stay outside `make test`: normal CLI/libtny builds
 # require neither cffi nor Node.js. The dedicated SDK workflow installs them.
@@ -268,7 +443,48 @@ test-sdk-typescript: lib-shared
 test-sdks: test-sdk-python test-sdk-typescript
 
 test-libtny-fault: lib-shared-fault
+	python3 tests/integration/test_net_host_safety.py
 	python3 tests/integration/test_libtny_faults.py $(LIB_FAULT_REAL)
+
+test-libtny-mutation:
+	python3 tests/mutation/mutate.py --focus libtny-safety
+	python3 tests/mutation/mutate.py --focus libtny-fault-mutation
+	python3 tests/mutation/mutate.py --focus libtny-custom-tools
+
+test-libtny-fault-sanitize: lib-shared-fault-sanitize $(SAN_HOST)
+ifeq ($(UNAME_S),Darwin)
+	@runtime="$$($(CC) --print-resource-dir)/lib/darwin/libclang_rt.asan_osx_dynamic.dylib"; \
+	python="$(SANITIZER_PYTHON)"; \
+	test -f "$$runtime" || { echo "error: ASan runtime not found" >&2; exit 1; }; \
+	ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+	TNY_TEST_ASAN_RUNTIME="$$runtime" \
+	TNY_TEST_PYTHON_EXEC="$$python" \
+	DYLD_INSERT_LIBRARIES="$$runtime" \
+	"$$python" tests/integration/test_libtny_faults.py $(LIB_FAULT_SAN_REAL)
+else
+	@runtime="$$($(CC) -print-file-name=libasan.so)"; \
+	test -f "$$runtime" || { echo "error: ASan runtime not found" >&2; exit 1; }; \
+	ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+	TNY_TEST_ASAN_RUNTIME="$$runtime" \
+	LD_PRELOAD="$$runtime" \
+	python3 tests/integration/test_libtny_faults.py $(LIB_FAULT_SAN_REAL)
+endif
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+		python3 tests/integration/libtny_sanitizer_launcher.py $(SAN_HOST)
+
+ifeq ($(UNAME_S),Linux)
+test-libtny-tsan: $(TSAN_HOST) $(TSAN_CUSTOM_HOST)
+	python3 tests/integration/libtny_tsan_launcher.py $(TSAN_HOST)
+	TNY_CUSTOM_TOOL_HOST=$(TSAN_CUSTOM_HOST) \
+		python3 tests/integration/test_libtny_custom_tools.py
+else
+test-libtny-tsan:
+	@echo "error: libtny TSan verification is supported only on Linux" >&2
+	@exit 2
+endif
 
 test: test-unit test-event-schema test-conformance-contract test-extensions-python release
 	@if [ -x tests/integration/run.sh ]; then tests/integration/run.sh; fi
@@ -309,12 +525,20 @@ install: release
 		$(DESTDIR)$(PREFIX)/lib/tny/tny_ext/
 
 install-lib: lib-shared
-	mkdir -p $(DESTDIR)$(PREFIX)/include/tny $(DESTDIR)$(PREFIX)/lib/pkgconfig
+	mkdir -p $(DESTDIR)$(PREFIX)/include/tny \
+		$(DESTDIR)$(PREFIX)/include/tny-0/tny \
+		$(DESTDIR)$(PREFIX)/lib/pkgconfig
 	cp include/tny/tny.h $(DESTDIR)$(PREFIX)/include/tny/tny.h
-	cp -P $(LIB_REAL) $(LIB_LINK) $(DESTDIR)$(PREFIX)/lib/
+	cp $(ABI0_COMPAT_SRC)/include/tny/tny.h \
+		$(DESTDIR)$(PREFIX)/include/tny-0/tny/tny.h
+	cp -P $(LIB_REAL) $(LIB_LINK) $(LIB_COMPAT0_REAL) \
+		$(DESTDIR)$(PREFIX)/lib/
 	sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@VERSION@|$(TNY_VERSION)|g' \
 		libtny.pc.in > \
 		$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny.pc
+	sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@VERSION@|$(TNY_VERSION)|g' \
+		-e 's|@COMPAT_LIBS@|$(ABI0_COMPAT_LIBS)|g' libtny-0.pc.in > \
+		$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny-0.pc
 
 site:
 	python3 scripts/site_build.py
@@ -375,4 +599,7 @@ clean:
 	rm -rf $(BUILD) dist
 
 # Header dependencies emitted by -MMD; a header edit rebuilds its users.
--include $(REL_OBJS:.o=.d) $(LIB_PIC_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(TEST_SRC:%.c=$(OBJ_DBG)/%.d)
+-include $(REL_OBJS:.o=.d) $(LIB_PIC_OBJS:.o=.d) \
+         $(FAULT_PIC_OBJS:.o=.d) $(FAULT_SAN_PIC_OBJS:.o=.d) \
+         $(TSAN_PIC_OBJS:.o=.d) $(TEST_OBJS:.o=.d) \
+         $(TEST_SRC:%.c=$(OBJ_DBG)/%.d)

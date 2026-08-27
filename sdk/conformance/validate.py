@@ -165,6 +165,19 @@ def _validate_events(result: Mapping[str, Any],
               events[index + 1].get("stop_reason") == "interrupted",
               f"{scenario['id']}: steer rejection must immediately precede interrupted terminal")
 
+    assertions = set(result["assertions"])
+    if "stable_auth_category" in assertions:
+        errors = [event for event in events if event["type"] == "error"]
+        _need(len(errors) == 1 and type(errors[0].get("error_code")) is int,
+              f"{scenario['id']}: stable error category is missing")
+    if scenario["id"] == "unknown_future_event":
+        _need(len(events) == 1 and type(events[0].get("kind")) is int and
+              events[0]["kind"] > 13,
+              f"{scenario['id']}: unknown numeric kind was not preserved")
+        payload = events[0].get("payload")
+        _need(isinstance(payload, dict) and bool(payload),
+              f"{scenario['id']}: unknown payload was not preserved")
+
 
 def validate_report(report: Any, contract: Mapping[str, Any], artifact: Path,
                     sentinel: str) -> dict[str, Any]:
@@ -203,17 +216,33 @@ def validate_report(report: Any, contract: Mapping[str, Any], artifact: Path,
     executions = report["executions"]
     _need(isinstance(executions, list) and executions,
           "at least one adapter execution is required")
+    known_assertions = {
+        f"{scenario['id']}:{assertion}"
+        for scenario in contract["scenarios"]
+        for assertion in scenario["assertions"]
+    }
     execution_ids: set[str] = set()
     successful: set[str] = set()
+    execution_assertions: dict[str, set[str]] = {}
     for execution in executions:
-        _need(isinstance(execution, dict) and set(execution) == {"id", "exit_code"},
-              "execution must contain exactly id and exit_code")
+        _need(isinstance(execution, dict) and
+              set(execution) == {"id", "exit_code", "assertions"},
+              "execution must contain exactly id, exit_code, and assertions")
         _need(isinstance(execution["id"], str) and execution["id"] and
               execution["id"] not in execution_ids,
               "execution IDs must be unique non-empty strings")
         _need(type(execution["exit_code"]) is int,
               "execution exit_code must be an integer")
+        claims = execution["assertions"]
+        _need(isinstance(claims, list) and
+              all(isinstance(claim, str) for claim in claims) and
+              len(claims) == len(set(claims)),
+              f"execution {execution['id']} assertions must be unique strings")
+        _need(set(claims) <= known_assertions,
+              f"execution {execution['id']} claims unknown assertions: "
+              f"{sorted(set(claims) - known_assertions)}")
         execution_ids.add(execution["id"])
+        execution_assertions[execution["id"]] = set(claims)
         if execution["exit_code"] == 0:
             successful.add(execution["id"])
     failed_executions = sorted(execution_ids - successful)
@@ -233,6 +262,7 @@ def validate_report(report: Any, contract: Mapping[str, Any], artifact: Path,
     _need(set(by_id) == expected_ids,
           f"scenario IDs differ from contract: {sorted(set(by_id) ^ expected_ids)}")
 
+    referenced_claims: set[tuple[str, str]] = set()
     for scenario in contract["scenarios"]:
         result = by_id[scenario["id"]]
         status = result.get("status")
@@ -257,12 +287,34 @@ def validate_report(report: Any, contract: Mapping[str, Any], artifact: Path,
             _need(isinstance(evidence, list) and evidence and
                   all(item in successful for item in evidence),
                   f"{scenario['id']}: evidence must reference successful executions")
+            for assertion in assertions:
+                qualified = f"{scenario['id']}:{assertion}"
+                _need(any(qualified in execution_assertions[item]
+                          for item in evidence),
+                      f"{scenario['id']}: assertion {assertion} has no executable evidence")
+            for item in evidence:
+                prefix = f"{scenario['id']}:"
+                _need(any(claim.startswith(prefix)
+                          for claim in execution_assertions[item]),
+                      f"{scenario['id']}: evidence {item} does not probe this scenario")
+                referenced_claims.update(
+                    (item, claim) for claim in execution_assertions[item]
+                    if claim.startswith(prefix)
+                )
             _validate_events(result, scenario)
         else:
             _need(set(result) == {"id", "status", "reason"},
                   f"{scenario['id']}: non-pass result has fields outside protocol v1")
             _need(isinstance(result.get("reason"), str) and result["reason"],
                   f"{scenario['id']}: non-pass result needs a reason")
+
+    dangling = sorted(
+        f"{execution_id}={claim}"
+        for execution_id, claims in execution_assertions.items()
+        for claim in claims
+        if (execution_id, claim) not in referenced_claims
+    )
+    _need(not dangling, f"execution assertions are not referenced: {dangling}")
 
     # Normalize volatile native timestamps and opaque session/turn IDs only
     # after validating them. The emitted report records their presence without
@@ -282,6 +334,11 @@ def validate_report(report: Any, contract: Mapping[str, Any], artifact: Path,
                 normalized["stop_reason"] = event["stop_reason"]
             if event["type"] == "steer_rejected":
                 normalized["text"] = event["text"]
+            if event["type"] == "error" and "error_code" in event:
+                normalized["error_code"] = event["error_code"]
+            if event["type"] == "unknown":
+                normalized["kind"] = event["kind"]
+                normalized["payload"] = event["payload"]
             for field in ("provider", "session_id", "turn_id"):
                 if field in event:
                     normalized[f"{field}_present"] = bool(event[field])

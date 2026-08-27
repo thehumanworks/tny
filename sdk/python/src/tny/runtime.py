@@ -11,7 +11,7 @@ from enum import IntEnum
 from types import MappingProxyType
 from urllib.parse import urlsplit
 
-from typing import Any, TypedDict
+from typing import Any, TypedDict, TYPE_CHECKING
 
 from ._binding import (
     STATUS_DRAINED,
@@ -44,6 +44,9 @@ from .events import (
     UsageEvent,
     UserMessageEvent,
 )
+
+if TYPE_CHECKING:
+    from .callbacks import AsyncCustomTool, CustomTool, HostServices, ToolRegistration
 
 
 class _EventKwargs(TypedDict):
@@ -136,7 +139,8 @@ class Runtime:
     """One explicit libtny runtime, owned by its creating thread."""
 
     def __init__(self, config: RuntimeConfig, *, library: Library | None = None,
-                 library_path: str | os.PathLike[str] | None = None) -> None:
+                 library_path: str | os.PathLike[str] | None = None,
+                 host_services: HostServices | None = None) -> None:
         _validate_config(config)
         # Retain only the non-secret configuration snapshot. The caller still
         # owns its input object and credential; the Runtime must not keep a
@@ -146,10 +150,17 @@ class Runtime:
         ffi = self.library.ffi
         native = self.library.native
         self._owner = threading.get_ident()
+        self._callback_depth = 0
         self._handle = ffi.NULL
+        self._handle_slot = ffi.new("tny_runtime **")
         self._session: Session | None = None
+        self._registrations: list[ToolRegistration] = []
+        self._host_binding: Any | None = None
         opts = ffi.new("tny_runtime_options_v0 *")
-        native.tny_runtime_options_init(opts)
+        opts_size = ffi.sizeof("tny_runtime_options_v0")
+        init_status = native.tny_runtime_options_init(opts, opts_size)
+        if init_status != STATUS_OK:
+            self.library.raise_status(init_status, ffi.NULL)
         opts.permission_mode = int(config.permission_mode)
         opts.persistence = int(config.persistence)
         opts.max_steps = int(config.max_steps)
@@ -171,9 +182,25 @@ class Runtime:
                 setattr(opts[0], name, view[0])
                 if name == "api_key":
                     api_key_buffer = buffer
-            out = ffi.new("tny_runtime **")
+            out = self._handle_slot
             error = ffi.new("tny_error **")
-            status = native.tny_runtime_create(opts, out, error)
+            if host_services is None:
+                status = native.tny_runtime_create(opts, opts_size, out, error)
+            else:
+                from .callbacks import _HostBinding
+                self._host_binding = _HostBinding(self, host_services)
+                options_v1 = ffi.new("tny_runtime_options_v1 *")
+                options_v1_size = ffi.sizeof("tny_runtime_options_v1")
+                init_status = native.tny_runtime_options_v1_init(
+                    options_v1, options_v1_size
+                )
+                if init_status != STATUS_OK:
+                    self.library.raise_status(init_status, ffi.NULL)
+                options_v1.runtime = opts[0]
+                options_v1.host_services = self._host_binding.table
+                status = native.tny_runtime_create_v1(
+                    options_v1, options_v1_size, out, error
+                )
         finally:
             if api_key_buffer is not None:
                 size = ffi.sizeof(api_key_buffer)
@@ -181,7 +208,15 @@ class Runtime:
         if status != STATUS_OK:
             self.library.raise_status(status, error[0])
         self._handle = out[0]
-        self.capabilities = self.library.read_capabilities(self._handle)
+        self.capabilities = self.library.read_capabilities(
+            self._handle, extended=True
+        )
+
+    def _enter_callback(self) -> None:
+        self._callback_depth += 1
+
+    def _leave_callback(self) -> None:
+        self._callback_depth = max(0, self._callback_depth - 1)
 
     def _check_owner(self) -> None:
         if threading.get_ident() != self._owner:
@@ -189,6 +224,8 @@ class Runtime:
 
     def _check_open(self) -> None:
         self._check_owner()
+        if self._callback_depth:
+            raise BadStateError(-2)
         if self._handle == self.library.ffi.NULL:
             raise BadStateError(-2)
 
@@ -206,7 +243,7 @@ class Runtime:
         status = self.library.native.tny_session_create(self._handle, handle, error)
         if status != STATUS_OK:
             self.library.raise_status(status, error[0])
-        self._session = Session(self, handle[0])
+        self._session = Session(self, handle)
         return self._session
 
     def open_session(self, session_id: str | bytes) -> Session:
@@ -222,8 +259,103 @@ class Runtime:
         )
         if status != STATUS_OK:
             self.library.raise_status(status, error[0])
-        self._session = Session(self, handle[0])
+        self._session = Session(self, handle)
         return self._session
+
+    def register_tool(self, tool: CustomTool | AsyncCustomTool, *,
+                      _loop: Any | None = None) -> ToolRegistration:
+        self._check_open()
+        from .callbacks import ToolRegistration
+        registration = ToolRegistration(self, tool, _loop)
+        try:
+            self._registrations.append(registration)
+            self.capabilities = self.library.read_capabilities(
+                self._handle, extended=True
+            )
+        except BaseException:
+            if registration in self._registrations:
+                self._registrations.remove(registration)
+            registration._close(refresh=False)
+            raise
+        return registration
+
+    def _forget_registration(self, registration: ToolRegistration, *,
+                             refresh: bool) -> None:
+        if registration in self._registrations:
+            self._registrations.remove(registration)
+        if refresh and self._handle != self.library.ffi.NULL:
+            self.capabilities = self.library.read_capabilities(
+                self._handle, extended=True
+            )
+
+    def host_monotonic_ms(self) -> int:
+        self._check_open()
+        out = self.library.ffi.new("int64_t *")
+        error = self.library.ffi.new("tny_error **")
+        status = self.library.native.tny_runtime_host_monotonic_ms(
+            self._handle, out, error
+        )
+        if status != STATUS_OK: self.library.raise_status(status, error[0])
+        return int(out[0])
+
+    def host_secure_random(self, size: int) -> bytes:
+        self._check_open()
+        if size < 0 or size > 1024 * 1024: raise InvalidArgumentError(-1)
+        buffer = self.library.ffi.new("unsigned char[]", size)
+        error = self.library.ffi.new("tny_error **")
+        status = self.library.native.tny_runtime_host_secure_random(
+            self._handle, buffer, size, error
+        )
+        if status != STATUS_OK: self.library.raise_status(status, error[0])
+        return bytes(self.library.ffi.buffer(buffer, size))
+
+    def host_storage_load(self, key: str | bytes, *,
+                          capacity: int = 1024 * 1024) -> tuple[int, bytes]:
+        self._check_open()
+        if capacity < 0 or capacity > 1024 * 1024: raise InvalidArgumentError(-1)
+        _key_buffer, key_view = borrowed(self.library.ffi, key)
+        revision = self.library.ffi.new("uint64_t *")
+        out_size = self.library.ffi.new("uint64_t *")
+        buffer = self.library.ffi.new("unsigned char[]", capacity)
+        error = self.library.ffi.new("tny_error **")
+        status = self.library.native.tny_runtime_host_storage_load(
+            self._handle, key_view[0], revision, buffer, capacity, out_size, error
+        )
+        if status != STATUS_OK: self.library.raise_status(status, error[0])
+        if int(out_size[0]) > capacity: raise BadStateError(-2)
+        return int(revision[0]), bytes(self.library.ffi.buffer(buffer, int(out_size[0])))
+
+    def host_storage_store(self, key: str | bytes, revision: int,
+                           data: bytes) -> int:
+        self._check_open()
+        if revision < 0 or not isinstance(data, bytes): raise InvalidArgumentError(-1)
+        _key_buffer, key_view = borrowed(self.library.ffi, key)
+        data_buffer = self.library.ffi.new("char[]", data)
+        out_revision = self.library.ffi.new("uint64_t *")
+        error = self.library.ffi.new("tny_error **")
+        status = self.library.native.tny_runtime_host_storage_store(
+            self._handle, key_view[0], revision, data_buffer, len(data),
+            out_revision, error
+        )
+        if status != STATUS_OK: self.library.raise_status(status, error[0])
+        return int(out_revision[0])
+
+    def host_open_url(self, url: str | bytes) -> None:
+        self._check_open()
+        _buffer, view = borrowed(self.library.ffi, url)
+        error = self.library.ffi.new("tny_error **")
+        status = self.library.native.tny_runtime_host_open_url(
+            self._handle, view[0], error
+        )
+        if status != STATUS_OK: self.library.raise_status(status, error[0])
+
+    def host_notify_scheduler(self) -> None:
+        self._check_open()
+        error = self.library.ffi.new("tny_error **")
+        status = self.library.native.tny_runtime_host_notify_scheduler(
+            self._handle, error
+        )
+        if status != STATUS_OK: self.library.raise_status(status, error[0])
 
     def close(self) -> None:
         self._check_owner()
@@ -231,8 +363,14 @@ class Runtime:
             return
         if self._session is not None:
             self._session.close()
-        self.library.native.tny_runtime_free(self._handle)
-        self._handle = self.library.ffi.NULL
+        for registration in reversed(tuple(self._registrations)):
+            registration._close(refresh=False)
+        self._registrations.clear()
+        status = self.library.native.tny_runtime_destroy(self._handle_slot)
+        if status != STATUS_OK:
+            self.library.raise_status(status, self.library.ffi.NULL)
+        self._handle = self._handle_slot[0]
+        self._host_binding = None
 
     def __enter__(self) -> Runtime:
         self._check_open()
@@ -259,9 +397,10 @@ class Runtime:
 class Session:
     """A single session whose native handle is explicitly closed."""
 
-    def __init__(self, runtime: Runtime, handle: Any) -> None:
+    def __init__(self, runtime: Runtime, handle_slot: Any) -> None:
         self._runtime = runtime
-        self._handle = handle
+        self._handle_slot = handle_slot
+        self._handle = handle_slot[0]
         self._lifetime_lock = threading.RLock()
         self._turn_active = False
         self._native_cancel_requested = False
@@ -315,7 +454,7 @@ class Session:
             library.raise_status(status, error[0])
 
     def cancel(self) -> None:
-        # ABI 0.5 makes cancel the sole cross-thread-safe session operation.
+        # ABI 1 makes cancel the sole cross-thread-safe session operation.
         # Serialize it with close so the native handle cannot be freed while a
         # Python-initiated cancel is entering or returning from libtny.
         with self._lifetime_lock:
@@ -421,8 +560,14 @@ class Session:
         with self._lifetime_lock:
             if self._handle == self._runtime.library.ffi.NULL:
                 return
-            self._runtime.library.native.tny_session_free(self._handle)
-            self._handle = self._runtime.library.ffi.NULL
+            status = self._runtime.library.native.tny_session_destroy(
+                self._handle_slot
+            )
+            if status != STATUS_OK:
+                self._runtime.library.raise_status(
+                    status, self._runtime.library.ffi.NULL
+                )
+            self._handle = self._handle_slot[0]
             self._turn_active = False
             if self._runtime._session is self:
                 self._runtime._session = None
@@ -450,8 +595,11 @@ class Session:
     def _copy_event(self, handle: Any) -> AnyEvent:
         library = self._runtime.library
         view_ptr = library.ffi.new("tny_event_view_v0 *")
-        library.native.tny_event_view_init(view_ptr)
-        status = library.native.tny_event_read(handle, view_ptr)
+        view_size = library.ffi.sizeof("tny_event_view_v0")
+        status = library.native.tny_event_view_init(view_ptr, view_size)
+        if status != STATUS_OK:
+            raise InvalidArgumentError(status)
+        status = library.native.tny_event_read(handle, view_ptr, view_size)
         if status != STATUS_OK:
             raise InvalidArgumentError(status)
         view = view_ptr[0]

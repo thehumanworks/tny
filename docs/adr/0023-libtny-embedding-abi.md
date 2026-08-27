@@ -248,6 +248,21 @@ session/runtime destruction. Connection establishment remains bounded by the
 native 15-second connection deadline, and `next_event` remains bounded by the
 caller's validated deadline.
 
+Native connect and write retries use monotonic absolute deadlines. Plain and
+TLS socket writes cannot deliver `SIGPIPE` to the embedding process: Linux
+temporarily blocks it on only the calling thread and restores the exact prior
+mask, while macOS additionally applies descriptor-local `SO_NOSIGPIPE` because
+SecureTransport may write outside its configured callback during handshake or
+close. No process-global signal disposition is installed or changed.
+
+ABI 0 cannot concurrently destroy a handle while its owner thread is inside
+the synchronous connect phase: destruction is owner-thread-only, and any
+non-owner destroy attempt is rejected without touching the handle. The connect
+call itself consumes the fixed deadline and returns before owner-thread
+destruction can begin. The fault lane therefore covers immediate destruction
+after connection failure rather than claiming an impossible concurrent-connect
+destroy state.
+
 Every library-owned API-key copy is released through `secure_free`; the
 temporary HTTP authorization header is explicitly zeroed before its buffer is
 released on success, cancellation, and failure paths. Caller memory and process
@@ -263,8 +278,11 @@ Implementation is accepted only with:
   permission pause/resume, stale permission response, steering rejection, and
   queue overflow;
 - repeated create/close and second-runtime-busy tests under ASan/UBSan;
-- `make test-libtny-fault`, which builds a test-only fault-injection library and
-  sweeps named public-call allocation scopes in isolated host processes;
+- `make test-libtny-fault`, which builds a test-only fault-injection library,
+  discovers the exact allocation high-water mark for each covered public-call
+  scenario, and sweeps every discovered index in isolated host processes;
+- `make test-libtny-fault-sanitize`, which repeats those exact sweeps with the
+  fault library itself instrumented by ASan/UBSan;
 - bounded child shutdown with no leaked host/MCP process;
 - standalone C11 and C++ header compilation;
 - a clean-prefix shared-library C consumer and one Python `ctypes` consumer;
@@ -274,15 +292,35 @@ Implementation is accepted only with:
 - `make size-check` and the existing startup/TTFT gates with no regression;
 - the existing wasm CLI parity suite, without adding a public JS library.
 
-The current issue-24 fault lane is deliberately bounded: allocation indices
-1–48 for runtime/session construction, 1–96 for turn start, 1–48 for event
-pull and permission response, plus active-turn teardown. Each case has a
-20-second process timeout and asserts empty host stdout/stderr. The ordinary C
-suite runs under ASan/UBSan; the test-only fault shared library is not itself
-sanitizer-instrumented. Exhaustive allocation-count discovery, a sanitizer-
-instrumented fault host, and a completed focused mutation run remain required
-before treating issue 24 as fully closed. The native connection setup bound is
-15 seconds; the tested active-stream teardown bound is one second.
+The issue-24 fault lane no longer uses arbitrary index ceilings. A clean child
+first discovers each scenario's allocation count; fresh children then inject
+failure at every index and require either a pre-turn `TNY_STATUS_OOM` with no
+published partial handle, or an active-turn reserved `ERROR` (`OOM`) followed
+by exactly one final `TURN_END`. Covered scopes include runtime/session create,
+session open, initial and post-OOM-reserve turn start, event pull, steering,
+permission response, active/cancelled/permission-wait destruction, and
+post-transport-failure destruction. Two consecutive OOM turns followed by a
+successful turn prove that consumed reserves are transactionally replenished.
+Every child has a 20-second process timeout and any host stdout/stderr byte,
+signal, missed injection, wrong outcome, or sanitizer diagnostic fails the
+lane. The native connection setup bound is 15 seconds; the tested
+active-stream teardown bound is one second.
+
+ABI 0.8 resolves repeated teardown with pointer-to-pointer
+`tny_session_destroy` and `tny_runtime_destroy`. A valid owner call nulls the
+slot before releasing children; repeating the call on that slot is harmless,
+as is cleanup after a constructor left it null. Legacy raw `*_free` symbols stay
+one-shot for binary compatibility and deliberately do not promise safety for a
+copied stale pointer.
+
+The leak-sensitive lane uses a native ASan/UBSan host rather than loading an
+instrumented library after Python startup. Linux runs it with LeakSanitizer
+enabled; Darwin runs the same lifecycle/UB checks with leak detection disabled
+because the platform runtime explicitly does not support it. Fault and TSan
+object dependency files are included by Make, preventing stale layout objects
+from invalidating sanitizer evidence. The native hostile-process-tool fixture,
+exhaustive allocation sweeps, exact export check, focused mutations, and
+size/startup gates are release-blocking evidence for this contract.
 
 ## Consequences
 

@@ -12,6 +12,7 @@
 #include "backends/cursor/cursor.h"
 #include "cli/cli.h"
 #include "util/util.h"
+#include "tny/tny.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -2732,6 +2733,34 @@ TEST provider_write_profile_rules(void) {
     PASS();
 }
 
+TEST embedded_public_runtime_does_not_claim_library_linkage(void) {
+    tny_runtime_options_v0 options;
+    ASSERT_EQ(TNY_STATUS_OK,
+              tny_runtime_options_init(&options, sizeof options));
+    options.workspace = (tny_bytes){g_ws, strlen(g_ws)};
+    options.base_url = (tny_bytes){"http://127.0.0.1:1/v1", 21};
+    options.api_key = (tny_bytes){"unit-key", 8};
+    tny_runtime *runtime = NULL;
+    ASSERT_EQ(TNY_STATUS_OK, tny_runtime_create(
+        &options, sizeof options, &runtime, NULL));
+    ASSERT(runtime);
+    tny_capabilities_v0 capabilities;
+    ASSERT_EQ(TNY_STATUS_OK,
+              tny_capabilities_init(&capabilities, sizeof capabilities));
+    ASSERT_EQ(TNY_STATUS_OK, tny_runtime_get_capabilities(
+        runtime, &capabilities, sizeof capabilities));
+    ASSERT_EQ(0, capabilities.feature_available_mask &
+                 (TNY_CAP_FEATURE_SHARED_LIBRARY |
+                  TNY_CAP_FEATURE_STATIC_LIBRARY));
+    ASSERT_EQ(0, capabilities.feature_enabled_mask &
+                 (TNY_CAP_FEATURE_SHARED_LIBRARY |
+                  TNY_CAP_FEATURE_STATIC_LIBRARY));
+    ASSERT_STR_EQ("embedded", capabilities.linkage.ptr);
+    ASSERT_EQ(TNY_STATUS_OK, tny_runtime_destroy(&runtime));
+    ASSERT(!runtime);
+    PASS();
+}
+
 SUITE(core_suite) {
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(backend_default_cursor_key_from_env);
@@ -2744,6 +2773,7 @@ SUITE(core_suite) {
     RUN_TEST(acp_profiles_list_without_auto_select);
     RUN_TEST(provider_profile_stored_api_key);
     RUN_TEST(provider_write_profile_rules);
+    RUN_TEST(embedded_public_runtime_does_not_claim_library_linkage);
     RUN_TEST(max_steps_default_and_overrides);
     RUN_TEST(extension_config_default_and_overrides);
     RUN_TEST(env_defined_providers);

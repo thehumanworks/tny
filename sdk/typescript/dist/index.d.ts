@@ -77,9 +77,9 @@ export interface RuntimeCapabilities {
   readonly transport: string;
   readonly tlsImplementation: string;
   readonly linkage: string;
-  readonly abiMajor: 0;
+  readonly abiMajor: 1;
   readonly abiMinor: number;
-  readonly experimental: true;
+  readonly experimental: false;
 }
 export interface RuntimeOptions {
   workspace: string;

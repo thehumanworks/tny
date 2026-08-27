@@ -8,8 +8,8 @@
 #include <stdatomic.h>
 #include <tny/tny.h>
 
-#define SDK_ABI_MAJOR 0u
-#define SDK_ABI_MINOR 5u
+#define SDK_ABI_MAJOR 1u
+#define SDK_ABI_MINOR 0u
 #define COMMAND_CAPACITY 64u
 #define OWNER_POLL_MS 5000u
 #define MAX_SESSIONS 1u

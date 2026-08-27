@@ -10,12 +10,12 @@ Build and certify the native shared library with the reference adapter:
 ```sh
 make lib-shared debug
 python3 sdk/conformance/run.py \
-  --artifact build/lib/libtny.0.dylib \
+  --artifact build/lib/libtny.1.dylib \
   --report build/conformance/c-reference.json \
   -- python3 sdk/conformance/adapters/c_reference.py
 ```
 
-Use `build/lib/libtny.so.0` on Linux. The reference adapter drives live ABI 0.5
+Use `build/lib/libtny.so.1` on Linux. The reference adapter drives live ABI 1
 turns against the strict local OpenAI mock, reopens a persisted session, checks
 allow/deny/stale permission handling, cancellation and auth errors, and invokes
 the public steer/cancel path to prove rejected text is returned immediately
@@ -24,6 +24,8 @@ invokes the existing focused C fixtures for queue backpressure and
 `chunked_survives_every_split_boundary`. A compiled reference probe feeds an
 unknown internal event through the public event reader and verifies that its
 numeric kind and payload survive without aliasing a known event constant.
+The queue fixture is bound to its three exact assertion IDs and does not invent
+an error/terminal transcript that the fixture did not emit.
 
 Release policy
 --------------
@@ -34,7 +36,7 @@ A release report is valid only when:
   SHA-256, ABI, platform, transport, capability snapshot, scenario evidence,
   ordered event transcript, terminal count, and secret-safety rules;
 - every scenario applicable to advertised capabilities passed with every v1
-  assertion ID and evidence from a successful execution;
+  assertion ID qualified and bound to a successful executable probe;
 - no applicable release-required scenario is missing, failed, `not_run`, or
   `unsupported`; and
 - unavailable capabilities are explicit, so unsupported wasm/static/DLL or
@@ -53,5 +55,6 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 ```
 
 The negative fixtures prove that broken event ordering, contradictory capability
-claims, wrong artifact hashes, forbidden/secret fields, missing scenarios, and
-`not_run`/`unsupported` applicable scenarios all block release.
+claims, wrong artifact hashes, forbidden/secret fields, missing scenarios,
+false or unknown assertion-to-execution bindings, and `not_run`/`unsupported`
+applicable scenarios all block release.

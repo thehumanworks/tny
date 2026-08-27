@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from functools import partial
-from typing import TypeVar
+from typing import TypeVar, TYPE_CHECKING
 
 from ._binding import Library
 from .errors import BadStateError
@@ -21,6 +21,9 @@ from .runtime import (
     RuntimeConfig,
     Session,
 )
+
+if TYPE_CHECKING:
+    from .callbacks import AsyncCustomTool, CustomTool, HostServices, ToolRegistration
 
 T = TypeVar("T")
 
@@ -62,10 +65,12 @@ class AsyncRuntime:
     """Async runtime whose native calls are serialized on one worker thread."""
 
     def __init__(self, config: RuntimeConfig, *, library: Library | None = None,
-                 library_path: str | os.PathLike[str] | None = None) -> None:
+                 library_path: str | os.PathLike[str] | None = None,
+                 host_services: HostServices | None = None) -> None:
         self._config = config
         self._library = library
         self._library_path = library_path
+        self._host_services = host_services
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="libtny-owner")
         self._lifecycle_lock = asyncio.Lock()
         self._closed = False
@@ -92,30 +97,35 @@ class AsyncRuntime:
             config = self._config
             library = self._library
             library_path = self._library_path
+            host_services = self._host_services
             loop = asyncio.get_running_loop()
             creation = loop.run_in_executor(
                 self._executor,
                 partial(
-                    Runtime, config, library=library, library_path=library_path
+                    Runtime, config, library=library, library_path=library_path,
+                    host_services=host_services,
                 ),
             )
             try:
                 self._runtime = await asyncio.shield(creation)
                 self._runtime_holder[0] = self._runtime
                 self._config = self._runtime.config
+                self._host_services = None
             except asyncio.CancelledError:
                 # Executor work cannot be cancelled once construction starts.
                 # Reclaim and close its result on that owner thread before the
                 # executor is detached from this wrapper.
                 created: Runtime | None = None
                 try:
-                    created = await _await_cancellation_immune(creation)
+                    resolved = await _await_cancellation_immune(creation)
+                    created = resolved
                 except BaseException:  # construction itself failed
                     pass
                 if created is not None:
                     closing = loop.run_in_executor(self._executor, created.close)
                     await _await_cancellation_immune(closing)
                 self._config = replace(config, api_key=b"")
+                self._host_services = None
                 self._closed = True
                 self._finalizer.detach()
                 self._executor.shutdown(wait=True, cancel_futures=True)
@@ -123,6 +133,7 @@ class AsyncRuntime:
                 raise
             except BaseException:
                 self._config = replace(config, api_key=b"")
+                self._host_services = None
                 self._closed = True
                 self._finalizer.detach()
                 self._executor.shutdown(wait=True, cancel_futures=True)
@@ -150,10 +161,23 @@ class AsyncRuntime:
             self._session = AsyncSession(self, sync)
             return self._session
 
+    async def register_tool(
+        self, tool: CustomTool | AsyncCustomTool
+    ) -> AsyncToolRegistration:
+        async with self._lifecycle_lock:
+            await self._open_locked()
+            assert self._runtime is not None
+            loop = asyncio.get_running_loop()
+            registration = await self._call(
+                self._runtime.register_tool, tool, _loop=loop
+            )
+            return AsyncToolRegistration(self, registration)
+
     async def close(self) -> None:
         async with self._lifecycle_lock:
             if self._closed:
                 self._config = replace(self._config, api_key=b"")
+                self._host_services = None
                 return
             if self._session is not None:
                 await self._session.close()
@@ -163,6 +187,7 @@ class AsyncRuntime:
                 self._runtime_holder[0] = None
             self._closed = True
             self._config = replace(self._config, api_key=b"")
+            self._host_services = None
             self._finalizer.detach()
             self._executor.shutdown(wait=True, cancel_futures=True)
             self._executor_shutdown = True
@@ -200,7 +225,7 @@ class AsyncSession:
 
     async def cancel(self) -> None:
         self._token.cancel()
-        # ABI 0.5 cancel is cross-thread-safe and wakes an active native wait.
+        # ABI 1 cancel is cross-thread-safe and wakes an active native wait.
         # Session.cancel serializes against owner-thread close.
         self._sync.cancel()
 
@@ -271,6 +296,28 @@ class AsyncSession:
             self._runtime._session = None
 
     async def __aenter__(self) -> AsyncSession:
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        await self.close()
+
+
+class AsyncToolRegistration:
+    def __init__(self, runtime: AsyncRuntime, sync: ToolRegistration) -> None:
+        self._runtime = runtime
+        self._sync = sync
+
+    @property
+    def closed(self) -> bool:
+        return self._sync.closed
+
+    async def close(self) -> None:
+        if not self._sync.closed:
+            await self._runtime._call(self._sync.close)
+
+    async def __aenter__(self) -> AsyncToolRegistration:
+        if self.closed:
+            raise BadStateError(-2)
         return self
 
     async def __aexit__(self, *_exc: object) -> None:

@@ -49,6 +49,8 @@ jobs:
             metal: true
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Require Apple Silicon (not Intel x86)
         if: matrix.metal
@@ -73,12 +75,14 @@ jobs:
           # links libasan (clang on some images lacks the compiler-rt asan libs).
           if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
           if [ "$(uname -s)" = Darwin ]; then
+            export MACOSX_DEPLOYMENT_TARGET=13.0
             export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
               TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
               TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
           fi
           make -j"$jobs" test
+          make test-abi
           make test-libtny-fault
           make size-check SIZE_MAX="${{ matrix.size_max }}"
           make pack TRIPLE="${{ matrix.triple }}"
@@ -87,7 +91,7 @@ jobs:
           file ./dist/tny-${{ matrix.triple }} || true
           uname -s -m
 
-      - name: Stage libtny ABI-0 developer artifact
+      - name: Stage libtny ABI-1 and frozen ABI-0 compatibility artifacts
         run: |
           set -eu
           make lib-shared
@@ -242,9 +246,26 @@ jobs:
             build/wasm/tny-web.wasm
           if-no-files-found: error
 
+  tsan:
+    name: linux-x86_64-tsan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Stress independent libtny runtimes under ThreadSanitizer
+        env:
+          CC: gcc
+          TNY_TSAN_WORKERS: "4"
+          TNY_TSAN_CYCLES: "20"
+        run: |
+          set -eu
+          gcc --version | head -1
+          make test-libtny-tsan
+
   ci:
     name: ci
-    needs: [build, musl, windows, wasm]
+    needs: [build, musl, windows, wasm, tsan]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -255,3 +276,4 @@ jobs:
           test "${{ needs.musl.result }}" = "success"
           test "${{ needs.windows.result }}" = "success"
           test "${{ needs.wasm.result }}" = "success"
+          test "${{ needs.tsan.result }}" = "success"

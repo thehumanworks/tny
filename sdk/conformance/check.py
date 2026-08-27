@@ -14,7 +14,7 @@ events = json.loads((ROOT / "sdk/schema/events.json").read_text())
 assert contract["conformance_version"] == 1
 assert contract["adapter_protocol_version"] == 1
 assert contract["event_schema_version"] == events["schema_version"]
-assert contract["minimum_abi"] == "0.5"
+assert contract["minimum_abi"] == "1.0"
 
 known_events = {event["type"] for event in events["events"]} | {"unknown"}
 capabilities = set(contract["required_capabilities"])

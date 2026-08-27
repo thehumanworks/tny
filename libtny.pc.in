@@ -4,7 +4,7 @@ libdir=${exec_prefix}/lib
 includedir=${prefix}/include
 
 Name: libtny
-Description: Experimental headless tny coding-agent harness ABI
+Description: Stable headless tny coding-agent harness ABI 1
 Version: @VERSION@
 Libs: -L${libdir} -ltny
 Cflags: -I${includedir}

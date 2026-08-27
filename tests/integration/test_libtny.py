@@ -99,14 +99,19 @@ def as_bytes(value):
 
 def load_lib(libpath):
     lib = ctypes.CDLL(libpath)
-    lib.tny_runtime_options_init.argtypes = [ctypes.POINTER(RuntimeOptions)]
-    lib.tny_runtime_create.argtypes = [ctypes.POINTER(RuntimeOptions),
-                                       ctypes.POINTER(ctypes.c_void_p),
-                                       ctypes.POINTER(ctypes.c_void_p)]
+    lib.tny_abi_version.restype = ctypes.c_uint32
+    lib.tny_runtime_options_init.argtypes = [
+        ctypes.POINTER(RuntimeOptions), ctypes.c_uint64]
+    lib.tny_runtime_options_init.restype = ctypes.c_int32
+    lib.tny_runtime_create.argtypes = [
+        ctypes.POINTER(RuntimeOptions), ctypes.c_uint64,
+        ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p)]
     lib.tny_runtime_create.restype = ctypes.c_int32
-    lib.tny_capabilities_init.argtypes = [ctypes.POINTER(Capabilities)]
-    lib.tny_runtime_get_capabilities.argtypes = [ctypes.c_void_p,
-                                                 ctypes.POINTER(Capabilities)]
+    lib.tny_capabilities_init.argtypes = [
+        ctypes.POINTER(Capabilities), ctypes.c_uint64]
+    lib.tny_capabilities_init.restype = ctypes.c_int32
+    lib.tny_runtime_get_capabilities.argtypes = [
+        ctypes.c_void_p, ctypes.POINTER(Capabilities), ctypes.c_uint64]
     lib.tny_runtime_get_capabilities.restype = ctypes.c_int32
     lib.tny_session_create.argtypes = [ctypes.c_void_p,
                                        ctypes.POINTER(ctypes.c_void_p),
@@ -123,8 +128,11 @@ def load_lib(libpath):
                                            ctypes.POINTER(ctypes.c_void_p),
                                            ctypes.POINTER(ctypes.c_void_p)]
     lib.tny_session_next_event.restype = ctypes.c_int32
-    lib.tny_event_view_init.argtypes = [ctypes.POINTER(EventView)]
-    lib.tny_event_read.argtypes = [ctypes.c_void_p, ctypes.POINTER(EventView)]
+    lib.tny_event_view_init.argtypes = [
+        ctypes.POINTER(EventView), ctypes.c_uint64]
+    lib.tny_event_view_init.restype = ctypes.c_int32
+    lib.tny_event_read.argtypes = [
+        ctypes.c_void_p, ctypes.POINTER(EventView), ctypes.c_uint64]
     lib.tny_event_read.restype = ctypes.c_int32
     lib.tny_event_get_kind.argtypes = [ctypes.c_void_p]
     lib.tny_event_get_kind.restype = ctypes.c_uint32
@@ -147,13 +155,18 @@ def load_lib(libpath):
     lib.tny_error_free.argtypes = [ctypes.c_void_p]
     lib.tny_session_free.argtypes = [ctypes.c_void_p]
     lib.tny_runtime_free.argtypes = [ctypes.c_void_p]
+    lib.tny_session_destroy.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+    lib.tny_session_destroy.restype = ctypes.c_int32
+    lib.tny_runtime_destroy.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+    lib.tny_runtime_destroy.restype = ctypes.c_int32
     return lib
 
 
 def runtime_options(lib, base_url, workspace, state,
                     api_key="test-key-not-real", persistence=1):
     opts = RuntimeOptions()
-    lib.tny_runtime_options_init(ctypes.byref(opts))
+    assert lib.tny_runtime_options_init(
+        ctypes.byref(opts), ctypes.sizeof(opts)) == 0
     opts.persistence = persistence
     keep = []
     fields = [("workspace", workspace), ("base_url", base_url)]
@@ -181,7 +194,7 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
     invalid.workspace = TnyBytes(invalid_workspace, len(invalid_workspace))
     invalid_runtime = ctypes.c_void_p()
     invalid_error = ctypes.c_void_p()
-    assert lib.tny_runtime_create(ctypes.byref(invalid),
+    assert lib.tny_runtime_create(ctypes.byref(invalid), ctypes.sizeof(invalid),
                                   ctypes.byref(invalid_runtime),
                                   ctypes.byref(invalid_error)) == -1
     lib.tny_error_free(invalid_error)
@@ -191,7 +204,7 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
     unsupported.provider = TnyBytes(cursor_raw, len(cursor_raw))
     unsupported_runtime = ctypes.c_void_p()
     unsupported_error = ctypes.c_void_p()
-    assert lib.tny_runtime_create(ctypes.byref(unsupported),
+    assert lib.tny_runtime_create(ctypes.byref(unsupported), ctypes.sizeof(unsupported),
                                   ctypes.byref(unsupported_runtime),
                                   ctypes.byref(unsupported_error)) == -9
     lib.tny_error_free(unsupported_error)
@@ -201,7 +214,8 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
     oversized_runtime = ctypes.c_void_p()
     oversized_error = ctypes.c_void_p()
     assert lib.tny_runtime_create(
-        ctypes.byref(oversized_steps), ctypes.byref(oversized_runtime),
+        ctypes.byref(oversized_steps), ctypes.sizeof(oversized_steps),
+        ctypes.byref(oversized_runtime),
         ctypes.byref(oversized_error)) == -1
     lib.tny_error_free(oversized_error)
 
@@ -211,41 +225,45 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
         missing_runtime = ctypes.c_void_p()
         missing_error = ctypes.c_void_p()
         assert lib.tny_runtime_create(ctypes.byref(missing_state),
+                                      ctypes.sizeof(missing_state),
                                       ctypes.byref(missing_runtime),
                                       ctypes.byref(missing_error)) == -1
         lib.tny_error_free(missing_error)
 
     runtime = ctypes.c_void_p()
     error = ctypes.c_void_p()
-    assert lib.tny_runtime_create(ctypes.byref(opts), ctypes.byref(runtime),
+    assert lib.tny_runtime_create(ctypes.byref(opts), ctypes.sizeof(opts),
+                                  ctypes.byref(runtime),
                                   ctypes.byref(error)) == 0
 
     def capabilities():
         value = Capabilities()
-        lib.tny_capabilities_init(ctypes.byref(value))
+        assert lib.tny_capabilities_init(
+            ctypes.byref(value), ctypes.sizeof(value)) == 0
         assert value.struct_size == ctypes.sizeof(Capabilities)
-        assert lib.tny_runtime_get_capabilities(runtime,
-                                                ctypes.byref(value)) == 0
+        assert lib.tny_runtime_get_capabilities(
+            runtime, ctypes.byref(value), ctypes.sizeof(value)) == 0
         return value
 
     tiny_caps = Capabilities()
     tiny_caps.struct_size = 8
-    assert lib.tny_runtime_get_capabilities(runtime,
-                                            ctypes.byref(tiny_caps)) == -1
+    assert lib.tny_runtime_get_capabilities(
+        runtime, ctypes.byref(tiny_caps), ctypes.sizeof(tiny_caps)) == -1
     prefix_caps = Capabilities()
     prefix_caps.struct_size = Capabilities.library_version.offset
-    assert lib.tny_runtime_get_capabilities(runtime,
-                                            ctypes.byref(prefix_caps)) == 0
+    assert lib.tny_runtime_get_capabilities(
+        runtime, ctypes.byref(prefix_caps),
+        Capabilities.library_version.offset) == 0
     assert prefix_caps.schema_version == 1 and prefix_caps.provider_selected == 1
 
     caps = capabilities()
-    assert caps.schema_version == 1 and caps.abi_version & 0xffff == 5
+    assert caps.schema_version == 1 and caps.abi_version == (1 << 16)
     assert caps.provider_selected == 1 and caps.provider_initialized == 0
     assert caps.endpoint_reachability == 0
     assert caps.threading_model == 1 and caps.cancel_model == 2
     assert caps.provider_available_mask == 1
-    assert caps.feature_available_mask & 0x87 == 0x87
-    assert not caps.feature_available_mask & ~0x87
+    assert caps.feature_available_mask & 0x8A7 == 0x8A7
+    assert not caps.feature_available_mask & ~0x8A7
     expected_enabled = 0x84 | (0x2 if persistence else 0)
     if base_url.startswith("https://"):
         expected_enabled |= 0x1
@@ -262,7 +280,8 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
         assert platform == b"linux-glibc" and tls == b"openssl-dynamic"
     second = ctypes.c_void_p()
     second_error = ctypes.c_void_p()
-    assert lib.tny_runtime_create(ctypes.byref(opts), ctypes.byref(second),
+    assert lib.tny_runtime_create(ctypes.byref(opts), ctypes.sizeof(opts),
+                                  ctypes.byref(second),
                                   ctypes.byref(second_error)) == 0
     lib.tny_runtime_free(second)
 
@@ -284,9 +303,10 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
         cross_thread.append(lib.tny_session_cancel(session,
                                                    ctypes.byref(thread_error)))
         thread_caps = Capabilities()
-        lib.tny_capabilities_init(ctypes.byref(thread_caps))
+        assert lib.tny_capabilities_init(
+            ctypes.byref(thread_caps), ctypes.sizeof(thread_caps)) == 0
         cross_thread.append(lib.tny_runtime_get_capabilities(
-            runtime, ctypes.byref(thread_caps)))
+            runtime, ctypes.byref(thread_caps), ctypes.sizeof(thread_caps)))
         lib.tny_error_free(thread_error)
     thread = threading.Thread(target=wrong_thread_cancel, daemon=True)
     thread.start()
@@ -332,13 +352,16 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
             assert status == 1, status
             kind = lib.tny_event_get_kind(event)
             view = EventView()
-            lib.tny_event_view_init(ctypes.byref(view))
+            assert lib.tny_event_view_init(
+                ctypes.byref(view), ctypes.sizeof(view)) == 0
             assert view.struct_size == ctypes.sizeof(EventView)
             if not event_sequences:
                 tiny = EventView()
                 tiny.struct_size = 8
-                assert lib.tny_event_read(event, ctypes.byref(tiny)) == -1
-            assert lib.tny_event_read(event, ctypes.byref(view)) == 0
+                assert lib.tny_event_read(
+                    event, ctypes.byref(tiny), ctypes.sizeof(tiny)) == -1
+            assert lib.tny_event_read(
+                event, ctypes.byref(view), ctypes.sizeof(view)) == 0
             assert view.schema_version == 1 and view.kind == kind
             assert view.sequence > 0 and view.timestamp_ms >= 0
             assert ctypes.string_at(view.provider.ptr, view.provider.len) == b"openai"
@@ -399,6 +422,42 @@ def run_ctypes(libpath, base_url, workspace, state, repeat=False,
     return bytes(output), saw_permission, stop_reason, error_codes
 
 
+def destroy_contract(libpath):
+    lib = load_lib(libpath)
+    with tempfile.TemporaryDirectory() as root:
+        workspace = os.path.join(root, "workspace")
+        state = os.path.join(root, "state")
+        os.makedirs(workspace)
+        opts, keep = runtime_options(
+            lib, "http://127.0.0.1:1/v1", workspace, state,
+            api_key="destroy-test")
+        runtime = ctypes.c_void_p()
+        session = ctypes.c_void_p()
+        error = ctypes.c_void_p()
+        assert lib.tny_runtime_create(ctypes.byref(opts), ctypes.sizeof(opts),
+                                      ctypes.byref(runtime),
+                                      ctypes.byref(error)) == 0
+        assert lib.tny_session_create(runtime, ctypes.byref(session),
+                                      ctypes.byref(error)) == 0
+        assert lib.tny_session_destroy(ctypes.byref(session)) == 0
+        assert not session.value
+        assert lib.tny_session_destroy(ctypes.byref(session)) == 0
+        assert lib.tny_runtime_destroy(ctypes.byref(runtime)) == 0
+        assert not runtime.value
+        assert lib.tny_runtime_destroy(ctypes.byref(runtime)) == 0
+
+        invalid = RuntimeOptions.from_buffer_copy(opts)
+        invalid.struct_size = 4
+        assert lib.tny_runtime_create(ctypes.byref(invalid), ctypes.sizeof(invalid),
+                                      ctypes.byref(runtime),
+                                      ctypes.byref(error)) == -1
+        assert not runtime.value
+        if error.value:
+            lib.tny_error_free(error)
+        assert lib.tny_runtime_destroy(ctypes.byref(runtime)) == 0
+        del keep
+
+
 def run_cancel_wake(libpath, base_url, workspace, state):
     """Cancel while next_event is blocked, from a non-owner thread."""
     lib = load_lib(libpath)
@@ -406,7 +465,8 @@ def run_cancel_wake(libpath, base_url, workspace, state):
     runtime = ctypes.c_void_p()
     session = ctypes.c_void_p()
     error = ctypes.c_void_p()
-    assert lib.tny_runtime_create(ctypes.byref(opts), ctypes.byref(runtime),
+    assert lib.tny_runtime_create(ctypes.byref(opts), ctypes.sizeof(opts),
+                                  ctypes.byref(runtime),
                                   ctypes.byref(error)) == 0
     assert lib.tny_session_create(runtime, ctypes.byref(session),
                                   ctypes.byref(error)) == 0
@@ -471,10 +531,10 @@ def stress_independent_teardown(libpath, workspace_a, workspace_b):
         session_a = ctypes.c_void_p()
         session_b = ctypes.c_void_p()
         error = ctypes.c_void_p()
-        assert lib.tny_runtime_create(ctypes.byref(opts_a),
+        assert lib.tny_runtime_create(ctypes.byref(opts_a), ctypes.sizeof(opts_a),
                                       ctypes.byref(runtime_a),
                                       ctypes.byref(error)) == 0
-        assert lib.tny_runtime_create(ctypes.byref(opts_b),
+        assert lib.tny_runtime_create(ctypes.byref(opts_b), ctypes.sizeof(opts_b),
                                       ctypes.byref(runtime_b),
                                       ctypes.byref(error)) == 0
         assert lib.tny_session_create(runtime_a, ctypes.byref(session_a),
@@ -488,9 +548,10 @@ def stress_independent_teardown(libpath, workspace_a, workspace_b):
         else:
             lib.tny_runtime_free(runtime_b)
             caps = Capabilities()
-            lib.tny_capabilities_init(ctypes.byref(caps))
+            assert lib.tny_capabilities_init(
+                ctypes.byref(caps), ctypes.sizeof(caps)) == 0
             assert lib.tny_runtime_get_capabilities(
-                runtime_a, ctypes.byref(caps)) == 0
+                runtime_a, ctypes.byref(caps), ctypes.sizeof(caps)) == 0
             lib.tny_session_free(session_a)
             lib.tny_runtime_free(runtime_a)
 
@@ -506,7 +567,8 @@ def verify_fork_rejection(libpath, workspace):
     runtime = ctypes.c_void_p()
     session = ctypes.c_void_p()
     error = ctypes.c_void_p()
-    assert lib.tny_runtime_create(ctypes.byref(opts), ctypes.byref(runtime),
+    assert lib.tny_runtime_create(ctypes.byref(opts), ctypes.sizeof(opts),
+                                  ctypes.byref(runtime),
                                   ctypes.byref(error)) == 0
     assert lib.tny_session_create(runtime, ctypes.byref(session),
                                   ctypes.byref(error)) == 0
@@ -515,9 +577,10 @@ def verify_fork_rejection(libpath, workspace):
     if pid == 0:
         os.close(read_fd)
         caps = Capabilities()
-        lib.tny_capabilities_init(ctypes.byref(caps))
-        cap_status = lib.tny_runtime_get_capabilities(runtime,
-                                                      ctypes.byref(caps))
+        assert lib.tny_capabilities_init(
+            ctypes.byref(caps), ctypes.sizeof(caps)) == 0
+        cap_status = lib.tny_runtime_get_capabilities(
+            runtime, ctypes.byref(caps), ctypes.sizeof(caps))
         cancel_status = lib.tny_session_cancel(session, ctypes.byref(error))
         os.write(write_fd, f"{cap_status},{cancel_status}".encode())
         os._exit(0)
@@ -609,7 +672,7 @@ def main():
     subprocess.run(["make", "lib-shared"], cwd=ROOT, check=True,
                    stdout=subprocess.DEVNULL, timeout=120)
     libdir = os.path.join(ROOT, "build", "lib")
-    libname = "libtny.0.dylib" if sys.platform == "darwin" else "libtny.so.0"
+    libname = "libtny.1.dylib" if sys.platform == "darwin" else "libtny.so.1"
     libpath = os.path.join(libdir, libname)
     if sys.platform == "darwin":
         expected = {line.strip().removeprefix("_") for line in
@@ -625,6 +688,9 @@ def main():
               for line in symbols.splitlines() if line.split() and
               line.split()[-1].split("@")[0].removeprefix("_").startswith("tny_")}
     assert actual == expected, (sorted(actual - expected), sorted(expected - actual))
+
+    stage("idempotent pointer-to-pointer destruction")
+    destroy_contract(libpath)
 
     stage("synchronous error classification")
     with tempfile.TemporaryDirectory() as root:
@@ -660,7 +726,7 @@ def main():
             "-fsyntax-only", "-",
         ], input=(b'#include <tny/tny.h>\n'
                   b'int main(void) { tny_capabilities_v0 c; '
-                  b'tny_capabilities_init(&c); '
+                  b'(void)tny_capabilities_init(&c, sizeof c); '
                   b'return (int)c.abi_version; }\n'), check=True)
 
         cxx = os.environ.get("CXX", "c++")
@@ -669,7 +735,7 @@ def main():
                         "-fsyntax-only", "-"],
                        input=(b'#include <tny/tny.h>\n'
                               b'int main() { tny_capabilities_v0 c; '
-                              b'tny_capabilities_init(&c); '
+                              b'(void)tny_capabilities_init(&c, sizeof c); '
                               b'return int(c.abi_version); }\n'),
                        check=True)
     exe = os.path.join(ROOT, "build", "libtny-embed-test")

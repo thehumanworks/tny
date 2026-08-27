@@ -120,8 +120,9 @@ int sdk_snapshot_event(tny_event *source, event_copy **out) {
     tny_event_view_v0 view;
     event_copy *event;
     int32_t status;
-    tny_event_view_init(&view);
-    status = tny_event_read(source, &view);
+    status = tny_event_view_init(&view, sizeof view);
+    if (status != TNY_STATUS_OK) return status;
+    status = tny_event_read(source, &view, sizeof view);
     if (status != TNY_STATUS_OK) return status;
     event = (event_copy *)calloc(1u, sizeof(*event));
     if (!event) return TNY_STATUS_OOM;
@@ -161,8 +162,9 @@ oom:
 int sdk_snapshot_capabilities(tny_runtime *runtime, capability_copy *copy) {
     tny_capabilities_v0 view;
     int32_t status;
-    tny_capabilities_init(&view);
-    status = tny_runtime_get_capabilities(runtime, &view);
+    status = tny_capabilities_init(&view, sizeof view);
+    if (status != TNY_STATUS_OK) return status;
+    status = tny_runtime_get_capabilities(runtime, &view, sizeof view);
     if (status != TNY_STATUS_OK) return status;
     copy->schema_version = view.schema_version;
     copy->abi_version = view.abi_version;

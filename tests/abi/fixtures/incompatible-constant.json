@@ -1,0 +1,8 @@
+{
+  "fixture_base": "../../../abi/baseline-v1.json",
+  "changes": {
+    "constants": {
+      "TNY_STATUS_OK": 99
+    }
+  }
+}

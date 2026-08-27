@@ -25,7 +25,8 @@ int main(int argc, char **argv) {
         return 2;
     }
     tny_runtime_options_v0 options;
-    tny_runtime_options_init(&options);
+    if (tny_runtime_options_init(&options, sizeof options) != TNY_STATUS_OK)
+        return 2;
     options.workspace = bytes(argv[2]);
     options.state_dir = bytes(argv[3]);
     options.base_url = bytes(argv[1]);
@@ -34,7 +35,8 @@ int main(int argc, char **argv) {
     tny_runtime *runtime = NULL;
     tny_session *session = NULL;
     tny_error *error = NULL;
-    int32_t status = tny_runtime_create(&options, &runtime, &error);
+    int32_t status = tny_runtime_create(
+        &options, sizeof options, &runtime, &error);
     if (status != TNY_STATUS_OK) return failed("runtime_create", status, error);
     status = tny_session_create(runtime, &session, &error);
     if (status != TNY_STATUS_OK) return failed("session_create", status, error);

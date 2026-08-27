@@ -18,8 +18,9 @@ static void probe_execute(napi_env env, void *opaque) {
     tny_bytes version;
     (void)env;
     work->abi_version = tny_abi_version();
-    tny_capabilities_init(&capabilities);
-    work->capability_size = capabilities.struct_size;
+    if (tny_capabilities_init(&capabilities, sizeof capabilities) ==
+        TNY_STATUS_OK)
+        work->capability_size = capabilities.struct_size;
     version = tny_library_version();
     work->library_version = sdk_copy_n(version.ptr, (size_t)version.len);
 }

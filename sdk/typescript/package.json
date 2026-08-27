@@ -1,7 +1,8 @@
 {
   "name": "@thehumanworks/tny",
-  "version": "0.1.0-experimental.0",
-  "description": "Experimental native Node.js SDK for libtny",
+  "version": "0.0.0-development",
+  "private": true,
+  "description": "Native Node.js SDK for stable libtny ABI 1",
   "type": "module",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -23,11 +24,11 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
-    "install": "node scripts/build.mjs",
     "build": "node scripts/build.mjs",
     "prepack": "node scripts/build.mjs",
+    "pack:release": "node scripts/package-release.mjs",
     "footprint": "node scripts/footprint.mjs",
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
     "test:invalid": "node test/invalid-options.mjs",
     "test:hostile": "node test/hostile-prototype.mjs",
     "test:gc": "node --expose-gc test/gc.mjs",

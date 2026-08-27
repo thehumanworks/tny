@@ -8,7 +8,7 @@ import test from "node:test";
 
 test("staged library provenance accepts exact SHA and rejects mismatch", () => {
   const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-  const libraryName = process.platform === "darwin" ? "libtny.0.dylib" : "libtny.so.0";
+  const libraryName = process.platform === "darwin" ? "libtny.1.dylib" : "libtny.so.1";
   const library = join(packageRoot, "build/Release", libraryName);
   const sha = createHash("sha256").update(readFileSync(library)).digest("hex");
   const run = (expected) => spawnSync(process.execPath, [join(packageRoot, "scripts/build.mjs")], {

@@ -100,8 +100,8 @@ test("explicit close is idempotent and closed handles are rejected", async () =>
   const runtime = await Runtime.create({
     ...paths(), baseUrl: "http://127.0.0.1:1/v1", apiKey: "test-key-not-real",
   });
-  assert.equal(runtime.capabilities.abiMajor, 0);
-  assert.ok(runtime.capabilities.abiMinor >= 4);
+  assert.equal(runtime.capabilities.abiMajor, 1);
+  assert.ok(runtime.capabilities.abiMinor >= 0);
   assert.equal(runtime.capabilities.providerSelected, 1);
   assert.equal(runtime.capabilities.threadingModel, 1);
   assert.equal((runtime.capabilities.featureEnabledMask & 128n), 128n);
@@ -149,7 +149,7 @@ test("simultaneous runtimes remain isolated", async () => {
   ]);
   assert.notEqual(firstSession.id, secondSession.id);
   await first.close();
-  assert.equal((await second.getCapabilities()).abiMinor, 5);
+  assert.equal((await second.getCapabilities()).abiMajor, 1);
   await secondSession.close();
   await second.close();
 });

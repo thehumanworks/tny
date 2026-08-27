@@ -109,12 +109,40 @@ int http_request(http_conn *c, const char *method, const char *path,
     buf_appendf(&req, "Host: %s\r\n", c->base.host);
     buf_appends(&req, "Connection: keep-alive\r\n");
     buf_appends(&req, "User-Agent: tny/" TNY_VERSION "\r\n");
+
+    /* Reserve the complete tail before copying a credential into the buffer.
+     * Otherwise a later realloc can free an unwiped Authorization-bearing
+     * allocation even though the final request is scrubbed below. */
+    size_t tail = 2; /* final CRLF */
+    bool overflow = false;
+    if (headers) {
+        for (int i = 0; headers[i]; i++) {
+            size_t n = strlen(headers[i]);
+            if (tail > SIZE_MAX - 2 || n > SIZE_MAX - tail - 2) {
+                overflow = true;
+                break;
+            }
+            tail += n + 2;
+        }
+    }
+    if (!overflow && body) {
+        /* "Content-Length: " + uint64 decimal + CRLF, then the body. */
+        const size_t framing_max = sizeof("Content-Length: ") - 1 + 20 + 2;
+        if (framing_max > SIZE_MAX - tail ||
+            body_len > SIZE_MAX - tail - framing_max)
+            overflow = true;
+        else
+            tail += framing_max + body_len;
+    }
+    if (!overflow) buf_reserve(&req, tail);
     if (headers)
         for (int i = 0; headers[i]; i++) buf_appendf(&req, "%s\r\n", headers[i]);
     if (body) buf_appendf(&req, "Content-Length: %zu\r\n", body_len);
     buf_appends(&req, "\r\n");
     if (body) buf_append(&req, body, body_len);
-    int rc = nstream_write_all(c->s, req.data, req.len);
+    int rc = overflow || buf_oom(&req)
+        ? -1 : nstream_write_all(c->s, req.data, req.len);
+    if (req.data) secure_zero(req.data, req.cap);
     buf_free(&req);
     /* reset response state */
     c->n_hdrs = 0;

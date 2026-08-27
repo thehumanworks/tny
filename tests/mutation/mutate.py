@@ -45,6 +45,15 @@ TARGETS = [
                             "tny_engine_fail_oom", "tny_engine_next_event"],
      r"terminal|overflow|forcing|BACKPRESSURE|OOM|oom|deadline|monotonic|poll",
      "tests/integration/test_libtny.py"),
+    ("src/core/runtime.c", ["tny_engine_fail_oom"],
+     r"terminal|ERROR|error|OOM|oom|overflow|forcing|active|terminal_popped",
+     "tests/integration/test_libtny.py", "libtny-safety"),
+    ("src/core/runtime.c", ["queue_event", "after_backend"],
+     r"tny_alloc_scope_failed\(\)",
+     "tests/integration/test_libtny_mutation_fault.py", "libtny-fault-mutation"),
+    ("src/core/tools_fs.c", ["walk"],
+     r"(!dir|!nrel|!nabs|!walk|!cb).*false",
+     "tests/integration/test_libtny_mutation_fault.py", "tools-fs-oom"),
     # extension control plane (#55): prompt/tool/permission precedence,
     # exact-once native boundaries, suppressed resolved permissions, and
     # terminal settlement after cancellation/deny.
@@ -76,6 +85,11 @@ TARGETS = [
      "tests/integration/test_background.py", "background"),
     ("src/core/tools.c", ["tools_call_prepare", "tools_call_execute"], None,
      "tests/integration/test_extensions.py", "extension-control"),
+    ("src/lib/custom_tools.c",
+     ["result_copy", "custom_tool_complete", "custom_tool_take",
+      "custom_tool_invalidate", "custom_tools_invalidate_all"],
+     r"tny_wake_signal|call->completed|call->generation !=|call->epoch !=",
+     "tests/integration/test_libtny_custom_tools.py", "libtny-custom-tools"),
     ("src/core/tools.c", ["tools_execute"], None),
     ("src/tui/tui_input.c", ["do_key"], r"overlay"),
     ("src/core/config.c", ["tny_ctx_load"], r"perm_mode|permission_mode"),
@@ -253,6 +267,19 @@ OPS = [
 # Sites where a mutant is *equivalent* (no observable behavior change) or
 # unobservable without heroics. Matched against "file:line-content".
 EQUIVALENT = [
+    # Equality waits one more monotonic tick with a zero-timeout poll; it can
+    # add at most a sub-millisecond spin and cannot change timeout ordering.
+    "runtime.c:if (engine_monotonic_ms(e) >= deadline)",
+    # event_copy returns NULL only after an allocation wrapped by the active
+    # allocation scope failed, so the non-OOM else arm is unreachable.
+    "runtime.c:else e->overflow_pending = true;",
+    # fail_oom discards any pending provider terminal and installs a reserved
+    # error terminal before setting active=false. These assignments are state
+    # hygiene: the queued reserved terminal carries ERROR independently,
+    # popping it sets terminal_popped, and the next start resets all three.
+    "runtime.c:e->forcing_error = true;",
+    "runtime.c:e->terminal = true;",
+    "runtime.c:e->terminal_popped = false;",
     # yyjson_arr_foreach is a zero-iteration no-op on NULL/non-arrays
     # (yyjson_arr_size returns 0), so the early-return guard is redundant
     # defense and flipping its ||/&& is unobservable.
