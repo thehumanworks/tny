@@ -9,9 +9,10 @@ Serves BOTH wires (docs/adr/0016):
 Both wires run the same scenario and validate the request strictly:
 Turn 1 streams a list_files tool call with the JSON arguments fragmented
 across SSE events; turn 2 streams a text answer mentioning what the tool
-returned. SSE rides chunked transfer-encoding and the responses stream is
-deliberately re-chunked at arbitrary byte boundaries so event reassembly
-is exercised end to end (real transports split anywhere).
+returned. By default SSE rides chunked transfer-encoding and the responses
+stream is deliberately re-chunked at arbitrary byte boundaries so event
+reassembly is exercised end to end (real transports split anywhere). A chunk
+width at least as large as the body selects reusable Content-Length framing.
 
 Env knobs:
   MOCK_EXPECT_WIRE    responses|chat — the other endpoint 400s (proves tny
@@ -37,7 +38,8 @@ Env knobs:
                       headers, exercising the reused-connection read retry
   MOCK_CONNECTION_CLOSE
                       send complete responses with Connection: close
-  MOCK_CHUNK_WIDTH    responses wire HTTP chunk width (default 17)
+  MOCK_CHUNK_WIDTH    responses wire HTTP chunk width (default 17); a value at
+                      least as large as the body selects Content-Length
   MOCK_CUSTOM_TOOL    request this custom tool once, then validate its output
 
 The responses wire streams TWO parallel tool calls (list_files +
@@ -863,10 +865,15 @@ class Handler(BaseHTTPRequestHandler):
         # it takes precedence when a broader CI lane requests truncated
         # terminal fixtures for other scenarios.
         truncated_terminal = TRUNCATED_TERMINAL and not DROP_REUSED_ONCE
-        if CONNECTION_CLOSE and not DROP_REUSED_ONCE and not truncated_terminal:
+        use_content_length = not truncated_terminal and (
+            CONNECTION_CLOSE or CHUNK_WIDTH >= len(wire)
+        )
+        if use_content_length:
             # Content-Length avoids a hosted-macOS/Python interaction that can
             # defer the tiny chunked terminator until the client's stale-read
-            # deadline. Other fixtures retain chunked split-boundary coverage.
+            # deadline. Large-chunk CI mode does not exercise split boundaries
+            # anyway, and the reusable connection remains valid. Default and
+            # dedicated transport fixtures retain chunked boundary coverage.
             self._start_stream(len(wire))
             self.wfile.write(wire)
             self.wfile.flush()
