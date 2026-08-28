@@ -339,7 +339,7 @@ TEST local_when_not_attached(void) {
  * (docs/adr/0040). */
 TEST instructions_follow_the_remote_workspace(void) {
     ensure_env();
-    char local_agents[700], remote_agents[700], user_agents[700], tny_dir[700];
+    char local_agents[700], remote_agents[700], user_agents[768], tny_dir[700];
     snprintf(local_agents, sizeof local_agents, "%s/AGENTS.md", g_ws);
     snprintf(remote_agents, sizeof remote_agents, "%s/AGENTS.md", g_remote);
     snprintf(tny_dir, sizeof tny_dir, "%s/.tny", g_home);
