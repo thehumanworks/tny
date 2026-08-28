@@ -14,6 +14,16 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
+static int set_socket_no_sigpipe(int fd) {
+#ifdef __APPLE__
+    int enabled = 1;
+    return setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof enabled);
+#else
+    (void)fd;
+    return 0;
+#endif
+}
+
 int set_nonblock(int fd, bool nb) {
     int fl = fcntl(fd, F_GETFL, 0);
     if (fl < 0) return -1;
@@ -35,7 +45,7 @@ int tcp_connect(const char *host, int port, int timeout_ms) {
         int left;
         fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (fd < 0) continue;
-        if (set_nonblock(fd, true) != 0) {
+        if (set_socket_no_sigpipe(fd) != 0 || set_nonblock(fd, true) != 0) {
             close(fd);
             fd = -1;
             continue;
@@ -74,6 +84,10 @@ int tcp_connect(const char *host, int port, int timeout_ms) {
 int unix_connect(const char *path) {
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) return -1;
+    if (set_socket_no_sigpipe(fd) != 0) {
+        close(fd);
+        return -1;
+    }
     struct sockaddr_un sa = {0};
     sa.sun_family = AF_UNIX;
     if (strlen(path) >= sizeof sa.sun_path) {

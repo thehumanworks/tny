@@ -232,6 +232,12 @@ def assert_tls_close_is_guarded() -> None:
         re.DOTALL,
     ), "SecureTransport close is not guarded"
     assert re.search(
+        r"nstream \*nstream_connect\(.+?sigpipe_guard_begin\(&guard\);"
+        r".+?nstream_connect_impl\(.+?sigpipe_guard_end\(&guard\);",
+        source,
+        re.DOTALL,
+    ), "macOS connect lifecycle is not guarded as one region"
+    assert re.search(
         r"sigpipe_guard_begin\(&guard\);\s*"
         r"ossl\.shutdown\(.+?sigpipe_guard_end\(&guard\);",
         source,
@@ -239,9 +245,24 @@ def assert_tls_close_is_guarded() -> None:
     ), "OpenSSL close_notify is not guarded"
 
 
+def assert_apple_sockets_are_prearmed() -> None:
+    source = (ROOT / "src/net/tcp.c").read_text()
+    assert re.search(
+        r"fd = socket\(.+?set_socket_no_sigpipe\(fd\).+?connect\(fd,",
+        source,
+        re.DOTALL,
+    ), "TCP socket enables SO_NOSIGPIPE only after connect"
+    assert re.search(
+        r"int unix_connect\(.+?socket\(.+?set_socket_no_sigpipe\(fd\).+?connect\(fd,",
+        source,
+        re.DOTALL,
+    ), "Unix socket enables SO_NOSIGPIPE only after connect"
+
+
 def main() -> None:
     assert_secret_buffers_are_wiped()
     assert_tls_close_is_guarded()
+    assert_apple_sockets_are_prearmed()
     with tempfile.TemporaryDirectory(prefix="tny-net-host-safety-") as raw:
         harness = compile_harness(Path(raw))
         closed = subprocess.run([harness, "closed"], capture_output=True, timeout=10)

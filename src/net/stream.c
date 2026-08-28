@@ -322,8 +322,8 @@ nstream *nstream_from_fd(int fd) {
     return s;
 }
 
-nstream *nstream_connect(const char *host, int port, bool tls, int timeout_ms, char *err,
-                         size_t errlen) {
+static nstream *nstream_connect_impl(const char *host, int port, bool tls, int timeout_ms,
+                                     char *err, size_t errlen) {
     int64_t deadline = monotonic_ms() + (timeout_ms > 0 ? timeout_ms : 0);
     int fd = tcp_connect(host, port, deadline_left_ms(deadline));
     if (fd < 0) {
@@ -431,6 +431,22 @@ nstream *nstream_connect(const char *host, int port, bool tls, int timeout_ms, c
     snprintf(err, errlen, "https not built on this platform yet; use an http:// base URL");
     nstream_close(s);
     return NULL;
+#endif
+}
+
+nstream *nstream_connect(const char *host, int port, bool tls, int timeout_ms, char *err,
+                         size_t errlen) {
+#ifdef __APPLE__
+    /* Cover connect, SecureTransport, and failure cleanup as one critical
+     * region. Inner write/handshake/close guards nest without consuming the
+     * signal; this outer owner consumes it before restoring the host mask. */
+    sigpipe_guard guard;
+    sigpipe_guard_begin(&guard);
+    nstream *stream = nstream_connect_impl(host, port, tls, timeout_ms, err, errlen);
+    sigpipe_guard_end(&guard);
+    return stream;
+#else
+    return nstream_connect_impl(host, port, tls, timeout_ms, err, errlen);
 #endif
 }
 
