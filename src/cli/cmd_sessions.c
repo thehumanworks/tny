@@ -1,6 +1,7 @@
 /* cmd_sessions.c — sessions list / session inspect / recover / resume entry. */
 #include "cli/cli.h"
 #include "core/session.h"
+#include "util/tny_poll.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -198,7 +199,8 @@ static int cmd_session_stop(tny_ctx *ctx, bool json, int argc, char **argv) {
 }
 
 int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
-    bool json = g->json;
+    bool json = g->json, wait = false;
+    long timeout_s = -1;
     const char *id = NULL, *sub = NULL;
     if (argc >= 1 && (strcmp(argv[0], "recover") == 0 || strcmp(argv[0], "migrate") == 0 ||
                       strcmp(argv[0], "stop") == 0)) {
@@ -207,7 +209,16 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     } else {
         for (int i = 0; i < argc; i++) {
             if (strcmp(argv[i], "--json") == 0) json = true;
-            else if (!id) id = argv[i];
+            else if (strcmp(argv[i], "--wait") == 0) wait = true;
+            else if (strcmp(argv[i], "--timeout") == 0 && i + 1 < argc) {
+                char *end = NULL;
+                timeout_s = strtol(argv[++i], &end, 10);
+                if (!end || *end || timeout_s < 0) {
+                    fprintf(stderr, "tny: --timeout expects a non-negative number of seconds\n");
+                    return 1;
+                }
+                wait = true;
+            } else if (!id) id = argv[i];
         }
     }
     if (!id && !(sub && strcmp(sub, "stop") == 0)) {
@@ -240,6 +251,48 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 "If session.json is corrupt: tny session recover %s\n",
                 id, id);
         return 1;
+    }
+    /* --wait (docs/adr/0041): block on the writer-lock probe — the same
+     * liveness truth the status line uses — until the background turn
+     * finalizes, then print the finished document. Polling the lock instead
+     * of the pid is immune to PID reuse and needs no IPC into the child.
+     * The wait goes through tny_poll (the one blocking seam, adr/0017). */
+    bool timed_out = false;
+    if (wait && session_is_running(ctx, s->id)) {
+        char sid[32];
+        snprintf(sid, sizeof sid, "%s", s->id);
+        session_close(s);
+        s = NULL;
+        long waited_ms = 0;
+        while (session_is_running(ctx, sid)) {
+            if (timeout_s >= 0 && waited_ms >= timeout_s * 1000L) {
+                timed_out = true;
+                break;
+            }
+            tny_poll(NULL, 0, 200);
+            waited_ms += 200;
+        }
+        s = session_open(ctx, sid);
+        if (!s) {
+            fprintf(stderr, "tny: session %s vanished while waiting\n", sid);
+            return 2;
+        }
+    }
+    int ret = 0;
+    if (wait) {
+        const char *st = session_status(s);
+        yyjson_mut_val *ec = yyjson_mut_obj_get(yyjson_mut_doc_get_root(s->doc), "exit_code");
+        if (timed_out) {
+            fprintf(stderr, "tny: session %s still running after %lds (--timeout)\n", s->id,
+                    timeout_s);
+            ret = 124;
+        } else if (st && strcmp(st, "running") == 0) {
+            ret = 2; /* stale: writer crashed without finalizing */
+        } else if (ec) {
+            ret = (int)yyjson_mut_get_int(ec);
+        } else if (st && strcmp(st, "done") != 0) {
+            ret = 2;
+        }
     }
     if (json) {
         char *out = jwrite(s->doc);
@@ -304,7 +357,7 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         }
     }
     session_close(s);
-    return 0;
+    return ret;
 }
 
 int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {

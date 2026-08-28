@@ -229,6 +229,30 @@ def main():
             assert is_hex16(res["session_id"]) and res["session_id"] == sid, res
             print("ok: result parity")
 
+            # ---- --wait: blocks until finalized, exit = turn exit_code ----
+            # (docs/adr/0041) launch, then wait immediately: the wait must
+            # outlive the child and hand back the finished document.
+            wsid, wdir, wpid = ctx.launch_bg(fport, "list files in .", wait_pid=False)
+            rw = subprocess.run(
+                [TNY, "--cwd", ctx.ws, "session", wsid, "--wait", "--json"],
+                env=env,
+                capture_output=True,
+                timeout=30,
+            )
+            assert rw.returncode == 0, f"exit {rw.returncode}: {rw.stderr.decode()}"
+            wd = json.loads(rw.stdout)
+            assert wd["status"] == "done" and wd["exit_code"] == 0, wd
+            assert "MOCK-OK" in wd["result"]["output"], wd
+            # idempotent on a finished session: plain inspect, same exit code
+            rw2 = subprocess.run(
+                [TNY, "--cwd", ctx.ws, "session", wsid, "--wait"],
+                env=env,
+                capture_output=True,
+                timeout=15,
+            )
+            assert rw2.returncode == 0 and b"result:" in rw2.stdout, rw2
+            print("ok: --wait returns finalized document")
+
             # ---- ephemeral foreground --json: no session behind the fields ----
             rp = subprocess.run(
                 [
@@ -290,6 +314,20 @@ def main():
             assert "--steer" in rc.stderr.decode(), rc.stderr.decode()
             print("ok: lock contention refusal")
 
+            # ---- --timeout on a hanging run: exit 124, still-running view ----
+            t0 = time.time()
+            rt = subprocess.run(
+                [TNY, "--cwd", ctx.ws, "session", hsid, "--timeout", "1"],
+                env=env,
+                capture_output=True,
+                timeout=15,
+            )
+            assert rt.returncode == 124, f"exit {rt.returncode}: {rt.stderr.decode()}"
+            assert 0.9 <= time.time() - t0 < 5, "timeout did not wait ~1s"
+            assert f"running (pid {hpid})" in rt.stdout.decode(), rt.stdout.decode()
+            assert "--timeout" in rt.stderr.decode(), rt.stderr.decode()
+            print("ok: --wait --timeout -> 124")
+
             # ---- live readability: nothing streamed yet says so; a
             # checkpointed partial is printed as text, not a byte count ----
             rl0 = subprocess.run(
@@ -328,6 +366,16 @@ def main():
             # would mean stop SIGKILLed and wrote the status itself
             assert sd["exit_code"] == 130, sd
             poll(lambda: pid_gone(hpid), 10, "stopped child exit")
+            # --wait on the interrupted session mirrors its exit_code
+            rwi = subprocess.run(
+                [TNY, "--cwd", ctx.ws, "session", hsid, "--wait"],
+                env=env,
+                capture_output=True,
+                timeout=15,
+            )
+            assert rwi.returncode == 130, (
+                f"exit {rwi.returncode}: {rwi.stderr.decode()}"
+            )
             # lock is free: a resume passes the lock check and completes
             rr = subprocess.run(
                 [

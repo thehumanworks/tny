@@ -48,6 +48,10 @@ running ──► done          # turn finished; exit_code + result stored
         ──► interrupted   # stopped (`session stop`, steer takeover, signal)
 ```
 
+`tny session <id> --wait [--timeout SECS]` blocks on the same lock probe
+until the turn finalizes and exits with the stored `exit_code` (124 on
+timeout; [ADR 0041](../adr/0041-session-wait.md)).
+
 **Stale** is derived, never stored: `status:"running"` while the `lock`
 flock is *free* means the writer crashed. Liveness is the lock probe (a
 non-blocking shared flock attempt), not `kill(pid,0)` — immune to PID

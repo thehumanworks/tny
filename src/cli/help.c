@@ -147,7 +147,7 @@ static const char *sessions_help =
     "  tny sessions --json --limit 10\n";
 
 static const char *session_help =
-    "Usage: tny session <last|id> [--json]\n"
+    "Usage: tny session <last|id> [--json] [--wait] [--timeout SECS]\n"
     "       tny session stop <id> [--kill]\n"
     "       tny session recover <id>\n"
     "\n"
@@ -156,9 +156,16 @@ static const char *session_help =
     "(spawned hosts included) and the session finalizes status \"interrupted\";\n"
     "--kill escalates to SIGKILL if the task ignores SIGTERM (docs/adr/0031).\n"
     "\n"
+    "--wait blocks until a background turn (`tny ask -B`) has finished, then\n"
+    "prints the session; the exit code is the turn's exit_code (0 done, 2 run\n"
+    "failed or stale, 130 interrupted). --timeout SECS implies --wait, exit 124\n"
+    "if the turn is still running when it elapses (docs/adr/0041).\n"
+    "\n"
     "Examples:\n"
     "  tny session last\n"
     "  tny session 4f2a1c90aa317b22 --json\n"
+    "  tny session $id --wait --json | jq -r .result.output\n"
+    "  tny session $id --wait --timeout 600\n"
     "  tny session stop 4f2a1c90aa317b22\n";
 
 static const char *workspace_help =

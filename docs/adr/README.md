@@ -46,3 +46,4 @@ these as `docs/adr/NNNN`.
 | [0038](0038-libtny-custom-tools.md) | libtny custom tools use copied specs, native permission gating and generation-tagged async completion |
 | [0039](0039-quality-gates.md) | First-party formatting, lint, strict warnings, static analysis, and workflow checks are required through `make quality` and CI |
 | [0040](0040-ssh-agents-md.md) | `--ssh` / `/ssh` keep `$HOME/.tny/AGENTS.md` (labeled as local user policy) and load `AGENTS.md` from the remote cwd; launch-dir / ancestor project files stay out so the model is not instructed about the wrong tree |
+| [0041](0041-session-wait.md) | `tny session <id> --wait [--timeout SECS]` blocks on the 0031 writer-lock probe until a background turn finalizes and exits with the turn's `exit_code` (124 on timeout) |

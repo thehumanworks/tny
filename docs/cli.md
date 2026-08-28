@@ -13,6 +13,7 @@ tny resume [last|<id>]      # interactive resume
 tny acp                     # ACP server (native loop only)
 tny sessions
 tny session last|<id>
+tny session <id> --wait     # block until a background task finishes ([--timeout S])
 tny session stop <id>       # stop a background task ([--kill])
 tny providers               # list configured providers and doctor hints
 tny models
@@ -317,6 +318,7 @@ backend.
 id=$(tny ask -B "audit the Makefile")
 tny session $id                    # status: running (pid N), live partials
 tny session $id --json | jq .result
+tny session $id --wait --json | jq -r .result.output   # block until finished
 tny session stop $id               # SIGTERM the task's process group
 tny ask --resume $id "now fix it"  # follow up once it is done
 tny ask --resume $id --steer "drop that — check the tests instead"
@@ -349,6 +351,23 @@ Composition and preconditions:
   nothing.
 - `--stdin` works: stdin is drained fully before the id is printed.
 - `--continue-recovery` is allowed.
+
+### `tny session <id> --wait` (+ `--timeout SECS`)
+
+Blocks until the session's background turn has finished, then prints the
+session exactly as the plain/`--json` inspect would
+([ADR 0041](adr/0041-session-wait.md)). Liveness is the writer-lock probe,
+so a crashed task returns immediately as stale. The exit code is the turn's
+`exit_code` — 0 `done`, 2 `error`/stale, 130 `interrupted` — so a script can
+branch on it; `--timeout SECS` implies `--wait` and exits 124 (printing the
+still-running view) if the turn outlasts it. On a session that is not
+running, `--wait` is a plain inspect with the same exit-code mapping.
+
+```sh
+id=$(tny ask -B "audit the Makefile")
+tny session $id --wait --json | jq -r .result.output
+for id in $ids; do tny session $id --wait --timeout 900 >/dev/null || echo "$id failed"; done
+```
 
 ### `tny session stop <id>` (+ `--kill`)
 
