@@ -13,12 +13,12 @@ import {
   UnsupportedFeatureError,
   eventKinds,
 } from "./sdk.mjs";
-import { sdkPackageRoot } from "./sdk.mjs";
+import { sdkAddonPath } from "./sdk.mjs";
 import { recordResult } from "./result.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
-const native = require(join(sdkPackageRoot, "build/Release/tny.node"));
+const native = require(sdkAddonPath);
 
 function paths() {
   const root = mkdtempSync(join(tmpdir(), "tny-node-sdk-"));

@@ -6,10 +6,10 @@ import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import { Worker } from "node:worker_threads";
 
-import { Runtime, sdkPackageRoot } from "./sdk.mjs";
+import { Runtime, sdkAddonPath, sdkPackageRoot } from "./sdk.mjs";
 
 const sdkUrl = pathToFileURL(join(sdkPackageRoot, "dist/index.mjs")).href;
-const addonPath = join(sdkPackageRoot, "build/Release/tny.node");
+const addonPath = sdkAddonPath;
 const threadCount = () => {
   if (process.platform === "linux") return readdirSync("/proc/self/task").length;
   if (process.platform !== "darwin")

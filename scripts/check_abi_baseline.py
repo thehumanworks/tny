@@ -224,9 +224,11 @@ def macho_version(
         )
     previous = _numeric_version(previous_version, "previous Mach-O version")
     if parts < (1, 0, 0):
-        if development_fallback and re.fullmatch(
-            r"v?\d+\.\d+\.\d+-\d+-g[0-9a-f]+(?:-dirty)?", product_version
-        ):
+        # ABI1's Mach-O compatibility_version is 1.0.0, so current_version can
+        # never be below it. Pre-1.0 product versions -- git-describe development
+        # strings and 0.y.z release tags alike -- floor at 1.0.0 (docs/adr/0043);
+        # the product still reports its own SemVer through tny_version().
+        if development_fallback:
             return "1.0.0"
         raise BaselineError(
             f"product SemVer precedes ABI1 compatibility version: {product_version!r}"

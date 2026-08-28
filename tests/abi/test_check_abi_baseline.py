@@ -172,6 +172,10 @@ class AbiBaselineTests(unittest.TestCase):
         development = check("0.2.1-22-g510a95c-dirty", "--development-fallback")
         self.assertEqual(development.returncode, 0, development.stderr)
         self.assertEqual(development.stdout, "1.0.0\n")
+        for floored in ("0.2.2", "v0.2.2", "0.2.2-dirty", "0.9.0-rc.1"):
+            result = check(floored, "--development-fallback")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "1.0.0\n")
         for invalid in ("0.2.1", "1.256.0", "not-semver"):
             result = check(invalid)
             self.assertNotEqual(result.returncode, 0)

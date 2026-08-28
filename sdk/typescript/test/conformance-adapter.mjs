@@ -219,7 +219,10 @@ const runtime = await Runtime.create({
 });
 const snapshot = runtime.capabilities;
 await runtime.close();
-const addonPath = join(sdkRoot, "build/Release/tny.node");
+const { resolveNativeAddon } = await import(
+  pathToFileURL(join(sdkRoot, "scripts/native-loader.mjs")).href,
+);
+const { addonPath } = resolveNativeAddon({ packageRoot: sdkRoot });
 const sha256 = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
 if (request.artifact.sha256 !== sha256(requestedArtifact))
   throw new Error("requested artifact SHA-256 is incorrect");

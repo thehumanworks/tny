@@ -17,11 +17,11 @@ for (const key of [
   descriptor.set = () => { throw new Error(`hostile setter ${key}`); };
   Object.defineProperty(Object.prototype, key, descriptor);
 }
-const { Runtime, sdkPackageRoot } = await import("./sdk.mjs");
+const { Runtime, sdkAddonPath } = await import("./sdk.mjs");
 const root = mkdtempSync(join(tmpdir(), "tny-hostile-prototype-"));
 const workspace = join(root, "workspace");
 mkdirSync(workspace);
-const native = createRequire(import.meta.url)(join(sdkPackageRoot, "build/Release/tny.node"));
+const native = createRequire(import.meta.url)(sdkAddonPath);
 const nativeInfo = await native.createRuntime({
   workspace, stateDir: "", provider: "openai", model: "", baseUrl: "http://127.0.0.1:1/v1",
   apiKey: "test-only", wireApi: "", permissionMode: 0, persistence: false,
