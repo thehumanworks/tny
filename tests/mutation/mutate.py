@@ -288,6 +288,7 @@ TARGETS = [
     # + stdin/timeout primitive, and every remote tool script
     ("src/core/ssh.c", ["ssh_target_set", "ssh_shell_quote", "ssh_run"], None),
     ("src/core/tools_ssh.c", None, None),
+    ("src/core/instructions.c", None, None),
     # native grok device-code login / refresh / logout (docs/adr/0021)
     ("src/core/grok_login.c", None, None),
     # steer-text ownership + turn-end sweep (docs/adr/0013)

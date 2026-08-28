@@ -27,7 +27,7 @@ these as `docs/adr/NNNN`.
 | [0019](0019-subscription-logins-claude-grok.md) | `tny login` drives the codex app-server `account/login/start`; claude and grok are builtin openai-compatible profiles fed by subscription credentials (Claude Code OAuth token, grok session token), never persisted by tny |
 | [0020](0020-ephemeral-sessions.md) | `--ephemeral` keeps conversation state process-local, blocks resume/import, and applies provider no-store controls where defined |
 | [0021](0021-native-grok-device-login.md) | `tny --provider grok login` runs the RFC 8628 device flow natively against auth.x.ai (no grok CLI), writes/refreshes the session in the grok CLI's own `~/.grok/auth.json` format, and logout removes only the xAI entries |
-| [0022](0022-ssh-execution-boundary.md) | `--ssh user@host[:port]` / `/ssh` keep tny local and run every native-loop workspace tool (files, grep, terminal) on the remote host over one OpenSSH ControlMaster; no tny needed remotely; host backends are refused |
+| [0022](0022-ssh-execution-boundary.md) | `--ssh user@host[:port]` / `/ssh` keep tny local and run every native-loop workspace tool (files, grep, terminal) on the remote host over one OpenSSH ControlMaster; no tny needed remotely; host backends are refused. Project `AGENTS.md` follows the remote cwd ([0040](0040-ssh-agents-md.md)) |
 | [0023](0023-libtny-embedding-abi.md) | libtny is one headless runtime with an experimental pull-driven C ABI; CLI/TUI/ACP are adapters; ABI 0 ships shared libraries on macOS arm64 and Linux glibc |
 | [0024](0024-unlimited-steps-default.md) | The native agent loop is unlimited by default; `--max-steps` / `/max-steps` / `.tny.json` `"steps"` set an explicit cap (0 = unlimited everywhere, libtny included) |
 | [0025](0025-clipboard-images-paste-as-paths.md) | Ctrl-V materializes clipboard images and inserts the path as provider-neutral prompt text; `/image` remains the explicit attachment path |
@@ -45,3 +45,4 @@ these as `docs/adr/NNNN`.
 | [0037](0037-libtny-abi-1.md) | Active ABI 1 freezes capacity-aware prefix negotiation and ABI0.8 compatibility after immutable Linux consumers and full matrices passed |
 | [0038](0038-libtny-custom-tools.md) | libtny custom tools use copied specs, native permission gating and generation-tagged async completion |
 | [0039](0039-quality-gates.md) | First-party formatting, lint, strict warnings, static analysis, and workflow checks are required through `make quality` and CI |
+| [0040](0040-ssh-agents-md.md) | `--ssh` / `/ssh` keep `$HOME/.tny/AGENTS.md` (labeled as local user policy) and load `AGENTS.md` from the remote cwd; launch-dir / ancestor project files stay out so the model is not instructed about the wrong tree |

@@ -8,6 +8,7 @@
 #include "core/ssh.h"
 #include "core/tools.h"
 #include "core/config.h"
+#include "core/instructions.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -333,6 +334,48 @@ TEST local_when_not_attached(void) {
     PASS();
 }
 
+/* --ssh must not feed the launch-dir AGENTS.md (wrong tree) and must load
+ * the remote cwd's file, plus ~/.tny user rules with an SSH warning
+ * (docs/adr/0040). */
+TEST instructions_follow_the_remote_workspace(void) {
+    ensure_env();
+    char local_agents[700], remote_agents[700], user_agents[700], tny_dir[700];
+    snprintf(local_agents, sizeof local_agents, "%s/AGENTS.md", g_ws);
+    snprintf(remote_agents, sizeof remote_agents, "%s/AGENTS.md", g_remote);
+    snprintf(tny_dir, sizeof tny_dir, "%s/.tny", g_home);
+    mkdir_p(tny_dir);
+    snprintf(user_agents, sizeof user_agents, "%s/AGENTS.md", tny_dir);
+    ASSERT_EQ(0, file_write_atomic(local_agents, "LOCAL-LAUNCH-DIR-RULES\n", 23));
+    ASSERT_EQ(0, file_write_atomic(remote_agents, "REMOTE-CWD-RULES\n", 17));
+    ASSERT_EQ(0, file_write_atomic(user_agents, "USER-HOME-RULES\n", 16));
+
+    tny_ctx *ctx = remote_ctx();
+    buf_t out;
+    buf_init(&out);
+    instructions_collect(ctx, &out);
+    ASSERT(out.data);
+    ASSERT(strstr(out.data, "USER-HOME-RULES"));
+    ASSERT(strstr(out.data, "User instructions from"));
+    ASSERT(strstr(out.data, "do not treat paths in this file as the remote workspace"));
+    ASSERT(strstr(out.data, "REMOTE-CWD-RULES"));
+    ASSERT(strstr(out.data, "Remote project instructions from"));
+    ASSERT(strstr(out.data, "alice@example.test"));
+    ASSERT(!strstr(out.data, "LOCAL-LAUNCH-DIR-RULES"));
+    ASSERT(!strstr(out.data, g_ws));
+    buf_free(&out);
+
+    ssh_disconnect(ctx);
+    buf_init(&out);
+    instructions_collect(ctx, &out);
+    ASSERT(strstr(out.data, "LOCAL-LAUNCH-DIR-RULES"));
+    ASSERT(strstr(out.data, "USER-HOME-RULES"));
+    ASSERT(!strstr(out.data, "REMOTE-CWD-RULES"));
+    ASSERT(!strstr(out.data, "Remote project instructions"));
+    buf_free(&out);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST disconnect_sends_control_exit(void) {
     tny_ctx *ctx = remote_ctx();
     ssh_disconnect(ctx);
@@ -351,5 +394,6 @@ SUITE(ssh_suite) {
     RUN_TEST(file_tools_round_trip);
     RUN_TEST(terminal_runs_remotely);
     RUN_TEST(local_when_not_attached);
+    RUN_TEST(instructions_follow_the_remote_workspace);
     RUN_TEST(disconnect_sends_control_exit);
 }

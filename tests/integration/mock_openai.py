@@ -519,15 +519,19 @@ class Handler(BaseHTTPRequestHandler):
             "instructions must carry the system preamble",
         )
         if EXPECT_INSTRUCTIONS:
-            need(
-                EXPECT_INSTRUCTIONS in instructions,
-                f"instructions lack {EXPECT_INSTRUCTIONS!r}",
-            )
+            for part in EXPECT_INSTRUCTIONS.split("\n"):
+                if part:
+                    need(
+                        part in instructions,
+                        f"instructions lack {part!r}",
+                    )
         if REJECT_INSTRUCTIONS:
-            need(
-                REJECT_INSTRUCTIONS not in instructions,
-                f"instructions must not contain {REJECT_INSTRUCTIONS!r}",
-            )
+            for part in REJECT_INSTRUCTIONS.split("\n"):
+                if part:
+                    need(
+                        part not in instructions,
+                        f"instructions must not contain {part!r}",
+                    )
         items = req.get("input")
         need(isinstance(items, list) and items, "input items missing")
         for t in req.get("tools", []):

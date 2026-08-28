@@ -70,7 +70,7 @@ not a separate provider lifecycle.
 | `~/.tny/skills/` | Managed skill installs |
 | `~/.tny/extensions/` | Trusted global Python event hooks (`*.py`, `*/index.py`) |
 | `<repo>/.tny.json` | Repo-safe limits only (steps, tool result bytes, sandbox, context on/off) |
-| `<repo>/AGENTS.md` | Project instructions (also `CLAUDE.md` as alias if present) |
+| `<repo>/AGENTS.md` | Project instructions (also `CLAUDE.md` as alias if present). Over `--ssh`, the remote cwd's file is used instead of this local path ([ADR 0040](adr/0040-ssh-agents-md.md)) |
 
 Credentials stay in the OS store or env vars (`CURSOR_API_KEY`, `OPENAI_API_KEY`, provider-specific keys, Codex's own login). Not in project JSON.
 

@@ -65,7 +65,9 @@ every workspace tool executing on the remote host. Inside a session,
 `/ssh user@host[:port] [dir]` attaches (the block is released so OpenSSH can
 prompt), `/ssh off` goes back to local tools, and a bare `/ssh` shows the
 current target. The provider connection, session and history stay local
-([ADR 0022](adr/0022-ssh-execution-boundary.md)).
+([ADR 0022](adr/0022-ssh-execution-boundary.md)). Project `AGENTS.md` follows
+the remote cwd while attached ([ADR 0040](adr/0040-ssh-agents-md.md));
+`/ssh off` restores the local chain.
 
 ## Input
 

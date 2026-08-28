@@ -812,7 +812,7 @@ def docs_tools() -> str:
 <h2 id="subagents">Subagents</h2>
 <p>Child native sessions. The parent does not dump the child transcript into its own context. Children cannot raise permission mode above the creator. Host backends do not get tny-spawned subagents.</p>
 <h2 id="agents-md">Project instructions</h2>
-<p>Load <code>AGENTS.md</code> (and <code>CLAUDE.md</code> if <code>AGENTS.md</code> is absent) from <code>~/.tny/</code>, launch ancestors, and the primary workspace. Extra dirs do not contribute instructions. <code>context: false</code> disables this.</p>
+<p>Load <code>AGENTS.md</code> (and <code>CLAUDE.md</code> if <code>AGENTS.md</code> is absent) from <code>~/.tny/</code>, launch ancestors, and the primary workspace. Extra dirs do not contribute instructions. <code>context: false</code> disables this. Over <code>--ssh</code>, <code>~/.tny/</code> still loads as local user policy and project instructions come from the remote cwd — not the launch directory.</p>
 """
     return page_shell(
         title="Tools, MCP, skills — tny",

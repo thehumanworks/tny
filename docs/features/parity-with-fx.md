@@ -16,7 +16,7 @@ fx sources: [README](https://github.com/vercel-labs/fx), [fx.sh/llms.txt](https:
 | MCP | trusted `~/.fx/mcp.json` only, stdio + HTTP + legacy SSE | `~/.tny/mcp.json`, same isolation | ✅ stdio JSONL, lazy select; HTTP/SSE transports deferred; disabled entirely in `tny acp` server mode |
 | Subagents | session-backed children, ctrl+x, `subagent` tool | native loop only | ✅ `subagent` tool spawns child `tny ask --json`; children cannot raise perm mode |
 | ACP server | `fx acp` | `tny acp` | ✅ initialize fails closed w/o credential, session/load replays history |
-| Project instructions | `AGENTS.md` chain, target-scoped | same + `CLAUDE.md` alias | ✅ ~/.tny → ancestors below $HOME → cwd |
+| Project instructions | `AGENTS.md` chain, target-scoped | same + `CLAUDE.md` alias | ✅ ~/.tny → ancestors below $HOME → cwd; over `--ssh`, ~/.tny (labeled local) → remote cwd ([ADR 0040](../adr/0040-ssh-agents-md.md)) |
 | Extra dirs | `--add-dir`, `/workspace` | same | ✅ persisted per-workspace in settings |
 | Models | catalog + `/model` | per-backend catalog | ✅ `models` + `/model` persists choice |
 | Doctor / status / usage | yes | yes | ✅ all three, `--json` variants |

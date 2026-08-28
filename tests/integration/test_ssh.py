@@ -33,7 +33,8 @@ def main():
     td_obj = tempfile.TemporaryDirectory()
     d = pathlib.Path(td_obj.name)
     home, ws, remote, binp = d / "home", d / "ws", d / "remote", d / "bin"
-    # the system prompt must announce the remote host + cwd and must not
+    # the system prompt must announce the remote host + cwd, that project
+    # AGENTS.md follows the remote tree (docs/adr/0040), and must not
     # advertise the local --cwd as the workspace (the model "corrects" pwd
     # against it otherwise)
     mock = subprocess.Popen(
@@ -43,9 +44,13 @@ def main():
             MOCK_EXPECT_INSTRUCTIONS=f"REMOTE environment: every workspace tool "
             f"(files, grep, terminal) executes over SSH on "
             f"alice@example.test. The local machine running "
-            f"tny is not your workspace.\n"
-            f"Current working directory (remote): {remote}\n",
-            MOCK_REJECT_INSTRUCTIONS=f"Primary workspace: {ws}",
+            f"tny is not your workspace. Project AGENTS.md "
+            f"is taken from the remote cwd (not tny's launch "
+            f"directory); any remaining local ~/.tny/AGENTS.md "
+            f"is user policy only.\n"
+            f"Current working directory (remote): {remote}\n"
+            f"REMOTE-CWD-RULES",
+            MOCK_REJECT_INSTRUCTIONS=f"Primary workspace: {ws}\nLOCAL-LAUNCH-DIR-RULES",
         ),
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
@@ -56,7 +61,9 @@ def main():
             for p in (home, ws, remote, binp):
                 p.mkdir()
             (ws / "local-only.txt").write_text("x\n")
+            (ws / "AGENTS.md").write_text("LOCAL-LAUNCH-DIR-RULES\n")
             (remote / "remote-only.txt").write_text("y\n")
+            (remote / "AGENTS.md").write_text("REMOTE-CWD-RULES\n")
             log = d / "ssh-argv.json"
             fake = binp / "ssh"
             # resolve the real interpreter: a mise/pyenv shim breaks under the test HOME
@@ -118,9 +125,15 @@ sys.exit(subprocess.call(["sh", "-c", av[-1]]))
             remote_cmds = [av[-1] for av in calls]
             assert any("ls -1Ap" in c for c in remote_cmds), remote_cmds
             assert any("find ." in c for c in remote_cmds), remote_cmds
+            assert any("AGENTS.md" in c and "cat --" in c for c in remote_cmds), (
+                remote_cmds
+            )
             # the session is local (under HOME), nothing was written remotely
             assert (home / ".tny").exists()
-            assert sorted(p.name for p in remote.iterdir()) == ["remote-only.txt"]
+            assert sorted(p.name for p in remote.iterdir()) == [
+                "AGENTS.md",
+                "remote-only.txt",
+            ]
             assert (home / ".tny" / "ssh").stat().st_mode & 0o777 == 0o700
 
             # ---- error paths, no provider needed ----

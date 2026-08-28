@@ -6,6 +6,7 @@
  * OpenSSH config; tny never weakens them. */
 #include "core/ssh.h"
 #include "core/config.h"
+#include "core/instructions.h"
 #include "util/tny_poll.h"
 
 #include <ctype.h>
@@ -341,6 +342,8 @@ int ssh_connect(tny_ctx *ctx, char *err, size_t errlen) {
     while (out.len && (out.data[out.len - 1] == '\n' || out.data[out.len - 1] == '\r'))
         out.data[--out.len] = 0;
     ctx->ssh_cwd = buf_detach(&out);
+    /* Project instructions follow the tool workspace (docs/adr/0040). */
+    (void)instructions_refresh(ctx);
     return 0;
 }
 
@@ -383,4 +386,5 @@ void ssh_disconnect(tny_ctx *ctx) {
     free(ctx->ssh_control);
     ctx->ssh_control = NULL;
     ctx->ssh_port[0] = 0;
+    (void)instructions_refresh(ctx);
 }

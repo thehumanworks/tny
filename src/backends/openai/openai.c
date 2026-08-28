@@ -180,7 +180,9 @@ static void build_system_prompt(oa_impl *o, buf_t *sys) {
         buf_appendf(sys,
                     "You are working in a REMOTE environment: every workspace tool "
                     "(files, grep, terminal) executes over SSH on %s. The local "
-                    "machine running tny is not your workspace.\n"
+                    "machine running tny is not your workspace. Project AGENTS.md "
+                    "is taken from the remote cwd (not tny's launch directory); "
+                    "any remaining local ~/.tny/AGENTS.md is user policy only.\n"
                     "Current working directory (remote): %s\n"
                     "Relative paths resolve against it; the terminal starts there.\n",
                     o->ctx->ssh_host, o->ctx->ssh_cwd);

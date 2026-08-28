@@ -111,6 +111,9 @@ tny --ssh '[2001:db8::1]:22' ask "df -h"
 - The system prompt tells the model it is in a remote environment on the
   target host and states the remote working directory (instead of the local
   workspace); the TUI status bar shows `ssh user@host:/remote/dir`.
+  Project `AGENTS.md` is loaded from the remote cwd, not from `--cwd`;
+  `$HOME/.tny/AGENTS.md` still applies as user policy and is labeled local
+  ([ADR 0040](adr/0040-ssh-agents-md.md)).
 
 wasm behavior: remote-only — the browser build has no `ssh` to spawn, so
 `--ssh` fails at connect with a clear error.

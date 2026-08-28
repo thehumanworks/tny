@@ -24,7 +24,7 @@ Keep the *user-visible harness*, not Vercel branding:
 - Built-in tools (files, grep/glob, shell, web fetch/search, vision fallback, memory).
 - Skills (`SKILL.md`), MCP client, session-backed subagents.
 - ACP **server** so editors can drive tny's native loop (`tny acp`), matching `fx acp`.
-- `status`, `doctor`, models, usage, workspace extra dirs, project `AGENTS.md`.
+- `status`, `doctor`, models, usage, workspace extra dirs, project `AGENTS.md` (over `--ssh`: remote cwd, not the launch directory).
 
 ## What tny adds
 

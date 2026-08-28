@@ -250,7 +250,7 @@ Named-provider rules:
 
 ## Agent loop
 
-1. Assemble messages: tny preamble + `AGENTS.md` chain + skill catalog (names only) + bounded history.
+1. Assemble messages: tny preamble + `AGENTS.md` chain + skill catalog (names only) + bounded history. Over `--ssh` the chain is `$HOME/.tny/` then the remote cwd ([ADR 0040](../adr/0040-ssh-agents-md.md)).
 2. POST with built-in + selected MCP tool schemas.
 3. On tool calls: run `pre_tool_use` before validation, fold rewrite/deny, schema-validate and permission-check the effective call, resolve a real outstanding permission, execute admitted calls serially in stable provider order, run success/failure and batch hooks, then persist the effective `role: tool` messages. Original/effective values stay separately attributed in the top-level extension audit. `read_image` then injects a **user** message with `image_url` data-URL parts (providers reject image parts on `role: tool`; [ADR 0008](../adr/0008-native-loop-images.md)) → POST again.
 4. Stop on final text, cancel, permission deny, or the optional step limit (unlimited by default; `--max-steps` / `/max-steps` / `.tny.json` `"steps"` set a cap — [ADR 0024](../adr/0024-unlimited-steps-default.md)).

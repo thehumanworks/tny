@@ -53,6 +53,9 @@ Mechanics:
   a remote banner: the host, the remote cwd, and that the local machine is not
   the workspace (without it the model "corrects" `pwd` against the local
   path). The TUI status bar shows `ssh user@host:/dir`.
+- **Project instructions follow the tool workspace** ([ADR 0040](0040-ssh-agents-md.md)):
+  `$HOME/.tny/AGENTS.md` still loads (user policy, labeled local); launch-dir
+  / ancestor `AGENTS.md` do not; `AGENTS.md` in the remote cwd does.
 - **Permission details** for rules/prompts are the remote path or command.
 - **Native loop only.** Cursor, Codex and ACP hosts own their tool loops;
   `--ssh` with those providers is refused with a pointer to an

@@ -1,4 +1,5 @@
 #include "core/instructions.h"
+#include "core/ssh.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -30,12 +31,64 @@ static void append_dir_instructions(tny_ctx *ctx, const char *dir, buf_t *out, b
     char *data = file_slurp(f, &len);
     if (data && len) {
         remember_path(ctx, f, record);
-        buf_appendf(out, "\n# Project instructions from %s\n\n", f);
+        if (ctx->ssh_host) {
+            /* ~/.tny/AGENTS.md still loads over --ssh (user rules), but it
+             * is a local file: say so, or the model treats it as the remote
+             * project's instructions (docs/adr/0040). */
+            buf_appendf(out,
+                        "\n# User instructions from %s\n\n"
+                        "These rules were loaded on the local machine running tny. "
+                        "Workspace tools execute over SSH on %s (cwd %s); do not "
+                        "treat paths in this file as the remote workspace.\n\n",
+                        f, ctx->ssh_host, ctx->ssh_cwd ? ctx->ssh_cwd : "?");
+        } else {
+            buf_appendf(out, "\n# Project instructions from %s\n\n", f);
+        }
         buf_append(out, data, len);
         buf_appends(out, "\n");
     }
     free(data);
     free(f);
+}
+
+/* One cat of AGENTS.md / CLAUDE.md in the remote cwd. Missing is not an
+ * error; a failed ssh is ignored so a flaky hop does not wipe the rest of
+ * the chain. */
+static void append_remote_instructions(tny_ctx *ctx, buf_t *out, bool record) {
+    if (!ctx->ssh_host || !ctx->ssh_cwd) return;
+    static const char *names[] = {"AGENTS.md", "CLAUDE.md"};
+    for (int i = 0; i < 2; i++) {
+        buf_t script, body;
+        buf_init(&script);
+        buf_init(&body);
+        buf_appends(&script, "f=");
+        ssh_shell_quote(&script, names[i]);
+        buf_appends(&script, " && [ -f \"$f\" ] && cat -- \"$f\"");
+        bool tr = false, to = false;
+        int rc = ssh_run(ctx, script.data, NULL, 0, 15, 128u * 1024u, &body, &tr, &to);
+        buf_free(&script);
+        if (rc != 0 || tr || to || !body.len) {
+            buf_free(&body);
+            continue;
+        }
+        buf_t label;
+        buf_init(&label);
+        buf_appendf(&label, "ssh:%s:%s/%s", ctx->ssh_host, ctx->ssh_cwd, names[i]);
+        remember_path(ctx, label.data, record);
+        buf_appendf(out,
+                    "\n# Remote project instructions from %s:%s/%s\n\n"
+                    "tny is running locally and attached over SSH to %s. These "
+                    "instructions describe the REMOTE workspace (cwd %s). File, "
+                    "grep and terminal tools already execute there — do not apply "
+                    "them to the local machine, and do not follow a local "
+                    "AGENTS.md / CLAUDE.md from tny's launch directory.\n\n",
+                    ctx->ssh_host, ctx->ssh_cwd, names[i], ctx->ssh_host, ctx->ssh_cwd);
+        buf_append(out, body.data, body.len);
+        buf_appends(out, "\n");
+        buf_free(&label);
+        buf_free(&body);
+        return; /* AGENTS.md wins over CLAUDE.md, same as local */
+    }
 }
 
 static void collect_raw(tny_ctx *ctx, buf_t *out, bool record) {
@@ -54,6 +107,15 @@ static void collect_raw(tny_ctx *ctx, buf_t *out, bool record) {
     char *tny_home = path_join(home, ".tny");
     append_dir_instructions(ctx, tny_home, out, record);
     free(tny_home);
+
+    /* --ssh (docs/adr/0022, 0040): tools act on the remote cwd. Local
+     * launch-dir / ancestor AGENTS.md would describe the wrong tree, so
+     * they stay out; the remote file (if any) is the project chain. */
+    if (ctx->ssh_host) {
+        append_remote_instructions(ctx, out, record);
+        free(home);
+        return;
+    }
 
     /* Ancestors of cwd strictly below $HOME, then cwd itself; broader paths
      * first so the narrower file is later in context and wins. */
