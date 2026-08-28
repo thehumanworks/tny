@@ -24,8 +24,9 @@ let
     ../third_party
   ];
 
-  # `make test` additionally drives the fixture suites, the event-schema check
-  # and the conformance contract. Several suites read the contract itself:
+  # `make test` additionally drives the fixture suites, the event-schema check,
+  # the parser/help flag alignment check, and the conformance contract. Several
+  # suites read the contract itself:
   # test_extension_contract.py against docs/features/, test_site.py by
   # regenerating site/ with scripts/site_build.py and diffing.
   testFiles = unions [

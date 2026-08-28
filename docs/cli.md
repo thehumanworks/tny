@@ -16,6 +16,7 @@ tny session last|<id>
 tny session <id> --wait     # block until a background task finishes ([--timeout S])
 tny session stop <id>       # stop a background task ([--kill])
 tny providers               # list configured providers and doctor hints
+tny backends                # compatibility alias for providers
 tny models
 tny permissions
 tny workspace list|add|remove|clear
@@ -270,9 +271,9 @@ printf 'summarize src/\n' | tny ask --stdin
 tny ask --json --ephemeral "list the public CLI"
 tny ask --resume last "now add tests"
 tny ask -B "audit the Makefile"        # detach; prints the session id
-tny ask --provider cursor --model composer-2 "find the login bug"
+tny --provider cursor --model composer-2 ask "find the login bug"
 tny --provider codex --effort xhigh ask "prove this queue is lock-free"
-tny ask --yolo --cwd /tmp/ws "run the test suite"
+tny --yolo --cwd /tmp/ws ask "run the test suite"
 ```
 
 Stdout: assistant Markdown (or one JSON object with `--json`).
@@ -503,7 +504,16 @@ Options:
 Examples:
   tny ask "explain src/main.c"
   tny ask --json --ephemeral "list exported symbols"
-  tny --provider cursor ask --model composer-2 "fix the leak"
+  tny --provider cursor --model composer-2 ask "fix the leak"
 ```
 
 Missing required values print the error, then a correct example, then exit 1. No timed prompts.
+
+### Tested contract
+
+`make test-help-flags` extracts accepted long and short flags from the C argv
+parsers and compares them with `tny --help` plus every subcommand's `--help` in
+both directions. A parser flag without help text, help text without a parser,
+or a dispatched subcommand missing from top-level help fails the test
+([ADR 0042](adr/0042-help-flag-alignment.md)). The small source allowlist is
+reserved for explicitly justified compatibility or passthrough syntax.

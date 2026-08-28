@@ -430,6 +430,10 @@ test-conformance-contract:
 test-extensions-python:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/extensions -p 'test_*.py' -v
 
+TNY ?= $(abspath $(BIN))
+test-help-flags: release
+	TNY="$(TNY)" python3 tests/integration/test_help_flags.py
+
 test-abi: TNY_VERSION=1.0.0
 test-abi: lib-shared
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
@@ -541,7 +545,7 @@ test-libtny-tsan:
 	@exit 2
 endif
 
-test: test-unit test-event-schema test-conformance-contract test-extensions-python release
+test: test-unit test-event-schema test-conformance-contract test-extensions-python test-help-flags release
 	@if [ -x tests/integration/run.sh ]; then tests/integration/run.sh; fi
 
 size: release

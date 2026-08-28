@@ -19,7 +19,7 @@ void help_root(void) {
           "  acp                    Start an ACP server over stdio (native loop)\n"
           "  sessions               List saved sessions for this workspace\n"
           "  session <last|id>      Inspect one saved session\n"
-          "  providers              List configured providers and doctor hints\n"
+          "  providers | backends   List configured providers and doctor hints\n"
           "  provider setup NAME    Add an OpenAI-compatible provider (interactive on a tty)\n"
           "  models                 List available models for the active provider\n"
           "  permissions            Show the permission mode and rules\n"
@@ -42,8 +42,10 @@ void help_root(void) {
           "  --model ID             Model for this run\n"
           "  --effort LEVEL         Reasoning effort: " TNY_EFFORT_LEVELS "\n"
           "                         (or any level `tny models` lists for the provider)\n"
+          "                         (--reasoning-effort also works)\n"
           "  --add-dir DIR          Extra workspace directory; repeatable, process-only\n"
           "  --permission-mode M    ask | auto | yolo (default: yolo)\n"
+          "  --auto | --yolo        Permission-mode convenience aliases\n"
           "  --max-steps N          Cap the native agent loop at N model calls per turn\n"
           "                         (default: unlimited; 'unlimited' clears a repo cap)\n"
           "  --max-extension-iterations N\n"
@@ -118,9 +120,11 @@ static const char *ask_help =
     "  --continue-recovery  Replay the interrupted response before this turn\n"
     "  --ephemeral          Keep conversation/session artifacts in memory only\n"
     "  --no-save            Compatibility alias for --ephemeral\n"
+    "  --no-color           Disable SGR styling for this request\n"
     "  --print-usage        Report token usage on stderr (also TNY_PRINT_USAGE=1)\n"
     "  --auto               Auto-review unresolved permissions (native loop)\n"
     "  --yolo               Disable permission checks and sandbox (the default)\n"
+    "  --resume-id ID       Compatibility alias for --resume ID\n"
     "  --                   Treat every following argument as prompt text\n"
     "\n"
     "Stdout is assistant Markdown (or one JSON object with --json).\n"
@@ -135,7 +139,7 @@ static const char *ask_help =
     "  id=$(tny ask -B \"audit the Makefile\")   # detached; `tny session $id` to read\n"
     "  tny ask --resume $id --steer \"drop that — check the tests instead\"\n"
     "  tny ask --output-schema schema.json \"extract the TODOs as JSON\"\n"
-    "  tny --provider cursor ask --model composer-2 \"find the login bug\"\n";
+    "  tny --provider cursor --model composer-2 ask \"find the login bug\"\n";
 
 static const char *sessions_help =
     "Usage: tny sessions [--json] [--all] [--limit N] [--cursor ID]\n"
@@ -156,7 +160,7 @@ static const char *session_help =
     "(spawned hosts included) and the session finalizes status \"interrupted\";\n"
     "--kill escalates to SIGKILL if the task ignores SIGTERM (docs/adr/0031).\n"
     "\n"
-    "--wait blocks until a background turn (`tny ask -B`) has finished, then\n"
+    "--wait blocks until a detached background turn has finished, then\n"
     "prints the session; the exit code is the turn's exit_code (0 done, 2 run\n"
     "failed or stale, 130 interrupted). --timeout SECS implies --wait, exit 124\n"
     "if the turn is still running when it elapses (docs/adr/0041).\n"
@@ -239,7 +243,8 @@ bool help_for(const char *command) {
         text = "Usage: tny providers [--json]\n\nList the four providers with a one-line doctor "
                "hint each.\n";
     else if (strcmp(command, "provider") == 0)
-        text = "Usage: tny provider [list]\n       tny provider setup NAME [--base-url URL]\n"
+        text = "Usage: tny provider [list] [--json]\n"
+               "       tny provider setup NAME [--base-url URL]\n"
                "           [--api-key KEY | --api-key-env ENV] [--model M]\n"
                "           [--wire-api responses|chat]\n\n"
                "Write an OpenAI-compatible provider profile to ~/.tny/settings.json and\n"
@@ -256,7 +261,7 @@ bool help_for(const char *command) {
         text = "Usage: tny usage [--json]\n\nShow local token usage recorded from native-loop "
                "sessions.\n";
     else if (strcmp(command, "login") == 0)
-        text = "Usage: tny [--provider NAME] login [--device]\n"
+        text = "Usage: tny [--provider NAME] login [--device | --device-code]\n"
                "\n"
                "Sign in to the active provider. Tokens live in each provider's own store.\n"
                "\n"

@@ -64,6 +64,7 @@ stdenv.mkDerivation {
     "CC=${stdenv.cc.targetPrefix}cc"
     "TNY_VERSION=${version}"
     "TNY_SHELL_PATH=${stdenv.shell}"
+    "TNY=build/tny"
   ] ++ lib.optionals stdenv.hostPlatform.isDarwin [
     # Keep the displayed flake revision while supplying dyld's numeric field
     # to the active-library integration tests.

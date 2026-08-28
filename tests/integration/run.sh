@@ -41,7 +41,9 @@ done
 
 for t in tests/integration/test_*.py; do
     [ -e "$t" ] || continue
-    case "$t" in */test_openai.py) continue ;; esac
+    case "$t" in
+        */test_openai.py | */test_help_flags.py) continue ;;
+    esac
     run "$(basename "$t" .py)" python3 "$t" "$TNY"
 done
 
