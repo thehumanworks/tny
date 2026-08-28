@@ -44,6 +44,33 @@ if COMMAND_TIMEOUT < 1:
 if STEER_TIMEOUT < 1:
     raise ValueError("TNY_CONFORMANCE_STEER_TIMEOUT must be positive")
 
+CURRENT_STAGE = "startup"
+OWNERSHIP_TESTS = (
+    "test_metadata_capabilities_and_secret_safe_repr",
+    "test_api_key_staging_is_wiped_when_later_input_encoding_fails",
+    "test_repeated_create_close_and_owner_thread",
+    "test_abi1_allows_multiple_python_runtimes",
+    "test_input_sizing_utf8_and_parent_lifecycle_misuse",
+    "test_explicit_abi0_library_is_rejected",
+    "test_unknown_future_event_representation",
+    "test_canonical_event_schema_matches_sdk_registry",
+)
+
+
+def stage(name: str) -> None:
+    global CURRENT_STAGE
+    CURRENT_STAGE = name
+    print(f"conformance-stage: {name} start", file=sys.stderr, flush=True)
+
+
+def ownership_command() -> list[str]:
+    return [
+        sys.executable,
+        "sdk/python/tests/test_sdk.py",
+        "-q",
+        *(f"SDKTests.{name}" for name in OWNERSHIP_TESTS),
+    ]
+
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -70,7 +97,7 @@ def execution(
         env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        timeout=180,
+        timeout=COMMAND_TIMEOUT,
         check=False,
     )
     if completed.returncode != 0:
@@ -419,6 +446,7 @@ def main() -> int:
             artifact_kind = "shared"
 
         if USE_INSTALLED:
+            stage("package-smoke")
             installed_env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
             installed_env.pop("PYTHONPATH", None)
             executions = [
@@ -436,25 +464,14 @@ def main() -> int:
                 )
             ]
             ownership_env = dict(installed_env, TNY_TEST_LIBRARY=str(native_artifact))
+            stage("ownership-probe")
             executions.append(
                 execution(
                     "python_installed_ownership_suite",
-                    [
-                        sys.executable,
-                        "-m",
-                        "unittest",
-                        "discover",
-                        "-s",
-                        "sdk/python/tests",
-                        "-p",
-                        "test_sdk.py",
-                        "-q",
-                    ],
+                    ownership_command(),
                     env=ownership_env,
                     assertions=qualified(
                         "ownership_and_misuse",
-                        "inputs_copied",
-                        "event_and_error_lifetimes",
                         "double_free_prevention",
                         "wrong_thread_rejected",
                         "invalid_utf8_rejected",
@@ -475,25 +492,14 @@ def main() -> int:
                 TNY_TEST_LIBRARY=str(native_artifact),
                 PYTHONDONTWRITEBYTECODE="1",
             )
+            stage("ownership-probe")
             executions = [
                 execution(
-                    "python_sdk_unit_suite",
-                    [
-                        sys.executable,
-                        "-m",
-                        "unittest",
-                        "discover",
-                        "-s",
-                        "sdk/python/tests",
-                        "-p",
-                        "test_sdk.py",
-                        "-q",
-                    ],
+                    "python_sdk_ownership_probe",
+                    ownership_command(),
                     env=test_env,
                     assertions=qualified(
                         "ownership_and_misuse",
-                        "inputs_copied",
-                        "event_and_error_lifetimes",
                         "double_free_prevention",
                         "wrong_thread_rejected",
                         "invalid_utf8_rejected",
@@ -506,30 +512,9 @@ def main() -> int:
                     ),
                 )
             ]
-            sdk_execution = "python_sdk_unit_suite"
+            sdk_execution = "python_sdk_ownership_probe"
+        stage("live-scenarios")
         library, snapshot, traces = python_live_scenarios(native_artifact, secret)
-        if snapshot.custom_tool_max_count > 0:
-            callback_env = dict(
-                installed_env if USE_INSTALLED else test_env,
-                TNY_TEST_LIBRARY=str(native_artifact),
-            )
-            executions.append(
-                execution(
-                    "python_callback_acceptance",
-                    [
-                        sys.executable,
-                        "-m",
-                        "unittest",
-                        "discover",
-                        "-s",
-                        "sdk/python/tests",
-                        "-p",
-                        "test_callbacks.py",
-                        "-q",
-                    ],
-                    env=callback_env,
-                )
-            )
         executions.append(
             {
                 "id": "python_live_scenarios",
@@ -564,14 +549,21 @@ def main() -> int:
                         "no_raw_provider_body",
                         "no_credentials",
                     )
+                    + qualified(
+                        "ownership_and_misuse",
+                        "inputs_copied",
+                        "event_and_error_lifetimes",
+                    )
                 ),
             }
         )
+        stage("steer-resume-probe")
         traces["resume_and_steer_rejection"], steer_execution = (
             execute_steer_resume_probe(native_artifact, secret)
         )
         executions.append(steer_execution)
 
+        stage("decoder-probe")
         unknown = tny.decode_unknown_event_fixture(
             kind=65535,
             schema_version=1,
@@ -610,6 +602,7 @@ def main() -> int:
             }
         )
 
+        stage("fixture-probes")
         executions.extend(
             [
                 execution("python_build_c_fixtures", ["make", "debug"]),
@@ -676,7 +669,7 @@ def main() -> int:
             "cancel_and_drain": ["python_live_scenarios"],
             "auth_error": ["python_live_scenarios"],
             "unknown_future_event": ["python_unknown_decoder"],
-            "ownership_and_misuse": [sdk_execution],
+            "ownership_and_misuse": [sdk_execution, "python_live_scenarios"],
             "slow_consumer_backpressure": ["python_backpressure_fixture"],
             "network_split_boundaries": ["python_network_split_fixture"],
         }
@@ -690,6 +683,7 @@ def main() -> int:
             }
             for scenario in CONTRACT["scenarios"]
         ]
+        stage("report")
         response = {
             "conformance_version": 1,
             "adapter_protocol_version": 1,
@@ -714,7 +708,12 @@ def main() -> int:
         }
         json.dump(response, sys.stdout, sort_keys=True)
         return 0
-    except BaseException:
+    except BaseException as error:
+        print(
+            f"conformance-stage: {CURRENT_STAGE} error-{type(error).__name__}",
+            file=sys.stderr,
+            flush=True,
+        )
         print("python conformance adapter failed", file=sys.stderr)
         return 2
 

@@ -18,7 +18,11 @@ SAFE_ADAPTER_STAGES = frozenset(
         "fixture-probes",
         "lifecycle-probe",
         "live-abi-probe",
+        "live-scenarios",
+        "package-smoke",
+        "ownership-probe",
         "steer-resume-probe",
+        "decoder-probe",
         "unknown-event-probe",
         "report",
     }

@@ -161,6 +161,8 @@ class SDKTests(unittest.TestCase):
             thread.join()
             self.assertEqual(result, [tny.BadStateError])
             session.close()
+            session.close()
+            runtime.close()
             runtime.close()
         gc.collect()
 
@@ -223,6 +225,23 @@ class SDKTests(unittest.TestCase):
             ),
             -1,
         )
+        oversized_size = capabilities_size + 32
+        oversized_storage = ffi.new("unsigned char[]", oversized_size)
+        ffi.buffer(oversized_storage, oversized_size)[:] = b"\xa5" * oversized_size
+        oversized = ffi.cast("tny_capabilities_v0 *", oversized_storage)
+        oversized.struct_size = oversized_size
+        self.assertEqual(
+            native.tny_runtime_get_capabilities(
+                runtime._handle, oversized, oversized_size
+            ),
+            0,
+        )
+        self.assertEqual(
+            bytes(ffi.buffer(oversized_storage, oversized_size))[capabilities_size:],
+            b"\xa5" * 32,
+        )
+        with self.assertRaises(tny.InvalidArgumentError):
+            session.respond_permission(b"unknown", 999)  # type: ignore[arg-type]
         runtime.close()
         self.assertTrue(session.closed)
         self.assertTrue(runtime.closed)
