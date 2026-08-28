@@ -7,10 +7,13 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
-static const char *SKILL_ROOTS[] = {
-    "skills", ".agents/skills", ".claude/skills", ".codex/skills",
-    ".cursor/skills", ".opencode/skills", NULL
-};
+static const char *SKILL_ROOTS[] = {"skills",
+                                    ".agents/skills",
+                                    ".claude/skills",
+                                    ".codex/skills",
+                                    ".cursor/skills",
+                                    ".opencode/skills",
+                                    NULL};
 
 /* Parse frontmatter: lines between --- markers; name:/description: keys. */
 static bool parse_frontmatter(const char *path, char **name, char **desc) {
@@ -19,7 +22,10 @@ static bool parse_frontmatter(const char *path, char **name, char **desc) {
     if (!data) return false;
     *name = *desc = NULL;
     char *p = data;
-    if (strncmp(p, "---", 3) != 0) { free(data); return false; }
+    if (strncmp(p, "---", 3) != 0) {
+        free(data);
+        return false;
+    }
     p = strchr(p, '\n');
     while (p) {
         p++;
@@ -38,7 +44,11 @@ static bool parse_frontmatter(const char *path, char **name, char **desc) {
         p = nl;
     }
     free(data);
-    if (!*name) { free(*desc); *desc = NULL; return false; }
+    if (!*name) {
+        free(*desc);
+        *desc = NULL;
+        return false;
+    }
     if (!*desc) *desc = xstrdup("");
     return true;
 }
@@ -57,14 +67,25 @@ static void scan_root(const char *root, skill_meta **arr, int *n) {
                 /* dedupe by name: nearer root wins (first found) */
                 bool dup = false;
                 for (int i = 0; i < *n; i++)
-                    if (strcmp((*arr)[i].name, name) == 0) { dup = true; break; }
-                if (dup) { free(name); free(desc); }
-                else {
-                    *arr = realloc(*arr, sizeof(skill_meta) * (size_t)(*n + 1));
-                    (*arr)[*n].name = name;
-                    (*arr)[*n].description = desc;
-                    (*arr)[*n].dir = xstrdup(sd);
-                    (*n)++;
+                    if (strcmp((*arr)[i].name, name) == 0) {
+                        dup = true;
+                        break;
+                    }
+                if (dup) {
+                    free(name);
+                    free(desc);
+                } else {
+                    skill_meta *grown = realloc(*arr, sizeof(skill_meta) * (size_t)(*n + 1));
+                    if (!grown) {
+                        free(name);
+                        free(desc);
+                    } else {
+                        *arr = grown;
+                        (*arr)[*n].name = name;
+                        (*arr)[*n].description = desc;
+                        (*arr)[*n].dir = xstrdup(sd);
+                        (*n)++;
+                    }
                 }
             }
         }
@@ -153,7 +174,10 @@ int skills_install(tny_ctx *ctx, const char *src_dir, char *err, size_t errlen) 
     DIR *d = opendir(src_dir);
     if (!d) {
         snprintf(err, errlen, "cannot open %s", src_dir);
-        free(skills_dir); free(dst); free(name); free(desc);
+        free(skills_dir);
+        free(dst);
+        free(name);
+        free(desc);
         return -1;
     }
     struct dirent *e;

@@ -13,8 +13,8 @@ static tny_bytes bytes(const char *s) {
 
 static int failed(const char *where, int32_t status, tny_error *error) {
     tny_bytes message = tny_error_message(error);
-    fprintf(stderr, "%s: status %d: %.*s\n", where, status,
-            (int)message.len, message.ptr ? message.ptr : "");
+    fprintf(stderr, "%s: status %d: %.*s\n", where, status, (int)message.len,
+            message.ptr ? message.ptr : "");
     tny_error_free(error);
     return 1;
 }
@@ -25,7 +25,7 @@ int main(int argc, char **argv) {
         return 2;
     }
     tny_runtime_options_v0 options;
-    tny_runtime_options_init(&options);
+    if (tny_runtime_options_init(&options, sizeof options) != TNY_STATUS_OK) return 2;
     options.workspace = bytes(argv[2]);
     options.state_dir = bytes(argv[3]);
     options.base_url = bytes(argv[1]);
@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
     tny_runtime *runtime = NULL;
     tny_session *session = NULL;
     tny_error *error = NULL;
-    int32_t status = tny_runtime_create(&options, &runtime, &error);
+    int32_t status = tny_runtime_create(&options, sizeof options, &runtime, &error);
     if (status != TNY_STATUS_OK) return failed("runtime_create", status, error);
     status = tny_session_create(runtime, &session, &error);
     if (status != TNY_STATUS_OK) return failed("session_create", status, error);
@@ -53,8 +53,7 @@ int main(int argc, char **argv) {
             fwrite(text.ptr, 1, (size_t)text.len, stdout);
         } else if (kind == TNY_EVENT_PERMISSION) {
             tny_bytes id = tny_event_permission_id(event);
-            status = tny_session_respond_permission(session, id,
-                                                    TNY_PERMISSION_DENY, &error);
+            status = tny_session_respond_permission(session, id, TNY_PERMISSION_DENY, &error);
             if (status != TNY_STATUS_OK) return failed("permission", status, error);
         }
         tny_event_free(event);

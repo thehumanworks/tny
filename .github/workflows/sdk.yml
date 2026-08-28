@@ -14,6 +14,31 @@ permissions:
   contents: read
 
 jobs:
+  packaging-contract:
+    name: synthetic SDK release aggregation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.8.0"
+      - name: Run offline release planning and negative fixtures
+        run: |
+          set -eu
+          python -m unittest discover -s tests/packaging -p 'test_*.py' -v
+          python -m unittest discover -s sdk/python/tests \
+            -p 'test_release_packaging.py' -v
+          python -m unittest discover -s sdk/python/tests \
+            -p 'test_pypi_release.py' -v
+          node --test sdk/typescript/test/release-packaging.test.mjs \
+            sdk/typescript/test/publish-release.test.mjs
+
   python:
     name: python-${{ matrix.name }}-${{ matrix.python }}
     runs-on: ${{ matrix.os }}
@@ -29,6 +54,8 @@ jobs:
           - {name: macos-arm64, os: macos-15, python: "3.14"}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
@@ -39,39 +66,39 @@ jobs:
           if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
           make lib-shared
           python scripts/check_native_compat.py \
-            "$PWD/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}"
+            "$PWD/build/lib/${{ runner.os == 'macOS' && 'libtny.1.dylib' || 'libtny.so.1' }}"
           python -m pip install --disable-pip-version-check \
             'cffi>=1.16' 'build>=1.2' 'mypy>=1.11' 'setuptools>=77' 'wheel>=0.45'
       - name: Run SDK tests and strict type checks
         env:
           PYTHONPATH: ${{ github.workspace }}/sdk/python/src
-          TNY_TEST_LIBRARY: ${{ github.workspace }}/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}
+          TNY_TEST_LIBRARY: ${{ github.workspace }}/build/lib/${{ runner.os == 'macOS' && 'libtny.1.dylib' || 'libtny.so.1' }}
         run: |
           set -eu
           if [ "$(uname -s)" = Darwin ]; then
-            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576
+            export MOCK_CHUNK_WIDTH=1048576 MOCK_CONNECTION_CLOSE=1
           fi
           python -m unittest discover -s sdk/python/tests -p 'test_*.py' -v
           mypy --strict sdk/python/src/tny sdk/python/tests/typecheck_usage.py
       - name: Run reference ABI conformance
-        if: matrix.python == '3.14' && matrix.name != 'macos-arm64'
+        if: matrix.python == '3.14'
         env:
           PYTHONPATH: ${{ github.workspace }}/sdk/python/src
-          TNY_TEST_LIBRARY: ${{ github.workspace }}/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}
+          TNY_TEST_LIBRARY: ${{ github.workspace }}/build/lib/${{ runner.os == 'macOS' && 'libtny.1.dylib' || 'libtny.so.1' }}
         run: |
           set -eu
           conformance_timeout=180
           if [ "$(uname -s)" = Darwin ]; then
             export MACOSX_DEPLOYMENT_TARGET=13.0
             conformance_timeout=1200
-            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
+            export MOCK_CHUNK_WIDTH=1048576 MOCK_CONNECTION_CLOSE=1 \
               TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
               TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
           fi
           mkdir -p "$PWD/dist/conformance"
           python sdk/conformance/run.py \
-            --artifact "$PWD/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}" \
+            --artifact "$PWD/build/lib/${{ runner.os == 'macOS' && 'libtny.1.dylib' || 'libtny.so.1' }}" \
             --report "$PWD/dist/conformance/reference-${{ matrix.name }}.json" \
             --timeout "$conformance_timeout" \
             -- python sdk/conformance/adapters/c_reference.py
@@ -85,7 +112,7 @@ jobs:
           set -eu
           python -m build --sdist --outdir "$PWD/dist/python-source" sdk/python
           python -m build --wheel --outdir "$PWD/dist/python-discovery" sdk/python
-          library="$PWD/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}"
+          library="$PWD/build/lib/${{ runner.os == 'macOS' && 'libtny.1.dylib' || 'libtny.so.1' }}"
           metadata="$PWD/build/lib/ARTIFACT.json"
           python scripts/sdk_artifact_metadata.py "$library" "$metadata"
           sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$metadata")"
@@ -95,14 +122,14 @@ jobs:
       - name: Clean bundled-wheel install and discovery
         env:
           RUN_WHEEL_CONFORMANCE: ${{ matrix.python == '3.14' }}
-          TNY_TEST_LIBRARY: ${{ github.workspace }}/build/lib/${{ runner.os == 'macOS' && 'libtny.0.dylib' || 'libtny.so.0' }}
+          TNY_TEST_LIBRARY: ${{ github.workspace }}/build/lib/${{ runner.os == 'macOS' && 'libtny.1.dylib' || 'libtny.so.1' }}
         run: |
           set -eu
           conformance_timeout=180
           if [ "$(uname -s)" = Darwin ]; then
             export MACOSX_DEPLOYMENT_TARGET=13.0
             conformance_timeout=1200
-            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
+            export MOCK_CHUNK_WIDTH=1048576 MOCK_CONNECTION_CLOSE=1 \
               TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
               TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
@@ -118,7 +145,7 @@ jobs:
           import sys
           import tny
           library = tny.Library()
-          assert library.abi_major == 0
+          assert library.abi_major == 1
           runtime = tny.Runtime(tny.RuntimeConfig(workspace=sys.argv[1]), library=library)
           assert runtime.capabilities.library_version
           runtime.close()
@@ -148,6 +175,13 @@ jobs:
         run: |
           set -eu
           wheel="$(find "$PWD/dist/python-bundled" -name '*.whl' -type f -print -quit)"
+          python - "$wheel" <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              names = archive.namelist()
+          assert any(name.endswith(("libtny.so.1", "libtny.1.dylib")) for name in names)
+          assert not any(name.endswith(("libtny.so.0", "libtny.0.dylib")) for name in names)
+          PY
           if [ "$(uname -s)" = Darwin ]; then
             python -m pip install --disable-pip-version-check delocate
             delocate-listdeps "$wheel"
@@ -177,6 +211,8 @@ jobs:
           - {name: macos-arm64, os: macos-15, node: 24}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
@@ -194,7 +230,7 @@ jobs:
           if [ "$(uname -s)" = Darwin ]; then
             export MACOSX_DEPLOYMENT_TARGET=13.0
             conformance_timeout=1200
-            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
+            export MOCK_CHUNK_WIDTH=1048576 MOCK_CONNECTION_CLOSE=1 \
               TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
               TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
@@ -216,10 +252,16 @@ jobs:
           addon="$PWD/sdk/typescript/build/Release/tny.node"
           python3 scripts/check_native_compat.py "$addon"
           if [ "$(uname -s)" = Darwin ]; then
-            otool -L "$addon"
+            dependencies="$(otool -L "$addon")"
+            printf '%s\n' "$dependencies"
+            printf '%s\n' "$dependencies" | grep 'libtny.1.dylib'
+            if printf '%s\n' "$dependencies" | grep -q 'libtny.0.dylib'; then exit 1; fi
             otool -l "$addon" | grep -A3 LC_RPATH
           else
-            ldd "$addon"
+            dependencies="$(ldd "$addon")"
+            printf '%s\n' "$dependencies"
+            printf '%s\n' "$dependencies" | grep 'libtny.so.1'
+            if printf '%s\n' "$dependencies" | grep -q 'libtny.so.0'; then exit 1; fi
             readelf -d "$addon" | grep -E 'RPATH|RUNPATH'
           fi
       - name: Pack and clean-install the npm package
@@ -229,7 +271,7 @@ jobs:
           if [ "$(uname -s)" = Darwin ]; then
             export MACOSX_DEPLOYMENT_TARGET=13.0
             conformance_timeout=1200
-            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
+            export MOCK_CHUNK_WIDTH=1048576 MOCK_CONNECTION_CLOSE=1 \
               TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
               TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
@@ -261,3 +303,16 @@ jobs:
             dist/node/*.tgz
             dist/conformance/typescript-*.json
           if-no-files-found: error
+
+  sdk:
+    name: sdk
+    needs: [packaging-contract, python, node]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every SDK and packaging lane
+        run: |
+          test "${{ needs.packaging-contract.result }}" = "success"
+          test "${{ needs.python.result }}" = "success"
+          test "${{ needs.node.result }}" = "success"

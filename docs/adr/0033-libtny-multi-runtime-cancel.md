@@ -91,3 +91,23 @@ out-of-order runtime/session teardown; cancels a five-second blocked pull from
 a scheduler thread; repeats that cancellation; measures a sub-second wake; and
 asserts exactly one interrupted terminal. Existing exact-export, C/C++ header,
 permission, error-order, CLI/TUI/ACP, size and sanitizer gates remain required.
+
+The race-specific gate is `make test-libtny-tsan` on Linux x86_64 with GCC.
+It builds every libtny object and a native C embedding host with
+`-fsanitize=thread`; Python starts only the strict loopback providers before
+executing that host and never loads the instrumented library into an existing
+Python process. Four owner threads create independent runtimes with distinct
+workspaces, state roots, credentials and endpoints, begin simultaneous turns,
+and block in event delivery. Four scheduler threads then issue repeated
+idempotent cancels against every session while also proving a non-cancel
+wrong-thread operation returns `TNY_STATUS_BAD_STATE`. Each owner observes one
+and only one interrupted terminal, drains, waits for every scheduler call to
+return, then completes a fresh turn on the same isolated session before owner-
+ordered teardown. The CI stress repeats the lifecycle twenty times and treats
+any TSan diagnostic as a hard failure.
+
+This TSan evidence is intentionally scoped to the supported Ubuntu glibc
+x86_64 GCC toolchain. It does not claim TSan coverage for macOS, Linux arm64,
+musl, Windows, or wasm. macOS continues to run its ASan/UBSan and functional
+multi-runtime coverage; those sanitizers are valuable memory/undefined-behavior
+checks but are not a substitute for a race detector.

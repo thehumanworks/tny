@@ -6,6 +6,7 @@ JSON-RPC 2.0 over the server's stdio: initialize, session/new, session/prompt,
 session/load, plus the unsupported-content and no-credential error paths.
 Stdlib only.
 """
+
 import json
 import os
 import socket
@@ -42,8 +43,15 @@ class Client:
     def __init__(self, env, cwd, errpath):
         self.errfh = open(errpath, "w")
         self.proc = subprocess.Popen(
-            [TNY, "acp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=self.errfh, cwd=cwd, env=env, text=True, bufsize=1)
+            [TNY, "acp"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=self.errfh,
+            cwd=cwd,
+            env=env,
+            text=True,
+            bufsize=1,
+        )
         self.next_id = 1
         self.updates = []
 
@@ -66,9 +74,15 @@ class Client:
                 continue
             if msg.get("method") == "session/request_permission":
                 # allow anything the loop asks for; keeps the turn moving
-                self.send({"jsonrpc": "2.0", "id": msg["id"],
-                           "result": {"outcome": {"outcome": "selected",
-                                                  "optionId": "allow"}}})
+                self.send(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": msg["id"],
+                        "result": {
+                            "outcome": {"outcome": "selected", "optionId": "allow"}
+                        },
+                    }
+                )
                 continue
             if msg.get("id") == mid:
                 return msg
@@ -106,9 +120,12 @@ def run(tmp):
     port = free_port()
     # stderr is dropped: cancelling a turn closes the HTTP stream mid-response
     # and the stdlib mock logs a broken pipe for it.
-    mock = subprocess.Popen([sys.executable, MOCK, str(port)],
-                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                            text=True)
+    mock = subprocess.Popen(
+        [sys.executable, MOCK, str(port)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
     ready = mock.stdout.readline()
     check("ready" in ready, f"mock provider did not start: {ready!r}")
 
@@ -123,16 +140,22 @@ def run(tmp):
         c = Client(base_env(home, port), ws, os.path.join(tmp, "server.err"))
 
         # ---- initialize ----
-        r = c.request("initialize", {
-            "protocolVersion": 1,
-            "clientCapabilities": {"fs": {"readTextFile": False,
-                                          "writeTextFile": False}},
-            "clientInfo": {"name": "test-client", "version": "0"},
-        })
+        r = c.request(
+            "initialize",
+            {
+                "protocolVersion": 1,
+                "clientCapabilities": {
+                    "fs": {"readTextFile": False, "writeTextFile": False}
+                },
+                "clientInfo": {"name": "test-client", "version": "0"},
+            },
+        )
         check("result" in r, f"initialize failed: {r}")
         check(r["result"]["protocolVersion"] == 1, f"bad protocolVersion: {r}")
-        check(r["result"]["agentCapabilities"]["loadSession"] is True,
-              f"loadSession not advertised: {r}")
+        check(
+            r["result"]["agentCapabilities"]["loadSession"] is True,
+            f"loadSession not advertised: {r}",
+        )
         print("ok  initialize: protocolVersion 1, loadSession advertised")
 
         # ---- session/new ----
@@ -144,33 +167,49 @@ def run(tmp):
 
         # ---- session/prompt ----
         c.updates = []
-        r = c.request("session/prompt", {
-            "sessionId": sid,
-            "prompt": [{"type": "text", "text": "list the workspace"}],
-        })
+        r = c.request(
+            "session/prompt",
+            {
+                "sessionId": sid,
+                "prompt": [{"type": "text", "text": "list the workspace"}],
+            },
+        )
         check("result" in r, f"session/prompt failed: {r}")
-        check(r["result"]["stopReason"] == "end_turn",
-              f"stopReason is {r['result']}")
-        text = "".join(u["content"]["text"] for u in c.updates
-                       if u["sessionUpdate"] == "agent_message_chunk")
+        check(r["result"]["stopReason"] == "end_turn", f"stopReason is {r['result']}")
+        text = "".join(
+            u["content"]["text"]
+            for u in c.updates
+            if u["sessionUpdate"] == "agent_message_chunk"
+        )
         check("MOCK-OK" in text, f"no MOCK-OK in streamed text: {text!r}")
         starts = [u for u in c.updates if u["sessionUpdate"] == "tool_call"]
         ends = [u for u in c.updates if u["sessionUpdate"] == "tool_call_update"]
         check(starts and ends, f"no tool_call updates: {c.updates}")
         check(starts[0]["kind"] == "read", f"bad tool kind: {starts[0]}")
         check(ends[0]["status"] == "completed", f"bad tool status: {ends[0]}")
-        print(f"ok  session/prompt: end_turn, {len(c.updates)} updates, "
-              f"tool_call {starts[0]['title']}")
+        print(
+            f"ok  session/prompt: end_turn, {len(c.updates)} updates, "
+            f"tool_call {starts[0]['title']}"
+        )
 
         # ---- session/cancel: never wedges the connection ----
         c.updates = []
         mid = c.next_id
         c.next_id += 1
-        c.send({"jsonrpc": "2.0", "id": mid, "method": "session/prompt",
-                "params": {"sessionId": sid,
-                           "prompt": [{"type": "text", "text": "cancel me"}]}})
-        c.send({"jsonrpc": "2.0", "method": "session/cancel",
-                "params": {"sessionId": sid}})
+        c.send(
+            {
+                "jsonrpc": "2.0",
+                "id": mid,
+                "method": "session/prompt",
+                "params": {
+                    "sessionId": sid,
+                    "prompt": [{"type": "text", "text": "cancel me"}],
+                },
+            }
+        )
+        c.send(
+            {"jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": sid}}
+        )
         deadline = time.time() + 60
         resp = None
         while resp is None and time.time() < deadline:
@@ -180,21 +219,33 @@ def run(tmp):
             if msg.get("id") == mid:
                 resp = msg
             elif msg.get("method") == "session/request_permission":
-                c.send({"jsonrpc": "2.0", "id": msg["id"],
-                        "result": {"outcome": {"outcome": "cancelled"}}})
+                c.send(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": msg["id"],
+                        "result": {"outcome": {"outcome": "cancelled"}},
+                    }
+                )
         check(resp is not None, "no answer to the cancelled prompt")
         check("result" in resp, f"cancelled prompt errored: {resp}")
         # the mock provider answers in milliseconds, so either outcome is legal
-        check(resp["result"]["stopReason"] in ("cancelled", "end_turn"),
-              f"bad stopReason after cancel: {resp}")
-        print(f"ok  session/cancel: stopReason {resp['result']['stopReason']}, "
-              f"connection still live")
+        check(
+            resp["result"]["stopReason"] in ("cancelled", "end_turn"),
+            f"bad stopReason after cancel: {resp}",
+        )
+        print(
+            f"ok  session/cancel: stopReason {resp['result']['stopReason']}, "
+            f"connection still live"
+        )
 
         # ---- images are refused cleanly ----
-        r = c.request("session/prompt", {
-            "sessionId": sid,
-            "prompt": [{"type": "image", "mimeType": "image/png", "data": "AAAA"}],
-        })
+        r = c.request(
+            "session/prompt",
+            {
+                "sessionId": sid,
+                "prompt": [{"type": "image", "mimeType": "image/png", "data": "AAAA"}],
+            },
+        )
         check("error" in r, f"image prompt should fail: {r}")
         check(r["error"]["code"] == -32602, f"wrong error code: {r}")
         check("image" in r["error"]["message"], f"unhelpful message: {r}")
@@ -207,12 +258,10 @@ def run(tmp):
 
         # ---- session/load replays and rebinds ----
         c.updates = []
-        r = c.request("session/load", {"sessionId": sid, "cwd": ws,
-                                       "mcpServers": []})
+        r = c.request("session/load", {"sessionId": sid, "cwd": ws, "mcpServers": []})
         check("result" in r, f"session/load failed: {r}")
         kinds = [u["sessionUpdate"] for u in c.updates]
-        check("user_message_chunk" in kinds,
-              f"history was not replayed: {kinds}")
+        check("user_message_chunk" in kinds, f"history was not replayed: {kinds}")
         print(f"ok  session/load: replayed {len(c.updates)} history chunks")
 
         r = c.request("session/load", {"sessionId": "does-not-exist"})
@@ -226,8 +275,7 @@ def run(tmp):
         env.pop("OPENAI_API_KEY")
         env.pop("OPENAI_BASE_URL", None)
         c2 = Client(env, ws, os.path.join(tmp, "server2.err"))
-        r = c2.request("initialize", {"protocolVersion": 1,
-                                      "clientCapabilities": {}})
+        r = c2.request("initialize", {"protocolVersion": 1, "clientCapabilities": {}})
         check("error" in r, f"initialize without a key should fail: {r}")
         check("OPENAI_API_KEY" in r["error"]["message"], f"unhelpful: {r}")
         print("ok  initialize: fails closed without a provider credential")
@@ -239,8 +287,10 @@ def run(tmp):
 
 def main():
     if not os.access(TNY, os.X_OK):
-        print(f"test_acp_server: no binary at {TNY} "
-              f"(make BUILD=build-acp release)", file=sys.stderr)
+        print(
+            f"test_acp_server: no binary at {TNY} (make BUILD=build-acp release)",
+            file=sys.stderr,
+        )
         return 1
     with tempfile.TemporaryDirectory(prefix="tny-acp-srv.") as tmp:
         try:

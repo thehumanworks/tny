@@ -27,12 +27,12 @@
 /* ---- ready line (stderr handshake) ---- */
 
 typedef struct {
-    int  schema_version;
+    int schema_version;
     char transport[16];
     char protocol[16];
-    char url[512];             /* normalized "http://host:port" */
+    char url[512]; /* normalized "http://host:port" */
     char auth_token_file[1024];
-    char auth_token[512];      /* inline token on older bridges; "" if absent */
+    char auth_token[512]; /* inline token on older bridges; "" if absent */
 } cursor_ready;
 
 /* Parse one stderr line.
@@ -40,8 +40,7 @@ typedef struct {
  *   0  line is not a ready line (out untouched)
  *  -1  line was a ready line but is invalid (err filled)
  * Never copies the token into err. */
-int  cursor_ready_parse(const char *line, size_t len, cursor_ready *out,
-                        char *err, size_t errlen);
+int cursor_ready_parse(const char *line, size_t len, cursor_ready *out, char *err, size_t errlen);
 bool cursor_ready_is_line(const char *line, size_t len);
 
 /* ---- request bodies ---- */
@@ -56,18 +55,18 @@ bool cursor_append_fast_param(buf_t *b, const char *tier, bool first);
 
 typedef struct {
     pid_t pid;
-    int   err_fd;       /* bridge stdout+stderr read end, non-blocking */
-    buf_t acc;          /* partial line */
-    bool  ready;
-    bool  quiet;        /* embedding host owns diagnostics */
+    int err_fd; /* bridge stdout+stderr read end, non-blocking */
+    buf_t acc;  /* partial line */
+    bool ready;
+    bool quiet; /* embedding host owns diagnostics */
     cursor_ready info;
-    char  token[512];
+    char token[512];
 } cursor_bridge;
 
 void cursor_bridge_init(cursor_bridge *bp);
 /* Spawn, block until the ready line (timeout_ms), load the bearer token. */
-int  cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key,
-                         int timeout_ms, char *err, size_t errlen);
+int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key, int timeout_ms,
+                        char *err, size_t errlen);
 /* Non-blocking: forward complete lines to our stderr. Never the ready line. */
 void cursor_bridge_pump(cursor_bridge *bp);
 /* SIGTERM, wait grace_ms, SIGKILL. Idempotent. */
@@ -81,11 +80,11 @@ typedef struct {
     char token[512];
 } cursor_rpc;
 
-void  cursor_rpc_init(cursor_rpc *r, const char *base_url, const char *token);
-void  cursor_rpc_close(cursor_rpc *r);
+void cursor_rpc_init(cursor_rpc *r, const char *base_url, const char *token);
+void cursor_rpc_close(cursor_rpc *r);
 /* Blocking POST. Returns the malloc'd response body, or NULL with err set. */
-char *cursor_rpc_unary(cursor_rpc *r, const char *service, const char *method,
-                       const char *body, int timeout_ms, char *err, size_t errlen);
+char *cursor_rpc_unary(cursor_rpc *r, const char *service, const char *method, const char *body,
+                       int timeout_ms, char *err, size_t errlen);
 
 /* ---- Connect server stream ---- */
 
@@ -101,17 +100,16 @@ typedef struct {
 
 void cursor_stream_init(cursor_stream *s, const char *base_url, const char *token);
 /* Sends body as one Connect envelope. 0 ok, -1 with err set. */
-int  cursor_stream_start(cursor_stream *s, const char *service, const char *method,
-                         const char *body, char *err, size_t errlen);
+int cursor_stream_start(cursor_stream *s, const char *service, const char *method, const char *body,
+                        char *err, size_t errlen);
 void cursor_stream_stop(cursor_stream *s);
-int  cursor_stream_fd(cursor_stream *s); /* -1 when idle */
+int cursor_stream_fd(cursor_stream *s); /* -1 when idle */
 /* Pump readable bytes; cb runs per decoded envelope.
  * 0 need more, 1 stream ended, -1 fatal (err set). */
-int  cursor_stream_pump(cursor_stream *s, connect_frame_cb cb, void *ud,
-                        char *err, size_t errlen);
+int cursor_stream_pump(cursor_stream *s, connect_frame_cb cb, void *ud, char *err, size_t errlen);
 
 /* Shared: turn a Connect error body into a one-line message. */
-void cursor_error_line(const char *body, size_t len, const char *fallback,
-                       char *out, size_t outlen);
+void cursor_error_line(const char *body, size_t len, const char *fallback, char *out,
+                       size_t outlen);
 
 #endif

@@ -1,4 +1,5 @@
 """Run one turn without blocking the asyncio event loop."""
+
 import asyncio
 import os
 
@@ -7,7 +8,8 @@ from tny import AsyncRuntime, RuntimeConfig, TextDeltaEvent
 
 async def main() -> None:
     config = RuntimeConfig(
-        workspace=os.getcwd(), state_dir=os.path.join(os.getcwd(), ".tny-sdk-state"),
+        workspace=os.getcwd(),
+        state_dir=os.path.join(os.getcwd(), ".tny-sdk-state"),
         base_url=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         api_key=os.environ["OPENAI_API_KEY"],
     )

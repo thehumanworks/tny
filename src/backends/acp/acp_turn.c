@@ -39,9 +39,8 @@ static void send_chunk(acp_srv *s, const char *kind, const char *text, size_t le
 /* ACP ToolCallKind for a tny built-in tool. */
 static const char *tool_kind(const char *name) {
     if (!name) return "other";
-    if (!strcmp(name, "read_file") || !strcmp(name, "read_image") ||
-        !strcmp(name, "list_files") || !strcmp(name, "file_info") ||
-        !strcmp(name, "read_tool_result"))
+    if (!strcmp(name, "read_file") || !strcmp(name, "read_image") || !strcmp(name, "list_files") ||
+        !strcmp(name, "file_info") || !strcmp(name, "read_tool_result"))
         return "read";
     if (!strcmp(name, "glob_files") || !strcmp(name, "grep_files") ||
         !strcmp(name, "semantic_search"))
@@ -123,26 +122,15 @@ static void plan_update(acp_srv *s, const tny_backend_event *ev) {
 static void srv_event_cb(const tny_backend_event *ev, void *ud) {
     acp_srv *s = ud;
     switch (ev->kind) {
-    case TNY_EV_TEXT_DELTA:
-        send_chunk(s, "agent_message_chunk", ev->text, ev->text_len);
-        break;
-    case TNY_EV_THINKING:
-        send_chunk(s, "agent_thought_chunk", ev->text, ev->text_len);
-        break;
-    case TNY_EV_TOOL_START:
-        tool_start(s, ev);
-        break;
-    case TNY_EV_TOOL_END:
-        tool_end(s, ev);
-        break;
+    case TNY_EV_TEXT_DELTA: send_chunk(s, "agent_message_chunk", ev->text, ev->text_len); break;
+    case TNY_EV_THINKING: send_chunk(s, "agent_thought_chunk", ev->text, ev->text_len); break;
+    case TNY_EV_TOOL_START: tool_start(s, ev); break;
+    case TNY_EV_TOOL_END: tool_end(s, ev); break;
     case TNY_EV_TOOL_PROGRESS:
-        acp_srv_log("tool progress %s: %.200s",
-                    ev->tool_name ? ev->tool_name : "tool",
+        acp_srv_log("tool progress %s: %.200s", ev->tool_name ? ev->tool_name : "tool",
                     ev->tool_detail ? ev->tool_detail : "");
         break;
-    case TNY_EV_PLAN:
-        plan_update(s, ev);
-        break;
+    case TNY_EV_PLAN: plan_update(s, ev); break;
     case TNY_EV_USAGE:
         if (ev->context_size > 0)
             acp_srv_log("context: %lld/%lld", (long long)ev->context_used,
@@ -151,15 +139,10 @@ static void srv_event_cb(const tny_backend_event *ev, void *ud) {
             acp_srv_log("tokens: %lld in, %lld out", (long long)ev->in_tokens,
                         (long long)ev->out_tokens);
         break;
-    case TNY_EV_STATUS:
-        acp_srv_log("%.*s", (int)ev->text_len, ev->text);
-        break;
+    case TNY_EV_STATUS: acp_srv_log("%.*s", (int)ev->text_len, ev->text); break;
     case TNY_EV_CUSTOM_MESSAGE:
-    case TNY_EV_USER_MESSAGE:
-        send_chunk(s, "user_message_chunk", ev->text, ev->text_len);
-        break;
-    case TNY_EV_STEER_REJECTED: /* the acp server never steers its loop */
-        break;
+    case TNY_EV_USER_MESSAGE: send_chunk(s, "user_message_chunk", ev->text, ev->text_len); break;
+    case TNY_EV_STEER_REJECTED: /* the acp server never steers its loop */ break;
     case TNY_EV_ERROR:
         buf_clear(&s->last_error);
         buf_append(&s->last_error, ev->text, ev->text_len);
@@ -190,17 +173,16 @@ tny_perm_decision acp_srv_prompt(const char *tool, const char *summary, void *ud
     buf_init(&p);
     buf_appends(&p, "{\"sessionId\":");
     jescape(&p, s->session_id ? s->session_id : "");
-    buf_appendf(&p, ",\"toolCall\":{\"toolCallId\":\"perm-%lld\",\"title\":",
-                (long long)s->perm_req_id);
+    buf_appendf(
+        &p, ",\"toolCall\":{\"toolCallId\":\"perm-%lld\",\"title\":", (long long)s->perm_req_id);
     jescape(&p, summary && *summary ? summary : (tool ? tool : "tool call"));
     buf_appendf(&p, ",\"kind\":\"%s\",\"status\":\"pending\"}", tool_kind(tool));
     buf_appends(&p, ",\"options\":["
-        "{\"optionId\":\"allow\",\"name\":\"Allow once\",\"kind\":\"allow_once\"},"
-        "{\"optionId\":\"allow-always\",\"name\":\"Allow for this session\","
-        "\"kind\":\"allow_always\"},"
-        "{\"optionId\":\"reject\",\"name\":\"Reject\",\"kind\":\"reject_once\"}]}");
-    int rc = acp_send_request(s->out_fd, s->perm_req_id, "session/request_permission",
-                              p.data);
+                    "{\"optionId\":\"allow\",\"name\":\"Allow once\",\"kind\":\"allow_once\"},"
+                    "{\"optionId\":\"allow-always\",\"name\":\"Allow for this session\","
+                    "\"kind\":\"allow_always\"},"
+                    "{\"optionId\":\"reject\",\"name\":\"Reject\",\"kind\":\"reject_once\"}]}");
+    int rc = acp_send_request(s->out_fd, s->perm_req_id, "session/request_permission", p.data);
     buf_free(&p);
     if (rc != 0) {
         s->perm_waiting = false;
@@ -229,11 +211,11 @@ static void drain_engine_events(acp_srv *s) {
 
 static const char *reason_of(tny_stop_reason stop) {
     switch (stop) {
-    case TNY_STOP_DONE:        return "end_turn";
+    case TNY_STOP_DONE: return "end_turn";
     case TNY_STOP_INTERRUPTED: return "cancelled";
-    case TNY_STOP_DENIED:      return "refusal";
-    case TNY_STOP_STEP_LIMIT:  return "max_turn_requests";
-    default:                   return "refusal";
+    case TNY_STOP_DENIED: return "refusal";
+    case TNY_STOP_STEP_LIMIT: return "max_turn_requests";
+    default: return "refusal";
     }
 }
 

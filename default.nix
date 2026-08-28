@@ -1,7 +1,7 @@
 # Non-flake entry point, for channels and `nix-build`.
 #
 #   nix-build -A tny            # build/tny + the Python extension host
-#   nix-build -A libtny         # the ABI-0 embedding library
+#   nix-build -A libtny         # the active ABI-1 embedding library
 #
 # Flake users want flake.nix instead; both call the same nix/*.nix files.
 {

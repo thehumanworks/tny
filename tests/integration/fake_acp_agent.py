@@ -11,6 +11,7 @@ session/load is supported and asserts the sessionId matches the one handed
 out by session/new (persisted in $FAKE_ACP_STATE so a resume run can check
 it across processes). Stdlib only.
 """
+
 import json
 import os
 import sys
@@ -43,7 +44,7 @@ def send(obj):
         sys.stdout.flush()
         return
     for i in range(0, len(line), 7):
-        sys.stdout.write(line[i:i + 7])
+        sys.stdout.write(line[i : i + 7])
         sys.stdout.flush()
 
 
@@ -131,9 +132,14 @@ def model_config(current=None):
 def config_options(current=None):
     # An unrelated select before the model proves the client matches configId
     # in the set response rather than accepting the first option blindly.
-    mode = {"id": "mode", "name": "Mode", "category": "mode",
-            "type": "select", "currentValue": "ask",
-            "options": [{"value": "ask", "name": "Ask"}]}
+    mode = {
+        "id": "mode",
+        "name": "Mode",
+        "category": "mode",
+        "type": "select",
+        "currentValue": "ask",
+        "options": [{"value": "ask", "name": "Ask"}],
+    }
     return [mode, model_config(current)]
 
 
@@ -146,25 +152,31 @@ def session_result(session_id=None):
 
 def request_permission(session_id, req_id):
     """Ask the client, then block until it answers that exact id."""
-    send({
-        "jsonrpc": "2.0",
-        "id": req_id,
-        "method": "session/request_permission",
-        "params": {
-            "sessionId": session_id,
-            "toolCall": {
-                "toolCallId": "tool-1",
-                "title": "rm -rf /tmp/fake",
-                "kind": "execute",
-                "status": "pending",
+    send(
+        {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "method": "session/request_permission",
+            "params": {
+                "sessionId": session_id,
+                "toolCall": {
+                    "toolCallId": "tool-1",
+                    "title": "rm -rf /tmp/fake",
+                    "kind": "execute",
+                    "status": "pending",
+                },
+                "options": [
+                    {"optionId": "opt-allow", "name": "Allow", "kind": "allow_once"},
+                    {
+                        "optionId": "opt-always",
+                        "name": "Always",
+                        "kind": "allow_always",
+                    },
+                    {"optionId": "opt-reject", "name": "Reject", "kind": "reject_once"},
+                ],
             },
-            "options": [
-                {"optionId": "opt-allow", "name": "Allow", "kind": "allow_once"},
-                {"optionId": "opt-always", "name": "Always", "kind": "allow_always"},
-                {"optionId": "opt-reject", "name": "Reject", "kind": "reject_once"},
-            ],
-        },
-    })
+        }
+    )
     while True:
         msg = read_message()
         if msg is None:
@@ -182,57 +194,90 @@ def run_prompt(msg):
     state_write("model_at_prompt", CURRENT_MODEL)
     if SLOW_MS:
         import time
+
         time.sleep(SLOW_MS / 1000.0)
     # echo what was asked so a test can prove which prompt each turn carried
-    update(session_id, {
-        "sessionUpdate": "agent_message_chunk",
-        "content": {"type": "text", "text": f"[asked: {asked}] "},
-    })
-
-    update(session_id, {
-        "sessionUpdate": "agent_thought_chunk",
-        "content": {"type": "text", "text": "thinking about it"},
-    })
-    for piece in ["Hello ", "from ", "the ", "fake ", "ACP ", "agent."]:
-        update(session_id, {
+    update(
+        session_id,
+        {
             "sessionUpdate": "agent_message_chunk",
-            "content": {"type": "text", "text": piece},
-        })
+            "content": {"type": "text", "text": f"[asked: {asked}] "},
+        },
+    )
+
+    update(
+        session_id,
+        {
+            "sessionUpdate": "agent_thought_chunk",
+            "content": {"type": "text", "text": "thinking about it"},
+        },
+    )
+    for piece in ["Hello ", "from ", "the ", "fake ", "ACP ", "agent."]:
+        update(
+            session_id,
+            {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": piece},
+            },
+        )
     if DIE:
         log("exiting mid-turn on purpose")
         sys.stdout.flush()
         os._exit(3)
 
-    update(session_id, {
-        "sessionUpdate": "tool_call",
-        "toolCallId": "tool-1",
-        "title": "danger",
-        "kind": "execute",
-        "status": "in_progress",
-    })
+    update(
+        session_id,
+        {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "tool-1",
+            "title": "danger",
+            "kind": "execute",
+            "status": "in_progress",
+        },
+    )
     outcome = request_permission(session_id, 9001)
     state_write("permission_outcome", outcome)
     log(f"permission outcome: {outcome}")
     picked = (outcome or {}).get("outcome", {})
-    ok = (picked.get("outcome") == "selected"
-          and picked.get("optionId") in ("opt-allow", "opt-always"))
-    update(session_id, {
-        "sessionUpdate": "tool_call_update",
-        "toolCallId": "tool-1",
-        "status": "completed" if ok else "failed",
-        "content": [{"type": "content",
-                     "content": {"type": "text", "text": f"outcome={outcome}"}}],
-    })
-    update(session_id, {
-        "sessionUpdate": "plan",
-        "entries": [{"content": "finish the turn", "priority": "high",
-                     "status": "completed"}],
-    })
+    ok = picked.get("outcome") == "selected" and picked.get("optionId") in (
+        "opt-allow",
+        "opt-always",
+    )
+    update(
+        session_id,
+        {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "tool-1",
+            "status": "completed" if ok else "failed",
+            "content": [
+                {
+                    "type": "content",
+                    "content": {"type": "text", "text": f"outcome={outcome}"},
+                }
+            ],
+        },
+    )
+    update(
+        session_id,
+        {
+            "sessionUpdate": "plan",
+            "entries": [
+                {
+                    "content": "finish the turn",
+                    "priority": "high",
+                    "status": "completed",
+                }
+            ],
+        },
+    )
     tail = " DENIED." if not ok else " ALLOWED."
-    update(session_id, {
-        "sessionUpdate": "agent_message_chunk",
-        "content": {"type": "text", "text": tail},
-    })
+    update(
+        session_id,
+        {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": tail},
+        },
+    )
     result(msg["id"], {"stopReason": "end_turn"})
 
 
@@ -254,13 +299,18 @@ def main():
         if method == "initialize":
             state_write("initialize_version", params.get("protocolVersion"))
             state_write("client_caps", params.get("clientCapabilities"))
-            result(msg["id"], {
-                "protocolVersion": 1,
-                "agentCapabilities": {"loadSession": True,
-                                      "promptCapabilities": {"image": False}},
-                "authMethods": [],
-                "agentInfo": {"name": "fake-acp-agent", "version": "0.0.1"},
-            })
+            result(
+                msg["id"],
+                {
+                    "protocolVersion": 1,
+                    "agentCapabilities": {
+                        "loadSession": True,
+                        "promptCapabilities": {"image": False},
+                    },
+                    "authMethods": [],
+                    "agentInfo": {"name": "fake-acp-agent", "version": "0.0.1"},
+                },
+            )
         elif method == "session/new":
             state_write("new_cwd", params.get("cwd"))
             state_write("session_id", SESSION_ID)
@@ -274,8 +324,13 @@ def main():
                 error(msg["id"], -32602, f"unknown sessionId {got!r}")
                 continue
             state_write("loaded", True)
-            update(got, {"sessionUpdate": "agent_message_chunk",
-                         "content": {"type": "text", "text": "(replayed history)"}})
+            update(
+                got,
+                {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": "(replayed history)"},
+                },
+            )
             result(msg["id"], session_result())
         elif method == "session/set_config_option":
             if REJECT_MODEL:
@@ -285,7 +340,10 @@ def main():
             value = params.get("value")
             state_write("set_config_id", params.get("configId"))
             state_write("set_config_value", value)
-            if params.get("sessionId") != SESSION_ID or params.get("configId") != expected_id:
+            if (
+                params.get("sessionId") != SESSION_ID
+                or params.get("configId") != expected_id
+            ):
                 error(msg["id"], -32602, "invalid model configuration request")
                 continue
             advertised = {"default-model", "selected-model", "ws-model"}

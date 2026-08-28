@@ -41,8 +41,7 @@ static void forward_line(cursor_bridge *bp, const char *line, size_t len, buf_t 
         if (leak) return;
     }
     if (capture && capture->len < 2048) buf_appendf(capture, "%.*s ", (int)len, line);
-    if (!bp->quiet && tny_debug())
-        fprintf(stderr, "cursor-sdk-bridge: %.*s\n", (int)len, line);
+    if (!bp->quiet && tny_debug()) fprintf(stderr, "cursor-sdk-bridge: %.*s\n", (int)len, line);
 }
 
 /* Split accumulated bytes into lines. -1 if a ready line was malformed. */
@@ -52,8 +51,7 @@ static int consume_lines(cursor_bridge *bp, buf_t *capture, char *err, size_t er
         if (!nl) break;
         size_t len = (size_t)(nl - bp->acc.data);
         int rc = 0;
-        if (!bp->ready)
-            rc = cursor_ready_parse(bp->acc.data, len, &bp->info, err, errlen);
+        if (!bp->ready) rc = cursor_ready_parse(bp->acc.data, len, &bp->info, err, errlen);
         if (rc < 0) return -1;
         if (rc == 1) bp->ready = true;
         else forward_line(bp, bp->acc.data, len, capture);
@@ -72,7 +70,10 @@ static int drain(cursor_bridge *bp, buf_t *capture, char *err, size_t errlen, bo
         if (n > 0) {
             buf_append(&bp->acc, tmp, (size_t)n);
             got = 1;
-            if (consume_lines(bp, capture, err, errlen) != 0) { *bad = true; return -1; }
+            if (consume_lines(bp, capture, err, errlen) != 0) {
+                *bad = true;
+                return -1;
+            }
             continue;
         }
         if (n == 0) return 0;
@@ -105,8 +106,8 @@ static int load_token(cursor_bridge *bp, char *err, size_t errlen) {
     return 0;
 }
 
-int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key,
-                        int timeout_ms, char *err, size_t errlen) {
+int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key, int timeout_ms,
+                        char *err, size_t errlen) {
     const char *bin = resolve_bin(ctx);
     bp->quiet = ctx && ctx->library_mode;
     int p[2];
@@ -124,18 +125,29 @@ int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key,
     if (pid == 0) {
         setpgid(0, 0); /* own group so wrapper-forked descendants die with it */
         int devnull = open("/dev/null", O_RDONLY);
-        if (devnull >= 0) { dup2(devnull, 0); close(devnull); }
+        if (devnull >= 0) {
+            dup2(devnull, 0);
+            close(devnull);
+        }
         dup2(p[1], 1); /* host stdout must never reach tny stdout */
         dup2(p[1], 2);
         close(p[0]);
         close(p[1]);
         if (chdir(ctx->cwd) != 0) _exit(127);
+        /* setenv may reallocate environ and invalidate a getenv-derived bin */
+        char *binp = xstrdup(bin);
+        if (!binp) _exit(127);
         if (api_key && *api_key) setenv("CURSOR_API_KEY", api_key, 1);
         setenv("CURSOR_SDK_CLIENT_LANGUAGE", "c", 1);
-        char *argv[] = {(char *)bin, (char *)"--workspace", ctx->cwd,
-                        (char *)"--host", (char *)"127.0.0.1",
-                        (char *)"--port", (char *)"0", NULL};
-        execvp(bin, argv);
+        char *argv[] = {binp,
+                        (char *)"--workspace",
+                        ctx->cwd,
+                        (char *)"--host",
+                        (char *)"127.0.0.1",
+                        (char *)"--port",
+                        (char *)"0",
+                        NULL};
+        execvp(binp, argv);
         _exit(127);
     }
     setpgid(pid, pid); /* both sides set it: closes the fork/exec race */
@@ -151,9 +163,8 @@ int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key,
     while (!bp->ready && !bad) {
         int left = (int)(deadline - now_ms());
         if (left <= 0) {
-            snprintf(err, errlen, "%s did not print a ready line within %d s%s%s",
-                     bin, timeout_ms / 1000, capture.len ? ": " : "",
-                     capture.len ? capture.data : "");
+            snprintf(err, errlen, "%s did not print a ready line within %d s%s%s", bin,
+                     timeout_ms / 1000, capture.len ? ": " : "", capture.len ? capture.data : "");
             bad = true;
             break;
         }
@@ -184,15 +195,16 @@ int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key,
             if (w == pid) bp->pid = 0;
             int code = (w == pid && WIFEXITED(st)) ? WEXITSTATUS(st) : -1;
             if (code == 127)
-                snprintf(err, errlen, "cannot run '%s' (not found or not executable); "
-                                      "set CURSOR_SDK_BRIDGE_BIN or --bridge-bin", bin);
+                snprintf(err, errlen,
+                         "cannot run '%s' (not found or not executable); "
+                         "set CURSOR_SDK_BRIDGE_BIN or --bridge-bin",
+                         bin);
             else if (code >= 0)
-                snprintf(err, errlen, "%s exited with status %d before the ready line%s%s",
-                         bin, code, capture.len ? ": " : "",
-                         capture.len ? capture.data : "");
+                snprintf(err, errlen, "%s exited with status %d before the ready line%s%s", bin,
+                         code, capture.len ? ": " : "", capture.len ? capture.data : "");
             else
-                snprintf(err, errlen, "%s closed its output before the ready line%s%s",
-                         bin, capture.len ? ": " : "", capture.len ? capture.data : "");
+                snprintf(err, errlen, "%s closed its output before the ready line%s%s", bin,
+                         capture.len ? ": " : "", capture.len ? capture.data : "");
             bad = true;
             break;
         }

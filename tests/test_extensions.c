@@ -33,14 +33,21 @@ static ext_fixture ext_fixture_new(bool entries) {
         file_write_atomic(zeta, "# zeta\n", 7);
         char *ignored = path_join(extensions, "ignored.txt");
         file_write_atomic(ignored, "ignored\n", 8);
-        free(ignored); free(zeta); free(index); free(alpha); free(extensions);
+        free(ignored);
+        free(zeta);
+        free(index);
+        free(alpha);
+        free(extensions);
     }
     f.host = path_abs("tests/fixtures/fake_extension_host.py");
     return f;
 }
 
 static void ext_fixture_free(ext_fixture *f) {
-    free(f->root); free(f->tny); free(f->workspace); free(f->host);
+    free(f->root);
+    free(f->tny);
+    free(f->workspace);
+    free(f->host);
 }
 
 TEST extensions_empty_is_lazy_and_optional(void) {
@@ -52,8 +59,7 @@ TEST extensions_empty_is_lazy_and_optional(void) {
     ASSERT_EQ(0, tny_extensions_entry_count(x));
     ASSERT_EQ(TNY_EXTENSIONS_EMPTY, tny_extensions_get_state(x));
     tny_extension_result result;
-    ASSERT_EQ(0, tny_extensions_invoke(x, "turn_end", "{\"type\":\"turn_end\"}",
-                                       &result));
+    ASSERT_EQ(0, tny_extensions_invoke(x, "turn_end", "{\"type\":\"turn_end\"}", &result));
     ASSERT_EQ(0, result.action_count);
     ASSERT_EQ(0, result.failure_count);
     tny_extension_result_free(&result);
@@ -73,9 +79,9 @@ TEST extensions_discover_sorted_and_return_typed_actions(void) {
     ASSERT_EQ(TNY_EXTENSIONS_DORMANT, tny_extensions_get_state(x));
 
     tny_extension_result result;
-    ASSERT_EQ(0, tny_extensions_invoke(
-        x, "tool_end", "{\"type\":\"tool_end\",\"tool\":{\"name\":\"read_file\"}}",
-        &result));
+    ASSERT_EQ(0, tny_extensions_invoke(x, "tool_end",
+                                       "{\"type\":\"tool_end\",\"tool\":{\"name\":\"read_file\"}}",
+                                       &result));
     ASSERT_EQ(TNY_EXTENSIONS_READY, tny_extensions_get_state(x));
     ASSERT_EQ(2, result.action_count);
     ASSERT_EQ(0, result.failure_count);
@@ -91,8 +97,7 @@ TEST extensions_discover_sorted_and_return_typed_actions(void) {
     ASSERT_FALSE(result.actions[1].display);
     tny_extension_result_free(&result);
 
-    ASSERT_EQ(0, tny_extensions_invoke(x, "usage", "{\"type\":\"usage\"}",
-                                       &result));
+    ASSERT_EQ(0, tny_extensions_invoke(x, "usage", "{\"type\":\"usage\"}", &result));
     ASSERT_EQ(0, result.action_count);
     ASSERT_EQ(0, result.failure_count);
     tny_extension_result_free(&result);
@@ -110,8 +115,7 @@ TEST extensions_fail_open_on_handler_error_timeout_and_restart(void) {
     ASSERT(x);
     tny_extension_result result;
 
-    ASSERT_EQ(0, tny_extensions_invoke(x, "status", "{\"type\":\"status\"}",
-                                       &result));
+    ASSERT_EQ(0, tny_extensions_invoke(x, "status", "{\"type\":\"status\"}", &result));
     ASSERT_EQ(0, result.action_count);
     ASSERT_EQ(1, result.failure_count);
     ASSERT_STR_EQ("handler_exception", result.failures[0].code);
@@ -119,8 +123,7 @@ TEST extensions_fail_open_on_handler_error_timeout_and_restart(void) {
     tny_extension_result_free(&result);
 
     int64_t started = monotonic_ms();
-    ASSERT_EQ(0, tny_extensions_invoke(x, "thinking", "{\"type\":\"thinking\"}",
-                                       &result));
+    ASSERT_EQ(0, tny_extensions_invoke(x, "thinking", "{\"type\":\"thinking\"}", &result));
     ASSERT(monotonic_ms() - started < 700);
     ASSERT_EQ(2, result.failure_count);
     ASSERT_STR_EQ("timeout", result.failures[0].code);
@@ -128,8 +131,7 @@ TEST extensions_fail_open_on_handler_error_timeout_and_restart(void) {
     ASSERT_EQ(TNY_EXTENSIONS_DORMANT, tny_extensions_get_state(x));
     tny_extension_result_free(&result);
 
-    ASSERT_EQ(0, tny_extensions_invoke(x, "turn_end", "{\"type\":\"turn_end\"}",
-                                       &result));
+    ASSERT_EQ(0, tny_extensions_invoke(x, "turn_end", "{\"type\":\"turn_end\"}", &result));
     ASSERT_EQ(1, result.action_count);
     ASSERT_EQ(TNY_EXTENSION_ACTION_STOP, result.actions[0].kind);
     ASSERT_STR_EQ("fixture stop", result.actions[0].reason);
@@ -148,8 +150,7 @@ TEST extensions_missing_host_is_clean_unavailable(void) {
     tny_extensions *x = tny_extensions_new(f.tny, f.workspace, 60);
     ASSERT(x);
     tny_extension_result result;
-    ASSERT_EQ(0, tny_extensions_invoke(x, "turn_end", "{\"type\":\"turn_end\"}",
-                                       &result));
+    ASSERT_EQ(0, tny_extensions_invoke(x, "turn_end", "{\"type\":\"turn_end\"}", &result));
     ASSERT_EQ(TNY_EXTENSIONS_UNAVAILABLE, tny_extensions_get_state(x));
     ASSERT_EQ(0, result.action_count);
     ASSERT_EQ(1, result.failure_count);
@@ -171,19 +172,19 @@ TEST extensions_missing_python_reports_once_and_stays_optional(void) {
     tny_extensions *x = tny_extensions_new(f.tny, f.workspace, 200);
     ASSERT(x);
     tny_extension_result result;
-    ASSERT_EQ(0, tny_extensions_invoke(x, "turn_end", "{\"type\":\"turn_end\"}",
-                                       &result));
+    ASSERT_EQ(0, tny_extensions_invoke(x, "turn_end", "{\"type\":\"turn_end\"}", &result));
     ASSERT_EQ(TNY_EXTENSIONS_UNAVAILABLE, tny_extensions_get_state(x));
     ASSERT_EQ(1, result.failure_count);
     ASSERT_STR_EQ("unavailable", result.failures[0].code);
     tny_extension_result_free(&result);
-    ASSERT_EQ(0, tny_extensions_invoke(x, "turn_end", "{\"type\":\"turn_end\"}",
-                                       &result));
+    ASSERT_EQ(0, tny_extensions_invoke(x, "turn_end", "{\"type\":\"turn_end\"}", &result));
     ASSERT_EQ(0, result.failure_count); /* one optional-unavailable diagnostic */
     tny_extension_result_free(&result);
     tny_extensions_free(x);
-    if (old_path) { setenv("PATH", old_path, 1); free(old_path); }
-    else unsetenv("PATH");
+    if (old_path) {
+        setenv("PATH", old_path, 1);
+        free(old_path);
+    } else unsetenv("PATH");
     unsetenv("TNY_EXTENSION_HOST");
     ext_fixture_free(&f);
     PASS();
@@ -195,14 +196,14 @@ TEST extensions_duplicate_name_loads_neither_and_reports_collision(void) {
     char *extensions = path_join(f.tny, "extensions");
     char *duplicate = path_join(extensions, "alpha.py");
     file_write_atomic(duplicate, "# duplicate\n", 12);
-    free(duplicate); free(extensions);
+    free(duplicate);
+    free(extensions);
     setenv("TNY_EXTENSION_HOST", f.host, 1);
     tny_extensions *x = tny_extensions_new(f.tny, f.workspace, 60);
     ASSERT(x);
     ASSERT_EQ(1, tny_extensions_entry_count(x)); /* zeta only */
     tny_extension_result result;
-    ASSERT_EQ(0, tny_extensions_invoke(x, "usage", "{\"type\":\"usage\"}",
-                                       &result));
+    ASSERT_EQ(0, tny_extensions_invoke(x, "usage", "{\"type\":\"usage\"}", &result));
     ASSERT_EQ(1, result.failure_count);
     ASSERT_STR_EQ("alpha", result.failures[0].extension);
     ASSERT_STR_EQ("name_collision", result.failures[0].code);
@@ -225,7 +226,8 @@ TEST extensions_match_real_host_wire(void) {
         "    def add(event):\n"
         "        return context('real ' + event.prompt, custom_type='real_fixture')\n";
     file_write_atomic(entry, source, sizeof source - 1);
-    free(entry); free(extensions);
+    free(entry);
+    free(extensions);
     char *real_host = path_abs("python/tny_extension_host.py");
     ASSERT(real_host);
     setenv("TNY_EXTENSION_HOST", real_host, 1);
@@ -233,9 +235,9 @@ TEST extensions_match_real_host_wire(void) {
     ASSERT(x);
     tny_extension_result result;
     ASSERT_EQ(0, tny_extensions_invoke(
-        x, "before_agent_start",
-        "{\"schema_version\":1,\"type\":\"before_agent_start\",\"prompt\":\"ship\"}",
-        &result));
+                     x, "before_agent_start",
+                     "{\"schema_version\":1,\"type\":\"before_agent_start\",\"prompt\":\"ship\"}",
+                     &result));
     ASSERT_EQ(0, result.failure_count);
     ASSERT_EQ(1, result.action_count);
     ASSERT_EQ(TNY_EXTENSION_ACTION_CONTEXT, result.actions[0].kind);
@@ -268,8 +270,7 @@ TEST extensions_malformed_action_is_a_structured_failure(void) {
     tny_extensions *x = tny_extensions_new(f.tny, f.workspace, 200);
     ASSERT(x);
     tny_extension_result result;
-    ASSERT_EQ(0, tny_extensions_invoke(x, "plan", "{\"type\":\"plan\"}",
-                                       &result));
+    ASSERT_EQ(0, tny_extensions_invoke(x, "plan", "{\"type\":\"plan\"}", &result));
     ASSERT_EQ(0, result.action_count);
     ASSERT_EQ(1, result.failure_count);
     ASSERT_STR_EQ("plan", result.failures[0].event);
@@ -289,43 +290,31 @@ TEST extension_capability_matrices_are_typed_and_secret_free(void) {
                   tny_extension_capability_name(TNY_EXT_CAP_PROJECT_LOCAL_TRUST));
 
     ASSERT_EQ(TNY_EXT_CAP_SUPPORTED,
-              tny_extension_capability_get(TNY_BK_OPENAI,
-                                           TNY_EXT_CAP_PERMISSION_OBSERVE));
+              tny_extension_capability_get(TNY_BK_OPENAI, TNY_EXT_CAP_PERMISSION_OBSERVE));
     ASSERT_EQ(TNY_EXT_CAP_SUPPORTED,
-              tny_extension_capability_get(TNY_BK_OPENAI,
-                                           TNY_EXT_CAP_PROMPT_OBSERVE));
+              tny_extension_capability_get(TNY_BK_OPENAI, TNY_EXT_CAP_PROMPT_OBSERVE));
     ASSERT_STR_EQ("implemented",
-                  tny_extension_capability_reason(
-                      TNY_BK_OPENAI, TNY_EXT_CAP_PROMPT_OBSERVE));
+                  tny_extension_capability_reason(TNY_BK_OPENAI, TNY_EXT_CAP_PROMPT_OBSERVE));
     ASSERT_EQ(TNY_EXT_CAP_UNAVAILABLE,
-              tny_extension_capability_get(TNY_BK_CODEX,
-                                           TNY_EXT_CAP_PERMISSION_ALLOW_ONCE));
+              tny_extension_capability_get(TNY_BK_CODEX, TNY_EXT_CAP_PERMISSION_ALLOW_ONCE));
     ASSERT_EQ(TNY_EXT_CAP_UNSUPPORTED,
-              tny_extension_capability_get(TNY_BK_CURSOR,
-                                           TNY_EXT_CAP_PERMISSION_ALLOW_ONCE));
+              tny_extension_capability_get(TNY_BK_CURSOR, TNY_EXT_CAP_PERMISSION_ALLOW_ONCE));
+    ASSERT_STR_EQ("protocol_missing", tny_extension_capability_reason(
+                                          TNY_BK_CURSOR, TNY_EXT_CAP_PERMISSION_ALLOW_ONCE));
     ASSERT_STR_EQ("protocol_missing",
-                  tny_extension_capability_reason(
-                      TNY_BK_CURSOR, TNY_EXT_CAP_PERMISSION_ALLOW_ONCE));
-    ASSERT_STR_EQ("protocol_missing",
-                  tny_extension_capability_reason(
-                      TNY_BK_CURSOR, TNY_EXT_CAP_PERMISSION_ABSTAIN));
+                  tny_extension_capability_reason(TNY_BK_CURSOR, TNY_EXT_CAP_PERMISSION_ABSTAIN));
     ASSERT_EQ(TNY_EXT_CAP_UNSUPPORTED,
-              tny_extension_capability_get(TNY_BK_ACP,
-                                           TNY_EXT_CAP_TOOL_POST_REPLACE));
+              tny_extension_capability_get(TNY_BK_ACP, TNY_EXT_CAP_TOOL_POST_REPLACE));
     ASSERT_EQ(TNY_EXT_CAP_UNAVAILABLE,
-              tny_extension_capability_get(
-                  TNY_BK_OPENAI, (tny_extension_capability_id)-1));
+              tny_extension_capability_get(TNY_BK_OPENAI, (tny_extension_capability_id)-1));
     ASSERT_EQ(TNY_EXT_CAP_UNAVAILABLE,
-              tny_extension_capability_get(
-                  TNY_BK_OPENAI,
-                  (tny_extension_capability_id)TNY_EXT_CAP_COUNT));
+              tny_extension_capability_get(TNY_BK_OPENAI,
+                                           (tny_extension_capability_id)TNY_EXT_CAP_COUNT));
     ASSERT_STR_EQ("unknown_provider_or_capability",
-                  tny_extension_capability_reason(
-                      TNY_BK_OPENAI,
-                      (tny_extension_capability_id)TNY_EXT_CAP_COUNT));
+                  tny_extension_capability_reason(TNY_BK_OPENAI,
+                                                  (tny_extension_capability_id)TNY_EXT_CAP_COUNT));
     ASSERT_STR_EQ("unknown_provider_or_capability",
-                  tny_extension_capability_reason(
-                      TNY_BK_OPENAI, (tny_extension_capability_id)-1));
+                  tny_extension_capability_reason(TNY_BK_OPENAI, (tny_extension_capability_id)-1));
 
     static const char secret[] = "CAPABILITY_SENTINEL_SECRET";
     setenv("OPENAI_API_KEY", secret, 1);
@@ -373,13 +362,12 @@ TEST extensions_known_unavailable_actions_get_capability_diagnostics(void) {
     ASSERT(x);
     tny_extensions_set_provider(x, TNY_BK_CURSOR);
     tny_extension_result result;
-    ASSERT_EQ(0, tny_extensions_invoke(
-        x, "custom_message", "{\"type\":\"custom_message\"}", &result));
+    ASSERT_EQ(0,
+              tny_extensions_invoke(x, "custom_message", "{\"type\":\"custom_message\"}", &result));
     ASSERT_EQ(0, result.action_count);
     ASSERT_EQ(1, result.failure_count);
     ASSERT_STR_EQ("unsupported_capability", result.failures[0].code);
-    ASSERT(strstr(result.failures[0].message,
-                  "extensions.permission.allow_once is unsupported"));
+    ASSERT(strstr(result.failures[0].message, "extensions.permission.allow_once is unsupported"));
     tny_extension_result_free(&result);
     tny_extensions_free(x);
     unsetenv("TNY_EXTENSION_HOST");
@@ -418,8 +406,7 @@ TEST extensions_negotiate_schema_and_send_selected_capabilities(void) {
     ASSERT(x);
     tny_extensions_set_provider(x, TNY_BK_CODEX);
     tny_extension_result result;
-    ASSERT_EQ(0, tny_extensions_invoke(
-        x, "tool_end", "{\"type\":\"tool_end\"}", &result));
+    ASSERT_EQ(0, tny_extensions_invoke(x, "tool_end", "{\"type\":\"tool_end\"}", &result));
     ASSERT_EQ(2, result.action_count);
     ASSERT_EQ(0, result.failure_count);
     tny_extension_result_free(&result);
@@ -430,8 +417,7 @@ TEST extensions_negotiate_schema_and_send_selected_capabilities(void) {
     setenv("FAKE_EXTENSION_SCHEMA_MAJOR", "2", 1);
     x = tny_extensions_new(f.tny, f.workspace, 200);
     ASSERT(x);
-    ASSERT_EQ(0, tny_extensions_invoke(
-        x, "turn_end", "{\"type\":\"turn_end\"}", &result));
+    ASSERT_EQ(0, tny_extensions_invoke(x, "turn_end", "{\"type\":\"turn_end\"}", &result));
     ASSERT_EQ(0, result.action_count);
     ASSERT_EQ(1, result.failure_count);
     ASSERT_STR_EQ("unavailable", result.failures[0].code);

@@ -63,12 +63,22 @@ stdenv.mkDerivation {
   makeFlags = [
     "CC=${stdenv.cc.targetPrefix}cc"
     "TNY_VERSION=${version}"
+    "TNY_SHELL_PATH=${stdenv.shell}"
+  ] ++ lib.optionals stdenv.hostPlatform.isDarwin [
+    # Keep the displayed flake revision while supplying dyld's numeric field
+    # to the active-library integration tests.
+    "LIBTNY_MACH_CURRENT_VERSION=1.0.0"
   ];
   buildFlags = [ "test" ];
 
   # `make test` is the whole point; there is nothing to install.
   installPhase = ''
     runHook preInstall
+    grep -aF '${stdenv.shell}' build/tny > /dev/null
+    if grep -aF '/bin/sh' build/tny > /dev/null; then
+      echo "error: Nix tests retained a host /bin/sh dependency" >&2
+      exit 1
+    fi
     mkdir -p "$out"
     cp -r build/generated "$out/generated"
     runHook postInstall

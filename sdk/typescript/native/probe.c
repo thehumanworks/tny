@@ -18,8 +18,8 @@ static void probe_execute(napi_env env, void *opaque) {
     tny_bytes version;
     (void)env;
     work->abi_version = tny_abi_version();
-    tny_capabilities_init(&capabilities);
-    work->capability_size = capabilities.struct_size;
+    if (tny_capabilities_init(&capabilities, sizeof capabilities) == TNY_STATUS_OK)
+        work->capability_size = capabilities.struct_size;
     version = tny_library_version();
     work->library_version = sdk_copy_n(version.ptr, (size_t)version.len);
 }
@@ -61,8 +61,8 @@ static napi_value probe_abi(napi_env env, napi_callback_info info) {
     work->env = env;
     (void)napi_create_promise(env, &work->deferred, &promise);
     (void)napi_create_string_utf8(env, "tny ABI probe", NAPI_AUTO_LENGTH, &name);
-    if (napi_create_async_work(env, NULL, name, probe_execute, probe_complete,
-                               work, &work->work) != napi_ok ||
+    if (napi_create_async_work(env, NULL, name, probe_execute, probe_complete, work, &work->work) !=
+            napi_ok ||
         napi_queue_async_work(env, work->work) != napi_ok) {
         free(work);
         (void)napi_throw_error(env, NULL, "failed to queue ABI probe");
@@ -72,8 +72,7 @@ static napi_value probe_abi(napi_env env, napi_callback_info info) {
 }
 
 void sdk_define_probe(napi_env env, napi_value exports) {
-    napi_property_descriptor property = {
-        "__probeAbi", NULL, probe_abi, NULL, NULL, NULL, napi_default, NULL
-    };
+    napi_property_descriptor property = {"__probeAbi", NULL, probe_abi,    NULL,
+                                         NULL,         NULL, napi_default, NULL};
     (void)napi_define_properties(env, exports, 1u, &property);
 }

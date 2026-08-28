@@ -27,9 +27,8 @@ static bool on_path(const char *bin) {
     return found;
 }
 
-static const char *ACP_AGENTS[] = {
-    "gemini", "claude-agent-acp", "agent", "goose", "opencode", "copilot", NULL
-};
+static const char *ACP_AGENTS[] = {"gemini",   "claude-agent-acp", "agent", "goose",
+                                   "opencode", "copilot",          NULL};
 
 int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = g->json;
@@ -66,11 +65,10 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
 #else
     bool python = on_path("python3");
 #endif
-    char *capabilities = tny_extension_capabilities_json(
-        (tny_backend_id)ctx->backend, ctx->extensions_enabled, python);
+    char *capabilities = tny_extension_capabilities_json((tny_backend_id)ctx->backend,
+                                                         ctx->extensions_enabled, python);
     size_t extension_entries = 0;
-    if (ctx->extensions_enabled)
-        extension_entries = tny_extensions_entry_count(ctx->extensions);
+    if (ctx->extensions_enabled) extension_entries = tny_extensions_entry_count(ctx->extensions);
     int n = 0;
     session_meta *m = session_list(ctx, false, 100, NULL, &n);
     session_meta_free(m, n);
@@ -86,14 +84,16 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     if (json) {
         buf_t b;
         buf_init(&b);
-        buf_appendf(&b, "{\"kind\":\"doctor\",\"version\":\"%s\",\"os\":\"%s\","
-                        "\"arch\":\"%s\",", TNY_VERSION, un.sysname, un.machine);
-        buf_appendf(&b, "\"settings_ok\":%s,\"sessions\":%d,",
-                    settings_ok ? "true" : "false", n);
-        buf_appendf(&b, "\"extensions\":{\"enabled\":%s,\"entries\":%zu,"
-                        "\"python3\":%s,\"capabilities\":",
-                    ctx->extensions_enabled ? "true" : "false",
-                    extension_entries, python ? "true" : "false");
+        buf_appendf(&b,
+                    "{\"kind\":\"doctor\",\"version\":\"%s\",\"os\":\"%s\","
+                    "\"arch\":\"%s\",",
+                    TNY_VERSION, un.sysname, un.machine);
+        buf_appendf(&b, "\"settings_ok\":%s,\"sessions\":%d,", settings_ok ? "true" : "false", n);
+        buf_appendf(&b,
+                    "\"extensions\":{\"enabled\":%s,\"entries\":%zu,"
+                    "\"python3\":%s,\"capabilities\":",
+                    ctx->extensions_enabled ? "true" : "false", extension_entries,
+                    python ? "true" : "false");
         buf_appends(&b, capabilities ? capabilities : "{}");
         buf_appends(&b, "},");
         buf_appendf(&b, "\"sandbox\":\"none\",\"sandbox_note\":\"os sandbox not "
@@ -105,8 +105,7 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         for (int i = 0; i < TNY_BK_COUNT; i++) {
             if (i) buf_appends(&b, ",");
             buf_appendf(&b, "{\"name\":\"%s\",\"healthy\":%s,\"detail\":",
-                        tny_backend_name((tny_backend_id)i),
-                        health[i] == 0 ? "true" : "false");
+                        tny_backend_name((tny_backend_id)i), health[i] == 0 ? "true" : "false");
             jescape(&b, lines[i]);
             buf_appends(&b, "}");
         }
@@ -118,21 +117,18 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         printf("%s settings: %s\n", settings_ok ? "ok " : "FAIL",
                file_exists(ctx->settings_path) ? ctx->settings_path : "(none yet)");
         printf("ok  sessions: %d in this workspace\n", n);
-        if (!ctx->extensions_enabled)
-            printf("off python extensions: disabled\n");
+        if (!ctx->extensions_enabled) printf("off python extensions: disabled\n");
         else if (extension_entries && !python)
             printf("warn python extensions: %zu found, python3 is not on PATH\n",
                    extension_entries);
         else
-            printf("ok  python extensions: %zu found%s\n",
-                   extension_entries,
+            printf("ok  python extensions: %zu found%s\n", extension_entries,
                    extension_entries ? ", python3 available" : "");
         printf("note sandbox: os sandbox not implemented in this build; "
                "approved commands run unsandboxed\n");
         printf("%s cursor-sdk-bridge: %s\n", bridge ? "ok " : "miss",
                bridge ? ctx->bridge_bin : "not on PATH (set CURSOR_SDK_BRIDGE_BIN)");
-        printf("%s codex: %s\n", codex ? "ok " : "miss",
-               codex ? ctx->codex_bin : "not on PATH");
+        printf("%s codex: %s\n", codex ? "ok " : "miss", codex ? ctx->codex_bin : "not on PATH");
         printf("%s ACP agents: %s\n", acp_found.len ? "ok " : "miss",
                acp_found.len ? acp_found.data : "none detected");
         printf("\nproviders:\n");

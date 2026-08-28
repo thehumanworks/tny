@@ -105,9 +105,7 @@ TEST end_turn_without_pending_steer_emits_only_turn_end(void) {
 
 /* ---- response routing (codex_msg.c) ---- */
 
-static void feed(cx_impl *o, const char *json) {
-    cx_on_ws_msg(json, strlen(json), o);
-}
+static void feed(cx_impl *o, const char *json) { cx_on_ws_msg(json, strlen(json), o); }
 
 TEST steer_error_response_rejects_with_the_pending_text(void) {
     cx_impl o;

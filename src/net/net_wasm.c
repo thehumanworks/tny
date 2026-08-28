@@ -13,6 +13,9 @@
  * Pseudo-fds start at 64 and never collide with real MEMFS/NODERAWFS fds in
  * practice (the CLI opens a handful of files); they exist only so the
  * backend pollfds/dispatch contract carries over unchanged. */
+/* clang-format must not tokenize JavaScript inside EM_JS/EM_ASYNC_JS bodies:
+ * it splits `=>` and `===`, producing invalid generated JavaScript. */
+// clang-format off
 #ifdef __EMSCRIPTEN__
 
 #include "net/net.h"
@@ -453,3 +456,4 @@ void ws_close(ws_conn *w) {
 }
 
 #endif /* __EMSCRIPTEN__ */
+// clang-format on

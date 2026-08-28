@@ -18,20 +18,32 @@ void buf_init(buf_t *b) {
     b->cap = 0;
     b->oom = false;
 }
-void buf_free(buf_t *b) { free(b->data); buf_init(b); }
+void buf_free(buf_t *b) {
+    free(b->data);
+    buf_init(b);
+}
 
 void buf_reserve(buf_t *b, size_t extra) {
     if (b->oom) return;
-    if (extra > SIZE_MAX - b->len - 1) { b->oom = true; return; }
+    if (extra > SIZE_MAX - b->len - 1) {
+        b->oom = true;
+        return;
+    }
     size_t need = b->len + extra + 1;
     if (need <= b->cap) return;
     size_t cap = b->cap ? b->cap : 64;
     while (cap < need) {
-        if (cap > SIZE_MAX / 2) { cap = need; break; }
+        if (cap > SIZE_MAX / 2) {
+            cap = need;
+            break;
+        }
         cap *= 2;
     }
     char *next = realloc(b->data, cap);
-    if (!next) { b->oom = true; return; }
+    if (!next) {
+        b->oom = true;
+        return;
+    }
     b->data = next;
     b->cap = cap;
 }
@@ -51,7 +63,10 @@ void buf_append(buf_t *b, const void *data, size_t n) {
 }
 
 void buf_appends(buf_t *b, const char *s) {
-    if (!s) { b->oom = true; return; }
+    if (!s) {
+        b->oom = true;
+        return;
+    }
     buf_append(b, s, strlen(s));
 }
 
@@ -61,18 +76,30 @@ void buf_appendf(buf_t *b, const char *fmt, ...) {
     va_copy(ap2, ap);
     int n = vsnprintf(NULL, 0, fmt, ap);
     va_end(ap);
-    if (n < 0) { va_end(ap2); return; }
+    if (n < 0) {
+        va_end(ap2);
+        return;
+    }
     buf_reserve(b, (size_t)n);
-    if (b->oom) { va_end(ap2); return; }
+    if (b->oom) {
+        va_end(ap2);
+        return;
+    }
     vsnprintf(b->data + b->len, (size_t)n + 1, fmt, ap2);
     va_end(ap2);
     b->len += (size_t)n;
 }
 
-void buf_clear(buf_t *b) { b->len = 0; if (b->data) b->data[0] = 0; }
+void buf_clear(buf_t *b) {
+    b->len = 0;
+    if (b->data) b->data[0] = 0;
+}
 
 void buf_consume(buf_t *b, size_t n) {
-    if (n >= b->len) { buf_clear(b); return; }
+    if (n >= b->len) {
+        buf_clear(b);
+        return;
+    }
     memmove(b->data, b->data + n, b->len - n);
     b->len -= n;
     b->data[b->len] = 0;
@@ -150,10 +177,16 @@ bool glob_match(const char *p, const char *s) {
     /* iterative backtracking match: '*' any run, '?' one char */
     const char *star = NULL, *ss = NULL;
     while (*s) {
-        if (*p == '*') { star = p++; ss = s; }
-        else if (*p == '?' || *p == *s) { p++; s++; }
-        else if (star) { p = star + 1; s = ++ss; }
-        else return false;
+        if (*p == '*') {
+            star = p++;
+            ss = s;
+        } else if (*p == '?' || *p == *s) {
+            p++;
+            s++;
+        } else if (star) {
+            p = star + 1;
+            s = ++ss;
+        } else return false;
     }
     while (*p == '*') p++;
     return *p == 0;
@@ -221,10 +254,16 @@ char *file_slurp(const char *path, size_t *len_out) {
     buf_init(&b);
     char chunk[8192];
     size_t n;
-    while ((n = fread(chunk, 1, sizeof chunk, f)) > 0) buf_append(&b, chunk, n);
+    while ((n = fread(chunk, 1, sizeof chunk, f)) > 0) {
+        buf_append(&b, chunk, n);
+        if (n < sizeof chunk) break; /* short read: EOF or error; ferror below */
+    }
     bool err = ferror(f);
     fclose(f);
-    if (err) { buf_free(&b); return NULL; }
+    if (err) {
+        buf_free(&b);
+        return NULL;
+    }
     if (len_out) *len_out = b.len;
     return buf_detach(&b);
 }
@@ -238,11 +277,18 @@ int file_write_atomic(const char *path, const void *data, size_t len) {
     size_t off = 0;
     while (off < len) {
         ssize_t w = write(fd, p + off, len - off);
-        if (w < 0) { close(fd); unlink(tmp); return -1; }
+        if (w < 0) {
+            close(fd);
+            unlink(tmp);
+            return -1;
+        }
         off += (size_t)w;
     }
     close(fd);
-    if (rename(tmp, path) != 0) { unlink(tmp); return -1; }
+    if (rename(tmp, path) != 0) {
+        unlink(tmp);
+        return -1;
+    }
     return 0;
 }
 
@@ -314,20 +360,38 @@ bool sha1(const uint8_t *in, size_t n, uint8_t out[20]) {
     for (size_t off = 0; off < total; off += 64) {
         uint32_t w[80];
         for (int i = 0; i < 16; i++)
-            w[i] = (uint32_t)msg[off + 4 * (size_t)i] << 24 | (uint32_t)msg[off + 4 * (size_t)i + 1] << 16 |
+            w[i] = (uint32_t)msg[off + 4 * (size_t)i] << 24 |
+                   (uint32_t)msg[off + 4 * (size_t)i + 1] << 16 |
                    (uint32_t)msg[off + 4 * (size_t)i + 2] << 8 | msg[off + 4 * (size_t)i + 3];
         for (int i = 16; i < 80; i++) w[i] = rol(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
         uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
         for (int i = 0; i < 80; i++) {
             uint32_t f, k;
-            if (i < 20) { f = (b & c) | (~b & d); k = 0x5A827999; }
-            else if (i < 40) { f = b ^ c ^ d; k = 0x6ED9EBA1; }
-            else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDC; }
-            else { f = b ^ c ^ d; k = 0xCA62C1D6; }
+            if (i < 20) {
+                f = (b & c) | (~b & d);
+                k = 0x5A827999;
+            } else if (i < 40) {
+                f = b ^ c ^ d;
+                k = 0x6ED9EBA1;
+            } else if (i < 60) {
+                f = (b & c) | (b & d) | (c & d);
+                k = 0x8F1BBCDC;
+            } else {
+                f = b ^ c ^ d;
+                k = 0xCA62C1D6;
+            }
             uint32_t t = rol(a, 5) + f + e + k + w[i];
-            e = d; d = c; c = rol(b, 30); b = a; a = t;
+            e = d;
+            d = c;
+            c = rol(b, 30);
+            b = a;
+            a = t;
         }
-        h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e;
+        h[0] += a;
+        h[1] += b;
+        h[2] += c;
+        h[3] += d;
+        h[4] += e;
     }
     free(msg);
     for (int i = 0; i < 5; i++) {

@@ -31,11 +31,11 @@
 /* The proxy version-gates on x-grok-client-version and 426s requests that
  * claim less than its rolling minimum. Pinned to a known-accepted grok-build
  * release; TNY_GROK_CLIENT_VERSION overrides without a rebuild. */
-#define GROK_PROXY_VERSION   "0.1.202"
-#define GROK_API_BASE_URL    "https://api.x.ai/v1"
+#define GROK_PROXY_VERSION "0.1.202"
+#define GROK_API_BASE_URL  "https://api.x.ai/v1"
 /* Both modes: the proxy routes the model-override header, api.x.ai the
  * JSON body — same catalog, one default. */
-#define GROK_DEFAULT_MODEL   "grok-4.6"
+#define GROK_DEFAULT_MODEL "grok-4.6"
 
 bool tny_builtin_profile_exists(const char *name) {
     return name && (strcmp(name, "claude") == 0 || strcmp(name, "grok") == 0);
@@ -97,8 +97,7 @@ char *tny_claude_token(const char **source) {
     yyjson_doc *doc = jparse_file(path);
     free(path);
     if (!doc) return NULL;
-    const char *tok = jget_str(jget(yyjson_doc_get_root(doc), "claudeAiOauth"),
-                               "accessToken");
+    const char *tok = jget_str(jget(yyjson_doc_get_root(doc), "claudeAiOauth"), "accessToken");
     char *out = tok && *tok ? xstrdup(tok) : NULL;
     yyjson_doc_free(doc);
     if (out && source) *source = "~/.claude/.credentials.json";
@@ -127,9 +126,7 @@ static bool claude_token_is_oauth(const char *tok, const char *source) {
     return source && strcmp(source, "ANTHROPIC_API_KEY") != 0;
 }
 
-static char *grok_auth_path(void) {
-    return home_join(".grok/auth.json");
-}
+static char *grok_auth_path(void) { return home_join(".grok/auth.json"); }
 
 char *tny_grok_session_token(void) {
     char *path = grok_auth_path();
@@ -194,8 +191,7 @@ static void apply_claude(tny_ctx *ctx) {
     const char *source = NULL;
     char *tok = tny_claude_token(&source);
     set_str(&ctx->api_key, tok);
-    if (claude_token_is_oauth(tok, source))
-        tny_ctx_add_extra_header(ctx, CLAUDE_OAUTH_HEADER);
+    if (claude_token_is_oauth(tok, source)) tny_ctx_add_extra_header(ctx, CLAUDE_OAUTH_HEADER);
     if (tok) {
         memset(tok, 0, strlen(tok));
         free(tok);
@@ -219,8 +215,7 @@ static void apply_grok(tny_ctx *ctx) {
         const char *ver = getenv("TNY_GROK_CLIENT_VERSION");
         buf_t vh;
         buf_init(&vh);
-        buf_appendf(&vh, "x-grok-client-version: %s",
-                    ver && *ver ? ver : GROK_PROXY_VERSION);
+        buf_appendf(&vh, "x-grok-client-version: %s", ver && *ver ? ver : GROK_PROXY_VERSION);
         tny_ctx_add_extra_header(ctx, vh.data);
         buf_free(&vh);
         memset(session, 0, strlen(session));

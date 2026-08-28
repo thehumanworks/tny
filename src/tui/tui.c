@@ -29,15 +29,23 @@ static volatile sig_atomic_t g_winch, g_sigint;
 static void term_restore(void) {
     if (!g_raw) return;
     g_raw = false;
-    fputs(g_restore_sgr ? "\x1b[?2004l\x1b[0m\x1b[?25h"
-                        : "\x1b[?2004l\x1b[?25h", stdout);
+    fputs(g_restore_sgr ? "\x1b[?2004l\x1b[0m\x1b[?25h" : "\x1b[?2004l\x1b[?25h", stdout);
     fflush(stdout);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &g_saved);
 }
 
-static void on_winch(int s) { (void)s; g_winch = 1; }
-static void on_sigint(int s) { (void)s; g_sigint = 1; }
-static void on_fatal(int s) { term_restore(); _exit(128 + s); }
+static void on_winch(int s) {
+    (void)s;
+    g_winch = 1;
+}
+static void on_sigint(int s) {
+    (void)s;
+    g_sigint = 1;
+}
+static void on_fatal(int s) {
+    term_restore();
+    _exit(128 + s);
+}
 
 static bool tui_cancel_probe(void *ud) {
     tui *t = ud;
@@ -60,8 +68,8 @@ static bool term_raw(bool restore_sgr) {
     if (tcgetattr(STDIN_FILENO, &g_saved) != 0) return false;
     struct termios r = g_saved;
     /* keep OPOST/ONLCR so plain printf from reused CLI commands still works */
-    r.c_iflag &= (tcflag_t)~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-    r.c_lflag &= (tcflag_t)~(ECHO | ICANON | IEXTEN | ISIG);
+    r.c_iflag &= (tcflag_t) ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+    r.c_lflag &= (tcflag_t) ~(ECHO | ICANON | IEXTEN | ISIG);
     r.c_cc[VMIN] = 1;
     r.c_cc[VTIME] = 0;
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &r) != 0) return false;
@@ -104,10 +112,14 @@ int tui_queue_image(tui *t, const char *path) {
         free(home);
     }
     const char *src = use ? use : path;
-    if (!file_exists(src)) { free(use); return 0; }
+    if (!file_exists(src)) {
+        free(use);
+        return 0;
+    }
     char *abs = path_abs(src);
+    if (!abs) abs = xstrdup(src); /* before free(use): src may point into use */
     free(use);
-    t->images[t->n_images++] = abs ? abs : xstrdup(src);
+    t->images[t->n_images++] = abs;
     t->images[t->n_images] = NULL;
     return t->n_images;
 }
@@ -127,8 +139,8 @@ tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
 
     char line[512];
     oneline(line, sizeof line, summary && *summary ? summary : tool);
-    tui_linef(t, "%s%s? %s%s", tui_attr(t, "\x1b[1m"), tui_c(t, "\x1b[33m"),
-              line, tui_attr(t, "\x1b[0m"));
+    tui_linef(t, "%s%s? %s%s", tui_attr(t, "\x1b[1m"), tui_c(t, "\x1b[33m"), line,
+              tui_attr(t, "\x1b[0m"));
     if (!t->tty) {
         tui_sys(t, "  not a terminal: denied");
         return TNY_PERM_DECISION_DENY;
@@ -143,25 +155,53 @@ tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
         tui_render(t);
         struct pollfd pf = {STDIN_FILENO, POLLIN, 0};
         int pr = tny_poll(&pf, 1, 200);
-        if (g_winch) { g_winch = 0; tui_size(t); t->dirty = true; }
-        if (g_sigint) { g_sigint = 0; t->want_cancel = true; break; }
+        if (g_winch) {
+            g_winch = 0;
+            tui_size(t);
+            t->dirty = true;
+        }
+        if (g_sigint) {
+            g_sigint = 0;
+            t->want_cancel = true;
+            break;
+        }
         if (pr <= 0) continue;
         char b[64];
         ssize_t n = read(STDIN_FILENO, b, sizeof b);
-        if (n <= 0) { if (n == 0) t->quit = true; break; }
+        if (n <= 0) {
+            if (n == 0) t->quit = true;
+            break;
+        }
         for (ssize_t i = 0; i < n && !got; i++) {
             switch (b[i]) {
-            case 'y': case 'Y': d = TNY_PERM_DECISION_ALLOW; got = true; break;
-            case 'a': case 'A': d = TNY_PERM_DECISION_ALLOW_ALWAYS; got = true; break;
-            case 'n': case 'N': case 27: d = TNY_PERM_DECISION_DENY; got = true; break;
-            case 3: d = TNY_PERM_DECISION_DENY; t->want_cancel = true; got = true; break;
+            case 'y':
+            case 'Y':
+                d = TNY_PERM_DECISION_ALLOW;
+                got = true;
+                break;
+            case 'a':
+            case 'A':
+                d = TNY_PERM_DECISION_ALLOW_ALWAYS;
+                got = true;
+                break;
+            case 'n':
+            case 'N':
+            case 27:
+                d = TNY_PERM_DECISION_DENY;
+                got = true;
+                break;
+            case 3:
+                d = TNY_PERM_DECISION_DENY;
+                t->want_cancel = true;
+                got = true;
+                break;
             default: break;
             }
         }
     }
     t->approval = false;
     tui_sys(t, d == TNY_PERM_DECISION_ALLOW          ? "  allowed once"
-              : d == TNY_PERM_DECISION_ALLOW_ALWAYS  ? "  allowed for this session"
+               : d == TNY_PERM_DECISION_ALLOW_ALWAYS ? "  allowed for this session"
                                                      : "  denied");
     t->dirty = true;
     return d;
@@ -203,8 +243,8 @@ static void ev_cb(const tny_backend_event *ev, void *ud) {
     case TNY_EV_TOOL_START:
         maybe_gap(t, false);
         oneline(line, sizeof line, ev->tool_detail);
-        tui_linef(t, "%s⏺ %s%s %.100s", tui_c(t, "\x1b[36m"), ev->tool_name,
-                  tui_attr(t, "\x1b[0m"), line);
+        tui_linef(t, "%s⏺ %s%s %.100s", tui_c(t, "\x1b[36m"), ev->tool_name, tui_attr(t, "\x1b[0m"),
+                  line);
         break;
     case TNY_EV_TOOL_END:
         oneline(line, sizeof line, ev->tool_detail);
@@ -214,8 +254,7 @@ static void ev_cb(const tny_backend_event *ev, void *ud) {
         break;
     case TNY_EV_TOOL_PROGRESS:
         oneline(line, sizeof line, ev->tool_detail);
-        tui_note(t, "%s: %.360s",
-                 ev->tool_name ? ev->tool_name : "tool", line);
+        tui_note(t, "%s: %.360s", ev->tool_name ? ev->tool_name : "tool", line);
         break;
     case TNY_EV_PERMISSION: {
         tny_perm_decision d;
@@ -224,8 +263,7 @@ static void ev_cb(const tny_backend_event *ev, void *ud) {
         } else {
             d = tui_ask_perm(t, "approval requested", ev->perm_summary);
         }
-        if (d == TNY_PERM_DECISION_ALLOW_ALWAYS &&
-            !(ev->perm_options & TNY_PERM_ALLOW_ALWAYS))
+        if (d == TNY_PERM_DECISION_ALLOW_ALWAYS && !(ev->perm_options & TNY_PERM_ALLOW_ALWAYS))
             d = TNY_PERM_DECISION_ALLOW;
         tny_engine_respond_permission(t->engine, ev->perm_id, d);
         break;
@@ -250,16 +288,14 @@ static void ev_cb(const tny_backend_event *ev, void *ud) {
     case TNY_EV_CUSTOM_MESSAGE:
         tui_bol(t);
         tui_linef(t, "%s◆ %s%s %.*s", tui_attr(t, "\x1b[2m"),
-                  ev->message_type ? ev->message_type : "extension",
-                  tui_attr(t, "\x1b[0m"), (int)ev->text_len, ev->text);
+                  ev->message_type ? ev->message_type : "extension", tui_attr(t, "\x1b[0m"),
+                  (int)ev->text_len, ev->text);
         t->gap = 1;
         break;
     case TNY_EV_USER_MESSAGE:
         tui_bol(t);
-        tui_linef(t, "%s› %.*s%s %sextension%s",
-                  tui_attr(t, "\x1b[1m"), (int)ev->text_len, ev->text,
-                  tui_attr(t, "\x1b[0m"), tui_attr(t, "\x1b[2m"),
-                  tui_attr(t, "\x1b[0m"));
+        tui_linef(t, "%s› %.*s%s %sextension%s", tui_attr(t, "\x1b[1m"), (int)ev->text_len,
+                  ev->text, tui_attr(t, "\x1b[0m"), tui_attr(t, "\x1b[2m"), tui_attr(t, "\x1b[0m"));
         t->gap = 1;
         break;
     case TNY_EV_ERROR:
@@ -297,7 +333,10 @@ static void drain_engine_events(tui *t) {
 
 void tui_queue_push(tui *t, const char *text, bool front) {
     char **q = realloc(t->queue, sizeof(char *) * (size_t)(t->n_queue + 1));
-    if (!q) { tui_sys(t, "message dropped: out of memory"); return; }
+    if (!q) {
+        tui_sys(t, "message dropped: out of memory");
+        return;
+    }
     t->queue = q;
     if (front) {
         memmove(q + 1, q, sizeof(char *) * (size_t)t->n_queue);
@@ -328,11 +367,12 @@ static char *queue_pop(tui *t) {
 /* ---- session / backend ---- */
 
 void tui_new_session(tui *t, bool clear_screen) {
-    if (t->turn_active) { tui_sys(t, "finish the turn first"); return; }
-    char *previous = t->session && t->session->id
-        ? xstrdup(t->session->id) : NULL;
-    if (t->engine)
-        tny_engine_end_session(t->engine, clear_screen ? "clear" : "new");
+    if (t->turn_active) {
+        tui_sys(t, "finish the turn first");
+        return;
+    }
+    char *previous = t->session && t->session->id ? xstrdup(t->session->id) : NULL;
+    if (t->engine) tny_engine_end_session(t->engine, clear_screen ? "clear" : "new");
     tui_drop_backend(t);
     if (t->session) {
         session_save(t->session);
@@ -341,8 +381,7 @@ void tui_new_session(tui *t, bool clear_screen) {
     }
     t->session = session_new(t->ctx);
     if (t->session)
-        session_set_extension_start(t->session,
-                                    clear_screen ? "clear" : "new", previous);
+        session_set_extension_start(t->session, clear_screen ? "clear" : "new", previous);
     free(previous);
     tui_prewarm_start(t); /* the next first prompt should not pay startup */
     t->in_tok = t->out_tok = 0;
@@ -357,19 +396,23 @@ void tui_new_session(tui *t, bool clear_screen) {
 
 static bool ensure_backend(tui *t) {
     if (!t->session) t->session = session_new(t->ctx);
-    if (!t->session) { tui_err(t, "could not create a session"); return false; }
+    if (!t->session) {
+        tui_err(t, "could not create a session");
+        return false;
+    }
     if (t->engine) return true;
 
     char err[512];
     err[0] = 0;
-    tny_engine *engine = tny_engine_new(t->ctx, t->session, t->perm,
-                                        perm_hook, t);
-    if (!engine) { tui_err(t, "could not create the runtime"); return false; }
+    tny_engine *engine = tny_engine_new(t->ctx, t->session, t->perm, perm_hook, t);
+    if (!engine) {
+        tui_err(t, "could not create the runtime");
+        return false;
+    }
     tny_engine_set_cancel_probe(engine, tui_cancel_probe, t);
     tny_backend *bk = tui_prewarm_take(t);
     if (bk) {
-        if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_RESUMED,
-                               err, sizeof err) != 0) {
+        if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_RESUMED, err, sizeof err) != 0) {
             tny_engine_preserve_session_on_free(engine);
             tny_engine_free(engine);
             tui_err(t, err);
@@ -381,8 +424,7 @@ static bool ensure_backend(tui *t) {
         return true;
     }
     bk = tny_backend_create((tny_backend_id)t->ctx->backend, t->ctx);
-    if (!bk || tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_FRESH,
-                           err, sizeof err) != 0) {
+    if (!bk || tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_FRESH, err, sizeof err) != 0) {
         tny_engine_preserve_session_on_free(engine);
         tny_engine_free(engine);
         tui_err(t, err);
@@ -406,8 +448,8 @@ static void after_turn(tui *t) {
     }
     if (!t->tty) /* dumb mode has no status row: leave one in the transcript */
         tui_sysf(t, "── %s  %s  %lld/%lld tok ──", tny_provider_name(t->ctx),
-                 t->ctx->model ? t->ctx->model : "default",
-                 (long long)t->in_tok, (long long)t->out_tok);
+                 t->ctx->model ? t->ctx->model : "default", (long long)t->in_tok,
+                 (long long)t->out_tok);
     t->cancel_ms = 0;
     buf_clear(&t->note);
     t->dirty = true;
@@ -442,11 +484,18 @@ void tui_cancel_turn(tui *t) {
 }
 
 void tui_submit(tui *t, const char *text) {
+    if (!text) return;
     tui_overlay_clear(t); /* the menu interaction is over */
     const char *s = text;
     while (*s == ' ' || *s == '\t') s++;
-    if (t->wiz_step) { tui_wizard_feed(t, s); return; }
-    if (!*s) { t->dirty = true; return; }
+    if (t->wiz_step) {
+        tui_wizard_feed(t, s);
+        return;
+    }
+    if (!*s) {
+        t->dirty = true;
+        return;
+    }
 
     if (*s == '/') {
         tui_hist_add(t, s);
@@ -464,9 +513,8 @@ void tui_submit(tui *t, const char *text) {
              * order; the backend owns the text now and hands it back via
              * STEER_REJECTED if the host refuses it (docs/adr/0013) */
             tui_bol(t);
-            tui_linef(t, "%s› %s%s %ssteer%s", tui_attr(t, "\x1b[1m"), s,
-                      tui_attr(t, "\x1b[0m"), tui_attr(t, "\x1b[2m"),
-                      tui_attr(t, "\x1b[0m"));
+            tui_linef(t, "%s› %s%s %ssteer%s", tui_attr(t, "\x1b[1m"), s, tui_attr(t, "\x1b[0m"),
+                      tui_attr(t, "\x1b[2m"), tui_attr(t, "\x1b[0m"));
             t->gap = 1;
         } else {
             tui_queue_push(t, s, false); /* sent when this turn ends */
@@ -517,7 +565,10 @@ void tui_submit(tui *t, const char *text) {
     }
     t->bk_adopted = false;
     buf_clear(&t->note); /* the spinner in the status row takes over */
-    for (int i = 0; i < t->n_images; i++) { free(t->images[i]); t->images[i] = NULL; }
+    for (int i = 0; i < t->n_images; i++) {
+        free(t->images[i]);
+        t->images[i] = NULL;
+    }
     t->n_images = 0;
     t->turn_active = true;
     t->cancel_ms = 0;
@@ -533,8 +584,7 @@ static void banner(tui *t) {
               t->ctx->model ? t->ctx->model : "default model",
               tny_perm_mode_name(t->ctx->perm_mode));
     tui_sys(t, "/help for commands · @ files · $ skills · ctrl-c twice to exit");
-    if (!t->tty)
-        tui_sys(t, "not a terminal: status bar disabled, approvals auto-deny");
+    if (!t->tty) tui_sys(t, "not a terminal: status bar disabled, approvals auto-deny");
 }
 
 static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
@@ -601,16 +651,24 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         fds[0].events = POLLIN;
         fds[0].revents = 0;
         int nb = 0;
-        if (t.turn_active && t.engine)
-            nb = tny_engine_pollfds(t.engine, fds + 1, 8);
-        int pr = tny_poll(fds, (nfds_t)(1 + nb), t.turn_active ? 40 : 400);
+        if (t.turn_active && t.engine) nb = tny_engine_pollfds(t.engine, fds + 1, 8);
+        nfds_t nfds = 1;
+        if (nb > 0) nfds += (nfds_t)nb;
+        int pr = tny_poll(fds, nfds, t.turn_active ? 40 : 400);
         if (pr < 0 && errno != EINTR) break;
 
-        if (g_winch) { g_winch = 0; tui_size(&t); t.dirty = true; }
+        if (g_winch) {
+            g_winch = 0;
+            tui_size(&t);
+            t.dirty = true;
+        }
         if (g_sigint) {
             g_sigint = 0;
             if (t.turn_active) tui_cancel_turn(&t);
-            else { t.quit = true; t.exit_code = 130; }
+            else {
+                t.quit = true;
+                t.exit_code = 130;
+            }
         }
         if (t.turn_active && now_ms() - t.spin_ms >= 120) {
             t.spin_ms = now_ms();
@@ -627,8 +685,14 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
             tny_engine_dispatch(t.engine, fds + 1, nb);
             drain_engine_events(&t);
         }
-        if (t.want_cancel) { t.want_cancel = false; tui_cancel_turn(&t); }
-        if (t.turn_done) { t.turn_done = false; after_turn(&t); }
+        if (t.want_cancel) {
+            t.want_cancel = false;
+            tui_cancel_turn(&t);
+        }
+        if (t.turn_done) {
+            t.turn_done = false;
+            after_turn(&t);
+        }
         /* a host that never confirms the cancel must not wedge the shell */
         if (t.turn_active && t.cancel_ms && now_ms() - t.cancel_ms > 5000) {
             tui_drop_backend(&t);

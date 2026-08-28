@@ -8,6 +8,7 @@ typedef struct {
     size_t allocation_index;
     size_t fail_at;
     bool failed;
+    bool injected;
 } tny_alloc_state;
 
 static _Thread_local tny_alloc_state alloc_state;
@@ -16,6 +17,7 @@ void tny_alloc_scope_begin(const char *name) {
     alloc_state.allocation_index = 0;
     alloc_state.fail_at = 0;
     alloc_state.failed = false;
+    alloc_state.injected = false;
 #ifdef TNY_ALLOC_TESTING
     const char *scope = getenv("TNY_TEST_ALLOC_SCOPE");
     const char *index = getenv("TNY_TEST_ALLOC_FAIL_AT");
@@ -35,11 +37,25 @@ bool tny_alloc_scope_failed(void) { return alloc_state.failed; }
 
 void tny_alloc_scope_clear(void) { alloc_state.failed = false; }
 
+#ifdef TNY_ALLOC_TESTING
+#if defined(__GNUC__) || defined(__clang__)
+#define TNY_ALLOC_TEST_VISIBLE __attribute__((visibility("default")))
+#else
+#define TNY_ALLOC_TEST_VISIBLE
+#endif
+TNY_ALLOC_TEST_VISIBLE size_t tny_alloc_test_scope_count(void) {
+    return alloc_state.allocation_index;
+}
+
+TNY_ALLOC_TEST_VISIBLE bool tny_alloc_test_scope_injected(void) { return alloc_state.injected; }
+#undef TNY_ALLOC_TEST_VISIBLE
+#endif
+
 static bool should_fail(void) {
     alloc_state.allocation_index++;
-    if (alloc_state.fail_at &&
-        alloc_state.allocation_index == alloc_state.fail_at) {
+    if (alloc_state.fail_at && alloc_state.allocation_index == alloc_state.fail_at) {
         alloc_state.failed = true;
+        alloc_state.injected = true;
         errno = ENOMEM;
         return true;
     }

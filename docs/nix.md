@@ -56,7 +56,7 @@ The overlay is the form to use with `environment.systemPackages` on NixOS or
 | --- | --- |
 | `packages.<system>.tny` (`default`) | CLI/TUI binary plus the Python extension host under `lib/tny/` |
 | `packages.<system>.tny-unwrapped` | the same binary with no wrapper — see [Wrapping](#wrapping) |
-| `packages.<system>.libtny` | the ABI-0 embedding library, header and `libtny.pc` ([libtny.md](libtny.md)) |
+| `packages.<system>.libtny` | the active ABI-1 embedding library, header and `libtny.pc` ([libtny.md](libtny.md)); frozen ABI-0 compatibility remains in release artifacts |
 | `apps.<system>.tny` (`default`) | `nix run` entry point |
 | `overlays.default` | `tny` and `libtny` for any nixpkgs instance |
 | `devShells.<system>.default` | toolchain for `make`, `make test`, `make bench` |

@@ -6,7 +6,6 @@ from typing import Any, Callable, List, Optional, Tuple, Union
 from .capabilities import CapabilityView
 from .events import HookEvent, event_name
 
-
 Handler = Callable[[HookEvent], Any]
 EventSelector = Union[str, type]
 
@@ -29,7 +28,9 @@ class ExtensionAPI:
         api.on(AgentSettledEvent, settled_handler)
     """
 
-    def __init__(self, name: str, capabilities: Optional[CapabilityView] = None) -> None:
+    def __init__(
+        self, name: str, capabilities: Optional[CapabilityView] = None
+    ) -> None:
         self.name = name
         self.capabilities = capabilities or CapabilityView.empty()
         self._handlers: List[HandlerRegistration] = []
@@ -40,7 +41,9 @@ class ExtensionAPI:
         def register(callback: Handler) -> Handler:
             if not callable(callback):
                 raise TypeError("event handler must be callable")
-            self._handlers.append(HandlerRegistration(name, callback, len(self._handlers)))
+            self._handlers.append(
+                HandlerRegistration(name, callback, len(self._handlers))
+            )
             return callback
 
         if handler is None:

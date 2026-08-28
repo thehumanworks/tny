@@ -12,6 +12,7 @@
 #include "backends/cursor/cursor.h"
 #include "cli/cli.h"
 #include "util/util.h"
+#include "tny/tny.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -137,8 +138,10 @@ TEST perm_mode_overrides_parse(void) {
     ctx = tny_ctx_load(g_ws);
     buf_t s;
     buf_init(&s);
-    buf_appendf(&s, "{\"permission_mode\":\"yolo\","
-                    "\"workspaces\":{\"%s\":{\"permission_mode\":\"ask\"}}}", ctx->cwd);
+    buf_appendf(&s,
+                "{\"permission_mode\":\"yolo\","
+                "\"workspaces\":{\"%s\":{\"permission_mode\":\"ask\"}}}",
+                ctx->cwd);
     tny_ctx_free(ctx);
     write_settings(s.data);
     buf_free(&s);
@@ -335,9 +338,9 @@ TEST perm_workspace_beats_global(void) {
     buf_t s;
     buf_init(&s);
     buf_appendf(&s,
-        "{\"permission\":{\"bash\":{\"git *\":\"deny\"}},"
-        "\"workspaces\":{\"%s\":{\"permission\":{\"bash\":{\"git *\":\"allow\"}}}}}",
-        ctx->cwd);
+                "{\"permission\":{\"bash\":{\"git *\":\"deny\"}},"
+                "\"workspaces\":{\"%s\":{\"permission\":{\"bash\":{\"git *\":\"allow\"}}}}}",
+                ctx->cwd);
     tny_ctx_free(ctx);
     write_settings(s.data);
     buf_free(&s);
@@ -416,31 +419,26 @@ TEST tool_prepare_validates_rewrites_and_complete_permission_subjects(void) {
     ASSERT_EQ(-1, tools_call_prepare(&env, NULL, "{}", &call));
     ASSERT_EQ(-1, tools_call_prepare(&env, "list_files", "{}", NULL));
 
-    ASSERT_EQ(-1, tools_call_prepare(
-        &env, "write_file", "{\"path\":\"a.txt\"}", &call));
+    ASSERT_EQ(-1, tools_call_prepare(&env, "write_file", "{\"path\":\"a.txt\"}", &call));
     ASSERT(call.error && strstr(call.error, "needs argument content"));
     tools_call_free(&call);
-    ASSERT_EQ(-1, tools_call_prepare(
-        &env, "write_file", "{\"path\":7,\"content\":\"x\"}", &call));
+    ASSERT_EQ(-1, tools_call_prepare(&env, "write_file", "{\"path\":7,\"content\":\"x\"}", &call));
     ASSERT(call.error && strstr(call.error, "path must be string"));
     tools_call_free(&call);
 
-    ASSERT_EQ(0, tools_call_prepare(
-        &env, "write_file", "{\"path\":\"inside.txt\",\"content\":\"x\"}",
-        &call));
+    ASSERT_EQ(0, tools_call_prepare(&env, "write_file",
+                                    "{\"path\":\"inside.txt\",\"content\":\"x\"}", &call));
     ASSERT_EQ(PERM_ALLOW, call.verdict);
     tools_call_free(&call);
-    ASSERT_EQ(0, tools_call_prepare(
-        &env, "write_file", "{\"path\":\"/etc/tny-outside\",\"content\":\"x\"}",
-        &call));
+    ASSERT_EQ(0, tools_call_prepare(&env, "write_file",
+                                    "{\"path\":\"/etc/tny-outside\",\"content\":\"x\"}", &call));
     ASSERT_EQ(PERM_PROMPT, call.verdict);
     ASSERT(call.summary && strstr(call.summary, "write_file /etc/tny-outside"));
     tools_call_free(&call);
 
-    ASSERT_EQ(0, tools_call_prepare(
-        &env, "rename_file",
-        "{\"path\":\"inside.txt\",\"new_path\":\"/etc/tny-outside\"}",
-        &call));
+    ASSERT_EQ(0, tools_call_prepare(&env, "rename_file",
+                                    "{\"path\":\"inside.txt\",\"new_path\":\"/etc/tny-outside\"}",
+                                    &call));
     ASSERT(call.detail && path_is_within(ctx->cwd, call.detail));
     ASSERT_STR_EQ("/etc/tny-outside", call.detail2);
     ASSERT_EQ(PERM_PROMPT, call.verdict);
@@ -449,19 +447,17 @@ TEST tool_prepare_validates_rewrites_and_complete_permission_subjects(void) {
     tools_call_free(&call);
 
     ASSERT_EQ(0, tools_call_prepare(
-        &env, "copy_file",
-        "{\"path\":\"inside.txt\",\"new_path\":\"/etc/tny-copy-outside\"}",
-        &call));
+                     &env, "copy_file",
+                     "{\"path\":\"inside.txt\",\"new_path\":\"/etc/tny-copy-outside\"}", &call));
     ASSERT(call.detail && path_is_within(ctx->cwd, call.detail));
     ASSERT_STR_EQ("/etc/tny-copy-outside", call.detail2);
     ASSERT_EQ(PERM_PROMPT, call.verdict);
     tools_call_free(&call);
 
     ctx->perm_mode = TNY_MODE_ASK;
-    ASSERT_EQ(0, tools_call_prepare(
-        &env, "mcp_select_tool",
-        "{\"server\":\"srv\",\"tool\":\"deploy\",\"arguments\":{}}",
-        &call));
+    ASSERT_EQ(0, tools_call_prepare(&env, "mcp_select_tool",
+                                    "{\"server\":\"srv\",\"tool\":\"deploy\",\"arguments\":{}}",
+                                    &call));
     ASSERT_STR_EQ("mcp:srv/deploy", call.permission_tool);
     ASSERT_EQ(PERM_PROMPT, call.verdict);
     tools_call_free(&call);
@@ -470,18 +466,16 @@ TEST tool_prepare_validates_rewrites_and_complete_permission_subjects(void) {
     perm_free(perm);
     tny_ctx_free(ctx);
 
-    write_settings(
-        "{\"permission\":{\"edit\":{\"*\":\"allow\","
-        "\"*/deny-source\":\"deny\"}}}");
+    write_settings("{\"permission\":{\"edit\":{\"*\":\"allow\","
+                   "\"*/deny-source\":\"deny\"}}}");
     ctx = tny_ctx_load(g_ws);
     ctx->perm_mode = TNY_MODE_ASK;
     perm = perm_new(ctx);
     session = session_new(ctx);
     env = (tools_env){.ctx = ctx, .session = session, .perm = perm};
-    ASSERT_EQ(0, tools_call_prepare(
-        &env, "copy_file",
-        "{\"path\":\"/etc/deny-source\",\"new_path\":\"inside.txt\"}",
-        &call));
+    ASSERT_EQ(0, tools_call_prepare(&env, "copy_file",
+                                    "{\"path\":\"/etc/deny-source\",\"new_path\":\"inside.txt\"}",
+                                    &call));
     ASSERT_EQ(PERM_DENY, call.verdict);
     tools_call_free(&call);
     session_close(session);
@@ -724,12 +718,11 @@ TEST custom_named_provider_profiles(void) {
     unsetenv("CURSOR_API_KEY");
     unsetenv("OPENAI_API_KEY");
     unsetenv("OPENAI_BASE_URL");
-    write_settings(
-        "{\"openrouter\":{\"base_url\":\"https://openrouter.ai/api/v1\","
-        "\"api_key_env\":\"TEST_OR_KEY\",\"model\":\"anthropic/claude-sonnet-4.6\"},"
-        "\"xai\":{\"base_url\":\"https://api.x.ai/v1\"},"
-        "\"az-AZ09\":{\"base_url\":\"https://mixed.test/v1\"},"
-        "\"openai\":{\"base_url\":\"https://example.test/v1\"}}");
+    write_settings("{\"openrouter\":{\"base_url\":\"https://openrouter.ai/api/v1\","
+                   "\"api_key_env\":\"TEST_OR_KEY\",\"model\":\"anthropic/claude-sonnet-4.6\"},"
+                   "\"xai\":{\"base_url\":\"https://api.x.ai/v1\"},"
+                   "\"az-AZ09\":{\"base_url\":\"https://mixed.test/v1\"},"
+                   "\"openai\":{\"base_url\":\"https://example.test/v1\"}}");
     setenv("TEST_OR_KEY", "sk-or-test", 1);
     setenv("XAI_API_KEY", "sk-xai-test", 1);
 
@@ -783,7 +776,7 @@ TEST custom_named_provider_profiles(void) {
     /* builtin even though a base_url object with that name exists */
     ASSERT_FALSE(tny_custom_provider_exists(ctx, "openai"));
     ASSERT_FALSE(tny_custom_provider_exists(ctx, "models")); /* no base_url */
-    ASSERT_EQ(-1, tny_resolve_backend(ctx, "nope")); /* unknown still fails */
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, "nope"));         /* unknown still fails */
     char *env = tny_custom_provider_key_env(ctx, "xai");
     ASSERT(env);
     ASSERT_STR_EQ("XAI_API_KEY", env);
@@ -808,11 +801,9 @@ TEST settings_general_defaults(void) {
     ensure_env();
     codex_auth_write(false);
     unsetenv("TNY_REASONING_EFFORT");
-    write_settings(
-        "{\"provider\":\"codex\",\"model\":{\"codex\":\"cfg-model\"},"
-        "\"models\":{\"codex\":\"remembered-model\"},"
-        "\"effort\":\"high\",\"fast\":{\"codex\":true}}"
-    );
+    write_settings("{\"provider\":\"codex\",\"model\":{\"codex\":\"cfg-model\"},"
+                   "\"models\":{\"codex\":\"remembered-model\"},"
+                   "\"effort\":\"high\",\"fast\":{\"codex\":true}}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
     ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, NULL));
     ASSERT_STR_EQ("codex", tny_provider_name(ctx));
@@ -846,13 +837,11 @@ TEST acp_named_provider_profiles(void) {
     codex_auth_write(false);
     unsetenv("CURSOR_API_KEY");
     unsetenv("OPENAI_API_KEY");
-    write_settings(
-        "{\"acp\":{\"agents\":{"
-        "\"claude\":{\"command\":[\"npx\",\"-y\",\"claude-agent-acp\"],"
-        "\"model\":\"profile-model\"},"
-        "\"gemini\":{\"command\":[\"gemini\",\"--acp\"]}}},"
-        "\"models\":{\"acp:claude\":\"saved-model\"}}"
-    );
+    write_settings("{\"acp\":{\"agents\":{"
+                   "\"claude\":{\"command\":[\"npx\",\"-y\",\"claude-agent-acp\"],"
+                   "\"model\":\"profile-model\"},"
+                   "\"gemini\":{\"command\":[\"gemini\",\"--acp\"]}}},"
+                   "\"models\":{\"acp:claude\":\"saved-model\"}}");
 
     tny_ctx *ctx = tny_ctx_load(g_ws);
     ASSERT(tny_acp_profile_exists(ctx, "acp:claude"));
@@ -873,31 +862,27 @@ TEST acp_named_provider_profiles(void) {
     ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
     ASSERT_EQ(NULL, ctx->agent_argv); /* profile argv does not leak */
     ASSERT_FALSE(ctx->agent_from_profile);
-    ASSERT_EQ(NULL, ctx->model);      /* ACP model does not leak either */
+    ASSERT_EQ(NULL, ctx->model); /* ACP model does not leak either */
 
     ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:gemini"));
     ASSERT_STR_EQ("gemini", ctx->agent_argv[0]);
     ASSERT_STR_EQ("--acp", ctx->agent_argv[1]);
-    ASSERT_EQ(NULL, ctx->model);      /* no saved/profile model -> agent default */
+    ASSERT_EQ(NULL, ctx->model); /* no saved/profile model -> agent default */
     tny_ctx_free(ctx);
 
     /* A previously used namespaced profile is restored like every other
      * effective provider; defining the profile alone is not auto-selection. */
-    write_settings(
-        "{\"last_provider\":\"acp:claude\",\"acp\":{\"agents\":{"
-        "\"claude\":{\"command\":[\"claude-agent-acp\"]}}}}"
-    );
+    write_settings("{\"last_provider\":\"acp:claude\",\"acp\":{\"agents\":{"
+                   "\"claude\":{\"command\":[\"claude-agent-acp\"]}}}}");
     ctx = tny_ctx_load(g_ws);
     ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, NULL));
     ASSERT_STR_EQ("acp:claude", tny_provider_name(ctx));
     ASSERT_STR_EQ("claude-agent-acp", ctx->agent_argv[0]);
     tny_ctx_free(ctx);
     /* Preferred shape + selector: command string and separate args array. */
-    write_settings(
-        "{\"acp\":{\"claude\":{\"command\":\"npx\","
-        "\"args\":[\"-y\",\"@agentclientprotocol/claude-agent-acp\"]},"
-        "\"pi\":{\"command\":\"pi-acp\"}}}"
-    );
+    write_settings("{\"acp\":{\"claude\":{\"command\":\"npx\","
+                   "\"args\":[\"-y\",\"@agentclientprotocol/claude-agent-acp\"]},"
+                   "\"pi\":{\"command\":\"pi-acp\"}}}");
     ctx = tny_ctx_load(g_ws);
     ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp@claude"));
     ASSERT_STR_EQ("acp@claude", tny_provider_name(ctx));
@@ -919,10 +904,8 @@ TEST acp_named_provider_profiles(void) {
 TEST acp_profile_model_precedence(void) {
     ensure_env();
     setenv("ACP_A_DEFAULT_MODEL", "env-default", 1);
-    write_settings(
-        "{\"acp\":{\"agents\":{\"a\":{\"command\":[\"agent-a\"],"
-        "\"model\":\"profile\"}}},\"models\":{\"acp:a\":\"saved\"}}"
-    );
+    write_settings("{\"acp\":{\"agents\":{\"a\":{\"command\":[\"agent-a\"],"
+                   "\"model\":\"profile\"}}},\"models\":{\"acp:a\":\"saved\"}}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
     ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:a"));
     ASSERT_STR_EQ("saved", ctx->model);
@@ -935,18 +918,14 @@ TEST acp_profile_model_precedence(void) {
     ASSERT_STR_EQ("flag", ctx->model);
     tny_ctx_free(ctx);
 
-    write_settings(
-        "{\"acp\":{\"agents\":{\"a\":{\"command\":[\"agent-a\"],"
-        "\"model\":\"profile\"}}}}"
-    );
+    write_settings("{\"acp\":{\"agents\":{\"a\":{\"command\":[\"agent-a\"],"
+                   "\"model\":\"profile\"}}}}");
     ctx = tny_ctx_load(g_ws);
     ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:a"));
     ASSERT_STR_EQ("profile", ctx->model);
     tny_ctx_free(ctx);
 
-    write_settings(
-        "{\"acp\":{\"agents\":{\"a\":{\"command\":[\"agent-a\"]}}}}"
-    );
+    write_settings("{\"acp\":{\"agents\":{\"a\":{\"command\":[\"agent-a\"]}}}}");
     ctx = tny_ctx_load(g_ws);
     ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:a"));
     ASSERT_STR_EQ("env-default", ctx->model);
@@ -958,21 +937,17 @@ TEST acp_profile_model_precedence(void) {
 
 TEST acp_profiles_validate_when_selected(void) {
     ensure_env();
-    write_settings(
-        "{\"acp\":{\"agents\":{"
-        "\"bad name\":{\"command\":[\"x\"]},"
-        "\"missing\":{},\"not_array\":{\"command\":7},"
-        "\"empty\":{\"command\":[]},"
-        "\"non_string\":{\"command\":[\"x\",7]},"
-        "\"empty_arg\":{\"command\":[\"x\",\"\"]},"
-        "\"remote_args\":{\"command\":[\"wss://agent.test/acp\",\"extra\"]},"
-        "\"bad_model\":{\"command\":[\"x\"],\"model\":7}}}}"
-    );
+    write_settings("{\"acp\":{\"agents\":{"
+                   "\"bad name\":{\"command\":[\"x\"]},"
+                   "\"missing\":{},\"not_array\":{\"command\":7},"
+                   "\"empty\":{\"command\":[]},"
+                   "\"non_string\":{\"command\":[\"x\",7]},"
+                   "\"empty_arg\":{\"command\":[\"x\",\"\"]},"
+                   "\"remote_args\":{\"command\":[\"wss://agent.test/acp\",\"extra\"]},"
+                   "\"bad_model\":{\"command\":[\"x\"],\"model\":7}}}}");
     const char *bad[] = {
-        "acp:", "acp:unknown", "acp:bad name", "acp:missing",
-        "acp:not_array", "acp:empty", "acp:non_string",
-        "acp:empty_arg", "acp:remote_args", "acp:bad_model"
-    };
+        "acp:",      "acp:unknown",    "acp:bad name",  "acp:missing",     "acp:not_array",
+        "acp:empty", "acp:non_string", "acp:empty_arg", "acp:remote_args", "acp:bad_model"};
     for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) {
         tny_ctx *ctx = tny_ctx_load(g_ws);
         ASSERT_EQ(-1, tny_resolve_backend(ctx, bad[i]));
@@ -980,13 +955,11 @@ TEST acp_profiles_validate_when_selected(void) {
     }
 
     /* Pin every inclusive boundary in the profile-name alphabet. */
-    write_settings(
-        "{\"acp\":{\"agents\":{"
-        "\"a\":{\"command\":[\"x\"]},\"z\":{\"command\":[\"x\"]},"
-        "\"A\":{\"command\":[\"x\"]},\"Z\":{\"command\":[\"x\"]},"
-        "\"0\":{\"command\":[\"x\"]},\"9\":{\"command\":[\"x\"]},"
-        "\"-\":{\"command\":[\"x\"]},\"_\":{\"command\":[\"x\"]}}}}"
-    );
+    write_settings("{\"acp\":{\"agents\":{"
+                   "\"a\":{\"command\":[\"x\"]},\"z\":{\"command\":[\"x\"]},"
+                   "\"A\":{\"command\":[\"x\"]},\"Z\":{\"command\":[\"x\"]},"
+                   "\"0\":{\"command\":[\"x\"]},\"9\":{\"command\":[\"x\"]},"
+                   "\"-\":{\"command\":[\"x\"]},\"_\":{\"command\":[\"x\"]}}}}");
     const char *edges[] = {"a", "z", "A", "Z", "0", "9", "-", "_"};
     for (size_t i = 0; i < sizeof edges / sizeof *edges; i++) {
         char provider[8];
@@ -998,9 +971,7 @@ TEST acp_profiles_validate_when_selected(void) {
 
     /* Explicit --agent is the ad-hoc `acp` form, never an override for a
      * named profile. Resolver rejects the ambiguous combination. */
-    write_settings(
-        "{\"acp\":{\"agents\":{\"named\":{\"command\":[\"profile\"]}}}}"
-    );
+    write_settings("{\"acp\":{\"agents\":{\"named\":{\"command\":[\"profile\"]}}}}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
     ctx->agent_argv = calloc(2, sizeof *ctx->agent_argv);
     ctx->agent_argv[0] = xstrdup("explicit");
@@ -1018,11 +989,9 @@ TEST acp_profiles_list_without_auto_select(void) {
     unsetenv("CURSOR_API_KEY");
     unsetenv("OPENAI_API_KEY");
     unsetenv("OPENAI_BASE_URL");
-    write_settings(
-        "{\"acp\":{\"agents\":{\"\":{\"command\":[\"empty\"]},"
-        "\"claude\":{\"command\":[\"claude\"]},"
-        "\"bad name\":{\"command\":[\"bad\"]}}}}"
-    );
+    write_settings("{\"acp\":{\"agents\":{\"\":{\"command\":[\"empty\"]},"
+                   "\"claude\":{\"command\":[\"claude\"]},"
+                   "\"bad name\":{\"command\":[\"bad\"]}}}}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
     ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
     ASSERT_STR_EQ("openai", tny_provider_name(ctx));
@@ -1173,11 +1142,16 @@ static void claude_credentials_write(const char *token) {
     snprintf(path, sizeof path, "%s/.claude", g_home);
     mkdir_p(path);
     snprintf(path, sizeof path, "%s/.claude/.credentials.json", g_home);
-    if (!token) { unlink(path); return; }
+    if (!token) {
+        unlink(path);
+        return;
+    }
     buf_t b;
     buf_init(&b);
-    buf_appendf(&b, "{\"claudeAiOauth\":{\"accessToken\":\"%s\","
-                    "\"refreshToken\":\"r\",\"expiresAt\":9999999999999}}", token);
+    buf_appendf(&b,
+                "{\"claudeAiOauth\":{\"accessToken\":\"%s\","
+                "\"refreshToken\":\"r\",\"expiresAt\":9999999999999}}",
+                token);
     file_write_atomic(path, b.data, b.len);
     buf_free(&b);
 }
@@ -1187,7 +1161,10 @@ static void grok_auth_write(const char *token) {
     snprintf(path, sizeof path, "%s/.grok", g_home);
     mkdir_p(path);
     snprintf(path, sizeof path, "%s/.grok/auth.json", g_home);
-    if (!token) { unlink(path); return; }
+    if (!token) {
+        unlink(path);
+        return;
+    }
     buf_t b;
     buf_init(&b);
     buf_appendf(&b, "{\"https://accounts.x.ai/sign-in\":{\"key\":\"%s\"}}", token);
@@ -1324,7 +1301,8 @@ static void *oauth_mock_run(void *ud) {
                           "HTTP/1.1 %d X\r\nContent-Type: application/json\r\n"
                           "Content-Length: %zu\r\nConnection: close\r\n\r\n%s",
                           s->status[i], strlen(s->body[i]), s->body[i]);
-        if (write(fd, resp, (size_t)rl) < 0) { /* peer gone; keep serving */ }
+        if (write(fd, resp, (size_t)rl) < 0) { /* peer gone; keep serving */
+        }
         close(fd);
     }
     return NULL;
@@ -1337,9 +1315,7 @@ static int oauth_mock_start(oauth_mock *s, pthread_t *th) {
     struct sockaddr_in sa = {0};
     sa.sin_family = AF_INET;
     sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    if (bind(s->lfd, (struct sockaddr *)&sa, sizeof sa) != 0 ||
-        listen(s->lfd, 4) != 0)
-        return -1;
+    if (bind(s->lfd, (struct sockaddr *)&sa, sizeof sa) != 0 || listen(s->lfd, 4) != 0) return -1;
     socklen_t sl = sizeof sa;
     if (getsockname(s->lfd, (struct sockaddr *)&sa, &sl) != 0) return -1;
     if (pthread_create(th, NULL, oauth_mock_run, s) != 0) return -1;
@@ -1380,12 +1356,11 @@ TEST grok_native_device_login(void) {
     /* wire shape: endpoints, form encoding, RFC 8628 grant */
     ASSERT(strstr(s.req[0], "POST /oauth2/device/code"));
     ASSERT(strstr(s.req[0], "client_id=cid-1"));
-    ASSERT(strstr(s.req[0], "grok-cli%3Aaccess"));   /* scope, %-encoded */
+    ASSERT(strstr(s.req[0], "grok-cli%3Aaccess")); /* scope, %-encoded */
     ASSERT(strstr(s.req[0], "referrer=grok-build"));
     ASSERT(strstr(s.req[2], "POST /oauth2/token"));
     ASSERT(strstr(s.req[2], "device_code=dc-1"));
-    ASSERT(strstr(s.req[2],
-        "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code"));
+    ASSERT(strstr(s.req[2], "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code"));
 
     /* the store entry is grok-CLI-compatible */
     char path[600];
@@ -1399,7 +1374,7 @@ TEST grok_native_device_login(void) {
     ASSERT_STR_EQ("at-1", jget_str(e, "key"));
     ASSERT_STR_EQ("oidc", jget_str(e, "auth_mode"));
     ASSERT_STR_EQ("rt-1", jget_str(e, "refresh_token"));
-    ASSERT_STR_EQ("u-1", jget_str(e, "user_id"));    /* id_token sub */
+    ASSERT_STR_EQ("u-1", jget_str(e, "user_id")); /* id_token sub */
     ASSERT_STR_EQ("a@b.c", jget_str(e, "email"));
     ASSERT_STR_EQ(issuer, jget_str(e, "oidc_issuer"));
     ASSERT_STR_EQ("cid-1", jget_str(e, "oidc_client_id"));
@@ -1471,11 +1446,11 @@ TEST grok_native_refresh(void) {
     buf_t b;
     buf_init(&b);
     buf_appendf(&b,
-        "{\"%s::cid-1\":{\"key\":\"at-old\",\"auth_mode\":\"oidc\","
-        "\"create_time\":\"2020-01-01T00:00:00Z\",\"user_id\":\"u-1\","
-        "\"refresh_token\":\"rt-old\",\"expires_at\":\"2020-01-01T00:15:00Z\","
-        "\"oidc_issuer\":\"%s\",\"oidc_client_id\":\"cid-1\"}}",
-        issuer, issuer);
+                "{\"%s::cid-1\":{\"key\":\"at-old\",\"auth_mode\":\"oidc\","
+                "\"create_time\":\"2020-01-01T00:00:00Z\",\"user_id\":\"u-1\","
+                "\"refresh_token\":\"rt-old\",\"expires_at\":\"2020-01-01T00:15:00Z\","
+                "\"oidc_issuer\":\"%s\",\"oidc_client_id\":\"cid-1\"}}",
+                issuer, issuer);
     file_write_atomic(path, b.data, b.len);
     buf_free(&b);
 
@@ -1519,12 +1494,11 @@ TEST grok_native_logout(void) {
     snprintf(path, sizeof path, "%s/.grok", g_home);
     mkdir_p(path);
     snprintf(path, sizeof path, "%s/.grok/auth.json", g_home);
-    const char *store =
-        "{\"https://accounts.x.ai/sign-in\":{\"key\":\"k1\"},"
-        "\"https://auth.x.ai::cid\":{\"key\":\"k2\","
-        "\"oidc_issuer\":\"https://auth.x.ai\"},"
-        "\"https://idp.acme.example::c\":{\"key\":\"k3\","
-        "\"oidc_issuer\":\"https://idp.acme.example\"}}";
+    const char *store = "{\"https://accounts.x.ai/sign-in\":{\"key\":\"k1\"},"
+                        "\"https://auth.x.ai::cid\":{\"key\":\"k2\","
+                        "\"oidc_issuer\":\"https://auth.x.ai\"},"
+                        "\"https://idp.acme.example::c\":{\"key\":\"k3\","
+                        "\"oidc_issuer\":\"https://idp.acme.example\"}}";
     file_write_atomic(path, store, strlen(store));
 
     ASSERT_EQ(0, tny_grok_logout());
@@ -1860,14 +1834,25 @@ TEST backend_default_cursor_key_from_env(void) {
 /* The registry is untrusted: only a bare ws:// loopback URL may pass. */
 TEST codex_registry_loopback_only(void) {
     static const char *const ok[] = {
-        "ws://127.0.0.1:8080", "ws://localhost:1234", "ws://127.0.0.1:65535/",
+        "ws://127.0.0.1:8080",
+        "ws://localhost:1234",
+        "ws://127.0.0.1:65535/",
     };
     static const char *const bad[] = {
-        "", "wss://127.0.0.1:443", "http://127.0.0.1:80",
-        "ws://127.0.0.1", "ws://127.0.0.1:", "ws://127.0.0.1:0",
-        "ws://127.0.0.1:65536", "ws://127.0.0.2:80", "ws://10.0.0.5:80",
-        "ws://localhost.evil.io:80", "ws://evil:80",
-        "ws://127.0.0.1:80/path", "ws://127.0.0.1:80x", "ws://[::1]:80",
+        "",
+        "wss://127.0.0.1:443",
+        "http://127.0.0.1:80",
+        "ws://127.0.0.1",
+        "ws://127.0.0.1:",
+        "ws://127.0.0.1:0",
+        "ws://127.0.0.1:65536",
+        "ws://127.0.0.2:80",
+        "ws://10.0.0.5:80",
+        "ws://localhost.evil.io:80",
+        "ws://evil:80",
+        "ws://127.0.0.1:80/path",
+        "ws://127.0.0.1:80x",
+        "ws://[::1]:80",
         "ws://user@127.0.0.1:80",
     };
     ASSERT(!cx_ws_url_is_loopback(NULL));
@@ -1926,8 +1911,7 @@ TEST codex_registry_rejects_bad_entries(void) {
     codex_registry_raw("{\"ws\":\"ws://127.0.0.1:4242\"}"); /* no pid */
     ASSERT(cx_registry_load(&ws, NULL) != 0);
 
-    snprintf(json, sizeof json, "{\"ws\":\"ws://10.0.0.5:4242\",\"pid\":%ld}",
-             (long)getpid());
+    snprintf(json, sizeof json, "{\"ws\":\"ws://10.0.0.5:4242\",\"pid\":%ld}", (long)getpid());
     codex_registry_raw(json); /* live pid but off-loopback: never attach */
     ASSERT(cx_registry_load(&ws, NULL) != 0);
 
@@ -1943,13 +1927,11 @@ TEST codex_registry_rejects_bad_entries(void) {
 
 /* 1x1 transparent PNG */
 static const uint8_t PNG1[] = {
-    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
-    0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-    0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
-    0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
-    0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
-    0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82
-};
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+    0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+    0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78,
+    0x9c, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
+    0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
 
 TEST image_mime_from_magic(void) {
     ASSERT_STR_EQ("image/png", image_mime(PNG1, sizeof PNG1));
@@ -2022,8 +2004,8 @@ TEST read_image_queues_user_message(void) {
     ASSERT_EQ(2, (int)yyjson_mut_arr_size(content));
     yyjson_mut_val *img = yyjson_mut_arr_get(content, 1);
     ASSERT_STR_EQ("image_url", yyjson_mut_get_str(yyjson_mut_obj_get(img, "type")));
-    const char *url = yyjson_mut_get_str(
-        yyjson_mut_obj_get(yyjson_mut_obj_get(img, "image_url"), "url"));
+    const char *url =
+        yyjson_mut_get_str(yyjson_mut_obj_get(yyjson_mut_obj_get(img, "image_url"), "url"));
     ASSERT(url);
     ASSERT(str_starts(url, "data:image/png;base64,"));
 
@@ -2128,7 +2110,8 @@ TEST responses_input_translates_history(void) {
     session_add_text(s, "user", "hello");
     session_add_assistant(s, "hi there", NULL);
     session_add_text(s, "user", "list files");
-    session_add_assistant(s, NULL,
+    session_add_assistant(
+        s, NULL,
         "[{\"id\":\"call_9\",\"type\":\"function\",\"function\":"
         "{\"name\":\"list_files\",\"arguments\":\"{\\\"path\\\": \\\".\\\"}\"}}]");
     session_add_tool_result(s, "call_9", "a.txt\nb.txt");
@@ -2276,10 +2259,8 @@ TEST responses_input_skips_malformed(void) {
 
     /* assistant message whose tool_calls is not an array */
     yyjson_mut_val *m2 = yyjson_mut_obj(d);
-    yyjson_mut_obj_put(m2, yyjson_mut_strcpy(d, "role"),
-                       yyjson_mut_strcpy(d, "assistant"));
-    yyjson_mut_obj_put(m2, yyjson_mut_strcpy(d, "content"),
-                       yyjson_mut_strcpy(d, "fine"));
+    yyjson_mut_obj_put(m2, yyjson_mut_strcpy(d, "role"), yyjson_mut_strcpy(d, "assistant"));
+    yyjson_mut_obj_put(m2, yyjson_mut_strcpy(d, "content"), yyjson_mut_strcpy(d, "fine"));
     yyjson_mut_obj_put(m2, yyjson_mut_strcpy(d, "tool_calls"),
                        yyjson_mut_strcpy(d, "not an array"));
     yyjson_mut_arr_add_val(msgs, m2);
@@ -2306,8 +2287,7 @@ TEST responses_input_skips_malformed(void) {
 
     /* text_format: a json_schema wrapper whose payload is not an object
      * degrades to the bare type, never crashes */
-    char *fmt = tny_openai_responses_text_format(
-        "{\"type\":\"json_schema\",\"json_schema\":42}");
+    char *fmt = tny_openai_responses_text_format("{\"type\":\"json_schema\",\"json_schema\":42}");
     ASSERT(fmt);
     yyjson_doc *fd = jparse(fmt, strlen(fmt));
     ASSERT_STR_EQ("json_schema", jget_str(yyjson_doc_get_root(fd), "type"));
@@ -2380,8 +2360,7 @@ TEST embedded_tool_schema_has_no_process_spawning_tools(void) {
         ASSERT(strcmp(name, "subagent") != 0);
     }
     tools_call call;
-    ASSERT_EQ(-1, tools_call_prepare(
-        &env, "terminal", "{\"command\":\"true\"}", &call));
+    ASSERT_EQ(-1, tools_call_prepare(&env, "terminal", "{\"command\":\"true\"}", &call));
     ASSERT(call.error && strstr(call.error, "unavailable"));
     tools_call_free(&call);
     yyjson_doc_free(doc);
@@ -2484,8 +2463,7 @@ TEST wire_api_flag(void) {
     unsetenv("OPENAI_WIRE_API");
     write_settings("{}");
 
-    char *argv[] = {"tny", "--provider", "openai", "--wire-api", "chat",
-                    "ask", "hi", NULL};
+    char *argv[] = {"tny", "--provider", "openai", "--wire-api", "chat", "ask", "hi", NULL};
     cli_globals g = {0};
     int ci = cli_parse_globals(7, argv, &g);
     ASSERT_EQ(5, ci);
@@ -2580,7 +2558,6 @@ TEST version_string_is_sane(void) {
     PASS();
 }
 
-
 /* docs/adr/0018: a key stored by `provider setup` is the fallback; any env
  * var still beats it, so shell-side rotation wins without editing files. */
 TEST provider_profile_stored_api_key(void) {
@@ -2662,8 +2639,8 @@ TEST extension_config_default_and_overrides(void) {
     ASSERT_EQ(1234, ctx->extension_timeout_ms);
     tny_ctx_free(ctx);
 
-    char *argv[] = {"tny", "--max-extension-iterations", "unlimited",
-                    "--no-extensions", "ask", "hi", NULL};
+    char *argv[] = {
+        "tny", "--max-extension-iterations", "unlimited", "--no-extensions", "ask", "hi", NULL};
     cli_globals g = {0};
     ASSERT_EQ(4, cli_parse_globals(6, argv, &g));
     ASSERT_STR_EQ("unlimited", g.max_extension_iterations);
@@ -2732,6 +2709,29 @@ TEST provider_write_profile_rules(void) {
     PASS();
 }
 
+TEST embedded_public_runtime_does_not_claim_library_linkage(void) {
+    tny_runtime_options_v0 options;
+    ASSERT_EQ(TNY_STATUS_OK, tny_runtime_options_init(&options, sizeof options));
+    options.workspace = (tny_bytes){g_ws, strlen(g_ws)};
+    options.base_url = (tny_bytes){"http://127.0.0.1:1/v1", 21};
+    options.api_key = (tny_bytes){"unit-key", 8};
+    tny_runtime *runtime = NULL;
+    ASSERT_EQ(TNY_STATUS_OK, tny_runtime_create(&options, sizeof options, &runtime, NULL));
+    ASSERT(runtime);
+    tny_capabilities_v0 capabilities;
+    ASSERT_EQ(TNY_STATUS_OK, tny_capabilities_init(&capabilities, sizeof capabilities));
+    ASSERT_EQ(TNY_STATUS_OK,
+              tny_runtime_get_capabilities(runtime, &capabilities, sizeof capabilities));
+    ASSERT_EQ(0, capabilities.feature_available_mask &
+                     (TNY_CAP_FEATURE_SHARED_LIBRARY | TNY_CAP_FEATURE_STATIC_LIBRARY));
+    ASSERT_EQ(0, capabilities.feature_enabled_mask &
+                     (TNY_CAP_FEATURE_SHARED_LIBRARY | TNY_CAP_FEATURE_STATIC_LIBRARY));
+    ASSERT_STR_EQ("embedded", capabilities.linkage.ptr);
+    ASSERT_EQ(TNY_STATUS_OK, tny_runtime_destroy(&runtime));
+    ASSERT(!runtime);
+    PASS();
+}
+
 SUITE(core_suite) {
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(backend_default_cursor_key_from_env);
@@ -2744,6 +2744,7 @@ SUITE(core_suite) {
     RUN_TEST(acp_profiles_list_without_auto_select);
     RUN_TEST(provider_profile_stored_api_key);
     RUN_TEST(provider_write_profile_rules);
+    RUN_TEST(embedded_public_runtime_does_not_claim_library_linkage);
     RUN_TEST(max_steps_default_and_overrides);
     RUN_TEST(extension_config_default_and_overrides);
     RUN_TEST(env_defined_providers);

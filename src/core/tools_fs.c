@@ -1,6 +1,7 @@
 /* tools_fs.c — file tools: list/glob/grep/read/write/edit/…, /undo support. */
 #include "core/tools.h"
 #include "core/image.h"
+#include "util/alloc.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -15,38 +16,83 @@
 #define GREP_MAX_FILE  (2u * 1024u * 1024u)
 
 static bool skip_dir(const char *name) {
-    return name[0] == '.' || strcmp(name, "node_modules") == 0 ||
-           strcmp(name, "build") == 0 || strcmp(name, "target") == 0 ||
-           strcmp(name, "dist") == 0 || strcmp(name, "__pycache__") == 0;
+    return name[0] == '.' || strcmp(name, "node_modules") == 0 || strcmp(name, "build") == 0 ||
+           strcmp(name, "target") == 0 || strcmp(name, "dist") == 0 ||
+           strcmp(name, "__pycache__") == 0;
 }
 
-typedef void (*walk_cb)(const char *abs, const char *rel, void *ud);
+typedef bool (*walk_cb)(const char *abs, const char *rel, void *ud);
 
-static void walk(const char *root, const char *rel, int *budget, walk_cb cb, void *ud) {
-    if (*budget <= 0) return;
+/* Return false after allocator exhaustion. The caller must propagate NULL so
+ * the public next_event boundary can publish its reserved OOM terminal pair. */
+static bool walk(const char *root, const char *rel, int *budget, walk_cb cb, void *ud) {
+    if (*budget <= 0) return true;
     char *dir = rel[0] ? path_join(root, rel) : xstrdup(root);
+    if (!dir) return false;
     DIR *d = opendir(dir);
-    if (!d) { free(dir); return; }
+    if (!d) {
+        free(dir);
+        return true;
+    }
+    bool ok = true;
     struct dirent *e;
     while ((e = readdir(d)) && *budget > 0) {
         if (e->d_name[0] == '.') continue;
         char *nrel = rel[0] ? path_join(rel, e->d_name) : xstrdup(e->d_name);
+        if (!nrel) {
+            ok = false;
+            break;
+        }
         char *nabs = path_join(root, nrel);
+        if (!nabs) {
+            free(nrel);
+            ok = false;
+            break;
+        }
         struct stat st;
         if (lstat(nabs, &st) == 0) {
             if (S_ISDIR(st.st_mode)) {
-                if (!skip_dir(e->d_name)) walk(root, nrel, budget, cb, ud);
+                if (!skip_dir(e->d_name) && !walk(root, nrel, budget, cb, ud)) ok = false;
             } else if (S_ISREG(st.st_mode)) {
                 (*budget)--;
-                cb(nabs, nrel, ud);
+                if (!cb(nabs, nrel, ud)) ok = false;
             }
         }
         free(nrel);
         free(nabs);
+        if (!ok) break;
     }
     closedir(d);
     free(dir);
+    return ok;
 }
+
+#ifdef TNY_ALLOC_TESTING
+#if defined(__GNUC__) || defined(__clang__)
+#define TNY_TOOLS_TEST_VISIBLE __attribute__((visibility("default")))
+#else
+#define TNY_TOOLS_TEST_VISIBLE
+#endif
+static bool walk_test_cb(const char *abs, const char *rel, void *ud) {
+    (void)abs;
+    int *files = ud;
+    char *copy = xstrdup(rel); /* make callback exhaustion observable */
+    if (!copy) return false;
+    (*files)++;
+    free(copy);
+    return true;
+}
+
+/* Test-only direct seam: production libraries do not export this symbol. */
+TNY_TOOLS_TEST_VISIBLE int tny_tools_test_walk(const char *root) {
+    tny_alloc_scope_begin("tools_fs_walk");
+    int budget = WALK_MAX_FILES;
+    int files = 0;
+    if (!walk(root, "", &budget, walk_test_cb, &files)) return -1;
+    return files;
+}
+#undef TNY_TOOLS_TEST_VISIBLE
+#endif
 
 /* ---- undo: one-deep stack per session ---- */
 
@@ -75,7 +121,10 @@ char *tools_undo_last(tools_env *env) {
     if (!env->session) return tool_err("no session to undo from");
     char *meta = path_join(env->session->dir, "undo.json");
     yyjson_doc *doc = jparse_file(meta);
-    if (!doc) { free(meta); return tool_err("nothing to undo"); }
+    if (!doc) {
+        free(meta);
+        return tool_err("nothing to undo");
+    }
     const char *path = jget_str(yyjson_doc_get_root(doc), "path");
     bool existed = jget_bool(yyjson_doc_get_root(doc), "existed", false);
     buf_t out;
@@ -84,10 +133,8 @@ char *tools_undo_last(tools_env *env) {
         char *blob = path_join(env->session->dir, "undo.blob");
         size_t len = 0;
         char *prev = file_slurp(blob, &len);
-        if (prev && file_write_atomic(path, prev, len) == 0)
-            buf_appendf(&out, "restored %s", path);
-        else
-            buf_appendf(&out, "error: could not restore %s", path);
+        if (prev && file_write_atomic(path, prev, len) == 0) buf_appendf(&out, "restored %s", path);
+        else buf_appendf(&out, "error: could not restore %s", path);
         free(prev);
         free(blob);
     } else if (path) {
@@ -104,7 +151,9 @@ char *tools_undo_last(tools_env *env) {
 
 /* ---- individual tools ---- */
 
-struct list_ud { buf_t *out; };
+struct list_ud {
+    buf_t *out;
+};
 
 static char *t_list_files(tools_env *env, yyjson_val *args) {
     const char *p = jget_str(args, "path");
@@ -112,7 +161,11 @@ static char *t_list_files(tools_env *env, yyjson_val *args) {
     char *abs = tool_resolve_path(env, p && *p ? p : ".", &err);
     if (!abs) return err;
     DIR *d = opendir(abs);
-    if (!d) { char *e = tool_err("cannot open %s", abs); free(abs); return e; }
+    if (!d) {
+        char *e = tool_err("cannot open %s", abs);
+        free(abs);
+        return e;
+    }
     buf_t out;
     buf_init(&out);
     struct dirent *e;
@@ -120,31 +173,52 @@ static char *t_list_files(tools_env *env, yyjson_val *args) {
     while ((e = readdir(d)) && n < 2000) {
         if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
         char *fp = path_join(abs, e->d_name);
+        if (!fp) {
+            buf_free(&out);
+            closedir(d);
+            free(abs);
+            return NULL;
+        }
         struct stat st;
         bool isdir = stat(fp, &st) == 0 && S_ISDIR(st.st_mode);
         buf_appendf(&out, "%s%s\n", e->d_name, isdir ? "/" : "");
         free(fp);
+        if (buf_oom(&out)) {
+            closedir(d);
+            free(abs);
+            buf_free(&out);
+            return NULL;
+        }
         n++;
     }
     closedir(d);
     free(abs);
     if (!out.len) buf_appends(&out, "(empty)");
+    if (buf_oom(&out)) {
+        buf_free(&out);
+        return NULL;
+    }
     char *res = tool_bound_result(env, out.data, out.len);
     buf_free(&out);
     return res;
 }
 
-struct glob_ud { const char *pattern; buf_t *out; int hits; };
+struct glob_ud {
+    const char *pattern;
+    buf_t *out;
+    int hits;
+};
 
-static void glob_cb(const char *abs, const char *rel, void *ud) {
+static bool glob_cb(const char *abs, const char *rel, void *ud) {
     (void)abs;
     struct glob_ud *g = ud;
-    if (g->hits >= 1000) return;
+    if (g->hits >= 1000) return true;
     /* support ** loosely: our glob's '*' already crosses '/' */
     if (glob_match(g->pattern, rel)) {
         buf_appendf(g->out, "%s\n", rel);
         g->hits++;
     }
+    return !buf_oom(g->out);
 }
 
 static char *t_glob_files(tools_env *env, yyjson_val *args) {
@@ -158,23 +232,43 @@ static char *t_glob_files(tools_env *env, yyjson_val *args) {
     buf_t np;
     buf_init(&np);
     for (const char *q = pat; *q; q++) {
-        if (*q == '*' && q[1] == '*') { buf_appends(&np, "*"); q++; }
-        else buf_append(&np, q, 1);
+        if (*q == '*' && q[1] == '*') {
+            buf_appends(&np, "*");
+            q++;
+        } else buf_append(&np, q, 1);
+    }
+    if (buf_oom(&np)) {
+        free(abs);
+        buf_free(&np);
+        return NULL;
     }
     buf_t out;
     buf_init(&out);
     struct glob_ud g = {np.data, &out, 0};
     int budget = WALK_MAX_FILES;
-    walk(abs, "", &budget, glob_cb, &g);
+    bool walked = walk(abs, "", &budget, glob_cb, &g);
     free(abs);
     buf_free(&np);
+    if (!walked || buf_oom(&out) || tny_alloc_scope_failed()) {
+        buf_free(&out);
+        return NULL;
+    }
     if (!out.len) buf_appends(&out, "(no matches)");
+    if (buf_oom(&out)) {
+        buf_free(&out);
+        return NULL;
+    }
     char *res = tool_bound_result(env, out.data, out.len);
     buf_free(&out);
     return res;
 }
 
-struct grep_ud { const char *pat; bool ci; buf_t *out; int hits; };
+struct grep_ud {
+    const char *pat;
+    bool ci;
+    buf_t *out;
+    int hits;
+};
 
 static bool line_contains(const char *line, size_t len, const char *pat, bool ci) {
     size_t pl = strlen(pat);
@@ -183,7 +277,10 @@ static bool line_contains(const char *line, size_t len, const char *pat, bool ci
         size_t j = 0;
         for (; j < pl; j++) {
             char a = line[i + j], b = pat[j];
-            if (ci) { a = (char)tolower((unsigned char)a); b = (char)tolower((unsigned char)b); }
+            if (ci) {
+                a = (char)tolower((unsigned char)a);
+                b = (char)tolower((unsigned char)b);
+            }
             if (a != b) break;
         }
         if (j == pl) return true;
@@ -191,15 +288,15 @@ static bool line_contains(const char *line, size_t len, const char *pat, bool ci
     return false;
 }
 
-static void grep_cb(const char *abs, const char *rel, void *ud) {
+static bool grep_cb(const char *abs, const char *rel, void *ud) {
     struct grep_ud *g = ud;
-    if (g->hits >= 500) return;
+    if (g->hits >= 500) return true;
     size_t len = 0;
     char *data = file_slurp(abs, &len);
-    if (!data) return;
+    if (!data) return !tny_alloc_scope_failed();
     if (len > GREP_MAX_FILE || memchr(data, 0, len < 4096 ? len : 4096)) {
         free(data);
-        return; /* binary or huge */
+        return true; /* binary or huge */
     }
     size_t start = 0;
     int lineno = 1;
@@ -218,6 +315,7 @@ static void grep_cb(const char *abs, const char *rel, void *ud) {
         }
     }
     free(data);
+    return !buf_oom(g->out);
 }
 
 static char *t_grep_files(tools_env *env, yyjson_val *args) {
@@ -233,9 +331,21 @@ static char *t_grep_files(tools_env *env, yyjson_val *args) {
     int budget = WALK_MAX_FILES;
     struct stat st;
     if (stat(abs, &st) == 0 && S_ISREG(st.st_mode)) grep_cb(abs, p, &g);
-    else walk(abs, "", &budget, grep_cb, &g);
+    else if (!walk(abs, "", &budget, grep_cb, &g)) {
+        free(abs);
+        buf_free(&out);
+        return NULL;
+    }
     free(abs);
+    if (buf_oom(&out) || tny_alloc_scope_failed()) {
+        buf_free(&out);
+        return NULL;
+    }
     if (!out.len) buf_appends(&out, "(no matches)");
+    if (buf_oom(&out)) {
+        buf_free(&out);
+        return NULL;
+    }
     char *res = tool_bound_result(env, out.data, out.len);
     buf_free(&out);
     return res;
@@ -247,7 +357,11 @@ static char *t_read_file(tools_env *env, yyjson_val *args) {
     if (!abs) return err;
     size_t len = 0;
     char *data = file_slurp(abs, &len);
-    if (!data) { char *e = tool_err("cannot read %s", abs); free(abs); return e; }
+    if (!data) {
+        char *e = tool_err("cannot read %s", abs);
+        free(abs);
+        return e;
+    }
     const char *mime = image_mime((const uint8_t *)data, len);
     if (mime) {
         free(data);
@@ -291,7 +405,10 @@ static char *t_write_file(tools_env *env, yyjson_val *args) {
     char *abs = tool_resolve_path(env, jget_str(args, "path"), &err);
     if (!abs) return err;
     const char *content = jget_str(args, "content");
-    if (!content) { free(abs); return tool_err("missing content"); }
+    if (!content) {
+        free(abs);
+        return tool_err("missing content");
+    }
     undo_record(env, abs);
     /* ensure parent exists */
     char *slash = strrchr(abs, '/');
@@ -316,10 +433,17 @@ static char *t_edit_file(tools_env *env, yyjson_val *args) {
     const char *olds = jget_str(args, "old_string");
     const char *news = jget_str(args, "new_string");
     bool all = jget_bool(args, "replace_all", false);
-    if (!olds || !news || !*olds) { free(abs); return tool_err("missing old_string/new_string"); }
+    if (!olds || !news || !*olds) {
+        free(abs);
+        return tool_err("missing old_string/new_string");
+    }
     size_t len = 0;
     char *data = file_slurp(abs, &len);
-    if (!data) { char *e = tool_err("cannot read %s", abs); free(abs); return e; }
+    if (!data) {
+        char *e = tool_err("cannot read %s", abs);
+        free(abs);
+        return e;
+    }
     size_t ol = strlen(olds);
     /* count matches */
     int count = 0;
@@ -332,7 +456,8 @@ static char *t_edit_file(tools_env *env, yyjson_val *args) {
     }
     if (count > 1 && !all) {
         free(data);
-        char *e = tool_err("old_string occurs %d times in %s; pass replace_all or a longer match", count, abs);
+        char *e = tool_err("old_string occurs %d times in %s; pass replace_all or a longer match",
+                           count, abs);
         free(abs);
         return e;
     }
@@ -342,19 +467,26 @@ static char *t_edit_file(tools_env *env, yyjson_val *args) {
     char *p = data;
     for (;;) {
         char *hit = strstr(p, olds);
-        if (!hit) { buf_appends(&out, p); break; }
+        if (!hit) {
+            buf_appends(&out, p);
+            break;
+        }
         buf_append(&out, p, (size_t)(hit - p));
         buf_appends(&out, news);
         p = hit + ol;
-        if (!all) { buf_appends(&out, p); break; }
+        if (!all) {
+            buf_appends(&out, p);
+            break;
+        }
     }
     free(data);
     int rc = file_write_atomic(abs, out.data, out.len);
     buf_free(&out);
     buf_t msg;
     buf_init(&msg);
-    if (rc == 0) buf_appendf(&msg, "replaced %d occurrence%s in %s", all ? count : 1,
-                             (all && count > 1) ? "s" : "", abs);
+    if (rc == 0)
+        buf_appendf(&msg, "replaced %d occurrence%s in %s", all ? count : 1,
+                    (all && count > 1) ? "s" : "", abs);
     else buf_appendf(&msg, "error: write to %s failed", abs);
     free(abs);
     return buf_detach(&msg);
@@ -377,8 +509,8 @@ static char *t_simple_path_op(tools_env *env, yyjson_val *args, const char *op) 
         struct stat st;
         if (stat(abs, &st) == 0)
             buf_appendf(&out, "%s: %s, %lld bytes, mtime %lld", abs,
-                        S_ISDIR(st.st_mode) ? "directory" : "file",
-                        (long long)st.st_size, (long long)st.st_mtime);
+                        S_ISDIR(st.st_mode) ? "directory" : "file", (long long)st.st_size,
+                        (long long)st.st_mtime);
         else buf_appendf(&out, "error: cannot stat %s", abs);
     }
     free(abs);
@@ -390,7 +522,10 @@ static char *t_two_path_op(tools_env *env, yyjson_val *args, bool copy) {
     char *src = tool_resolve_path(env, jget_str(args, "path"), &err);
     if (!src) return err;
     char *dst = tool_resolve_path(env, jget_str(args, "new_path"), &err);
-    if (!dst) { free(src); return err; }
+    if (!dst) {
+        free(src);
+        return err;
+    }
     buf_t out;
     buf_init(&out);
     if (copy) {
@@ -413,15 +548,21 @@ static char *t_two_path_op(tools_env *env, yyjson_val *args, bool copy) {
 struct sem_ud {
     char terms[8][64];
     int nterms;
-    struct { char *rel; int score; } best[10];
+    struct {
+        char *rel;
+        int score;
+    } best[10];
 };
 
-static void sem_cb(const char *abs, const char *rel, void *ud) {
+static bool sem_cb(const char *abs, const char *rel, void *ud) {
     struct sem_ud *s = ud;
     size_t len = 0;
     char *data = file_slurp(abs, &len);
-    if (!data) return;
-    if (len > GREP_MAX_FILE || memchr(data, 0, len < 4096 ? len : 4096)) { free(data); return; }
+    if (!data) return !tny_alloc_scope_failed();
+    if (len > GREP_MAX_FILE || memchr(data, 0, len < 4096 ? len : 4096)) {
+        free(data);
+        return true;
+    }
     for (size_t i = 0; i < len; i++) data[i] = (char)tolower((unsigned char)data[i]);
     int score = 0;
     for (int t = 0; t < s->nterms; t++) {
@@ -433,16 +574,18 @@ static void sem_cb(const char *abs, const char *rel, void *ud) {
     for (int t = 0; t < s->nterms; t++)
         if (strstr(rel, s->terms[t])) score += 5;
     free(data);
-    if (score == 0) return;
+    if (score == 0) return true;
     for (int i = 0; i < 10; i++) {
         if (score > s->best[i].score) {
             free(s->best[9].rel);
             memmove(&s->best[i + 1], &s->best[i], sizeof s->best[0] * (size_t)(9 - i));
             s->best[i].rel = xstrdup(rel);
             s->best[i].score = score;
+            if (!s->best[i].rel) return false;
             break;
         }
     }
+    return true;
 }
 
 static char *t_semantic_search(tools_env *env, yyjson_val *args) {
@@ -465,7 +608,11 @@ static char *t_semantic_search(tools_env *env, yyjson_val *args) {
     }
     if (!s.nterms) return tool_err("query has no searchable terms");
     int budget = WALK_MAX_FILES;
-    walk(env->ctx->cwd, "", &budget, sem_cb, &s);
+    bool walked = walk(env->ctx->cwd, "", &budget, sem_cb, &s);
+    if (!walked || tny_alloc_scope_failed()) {
+        for (int i = 0; i < 10; i++) free(s.best[i].rel);
+        return NULL;
+    }
     buf_t out;
     buf_init(&out);
     for (int i = 0; i < 10; i++)

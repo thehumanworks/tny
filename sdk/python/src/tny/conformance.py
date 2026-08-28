@@ -1,4 +1,5 @@
 """Secret-safe conformance report construction for SDK release lanes."""
+
 from __future__ import annotations
 
 import hashlib
@@ -35,9 +36,9 @@ ALLOWED_REASONS: dict[str, frozenset[str]] = {
     "pass": frozenset({"assertions_verified"}),
     "fail": frozenset({"assertion_failed"}),
     "unsupported": frozenset({"capability_unavailable"}),
-    "not_run": frozenset({
-        "fixture_unavailable", "platform_unavailable", "not_executed"
-    }),
+    "not_run": frozenset(
+        {"fixture_unavailable", "platform_unavailable", "not_executed"}
+    ),
 }
 
 
@@ -89,7 +90,9 @@ def build_conformance_report(
     }
 
 
-def write_conformance_report(report: Mapping[str, object], destination: str | os.PathLike[str]) -> None:
+def write_conformance_report(
+    report: Mapping[str, object], destination: str | os.PathLike[str]
+) -> None:
     """Write deterministic JSON without serializing ambient environment state."""
     Path(destination).write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -97,7 +100,11 @@ def write_conformance_report(report: Mapping[str, object], destination: str | os
 
 
 __all__ = (
-    "ALLOWED_REASONS", "ReasonCode", "SCENARIOS", "ScenarioResult",
+    "ALLOWED_REASONS",
+    "ReasonCode",
+    "SCENARIOS",
+    "ScenarioResult",
     "ScenarioStatus",
-    "build_conformance_report", "write_conformance_report",
+    "build_conformance_report",
+    "write_conformance_report",
 )

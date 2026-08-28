@@ -20,11 +20,15 @@ import tny
 
 ROOT = Path(__file__).resolve().parents[3]
 MOCK = ROOT / "tests" / "integration" / "mock_openai.py"
-LIBRARY = Path(os.environ.get(
-    "TNY_TEST_LIBRARY",
-    ROOT / "build" / "lib" /
-    ("libtny.0.dylib" if sys.platform == "darwin" else "libtny.so.0"),
-))
+LIBRARY = Path(
+    os.environ.get(
+        "TNY_TEST_LIBRARY",
+        ROOT
+        / "build"
+        / "lib"
+        / ("libtny.1.dylib" if sys.platform == "darwin" else "libtny.so.1"),
+    )
+)
 
 
 def free_port() -> int:
@@ -77,12 +81,15 @@ class SDKTests(unittest.TestCase):
 
     def config(self, url: str, **kwargs: object) -> tny.RuntimeConfig:
         return tny.RuntimeConfig(
-            workspace=self.workspace, state_dir=self.state,
-            base_url=url, api_key="sdk-test-key-not-real", **kwargs,
+            workspace=self.workspace,
+            state_dir=self.state,
+            base_url=url,
+            api_key="sdk-test-key-not-real",
+            **kwargs,
         )
 
     def test_metadata_capabilities_and_secret_safe_repr(self) -> None:
-        self.assertGreaterEqual(self.library.abi_minor, 5)
+        self.assertEqual((self.library.abi_major, self.library.abi_minor), (1, 0))
         with tny.Runtime(
             self.config("https://api.example.invalid/v1"), library=self.library
         ) as runtime:
@@ -101,9 +108,7 @@ class SDKTests(unittest.TestCase):
         self.assertNotIn("password", str(caught.exception))
         with self.assertRaises(tny.InvalidArgumentError):
             tny.Runtime(
-                self.config(
-                    "https://api.example.invalid/v1", max_steps=1 << 31
-                ),
+                self.config("https://api.example.invalid/v1", max_steps=1 << 31),
                 library=self.library,
             )
 
@@ -156,10 +161,12 @@ class SDKTests(unittest.TestCase):
             thread.join()
             self.assertEqual(result, [tny.BadStateError])
             session.close()
+            session.close()
+            runtime.close()
             runtime.close()
         gc.collect()
 
-    def test_abi_05_allows_multiple_python_runtimes(self) -> None:
+    def test_abi1_allows_multiple_python_runtimes(self) -> None:
         config = self.config("https://api.example.invalid/v1")
         first = tny.Runtime(config, library=self.library)
         second = tny.Runtime(config, library=self.library)
@@ -195,21 +202,46 @@ class SDKTests(unittest.TestCase):
         self.assertEqual(ffi.offsetof("tny_event_view_v0", "provider"), 88)
         self.assertEqual(ffi.offsetof("tny_capabilities_v0", "library_version"), 80)
         options = ffi.new("tny_runtime_options_v0 *")
-        native.tny_runtime_options_init(options)
+        options_size = ffi.sizeof("tny_runtime_options_v0")
+        self.assertEqual(native.tny_runtime_options_init(options, options_size), 0)
         options.struct_size = 4
         out = ffi.new("tny_runtime **")
         error = ffi.new("tny_error **")
-        self.assertEqual(native.tny_runtime_create(options, out, error), -1)
+        self.assertEqual(
+            native.tny_runtime_create(options, options_size, out, error), -1
+        )
         if error[0] != ffi.NULL:
             native.tny_error_free(error[0])
 
         capabilities = ffi.new("tny_capabilities_v0 *")
-        native.tny_capabilities_init(capabilities)
+        capabilities_size = ffi.sizeof("tny_capabilities_v0")
+        self.assertEqual(
+            native.tny_capabilities_init(capabilities, capabilities_size), 0
+        )
         capabilities.struct_size = 4
         self.assertEqual(
-            native.tny_runtime_get_capabilities(runtime._handle, capabilities), -1
+            native.tny_runtime_get_capabilities(
+                runtime._handle, capabilities, capabilities_size
+            ),
+            -1,
         )
-
+        oversized_size = capabilities_size + 32
+        oversized_storage = ffi.new("unsigned char[]", oversized_size)
+        ffi.buffer(oversized_storage, oversized_size)[:] = b"\xa5" * oversized_size
+        oversized = ffi.cast("tny_capabilities_v0 *", oversized_storage)
+        oversized.struct_size = oversized_size
+        self.assertEqual(
+            native.tny_runtime_get_capabilities(
+                runtime._handle, oversized, oversized_size
+            ),
+            0,
+        )
+        self.assertEqual(
+            bytes(ffi.buffer(oversized_storage, oversized_size))[capabilities_size:],
+            b"\xa5" * 32,
+        )
+        with self.assertRaises(tny.InvalidArgumentError):
+            session.respond_permission(b"unknown", 999)  # type: ignore[arg-type]
         runtime.close()
         self.assertTrue(session.closed)
         self.assertTrue(runtime.closed)
@@ -223,6 +255,18 @@ class SDKTests(unittest.TestCase):
                 library=self.library,
             )
 
+    def test_explicit_abi0_library_is_rejected(self) -> None:
+        legacy = (
+            ROOT
+            / "build"
+            / "lib"
+            / ("libtny.0.dylib" if sys.platform == "darwin" else "libtny.so.0")
+        )
+        if not legacy.is_file():
+            self.skipTest("explicit ABI0 compatibility artifact is not staged")
+        with self.assertRaises(tny.UnsupportedError):
+            tny.Library(legacy)
+
     def test_sync_full_turn_events_are_python_owned_bytes(self) -> None:
         """Conformance: success_two_turns and slow_consumer_backpressure basics."""
         mock = Mock()
@@ -233,7 +277,8 @@ class SDKTests(unittest.TestCase):
                     events.extend(session.run("again \N{SNOWMAN}"))
                     del session
                 text = b"".join(
-                    event.text for event in events
+                    event.text
+                    for event in events
                     if isinstance(event, tny.TextDeltaEvent)
                 )
                 self.assertIn(b"MOCK-OK", text)
@@ -256,9 +301,9 @@ class SDKTests(unittest.TestCase):
                     next(stream)
                     stream.close()
                     second = list(session.run("second sync turn"))
-                    self.assertTrue(any(
-                        isinstance(event, tny.TurnEndEvent) for event in second
-                    ))
+                    self.assertTrue(
+                        any(isinstance(event, tny.TurnEndEvent) for event in second)
+                    )
 
             async def async_case() -> None:
                 async with tny.AsyncRuntime(
@@ -271,9 +316,9 @@ class SDKTests(unittest.TestCase):
                         second = [
                             event async for event in session.run("second async turn")
                         ]
-                        self.assertTrue(any(
-                            isinstance(event, tny.TurnEndEvent) for event in second
-                        ))
+                        self.assertTrue(
+                            any(isinstance(event, tny.TurnEndEvent) for event in second)
+                        )
 
             asyncio.run(async_case())
         finally:
@@ -292,14 +337,16 @@ class SDKTests(unittest.TestCase):
                         events.append(event)
                         if isinstance(event, tny.PermissionRequestEvent):
                             saw_permission = True
-                            session.respond_permission(event, tny.PermissionDecision.DENY)
+                            session.respond_permission(
+                                event, tny.PermissionDecision.DENY
+                            )
                             with self.assertRaises(tny.BadStateError):
-                                session.respond_permission(event, tny.PermissionDecision.DENY)
+                                session.respond_permission(
+                                    event, tny.PermissionDecision.DENY
+                                )
                     self.assertTrue(saw_permission)
                     terminals = [
-                        event
-                        for event in events
-                        if isinstance(event, tny.TurnEndEvent)
+                        event for event in events if isinstance(event, tny.TurnEndEvent)
                     ]
                     self.assertEqual(len(terminals), 1)
                     self.assertEqual(terminals[0].stop_reason, 2)
@@ -310,7 +357,10 @@ class SDKTests(unittest.TestCase):
         """Conformance: permission_allow_and_stale_reject."""
         mock = Mock(MOCK_SENSITIVE="1")
         try:
-            with tny.Runtime(self.config(mock.url), library=self.library) as runtime, runtime.create_session() as session:
+            with (
+                tny.Runtime(self.config(mock.url), library=self.library) as runtime,
+                runtime.create_session() as session,
+            ):
                 session.send("list files in .")
                 saw_permission = False
                 events = []
@@ -320,7 +370,9 @@ class SDKTests(unittest.TestCase):
                         saw_permission = True
                         session.respond_permission(event, tny.PermissionDecision.ALLOW)
                         with self.assertRaises(tny.BadStateError):
-                            session.respond_permission(event, tny.PermissionDecision.ALLOW)
+                            session.respond_permission(
+                                event, tny.PermissionDecision.ALLOW
+                            )
                 self.assertTrue(saw_permission)
                 self.assertTrue(self.workspace.joinpath("permission.txt").exists())
                 self.assertEqual(
@@ -364,11 +416,14 @@ class SDKTests(unittest.TestCase):
         mock = Mock()
 
         async def run() -> None:
-            async with tny.AsyncRuntime(self.config(mock.url), library=self.library) as runtime:
+            async with tny.AsyncRuntime(
+                self.config(mock.url), library=self.library
+            ) as runtime:
                 async with await runtime.create_session() as session:
                     events = [event async for event in session.run("list files in .")]
                     text = b"".join(
-                        event.text for event in events
+                        event.text
+                        for event in events
                         if isinstance(event, tny.TextDeltaEvent)
                     )
                     self.assertIn(b"MOCK-OK", text)
@@ -478,14 +533,18 @@ class SDKTests(unittest.TestCase):
         """Conformance: auth_error and report schema/forbidden-field safety."""
         mock = Mock(MOCK_HTTP_STATUS="401", MOCK_ERROR_SECRET="provider-secret")
         try:
-            with tny.Runtime(self.config(mock.url), library=self.library) as runtime, runtime.create_session() as session:
+            with (
+                tny.Runtime(self.config(mock.url), library=self.library) as runtime,
+                runtime.create_session() as session,
+            ):
                 events = list(session.run("trigger auth"))
-                errors = [event for event in events if isinstance(event, tny.ErrorEvent)]
+                errors = [
+                    event for event in events if isinstance(event, tny.ErrorEvent)
+                ]
                 self.assertEqual([event.error_code for event in errors], [-6])
                 self.assertNotIn("provider-secret", repr(errors[0]))
                 terminals = [
-                    event for event in events
-                    if isinstance(event, tny.TurnEndEvent)
+                    event for event in events if isinstance(event, tny.TurnEndEvent)
                 ]
                 self.assertEqual(len(terminals), 1)
                 self.assertEqual(terminals[0].stop_reason, 4)
@@ -494,25 +553,50 @@ class SDKTests(unittest.TestCase):
 
         scenario_results = {
             "success_two_turns": {"status": "pass", "reason": "assertions_verified"},
-            "permission_allow_and_stale_reject": {"status": "pass", "reason": "assertions_verified"},
+            "permission_allow_and_stale_reject": {
+                "status": "pass",
+                "reason": "assertions_verified",
+            },
             "permission_deny": {"status": "pass", "reason": "assertions_verified"},
             "cancel_and_drain": {"status": "pass", "reason": "assertions_verified"},
             "auth_error": {"status": "pass", "reason": "assertions_verified"},
             "unknown_future_event": {"status": "pass", "reason": "assertions_verified"},
             "ownership_and_misuse": {"status": "pass", "reason": "assertions_verified"},
-            "slow_consumer_backpressure": {"status": "not_run", "reason": "fixture_unavailable"},
+            "slow_consumer_backpressure": {
+                "status": "not_run",
+                "reason": "fixture_unavailable",
+            },
         }
-        report = tny.build_conformance_report(LIBRARY, library=self.library, scenarios=scenario_results)
+        report = tny.build_conformance_report(
+            LIBRARY, library=self.library, scenarios=scenario_results
+        )
         encoded = json.dumps(report, sort_keys=True)
-        self.assertEqual(set(report), {
-            "abi_version", "library_version", "sdk", "sdk_version", "platform",
-            "artifact_sha256", "capabilities", "scenarios",
-        })
-        for forbidden in ("api_key", "authorization", "cookie", "provider_body", "provider_headers", "provider-secret"):
+        self.assertEqual(
+            set(report),
+            {
+                "abi_version",
+                "library_version",
+                "sdk",
+                "sdk_version",
+                "platform",
+                "artifact_sha256",
+                "capabilities",
+                "scenarios",
+            },
+        )
+        for forbidden in (
+            "api_key",
+            "authorization",
+            "cookie",
+            "provider_body",
+            "provider_headers",
+            "provider-secret",
+        ):
             self.assertNotIn(forbidden, encoded.lower())
         invalid = dict(scenario_results)
         invalid["slow_consumer_backpressure"] = {
-            "status": "not_run", "reason": "provider-secret"
+            "status": "not_run",
+            "reason": "provider-secret",
         }
         with self.assertRaises(ValueError):
             tny.build_conformance_report(
@@ -522,8 +606,13 @@ class SDKTests(unittest.TestCase):
     def test_unknown_future_event_representation(self) -> None:
         """Conformance: unknown_future_event."""
         event = tny.decode_unknown_event_fixture(
-            kind=999, schema_version=1, sequence=7, timestamp_ms=8,
-            provider=b"future", session_id=b"s", turn_id=b"t",
+            kind=999,
+            schema_version=1,
+            sequence=7,
+            timestamp_ms=8,
+            provider=b"future",
+            session_id=b"s",
+            turn_id=b"t",
             payload={"future_field": b"preserved"},
         )
         self.assertEqual(event.kind, 999)
@@ -531,8 +620,14 @@ class SDKTests(unittest.TestCase):
         self.assertEqual(event.payload, {"future_field": b"preserved"})
         with self.assertRaises(ValueError):
             tny.decode_unknown_event_fixture(
-                kind=0, schema_version=1, sequence=1, timestamp_ms=1,
-                provider=b"p", session_id=b"s", turn_id=b"t", payload={},
+                kind=0,
+                schema_version=1,
+                sequence=1,
+                timestamp_ms=1,
+                provider=b"p",
+                session_id=b"s",
+                turn_id=b"t",
+                payload={},
             )
 
     def test_canonical_event_schema_matches_sdk_registry(self) -> None:

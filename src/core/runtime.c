@@ -3,6 +3,7 @@
 #include "backends/openai/openai.h"
 #include "core/extension_caps.h"
 #include "core/extensions.h"
+#include "lib/host_services.h"
 #include "util/alloc.h"
 #include "util/tny_poll.h"
 #include "util/tny_wake.h"
@@ -14,10 +15,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ENGINE_EVENT_MAX 256u
+#define ENGINE_EVENT_MAX       256u
 #define ENGINE_EVENT_BYTES_MAX (1024u * 1024u)
 #define ENGINE_RESERVED_EVENTS 2u
-#define ENGINE_RESERVED_BYTES 1024u
+#define ENGINE_RESERVED_BYTES  1024u
 
 struct tny_engine {
     tny_ctx *ctx;
@@ -68,6 +69,10 @@ struct tny_engine {
     tny_owned_event *oom_terminal_reserve;
 };
 
+static int64_t engine_monotonic_ms(const tny_engine *e) {
+    return tny_host_services_monotonic_or_native(e->ctx->host_services);
+}
+
 static char *dup_bytes(const char *s, size_t n) {
     if (!s) return NULL;
     char *p = malloc(n + 1);
@@ -77,9 +82,7 @@ static char *dup_bytes(const char *s, size_t n) {
     return p;
 }
 
-static char *dup_cstr(const char *s) {
-    return s ? dup_bytes(s, strlen(s)) : NULL;
-}
+static char *dup_cstr(const char *s) { return s ? dup_bytes(s, strlen(s)) : NULL; }
 
 static void free_fields(tny_owned_event *o) {
     free(o->provider);
@@ -101,9 +104,11 @@ void tny_owned_event_free(tny_owned_event *o) {
     free(o);
 }
 
-static bool copy_field(const char *src, size_t n, const char **dst,
-                       size_t *owned) {
-    if (!src) { *dst = NULL; return true; }
+static bool copy_field(const char *src, size_t n, const char **dst, size_t *owned) {
+    if (!src) {
+        *dst = NULL;
+        return true;
+    }
     char *copy = dup_bytes(src, n);
     if (!copy) return false;
     *dst = copy;
@@ -127,39 +132,32 @@ static tny_owned_event *event_copy(tny_engine *e, const tny_backend_event *ev) {
     o->ev.perm_summary = NULL;
     o->ev.message_type = NULL;
     o->sequence = ++e->session->extension_event_sequence;
-    o->timestamp_ms = monotonic_ms();
+    o->timestamp_ms = engine_monotonic_ms(e);
     o->provider = dup_cstr(tny_provider_name(e->ctx));
     o->session_id = dup_cstr(e->session->id);
     char turn_id[160];
-    snprintf(turn_id, sizeof turn_id, "%s:%llu:%d",
-             e->session->id,
-             (unsigned long long)e->session->extension_agent_sequence,
-             e->extension_continuations);
+    snprintf(turn_id, sizeof turn_id, "%s:%llu:%d", e->session->id,
+             (unsigned long long)e->session->extension_agent_sequence, e->extension_continuations);
     o->turn_id = dup_cstr(turn_id);
     if (!o->provider || !o->session_id || !o->turn_id) {
         tny_owned_event_free(o);
         return NULL;
     }
-    o->owned_bytes += strlen(o->provider) + strlen(o->session_id) +
-                      strlen(o->turn_id) + 3;
-    if (!copy_field(ev->text, ev->text ? ev->text_len : 0,
-                    &o->ev.text, &o->owned_bytes) ||
-        !copy_field(ev->message_id,
-                    ev->message_id ? strlen(ev->message_id) : 0,
-                    &o->ev.message_id, &o->owned_bytes) ||
-        !copy_field(ev->tool_name, ev->tool_name ? strlen(ev->tool_name) : 0,
-                    &o->ev.tool_name, &o->owned_bytes) ||
-        !copy_field(ev->tool_id, ev->tool_id ? strlen(ev->tool_id) : 0,
-                    &o->ev.tool_id, &o->owned_bytes) ||
+    o->owned_bytes += strlen(o->provider) + strlen(o->session_id) + strlen(o->turn_id) + 3;
+    if (!copy_field(ev->text, ev->text ? ev->text_len : 0, &o->ev.text, &o->owned_bytes) ||
+        !copy_field(ev->message_id, ev->message_id ? strlen(ev->message_id) : 0, &o->ev.message_id,
+                    &o->owned_bytes) ||
+        !copy_field(ev->tool_name, ev->tool_name ? strlen(ev->tool_name) : 0, &o->ev.tool_name,
+                    &o->owned_bytes) ||
+        !copy_field(ev->tool_id, ev->tool_id ? strlen(ev->tool_id) : 0, &o->ev.tool_id,
+                    &o->owned_bytes) ||
         !copy_field(ev->tool_detail, ev->tool_detail ? strlen(ev->tool_detail) : 0,
                     &o->ev.tool_detail, &o->owned_bytes) ||
-        !copy_field(ev->perm_id, ev->perm_id ? strlen(ev->perm_id) : 0,
-                    &o->ev.perm_id, &o->owned_bytes) ||
-        !copy_field(ev->perm_summary,
-                    ev->perm_summary ? strlen(ev->perm_summary) : 0,
+        !copy_field(ev->perm_id, ev->perm_id ? strlen(ev->perm_id) : 0, &o->ev.perm_id,
+                    &o->owned_bytes) ||
+        !copy_field(ev->perm_summary, ev->perm_summary ? strlen(ev->perm_summary) : 0,
                     &o->ev.perm_summary, &o->owned_bytes) ||
-        !copy_field(ev->message_type,
-                    ev->message_type ? strlen(ev->message_type) : 0,
+        !copy_field(ev->message_type, ev->message_type ? strlen(ev->message_type) : 0,
                     &o->ev.message_type, &o->owned_bytes)) {
         tny_owned_event_free(o);
         return NULL;
@@ -184,8 +182,7 @@ static tny_owned_event *reserve_event(tny_engine *e, tny_event_kind kind) {
     } else {
         o->ev.stop = TNY_STOP_ERROR;
     }
-    if (!o->provider || !o->session_id || !o->turn_id ||
-        (kind == TNY_EV_ERROR && !o->ev.text)) {
+    if (!o->provider || !o->session_id || !o->turn_id || (kind == TNY_EV_ERROR && !o->ev.text)) {
         tny_owned_event_free(o);
         return NULL;
     }
@@ -194,12 +191,40 @@ static tny_owned_event *reserve_event(tny_engine *e, tny_event_kind kind) {
     return o;
 }
 
+/* Replenish a consumed OOM pair only while no turn is active. Public events
+ * remain independently owned by their caller, so recycling them from
+ * tny_event_free would couple event lifetime to the session. Building both
+ * replacements transactionally also leaves a retryable state if allocation
+ * fails part-way through the pre-turn re-arm. */
+static bool ensure_oom_reserves(tny_engine *e) {
+    if (e->oom_error_reserve && e->oom_terminal_reserve) return true;
+    tny_owned_event *error = e->oom_error_reserve;
+    tny_owned_event *terminal = e->oom_terminal_reserve;
+    bool new_error = false;
+    bool new_terminal = false;
+    if (!error) {
+        error = reserve_event(e, TNY_EV_ERROR);
+        new_error = true;
+    }
+    if (error && !terminal) {
+        terminal = reserve_event(e, TNY_EV_TURN_END);
+        new_terminal = true;
+    }
+    if (!error || !terminal) {
+        if (new_error) tny_owned_event_free(error);
+        if (new_terminal) tny_owned_event_free(terminal);
+        return false;
+    }
+    e->oom_error_reserve = error;
+    e->oom_terminal_reserve = terminal;
+    return true;
+}
+
 static void prepare_reserved_event(tny_engine *e, tny_owned_event *o) {
     o->sequence = ++e->session->extension_event_sequence;
-    o->timestamp_ms = monotonic_ms();
+    o->timestamp_ms = engine_monotonic_ms(e);
     snprintf(o->turn_id, 192, "%s:%llu:%d", e->session->id,
-             (unsigned long long)e->session->extension_agent_sequence,
-             e->extension_continuations);
+             (unsigned long long)e->session->extension_agent_sequence, e->extension_continuations);
     o->next = NULL;
     o->hooks_done = true;
     o->suppressed = false;
@@ -215,6 +240,7 @@ static void append_owned(tny_engine *e, tny_owned_event *copy) {
     e->tail = copy;
     e->queue_count++;
     e->queue_bytes += copy->owned_bytes;
+    tny_host_services_notify_advisory(e->ctx->host_services);
 }
 
 static void queue_event(tny_engine *e, const tny_backend_event *ev) {
@@ -232,10 +258,9 @@ static void queue_event(tny_engine *e, const tny_backend_event *ev) {
         return;
     }
     bool reserved = is_reserved_kind(ev->kind);
-    size_t count_limit = reserved ? ENGINE_EVENT_MAX
-                                  : ENGINE_EVENT_MAX - ENGINE_RESERVED_EVENTS;
-    size_t byte_limit = reserved ? ENGINE_EVENT_BYTES_MAX
-                                 : ENGINE_EVENT_BYTES_MAX - ENGINE_RESERVED_BYTES;
+    size_t count_limit = reserved ? ENGINE_EVENT_MAX : ENGINE_EVENT_MAX - ENGINE_RESERVED_EVENTS;
+    size_t byte_limit =
+        reserved ? ENGINE_EVENT_BYTES_MAX : ENGINE_EVENT_BYTES_MAX - ENGINE_RESERVED_BYTES;
     if (e->queue_count >= count_limit || copy->owned_bytes > byte_limit ||
         e->queue_bytes > byte_limit - copy->owned_bytes) {
         tny_owned_event_free(copy);
@@ -259,18 +284,16 @@ static void backend_event(const tny_backend_event *ev, void *ud) {
     }
     tny_owned_event *before = e->tail;
     queue_event(e, ev);
-    if (ev->kind == TNY_EV_PERMISSION && ev->perm_id &&
-        e->native_observed_permission_id &&
-        strcmp(ev->perm_id, e->native_observed_permission_id) == 0 &&
-        e->tail && e->tail != before) {
+    if (ev->kind == TNY_EV_PERMISSION && ev->perm_id && e->native_observed_permission_id &&
+        strcmp(ev->perm_id, e->native_observed_permission_id) == 0 && e->tail &&
+        e->tail != before) {
         e->tail->hooks_done = true; /* native control already folded it */
         free(e->native_observed_permission_id);
         e->native_observed_permission_id = NULL;
     }
 }
 
-static void synth_error(tny_engine *e, tny_event_error_kind code,
-                        const char *text) {
+static void synth_error(tny_engine *e, tny_event_error_kind code, const char *text) {
     tny_backend_event ev = {0};
     ev.kind = TNY_EV_ERROR;
     ev.error_code = code;
@@ -353,25 +376,20 @@ static void event_json_begin(tny_engine *e, buf_t *b, const char *type) {
     uint64_t seq = ++e->session->extension_event_sequence;
     char event_id[160];
     char turn_id[160];
-    snprintf(event_id, sizeof event_id, "%s:%llu",
-             e->session->id, (unsigned long long)seq);
-    snprintf(turn_id, sizeof turn_id, "%s:%llu:%d",
-             e->session->id,
-             (unsigned long long)e->session->extension_agent_sequence,
-             e->extension_continuations);
+    snprintf(event_id, sizeof event_id, "%s:%llu", e->session->id, (unsigned long long)seq);
+    snprintf(turn_id, sizeof turn_id, "%s:%llu:%d", e->session->id,
+             (unsigned long long)e->session->extension_agent_sequence, e->extension_continuations);
     buf_appends(b, "{\"schema_version\":1,\"event_id\":");
     jescape(b, event_id);
     buf_appends(b, ",\"type\":");
     jescape(b, type);
-    buf_appendf(b, ",\"sequence\":%llu,\"provider\":",
-                (unsigned long long)seq);
+    buf_appendf(b, ",\"sequence\":%llu,\"provider\":", (unsigned long long)seq);
     jescape(b, tny_provider_name(e->ctx));
     buf_appends(b, ",\"session_id\":");
     jescape(b, e->session->id);
     buf_appends(b, ",\"turn_id\":");
     jescape(b, turn_id);
-    buf_appendf(b, ",\"timestamp_ms\":%lld,\"payload\":{",
-                (long long)monotonic_ms());
+    buf_appendf(b, ",\"timestamp_ms\":%lld,\"payload\":{", (long long)engine_monotonic_ms(e));
 }
 
 static char *backend_event_json(tny_engine *e, const tny_backend_event *ev) {
@@ -417,8 +435,9 @@ static char *backend_event_json(tny_engine *e, const tny_backend_event *ev) {
         buf_appendf(&b, ",\"options\":%d", ev->perm_options);
         break;
     case TNY_EV_USAGE:
-        buf_appendf(&b, "\"input_tokens\":%lld,\"output_tokens\":%lld,"
-                        "\"context_used\":%lld,\"context_size\":%lld",
+        buf_appendf(&b,
+                    "\"input_tokens\":%lld,\"output_tokens\":%lld,"
+                    "\"context_used\":%lld,\"context_size\":%lld",
                     (long long)ev->in_tokens, (long long)ev->out_tokens,
                     (long long)ev->context_used, (long long)ev->context_size);
         if (ev->has_cost) buf_appendf(&b, ",\"cost\":%.12g", ev->cost);
@@ -432,15 +451,11 @@ static char *backend_event_json(tny_engine *e, const tny_backend_event *ev) {
         buf_appends(&b, "\"message\":");
         /* Provider error bodies/messages can echo credentials or request
          * content. Python receives only the stable allowlisted category. */
-        jescape(&b, ev->error_code == TNY_EVENT_ERROR_AUTH
-            ? "provider authentication error"
-            : ev->error_code == TNY_EVENT_ERROR_IO
-                ? "provider I/O error"
-                : ev->error_code == TNY_EVENT_ERROR_PROTOCOL
-                    ? "provider protocol error"
-                    : ev->error_code == TNY_EVENT_ERROR_BACKPRESSURE
-                        ? "runtime backpressure"
-                        : "runtime internal error");
+        jescape(&b, ev->error_code == TNY_EVENT_ERROR_AUTH       ? "provider authentication error"
+                    : ev->error_code == TNY_EVENT_ERROR_IO       ? "provider I/O error"
+                    : ev->error_code == TNY_EVENT_ERROR_PROTOCOL ? "provider protocol error"
+                    : ev->error_code == TNY_EVENT_ERROR_BACKPRESSURE ? "runtime backpressure"
+                                                                     : "runtime internal error");
         buf_appends(&b, ",\"error_code\":");
         jescape(&b, event_error_name(ev->error_code));
         break;
@@ -449,8 +464,7 @@ static char *backend_event_json(tny_engine *e, const tny_backend_event *ev) {
     return buf_detach(&b);
 }
 
-static char *lifecycle_event_json(tny_engine *e, const char *type,
-                                  const char *prompt,
+static char *lifecycle_event_json(tny_engine *e, const char *type, const char *prompt,
                                   const tny_backend_event *terminal) {
     buf_t b;
     buf_init(&b);
@@ -470,17 +484,16 @@ static char *lifecycle_event_json(tny_engine *e, const char *type,
         buf_appends(&b, ",\"messages\":[{\"role\":\"assistant\",\"content\":");
         jescape(&b, e->turn_text.data ? e->turn_text.data : "");
         buf_appends(&b, "}]");
-        buf_appendf(&b, ",\"continuation_count\":%d,"
-                        "\"max_continuations\":%d",
-                    e->extension_continuations,
-                    e->ctx->max_extension_iterations);
+        buf_appendf(&b,
+                    ",\"continuation_count\":%d,"
+                    "\"max_continuations\":%d",
+                    e->extension_continuations, e->ctx->max_extension_iterations);
     }
     buf_appends(&b, "}}");
     return buf_detach(&b);
 }
 
-static char *session_event_json(tny_engine *e, const char *type,
-                                const char *reason,
+static char *session_event_json(tny_engine *e, const char *type, const char *reason,
                                 const char *previous_session_id) {
     buf_t b;
     buf_init(&b);
@@ -495,11 +508,9 @@ static char *session_event_json(tny_engine *e, const char *type,
     return buf_detach(&b);
 }
 
-static char *prompt_submit_json(tny_engine *e, const char *prompt,
-                                const char **images, const char *source,
-                                char *submission_id, size_t submission_id_len) {
-    snprintf(submission_id, submission_id_len, "%s:%llu:prompt:%llu",
-             e->session->id,
+static char *prompt_submit_json(tny_engine *e, const char *prompt, const char **images,
+                                const char *source, char *submission_id, size_t submission_id_len) {
+    snprintf(submission_id, submission_id_len, "%s:%llu:prompt:%llu", e->session->id,
              (unsigned long long)e->session->extension_agent_sequence,
              (unsigned long long)++e->submission_sequence);
     buf_t b;
@@ -526,15 +537,14 @@ static char *turn_start_json(tny_engine *e, const char *source) {
     buf_t b;
     buf_init(&b);
     event_json_begin(e, &b, "turn_start");
-    buf_appendf(&b, "\"iteration\":%d,\"source\":",
-                e->extension_continuations);
+    buf_appendf(&b, "\"iteration\":%d,\"source\":", e->extension_continuations);
     jescape(&b, source ? source : "user");
     buf_appends(&b, "}}");
     return buf_detach(&b);
 }
 
-static char *message_event_json(tny_engine *e, const char *type,
-                                const char *message_id, const char *text) {
+static char *message_event_json(tny_engine *e, const char *type, const char *message_id,
+                                const char *text) {
     buf_t b;
     buf_init(&b);
     event_json_begin(e, &b, type);
@@ -549,9 +559,8 @@ static char *message_event_json(tny_engine *e, const char *type,
     return buf_detach(&b);
 }
 
-static char *compact_event_json(tny_engine *e, const char *type,
-                                const char *trigger, int before_count,
-                                int after_count, const char *summary,
+static char *compact_event_json(tny_engine *e, const char *type, const char *trigger,
+                                int before_count, int after_count, const char *summary,
                                 const char *error) {
     buf_t b;
     buf_init(&b);
@@ -561,11 +570,13 @@ static char *compact_event_json(tny_engine *e, const char *type,
     if (strcmp(type, "pre_compact") == 0) {
         buf_appendf(&b, ",\"message_count\":%d", before_count);
     } else if (strcmp(type, "post_compact") == 0) {
-        buf_appendf(&b, ",\"before_count\":%d,\"after_count\":%d,"
-                        "\"summary\":",
+        buf_appendf(&b,
+                    ",\"before_count\":%d,\"after_count\":%d,"
+                    "\"summary\":",
                     before_count, after_count);
-        char *bounded = summary ? dup_bytes(summary,
-            strlen(summary) < 16384 ? strlen(summary) : 16384) : xstrdup("");
+        char *bounded = summary
+                            ? dup_bytes(summary, strlen(summary) < 16384 ? strlen(summary) : 16384)
+                            : xstrdup("");
         jescape(&b, bounded ? bounded : "");
         free(bounded);
     } else {
@@ -576,9 +587,8 @@ static char *compact_event_json(tny_engine *e, const char *type,
     return buf_detach(&b);
 }
 
-static char *selection_event_json(tny_engine *e, const char *type,
-                                  const char *previous, const char *current,
-                                  const char *source) {
+static char *selection_event_json(tny_engine *e, const char *type, const char *previous,
+                                  const char *current, const char *source) {
     buf_t b;
     buf_init(&b);
     event_json_begin(e, &b, type);
@@ -592,8 +602,7 @@ static char *selection_event_json(tny_engine *e, const char *type,
     return buf_detach(&b);
 }
 
-static char *workspace_event_json(tny_engine *e, const char *action,
-                                  const char *path) {
+static char *workspace_event_json(tny_engine *e, const char *action, const char *path) {
     buf_t b;
     buf_init(&b);
     event_json_begin(e, &b, "workspace_change");
@@ -631,14 +640,13 @@ static void queue_internal(tny_engine *e, const tny_backend_event *ev) {
     if (e->tail && e->tail != before) e->tail->hooks_done = true;
 }
 
-static void extension_status(tny_engine *e, const char *extension,
-                             const char *event, const char *code,
-                             const char *message) {
+static void extension_status(tny_engine *e, const char *extension, const char *event,
+                             const char *code, const char *message) {
     buf_t b;
     buf_init(&b);
     buf_appendf(&b, "extension %.100s hook %.80s failed (%.40s): %.300s",
-                extension ? extension : "extension", event ? event : "event",
-                code ? code : "error", message ? message : "no detail");
+                extension ? extension : "extension", event ? event : "event", code ? code : "error",
+                message ? message : "no detail");
     tny_backend_event ev = {0};
     ev.kind = TNY_EV_STATUS;
     ev.text = b.data;
@@ -647,41 +655,34 @@ static void extension_status(tny_engine *e, const char *extension,
     buf_free(&b);
 }
 
-static void append_custom_context(buf_t *prompt,
-                                  const tny_extension_action *action) {
+static void append_custom_context(buf_t *prompt, const tny_extension_action *action) {
     if (prompt->len) buf_appends(prompt, "\n\n");
     buf_appendf(prompt, "[Context from tny extension %s",
                 action->extension ? action->extension : "extension");
-    if (action->custom_type)
-        buf_appendf(prompt, " (%s)", action->custom_type);
+    if (action->custom_type) buf_appendf(prompt, " (%s)", action->custom_type);
     buf_appends(prompt, "]\n");
     buf_appends(prompt, action->content ? action->content : "");
     buf_appends(prompt, "\n[End extension context]");
 }
 
-static void append_user_followup(buf_t *prompt,
-                                 const tny_extension_action *action) {
+static void append_user_followup(buf_t *prompt, const tny_extension_action *action) {
     if (prompt->len) buf_appends(prompt, "\n\n");
     buf_appends(prompt, action->content ? action->content : "");
 }
 
-static void queue_action_message(tny_engine *e,
-                                 const tny_extension_action *action,
-                                 bool custom) {
+static void queue_action_message(tny_engine *e, const tny_extension_action *action, bool custom) {
     if (!action->display || !action->content) return;
     tny_backend_event ev = {0};
     ev.kind = custom ? TNY_EV_CUSTOM_MESSAGE : TNY_EV_USER_MESSAGE;
     ev.text = action->content;
     ev.text_len = strlen(action->content);
-    ev.message_type = custom
-        ? (action->custom_type ? action->custom_type : action->extension) : NULL;
+    ev.message_type =
+        custom ? (action->custom_type ? action->custom_type : action->extension) : NULL;
     queue_internal(e, &ev);
 }
 
-static extension_fold fold_extension_result(tny_engine *e, const char *event,
-                                            extension_phase phase,
-                                            tny_extension_result *result,
-                                            buf_t *target) {
+static extension_fold fold_extension_result(tny_engine *e, const char *event, extension_phase phase,
+                                            tny_extension_result *result, buf_t *target) {
     extension_fold fold = {0};
     for (size_t i = 0; i < result->failure_count; i++) {
         tny_extension_failure *f = &result->failures[i];
@@ -691,8 +692,9 @@ static extension_fold fold_extension_result(tny_engine *e, const char *event,
         tny_extension_action *a = &result->actions[i];
         if (a->kind != TNY_EXTENSION_ACTION_STOP) continue;
         if (phase != EXT_PHASE_OBSERVE) fold.stop = true;
-        else extension_status(e, a->extension, event, "invalid_action",
-                              "stop is not accepted on this event");
+        else
+            extension_status(e, a->extension, event, "invalid_action",
+                             "stop is not accepted on this event");
     }
     /* Stop has deterministic precedence: do not publish or queue context that
      * will not be delivered. */
@@ -708,8 +710,7 @@ static extension_fold fold_extension_result(tny_engine *e, const char *event,
         fold.blocked = true;
         snprintf(fold.extension, sizeof fold.extension, "%s",
                  a->extension ? a->extension : "extension");
-        snprintf(fold.reason, sizeof fold.reason, "%s",
-                 a->reason ? a->reason : "prompt blocked");
+        snprintf(fold.reason, sizeof fold.reason, "%s", a->reason ? a->reason : "prompt blocked");
     }
     /* Explicit block beats every transformation/context action. */
     if (fold.blocked) return fold;
@@ -724,10 +725,8 @@ static extension_fold fold_extension_result(tny_engine *e, const char *event,
                                  "only a permission decision or stop is accepted");
                 continue;
             }
-            if (action->permission_decision == TNY_EXTENSION_PERMISSION_DENY)
-                deny = action;
-            else if (action->permission_decision ==
-                     TNY_EXTENSION_PERMISSION_ALLOW_ONCE)
+            if (action->permission_decision == TNY_EXTENSION_PERMISSION_DENY) deny = action;
+            else if (action->permission_decision == TNY_EXTENSION_PERMISSION_ALLOW_ONCE)
                 allow = action;
         }
         const tny_extension_action *selected = deny ? deny : allow;
@@ -743,9 +742,7 @@ static extension_fold fold_extension_result(tny_engine *e, const char *event,
     }
     for (size_t i = 0; i < result->action_count; i++) {
         tny_extension_action *a = &result->actions[i];
-        if (a->kind == TNY_EXTENSION_ACTION_STOP) {
-            continue;
-        }
+        if (a->kind == TNY_EXTENSION_ACTION_STOP) { continue; }
         if (a->kind == TNY_EXTENSION_ACTION_PROMPT_BLOCK) continue;
         if (a->kind == TNY_EXTENSION_ACTION_PROMPT_TRANSFORM) {
             if (phase != EXT_PHASE_PROMPT || !target) {
@@ -766,8 +763,7 @@ static extension_fold fold_extension_result(tny_engine *e, const char *event,
                                  "context is not accepted on this event");
                 continue;
             }
-            buf_t *destination = phase == EXT_PHASE_BEFORE_START
-                ? target : &e->extension_followup;
+            buf_t *destination = phase == EXT_PHASE_BEFORE_START ? target : &e->extension_followup;
             append_custom_context(destination, a);
             queue_action_message(e, a, true);
             continue;
@@ -791,9 +787,8 @@ static extension_fold fold_extension_result(tny_engine *e, const char *event,
     return fold;
 }
 
-static extension_fold invoke_extensions(tny_engine *e, const char *event,
-                                        const char *json, extension_phase phase,
-                                        buf_t *target) {
+static extension_fold invoke_extensions(tny_engine *e, const char *event, const char *json,
+                                        extension_phase phase, buf_t *target) {
     extension_fold fold = {0};
     if (!e->extensions || !json) return fold;
     tny_extension_result result;
@@ -812,41 +807,35 @@ static void extensions_session_start(tny_engine *e) {
     if (!e->extensions || e->session->extension_session_started) return;
     e->session->extension_session_started = true;
     e->extensions_started = true;
-    char *json = session_event_json(
-        e, "session_start", e->session->extension_start_reason,
-        e->session->extension_previous_session_id);
+    char *json = session_event_json(e, "session_start", e->session->extension_start_reason,
+                                    e->session->extension_previous_session_id);
     if (!json) return;
     (void)invoke_extensions(e, "session_start", json, EXT_PHASE_OBSERVE, NULL);
     free(json);
     json = instructions_event_json(e);
     if (json) {
-        (void)invoke_extensions(e, "instructions_change", json,
-                                EXT_PHASE_OBSERVE, NULL);
+        (void)invoke_extensions(e, "instructions_change", json, EXT_PHASE_OBSERVE, NULL);
         free(json);
     }
 }
 
-static extension_fold prepare_user_prompt(tny_engine *e, const char *prompt,
-                                          const char **images,
-                                          const char *source,
-                                          buf_t *effective) {
+static extension_fold prepare_user_prompt(tny_engine *e, const char *prompt, const char **images,
+                                          const char *source, buf_t *effective) {
     extension_fold fold = {0};
     buf_clear(effective);
     buf_appends(effective, prompt);
     if (!e->extensions) return fold;
     extensions_session_start(e);
     char submission_id[192];
-    char *json = prompt_submit_json(e, prompt, images, source,
-                                    submission_id, sizeof submission_id);
+    char *json = prompt_submit_json(e, prompt, images, source, submission_id, sizeof submission_id);
     if (json) {
-        fold = invoke_extensions(e, "user_prompt_submit", json,
-                                 EXT_PHASE_PROMPT, effective);
+        fold = invoke_extensions(e, "user_prompt_submit", json, EXT_PHASE_PROMPT, effective);
         free(json);
     }
     if (fold.transformed || fold.blocked) {
         session_record_prompt_audit(e->session, submission_id, prompt,
-                                    effective->data ? effective->data : "",
-                                    fold.blocked, fold.extension, fold.reason);
+                                    effective->data ? effective->data : "", fold.blocked,
+                                    fold.extension, fold.reason);
     }
     if (fold.blocked) {
         buf_t status;
@@ -864,10 +853,8 @@ static extension_fold prepare_user_prompt(tny_engine *e, const char *prompt,
     return fold;
 }
 
-static int start_backend_iteration(tny_engine *e, const char *prompt,
-                                   const char **images,
-                                   const char *source,
-                                   char *err, size_t errlen) {
+static int start_backend_iteration(tny_engine *e, const char *prompt, const char **images,
+                                   const char *source, char *err, size_t errlen) {
     extensions_session_start(e);
 
     buf_t effective;
@@ -875,9 +862,8 @@ static int start_backend_iteration(tny_engine *e, const char *prompt,
     bool stop = false;
     char *json = lifecycle_event_json(e, "before_agent_start", prompt, NULL);
     if (json) {
-        extension_fold fold = invoke_extensions(e, "before_agent_start", json,
-                                                EXT_PHASE_BEFORE_START,
-                                                &effective);
+        extension_fold fold =
+            invoke_extensions(e, "before_agent_start", json, EXT_PHASE_BEFORE_START, &effective);
         stop = fold.stop;
         free(json);
     }
@@ -904,27 +890,23 @@ static int start_backend_iteration(tny_engine *e, const char *prompt,
     }
     json = lifecycle_event_json(e, "agent_start", effective.data, NULL);
     if (json) {
-        (void)invoke_extensions(e, "agent_start", json, EXT_PHASE_OBSERVE,
-                                NULL);
+        (void)invoke_extensions(e, "agent_start", json, EXT_PHASE_OBSERVE, NULL);
         free(json);
     }
 
     json = turn_start_json(e, source);
     if (json) {
-        (void)invoke_extensions(e, "turn_start", json, EXT_PHASE_OBSERVE,
-                                NULL);
+        (void)invoke_extensions(e, "turn_start", json, EXT_PHASE_OBSERVE, NULL);
         free(json);
     }
 
     e->active = true;
     e->turn_started = true;
-    int rc = e->bk->send(e->bk, effective.data, images, backend_event, e,
-                         err, errlen);
+    int rc = e->bk->send(e->bk, effective.data, images, backend_event, e, err, errlen);
     buf_free(&effective);
     if (rc != 0) {
         e->forcing_error = true;
-        synth_error(e, TNY_EVENT_ERROR_IO,
-                    err && *err ? err : "backend send failed");
+        synth_error(e, TNY_EVENT_ERROR_IO, err && *err ? err : "backend send failed");
         synth_terminal(e, TNY_STOP_ERROR);
         return 0; /* a started lifecycle always drains to a terminal event */
     }
@@ -933,12 +915,10 @@ static int start_backend_iteration(tny_engine *e, const char *prompt,
 
 static void end_extension_message(tny_engine *e) {
     if (!e->extensions || !e->message_started) return;
-    char *json = message_event_json(
-        e, "message_end", e->current_message_id,
-        e->message_text.data ? e->message_text.data : "");
+    char *json = message_event_json(e, "message_end", e->current_message_id,
+                                    e->message_text.data ? e->message_text.data : "");
     if (json) {
-        (void)invoke_extensions(e, "message_end", json, EXT_PHASE_OBSERVE,
-                                NULL);
+        (void)invoke_extensions(e, "message_end", json, EXT_PHASE_OBSERVE, NULL);
         free(json);
     }
     e->message_started = false;
@@ -947,19 +927,16 @@ static void end_extension_message(tny_engine *e) {
     buf_clear(&e->message_text);
 }
 
-static void start_extension_message(tny_engine *e,
-                                    const tny_backend_event *ev) {
+static void start_extension_message(tny_engine *e, const tny_backend_event *ev) {
     const char *id = ev->message_id;
     char generated[192];
     if (!id || !*id) {
-        snprintf(generated, sizeof generated, "%s:%llu:%d:message",
-                 e->session->id,
+        snprintf(generated, sizeof generated, "%s:%llu:%d:message", e->session->id,
                  (unsigned long long)e->session->extension_agent_sequence,
                  e->extension_continuations);
         id = generated;
     }
-    if (e->message_started && e->current_message_id &&
-        strcmp(e->current_message_id, id) == 0)
+    if (e->message_started && e->current_message_id && strcmp(e->current_message_id, id) == 0)
         return;
     end_extension_message(e);
     e->current_message_id = xstrdup(id);
@@ -967,8 +944,7 @@ static void start_extension_message(tny_engine *e,
     if (!e->message_started) return;
     char *json = message_event_json(e, "message_start", id, NULL);
     if (json) {
-        (void)invoke_extensions(e, "message_start", json, EXT_PHASE_OBSERVE,
-                                NULL);
+        (void)invoke_extensions(e, "message_start", json, EXT_PHASE_OBSERVE, NULL);
         free(json);
     }
 }
@@ -986,30 +962,26 @@ static void process_queued_extension_hooks(tny_engine *e) {
         char *json = backend_event_json(e, &owned->ev);
         if (!json) continue;
         if (owned->ev.kind == TNY_EV_PERMISSION) {
-            extension_fold permission = invoke_extensions(
-                e, "permission_request", json, EXT_PHASE_PERMISSION, NULL);
+            extension_fold permission =
+                invoke_extensions(e, "permission_request", json, EXT_PHASE_PERMISSION, NULL);
             free(json);
             if (permission.stop || permission.permission_decided) {
                 owned->suppressed = true;
-                tny_perm_decision decision = permission.permission_decision ==
-                    TNY_EXTENSION_PERMISSION_ALLOW_ONCE
-                        ? TNY_PERM_DECISION_ALLOW : TNY_PERM_DECISION_DENY;
-                if (!permission.stop && e->bk && e->bk->respond_permission &&
-                    owned->ev.perm_id)
+                tny_perm_decision decision =
+                    permission.permission_decision == TNY_EXTENSION_PERMISSION_ALLOW_ONCE
+                        ? TNY_PERM_DECISION_ALLOW
+                        : TNY_PERM_DECISION_DENY;
+                if (!permission.stop && e->bk && e->bk->respond_permission && owned->ev.perm_id)
                     e->bk->respond_permission(e->bk, owned->ev.perm_id, decision);
             }
             continue;
         }
-        (void)invoke_extensions(e, event_kind_name(owned->ev.kind), json,
-                                EXT_PHASE_STREAM, NULL);
+        (void)invoke_extensions(e, event_kind_name(owned->ev.kind), json, EXT_PHASE_STREAM, NULL);
         free(json);
-        if (owned->ev.kind == TNY_EV_TEXT_DELTA && owned->ev.text &&
-            e->message_started) {
-            json = message_event_json(e, "message_update",
-                                      e->current_message_id, owned->ev.text);
+        if (owned->ev.kind == TNY_EV_TEXT_DELTA && owned->ev.text && e->message_started) {
+            json = message_event_json(e, "message_update", e->current_message_id, owned->ev.text);
             if (json) {
-                (void)invoke_extensions(e, "message_update", json,
-                                        EXT_PHASE_STREAM, NULL);
+                (void)invoke_extensions(e, "message_update", json, EXT_PHASE_STREAM, NULL);
                 free(json);
             }
         }
@@ -1020,8 +992,7 @@ static void native_control_failures(tny_engine *e, const char *event,
                                     tny_extension_result *result) {
     for (size_t i = 0; i < result->failure_count; i++) {
         tny_extension_failure *failure = &result->failures[i];
-        extension_status(e, failure->extension, event, failure->code,
-                         failure->message);
+        extension_status(e, failure->extension, event, failure->code, failure->message);
     }
 }
 
@@ -1029,24 +1000,21 @@ static bool native_invoke(tny_engine *e, const char *event, const char *json,
                           tny_extension_result *result) {
     memset(result, 0, sizeof *result);
     if (!e->extensions) return false;
-    if (tny_extensions_invoke(e->extensions, event, json, result) == 0)
-        return true;
+    if (tny_extensions_invoke(e->extensions, event, json, result) == 0) return true;
     extension_status(e, "extension-host", event, "manager_error",
                      "could not invoke extension handlers");
     return false;
 }
 
 static void native_invalid_action(tny_engine *e, const char *event,
-                                  const tny_extension_action *action,
-                                  const char *message) {
+                                  const tny_extension_action *action, const char *message) {
     extension_status(e, action->extension, event, "invalid_action", message);
 }
 
 static void native_set_attribution(tny_openai_control_response *response,
                                    const tny_extension_action *action);
 
-static bool native_has_stop(tny_engine *e, const char *event,
-                            tny_extension_result *result,
+static bool native_has_stop(tny_engine *e, const char *event, tny_extension_result *result,
                             tny_openai_control_response *response) {
     bool stop = e->extension_stop_requested;
     const tny_extension_action *selected = NULL;
@@ -1062,8 +1030,7 @@ static bool native_has_stop(tny_engine *e, const char *event,
     return stop;
 }
 
-static char *native_control_json(tny_engine *e,
-                                 const tny_openai_control_request *request,
+static char *native_control_json(tny_engine *e, const tny_openai_control_request *request,
                                  const char *event) {
     buf_t b;
     buf_init(&b);
@@ -1071,18 +1038,18 @@ static char *native_control_json(tny_engine *e,
     switch (request->kind) {
     case TNY_OPENAI_CONTROL_PRE_TOOL: {
         yyjson_doc *args = request->arguments_json
-            ? jparse(request->arguments_json, strlen(request->arguments_json))
-            : NULL;
+                               ? jparse(request->arguments_json, strlen(request->arguments_json))
+                               : NULL;
         yyjson_val *root = args ? yyjson_doc_get_root(args) : NULL;
         bool valid = root && yyjson_is_obj(root);
         buf_appends(&b, "\"tool_name\":");
         jescape(&b, request->tool_name ? request->tool_name : "tool");
         buf_appends(&b, ",\"tool_id\":");
         jescape(&b, request->tool_id ? request->tool_id : "");
-        buf_appendf(&b, ",\"arguments\":%s,\"original_arguments\":%s,"
-                        "\"provider_owned\":false,\"arguments_valid\":%s",
-                    valid ? request->arguments_json : "{}",
-                    valid ? request->arguments_json : "{}",
+        buf_appendf(&b,
+                    ",\"arguments\":%s,\"original_arguments\":%s,"
+                    "\"provider_owned\":false,\"arguments_valid\":%s",
+                    valid ? request->arguments_json : "{}", valid ? request->arguments_json : "{}",
                     valid ? "true" : "false");
         yyjson_doc_free(args);
         break;
@@ -1101,13 +1068,11 @@ static char *native_control_json(tny_engine *e,
         jescape(&b, request->tool_id ? request->tool_id : "");
         buf_appends(&b, ",\"result\":");
         jescape(&b, request->result ? request->result : "");
-        buf_appendf(&b, ",\"original_ok\":%s",
-                    request->original_ok ? "true" : "false");
+        buf_appendf(&b, ",\"original_ok\":%s", request->original_ok ? "true" : "false");
         break;
     case TNY_OPENAI_CONTROL_TOOL_BATCH:
         buf_appendf(&b, "\"tool_ids\":%s,\"failed\":%d",
-                    request->tool_ids_json ? request->tool_ids_json : "[]",
-                    request->failed_tools);
+                    request->tool_ids_json ? request->tool_ids_json : "[]", request->failed_tools);
         break;
     case TNY_OPENAI_CONTROL_PROVIDER_REQUEST:
         buf_appends(&b, "\"method\":");
@@ -1115,16 +1080,18 @@ static char *native_control_json(tny_engine *e,
         buf_appends(&b, ",\"endpoint\":");
         jescape(&b, request->endpoint ? request->endpoint : "");
         buf_appends(&b, ",\"metadata\":{");
-        buf_appendf(&b, "\"stream\":%s,\"step\":%d,\"wire_api\":",
-                    request->stream ? "true" : "false", request->step);
+        buf_appendf(&b,
+                    "\"stream\":%s,\"step\":%d,\"wire_api\":", request->stream ? "true" : "false",
+                    request->step);
         jescape(&b, request->wire_api ? request->wire_api : "responses");
         buf_appends(&b, ",\"logical_request_id\":");
         jescape(&b, request->logical_request_id ? request->logical_request_id : "");
         buf_appendf(&b, ",\"attempt\":%d}", request->attempt);
         break;
     case TNY_OPENAI_CONTROL_PROVIDER_RESPONSE:
-        buf_appendf(&b, "\"status\":%d,\"metadata\":{\"stream\":%s,"
-                        "\"connection_reused\":%s,\"wire_api\":",
+        buf_appendf(&b,
+                    "\"status\":%d,\"metadata\":{\"stream\":%s,"
+                    "\"connection_reused\":%s,\"wire_api\":",
                     request->status, request->stream ? "true" : "false",
                     request->connection_reused ? "true" : "false");
         jescape(&b, request->wire_api ? request->wire_api : "responses");
@@ -1145,8 +1112,7 @@ static char *native_control_json(tny_engine *e,
         jescape(&b, request->subagent_action ? request->subagent_action : "create");
         buf_appends(&b, ",\"outcome\":");
         jescape(&b, request->subagent_outcome ? request->subagent_outcome : "done");
-        buf_appendf(&b, ",\"ok\":%s",
-                    request->subagent_ok ? "true" : "false");
+        buf_appendf(&b, ",\"ok\":%s", request->subagent_ok ? "true" : "false");
         break;
     }
     buf_appends(&b, "}}");
@@ -1177,8 +1143,9 @@ static void native_pre_tool(tny_engine *e, const char *json,
         if (action->kind == TNY_EXTENSION_ACTION_STOP) continue;
         if (action->kind == TNY_EXTENSION_ACTION_TOOL_DENY) deny = action;
         else if (action->kind == TNY_EXTENSION_ACTION_TOOL_REWRITE) rewrite = action;
-        else native_invalid_action(e, "pre_tool_use", action,
-                                   "only tool rewrite, deny, or stop is accepted");
+        else
+            native_invalid_action(e, "pre_tool_use", action,
+                                  "only tool rewrite, deny, or stop is accepted");
     }
     if (deny) {
         response->deny = true;
@@ -1209,11 +1176,8 @@ static void native_permission(tny_engine *e, const char *json,
                                   "only a permission decision or stop is accepted");
             continue;
         }
-        if (action->permission_decision == TNY_EXTENSION_PERMISSION_DENY)
-            deny = action;
-        else if (action->permission_decision ==
-                 TNY_EXTENSION_PERMISSION_ALLOW_ONCE)
-            allow = action;
+        if (action->permission_decision == TNY_EXTENSION_PERMISSION_DENY) deny = action;
+        else if (action->permission_decision == TNY_EXTENSION_PERMISSION_ALLOW_ONCE) allow = action;
     }
     if (deny) {
         response->permission = TNY_OPENAI_PERMISSION_DENY;
@@ -1225,8 +1189,7 @@ static void native_permission(tny_engine *e, const char *json,
     tny_extension_result_free(&result);
 }
 
-static void native_post_tool(tny_engine *e,
-                             const tny_openai_control_request *request,
+static void native_post_tool(tny_engine *e, const tny_openai_control_request *request,
                              const char *event, const char *json,
                              tny_openai_control_response *response) {
     tny_extension_result result = {0};
@@ -1252,8 +1215,7 @@ static void native_post_tool(tny_engine *e,
             jescape(&annotations, action->extension ? action->extension : "extension");
             buf_appends(&annotations, ",\"content\":");
             jescape(&annotations, action->content ? action->content : "");
-            buf_appendf(&annotations, ",\"display\":%s}",
-                        action->display ? "true" : "false");
+            buf_appendf(&annotations, ",\"display\":%s}", action->display ? "true" : "false");
             queue_action_message(e, action, true);
             continue;
         }
@@ -1267,21 +1229,20 @@ static void native_post_tool(tny_engine *e,
         response->result_is_error = replacement->is_error;
         native_set_attribution(response, replacement);
     }
-    const char *effective = response->result_replaced
-        ? response->result : request->result;
-    bool effective_ok = response->result_replaced
-        ? !response->result_is_error : request->original_ok;
-    bool audited = response->result_replaced || annotation_count > 0 ||
-        request->control_extension != NULL || request->control_reason != NULL ||
+    const char *effective = response->result_replaced ? response->result : request->result;
+    bool effective_ok =
+        response->result_replaced ? !response->result_is_error : request->original_ok;
+    bool audited =
+        response->result_replaced || annotation_count > 0 || request->control_extension != NULL ||
+        request->control_reason != NULL ||
         strcmp(request->original_arguments_json ? request->original_arguments_json : "{}",
                request->arguments_json ? request->arguments_json : "{}") != 0;
     if (audited) {
-        session_record_tool_audit(
-            e->session, request->tool_id, request->tool_name,
-            request->original_arguments_json, request->arguments_json,
-            request->control_extension, request->control_reason,
-            request->result, request->original_ok, effective, effective_ok,
-            response->extension, annotations.data);
+        session_record_tool_audit(e->session, request->tool_id, request->tool_name,
+                                  request->original_arguments_json, request->arguments_json,
+                                  request->control_extension, request->control_reason,
+                                  request->result, request->original_ok, effective, effective_ok,
+                                  response->extension, annotations.data);
     }
     buf_free(&annotations);
     tny_extension_result_free(&result);
@@ -1294,15 +1255,13 @@ static void native_observe(tny_engine *e, const char *event, const char *json) {
     (void)native_has_stop(e, event, &result, NULL);
     for (size_t i = 0; i < result.action_count; i++) {
         if (result.actions[i].kind != TNY_EXTENSION_ACTION_STOP)
-            native_invalid_action(e, event, &result.actions[i],
-                                  "this event is observational");
+            native_invalid_action(e, event, &result.actions[i], "this event is observational");
     }
     tny_extension_result_free(&result);
 }
 
-static void native_openai_control(
-    const tny_openai_control_request *request,
-    tny_openai_control_response *response, void *ud) {
+static void native_openai_control(const tny_openai_control_request *request,
+                                  tny_openai_control_response *response, void *ud) {
     tny_engine *e = ud;
     if (!e || !request || !response) return;
     if (!e->extensions) return;
@@ -1330,19 +1289,14 @@ static void native_openai_control(
     if (!event) return;
     char *json = native_control_json(e, request, event);
     if (!json) return;
-    if (request->kind == TNY_OPENAI_CONTROL_PRE_TOOL)
-        native_pre_tool(e, json, response);
-    else if (request->kind == TNY_OPENAI_CONTROL_PERMISSION)
-        native_permission(e, json, response);
+    if (request->kind == TNY_OPENAI_CONTROL_PRE_TOOL) native_pre_tool(e, json, response);
+    else if (request->kind == TNY_OPENAI_CONTROL_PERMISSION) native_permission(e, json, response);
     else if (request->kind == TNY_OPENAI_CONTROL_POST_TOOL)
         native_post_tool(e, request, event, json, response);
-    else
-        native_observe(e, event, json);
+    else native_observe(e, event, json);
     free(json);
     if (e->extension_stop_requested) response->stop = true;
-    if (e->cancel_probe && e->cancel_probe(e->cancel_probe_ud)) {
-        response->stop = true;
-    }
+    if (e->cancel_probe && e->cancel_probe(e->cancel_probe_ud)) { response->stop = true; }
 }
 
 static void commit_pending_terminal(tny_engine *e) {
@@ -1373,28 +1327,24 @@ static bool resolve_pending_terminal(tny_engine *e) {
     if (e->turn_started) {
         json = backend_event_json(e, terminal);
         if (json) {
-            (void)invoke_extensions(e, "turn_end", json,
-                                    EXT_PHASE_STREAM, NULL);
+            (void)invoke_extensions(e, "turn_end", json, EXT_PHASE_STREAM, NULL);
             free(json);
         }
 
         json = lifecycle_event_json(e, "agent_end", NULL, terminal);
         if (json) {
-            (void)invoke_extensions(e, "agent_end", json,
-                                    EXT_PHASE_AGENT_END,
+            (void)invoke_extensions(e, "agent_end", json, EXT_PHASE_AGENT_END,
                                     &e->extension_followup);
             free(json);
         }
     }
 
     bool continue_requested = e->turn_started && e->extension_followup.len > 0;
-    if (terminal->stop == TNY_STOP_INTERRUPTED ||
-        terminal->stop == TNY_STOP_DENIED)
+    if (terminal->stop == TNY_STOP_INTERRUPTED || terminal->stop == TNY_STOP_DENIED)
         continue_requested = false;
     if (e->extension_stop_requested) continue_requested = false;
     int limit = e->ctx->max_extension_iterations;
-    if (continue_requested && limit > 0 &&
-        e->extension_continuations >= limit) {
+    if (continue_requested && limit > 0 && e->extension_continuations >= limit) {
         tny_backend_event status = {0};
         const char *message = "extension continuation limit reached; agent settled";
         status.kind = TNY_EV_STATUS;
@@ -1413,13 +1363,11 @@ static bool resolve_pending_terminal(tny_engine *e) {
         e->extension_stop_requested = false;
         e->extension_cancel_sent = false;
         char err[512];
-        int rc = start_backend_iteration(e, prompt, NULL, "continuation",
-                                         err, sizeof err);
+        int rc = start_backend_iteration(e, prompt, NULL, "continuation", err, sizeof err);
         free(prompt);
         if (rc == 0) return true;
         e->forcing_error = true;
-        synth_error(e, TNY_EVENT_ERROR_IO, err[0] ? err
-                                                   : "extension continuation failed");
+        synth_error(e, TNY_EVENT_ERROR_IO, err[0] ? err : "extension continuation failed");
         synth_terminal(e, TNY_STOP_ERROR);
         return true;
     }
@@ -1427,8 +1375,7 @@ static bool resolve_pending_terminal(tny_engine *e) {
     buf_clear(&e->extension_followup);
     json = lifecycle_event_json(e, "agent_settled", NULL, terminal);
     if (json) {
-        (void)invoke_extensions(e, "agent_settled", json, EXT_PHASE_OBSERVE,
-                                NULL);
+        (void)invoke_extensions(e, "agent_settled", json, EXT_PHASE_OBSERVE, NULL);
         free(json);
     }
     commit_pending_terminal(e);
@@ -1447,10 +1394,8 @@ static void finalize_turn(tny_engine *e) {
         }
     }
     session_set_meta(e->session, tny_provider_name(e->ctx), e->ctx->model);
-    if (!session_title(e->session) && e->prompt_text)
-        session_set_title(e->session, e->prompt_text);
-    if (e->stop == TNY_STOP_DONE)
-        (void)tny_engine_compact(e, false, "threshold");
+    if (!session_title(e->session) && e->prompt_text) session_set_title(e->session, e->prompt_text);
+    if (e->stop == TNY_STOP_DONE) (void)tny_engine_compact(e, false, "threshold");
     session_save(e->session);
 }
 
@@ -1461,8 +1406,7 @@ static void after_backend(tny_engine *e, int dispatch_rc) {
     } else if (e->overflow_pending && !e->terminal && !e->pending_terminal) {
         e->overflow_pending = false;
         e->forcing_error = true;
-        synth_error(e, TNY_EVENT_ERROR_BACKPRESSURE,
-                    "event queue backpressure");
+        synth_error(e, TNY_EVENT_ERROR_BACKPRESSURE, "event queue backpressure");
         if (e->bk && e->bk->cancel) e->bk->cancel(e->bk);
         synth_terminal(e, TNY_STOP_ERROR);
     } else if (dispatch_rc != 0 && !e->terminal && !e->pending_terminal) {
@@ -1471,8 +1415,8 @@ static void after_backend(tny_engine *e, int dispatch_rc) {
     }
     for (;;) {
         process_queued_extension_hooks(e);
-        if (e->extension_stop_requested && !e->extension_cancel_sent &&
-            !e->pending_terminal && e->bk && e->bk->cancel) {
+        if (e->extension_stop_requested && !e->extension_cancel_sent && !e->pending_terminal &&
+            e->bk && e->bk->cancel) {
             e->extension_cancel_sent = true;
             e->bk->cancel(e->bk);
             /* A host may confirm asynchronously; return to its poll loop. */
@@ -1484,10 +1428,8 @@ static void after_backend(tny_engine *e, int dispatch_rc) {
     finalize_turn(e);
 }
 
-tny_engine *tny_engine_new(tny_ctx *ctx, tny_session_state *session,
-                           perm_engine *perm,
-                           tny_perm_decision (*prompt)(const char *,
-                                                       const char *, void *),
+tny_engine *tny_engine_new(tny_ctx *ctx, tny_session_state *session, perm_engine *perm,
+                           tny_perm_decision (*prompt)(const char *, const char *, void *),
                            void *prompt_ud) {
     if (!ctx || !session || !perm) return NULL;
     tny_engine *e = calloc(1, sizeof *e);
@@ -1504,9 +1446,7 @@ tny_engine *tny_engine_new(tny_ctx *ctx, tny_session_state *session,
     buf_init(&e->turn_text);
     buf_init(&e->message_text);
     buf_init(&e->extension_followup);
-    e->oom_error_reserve = reserve_event(e, TNY_EV_ERROR);
-    e->oom_terminal_reserve = reserve_event(e, TNY_EV_TURN_END);
-    if (!e->oom_error_reserve || !e->oom_terminal_reserve) {
+    if (!ensure_oom_reserves(e)) {
         tny_engine_free(e);
         return NULL;
     }
@@ -1522,8 +1462,7 @@ static void drop_backend(tny_engine *e) {
     e->bk = NULL;
 }
 
-int tny_engine_prepare(tny_engine *e, tny_backend *prepared,
-                       tny_engine_prepare_state state,
+int tny_engine_prepare(tny_engine *e, tny_backend *prepared, tny_engine_prepare_state state,
                        char *err, size_t errlen) {
     if (!e || e->bk || e->active) {
         if (err && errlen) snprintf(err, errlen, "runtime is not ready for a backend");
@@ -1536,8 +1475,7 @@ int tny_engine_prepare(tny_engine *e, tny_backend *prepared,
         return -1;
     }
     e->bk = bk; /* ownership transfers before any fallible operation */
-    if (state == TNY_ENGINE_PREPARE_FRESH &&
-        bk->connect(bk, err, errlen) != 0) {
+    if (state == TNY_ENGINE_PREPARE_FRESH && bk->connect(bk, err, errlen) != 0) {
         drop_backend(e);
         return -1;
     }
@@ -1547,8 +1485,7 @@ int tny_engine_prepare(tny_engine *e, tny_backend *prepared,
     if (state != TNY_ENGINE_PREPARE_RESUMED && bk->create_or_resume) {
         const char *ptr = session_host_pointer(e->session);
         const char *owner = session_backend(e->session);
-        if (ptr && owner && strcmp(owner, tny_provider_name(e->ctx)) != 0)
-            ptr = NULL;
+        if (ptr && owner && strcmp(owner, tny_provider_name(e->ctx)) != 0) ptr = NULL;
         if (bk->create_or_resume(bk, ptr, err, errlen) != 0) {
             drop_backend(e);
             return -1;
@@ -1557,8 +1494,7 @@ int tny_engine_prepare(tny_engine *e, tny_backend *prepared,
     return 0;
 }
 
-void tny_engine_set_cancel_probe(tny_engine *e,
-                                 tny_engine_cancel_probe probe, void *ud) {
+void tny_engine_set_cancel_probe(tny_engine *e, tny_engine_cancel_probe probe, void *ud) {
     if (!e) return;
     e->cancel_probe = probe;
     e->cancel_probe_ud = ud;
@@ -1575,16 +1511,19 @@ void tny_engine_request_cancel(tny_engine *e) {
     if (!e || !e->threadsafe_cancel ||
         !atomic_load_explicit(&e->cancel_armed, memory_order_acquire))
         return;
-    if (!atomic_exchange_explicit(&e->cancel_requested, true,
-                                  memory_order_acq_rel))
+    if (!atomic_exchange_explicit(&e->cancel_requested, true, memory_order_acq_rel))
         tny_wake_signal(&e->cancel_wake);
 }
 
-int tny_engine_start(tny_engine *e, const char *prompt, const char **images,
-                     char *err, size_t errlen) {
-    if (!e || !e->bk || !prompt || e->active || e->head ||
-        e->pending_terminal || (e->terminal && !e->terminal_popped)) {
+int tny_engine_start(tny_engine *e, const char *prompt, const char **images, char *err,
+                     size_t errlen) {
+    if (!e || !e->bk || !prompt || e->active || e->head || e->pending_terminal ||
+        (e->terminal && !e->terminal_popped)) {
         if (err && errlen) snprintf(err, errlen, "runtime is not ready for a turn");
+        return -1;
+    }
+    if (!ensure_oom_reserves(e)) {
+        if (err && errlen) snprintf(err, errlen, "out of memory");
         return -1;
     }
     free(e->prompt_text);
@@ -1609,8 +1548,7 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images,
     buf_t effective;
     buf_init(&effective);
     extension_fold prompt_fold = {0};
-    if (e->prepared_requeue_text &&
-        strcmp(e->prepared_requeue_text, prompt) == 0) {
+    if (e->prepared_requeue_text && strcmp(e->prepared_requeue_text, prompt) == 0) {
         buf_appends(&effective, prompt); /* mutating hook already consumed */
         free(e->prepared_requeue_text);
         e->prepared_requeue_text = NULL;
@@ -1631,14 +1569,12 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images,
             free(e->prompt_text);
             e->prompt_text = NULL; /* blocked text never becomes session title */
         }
-        synth_terminal(e, prompt_fold.blocked ? TNY_STOP_DENIED
-                                              : TNY_STOP_INTERRUPTED);
+        synth_terminal(e, prompt_fold.blocked ? TNY_STOP_DENIED : TNY_STOP_INTERRUPTED);
         buf_free(&effective);
         after_backend(e, 0);
         return 0;
     }
-    int rc = start_backend_iteration(e, effective.data, images, "user",
-                                     err, errlen);
+    int rc = start_backend_iteration(e, effective.data, images, "user", err, errlen);
     buf_free(&effective);
     if (rc != 0) {
         tny_owned_event *queued;
@@ -1647,14 +1583,12 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images,
         buf_clear(&e->extension_followup);
         return -1; /* start failure creates no event stream */
     }
-    if (e->active)
-        atomic_store_explicit(&e->cancel_armed, true, memory_order_release);
+    if (e->active) atomic_store_explicit(&e->cancel_armed, true, memory_order_release);
     after_backend(e, 0);
     return 0;
 }
 
-int tny_engine_steer(tny_engine *e, const char *text,
-                     char *err, size_t errlen) {
+int tny_engine_steer(tny_engine *e, const char *text, char *err, size_t errlen) {
     if (!e || !e->active || !e->bk || !e->bk->steer) {
         if (err && errlen) snprintf(err, errlen, "turn cannot accept steering");
         return -1;
@@ -1724,8 +1658,7 @@ void tny_engine_fail_oom(tny_engine *e) {
     atomic_store_explicit(&e->cancel_armed, false, memory_order_release);
 }
 
-void tny_engine_respond_permission(tny_engine *e, const char *id,
-                                   tny_perm_decision decision) {
+void tny_engine_respond_permission(tny_engine *e, const char *id, tny_perm_decision decision) {
     if (!e || !e->active || !e->bk || !e->bk->respond_permission) return;
     e->bk->respond_permission(e->bk, id, decision);
     after_backend(e, 0);
@@ -1765,8 +1698,7 @@ tny_owned_event *tny_engine_pop_event(tny_engine *e) {
     return o;
 }
 
-tny_engine_next tny_engine_next_event(tny_engine *e, int timeout_ms,
-                                      tny_owned_event **out,
+tny_engine_next tny_engine_next_event(tny_engine *e, int timeout_ms, tny_owned_event **out,
                                       char *err, size_t errlen) {
     if (out) *out = NULL;
     if (!e || !out || timeout_ms < 0) {
@@ -1774,19 +1706,20 @@ tny_engine_next tny_engine_next_event(tny_engine *e, int timeout_ms,
         return TNY_ENGINE_NEXT_ERROR;
     }
     if (e->threadsafe_cancel &&
-        atomic_exchange_explicit(&e->cancel_requested, false,
-                                 memory_order_acq_rel) &&
-        e->active)
+        atomic_exchange_explicit(&e->cancel_requested, false, memory_order_acq_rel) && e->active)
         tny_engine_cancel(e);
     tny_owned_event *queued = tny_engine_pop_event(e);
-    if (queued) { *out = queued; return TNY_ENGINE_NEXT_EVENT; }
+    if (queued) {
+        *out = queued;
+        return TNY_ENGINE_NEXT_EVENT;
+    }
     if (e->terminal_popped) return TNY_ENGINE_NEXT_DRAINED;
     if (!e->active) {
         if (err && errlen) snprintf(err, errlen, "no turn is active");
         return TNY_ENGINE_NEXT_ERROR;
     }
 
-    int64_t deadline = monotonic_ms() + timeout_ms;
+    int64_t deadline = engine_monotonic_ms(e) + timeout_ms;
     do {
         struct pollfd fds[9];
         int n = tny_engine_pollfds(e, fds, 8);
@@ -1798,7 +1731,7 @@ tny_engine_next tny_engine_next_event(tny_engine *e, int timeout_ms,
             fds[wake_index].events = POLLIN;
             fds[wake_index].revents = 0;
         }
-        int remaining = (int)(deadline - monotonic_ms());
+        int remaining = (int)(deadline - engine_monotonic_ms(e));
         if (remaining < 0) remaining = 0;
         int pr = tny_poll(n ? fds : NULL, (nfds_t)n, remaining);
         if (pr < 0) {
@@ -1811,22 +1744,22 @@ tny_engine_next tny_engine_next_event(tny_engine *e, int timeout_ms,
         } else {
             if (wake_index >= 0 && fds[wake_index].revents) {
                 tny_wake_drain(&e->cancel_wake);
-                if (atomic_exchange_explicit(&e->cancel_requested, false,
-                                             memory_order_acq_rel) &&
+                if (atomic_exchange_explicit(&e->cancel_requested, false, memory_order_acq_rel) &&
                     e->active)
                     tny_engine_cancel(e);
             }
             tny_engine_dispatch(e, fds, backend_n);
         }
         queued = tny_engine_pop_event(e);
-        if (queued) { *out = queued; return TNY_ENGINE_NEXT_EVENT; }
+        if (queued) {
+            *out = queued;
+            return TNY_ENGINE_NEXT_EVENT;
+        }
         if (e->terminal_popped) return TNY_ENGINE_NEXT_DRAINED;
-        if (monotonic_ms() >= deadline)
-            return TNY_ENGINE_NEXT_TIMEOUT;
+        if (engine_monotonic_ms(e) >= deadline) return TNY_ENGINE_NEXT_TIMEOUT;
     } while (e->active);
 
-    return e->terminal_popped ? TNY_ENGINE_NEXT_DRAINED
-                              : TNY_ENGINE_NEXT_TIMEOUT;
+    return e->terminal_popped ? TNY_ENGINE_NEXT_DRAINED : TNY_ENGINE_NEXT_TIMEOUT;
 }
 
 bool tny_engine_ready(const tny_engine *e) { return e && e->bk; }
@@ -1835,13 +1768,12 @@ tny_backend_id tny_engine_backend_id(const tny_engine *e) {
 }
 
 int tny_engine_openai_steps(tny_engine *e) {
-    return tny_engine_backend_id(e) == TNY_BK_OPENAI
-        ? tny_backend_openai_steps(e->bk) : 1;
+    return tny_engine_backend_id(e) == TNY_BK_OPENAI ? tny_backend_openai_steps(e->bk) : 1;
 }
 
 const char *tny_engine_openai_toolcalls_json(tny_engine *e) {
-    return tny_engine_backend_id(e) == TNY_BK_OPENAI
-        ? tny_backend_openai_toolcalls_json(e->bk) : "[]";
+    return tny_engine_backend_id(e) == TNY_BK_OPENAI ? tny_backend_openai_toolcalls_json(e->bk)
+                                                     : "[]";
 }
 
 void tny_engine_preserve_session_on_free(tny_engine *e) {
@@ -1850,11 +1782,9 @@ void tny_engine_preserve_session_on_free(tny_engine *e) {
 
 void tny_engine_end_session(tny_engine *e, const char *reason) {
     if (!e || !e->extensions || !e->session->extension_session_started) return;
-    char *json = session_event_json(e, "session_end",
-                                    reason && *reason ? reason : "exit", NULL);
+    char *json = session_event_json(e, "session_end", reason && *reason ? reason : "exit", NULL);
     if (json) {
-        (void)invoke_extensions(e, "session_end", json, EXT_PHASE_OBSERVE,
-                                NULL);
+        (void)invoke_extensions(e, "session_end", json, EXT_PHASE_OBSERVE, NULL);
         free(json);
     }
     e->session->extension_session_started = false;
@@ -1866,14 +1796,13 @@ int tny_engine_compact(tny_engine *e, bool force, const char *trigger) {
     if (!session_compact_needed(e->session, force)) return 0;
     int before = session_message_count(e->session);
     bool observable = e->extensions && e->session->extension_session_started &&
-        tny_extension_capability_get((tny_backend_id)e->ctx->backend,
-            TNY_EXT_CAP_LIFECYCLE_COMPACTION_OBSERVE) == TNY_EXT_CAP_SUPPORTED;
+                      tny_extension_capability_get((tny_backend_id)e->ctx->backend,
+                                                   TNY_EXT_CAP_LIFECYCLE_COMPACTION_OBSERVE) ==
+                          TNY_EXT_CAP_SUPPORTED;
     if (observable) {
-        char *json = compact_event_json(e, "pre_compact", trigger,
-                                        before, before, NULL, NULL);
+        char *json = compact_event_json(e, "pre_compact", trigger, before, before, NULL, NULL);
         if (json) {
-            (void)invoke_extensions(e, "pre_compact", json, EXT_PHASE_OBSERVE,
-                                    NULL);
+            (void)invoke_extensions(e, "pre_compact", json, EXT_PHASE_OBSERVE, NULL);
             free(json);
         }
     }
@@ -1883,32 +1812,28 @@ int tny_engine_compact(tny_engine *e, bool force, const char *trigger) {
             const char *summary = NULL;
             int boundary = session_compact_boundary(e->session, &summary);
             int after = session_message_count(e->session) - boundary + 1;
-            char *json = compact_event_json(e, "post_compact", trigger,
-                                            before, after, summary, NULL);
+            char *json =
+                compact_event_json(e, "post_compact", trigger, before, after, summary, NULL);
             if (json) {
-                (void)invoke_extensions(e, "post_compact", json,
-                                        EXT_PHASE_OBSERVE, NULL);
+                (void)invoke_extensions(e, "post_compact", json, EXT_PHASE_OBSERVE, NULL);
                 free(json);
             }
         }
         return changed;
     }
     if (observable) {
-        char *json = compact_event_json(e, "compact_failed", trigger,
-                                        before, before, NULL,
+        char *json = compact_event_json(e, "compact_failed", trigger, before, before, NULL,
                                         "session persistence failed");
         if (json) {
-            (void)invoke_extensions(e, "compact_failed", json,
-                                    EXT_PHASE_OBSERVE, NULL);
+            (void)invoke_extensions(e, "compact_failed", json, EXT_PHASE_OBSERVE, NULL);
             free(json);
         }
     }
     return -1;
 }
 
-static void notify_selection_change(tny_engine *e, const char *type,
-                                    const char *previous, const char *current,
-                                    const char *source) {
+static void notify_selection_change(tny_engine *e, const char *type, const char *previous,
+                                    const char *current, const char *source) {
     if (!e || !e->extensions || !e->session->extension_session_started) return;
     const char *before = previous ? previous : "default";
     const char *after = current ? current : "default";
@@ -1920,23 +1845,21 @@ static void notify_selection_change(tny_engine *e, const char *type,
     }
 }
 
-void tny_engine_model_changed(tny_engine *e, const char *previous,
-                              const char *current, const char *source) {
+void tny_engine_model_changed(tny_engine *e, const char *previous, const char *current,
+                              const char *source) {
     notify_selection_change(e, "model_change", previous, current, source);
 }
 
-void tny_engine_effort_changed(tny_engine *e, const char *previous,
-                               const char *current, const char *source) {
+void tny_engine_effort_changed(tny_engine *e, const char *previous, const char *current,
+                               const char *source) {
     notify_selection_change(e, "effort_change", previous, current, source);
 }
 
-void tny_engine_workspace_changed(tny_engine *e, const char *action,
-                                  const char *path) {
+void tny_engine_workspace_changed(tny_engine *e, const char *action, const char *path) {
     if (!e || !e->extensions || !e->session->extension_session_started) return;
     char *json = workspace_event_json(e, action, path);
     if (json) {
-        (void)invoke_extensions(e, "workspace_change", json,
-                                EXT_PHASE_OBSERVE, NULL);
+        (void)invoke_extensions(e, "workspace_change", json, EXT_PHASE_OBSERVE, NULL);
         free(json);
     }
 }

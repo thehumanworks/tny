@@ -28,8 +28,7 @@ bool cx_ws_url_is_loopback(const char *url) {
     const char *colon = strchr(host, ':');
     if (!colon) return false;
     size_t hlen = (size_t)(colon - host);
-    if (hlen != 9 ||
-        (strncmp(host, "127.0.0.1", 9) != 0 && strncmp(host, "localhost", 9) != 0))
+    if (hlen != 9 || (strncmp(host, "127.0.0.1", 9) != 0 && strncmp(host, "localhost", 9) != 0))
         return false;
     const char *p = colon + 1;
     long port = 0;
@@ -44,7 +43,10 @@ bool cx_ws_url_is_loopback(const char *url) {
 
 int cx_registry_write(const char *ws_url, pid_t pid) {
     char *dir = path_tny_dir();
-    if (mkdir_p(dir) != 0) { free(dir); return -1; }
+    if (mkdir_p(dir) != 0) {
+        free(dir);
+        return -1;
+    }
     free(dir);
     char *path = cx_registry_path();
     buf_t j;
@@ -69,8 +71,7 @@ int cx_registry_remove(pid_t pid) {
         if (doc) {
             /* unlink only while the file still names our host; a newer
              * writer's entry must survive us */
-            if (jget_int(yyjson_doc_get_root(doc), "pid", 0) == (int64_t)pid)
-                rc = unlink(path);
+            if (jget_int(yyjson_doc_get_root(doc), "pid", 0) == (int64_t)pid) rc = unlink(path);
             yyjson_doc_free(doc);
         }
     }

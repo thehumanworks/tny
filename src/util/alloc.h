@@ -19,4 +19,11 @@ void *tny_alloc_calloc(size_t count, size_t size);
 void *tny_alloc_realloc(void *ptr, size_t size);
 char *tny_alloc_strdup(const char *value);
 
+#ifdef TNY_ALLOC_TESTING
+/* Test-only introspection for the process-isolated fault harness. These are
+ * intentionally absent from production objects and the public ABI. */
+size_t tny_alloc_test_scope_count(void);
+bool tny_alloc_test_scope_injected(void);
+#endif
+
 #endif

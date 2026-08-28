@@ -53,11 +53,17 @@ int acp_write_line(int fd, const char *json, size_t len) {
     int rc = 0;
     while (off < out.len) {
         ssize_t w = write(fd, out.data + off, out.len - off);
-        if (w > 0) { off += (size_t)w; continue; }
+        if (w > 0) {
+            off += (size_t)w;
+            continue;
+        }
         if (w < 0 && errno == EINTR) continue;
         if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             struct pollfd p = {fd, POLLOUT, 0};
-            if (tny_poll(&p, 1, 5000) <= 0) { rc = -1; break; }
+            if (tny_poll(&p, 1, 5000) <= 0) {
+                rc = -1;
+                break;
+            }
             continue;
         }
         rc = -1;
@@ -80,8 +86,8 @@ void acp_fmt_notify(buf_t *b, const char *method, const char *params_json) {
 }
 
 void acp_fmt_result(buf_t *b, const char *id_raw, const char *result_json) {
-    buf_appendf(b, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}",
-                id_raw ? id_raw : "null", result_json ? result_json : "null");
+    buf_appendf(b, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}", id_raw ? id_raw : "null",
+                result_json ? result_json : "null");
 }
 
 int acp_send_request(int fd, int64_t id, const char *method, const char *params_json) {
@@ -174,7 +180,10 @@ bool acp_blocks_to_text(yyjson_val *arr, buf_t *out, const char **bad) {
         const char *why = NULL;
         const char *t = block_text(blk, &why);
         if (!t) {
-            if (why) { *bad = why; return false; }
+            if (why) {
+                *bad = why;
+                return false;
+            }
             continue;
         }
         if (out->len) buf_appends(out, "\n");

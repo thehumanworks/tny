@@ -1,12 +1,31 @@
-LIBTNY_0 {
+LIBTNY_1.0 {
   global:
     tny_abi_version;
     tny_library_version;
     tny_runtime_options_init;
+    tny_runtime_options_v1_init;
+    tny_host_services_v1_init;
+    tny_tool_spec_v1_init;
+    tny_tool_result_v1_init;
     tny_capabilities_init;
+    tny_capabilities_v1_init;
     tny_runtime_create;
+    tny_runtime_create_v1;
     tny_runtime_get_capabilities;
+    tny_runtime_get_capabilities_v1;
+    tny_runtime_register_tool;
+    tny_tool_registration_unregister;
+    tny_tool_call_generation;
+    tny_tool_call_complete;
+    tny_tool_call_release;
+    tny_runtime_host_monotonic_ms;
+    tny_runtime_host_secure_random;
+    tny_runtime_host_storage_load;
+    tny_runtime_host_storage_store;
+    tny_runtime_host_open_url;
+    tny_runtime_host_notify_scheduler;
     tny_runtime_free;
+    tny_runtime_destroy;
     tny_session_create;
     tny_session_open;
     tny_session_id;
@@ -16,6 +35,7 @@ LIBTNY_0 {
     tny_session_respond_permission;
     tny_session_cancel;
     tny_session_free;
+    tny_session_destroy;
     tny_event_view_init;
     tny_event_read;
     tny_event_get_kind;

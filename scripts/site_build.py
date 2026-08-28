@@ -89,7 +89,6 @@ def svg_slash() -> str:
 
 def header(from_docs: bool, active: str | None) -> str:
     home = rel(from_docs, "index.html")
-    prefix = "../" if from_docs else ""
     items = []
     for key, href, label in NAV:
         url = rel(from_docs, href)
@@ -148,6 +147,7 @@ def cmd(command: str) -> str:
 # escaped example out of the f-string.
 STDIN_EXAMPLE = cmd("printf 'summarize src/\\n' | tny ask --stdin")
 
+
 def note(title: str, body: str) -> str:
     return f'<div class="note"><strong>{title}</strong><p>{body}</p></div>'
 
@@ -166,7 +166,7 @@ def page_shell(
     extra_scripts: str = "",
 ) -> str:
     prefix = "../" if from_docs else ""
-    drawer = ""
+
     extra_body = body
     if current_doc:
         side = sidebar_html(True, current_doc)
@@ -440,7 +440,9 @@ def docs_install() -> str:
             ("size", "What you should see"),
             ("hosts", "Optional hosts"),
         ],
-        body=article("Installation", "Clone, make, strip. Host agents stay on PATH.", inner),
+        body=article(
+            "Installation", "Clone, make, strip. Host agents stay on PATH.", inner
+        ),
     )
 
 
@@ -627,7 +629,7 @@ tny -c                      # resume last for this workspace</code></pre>
 
 
 def docs_tui() -> str:
-    inner = f"""
+    inner = """
 <h2 id="layout">Layout</h2>
 <p>A Unix shell, not an IDE. No ncurses, no mouse-required panes.</p>
 <pre><code>[transcript: user / assistant / tools / approvals]
@@ -725,7 +727,11 @@ def docs_sessions() -> str:
             ("compact", "Compaction"),
             ("recover", "Recovery"),
         ],
-        body=article("Sessions", "Workspace-scoped history with a thin alias for host threads.", inner),
+        body=article(
+            "Sessions",
+            "Workspace-scoped history with a thin alias for host threads.",
+            inner,
+        ),
     )
 
 
@@ -780,7 +786,7 @@ def docs_permissions() -> str:
 
 
 def docs_tools() -> str:
-    inner = f"""
+    inner = """
 <h2 id="builtin">Built-in tools</h2>
 <p>Native loop only, unless noted. Names match fx where muscle memory transfers.</p>
 <table>
@@ -831,7 +837,7 @@ def docs_tools() -> str:
 
 
 def docs_backends() -> str:
-    inner = f"""
+    inner = """
 <h2 id="kinds">Two kinds of backend</h2>
 <table>
   <thead><tr><th>Kind</th><th>Backends</th><th>Who runs tools?</th></tr></thead>
@@ -884,7 +890,7 @@ def docs_backends() -> str:
 
 
 def docs_architecture() -> str:
-    inner = f"""
+    inner = """
 <h2 id="picture">Process model</h2>
 <pre><code>                 +-------------------------------------+
                  |  cli / tui  (one event loop)        |

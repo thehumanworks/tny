@@ -5,8 +5,8 @@
 
 static void remember_path(tny_ctx *ctx, const char *path, bool record) {
     if (!record) return;
-    char **next = realloc(ctx->instruction_paths,
-                          sizeof(char *) * (size_t)(ctx->n_instruction_paths + 1));
+    char **next =
+        realloc(ctx->instruction_paths, sizeof(char *) * (size_t)(ctx->n_instruction_paths + 1));
     if (!next) return;
     ctx->instruction_paths = next;
     char *copy = xstrdup(path);
@@ -14,15 +14,17 @@ static void remember_path(tny_ctx *ctx, const char *path, bool record) {
     ctx->instruction_paths[ctx->n_instruction_paths++] = copy;
 }
 
-static void append_dir_instructions(tny_ctx *ctx, const char *dir, buf_t *out,
-                                    bool record) {
+static void append_dir_instructions(tny_ctx *ctx, const char *dir, buf_t *out, bool record) {
     char *f = path_join(dir, "AGENTS.md");
     if (!f) return;
     if (!file_exists(f)) {
         free(f);
         f = path_join(dir, "CLAUDE.md");
         if (!f) return;
-        if (!file_exists(f)) { free(f); return; }
+        if (!file_exists(f)) {
+            free(f);
+            return;
+        }
     }
     size_t len = 0;
     char *data = file_slurp(f, &len);
@@ -60,8 +62,7 @@ static void collect_raw(tny_ctx *ctx, buf_t *out, bool record) {
     for (size_t i = 1; i <= n; i++) {
         if (i != n && cwd[i] != '/') continue;
         bool is_cwd = (i == n);
-        bool below_home = strncmp(cwd, home, home_len) == 0 &&
-                          i > home_len && cwd[home_len] == '/';
+        bool below_home = strncmp(cwd, home, home_len) == 0 && i > home_len && cwd[home_len] == '/';
         if (is_cwd || below_home) {
             char *prefix = xstrndup(cwd, i);
             if (prefix) append_dir_instructions(ctx, prefix, out, record);
@@ -73,8 +74,7 @@ static void collect_raw(tny_ctx *ctx, buf_t *out, bool record) {
 
 int instructions_refresh(tny_ctx *ctx) {
     if (!ctx) return -1;
-    for (int i = 0; i < ctx->n_instruction_paths; i++)
-        free(ctx->instruction_paths[i]);
+    for (int i = 0; i < ctx->n_instruction_paths; i++) free(ctx->instruction_paths[i]);
     free(ctx->instruction_paths);
     ctx->instruction_paths = NULL;
     ctx->n_instruction_paths = 0;
@@ -83,8 +83,8 @@ int instructions_refresh(tny_ctx *ctx) {
     collect_raw(ctx, &out, true);
     free(ctx->instructions_snapshot);
     ctx->instructions_snapshot = buf_detach(&out);
-    snprintf(ctx->instructions_digest, sizeof ctx->instructions_digest,
-             "%016llx", (unsigned long long)fnv1a(
+    snprintf(ctx->instructions_digest, sizeof ctx->instructions_digest, "%016llx",
+             (unsigned long long)fnv1a(
                  ctx->instructions_snapshot ? ctx->instructions_snapshot : "",
                  ctx->instructions_snapshot ? strlen(ctx->instructions_snapshot) : 0));
     ctx->instructions_snapshot_ready = true;

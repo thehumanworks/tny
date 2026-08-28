@@ -9,7 +9,8 @@ let
   root = ../.;
   inherit (lib.fileset) toSource unions;
 
-  # `make release`, `make lib-shared`, `make install`, `make install-lib`.
+  # `make release`, `make lib-shared-active`, `make install`, and
+  # `make install-lib-active`.
   # python/ is the pure-Python extension host that `make install` copies to
   # lib/tny/; libtny.pc.in and abi/ belong to the libtny install.
   buildFiles = unions [
@@ -18,6 +19,7 @@ let
     ../include
     ../libtny.pc.in
     ../python
+    ../scripts/check_abi_baseline.py
     ../src
     ../third_party
   ];

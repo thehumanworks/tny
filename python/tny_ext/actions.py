@@ -106,7 +106,9 @@ def none() -> NoneAction:
     return NoneAction()
 
 
-def context(content: str, custom_type: str = "tny_extension", display: bool = True) -> ContextAction:
+def context(
+    content: str, custom_type: str = "tny_extension", display: bool = True
+) -> ContextAction:
     return ContextAction(content=content, custom_type=custom_type, display=display)
 
 
@@ -146,7 +148,9 @@ def deny_tool(reason: str) -> ToolDenyAction:
     return ToolDenyAction(reason=reason)
 
 
-def decide_permission(decision: str, reason: Optional[str] = None) -> PermissionDecisionAction:
+def decide_permission(
+    decision: str, reason: Optional[str] = None
+) -> PermissionDecisionAction:
     return PermissionDecisionAction(decision=decision, reason=reason)
 
 
@@ -154,7 +158,9 @@ def annotate_tool(content: str, display: bool = True) -> ToolAnnotateAction:
     return ToolAnnotateAction(content=content, display=display)
 
 
-def replace_tool_result(content: str, is_error: bool = False) -> ToolResultReplaceAction:
+def replace_tool_result(
+    content: str, is_error: bool = False
+) -> ToolResultReplaceAction:
     return ToolResultReplaceAction(content=content, is_error=is_error)
 
 
@@ -195,8 +201,12 @@ def coerce_action(value: Any) -> Action:
         display = value.get("display", True)
         if not isinstance(display, bool):
             raise TypeError("action.display must be a boolean")
-        custom_type = _require_string(value.get("custom_type", "tny_extension"), "custom_type")
-        return ContextAction(_require_string(value.get("content"), "content"), custom_type, display)
+        custom_type = _require_string(
+            value.get("custom_type", "tny_extension"), "custom_type"
+        )
+        return ContextAction(
+            _require_string(value.get("content"), "content"), custom_type, display
+        )
     if kind == "continue":
         display = value.get("display", True)
         if not isinstance(display, bool):
@@ -277,7 +287,11 @@ def action_to_dict(value: Any) -> Dict[str, Any]:
     if isinstance(action, PromptBlockAction):
         return {"kind": action.kind, "type": action.kind, "reason": action.reason}
     if isinstance(action, ToolRewriteAction):
-        return {"kind": action.kind, "type": action.kind, "arguments": dict(action.arguments)}
+        return {
+            "kind": action.kind,
+            "type": action.kind,
+            "arguments": dict(action.arguments),
+        }
     if isinstance(action, ToolDenyAction):
         return {"kind": action.kind, "type": action.kind, "reason": action.reason}
     if isinstance(action, PermissionDecisionAction):

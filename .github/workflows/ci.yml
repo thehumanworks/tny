@@ -24,6 +24,39 @@ permissions:
   contents: read
 
 jobs:
+  # Fast first-party quality gate (docs/adr/0039): format, clang-tidy,
+  # strict warnings (gcc + clang), GCC -fanalyzer, Ruff, ShellCheck, shfmt,
+  # actionlint, JS syntax. Tool versions are pinned here — formatter output
+  # changes between major versions, so bumps are deliberate.
+  quality:
+    name: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install pinned linters
+        run: |
+          set -eu
+          pipx install clang-format==21.1.2
+          pipx install clang-tidy==22.1.8
+          pipx install ruff==0.14.0
+          sudo apt-get update -q
+          sudo apt-get install -y -q gcc-14
+          go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+          shellcheck --version
+
+      - name: make quality
+        run: make quality ANALYZER_CC=gcc-14
+
+      - name: make warn-strict (gcc + clang)
+        run: |
+          set -eu
+          make warn-strict CC=gcc-14
+          make warn-strict CC=clang
+
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -49,6 +82,8 @@ jobs:
             metal: true
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Require Apple Silicon (not Intel x86)
         if: matrix.metal
@@ -73,13 +108,15 @@ jobs:
           # links libasan (clang on some images lacks the compiler-rt asan libs).
           if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
           if [ "$(uname -s)" = Darwin ]; then
-            export MOCK_CONNECTION_CLOSE=1 MOCK_CHUNK_WIDTH=1048576 \
+            export MACOSX_DEPLOYMENT_TARGET=13.0
+            export MOCK_CHUNK_WIDTH=1048576 MOCK_CONNECTION_CLOSE=1 \
               TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
               TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
           fi
           make -j"$jobs" test
           make test-libtny-fault
+          make test-libtny-fuzz-smoke
           make size-check SIZE_MAX="${{ matrix.size_max }}"
           make pack TRIPLE="${{ matrix.triple }}"
           ./dist/tny-${{ matrix.triple }} --version
@@ -87,7 +124,20 @@ jobs:
           file ./dist/tny-${{ matrix.triple }} || true
           uname -s -m
 
-      - name: Stage libtny ABI-0 developer artifact
+      - name: Verify or seed immutable ABI1 consumer fixture
+        id: abi-fixtures
+        run: make test-abi
+
+      - name: Upload missing immutable ABI1 fixture seed
+        if: ${{ failure() && steps.abi-fixtures.outcome == 'failure' && runner.os == 'Linux' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: abi1-fixture-seed-${{ matrix.triple }}
+          path: build/abi-fixture-seed
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Stage libtny ABI-1 and frozen ABI-0 compatibility artifacts
         run: |
           set -eu
           make lib-shared
@@ -242,16 +292,62 @@ jobs:
             build/wasm/tny-web.wasm
           if-no-files-found: error
 
+  tsan:
+    name: linux-x86_64-tsan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Stress independent libtny runtimes under ThreadSanitizer
+        env:
+          CC: gcc
+          TNY_TSAN_WORKERS: "4"
+          TNY_TSAN_CYCLES: "20"
+        run: |
+          set -eu
+          gcc --version | head -1
+          make test-libtny-tsan
+
+  fuzz:
+    name: linux-x86_64-fuzz
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fuzz ABI1 capacity and custom-tool validators
+        env:
+          FUZZ_CC: clang
+          FUZZ_RUNS: "20000"
+          FUZZ_SECONDS: "60"
+        run: |
+          set -eu
+          clang --version | head -1
+          make test-libtny-fuzz
+
+      - name: Upload libFuzzer crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: libtny-fuzz-crashes-linux-x86_64
+          path: build/fuzz-artifacts
+          if-no-files-found: ignore
+          retention-days: 14
+
   ci:
     name: ci
-    needs: [build, musl, windows, wasm]
+    needs: [quality, build, musl, windows, wasm, tsan, fuzz]
     if: always()
     runs-on: ubuntu-24.04
     steps:
       - name: All platform jobs succeeded
         run: |
           set -eu
+          test "${{ needs.quality.result }}" = "success"
           test "${{ needs.build.result }}" = "success"
           test "${{ needs.musl.result }}" = "success"
           test "${{ needs.windows.result }}" = "success"
           test "${{ needs.wasm.result }}" = "success"
+          test "${{ needs.tsan.result }}" = "success"
+          test "${{ needs.fuzz.result }}" = "success"

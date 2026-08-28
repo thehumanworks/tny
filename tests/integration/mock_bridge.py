@@ -14,6 +14,7 @@ $TNY_MOCK_DIR/failures.log and answered with a Connect error so tny fails loudly
 State lives in $TNY_MOCK_DIR so a second tny run can check that `--resume`
 reuses the agent id created by the first one.
 """
+
 import json
 import os
 import secrets
@@ -102,7 +103,7 @@ class Handler(BaseHTTPRequestHandler):
         flags, size = raw[0], int.from_bytes(raw[1:5], "big")
         if flags != 0 or size != len(raw) - 5:
             fail(f"{self.path}: bad request envelope flags={flags} size={size}")
-        return json.loads(raw[5:5 + size] or b"{}")
+        return json.loads(raw[5 : 5 + size] or b"{}")
 
     # ---- routes ----
     def do_POST(self):
@@ -130,8 +131,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def version(self):
         self._unary_in()
-        self._json(200, {"bridgeVersion": "1.0.28-mock", "sdkVersion": "0.0.0-mock",
-                         "runtime": "python-mock"})
+        self._json(
+            200,
+            {
+                "bridgeVersion": "1.0.28-mock",
+                "sdkVersion": "0.0.0-mock",
+                "runtime": "python-mock",
+            },
+        )
 
     def list_models(self):
         req = self._unary_in()
@@ -140,12 +147,29 @@ class Handler(BaseHTTPRequestHandler):
             fail("ListModels: options.apiKey is missing")
         # SdkModel.parameters: ModelParameterDefinition list. tny resolves
         # --effort against this catalog instead of guessing ids/values.
-        self._json(200, {"items": [
-            {"id": MODEL, "parameters": [
-                {"id": "effort", "displayName": "Reasoning Effort",
-                 "values": [{"value": "low"}, {"value": "medium"},
-                            {"value": "high"}, {"value": "max"}]}]},
-            {"id": "mock-cursor-model-2"}]})
+        self._json(
+            200,
+            {
+                "items": [
+                    {
+                        "id": MODEL,
+                        "parameters": [
+                            {
+                                "id": "effort",
+                                "displayName": "Reasoning Effort",
+                                "values": [
+                                    {"value": "low"},
+                                    {"value": "medium"},
+                                    {"value": "high"},
+                                    {"value": "max"},
+                                ],
+                            }
+                        ],
+                    },
+                    {"id": "mock-cursor-model-2"},
+                ]
+            },
+        )
 
     def _check_effort(self, who, model):
         params = model.get("params") or []
@@ -166,8 +190,10 @@ class Handler(BaseHTTPRequestHandler):
         fast = [p for p in params if p.get("id") == "fast"]
         if os.environ.get("TNY_MOCK_FAST") == "1":
             if fast != [{"id": "fast", "value": "true"}]:
-                fail(f"{who}: fast param is {fast!r}, want "
-                     "[{'id': 'fast', 'value': 'true'}] (--fast)")
+                fail(
+                    f"{who}: fast param is {fast!r}, want "
+                    "[{'id': 'fast', 'value': 'true'}] (--fast)"
+                )
         elif fast:
             fail(f"{who}: fast param {fast!r} without --fast; omit it")
         known = [p for p in params if p.get("id") not in ("effort", "fast")]
@@ -182,8 +208,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         model = opts.get("model") or {}
         if not isinstance(model, dict) or model.get("id") != MODEL:
-            fail(f"{who}: options.model is {opts.get('model')!r}, "
-                 f"want ModelSelection {{'id': {MODEL!r}}}")
+            fail(
+                f"{who}: options.model is {opts.get('model')!r}, "
+                f"want ModelSelection {{'id': {MODEL!r}}}"
+            )
         else:
             self._check_effort(who, model)
             self._check_fast(who, model)
@@ -192,8 +220,10 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(cwd, list) or not cwd:
             fail(f"{who}: options.local.cwd is {cwd!r}")
         elif len(cwd) > 1:
-            fail(f"{who}: options.local.cwd has {len(cwd)} entries; "
-                 "send at most one (extras belong in local.dirs)")
+            fail(
+                f"{who}: options.local.cwd has {len(cwd)} entries; "
+                "send at most one (extras belong in local.dirs)"
+            )
         elif os.path.realpath(cwd[0]) != EXPECT_CWD:
             fail(f"{who}: options.local.cwd[0] is {cwd[0]!r}, want {EXPECT_CWD!r}")
         if not opts.get("apiKey"):
@@ -235,13 +265,17 @@ class Handler(BaseHTTPRequestHandler):
         send_model = options.get("model")
         if EXPECT_EFFORT or os.environ.get("TNY_MOCK_FAST") == "1":
             if not isinstance(send_model, dict):
-                fail(f"Send: options.model is {send_model!r}; effort/fast must "
-                     "ride on SendOptions.model.params")
+                fail(
+                    f"Send: options.model is {send_model!r}; effort/fast must "
+                    "ride on SendOptions.model.params"
+                )
             else:
                 self._check_effort("Send", send_model)
                 self._check_fast("Send", send_model)
         elif send_model is not None:
-            fail(f"Send: unexpected options.model {send_model!r} without --effort/--fast")
+            fail(
+                f"Send: unexpected options.model {send_model!r} without --effort/--fast"
+            )
 
         self.send_response(200)
         self.send_header("Content-Type", "application/connect+json")
@@ -259,41 +293,90 @@ class Handler(BaseHTTPRequestHandler):
         agent_id = req.get("agentId")
 
         def sdk(kind, payload):
-            return frame({"sdkMessage": {"type": kind, "message": {
-                "type": kind, "agent_id": agent_id, "run_id": run, **payload}}})
+            return frame(
+                {
+                    "sdkMessage": {
+                        "type": kind,
+                        "message": {
+                            "type": kind,
+                            "agent_id": agent_id,
+                            "run_id": run,
+                            **payload,
+                        },
+                    }
+                }
+            )
 
-        read_running = sdk("tool_call", {"call_id": "tc1", "name": "read",
-                                         "status": "running",
-                                         "args": {"path": "README.md"}})
+        read_running = sdk(
+            "tool_call",
+            {
+                "call_id": "tc1",
+                "name": "read",
+                "status": "running",
+                "args": {"path": "README.md"},
+            },
+        )
         out = [
             sdk("status", {"status": "RUNNING"}),
             envelope(0, b""),  # keepalive: tny must ignore it
-            sdk("assistant", {"message": {"role": "assistant", "content": [
-                {"type": "text", "text": ANSWER[:7]}]}}),
+            sdk(
+                "assistant",
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": ANSWER[:7]}],
+                    }
+                },
+            ),
             sdk("thinking", {"text": "considering"}),
             read_running,
             read_running,  # re-emitted while the tool runs: render once
-            sdk("tool_call", {"call_id": "tc1", "name": "read",
-                              "status": "completed",
-                              "args": {"path": "README.md"},
-                              "result": {"status": "success", "value": {
-                                  "content": "hello\n", "totalLines": 2,
-                                  "fileSize": 6}}}),
-            sdk("assistant", {"message": {"role": "assistant", "content": [
-                {"type": "text", "text": ANSWER[7:]}]}}),
+            sdk(
+                "tool_call",
+                {
+                    "call_id": "tc1",
+                    "name": "read",
+                    "status": "completed",
+                    "args": {"path": "README.md"},
+                    "result": {
+                        "status": "success",
+                        "value": {"content": "hello\n", "totalLines": 2, "fileSize": 6},
+                    },
+                },
+            ),
+            sdk(
+                "assistant",
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": ANSWER[7:]}],
+                    }
+                },
+            ),
             sdk("status", {"status": "RUNNING", "message": "wrapping up"}),
-            sdk("usage", {"usage": {"inputTokens": 111, "outputTokens": 22,
-                                    "totalTokens": 133}}),
+            sdk(
+                "usage",
+                {"usage": {"inputTokens": 111, "outputTokens": 22, "totalTokens": 133}},
+            ),
             sdk("status", {"status": "FINISHED"}),
-            frame({"result": {"agentId": agent_id, "runId": run,
-                              "status": "RUN_LIFECYCLE_STATUS_FINISHED",
-                              "result": {"runId": run, "agentId": agent_id,
-                                         "status": "RUN_LIFECYCLE_STATUS_FINISHED",
-                                         "result": ANSWER,
-                                         "model": {"id": MODEL},
-                                         "durationMs": "5",
-                                         "usage": {"inputTokens": "111",
-                                                   "outputTokens": "22"}}}}),
+            frame(
+                {
+                    "result": {
+                        "agentId": agent_id,
+                        "runId": run,
+                        "status": "RUN_LIFECYCLE_STATUS_FINISHED",
+                        "result": {
+                            "runId": run,
+                            "agentId": agent_id,
+                            "status": "RUN_LIFECYCLE_STATUS_FINISHED",
+                            "result": ANSWER,
+                            "model": {"id": MODEL},
+                            "durationMs": "5",
+                            "usage": {"inputTokens": "111", "outputTokens": "22"},
+                        },
+                    }
+                }
+            ),
             frame({"done": {"agentId": agent_id, "runId": run}}),
             envelope(2, b"{}"),
         ]
@@ -325,9 +408,16 @@ def main():
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     srv.daemon_threads = True
     port = srv.socket.getsockname()[1]
-    ready = {"schemaVersion": 1, "transport": "tcp", "protocol": "connect",
-             "url": f"http://127.0.0.1:{port}", "host": "127.0.0.1", "port": port,
-             "authTokenFile": TOKEN_PATH, "pid": os.getpid()}
+    ready = {
+        "schemaVersion": 1,
+        "transport": "tcp",
+        "protocol": "connect",
+        "url": f"http://127.0.0.1:{port}",
+        "host": "127.0.0.1",
+        "port": port,
+        "authTokenFile": TOKEN_PATH,
+        "pid": os.getpid(),
+    }
     print("cursor-sdk-bridge ready " + json.dumps(ready), file=sys.stderr, flush=True)
     print("mock bridge listening", file=sys.stderr, flush=True)
     try:

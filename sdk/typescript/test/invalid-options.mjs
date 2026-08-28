@@ -23,7 +23,7 @@ await assert.rejects(
     !String(error.stack).includes(diagnosticSecret),
 );
 const runtime = await Runtime.create(base);
-assert.equal(runtime.capabilities.abiMinor >= 5, true);
+assert.equal(runtime.capabilities.abiMajor, 1);
 const session = await runtime.createSession();
 for (const prompt of ["bad\0prompt", "\ud800"]) {
   await assert.rejects(async () => {

@@ -29,8 +29,7 @@ static oa_call *calls_new(oa_callset *cs, int wire_index) {
 
 static oa_call *calls_by_id(oa_callset *cs, const char *id) {
     for (int i = 0; i < cs->n; i++)
-        if (cs->calls[i].id && strcmp(cs->calls[i].id, id) == 0)
-            return &cs->calls[i];
+        if (cs->calls[i].id && strcmp(cs->calls[i].id, id) == 0) return &cs->calls[i];
     return NULL;
 }
 
@@ -38,8 +37,7 @@ static oa_call *calls_by_id(oa_callset *cs, const char *id) {
  * for a second call, and continuation fragments belong to the newer one. */
 static oa_call *calls_by_index(oa_callset *cs, int wire_index) {
     for (int i = cs->n - 1; i >= 0; i--)
-        if (cs->calls[i].wire_index == wire_index)
-            return &cs->calls[i];
+        if (cs->calls[i].wire_index == wire_index) return &cs->calls[i];
     return NULL;
 }
 

@@ -64,7 +64,10 @@ void cx_queue(cx_impl *o, char *json) {
     if (o->n_out == o->cap_out) {
         int cap = o->cap_out ? o->cap_out * 2 : 8;
         char **q = realloc(o->outq, sizeof(char *) * (size_t)cap);
-        if (!q) { free(json); return; }
+        if (!q) {
+            free(json);
+            return;
+        }
         o->outq = q;
         o->cap_out = cap;
     }
@@ -102,8 +105,7 @@ void cx_pending_clear(cx_pending *p) {
  * and tracked retries carry the same no-store intent. Caller-generated
  * thread/start params are compact JSON objects. */
 static char *cx_ephemeral_params(cx_impl *o, const char *method, const char *params) {
-    if (!o->ctx || !o->ctx->no_save || strcmp(method, "thread/start") != 0)
-        return NULL;
+    if (!o->ctx || !o->ctx->no_save || strcmp(method, "thread/start") != 0) return NULL;
     const char *p = params && *params ? params : "{}";
     size_t len = strlen(p);
     if (len < 2 || p[0] != '{' || p[len - 1] != '}') return NULL;
@@ -120,8 +122,7 @@ static char *cx_ephemeral_params(cx_impl *o, const char *method, const char *par
  * so e.g. a steer would never see its rejection (docs/adr/0013). */
 int cx_request(cx_impl *o, const char *method, const char *params, cx_reqkind kind) {
     char *ephemeral = cx_ephemeral_params(o, method, params);
-    const char *wire_params = ephemeral ? ephemeral :
-                              (params && *params ? params : "{}");
+    const char *wire_params = ephemeral ? ephemeral : (params && *params ? params : "{}");
     if (kind != CXR_FREE) {
         bool registered = false;
         for (int i = 0; i < CX_MAX_PENDING; i++) {
@@ -209,7 +210,10 @@ int cx_pump_once(cx_impl *o, int poll_ms) {
     }
     if (poll_ms > 0) tny_poll(fds, (nfds_t)n, poll_ms);
     cx_drain_child_stderr(o);
-    if (ws_pump(o->ws, cx_on_ws_msg, o) != 0) { o->dead = true; return -1; }
+    if (ws_pump(o->ws, cx_on_ws_msg, o) != 0) {
+        o->dead = true;
+        return -1;
+    }
     return cx_flush(o);
 }
 
@@ -219,8 +223,8 @@ static void cx_idle(cx_impl *o, int ms) {
         if (cx_pump_once(o, 50) != 0) return;
 }
 
-yyjson_doc *cx_request_sync(cx_impl *o, const char *method, const char *params,
-                                   int timeout_ms, char *err, size_t errlen) {
+yyjson_doc *cx_request_sync(cx_impl *o, const char *method, const char *params, int timeout_ms,
+                            char *err, size_t errlen) {
     for (int attempt = 0; attempt < CX_RETRY_MAX; attempt++) {
         int id = cx_request(o, method, params, CXR_FREE);
         o->wait_id = id;
@@ -261,8 +265,6 @@ yyjson_doc *cx_request_sync(cx_impl *o, const char *method, const char *params,
         snprintf(err, errlen, "codex: %s failed (%lld): %s", method, (long long)code, msg);
         return NULL;
     }
-    snprintf(err, errlen, "codex: %s still overloaded after %d attempts",
-             method, CX_RETRY_MAX);
+    snprintf(err, errlen, "codex: %s still overloaded after %d attempts", method, CX_RETRY_MAX);
     return NULL;
 }
-

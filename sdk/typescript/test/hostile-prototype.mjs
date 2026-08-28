@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+// Load crypto before poisoning Object.prototype. Node 26 initializes the
+// builtin with ordinary descriptor objects, so inherited hostile accessors can
+// otherwise break Node itself before the SDK loader is reached.
+import "node:crypto";
 import { mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

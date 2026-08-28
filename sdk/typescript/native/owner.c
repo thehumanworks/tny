@@ -19,10 +19,16 @@ int sdk_register_env_cleanup(napi_env env) {
     env_registration *entry;
     pthread_mutex_lock(&registry_mutex);
     for (entry = registered_envs; entry; entry = entry->next) {
-        if (entry->env == env) { pthread_mutex_unlock(&registry_mutex); return 0; }
+        if (entry->env == env) {
+            pthread_mutex_unlock(&registry_mutex);
+            return 0;
+        }
     }
     entry = (env_registration *)calloc(1u, sizeof(*entry));
-    if (!entry) { pthread_mutex_unlock(&registry_mutex); return -1; }
+    if (!entry) {
+        pthread_mutex_unlock(&registry_mutex);
+        return -1;
+    }
     entry->env = env;
     entry->next = registered_envs;
     registered_envs = entry;
@@ -91,8 +97,7 @@ void sdk_runtime_abandon(runtime_state *state) {
     if (state->token) atomic_store(&state->token->state, NULL);
     pthread_mutex_lock(&registry_mutex);
     registry_remove(state);
-    while (state->refs != 0u)
-        pthread_cond_wait(&registry_cond, &registry_mutex);
+    while (state->refs != 0u) pthread_cond_wait(&registry_cond, &registry_mutex);
     pthread_mutex_unlock(&registry_mutex);
     pthread_mutex_destroy(&state->mutex);
     pthread_mutex_destroy(&state->session_mutex);
@@ -109,8 +114,7 @@ void sdk_runtime_destroy(runtime_state *state) {
     pthread_mutex_lock(&registry_mutex);
     if (state->refs > 0u) state->refs--;
     pthread_cond_broadcast(&registry_cond);
-    while (state->refs != 0u)
-        pthread_cond_wait(&registry_cond, &registry_mutex);
+    while (state->refs != 0u) pthread_cond_wait(&registry_cond, &registry_mutex);
     pthread_mutex_unlock(&registry_mutex);
     pthread_mutex_destroy(&state->mutex);
     pthread_mutex_destroy(&state->session_mutex);
@@ -121,8 +125,7 @@ void sdk_runtime_destroy(runtime_state *state) {
 int sdk_queue_push(runtime_state *state, command *cmd) {
     int ok = 0;
     pthread_mutex_lock(&state->mutex);
-    if (!state->closing &&
-        (cmd->kind == CMD_RUNTIME_CLOSE || cmd->kind == CMD_ENV_CLEANUP) &&
+    if (!state->closing && (cmd->kind == CMD_RUNTIME_CLOSE || cmd->kind == CMD_ENV_CLEANUP) &&
         !state->priority_close) {
         state->priority_close = cmd;
         pthread_cond_signal(&state->cond);
@@ -162,9 +165,8 @@ static void queue_repush(runtime_state *state, command *cmd) {
 static command *queue_pop(runtime_state *state) {
     command *cmd;
     pthread_mutex_lock(&state->mutex);
-    while (state->count == 0u && !state->priority_close &&
-           !state->priority_session_close && !state->priority_abort &&
-           !state->pending_next && !state->closing)
+    while (state->count == 0u && !state->priority_close && !state->priority_session_close &&
+           !state->priority_abort && !state->pending_next && !state->closing)
         pthread_cond_wait(&state->cond, &state->mutex);
     if (state->priority_close) {
         cmd = state->priority_close;
@@ -202,8 +204,7 @@ static command *queue_pop(runtime_state *state) {
 }
 
 static void complete(runtime_state *state, command *cmd) {
-    napi_status status = napi_call_threadsafe_function(
-        state->tsfn, cmd, napi_tsfn_blocking);
+    napi_status status = napi_call_threadsafe_function(state->tsfn, cmd, napi_tsfn_blocking);
     if (status != napi_ok && atomic_load(&state->env_closing)) {
         sdk_runtime_release(state);
         sdk_free_command(cmd);
@@ -259,18 +260,28 @@ static void execute_create(runtime_state *state, command *cmd) {
     uint32_t abi = tny_abi_version();
     uint32_t major = abi >> 16u;
     uint32_t minor = abi & 0xffffu;
-    if (major != SDK_ABI_MAJOR || minor < SDK_ABI_MINOR) {
+    int incompatible = major != SDK_ABI_MAJOR;
+#if SDK_ABI_MINOR > 0
+    incompatible = incompatible || minor < SDK_ABI_MINOR;
+#endif
+    if (incompatible) {
         char message[192];
         sdk_wipe_owned_bytes(&cmd->create.api_key);
-        (void)snprintf(message, sizeof(message),
-                       "incompatible libtny ABI %u.%u; this SDK requires ABI %u.%u or newer within major %u",
-                       major, minor, SDK_ABI_MAJOR, SDK_ABI_MINOR, SDK_ABI_MAJOR);
+        (void)snprintf(
+            message, sizeof(message),
+            "incompatible libtny ABI %u.%u; this SDK requires ABI %u.%u or newer within major %u",
+            major, minor, SDK_ABI_MAJOR, SDK_ABI_MINOR, SDK_ABI_MAJOR);
         fail_text(cmd, TNY_STATUS_UNSUPPORTED, message);
         cmd->destroy_owner = 1;
         state->closing = 1;
         return;
     }
-    tny_runtime_options_init(&options);
+    if (tny_runtime_options_init(&options, sizeof options) != TNY_STATUS_OK) {
+        fail_text(cmd, TNY_STATUS_INTERNAL, "failed to initialize runtime options");
+        cmd->destroy_owner = 1;
+        state->closing = 1;
+        return;
+    }
     options.permission_mode = cmd->create.permission_mode;
     options.persistence = cmd->create.persistence;
     options.max_steps = cmd->create.max_steps;
@@ -282,7 +293,7 @@ static void execute_create(runtime_state *state, command *cmd) {
     options.base_url = sdk_view_of(cmd->create.base_url);
     options.api_key = sdk_view_of(cmd->create.api_key);
     options.wire_api = sdk_view_of(cmd->create.wire_api);
-    cmd->status = tny_runtime_create(&options, &state->runtime, &error);
+    cmd->status = tny_runtime_create(&options, sizeof options, &state->runtime, &error);
     sdk_wipe_owned_bytes(&cmd->create.api_key);
     if (cmd->status != TNY_STATUS_OK) {
         fail(cmd, cmd->status, error);
@@ -294,8 +305,7 @@ static void execute_create(runtime_state *state, command *cmd) {
     cmd->abi_version = abi;
     cmd->string_result = sdk_copy_bytes(version);
     if (!cmd->string_result) {
-        tny_runtime_free(state->runtime);
-        state->runtime = NULL;
+        (void)tny_runtime_destroy(&state->runtime);
         fail_text(cmd, TNY_STATUS_OOM, "out of memory copying library version");
         cmd->destroy_owner = 1;
         state->closing = 1;
@@ -303,8 +313,7 @@ static void execute_create(runtime_state *state, command *cmd) {
     }
     cmd->status = sdk_snapshot_capabilities(state->runtime, &cmd->capabilities);
     if (cmd->status != TNY_STATUS_OK) {
-        tny_runtime_free(state->runtime);
-        state->runtime = NULL;
+        (void)tny_runtime_destroy(&state->runtime);
         fail_text(cmd, cmd->status, "failed to copy libtny capabilities");
         cmd->destroy_owner = 1;
         state->closing = 1;
@@ -322,27 +331,25 @@ static int execute_command(runtime_state *state, command *cmd) {
         return 0;
     }
     switch (cmd->kind) {
-    case CMD_RUNTIME_CREATE:
-        execute_create(state, cmd);
-        break;
+    case CMD_RUNTIME_CREATE: execute_create(state, cmd); break;
     case CMD_SESSION_CREATE:
         pthread_mutex_lock(&state->session_mutex);
         if (state->session) {
             pthread_mutex_unlock(&state->session_mutex);
-            fail_text(cmd, TNY_STATUS_BUSY, "ABI 0 supports one open session per runtime");
+            fail_text(cmd, TNY_STATUS_BUSY, "libtny supports one open session per runtime");
             break;
         }
         status = tny_session_create(state->runtime, &state->session, &error);
         if (status != TNY_STATUS_OK) {
             pthread_mutex_unlock(&state->session_mutex);
-            fail(cmd, status, error); break;
+            fail(cmd, status, error);
+            break;
         }
         state->session_handle = 1u;
         cmd->session_handle = state->session_handle;
         cmd->string_result = sdk_copy_bytes(tny_session_id(state->session));
         if (!cmd->string_result) {
-            tny_session_free(state->session);
-            state->session = NULL;
+            (void)tny_session_destroy(&state->session);
             pthread_mutex_unlock(&state->session_mutex);
             fail_text(cmd, TNY_STATUS_OOM, "out of memory copying session id");
             break;
@@ -354,20 +361,20 @@ static int execute_command(runtime_state *state, command *cmd) {
         pthread_mutex_lock(&state->session_mutex);
         if (state->session) {
             pthread_mutex_unlock(&state->session_mutex);
-            fail_text(cmd, TNY_STATUS_BUSY, "ABI 0 supports one open session per runtime");
+            fail_text(cmd, TNY_STATUS_BUSY, "libtny supports one open session per runtime");
             break;
         }
         status = tny_session_open(state->runtime, sdk_view_of(cmd->text), &state->session, &error);
         if (status != TNY_STATUS_OK) {
             pthread_mutex_unlock(&state->session_mutex);
-            fail(cmd, status, error); break;
+            fail(cmd, status, error);
+            break;
         }
         state->session_handle = 1u;
         cmd->session_handle = state->session_handle;
         cmd->string_result = sdk_copy_bytes(tny_session_id(state->session));
         if (!cmd->string_result) {
-            tny_session_free(state->session);
-            state->session = NULL;
+            (void)tny_session_destroy(&state->session);
             pthread_mutex_unlock(&state->session_mutex);
             fail_text(cmd, TNY_STATUS_OOM, "out of memory copying session id");
             break;
@@ -442,14 +449,12 @@ static int execute_command(runtime_state *state, command *cmd) {
         cmd->status = sdk_snapshot_capabilities(state->runtime, &cmd->capabilities);
         if (cmd->status != TNY_STATUS_OK)
             fail_text(cmd, cmd->status, "failed to copy libtny capabilities");
-        else
-            cmd->result = RESULT_CAPABILITIES;
+        else cmd->result = RESULT_CAPABILITIES;
         break;
     case CMD_SESSION_CLOSE:
         pthread_mutex_lock(&state->session_mutex);
         if (state->session && cmd->session_handle == state->session_handle) {
-            tny_session_free(state->session);
-            state->session = NULL;
+            (void)tny_session_destroy(&state->session);
             state->session_handle = 0u;
         }
         pthread_mutex_unlock(&state->session_mutex);
@@ -460,15 +465,9 @@ static int execute_command(runtime_state *state, command *cmd) {
         state->closing = 1;
         pthread_mutex_unlock(&state->mutex);
         pthread_mutex_lock(&state->session_mutex);
-        if (state->session) {
-            tny_session_free(state->session);
-            state->session = NULL;
-        }
+        if (state->session) { (void)tny_session_destroy(&state->session); }
         pthread_mutex_unlock(&state->session_mutex);
-        if (state->runtime) {
-            tny_runtime_free(state->runtime);
-            state->runtime = NULL;
-        }
+        if (state->runtime) { (void)tny_runtime_destroy(&state->runtime); }
         reject_queued(state);
         cmd->destroy_owner = 1;
         break;
@@ -490,15 +489,9 @@ void *sdk_owner_main(void *opaque) {
     }
     if (atomic_load(&state->env_closing)) {
         pthread_mutex_lock(&state->session_mutex);
-        if (state->session) {
-            tny_session_free(state->session);
-            state->session = NULL;
-        }
+        if (state->session) { (void)tny_session_destroy(&state->session); }
         pthread_mutex_unlock(&state->session_mutex);
-        if (state->runtime) {
-            tny_runtime_free(state->runtime);
-            state->runtime = NULL;
-        }
+        if (state->runtime) { (void)tny_runtime_destroy(&state->runtime); }
     } else {
         (void)napi_release_threadsafe_function(state->tsfn, napi_tsfn_release);
     }
@@ -509,7 +502,13 @@ static void discard_queued_after_join(runtime_state *state) {
     command *commands[COMMAND_CAPACITY + 5u];
     size_t count = 0u;
     pthread_mutex_lock(&state->mutex);
-#define TAKE_SPECIAL(field) do { if (state->field) { commands[count++] = state->field; state->field = NULL; } } while (0)
+#define TAKE_SPECIAL(field)                   \
+    do {                                      \
+        if (state->field) {                   \
+            commands[count++] = state->field; \
+            state->field = NULL;              \
+        }                                     \
+    } while (0)
     TAKE_SPECIAL(priority_close);
     TAKE_SPECIAL(priority_session_close);
     TAKE_SPECIAL(priority_abort);

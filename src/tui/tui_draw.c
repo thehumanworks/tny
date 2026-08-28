@@ -21,9 +21,20 @@ static int push_trunc(buf_t *b, const char *s, size_t n, int maxw) {
     int w = 0;
     for (size_t i = 0; i < n && w < maxw;) {
         unsigned char c = (unsigned char)s[i];
-        if (c == '\n' || c == '\r') { i++; continue; }
-        if (c == '\t') { buf_appends(b, " "); w++; i++; continue; }
-        if (c < 0x20 || c == 0x7f) { i++; continue; }
+        if (c == '\n' || c == '\r') {
+            i++;
+            continue;
+        }
+        if (c == '\t') {
+            buf_appends(b, " ");
+            w++;
+            i++;
+            continue;
+        }
+        if (c < 0x20 || c == 0x7f) {
+            i++;
+            continue;
+        }
         size_t j = i + 1;
         while (j < n && ((unsigned char)s[j] & 0xC0) == 0x80) j++;
         buf_append(b, s + i, j - i);
@@ -41,8 +52,7 @@ int tui_push_ansi(buf_t *b, const char *s, size_t n, int maxw) {
             size_t j = i + 1;
             if (j < n && s[j] == '[') {
                 j++;
-                while (j < n && !((unsigned char)s[j] >= 0x40 &&
-                                  (unsigned char)s[j] <= 0x7e)) j++;
+                while (j < n && !((unsigned char)s[j] >= 0x40 && (unsigned char)s[j] <= 0x7e)) j++;
                 if (j < n && s[j] == 'm') buf_append(b, s + i, j - i + 1);
                 i = j < n ? j + 1 : n;
             } else {
@@ -50,10 +60,24 @@ int tui_push_ansi(buf_t *b, const char *s, size_t n, int maxw) {
             }
             continue;
         }
-        if (w >= maxw) { i++; continue; } /* keep scanning: a reset may follow */
-        if (c == '\n' || c == '\r') { i++; continue; }
-        if (c == '\t') { buf_appends(b, " "); w++; i++; continue; }
-        if (c < 0x20 || c == 0x7f) { i++; continue; }
+        if (w >= maxw) {
+            i++;
+            continue;
+        } /* keep scanning: a reset may follow */
+        if (c == '\n' || c == '\r') {
+            i++;
+            continue;
+        }
+        if (c == '\t') {
+            buf_appends(b, " ");
+            w++;
+            i++;
+            continue;
+        }
+        if (c < 0x20 || c == 0x7f) {
+            i++;
+            continue;
+        }
         size_t j = i + 1;
         while (j < n && ((unsigned char)s[j] & 0xC0) == 0x80) j++;
         buf_append(b, s + i, j - i);
@@ -68,10 +92,8 @@ int tui_push_ansi(buf_t *b, const char *s, size_t n, int maxw) {
 /* Emscripten's tty fakes TIOCGWINSZ; the page keeps the real size in
  * Module.tnyWinsize and raises SIGWINCH via _tny_wasm_winch on resize
  * (docs/adr/0017). */
-EM_JS(int, js_tui_cols, (void),
-      { return (Module.tnyWinsize && Module.tnyWinsize[0]) | 0; });
-EM_JS(int, js_tui_rows, (void),
-      { return (Module.tnyWinsize && Module.tnyWinsize[1]) | 0; });
+EM_JS(int, js_tui_cols, (void), { return (Module.tnyWinsize && Module.tnyWinsize[0]) | 0; });
+EM_JS(int, js_tui_rows, (void), { return (Module.tnyWinsize && Module.tnyWinsize[1]) | 0; });
 #endif
 
 void tui_size(tui *t) {
@@ -113,19 +135,16 @@ void tui_status_row(tui *t, buf_t *b, int maxw) {
     buf_t s;
     buf_init(&s);
     buf_appendf(&s, "%s  %s  %s", tny_provider_name(t->ctx),
-                t->ctx->model ? t->ctx->model : "default",
-                tny_perm_mode_name(t->ctx->perm_mode));
+                t->ctx->model ? t->ctx->model : "default", tny_perm_mode_name(t->ctx->perm_mode));
     if (t->session) buf_appendf(&s, "  %s", t->session->id);
     if (t->in_tok || t->out_tok)
         buf_appendf(&s, "  %lld/%lld tok", (long long)t->in_tok, (long long)t->out_tok);
     if (t->n_images) buf_appendf(&s, "  %d img", t->n_images);
     if (t->note.len) buf_appendf(&s, "  %s", t->note.data);
     else if (t->turn_active) {
-        static const char *frames[] = {"⠋", "⠙", "⠹", "⠸", "⠼",
-                                       "⠴", "⠦", "⠧", "⠇", "⠏"};
+        static const char *frames[] = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
         buf_appendf(&s, "  %s working… (esc cancels)", frames[t->spin % 10]);
-    } else if (t->ctx->ssh_host)
-        buf_appendf(&s, "  ssh %s:%s", t->ctx->ssh_host, t->ctx->ssh_cwd);
+    } else if (t->ctx->ssh_host) buf_appendf(&s, "  ssh %s:%s", t->ctx->ssh_host, t->ctx->ssh_cwd);
     else buf_appendf(&s, "  %s", t->ctx->cwd);
 
     if (t->attr) {
@@ -199,13 +218,16 @@ static size_t cp_adv(const char *s, size_t n, size_t i) {
     return a ? a : 1;
 }
 
-void tui_wrap_locate(const char *s, size_t n, size_t cur, int width,
-                     int *row, int *col, int *total) {
+void tui_wrap_locate(const char *s, size_t n, size_t cur, int width, int *row, int *col,
+                     int *total) {
     if (width < 1) width = 1;
     if (!s) s = "";
     int r = 0, c = 0, cr = 0, cc = 0;
-    for (size_t i = 0; i < n; ) {
-        if (i == cur) { cr = r; cc = c; }
+    for (size_t i = 0; i < n;) {
+        if (i == cur) {
+            cr = r;
+            cc = c;
+        }
         if (s[i] == '\n') {
             r++;
             c = 0;
@@ -213,11 +235,17 @@ void tui_wrap_locate(const char *s, size_t n, size_t cur, int width,
             continue;
         }
         size_t a = cp_adv(s, n, i);
-        if (c >= width) { r++; c = 0; }
+        if (c >= width) {
+            r++;
+            c = 0;
+        }
         c++;
         i += a;
     }
-    if (cur >= n) { cr = r; cc = c; }
+    if (cur >= n) {
+        cr = r;
+        cc = c;
+    }
     if (row) *row = cr;
     if (col) *col = cc;
     if (total) *total = r + 1;
@@ -227,7 +255,7 @@ size_t tui_wrap_index(const char *s, size_t n, int width, int trow, int tcol) {
     if (width < 1) width = 1;
     if (!s || trow < 0) return 0;
     int r = 0, c = 0;
-    for (size_t i = 0; i < n; ) {
+    for (size_t i = 0; i < n;) {
         if (r == trow && c >= tcol) return i;
         if (s[i] == '\n') {
             if (r == trow) return i;
@@ -255,8 +283,7 @@ int tui_overlay_budget(const tui *t) {
         used += 1;
     } else {
         int total = 1;
-        tui_wrap_locate(t->input.data, t->input.len, 0, tui_wrap_width(t),
-                        NULL, NULL, &total);
+        tui_wrap_locate(t->input.data, t->input.len, 0, tui_wrap_width(t), NULL, NULL, &total);
         used += total < TUI_COMP_ROWS ? total : TUI_COMP_ROWS;
     }
     if (t->pick != PICK_NONE && t->n_items > 0)
@@ -290,8 +317,7 @@ static void overlay_rows(tui *t, buf_t *b, int *rows, int maxw) {
         buf_appends(b, tui_attr(t, "\x1b[2m"));
         buf_t m;
         buf_init(&m);
-        buf_appendf(&m, "  … %d more rows (enlarge the window to see them)",
-                    total - show);
+        buf_appendf(&m, "  … %d more rows (enlarge the window to see them)", total - show);
         tui_push_ansi(b, m.data, m.len, maxw);
         buf_free(&m);
         buf_appends(b, tui_attr(t, "\x1b[0m"));
@@ -430,7 +456,10 @@ void tui_write(tui *t, const char *s, size_t n) {
     buf_append(&t->partial, s + at, n - at);
     size_t cut = 0;
     for (size_t i = t->partial.len; i > 0; i--)
-        if (t->partial.data[i - 1] == '\n') { cut = i; break; }
+        if (t->partial.data[i - 1] == '\n') {
+            cut = i;
+            break;
+        }
     if (cut) {
         buf_append(&t->out, t->partial.data, cut);
         buf_consume(&t->partial, cut);

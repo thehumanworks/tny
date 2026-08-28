@@ -69,18 +69,13 @@ typedef struct {
     tny_openai_permission_decision permission;
 } tny_openai_control_response;
 
-typedef void (*tny_openai_control_cb)(
-    const tny_openai_control_request *request,
-    tny_openai_control_response *response, void *ud);
+typedef void (*tny_openai_control_cb)(const tny_openai_control_request *request,
+                                      tny_openai_control_response *response, void *ud);
 
-void tny_backend_openai_bind(tny_backend *b, tny_session_state *session,
-                             perm_engine *perm,
-                             tny_perm_decision (*prompt)(const char *tool,
-                                                         const char *summary,
+void tny_backend_openai_bind(tny_backend *b, tny_session_state *session, perm_engine *perm,
+                             tny_perm_decision (*prompt)(const char *tool, const char *summary,
                                                          void *ud),
-                             void *prompt_ud,
-                             tny_openai_control_cb control,
-                             void *control_ud);
+                             void *prompt_ud, tny_openai_control_cb control, void *control_ud);
 
 /* Number of agent steps taken in the last turn + tool call log (JSON array
  * text, borrowed until next send). */
@@ -97,10 +92,10 @@ const char *tny_backend_openai_toolcalls_json(tny_backend *b);
 #define OA_MAX_TOOL_CALLS 32
 
 typedef struct {
-    char *id;        /* provider call id; NULL until (if ever) streamed */
-    char *name;      /* function name; NULL until streamed */
-    buf_t args;      /* concatenated argument fragments */
-    int   wire_index;/* provider "index" for this call; -1 if never sent */
+    char *id;       /* provider call id; NULL until (if ever) streamed */
+    char *name;     /* function name; NULL until streamed */
+    buf_t args;     /* concatenated argument fragments */
+    int wire_index; /* provider "index" for this call; -1 if never sent */
 } oa_call;
 
 typedef struct {
@@ -135,8 +130,7 @@ char *tny_openai_response_format(const char *schema_json, size_t len);
  * Responses `input` items array: string messages ride as-is, image parts
  * become input_text/input_image, assistant tool_calls become function_call
  * items, and role:tool messages become function_call_output items. */
-char *tny_openai_responses_input(yyjson_mut_val *msgs, int boundary,
-                                 const char *summary);
+char *tny_openai_responses_input(yyjson_mut_val *msgs, int boundary, const char *summary);
 /* Nested chat tools ({"type":"function","function":{…}}) → the flat
  * Responses shape ({"type":"function","name":…,"parameters":…}). */
 char *tny_openai_responses_tools(const char *chat_tools_json);

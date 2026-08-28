@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "source_commit": "510a95c2ef89aa9ec02a66d8b0a5cadd953025a8",
+  "git_archive_sha256": "8718336dbde47f3f8427bf6b3a724127e3ed24b61eaedb6f315523ec2a00c2f6",
+  "maintenance_lineage": [
+    {
+      "commit": "510a95c2ef89aa9ec02a66d8b0a5cadd953025a8",
+      "git_archive_sha256": "8718336dbde47f3f8427bf6b3a724127e3ed24b61eaedb6f315523ec2a00c2f6",
+      "review_ref": "issue-45-initial-ga"
+    }
+  ],
+  "abi_version": 8,
+  "header": {
+    "path": "include/tny/tny.h",
+    "sha256": "827781dccaf5d2c020c4c8748d69e291ddbac3d75f9262851e3a14efee4fdaf2",
+    "installed_include_root": "include/tny-0"
+  },
+  "exports": {
+    "elf_path": "abi/libtny.map",
+    "elf_sha256": "ac4d7afe485b49e6b1ca20325c855eeefde3265fb8235b349726356126590821",
+    "elf_version_node": "LIBTNY_0",
+    "macos_path": "abi/libtny.exports.macos",
+    "macos_sha256": "51d8ce66238498534f6c06c56d1551a9185d378bc5972cd070f5c3d053a6d942"
+  },
+  "artifacts": {
+    "linux_soname": "libtny.so.0",
+    "macos_install_name": "@rpath/libtny.0.dylib",
+    "pkg_config": "libtny-0"
+  },
+  "structs": {
+    "tny_bytes": [16, 8],
+    "tny_capabilities_v0": [240, 8],
+    "tny_capabilities_v1": [344, 8],
+    "tny_event_view_v0": [328, 8],
+    "tny_host_services_v1": [136, 8],
+    "tny_runtime_options_v0": [200, 8],
+    "tny_runtime_options_v1": [280, 8],
+    "tny_tool_result_v1": [64, 8],
+    "tny_tool_spec_v1": [160, 8]
+  },
+  "legacy_signatures": {
+    "tny_capabilities_init": "void(tny_capabilities_v0*)",
+    "tny_capabilities_v1_init": "void(tny_capabilities_v1*)",
+    "tny_event_read": "int32_t(const tny_event*,tny_event_view_v0*)",
+    "tny_event_view_init": "void(tny_event_view_v0*)",
+    "tny_host_services_v1_init": "void(tny_host_services_v1*)",
+    "tny_runtime_create": "int32_t(const tny_runtime_options_v0*,tny_runtime**,tny_error**)",
+    "tny_runtime_create_v1": "int32_t(const tny_runtime_options_v1*,tny_runtime**,tny_error**)",
+    "tny_runtime_get_capabilities": "int32_t(const tny_runtime*,tny_capabilities_v0*)",
+    "tny_runtime_get_capabilities_v1": "int32_t(const tny_runtime*,tny_capabilities_v1*)",
+    "tny_runtime_options_init": "void(tny_runtime_options_v0*)",
+    "tny_runtime_options_v1_init": "void(tny_runtime_options_v1*)",
+    "tny_tool_result_v1_init": "void(tny_tool_result_v1*)",
+    "tny_tool_spec_v1_init": "void(tny_tool_spec_v1*)"
+  }
+}

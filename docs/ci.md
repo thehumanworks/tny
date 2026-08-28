@@ -27,10 +27,16 @@ reports this commit's revision. See [nix.md](nix.md) and
 [ADR 0035](adr/0035-nix-flake-packaging.md). It publishes no artifact; Nix
 users build from source.
 
-The Linux glibc and Darwin jobs also stage the experimental ABI-0 `libtny`
-developer tree (`include/tny/tny.h`, shared library, and pkg-config metadata)
-as `libtny-<os>-<arch>`. MSYS2, musl-static, and wasm do not publish a public
-library artifact in ABI 0 ([ADR 0023](adr/0023-libtny-embedding-abi.md)).
+The Linux glibc and Darwin jobs also stage active ABI-1 `libtny` plus the
+frozen ABI-0.8 compatibility library/header/pkg-config identity as
+`libtny-<os>-<arch>`. MSYS2, musl-static, and wasm do not publish a public
+shared-library artifact ([ADR 0037](adr/0037-libtny-abi-1.md)).
+
+The dedicated SDK workflow (`.github/workflows/sdk.yml`) runs the Python and
+Node version/platform matrices, cross-language conformance, clean package
+installs, and native dependency inspection. Its aggregate `sdk` job fails
+unless the packaging contract and every Python and Node matrix entry succeed;
+use that single terminal status for branch protection.
 
 Tagged release jobs also package those supported shared-library installs as
 `libtny-<os>-<arch>.tar.gz`. Each archive contains the public header,
@@ -108,7 +114,10 @@ CI fails the job if the stripped binary exceeds the Must column in
 ## Local
 
 ```sh
+make quality           # formatting, lint, tidy, strict warnings; GCC analyzer on Linux
 make test              # unit (ASan) + integration fixtures
+make test-abi          # ABI baseline, old consumers, exports, artifacts
+make test-sdks         # Python and TypeScript SDK + conformance adapters
 make size-check        # fail if over the host budget
 make STATIC=1 release  # musl static, on Alpine or a musl toolchain
 make pack TRIPLE=linux-x86_64

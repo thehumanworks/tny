@@ -1,4 +1,5 @@
 """Stable Python exception mapping for libtny status categories."""
+
 from __future__ import annotations
 
 STATUS_NAMES = {
@@ -46,19 +47,57 @@ class TnyError(RuntimeError):
         return f"{type(self).__name__}(code={self.code})"
 
 
-class InvalidArgumentError(TnyError): pass
-class BadStateError(TnyError): pass
-class BusyError(TnyError): pass
-class OutOfMemoryError(TnyError): pass
-class ConfigurationError(TnyError): pass
-class AuthenticationError(TnyError): pass
-class IOError(TnyError): pass
-class TimeoutError(TnyError): pass
-class UnsupportedError(TnyError): pass
-class ProtocolError(TnyError): pass
-class BackpressureError(TnyError): pass
-class CancelledError(TnyError): pass
-class InternalError(TnyError): pass
+class InvalidArgumentError(TnyError):
+    pass
+
+
+class BadStateError(TnyError):
+    pass
+
+
+class BusyError(TnyError):
+    pass
+
+
+class OutOfMemoryError(TnyError):
+    pass
+
+
+class ConfigurationError(TnyError):
+    pass
+
+
+class AuthenticationError(TnyError):
+    pass
+
+
+class IOError(TnyError):
+    pass
+
+
+class TimeoutError(TnyError):
+    pass
+
+
+class UnsupportedError(TnyError):
+    pass
+
+
+class ProtocolError(TnyError):
+    pass
+
+
+class BackpressureError(TnyError):
+    pass
+
+
+class CancelledError(TnyError):
+    pass
+
+
+class InternalError(TnyError):
+    pass
+
 
 # Unambiguous aliases for the two names that also exist in builtins.
 TnyIOError = IOError

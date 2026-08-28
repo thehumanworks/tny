@@ -31,7 +31,10 @@ static bool is_one_of(const char *s, const char *const *set) {
 /* Flatten any text-bearing node (string, content part array, message, delta). */
 static void collect_text(yyjson_val *v, buf_t *out, int depth) {
     if (!v || depth > 4 || out->len > 64u * 1024u) return;
-    if (yyjson_is_str(v)) { buf_appends(out, yyjson_get_str(v)); return; }
+    if (yyjson_is_str(v)) {
+        buf_appends(out, yyjson_get_str(v));
+        return;
+    }
     if (yyjson_is_arr(v)) {
         size_t i, m;
         yyjson_val *e;
@@ -40,7 +43,10 @@ static void collect_text(yyjson_val *v, buf_t *out, int depth) {
     }
     if (!yyjson_is_obj(v)) return;
     yyjson_val *t = jget(v, "text");
-    if (t && yyjson_is_str(t)) { buf_appends(out, yyjson_get_str(t)); return; }
+    if (t && yyjson_is_str(t)) {
+        buf_appends(out, yyjson_get_str(t));
+        return;
+    }
     yyjson_val *next = jget(v, "delta");
     if (!next) next = jget(v, "content");
     if (!next) next = jget(v, "message");
@@ -84,11 +90,13 @@ static int64_t tok_count(yyjson_val *u, const char *key, int64_t dflt) {
 
 static void take_usage(cu_impl *o, yyjson_val *u) {
     if (!u || !yyjson_is_obj(u)) return;
-    int64_t in = tok_count(u, "inputTokens",
-                 tok_count(u, "input_tokens",
-                 tok_count(u, "promptTokens", tok_count(u, "prompt_tokens", -1))));
-    int64_t out = tok_count(u, "outputTokens",
-                  tok_count(u, "output_tokens",
+    int64_t in =
+        tok_count(u, "inputTokens",
+                  tok_count(u, "input_tokens",
+                            tok_count(u, "promptTokens", tok_count(u, "prompt_tokens", -1))));
+    int64_t out = tok_count(
+        u, "outputTokens",
+        tok_count(u, "output_tokens",
                   tok_count(u, "completionTokens", tok_count(u, "completion_tokens", -1))));
     if (in >= 0) o->in_tok = in;
     if (out >= 0) o->out_tok = out;
@@ -108,8 +116,8 @@ static const char *variant_tool_name(const char *key, char *buf, size_t cap) {
 }
 
 static void emit_tool(cu_impl *o, yyjson_val *v) {
-    static const char *const END_SUB[] = {"completed", "complete", "finished", "end",
-                                          "ended",     "result",   "error",    "failed", NULL};
+    static const char *const END_SUB[] = {"completed", "complete", "finished", "end", "ended",
+                                          "result",    "error",    "failed",   NULL};
     static const char *const BAD_SUB[] = {"error", "failed", NULL};
     const char *sub = jget_str(v, "subtype");
     if (!sub) sub = jget_str(v, "phase");
@@ -234,7 +242,10 @@ static void handle_sdk_json_str(cu_impl *o, const char *s, int depth) {
 
 static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
     if (!v || depth > 2 || o->ended) return;
-    if (yyjson_is_str(v)) { handle_sdk_json_str(o, yyjson_get_str(v), depth); return; }
+    if (yyjson_is_str(v)) {
+        handle_sdk_json_str(o, yyjson_get_str(v), depth);
+        return;
+    }
     if (!yyjson_is_obj(v)) return;
     /* some builds carry the SDK payload as an opaque JSON string field */
     yyjson_val *nested = jget(v, "json");
@@ -287,8 +298,7 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
         }
         buf_free(&t);
     } else if (strcmp(type, "thinking") == 0 || strcmp(type, "reasoning") == 0 ||
-               strcmp(type, "thinking_delta") == 0 ||
-               strcmp(type, "thinkingDelta") == 0 ||
+               strcmp(type, "thinking_delta") == 0 || strcmp(type, "thinkingDelta") == 0 ||
                strcmp(type, "summary") == 0) {
         buf_t t;
         buf_init(&t);
@@ -318,8 +328,7 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
         cu_emit(o, &ev);
         buf_free(&detail);
     } else if (strcmp(type, "tool_call") == 0 || strcmp(type, "tool_use") == 0 ||
-               strcmp(type, "tool_result") == 0 ||
-               strcmp(type, "tool_call_started") == 0 ||
+               strcmp(type, "tool_result") == 0 || strcmp(type, "tool_call_started") == 0 ||
                strcmp(type, "tool_call_completed") == 0) {
         emit_tool(o, v);
     } else if (strcmp(type, "status") == 0 || strcmp(type, "system") == 0) {
@@ -375,8 +384,8 @@ static void handle_result(cu_impl *o, yyjson_val *r) {
     bool bad = (code && *code) || jget_bool(r, "isError", false) ||
                jget_bool(r, "is_error", false) || jget(r, "error") != NULL ||
                (sub && str_starts(sub, "error")) ||
-               (st && (strstr(st, "ERROR") || strstr(st, "EXPIRED") ||
-                       strcmp(st, "error") == 0 || strcmp(st, "expired") == 0));
+               (st && (strstr(st, "ERROR") || strstr(st, "EXPIRED") || strcmp(st, "error") == 0 ||
+                       strcmp(st, "expired") == 0));
 
     if (!o->got_text) {
         buf_t t;
@@ -414,8 +423,8 @@ static void handle_end_frame(cu_impl *o, const char *payload, size_t len) {
     bool bad = jget(root, "error") != NULL;
     if (bad && !o->ended) {
         char line[320];
-        cursor_error_line(payload, len, "the bridge ended the run with an error",
-                          line, sizeof line);
+        cursor_error_line(payload, len, "the bridge ended the run with an error", line,
+                          sizeof line);
         cu_emit_text(o, TNY_EV_ERROR, line, strlen(line));
         cu_end_turn(o, TNY_STOP_ERROR);
     } else if (!o->ended) {
@@ -427,12 +436,18 @@ static void handle_end_frame(cu_impl *o, const char *payload, size_t len) {
 void cu_on_frame(uint8_t flags, const char *payload, size_t len, void *ud) {
     cu_impl *o = ud;
     if (len > CURSOR_MAX_MSG_BYTES) return;
-    if (flags & CONNECT_FLAG_END) { handle_end_frame(o, payload, len); return; }
+    if (flags & CONNECT_FLAG_END) {
+        handle_end_frame(o, payload, len);
+        return;
+    }
     if (o->ended) return;
 
     yyjson_doc *doc = jparse(payload, len);
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
-    if (!root || !yyjson_is_obj(root)) { yyjson_doc_free(doc); return; }
+    if (!root || !yyjson_is_obj(root)) {
+        yyjson_doc_free(doc);
+        return;
+    }
 
     yyjson_val *sm = jget(root, "sdkMessage");
     if (!sm) sm = jget(root, "sdk_message");

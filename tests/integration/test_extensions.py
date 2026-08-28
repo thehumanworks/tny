@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """End-to-end Python hooks over the normalized native-provider event stream."""
 
-import json
 import glob
+import json
 import os
 import signal
 import socket
@@ -10,7 +10,6 @@ import subprocess
 import sys
 import tempfile
 import time
-
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TNY = os.environ.get("TNY", os.path.join(ROOT, "build", "tny"))
@@ -25,7 +24,7 @@ def free_port():
     return port
 
 
-EXTENSION = r'''
+EXTENSION = r"""
 import json
 import os
 import signal
@@ -163,17 +162,20 @@ def setup(api):
         if (os.environ.get("TNY_TEST_NO_CONTINUE") != "1" and
                 event.continuation_count == 0):
             return continue_with("extension followup")
-'''
+"""
 
 
 def main():
     port = free_port()
     mock = subprocess.Popen(
         [sys.executable, MOCK, str(port)],
-        env=dict(os.environ, MOCK_EXPECT_WIRE="responses",
-                 MOCK_EXPECT_EXTENSION_REWRITE="1",
-                 MOCK_EXPECT_TOOL_OUTPUT="REPLACED-TOOL-RESULT",
-                 MOCK_DROP_REUSED_ONCE="1"),
+        env=dict(
+            os.environ,
+            MOCK_EXPECT_WIRE="responses",
+            MOCK_EXPECT_EXTENSION_REWRITE="1",
+            MOCK_EXPECT_TOOL_OUTPUT="REPLACED-TOOL-RESULT",
+            MOCK_DROP_REUSED_ONCE="1",
+        ),
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
     )
@@ -224,7 +226,9 @@ def main():
             assert "visible test context" in stderr, stderr
             assert "extension follow-up: extension followup" in stderr, stderr
 
-            session_files = glob.glob(os.path.join(home, ".tny", "sessions", "*", "*", "session.json"))
+            session_files = glob.glob(
+                os.path.join(home, ".tny", "sessions", "*", "*", "session.json")
+            )
             assert len(session_files) == 1, session_files
             session_doc = json.load(open(session_files[0], encoding="utf-8"))
             user_messages = [
@@ -232,25 +236,42 @@ def main():
                 for message in session_doc["messages"]
                 if message.get("role") == "user"
             ]
-            assert any(message.endswith("TRANSFORMED-NATIVE-PROMPT") for message in user_messages), user_messages
-            assert not any("list files" in message for message in user_messages), user_messages
+            assert any(
+                message.endswith("TRANSFORMED-NATIVE-PROMPT")
+                for message in user_messages
+            ), user_messages
+            assert not any("list files" in message for message in user_messages), (
+                user_messages
+            )
             assert session_doc["title"] == "list files", session_doc
             prompt_audit = [
-                entry for entry in session_doc.get("extension_audit", [])
+                entry
+                for entry in session_doc.get("extension_audit", [])
                 if entry.get("kind") == "prompt"
             ]
-            assert prompt_audit and prompt_audit[0]["submitted"] == "list files", prompt_audit
-            assert prompt_audit[0]["effective"] == "TRANSFORMED-NATIVE-PROMPT", prompt_audit
+            assert prompt_audit and prompt_audit[0]["submitted"] == "list files", (
+                prompt_audit
+            )
+            assert prompt_audit[0]["effective"] == "TRANSFORMED-NATIVE-PROMPT", (
+                prompt_audit
+            )
             tool_audit = [
-                entry for entry in session_doc.get("extension_audit", [])
+                entry
+                for entry in session_doc.get("extension_audit", [])
                 if entry.get("kind") == "tool" and entry.get("id") == "call_1"
             ]
             assert len(tool_audit) == 1, tool_audit
             assert tool_audit[0]["original_arguments"] == '{"path": "."}', tool_audit
             assert tool_audit[0]["effective_arguments"] == '{"path":"."}', tool_audit
-            assert tool_audit[0]["effective_result"] == "REPLACED-TOOL-RESULT", tool_audit
-            assert tool_audit[0]["original_result"] != tool_audit[0]["effective_result"], tool_audit
-            assert tool_audit[0]["annotations"][0]["content"] == "integration annotation", tool_audit
+            assert tool_audit[0]["effective_result"] == "REPLACED-TOOL-RESULT", (
+                tool_audit
+            )
+            assert (
+                tool_audit[0]["original_result"] != tool_audit[0]["effective_result"]
+            ), tool_audit
+            assert (
+                tool_audit[0]["annotations"][0]["content"] == "integration annotation"
+            ), tool_audit
             assert tool_audit[0]["annotations"][0]["display"] is True, tool_audit
             assert tool_audit[0]["annotations"][1] == {
                 "extension": "integration",
@@ -294,31 +315,50 @@ def main():
             assert all(event["provider"] == "openai" for event in events), events
             assert all(event["session_id"] for event in events), events
 
-            first_pre = next(i for i, event in enumerate(events)
-                             if event["type"] == "pre_tool_use" and event["tool_id"] == "call_1")
-            first_start = next(i for i, event in enumerate(events)
-                               if event["type"] == "tool_start" and event["tool_id"] == "call_1")
-            first_end = next(i for i, event in enumerate(events)
-                             if event["type"] == "tool_end" and event["tool_id"] == "call_1")
-            first_post = next(i for i, event in enumerate(events)
-                              if event["type"] == "post_tool_use" and event["tool_id"] == "call_1")
-            second_pre = next(i for i, event in enumerate(events)
-                              if event["type"] == "pre_tool_use" and event["tool_id"] == "call_2")
+            first_pre = next(
+                i
+                for i, event in enumerate(events)
+                if event["type"] == "pre_tool_use" and event["tool_id"] == "call_1"
+            )
+            first_start = next(
+                i
+                for i, event in enumerate(events)
+                if event["type"] == "tool_start" and event["tool_id"] == "call_1"
+            )
+            first_end = next(
+                i
+                for i, event in enumerate(events)
+                if event["type"] == "tool_end" and event["tool_id"] == "call_1"
+            )
+            first_post = next(
+                i
+                for i, event in enumerate(events)
+                if event["type"] == "post_tool_use" and event["tool_id"] == "call_1"
+            )
+            second_pre = next(
+                i
+                for i, event in enumerate(events)
+                if event["type"] == "pre_tool_use" and event["tool_id"] == "call_2"
+            )
             batch = kinds.index("post_tool_batch")
-            assert first_pre < first_start < first_end < first_post < second_pre < batch, kinds
-            assert kinds.index("provider_request") < kinds.index("provider_response"), kinds
-            requests = [event for event in events
-                        if event["type"] == "provider_request"]
-            responses = [event for event in events
-                         if event["type"] == "provider_response"]
+            assert (
+                first_pre < first_start < first_end < first_post < second_pre < batch
+            ), kinds
+            assert kinds.index("provider_request") < kinds.index("provider_response"), (
+                kinds
+            )
+            requests = [
+                event for event in events if event["type"] == "provider_request"
+            ]
+            responses = [
+                event for event in events if event["type"] == "provider_response"
+            ]
             request_attempts = [
-                (event["metadata"]["logical_request_id"],
-                 event["metadata"]["attempt"])
+                (event["metadata"]["logical_request_id"], event["metadata"]["attempt"])
                 for event in requests
             ]
             response_attempts = [
-                (event["metadata"]["logical_request_id"],
-                 event["metadata"]["attempt"])
+                (event["metadata"]["logical_request_id"], event["metadata"]["attempt"])
                 for event in responses
             ]
             assert request_attempts == response_attempts, (requests, responses)
@@ -326,54 +366,109 @@ def main():
             assert all(attempt >= 1 for _, attempt in request_attempts)
             first_attempt_sequences = [
                 int(request_id.rsplit(":", 1)[1])
-                for request_id, attempt in request_attempts if attempt == 1
+                for request_id, attempt in request_attempts
+                if attempt == 1
             ]
             assert first_attempt_sequences == list(
                 range(1, len(first_attempt_sequences) + 1)
             ), first_attempt_sequences
             assert any(attempt > 1 for _, attempt in request_attempts), request_attempts
-            assert all(event["metadata"]["stream"] is True for event in requests + responses)
-            assert all(event["metadata"]["wire_api"] == "responses"
-                       for event in requests + responses)
-            assert all(isinstance(event["metadata"]["step"], int)
-                       for event in requests)
+            assert all(
+                event["metadata"]["stream"] is True for event in requests + responses
+            )
+            assert all(
+                event["metadata"]["wire_api"] == "responses"
+                for event in requests + responses
+            )
+            assert all(isinstance(event["metadata"]["step"], int) for event in requests)
 
-            order = {kind: kinds.index(kind) for kind in (
-                "session_start", "user_prompt_submit", "before_agent_start",
-                "agent_start", "turn_start", "message_start", "text_delta",
-                "message_update", "message_end", "turn_end", "agent_end",
-                "agent_settled", "session_end",
-            )}
+            order = {
+                kind: kinds.index(kind)
+                for kind in (
+                    "session_start",
+                    "user_prompt_submit",
+                    "before_agent_start",
+                    "agent_start",
+                    "turn_start",
+                    "message_start",
+                    "text_delta",
+                    "message_update",
+                    "message_end",
+                    "turn_end",
+                    "agent_end",
+                    "agent_settled",
+                    "session_end",
+                )
+            }
             assert list(order.values()) == sorted(order.values()), order
 
             resumed = subprocess.run(
-                [TNY, "--cwd", workspace, "ask", "--json", "--resume",
-                 output["session_id"], "resume extension session"],
-                env=env, capture_output=True, timeout=30)
+                [
+                    TNY,
+                    "--cwd",
+                    workspace,
+                    "ask",
+                    "--json",
+                    "--resume",
+                    output["session_id"],
+                    "resume extension session",
+                ],
+                env=env,
+                capture_output=True,
+                timeout=30,
+            )
             assert resumed.returncode == 0, resumed.stderr.decode()
             resumed_doc = json.load(open(session_files[0], encoding="utf-8"))
-            assert len([entry for entry in resumed_doc.get("extension_audit", [])
-                        if entry.get("kind") == "tool"]) == 1, resumed_doc
-            resumed_events = [json.loads(line) for line in
-                              open(event_log, encoding="utf-8")]
-            assert [event["reason"] for event in resumed_events
-                    if event["type"] == "session_start"][-1] == "resume"
+            assert (
+                len(
+                    [
+                        entry
+                        for entry in resumed_doc.get("extension_audit", [])
+                        if entry.get("kind") == "tool"
+                    ]
+                )
+                == 1
+            ), resumed_doc
+            resumed_events = [
+                json.loads(line) for line in open(event_log, encoding="utf-8")
+            ]
+            assert [
+                event["reason"]
+                for event in resumed_events
+                if event["type"] == "session_start"
+            ][-1] == "resume"
 
-            recovery_file = os.path.join(os.path.dirname(session_files[0]),
-                                         "recovery.json")
+            recovery_file = os.path.join(
+                os.path.dirname(session_files[0]), "recovery.json"
+            )
             with open(recovery_file, "w", encoding="utf-8") as stream:
                 json.dump({"partial": "RECOVERY-PARTIAL", "at": "test"}, stream)
             recovered = subprocess.run(
-                [TNY, "--cwd", workspace, "ask", "--json", "--resume",
-                 output["session_id"], "--continue-recovery",
-                 "recover extension session"],
-                env=env, capture_output=True, timeout=30)
+                [
+                    TNY,
+                    "--cwd",
+                    workspace,
+                    "ask",
+                    "--json",
+                    "--resume",
+                    output["session_id"],
+                    "--continue-recovery",
+                    "recover extension session",
+                ],
+                env=env,
+                capture_output=True,
+                timeout=30,
+            )
             assert recovered.returncode == 0, recovered.stderr.decode()
             assert not os.path.exists(recovery_file)
-            recovered_events = [json.loads(line) for line in
-                                open(event_log, encoding="utf-8")]
-            assert [event["reason"] for event in recovered_events
-                    if event["type"] == "session_start"][-1] == "recovery"
+            recovered_events = [
+                json.loads(line) for line in open(event_log, encoding="utf-8")
+            ]
+            assert [
+                event["reason"]
+                for event in recovered_events
+                if event["type"] == "session_start"
+            ][-1] == "recovery"
 
             blocked = subprocess.run(
                 [TNY, "--cwd", workspace, "ask", "--json", "blocked input"],
@@ -386,7 +481,8 @@ def main():
             assert blocked_output["exit_code"] == 2, blocked_output
             blocked_session = os.path.join(
                 os.path.dirname(os.path.dirname(session_files[0])),
-                blocked_output["session_id"], "session.json",
+                blocked_output["session_id"],
+                "session.json",
             )
             blocked_doc = json.load(open(blocked_session, encoding="utf-8"))
             assert not blocked_doc.get("messages"), blocked_doc
@@ -405,24 +501,37 @@ def main():
             )
             try:
                 assert "ready" in permission_mock.stdout.readline().decode()
-                permission_env = dict(env,
+                permission_env = dict(
+                    env,
                     OPENAI_BASE_URL=f"http://127.0.0.1:{pport}/v1",
-                    TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="0")
+                    TNY_TEST_REWRITE="0",
+                    TNY_TEST_REPLACE="0",
+                )
                 target = os.path.join(workspace, "permission.txt")
 
                 def permission_event_count():
                     return sum(
-                        1 for line in open(event_log, encoding="utf-8")
+                        1
+                        for line in open(event_log, encoding="utf-8")
                         if json.loads(line)["type"] == "permission_request"
                     )
 
                 before_permissions = permission_event_count()
                 allowed = subprocess.run(
-                    [TNY, "--permission-mode", "ask", "--cwd", workspace,
-                     "ask", "--json", "allow extension permission"],
-                    env=dict(permission_env,
-                             TNY_TEST_PERMISSION_DECISION="allow_once"),
-                    capture_output=True, timeout=30)
+                    [
+                        TNY,
+                        "--permission-mode",
+                        "ask",
+                        "--cwd",
+                        workspace,
+                        "ask",
+                        "--json",
+                        "allow extension permission",
+                    ],
+                    env=dict(permission_env, TNY_TEST_PERMISSION_DECISION="allow_once"),
+                    capture_output=True,
+                    timeout=30,
+                )
                 assert allowed.returncode == 0, allowed.stderr.decode()
                 assert open(target, encoding="utf-8").read() == "allowed"
                 assert permission_event_count() == before_permissions + 1
@@ -430,89 +539,179 @@ def main():
 
                 before_permissions = permission_event_count()
                 denied = subprocess.run(
-                    [TNY, "--permission-mode", "ask", "--cwd", workspace,
-                     "ask", "--json", "deny extension permission"],
+                    [
+                        TNY,
+                        "--permission-mode",
+                        "ask",
+                        "--cwd",
+                        workspace,
+                        "ask",
+                        "--json",
+                        "deny extension permission",
+                    ],
                     env=dict(permission_env, TNY_TEST_PERMISSION_DECISION="deny"),
-                    capture_output=True, timeout=30)
+                    capture_output=True,
+                    timeout=30,
+                )
                 assert denied.returncode == 2, denied.stderr.decode()
                 assert not os.path.exists(target)
                 assert permission_event_count() == before_permissions + 1
 
                 before_permissions = permission_event_count()
                 abstained = subprocess.run(
-                    [TNY, "--permission-mode", "ask", "--cwd", workspace,
-                     "ask", "--json", "abstain extension permission"],
-                    env=dict(permission_env,
-                             TNY_TEST_PERMISSION_DECISION="abstain"),
-                    capture_output=True, timeout=30)
+                    [
+                        TNY,
+                        "--permission-mode",
+                        "ask",
+                        "--cwd",
+                        workspace,
+                        "ask",
+                        "--json",
+                        "abstain extension permission",
+                    ],
+                    env=dict(permission_env, TNY_TEST_PERMISSION_DECISION="abstain"),
+                    capture_output=True,
+                    timeout=30,
+                )
                 assert abstained.returncode == 2, abstained.stderr.decode()
                 assert not os.path.exists(target)
                 assert permission_event_count() == before_permissions + 1
 
                 before_permissions = permission_event_count()
                 permission_stopped = subprocess.run(
-                    [TNY, "--permission-mode", "ask", "--cwd", workspace,
-                     "ask", "--json", "stop extension permission"],
+                    [
+                        TNY,
+                        "--permission-mode",
+                        "ask",
+                        "--cwd",
+                        workspace,
+                        "ask",
+                        "--json",
+                        "stop extension permission",
+                    ],
                     env=dict(permission_env, TNY_TEST_PERMISSION_DECISION="stop"),
-                    capture_output=True, timeout=30)
-                assert permission_stopped.returncode == 130, permission_stopped.stderr.decode()
+                    capture_output=True,
+                    timeout=30,
+                )
+                assert permission_stopped.returncode == 130, (
+                    permission_stopped.stderr.decode()
+                )
                 assert not os.path.exists(target)
                 assert permission_event_count() == before_permissions + 1
                 permission_stopped_json = json.loads(permission_stopped.stdout)
-                permission_stopped_sessions = glob.glob(os.path.join(
-                    home, ".tny", "sessions", "*",
-                    permission_stopped_json["session_id"], "session.json"))
+                permission_stopped_sessions = glob.glob(
+                    os.path.join(
+                        home,
+                        ".tny",
+                        "sessions",
+                        "*",
+                        permission_stopped_json["session_id"],
+                        "session.json",
+                    )
+                )
                 assert len(permission_stopped_sessions) == 1
-                permission_stopped_doc = json.load(open(
-                    permission_stopped_sessions[0], encoding="utf-8"))
+                permission_stopped_doc = json.load(
+                    open(permission_stopped_sessions[0], encoding="utf-8")
+                )
                 permission_stopped_audit = [
-                    entry for entry in permission_stopped_doc.get("extension_audit", [])
+                    entry
+                    for entry in permission_stopped_doc.get("extension_audit", [])
                     if entry.get("kind") == "tool"
                 ]
                 assert permission_stopped_audit[0]["control_extension"] == "integration"
-                assert permission_stopped_audit[0]["control_reason"] == "stop permission"
+                assert (
+                    permission_stopped_audit[0]["control_reason"] == "stop permission"
+                )
 
                 pre_stopped = subprocess.run(
-                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
-                     "stop before native tool"],
+                    [
+                        TNY,
+                        "--yolo",
+                        "--cwd",
+                        workspace,
+                        "ask",
+                        "--json",
+                        "stop before native tool",
+                    ],
                     env=dict(permission_env, TNY_TEST_STOP_PRE="1"),
-                    capture_output=True, timeout=30)
+                    capture_output=True,
+                    timeout=30,
+                )
                 assert pre_stopped.returncode == 130, pre_stopped.stderr.decode()
                 assert not os.path.exists(target)
 
                 tool_denied = subprocess.run(
-                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
-                     "pre-tool deny"],
+                    [
+                        TNY,
+                        "--yolo",
+                        "--cwd",
+                        workspace,
+                        "ask",
+                        "--json",
+                        "pre-tool deny",
+                    ],
                     env=dict(permission_env, TNY_TEST_DENY_TOOL="1"),
-                    capture_output=True, timeout=30)
+                    capture_output=True,
+                    timeout=30,
+                )
                 assert tool_denied.returncode == 0, tool_denied.stderr.decode()
                 assert not os.path.exists(target)
 
-                before_invalid_events = len(open(event_log, encoding="utf-8").readlines())
+                before_invalid_events = len(
+                    open(event_log, encoding="utf-8").readlines()
+                )
                 invalid = subprocess.run(
-                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
-                     "invalid rewrite"],
+                    [
+                        TNY,
+                        "--yolo",
+                        "--cwd",
+                        workspace,
+                        "ask",
+                        "--json",
+                        "invalid rewrite",
+                    ],
                     env=dict(permission_env, TNY_TEST_INVALID_REWRITE="1"),
-                    capture_output=True, timeout=30)
+                    capture_output=True,
+                    timeout=30,
+                )
                 assert invalid.returncode == 0, invalid.stderr.decode()
                 assert not os.path.exists(os.path.join(workspace, "invalid.txt"))
                 invalid_json = json.loads(invalid.stdout)
-                invalid_sessions = glob.glob(os.path.join(
-                    home, ".tny", "sessions", "*", invalid_json["session_id"],
-                    "session.json"))
+                invalid_sessions = glob.glob(
+                    os.path.join(
+                        home,
+                        ".tny",
+                        "sessions",
+                        "*",
+                        invalid_json["session_id"],
+                        "session.json",
+                    )
+                )
                 assert len(invalid_sessions) == 1, invalid_sessions
                 invalid_doc = json.load(open(invalid_sessions[0], encoding="utf-8"))
-                invalid_audit = [entry for entry in invalid_doc.get("extension_audit", [])
-                                 if entry.get("kind") == "tool"]
+                invalid_audit = [
+                    entry
+                    for entry in invalid_doc.get("extension_audit", [])
+                    if entry.get("kind") == "tool"
+                ]
                 assert len(invalid_audit) == 1, invalid_audit
-                assert invalid_audit[0]["effective_arguments"] == '{"path":"invalid.txt"}'
+                assert (
+                    invalid_audit[0]["effective_arguments"] == '{"path":"invalid.txt"}'
+                )
                 assert invalid_audit[0]["original_ok"] is False
                 assert invalid_audit[0]["effective_ok"] is False
                 assert invalid_audit[0]["annotations"][0]["display"] is False
-                invalid_events = [json.loads(line) for line in
-                                  open(event_log, encoding="utf-8").readlines()[before_invalid_events:]]
-                invalid_batches = [event for event in invalid_events
-                                   if event["type"] == "post_tool_batch"]
+                invalid_events = [
+                    json.loads(line)
+                    for line in open(event_log, encoding="utf-8").readlines()[
+                        before_invalid_events:
+                    ]
+                ]
+                invalid_batches = [
+                    event
+                    for event in invalid_events
+                    if event["type"] == "post_tool_batch"
+                ]
                 assert len(invalid_batches) == 1, invalid_batches
                 assert invalid_batches[0]["failed"] == 1, invalid_batches
 
@@ -520,11 +719,23 @@ def main():
                 # is consumed by the runtime probe before the write executes.
                 marker = os.path.join(home, "slow-pre-entered")
                 slow = subprocess.Popen(
-                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
-                     "cancel slow pre-tool"],
-                    env=dict(permission_env, TNY_TEST_SLOW_PRE="1",
-                             TNY_TEST_SLOW_MARKER=marker),
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    [
+                        TNY,
+                        "--yolo",
+                        "--cwd",
+                        workspace,
+                        "ask",
+                        "--json",
+                        "cancel slow pre-tool",
+                    ],
+                    env=dict(
+                        permission_env,
+                        TNY_TEST_SLOW_PRE="1",
+                        TNY_TEST_SLOW_MARKER=marker,
+                    ),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
                 deadline = time.time() + 5
                 while not os.path.exists(marker) and time.time() < deadline:
                     time.sleep(0.01)
@@ -544,16 +755,31 @@ def main():
             stop_mock = subprocess.Popen(
                 [sys.executable, MOCK, str(sport)],
                 env=dict(os.environ, MOCK_EXPECT_WIRE="responses"),
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
             try:
                 assert "ready" in stop_mock.stdout.readline().decode()
                 stopped = subprocess.run(
-                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
-                     "stop in post tool"],
-                    env=dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
-                             TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="0",
-                             TNY_TEST_STOP_POST="1"),
-                    capture_output=True, timeout=30)
+                    [
+                        TNY,
+                        "--yolo",
+                        "--cwd",
+                        workspace,
+                        "ask",
+                        "--json",
+                        "stop in post tool",
+                    ],
+                    env=dict(
+                        env,
+                        OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
+                        TNY_TEST_REWRITE="0",
+                        TNY_TEST_REPLACE="0",
+                        TNY_TEST_STOP_POST="1",
+                    ),
+                    capture_output=True,
+                    timeout=30,
+                )
                 assert stopped.returncode == 130, stopped.stderr.decode()
                 stopped_json = json.loads(stopped.stdout)
                 assert not any(
@@ -565,44 +791,97 @@ def main():
                 assert stopped_json["tool_calls"][1]["status"] == "error"
 
                 invalid_observe = subprocess.run(
-                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
-                     "invalid provider action"],
-                    env=dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
-                             TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="0",
-                             TNY_TEST_INVALID_OBSERVE="1"),
-                    capture_output=True, timeout=30)
+                    [
+                        TNY,
+                        "--yolo",
+                        "--cwd",
+                        workspace,
+                        "ask",
+                        "--json",
+                        "invalid provider action",
+                    ],
+                    env=dict(
+                        env,
+                        OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
+                        TNY_TEST_REWRITE="0",
+                        TNY_TEST_REPLACE="0",
+                        TNY_TEST_INVALID_OBSERVE="1",
+                    ),
+                    capture_output=True,
+                    timeout=30,
+                )
                 assert invalid_observe.returncode == 0, invalid_observe.stderr.decode()
-                assert b"invalid_action" in invalid_observe.stderr, invalid_observe.stderr
+                assert b"invalid_action" in invalid_observe.stderr, (
+                    invalid_observe.stderr
+                )
 
                 annotated = subprocess.run(
-                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
-                     "annotation-only audit"],
-                    env=dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
-                             TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="0",
-                             TNY_TEST_ANNOTATE_ONLY="1"),
-                    capture_output=True, timeout=30)
+                    [
+                        TNY,
+                        "--yolo",
+                        "--cwd",
+                        workspace,
+                        "ask",
+                        "--json",
+                        "annotation-only audit",
+                    ],
+                    env=dict(
+                        env,
+                        OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
+                        TNY_TEST_REWRITE="0",
+                        TNY_TEST_REPLACE="0",
+                        TNY_TEST_ANNOTATE_ONLY="1",
+                    ),
+                    capture_output=True,
+                    timeout=30,
+                )
                 assert annotated.returncode == 0, annotated.stderr.decode()
                 annotated_json = json.loads(annotated.stdout)
-                annotated_sessions = glob.glob(os.path.join(
-                    home, ".tny", "sessions", "*", annotated_json["session_id"],
-                    "session.json"))
+                annotated_sessions = glob.glob(
+                    os.path.join(
+                        home,
+                        ".tny",
+                        "sessions",
+                        "*",
+                        annotated_json["session_id"],
+                        "session.json",
+                    )
+                )
                 assert len(annotated_sessions) == 1, annotated_sessions
                 annotated_doc = json.load(open(annotated_sessions[0], encoding="utf-8"))
-                annotated_audit = [entry for entry in annotated_doc.get("extension_audit", [])
-                                   if entry.get("kind") == "tool" and
-                                   entry.get("id") == "call_1"]
+                annotated_audit = [
+                    entry
+                    for entry in annotated_doc.get("extension_audit", [])
+                    if entry.get("kind") == "tool" and entry.get("id") == "call_1"
+                ]
                 assert len(annotated_audit) == 1, annotated_audit
                 assert len(annotated_audit[0]["annotations"]) == 2, annotated_audit
-                assert annotated_audit[0]["original_result"] == annotated_audit[0]["effective_result"]
+                assert (
+                    annotated_audit[0]["original_result"]
+                    == annotated_audit[0]["effective_result"]
+                )
                 assert "replacement_extension" not in annotated_audit[0]
 
                 transformed = subprocess.run(
-                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
-                     "transformed json summary"],
-                    env=dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
-                             TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="1",
-                             TNY_TEST_NO_CONTINUE="1"),
-                    capture_output=True, timeout=30)
+                    [
+                        TNY,
+                        "--yolo",
+                        "--cwd",
+                        workspace,
+                        "ask",
+                        "--json",
+                        "transformed json summary",
+                    ],
+                    env=dict(
+                        env,
+                        OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
+                        TNY_TEST_REWRITE="0",
+                        TNY_TEST_REPLACE="1",
+                        TNY_TEST_NO_CONTINUE="1",
+                    ),
+                    capture_output=True,
+                    timeout=30,
+                )
                 assert transformed.returncode == 0, transformed.stderr.decode()
                 transformed_json = json.loads(transformed.stdout)
                 assert len(transformed_json["tool_calls"]) == 2, transformed_json
@@ -613,30 +892,60 @@ def main():
                     "result_transformed": True,
                 }, transformed_json
                 assert transformed_json["tool_calls"][1] == {
-                    "name": "glob_files", "status": "success"
+                    "name": "glob_files",
+                    "status": "success",
                 }, transformed_json
 
                 provider_stopped = subprocess.run(
-                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
-                     "stop provider request"],
-                    env=dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
-                             TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="0",
-                             TNY_TEST_STOP_PROVIDER="1"),
-                    capture_output=True, timeout=30)
-                assert provider_stopped.returncode == 130, provider_stopped.stderr.decode()
+                    [
+                        TNY,
+                        "--yolo",
+                        "--cwd",
+                        workspace,
+                        "ask",
+                        "--json",
+                        "stop provider request",
+                    ],
+                    env=dict(
+                        env,
+                        OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
+                        TNY_TEST_REWRITE="0",
+                        TNY_TEST_REPLACE="0",
+                        TNY_TEST_STOP_PROVIDER="1",
+                    ),
+                    capture_output=True,
+                    timeout=30,
+                )
+                assert provider_stopped.returncode == 130, (
+                    provider_stopped.stderr.decode()
+                )
 
                 batch_stopped = subprocess.run(
-                    [TNY, "--yolo", "--cwd", workspace, "ask", "--json",
-                     "stop after provider tool batch"],
-                    env=dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
-                             TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="0",
-                             TNY_TEST_STOP_BATCH="1", TNY_TEST_NO_CONTINUE="1"),
-                    capture_output=True, timeout=30)
+                    [
+                        TNY,
+                        "--yolo",
+                        "--cwd",
+                        workspace,
+                        "ask",
+                        "--json",
+                        "stop after provider tool batch",
+                    ],
+                    env=dict(
+                        env,
+                        OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1",
+                        TNY_TEST_REWRITE="0",
+                        TNY_TEST_REPLACE="0",
+                        TNY_TEST_STOP_BATCH="1",
+                        TNY_TEST_NO_CONTINUE="1",
+                    ),
+                    capture_output=True,
+                    timeout=30,
+                )
                 assert batch_stopped.returncode == 130, batch_stopped.stderr.decode()
                 batch_stopped_json = json.loads(batch_stopped.stdout)
-                assert [tool["status"] for tool in batch_stopped_json["tool_calls"]] == [
-                    "success", "success"
-                ], batch_stopped_json
+                assert [
+                    tool["status"] for tool in batch_stopped_json["tool_calls"]
+                ] == ["success", "success"], batch_stopped_json
             finally:
                 stop_mock.terminate()
                 stop_mock.wait(timeout=5)
@@ -653,21 +962,35 @@ def main():
                 error_mock = subprocess.Popen(
                     [sys.executable, MOCK, str(eport)],
                     env=dict(os.environ, MOCK_EXPECT_WIRE="responses", **extra),
-                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
                 try:
                     assert "ready" in error_mock.stdout.readline().decode()
                     failed = subprocess.run(
-                        [TNY, "--cwd", workspace, "ask", "--json",
-                         "provider failure redaction"],
-                        env=dict(env,
-                                 OPENAI_BASE_URL=f"http://127.0.0.1:{eport}/v1",
-                                 TNY_TEST_REWRITE="0", TNY_TEST_REPLACE="0"),
-                        capture_output=True, timeout=30)
+                        [
+                            TNY,
+                            "--cwd",
+                            workspace,
+                            "ask",
+                            "--json",
+                            "provider failure redaction",
+                        ],
+                        env=dict(
+                            env,
+                            OPENAI_BASE_URL=f"http://127.0.0.1:{eport}/v1",
+                            TNY_TEST_REWRITE="0",
+                            TNY_TEST_REPLACE="0",
+                        ),
+                        capture_output=True,
+                        timeout=30,
+                    )
                     assert failed.returncode == 2, (failed.stdout, failed.stderr)
                     assert secret.encode() not in failed.stdout + failed.stderr
                     assert secret not in open(event_log, encoding="utf-8").read()
                     for session_file in glob.glob(
-                            os.path.join(home, ".tny", "sessions", "*", "*", "session.json")):
+                        os.path.join(home, ".tny", "sessions", "*", "*", "session.json")
+                    ):
                         assert secret not in open(session_file, encoding="utf-8").read()
                 finally:
                     error_mock.terminate()

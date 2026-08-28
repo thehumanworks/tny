@@ -8,10 +8,10 @@ REPO="${TNY_REPO:-https://github.com/thehumanworks/tny.git}"
 REF="${TNY_REF:-}"
 
 need() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    printf 'tny setup: missing %s\n' "$1" >&2
-    exit 1
-  fi
+    if ! command -v "$1" > /dev/null 2>&1; then
+        printf 'tny setup: missing %s\n' "$1" >&2
+        exit 1
+    fi
 }
 
 need git
@@ -29,7 +29,7 @@ cp "$work/tny/build/tny" "$PREFIX/bin/tny"
 chmod 755 "$PREFIX/bin/tny"
 
 printf 'installed %s (%s bytes)\n' "$PREFIX/bin/tny" "$(wc -c < "$PREFIX/bin/tny" | tr -d ' ')"
-if ! command -v tny >/dev/null 2>&1; then
-  printf 'add %s/bin to PATH to run tny\n' "$PREFIX" >&2
+if ! command -v tny > /dev/null 2>&1; then
+    printf 'add %s/bin to PATH to run tny\n' "$PREFIX" >&2
 fi
-tny --version 2>/dev/null || "$PREFIX/bin/tny" --version
+tny --version 2> /dev/null || "$PREFIX/bin/tny" --version

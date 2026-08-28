@@ -1,4 +1,5 @@
 """Build pure discovery wheels or validated platform wheels with libtny."""
+
 from __future__ import annotations
 
 import hashlib
@@ -7,6 +8,7 @@ import os
 import platform
 import shutil
 import struct
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +17,14 @@ from setuptools.command.build_py import build_py as _build_py
 from setuptools.errors import SetupError
 from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 
-SUPPORTED_NAMES = {"libtny.0.dylib", "libtny.so.0"}
+_PACKAGE_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(_PACKAGE_ROOT))
+try:
+    from release_version import build_version
+finally:
+    sys.path.pop(0)
+
+SUPPORTED_NAMES = {"libtny.1.dylib", "libtny.so.1"}
 MAX_MANIFEST_BYTES = 16 * 1024
 
 
@@ -35,7 +44,7 @@ def _artifact_target(path: Path) -> tuple[str, str]:
             raise SetupError("bundled libtny artifact has an unsupported format")
         machine = int.from_bytes(header[18:20], "little")
         architecture = {62: "x86_64", 183: "aarch64"}.get(machine)
-        if architecture is None or path.name != "libtny.so.0":
+        if architecture is None or path.name != "libtny.so.1":
             raise SetupError("bundled libtny artifact has an unsupported target")
         return "linux", architecture
     if header.startswith(b"\xcf\xfa\xed\xfe"):
@@ -43,7 +52,7 @@ def _artifact_target(path: Path) -> tuple[str, str]:
             raise SetupError("bundled libtny artifact has an unsupported format")
         cpu_type = struct.unpack_from("<I", header, 4)[0]
         architecture = {0x0100000C: "arm64"}.get(cpu_type)
-        if architecture is None or path.name != "libtny.0.dylib":
+        if architecture is None or path.name != "libtny.1.dylib":
             raise SetupError("bundled libtny artifact has an unsupported target")
         return "darwin", architecture
     raise SetupError("bundled libtny artifact has an unsupported format")
@@ -100,13 +109,28 @@ def _validated_bundle() -> Path | None:
     manifest = _read_manifest()
     if manifest is not None:
         expected_manifest = {
+            "schema_version": 2,
             "filename": source.name,
             "sha256": digest,
             "os": artifact_os,
             "arch": artifact_arch,
+            "abi_major": 1,
         }
         if any(manifest.get(key) != value for key, value in expected_manifest.items()):
             raise SetupError("bundled libtny manifest does not match the artifact")
+        expected_identity = (
+            {"kind": "install_name", "value": "@rpath/libtny.1.dylib"}
+            if artifact_os == "darwin"
+            else {"kind": "soname", "value": "libtny.so.1"}
+        )
+        if manifest.get("dynamic_identity") != expected_identity:
+            raise SetupError("bundled libtny dynamic identity is invalid")
+        if (
+            not isinstance(manifest.get("abi_minor"), int)
+            or not isinstance(manifest.get("library_version"), str)
+            or not manifest["library_version"]
+        ):
+            raise SetupError("bundled libtny ABI/library version metadata is invalid")
     return source
 
 
@@ -118,11 +142,24 @@ class TnyDistribution(Distribution):
 class BuildPy(_build_py):
     def run(self) -> None:
         super().run()
+        package_license = Path(self.build_lib, "tny", "LICENSE")
+        repository = Path(__file__).resolve().parents[2]
+        root_licenses = [
+            repository / name
+            for name in ("LICENSE", "LICENSE.txt", "LICENSE.md")
+            if (repository / name).is_file()
+        ]
+        if len(root_licenses) > 1:
+            raise SetupError("repository has multiple candidate root licenses")
+        if root_licenses:
+            shutil.copy2(root_licenses[0], package_license)
+        elif package_license.exists():
+            package_license.unlink()
         target_dir = Path(self.build_lib, "tny", ".libs")
         source = _validated_bundle()
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
         if source is None:
-            if target_dir.exists():
-                shutil.rmtree(target_dir)
             return
         target_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target_dir / source.name)
@@ -145,6 +182,7 @@ class BdistWheel(_bdist_wheel):
 
 
 setup(
+    version=build_version(),
     distclass=TnyDistribution,
     cmdclass={"build_py": BuildPy, "bdist_wheel": BdistWheel},
 )

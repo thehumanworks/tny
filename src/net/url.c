@@ -28,8 +28,7 @@ int url_parse(const char *url, url_parts *out) {
         size_t hl = (size_t)(hostend - p);
         if (hl >= sizeof out->host) return -1;
         memcpy(out->host, p, hl);
-        if (strcmp(out->scheme, "https") == 0 || strcmp(out->scheme, "wss") == 0)
-            out->port = 443;
+        if (strcmp(out->scheme, "https") == 0 || strcmp(out->scheme, "wss") == 0) out->port = 443;
         else out->port = 80;
     }
     snprintf(out->path, sizeof out->path, "%s", slash ? slash : "/");

@@ -9,11 +9,8 @@
 
 void cli_print_still_running(tny_ctx *ctx, const char *id) {
     pid_t p = session_read_pid(ctx, id);
-    if (p > 0)
-        fprintf(stderr, "tny: session %s is still running (pid %d)\n",
-                id, (int)p);
-    else
-        fprintf(stderr, "tny: session %s is still running\n", id);
+    if (p > 0) fprintf(stderr, "tny: session %s is still running (pid %d)\n", id, (int)p);
+    else fprintf(stderr, "tny: session %s is still running\n", id);
     fprintf(stderr,
             "  watch:     tny session %s\n"
             "  stop:      tny session stop %s\n"
@@ -47,6 +44,7 @@ static void print_transcript(yyjson_mut_val *msgs) {
     size_t i, n;
     yyjson_mut_val *m;
     yyjson_mut_arr_foreach(msgs, i, n, m) {
+        if (!m) break;
         const char *role = yyjson_mut_get_str(yyjson_mut_obj_get(m, "role"));
         const char *content = yyjson_mut_get_str(yyjson_mut_obj_get(m, "content"));
         if (!role) continue;
@@ -67,11 +65,11 @@ static void print_transcript(yyjson_mut_val *msgs) {
             size_t j, jn;
             yyjson_mut_val *tc;
             yyjson_mut_arr_foreach(tcs, j, jn, tc) {
+                if (!tc) break;
                 yyjson_mut_val *fn = yyjson_mut_obj_get(tc, "function");
-                const char *name = fn
-                    ? yyjson_mut_get_str(yyjson_mut_obj_get(fn, "name")) : NULL;
-                const char *args = fn
-                    ? yyjson_mut_get_str(yyjson_mut_obj_get(fn, "arguments")) : NULL;
+                const char *name = fn ? yyjson_mut_get_str(yyjson_mut_obj_get(fn, "name")) : NULL;
+                const char *args =
+                    fn ? yyjson_mut_get_str(yyjson_mut_obj_get(fn, "arguments")) : NULL;
                 printf("  ⏺ %s ", name ? name : "?");
                 print_excerpt(args ? args : "", 100);
                 printf("\n");
@@ -100,16 +98,17 @@ int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_appends(&b, "{\"kind\":\"sessions\",\"sessions\":[");
         for (int i = 0; i < n; i++) {
             if (i) buf_appends(&b, ",");
-            buf_appendf(&b, "{\"id\":\"%s\",\"turns\":%d,\"updated\":\"%s\","
-                            "\"backend\":\"%s\",\"title\":",
+            buf_appendf(&b,
+                        "{\"id\":\"%s\",\"turns\":%d,\"updated\":\"%s\","
+                        "\"backend\":\"%s\",\"title\":",
                         m[i].id, m[i].turns, m[i].updated ? m[i].updated : "",
                         m[i].backend ? m[i].backend : "");
             jescape(&b, m[i].title ? m[i].title : "");
             /* live probe wins; a stored "running" without a lock holder is
              * a crashed task → "stale" (docs/adr/0031 decision 5) */
-            const char *st = m[i].running ? "running"
-                : (m[i].status && strcmp(m[i].status, "running") == 0)
-                    ? "stale" : m[i].status;
+            const char *st = m[i].running                                           ? "running"
+                             : (m[i].status && strcmp(m[i].status, "running") == 0) ? "stale"
+                                                                                    : m[i].status;
             if (st) {
                 buf_appends(&b, ",\"status\":");
                 jescape(&b, st);
@@ -123,12 +122,11 @@ int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (!n) printf("no saved sessions for %s\n", ctx->cwd);
         for (int i = 0; i < n; i++) {
             const char *mark = m[i].running ? "  ⏵ running"
-                : (m[i].status && strcmp(m[i].status, "running") == 0)
-                    ? "  ⚠ stale" : "";
+                               : (m[i].status && strcmp(m[i].status, "running") == 0) ? "  ⚠ stale"
+                                                                                      : "";
             printf("%s  %s  %2d turns  %-6s  %s%s\n", m[i].id,
-                   m[i].updated ? m[i].updated : "                    ",
-                   m[i].turns, m[i].backend ? m[i].backend : "?",
-                   m[i].title ? m[i].title : "(untitled)", mark);
+                   m[i].updated ? m[i].updated : "                    ", m[i].turns,
+                   m[i].backend ? m[i].backend : "?", m[i].title ? m[i].title : "(untitled)", mark);
         }
     }
     session_meta_free(m, n);
@@ -140,6 +138,7 @@ static int cmd_session_stop(tny_ctx *ctx, bool json, int argc, char **argv) {
     bool force_kill = false;
     const char *id = NULL;
     for (int i = 0; i < argc; i++) {
+        if (!argv[i]) continue;
         if (strcmp(argv[i], "--kill") == 0) force_kill = true;
         else if (strcmp(argv[i], "--json") == 0) json = true;
         else if (!id) id = argv[i];
@@ -160,9 +159,9 @@ static int cmd_session_stop(tny_ctx *ctx, bool json, int argc, char **argv) {
     if (rc == 0) {
         if (json)
             printf("{\"kind\":\"session_stop\",\"session_id\":\"%s\","
-                   "\"status\":\"interrupted\"}\n", s->id);
-        else
-            printf("session %s: interrupted\n", s->id);
+                   "\"status\":\"interrupted\"}\n",
+                   s->id);
+        else printf("session %s: interrupted\n", s->id);
         ret = 0;
     } else if (rc == 1) {
         /* clean no-op: nothing held the lock — report the final status */
@@ -170,9 +169,12 @@ static int cmd_session_stop(tny_ctx *ctx, bool json, int argc, char **argv) {
         if (json) {
             buf_t b;
             buf_init(&b);
-            buf_appendf(&b, "{\"kind\":\"session_stop\",\"session_id\":\"%s\","
-                            "\"status\":", s->id);
-            if (st) jescape(&b, st); else buf_appends(&b, "null");
+            buf_appendf(&b,
+                        "{\"kind\":\"session_stop\",\"session_id\":\"%s\","
+                        "\"status\":",
+                        s->id);
+            if (st) jescape(&b, st);
+            else buf_appends(&b, "null");
             buf_appends(&b, "}\n");
             fwrite(b.data, 1, b.len, stdout);
             buf_free(&b);
@@ -183,8 +185,10 @@ static int cmd_session_stop(tny_ctx *ctx, bool json, int argc, char **argv) {
         }
         ret = 0;
     } else if (rc == 2) {
-        fprintf(stderr, "tny: session %s did not stop; try: "
-                        "tny session stop %s --kill\n", s->id, s->id);
+        fprintf(stderr,
+                "tny: session %s did not stop; try: "
+                "tny session stop %s --kill\n",
+                s->id, s->id);
         ret = 2;
     } else {
         fprintf(stderr, "tny: %s\n", err);
@@ -214,8 +218,7 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         fprintf(stderr, "tny: --ephemeral cannot open, migrate, or recover saved sessions\n");
         return 1;
     }
-    if (sub && strcmp(sub, "stop") == 0)
-        return cmd_session_stop(ctx, json, argc - 1, argv + 1);
+    if (sub && strcmp(sub, "stop") == 0) return cmd_session_stop(ctx, json, argc - 1, argv + 1);
     if (sub && strcmp(sub, "recover") == 0) {
         char *nid = session_recover_copy(ctx, id);
         if (!nid) {
@@ -232,8 +235,10 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     }
     tny_session_state *s = session_open(ctx, id);
     if (!s) {
-        fprintf(stderr, "tny: no session '%s' for this workspace\n"
-                        "If session.json is corrupt: tny session recover %s\n", id, id);
+        fprintf(stderr,
+                "tny: no session '%s' for this workspace\n"
+                "If session.json is corrupt: tny session recover %s\n",
+                id, id);
         return 1;
     }
     if (json) {
@@ -261,11 +266,8 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         } else if (st) {
             yyjson_mut_val *root = yyjson_mut_doc_get_root(s->doc);
             yyjson_mut_val *ec = yyjson_mut_obj_get(root, "exit_code");
-            if (ec)
-                printf("status:  %s (exit code %d)\n", st,
-                       (int)yyjson_mut_get_int(ec));
-            else
-                printf("status:  %s\n", st);
+            if (ec) printf("status:  %s (exit code %d)\n", st, (int)yyjson_mut_get_int(ec));
+            else printf("status:  %s\n", st);
         }
         printf("turns:   %d\n", session_turns(s));
         printf("tokens:  %lld in / %lld out\n", (long long)tin, (long long)tout);
@@ -278,8 +280,7 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (!live && st && strcmp(st, "running") != 0) {
             yyjson_mut_val *root = yyjson_mut_doc_get_root(s->doc);
             yyjson_mut_val *res = yyjson_mut_obj_get(root, "result");
-            const char *out = res
-                ? yyjson_mut_get_str(yyjson_mut_obj_get(res, "output")) : NULL;
+            const char *out = res ? yyjson_mut_get_str(yyjson_mut_obj_get(res, "output")) : NULL;
             if (out && *out) {
                 printf("\nresult:\n");
                 print_block(out);
@@ -287,8 +288,7 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         }
         char *rec = session_recovery_read(s);
         if (rec) {
-            if (live)
-                printf("\npartial output (live, %zu bytes):\n", strlen(rec));
+            if (live) printf("\npartial output (live, %zu bytes):\n", strlen(rec));
             else
                 printf("\nrecoverable partial response (%zu bytes; resume: "
                        "tny ask --resume %s --continue-recovery):\n",
@@ -299,7 +299,8 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             /* Nothing streamed yet: say so instead of leaving an empty
              * screen, and point at the child's progress log. */
             printf("\n(no output yet — partial text appears here as the "
-                   "task streams; tool progress: %s/task.log)\n", s->dir);
+                   "task streams; tool progress: %s/task.log)\n",
+                   s->dir);
         }
     }
     session_close(s);
@@ -315,8 +316,7 @@ int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     if (g->resume_last) target = "last";
     tny_session_state *probe = session_open(ctx, target);
     if (!probe && !g->resume_picker) {
-        fprintf(stderr, "tny: no session '%s' for this workspace (try `tny sessions`)\n",
-                target);
+        fprintf(stderr, "tny: no session '%s' for this workspace (try `tny sessions`)\n", target);
         return 1;
     }
     if (probe && session_lock_acquire(probe) != 0) {

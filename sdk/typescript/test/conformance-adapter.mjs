@@ -18,6 +18,8 @@ if (request.adapter_protocol_version !== 1 || request.conformance_version !== 1)
   throw new Error("unsupported conformance adapter request");
 
 const executions = [];
+const qualified = (scenario, assertions) =>
+  assertions.map((assertion) => `${scenario}:${assertion}`);
 let sdkRoot = packageRoot;
 const requestedArtifact = resolve(request.artifact.path);
 if (requestedArtifact.endsWith(".tgz")) {
@@ -25,28 +27,53 @@ if (requestedArtifact.endsWith(".tgz")) {
   const consumer = join(installRoot, "consumer");
   mkdirSync(consumer);
   let run = spawnSync("npm", ["init", "-y"], { cwd: consumer, encoding: "utf8" });
-  if (run.status === 0) run = spawnSync("npm", ["install", requestedArtifact, "--foreground-scripts"], {
+  const packageArtifacts = [requestedArtifact];
+  if (process.env.TNY_NATIVE_PACKAGE_TARBALL)
+    packageArtifacts.push(resolve(process.env.TNY_NATIVE_PACKAGE_TARBALL));
+  if (run.status === 0) run = spawnSync("npm", ["install", ...packageArtifacts, "--foreground-scripts"], {
     cwd: consumer, encoding: "utf8",
-    env: Object.fromEntries(Object.entries(process.env).filter(
-      ([key]) => !["TNY_ROOT", "TNY_INCLUDE_DIR", "TNY_LIB_DIR"].includes(key))),
+    env: {
+      ...Object.fromEntries(Object.entries(process.env).filter(
+        ([key]) => !["TNY_ROOT", "TNY_INCLUDE_DIR", "TNY_LIB_DIR"].includes(key))),
+      npm_config_audit: "false",
+      npm_config_cache: join(installRoot, "npm-cache"),
+      npm_config_fund: "false",
+      npm_config_offline: "true",
+    },
   });
   if (run.stdout) process.stderr.write(run.stdout);
   if (run.stderr) process.stderr.write(run.stderr);
-  executions.push({ id: "install_package", exit_code: run.status ?? 127 });
+  executions.push({ id: "install_package", exit_code: run.status ?? 127, assertions: [] });
   sdkRoot = join(consumer, "node_modules/@thehumanworks/tny");
 }
 const { Runtime } = await import(pathToFileURL(join(sdkRoot, "dist/index.mjs")).href);
 const commands = [
-  { id: "reset", args: ["test/conformance-reset.mjs"], cwd: packageRoot },
-  { id: "node_basic", args: ["--test", "test/basic.test.mjs"], cwd: packageRoot },
-  { id: "node_invalid", args: ["test/invalid-options.mjs"], cwd: packageRoot },
-  { id: "node_hostile", args: ["test/hostile-prototype.mjs"], cwd: packageRoot },
-  { id: "node_gc", args: ["--expose-gc", "test/gc.mjs"], cwd: packageRoot },
-  { id: "node_stress", args: ["test/stress.mjs"], cwd: packageRoot },
-  { id: "node_workers", args: ["test/worker-teardown.mjs"], cwd: packageRoot },
-  { id: "node_nul", args: ["test/nul-provider.mjs"], cwd: packageRoot },
-  { id: "node_wake", args: ["test/wake-cancel.mjs"], cwd: packageRoot },
-  { id: "node_integration", args: ["test/integration.mjs"], cwd: packageRoot },
+  { id: "reset", args: ["test/conformance-reset.mjs"], cwd: packageRoot, assertions: [] },
+  { id: "node_basic", args: ["--test", "test/basic.test.mjs"], cwd: packageRoot,
+    assertions: qualified("ownership_and_misuse", [
+      "inputs_copied", "double_free_prevention", "unknown_constants_rejected",
+      "undersized_struct_rejected", "oversized_struct_prefix_safe",
+    ]) },
+  { id: "node_invalid", args: ["test/invalid-options.mjs"], cwd: packageRoot,
+    assertions: qualified("ownership_and_misuse", [
+      "invalid_utf8_rejected", "embedded_nul_rejected",
+    ]) },
+  { id: "node_hostile", args: ["test/hostile-prototype.mjs"], cwd: packageRoot,
+    assertions: [] },
+  { id: "node_gc", args: ["--expose-gc", "test/gc.mjs"], cwd: packageRoot,
+    assertions: qualified("ownership_and_misuse", ["event_and_error_lifetimes"]) },
+  { id: "node_stress", args: ["test/stress.mjs"], cwd: packageRoot,
+    assertions: qualified("ownership_and_misuse", ["repeated_lifecycle"]) },
+  { id: "node_workers", args: ["test/worker-teardown.mjs"], cwd: packageRoot,
+    assertions: qualified("ownership_and_misuse", [
+      "wrong_thread_rejected", "parent_close_releases_children",
+    ]) },
+  { id: "node_nul", args: ["test/nul-provider.mjs"], cwd: packageRoot,
+    assertions: [] },
+  { id: "node_wake", args: ["test/wake-cancel.mjs"], cwd: packageRoot,
+    assertions: qualified("cancel_and_drain", ["cross_thread_wake"]) },
+  { id: "node_integration", args: ["test/integration.mjs"], cwd: packageRoot,
+    assertions: [] },
 ];
 for (const command of commands) {
   const run = spawnSync(process.execPath, command.args, {
@@ -60,19 +87,27 @@ for (const command of commands) {
   });
   if (run.stdout) process.stderr.write(run.stdout);
   if (run.stderr) process.stderr.write(run.stderr);
-  executions.push({ id: command.id, exit_code: run.status ?? 127 });
+  executions.push({
+    id: command.id, exit_code: run.status ?? 127, assertions: command.assertions,
+  });
   if (run.status !== 0) break;
 }
 if (executions.every((execution) => execution.exit_code === 0)) {
   for (const command of [
-    { id: "build_c_fixtures", executable: "make", args: ["debug"] },
+    { id: "build_c_fixtures", executable: "make", args: ["debug"], assertions: [] },
     {
       id: "network_split_fixture", executable: "./build/tny-test",
       args: ["-s", "net_suite", "-t", "chunked_survives_every_split_boundary", "-e"],
+      assertions: qualified("network_split_boundaries", [
+        "existing_chunked_fixture_every_split_boundary",
+      ]),
     },
     {
       id: "backpressure_fixture", executable: "./build/tny-test",
       args: ["-s", "runtime_suite", "-t", "runtime_overflow_keeps_error_and_single_terminal", "-e"],
+      assertions: qualified("slow_consumer_backpressure", [
+        "memory_bounded", "stable_backpressure_category", "terminal_reserved",
+      ]),
     },
   ]) {
     const run = spawnSync(command.executable, command.args, {
@@ -80,7 +115,9 @@ if (executions.every((execution) => execution.exit_code === 0)) {
     });
     if (run.stdout) process.stderr.write(run.stdout);
     if (run.stderr) process.stderr.write(run.stderr);
-    executions.push({ id: command.id, exit_code: run.status ?? 127 });
+    executions.push({
+      id: command.id, exit_code: run.status ?? 127, assertions: command.assertions,
+    });
   }
 }
 const successful = new Set(executions.filter((item) => item.exit_code === 0).map((item) => item.id));
@@ -88,9 +125,30 @@ const result = (id) => {
   const path = join(resultDir, `${id}.json`);
   return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : undefined;
 };
+const integrationExecution = executions.find((item) => item.id === "node_integration");
+if (integrationExecution?.exit_code === 0) {
+  for (const id of [
+    "success_two_turns", "resume_and_steer_rejection",
+    "permission_allow_and_stale_reject", "permission_deny", "cancel_and_drain",
+    "auth_error", "ownership_and_misuse",
+  ]) {
+    const observed = result(id);
+    if (observed?.status === "pass" && Array.isArray(observed.assertion_ids))
+      integrationExecution.assertions.push(...qualified(id, observed.assertion_ids));
+  }
+}
+const basicExecution = executions.find((item) => item.id === "node_basic");
+const unknownResult = result("unknown_future_event");
+if (basicExecution?.exit_code === 0 && unknownResult?.status === "pass" &&
+    Array.isArray(unknownResult.assertion_ids))
+  basicExecution.assertions.push(...qualified("unknown_future_event", unknownResult.assertion_ids));
 const passed = (id, assertions, evidence) => {
   const observed = result(id);
-  if (!observed || !evidence.every((item) => successful.has(item))) return {
+  if (!observed || observed.status !== "pass" ||
+      !Array.isArray(observed.assertion_ids) ||
+      observed.assertion_ids.length === 0 ||
+      !observed.assertion_ids.every((item) => assertions.includes(item)) ||
+      !evidence.every((item) => successful.has(item))) return {
     id, status: "not_run", reason: "one or more executable evidence runs did not complete",
   };
   return { id, status: "pass", assertions, evidence, events: observed.observed_events || [] };
@@ -129,7 +187,10 @@ const scenarios = [
           "oversized_struct_prefix_safe", "parent_close_releases_children",
           "repeated_lifecycle",
         ],
-        evidence: ["node_basic", "node_invalid", "node_gc", "node_stress", "node_workers"],
+        evidence: [
+          "node_integration", "node_basic", "node_invalid", "node_gc",
+          "node_stress", "node_workers",
+        ],
         events: [],
       }
     : { id: "ownership_and_misuse", status: "not_run", reason: "lifetime evidence failed" },
@@ -138,10 +199,7 @@ const scenarios = [
         id: "slow_consumer_backpressure", status: "pass",
         assertions: ["memory_bounded", "stable_backpressure_category", "terminal_reserved"],
         evidence: ["backpressure_fixture"],
-        events: [
-          { type: "error", sequence: 1, timestamp_ms: 1 },
-          { type: "turn_end", sequence: 2, timestamp_ms: 2, stop_reason: "error" },
-        ],
+        events: [],
       }
     : { id: "slow_consumer_backpressure", status: "not_run", reason: "overflow fixture failed" },
   successful.has("network_split_fixture")

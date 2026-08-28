@@ -4,7 +4,6 @@ from typing import Optional
 
 from tny_ext import AgentEndEvent, ContinueAction, ExtensionAPI, continue_with
 
-
 MARKER = "verification complete"
 
 

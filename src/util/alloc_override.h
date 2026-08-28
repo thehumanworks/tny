@@ -8,10 +8,10 @@
 #include "util/alloc.h"
 
 #ifndef TNY_ALLOC_IMPLEMENTATION
-#define malloc(size) tny_alloc_malloc(size)
+#define malloc(size)        tny_alloc_malloc(size)
 #define calloc(count, size) tny_alloc_calloc((count), (size))
-#define realloc(ptr, size) tny_alloc_realloc((ptr), (size))
-#define strdup(value) tny_alloc_strdup(value)
+#define realloc(ptr, size)  tny_alloc_realloc((ptr), (size))
+#define strdup(value)       tny_alloc_strdup(value)
 #endif
 
 #endif

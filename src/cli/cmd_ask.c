@@ -19,7 +19,10 @@
 #include <poll.h>
 
 static volatile sig_atomic_t g_interrupted = 0;
-static void on_sigint(int sig) { (void)sig; g_interrupted = 1; }
+static void on_sigint(int sig) {
+    (void)sig;
+    g_interrupted = 1;
+}
 static bool ask_cancel_probe(void *ud) {
     (void)ud;
     if (!g_interrupted) return false;
@@ -57,7 +60,7 @@ typedef struct {
     bool turn_ended;
     tny_stop_reason stop;
     buf_t errline;
-    buf_t host_tools; /* TOOL_END log for host backends (JSON array items) */
+    buf_t host_tools;         /* TOOL_END log for host backends (JSON array items) */
     buf_t extension_messages; /* visible custom/user messages, JSON items */
     tny_engine *engine;
     tny_perm_mode perm_mode;
@@ -74,11 +77,9 @@ static void ask_event_cb(const tny_backend_event *ev, void *ud) {
             fflush(stdout);
         }
         break;
-    case TNY_EV_THINKING:
-        break; /* stderr noise in scripts; skip */
+    case TNY_EV_THINKING: break; /* stderr noise in scripts; skip */
     case TNY_EV_TOOL_START:
-        fprintf(stderr, "⏺ %s %.120s\n", ev->tool_name,
-                ev->tool_detail ? ev->tool_detail : "");
+        fprintf(stderr, "⏺ %s %.120s\n", ev->tool_name, ev->tool_detail ? ev->tool_detail : "");
         break;
     case TNY_EV_TOOL_END:
         fprintf(stderr, "  %s %s\n", ev->tool_ok ? "✓" : "✗", ev->tool_name);
@@ -86,13 +87,11 @@ static void ask_event_cb(const tny_backend_event *ev, void *ud) {
             if (st->host_tools.len) buf_appends(&st->host_tools, ",");
             buf_appends(&st->host_tools, "{\"name\":");
             jescape(&st->host_tools, ev->tool_name);
-            buf_appendf(&st->host_tools, ",\"status\":\"%s\"}",
-                        ev->tool_ok ? "success" : "error");
+            buf_appendf(&st->host_tools, ",\"status\":\"%s\"}", ev->tool_ok ? "success" : "error");
         }
         break;
     case TNY_EV_TOOL_PROGRESS:
-        fprintf(stderr, "  … %s %.120s\n",
-                ev->tool_name ? ev->tool_name : "tool",
+        fprintf(stderr, "  … %s %.120s\n", ev->tool_name ? ev->tool_name : "tool",
                 ev->tool_detail ? ev->tool_detail : "");
         break;
     case TNY_EV_PERMISSION:
@@ -100,63 +99,50 @@ static void ask_event_cb(const tny_backend_event *ev, void *ud) {
         if (st->perm_mode == TNY_MODE_YOLO) {
             fprintf(stderr, "auto-approving (yolo): %s\n",
                     ev->perm_summary ? ev->perm_summary : "");
-            tny_engine_respond_permission(st->engine, ev->perm_id,
-                                          TNY_PERM_DECISION_ALLOW);
+            tny_engine_respond_permission(st->engine, ev->perm_id, TNY_PERM_DECISION_ALLOW);
         } else {
             fprintf(stderr, "denying (ask mode cannot approve): %s\n",
                     ev->perm_summary ? ev->perm_summary : "");
-            tny_engine_respond_permission(st->engine, ev->perm_id,
-                                          TNY_PERM_DECISION_DENY);
+            tny_engine_respond_permission(st->engine, ev->perm_id, TNY_PERM_DECISION_DENY);
         }
         break;
-    case TNY_EV_STATUS:
-        fprintf(stderr, "%.*s\n", (int)ev->text_len, ev->text);
-        break;
+    case TNY_EV_STATUS: fprintf(stderr, "%.*s\n", (int)ev->text_len, ev->text); break;
     case TNY_EV_CUSTOM_MESSAGE:
         if (ev->message_type)
-            fprintf(stderr, "extension context (%s): %.*s\n", ev->message_type,
-                    (int)ev->text_len, ev->text);
-        else
-            fprintf(stderr, "extension context: %.*s\n",
-                    (int)ev->text_len, ev->text);
+            fprintf(stderr, "extension context (%s): %.*s\n", ev->message_type, (int)ev->text_len,
+                    ev->text);
+        else fprintf(stderr, "extension context: %.*s\n", (int)ev->text_len, ev->text);
         if (st->extension_messages.len) buf_appends(&st->extension_messages, ",");
         buf_appends(&st->extension_messages, "{\"kind\":\"custom\",\"custom_type\":");
-        jescape(&st->extension_messages,
-                ev->message_type ? ev->message_type : "tny_extension");
+        jescape(&st->extension_messages, ev->message_type ? ev->message_type : "tny_extension");
         buf_appends(&st->extension_messages, ",\"content\":");
         jescape(&st->extension_messages, ev->text ? ev->text : "");
         buf_appends(&st->extension_messages, "}");
         break;
     case TNY_EV_USER_MESSAGE:
-        fprintf(stderr, "extension follow-up: %.*s\n",
-                (int)ev->text_len, ev->text);
+        fprintf(stderr, "extension follow-up: %.*s\n", (int)ev->text_len, ev->text);
         if (st->extension_messages.len) buf_appends(&st->extension_messages, ",");
         buf_appends(&st->extension_messages, "{\"kind\":\"user\",\"content\":");
         jescape(&st->extension_messages, ev->text ? ev->text : "");
         buf_appends(&st->extension_messages, "}");
         break;
-    case TNY_EV_STEER_REJECTED: /* ask never steers */
-        break;
-    case TNY_EV_PLAN:
-        fprintf(stderr, "plan: %.*s\n", (int)ev->text_len, ev->text);
-        break;
+    case TNY_EV_STEER_REJECTED: /* ask never steers */ break;
+    case TNY_EV_PLAN: fprintf(stderr, "plan: %.*s\n", (int)ev->text_len, ev->text); break;
     case TNY_EV_USAGE:
         if (!st->print_usage) break;
         /* streamed stdout may lack a trailing newline; finish that line so
          * the usage never glues onto the answer on a terminal */
-        if (!st->json && st->output.len &&
-            st->output.data[st->output.len - 1] != '\n') {
+        if (!st->json && st->output.len && st->output.data[st->output.len - 1] != '\n') {
             fputs("\n", stdout);
             fflush(stdout);
             buf_appends(&st->output, "\n");
         }
         if (ev->context_size > 0)
-            fprintf(stderr, "context: %lld/%lld%s\n",
-                    (long long)ev->context_used, (long long)ev->context_size,
-                    ev->has_cost ? " (cost reported)" : "");
+            fprintf(stderr, "context: %lld/%lld%s\n", (long long)ev->context_used,
+                    (long long)ev->context_size, ev->has_cost ? " (cost reported)" : "");
         else
-            fprintf(stderr, "tokens: %lld in, %lld out\n",
-                    (long long)ev->in_tokens, (long long)ev->out_tokens);
+            fprintf(stderr, "tokens: %lld in, %lld out\n", (long long)ev->in_tokens,
+                    (long long)ev->out_tokens);
         break;
     case TNY_EV_ERROR:
         buf_clear(&st->errline);
@@ -179,8 +165,8 @@ static char *ask_result_json(tny_ctx *ctx, ask_state *st, tny_engine *engine,
     buf_init(&out);
     buf_appends(&out, "{\"output\":");
     jescape(&out, st->output.data ? st->output.data : "");
-    buf_appendf(&out, ",\"exit_code\":%d,\"provider\":\"%s\",\"model\":",
-                exit_code, tny_provider_name(ctx));
+    buf_appendf(&out, ",\"exit_code\":%d,\"provider\":\"%s\",\"model\":", exit_code,
+                tny_provider_name(ctx));
     jescape(&out, ctx->model ? ctx->model : "default");
     buf_appends(&out, ",\"session_id\":");
     jescape(&out, (ctx->no_save || !session) ? "" : session->id);
@@ -191,8 +177,7 @@ static char *ask_result_json(tny_ctx *ctx, ask_state *st, tny_engine *engine,
         buf_appends(&out, tny_engine_openai_toolcalls_json(engine));
     } else {
         buf_appends(&out, "[");
-        if (st->host_tools.len)
-            buf_append(&out, st->host_tools.data, st->host_tools.len);
+        if (st->host_tools.len) buf_append(&out, st->host_tools.data, st->host_tools.len);
         buf_appends(&out, "]");
     }
     if (st->errline.len) {
@@ -201,8 +186,7 @@ static char *ask_result_json(tny_ctx *ctx, ask_state *st, tny_engine *engine,
     }
     buf_appends(&out, ",\"extension_messages\":[");
     if (st->extension_messages.len)
-        buf_append(&out, st->extension_messages.data,
-                   st->extension_messages.len);
+        buf_append(&out, st->extension_messages.data, st->extension_messages.len);
     buf_appends(&out, "]");
     buf_appends(&out, "}\n");
     return buf_detach(&out);
@@ -210,8 +194,8 @@ static char *ask_result_json(tny_ctx *ctx, ask_state *st, tny_engine *engine,
 
 /* Background child: every exit path after the fork records the terminal
  * status and result, then releases the writer lock (docs/adr/0031). */
-static void bg_finalize(tny_ctx *ctx, tny_session_state *session, ask_state *st,
-                        tny_engine *engine, int exit_code, const char *status) {
+static void bg_finalize(tny_ctx *ctx, tny_session_state *session, ask_state *st, tny_engine *engine,
+                        int exit_code, const char *status) {
     char *result = ask_result_json(ctx, st, engine, session, exit_code);
     session_set_status_finished(session, status, exit_code, result);
     free(result);
@@ -224,21 +208,25 @@ static void bg_finalize(tny_ctx *ctx, tny_session_state *session, ask_state *st,
  * Returns 0 ok, -1 error (message already printed). */
 static int load_output_schema(tny_ctx *ctx, const char *value) {
     if (ctx->backend != TNY_BK_OPENAI) {
-        fprintf(stderr,
-                "tny: --output-schema needs the openai-compatible provider "
-                "(structured outputs ride on response_format)\n"
-                "Example: tny --provider openai ask --output-schema schema.json \"…\"\n");
+        fprintf(stderr, "tny: --output-schema needs the openai-compatible provider "
+                        "(structured outputs ride on response_format)\n"
+                        "Example: tny --provider openai ask --output-schema schema.json \"…\"\n");
         return -1;
     }
     const char *text = value;
     size_t len = strlen(value);
     char *owned = NULL;
-    while (*text == ' ' || *text == '\t') { text++; len--; }
+    while (*text == ' ' || *text == '\t') {
+        text++;
+        len--;
+    }
     if (*text != '{') {
         owned = file_slurp(value, &len);
         if (!owned) {
-            fprintf(stderr, "tny: --output-schema %s: cannot read file\n"
-                    "Example: tny ask --output-schema schema.json \"…\"\n", value);
+            fprintf(stderr,
+                    "tny: --output-schema %s: cannot read file\n"
+                    "Example: tny ask --output-schema schema.json \"…\"\n",
+                    value);
             return -1;
         }
         text = owned;
@@ -246,8 +234,10 @@ static int load_output_schema(tny_ctx *ctx, const char *value) {
     char *rf = tny_openai_response_format(text, len);
     free(owned);
     if (!rf) {
-        fprintf(stderr, "tny: --output-schema: value is not a JSON object\n"
-                "Example: tny ask --output-schema '{\"type\":\"object\",\"properties\":{}}' \"…\"\n");
+        fprintf(
+            stderr,
+            "tny: --output-schema: value is not a JSON object\n"
+            "Example: tny ask --output-schema '{\"type\":\"object\",\"properties\":{}}' \"…\"\n");
         return -1;
     }
     free(ctx->output_schema);
@@ -275,13 +265,11 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (!raw && a[0] == '-' && a[1]) {
             if (strcmp(a, "--json") == 0) json = true;
             else if (strcmp(a, "--stdin") == 0) use_stdin = true;
-            else if (strcmp(a, "--ephemeral") == 0 || strcmp(a, "--no-save") == 0)
-                ephemeral = true;
+            else if (strcmp(a, "--ephemeral") == 0 || strcmp(a, "--no-save") == 0) ephemeral = true;
             else if (strcmp(a, "--no-color") == 0) ctx->no_color = true;
             else if (strcmp(a, "--continue-recovery") == 0) continue_recovery = true;
             else if (strcmp(a, "--steer") == 0) steer = true;
-            else if (strcmp(a, "--background") == 0 || strcmp(a, "-B") == 0)
-                background = true;
+            else if (strcmp(a, "--background") == 0 || strcmp(a, "-B") == 0) background = true;
             else if (strcmp(a, "--print-usage") == 0) print_usage = true;
             else if (strcmp(a, "--auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
             else if (strcmp(a, "--yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
@@ -290,15 +278,17 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             else if (strcmp(a, "--output-schema") == 0) {
                 if (i + 1 >= argc) {
                     fprintf(stderr, "tny: --output-schema requires a value\n"
-                            "Example: tny ask --output-schema schema.json \"…\"\n");
+                                    "Example: tny ask --output-schema schema.json \"…\"\n");
                     buf_free(&prompt);
                     return 1;
                 }
                 output_schema = argv[++i];
-            }
-            else if (strcmp(a, "--image") == 0 && i + 1 < argc) {
+            } else if (strcmp(a, "--image") == 0 && i + 1 < argc) {
                 if (n_images < 16) images[n_images++] = argv[++i];
-                else { fprintf(stderr, "tny: too many --image flags (max 16)\n"); return 1; }
+                else {
+                    fprintf(stderr, "tny: too many --image flags (max 16)\n");
+                    return 1;
+                }
             } else if (strcmp(a, "--") == 0) raw = true;
             else {
                 fprintf(stderr, "tny: ask: unknown flag %s\nExample: tny ask --json \"hi\"\n", a);
@@ -312,8 +302,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     }
     if (background && ephemeral) {
         fprintf(stderr, "tny: --background is incompatible with --ephemeral "
-                "(the printed id must point at a saved session)\n"
-                "Example: tny ask -B \"refactor the parser\"\n");
+                        "(the printed id must point at a saved session)\n"
+                        "Example: tny ask -B \"refactor the parser\"\n");
         buf_free(&prompt);
         return 1;
     }
@@ -330,7 +320,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         return 1;
     }
     if (steer && !resume) {
-        fprintf(stderr, "tny: --steer requires --resume\n"
+        fprintf(stderr,
+                "tny: --steer requires --resume\n"
                 "Example: tny ask --resume last --steer \"drop that — check the tests instead\"\n");
         buf_free(&prompt);
         return 1;
@@ -368,13 +359,14 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         char tmp[8192];
         size_t n;
         while ((n = fread(tmp, 1, sizeof tmp, stdin)) > 0) buf_append(&prompt, tmp, n);
-        while (prompt.len && (prompt.data[prompt.len - 1] == '\n' ||
-                              prompt.data[prompt.len - 1] == '\r'))
+        while (prompt.len &&
+               (prompt.data[prompt.len - 1] == '\n' || prompt.data[prompt.len - 1] == '\r'))
             prompt.data[--prompt.len] = 0;
         if (connecting) pthread_join(connect_th, NULL);
     }
     if (!prompt.len) {
-        fprintf(stderr, "tny: ask needs a prompt\nExample: tny ask \"summarize this repository\"\n");
+        fprintf(stderr,
+                "tny: ask needs a prompt\nExample: tny ask \"summarize this repository\"\n");
         abort_backend(bk, connecting && job.rc == 0);
         buf_free(&prompt);
         return 1;
@@ -408,7 +400,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             char serr[256];
             int src = session_stop(ctx, session->id, false, serr, sizeof serr);
             if (src == 2) {
-                fprintf(stderr, "tny: session %s did not stop; try: "
+                fprintf(stderr,
+                        "tny: session %s did not stop; try: "
                         "tny session stop %s --kill\n",
                         session->id, session->id);
                 abort_backend(bk, connecting && job.rc == 0);
@@ -432,9 +425,11 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             session = NULL;
             for (int t = 0; t < 20; t++) {
                 session = session_open(ctx, sid);
-                if (session && (lrc = session_lock_acquire(session)) == 0)
-                    break;
-                if (session) { session_close(session); session = NULL; }
+                if (session && (lrc = session_lock_acquire(session)) == 0) break;
+                if (session) {
+                    session_close(session);
+                    session = NULL;
+                }
                 lrc = -1;
                 struct timespec ts = {0, 50L * 1000000L};
                 nanosleep(&ts, NULL);
@@ -503,9 +498,9 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
              * lives on the shared open file description). */
             if (json)
                 printf("{\"kind\":\"ask_background\",\"session_id\":\"%s\","
-                       "\"pid\":%d}\n", session->id, (int)child);
-            else
-                printf("%s\n", session->id);
+                       "\"pid\":%d}\n",
+                       session->id, (int)child);
+            else printf("%s\n", session->id);
             fflush(stdout);
             _exit(0);
         }
@@ -513,13 +508,16 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         setsid(); /* own group: survives terminal close; `session stop`
                    * signals the group so spawned hosts die with us */
         session_write_pid(session, getpid());
-        ctx->no_host_registry = true; /* decision 8: invisible process must
-                                       * not become the attach target */
-        if (!freopen("/dev/null", "r", stdin)) { /* best effort */ }
+        ctx->no_host_registry = true;            /* decision 8: invisible process must
+                                                  * not become the attach target */
+        if (!freopen("/dev/null", "r", stdin)) { /* best effort */
+        }
         char *logf = path_join(session->dir, "task.log");
         if (logf) {
-            if (!freopen(logf, "a", stdout)) { /* keep inherited stdout */ }
-            if (!freopen(logf, "a", stderr)) { /* keep inherited stderr */ }
+            if (!freopen(logf, "a", stdout)) { /* keep inherited stdout */
+            }
+            if (!freopen(logf, "a", stderr)) { /* keep inherited stderr */
+            }
             free(logf);
         }
         setvbuf(stderr, NULL, _IONBF, 0); /* stderr stays unbuffered in the log */
@@ -530,7 +528,10 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         char *rec = session_recovery_read(session);
         if (rec) {
             session_set_extension_start(session, "recovery", NULL);
-            if (!json && !steer_takeover) { fputs(rec, stdout); fputs("\n", stdout); }
+            if (!json && !steer_takeover) {
+                fputs(rec, stdout);
+                fputs("\n", stdout);
+            }
             session_recovery_clear(session);
             free(rec);
         }
@@ -581,7 +582,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             buf_appends(&st.errline, "out of memory");
             bg_finalize(ctx, session, &st, engine, 1, "error");
         }
-        if (engine) tny_engine_free(engine); else bk->destroy(bk);
+        if (engine) tny_engine_free(engine);
+        else bk->destroy(bk);
         perm_free(perm);
         session_close(session);
         buf_free(&prompt);
@@ -590,8 +592,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_free(&st.extension_messages);
         return 1;
     }
-    if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_CONNECTED,
-                           err, sizeof err) != 0) {
+    if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_CONNECTED, err, sizeof err) != 0) {
         fprintf(stderr, "tny: %s\n", err);
         if (background) {
             buf_appends(&st.errline, err);
@@ -612,11 +613,9 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
 
     signal(SIGINT, on_sigint);
     signal(SIGPIPE, SIG_IGN);
-    if (background)
-        signal(SIGTERM, on_sigint); /* `session stop` cancels exactly like ^C */
+    if (background) signal(SIGTERM, on_sigint); /* `session stop` cancels exactly like ^C */
 
-    if (tny_engine_start(engine, prompt.data, n_images ? images : NULL,
-                         err, sizeof err) != 0) {
+    if (tny_engine_start(engine, prompt.data, n_images ? images : NULL, err, sizeof err) != 0) {
         fprintf(stderr, "tny: %s\n", err);
         if (background) {
             buf_appends(&st.errline, err);
@@ -640,18 +639,15 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             continue;
         }
         tny_owned_event *owned = NULL;
-        tny_engine_next next = tny_engine_next_event(engine, 200, &owned,
-                                                     err, sizeof err);
+        tny_engine_next next = tny_engine_next_event(engine, 200, &owned, err, sizeof err);
         if (next == TNY_ENGINE_NEXT_EVENT) {
             int evk = owned->ev.kind;
             ask_event_cb(&owned->ev, &st);
             tny_owned_event_free(owned);
             /* background: checkpoint the partial answer so a crashed child
              * leaves something recoverable (~2 s cadence, docs/adr/0031) */
-            if (background && evk == TNY_EV_TEXT_DELTA &&
-                now_ms() - last_ckpt >= 2000) {
-                session_recovery_write(session,
-                                       st.output.data ? st.output.data : "");
+            if (background && evk == TNY_EV_TEXT_DELTA && now_ms() - last_ckpt >= 2000) {
+                session_recovery_write(session, st.output.data ? st.output.data : "");
                 last_ckpt = now_ms();
             }
         } else if (next == TNY_ENGINE_NEXT_TIMEOUT) {
@@ -674,16 +670,15 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     if (st.stop == TNY_STOP_DONE)
         tny_settings_remember_use(ctx); /* next launch defaults to this provider */
 
-    const char *stname = st.stop == TNY_STOP_DONE ? "done"
-                       : st.stop == TNY_STOP_INTERRUPTED ? "interrupted"
-                       : "error";
+    const char *stname = st.stop == TNY_STOP_DONE          ? "done"
+                         : st.stop == TNY_STOP_INTERRUPTED ? "interrupted"
+                                                           : "error";
     if (background) {
         /* Child end: never print the --json blob (stdout is task.log; the
          * streamed text already went there). Record status + result instead. */
         if (st.stop == TNY_STOP_DONE) session_recovery_clear(session);
         bg_finalize(ctx, session, &st, engine, exit_code, stname);
-        if (st.output.len && st.output.data[st.output.len - 1] != '\n')
-            fputs("\n", stdout);
+        if (st.output.len && st.output.data[st.output.len - 1] != '\n') fputs("\n", stdout);
     } else {
         /* A foreground turn on a session that carries ADR-0031 status
          * fields (a resumed background session) must refresh them, or

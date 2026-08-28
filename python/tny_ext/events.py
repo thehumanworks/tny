@@ -41,7 +41,9 @@ def _text_tuple(value: Any) -> Tuple[str, ...]:
 def _stop_info(value: Any) -> "StopInfo":
     if isinstance(value, Mapping):
         details = dict(value)
-        return StopInfo(reason=_text(details.get("reason", details.get("stop"))), details=details)
+        return StopInfo(
+            reason=_text(details.get("reason", details.get("stop"))), details=details
+        )
     return StopInfo(reason=_text(value))
 
 
@@ -455,7 +457,9 @@ def event_from_dict(value: Mapping[str, Any]) -> HookEvent:
             "turn_id",
             "timestamp_ms",
         }
-        payload = {key: item for key, item in value.items() if key not in envelope_fields}
+        payload = {
+            key: item for key, item in value.items() if key not in envelope_fields
+        }
     cls = _EVENT_TYPES.get(event_type)
     common = {
         "schema_version": _integer(value.get("schema_version"), 1),
@@ -476,26 +480,26 @@ def event_from_dict(value: Mapping[str, Any]) -> HookEvent:
                 error_code=_text(payload.get("error_code")),
                 text=_text(payload.get("text", payload.get("message"))),
                 message_id=_text(payload.get("message_id")),
-                **common
+                **common,
             )
         if cls is CustomMessageEvent:
             return CustomMessageEvent(
                 text=_text(payload.get("text")),
                 message_id=_text(payload.get("message_id")),
                 custom_type=_text(payload.get("custom_type")),
-                **common
+                **common,
             )
         return cls(
             text=_text(payload.get("text")),
             message_id=_text(payload.get("message_id")),
-            **common
+            **common,
         )  # type: ignore[call-arg]
     if cls is ToolStartEvent:
         return ToolStartEvent(
             tool_name=_text(payload.get("tool_name")),
             tool_id=_text(payload.get("tool_id")),
             detail=_text(payload.get("detail", payload.get("tool_detail"))),
-            **common
+            **common,
         )
     if cls is ToolEndEvent:
         return ToolEndEvent(
@@ -503,32 +507,36 @@ def event_from_dict(value: Mapping[str, Any]) -> HookEvent:
             tool_id=_text(payload.get("tool_id")),
             detail=_text(payload.get("detail", payload.get("tool_detail"))),
             ok=_boolean(payload.get("ok", payload.get("tool_ok"))),
-            **common
+            **common,
         )
     if cls is ToolProgressEvent:
         return ToolProgressEvent(
             tool_name=_text(payload.get("tool_name")),
             tool_id=_text(payload.get("tool_id")),
             detail=_text(payload.get("detail", payload.get("tool_detail"))),
-            **common
+            **common,
         )
     if cls is PermissionRequestEvent:
         return PermissionRequestEvent(
             permission_id=_text(payload.get("permission_id", payload.get("perm_id"))),
             summary=_text(payload.get("summary", payload.get("perm_summary"))),
             options=_integer(payload.get("options", payload.get("perm_options"))),
-            **common
+            **common,
         )
     if cls is UsageEvent:
         cost = payload.get("cost")
         return UsageEvent(
-            input_tokens=_integer(payload.get("input_tokens", payload.get("in_tokens"))),
-            output_tokens=_integer(payload.get("output_tokens", payload.get("out_tokens"))),
+            input_tokens=_integer(
+                payload.get("input_tokens", payload.get("in_tokens"))
+            ),
+            output_tokens=_integer(
+                payload.get("output_tokens", payload.get("out_tokens"))
+            ),
             context_used=_integer(payload.get("context_used")),
             context_size=_integer(payload.get("context_size")),
             cost=float(cost) if isinstance(cost, (int, float)) else 0.0,
             has_cost=isinstance(cost, (int, float)),
-            **common
+            **common,
         )
     if cls is TurnEndEvent:
         return TurnEndEvent(stop=_stop_info(payload.get("stop")), **common)
@@ -538,7 +546,7 @@ def event_from_dict(value: Mapping[str, Any]) -> HookEvent:
             system_prompt=_text(payload.get("system_prompt")),
             images=_mapping_tuple(payload.get("images")),
             system_prompt_options=_mapping(payload.get("system_prompt_options")),
-            **common
+            **common,
         )
     if cls is AgentEndEvent:
         return AgentEndEvent(
@@ -547,32 +555,29 @@ def event_from_dict(value: Mapping[str, Any]) -> HookEvent:
             continuation_count=_integer(payload.get("continuation_count")),
             max_continuations=_integer(payload.get("max_continuations")),
             output_text=_text(payload.get("output_text")),
-            **common
+            **common,
         )
     if cls is SessionStartEvent:
         return SessionStartEvent(
             reason=_text(payload.get("reason")),
             previous_session_id=_text(payload.get("previous_session_id")),
-            **common
+            **common,
         )
     if cls is SessionEndEvent:
-        return SessionEndEvent(
-            reason=_text(payload.get("reason")),
-            **common
-        )
+        return SessionEndEvent(reason=_text(payload.get("reason")), **common)
     if cls is UserPromptSubmitEvent:
         return UserPromptSubmitEvent(
             prompt=_text(payload.get("prompt")),
             source=_text(payload.get("source")),
             submission_id=_text(payload.get("submission_id")),
             images=_mapping_tuple(payload.get("images")),
-            **common
+            **common,
         )
     if cls is TurnStartEvent:
         return TurnStartEvent(
             iteration=_integer(payload.get("iteration")),
             source=_text(payload.get("source")),
-            **common
+            **common,
         )
     if cls in (MessageStartEvent, MessageUpdateEvent, MessageEndEvent):
         fields = {
@@ -588,7 +593,7 @@ def event_from_dict(value: Mapping[str, Any]) -> HookEvent:
         return PreCompactEvent(
             trigger=_text(payload.get("trigger")),
             message_count=_integer(payload.get("message_count")),
-            **common
+            **common,
         )
     if cls is PostCompactEvent:
         return PostCompactEvent(
@@ -596,40 +601,40 @@ def event_from_dict(value: Mapping[str, Any]) -> HookEvent:
             before_count=_integer(payload.get("before_count")),
             after_count=_integer(payload.get("after_count")),
             summary=_text(payload.get("summary")),
-            **common
+            **common,
         )
     if cls is CompactFailedEvent:
         return CompactFailedEvent(
             trigger=_text(payload.get("trigger")),
             error=_text(payload.get("error")),
-            **common
+            **common,
         )
     if cls in (ModelChangeEvent, EffortChangeEvent):
         return cls(
             previous=_text(payload.get("previous")),
             current=_text(payload.get("current")),
             source=_text(payload.get("source")),
-            **common
+            **common,
         )  # type: ignore[call-arg]
     if cls is InstructionsChangeEvent:
         return InstructionsChangeEvent(
             paths=_text_tuple(payload.get("paths")),
             digest=_text(payload.get("digest")),
             count=_integer(payload.get("count")),
-            **common
+            **common,
         )
     if cls is WorkspaceChangeEvent:
         return WorkspaceChangeEvent(
             action=_text(payload.get("action")),
             path=_text(payload.get("path")),
             directories=_text_tuple(payload.get("directories")),
-            **common
+            **common,
         )
     if cls is SubagentStartEvent:
         return SubagentStartEvent(
             subagent_id=_text(payload.get("subagent_id")),
             action=_text(payload.get("action")),
-            **common
+            **common,
         )
     if cls is SubagentEndEvent:
         return SubagentEndEvent(
@@ -637,7 +642,7 @@ def event_from_dict(value: Mapping[str, Any]) -> HookEvent:
             action=_text(payload.get("action")),
             outcome=_text(payload.get("outcome")),
             ok=_boolean(payload.get("ok")),
-            **common
+            **common,
         )
     if cls is PreToolUseEvent:
         return PreToolUseEvent(
@@ -646,7 +651,7 @@ def event_from_dict(value: Mapping[str, Any]) -> HookEvent:
             arguments=_mapping(payload.get("arguments")),
             original_arguments=_mapping(payload.get("original_arguments")),
             provider_owned=_boolean(payload.get("provider_owned")),
-            **common
+            **common,
         )
     if cls in (PostToolUseEvent, PostToolFailureEvent):
         return cls(
@@ -654,26 +659,26 @@ def event_from_dict(value: Mapping[str, Any]) -> HookEvent:
             tool_id=_text(payload.get("tool_id")),
             result=_text(payload.get("result")),
             original_ok=_boolean(payload.get("original_ok")),
-            **common
+            **common,
         )  # type: ignore[call-arg]
     if cls is PostToolBatchEvent:
         return PostToolBatchEvent(
             tool_ids=_text_tuple(payload.get("tool_ids")),
             failed=_integer(payload.get("failed")),
-            **common
+            **common,
         )
     if cls is ProviderRequestEvent:
         return ProviderRequestEvent(
             method=_text(payload.get("method")),
             endpoint=_text(payload.get("endpoint")),
             metadata=_mapping(payload.get("metadata")),
-            **common
+            **common,
         )
     if cls is ProviderResponseEvent:
         return ProviderResponseEvent(
             status=_integer(payload.get("status")),
             metadata=_mapping(payload.get("metadata")),
-            **common
+            **common,
         )
     return cls(**common)  # type: ignore[call-arg]
 

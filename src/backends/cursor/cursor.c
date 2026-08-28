@@ -125,8 +125,8 @@ static void append_options(cu_impl *o, buf_t *b) {
     buf_appends(b, "}}");
 }
 
-static char *rpc(cu_impl *o, const char *svc, const char *method, const char *body,
-                 char *err, size_t errlen) {
+static char *rpc(cu_impl *o, const char *svc, const char *method, const char *body, char *err,
+                 size_t errlen) {
     return cursor_rpc_unary(&o->rpc, svc, method, body, RPC_TIMEOUT_MS, err, errlen);
 }
 
@@ -194,10 +194,14 @@ static int resolve_model(cu_impl *o, char *err, size_t errlen) {
 }
 
 static void effort_clear(cu_impl *o) {
-    free(o->effort_for);   o->effort_for = NULL;
-    free(o->effort_param); o->effort_param = NULL;
-    free(o->effort_value); o->effort_value = NULL;
-    free(o->effort_note);  o->effort_note = NULL;
+    free(o->effort_for);
+    o->effort_for = NULL;
+    free(o->effort_param);
+    o->effort_param = NULL;
+    free(o->effort_value);
+    o->effort_value = NULL;
+    free(o->effort_note);
+    o->effort_note = NULL;
 }
 
 /* Resolve ctx->reasoning_effort against the catalog for o->model: find the
@@ -239,8 +243,7 @@ static void resolve_effort(cu_impl *o) {
         o->effort_value = xstrdup(wire);
         buf_t n;
         buf_init(&n);
-        buf_appendf(&n, "cursor: ListModels failed; sent effort \"%s\" unverified",
-                    wire);
+        buf_appendf(&n, "cursor: ListModels failed; sent effort \"%s\" unverified", wire);
         o->effort_note = buf_detach(&n);
         return;
     }
@@ -259,7 +262,10 @@ static void resolve_effort(cu_impl *o) {
             if (params && yyjson_is_arr(params)) {
                 yyjson_arr_foreach(params, pi, pmax, p) {
                     const char *pid = jget_str(p, "id");
-                    if (pid && strstr(pid, "effort")) { def = p; break; }
+                    if (pid && strstr(pid, "effort")) {
+                        def = p;
+                        break;
+                    }
                 }
             }
             break;
@@ -268,8 +274,9 @@ static void resolve_effort(cu_impl *o) {
     if (!def) {
         buf_t n;
         buf_init(&n);
-        buf_appendf(&n, "cursor: model %s advertises no reasoning-effort "
-                        "parameter; --effort was ignored",
+        buf_appendf(&n,
+                    "cursor: model %s advertises no reasoning-effort "
+                    "parameter; --effort was ignored",
                     o->model ? o->model : "?");
         o->effort_note = buf_detach(&n);
         yyjson_doc_free(doc);
@@ -285,7 +292,10 @@ static void resolve_effort(cu_impl *o) {
         if (values && yyjson_is_arr(values)) {
             yyjson_arr_foreach(values, vi, vmax, v) {
                 const char *val = jget_str(v, "value");
-                if (val && strcmp(val, cand) == 0) { picked = val; break; }
+                if (val && strcmp(val, cand) == 0) {
+                    picked = val;
+                    break;
+                }
             }
         }
     }
@@ -295,8 +305,9 @@ static void resolve_effort(cu_impl *o) {
     } else {
         buf_t n;
         buf_init(&n);
-        buf_appendf(&n, "cursor: model %s has no effort \"%s\" (available:",
-                    o->model ? o->model : "?", want);
+        buf_appendf(&n,
+                    "cursor: model %s has no effort \"%s\" (available:", o->model ? o->model : "?",
+                    want);
         size_t vi, vmax;
         yyjson_val *v;
         if (values && yyjson_is_arr(values)) {
@@ -329,7 +340,10 @@ static int cu_list_models(tny_backend *b, char **out, char *e, size_t el) {
     if (!res) return -1;
     yyjson_doc *doc = jparse(res, strlen(res));
     free(res);
-    if (!doc) { snprintf(e, el, "cursor: ListModels returned junk"); return -1; }
+    if (!doc) {
+        snprintf(e, el, "cursor: ListModels returned junk");
+        return -1;
+    }
     yyjson_val *arr = jget(yyjson_doc_get_root(doc), "items");
     buf_t j;
     buf_init(&j);
@@ -346,7 +360,10 @@ static int cu_list_models(tny_backend *b, char **out, char *e, size_t el) {
             buf_appends(&j, "{\"id\":");
             jescape(&j, id);
             const char *nm = jget_str(m, "displayName");
-            if (nm) { buf_appends(&j, ",\"name\":"); jescape(&j, nm); }
+            if (nm) {
+                buf_appends(&j, ",\"name\":");
+                jescape(&j, nm);
+            }
             /* advertise effort levels from the model's parameter catalog */
             yyjson_val *params = jget(m, "parameters");
             size_t pi, pmax;
@@ -355,8 +372,8 @@ static int cu_list_models(tny_backend *b, char **out, char *e, size_t el) {
                 yyjson_arr_foreach(params, pi, pmax, p) {
                     const char *pid = jget_str(p, "id");
                     yyjson_val *values = jget(p, "values");
-                    if (!pid || !strstr(pid, "effort") || !values ||
-                        !yyjson_is_arr(values) || !yyjson_arr_size(values))
+                    if (!pid || !strstr(pid, "effort") || !values || !yyjson_is_arr(values) ||
+                        !yyjson_arr_size(values))
                         continue;
                     buf_appends(&j, ",\"efforts\":[");
                     size_t vi, vmax;
@@ -388,8 +405,9 @@ static int cu_connect(tny_backend *b, char *e, size_t el) {
     cu_impl *o = b->impl;
     if (o->connected) return 0;
     if (!o->api_key) {
-        snprintf(e, el, "no Cursor API key: set CURSOR_API_KEY "
-                        "(user or service-account key; Team Admin keys are not supported)");
+        snprintf(e, el,
+                 "no Cursor API key: set CURSOR_API_KEY "
+                 "(user or service-account key; Team Admin keys are not supported)");
         return -1;
     }
     if (cursor_bridge_spawn(&o->bridge, o->ctx, o->api_key, READY_TIMEOUT_MS, e, el) != 0)
@@ -462,8 +480,8 @@ static char *cu_session_pointer(tny_backend *b) {
     return o->agent_id ? xstrdup(o->agent_id) : NULL;
 }
 
-static int cu_send(tny_backend *b, const char *prompt, const char **images,
-                   tny_backend_event_cb cb, void *ud, char *errbuf, size_t errlen) {
+static int cu_send(tny_backend *b, const char *prompt, const char **images, tny_backend_event_cb cb,
+                   void *ud, char *errbuf, size_t errlen) {
     cu_impl *o = b->impl;
     /* report the model that actually ran (`ask --json`, session meta) —
      * ctx is written here on the caller's thread, never from
@@ -516,8 +534,7 @@ static int cu_send(tny_backend *b, const char *prompt, const char **images,
         append_model_selection(o, &body);
     }
     buf_appends(&body, "}}");
-    int rc = cursor_stream_start(&o->stream, CURSOR_SVC_AGENT, "Send", body.data,
-                                 errbuf, errlen);
+    int rc = cursor_stream_start(&o->stream, CURSOR_SVC_AGENT, "Send", body.data, errbuf, errlen);
     buf_free(&body);
     if (rc != 0) {
         o->active = false;
@@ -556,7 +573,9 @@ static void cu_cancel(tny_backend *b) {
 }
 
 static void cu_respond_permission(tny_backend *b, const char *id, tny_perm_decision d) {
-    (void)b; (void)id; (void)d;
+    (void)b;
+    (void)id;
+    (void)d;
     /* The bridge is headless: there is no Allow/Deny RPC
      * (docs/backends/cursor-bridge.md). Per-call approvals are ACP. */
 }
@@ -581,7 +600,8 @@ static int cu_pollfds(tny_backend *b, struct pollfd *fds, int max) {
 }
 
 static int cu_dispatch(tny_backend *b, struct pollfd *fds, int n) {
-    (void)fds; (void)n;
+    (void)fds;
+    (void)n;
     cu_impl *o = b->impl;
     cursor_bridge_pump(&o->bridge);
     if (o->stream.state == CS_IDLE) return 0;
@@ -625,11 +645,12 @@ static bool bin_on_path(const char *bin) {
 }
 
 static int cu_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
-    const char *bin = ctx->bridge_bin && *ctx->bridge_bin ? ctx->bridge_bin
-                                                          : "cursor-sdk-bridge";
+    const char *bin = ctx->bridge_bin && *ctx->bridge_bin ? ctx->bridge_bin : "cursor-sdk-bridge";
     if (!bin_on_path(bin)) {
-        snprintf(line, linelen, "cursor: %s not found (set CURSOR_SDK_BRIDGE_BIN "
-                                "or --bridge-bin)", bin);
+        snprintf(line, linelen,
+                 "cursor: %s not found (set CURSOR_SDK_BRIDGE_BIN "
+                 "or --bridge-bin)",
+                 bin);
         return 1;
     }
     const char *key = getenv("CURSOR_API_KEY");
@@ -651,8 +672,7 @@ static int cu_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
     }
     cursor_rpc r;
     cursor_rpc_init(&r, bp.info.url, bp.token);
-    char *res = cursor_rpc_unary(&r, CURSOR_SVC_CONTROL, "GetVersion", "{}", 5000,
-                                 err, sizeof err);
+    char *res = cursor_rpc_unary(&r, CURSOR_SVC_CONTROL, "GetVersion", "{}", 5000, err, sizeof err);
     int rc = 1;
     if (!res) {
         snprintf(line, linelen, "cursor: bridge started but GetVersion failed: %.150s", err);
@@ -662,8 +682,7 @@ static int cu_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
         const char *bv = jget_str(root, "bridgeVersion");
         if (!bv) bv = jget_str(root, "version");
         const char *sv = jget_str(root, "sdkVersion");
-        snprintf(line, linelen, "cursor: bridge %s ok (sdk %s)", bv ? bv : "?",
-                 sv ? sv : "?");
+        snprintf(line, linelen, "cursor: bridge %s ok (sdk %s)", bv ? bv : "?", sv ? sv : "?");
         yyjson_doc_free(doc);
         free(res);
         rc = 0;
@@ -696,7 +715,11 @@ static void cu_destroy(tny_backend *b) {
 tny_backend *tny_backend_cursor_new(struct tny_ctx *ctx) {
     tny_backend *b = calloc(1, sizeof *b);
     cu_impl *o = calloc(1, sizeof *o);
-    if (!b || !o) { free(b); free(o); return NULL; }
+    if (!b || !o) {
+        free(b);
+        free(o);
+        return NULL;
+    }
     o->ctx = ctx;
     cursor_bridge_init(&o->bridge);
     cursor_stream_init(&o->stream, "", "");
@@ -705,9 +728,9 @@ tny_backend *tny_backend_cursor_new(struct tny_ctx *ctx) {
     /* CLI contexts keep the Cursor key in CURSOR_API_KEY so an OpenAI key in
      * ctx can never cross providers. Deterministic libtny contexts explicitly
      * name provider_name=cursor and may carry their copied key in ctx. */
-    const char *key = ctx->provider_name &&
-                      strcmp(ctx->provider_name, "cursor") == 0
-        ? ctx->api_key : getenv("CURSOR_API_KEY");
+    const char *key = ctx->provider_name && strcmp(ctx->provider_name, "cursor") == 0
+                          ? ctx->api_key
+                          : getenv("CURSOR_API_KEY");
     if (key && *key) o->api_key = xstrdup(key);
 
     b->id = TNY_BK_CURSOR;

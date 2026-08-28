@@ -43,6 +43,7 @@ stdenv.mkDerivation (finalAttrs: {
     "PREFIX=$(out)"
     "CC=${stdenv.cc.targetPrefix}cc"
     "TNY_VERSION=${finalAttrs.version}"
+    "TNY_SHELL_PATH=${stdenv.shell}"
   ];
 
   postFixup =
@@ -77,6 +78,13 @@ stdenv.mkDerivation (finalAttrs: {
     $out/bin/tny --help > /dev/null
     $out/bin/tny ask --help > /dev/null
     test -f $out/lib/tny/tny_extension_host.py
+    payload=$out/bin/tny
+    if test -x $out/bin/.tny-wrapped; then payload=$out/bin/.tny-wrapped; fi
+    grep -aF '${stdenv.shell}' "$payload" > /dev/null
+    if grep -aF '/bin/sh' "$payload" > /dev/null; then
+      echo "error: Nix package retained a host /bin/sh dependency" >&2
+      exit 1
+    fi
 
     runHook postInstallCheck
   '';

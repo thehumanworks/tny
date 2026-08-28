@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import {
-  copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync,
+  copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
@@ -14,9 +14,14 @@ const sourceCheckout = existsSync(join(inferredRoot, "Makefile")) &&
 const outputDir = join(packageRoot, "build/Release");
 const output = join(outputDir, "tny.node");
 const manifestPath = join(outputDir, "manifest.json");
-const libName = process.platform === "darwin" ? "libtny.0.dylib" : "libtny.so.0";
+const libName = process.platform === "darwin" ? "libtny.1.dylib" : "libtny.so.1";
 const bundledLibrary = join(outputDir, libName);
-const minAbiMinor = 5;
+const legacyLibrary = join(
+  outputDir, process.platform === "darwin" ? "libtny.0.dylib" : "libtny.so.0"
+);
+rmSync(legacyLibrary, { force: true });
+const requiredAbiMajor = 1;
+const minAbiMinor = 0;
 const glibcVersion = process.report?.getReport?.().header?.glibcVersionRuntime;
 const glibc = process.platform !== "linux" || Boolean(glibcVersion);
 const supported =
@@ -54,6 +59,9 @@ function validateLibraryProvenance(path) {
   const actual = fileHash(path);
   const metadataPlatform = provenance.platform || provenance.os;
   const metadataArchitecture = provenance.architecture || provenance.arch;
+  const expectedIdentity = process.platform === "darwin"
+    ? { kind: "install_name", value: "@rpath/libtny.1.dylib" }
+    : { kind: "soname", value: "libtny.so.1" };
   if (expectedLibrarySha && actual !== expectedLibrarySha)
     throw new Error("staged libtny SHA-256 does not match release provenance");
   if (provenance.filename && provenance.filename !== libName)
@@ -65,6 +73,10 @@ function validateLibraryProvenance(path) {
     : process.arch;
   if (metadataArchitecture && metadataArchitecture !== normalizedArchitecture)
     throw new Error("staged libtny architecture metadata does not match this build");
+  if (Object.keys(provenance).length &&
+      (provenance.schema_version !== 2 || provenance.abi_major !== requiredAbiMajor ||
+       JSON.stringify(provenance.dynamic_identity) !== JSON.stringify(expectedIdentity)))
+    throw new Error("staged libtny ABI/dynamic identity metadata does not match this build");
   return actual;
 }
 
@@ -141,9 +153,15 @@ async function validatePrebuilt() {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   if (manifest.platform !== process.platform || manifest.architecture !== process.arch)
     throw new Error("prebuilt platform or architecture does not match this host");
+  const expectedDynamicIdentity = process.platform === "darwin"
+    ? { kind: "install_name", value: "@rpath/libtny.1.dylib" }
+    : { kind: "soname", value: "libtny.so.1" };
+  if (JSON.stringify(manifest.dynamicIdentity) !== JSON.stringify(expectedDynamicIdentity))
+    throw new Error("prebuilt dynamic identity does not match libtny ABI 1");
   if (manifest.sourceSha256 !== sourceHash())
     throw new Error("prebuilt source hash does not match the packaged addon sources");
-  if (manifest.abiMajor !== 0 || manifest.abiMinor < minAbiMinor)
+  if (manifest.schemaVersion !== 2 || manifest.abiMajor !== requiredAbiMajor ||
+      manifest.abiMinor < minAbiMinor)
     throw new Error(`prebuilt libtny ABI ${manifest.abiMajor}.${manifest.abiMinor} is unsupported`);
   if (manifest.addonSha256 !== fileHash(output) || manifest.librarySha256 !== fileHash(bundledLibrary))
     throw new Error("prebuilt artifact hash mismatch");
@@ -162,7 +180,8 @@ async function validatePrebuilt() {
   const probe = await probeAddon(output);
   if ((probe.abiVersion >>> 16) !== manifest.abiMajor ||
       (probe.abiVersion & 0xffff) !== manifest.abiMinor ||
-      probe.capabilitySize !== manifest.capabilityStructSize) {
+      probe.capabilitySize !== manifest.capabilityStructSize ||
+      probe.libraryVersion !== manifest.libraryVersion) {
     throw new Error("prebuilt ABI/capability probe does not match its manifest");
   }
   console.log(`@thehumanworks/tny: using verified prebuilt ${process.platform}-${process.arch}`);
@@ -197,9 +216,10 @@ if (!existsSync(library)) {
 }
 validateLibraryProvenance(library);
 const headerText = readFileSync(header, "utf8");
+const abiMajor = Number(headerText.match(/#define\s+TNY_ABI_MAJOR\s+(\d+)u/)?.[1]);
 const abiMinor = Number(headerText.match(/#define\s+TNY_ABI_MINOR\s+(\d+)u/)?.[1]);
-if (!Number.isInteger(abiMinor) || abiMinor < minAbiMinor)
-  throw new Error(`@thehumanworks/tny: libtny ABI 0.${abiMinor || "?"} is too old; need 0.${minAbiMinor}+`);
+if (abiMajor !== requiredAbiMajor || !Number.isInteger(abiMinor) || abiMinor < minAbiMinor)
+  throw new Error(`@thehumanworks/tny: libtny ABI ${abiMajor}.${abiMinor} is unsupported; need 1.0+ within major 1`);
 
 const nodeRoot = resolve(dirname(realpathSync(process.execPath)), "..");
 const nodeInclude = join(nodeRoot, "include/node");
@@ -227,8 +247,10 @@ validateBinary(bundledLibrary, process.arch);
 const probe = await probeAddon(output);
 const probedMajor = probe.abiVersion >>> 16;
 const probedMinor = probe.abiVersion & 0xffff;
-if (probedMajor !== 0 || probedMinor < minAbiMinor || probe.capabilitySize === 0)
+if (probedMajor !== requiredAbiMajor || probedMinor < minAbiMinor || probe.capabilitySize === 0)
   throw new Error(`@thehumanworks/tny: built artifact failed ABI/capability validation`);
+if (provenance.library_version && probe.libraryVersion !== provenance.library_version)
+  throw new Error("built addon library version does not match release provenance");
 const minimumOs = process.platform === "darwin"
   ? [binaryMacMinimum(output), binaryMacMinimum(bundledLibrary)].filter(Boolean)
       .sort(compareVersions).at(-1)
@@ -239,7 +261,7 @@ const minimumGlibc = process.platform === "linux"
 if (minimumGlibc && !versionAtLeast("2.34", minimumGlibc))
   throw new Error(`derived glibc floor ${minimumGlibc} exceeds release maximum 2.34`);
 const manifest = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   platform: process.platform,
   architecture: process.arch,
   abiMajor: probedMajor,
@@ -252,6 +274,11 @@ const manifest = {
   minimumOs,
   minimumGlibc,
   linkage: "shared-loader-relative",
+  dynamicIdentity: provenance.dynamic_identity || (
+    process.platform === "darwin"
+      ? { kind: "install_name", value: "@rpath/libtny.1.dylib" }
+      : { kind: "soname", value: "libtny.so.1" }
+  ),
   provenance: {
     expectedLibrarySha256: expectedLibrarySha || null,
     artifactId: provenance.artifact_id || provenance.id || null,

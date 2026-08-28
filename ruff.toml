@@ -1,0 +1,21 @@
+# First-party Python lint/format (make lint-py / make format).
+# sdk/schema/generated is byte-reproducible output (sdk/schema/check.py
+# compares against the generator); formatting it would fail the drift check.
+# py39 floor: the extension host runs on whatever python3 the user has.
+target-version = "py39"
+extend-exclude = ["sdk/schema/generated", "third_party", "docs", "build", "dist"]
+
+[lint]
+select = ["E4", "E7", "E9", "F", "B", "I"]
+
+# The native SDK package declares requires-python >= 3.10.
+[per-file-target-version]
+"sdk/python/**" = "py310"
+
+[lint.per-file-ignores]
+# Adapters and tests import after sys.path/env setup by design; test
+# closures run inside their defining iteration (B023 is noise there).
+"**/tests/**" = ["E402", "B023"]
+"sdk/**/conformance_adapter.py" = ["E402"]
+# Deliberate wildcard re-export of the generated event classes.
+"sdk/python/src/tny/__init__.py" = ["F403"]

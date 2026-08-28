@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER = ROOT / "sdk/conformance/run.py"
@@ -19,10 +18,24 @@ class RunnerTests(unittest.TestCase):
         environment = dict(os.environ)
         if mutation:
             environment["TNY_CONFORMANCE_MUTATION"] = os.fspath(FIXTURES / mutation)
-        return subprocess.run([
-            sys.executable, os.fspath(RUNNER), "--artifact", os.fspath(artifact),
-            "--report", os.fspath(report), "--", sys.executable, os.fspath(ADAPTER),
-        ], cwd=ROOT, env=environment, capture_output=True, text=True, timeout=20)
+        return subprocess.run(
+            [
+                sys.executable,
+                os.fspath(RUNNER),
+                "--artifact",
+                os.fspath(artifact),
+                "--report",
+                os.fspath(report),
+                "--",
+                sys.executable,
+                os.fspath(ADAPTER),
+            ],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
 
     def test_valid_report_is_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -39,7 +52,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_negative_fixtures_are_release_blocking_and_write_nothing(self) -> None:
         fixtures = sorted(path.name for path in FIXTURES.glob("*.json"))
-        self.assertGreaterEqual(len(fixtures), 9)
+        self.assertGreaterEqual(len(fixtures), 12)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             artifact = root / "libtny.fixture"
@@ -51,6 +64,45 @@ class RunnerTests(unittest.TestCase):
                     self.assertEqual(run.returncode, 1, run.stderr)
                     self.assertFalse(report.exists())
                     self.assertNotIn("tny-conformance-secret-", run.stderr)
+
+    def test_failure_stage_is_value_allowlisted_and_secret_safe(self) -> None:
+        adapter = """
+import json
+import sys
+request = json.load(sys.stdin)
+secret = request["secret_sentinel"]
+print(f"conformance-stage: {secret} start", file=sys.stderr)
+print(f"conformance-stage: steer-resume-probe error-{secret}", file=sys.stderr)
+print(secret, file=sys.stderr)
+raise SystemExit(7)
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact = root / "libtny.fixture"
+            artifact.write_bytes(b"artifact\n")
+            run = subprocess.run(
+                [
+                    sys.executable,
+                    os.fspath(RUNNER),
+                    "--artifact",
+                    os.fspath(artifact),
+                    "--",
+                    sys.executable,
+                    "-c",
+                    adapter,
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            self.assertEqual(run.returncode, 2, run.stderr)
+            self.assertEqual(
+                run.stderr,
+                "conformance-stage: steer-resume-probe error\n"
+                "conformance: adapter exited 7\n",
+            )
+            self.assertNotIn("tny-conformance-secret-", run.stderr)
 
 
 if __name__ == "__main__":

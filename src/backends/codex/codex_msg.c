@@ -20,8 +20,7 @@ static void streamed_add(cx_impl *o, const char *id) {
     if (!id || streamed_seen(o, id)) return;
     if (o->n_streamed == CX_MAX_STREAMED) {
         free(o->streamed[0]);
-        memmove(o->streamed, o->streamed + 1,
-                sizeof o->streamed[0] * (CX_MAX_STREAMED - 1));
+        memmove(o->streamed, o->streamed + 1, sizeof o->streamed[0] * (CX_MAX_STREAMED - 1));
         o->n_streamed--;
     }
     o->streamed[o->n_streamed++] = xstrdup(id);
@@ -83,8 +82,7 @@ static void on_turn_completed(cx_impl *o, yyjson_val *params) {
         if (strcmp(st, "interrupted") == 0 || strcmp(st, "cancelled") == 0 ||
             strcmp(st, "canceled") == 0 || strcmp(st, "aborted") == 0)
             stop = TNY_STOP_INTERRUPTED;
-        else if (strcmp(st, "failed") == 0 || strcmp(st, "error") == 0)
-            stop = TNY_STOP_ERROR;
+        else if (strcmp(st, "failed") == 0 || strcmp(st, "error") == 0) stop = TNY_STOP_ERROR;
     }
     if (stop == TNY_STOP_ERROR) {
         yyjson_val *e = jget(turn, "error");
@@ -113,10 +111,16 @@ static void cx_notification(cx_impl *o, const char *method, yyjson_val *params) 
         yyjson_val *turn = jget(params, "turn");
         const char *tid = jget_str(turn ? turn : params, "id");
         if (!tid) tid = cx_first_str(params, CX_TURN_ID_KEYS);
-        if (tid) { free(o->turn_id); o->turn_id = xstrdup(tid); }
+        if (tid) {
+            free(o->turn_id);
+            o->turn_id = xstrdup(tid);
+        }
         return;
     }
-    if (strcmp(method, "turn/completed") == 0) { on_turn_completed(o, params); return; }
+    if (strcmp(method, "turn/completed") == 0) {
+        on_turn_completed(o, params);
+        return;
+    }
     if (strcmp(method, "turn/failed") == 0 || strcmp(method, "turn/aborted") == 0) {
         const char *msg = jget_str(jget(params, "error"), "message");
         buf_t b;
@@ -144,14 +148,20 @@ static void cx_notification(cx_impl *o, const char *method, yyjson_val *params) 
         if (cx_type_is_message(type)) {
             if (done && !streamed_seen(o, id)) {
                 char *t = cx_item_text(item);
-                if (t) { cx_emit_capped(o, TNY_EV_TEXT_DELTA, t); free(t); }
+                if (t) {
+                    cx_emit_capped(o, TNY_EV_TEXT_DELTA, t);
+                    free(t);
+                }
             }
             return;
         }
         if (cx_type_is_reasoning(type)) {
             if (done && !streamed_seen(o, id)) {
                 char *t = cx_item_text(item);
-                if (t) { cx_emit_capped(o, TNY_EV_THINKING, t); free(t); }
+                if (t) {
+                    cx_emit_capped(o, TNY_EV_THINKING, t);
+                    free(t);
+                }
             }
             return;
         }
@@ -221,20 +231,28 @@ static void approval_summary(buf_t *b, const char *method, yyjson_val *params) {
     } else if (str_starts(method, "item/fileChange")) {
         buf_appends(b, "apply file changes: ");
         char *d = cx_item_detail("fileChange", jget(params, "changes") ? params : item);
-        if (d) { buf_appendf(b, "%.400s", d); free(d); }
+        if (d) {
+            buf_appendf(b, "%.400s", d);
+            free(d);
+        }
     } else {
         const char *what = jget_str(params, "reason");
         if (!what) what = jget_str(params, "message");
         buf_appendf(b, "codex requests approval: %.300s", what ? what : method);
     }
-    if (b->len > CX_MAX_DETAIL) { b->len = CX_MAX_DETAIL; b->data[b->len] = 0; }
+    if (b->len > CX_MAX_DETAIL) {
+        b->len = CX_MAX_DETAIL;
+        b->data[b->len] = 0;
+    }
 }
 
-static void cx_server_request(cx_impl *o, const char *method, yyjson_val *idv,
-                              yyjson_val *params) {
+static void cx_server_request(cx_impl *o, const char *method, yyjson_val *idv, yyjson_val *params) {
     char *id_json = jwrite_val(idv);
     if (!id_json) return;
-    if (strlen(id_json) > CX_MAX_ID_TEXT) { free(id_json); return; }
+    if (strlen(id_json) > CX_MAX_ID_TEXT) {
+        free(id_json);
+        return;
+    }
 
     if (str_ends(method, "/requestApproval")) {
         buf_t sum;
@@ -253,12 +271,11 @@ static void cx_server_request(cx_impl *o, const char *method, yyjson_val *idv,
     if (str_ends(method, "/requestUserInput")) {
         cx_respond_result(o, id_json, "{\"decision\":\"cancel\"}");
         cx_emit_capped(o, TNY_EV_STATUS,
-                    "codex asked for extra input mid-turn; tny cancelled that "
-                    "request (no interactive input channel for this backend)");
+                       "codex asked for extra input mid-turn; tny cancelled that "
+                       "request (no interactive input channel for this backend)");
     } else if (strstr(method, "elicitation")) {
         cx_respond_result(o, id_json, "{\"action\":\"decline\"}");
-        cx_emit_capped(o, TNY_EV_STATUS,
-                    "declined an MCP elicitation request from codex");
+        cx_emit_capped(o, TNY_EV_STATUS, "declined an MCP elicitation request from codex");
     } else {
         cx_respond_error(o, id_json, -32601, "method not supported by tny");
     }
@@ -291,8 +308,8 @@ static void cx_response(cx_impl *o, yyjson_doc *doc, yyjson_val *root, yyjson_va
              * the text back to the frontend's queue; the turn itself is fine */
             buf_t b;
             buf_init(&b);
-            buf_appendf(&b, "codex refused to steer this turn (%lld): %.200s",
-                        (long long)code, msg ? msg : "no detail");
+            buf_appendf(&b, "codex refused to steer this turn (%lld): %.200s", (long long)code,
+                        msg ? msg : "no detail");
             cx_emit_capped(o, TNY_EV_STATUS, b.data);
             buf_free(&b);
             tny_backend_event ev = {0};
@@ -304,8 +321,8 @@ static void cx_response(cx_impl *o, yyjson_doc *doc, yyjson_val *root, yyjson_va
         } else if (p) {
             buf_t b;
             buf_init(&b);
-            buf_appendf(&b, "codex %s failed (%lld): %.300s",
-                        p->method, (long long)code, msg ? msg : "no detail");
+            buf_appendf(&b, "codex %s failed (%lld): %.300s", p->method, (long long)code,
+                        msg ? msg : "no detail");
             cx_emit_capped(o, TNY_EV_ERROR, b.data);
             buf_free(&b);
             cx_pending_clear(p);
@@ -329,7 +346,10 @@ static void cx_response(cx_impl *o, yyjson_doc *doc, yyjson_val *root, yyjson_va
         yyjson_val *turn = jget(res, "turn");
         const char *tid = jget_str(turn ? turn : res, "id");
         if (!tid) tid = cx_first_str(res, CX_TURN_ID_KEYS);
-        if (tid) { free(o->turn_id); o->turn_id = xstrdup(tid); }
+        if (tid) {
+            free(o->turn_id);
+            o->turn_id = xstrdup(tid);
+        }
     }
     if (p) cx_pending_clear(p);
     yyjson_doc_free(doc);
@@ -343,7 +363,10 @@ void cx_on_ws_msg(const char *data, size_t len, void *ud) {
     yyjson_doc *doc = jparse(data, len);
     if (!doc) return;
     yyjson_val *root = yyjson_doc_get_root(doc);
-    if (!root || !yyjson_is_obj(root)) { yyjson_doc_free(doc); return; }
+    if (!root || !yyjson_is_obj(root)) {
+        yyjson_doc_free(doc);
+        return;
+    }
     yyjson_val *mv = jget(root, "method");
     yyjson_val *idv = jget(root, "id");
     if (mv && yyjson_is_str(mv)) {
@@ -354,6 +377,9 @@ void cx_on_ws_msg(const char *data, size_t len, void *ud) {
         yyjson_doc_free(doc);
         return;
     }
-    if (idv) { cx_response(o, doc, root, idv); return; }
+    if (idv) {
+        cx_response(o, doc, root, idv);
+        return;
+    }
     yyjson_doc_free(doc);
 }

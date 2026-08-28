@@ -11,8 +11,7 @@
 
 static const char *need_val(int argc, char **argv, int *i, const char *flag) {
     if (*i + 1 >= argc) {
-        fprintf(stderr, "tny: %s requires a value\nExample: tny %s VALUE ask \"hi\"\n",
-                flag, flag);
+        fprintf(stderr, "tny: %s requires a value\nExample: tny %s VALUE ask \"hi\"\n", flag, flag);
         return NULL;
     }
     return argv[++*i];
@@ -44,7 +43,9 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
             g->effort = v;
         } else if (strcmp(a, "--add-dir") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
-            g->add_dirs = realloc(g->add_dirs, sizeof(char *) * (size_t)(g->n_add_dirs + 1));
+            const char **dirs = realloc(g->add_dirs, sizeof(char *) * (size_t)(g->n_add_dirs + 1));
+            if (!dirs) return -1;
+            g->add_dirs = dirs;
             g->add_dirs[g->n_add_dirs++] = v;
         } else if (strcmp(a, "--permission-mode") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
@@ -110,13 +111,13 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
             /* collect: CMD plus everything after `--` */
             int n = 0;
             g->agent_argv = malloc(sizeof(char *) * (size_t)(argc - i + 2));
+            if (!g->agent_argv) return -1;
             g->agent_argv[n++] = v;
             if (i + 1 < argc && strcmp(argv[i + 1], "--") == 0) {
                 i += 2;
                 /* agent args run until a terminating bare `--` or end of argv:
                  *   tny --agent gemini -- acp -- ask "hi" */
-                while (i < argc && strcmp(argv[i], "--") != 0)
-                    g->agent_argv[n++] = argv[i++];
+                while (i < argc && strcmp(argv[i], "--") != 0) g->agent_argv[n++] = argv[i++];
                 if (i >= argc) i--; /* loop increment lands past the end */
                 /* else: leave i on the terminating "--"; increment skips it */
             }
@@ -124,7 +125,8 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else {
             fprintf(stderr,
                     "tny: unknown flag '%s'\nGlobal flags come before the command:\n"
-                    "  tny --provider codex ask \"hi\"\n", a);
+                    "  tny --provider codex ask \"hi\"\n",
+                    a);
             return -1;
         }
     }
@@ -142,14 +144,13 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     }
     if (g->effort) {
         if (!*g->effort) {
-            fprintf(stderr, "tny: --effort must be " TNY_EFFORT_LEVELS
-                            " or a value from `tny models`\n");
+            fprintf(stderr,
+                    "tny: --effort must be " TNY_EFFORT_LEVELS " or a value from `tny models`\n");
             tny_ctx_free(ctx);
             return NULL;
         }
         free(ctx->reasoning_effort);
-        ctx->reasoning_effort = strcmp(g->effort, "default") == 0
-                                    ? NULL : xstrdup(g->effort);
+        ctx->reasoning_effort = strcmp(g->effort, "default") == 0 ? NULL : xstrdup(g->effort);
         /* "default" included: the flag must also beat a settings.json
          * default applied when the provider resolves (docs/adr/0015) */
         ctx->effort_explicit = true;
@@ -203,10 +204,22 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
             return NULL;
         }
     }
-    if (g->bridge_bin) { free(ctx->bridge_bin); ctx->bridge_bin = xstrdup(g->bridge_bin); }
-    if (g->codex_ws) { free(ctx->codex_ws); ctx->codex_ws = xstrdup(g->codex_ws); }
-    if (g->codex_bin) { free(ctx->codex_bin); ctx->codex_bin = xstrdup(g->codex_bin); }
-    if (g->ws_token_file) { free(ctx->ws_token_file); ctx->ws_token_file = xstrdup(g->ws_token_file); }
+    if (g->bridge_bin) {
+        free(ctx->bridge_bin);
+        ctx->bridge_bin = xstrdup(g->bridge_bin);
+    }
+    if (g->codex_ws) {
+        free(ctx->codex_ws);
+        ctx->codex_ws = xstrdup(g->codex_ws);
+    }
+    if (g->codex_bin) {
+        free(ctx->codex_bin);
+        ctx->codex_bin = xstrdup(g->codex_bin);
+    }
+    if (g->ws_token_file) {
+        free(ctx->ws_token_file);
+        ctx->ws_token_file = xstrdup(g->ws_token_file);
+    }
     /* Mark an explicit speed choice before provider resolution so a settings
      * default cannot run first. Capability validation stays after resolve. */
     if (g->fast) ctx->service_tier_explicit = true;
@@ -214,6 +227,10 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         int n = 0;
         while (g->agent_argv[n]) n++;
         ctx->agent_argv = malloc(sizeof(char *) * (size_t)(n + 1));
+        if (!ctx->agent_argv) {
+            tny_ctx_free(ctx);
+            return NULL;
+        }
         for (int k = 0; k < n; k++) ctx->agent_argv[k] = xstrdup(g->agent_argv[k]);
         ctx->agent_argv[n] = NULL;
     }
@@ -226,8 +243,13 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
             tny_ctx_free(ctx);
             return NULL;
         }
-        ctx->extra_dirs = realloc(ctx->extra_dirs,
-                                  sizeof(char *) * (size_t)(ctx->n_extra_dirs + 1));
+        char **dirs = realloc(ctx->extra_dirs, sizeof(char *) * (size_t)(ctx->n_extra_dirs + 1));
+        if (!dirs) {
+            free(abs);
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        ctx->extra_dirs = dirs;
         ctx->extra_dirs[ctx->n_extra_dirs++] = abs;
     }
 
@@ -240,7 +262,10 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         return NULL;
     }
     /* after resolve: flags beat whatever provider profile was applied */
-    if (g->base_url) { free(ctx->base_url); ctx->base_url = xstrdup(g->base_url); }
+    if (g->base_url) {
+        free(ctx->base_url);
+        ctx->base_url = xstrdup(g->base_url);
+    }
     if (g->wire_api) {
         if (strcmp(g->wire_api, "responses") != 0 && strcmp(g->wire_api, "chat") != 0) {
             fprintf(stderr, "tny: --wire-api must be responses|chat\n"
@@ -253,8 +278,10 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     }
     if (g->api_key_env) {
         const char *k = getenv(g->api_key_env);
-        if (k && *k) { free(ctx->api_key); ctx->api_key = xstrdup(k); }
-        else {
+        if (k && *k) {
+            free(ctx->api_key);
+            ctx->api_key = xstrdup(k);
+        } else {
             fprintf(stderr, "tny: --api-key-env %s: variable is empty\n", g->api_key_env);
             tny_ctx_free(ctx);
             return NULL;
@@ -264,8 +291,9 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
      * every backend has. Capable providers map it to their own wire field. */
     if (g->fast) {
         if (!(tny_backend_caps((tny_backend_id)ctx->backend) & TNY_CAP_FAST)) {
-            fprintf(stderr, "tny: --fast is not supported by provider '%s'\n"
-                            "Providers with a fast tier:",
+            fprintf(stderr,
+                    "tny: --fast is not supported by provider '%s'\n"
+                    "Providers with a fast tier:",
                     tny_backend_name((tny_backend_id)ctx->backend));
             for (int b = 0; b < TNY_BK_COUNT; b++)
                 if (tny_backend_caps((tny_backend_id)b) & TNY_CAP_FAST)
@@ -286,9 +314,10 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
  * redirected, so they are refused rather than silently running locally. */
 int cli_ssh_attach(tny_ctx *ctx, const char *target, const char *remote_cwd) {
     if (ctx->backend != TNY_BK_OPENAI) {
-        fprintf(stderr, "tny: --ssh runs tools through tny's native loop; provider '%s' "
-                        "executes its own tools on this machine.\n"
-                        "Use an openai-compatible provider: tny --ssh %s --provider claude\n",
+        fprintf(stderr,
+                "tny: --ssh runs tools through tny's native loop; provider '%s' "
+                "executes its own tools on this machine.\n"
+                "Use an openai-compatible provider: tny --ssh %s --provider claude\n",
                 tny_backend_name((tny_backend_id)ctx->backend), target);
         return -1;
     }

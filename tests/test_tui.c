@@ -244,33 +244,42 @@ TEST color_resolve_matrix(void) {
     unsetenv("CLICOLOR_FORCE");
 
     tny_color_resolve(&ctx, true, &c, &a); /* plain tty: everything on */
-    ASSERT(c); ASSERT(a);
+    ASSERT(c);
+    ASSERT(a);
     tny_color_resolve(&ctx, false, &c, &a); /* piped: nothing */
-    ASSERT_FALSE(c); ASSERT_FALSE(a);
+    ASSERT_FALSE(c);
+    ASSERT_FALSE(a);
 
     setenv("NO_COLOR", "1", 1); /* colors off, the bar keeps reverse video */
     tny_color_resolve(&ctx, true, &c, &a);
-    ASSERT_FALSE(c); ASSERT(a);
+    ASSERT_FALSE(c);
+    ASSERT(a);
     setenv("NO_COLOR", "", 1); /* tny honors even an empty NO_COLOR */
     tny_color_resolve(&ctx, true, &c, &a);
-    ASSERT_FALSE(c); ASSERT(a);
+    ASSERT_FALSE(c);
+    ASSERT(a);
 
     setenv("CLICOLOR_FORCE", "1", 1); /* force beats NO_COLOR… */
     tny_color_resolve(&ctx, true, &c, &a);
-    ASSERT(c); ASSERT(a);
+    ASSERT(c);
+    ASSERT(a);
     tny_color_resolve(&ctx, false, &c, &a); /* …and works when piped */
-    ASSERT(c); ASSERT(a);
+    ASSERT(c);
+    ASSERT(a);
     setenv("CLICOLOR_FORCE", "0", 1); /* "0" never forces */
     tny_color_resolve(&ctx, true, &c, &a);
-    ASSERT_FALSE(c); ASSERT(a);
+    ASSERT_FALSE(c);
+    ASSERT(a);
     unsetenv("CLICOLOR_FORCE");
 
     ctx.force_color = true; /* --color=always, piped */
     tny_color_resolve(&ctx, false, &c, &a);
-    ASSERT(c); ASSERT(a);
+    ASSERT(c);
+    ASSERT(a);
     ctx.no_color = true; /* explicit never beats every force */
     tny_color_resolve(&ctx, true, &c, &a);
-    ASSERT_FALSE(c); ASSERT_FALSE(a);
+    ASSERT_FALSE(c);
+    ASSERT_FALSE(a);
 
     unsetenv("NO_COLOR");
     PASS();
@@ -361,7 +370,7 @@ typedef struct {
     volatile int connects, disconnects, destroys, resumes;
     int connect_rc, resume_rc;
     int delay_ms;
-    char resume_ptr[128];     /* "(null)" when called with NULL */
+    char resume_ptr[128]; /* "(null)" when called with NULL */
     pthread_t resume_thread;
 } stub_state;
 
@@ -575,7 +584,7 @@ TEST prewarm_start_restarts_on_a_stale_resume_pointer(void) {
     tui_prewarm_start(&t); /* no session: the pending pointer is now stale */
     ASSERT(t.prewarm != NULL);
     wait_for(&s.destroys, 2000);
-    ASSERT_EQ(1, s.destroys); /* the stale stub was dropped */
+    ASSERT_EQ(1, s.destroys);             /* the stale stub was dropped */
     ASSERT(tui_prewarm_take(&t) == NULL); /* fresh warm-up fails to connect */
     ASSERT(t.prewarm == NULL);
     PASS();
@@ -697,8 +706,8 @@ TEST wrap_width_matches_composer_prefix(void) {
 TEST overlay_budget_counts_wrapped_composer(void) {
     tui t;
     mk_tui(&t, 24);
-    t.cols = 12; /* wrap width 8 */
-    buf_appends(&t.input, "abcdefghij"); /* 10 cols → 2 visual rows */
+    t.cols = 12;                           /* wrap width 8 */
+    buf_appends(&t.input, "abcdefghij");   /* 10 cols → 2 visual rows */
     ASSERT_EQ(20, tui_overlay_budget(&t)); /* 21 - extra composer row */
     free_tui(&t);
     PASS();
@@ -715,8 +724,8 @@ static tui_key dec(const char *p, size_t n) {
 
 TEST decode_enter_vs_ctrl_j(void) {
     ASSERT_EQ(TUI_K_ENTER, dec("\r", 1));
-    ASSERT_EQ(TUI_K_NEWLINE, dec("\n", 1)); /* Ctrl-J */
-    ASSERT_EQ(TUI_K_PASTE, dec("\x16", 1)); /* Ctrl-V */
+    ASSERT_EQ(TUI_K_NEWLINE, dec("\n", 1));    /* Ctrl-J */
+    ASSERT_EQ(TUI_K_PASTE, dec("\x16", 1));    /* Ctrl-V */
     ASSERT_EQ(TUI_K_NEWLINE, dec("\x1bj", 2)); /* Option-J */
     ASSERT_EQ(TUI_K_NEWLINE, dec("\x1bJ", 2));
     ASSERT_EQ(TUI_K_NEWLINE, dec("\x1b\r", 2)); /* Alt-Enter */

@@ -5,6 +5,7 @@ Does not need the wasm artifact: the pre-launch intro paints in xterm.js
 alone. Skips (exit 0) when Playwright/Chromium is missing so the
 fixture-only suite stays runnable everywhere.
 """
+
 from __future__ import annotations
 
 import http.server
@@ -19,7 +20,7 @@ try:
     from playwright.sync_api import sync_playwright
 except ImportError:
     print("test_site_mobile: skip (playwright not installed)")
-    raise SystemExit(0)
+    raise SystemExit(0) from None
 
 
 def free_port() -> int:
@@ -60,9 +61,7 @@ def main() -> None:
         with sync_playwright() as pw:
             exe = chromium_exe()
             browser = (
-                pw.chromium.launch(executable_path=exe)
-                if exe
-                else pw.chromium.launch()
+                pw.chromium.launch(executable_path=exe) if exe else pw.chromium.launch()
             )
             errors = []
 
@@ -73,7 +72,9 @@ def main() -> None:
                 page.goto(f"http://127.0.0.1:{port}/index.html")
                 page.wait_for_selector("[data-term-xterm] .xterm-rows", timeout=15000)
 
-                cols = int(page.get_attribute("[data-term-xterm]", "data-term-cols") or "0")
+                cols = int(
+                    page.get_attribute("[data-term-xterm]", "data-term-cols") or "0"
+                )
                 assert 2 <= cols < 80, f"{width}x{height}: fitted cols={cols}"
 
                 geom = page.evaluate(

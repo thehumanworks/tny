@@ -6,16 +6,16 @@
 #include "core/config.h"
 
 typedef enum {
-    PERM_ALLOW,      /* run it */
-    PERM_DENY,       /* refuse, tell the model */
-    PERM_PROMPT      /* unresolved: TUI prompts, ask-mode CLI fails (exit 2) */
+    PERM_ALLOW, /* run it */
+    PERM_DENY,  /* refuse, tell the model */
+    PERM_PROMPT /* unresolved: TUI prompts, ask-mode CLI fails (exit 2) */
 } perm_verdict;
 
 typedef struct {
     tny_ctx *ctx;
     /* session grants: tool-name or "bash:<argv0> *" style keys */
     char **grants;
-    int    n_grants;
+    int n_grants;
 } perm_engine;
 
 perm_engine *perm_new(tny_ctx *ctx);

@@ -5,7 +5,6 @@ import unittest
 
 from test_extension_host import HostProcess
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 EXAMPLES = ROOT / "examples" / "extensions"
 
@@ -72,7 +71,9 @@ class ExtensionExamplesTests(unittest.TestCase):
                     {
                         "id": 3,
                         "op": "invoke",
-                        "handler_id": subscriptions[("project_context", "before_agent_start")],
+                        "handler_id": subscriptions[
+                            ("project_context", "before_agent_start")
+                        ],
                         "event": {
                             "type": "before_agent_start",
                             "session_id": "session-1",
@@ -86,7 +87,9 @@ class ExtensionExamplesTests(unittest.TestCase):
                     {
                         "id": "context-session-start",
                         "op": "invoke",
-                        "handler_id": subscriptions[("project_context", "session_start")],
+                        "handler_id": subscriptions[
+                            ("project_context", "session_start")
+                        ],
                         "event": {"type": "session_start", "session_id": "session-1"},
                     }
                 )
@@ -96,7 +99,9 @@ class ExtensionExamplesTests(unittest.TestCase):
                     {
                         "id": "context-first-turn",
                         "op": "invoke",
-                        "handler_id": subscriptions[("project_context", "before_agent_start")],
+                        "handler_id": subscriptions[
+                            ("project_context", "before_agent_start")
+                        ],
                         "event": {
                             "type": "before_agent_start",
                             "session_id": "session-1",
@@ -105,14 +110,18 @@ class ExtensionExamplesTests(unittest.TestCase):
                     }
                 )
                 self.assertEqual(context_result["action"]["kind"], "context")
-                self.assertEqual(context_result["action"]["custom_type"], "project_context")
+                self.assertEqual(
+                    context_result["action"]["custom_type"], "project_context"
+                )
                 self.assertIn("release checklist", context_result["action"]["content"])
 
                 context_again = host.request(
                     {
                         "id": "context-later-turn",
                         "op": "invoke",
-                        "handler_id": subscriptions[("project_context", "before_agent_start")],
+                        "handler_id": subscriptions[
+                            ("project_context", "before_agent_start")
+                        ],
                         "event": {
                             "type": "before_agent_start",
                             "session_id": "session-1",
@@ -126,7 +135,9 @@ class ExtensionExamplesTests(unittest.TestCase):
                     {
                         "id": "context-next-session-start",
                         "op": "invoke",
-                        "handler_id": subscriptions[("project_context", "session_start")],
+                        "handler_id": subscriptions[
+                            ("project_context", "session_start")
+                        ],
                         "event": {"type": "session_start", "session_id": "session-2"},
                     }
                 )
@@ -134,7 +145,9 @@ class ExtensionExamplesTests(unittest.TestCase):
                     {
                         "id": "context-next-session-first-turn",
                         "op": "invoke",
-                        "handler_id": subscriptions[("project_context", "before_agent_start")],
+                        "handler_id": subscriptions[
+                            ("project_context", "before_agent_start")
+                        ],
                         "event": {
                             "type": "before_agent_start",
                             "session_id": "session-2",
@@ -148,7 +161,9 @@ class ExtensionExamplesTests(unittest.TestCase):
                     {
                         "id": 4,
                         "op": "invoke",
-                        "handler_id": subscriptions[("stop_on_tool_failure", "tool_end")],
+                        "handler_id": subscriptions[
+                            ("stop_on_tool_failure", "tool_end")
+                        ],
                         "event": {
                             "type": "tool_end",
                             "tool_name": "tests",

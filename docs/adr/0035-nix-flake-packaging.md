@@ -27,7 +27,12 @@ Ship `flake.nix` plus `nix/*.nix` in this repository and build from source.
 - `packages.tny` runs `make install`: the stripped binary and the pure-Python
   extension host under `lib/tny/`, which the `bin/../lib/tny` branch of
   `src/core/extensions.c` already looks for. `packages.libtny` runs
-  `make install-lib` for the ABI-0 header, shared library and pkg-config file.
+  `make install-lib-active` for the ABI-1 header, shared library and pkg-config
+  file. Frozen ABI-0 compatibility remains a release artifact so a hermetic
+  source build does not require a historical Git object or network fetch.
+- **The terminal tool uses the store-backed `stdenv.shell`.** Nix passes it
+  through the build's `TNY_SHELL_PATH` parameter; ordinary builds retain the
+  `/bin/sh` default. Package checks reject a remaining host `/bin/sh` literal.
 - **Linux TLS resolves through RUNPATH, added in `postFixup`.** glibc resolves
   a `dlopen` against the calling object's RUNPATH, so putting OpenSSL's store
   path there is enough and keeps the link line empty. It must happen after
@@ -37,7 +42,9 @@ Ship `flake.nix` plus `nix/*.nix` in this repository and build from source.
 - **The version comes from the flake revision**, passed through the
   `TNY_VERSION` override ADR 0014 already documents for git-less builds. It
   is what `git describe --tags --always --dirty` prints for a tree with no
-  reachable tag. Packaging a tag stays explicit:
+  reachable tag. On Darwin, the development build separately supplies Mach-O's
+  numeric `current_version` as `1.0.0`; the product still reports the flake
+  revision. Packaging a tag stays explicit:
   `pkgs.tny.override { version = "0.2.1"; }`.
 - **The default binary is wrapped** with `python3` on PATH (`execlp("python3")`
   in the extension host) and a CA-bundle default, using `makeBinaryWrapper`

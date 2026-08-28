@@ -8,10 +8,10 @@
 #include <string.h>
 
 const char *const CX_ITEM_TYPE_KEYS[] = {"type", "itemType", "item_type", NULL};
-const char *const CX_ITEM_ID_KEYS[]   = {"id", "itemId", "item_id", NULL};
-const char *const CX_STATUS_KEYS[]    = {"status", "state", "outcome", NULL};
-const char *const CX_TURN_ID_KEYS[]   = {"turnId", "turn_id", NULL};
-const char *const CX_TEXT_KEYS[]      = {"text", "content", NULL};
+const char *const CX_ITEM_ID_KEYS[] = {"id", "itemId", "item_id", NULL};
+const char *const CX_STATUS_KEYS[] = {"status", "state", "outcome", NULL};
+const char *const CX_TURN_ID_KEYS[] = {"turnId", "turn_id", NULL};
+const char *const CX_TEXT_KEYS[] = {"text", "content", NULL};
 
 const char *cx_first_str(yyjson_val *obj, const char *const *keys) {
     for (int i = 0; keys[i]; i++) {
@@ -105,10 +105,13 @@ char *cx_item_detail(const char *type, yyjson_val *item) {
                 const char *p = jget_str(e, "path");
                 if (!p) continue;
                 if (n++) buf_appends(&b, ", ");
-                if (n > 6) { buf_appends(&b, "…"); break; }
+                if (n > 6) {
+                    buf_appends(&b, "…");
+                    break;
+                }
                 const char *kind = jget_str(e, "kind");
-                buf_appendf(&b, "%.200s%s%.24s%s", p, kind ? " (" : "",
-                            kind ? kind : "", kind ? ")" : "");
+                buf_appendf(&b, "%.200s%s%.24s%s", p, kind ? " (" : "", kind ? kind : "",
+                            kind ? ")" : "");
             }
         } else if (ch && yyjson_is_obj(ch)) {
             size_t idx, max;
@@ -117,7 +120,10 @@ char *cx_item_detail(const char *type, yyjson_val *item) {
                 (void)v;
                 if (!yyjson_is_str(k)) continue;
                 if (idx) buf_appends(&b, ", ");
-                if (idx > 5) { buf_appends(&b, "…"); break; }
+                if (idx > 5) {
+                    buf_appends(&b, "…");
+                    break;
+                }
                 buf_appendf(&b, "%.200s", yyjson_get_str(k));
             }
         }
@@ -134,8 +140,14 @@ char *cx_item_detail(const char *type, yyjson_val *item) {
         const char *q = jget_str(item, "query");
         if (q) buf_appendf(&b, "%.200s", q);
     }
-    if (!b.len) { buf_free(&b); return NULL; }
-    if (b.len > CX_MAX_DETAIL) { b.len = CX_MAX_DETAIL; b.data[b.len] = 0; }
+    if (!b.len) {
+        buf_free(&b);
+        return NULL;
+    }
+    if (b.len > CX_MAX_DETAIL) {
+        b.len = CX_MAX_DETAIL;
+        b.data[b.len] = 0;
+    }
     return buf_detach(&b);
 }
 
@@ -155,9 +167,7 @@ bool cx_item_is_user_echo(const char *type, yyjson_val *item) {
     return false;
 }
 
-bool cx_type_is_reasoning(const char *type) {
-    return strstr(type, "easoning") != NULL;
-}
+bool cx_type_is_reasoning(const char *type) { return strstr(type, "easoning") != NULL; }
 
 bool cx_type_is_plan(const char *type) {
     return strcmp(type, "todoList") == 0 || strcmp(type, "plan") == 0;
@@ -200,10 +210,10 @@ bool cx_item_ok(yyjson_val *item) {
 bool cx_emit_usage(cx_impl *o, yyjson_val *params) {
     static const char *const in_keys[] = {"input_tokens", "inputTokens", "prompt_tokens",
                                           "promptTokens", NULL};
-    static const char *const out_keys[] = {"output_tokens", "outputTokens",
-                                           "completion_tokens", "completionTokens", NULL};
-    static const char *const holders[] = {"usage", "tokenUsage", "totalTokenUsage",
-                                          "total_token_usage", "tokens", NULL};
+    static const char *const out_keys[] = {"output_tokens", "outputTokens", "completion_tokens",
+                                           "completionTokens", NULL};
+    static const char *const holders[] = {
+        "usage", "tokenUsage", "totalTokenUsage", "total_token_usage", "tokens", NULL};
     yyjson_val *u = NULL;
     for (int i = 0; holders[i] && !u; i++) {
         yyjson_val *h = jget(params, holders[i]);

@@ -5,7 +5,6 @@ import subprocess
 import sys
 import unittest
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 HOST = ROOT / "python" / "tny_extension_host.py"
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
@@ -33,7 +32,9 @@ class HostProcess:
         self.process.stdin.flush()
         line = self.process.stdout.readline()
         if not line:
-            stderr = self.process.stderr.read() if self.process.stderr is not None else ""
+            stderr = (
+                self.process.stderr.read() if self.process.stderr is not None else ""
+            )
             raise AssertionError("host closed stdout unexpectedly: " + stderr)
         return json.loads(line)
 
@@ -162,7 +163,9 @@ class ExtensionHostTests(unittest.TestCase):
                 "event": {"type": "session_start", "reason": "startup"},
             }
         )
-        self.assertEqual(package_result["action"]["content"], "loaded through relative import")
+        self.assertEqual(
+            package_result["action"]["content"], "loaded through relative import"
+        )
 
         stdout, stderr, returncode = self.host.close()
         self.assertEqual(returncode, 0)
@@ -180,7 +183,9 @@ class ExtensionHostTests(unittest.TestCase):
         )
         self.assertTrue(initialized["ok"])
         self.assertEqual(initialized["extensions"][0]["name"], "package_extension")
-        self.assertEqual(initialized["subscriptions"][0]["extension"], "package_extension")
+        self.assertEqual(
+            initialized["subscriptions"][0]["extension"], "package_extension"
+        )
         result = self.host.request(
             {
                 "id": 2,
@@ -193,7 +198,11 @@ class ExtensionHostTests(unittest.TestCase):
 
     def test_handler_failure_is_structured_and_host_remains_alive(self):
         initialized = self.host.request(
-            {"id": 1, "op": "initialize", "entries": [str(FIXTURES / "lifecycle_extension.py")]}
+            {
+                "id": 1,
+                "op": "initialize",
+                "entries": [str(FIXTURES / "lifecycle_extension.py")],
+            }
         )
         self.assertTrue(initialized["ok"])
         failed = self.host.request(
@@ -214,7 +223,11 @@ class ExtensionHostTests(unittest.TestCase):
                 "id": 3,
                 "op": "invoke",
                 "handler_id": "0:future_event:5",
-                "event": {"type": "future_event", "instruction": "continue safely", "new_field": True},
+                "event": {
+                    "type": "future_event",
+                    "instruction": "continue safely",
+                    "new_field": True,
+                },
             }
         )
         self.assertTrue(future["ok"])
@@ -232,15 +245,22 @@ class ExtensionHostTests(unittest.TestCase):
 
     def test_wildcard_handler_accepts_each_event_type(self):
         initialized = self.host.request(
-            {"id": 1, "op": "initialize",
-             "entries": [str(FIXTURES / "wildcard_extension.py")]}
+            {
+                "id": 1,
+                "op": "initialize",
+                "entries": [str(FIXTURES / "wildcard_extension.py")],
+            }
         )
         self.assertTrue(initialized["ok"])
         handler_id = initialized["subscriptions"][0]["handler_id"]
         for request_id, event_type in enumerate(("session_start", "text_delta"), 2):
             result = self.host.request(
-                {"id": request_id, "op": "invoke", "handler_id": handler_id,
-                 "event": {"type": event_type}}
+                {
+                    "id": request_id,
+                    "op": "invoke",
+                    "handler_id": handler_id,
+                    "event": {"type": event_type},
+                }
             )
             self.assertTrue(result["ok"])
             self.assertEqual(result["action"]["content"], event_type)
@@ -263,7 +283,9 @@ class ExtensionHostTests(unittest.TestCase):
                 "event": {"type": "status", "text": "working"},
             }
         )
-        self.assertIn("RuntimeError: fixture handler failed", failed["error"]["traceback"])
+        self.assertIn(
+            "RuntimeError: fixture handler failed", failed["error"]["traceback"]
+        )
         self.assertLessEqual(len(failed["error"]["traceback"]), 4096)
 
         malformed = self.host.raw_request("not-json")
@@ -326,7 +348,9 @@ class ExtensionHostTests(unittest.TestCase):
         )
         self.assertFalse(incompatible["ok"])
         self.assertEqual(incompatible["error"]["kind"], "protocol_error")
-        self.assertIn("unsupported events schema major 2", incompatible["error"]["message"])
+        self.assertIn(
+            "unsupported events schema major 2", incompatible["error"]["message"]
+        )
         legacy = self.host.request({"id": 2, "op": "initialize", "entries": []})
         self.assertTrue(legacy["ok"])
         self.assertEqual(legacy["protocol"], 1)

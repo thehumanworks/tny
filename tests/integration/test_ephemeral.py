@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """End-to-end ephemeral CLI, TUI-adjacent tool, and ACP checks. Stdlib only."""
+
 import json
 import os
 import subprocess
@@ -24,14 +25,21 @@ def check(cond, msg):
 def base_cmd():
     # A loopback URL satisfies ACP's credential preflight without making a
     # network request in the initialize/load-only scenario below.
-    return [TNY, "--provider", "openai", "--base-url",
-            "http://127.0.0.1:9/v1"]
+    return [TNY, "--provider", "openai", "--base-url", "http://127.0.0.1:9/v1"]
 
 
 def request(proc, mid, method, params):
-    proc.stdin.write(json.dumps({
-        "jsonrpc": "2.0", "id": mid, "method": method, "params": params,
-    }) + "\n")
+    proc.stdin.write(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": mid,
+                "method": method,
+                "params": params,
+            }
+        )
+        + "\n"
+    )
     proc.stdin.flush()
     deadline = time.time() + 10
     while time.time() < deadline:
@@ -50,6 +58,7 @@ def sse(obj):
 
 class SubagentHandler(BaseHTTPRequestHandler):
     """Chat-wire fixture: parent calls subagent; child and parent then finish."""
+
     protocol_version = "HTTP/1.1"
 
     def log_message(self, *_args):
@@ -83,34 +92,53 @@ class SubagentHandler(BaseHTTPRequestHandler):
         if "child prompt" in user_text:
             frames = [
                 {"choices": [{"index": 0, "delta": {"content": "CHILD-OK"}}]},
-                {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                 "usage": {"prompt_tokens": 10, "completion_tokens": 2}},
+                {
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 2},
+                },
             ]
         elif has_tool_result:
             frames = [
                 {"choices": [{"index": 0, "delta": {"content": "PARENT-OK"}}]},
-                {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                 "usage": {"prompt_tokens": 20, "completion_tokens": 2}},
+                {
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 20, "completion_tokens": 2},
+                },
             ]
         elif "exercise subagent" in user_text:
             frames = [
-                {"choices": [{"index": 0, "delta": {
-                    "role": "assistant",
-                    "tool_calls": [{
-                        "index": 0,
-                        "id": "subagent_call_1",
-                        "type": "function",
-                        "function": {
-                            "name": "subagent",
-                            "arguments": json.dumps({
-                                "action": "create", "prompt": "child prompt"
-                            }),
-                        },
-                    }],
-                }}]},
-                {"choices": [{"index": 0, "delta": {},
-                              "finish_reason": "tool_calls"}],
-                 "usage": {"prompt_tokens": 10, "completion_tokens": 4}},
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "role": "assistant",
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "subagent_call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "subagent",
+                                            "arguments": json.dumps(
+                                                {
+                                                    "action": "create",
+                                                    "prompt": "child prompt",
+                                                }
+                                            ),
+                                        },
+                                    }
+                                ],
+                            },
+                        }
+                    ]
+                },
+                {
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": "tool_calls"}
+                    ],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 4},
+                },
             ]
         else:
             frames = [
@@ -128,22 +156,38 @@ def exercise_ephemeral_subagent(home, workspace, env):
     try:
         port = server.server_address[1]
         child_env = dict(env)
-        child_env.update({
-            "OPENAI_API_KEY": "integration-test",
-            "OPENAI_BASE_URL": f"http://127.0.0.1:{port}/v1",
-            "OPENAI_WIRE_API": "chat",
-            "OPENAI_DEFAULT_MODEL": "mock-model",
-        })
+        child_env.update(
+            {
+                "OPENAI_API_KEY": "integration-test",
+                "OPENAI_BASE_URL": f"http://127.0.0.1:{port}/v1",
+                "OPENAI_WIRE_API": "chat",
+                "OPENAI_DEFAULT_MODEL": "mock-model",
+            }
+        )
         extension_log = os.path.join(home, "subagent-events.jsonl")
         child_env["TNY_TEST_SUBAGENT_LOG"] = extension_log
         run = subprocess.run(
-            [TNY, "--provider", "openai", "--wire-api", "chat",
-             "--ephemeral", "ask", "--json", "exercise subagent"],
-            cwd=workspace, env=child_env, text=True, capture_output=True,
+            [
+                TNY,
+                "--provider",
+                "openai",
+                "--wire-api",
+                "chat",
+                "--ephemeral",
+                "ask",
+                "--json",
+                "exercise subagent",
+            ],
+            cwd=workspace,
+            env=child_env,
+            text=True,
+            capture_output=True,
             timeout=30,
         )
-        check(run.returncode == 0,
-              f"ephemeral subagent run failed ({run.returncode}): {run.stderr}")
+        check(
+            run.returncode == 0,
+            f"ephemeral subagent run failed ({run.returncode}): {run.stderr}",
+        )
         try:
             payload = json.loads(run.stdout)
         except json.JSONDecodeError as exc:
@@ -151,21 +195,29 @@ def exercise_ephemeral_subagent(home, workspace, env):
         check(payload.get("output") == "PARENT-OK", payload)
         check(payload.get("ephemeral") is True, payload)
         check(payload.get("session_id") == "", payload)
-        events = [json.loads(line) for line in
-                  open(extension_log, encoding="utf-8")]
-        lifecycle = [event for event in events
-                     if event["type"] in ("subagent_start", "subagent_end")]
-        check([event["type"] for event in lifecycle] ==
-              ["subagent_start", "subagent_end"], lifecycle)
+        events = [json.loads(line) for line in open(extension_log, encoding="utf-8")]
+        lifecycle = [
+            event
+            for event in events
+            if event["type"] in ("subagent_start", "subagent_end")
+        ]
+        check(
+            [event["type"] for event in lifecycle]
+            == ["subagent_start", "subagent_end"],
+            lifecycle,
+        )
         check(lifecycle[0]["subagent_id"] == "subagent_call_1", lifecycle)
         check(lifecycle[1]["subagent_id"] == "subagent_call_1", lifecycle)
         check(lifecycle[0]["action"] == "create", lifecycle)
         check(lifecycle[1]["action"] == "create", lifecycle)
-        check(lifecycle[1]["outcome"] == "done" and lifecycle[1]["ok"] is True,
-              lifecycle)
+        check(
+            lifecycle[1]["outcome"] == "done" and lifecycle[1]["ok"] is True, lifecycle
+        )
         sessions = os.path.join(home, ".tny", "sessions")
-        check(not os.path.exists(sessions),
-              f"ephemeral child created a session store: {sessions}")
+        check(
+            not os.path.exists(sessions),
+            f"ephemeral child created a session store: {sessions}",
+        )
     finally:
         server.shutdown()
         server.server_close()
@@ -185,8 +237,9 @@ def run():
                 env.pop(key)
         extensions = os.path.join(home, ".tny", "extensions")
         os.makedirs(extensions)
-        with open(os.path.join(extensions, "subagent_log.py"), "w",
-                  encoding="utf-8") as stream:
+        with open(
+            os.path.join(extensions, "subagent_log.py"), "w", encoding="utf-8"
+        ) as stream:
             stream.write(
                 "import json, os\n"
                 "from tny_ext import SubagentStartEvent, SubagentEndEvent\n"
@@ -207,25 +260,38 @@ def run():
         # claim saved-session support and must reject an attempted load.
         proc = subprocess.Popen(
             base_cmd() + ["--ephemeral", "acp"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, bufsize=1,
-            cwd=workspace, env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            cwd=workspace,
+            env=env,
         )
         try:
-            init = request(proc, 1, "initialize", {
-                "protocolVersion": 1,
-                "clientCapabilities": {},
-                "clientInfo": {"name": "ephemeral-test", "version": "0"},
-            })
+            init = request(
+                proc,
+                1,
+                "initialize",
+                {
+                    "protocolVersion": 1,
+                    "clientCapabilities": {},
+                    "clientInfo": {"name": "ephemeral-test", "version": "0"},
+                },
+            )
             check("result" in init, f"initialize failed: {init}")
             caps = init["result"]["agentCapabilities"]
-            check(caps.get("loadSession") is False,
-                  f"ephemeral ACP advertised loadSession: {init}")
+            check(
+                caps.get("loadSession") is False,
+                f"ephemeral ACP advertised loadSession: {init}",
+            )
 
             load = request(proc, 2, "session/load", {"sessionId": "saved-id"})
             check("error" in load, f"ephemeral session/load succeeded: {load}")
-            check("ephemeral" in load["error"].get("message", "").lower(),
-                  f"session/load error did not explain the mode: {load}")
+            check(
+                "ephemeral" in load["error"].get("message", "").lower(),
+                f"session/load error did not explain the mode: {load}",
+            )
         finally:
             try:
                 proc.stdin.close()
@@ -241,26 +307,41 @@ def run():
         # Saved-state entry points fail before any backend connection.
         resumed = subprocess.run(
             base_cmd() + ["--ephemeral", "resume", "last"],
-            cwd=workspace, env=env, text=True, capture_output=True,
+            cwd=workspace,
+            env=env,
+            text=True,
+            capture_output=True,
         )
-        check(resumed.returncode == 1,
-              f"ephemeral resume exit {resumed.returncode}: {resumed.stderr}")
+        check(
+            resumed.returncode == 1,
+            f"ephemeral resume exit {resumed.returncode}: {resumed.stderr}",
+        )
         check("cannot resume" in resumed.stderr.lower(), resumed.stderr)
 
         ask = subprocess.run(
             base_cmd() + ["ask", "--ephemeral", "--resume", "last", "hello"],
-            cwd=workspace, env=env, text=True, capture_output=True,
+            cwd=workspace,
+            env=env,
+            text=True,
+            capture_output=True,
         )
-        check(ask.returncode == 1,
-              f"ephemeral ask/resume exit {ask.returncode}: {ask.stderr}")
+        check(
+            ask.returncode == 1,
+            f"ephemeral ask/resume exit {ask.returncode}: {ask.stderr}",
+        )
         check("incompatible" in ask.stderr.lower(), ask.stderr)
 
         status = subprocess.run(
             base_cmd() + ["--ephemeral", "--json", "status"],
-            cwd=workspace, env=env, text=True, capture_output=True,
+            cwd=workspace,
+            env=env,
+            text=True,
+            capture_output=True,
         )
-        check(status.returncode == 0,
-              f"ephemeral status failed ({status.returncode}): {status.stderr}")
+        check(
+            status.returncode == 0,
+            f"ephemeral status failed ({status.returncode}): {status.stderr}",
+        )
         try:
             status_payload = json.loads(status.stdout)
         except json.JSONDecodeError as exc:
@@ -285,4 +366,4 @@ if __name__ == "__main__":
         run()
     except (Fail, subprocess.TimeoutExpired) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from None

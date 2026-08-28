@@ -1,12 +1,15 @@
 """Thread-safe cancellation request and persisted-session resume."""
+
 import os
 import threading
 
 from tny import CancellationToken, Runtime, RuntimeConfig, TurnEndEvent
 
 config = RuntimeConfig(
-    workspace=os.getcwd(), state_dir=os.path.join(os.getcwd(), ".tny-sdk-state"),
-    base_url=os.environ["OPENAI_BASE_URL"], api_key=os.environ["OPENAI_API_KEY"],
+    workspace=os.getcwd(),
+    state_dir=os.path.join(os.getcwd(), ".tny-sdk-state"),
+    base_url=os.environ["OPENAI_BASE_URL"],
+    api_key=os.environ["OPENAI_API_KEY"],
     persistence=True,
 )
 token = CancellationToken()

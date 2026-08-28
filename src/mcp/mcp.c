@@ -15,15 +15,15 @@
 #include <sys/wait.h>
 
 #define MCP_MAX_SERVERS 16
-#define MCP_TIMEOUT_MS 30000
+#define MCP_TIMEOUT_MS  30000
 
 typedef struct {
     char *name;
     pid_t pid;
-    int   in_fd;   /* write requests here */
-    int   out_fd;  /* read responses here */
+    int in_fd;  /* write requests here */
+    int out_fd; /* read responses here */
     buf_t rbuf;
-    int   next_id;
+    int next_id;
     yyjson_doc *tools; /* cached tools/list result */
 } mcp_server;
 
@@ -51,8 +51,8 @@ static yyjson_doc *rpc(mcp_server *s, const char *method, const char *params_jso
     int id = ++s->next_id;
     buf_t req;
     buf_init(&req);
-    buf_appendf(&req, "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"%s\",\"params\":%s}\n",
-                id, method, params_json ? params_json : "{}");
+    buf_appendf(&req, "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"%s\",\"params\":%s}\n", id,
+                method, params_json ? params_json : "{}");
     ssize_t w = write(s->in_fd, req.data, req.len);
     buf_free(&req);
     if (w < 0) return NULL;
@@ -113,16 +113,29 @@ static mcp_server *start_server(tools_env *env, const char *name, yyjson_val *co
 
     int inpipe[2], outpipe[2];
     if (pipe(inpipe) != 0) return NULL;
-    if (pipe(outpipe) != 0) { close(inpipe[0]); close(inpipe[1]); return NULL; }
+    if (pipe(outpipe) != 0) {
+        close(inpipe[0]);
+        close(inpipe[1]);
+        return NULL;
+    }
     pid_t pid = fork();
-    if (pid < 0) return NULL;
+    if (pid < 0) {
+        close(inpipe[0]);
+        close(inpipe[1]);
+        close(outpipe[0]);
+        close(outpipe[1]);
+        return NULL;
+    }
     if (pid == 0) {
         dup2(inpipe[0], 0);
         dup2(outpipe[1], 1);
         /* stderr inherited: logs visible, protocol clean */
-        close(inpipe[0]); close(inpipe[1]);
-        close(outpipe[0]); close(outpipe[1]);
+        close(inpipe[0]);
+        close(inpipe[1]);
+        close(outpipe[0]);
+        close(outpipe[1]);
         if (chdir(env->ctx->cwd) != 0) _exit(127);
+        if (!argv[0]) _exit(127);
         execvp(argv[0], argv);
         _exit(127);
     }
@@ -138,8 +151,8 @@ static mcp_server *start_server(tools_env *env, const char *name, yyjson_val *co
     buf_init(&s->rbuf);
 
     yyjson_doc *init = rpc(s, "initialize",
-        "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
-        "\"clientInfo\":{\"name\":\"tny\",\"version\":\"" TNY_VERSION "\"}}");
+                           "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
+                           "\"clientInfo\":{\"name\":\"tny\",\"version\":\"" TNY_VERSION "\"}}");
     if (!init) {
         kill(pid, SIGTERM);
         close(s->in_fd);
@@ -206,6 +219,7 @@ char *mcp_features(tools_env *env) {
         yyjson_obj_foreach(servers, idx, max, k, v) {
             (void)v;
             const char *name = yyjson_get_str(k);
+            if (!name) continue;
             mcp_server *s = find_server(name);
             buf_appendf(&out, "%s (%s)\n", name, s ? "connected" : "configured, not started");
         }
@@ -228,6 +242,7 @@ char *mcp_search_tools(tools_env *env, const char *query) {
         yyjson_obj_foreach(servers, idx, max, k, v) {
             (void)v;
             const char *name = yyjson_get_str(k);
+            if (!name) continue;
             char *err = NULL;
             mcp_server *s = get_server(env, name, &err);
             free(err);
@@ -258,8 +273,7 @@ char *mcp_search_tools(tools_env *env, const char *query) {
     return buf_detach(&out);
 }
 
-char *mcp_call_tool(tools_env *env, const char *server, const char *tool,
-                    const char *args_json) {
+char *mcp_call_tool(tools_env *env, const char *server, const char *tool, const char *args_json) {
     if (!server || !tool) return tool_err("mcp_select_tool needs server and tool");
     char *err = NULL;
     mcp_server *s = get_server(env, server, &err);
@@ -286,12 +300,18 @@ char *mcp_call_tool(tools_env *env, const char *server, const char *tool,
             yyjson_val *c;
             yyjson_arr_foreach(content, idx, max, c) {
                 const char *text = jget_str(c, "text");
-                if (text) { buf_appends(&out, text); buf_appends(&out, "\n"); }
+                if (text) {
+                    buf_appends(&out, text);
+                    buf_appends(&out, "\n");
+                }
             }
         }
         if (!out.len) {
             char *raw = jwrite_val(jget(root, "result"));
-            if (raw) { buf_appends(&out, raw); free(raw); }
+            if (raw) {
+                buf_appends(&out, raw);
+                free(raw);
+            }
         }
     }
     yyjson_doc_free(resp);

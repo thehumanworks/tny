@@ -1,0 +1,43 @@
+# First-party static analysis (make tidy). third_party/ is exempt; the
+# Makefile passes only first-party translation units. Style-heavy families
+# stay off (compilation with -Wall -Wextra -Werror covers them), as do
+# checks that flag deliberate design:
+#   *-command-processor / cert-env33-c — tny spawns shells on purpose
+#     (shell tool, $EDITOR, pager); permission gating is the control.
+#   optin.core.EnumCastOutOfRange — `(enum)0` is the "none" sentinel idiom.
+#   optin.performance.Padding — struct layouts favor grouping over packing.
+#   *-unchecked-string-to-number-conversion / cert-err34-c — atoi/sscanf on
+#     bounded, locally produced strings; parse failure means 0, acceptable.
+#   performance-no-int-to-ptr — dlsym/pseudo-fd casts are inherent.
+#   bugprone-implicit-widening-of-multiplication-result — small bounded
+#     index math; the cast churn outweighs the risk.
+#   optin.taint.GenericTaint / security.ArrayBound — false positives on
+#     length-checked buffer code; ASan/UBSan in the debug suite cover this.
+Checks: >
+  clang-analyzer-*,
+  bugprone-*,
+  cert-*,
+  performance-*,
+  portability-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-assignment-in-if-condition,
+  -bugprone-branch-clone,
+  -bugprone-switch-missing-default-case,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-command-processor,
+  -bugprone-unchecked-string-to-number-conversion,
+  -cert-env33-c,
+  -cert-err33-c,
+  -cert-err34-c,
+  -cert-dcl03-c,
+  -performance-no-int-to-ptr,
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
+  -clang-analyzer-optin.taint.GenericTaint,
+  -clang-analyzer-security.ArrayBound,
+  -clang-analyzer-optin.performance.Padding,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -clang-analyzer-security.insecureAPI.strcpy
+WarningsAsErrors: '*'
+HeaderFilterRegex: '^(src|include)/'

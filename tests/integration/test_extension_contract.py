@@ -8,9 +8,10 @@ import re
 import subprocess
 import sys
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-TNY = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else os.environ.get("TNY", ROOT / "build" / "tny"))
+TNY = pathlib.Path(
+    sys.argv[1] if len(sys.argv) > 1 else os.environ.get("TNY", ROOT / "build" / "tny")
+)
 MANIFEST = ROOT / "docs" / "features" / "extension-hook-parity.md"
 ADR = ROOT / "docs" / "adr" / "0028-extension-parity-contract.md"
 SOURCES = ROOT / "docs" / "sources.md"
@@ -18,32 +19,86 @@ CAPABILITY_FIXTURE = ROOT / "tests" / "fixtures" / "extension_capabilities.json"
 
 EXPECTED = {
     "Pi": [
-        "project_trust", "resources_discover", "session_start",
-        "session_info_changed", "session_before_switch", "session_before_fork",
-        "session_before_compact", "session_compact", "session_compact_failed",
-        "session_shutdown", "session_before_tree", "session_tree", "context",
-        "before_provider_request", "before_provider_headers",
-        "after_provider_response", "before_agent_start", "agent_start",
-        "agent_end", "agent_settled", "turn_start", "turn_end",
-        "message_start", "message_update", "message_end",
-        "tool_execution_start", "tool_execution_update", "tool_execution_end",
-        "model_select", "thinking_level_select", "user_bash", "input",
-        "tool_call", "tool_result",
+        "project_trust",
+        "resources_discover",
+        "session_start",
+        "session_info_changed",
+        "session_before_switch",
+        "session_before_fork",
+        "session_before_compact",
+        "session_compact",
+        "session_compact_failed",
+        "session_shutdown",
+        "session_before_tree",
+        "session_tree",
+        "context",
+        "before_provider_request",
+        "before_provider_headers",
+        "after_provider_response",
+        "before_agent_start",
+        "agent_start",
+        "agent_end",
+        "agent_settled",
+        "turn_start",
+        "turn_end",
+        "message_start",
+        "message_update",
+        "message_end",
+        "tool_execution_start",
+        "tool_execution_update",
+        "tool_execution_end",
+        "model_select",
+        "thinking_level_select",
+        "user_bash",
+        "input",
+        "tool_call",
+        "tool_result",
     ],
     "Codex": [
-        "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact",
-        "PostCompact", "SessionStart", "SessionEnd", "UserPromptSubmit",
-        "SubagentStart", "SubagentStop", "Stop",
+        "PreToolUse",
+        "PermissionRequest",
+        "PostToolUse",
+        "PreCompact",
+        "PostCompact",
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "SubagentStart",
+        "SubagentStop",
+        "Stop",
     ],
     "Claude": [
-        "SessionStart", "Setup", "UserPromptSubmit", "UserPromptExpansion",
-        "PreToolUse", "PermissionRequest", "PermissionDenied", "PostToolUse",
-        "PostToolUseFailure", "PostToolBatch", "Notification", "MessageDisplay",
-        "SubagentStart", "SubagentStop", "TaskCreated", "TaskCompleted", "Stop",
-        "StopFailure", "TeammateIdle", "InstructionsLoaded", "ConfigChange",
-        "CwdChanged", "DirectoryAdded", "FileChanged", "WorktreeCreate",
-        "WorktreeRemove", "PreCompact", "PostCompact", "Elicitation",
-        "ElicitationResult", "SessionEnd",
+        "SessionStart",
+        "Setup",
+        "UserPromptSubmit",
+        "UserPromptExpansion",
+        "PreToolUse",
+        "PermissionRequest",
+        "PermissionDenied",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "PostToolBatch",
+        "Notification",
+        "MessageDisplay",
+        "SubagentStart",
+        "SubagentStop",
+        "TaskCreated",
+        "TaskCompleted",
+        "Stop",
+        "StopFailure",
+        "TeammateIdle",
+        "InstructionsLoaded",
+        "ConfigChange",
+        "CwdChanged",
+        "DirectoryAdded",
+        "FileChanged",
+        "WorktreeCreate",
+        "WorktreeRemove",
+        "PreCompact",
+        "PostCompact",
+        "Elicitation",
+        "ElicitationResult",
+        "SessionEnd",
     ],
     "fx": ["PreToolUse", "Stop", "PostTurnEnd", "AttentionRequired"],
 }
@@ -134,7 +189,9 @@ def main() -> int:
         assert tuple(provider["entries"]) == documented_keys
         expected = fixture["providers"][name]
         assert provider["runtime"] == expected["runtime"]
-        assert [entry["state"] for entry in provider["entries"].values()] == expected["states"]
+        assert [entry["state"] for entry in provider["entries"].values()] == expected[
+            "states"
+        ]
         for key, entry in provider["entries"].items():
             assert entry["state"] in {"supported", "unsupported", "unavailable"}
             if entry["state"] == "supported":

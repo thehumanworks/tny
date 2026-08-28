@@ -71,8 +71,10 @@ def main() -> None:
             fail(f"term-core.js missing {needle}")
 
     if (SITE / "assets" / "term.js").exists():
-        fail("site/assets/term.js still exists — the hand-written agent loop "
-             "was deleted; the loop is the wasm binary (docs/adr/0017)")
+        fail(
+            "site/assets/term.js still exists — the hand-written agent loop "
+            "was deleted; the loop is the wasm binary (docs/adr/0017)"
+        )
 
     # No agent loop may live in site JS: the CI-tested wasm artifact is the
     # only thing on this page that speaks a provider wire.
@@ -80,8 +82,10 @@ def main() -> None:
         blob = js.read_text(encoding="utf-8")
         for needle in ("chat/completions", '"/responses"', "'/responses'"):
             if needle in blob:
-                fail(f"{js.name} contains provider-wire code ({needle!r}); "
-                     "the loop belongs to the wasm binary alone")
+                fail(
+                    f"{js.name} contains provider-wire code ({needle!r}); "
+                    "the loop belongs to the wasm binary alone"
+                )
 
     for needle in (
         "wasm/tny-web.mjs",

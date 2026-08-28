@@ -121,9 +121,9 @@ TEST ephemeral_memory_tool_cannot_persist(void) {
     tools_env env;
     memset(&env, 0, sizeof env);
     env.ctx = ctx;
-    yyjson_doc *args = jparse(
-        "{\"action\":\"set\",\"key\":\"secret\",\"value\":\"do not persist\"}",
-        strlen("{\"action\":\"set\",\"key\":\"secret\",\"value\":\"do not persist\"}"));
+    yyjson_doc *args =
+        jparse("{\"action\":\"set\",\"key\":\"secret\",\"value\":\"do not persist\"}",
+               strlen("{\"action\":\"set\",\"key\":\"secret\",\"value\":\"do not persist\"}"));
     ASSERT(args);
     bool handled = false;
     char *result = tool_ext_execute(&env, "memory", yyjson_doc_get_root(args), &handled);
