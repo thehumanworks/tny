@@ -11,7 +11,11 @@ from unittest.mock import patch
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT))
 try:
-    from release_version import build_version, version_from_tag
+    from release_version import (
+        build_version,
+        single_arch_platform_tag,
+        version_from_tag,
+    )
 finally:
     sys.path.pop(0)
 
@@ -56,3 +60,22 @@ class ReleaseVersionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SingleArchPlatformTagTests(unittest.TestCase):
+    def test_universal_macos_tags_name_the_bundled_arch(self) -> None:
+        for fat in ("universal2", "universal", "fat", "intel"):
+            self.assertEqual(
+                single_arch_platform_tag(f"macosx_13_0_{fat}", "arm64"),
+                "macosx_13_0_arm64",
+            )
+
+    def test_single_arch_tags_are_unchanged(self) -> None:
+        for tag in ("macosx_13_0_arm64", "linux_x86_64", "manylinux_2_34_aarch64"):
+            self.assertEqual(single_arch_platform_tag(tag, "arm64"), tag)
+
+    def test_default_machine_is_the_host(self) -> None:
+        with patch("release_version.platform.machine", return_value="x86_64"):
+            self.assertEqual(
+                single_arch_platform_tag("macosx_13_0_universal2"), "macosx_13_0_x86_64"
+            )

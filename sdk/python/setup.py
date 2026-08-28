@@ -20,7 +20,7 @@ from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 _PACKAGE_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(_PACKAGE_ROOT))
 try:
-    from release_version import build_version
+    from release_version import build_version, single_arch_platform_tag
 finally:
     sys.path.pop(0)
 
@@ -174,7 +174,7 @@ class BdistWheel(_bdist_wheel):
         if not os.environ.get("TNY_BUNDLE_LIBRARY"):
             return "py3", "none", "any"
         _python, _abi, platform_tag = super().get_tag()
-        return "py3", "none", platform_tag
+        return "py3", "none", single_arch_platform_tag(platform_tag)
 
     def run(self) -> None:
         _validated_bundle()

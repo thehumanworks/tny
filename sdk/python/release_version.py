@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import re
 
 _TAG = re.compile(
@@ -38,3 +39,18 @@ def build_version() -> str:
     if os.environ.get("TNY_REQUIRE_RELEASE_TAG") == "1":
         raise ValueError("TNY_RELEASE_TAG is required for a registry package build")
     return _DEVELOPMENT_VERSION
+
+
+def single_arch_platform_tag(platform_tag: str, machine: str | None = None) -> str:
+    """Name the one architecture the bundled libtny was built for.
+
+    A universal2 interpreter (the GitHub macOS runners) makes setuptools emit
+    ``macosx_13_0_universal2``, but libtny is single-arch and the release
+    validator (scripts/validate_sdk_release.py) only accepts ``_arm64``.
+    """
+    machine = machine or platform.machine()
+    if platform_tag.startswith("macosx_") and platform_tag.endswith(
+        ("_universal2", "_universal", "_fat", "_intel")
+    ):
+        return platform_tag.rsplit("_", 1)[0] + "_" + machine
+    return platform_tag
