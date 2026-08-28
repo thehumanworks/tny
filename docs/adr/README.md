@@ -49,3 +49,4 @@ these as `docs/adr/NNNN`.
 | [0041](0041-session-wait.md) | `tny session <id> --wait [--timeout SECS]` blocks on the 0031 writer-lock probe until a background turn finalizes and exits with the turn's `exit_code` (124 on timeout) |
 | [0042](0042-help-flag-alignment.md) | CLI parser flags and rendered help are checked in both directions, and root help must list every dispatched subcommand |
 | [0043](0043-macho-version-floor.md) | Mach-O current_version floors at 1.0.0 for every pre-1.0 product version so 0.y.z release tags build libtny on macOS |
+| [0044](0044-cursor-stays-on-sdk-bridge.md) | Cursor stays on the `sdk.v1` bridge; the private `agent.v1` HTTP/2 route measured slower per warm turn (2.2–2.6 s vs 1.3–1.4 s) and would cost HTTP/2, protobuf, and a CLI-pinned executor protocol |
