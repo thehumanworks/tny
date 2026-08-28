@@ -65,6 +65,45 @@ class RunnerTests(unittest.TestCase):
                     self.assertFalse(report.exists())
                     self.assertNotIn("tny-conformance-secret-", run.stderr)
 
+    def test_failure_stage_is_value_allowlisted_and_secret_safe(self) -> None:
+        adapter = """
+import json
+import sys
+request = json.load(sys.stdin)
+secret = request["secret_sentinel"]
+print(f"conformance-stage: {secret} start", file=sys.stderr)
+print(f"conformance-stage: steer-resume-probe error-{secret}", file=sys.stderr)
+print(secret, file=sys.stderr)
+raise SystemExit(7)
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact = root / "libtny.fixture"
+            artifact.write_bytes(b"artifact\n")
+            run = subprocess.run(
+                [
+                    sys.executable,
+                    os.fspath(RUNNER),
+                    "--artifact",
+                    os.fspath(artifact),
+                    "--",
+                    sys.executable,
+                    "-c",
+                    adapter,
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            self.assertEqual(run.returncode, 2, run.stderr)
+            self.assertEqual(
+                run.stderr,
+                "conformance-stage: steer-resume-probe error\n"
+                "conformance: adapter exited 7\n",
+            )
+            self.assertNotIn("tny-conformance-secret-", run.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

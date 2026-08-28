@@ -13,6 +13,32 @@ from pathlib import Path
 from validate import ConformanceError, sha256_file, validate_report
 
 ROOT = Path(__file__).resolve().parents[2]
+SAFE_ADAPTER_STAGES = frozenset(
+    {
+        "fixture-probes",
+        "lifecycle-probe",
+        "live-abi-probe",
+        "steer-resume-probe",
+        "unknown-event-probe",
+        "report",
+    }
+)
+
+
+def safe_stage_marker(stderr: str) -> str | None:
+    result = None
+    for line in stderr.splitlines():
+        fields = line.split(" ", 2)
+        if len(fields) != 3 or fields[0] != "conformance-stage:":
+            continue
+        stage, state = fields[1:]
+        if stage not in SAFE_ADAPTER_STAGES:
+            continue
+        if state == "start":
+            result = f"conformance-stage: {stage} start"
+        elif state.startswith("error-"):
+            result = f"conformance-stage: {stage} error"
+    return result
 
 
 def main() -> int:
@@ -67,7 +93,11 @@ def main() -> int:
         return 2
     if completed.returncode != 0:
         # Adapter diagnostics may themselves contain caller credentials. The
-        # release runner reports only the code and never reflects subprocess IO.
+        # release runner reports only the code and an allowlisted stage marker;
+        # it never reflects arbitrary subprocess IO.
+        marker = safe_stage_marker(completed.stderr)
+        if marker:
+            print(marker, file=sys.stderr)
         print(f"conformance: adapter exited {completed.returncode}", file=sys.stderr)
         return 2
     try:

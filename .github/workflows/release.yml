@@ -98,7 +98,7 @@ jobs:
           if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
           if [ "$(uname -s)" = Darwin ]; then
             export MACOSX_DEPLOYMENT_TARGET=13.0
-            export MOCK_CHUNK_WIDTH=1048576 \
+            export MOCK_CHUNK_WIDTH=1048576 MOCK_CONNECTION_CLOSE=1 \
               TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
               TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
@@ -181,7 +181,7 @@ jobs:
           if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
           if [ "$(uname -s)" = Darwin ]; then
             export MACOSX_DEPLOYMENT_TARGET=13.0
-            export MOCK_CHUNK_WIDTH=1048576 \
+            export MOCK_CHUNK_WIDTH=1048576 MOCK_CONNECTION_CLOSE=1 \
               TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
               TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180

@@ -30,6 +30,15 @@ STEER_TIMEOUT = int(os.environ.get("TNY_CONFORMANCE_STEER_TIMEOUT", "30"))
 if STEER_TIMEOUT < 1:
     raise ValueError("TNY_CONFORMANCE_STEER_TIMEOUT must be positive")
 
+CURRENT_STAGE = "startup"
+
+
+def stage(name: str) -> None:
+    global CURRENT_STAGE
+    CURRENT_STAGE = name
+    print(f"conformance-stage: {name} start", file=sys.stderr, flush=True)
+
+
 spec = importlib.util.spec_from_file_location(
     "libtny_reference", ROOT / "tests/integration/test_libtny.py"
 )
@@ -683,6 +692,7 @@ def live_probe(libpath: str, secret: str):
 def main() -> int:
     request = json.load(sys.stdin)
     libpath = request["artifact"]["path"]
+    stage("fixture-probes")
     executions = [
         run_command("build_c_fixtures", ["make", "debug"]),
         run_command(
@@ -718,7 +728,9 @@ def main() -> int:
             ),
         ),
     ]
+    stage("lifecycle-probe")
     executions.append(lifecycle_probe(libpath, request["secret_sentinel"]))
+    stage("live-abi-probe")
     lib, snapshot, traces = live_probe(libpath, request["secret_sentinel"])
     executions.append(
         {
@@ -761,6 +773,7 @@ def main() -> int:
             ),
         }
     )
+    stage("steer-resume-probe")
     traces["resume_and_steer_rejection"], steer_execution = run_json_command(
         "live_steer_resume_probe",
         [sys.executable, str(Path(__file__).resolve()), "--steer-resume-probe"],
@@ -774,6 +787,7 @@ def main() -> int:
         "teardown_and_reopen",
     )
     executions.append(steer_execution)
+    stage("unknown-event-probe")
     traces["unknown_future_event"], unknown_executions = unknown_event_probe(libpath)
     executions.extend(unknown_executions)
     executions.append(
@@ -842,6 +856,7 @@ def main() -> int:
                 "events": traces.get(identifier, []),
             }
         )
+    stage("report")
     report = {
         "conformance_version": request["conformance_version"],
         "adapter_protocol_version": request["adapter_protocol_version"],
@@ -874,4 +889,14 @@ if __name__ == "__main__":
             sort_keys=True,
         )
     else:
-        raise SystemExit(main())
+        try:
+            raise SystemExit(main())
+        except SystemExit:
+            raise
+        except BaseException as error:
+            print(
+                f"conformance-stage: {CURRENT_STAGE} error-{type(error).__name__}",
+                file=sys.stderr,
+                flush=True,
+            )
+            raise
