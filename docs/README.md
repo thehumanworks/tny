@@ -15,8 +15,8 @@ Do not start product code until you have read this index and the files it names.
 | [language-and-runtime.md](language-and-runtime.md) | Why C11, library bill of materials |
 | [size-and-speed.md](size-and-speed.md) | fx baseline and tny budgets |
 | [implementation-plan.md](implementation-plan.md) | Ordered phases and acceptance gates |
-| [ci.md](ci.md) | GitHub Actions matrix: Linux arches, Darwin arm64, Windows |
-| [nix.md](nix.md) | The flake: `nix run`, overlay, dev shell, TLS/version specifics |
+| [ci.md](ci.md) | GitHub Actions matrix: Linux arches, Darwin arm64, Windows; Nix flake check on all claimed systems |
+| [nix.md](nix.md) | The flake: `nix run`, overlay, dev shell, TLS/version specifics, native CI on x86_64-linux / aarch64-linux / aarch64-darwin |
 
 ## User surfaces
 

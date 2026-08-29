@@ -80,6 +80,13 @@ optional-looking politeness.
 - `nix run github:thehumanworks/tny`, `nix profile install`, an overlay, a
   flake input, or plain `nix-build` all work, and all build the same tree CI
   builds.
+- `.github/workflows/nix.yml` native-checks all three claimed systems on
+  `ubuntu-24.04`, `ubuntu-24.04-arm`, and `macos-15`. The entries share one
+  `check` job and the same `nix flake check`, binary smoke, revision, and
+  non-flake `nix-instantiate` steps, so a wrap, RUNPATH, or `checks.tests`
+  sandbox breakage on aarch64-linux fails the workflow the same way it would
+  on x86_64-linux. Intel Mac remains excluded; the flake does not claim
+  `x86_64-darwin`.
 - A no-license repository has no nixpkgs license attribute. `meta.license` is
   left unset rather than set to `lib.licenses.unfree`, which would force every
   consumer of a first-party flake to pass `allowUnfree`. Redistribution is

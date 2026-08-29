@@ -20,10 +20,15 @@ The Pages workflow also builds `tny-web.mjs` with emsdk and publishes it
 under `assets/wasm/` — the landing terminal is the CI-tested artifact.
 
 A separate `nix` workflow (`.github/workflows/nix.yml`) runs `nix flake check`
-on `ubuntu-24.04` and `macos-15`: it builds `packages.tny` (whose `checkPhase`
-is `make size-check`), `packages.libtny`, and `checks.tests` — the whole
-`make test` suite in a sandbox — then smokes the built binary and asserts it
-reports this commit's revision. See [nix.md](nix.md) and
+on `ubuntu-24.04` (`x86_64-linux`), `ubuntu-24.04-arm` (`aarch64-linux`), and
+`macos-15` (`aarch64-darwin`). The three entries share one `check` job and the
+same steps: each builds `packages.tny` (whose `checkPhase` is `make size-check`),
+`packages.libtny`, and `checks.tests` — the whole `make test` suite in a
+sandbox — then smokes the built binary, asserts it reports this commit's
+revision, and `nix-instantiate`s `default.nix` / `shell.nix`. A wrap, RUNPATH,
+or sandbox-only breakage on aarch64-linux fails this workflow the same way it
+would on x86_64-linux. The Darwin entry still exits if `uname -m` is not
+`arm64`; do not add `x86_64-darwin`. See [nix.md](nix.md) and
 [ADR 0035](adr/0035-nix-flake-packaging.md). It publishes no artifact; Nix
 users build from source.
 
