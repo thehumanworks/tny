@@ -41,6 +41,9 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else if (strcmp(a, "--effort") == 0 || strcmp(a, "--reasoning-effort") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->effort = v;
+        } else if (strcmp(a, "--system-prompt") == 0) {
+            if (!(v = need_val(argc, argv, &i, a))) return -1;
+            g->system_prompt = v;
         } else if (strcmp(a, "--add-dir") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             const char **dirs = realloc(g->add_dirs, sizeof(char *) * (size_t)(g->n_add_dirs + 1));
@@ -155,6 +158,10 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
          * default applied when the provider resolves (docs/adr/0015) */
         ctx->effort_explicit = true;
         ctx->effort_from_settings = false;
+    }
+    if (g->system_prompt && *g->system_prompt) {
+        free(ctx->system_prompt);
+        ctx->system_prompt = xstrdup(g->system_prompt);
     }
     if (g->max_steps) {
         int v = tny_parse_max_steps(g->max_steps);

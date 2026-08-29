@@ -184,6 +184,44 @@ def main():
                 pmock.terminate()
                 pmock.wait(timeout=5)
 
+            # --system-prompt maps onto the provider's native instructions
+            # field and leads the operational preamble (docs/adr/0045)
+            sport = free_port()
+            smock = subprocess.Popen(
+                [sys.executable, MOCK, str(sport)],
+                env=dict(
+                    os.environ,
+                    MOCK_EXPECT_INSTRUCTIONS="Answer like a pirate named SYSMARK.",
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                line = smock.stdout.readline().decode()
+                assert "ready" in line, f"system-prompt mock did not start: {line!r}"
+                senv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{sport}/v1")
+                rs = subprocess.run(
+                    [
+                        TNY,
+                        "--system-prompt",
+                        "Answer like a pirate named SYSMARK.",
+                        "--cwd",
+                        ws,
+                        "ask",
+                        "--json",
+                        "--no-save",
+                        "list files in .",
+                    ],
+                    env=senv,
+                    capture_output=True,
+                    timeout=30,
+                )
+                assert rs.returncode == 0, rs.stderr.decode()
+                assert "MOCK-OK" in json.loads(rs.stdout)["output"], rs.stdout
+            finally:
+                smock.terminate()
+                smock.wait(timeout=5)
+
             # piped stdin: the connect/stdin overlap path must still run a
             # full turn end-to-end
             r4 = subprocess.run(

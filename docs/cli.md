@@ -36,6 +36,7 @@ tny --provider cursor|codex|acp|openai|NAME|acp@AGENT [command]
 tny --cwd DIR
 tny --model ID
 tny --effort LEVEL          # reasoning effort (--reasoning-effort is an alias)
+tny --system-prompt TEXT    # custom system prompt (docs/adr/0045)
 tny --add-dir DIR           # repeatable, process-only
 tny --permission-mode ask|auto|yolo   # default: yolo (docs/adr/0001)
 tny --max-steps N|unlimited # cap native-loop model calls per turn
@@ -232,6 +233,19 @@ tny never stores tokens itself:
 `tny logout` mirrors this: `codex logout` where the host CLI owns the
 credential, native removal of the xAI entries from `~/.grok/auth.json` for
 grok (foreign-issuer entries are kept), an env-var hint otherwise.
+
+## System prompt
+
+`--system-prompt TEXT` (leading global flag, headless and interactive) sets a
+user system prompt for the run ([ADR 0045](adr/0045-system-prompt-flag.md)).
+Providers with a schema field for it use that field: the openai-compatible
+backend prepends the text to its system message (`instructions` on the
+responses wire, the `system` role message on chat), ahead of tny's
+operational preamble and the AGENTS.md chain. The host protocols expose no
+such field on their pinned surfaces (cursor sdk.v1 `CreateAgent`, codex
+`thread/start`, ACP `session/new`), so there the text is prepended to the
+**first user message** of a fresh session, separated by a blank line.
+Resumed sessions and later turns never get it again.
 
 ## Reasoning effort
 

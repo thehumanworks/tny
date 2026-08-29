@@ -44,6 +44,7 @@ struct tny_engine {
     tny_stop_reason stop;
     char *prompt_text;
     char *prepared_requeue_text;
+    bool system_prompt_delivered;
     char *native_observed_permission_id;
 
     tny_extensions *extensions;
@@ -853,6 +854,22 @@ static extension_fold prepare_user_prompt(tny_engine *e, const char *prompt, con
     return fold;
 }
 
+/* --system-prompt fallback (docs/adr/0045): the openai backend carries the
+ * user system prompt on its native system/instructions field, but the host
+ * protocols (cursor sdk.v1 CreateAgent, codex thread/start, ACP session/new)
+ * expose no such schema field — there it is prepended to the session's first
+ * user message instead. Anything that already has conversation history — a
+ * later turn in this engine, a resumed or adopted host thread (host pointer
+ * present), or a transcript with recorded turns — must not get it again. */
+static bool wants_system_prompt_prefix(tny_engine *e) {
+    if (!e->ctx->system_prompt || !*e->ctx->system_prompt) return false;
+    if (e->bk->id == TNY_BK_OPENAI) return false;
+    if (e->system_prompt_delivered) return false;
+    if (session_turns(e->session) > 0) return false;
+    if (session_host_pointer(e->session)) return false;
+    return true;
+}
+
 static int start_backend_iteration(tny_engine *e, const char *prompt, const char **images,
                                    const char *source, char *err, size_t errlen) {
     extensions_session_start(e);
@@ -1573,6 +1590,22 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images, cha
         buf_free(&effective);
         after_backend(e, 0);
         return 0;
+    }
+    if (wants_system_prompt_prefix(e)) {
+        buf_t with_sys;
+        buf_init(&with_sys);
+        buf_appends(&with_sys, e->ctx->system_prompt);
+        buf_appends(&with_sys, "\n\n");
+        buf_append(&with_sys, effective.data, effective.len);
+        if (buf_oom(&with_sys)) {
+            if (err && errlen) snprintf(err, errlen, "out of memory");
+            buf_free(&with_sys);
+            buf_free(&effective);
+            return -1;
+        }
+        buf_free(&effective);
+        effective = with_sys;
+        e->system_prompt_delivered = true;
     }
     int rc = start_backend_iteration(e, effective.data, images, "user", err, errlen);
     buf_free(&effective);

@@ -172,6 +172,13 @@ static const char *model_of(oa_impl *o) {
 
 /* The shared system preamble: workspace, AGENTS.md chain, skill catalog. */
 static void build_system_prompt(oa_impl *o, buf_t *sys) {
+    /* --system-prompt maps onto this provider's native field (the system
+     * message on the chat wire, `instructions` on responses). It leads so
+     * the user's framing beats the operational preamble below. */
+    if (o->ctx->system_prompt && *o->ctx->system_prompt) {
+        buf_appends(sys, o->ctx->system_prompt);
+        buf_appends(sys, "\n\n");
+    }
     buf_appends(sys, "You are tny, a fast coding agent running in a terminal.\n");
     if (o->ctx->ssh_host) {
         /* --ssh (docs/adr/0022): the tools act on another machine; the
