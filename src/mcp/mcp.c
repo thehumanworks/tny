@@ -9,13 +9,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
 #include <unistd.h>
 #include <signal.h>
 #include <poll.h>
 #include <sys/wait.h>
+#include <time.h>
 
-#define MCP_MAX_SERVERS 16
-#define MCP_TIMEOUT_MS  30000
+#define MCP_MAX_SERVERS        16
+#define MCP_DEFAULT_TIMEOUT_MS 30000
 
 typedef struct {
     char *name;
@@ -29,6 +31,24 @@ typedef struct {
 
 static mcp_server g_servers[MCP_MAX_SERVERS];
 static int g_nservers = 0;
+static int g_timeout_ms = MCP_DEFAULT_TIMEOUT_MS;
+
+void mcp_set_timeout_ms(int timeout_ms) {
+    g_timeout_ms = timeout_ms > 0 ? timeout_ms : MCP_DEFAULT_TIMEOUT_MS;
+}
+
+static void stop_process(pid_t pid) {
+    if (pid <= 0) return;
+    if (kill(pid, SIGTERM) != 0 && errno == ESRCH) return;
+    for (int i = 0; i < 20; i++) {
+        pid_t rc = waitpid(pid, NULL, WNOHANG);
+        if (rc == pid || (rc < 0 && errno == ECHILD)) return;
+        struct timespec pause = {0, 10 * 1000 * 1000};
+        while (nanosleep(&pause, &pause) != 0 && errno == EINTR) {}
+    }
+    if (kill(pid, SIGKILL) != 0 && errno == ESRCH) return;
+    while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
+}
 
 void mcp_shutdown_all(void) {
     for (int i = 0; i < g_nservers; i++) {
@@ -36,8 +56,7 @@ void mcp_shutdown_all(void) {
         if (s->pid > 0) {
             close(s->in_fd);
             close(s->out_fd);
-            kill(s->pid, SIGTERM);
-            waitpid(s->pid, NULL, WNOHANG);
+            stop_process(s->pid);
         }
         free(s->name);
         buf_free(&s->rbuf);
@@ -46,17 +65,29 @@ void mcp_shutdown_all(void) {
     g_nservers = 0;
 }
 
+void mcp_fmt_request(buf_t *b, int id, const char *method, const char *params_json) {
+    buf_appendf(b, "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":", id);
+    jescape(b, method);
+    buf_appendf(b, ",\"params\":%s}", params_json ? params_json : "{}");
+}
+
+void mcp_fmt_notify(buf_t *b, const char *method) {
+    buf_appends(b, "{\"jsonrpc\":\"2.0\",\"method\":");
+    jescape(b, method);
+    buf_appends(b, "}");
+}
+
 /* Send one JSON-RPC request and wait for the matching id. Returns doc. */
 static yyjson_doc *rpc(mcp_server *s, const char *method, const char *params_json) {
     int id = ++s->next_id;
     buf_t req;
     buf_init(&req);
-    buf_appendf(&req, "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"%s\",\"params\":%s}\n", id,
-                method, params_json ? params_json : "{}");
+    mcp_fmt_request(&req, id, method, params_json);
+    buf_appends(&req, "\n");
     ssize_t w = write(s->in_fd, req.data, req.len);
     buf_free(&req);
     if (w < 0) return NULL;
-    int64_t deadline = now_ms() + MCP_TIMEOUT_MS;
+    int64_t deadline = now_ms() + g_timeout_ms;
     for (;;) {
         /* scan buffered lines */
         for (;;) {
@@ -84,7 +115,8 @@ static yyjson_doc *rpc(mcp_server *s, const char *method, const char *params_jso
 static void notify(mcp_server *s, const char *method) {
     buf_t req;
     buf_init(&req);
-    buf_appendf(&req, "{\"jsonrpc\":\"2.0\",\"method\":\"%s\"}\n", method);
+    mcp_fmt_notify(&req, method);
+    buf_appends(&req, "\n");
     ssize_t w = write(s->in_fd, req.data, req.len);
     (void)w;
     buf_free(&req);
@@ -154,9 +186,9 @@ static mcp_server *start_server(tools_env *env, const char *name, yyjson_val *co
                            "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
                            "\"clientInfo\":{\"name\":\"tny\",\"version\":\"" TNY_VERSION "\"}}");
     if (!init) {
-        kill(pid, SIGTERM);
         close(s->in_fd);
         close(s->out_fd);
+        stop_process(pid);
         free(s->name);
         g_nservers--;
         return NULL;

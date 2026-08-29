@@ -36,6 +36,11 @@ Remote auth: `header_env`, `bearer_token_env`, optional OAuth from an interactiv
 
 ACP sessions (`tny acp`): use only client-supplied `mcpServers`, not the user profile (fx rule).
 
+The stdio client is native-only. In wasm, process spawning is unavailable and
+MCP use returns the existing clean no-profile / `could not start MCP server`
+error; HTTP/SSE transport remains deferred. CI exercises only a local stdio
+fixture and never connects to a live MCP host.
+
 tny is not an MCP server.
 
 ## Skills
