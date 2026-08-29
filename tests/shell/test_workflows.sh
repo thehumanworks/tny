@@ -525,6 +525,15 @@ if kill -0 "$scheduler_pid" 2> /dev/null; then
 fi
 scheduler_pid=
 scheduler_launcher_pid=
+# The child's EXIT trap writes the active-count file after the worker's
+# wait(2) returns. A loaded host can land that write after the scheduler
+# has already exited 130; wait for the drop instead of reading once.
+attempt=0
+while [ "$(cat "$TNY_FAKE_LOG.active")" != 0 ]; do
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 100 ] || break
+    sleep 0.01
+done
 assert_eq "$(cat "$TNY_FAKE_LOG.active")" 0 "active child after scheduler signal"
 assert_file_contains "$TNY_FAKE_LOG.events" 'end slow'
 tny_workflow_cleanup

@@ -67,6 +67,17 @@ stdenv.mkDerivation {
   enableParallelBuilding = true;
   dontConfigure = true;
 
+  # `test` compiles the ASan unit suite; `test-shell-workflows` is a
+  # process-group scheduler. Putting both in buildFlags lets -jN interleave
+  # them, and a loaded builder can expire the 1s TERM grace before a
+  # cooperative child's EXIT trap records the active-count drop.
+  buildPhase = ''
+    runHook preBuild
+    make -j''${NIX_BUILD_CORES} $makeFlags test
+    make $makeFlags test-shell-workflows
+    runHook postBuild
+  '';
+
   # The fixture agents and mock hosts are `#!/usr/bin/env python3` scripts that
   # tny execs directly; /usr/bin/env does not exist in the sandbox.
   postPatch = ''
@@ -84,7 +95,6 @@ stdenv.mkDerivation {
     # to the active-library integration tests.
     "LIBTNY_MACH_CURRENT_VERSION=1.0.0"
   ];
-  buildFlags = [ "test" "test-shell-workflows" ];
 
   # `make test` is the whole point; there is nothing to install.
   installPhase = ''

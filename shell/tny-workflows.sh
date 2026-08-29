@@ -649,7 +649,10 @@ _tny_workflow_cancel_running() {
         if [ -f "$TNY_WORKFLOW_DIR/run/$task/child_pid" ]; then
             child_pid=$(cat "$TNY_WORKFLOW_DIR/run/$task/child_pid")
             if _tny_workflow_valid_pid "$child_pid"; then
+                # Group first so descendants see TERM; the leader again in
+                # case the platform rejects `kill -- -PGID` but accepts pid.
                 kill -TERM -- "-$child_pid" 2> /dev/null || true
+                kill -TERM "$child_pid" 2> /dev/null || true
             fi
         fi
         if [ -f "$TNY_WORKFLOW_DIR/run/$task/pid" ]; then
@@ -683,6 +686,7 @@ _tny_workflow_cancel_running() {
         child_pid=$(cat "$TNY_WORKFLOW_DIR/run/$task/child_pid")
         if _tny_workflow_valid_pid "$child_pid" && kill -0 -- "-$child_pid" 2> /dev/null; then
             kill -KILL -- "-$child_pid" 2> /dev/null || true
+            kill -KILL "$child_pid" 2> /dev/null || true
         fi
     done < "$TNY_WORKFLOW_DIR/tasks.list"
 

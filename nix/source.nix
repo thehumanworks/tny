@@ -30,10 +30,16 @@ let
   # suites read the contract itself:
   # test_extension_contract.py against docs/features/, test_site.py by
   # regenerating site/ with scripts/site_build.py and diffing.
+  # test_nix_ci_matrix.py reads the flake systems list, the nix workflow, and
+  # this fileset so a filtered src cannot drop the files that test exists to
+  # keep in lockstep.
   testFiles = unions [
     buildFiles
+    ../.github/workflows/nix.yml
     ../docs
     ../examples # tests/extensions/test_examples.py loads every shipped example
+    ../flake.nix
+    ../nix/source.nix
     ../scripts
     ../sdk/conformance
     ../sdk/schema

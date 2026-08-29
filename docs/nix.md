@@ -13,7 +13,10 @@ entries share one `check` job and the same `nix flake check`, binary smoke,
 revision, and `nix-instantiate` steps, so wrapping, RUNPATH, closure, and
 sandbox behavior are gated on both Linux architectures as well as Apple
 Silicon. Do not add `x86_64-darwin`. `tests/integration/test_nix_ci_matrix.py`
-keeps that matrix, the flake `systems` list, and these docs in lockstep.
+keeps that matrix, the flake `systems` list, and these docs in lockstep. The
+`checks.tests` fileset therefore includes `flake.nix` and
+`.github/workflows/nix.yml` (`nix/source.nix`): a filtered source without them
+fails this lockstep test inside `nix flake check`.
 
 ## Run it
 
