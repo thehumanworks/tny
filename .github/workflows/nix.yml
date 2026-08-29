@@ -4,8 +4,9 @@
 # checkPhase), packages.libtny, and checks.tests — the whole `make test` suite
 # in a sandbox. Fixture-only; no live keys.
 #
-# No path filter: checks.tests reads docs/, site/ and scripts/ as well as the
-# sources, so almost any change can move it.
+# No path filter: checks.tests reads docs/, site/, scripts/, flake.nix and
+# .github/workflows/nix.yml as well as the sources, so almost any change can
+# move it.
 #
 # Linux runs x86_64 and aarch64; macOS runs Apple Silicon only. Never add an
 # Intel Mac runner — aarch64-darwin is the only Darwin system the flake claims.

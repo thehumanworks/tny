@@ -11,6 +11,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "nix.yml"
 CI_DOC = ROOT / "docs" / "ci.md"
 NIX_DOC = ROOT / "docs" / "nix.md"
 FLAKE = ROOT / "flake.nix"
+SOURCE = ROOT / "nix" / "source.nix"
 
 EXPECTED_MATRIX = [
     ("nix-linux-x86_64", "ubuntu-24.04"),
@@ -20,11 +21,21 @@ EXPECTED_MATRIX = [
 EXPECTED_SYSTEMS = ["x86_64-linux", "aarch64-linux", "aarch64-darwin"]
 
 
+def _require_file(path: Path) -> str:
+    if not path.is_file():
+        raise SystemExit(
+            f"{path.relative_to(ROOT)} is missing from the test source; "
+            "add it to nix/source.nix testFiles"
+        )
+    return path.read_text(encoding="utf-8")
+
+
 def main() -> int:
-    workflow = WORKFLOW.read_text(encoding="utf-8")
-    ci_doc = CI_DOC.read_text(encoding="utf-8")
-    nix_doc = NIX_DOC.read_text(encoding="utf-8")
-    flake = FLAKE.read_text(encoding="utf-8")
+    workflow = _require_file(WORKFLOW)
+    ci_doc = _require_file(CI_DOC)
+    nix_doc = _require_file(NIX_DOC)
+    flake = _require_file(FLAKE)
+    source = _require_file(SOURCE)
 
     matrix = re.search(r"(?ms)^      matrix:\n(?P<body>.*?)(?=^    steps:)", workflow)
     assert matrix, "nix workflow check matrix not found"
@@ -80,6 +91,13 @@ def main() -> int:
         assert text in ci_doc, text
     assert ".github/workflows/nix.yml" in nix_doc
     assert "native-checks all three systems" in nix_doc
+    assert "fileset therefore includes" in nix_doc
+    for required in (
+        "../.github/workflows/nix.yml",
+        "../flake.nix",
+        "../nix/source.nix",
+    ):
+        assert required in source, required
 
     banned_phrases = (
         "on `ubuntu-24.04` and `macos-15`",
