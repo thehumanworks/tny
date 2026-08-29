@@ -11,6 +11,15 @@
 
 #define TT_SESSION_ID_LEN 8
 
+/* Per-session pending-input cap. Input the pty cannot take yet is queued
+ * here and drained when the master fd is writable; a writer that gets
+ * this far ahead of the child is rejected rather than served silently
+ * truncated input (docs/http-api.md, docs/architecture.md). */
+#define TT_INPUT_QUEUE_MAX (4u * 1024u * 1024u)
+/* Adapters that own their input source (the `run` tty) stop reading it
+ * above this mark, so the cap itself is only reachable through the API. */
+#define TT_INPUT_HIGH_WATER (1u * 1024u * 1024u)
+
 typedef struct tt_session {
     char id[TT_SESSION_ID_LEN + 1];
     char **argv; /* NULL-terminated, owned */
@@ -19,6 +28,9 @@ typedef struct tt_session {
     bool alive;
     int exit_code; /* valid once !alive */
     time_t created;
+    /* Input the pty could not take yet: [pend_off, pend_len) is live. */
+    char *pending;
+    size_t pend_off, pend_len, pend_cap;
     struct tt_session *next;
 } tt_session;
 
@@ -44,7 +56,18 @@ void tt_session_destroy(tt_registry *r, tt_session *s);
 int tt_session_pump(tt_session *s, char *scratch, size_t scratch_len,
                     void (*raw)(void *user, const char *bytes, size_t len), void *raw_user);
 
+/* Write to the pty, queueing whatever write(2) cannot take right now so
+ * no byte is ever dropped mid-sequence. All-or-nothing: returns len when
+ * every byte was written or queued, 0 for len == 0, or -1 with errno set
+ * — ENOBUFS when the queue cap (TT_INPUT_QUEUE_MAX) would be exceeded
+ * (nothing is queued), ENXIO when the session is gone. Queued bytes are
+ * always sent before later ones. */
 int tt_session_write(tt_session *s, const char *bytes, size_t len);
+/* Bytes still queued for the pty; the loop polls POLLOUT while > 0. */
+size_t tt_session_pending(const tt_session *s);
+/* Drain the queue into the pty (call when the master fd is writable).
+ * Returns bytes written, or -1 if the pty died (queue dropped). */
+int tt_session_flush(tt_session *s);
 int tt_session_resize(tt_session *s, int cols, int rows);
 
 #endif

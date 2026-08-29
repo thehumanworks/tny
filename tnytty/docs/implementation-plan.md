@@ -47,10 +47,26 @@ against recorded fixtures.
 **Gate:** two tnytty processes on different machines share one live
 session; a script drives a TUI over SSE + POST with no polling loop.
 
+## Phase 3.5 — the first native renderer (shipped)
+
+- Window seam (`src/ui/window.h`) with `window_macos.c` (AppKit through
+  the Objective-C runtime, from C) and `window_stub.c` elsewhere; CPU
+  cell rasterizer (`src/ui/render.c`); key encoder (`src/ui/keys.c`);
+  `tnytty gui` (`src/ui/gui.c`); config file (`src/util/config.c`).
+- Titlebar transparent by default, opaque on request
+  ([ADR 0005](adr/0005-native-renderer-and-macos-window.md),
+  [config.md](config.md)).
+
+**Gate:** `make -C tnytty test` covers config parsing, dirty rows,
+cell-to-pixel mapping and key encoding on every host; `gui` is a clean
+error off macOS. Kitty graphics in the window are explicitly deferred to
+phase 2's placement geometry.
+
 ## Phase 4 — platforms
 
 - Windows: `pty_win.c` on ConPTY; CI job on MSYS2/native as the root
-  harness does.
+  harness does; `window_win.c` (DirectWrite glyph masks) behind the same
+  seam as the macOS window.
 - iOS: no fork/pty on-device — tnytty ships as the renderer + HTTP
   client attaching to remote sessions ([platforms.md](platforms.md)).
 - wasm: evaluate reusing the harness's `tny_poll`/net seams (root ADR

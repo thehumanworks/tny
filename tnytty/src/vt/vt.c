@@ -47,6 +47,7 @@ struct vt {
     bool cursor_visible;
     bool autowrap;
     bool bracketed;
+    bool app_cursor; /* DECCKM: arrows send SS3, not CSI */
     char title[256];
 
     /* parser */
@@ -369,6 +370,7 @@ static void leave_alt(vt *t) {
 static void dec_mode(vt *t, bool set) {
     for (int i = 0; i < t->nparams; i++) {
         switch (t->params[i]) {
+        case 1: t->app_cursor = set; break;
         case 7: t->autowrap = set; break;
         case 25: t->cursor_visible = set; break;
         case 47:
@@ -554,6 +556,7 @@ static void full_reset(vt *t) {
     t->autowrap = true;
     t->cursor_visible = true;
     t->bracketed = false;
+    t->app_cursor = false;
     leave_alt(t);
     clear_rows(t, 0, t->rows - 1);
     move_cursor(t, 0, 0);
@@ -813,6 +816,7 @@ int vt_cursor_y(const vt *t) { return t->cy; }
 bool vt_cursor_visible(const vt *t) { return t->cursor_visible; }
 bool vt_alt_screen(const vt *t) { return t->alt_on; }
 bool vt_bracketed_paste(const vt *t) { return t->bracketed; }
+bool vt_app_cursor(const vt *t) { return t->app_cursor; }
 const char *vt_title(const vt *t) { return t->title; }
 int vt_graphics_count(const vt *t) { return t->gfx_count; }
 

@@ -28,6 +28,7 @@ static const char *status_text(int code) {
     case 401: return "Unauthorized";
     case 404: return "Not Found";
     case 405: return "Method Not Allowed";
+    case 503: return "Service Unavailable";
     default: return "Internal Server Error";
     }
 }
@@ -323,6 +324,13 @@ static void handle_input(tt_api *api, tt_session *s, const char *body, size_t bo
     }
     yyjson_doc_free(doc);
     if (written < 0) {
+        if (errno == ENOBUFS) {
+            /* The child is not draining its input; queueing more would
+             * grow without bound, so reject the whole write rather than
+             * accept a truncated prefix (docs/http-api.md). */
+            tt_api_error(out, 503, "input queue full");
+            return;
+        }
         tt_api_error(out, 500, "session is not writable");
         return;
     }

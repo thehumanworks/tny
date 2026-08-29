@@ -76,6 +76,7 @@ static void session_free(tt_session *s) {
     tt_pty_close(&s->pty);
     vt_free(s->term);
     free_argv(s->argv);
+    free(s->pending);
     free(s);
 }
 
@@ -114,8 +115,42 @@ int tt_session_pump(tt_session *s, char *scratch, size_t scratch_len,
     return -1;
 }
 
-int tt_session_write(tt_session *s, const char *bytes, size_t len) {
-    if (!s->alive || s->pty.master < 0) return -1;
+size_t tt_session_pending(const tt_session *s) { return s->pend_len - s->pend_off; }
+
+/* Drop the queue: the pty is gone, so its input can never be delivered. */
+static void queue_reset(tt_session *s) {
+    s->pend_off = 0;
+    s->pend_len = 0;
+}
+
+/* Append to the tail of the queue, growing it (never past the cap, which
+ * the caller has already checked) and reclaiming drained head bytes. */
+static int queue_append(tt_session *s, const char *bytes, size_t len) {
+    if (s->pend_off == s->pend_len) queue_reset(s);
+    if (s->pend_len + len > s->pend_cap) {
+        if (s->pend_off > 0) { /* compact before growing */
+            memmove(s->pending, s->pending + s->pend_off, s->pend_len - s->pend_off);
+            s->pend_len -= s->pend_off;
+            s->pend_off = 0;
+        }
+        if (s->pend_len + len > s->pend_cap) {
+            size_t cap = s->pend_cap ? s->pend_cap : 4096;
+            while (cap < s->pend_len + len) cap *= 2;
+            if (cap > TT_INPUT_QUEUE_MAX) cap = TT_INPUT_QUEUE_MAX;
+            char *grown = realloc(s->pending, cap);
+            if (!grown) return -1;
+            s->pending = grown;
+            s->pend_cap = cap;
+        }
+    }
+    memcpy(s->pending + s->pend_len, bytes, len);
+    s->pend_len += len;
+    return 0;
+}
+
+/* Push bytes at the pty until it says EAGAIN. Returns how many went in,
+ * or -1 (session dead) — the caller queues whatever is left. */
+static ssize_t pty_push(tt_session *s, const char *bytes, size_t len) {
     size_t off = 0;
     while (off < len) {
         ssize_t n = write(s->pty.master, bytes + off, len - off);
@@ -126,7 +161,50 @@ int tt_session_write(tt_session *s, const char *bytes, size_t len) {
         }
         off += (size_t)n;
     }
-    return (int)off;
+    return (ssize_t)off;
+}
+
+int tt_session_flush(tt_session *s) {
+    size_t queued = tt_session_pending(s);
+    if (queued == 0) return 0;
+    if (!s->alive || s->pty.master < 0) {
+        queue_reset(s);
+        errno = ENXIO;
+        return -1;
+    }
+    ssize_t n = pty_push(s, s->pending + s->pend_off, queued);
+    if (n < 0) {
+        queue_reset(s);
+        return -1;
+    }
+    s->pend_off += (size_t)n;
+    if (s->pend_off == s->pend_len) queue_reset(s);
+    return (int)n;
+}
+
+int tt_session_write(tt_session *s, const char *bytes, size_t len) {
+    if (!s->alive || s->pty.master < 0) {
+        errno = ENXIO;
+        return -1;
+    }
+    if (len == 0) return 0;
+    /* Worst case every byte is queued; check the cap up front so a
+     * rejected write never leaves a torn prefix in the pty. */
+    if (len > TT_INPUT_QUEUE_MAX - tt_session_pending(s)) {
+        errno = ENOBUFS;
+        return -1;
+    }
+    size_t off = 0;
+    if (tt_session_pending(s) == 0) { /* nothing owed: the fd may take it now */
+        ssize_t n = pty_push(s, bytes, len);
+        if (n < 0) return -1;
+        off = (size_t)n;
+    }
+    if (off < len && queue_append(s, bytes + off, len - off) != 0) {
+        errno = ENOMEM;
+        return -1;
+    }
+    return (int)len;
 }
 
 int tt_session_resize(tt_session *s, int cols, int rows) {

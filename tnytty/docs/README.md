@@ -25,7 +25,8 @@ this tree governs tnytty.
 
 | Doc | Why |
 | --- | --- |
-| [cli.md](cli.md) | Command tree: `run`, `serve`, `icat`, flags |
+| [cli.md](cli.md) | Command tree: `run`, `gui`, `serve`, `icat`, flags |
+| [config.md](config.md) | The config file: location, keys, defaults |
 | [http-api.md](http-api.md) | REST surface, auth, session sharing |
 
 ## Decisions
@@ -39,3 +40,4 @@ Numbered, append-only, same rules as the root
 | [0002](adr/0002-http-api-and-auth.md) | The HTTP API is the scripting surface; loopback is open, non-loopback requires a bearer token |
 | [0003](adr/0003-kitty-graphics-and-icat.md) | Kitty graphics passes through and is recorded; `icat` is a built-in subcommand, not a separate binary |
 | [0004](adr/0004-nerd-font-width-policy.md) | Private Use Area codepoints (nerd fonts) are width 1; width is computed from built-in tables, not locale `wcwidth` |
+| [0005](adr/0005-native-renderer-and-macos-window.md) | The native renderer is a CPU cell rasterizer behind a window seam; macOS drives AppKit from C through the Objective-C runtime, titlebar transparent by default |

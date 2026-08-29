@@ -82,6 +82,19 @@ Body `{"text":"ls -la\r"}` (UTF-8, written verbatim to the pty) or
 Control characters are the caller's job (`\r` for Enter, `` for
 Ctrl-C); the API never rewrites input.
 
+A pty master accepts only a kernel buffer's worth of input at a time.
+Bytes that do not fit are **queued on the session** and drained by the
+event loop as the child reads, so `"written":N` always equals the bytes
+you sent and nothing is ever truncated mid-sequence — a half-delivered
+`ESC[201~` would leave a literal `[201~` at the prompt.
+
+The queue is bounded at **4 MiB per session** (`TT_INPUT_QUEUE_MAX`).
+A write that would push it past the cap is rejected **whole** — nothing
+is queued, ordering is preserved — with
+`503 {"error":"input queue full"}`. That happens only when the child has
+stopped reading; retry once it catches up. Request bodies are separately
+capped at 1 MiB, so reaching the queue cap takes repeated posts.
+
 ### `POST /v1/sessions/{id}/resize`
 
 Body `{"cols":120,"rows":40}` → grid reflow + `TIOCSWINSZ` + `SIGWINCH`
@@ -95,7 +108,8 @@ to the child. `200 {...session}`.
 ## Errors
 
 Always JSON: `{"error":"<message>"}` with 400 (bad request/JSON), 401
-(auth), 404 (unknown session or route), 405 (method), 500 (spawn/OS).
+(auth), 404 (unknown session or route), 405 (method), 500 (spawn/OS),
+503 (input queue full — the child is not draining its input).
 
 ## Examples
 
