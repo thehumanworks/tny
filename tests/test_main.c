@@ -16,6 +16,7 @@ SUITE_EXTERN(openai_suite);
 SUITE_EXTERN(ephemeral_suite);
 SUITE_EXTERN(session_bg_suite);
 SUITE_EXTERN(ssh_suite);
+SUITE_EXTERN(skills_suite);
 
 int main(int argc, char **argv) {
     GREATEST_MAIN_BEGIN();
@@ -32,5 +33,6 @@ int main(int argc, char **argv) {
     RUN_SUITE(ephemeral_suite);
     RUN_SUITE(session_bg_suite);
     RUN_SUITE(ssh_suite);
+    RUN_SUITE(skills_suite);
     GREATEST_MAIN_END();
 }
