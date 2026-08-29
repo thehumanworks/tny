@@ -12,7 +12,7 @@ Keep fx names so prompts and muscle memory transfer:
 | Search | `semantic_search` (lexical, not embeddings), `open_file` |
 | Shell | `terminal` (fx runtime name; accept `run_command` as an alias) |
 | Web | `web_search` (optional provider), `web_fetch` |
-| Images | `read_image` (png/jpeg/gif/webp via magic bytes; `vision` is an alias). Tool result is a short text; pixels go out as a follow-up user `image_url` message ([ADR 0008](../adr/0008-native-loop-images.md)) |
+| Images | `read_image` (png/jpeg/gif/webp via magic bytes; `vision` is an alias). Tool result is a short text; pixels go out as a follow-up user `image_url` message ([ADR 0008](../adr/0008-native-loop-images.md)). `tny ask --image PATH` attaches the same shape on the first user message (max 16 flags; a 17th is exit 1) |
 | Skills | `skill`, `install_skill` |
 | Subagents | `subagent` (`create`, `inspect`, `message`, `relationship`, `configure`, `lifecycle`) |
 | MCP | `mcp_search_tools`, `mcp_select_tool`, `mcp_features` + selected namespaced tools |

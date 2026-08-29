@@ -287,6 +287,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 if (n_images < 16) images[n_images++] = argv[++i];
                 else {
                     fprintf(stderr, "tny: too many --image flags (max 16)\n");
+                    buf_free(&prompt);
                     return 1;
                 }
             } else if (strcmp(a, "--") == 0) raw = true;
