@@ -130,6 +130,32 @@ TEST connect_resolves_cwd_and_argv_shape(void) {
     PASS();
 }
 
+/* A ~ in --ssh-cwd is the *remote* home (the fake ssh runs commands with
+ * HOME pointing at the sandbox), never the local one. */
+TEST connect_expands_tilde_against_remote_home(void) {
+    ensure_env();
+    char proj[700];
+    snprintf(proj, sizeof proj, "%s/proj", g_remote);
+    mkdir_p(proj);
+    char err[256];
+
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    if (ssh_target_set(ctx, "alice@example.test:2222", err, sizeof err) != 0) abort();
+    ctx->ssh_cwd = xstrdup("~/proj");
+    ASSERT_EQ(0, ssh_connect(ctx, err, sizeof err));
+    ASSERT_STR_EQ(proj, ctx->ssh_cwd);
+    tny_ctx_free(ctx);
+
+    /* bare ~ resolves to the remote login dir */
+    ctx = tny_ctx_load(g_ws);
+    if (ssh_target_set(ctx, "alice@example.test:2222", err, sizeof err) != 0) abort();
+    ctx->ssh_cwd = xstrdup("~");
+    ASSERT_EQ(0, ssh_connect(ctx, err, sizeof err));
+    ASSERT_STR_EQ(g_remote, ctx->ssh_cwd);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST run_stdin_timeout_and_cap(void) {
     tny_ctx *ctx = remote_ctx();
     buf_t out;
@@ -390,6 +416,7 @@ TEST disconnect_sends_control_exit(void) {
 SUITE(ssh_suite) {
     RUN_TEST(target_parsing);
     RUN_TEST(connect_resolves_cwd_and_argv_shape);
+    RUN_TEST(connect_expands_tilde_against_remote_home);
     RUN_TEST(run_stdin_timeout_and_cap);
     RUN_TEST(file_tools_round_trip);
     RUN_TEST(terminal_runs_remotely);

@@ -94,13 +94,15 @@ remote host over one persistent OpenSSH connection
 `sshd`, a POSIX `sh` and coreutils; **tny is not required there**.
 
 ```sh
-tny --ssh dev@example.com --ssh-cwd ~/app          # TUI, tools act on the box
+tny --ssh dev@example.com --ssh-cwd '~/app'        # TUI, tools act on the box
 tny --ssh dev@example.com:2222 ask "run the tests" # one-shot
 tny --ssh '[2001:db8::1]:22' ask "df -h"
 ```
 
 - `--ssh-cwd DIR` sets the remote working directory (default: the login
-  directory). `--cwd` stays the *local* workspace for settings and sessions.
+  directory). A leading `~` resolves against the **remote** home — quote it
+  (`--ssh-cwd '~/app'`) so the local shell doesn't expand it to the local
+  home first. `--cwd` stays the *local* workspace for settings and sessions.
 - The connection is opened before the TUI starts, so OpenSSH prompts for
   passwords / host keys as usual; tool calls then reuse it (`BatchMode`).
   The master lives in `~/.tny/ssh/` and idles out after 10 minutes.
