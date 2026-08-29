@@ -424,13 +424,32 @@ jobs:
         run: |
           set -eu
           cd assets
-          sha256sum tny-* libtny1-* libtny0-compat-* conformance-* thehumanworks-* > SHA256SUMS
+          # merge-multiple keeps dist/sdk/* under sdk/ (v0.2.2 failed here:
+          # conformance-* and thehumanworks-* never existed at the root).
+          find . -mindepth 2 -type f -exec mv -t . {} +
+          find . -type d -empty -delete
+          shopt -s nullglob
+          files=( tny-* libtny1-* libtny0-compat-* conformance-* thehumanworks-* )
+          for required in tny- libtny1- libtny0-compat- conformance- thehumanworks-; do
+            found=0
+            for f in "${files[@]}"; do
+              case "$f" in
+                "$required"*) found=1; break ;;
+              esac
+            done
+            if [ "$found" -eq 0 ]; then
+              echo "error: missing ${required}* after flatten" >&2
+              find . -print
+              exit 1
+            fi
+          done
+          sha256sum "${files[@]}" > SHA256SUMS
           ls -l
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "tny $GITHUB_REF_NAME" \
             --generate-notes \
-            tny-* libtny1-* libtny0-compat-* conformance-* thehumanworks-* SHA256SUMS
+            "${files[@]}" SHA256SUMS
 
   validate-registries:
     name: validate complete SDK registry set

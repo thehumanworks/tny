@@ -66,6 +66,14 @@ class ReleaseValidatorTests(unittest.TestCase):
         )[0]
         self.assertIn("--require-active", validation_job)
         self.assertIn("needs: [build, musl, windows, validate-registries]", workflow)
+        publish_job = workflow.split("  publish:\n", 1)[1].split(
+            "\n  validate-registries:\n", 1
+        )[0]
+        self.assertIn("find . -mindepth 2 -type f", publish_job)
+        self.assertIn(
+            "files=( tny-* libtny1-* libtny0-compat-* conformance-* thehumanworks-* )",
+            publish_job,
+        )
 
     def test_synthetic_three_platform_cardinality_passes(self) -> None:
         counts = {
