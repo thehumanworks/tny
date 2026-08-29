@@ -88,6 +88,12 @@ typedef struct tny_ctx {
                                       * defaults must not replace it */
     bool service_tier_from_settings; /* recompute on provider switches */
 
+    /* user system prompt (--system-prompt, all providers). The openai
+     * backend carries it on its native system/instructions field; host
+     * backends with no such schema field (cursor, codex, acp) get it
+     * prepended to the session's first user message instead (runtime.c). */
+    char *system_prompt;
+
     /* reasoning effort (all providers). Canonical levels are
      * TNY_EFFORT_LEVELS; other tokens are provider-advertised values passed
      * through verbatim. NULL = provider default (field omitted on the wire). */

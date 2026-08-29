@@ -32,7 +32,7 @@ Responses request (minimum):
 ```json
 {
   "model": "gpt-4.1-mini",
-  "instructions": "…system preamble…",
+  "instructions": "…system preamble… (a --system-prompt leads it, ADR 0045)",
   "input": [
     { "role": "user", "content": "…" },
     { "type": "function_call", "call_id": "call_1", "name": "read_file", "arguments": "{…}" },

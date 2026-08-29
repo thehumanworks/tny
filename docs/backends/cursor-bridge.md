@@ -207,6 +207,10 @@ unknown param id is silently dropped by the bridge. tny therefore resolves
 the model default runs; catalog unreachable → param id `effort` is sent
 unverified with a status saying so.
 
+`--system-prompt`: `CreateAgent` options carry no instructions field, so tny
+prepends the text to the first user message of a fresh agent instead
+([ADR 0045](../adr/0045-system-prompt-flag.md)).
+
 Permission mode is **not** wired into `CreateAgent`: the bridge is headless
 with no per-call approval RPC, so tny emits one status line when
 `perm_mode != yolo` pointing at `--backend acp` for per-call approvals.
