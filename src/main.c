@@ -61,6 +61,10 @@ int main(int argc, char **argv) {
         rc = cmd_backends(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "models") == 0) {
         rc = cmd_models(ctx, &g, cargc, cargv);
+    } else if (strcmp(cmd, "tasks") == 0) {
+        rc = cmd_tasks(ctx, &g, cargc, cargv);
+    } else if (strcmp(cmd, "task") == 0) {
+        rc = cmd_task(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "permissions") == 0) {
         rc = cmd_permissions(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "workspace") == 0) {

@@ -1,15 +1,17 @@
 # tny Python SDK
 
-This is the typed Python adapter for the stable **libtny ABI 1.0+**. The native runtime
+This is the typed Python adapter for stable **libtny ABI 1.0+**. Task presets
+require ABI 1.1; ABI 1.0 remains usable when no task is requested. The native runtime
 remains the source of truth; this package owns lifecycle, thread-affinity,
 event copying, error mapping, and sync/async ergonomics.
 
 ```python
-from tny import Runtime, RuntimeConfig, TextDeltaEvent
+from tny import Runtime, RuntimeConfig, TaskPreset, TextDeltaEvent
 
 config = RuntimeConfig(
     workspace=".", state_dir=".tny-sdk-state",
     base_url="http://127.0.0.1:8080/v1", api_key="...",
+    task_preset=TaskPreset("review"),  # or TaskPreset("release", "...")
 )
 with Runtime(config) as runtime:
     with runtime.create_session() as session:

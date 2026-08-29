@@ -12,6 +12,7 @@ typedef struct {
     const char *model;                    /* --model */
     const char *effort;                   /* --effort | --reasoning-effort */
     const char *system_prompt;            /* --system-prompt */
+    const char *task;                     /* --task NAME */
     const char *perm_mode;                /* --permission-mode | --yolo | --auto */
     const char *max_steps;                /* --max-steps N|unlimited (0 = no cap) */
     const char *max_extension_iterations; /* 0/unlimited = no cap */
@@ -68,6 +69,8 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_provider(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_usage(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_setup(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+int cmd_tasks(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+int cmd_task(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_logout(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_acp_server(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

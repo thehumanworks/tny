@@ -63,7 +63,7 @@ static int query_boundaries(tny_runtime *runtime) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 3 || tny_abi_version() != UINT32_C(65536)) return 1;
+    if (argc != 3 || tny_abi_version() != UINT32_C(65537)) return 1;
     if (create_boundaries(argv[1]) != 0) return 2;
 
     union {
@@ -97,7 +97,7 @@ int main(int argc, char **argv) {
     tny_capabilities_v0 *capabilities = (tny_capabilities_v0 *)cap_prefix.bytes;
     if (tny_runtime_get_capabilities(runtime, capabilities, sizeof cap_prefix.bytes) !=
             TNY_STATUS_OK ||
-        capabilities->abi_version != UINT32_C(65536))
+        capabilities->abi_version != UINT32_C(65537))
         return 9;
     tny_capabilities_v0 full;
     if (tny_capabilities_init(&full, sizeof full) != TNY_STATUS_OK ||

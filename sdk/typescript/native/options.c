@@ -21,7 +21,8 @@ static int get_named(napi_env env, napi_value object, const char *name, napi_val
     return 1;
 }
 
-static int read_string(napi_env env, napi_value value, sdk_owned_bytes *out) {
+static int read_string_limited(napi_env env, napi_value value, size_t max_utf8_bytes,
+                               const char *limit_message, sdk_owned_bytes *out) {
     napi_valuetype type = napi_undefined;
     size_t utf8_len = 0u, utf16_len = 0u, written = 0u, index;
     char16_t *units;
@@ -32,7 +33,16 @@ static int read_string(napi_env env, napi_value value, sdk_owned_bytes *out) {
         (void)napi_throw_type_error(env, NULL, "expected string");
         return 0;
     }
+    if (napi_get_value_string_utf8(env, value, NULL, 0u, &utf8_len) != napi_ok) return 0;
+    if (utf8_len > max_utf8_bytes) {
+        (void)napi_throw_range_error(env, NULL, limit_message);
+        return 0;
+    }
     if (napi_get_value_string_utf16(env, value, NULL, 0u, &utf16_len) != napi_ok) return 0;
+    if (utf16_len > SIZE_MAX / sizeof(*units) - 1u) {
+        (void)napi_throw_range_error(env, NULL, "string is too large");
+        return 0;
+    }
     units = (char16_t *)malloc((utf16_len + 1u) * sizeof(*units));
     if (!units) {
         (void)napi_throw_error(env, NULL, "out of memory");
@@ -56,7 +66,6 @@ static int read_string(napi_env env, napi_value value, sdk_owned_bytes *out) {
         }
     }
     free(units);
-    if (napi_get_value_string_utf8(env, value, NULL, 0u, &utf8_len) != napi_ok) return 0;
     copy = (char *)malloc(utf8_len + 1u);
     if (!copy) {
         (void)napi_throw_error(env, NULL, "out of memory");
@@ -71,6 +80,10 @@ static int read_string(napi_env env, napi_value value, sdk_owned_bytes *out) {
     out->ptr = copy;
     out->len = (uint64_t)utf8_len;
     return 1;
+}
+
+static int read_string(napi_env env, napi_value value, sdk_owned_bytes *out) {
+    return read_string_limited(env, value, SIZE_MAX, "string is too large", out);
 }
 
 static int get_string(napi_env env, napi_value object, const char *name, int required,
@@ -88,6 +101,23 @@ static int get_string(napi_env env, napi_value object, const char *name, int req
         return 1;
     }
     return read_string(env, value, out);
+}
+
+static int get_string_limited(napi_env env, napi_value object, const char *name, int required,
+                              size_t max_utf8_bytes, const char *limit_message,
+                              sdk_owned_bytes *out) {
+    napi_value value;
+    int found = get_named(env, object, name, &value);
+    memset(out, 0, sizeof(*out));
+    if (found < 0) return 0;
+    if (found == 0) {
+        if (required) {
+            (void)napi_throw_type_error(env, NULL, "required string option is missing");
+            return 0;
+        }
+        return 1;
+    }
+    return read_string_limited(env, value, max_utf8_bytes, limit_message, out);
 }
 
 static int get_uint32(napi_env env, napi_value object, const char *name, uint32_t fallback,
@@ -181,8 +211,22 @@ int sdk_arg_string(napi_env env, napi_value value, sdk_owned_bytes *out) {
     return read_string(env, value, out);
 }
 
+static int task_name_valid(const sdk_owned_bytes *name) {
+    if (!name->ptr || name->len == 0u || name->len > 63u || name->ptr[0] == '.') return 0;
+    for (uint64_t i = 0u; i < name->len; i++) {
+        unsigned char c = (unsigned char)name->ptr[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+              c == '_' || c == '-' || c == '.'))
+            return 0;
+        if (c == '.' && i + 1u < name->len && name->ptr[i + 1u] == '.') return 0;
+    }
+    return 1;
+}
+
 int sdk_parse_create_options(napi_env env, napi_value object, create_options *options) {
     int persistence;
+    napi_value task;
+    napi_valuetype task_type = napi_undefined;
     if (!get_string(env, object, "workspace", 1, &options->workspace) ||
         !get_string(env, object, "stateDir", 0, &options->state_dir) ||
         !get_string(env, object, "provider", 0, &options->provider) ||
@@ -200,5 +244,42 @@ int sdk_parse_create_options(napi_env env, napi_value object, create_options *op
         return 0;
     }
     options->persistence = persistence ? 1u : 0u;
+    int task_found = get_named(env, object, "taskPreset", &task);
+    if (task_found < 0) return 0;
+    if (task_found > 0) {
+        if (napi_typeof(env, task, &task_type) != napi_ok) return 0;
+        if (task_type == napi_string) {
+            if (!read_string_limited(
+                    env, task, 63u,
+                    "taskPreset name must match [A-Za-z0-9_.-]{1,63} without a leading dot or '..'",
+                    &options->task_name))
+                return 0;
+        } else if (task_type == napi_object) {
+            if (!get_string_limited(
+                    env, task, "name", 1, 63u,
+                    "taskPreset name must match [A-Za-z0-9_.-]{1,63} without a leading dot or '..'",
+                    &options->task_name) ||
+                !get_string_limited(env, task, "instructions", 0, 262144u,
+                                    "taskPreset instructions must be at most 262144 UTF-8 bytes",
+                                    &options->task_instructions))
+                return 0;
+        } else {
+            (void)napi_throw_type_error(
+                env, NULL, "taskPreset must be a preset name or { name, instructions }");
+            return 0;
+        }
+        if (!task_name_valid(&options->task_name)) {
+            (void)napi_throw_type_error(
+                env, NULL,
+                "taskPreset name must match [A-Za-z0-9_.-]{1,63} without a leading dot or '..'");
+            return 0;
+        }
+        if (options->task_instructions.len > 262144u) {
+            (void)napi_throw_range_error(
+                env, NULL, "taskPreset instructions must be at most 262144 UTF-8 bytes");
+            return 0;
+        }
+        options->task_set = 1;
+    }
     return 1;
 }

@@ -6,6 +6,7 @@
 #include "core/perm.h"
 #include "core/runtime.h"
 #include "core/session.h"
+#include "core/tasks.h"
 #include "lib/custom_tools.h"
 #include "lib/host_services.h"
 #include "util/alloc.h"
@@ -21,6 +22,8 @@
 
 #define TNY_RUNTIME_OPTIONS_V0_FROZEN_SIZE UINT32_C(200)
 #define TNY_RUNTIME_OPTIONS_V1_FROZEN_SIZE UINT32_C(280)
+#define TNY_TASK_OPTIONS_V1_FROZEN_SIZE    UINT32_C(72)
+#define TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE UINT32_C(424)
 #define TNY_HOST_SERVICES_V1_FROZEN_SIZE   UINT32_C(136)
 #define TNY_TOOL_SPEC_V1_FROZEN_SIZE       UINT32_C(160)
 #define TNY_TOOL_RESULT_V1_FROZEN_SIZE     UINT32_C(64)
@@ -30,6 +33,8 @@
 
 #define TNY_RUNTIME_OPTIONS_V0_MIN_SIZE UINT32_C(40)
 #define TNY_RUNTIME_OPTIONS_V1_MIN_SIZE UINT32_C(208)
+#define TNY_TASK_OPTIONS_V1_MIN_SIZE    UINT32_C(40)
+#define TNY_RUNTIME_OPTIONS_V2_MIN_SIZE UINT32_C(360)
 #define TNY_HOST_SERVICES_V1_MIN_SIZE   UINT32_C(16)
 #define TNY_TOOL_SPEC_V1_MIN_SIZE       UINT32_C(96)
 #define TNY_TOOL_RESULT_V1_MIN_SIZE     UINT32_C(32)
@@ -41,6 +46,10 @@ _Static_assert(sizeof(tny_runtime_options_v0) == TNY_RUNTIME_OPTIONS_V0_FROZEN_S
                "ABI 1 runtime-options-v0 size drift");
 _Static_assert(sizeof(tny_runtime_options_v1) == TNY_RUNTIME_OPTIONS_V1_FROZEN_SIZE,
                "ABI 1 runtime-options-v1 size drift");
+_Static_assert(sizeof(tny_task_options_v1) == TNY_TASK_OPTIONS_V1_FROZEN_SIZE,
+               "ABI 1 task-options-v1 size drift");
+_Static_assert(sizeof(tny_runtime_options_v2) == TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE,
+               "ABI 1 runtime-options-v2 size drift");
 _Static_assert(sizeof(tny_host_services_v1) == TNY_HOST_SERVICES_V1_FROZEN_SIZE,
                "ABI 1 host-services-v1 size drift");
 _Static_assert(sizeof(tny_tool_spec_v1) == TNY_TOOL_SPEC_V1_FROZEN_SIZE,
@@ -56,6 +65,10 @@ _Static_assert(sizeof(tny_event_view_v0) == TNY_EVENT_VIEW_V0_FROZEN_SIZE,
 
 static const uint32_t OPTIONS0_BOUNDARIES[] = {40, 56, 72, 88, 104, 120, 136, 200};
 static const uint32_t OPTIONS1_BOUNDARIES[] = {208, 216, 280};
+/* Reserved tails remain opaque: only their start and the complete frozen
+ * record are accepted as caller capacities. */
+static const uint32_t TASK1_BOUNDARIES[] = {40, 72};
+static const uint32_t OPTIONS2_BOUNDARIES[] = {360, 424};
 static const uint32_t HOST1_BOUNDARIES[] = {16, 24, 32, 40, 48, 56, 64, 72, 136};
 static const uint32_t TOOL_SPEC1_BOUNDARIES[] = {96, 160};
 static const uint32_t TOOL_RESULT1_BOUNDARIES[] = {32, 64};
@@ -141,44 +154,17 @@ static int32_t scoped_status(int32_t status, tny_error **error) {
     return TNY_STATUS_OOM;
 }
 
-static bool utf8_valid(const unsigned char *s, uint64_t n) {
-    for (uint64_t i = 0; i < n;) {
-        unsigned c = s[i++];
-        if (c == 0) return false;
-        if (c < 0x80) continue;
-        unsigned need, min;
-        if ((c & 0xe0) == 0xc0) {
-            need = 1;
-            min = 0x80;
-            c &= 0x1f;
-        } else if ((c & 0xf0) == 0xe0) {
-            need = 2;
-            min = 0x800;
-            c &= 0x0f;
-        } else if ((c & 0xf8) == 0xf0) {
-            need = 3;
-            min = 0x10000;
-            c &= 0x07;
-        } else return false;
-        if (n - i < need) return false;
-        for (unsigned j = 0; j < need; j++) {
-            unsigned d = s[i++];
-            if ((d & 0xc0) != 0x80) return false;
-            c = (c << 6) | (d & 0x3f);
-        }
-        if (c < min || c > 0x10ffff || (c >= 0xd800 && c <= 0xdfff)) return false;
-    }
-    return true;
-}
-
 static int32_t copy_bytes(tny_bytes value, bool required, const char *field, char **out,
                           tny_error **error) {
     *out = NULL;
-    if (!value.ptr || value.len == 0) {
+    if (value.len == 0) {
         if (required) return failf(error, TNY_STATUS_INVALID_ARGUMENT, "%s is required", field);
         return TNY_STATUS_OK;
     }
-    if (value.len > SIZE_MAX - 1 || !utf8_valid((const unsigned char *)value.ptr, value.len))
+    if (!value.ptr)
+        return failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                     "%s has a nonzero length but no data pointer", field);
+    if (value.len > SIZE_MAX - 1 || !utf8_valid_bytes(value.ptr, (size_t)value.len))
         return failf(error, TNY_STATUS_INVALID_ARGUMENT, "%s must be valid UTF-8 without NUL bytes",
                      field);
     char *copy = malloc((size_t)value.len + 1);
@@ -289,6 +275,22 @@ static void runtime_options_v1_init_full(tny_runtime_options_v1 *o) {
     runtime_options_init_full(&o->runtime);
 }
 
+static void task_options_v1_init_full(tny_task_options_v1 *o) {
+    if (!o) return;
+    memset(o, 0, TNY_TASK_OPTIONS_V1_FROZEN_SIZE);
+    o->abi_version = TNY_TASK_OPTIONS_ABI_VERSION;
+    o->struct_size = TNY_TASK_OPTIONS_V1_FROZEN_SIZE;
+}
+
+static void runtime_options_v2_init_full(tny_runtime_options_v2 *o) {
+    if (!o) return;
+    memset(o, 0, TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE);
+    o->abi_version = TNY_RUNTIME_OPTIONS_ABI_VERSION;
+    o->struct_size = TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE;
+    runtime_options_v1_init_full(&o->base);
+    task_options_v1_init_full(&o->task);
+}
+
 static void capabilities_init_full(tny_capabilities_v0 *capabilities) {
     if (!capabilities) return;
     memset(capabilities, 0, TNY_CAPABILITIES_V0_FROZEN_SIZE);
@@ -318,6 +320,32 @@ int32_t tny_runtime_options_v1_init(tny_runtime_options_v1 *o, uint64_t capacity
     if (status != TNY_STATUS_OK) return status;
     o->abi_version = TNY_RUNTIME_OPTIONS_ABI_VERSION;
     runtime_options_defaults(&o->runtime, TNY_RUNTIME_OPTIONS_V0_FROZEN_SIZE);
+    return TNY_STATUS_OK;
+}
+
+int32_t tny_task_options_v1_init(tny_task_options_v1 *o, uint64_t capacity) {
+    int32_t status = init_sized_prefix(o, capacity, TNY_TASK_OPTIONS_V1_MIN_SIZE,
+                                       TNY_TASK_OPTIONS_V1_FROZEN_SIZE, TASK1_BOUNDARIES,
+                                       ARRAY_COUNT(TASK1_BOUNDARIES), o ? &o->struct_size : NULL);
+    if (status == TNY_STATUS_OK) o->abi_version = TNY_TASK_OPTIONS_ABI_VERSION;
+    return status;
+}
+
+int32_t tny_runtime_options_v2_init(tny_runtime_options_v2 *o, uint64_t capacity) {
+    int32_t status = init_sized_prefix(
+        o, capacity, TNY_RUNTIME_OPTIONS_V2_MIN_SIZE, TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE,
+        OPTIONS2_BOUNDARIES, ARRAY_COUNT(OPTIONS2_BOUNDARIES), o ? &o->struct_size : NULL);
+    if (status != TNY_STATUS_OK) return status;
+    /* The accepted minimum prefix ends immediately after task.  Initialize
+     * only fields within that prefix: callers are allowed to allocate exactly
+     * capacity bytes, so the full-record helper must never touch their
+     * reserved tail. */
+    o->abi_version = TNY_RUNTIME_OPTIONS_ABI_VERSION;
+    o->base.abi_version = TNY_RUNTIME_OPTIONS_ABI_VERSION;
+    o->base.struct_size = TNY_RUNTIME_OPTIONS_V1_FROZEN_SIZE;
+    runtime_options_defaults(&o->base.runtime, TNY_RUNTIME_OPTIONS_V0_FROZEN_SIZE);
+    o->task.abi_version = TNY_TASK_OPTIONS_ABI_VERSION;
+    o->task.struct_size = TNY_TASK_OPTIONS_V1_FROZEN_SIZE;
     return TNY_STATUS_OK;
 }
 
@@ -594,6 +622,116 @@ int32_t tny_runtime_create_v1(const tny_runtime_options_v1 *o, uint64_t capacity
     return runtime_create_v1_full(&normalized, out, error);
 }
 
+int32_t tny_runtime_create_v2(const tny_runtime_options_v2 *o, uint64_t capacity, tny_runtime **out,
+                              tny_error **error) {
+    tny_alloc_scope_begin("runtime_create_v2");
+    if (!out)
+        return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT, "out_runtime is required"),
+                             error);
+    *out = NULL;
+    if (error) *error = NULL;
+    if (!prefix_capacity_valid(o, capacity, TNY_RUNTIME_OPTIONS_V2_MIN_SIZE,
+                               TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE, OPTIONS2_BOUNDARIES,
+                               ARRAY_COUNT(OPTIONS2_BOUNDARIES)))
+        return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                   "runtime v2 options capacity or declared size is invalid"),
+                             error);
+    uint32_t declared = o->struct_size;
+    int32_t status = input_prefix_size(
+        o, capacity, declared, TNY_RUNTIME_OPTIONS_V2_MIN_SIZE, TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE,
+        OPTIONS2_BOUNDARIES, ARRAY_COUNT(OPTIONS2_BOUNDARIES), "runtime v2 options", error);
+    if (status != TNY_STATUS_OK) return scoped_status(status, error);
+    tny_runtime_options_v2 normalized;
+    runtime_options_v2_init_full(&normalized);
+    size_t readable = declared < offsetof(tny_runtime_options_v2, reserved)
+                          ? declared
+                          : offsetof(tny_runtime_options_v2, reserved);
+    memcpy(&normalized, o, readable);
+    normalized.struct_size = TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE;
+    uint32_t task_declared = normalized.task.struct_size;
+    if (task_declared < TNY_TASK_OPTIONS_V1_MIN_SIZE ||
+        task_declared > TNY_TASK_OPTIONS_V1_FROZEN_SIZE ||
+        !record_size_boundary(task_declared, TNY_TASK_OPTIONS_V1_FROZEN_SIZE, TASK1_BOUNDARIES,
+                              ARRAY_COUNT(TASK1_BOUNDARIES)))
+        return scoped_status(
+            failf(error, TNY_STATUS_INVALID_ARGUMENT, "task options record is too small"), error);
+    if (normalized.abi_version != TNY_RUNTIME_OPTIONS_ABI_VERSION ||
+        normalized.base.abi_version != TNY_RUNTIME_OPTIONS_ABI_VERSION ||
+        normalized.task.abi_version != TNY_TASK_OPTIONS_ABI_VERSION)
+        return scoped_status(
+            failf(error, TNY_STATUS_UNSUPPORTED, "runtime v2 or task options ABI is unsupported"),
+            error);
+
+    /* The task record is deliberately resolved only from its explicit views:
+     * this keeps deterministic embedding free of ambient user/project files. */
+    char *name = NULL;
+    char *instructions = NULL;
+    bool builtin_selected = false;
+    status = copy_bytes(normalized.task.name, true, "task name", &name, error);
+    if (status != TNY_STATUS_OK) goto task_fail;
+    if (!tny_task_name_valid(name)) {
+        status = failf(
+            error, TNY_STATUS_INVALID_ARGUMENT,
+            "task name must match [A-Za-z0-9_.-]{1,63} and may not start with '.' or contain '..'");
+        goto task_fail;
+    }
+    if (normalized.task.instructions.len > TNY_TASK_BODY_MAX) {
+        status = failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                       "task instructions exceed the 262144-byte limit");
+        goto task_fail;
+    }
+    status =
+        copy_bytes(normalized.task.instructions, false, "task instructions", &instructions, error);
+    if (status != TNY_STATUS_OK) goto task_fail;
+    if (!instructions) {
+        const char *builtin = tny_task_builtin_body(name);
+        if (!builtin) {
+            status = failf(error, TNY_STATUS_INVALID_ARGUMENT, "unknown built-in task preset");
+            goto task_fail;
+        }
+        instructions = xstrdup(builtin);
+        builtin_selected = true;
+        if (!instructions) {
+            status = failf(error, TNY_STATUS_OOM, "out of memory");
+            goto task_fail;
+        }
+    }
+    /* Validate and retain the complete task before allocating a native
+     * runtime.  Moving this atomic snapshot into the new context cannot fail
+     * and prevents a malformed task from creating provider/runtime state. */
+    tny_ctx staged = {0};
+    int task_status = tny_task_set_explicit(&staged, name, instructions,
+                                            builtin_selected ? "builtin" : "explicit");
+    if (task_status != TNY_TASK_OK) {
+        status =
+            failf(error, task_status == TNY_TASK_OOM ? TNY_STATUS_OOM : TNY_STATUS_INVALID_ARGUMENT,
+                  task_status == TNY_TASK_OOM ? "out of memory"
+                                              : "task instructions must be non-empty valid UTF-8");
+        goto task_fail;
+    }
+    status = runtime_create_v1_full(&normalized.base, out, error);
+    if (status == TNY_STATUS_OK && *out) {
+        free((*out)->ctx->task_name);
+        free((*out)->ctx->task_source);
+        free((*out)->ctx->task_instructions);
+        (*out)->ctx->task_name = staged.task_name;
+        (*out)->ctx->task_source = staged.task_source;
+        (*out)->ctx->task_instructions = staged.task_instructions;
+        memcpy((*out)->ctx->task_digest, staged.task_digest, sizeof staged.task_digest);
+        (*out)->ctx->task_explicit = staged.task_explicit;
+        staged.task_name = NULL;
+        staged.task_source = NULL;
+        staged.task_instructions = NULL;
+    }
+    free(staged.task_name);
+    free(staged.task_source);
+    free(staged.task_instructions);
+task_fail:
+    free(name);
+    free(instructions);
+    return scoped_status(status, error);
+}
+
 static void session_release(tny_session *session);
 
 void tny_runtime_free(tny_runtime *runtime) {
@@ -642,9 +780,9 @@ static int32_t runtime_get_capabilities_full(const tny_runtime *runtime,
     full.threading_model = TNY_THREADING_OWNER_THREAD;
     full.cancel_model = TNY_CANCEL_CROSS_THREAD_ASYNC_WAKE;
     full.provider_available_mask = TNY_PROVIDER_MASK_OPENAI;
-    full.feature_available_mask = TNY_CAP_FEATURE_PERSISTENCE |
-                                  TNY_CAP_FEATURE_CROSS_THREAD_CANCEL |
-                                  TNY_CAP_FEATURE_HOST_SERVICES | TNY_CAP_FEATURE_CUSTOM_TOOLS;
+    full.feature_available_mask =
+        TNY_CAP_FEATURE_PERSISTENCE | TNY_CAP_FEATURE_CROSS_THREAD_CANCEL |
+        TNY_CAP_FEATURE_HOST_SERVICES | TNY_CAP_FEATURE_CUSTOM_TOOLS | TNY_CAP_FEATURE_TASK_PRESETS;
     full.feature_enabled_mask = TNY_CAP_FEATURE_CROSS_THREAD_CANCEL;
 #ifdef TNY_SHARED_LIBRARY_BUILD
     full.feature_available_mask |= TNY_CAP_FEATURE_SHARED_LIBRARY;
@@ -657,6 +795,7 @@ static int32_t runtime_get_capabilities_full(const tny_runtime *runtime,
     }
     if (!runtime->ctx->no_save) full.feature_enabled_mask |= TNY_CAP_FEATURE_PERSISTENCE;
     if (runtime->host_services) full.feature_enabled_mask |= TNY_CAP_FEATURE_HOST_SERVICES;
+    if (runtime->ctx->task_name) full.feature_enabled_mask |= TNY_CAP_FEATURE_TASK_PRESETS;
     if (custom_tools_active_count(runtime->custom_tools))
         full.feature_enabled_mask |= TNY_CAP_FEATURE_CUSTOM_TOOLS;
     /* Keep synchronized with the private queue budgets in core/runtime.c.
@@ -963,6 +1102,15 @@ int32_t tny_session_open(tny_runtime *runtime, tny_bytes id, tny_session **out, 
     if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
     tny_session_state *state = session_open(runtime->ctx, session_id);
     free(session_id);
+    if (state) {
+        char task_err[192] = {0};
+        if (session_task_reconcile(state, task_err, sizeof task_err) != 0) {
+            session_close(state);
+            return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT, "%s",
+                                       task_err[0] ? task_err : "session task snapshot is invalid"),
+                                 error);
+        }
+    }
     rc = make_session(runtime, state, out, error);
     if (tny_alloc_scope_failed() && *out) {
         session_release(*out);

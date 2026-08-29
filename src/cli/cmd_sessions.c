@@ -114,6 +114,18 @@ int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 buf_appends(&b, ",\"status\":");
                 jescape(&b, st);
             }
+            buf_appends(&b, ",\"task\":");
+            if (m[i].task_name && m[i].task_source && m[i].task_digest) {
+                buf_appends(&b, "{\"name\":");
+                jescape(&b, m[i].task_name);
+                buf_appends(&b, ",\"source\":");
+                jescape(&b, m[i].task_source);
+                buf_appends(&b, ",\"digest\":");
+                jescape(&b, m[i].task_digest);
+                buf_appends(&b, "}");
+            } else {
+                buf_appends(&b, "null");
+            }
             buf_appends(&b, "}");
         }
         buf_appends(&b, "]}\n");
@@ -125,9 +137,10 @@ int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             const char *mark = m[i].running ? "  ⏵ running"
                                : (m[i].status && strcmp(m[i].status, "running") == 0) ? "  ⚠ stale"
                                                                                       : "";
-            printf("%s  %s  %2d turns  %-6s  %s%s\n", m[i].id,
+            printf("%s  %s  %2d turns  %-6s  %s%s%s%s\n", m[i].id,
                    m[i].updated ? m[i].updated : "                    ", m[i].turns,
-                   m[i].backend ? m[i].backend : "?", m[i].title ? m[i].title : "(untitled)", mark);
+                   m[i].backend ? m[i].backend : "?", m[i].title ? m[i].title : "(untitled)",
+                   m[i].task_name ? "  task:" : "", m[i].task_name ? m[i].task_name : "", mark);
         }
     }
     session_meta_free(m, n);
@@ -306,6 +319,16 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         session_get_usage(s, &tin, &tout);
         printf("id:      %s\n", s->id);
         printf("title:   %s\n", session_title(s) ? session_title(s) : "(untitled)");
+        yyjson_mut_val *task = yyjson_mut_obj_get(yyjson_mut_doc_get_root(s->doc), "task");
+        if (yyjson_mut_is_obj(task)) {
+            const char *task_name = yyjson_mut_get_str(yyjson_mut_obj_get(task, "name"));
+            const char *task_source = yyjson_mut_get_str(yyjson_mut_obj_get(task, "source"));
+            if (task_name && task_source) printf("task:    %s (%s)\n", task_name, task_source);
+            else if (task_name) printf("task:    %s\n", task_name);
+            else printf("task:    none\n");
+        } else {
+            printf("task:    none\n");
+        }
         /* Background status (docs/adr/0031): the lock probe is the liveness
          * truth; a stored "running" without a holder is a crashed task. */
         const char *st = session_status(s);
@@ -371,6 +394,14 @@ int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     if (!probe && !g->resume_picker) {
         fprintf(stderr, "tny: no session '%s' for this workspace (try `tny sessions`)\n", target);
         return 1;
+    }
+    if (probe) {
+        char task_err[192];
+        if (session_task_reconcile(probe, task_err, sizeof task_err) != 0) {
+            fprintf(stderr, "tny: cannot resume session %s: %s\n", probe->id, task_err);
+            session_close(probe);
+            return 1;
+        }
     }
     if (probe && session_lock_acquire(probe) != 0) {
         /* another process (a background child or foreground resume) is

@@ -70,6 +70,8 @@ typedef struct create_options {
     sdk_owned_bytes workspace, state_dir, provider, model, base_url, api_key, wire_api;
     uint32_t permission_mode, persistence, max_steps;
     uint64_t max_tool_result_bytes;
+    sdk_owned_bytes task_name, task_instructions;
+    int task_set;
 } create_options;
 
 struct runtime_state;

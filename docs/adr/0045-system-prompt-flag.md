@@ -25,15 +25,15 @@ system prompt is even expressible:
 One leading global flag, `--system-prompt TEXT`, valid for headless (`ask`)
 and interactive (TUI) runs alike, stored on `tny_ctx`.
 
-- The **openai backend** prepends the text to the system preamble it already
+- The **openai backend** appends the text to the system preamble it already
   builds (`build_system_prompt`), so it rides the provider's native field on
-  both wires and leads tny's operational preamble, the AGENTS.md chain and
-  the skill catalog.
+  both wires after tny's runtime/safety instructions, project context, task
+  preset, AGENTS.md chain and skill catalog (ADR 0048).
 - Every **host backend** (cursor, codex, acp) gets the fallback the flag
   promises: the engine prepends `TEXT + "\n\n"` to the **first user message
-  of a fresh session** — before anything else is sent. The injection lives in
-  `tny_engine_start` (one shared spot for CLI, TUI, ACP server and libtny),
-  not in each backend.
+  of a fresh session**. When a task preset is selected, its section precedes
+  this explicit addition (ADR 0048). The injection lives in `tny_engine_start`
+  (one shared spot for CLI, TUI, ACP server and libtny), not in each backend.
 - The prefix is delivered at most once per conversation: never on later
   turns, never when the session already has recorded turns, and never when a
   host resume pointer exists (resumed or adopted threads already had their

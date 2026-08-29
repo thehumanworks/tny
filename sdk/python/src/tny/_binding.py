@@ -31,6 +31,7 @@ FEATURE_CUSTOM_TOOLS = 1 << 5
 FEATURE_CROSS_THREAD_CANCEL = 1 << 7
 FEATURE_WINDOWS = 1 << 8
 FEATURE_HOST_SERVICES = 1 << 11
+FEATURE_TASK_PRESETS = 1 << 12
 
 CDEF = r"""
 typedef unsigned int uint32_t;
@@ -69,6 +70,14 @@ typedef struct {
     uint32_t abi_version; uint32_t struct_size; tny_runtime_options_v0 runtime;
     const tny_host_services_v1 *host_services; uint64_t reserved[8];
 } tny_runtime_options_v1;
+typedef struct {
+    uint32_t abi_version; uint32_t struct_size;
+    tny_bytes name; tny_bytes instructions; uint64_t reserved[4];
+} tny_task_options_v1;
+typedef struct {
+    uint32_t abi_version; uint32_t struct_size;
+    tny_runtime_options_v1 base; tny_task_options_v1 task; uint64_t reserved[8];
+} tny_runtime_options_v2;
 typedef struct {
     uint32_t abi_version; uint32_t struct_size; tny_bytes data;
     uint32_t is_error; uint32_t reserved_scalar; uint64_t reserved[4];
@@ -116,6 +125,8 @@ uint32_t tny_abi_version(void);
 tny_bytes tny_library_version(void);
 int32_t tny_runtime_options_init(tny_runtime_options_v0 *, uint64_t);
 int32_t tny_runtime_options_v1_init(tny_runtime_options_v1 *, uint64_t);
+int32_t tny_task_options_v1_init(tny_task_options_v1 *, uint64_t);
+int32_t tny_runtime_options_v2_init(tny_runtime_options_v2 *, uint64_t);
 int32_t tny_host_services_v1_init(tny_host_services_v1 *, uint64_t);
 int32_t tny_tool_spec_v1_init(tny_tool_spec_v1 *, uint64_t);
 int32_t tny_tool_result_v1_init(tny_tool_result_v1 *, uint64_t);
@@ -124,6 +135,8 @@ int32_t tny_capabilities_v1_init(tny_capabilities_v1 *, uint64_t);
 int32_t tny_runtime_create(const tny_runtime_options_v0 *, uint64_t,
                            tny_runtime **, tny_error **);
 int32_t tny_runtime_create_v1(const tny_runtime_options_v1 *, uint64_t,
+                              tny_runtime **, tny_error **);
+int32_t tny_runtime_create_v2(const tny_runtime_options_v2 *, uint64_t,
                               tny_runtime **, tny_error **);
 void tny_runtime_free(tny_runtime *);
 int32_t tny_runtime_destroy(tny_runtime **);
@@ -206,6 +219,11 @@ class Capabilities:
     @property
     def host_service_callbacks(self) -> bool:
         return bool(self.feature_enabled_mask & FEATURE_HOST_SERVICES)
+
+    @property
+    def task_presets(self) -> bool:
+        """Whether this runtime selected and enabled task-preset support."""
+        return bool(self.feature_enabled_mask & FEATURE_TASK_PRESETS)
 
     @property
     def provider(self) -> str:

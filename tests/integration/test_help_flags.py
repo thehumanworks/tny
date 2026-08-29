@@ -32,6 +32,8 @@ COMMAND_PARSERS = {
     "resume": ("cmd_resume",),
     "session": ("cmd_session",),
     "sessions": ("cmd_sessions",),
+    "task": ("cmd_task",),
+    "tasks": ("cmd_tasks",),
     "setup": ("cmd_setup",),
     "status": ("cmd_status", "cmd_status_ephemeral"),
     "usage": ("cmd_usage",),

@@ -162,6 +162,38 @@ char *str_trim(char *s) {
     return s;
 }
 
+bool utf8_valid_bytes(const void *data, size_t len) {
+    if (!data && len) return false;
+    const unsigned char *s = data;
+    for (size_t i = 0; i < len;) {
+        unsigned c = s[i++];
+        if (c == 0) return false;
+        if (c < 0x80) continue;
+        unsigned need, min;
+        if ((c & 0xe0) == 0xc0) {
+            need = 1;
+            min = 0x80;
+            c &= 0x1f;
+        } else if ((c & 0xf0) == 0xe0) {
+            need = 2;
+            min = 0x800;
+            c &= 0x0f;
+        } else if ((c & 0xf8) == 0xf0) {
+            need = 3;
+            min = 0x10000;
+            c &= 0x07;
+        } else return false;
+        if (len - i < need) return false;
+        for (unsigned j = 0; j < need; j++) {
+            unsigned d = s[i++];
+            if ((d & 0xc0) != 0x80) return false;
+            c = (c << 6) | (d & 0x3f);
+        }
+        if (c < min || c > 0x10ffff || (c >= 0xd800 && c <= 0xdfff)) return false;
+    }
+    return true;
+}
+
 void secure_zero(void *data, size_t n) {
     volatile unsigned char *p = data;
     while (n--) *p++ = 0;

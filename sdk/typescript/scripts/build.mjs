@@ -237,7 +237,7 @@ const args = [
 if (process.platform === "darwin")
   args.push("-bundle", "-undefined", "dynamic_lookup", "-Wl,-rpath,@loader_path", "-o", output);
 else
-  args.push("-shared", "-pthread", "-lm", "-Wl,-rpath,$ORIGIN", "-o", output);
+  args.push("-shared", "-pthread", "-lm", "-ldl", "-Wl,-rpath,$ORIGIN", "-o", output);
 const built = spawnSync(cc, args, { cwd: packageRoot, stdio: "inherit" });
 if (built.error) throw built.error;
 if (built.status !== 0) process.exit(built.status ?? 1);

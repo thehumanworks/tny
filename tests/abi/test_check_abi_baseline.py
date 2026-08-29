@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CHECKER = ROOT / "scripts" / "check_abi_baseline.py"
 BASELINE = ROOT / "abi" / "baseline-v1.json"
 INCOMPATIBLE = ROOT / "tests" / "abi" / "fixtures" / "incompatible-constant.json"
+FROZEN_BASELINE = ROOT / "abi" / "baseline-v1.0.json"
 
 spec = importlib.util.spec_from_file_location("check_abi_baseline", CHECKER)
 assert spec is not None and spec.loader is not None
@@ -46,6 +47,25 @@ class AbiBaselineTests(unittest.TestCase):
         self.assertEqual(same.returncode, 0, same.stderr)
         self.assertEqual(same.stdout, "libtny ABI 1 baseline comparison: ok\n")
 
+    def test_current_minor_is_checked_against_true_frozen_1_0(self) -> None:
+        """The active baseline must not be used as its own compatibility guard."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(CHECKER),
+                "--baseline",
+                str(FROZEN_BASELINE),
+                "--candidate",
+                str(BASELINE),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "libtny ABI 1 baseline comparison: ok\n")
+
     def test_deliberate_incompatible_constant_drift_fails(self) -> None:
         first = self.run_checker(INCOMPATIBLE)
         second = self.run_checker(INCOMPATIBLE)
@@ -55,15 +75,18 @@ class AbiBaselineTests(unittest.TestCase):
 
     def test_later_minor_can_append_a_tail_and_versioned_symbol(self) -> None:
         candidate = copy.deepcopy(json.loads(BASELINE.read_text(encoding="utf-8")))
+        next_minor = candidate["abi"]["minor"] + 1
         candidate["abi"] = {
             "major": 1,
-            "minor": 1,
-            "encoded": 65537,
-            "elf_version_node": "LIBTNY_1.1",
+            "minor": next_minor,
+            "encoded": (1 << 16) | next_minor,
+            "elf_version_node": f"LIBTNY_1.{next_minor}",
         }
-        candidate["artifacts"]["linux-glibc"]["elf_version_nodes"].append("LIBTNY_1.1")
+        candidate["artifacts"]["linux-glibc"]["elf_version_nodes"].append(
+            f"LIBTNY_1.{next_minor}"
+        )
         candidate["constants"]["TNY_EVENT_FUTURE"] = 14
-        candidate["exports"]["tny_future_query"] = "LIBTNY_1.1"
+        candidate["exports"]["tny_future_query"] = f"LIBTNY_1.{next_minor}"
         view = candidate["structs"]["tny_event_view_v0"]
         view["size"] = 336
         view["append_from"] = 336

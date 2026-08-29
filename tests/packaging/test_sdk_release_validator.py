@@ -27,9 +27,9 @@ class ReleaseValidatorTests(unittest.TestCase):
     def test_release_requires_an_active_abi1_baseline(self) -> None:
         expected_abi = {
             "major": 1,
-            "minor": 0,
-            "encoded": 65536,
-            "elf_version_node": "LIBTNY_1.0",
+            "minor": 1,
+            "encoded": 65537,
+            "elf_version_node": "LIBTNY_1.1",
         }
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)

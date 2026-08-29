@@ -3,6 +3,7 @@
 #include "core/runtime.h"
 #include "core/instructions.h"
 #include "core/extensions.h"
+#include "core/tasks.h"
 #include "util/util.h"
 
 #include <stdlib.h>
@@ -281,6 +282,27 @@ TEST runtime_system_prompt_prefixes_only_the_first_user_message(void) {
     ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
     ASSERT(drain_engine(x.engine, NULL) >= 0);
     ASSERT_STR_EQ("Answer like a pirate.\n\nhello", x.fake->prompts[0]);
+    ASSERT_EQ(0, tny_engine_start(x.engine, "again", NULL, err, sizeof err));
+    ASSERT(drain_engine(x.engine, NULL) >= 0);
+    ASSERT_STR_EQ("again", x.fake->prompts[1]);
+    fixture_free(&x);
+    PASS();
+}
+
+TEST runtime_task_precedes_explicit_system_prompt_on_host_first_turn(void) {
+    fixture x = fixture_new(0);
+    ASSERT_EQ(TNY_TASK_OK, tny_task_set_explicit(x.ctx, "review", "Review task body.", "explicit"));
+    x.ctx->system_prompt = xstrdup("Explicit system addition.");
+    char err[128];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
+    ASSERT(drain_engine(x.engine, NULL) >= 0);
+    const char *task = strstr(x.fake->prompts[0], "Review task body.");
+    const char *explicit_prompt = strstr(x.fake->prompts[0], "Explicit system addition.");
+    const char *user = strstr(x.fake->prompts[0], "hello");
+    ASSERT(task && explicit_prompt && user);
+    ASSERT(task < explicit_prompt);
+    ASSERT(explicit_prompt < user);
+    ASSERT_EQ(1, count_text(x.fake->prompts[0], "Review task body."));
     ASSERT_EQ(0, tny_engine_start(x.engine, "again", NULL, err, sizeof err));
     ASSERT(drain_engine(x.engine, NULL) >= 0);
     ASSERT_STR_EQ("again", x.fake->prompts[1]);
@@ -889,6 +911,7 @@ TEST runtime_permission_fold_is_correlated_suppressed_and_deny_sticky(void) {
 SUITE(runtime_suite) {
     RUN_TEST(runtime_copies_events_and_suppresses_duplicate_terminal);
     RUN_TEST(runtime_system_prompt_prefixes_only_the_first_user_message);
+    RUN_TEST(runtime_task_precedes_explicit_system_prompt_on_host_first_turn);
     RUN_TEST(runtime_system_prompt_skips_resumed_host_sessions);
     RUN_TEST(runtime_synthesizes_transport_error_and_terminal);
     RUN_TEST(runtime_overflow_keeps_error_and_single_terminal);

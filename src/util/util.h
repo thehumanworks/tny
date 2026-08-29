@@ -33,6 +33,9 @@ char *xstrndup(const char *s, size_t n);
 bool str_starts(const char *s, const char *prefix);
 bool str_ends(const char *s, const char *suffix);
 char *str_trim(char *s); /* in place, returns s */
+/* Strict UTF-8 scalar validation. Embedded NUL is rejected so a validated
+ * byte sequence is safe to copy into a C string. */
+bool utf8_valid_bytes(const void *data, size_t len);
 void secure_zero(void *p, size_t n);
 void secure_free(char *s); /* wipe a NUL-terminated secret, then free */
 /* Glob-style match: '*' any run, '?' one char. Not regex. */

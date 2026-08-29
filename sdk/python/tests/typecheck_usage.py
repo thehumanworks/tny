@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import tny
 
+TASK_CONFIG = tny.RuntimeConfig(workspace=".", task_preset=tny.TaskPreset("review"))
+
 
 def host_clock() -> int:
     return 1

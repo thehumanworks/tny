@@ -116,7 +116,7 @@ Task names begin with a letter or digit and contain only letters, digits, `.`,
 | `--effort LEVEL` | Select reasoning effort |
 | `--cwd DIR` | Set this task's local workspace |
 | `--system-prompt TEXT` | Add explicit system instructions for this task |
-| `--task TYPE` | Apply a named agent task preset before explicit system instructions |
+| `--task NAME` | Select a runtime-owned task preset; the selector is passed directly to `tny` |
 | `--permission-mode MODE` | Use `ask`, `auto`, or `yolo` for this task |
 | `--max-steps N` | Bound the native model/tool loop |
 | `--ssh TARGET` | Run native workspace tools over SSH |
@@ -130,14 +130,13 @@ The helper passes arguments directly; it never uses `eval`. `TNY_WORKFLOW_TNY`
 may be an executable path for tests or a custom installation, but it is not a
 shell command string.
 
-### Agent task types
+### Runtime task presets
 
-A task type is a reusable agent preset: system-level instructions that describe
-*how* an agent should approach a workflow node, while the normal task prompt
-describes *what* it should do. The shell overlay currently owns these presets;
-[issue #81](https://github.com/thehumanworks/tny/issues/81) tracks moving them
-into runtime configuration so `tny --task`, the TUI, workflows, and SDKs share
-the same definitions.
+A task preset is a reusable runtime configuration: system-level instructions
+that describe *how* an agent should approach a workflow node, while the normal
+task prompt describes *what* it should do. The workflow helper passes the
+selector through to `tny`, so the CLI, TUI, SDKs, and shell use the same
+definitions (issue [#81](https://github.com/thehumanworks/tny/issues/81)).
 
 Four built-ins are available:
 
@@ -160,16 +159,15 @@ tny_task retrospective --task retro --after docs -- \
   "Capture durable lessons and remaining follow-ups"
 ```
 
-`--task` composes with `--system-prompt`. The preset comes first, followed by
-an `Additional task instructions:` section containing the explicit system
-prompt. This makes specialization predictable without replacing the preset.
-The selected task type is also recorded in the task definition directory for
-inspection.
+`--task` composes with `--system-prompt` in the runtime. Explicit system
+instructions remain distinct and are not replaced by a preset. The selected
+name is recorded in the workflow task definition for inspection; the preset
+body is resolved by `tny`.
 
 #### Create your own task type
 
-Custom types are intentionally simple and require no shell-library edits. Define
-one after `tny_workflow_begin` with prompt arguments:
+Custom types remain available for compatibility and require no shell-library
+edits. Define one after `tny_workflow_begin` with prompt arguments:
 
 ```sh
 tny_task_type security-review \
@@ -198,11 +196,14 @@ tny_task_types
 ```
 
 Definitions are **workflow-local** and live under
-`$TNY_WORKFLOW_DIR/task-types/`. A custom definition may intentionally override
-a built-in name for that workflow. This keeps the format trivial and portable
-across Bash 3.2 and Zsh 5 while runtime-owned persistent preset discovery is
-designed in #81. For reusable project automation today, keep task-type text in
-a checked-in file and load it with `tny_task_type NAME --stdin < FILE`.
+`$TNY_WORKFLOW_DIR/task-types/`. The helper exposes this directory to each
+child through an explicit `TNY_WORKFLOW_TASK_DIR` environment value; no prompt
+composition or shell evaluation is used. The launcher sets this variable to an
+explicit empty value when no workflow-local definition applies, preventing
+ambient search-path leakage. A custom definition may intentionally
+override a built-in name for that workflow. The runtime's persistent Markdown
+locations (`.tny/tasks/NAME.md` and `~/.tny/tasks/NAME.md`) are the portable
+cross-surface choice for reusable project presets.
 
 ### Run and inspect
 

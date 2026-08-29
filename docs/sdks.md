@@ -8,10 +8,20 @@ adapter reimplements provider wire protocols or the agent/tool loop.
 | Python | `sdk/python` (`tny`) | cffi ABI mode | sync owner thread or one dedicated asyncio executor |
 | TypeScript | `sdk/typescript` (`@thehumanworks/tny`) | C Node-API addon | one dedicated native owner thread per runtime |
 
-Both require stable ABI 1.0 and its frozen sized prefixes, copy every borrowed event and
+Both can load stable ABI 1.0 and its frozen sized prefixes, copy every borrowed event and
 capability field before freeing its owner, expose unknown events explicitly,
 and validate `tny_abi_version()` before creating runtime state. Capability
 snapshots—not platform guesses—govern supported behavior.
+
+Task presets are first-class runtime configuration in both adapters. Python
+uses `RuntimeConfig(task_preset=TaskPreset("review"))`; TypeScript accepts
+`Runtime.create({ workspace, taskPreset: "review" })`. Built-ins are `review`,
+`optimizer`, `document`, and `retro`; an explicit `{name, instructions}` form
+supplies custom instructions. SDK runtimes never perform ambient task-file
+discovery, preserving deterministic embedding.
+Task creation requires ABI minor 1; against an ABI 1.0 library both SDKs keep
+using the v1 creation path when no task is requested and raise an explicit
+unsupported-feature error when one is.
 
 ## Python
 

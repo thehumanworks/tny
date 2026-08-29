@@ -11,6 +11,7 @@ re-runs the loop on the legacy chat wire via OPENAI_WIRE_API=chat,
 third exercises the response.failed error path.
 """
 
+import glob
 import json
 import os
 import socket
@@ -59,6 +60,63 @@ def main():
                 OPENAI_API_KEY="test-key-not-real",
             )
 
+            task_dir = os.path.join(ws, ".tny", "tasks")
+            os.makedirs(task_dir)
+            open(os.path.join(task_dir, "alpha.md"), "w").write(
+                "---\nname: alpha\ndescription: Alpha project task\n---\n\nAlpha body.\n"
+            )
+            listed = subprocess.run(
+                [TNY, "--cwd", ws, "tasks", "--json"],
+                env=env,
+                capture_output=True,
+                timeout=10,
+            )
+            assert listed.returncode == 0, listed.stderr.decode()
+            task_items = json.loads(listed.stdout)["tasks"]
+            assert [item["name"] for item in task_items] == sorted(
+                item["name"] for item in task_items
+            )
+            alpha = next(item for item in task_items if item["name"] == "alpha")
+            assert alpha == {
+                "name": "alpha",
+                "source": "project",
+                "description": "Alpha project task",
+                "valid": True,
+            }, alpha
+            shown = subprocess.run(
+                [TNY, "--cwd", ws, "task", "show", "alpha", "--json"],
+                env=env,
+                capture_output=True,
+                timeout=10,
+            )
+            assert shown.returncode == 0, shown.stderr.decode()
+            shown_task = json.loads(shown.stdout)
+            assert shown_task["kind"] == "task", shown_task
+            assert shown_task["name"] == "alpha", shown_task
+            assert shown_task["source"] == "project", shown_task
+            assert shown_task["description"] == "Alpha project task", shown_task
+            assert shown_task["instructions"] == "Alpha body.\n", shown_task
+            assert len(shown_task["digest"]) == 40, shown_task
+            unknown = subprocess.run(
+                [TNY, "--cwd", ws, "task", "show", "not-present"],
+                env=env,
+                capture_output=True,
+                timeout=10,
+            )
+            assert unknown.returncode == 1, unknown
+            assert b"unknown task 'not-present'" in unknown.stderr, unknown.stderr
+            extra = subprocess.run(
+                [TNY, "--cwd", ws, "tasks", "unexpected"],
+                env=env,
+                capture_output=True,
+                timeout=10,
+            )
+            assert extra.returncode == 1, extra
+            assert b"Usage: tny [--json] tasks" in extra.stderr, extra.stderr
+            os.unlink(os.path.join(task_dir, "alpha.md"))
+            os.rmdir(task_dir)
+            os.rmdir(os.path.join(ws, ".tny"))
+
             # single tool call: one call streamed fragmented, one tool
             # message back, one follow-up POST (the mock 400s any request
             # whose assistant tool_calls are not fully paired)
@@ -95,6 +153,120 @@ def main():
             out2 = json.loads(r2.stdout)
             assert out2["session_id"] == sid, out2
             assert "MOCK-OK" in out2["output"], out2
+
+            # Task selection is a persisted session snapshot. Resume without
+            # a selector restores it; an explicit selector must match both
+            # name and digest, and an old taskless session rejects grafting.
+            task_run = subprocess.run(
+                [TNY, "--cwd", ws, "ask", "--json", "--task", "review", "task turn"],
+                env=env,
+                capture_output=True,
+                timeout=30,
+            )
+            assert task_run.returncode == 0, task_run.stderr.decode()
+            task_out = json.loads(task_run.stdout)
+            task_sid = task_out["session_id"]
+            assert task_out["task"]["name"] == "review", task_out
+            assert task_out["task"]["source"] == "builtin", task_out
+            session_dirs = glob.glob(
+                os.path.join(home, ".tny", "sessions", "*", task_sid)
+            )
+            assert len(session_dirs) == 1, session_dirs
+            stored = json.load(open(os.path.join(session_dirs[0], "session.json")))
+            assert set(stored["task"]) == {"name", "source", "digest"}, stored["task"]
+            assert "rigorous code reviewer" not in json.dumps(stored), stored
+            assert (
+                "rigorous code reviewer"
+                in open(os.path.join(session_dirs[0], "task.md")).read()
+            )
+            listed_sessions = subprocess.run(
+                [TNY, "--cwd", ws, "sessions", "--json"],
+                env=env,
+                capture_output=True,
+                timeout=10,
+            )
+            assert listed_sessions.returncode == 0, listed_sessions.stderr.decode()
+            listed_task = next(
+                item["task"]
+                for item in json.loads(listed_sessions.stdout)["sessions"]
+                if item["id"] == task_sid
+            )
+            assert listed_task == task_out["task"], listed_task
+
+            restored = subprocess.run(
+                [
+                    TNY,
+                    "--cwd",
+                    ws,
+                    "ask",
+                    "--json",
+                    "--resume",
+                    task_sid,
+                    "resume task",
+                ],
+                env=env,
+                capture_output=True,
+                timeout=30,
+            )
+            assert restored.returncode == 0, restored.stderr.decode()
+            assert json.loads(restored.stdout)["task"] == task_out["task"]
+
+            matching = subprocess.run(
+                [
+                    TNY,
+                    "--cwd",
+                    ws,
+                    "ask",
+                    "--json",
+                    "--resume",
+                    task_sid,
+                    "--task",
+                    "review",
+                    "matching task",
+                ],
+                env=env,
+                capture_output=True,
+                timeout=30,
+            )
+            assert matching.returncode == 0, matching.stderr.decode()
+
+            mismatch = subprocess.run(
+                [
+                    TNY,
+                    "--cwd",
+                    ws,
+                    "ask",
+                    "--resume",
+                    task_sid,
+                    "--task",
+                    "optimizer",
+                    "must reject",
+                ],
+                env=env,
+                capture_output=True,
+                timeout=10,
+            )
+            assert mismatch.returncode == 1, mismatch
+            assert b"name and digest must match" in mismatch.stderr, mismatch.stderr
+
+            graft = subprocess.run(
+                [
+                    TNY,
+                    "--cwd",
+                    ws,
+                    "--task",
+                    "review",
+                    "ask",
+                    "--resume",
+                    sid,
+                    "must reject",
+                ],
+                env=env,
+                capture_output=True,
+                timeout=10,
+            )
+            assert graft.returncode == 1, graft
+            assert b"cannot be added after turns exist" in graft.stderr, graft.stderr
 
             # sessions list must show it
             r3 = subprocess.run(

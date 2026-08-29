@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 #define TNY_ABI_MAJOR   1u
-#define TNY_ABI_MINOR   0u
+#define TNY_ABI_MINOR   1u
 #define TNY_ABI_VERSION ((TNY_ABI_MAJOR << 16) | TNY_ABI_MINOR)
 
 /* Non-error outcomes. */
@@ -102,6 +102,7 @@ typedef struct {
 
 #define TNY_HOST_SERVICES_ABI_VERSION   1u
 #define TNY_RUNTIME_OPTIONS_ABI_VERSION 1u
+#define TNY_TASK_OPTIONS_ABI_VERSION    1u
 #define TNY_DIAGNOSTIC_DEBUG            0u
 #define TNY_DIAGNOSTIC_INFO             1u
 #define TNY_DIAGNOSTIC_WARN             2u
@@ -250,6 +251,7 @@ typedef struct {
 #define TNY_CAP_FEATURE_WASM                (UINT64_C(1) << 9)
 #define TNY_CAP_FEATURE_FULLY_STATIC_TLS    (UINT64_C(1) << 10)
 #define TNY_CAP_FEATURE_HOST_SERVICES       (UINT64_C(1) << 11)
+#define TNY_CAP_FEATURE_TASK_PRESETS        (UINT64_C(1) << 12)
 
 #define TNY_ENDPOINT_REACHABILITY_UNKNOWN     0u
 #define TNY_ENDPOINT_REACHABILITY_REACHABLE   1u
@@ -328,6 +330,30 @@ typedef struct {
     uint64_t reserved[8];
 } tny_runtime_options_v1;
 
+/* Explicit task selection for deterministic embedders.  A non-empty name with
+ * an empty instructions view selects a built-in preset; a non-empty
+ * instructions view supplies the complete custom preset body.  No filesystem
+ * discovery is performed by this ABI.  The body is copied during runtime
+ * creation and is never included in ordinary status/diagnostic output. */
+typedef struct {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    tny_bytes name;
+    tny_bytes instructions;
+    uint64_t reserved[4];
+} tny_task_options_v1;
+
+/* v2 extends the v1 runtime/host-services options without changing either
+ * frozen prefix.  The task record is explicit so language bindings can select
+ * built-ins or provide custom instructions without ambient discovery. */
+typedef struct {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    tny_runtime_options_v1 base;
+    tny_task_options_v1 task;
+    uint64_t reserved[8];
+} tny_runtime_options_v2;
+
 /* Public runtimes use a fixed 15-second native connection deadline. Destruction closes
  * an active OpenAI HTTP transport without waiting for provider completion.
  * Process-spawning tools are unavailable in public runtimes. */
@@ -342,6 +368,9 @@ TNY_API tny_bytes TNY_CALL tny_library_version(void);
 TNY_API int32_t TNY_CALL tny_runtime_options_init(tny_runtime_options_v0 *options,
                                                   uint64_t capacity);
 TNY_API int32_t TNY_CALL tny_runtime_options_v1_init(tny_runtime_options_v1 *options,
+                                                     uint64_t capacity);
+TNY_API int32_t TNY_CALL tny_task_options_v1_init(tny_task_options_v1 *options, uint64_t capacity);
+TNY_API int32_t TNY_CALL tny_runtime_options_v2_init(tny_runtime_options_v2 *options,
                                                      uint64_t capacity);
 TNY_API int32_t TNY_CALL tny_host_services_v1_init(tny_host_services_v1 *services,
                                                    uint64_t capacity);
@@ -363,6 +392,9 @@ TNY_API int32_t TNY_CALL tny_runtime_create(const tny_runtime_options_v0 *option
                                             uint64_t capacity, tny_runtime **out_runtime,
                                             tny_error **out_error);
 TNY_API int32_t TNY_CALL tny_runtime_create_v1(const tny_runtime_options_v1 *options,
+                                               uint64_t capacity, tny_runtime **out_runtime,
+                                               tny_error **out_error);
+TNY_API int32_t TNY_CALL tny_runtime_create_v2(const tny_runtime_options_v2 *options,
                                                uint64_t capacity, tny_runtime **out_runtime,
                                                tny_error **out_error);
 TNY_API void TNY_CALL tny_runtime_free(tny_runtime *runtime);

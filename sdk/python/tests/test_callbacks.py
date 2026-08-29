@@ -69,7 +69,8 @@ class CallbackTests(unittest.TestCase):
         self.workspace = Path(self.temporary.name, "workspace")
         self.workspace.mkdir()
         self.library = tny.Library(LIBRARY)
-        self.assertEqual((self.library.abi_major, self.library.abi_minor), (1, 0))
+        self.assertEqual(self.library.abi_major, 1)
+        self.assertGreaterEqual(self.library.abi_minor, 1)
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -365,7 +366,8 @@ class AsyncCallbackTests(unittest.IsolatedAsyncioTestCase):
         self.workspace = Path(self.temporary.name, "workspace")
         self.workspace.mkdir()
         self.library = tny.Library(LIBRARY)
-        self.assertEqual((self.library.abi_major, self.library.abi_minor), (1, 0))
+        self.assertEqual(self.library.abi_major, 1)
+        self.assertGreaterEqual(self.library.abi_minor, 1)
 
     async def asyncTearDown(self) -> None:
         self.temporary.cleanup()

@@ -59,3 +59,10 @@ LIBTNY_1.0 {
   local:
     *;
 };
+
+LIBTNY_1.1 {
+  global:
+    tny_task_options_v1_init;
+    tny_runtime_options_v2_init;
+    tny_runtime_create_v2;
+} LIBTNY_1.0;

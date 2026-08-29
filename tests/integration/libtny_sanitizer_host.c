@@ -2,12 +2,20 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static tny_bytes view(const char *text) { return (tny_bytes){text, (uint64_t)strlen(text)}; }
 
 int main(int argc, char **argv) {
     if (argc != 3) return 2;
+    static const size_t v2_capacities[] = {360, 424};
+    for (size_t i = 0; i < sizeof v2_capacities / sizeof v2_capacities[0]; i++) {
+        void *exact = malloc(v2_capacities[i]);
+        if (!exact || tny_runtime_options_v2_init(exact, v2_capacities[i]) != TNY_STATUS_OK)
+            return 11;
+        free(exact);
+    }
     for (int cycle = 0; cycle < 100; cycle++) {
         tny_runtime_options_v0 options;
         if (tny_runtime_options_init(&options, sizeof options) != TNY_STATUS_OK) return 10;

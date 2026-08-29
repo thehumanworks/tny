@@ -1,10 +1,12 @@
 #include "core/session.h"
+#include "core/tasks.h"
 #include "util/util.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <time.h>
@@ -34,6 +36,213 @@ static bool put_str(tny_session_state *s, const char *k, const char *v) {
     yyjson_mut_val *key = yyjson_mut_strcpy(s->doc, k);
     yyjson_mut_val *value = yyjson_mut_strcpy(s->doc, v);
     return key && value && yyjson_mut_obj_put(root_of(s), key, value);
+}
+
+static void clear_ctx_task(tny_ctx *ctx) {
+    if (!ctx) return;
+    free(ctx->task_name);
+    free(ctx->task_source);
+    free(ctx->task_instructions);
+    ctx->task_name = NULL;
+    ctx->task_source = NULL;
+    ctx->task_instructions = NULL;
+    ctx->task_digest[0] = 0;
+    ctx->task_explicit = false;
+}
+
+static const char *task_source_category(const tny_ctx *ctx) {
+    const char *source = ctx ? ctx->task_source : NULL;
+    return tny_task_source_valid(source) ? source : "explicit";
+}
+
+static bool safe_task_source(const char *source) { return tny_task_source_valid(source); }
+
+typedef enum {
+    TASK_SNAPSHOT_ABSENT = 0,
+    TASK_SNAPSHOT_VALID,
+    TASK_SNAPSHOT_INVALID,
+    TASK_SNAPSHOT_OOM,
+} task_snapshot_result;
+
+/* Read through one no-follow descriptor, then enforce the bound while the
+ * descriptor is held. This avoids the lstat()/fopen() swap in the original
+ * draft and also rejects a regular file that grows after its initial stat. */
+static task_snapshot_result read_task_snapshot(const char *path, char **out, size_t *out_len) {
+    if (out) *out = NULL;
+    if (out_len) *out_len = 0;
+    if (!path) return TASK_SNAPSHOT_OOM;
+    int flags = O_RDONLY | O_CLOEXEC | O_NONBLOCK;
+#ifdef O_NOFOLLOW
+    flags |= O_NOFOLLOW;
+#endif
+    int fd = open(path, flags);
+    if (fd < 0) return errno == ENOENT ? TASK_SNAPSHOT_ABSENT : TASK_SNAPSHOT_INVALID;
+    struct stat st;
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
+        (uint64_t)st.st_size > TNY_TASK_BODY_MAX) {
+        close(fd);
+        return TASK_SNAPSHOT_INVALID;
+    }
+    buf_t contents;
+    buf_init(&contents);
+    char chunk[8192];
+    ssize_t got;
+    while ((got = read(fd, chunk, sizeof chunk)) > 0) {
+        size_t n = (size_t)got;
+        if (n > TNY_TASK_BODY_MAX - contents.len) {
+            close(fd);
+            buf_free(&contents);
+            return TASK_SNAPSHOT_INVALID;
+        }
+        buf_append(&contents, chunk, n);
+    }
+    close(fd);
+    if (got < 0 || !contents.len || buf_oom(&contents)) {
+        bool oom = buf_oom(&contents);
+        buf_free(&contents);
+        return oom ? TASK_SNAPSHOT_OOM : TASK_SNAPSHOT_INVALID;
+    }
+    size_t len = contents.len;
+    char *body = buf_detach(&contents);
+    if (!body) return TASK_SNAPSHOT_OOM;
+    if (!utf8_valid_bytes(body, len)) {
+        free(body);
+        return TASK_SNAPSHOT_INVALID;
+    }
+    if (out) *out = body;
+    else free(body);
+    if (out_len) *out_len = len;
+    return TASK_SNAPSHOT_VALID;
+}
+
+static bool task_snapshot_matches(const char *body, size_t len, const char *digest) {
+    char computed[TNY_TASK_DIGEST_HEX_LEN + 1];
+    uint8_t digest_bytes[TNY_TASK_DIGEST_HEX_LEN / 2];
+    if (!sha1((const uint8_t *)body, len, digest_bytes)) return false;
+    for (size_t i = 0; i < sizeof digest_bytes; i++)
+        snprintf(computed + i * 2, 3, "%02x", digest_bytes[i]);
+    return strcmp(computed, digest) == 0;
+}
+
+static bool digest_valid(const char *digest) {
+    if (!digest || strlen(digest) != TNY_TASK_DIGEST_HEX_LEN) return false;
+    for (const unsigned char *p = (const unsigned char *)digest; *p; p++)
+        if (!((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f'))) return false;
+    return true;
+}
+
+int session_task_bind_current(tny_session_state *s) {
+    if (!s || !s->ctx || !s->ctx->task_name || !s->ctx->task_instructions ||
+        !tny_task_name_valid(s->ctx->task_name) || !tny_task_source_valid(s->ctx->task_source) ||
+        !digest_valid(s->ctx->task_digest))
+        return -1;
+    size_t body_len = strlen(s->ctx->task_instructions);
+    if (!body_len || body_len > TNY_TASK_BODY_MAX ||
+        !utf8_valid_bytes(s->ctx->task_instructions, body_len) ||
+        !task_snapshot_matches(s->ctx->task_instructions, body_len, s->ctx->task_digest))
+        return -1;
+    char *body = xstrdup(s->ctx->task_instructions);
+    if (!body) return -1;
+    yyjson_mut_val *task = yyjson_mut_obj(s->doc);
+    yyjson_mut_val *name = yyjson_mut_strcpy(s->doc, s->ctx->task_name);
+    yyjson_mut_val *source = yyjson_mut_strcpy(s->doc, task_source_category(s->ctx));
+    yyjson_mut_val *digest = yyjson_mut_strcpy(s->doc, s->ctx->task_digest);
+    if (!task || !name || !source || !digest ||
+        !yyjson_mut_obj_put(task, yyjson_mut_strcpy(s->doc, "name"), name) ||
+        !yyjson_mut_obj_put(task, yyjson_mut_strcpy(s->doc, "source"), source) ||
+        !yyjson_mut_obj_put(task, yyjson_mut_strcpy(s->doc, "digest"), digest) ||
+        !yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "task"), task)) {
+        free(body);
+        return -1;
+    }
+    free(s->task_body);
+    s->task_body = body;
+    return 0;
+}
+
+void session_task_clear(tny_session_state *s) {
+    if (!s) return;
+    yyjson_mut_obj_remove_key(root_of(s), "task");
+    free(s->task_body);
+    s->task_body = NULL;
+}
+
+int session_task_reconcile(tny_session_state *s, char *err, size_t errsz) {
+    if (!s || !s->ctx) return -1;
+    yyjson_mut_val *task = yyjson_mut_obj_get(root_of(s), "task");
+    if (!task) {
+        if (s->ctx->task_explicit && session_turns(s) > 0) {
+            snprintf(err, errsz,
+                     "session has no saved task; a task cannot be added after turns exist");
+            return -1;
+        }
+        if (s->ctx->task_explicit) return session_task_bind_current(s);
+        clear_ctx_task(s->ctx); /* do not carry a restored task into an old no-task session */
+        session_task_clear(s);
+        return 0;
+    }
+    if (!yyjson_mut_is_obj(task)) {
+        snprintf(err, errsz, "saved task metadata is invalid");
+        return -1;
+    }
+    const char *name = yyjson_mut_get_str(yyjson_mut_obj_get(task, "name"));
+    const char *source = yyjson_mut_get_str(yyjson_mut_obj_get(task, "source"));
+    const char *digest = yyjson_mut_get_str(yyjson_mut_obj_get(task, "digest"));
+    if (!tny_task_name_valid(name) || !tny_task_source_valid(source) || !digest_valid(digest)) {
+        snprintf(err, errsz, "saved task metadata is invalid");
+        return -1;
+    }
+    char *path = path_join(s->dir, "task.md");
+    char *pending_path = path_join(s->dir, "task.md.next");
+    size_t n = 0;
+    char *body = NULL;
+    task_snapshot_result snapshot = read_task_snapshot(path, &body, &n);
+    /* session_save publishes metadata before the final sidecar rename. If a
+     * process dies in that tiny window, the fully written .next file is the
+     * committed metadata's recoverable snapshot. A stale .next with another
+     * digest is never accepted. */
+    if (snapshot != TASK_SNAPSHOT_VALID || !task_snapshot_matches(body, n, digest)) {
+        free(body);
+        body = NULL;
+        n = 0;
+        snapshot = read_task_snapshot(pending_path, &body, &n);
+    }
+    /* The writer may have renamed .next between those two opens. Retry the
+     * canonical spelling once so a concurrent atomic publish cannot create a
+     * false corruption result. Session writer locking prevents an unbounded
+     * stream of such transitions during normal turns. */
+    if (snapshot != TASK_SNAPSHOT_VALID || !task_snapshot_matches(body, n, digest)) {
+        free(body);
+        body = NULL;
+        n = 0;
+        snapshot = read_task_snapshot(path, &body, &n);
+    }
+    free(path);
+    free(pending_path);
+    if (snapshot != TASK_SNAPSHOT_VALID || !task_snapshot_matches(body, n, digest)) {
+        free(body);
+        snprintf(err, errsz, "saved task snapshot is missing or invalid");
+        return -1;
+    }
+    bool requested = s->ctx->task_explicit;
+    if (requested &&
+        (!tny_task_name_valid(s->ctx->task_name) || !digest_valid(s->ctx->task_digest) ||
+         strcmp(s->ctx->task_name, name) != 0 || strcmp(s->ctx->task_digest, digest) != 0)) {
+        free(body);
+        snprintf(
+            err, errsz,
+            "requested task does not match the session's saved task (name and digest must match)");
+        return -1;
+    }
+    if (tny_task_set_explicit(s->ctx, name, body, source) != 0) {
+        free(body);
+        snprintf(err, errsz, "could not restore the saved task snapshot");
+        return -1;
+    }
+    s->ctx->task_explicit = requested;
+    free(s->task_body);
+    s->task_body = body;
+    return 0;
 }
 
 tny_session_state *session_new(tny_ctx *ctx) {
@@ -71,6 +280,12 @@ tny_session_state *session_new(tny_ctx *ctx) {
     if (!turns_key || !turns || !messages_key || !messages ||
         !yyjson_mut_obj_put(root_of(s), turns_key, turns) ||
         !yyjson_mut_obj_put(root_of(s), messages_key, messages)) {
+        session_close(s);
+        return NULL;
+    }
+    bool has_task_state = ctx->task_name || ctx->task_source || ctx->task_instructions ||
+                          ctx->task_digest[0] || ctx->task_explicit;
+    if (has_task_state && session_task_bind_current(s) != 0) {
         session_close(s);
         return NULL;
     }
@@ -135,7 +350,37 @@ int session_save(tny_session_state *s) {
     char *out = jwrite(s->doc);
     if (!out) return -1;
     char *file = path_join(s->dir, "session.json");
+    char *task_file = path_join(s->dir, "task.md");
+    char *pending_task_file = path_join(s->dir, "task.md.next");
+    if (!file || !task_file || !pending_task_file) {
+        free(pending_task_file);
+        free(task_file);
+        free(file);
+        free(out);
+        return -1;
+    }
+    bool has_task = yyjson_mut_obj_get(root_of(s), "task") != NULL;
+    if (has_task && (!s->task_body || file_write_atomic(pending_task_file, s->task_body,
+                                                        strlen(s->task_body)) != 0)) {
+        free(pending_task_file);
+        free(task_file);
+        free(file);
+        free(out);
+        return -1;
+    }
     int rc = file_write_atomic(file, out, strlen(out));
+    if (rc != 0) {
+        if (has_task) unlink(pending_task_file);
+    } else if (has_task) {
+        /* Readers that race this rename can validate task.md.next against the
+         * already committed metadata. */
+        if (rename(pending_task_file, task_file) != 0) rc = -1;
+    } else {
+        if (unlink(task_file) != 0 && errno != ENOENT) rc = -1;
+        if (unlink(pending_task_file) != 0 && errno != ENOENT) rc = -1;
+    }
+    free(pending_task_file);
+    free(task_file);
     free(file);
     free(out);
     return rc;
@@ -148,6 +393,7 @@ void session_close(tny_session_state *s) {
     free(s->dir);
     free(s->extension_start_reason);
     free(s->extension_previous_session_id);
+    free(s->task_body);
     yyjson_mut_doc_free(s->doc);
     for (int i = 0; i < s->n_mem_results; i++) {
         free(s->mem_results[i].handle);
@@ -794,6 +1040,12 @@ static void scan_ws_dir(const char *wsdir, const char *wsname, session_meta **ar
         if ((v = jget_str(r, "model"))) m->model = xstrdup(v);
         if ((v = jget_str(r, "workspace"))) m->workspace = xstrdup(v);
         if ((v = jget_str(r, "status"))) m->status = xstrdup(v);
+        yyjson_val *task = jget(r, "task");
+        if (yyjson_is_obj(task)) {
+            if ((v = jget_str(task, "name")) && tny_task_name_valid(v)) m->task_name = xstrdup(v);
+            if ((v = jget_str(task, "source")) && safe_task_source(v)) m->task_source = xstrdup(v);
+            if ((v = jget_str(task, "digest")) && digest_valid(v)) m->task_digest = xstrdup(v);
+        }
         m->turns = (int)jget_int(r, "turns", 0);
         buf_t ld;
         buf_init(&ld);
@@ -847,6 +1099,9 @@ session_meta *session_list(tny_ctx *ctx, bool all, int limit, const char *cursor
             free(arr[i].model);
             free(arr[i].workspace);
             free(arr[i].status);
+            free(arr[i].task_name);
+            free(arr[i].task_source);
+            free(arr[i].task_digest);
         }
         memmove(arr, arr + start, sizeof *arr * (size_t)(n - start));
         n -= start;
@@ -860,6 +1115,9 @@ session_meta *session_list(tny_ctx *ctx, bool all, int limit, const char *cursor
         free(arr[i].model);
         free(arr[i].workspace);
         free(arr[i].status);
+        free(arr[i].task_name);
+        free(arr[i].task_source);
+        free(arr[i].task_digest);
     }
     *count = m;
     return arr;
@@ -874,6 +1132,9 @@ void session_meta_free(session_meta *m, int count) {
         free(m[i].model);
         free(m[i].workspace);
         free(m[i].status);
+        free(m[i].task_name);
+        free(m[i].task_source);
+        free(m[i].task_digest);
     }
     free(m);
 }
@@ -901,19 +1162,66 @@ char *session_recover_copy(tny_ctx *ctx, const char *id) {
         return NULL;
     }
     /* Trim trailing garbage until it parses (torn write recovery). */
+    yyjson_doc *recovered = NULL;
     while (len > 2) {
-        yyjson_doc *doc = yyjson_read(data, len, 0);
-        if (doc) {
-            yyjson_doc_free(doc);
-            break;
-        }
+        recovered = yyjson_read(data, len, 0);
+        if (recovered) break;
         len--;
     }
+    if (!recovered) {
+        free(data);
+        free(src);
+        free(root);
+        return NULL;
+    }
+
+    /* A recovered task-bearing session is usable only with its exact private
+     * snapshot. Accept the crash-recovery .next spelling by digest, just as
+     * session_task_reconcile does, and copy it into the canonical name. */
+    char *task_body = NULL;
+    size_t task_len = 0;
+    yyjson_val *task = jget(yyjson_doc_get_root(recovered), "task");
+    if (task) {
+        const char *digest = jget_str(task, "digest");
+        char *task_src = path_join(src, "task.md");
+        task_snapshot_result snapshot = read_task_snapshot(task_src, &task_body, &task_len);
+        free(task_src);
+        if (!digest_valid(digest) || snapshot != TASK_SNAPSHOT_VALID ||
+            !task_snapshot_matches(task_body, task_len, digest)) {
+            free(task_body);
+            task_body = NULL;
+            task_len = 0;
+            task_src = path_join(src, "task.md.next");
+            snapshot = read_task_snapshot(task_src, &task_body, &task_len);
+            free(task_src);
+        }
+        if (!digest_valid(digest) || snapshot != TASK_SNAPSHOT_VALID ||
+            !task_snapshot_matches(task_body, task_len, digest)) {
+            free(task_body);
+            yyjson_doc_free(recovered);
+            free(data);
+            free(src);
+            free(root);
+            return NULL;
+        }
+    }
+    yyjson_doc_free(recovered);
+
     char *nid = gen_id();
-    char *dst = path_join(root, nid);
-    mkdir_p(dst);
-    char *dfile = path_join(dst, "session.json");
-    file_write_atomic(dfile, data, len);
+    char *dst = nid ? path_join(root, nid) : NULL;
+    char *dfile = dst ? path_join(dst, "session.json") : NULL;
+    char *task_dst = task_body && dst ? path_join(dst, "task.md") : NULL;
+    if (!nid || !dst || !dfile || (task_body && !task_dst) || mkdir_p(dst) != 0 ||
+        (task_body && file_write_atomic(task_dst, task_body, task_len) != 0) ||
+        file_write_atomic(dfile, data, len) != 0) {
+        if (task_dst) unlink(task_dst);
+        if (dfile) unlink(dfile);
+        if (dst) rmdir(dst);
+        free(nid);
+        nid = NULL;
+    }
+    free(task_dst);
+    free(task_body);
     free(data);
     free(dfile);
     free(dst);

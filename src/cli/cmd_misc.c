@@ -2,6 +2,7 @@
  * login/logout/setup. All support --json where docs/cli.md requires it. */
 #include "cli/cli.h"
 #include "core/backend.h"
+#include "core/tasks.h"
 #include "core/session.h"
 #include "backends/codex/codex.h" /* tny_codex_login */
 #include "net/net.h"
@@ -19,6 +20,133 @@ static bool wants_json(const cli_globals *g, int argc, char **argv) {
     for (int i = 0; i < argc; i++)
         if (strcmp(argv[i], "--json") == 0) return true;
     return false;
+}
+
+int cmd_tasks(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
+    bool json = g->json;
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--json") == 0) json = true;
+        else {
+            fprintf(stderr, "tny: tasks: unexpected argument '%s'\nUsage: tny [--json] tasks\n",
+                    argv[i]);
+            return 1;
+        }
+    }
+    tny_task_info *items = NULL;
+    size_t count = 0;
+    if (tny_task_list(ctx, &items, &count) != TNY_TASK_OK) return 1;
+    if (json) {
+        buf_t b;
+        buf_init(&b);
+        buf_appends(&b, "{\"kind\":\"tasks\",\"tasks\":[");
+        for (size_t i = 0; i < count; i++) {
+            if (i) buf_appends(&b, ",");
+            buf_appends(&b, "{\"name\":");
+            jescape(&b, items[i].name);
+            buf_appends(&b, ",\"source\":");
+            jescape(&b, items[i].source);
+            buf_appends(&b, ",\"description\":");
+            if (items[i].description) jescape(&b, items[i].description);
+            else buf_appends(&b, "null");
+            buf_appendf(&b, ",\"valid\":%s}", items[i].valid ? "true" : "false");
+        }
+        buf_appends(&b, "]}\n");
+        fwrite(b.data, 1, b.len, stdout);
+        buf_free(&b);
+    } else {
+        for (size_t i = 0; i < count; i++)
+            printf("%-20s %-9s %s%s\n", items[i].name, items[i].source,
+                   items[i].valid ? "" : "[invalid] ",
+                   items[i].description ? items[i].description : "");
+    }
+    tny_task_list_free(items, count);
+    return 0;
+}
+
+int cmd_task(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
+    bool json = g->json;
+    const char *name = NULL;
+    if (argc < 1 || strcmp(argv[0], "show") != 0) {
+        fprintf(stderr, "tny: task: expected `show NAME`\nUsage: tny [--json] task show NAME\n");
+        return 1;
+    }
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--json") == 0) json = true;
+        else if (!name) name = argv[i];
+        else {
+            fprintf(stderr,
+                    "tny: task show: unexpected argument '%s'\n"
+                    "Usage: tny [--json] task show NAME\n",
+                    argv[i]);
+            return 1;
+        }
+    }
+    if (!name) {
+        fprintf(stderr, "tny: task show: NAME is required\nUsage: tny [--json] task show NAME\n");
+        return 1;
+    }
+    if (!tny_task_name_valid(name)) {
+        fprintf(stderr, "tny: task show: invalid task name '%s'\n", name);
+        return 1;
+    }
+
+    tny_task_info *items = NULL;
+    size_t count = 0;
+    if (tny_task_list(ctx, &items, &count) != TNY_TASK_OK) {
+        fprintf(stderr, "tny: task show: could not inspect task presets\n");
+        return 1;
+    }
+    const tny_task_info *info = NULL;
+    for (size_t i = 0; i < count; i++) {
+        if (strcmp(items[i].name, name) == 0) {
+            info = &items[i];
+            break;
+        }
+    }
+    if (!info || !info->valid) {
+        fprintf(stderr, "tny: task show: %s task '%s'\n", info ? "invalid" : "unknown", name);
+        tny_task_list_free(items, count);
+        return 1;
+    }
+    if (tny_task_apply(ctx, name) != TNY_TASK_OK) {
+        fprintf(stderr, "tny: task show: task '%s' changed or became unreadable\n", name);
+        tny_task_list_free(items, count);
+        return 1;
+    }
+
+    if (json) {
+        buf_t out;
+        buf_init(&out);
+        buf_appends(&out, "{\"kind\":\"task\",\"name\":");
+        jescape(&out, ctx->task_name);
+        buf_appends(&out, ",\"source\":");
+        jescape(&out, ctx->task_source);
+        buf_appends(&out, ",\"digest\":");
+        jescape(&out, ctx->task_digest);
+        buf_appends(&out, ",\"description\":");
+        if (info->description) jescape(&out, info->description);
+        else buf_appends(&out, "null");
+        buf_appends(&out, ",\"instructions\":");
+        jescape(&out, ctx->task_instructions);
+        buf_appends(&out, "}\n");
+        if (buf_oom(&out)) {
+            buf_free(&out);
+            tny_task_list_free(items, count);
+            fprintf(stderr, "tny: task show: out of memory\n");
+            return 1;
+        }
+        fwrite(out.data, 1, out.len, stdout);
+        buf_free(&out);
+    } else {
+        printf("task:        %s\nsource:      %s\ndigest:      %s\n", ctx->task_name,
+               ctx->task_source, ctx->task_digest);
+        if (info->description) printf("description: %s\n", info->description);
+        printf("\n%s", ctx->task_instructions);
+        size_t n = strlen(ctx->task_instructions);
+        if (!n || ctx->task_instructions[n - 1] != '\n') putchar('\n');
+    }
+    tny_task_list_free(items, count);
+    return 0;
 }
 
 int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
@@ -45,6 +173,16 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                     auth ? "ok" : "missing", tny_perm_mode_name(ctx->perm_mode),
                     strcmp(ctx->sandbox_mode, "os") == 0 ? "os" : "none");
         jescape(&b, ctx->cwd);
+        buf_appends(&b, ",\"task\":");
+        if (ctx->task_name) {
+            buf_appends(&b, "{\"name\":");
+            jescape(&b, ctx->task_name);
+            buf_appends(&b, ",\"source\":");
+            jescape(&b, ctx->task_source ? ctx->task_source : "unknown");
+            buf_appends(&b, ",\"digest\":");
+            jescape(&b, ctx->task_digest);
+            buf_appends(&b, "}");
+        } else buf_appends(&b, "null");
         buf_appendf(&b,
                     ",\"sessions\":%d,\"agent_step_limit\":%d,"
                     "\"extensions_enabled\":%s,"
@@ -63,6 +201,10 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         printf("sandbox:    %s\n",
                strcmp(ctx->sandbox_mode, "os") == 0 ? "os (unsupported: effective none)" : "none");
         printf("workspace:  %s\n", ctx->cwd);
+        if (ctx->task_name)
+            printf("task:       %s (%s)\n", ctx->task_name,
+                   ctx->task_source ? ctx->task_source : "unknown");
+        else printf("task:       none\n");
         for (int i = 0; i < ctx->n_extra_dirs; i++) printf("extra dir:  %s\n", ctx->extra_dirs[i]);
         printf("sessions:   %d\n", n);
         printf("extensions: %s (continuations: ", ctx->extensions_enabled ? "enabled" : "disabled");

@@ -126,6 +126,47 @@ await withMock({}, async (baseUrl) => {
   await runtime.close();
 });
 
+await withMock({
+  MOCK_EXPECT_INSTRUCTIONS: "# Task preset: release\nSDK-TASK-BODY-MARKER",
+}, async (baseUrl) => {
+  const runtime = await create(baseUrl, {
+    taskPreset: { name: "release", instructions: "SDK-TASK-BODY-MARKER" },
+  });
+  const session = await runtime.createSession();
+  let text = "";
+  for await (const event of session.run("exercise native ABI 1.1 task creation")) {
+    if (event.type === "text_delta") text += event.text;
+  }
+  assert.match(text, /MOCK-OK/);
+  assert.ok(runtime.capabilities.abiMinor >= 1);
+  assert.ok(runtime.capabilities.featureAvailableMask & (1n << 12n));
+  assert.ok(runtime.capabilities.featureEnabledMask & (1n << 12n));
+  await session.close();
+  await runtime.close();
+});
+
+await withMock({ MOCK_EXPECT_INSTRUCTIONS: "WORKFLOW-DEFAULT-TASK" }, async (baseUrl) => {
+  const workflow = new Workflow({
+    runtime: {
+      ...fixture(), baseUrl, apiKey: "test-key-not-real",
+      taskPreset: { name: "default-task", instructions: "WORKFLOW-DEFAULT-TASK" },
+    },
+  }).task("uses-default-task", "exercise workflow default task config");
+  assert.equal((await workflow.run()).ok, true);
+});
+
+await withMock({ MOCK_EXPECT_INSTRUCTIONS: "WORKFLOW-PER-TASK" }, async (baseUrl) => {
+  const workflow = new Workflow({
+    runtime: { ...fixture(), baseUrl, apiKey: "test-key-not-real" },
+  }).task("uses-per-task-config", "exercise per-task runtime config", {
+    runtime: {
+      ...fixture(), baseUrl, apiKey: "test-key-not-real",
+      taskPreset: { name: "per-task", instructions: "WORKFLOW-PER-TASK" },
+    },
+  });
+  assert.equal((await workflow.run()).ok, true);
+});
+
 await withMock({ MOCK_SLOW_MS: "50" }, async (baseUrl) => {
   const seen = new Set();
   const workflow = new Workflow({

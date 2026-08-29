@@ -42,6 +42,18 @@ int cmd_status_ephemeral(tny_ctx *ctx, const cli_globals *g, int argc, char **ar
                     auth ? "ok" : "missing", tny_perm_mode_name(ctx->perm_mode),
                     strcmp(ctx->sandbox_mode, "os") == 0 ? "os" : "none");
         jescape(&b, ctx->cwd);
+        buf_appends(&b, ",\"task\":");
+        if (ctx->task_name) {
+            buf_appends(&b, "{\"name\":");
+            jescape(&b, ctx->task_name);
+            buf_appends(&b, ",\"source\":");
+            jescape(&b, ctx->task_source ? ctx->task_source : "unknown");
+            buf_appends(&b, ",\"digest\":");
+            jescape(&b, ctx->task_digest);
+            buf_appends(&b, "}");
+        } else {
+            buf_appends(&b, "null");
+        }
         buf_appendf(&b,
                     ",\"sessions\":%d,\"agent_step_limit\":%d,"
                     "\"extensions_enabled\":%s,"
@@ -61,6 +73,10 @@ int cmd_status_ephemeral(tny_ctx *ctx, const cli_globals *g, int argc, char **ar
                strcmp(ctx->sandbox_mode, "os") == 0 ? "os (unsupported: effective none)" : "none");
         printf("mode:       ephemeral (conversation artifacts stay in memory)\n");
         printf("workspace:  %s\n", ctx->cwd);
+        if (ctx->task_name)
+            printf("task:       %s (%s)\n", ctx->task_name,
+                   ctx->task_source ? ctx->task_source : "unknown");
+        else printf("task:       none\n");
         for (int i = 0; i < ctx->n_extra_dirs; i++) printf("extra dir:  %s\n", ctx->extra_dirs[i]);
         printf("sessions:   %d saved (not loaded by this process)\n", n);
         printf("extensions: %s (continuations: ", ctx->extensions_enabled ? "enabled" : "disabled");

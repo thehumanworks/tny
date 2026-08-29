@@ -139,6 +139,44 @@ test("ephemeral runtime may omit stateDir", async () => {
   await runtime.close();
 });
 
+test("taskPreset selects the ABI 1.1 task capability", async () => {
+  const runtime = await Runtime.create({
+    ...paths(),
+    baseUrl: "http://127.0.0.1:1/v1",
+    apiKey: "test-key-not-real",
+    taskPreset: "review",
+  });
+  assert.ok(runtime.capabilities.abiMinor >= 1);
+  assert.equal(runtime.capabilities.featureAvailableMask & (1n << 12n), 1n << 12n);
+  assert.equal(runtime.capabilities.featureEnabledMask & (1n << 12n), 1n << 12n);
+  assert.equal(runtime.capabilities.taskPresets, true);
+  await runtime.close();
+});
+
+test("taskPreset accessor values are snapshotted once", async () => {
+  let nameReads = 0;
+  let instructionReads = 0;
+  const taskPreset = {
+    get name() {
+      nameReads += 1;
+      return nameReads === 1 ? "review" : "bad/name";
+    },
+    get instructions() {
+      instructionReads += 1;
+      return undefined;
+    },
+  };
+  const runtime = await Runtime.create({
+    ...paths(),
+    baseUrl: "http://127.0.0.1:1/v1",
+    apiKey: "test-key-not-real",
+    taskPreset,
+  });
+  assert.equal(nameReads, 1);
+  assert.equal(instructionReads, 1);
+  await runtime.close();
+});
+
 test("simultaneous runtimes remain isolated", async () => {
   const options = () => ({
     ...paths(), baseUrl: "http://127.0.0.1:1/v1", apiKey: "test-key-not-real",

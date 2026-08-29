@@ -1,4 +1,5 @@
 #include "core/runtime.h"
+#include "core/tasks.h"
 
 #include "backends/openai/openai.h"
 #include "core/extension_caps.h"
@@ -862,7 +863,9 @@ static extension_fold prepare_user_prompt(tny_engine *e, const char *prompt, con
  * later turn in this engine, a resumed or adopted host thread (host pointer
  * present), or a transcript with recorded turns — must not get it again. */
 static bool wants_system_prompt_prefix(tny_engine *e) {
-    if (!e->ctx->system_prompt || !*e->ctx->system_prompt) return false;
+    if ((!e->ctx->system_prompt || !*e->ctx->system_prompt) &&
+        (!e->ctx->task_instructions || !*e->ctx->task_instructions))
+        return false;
     if (e->bk->id == TNY_BK_OPENAI) return false;
     if (e->system_prompt_delivered) return false;
     if (session_turns(e->session) > 0) return false;
@@ -1591,11 +1594,15 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images, cha
         after_backend(e, 0);
         return 0;
     }
-    if (wants_system_prompt_prefix(e)) {
+    bool prefixed_system_prompt = wants_system_prompt_prefix(e);
+    if (prefixed_system_prompt) {
         buf_t with_sys;
         buf_init(&with_sys);
-        buf_appends(&with_sys, e->ctx->system_prompt);
-        buf_appends(&with_sys, "\n\n");
+        tny_task_collect(e->ctx, &with_sys);
+        if (e->ctx->system_prompt && *e->ctx->system_prompt) {
+            buf_appends(&with_sys, e->ctx->system_prompt);
+            buf_appends(&with_sys, "\n\n");
+        }
         buf_append(&with_sys, effective.data, effective.len);
         if (buf_oom(&with_sys)) {
             if (err && errlen) snprintf(err, errlen, "out of memory");
@@ -1605,9 +1612,12 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images, cha
         }
         buf_free(&effective);
         effective = with_sys;
-        e->system_prompt_delivered = true;
     }
     int rc = start_backend_iteration(e, effective.data, images, "user", err, errlen);
+    /* Commit the once-only marker only after the host send path was actually
+     * entered. Allocation failure or a before_agent_start stop leaves the
+     * task/system sections pending for the next real first turn. */
+    if (rc == 0 && prefixed_system_prompt && e->turn_started) e->system_prompt_delivered = true;
     buf_free(&effective);
     if (rc != 0) {
         tny_owned_event *queued;

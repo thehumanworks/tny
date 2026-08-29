@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { Buffer } from "node:buffer";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveNativeAddon } from "../scripts/native-loader.mjs";
@@ -43,6 +44,35 @@ export const PermissionMode = Object.freeze({ ask: 0, auto: 1, yolo: 2 });
 export const PermissionDecision = Object.freeze({ allow: 0, allowAlways: 1, deny: 2 });
 export const PermissionOption = Object.freeze({ allow: 1, allowAlways: 2, deny: 4 });
 
+function taskPresetOption(value) {
+  const normalized = typeof value === "string" ? { name: value } : value;
+  if (!normalized || typeof normalized !== "object") {
+    throw new TypeError("taskPreset must be a preset name or { name, instructions }");
+  }
+  // Snapshot accessor-backed inputs exactly once before validation. This
+  // avoids validating one getter result and forwarding a later, different
+  // result into the native owner thread.
+  const name = normalized.name;
+  const instructions = normalized.instructions;
+  if (typeof name !== "string" ||
+      (instructions !== undefined && typeof instructions !== "string")) {
+    throw new TypeError("taskPreset must be a preset name or { name, instructions }");
+  }
+  if (!/^(?!\.)(?!.*\.\.)[A-Za-z0-9_.-]{1,63}$/.test(name)) {
+    throw new TypeError("taskPreset name must match [A-Za-z0-9_.-]{1,63} without a leading dot or '..'");
+  }
+  if (instructions !== undefined) {
+    if (instructions.includes("\0") ||
+        /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(instructions) ||
+        Buffer.byteLength(instructions, "utf8") > 256 * 1024) {
+      throw new TypeError("taskPreset instructions must be valid UTF-8 without NUL and at most 262144 bytes");
+    }
+  }
+  return typeof value === "string"
+    ? name
+    : { name, ...(instructions === undefined ? {} : { instructions }) };
+}
+
 export class TnyError extends Error {
   constructor(message, status, options) {
     super(message, options);
@@ -67,6 +97,7 @@ function normalizeCapabilities(capabilities) {
     ...capabilities,
     abiMajor: capabilities.abiVersion >>> 16,
     abiMinor: capabilities.abiVersion & 0xffff,
+    taskPresets: Boolean(capabilities.featureEnabledMask & (1n << 12n)),
     experimental: false,
   });
 }
@@ -137,13 +168,24 @@ export class Runtime {
     if (options.provider !== undefined && options.provider !== "openai") {
       throw new UnsupportedFeatureError(`provider ${String(options.provider)}`);
     }
-    const nativeInfo = await invoke(
-      native.createRuntime({
-        ...options,
-        provider: options.provider ?? "openai",
-        permissionMode: permissionMode(options.permissionMode),
-      }),
-    );
+    if (options.taskPreset !== undefined) {
+      options = { ...options, taskPreset: taskPresetOption(options.taskPreset) };
+    }
+    let nativeInfo;
+    try {
+      nativeInfo = await invoke(
+        native.createRuntime({
+          ...options,
+          provider: options.provider ?? "openai",
+          permissionMode: permissionMode(options.permissionMode),
+        }),
+      );
+    } catch (error) {
+      if (options.taskPreset !== undefined && error?.status === -9) {
+        throw new UnsupportedFeatureError("taskPreset");
+      }
+      throw error;
+    }
     return new Runtime(nativeInfo);
   }
 

@@ -68,15 +68,18 @@
 <p>Menus are transient overlays. They draw in the bottom block, Escape hides them, and the next submit clears them — they never enter the scrollback. <code>/</code> <code>@</code> <code>$</code> popovers disable while an approval is focused so paths like <code>/tmp/x</code> stay literal.</p>
 <h2 id="slash">Slash commands</h2>
 <p>Sessions: <code>/help</code> <code>/clear</code> <code>/new</code> <code>/reset</code> <code>/resume</code> <code>/continue</code> <code>/rename</code> <code>/compact</code> <code>/quit</code></p>
-<p>Runtime: <code>/models</code> <code>/model</code> <code>/permissions</code> <code>/sandbox</code> <code>/backend</code> <code>/status</code> <code>/usage</code></p>
-<p>Tools: <code>/mcp</code> <code>/skills</code> <code>/workspace</code> <code>/image</code> <code>/undo</code> <code>/copy</code> <code>/trace</code></p>
+<p>Runtime: <code>/models</code> <code>/model</code> <code>/permissions</code> <code>/sandbox</code> <code>/backend</code> <code>/task</code> <code>/status</code> <code>/usage</code></p>
+<p>Tools: <code>/mcp</code> <code>/skills</code> <code>/workspace</code> <code>/image</code> <code>/ssh</code> <code>/undo</code> <code>/copy</code> <code>/trace</code></p>
 <p>Auth: <code>/login</code> <code>/logout</code> <code>/setup</code> — dispatched to the active backend. Backend-specific commands degrade to "not available" instead of crashing.</p>
+<h2 id="tasks">Task presets</h2>
+<p><code>/task</code> lists runtime-owned presets; <code>/task NAME</code> selects one before the first turn and <code>/task clear</code> removes it. The status row shows the active task. Resuming restores the exact saved task snapshot, while changing a task after a turn requires <code>/new</code>.</p>
+<p>SSH task discovery is builtin-only. To prevent local project instructions from crossing into a remote workspace, <code>/ssh</code> refuses to attach while a user, project, or workflow task is selected; clear it first, attach, then select a builtin.</p>
 <h2 id="startup">Startup</h2>
 <p>First paint never waits on a backend. After the banner, the TUI pre-warms the selected provider's host on a background thread so the first prompt adopts a live connection. Failures stay silent and resurface on the ordinary lazy path. One-shot CLI commands do not pre-warm.</p>
 <h2 id="browser">Browser demo</h2>
 <p>The terminal on the landing page is the real tny binary compiled to WebAssembly, running inside xterm.js. On a phone it fits the viewport so lines wrap instead of clipping; the on-screen keyboard shrinks the pane via the visual viewport. Pass <code>OPENAI_API_KEY</code> and optionally <code>OPENAI_BASE_URL</code> in the URL hash (<code>#OPENAI_API_KEY=…</code>) or paste them at the pre-launch prompt. Keys are sanitized at intake and stay in this tab. Workspace tools that need a host binary return a clean error; the provider must allow CORS — <code>api.openai.com</code> does not.</p>
 </article>
-    <aside class="toc"><p>on this page</p><a href="#layout">Layout</a><a href="#input">Input</a><a href="#slash">Slash commands</a><a href="#startup">Startup</a><a href="#browser">Browser demo</a></aside>
+    <aside class="toc"><p>on this page</p><a href="#layout">Layout</a><a href="#input">Input</a><a href="#slash">Slash commands</a><a href="#tasks">Task presets</a><a href="#startup">Startup</a><a href="#browser">Browser demo</a></aside>
   </main>
 </div>
 <script src="../assets/site.js"></script>

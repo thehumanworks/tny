@@ -22,7 +22,7 @@ from ._binding import (
     borrowed,
     copy_bytes,
 )
-from .errors import BadStateError, InvalidArgumentError
+from .errors import BadStateError, InvalidArgumentError, UnsupportedError
 from .events import (
     EVENT_TYPES_BY_KIND,
     AnyEvent,
@@ -78,6 +78,26 @@ class PermissionDecision(IntEnum):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class TaskPreset:
+    """A deterministic runtime task preset selection.
+
+    ``instructions`` is optional for built-ins and is copied by libtny when
+    supplied.  Runtime creation never searches user or project files.
+    """
+
+    name: str
+    instructions: str | bytes = b""
+
+    def __repr__(self) -> str:
+        size = (
+            len(self.instructions)
+            if isinstance(self.instructions, bytes)
+            else len(self.instructions.encode("utf-8", "replace"))
+        )
+        return f"TaskPreset(name={self.name!r}, instructions_bytes={size})"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class RuntimeConfig:
     workspace: str | os.PathLike[str]
     state_dir: str | os.PathLike[str] | None = None
@@ -90,6 +110,7 @@ class RuntimeConfig:
     persistence: bool = False
     max_steps: int = 0
     max_tool_result_bytes: int = 0
+    task_preset: TaskPreset | None = None
 
     def __repr__(self) -> str:
         # base_url and api_key may contain credentials and are intentionally
@@ -102,7 +123,8 @@ class RuntimeConfig:
             f"wire_api={self.wire_api!r}, "
             f"permission_mode={self.permission_mode!r}, "
             f"persistence={self.persistence!r}, max_steps={self.max_steps!r}, "
-            f"max_tool_result_bytes={self.max_tool_result_bytes!r})"
+            f"max_tool_result_bytes={self.max_tool_result_bytes!r}, "
+            f"task_preset={self.task_preset!r})"
         )
 
 
@@ -127,6 +149,45 @@ def _validate_config(config: RuntimeConfig) -> None:
         raise InvalidArgumentError(-1)
     if config.persistence and config.state_dir is None:
         raise InvalidArgumentError(-1)
+    if config.task_preset is not None:
+        if (
+            not isinstance(config.task_preset, TaskPreset)
+            or not isinstance(config.task_preset.name, str)
+            or not config.task_preset.name
+        ):
+            raise InvalidArgumentError(-1)
+        if not isinstance(config.task_preset.instructions, (str, bytes)):
+            raise InvalidArgumentError(-1)
+        name = config.task_preset.name
+        if (
+            len(name) > 63
+            or name.startswith(".")
+            or ".." in name
+            or any(
+                not (
+                    character.isascii() and (character.isalnum() or character in "._-")
+                )
+                for character in name
+            )
+        ):
+            raise InvalidArgumentError(-1)
+        try:
+            if isinstance(config.task_preset.instructions, str):
+                # Every Unicode scalar occupies at least one UTF-8 byte. Reject
+                # obviously oversized input before creating a second large
+                # allocation, then apply the exact encoded-byte limit.
+                if len(config.task_preset.instructions) > 256 * 1024:
+                    raise InvalidArgumentError(-1)
+                instructions = config.task_preset.instructions.encode("utf-8", "strict")
+            else:
+                instructions = config.task_preset.instructions
+                if len(instructions) > 256 * 1024:
+                    raise InvalidArgumentError(-1)
+            instructions.decode("utf-8", "strict")
+        except UnicodeError:
+            raise InvalidArgumentError(-1) from None
+        if b"\0" in instructions or len(instructions) > 256 * 1024:
+            raise InvalidArgumentError(-1)
     raw_url = (
         config.base_url.decode("utf-8", "strict")
         if isinstance(config.base_url, bytes)
@@ -185,6 +246,14 @@ class Runtime:
             "api_key": config.api_key,
             "wire_api": config.wire_api,
         }
+        task_values = (
+            {
+                "name": config.task_preset.name,
+                "instructions": config.task_preset.instructions,
+            }
+            if config.task_preset is not None
+            else {}
+        )
         api_key_buffer: Any | None = None
         try:
             for name, value in values.items():
@@ -193,13 +262,20 @@ class Runtime:
                 setattr(opts[0], name, view[0])
                 if name == "api_key":
                     api_key_buffer = buffer
+            task_buffers: list[Any] = []
+            task_views: dict[str, Any] = {}
+            for name, value in task_values.items():
+                buffer, view = borrowed(ffi, value)
+                task_buffers.extend((buffer, view))
+                task_views[name] = view[0]
             out = self._handle_slot
             error = ffi.new("tny_error **")
-            if host_services is None:
+            if config.task_preset is None and host_services is None:
                 status = native.tny_runtime_create(opts, opts_size, out, error)
-            else:
+            elif config.task_preset is None:
                 from .callbacks import _HostBinding
 
+                assert host_services is not None
                 self._host_binding = _HostBinding(self, host_services)
                 options_v1 = ffi.new("tny_runtime_options_v1 *")
                 options_v1_size = ffi.sizeof("tny_runtime_options_v1")
@@ -212,6 +288,29 @@ class Runtime:
                 options_v1.host_services = self._host_binding.table
                 status = native.tny_runtime_create_v1(
                     options_v1, options_v1_size, out, error
+                )
+            else:
+                if self.library.abi_minor < 1:
+                    raise UnsupportedError(
+                        -9, b"task presets require libtny ABI 1.1 or newer"
+                    )
+                from .callbacks import _HostBinding
+
+                options_v2 = ffi.new("tny_runtime_options_v2 *")
+                options_v2_size = ffi.sizeof("tny_runtime_options_v2")
+                init_status = native.tny_runtime_options_v2_init(
+                    options_v2, options_v2_size
+                )
+                if init_status != STATUS_OK:
+                    self.library.raise_status(init_status, ffi.NULL)
+                options_v2.base.runtime = opts[0]
+                options_v2.task.name = task_views["name"]
+                options_v2.task.instructions = task_views["instructions"]
+                if host_services is not None:
+                    self._host_binding = _HostBinding(self, host_services)
+                    options_v2.base.host_services = self._host_binding.table
+                status = native.tny_runtime_create_v2(
+                    options_v2, options_v2_size, out, error
                 )
         finally:
             if api_key_buffer is not None:

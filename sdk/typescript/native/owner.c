@@ -1,5 +1,15 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#ifdef __APPLE__
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE
+#endif
+#endif
 #define _POSIX_C_SOURCE 200809L
 #include "addon_internal.h"
+
+#include <dlfcn.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -221,6 +231,37 @@ static void fail_text(command *cmd, int32_t status, const char *message) {
     cmd->error_message = sdk_copy_cstr(message);
 }
 
+typedef int32_t (*task_options_v2_init_fn)(tny_runtime_options_v2 *, uint64_t);
+typedef int32_t (*runtime_create_v2_fn)(const tny_runtime_options_v2 *, uint64_t, tny_runtime **,
+                                        tny_error **);
+
+/* Resolve additive ABI symbols from the exact libtny image that satisfied the
+ * addon's ABI-1.0 imports. Looking them up through dlopen(NULL) is not reliable
+ * on Linux when the dependency was loaded RTLD_LOCAL, and closing a handle
+ * before calling pointers returned by dlsym would permit an unload race. */
+static void *open_task_runtime_symbols(task_options_v2_init_fn *init_v2,
+                                       runtime_create_v2_fn *create_v2) {
+    Dl_info info;
+    void *abi_address = NULL;
+    uint32_t (*abi_version_fn)(void) = tny_abi_version;
+    if (!init_v2 || !create_v2 || sizeof abi_address != sizeof abi_version_fn) return NULL;
+    memcpy(&abi_address, &abi_version_fn, sizeof abi_address);
+    if (!abi_address || dladdr(abi_address, &info) == 0 || !info.dli_fname || !*info.dli_fname)
+        return NULL;
+    void *library = dlopen(info.dli_fname, RTLD_NOW | RTLD_LOCAL);
+    if (!library) return NULL;
+    void *init_symbol = dlsym(library, "tny_runtime_options_v2_init");
+    void *create_symbol = dlsym(library, "tny_runtime_create_v2");
+    if (!init_symbol || !create_symbol || sizeof *init_v2 != sizeof init_symbol ||
+        sizeof *create_v2 != sizeof create_symbol) {
+        dlclose(library);
+        return NULL;
+    }
+    memcpy(init_v2, &init_symbol, sizeof *init_v2);
+    memcpy(create_v2, &create_symbol, sizeof *create_v2);
+    return library;
+}
+
 static void reject_queued(runtime_state *state) {
     command *cmd;
     for (;;) {
@@ -293,7 +334,43 @@ static void execute_create(runtime_state *state, command *cmd) {
     options.base_url = sdk_view_of(cmd->create.base_url);
     options.api_key = sdk_view_of(cmd->create.api_key);
     options.wire_api = sdk_view_of(cmd->create.wire_api);
-    cmd->status = tny_runtime_create(&options, sizeof options, &state->runtime, &error);
+    if (cmd->create.task_set) {
+        tny_runtime_options_v2 options_v2;
+        task_options_v2_init_fn init_v2 = NULL;
+        runtime_create_v2_fn create_v2 = NULL;
+        void *library = NULL;
+        if (minor < 1u) {
+            sdk_wipe_owned_bytes(&cmd->create.api_key);
+            fail_text(cmd, TNY_STATUS_UNSUPPORTED, "task presets require libtny ABI 1.1 or newer");
+            cmd->destroy_owner = 1;
+            state->closing = 1;
+            return;
+        }
+        library = open_task_runtime_symbols(&init_v2, &create_v2);
+        if (!library) {
+            sdk_wipe_owned_bytes(&cmd->create.api_key);
+            fail_text(cmd, TNY_STATUS_UNSUPPORTED,
+                      "libtny ABI 1.1 does not export the task runtime symbols");
+            cmd->destroy_owner = 1;
+            state->closing = 1;
+            return;
+        }
+        if (init_v2(&options_v2, sizeof options_v2) != TNY_STATUS_OK) {
+            dlclose(library);
+            sdk_wipe_owned_bytes(&cmd->create.api_key);
+            fail_text(cmd, TNY_STATUS_INTERNAL, "failed to initialize task runtime options");
+            cmd->destroy_owner = 1;
+            state->closing = 1;
+            return;
+        }
+        options_v2.base.runtime = options;
+        options_v2.task.name = sdk_view_of(cmd->create.task_name);
+        options_v2.task.instructions = sdk_view_of(cmd->create.task_instructions);
+        cmd->status = create_v2(&options_v2, sizeof options_v2, &state->runtime, &error);
+        dlclose(library);
+    } else {
+        cmd->status = tny_runtime_create(&options, sizeof options, &state->runtime, &error);
+    }
     sdk_wipe_owned_bytes(&cmd->create.api_key);
     if (cmd->status != TNY_STATUS_OK) {
         fail(cmd, cmd->status, error);

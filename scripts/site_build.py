@@ -567,6 +567,8 @@ tny acp                     # ACP server (native loop only)
 tny sessions
 tny session last|&lt;id&gt;
 tny providers
+tny tasks
+tny task show NAME          # inspect one resolved preset
 tny models
 tny permissions
 tny workspace list|add|remove|clear
@@ -579,11 +581,30 @@ tny login | logout | setup</code></pre>
 <pre><code>tny --provider cursor|codex|acp|openai [command]
 tny --cwd DIR
 tny --model ID
+tny --task NAME             # runtime preset: review|optimizer|document|retro
 tny --add-dir DIR           # repeatable, process-only
 tny --permission-mode ask|auto|yolo   # default: yolo
 tny --json                  # where listed
 tny -r                      # session picker (TUI)
 tny -c                      # resume last for this workspace</code></pre>
+<h2 id="task-presets">Runtime task presets</h2>
+<p><code>--task NAME</code> selects one of the built-ins <code>review</code>,
+<code>optimizer</code>, <code>document</code>, or <code>retro</code>, or a custom
+Markdown file at <code>.tny/tasks/NAME.md</code> (project) or
+<code>~/.tny/tasks/NAME.md</code> (user). Project definitions win. Files may
+use only <code>name:</code> and <code>description:</code> frontmatter and a
+non-empty UTF-8 body no larger than 256 KiB. SSH sessions use built-ins only.
+The selected name/source/digest is recorded with the session; resuming restores
+it and rejects a mismatched explicit selector. <code>--agent CMD</code> remains
+the ACP executable/WebSocket option.</p>
+<pre><code>cat &gt; .tny/tasks/release-review.md &lt;&lt;'TASK'
+---
+name: release-review
+description: Review release-readiness risks
+---
+Inspect correctness, compatibility, rollback, and test coverage.
+TASK
+tny --task release-review ask "Review this release"</code></pre>
 <h2 id="help">Help shape</h2>
 <p>Every subcommand has <code>--help</code> with copy-paste examples. Missing required values print the error, then a correct example, then exit 1. No timed prompts.</p>
 {cmd("tny ask --help")}
@@ -598,10 +619,12 @@ tny -c                      # resume last for this workspace</code></pre>
   </tbody>
 </table>
 <h2 id="json-cmds">JSON where it matters</h2>
-<p><code>--json</code> is accepted on <code>ask</code>, <code>status</code>, <code>doctor</code>, <code>permissions</code>, <code>models</code>, <code>session</code>, <code>sessions</code>, <code>workspace</code>, and <code>usage</code>.</p>
+<p><code>--json</code> is accepted on <code>ask</code>, <code>status</code>, <code>doctor</code>, <code>permissions</code>, <code>models</code>, <code>tasks</code>, <code>task show</code>, <code>session</code>, <code>sessions</code>, <code>workspace</code>, and <code>usage</code>.</p>
 <h2 id="examples">Examples</h2>
 {cmd("tny")}
 {cmd('tny ask "explain src/main.c"')}
+{cmd('tny --task review ask "inspect the current diff"')}
+{cmd("tny task show review")}
 {cmd('tny ask --json --provider openai "list exported symbols"')}
 {cmd('tny --provider cursor ask --model composer-2 "fix the leak"')}
 {cmd("tny --provider acp --agent gemini -- --acp")}
@@ -662,8 +685,8 @@ tny_result implement</code></pre>
 <p><code>tny_task</code> accepts repeated <code>--after</code>, plus <code>--task</code>, <code>--provider</code>, <code>--model</code>, <code>--effort</code>, <code>--cwd</code>, <code>--system-prompt</code>, <code>--permission-mode</code>, <code>--max-steps</code>, <code>--ssh</code>, <code>--ssh-cwd</code>, <code>--agent</code>, <code>--fast</code>, <code>--persist</code>, <code>--stdin</code>, and <code>--no-context</code>. Arguments are passed directly; the helper never uses <code>eval</code>.</p>
 <p>Each task starts in its own process group using <code>setsid</code>, or Perl with <code>POSIX::setsid</code> on macOS, so cancellation can terminate descendants and escalate to <code>KILL</code> after a bounded grace period.</p>
 <p>Inspect with <code>tny_status NAME</code>, <code>tny_result NAME</code>, <code>tny_result_path NAME</code>, <code>tny_stderr NAME</code>, and <code>tny_workflow_report</code>.</p>
-<h2 id="task-types">Agent task types</h2>
-<p><code>--task review|optimizer|document|retro</code> applies a reusable system-instruction preset while the task prompt remains the concrete job. <code>review</code> performs evidence-driven review; <code>optimizer</code> targets performance and complexity; <code>document</code> verifies and writes documentation; <code>retro</code> analyzes the session and may update <code>AGENTS.md</code> or a skill when the lesson is durable.</p>
+<h2 id="task-types">Runtime task presets</h2>
+<p>A task preset is reusable runtime configuration: system-level instructions that describe how an agent should approach a workflow node, while the task prompt remains the concrete job. The workflow helper passes <code>--task NAME</code> directly to <code>tny</code>, so the CLI, TUI, SDKs, and shell use the same definitions. Built-ins are <code>review</code>, <code>optimizer</code>, <code>document</code>, and <code>retro</code>.</p>
 <pre><code>tny_task review-change --task review -- "Review the current diff"
 tny_task optimize --task optimizer --after review-change -- "Optimize accepted findings"
 tny_task docs --task document --after optimize -- "Document final behavior"
@@ -675,7 +698,7 @@ TASK
 
 tny_task audit --task security-review -- "Audit this change"
 tny_task_types</code></pre>
-<p>For reusable project presets, keep the instructions in a checked-in file and load it with <code>tny_task_type NAME --stdin &lt; FILE</code>. Issue <a href="https://github.com/thehumanworks/tny/issues/81">#81</a> tracks moving presets into runtime configuration so direct CLI, TUI, SDK, and workflow use share one persistent model.</p>
+<p>Custom workflow types remain available for compatibility. They are stored under <code>$TNY_WORKFLOW_DIR/task-types/</code> and exposed to each child through an explicit <code>TNY_WORKFLOW_TASK_DIR</code>; bodies are resolved by <code>tny</code>, never composed by the shell. The launcher sets an explicit empty value when no workflow-local override applies, preventing ambient path leakage. For persistent cross-surface presets, use <code>.tny/tasks/NAME.md</code> or <code>~/.tny/tasks/NAME.md</code>. See issue <a href="https://github.com/thehumanworks/tny/issues/81">#81</a>.</p>
 <h2 id="sdks">Python and TypeScript</h2>
 <p>Both native SDKs expose <code>Workflow</code> with the same validated graph, bounded concurrency, direct-output fan-in, blocked-descendant behavior, and result ordering. Each active task owns a separate native runtime, preserving libtny's owner-thread rules.</p>
 <pre><code># Python
@@ -748,9 +771,12 @@ def docs_tui() -> str:
 <p>Menus are transient overlays. They draw in the bottom block, Escape hides them, and the next submit clears them — they never enter the scrollback. <code>/</code> <code>@</code> <code>$</code> popovers disable while an approval is focused so paths like <code>/tmp/x</code> stay literal.</p>
 <h2 id="slash">Slash commands</h2>
 <p>Sessions: <code>/help</code> <code>/clear</code> <code>/new</code> <code>/reset</code> <code>/resume</code> <code>/continue</code> <code>/rename</code> <code>/compact</code> <code>/quit</code></p>
-<p>Runtime: <code>/models</code> <code>/model</code> <code>/permissions</code> <code>/sandbox</code> <code>/backend</code> <code>/status</code> <code>/usage</code></p>
-<p>Tools: <code>/mcp</code> <code>/skills</code> <code>/workspace</code> <code>/image</code> <code>/undo</code> <code>/copy</code> <code>/trace</code></p>
+<p>Runtime: <code>/models</code> <code>/model</code> <code>/permissions</code> <code>/sandbox</code> <code>/backend</code> <code>/task</code> <code>/status</code> <code>/usage</code></p>
+<p>Tools: <code>/mcp</code> <code>/skills</code> <code>/workspace</code> <code>/image</code> <code>/ssh</code> <code>/undo</code> <code>/copy</code> <code>/trace</code></p>
 <p>Auth: <code>/login</code> <code>/logout</code> <code>/setup</code> — dispatched to the active backend. Backend-specific commands degrade to "not available" instead of crashing.</p>
+<h2 id="tasks">Task presets</h2>
+<p><code>/task</code> lists runtime-owned presets; <code>/task NAME</code> selects one before the first turn and <code>/task clear</code> removes it. The status row shows the active task. Resuming restores the exact saved task snapshot, while changing a task after a turn requires <code>/new</code>.</p>
+<p>SSH task discovery is builtin-only. To prevent local project instructions from crossing into a remote workspace, <code>/ssh</code> refuses to attach while a user, project, or workflow task is selected; clear it first, attach, then select a builtin.</p>
 <h2 id="startup">Startup</h2>
 <p>First paint never waits on a backend. After the banner, the TUI pre-warms the selected provider's host on a background thread so the first prompt adopts a live connection. Failures stay silent and resurface on the ordinary lazy path. One-shot CLI commands do not pre-warm.</p>
 <h2 id="browser">Browser demo</h2>
@@ -767,6 +793,7 @@ def docs_tui() -> str:
             ("layout", "Layout"),
             ("input", "Input"),
             ("slash", "Slash commands"),
+            ("tasks", "Task presets"),
             ("startup", "Startup"),
             ("browser", "Browser demo"),
         ],
@@ -1009,7 +1036,9 @@ def docs_architecture() -> str:
     <tr><td><code>~/.tny/mcp.json</code></td><td>Trusted MCP servers only</td></tr>
     <tr><td><code>~/.tny/sessions/</code></td><td>Transcripts and recovery</td></tr>
     <tr><td><code>~/.tny/skills/</code></td><td>Managed skill installs</td></tr>
+    <tr><td><code>~/.tny/tasks/</code></td><td>User task-preset Markdown definitions</td></tr>
     <tr><td><code>&lt;repo&gt;/.tny.json</code></td><td>Repo-safe limits only</td></tr>
+    <tr><td><code>&lt;repo&gt;/.tny/tasks/</code></td><td>Project task-preset Markdown definitions</td></tr>
     <tr><td><code>&lt;repo&gt;/AGENTS.md</code></td><td>Project instructions</td></tr>
   </tbody>
 </table>

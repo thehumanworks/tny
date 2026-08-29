@@ -89,7 +89,8 @@ class SDKTests(unittest.TestCase):
         )
 
     def test_metadata_capabilities_and_secret_safe_repr(self) -> None:
-        self.assertEqual((self.library.abi_major, self.library.abi_minor), (1, 0))
+        self.assertEqual(self.library.abi_major, 1)
+        self.assertGreaterEqual(self.library.abi_minor, 1)
         with tny.Runtime(
             self.config("https://api.example.invalid/v1"), library=self.library
         ) as runtime:
@@ -111,6 +112,82 @@ class SDKTests(unittest.TestCase):
                 self.config("https://api.example.invalid/v1", max_steps=1 << 31),
                 library=self.library,
             )
+
+    def test_task_preset_is_explicit_and_secret_safe(self) -> None:
+        built_in = tny.TaskPreset("review")
+        custom = tny.TaskPreset("release", "private instruction body")
+        self.assertIn("review", repr(built_in))
+        self.assertNotIn("private instruction body", repr(custom))
+        with tny.Runtime(
+            self.config("https://api.example.invalid/v1", task_preset=built_in),
+            library=self.library,
+        ) as runtime:
+            self.assertTrue(runtime.capabilities.feature_available_mask & (1 << 12))
+            self.assertTrue(runtime.capabilities.feature_enabled_mask & (1 << 12))
+            self.assertTrue(runtime.capabilities.task_presets)
+        with tny.Runtime(
+            self.config("https://api.example.invalid/v1", task_preset=custom),
+            library=self.library,
+            host_services=tny.HostServices(monotonic_ms=lambda: 7),
+        ):
+            pass
+
+    def test_abi_1_0_falls_back_without_task_and_rejects_task_explicitly(self) -> None:
+        class OldAbiNative:
+            def __init__(self, native: object) -> None:
+                self._native = native
+                self.new_symbol_reads: list[str] = []
+
+            def __getattr__(self, name: str) -> object:
+                if name in {"tny_runtime_options_v2_init", "tny_runtime_create_v2"}:
+                    self.new_symbol_reads.append(name)
+                    raise AssertionError("ABI 1.1 symbol was resolved against ABI 1.0")
+                return getattr(self._native, name)
+
+        actual_minor = self.library.abi_minor
+        actual_native = self.library.native
+        old_native = OldAbiNative(actual_native)
+        self.library.abi_minor = 0
+        self.library.native = old_native  # type: ignore[assignment]
+        try:
+            with tny.Runtime(
+                self.config("https://api.example.invalid/v1"), library=self.library
+            ):
+                pass
+            with self.assertRaises(tny.UnsupportedError) as caught:
+                tny.Runtime(
+                    self.config(
+                        "https://api.example.invalid/v1",
+                        task_preset=tny.TaskPreset("review"),
+                    ),
+                    library=self.library,
+                )
+            self.assertIn("unsupported", str(caught.exception))
+            self.assertEqual(old_native.new_symbol_reads, [])
+        finally:
+            self.library.native = actual_native
+            self.library.abi_minor = actual_minor
+
+    def test_task_validation_matches_native_grammar_and_byte_limit(self) -> None:
+        invalid = (
+            tny.TaskPreset(""),
+            tny.TaskPreset(".hidden"),
+            tny.TaskPreset("a..b"),
+            tny.TaskPreset("bad/name"),
+            tny.TaskPreset("x" * 64),
+            tny.TaskPreset("review", "bad\0body"),
+            tny.TaskPreset("review", b"\xff"),
+            tny.TaskPreset("review", "x" * 262145),
+        )
+        for task in invalid:
+            with (
+                self.subTest(task=repr(task)),
+                self.assertRaises(tny.InvalidArgumentError),
+            ):
+                tny.Runtime(
+                    self.config("https://api.example.invalid/v1", task_preset=task),
+                    library=self.library,
+                )
 
     def test_api_key_staging_is_wiped_when_later_input_encoding_fails(self) -> None:
         import tny.runtime as runtime_module
@@ -413,7 +490,9 @@ class SDKTests(unittest.TestCase):
             mock.close()
 
     def test_native_workflow_runs_parallel_sessions_and_context(self) -> None:
-        mock = Mock(MOCK_SLOW_MS="50")
+        mock = Mock(
+            MOCK_SLOW_MS="50", MOCK_EXPECT_INSTRUCTIONS="PY-WORKFLOW-DEFAULT-TASK"
+        )
         seen: list[tuple[str, str]] = []
 
         async def on_event(task: tny.WorkflowTask, event: tny.AnyEvent) -> None:
@@ -421,7 +500,12 @@ class SDKTests(unittest.TestCase):
 
         async def run() -> tny.WorkflowResult:
             workflow = tny.Workflow(
-                self.config(mock.url),
+                self.config(
+                    mock.url,
+                    task_preset=tny.TaskPreset(
+                        "workflow-default", "PY-WORKFLOW-DEFAULT-TASK"
+                    ),
+                ),
                 max_concurrency=2,
                 library_path=LIBRARY,
                 on_event=on_event,
@@ -443,6 +527,26 @@ class SDKTests(unittest.TestCase):
             self.assertEqual(result["merge"].stop_reason, int(tny.StopReason.DONE))
             self.assertIn(("first", "text_delta"), seen)
             self.assertIn(("merge", "turn_end"), seen)
+        finally:
+            mock.close()
+
+    def test_native_workflow_honors_per_task_preset_config(self) -> None:
+        mock = Mock(MOCK_EXPECT_INSTRUCTIONS="PY-WORKFLOW-PER-TASK")
+
+        async def run() -> tny.WorkflowResult:
+            workflow = tny.Workflow(self.config(mock.url), library_path=LIBRARY)
+            workflow.task(
+                "configured",
+                "run with task-specific runtime config",
+                runtime_config=self.config(
+                    mock.url,
+                    task_preset=tny.TaskPreset("per-task", "PY-WORKFLOW-PER-TASK"),
+                ),
+            )
+            return await workflow.run_async()
+
+        try:
+            self.assertTrue(asyncio.run(run()).ok)
         finally:
             mock.close()
 

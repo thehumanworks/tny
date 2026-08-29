@@ -28,12 +28,24 @@ tny resume [last|<id>]
 tny acp                     # ACP server (native loop only)
 tny sessions | session last|<id>
 tny providers | models | permissions | workspace | status | doctor | usage
+tny tasks                    # list built-in and discovered task presets
+tny task show NAME           # inspect one resolved preset
 tny login | logout | setup
 ```
 
-Leading flags: `--provider cursor|codex|acp|openai` (`--backend` alias), `--cwd`, `--model`, `--add-dir`, `--permission-mode ask|auto|yolo` (default yolo), `--json`, `-r`, `-c`.
+Leading flags: `--provider cursor|codex|acp|openai` (`--backend` alias), `--cwd`, `--model`, `--task NAME`, `--add-dir`, `--permission-mode ask|auto|yolo` (default yolo), `--json`, `-r`, `-c`. `--task` selects a runtime preset; `--agent CMD` remains the ACP executable option.
 
 `tny ask` stdout is Markdown (or one JSON object with `--json`). Exit 0/1/2/130.
+
+Built-in task presets are `review`, `optimizer`, `document`, and `retro`.
+Resolution precedence is workflow-private `TNY_WORKFLOW_TASK_DIR` (when a
+workflow explicitly sets it), then project `.tny/tasks/NAME.md`, then user
+`~/.tny/tasks/NAME.md`, then the built-in. Markdown files accept only optional
+`name:`/`description:` frontmatter and a non-empty UTF-8 body up to 256 KiB;
+unsafe names and symlinks are rejected. SSH uses built-ins only. Preset metadata
+(name, source, digest) is retained on sessions; resumes restore the snapshot
+and reject mismatched selectors, while instruction bodies stay out of status
+and session listings.
 
 
 ## Workflows

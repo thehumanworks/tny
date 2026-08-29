@@ -364,6 +364,30 @@ TEST status_row_fallback_truncates_to_width(void) {
     PASS();
 }
 
+TEST status_row_keeps_session_identity_ahead_of_task(void) {
+    tui t;
+    mk_tui(&t, 24);
+    struct tny_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    ctx.cwd = (char *)"/work";
+    ctx.task_name = (char *)"a-very-long-task-name";
+    t.ctx = &ctx;
+    t.attr = false;
+    tny_session_state session = {0};
+    session.id = (char *)"0123456789abcdef";
+    t.session = &session;
+    buf_t b;
+    buf_init(&b);
+    tui_status_row(&t, &b, 46);
+    ASSERT(strstr(b.data, "0123456789abcdef"));
+    const char *sid = strstr(b.data, "0123456789abcdef");
+    const char *task = strstr(b.data, "task:");
+    ASSERT(!task || sid < task);
+    buf_free(&b);
+    free_tui(&t);
+    PASS();
+}
+
 /* ---- pre-warm handoff ---- */
 
 typedef struct {
@@ -644,6 +668,31 @@ TEST fast_command_is_capability_gated(void) {
     PASS();
 }
 
+TEST ssh_command_rejects_local_custom_task(void) {
+    tui t;
+    struct tny_ctx ctx;
+    cli_globals globals;
+    memset(&ctx, 0, sizeof ctx);
+    memset(&globals, 0, sizeof globals);
+    mk_tui(&t, 24);
+    t.ctx = &ctx;
+    t.g = &globals;
+    ctx.task_name = xstrdup("security-review");
+    ctx.task_source = xstrdup("project");
+    ctx.task_instructions = xstrdup("local project instructions");
+
+    tui_command(&t, "/ssh example.invalid");
+    ASSERT_EQ(NULL, ctx.ssh_host);
+    ASSERT(strstr(t.out.data, "custom task presets cannot cross the SSH workspace boundary"));
+    ASSERT_STR_EQ("security-review", ctx.task_name);
+
+    free(ctx.task_name);
+    free(ctx.task_source);
+    free(ctx.task_instructions);
+    free_tui(&t);
+    PASS();
+}
+
 /* ---- wrap math ---- */
 
 TEST wrap_empty_is_one_row(void) {
@@ -840,6 +889,7 @@ SUITE(tui_suite) {
     RUN_TEST(status_row_is_a_reverse_bar_with_attrs);
     RUN_TEST(status_row_falls_back_to_delimiters_without_sgr);
     RUN_TEST(status_row_fallback_truncates_to_width);
+    RUN_TEST(status_row_keeps_session_identity_ahead_of_task);
     RUN_TEST(status_row_shows_one_sided_token_counts);
     RUN_TEST(prewarm_take_returns_connected_backend);
     RUN_TEST(prewarm_failed_connect_is_silent_and_discarded);
@@ -851,6 +901,7 @@ SUITE(tui_suite) {
     RUN_TEST(prewarm_start_restarts_on_a_stale_resume_pointer);
     RUN_TEST(prewarm_applicability);
     RUN_TEST(fast_command_is_capability_gated);
+    RUN_TEST(ssh_command_rejects_local_custom_task);
     RUN_TEST(wrap_empty_is_one_row);
     RUN_TEST(wrap_soft_break_at_width);
     RUN_TEST(wrap_hard_newline_is_its_own_row);

@@ -61,6 +61,8 @@ static void free_create_options(create_options *options) {
     free(options->base_url.ptr);
     sdk_wipe_owned_bytes(&options->api_key);
     free(options->wire_api.ptr);
+    free(options->task_name.ptr);
+    free(options->task_instructions.ptr);
     memset(options, 0, sizeof(*options));
 }
 
