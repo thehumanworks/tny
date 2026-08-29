@@ -7,6 +7,14 @@ toolchain. Design rationale: [ADR 0035](adr/0035-nix-flake-packaging.md).
 Systems: `x86_64-linux`, `aarch64-linux`, `aarch64-darwin`. Intel Mac is not a
 tny target ([ADR 0006](adr/0006-ci-build-targets.md)).
 
+The `.github/workflows/nix.yml` matrix native-checks all three systems on
+`ubuntu-24.04`, `ubuntu-24.04-arm`, and `macos-15`, respectively. The three
+entries share one `check` job and the same `nix flake check`, binary smoke,
+revision, and `nix-instantiate` steps, so wrapping, RUNPATH, closure, and
+sandbox behavior are gated on both Linux architectures as well as Apple
+Silicon. Do not add `x86_64-darwin`. `tests/integration/test_nix_ci_matrix.py`
+keeps that matrix, the flake `systems` list, and these docs in lockstep.
+
 ## Run it
 
 ```sh

@@ -7,8 +7,8 @@
 # No path filter: checks.tests reads docs/, site/ and scripts/ as well as the
 # sources, so almost any change can move it.
 #
-# Linux runs x86_64, macOS runs Apple Silicon only. Never add an Intel Mac
-# runner — aarch64-darwin is the only Darwin system the flake claims.
+# Linux runs x86_64 and aarch64; macOS runs Apple Silicon only. Never add an
+# Intel Mac runner — aarch64-darwin is the only Darwin system the flake claims.
 
 name: nix
 
@@ -36,6 +36,8 @@ jobs:
         include:
           - name: nix-linux-x86_64
             os: ubuntu-24.04
+          - name: nix-linux-aarch64
+            os: ubuntu-24.04-arm
           - name: nix-darwin-arm64
             os: macos-15
     steps:
