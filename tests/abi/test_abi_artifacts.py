@@ -253,6 +253,7 @@ class AbiArtifactTests(unittest.TestCase):
             c_binary = BUILD / "abi" / "current-consumer"
             cpp_binary = BUILD / "abi" / "current-consumer-cpp"
             boundary_binary = BUILD / "abi" / "capacity-boundaries"
+            v2_binary = BUILD / "abi" / "current-v2-consumer"
             link(
                 self.cc,
                 ROOT / "tests/abi/current_consumer.c",
@@ -274,9 +275,17 @@ class AbiArtifactTests(unittest.TestCase):
                 ROOT / "include",
                 PRIMARY,
             )
+            link(
+                self.cc,
+                ROOT / "tests/abi/current_v2_consumer.c",
+                v2_binary,
+                ROOT / "include",
+                PRIMARY,
+            )
             run([str(c_binary), workspace, "http://127.0.0.1:1/v1"])
             run([str(cpp_binary)])
             run([str(boundary_binary)])
+            run([str(v2_binary), workspace, "http://127.0.0.1:1/v1"])
 
     def test_minimum_and_current_header_source_cross_matrix(self) -> None:
         minimum = ROOT / "tests/abi/fixtures/abi1-min"
@@ -299,7 +308,21 @@ class AbiArtifactTests(unittest.TestCase):
                 if source.name == "current_consumer.c":
                     run([str(binary), workspace, "http://127.0.0.1:1/v1"])
                 else:
-                    run([str(binary)])
+                    # The immutable GA probes intentionally compare the full
+                    # 1.0 version integer. A later minor proves they loaded and
+                    # called the old symbols before returning their version
+                    # mismatch sentinel.
+                    run([str(binary)], expect=1 if source.suffix == ".cpp" else 3)
+
+        minor_compat = BUILD / "abi" / "minor-compatible-1.0-consumer"
+        link(
+            self.cc,
+            ROOT / "tests/abi/minor_compat_consumer.c",
+            minor_compat,
+            minimum / "include",
+            PRIMARY,
+        )
+        run([str(minor_compat)])
 
     def test_immutable_abi1_binary_runs_against_current_library(self) -> None:
         manifest_path = ROOT / "tests/abi/fixtures/abi1-min/manifest.json"
@@ -333,7 +356,11 @@ class AbiArtifactTests(unittest.TestCase):
             environment["DYLD_LIBRARY_PATH"] = str(PRIMARY.parent)
         else:
             environment["LD_LIBRARY_PATH"] = str(PRIMARY.parent)
-        run([str(binary)], env=environment)
+        # ABI 1.0's original fixture pins the full encoded version. Reaching
+        # its mismatch sentinel proves the unchanged binary loaded and called
+        # the frozen 1.0 symbols; the minor-aware source probe above proves the
+        # supported forward-compatibility rule.
+        run([str(binary)], expect=3, env=environment)
 
     def test_linux_fixture_seed_helpers_are_deterministic(self) -> None:
         self.assertEqual(linux_fixture_key("x86_64"), "linux-x86_64")
@@ -568,13 +595,18 @@ class AbiArtifactTests(unittest.TestCase):
             compat_dynamic = run(["readelf", "-d", str(COMPAT0)]).stdout
             self.assertIn("Library soname: [libtny.so.0]", compat_dynamic)
             symbols = run(["readelf", "--dyn-syms", "--wide", str(PRIMARY)]).stdout
-            actual = set()
+            actual_nodes = {}
             for line in symbols.splitlines():
                 if " tny_" in line:
-                    actual.add(line.split()[-1].split("@@", 1)[0])
-                    self.assertIn("@@LIBTNY_1.0", line)
+                    versioned = line.split()[-1]
+                    name, node = versioned.split("@@", 1)
+                    actual_nodes[name] = node
+                    self.assertEqual(node, baseline["exports"][name])
+            actual = set(actual_nodes)
         self.assertEqual(actual, expected)
-        candidate["exports"] = {name: "LIBTNY_1.0" for name in sorted(actual)}
+        candidate["exports"] = {
+            name: baseline["exports"][name] for name in sorted(actual)
+        }
         (BUILD / "abi" / "libtny-v1-current.json").write_text(
             json.dumps(candidate, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",

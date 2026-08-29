@@ -450,6 +450,9 @@ test-abi: lib-shared
 	python3 scripts/check_abi_baseline.py --compat0 abi/compat0.json
 	python3 scripts/check_abi_baseline.py \
 		--candidate $(BUILD)/abi/libtny-v1-current.json
+	python3 scripts/check_abi_baseline.py \
+		--baseline abi/baseline-v1.0.json \
+		--candidate $(BUILD)/abi/libtny-v1-current.json
 
 # SDK tests intentionally stay outside `make test`: normal CLI/libtny builds
 # require neither cffi nor Node.js. The dedicated SDK workflow installs them.

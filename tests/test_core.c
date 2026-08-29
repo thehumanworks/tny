@@ -5,6 +5,7 @@
 #include "core/backend.h"
 #include "core/perm.h"
 #include "core/session.h"
+#include "core/tasks.h"
 #include "core/tools.h"
 #include "core/image.h"
 #include "backends/codex/codex.h"
@@ -521,6 +522,157 @@ TEST session_roundtrip(void) {
     free(latest);
     free(id);
     tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST session_task_snapshot_roundtrip_and_resume_guards(void) {
+    ensure_env();
+    write_settings("{}");
+    const char *body = "Exact private task instructions.\nSecond line.";
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ASSERT_EQ(TNY_TASK_OK, tny_task_set_explicit(ctx, "release", body, "project"));
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    session_bump_turns(s);
+    ASSERT_EQ(0, session_save(s));
+    char *id = xstrdup(s->id);
+    char *public_json = jwrite(s->doc);
+    ASSERT(public_json);
+    ASSERT(strstr(public_json, "\"task\":{\"name\":\"release\""));
+    ASSERT_FALSE(strstr(public_json, "Exact private task instructions"));
+    free(public_json);
+    char *snapshot_path = path_join(s->dir, "task.md");
+    size_t snapshot_len = 0;
+    char *snapshot = file_slurp(snapshot_path, &snapshot_len);
+    ASSERT(snapshot);
+    ASSERT_EQ(strlen(body), snapshot_len);
+    ASSERT_STR_EQ(body, snapshot);
+    free(snapshot);
+    free(snapshot_path);
+    session_close(s);
+    tny_ctx_free(ctx);
+
+    /* No explicit selector restores the exact saved body and stable source. */
+    ctx = tny_ctx_load(g_ws);
+    s = session_open(ctx, id);
+    ASSERT(s);
+    char err[192] = {0};
+    ASSERT_EQ(0, session_task_reconcile(s, err, sizeof err));
+    ASSERT_STR_EQ("release", ctx->task_name);
+    ASSERT_STR_EQ("project", ctx->task_source);
+    ASSERT_STR_EQ(body, ctx->task_instructions);
+    ASSERT_FALSE(ctx->task_explicit);
+    session_close(s);
+    tny_ctx_free(ctx);
+
+    /* An explicit selector is accepted only when name and digest match. */
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_TASK_OK, tny_task_set_explicit(ctx, "release", body, "explicit"));
+    s = session_open(ctx, id);
+    ASSERT(s);
+    ASSERT_EQ(0, session_task_reconcile(s, err, sizeof err));
+    ASSERT(ctx->task_explicit);
+    session_close(s);
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_TASK_OK,
+              tny_task_set_explicit(ctx, "release", "Different instructions", "explicit"));
+    s = session_open(ctx, id);
+    ASSERT(s);
+    ASSERT_EQ(-1, session_task_reconcile(s, err, sizeof err));
+    ASSERT(strstr(err, "name and digest"));
+    session_close(s);
+    tny_ctx_free(ctx);
+    free(id);
+
+    /* Old sessions remain loadable, but a task cannot be grafted after a turn. */
+    ctx = tny_ctx_load(g_ws);
+    s = session_new(ctx);
+    ASSERT(s);
+    session_bump_turns(s);
+    ASSERT_EQ(0, session_save(s));
+    id = xstrdup(s->id);
+    session_close(s);
+    ASSERT_EQ(TNY_TASK_OK, tny_task_set_explicit(ctx, "review", "Review exactly.", "explicit"));
+    s = session_open(ctx, id);
+    ASSERT(s);
+    ASSERT_EQ(-1, session_task_reconcile(s, err, sizeof err));
+    ASSERT(strstr(err, "cannot be added"));
+    session_close(s);
+    tny_ctx_free(ctx);
+    free(id);
+    PASS();
+}
+
+TEST session_task_snapshot_atomic_window_and_symlink_guards(void) {
+    ensure_env();
+    write_settings("{}");
+    const char *body = "Crash-safe private task body.";
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ASSERT_EQ(TNY_TASK_OK, tny_task_set_explicit(ctx, "release", body, "project"));
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    ASSERT_EQ(0, session_save(s));
+    char *id = xstrdup(s->id);
+    char *snapshot = path_join(s->dir, "task.md");
+    char *pending = path_join(s->dir, "task.md.next");
+    ASSERT(id && snapshot && pending);
+    ASSERT_EQ(0, rename(snapshot, pending));
+    session_close(s);
+
+    /* Metadata is committed before the final rename. The pending sidecar is
+     * therefore a valid crash-recovery source, including for recover-copy. */
+    char *recovered_id = session_recover_copy(ctx, id);
+    ASSERT(recovered_id);
+    tny_ctx_free(ctx);
+    ctx = tny_ctx_load(g_ws);
+    s = session_open(ctx, id);
+    ASSERT(s);
+    char err[192] = {0};
+    ASSERT_EQ(0, session_task_reconcile(s, err, sizeof err));
+    ASSERT_STR_EQ(body, ctx->task_instructions);
+    ASSERT_EQ(0, session_save(s));
+    ASSERT_EQ(0, access(snapshot, F_OK));
+    ASSERT_EQ(-1, access(pending, F_OK));
+    session_close(s);
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws);
+    s = session_open(ctx, recovered_id);
+    ASSERT(s);
+    ASSERT_EQ(0, session_task_reconcile(s, err, sizeof err));
+    ASSERT_STR_EQ(body, ctx->task_instructions);
+    char *recovered_snapshot = path_join(s->dir, "task.md");
+    ASSERT(recovered_snapshot);
+    session_task_clear(s);
+    ASSERT_EQ(0, session_save(s));
+    ASSERT_EQ(-1, access(recovered_snapshot, F_OK));
+    free(recovered_snapshot);
+    session_close(s);
+    tny_ctx_free(ctx);
+
+    /* Even a symlink to byte-for-byte matching content is not a snapshot. */
+    char *decoy = path_join(g_home, "task-decoy.md");
+    ASSERT(decoy);
+    ASSERT_EQ(0, file_write_atomic(decoy, body, strlen(body)));
+    ASSERT_EQ(0, unlink(snapshot));
+    ASSERT_EQ(0, symlink(decoy, snapshot));
+    ctx = tny_ctx_load(g_ws);
+    s = session_open(ctx, id);
+    ASSERT(s);
+    ASSERT_EQ(-1, session_task_reconcile(s, err, sizeof err));
+    ASSERT(strstr(err, "missing or invalid"));
+    session_close(s);
+    tny_ctx_free(ctx);
+
+    free(decoy);
+    free(pending);
+    free(snapshot);
+    free(recovered_id);
+    free(id);
     PASS();
 }
 
@@ -2823,6 +2975,8 @@ SUITE(core_suite) {
     RUN_TEST(codex_registry_roundtrip);
     RUN_TEST(codex_registry_rejects_bad_entries);
     RUN_TEST(session_roundtrip);
+    RUN_TEST(session_task_snapshot_roundtrip_and_resume_guards);
+    RUN_TEST(session_task_snapshot_atomic_window_and_symlink_guards);
     RUN_TEST(session_tool_argument_rewrite_is_targeted_and_no_match_terminates);
     RUN_TEST(session_result_handles);
     RUN_TEST(session_compaction);

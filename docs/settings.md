@@ -19,6 +19,18 @@ Command-line flags have the highest precedence. Environment variables remain
 above settings where an environment override exists. Settings are defaults,
 not replacements for one-off flags.
 
+## Task presets
+
+Task presets are intentionally not settings keys: their instruction bodies are
+discovered as Markdown files so they can be reviewed and versioned directly.
+Place user presets in `~/.tny/tasks/NAME.md` or project presets in
+`<workspace>/.tny/tasks/NAME.md`; project definitions take precedence. The
+runtime also accepts the four built-ins (`review`, `optimizer`, `document`, and
+`retro`) and the CLI selects them with `--task NAME`. Presets may contain only
+the restricted frontmatter and instructions described in [cli.md](cli.md); they
+cannot add credentials, endpoints, tools, MCP servers, workspace paths, or
+permission/cost escalation.
+
 ## General defaults
 
 | Setting | Accepted shape | Equivalent CLI behavior |

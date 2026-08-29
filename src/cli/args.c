@@ -3,6 +3,7 @@
 #include "core/backend.h"
 #include "core/extensions.h"
 #include "core/ssh.h"
+#include "core/tasks.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -44,6 +45,9 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else if (strcmp(a, "--system-prompt") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->system_prompt = v;
+        } else if (strcmp(a, "--task") == 0) {
+            if (!(v = need_val(argc, argv, &i, a))) return -1;
+            g->task = v;
         } else if (strcmp(a, "--add-dir") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             const char **dirs = realloc(g->add_dirs, sizeof(char *) * (size_t)(g->n_add_dirs + 1));
@@ -267,6 +271,14 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     if (g->ssh && cli_ssh_attach(ctx, g->ssh, g->ssh_cwd) != 0) {
         tny_ctx_free(ctx);
         return NULL;
+    }
+    if (g->task) {
+        if (tny_task_apply(ctx, g->task) != 0) {
+            fprintf(stderr, "tny: unknown or invalid task '%s' (run `tny tasks` to list tasks)\n",
+                    g->task);
+            tny_ctx_free(ctx);
+            return NULL;
+        }
     }
     /* after resolve: flags beat whatever provider profile was applied */
     if (g->base_url) {

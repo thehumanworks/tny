@@ -5,6 +5,7 @@
 #include "core/session.h"
 #include "core/perm.h"
 #include "core/runtime.h"
+#include "core/tasks.h"
 #include "backends/openai/openai.h"
 #include "mcp/mcp.h"
 #include "util/util.h"
@@ -171,6 +172,16 @@ static char *ask_result_json(tny_ctx *ctx, ask_state *st, tny_engine *engine,
     buf_appends(&out, ",\"session_id\":");
     jescape(&out, (ctx->no_save || !session) ? "" : session->id);
     buf_appendf(&out, ",\"ephemeral\":%s", ctx->no_save ? "true" : "false");
+    buf_appends(&out, ",\"task\":");
+    if (ctx->task_name) {
+        buf_appends(&out, "{\"name\":");
+        jescape(&out, ctx->task_name);
+        buf_appends(&out, ",\"source\":");
+        jescape(&out, ctx->task_source ? ctx->task_source : "unknown");
+        buf_appends(&out, ",\"digest\":");
+        jescape(&out, ctx->task_digest);
+        buf_appends(&out, "}");
+    } else buf_appends(&out, "null");
     int steps = engine ? tny_engine_openai_steps(engine) : 0;
     buf_appendf(&out, ",\"steps\":%d,\"tool_calls\":", steps);
     if (engine && tny_engine_backend_id(engine) == TNY_BK_OPENAI) {
@@ -260,6 +271,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
 
     int i = 0;
     bool raw = false;
+    const char *task_name = NULL;
     for (; i < argc; i++) {
         const char *a = argv[i];
         if (!raw && a[0] == '-' && a[1]) {
@@ -273,7 +285,16 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             else if (strcmp(a, "--print-usage") == 0) print_usage = true;
             else if (strcmp(a, "--auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
             else if (strcmp(a, "--yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
-            else if (strcmp(a, "--resume") == 0 && i + 1 < argc) resume = argv[++i];
+            else if (strcmp(a, "--task") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr,
+                            "tny: ask: --task requires a value\n"
+                            "Example: tny ask --task review \"inspect the current diff\"\n");
+                    buf_free(&prompt);
+                    return 1;
+                }
+                task_name = argv[++i];
+            } else if (strcmp(a, "--resume") == 0 && i + 1 < argc) resume = argv[++i];
             else if (strcmp(a, "--resume-id") == 0 && i + 1 < argc) resume = argv[++i];
             else if (strcmp(a, "--output-schema") == 0) {
                 if (i + 1 >= argc) {
@@ -300,6 +321,12 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             if (prompt.len) buf_appends(&prompt, " ");
             buf_appends(&prompt, a);
         }
+    }
+    if (task_name && tny_task_apply(ctx, task_name) != 0) {
+        fprintf(stderr, "tny: unknown or invalid task '%s' (run `tny tasks` to list tasks)\n",
+                task_name);
+        buf_free(&prompt);
+        return 1;
     }
     if (background && ephemeral) {
         fprintf(stderr, "tny: --background is incompatible with --ephemeral "
@@ -339,6 +366,25 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     ctx->no_save = ephemeral;
     ctx->json_out = json;
 
+    /* Resolve the session task snapshot before any provider connection is
+     * started. This keeps every resume spelling provider-independent. */
+    tny_session_state *session = resume ? session_open(ctx, resume) : session_new(ctx);
+    if (!session) {
+        if (resume) fprintf(stderr, "tny: no session '%s' for this workspace\n", resume);
+        else fprintf(stderr, "tny: could not create a session\n");
+        buf_free(&prompt);
+        return 1;
+    }
+    if (resume) {
+        char task_err[192];
+        if (session_task_reconcile(session, task_err, sizeof task_err) != 0) {
+            fprintf(stderr, "tny: cannot resume session %s: %s\n", session->id, task_err);
+            session_close(session);
+            buf_free(&prompt);
+            return 1;
+        }
+    }
+
     /* Piped stdin can be slow (upstream producer): overlap the host connect
      * with the read. The argv-prompt path stays serial and untouched. */
     tny_backend *bk = NULL;
@@ -369,22 +415,9 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         fprintf(stderr,
                 "tny: ask needs a prompt\nExample: tny ask \"summarize this repository\"\n");
         abort_backend(bk, connecting && job.rc == 0);
+        session_close(session);
         buf_free(&prompt);
         return 1;
-    }
-
-    /* session */
-    tny_session_state *session = NULL;
-    if (resume) {
-        session = session_open(ctx, resume);
-        if (!session) {
-            fprintf(stderr, "tny: no session '%s' for this workspace\n", resume);
-            abort_backend(bk, connecting && job.rc == 0);
-            buf_free(&prompt);
-            return 1;
-        }
-    } else {
-        session = session_new(ctx);
     }
 
     /* Writer lock (docs/adr/0031 decision 7): whoever runs a turn on a saved
@@ -426,7 +459,10 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             session = NULL;
             for (int t = 0; t < 20; t++) {
                 session = session_open(ctx, sid);
-                if (session && (lrc = session_lock_acquire(session)) == 0) break;
+                char task_err[192];
+                if (session && session_task_reconcile(session, task_err, sizeof task_err) == 0 &&
+                    (lrc = session_lock_acquire(session)) == 0)
+                    break;
                 if (session) {
                     session_close(session);
                     session = NULL;

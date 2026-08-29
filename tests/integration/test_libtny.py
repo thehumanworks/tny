@@ -341,13 +341,16 @@ def run_ctypes(
     assert prefix_caps.schema_version == 1 and prefix_caps.provider_selected == 1
 
     caps = capabilities()
-    assert caps.schema_version == 1 and caps.abi_version == (1 << 16)
+    assert caps.schema_version == 1 and caps.abi_version == ((1 << 16) | 1)
     assert caps.provider_selected == 1 and caps.provider_initialized == 0
     assert caps.endpoint_reachability == 0
     assert caps.threading_model == 1 and caps.cancel_model == 2
     assert caps.provider_available_mask == 1
-    assert caps.feature_available_mask & 0x8A7 == 0x8A7
-    assert not caps.feature_available_mask & ~0x8A7
+    # ABI 1.1 advertises the task-preset capability (bit 12) in addition to
+    # the frozen 1.0 feature set.
+    expected_features = 0x8A7 | (1 << 12)
+    assert caps.feature_available_mask & expected_features == expected_features
+    assert not caps.feature_available_mask & ~expected_features
     expected_enabled = 0x84 | (0x2 if persistence else 0)
     if base_url.startswith("https://"):
         expected_enabled |= 0x1

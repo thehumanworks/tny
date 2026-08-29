@@ -1,6 +1,8 @@
 # `@thehumanworks/tny` native SDK
 
-This package is the Node.js/TypeScript binding for stable **libtny ABI 1**. It embeds the native OpenAI-compatible agent runtime through a small C
+This package is the Node.js/TypeScript binding for stable **libtny ABI 1**.
+Task presets require ABI 1.1; ABI 1.0 remains usable when no task is requested.
+It embeds the native OpenAI-compatible agent runtime through a small C
 Node-API addon. It does not spawn `tny` and contains no provider-wire or agent
 loop implementation in JavaScript.
 
@@ -46,6 +48,7 @@ const runtime = await Runtime.create({
   baseUrl: "https://api.openai.com/v1",
   apiKey: process.env.OPENAI_API_KEY,
   permissionMode: "ask",
+  taskPreset: "review", // built-ins: review, optimizer, document, retro
 });
 
 const session = await runtime.createSession();
@@ -61,6 +64,11 @@ console.log(answer.text);
 await session.close();
 await runtime.close();
 ```
+
+Task selection is runtime configuration shared by every session. Use
+`taskPreset: "review"` for a built-in, or `taskPreset: { name: "release", instructions:
+"..." }` for an explicit custom body. The native runtime never reads task
+files implicitly, so SDK embedding remains deterministic.
 
 `session.run()` is a pull-driven `AsyncGenerator`. One native `next_event`
 request exists only while JavaScript asks for another item, so a slow consumer

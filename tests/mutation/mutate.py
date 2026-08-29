@@ -34,6 +34,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # (path, function names or None, line regex or None[, integration test]) —
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
+    (
+        "src/core/tasks.c",
+        ["tny_task_name_valid", "tny_task_set_explicit", "tny_task_apply"],
+        None,
+    ),
     ("src/net/stream.c", None, r"ossl|OSSL", "tests/integration/test_https.py"),
     ("src/tui/tui_prewarm.c", None, None),
     (

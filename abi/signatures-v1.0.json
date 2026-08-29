@@ -27,7 +27,6 @@
     "tny_library_version": "tny_bytes tny_library_version(void)",
     "tny_runtime_create": "int32_t tny_runtime_create(const tny_runtime_options_v0*options,uint64_t capacity,tny_runtime**out_runtime,tny_error**out_error)",
     "tny_runtime_create_v1": "int32_t tny_runtime_create_v1(const tny_runtime_options_v1*options,uint64_t capacity,tny_runtime**out_runtime,tny_error**out_error)",
-    "tny_runtime_create_v2": "int32_t tny_runtime_create_v2(const tny_runtime_options_v2*options,uint64_t capacity,tny_runtime**out_runtime,tny_error**out_error)",
     "tny_runtime_destroy": "int32_t tny_runtime_destroy(tny_runtime**runtime)",
     "tny_runtime_free": "void tny_runtime_free(tny_runtime*runtime)",
     "tny_runtime_get_capabilities": "int32_t tny_runtime_get_capabilities(const tny_runtime*runtime,tny_capabilities_v0*capabilities,uint64_t capacity)",
@@ -40,7 +39,6 @@
     "tny_runtime_host_storage_store": "int32_t tny_runtime_host_storage_store(tny_runtime*runtime,tny_bytes key,uint64_t expected_revision,const void*data,uint64_t data_size,uint64_t*out_revision,tny_error**out_error)",
     "tny_runtime_options_init": "int32_t tny_runtime_options_init(tny_runtime_options_v0*options,uint64_t capacity)",
     "tny_runtime_options_v1_init": "int32_t tny_runtime_options_v1_init(tny_runtime_options_v1*options,uint64_t capacity)",
-    "tny_runtime_options_v2_init": "int32_t tny_runtime_options_v2_init(tny_runtime_options_v2*options,uint64_t capacity)",
     "tny_runtime_register_tool": "int32_t tny_runtime_register_tool(tny_runtime*runtime,const tny_tool_spec_v1*spec,tny_tool_registration**out_registration,tny_error**out_error)",
     "tny_session_cancel": "int32_t tny_session_cancel(tny_session*session,tny_error**out_error)",
     "tny_session_create": "int32_t tny_session_create(tny_runtime*runtime,tny_session**out_session,tny_error**out_error)",
@@ -57,7 +55,6 @@
     "tny_tool_call_release": "void tny_tool_call_release(tny_tool_call*call)",
     "tny_tool_registration_unregister": "int32_t tny_tool_registration_unregister(tny_tool_registration*registration,tny_error**out_error)",
     "tny_tool_result_v1_init": "int32_t tny_tool_result_v1_init(tny_tool_result_v1*result,uint64_t capacity)",
-    "tny_task_options_v1_init": "int32_t tny_task_options_v1_init(tny_task_options_v1*options,uint64_t capacity)",
     "tny_tool_spec_v1_init": "int32_t tny_tool_spec_v1_init(tny_tool_spec_v1*spec,uint64_t capacity)"
   },
   "callbacks": {

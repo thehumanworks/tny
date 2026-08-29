@@ -130,6 +130,7 @@ task=$(sed -n '1s/^TASK //p' "$prompt_file")
 [ -n "$task" ] || task=unknown
 mv "$prompt_file" "$TNY_FAKE_LOG.prompt.$task"
 printf '%s\n' "$@" > "$TNY_FAKE_LOG.args.$task"
+printf '%s\n' "${TNY_WORKFLOW_TASK_DIR:-}" > "$TNY_FAKE_LOG.task-path.$task"
 
 delay=$(sed -n 's/^DELAY //p' "$TNY_FAKE_LOG.prompt.$task" | sed -n '1p')
 [ -n "$delay" ] || delay=0
@@ -273,8 +274,7 @@ merge_start=$(grep -n '^start merge$' "$TNY_FAKE_LOG.events" | cut -d: -f1)
 [ "$merge_start" -gt "$research_end" ] || fail "merge started before research ended"
 [ "$merge_start" -gt "$tests_end" ] || fail "merge started before tests ended"
 
-# Built-in agent task types, composition with explicit instructions, and
-# workflow-local custom task types.
+# Runtime-owned built-in selectors and workflow-local compatibility types.
 reset_log "$temporary/scenario-task-types"
 tny_workflow_begin "$temporary/flow-task-types" > /dev/null
 types=$(tny_task_types)
@@ -286,6 +286,21 @@ tny_task_type security --stdin << 'TYPE'
 Act as a repository security reviewer. Verify trust boundaries and report concrete risks.
 TYPE
 printf '%s\n' "$(tny_task_types)" | grep -F "security" > /dev/null || fail "custom task type missing"
+ln -s "$temporary" "$TNY_WORKFLOW_DIR/task-types/symlinked"
+if tny_task_type symlinked "must not replace a symlink" 2> "$temporary/symlink.err"; then
+    fail "symlinked task type was accepted"
+fi
+assert_file_contains "$temporary/symlink.err" "refusing symlinked task type 'symlinked'"
+long_task_name=$(printf '%064d' 0)
+if tny_task_type "$long_task_name" "too long" 2> "$temporary/long-task.err"; then
+    fail "64-byte task type name was accepted"
+fi
+if command -v iconv > /dev/null 2>&1; then
+    if printf '\377' | tny_task_type invalid-utf8 --stdin 2> "$temporary/utf8-task.err"; then
+        fail "invalid UTF-8 task type was accepted"
+    fi
+    assert_file_contains "$temporary/utf8-task.err" "must be valid UTF-8"
+fi
 
 tny_task reviewer --task review --system-prompt "Focus on the changed public API." --stdin << 'PROMPT'
 TASK reviewer
@@ -302,21 +317,58 @@ PROMPT
 tny_task security --task security --stdin << 'PROMPT'
 TASK security
 PROMPT
-if tny_task unknown --task does-not-exist -- "TASK unknown" 2> "$temporary/task-type.err"; then
-    fail "unknown task type was accepted"
-fi
-assert_file_contains "$temporary/task-type.err" "unknown task type 'does-not-exist'"
+tny_task unknown --task does-not-exist -- "TASK unknown"
 
+TNY_WORKFLOW_TASK_DIR="$temporary/ambient-task-dir-that-must-not-leak"
+export TNY_WORKFLOW_TASK_DIR
 tny_workflow_run --jobs 5 --quiet || fail "task type workflow returned non-zero"
-assert_file_contains "$TNY_FAKE_LOG.args.reviewer" 'Act as a rigorous code reviewer.'
-assert_file_contains "$TNY_FAKE_LOG.args.reviewer" 'Additional task instructions:'
+assert_file_contains "$TNY_FAKE_LOG.args.reviewer" '--task'
+assert_file_contains "$TNY_FAKE_LOG.args.reviewer" 'review'
+assert_eq "$(cat "$TNY_FAKE_LOG.task-path.reviewer")" ""
+assert_file_not_contains "$TNY_FAKE_LOG.args.reviewer" 'Act as a rigorous code reviewer.'
+assert_file_not_contains "$TNY_FAKE_LOG.args.reviewer" 'Additional task instructions:'
 assert_file_contains "$TNY_FAKE_LOG.args.reviewer" 'Focus on the changed public API.'
-assert_file_contains "$TNY_FAKE_LOG.args.optimizer" 'performance and complexity optimizer'
-assert_file_contains "$TNY_FAKE_LOG.args.documenter" 'documentation expert'
-assert_file_contains "$TNY_FAKE_LOG.args.retrospective" 'optionally update AGENTS.md'
-assert_file_contains "$TNY_FAKE_LOG.args.security" 'repository security reviewer'
+assert_file_contains "$TNY_FAKE_LOG.args.optimizer" '--task'
+assert_file_contains "$TNY_FAKE_LOG.args.optimizer" 'optimizer'
+assert_file_not_contains "$TNY_FAKE_LOG.args.optimizer" 'performance and complexity optimizer'
+assert_file_contains "$TNY_FAKE_LOG.args.documenter" 'document'
+assert_file_not_contains "$TNY_FAKE_LOG.args.documenter" 'documentation expert'
+assert_file_contains "$TNY_FAKE_LOG.args.retrospective" 'retro'
+assert_file_not_contains "$TNY_FAKE_LOG.args.retrospective" 'optionally update AGENTS.md'
+assert_file_contains "$TNY_FAKE_LOG.args.security" '--task'
+assert_file_contains "$TNY_FAKE_LOG.args.security" 'security'
+assert_file_not_contains "$TNY_FAKE_LOG.args.security" 'repository security reviewer'
+assert_file_contains "$TNY_FAKE_LOG.args.unknown" 'does-not-exist'
+assert_eq "$(cat "$TNY_FAKE_LOG.task-path.security")" "$TNY_WORKFLOW_DIR/task-types"
+unset TNY_WORKFLOW_TASK_DIR
 assert_eq "$(cat "$TNY_WORKFLOW_DIR/tasks/reviewer/task_type")" review
 assert_eq "$(cat "$TNY_WORKFLOW_DIR/tasks/security/task_type")" security
+
+# With a built binary, prove the workflow bridge reaches runtime resolution:
+# unknown selectors fail as unknown, while a workflow-local custom selector
+# resolves and reaches the (deliberately unavailable) provider endpoint.
+if [ -x "$root/build/tny" ]; then
+    mkdir -p "$temporary/real-workspace"
+    tny_workflow_begin "$temporary/flow-real-task-resolution" > /dev/null
+    tny_task_type local-review "Workflow local body marker."
+    tny_task custom --provider openai --task local-review --cwd "$temporary/real-workspace" -- "custom"
+    tny_task unknown-real --provider openai --task does-not-exist --cwd "$temporary/real-workspace" -- "unknown"
+    TNY_WORKFLOW_TNY="$root/build/tny"
+    OPENAI_BASE_URL=http://127.0.0.1:1/v1
+    OPENAI_API_KEY=
+    export TNY_WORKFLOW_TNY OPENAI_BASE_URL OPENAI_API_KEY
+    if tny_workflow_run --jobs 2 --quiet; then
+        fail "real task resolution fixture unexpectedly succeeded"
+    fi
+    assert_eq "$(tny_status custom)" failed
+    assert_eq "$(tny_status unknown-real)" failed
+    assert_file_not_contains "$TNY_WORKFLOW_DIR/run/custom/stderr" "unknown or invalid task 'local-review'"
+    assert_file_contains "$TNY_WORKFLOW_DIR/run/unknown-real/stderr" "unknown or invalid task 'does-not-exist'"
+    tny_workflow_cleanup
+    unset OPENAI_BASE_URL OPENAI_API_KEY
+    TNY_WORKFLOW_TNY=$fake
+    export TNY_WORKFLOW_TNY
+fi
 
 # Failed tasks block descendants but do not cancel independent branches.
 reset_log "$temporary/scenario-two"

@@ -628,11 +628,22 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     if (session_id) {
         t.session = session_open(ctx, session_id);
         if (t.session) {
-            session_get_usage(t.session, &t.in_tok, &t.out_tok);
-            tui_linef(&t, "  resumed %s  %s", t.session->id,
-                      session_title(t.session) ? session_title(t.session) : "(untitled)");
+            char task_err[192];
+            if (session_task_reconcile(t.session, task_err, sizeof task_err) != 0) {
+                tui_err(&t, task_err);
+                session_close(t.session);
+                t.session = NULL;
+                t.exit_code = 1;
+                t.quit = true;
+            } else {
+                session_get_usage(t.session, &t.in_tok, &t.out_tok);
+                tui_linef(&t, "  resumed %s  %s", t.session->id,
+                          session_title(t.session) ? session_title(t.session) : "(untitled)");
+            }
         } else {
-            tui_err(&t, "session not found; starting a new one");
+            tui_err(&t, "session not found");
+            t.exit_code = 1;
+            t.quit = true;
         }
     } else if (g->resume_picker) {
         tui_command(&t, "/sessions");
@@ -640,7 +651,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     /* warm the provider's host now — after the session is open, so a resumed
      * session's host pointer rides along and the first prompt starts
      * instantly; a failure stays silent and resurfaces on the lazy path */
-    tui_prewarm_start(&t);
+    if (!t.quit) tui_prewarm_start(&t);
 
     t.dirty = true;
     while (!t.quit) {

@@ -59,6 +59,7 @@ from .runtime import PermissionMode as PermissionMode
 from .runtime import Runtime as Runtime
 from .runtime import RuntimeConfig as RuntimeConfig
 from .runtime import Session as Session
+from .runtime import TaskPreset as TaskPreset
 from .workflow import EventHandler as EventHandler
 from .workflow import PermissionHandler as PermissionHandler
 from .workflow import Workflow as Workflow
@@ -107,6 +108,7 @@ __all__ = (
     "ProtocolError",
     "Runtime",
     "RuntimeConfig",
+    "TaskPreset",
     "Session",
     "TnyError",
     "TnyIOError",

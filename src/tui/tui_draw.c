@@ -137,6 +137,7 @@ void tui_status_row(tui *t, buf_t *b, int maxw) {
     buf_appendf(&s, "%s  %s  %s", tny_provider_name(t->ctx),
                 t->ctx->model ? t->ctx->model : "default", tny_perm_mode_name(t->ctx->perm_mode));
     if (t->session) buf_appendf(&s, "  %s", t->session->id);
+    if (t->ctx->task_name) buf_appendf(&s, "  task:%s", t->ctx->task_name);
     if (t->in_tok || t->out_tok)
         buf_appendf(&s, "  %lld/%lld tok", (long long)t->in_tok, (long long)t->out_tok);
     if (t->n_images) buf_appendf(&s, "  %d img", t->n_images);

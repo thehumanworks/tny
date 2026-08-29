@@ -6,6 +6,8 @@
 #include <stddef.h>
 #include "json/json.h"
 
+#define TNY_TASK_DIGEST_HEX_LEN 40u
+
 struct tny_extensions;
 struct tny_host_services_state;
 struct custom_tool_registry;
@@ -93,6 +95,16 @@ typedef struct tny_ctx {
      * backends with no such schema field (cursor, codex, acp) get it
      * prepended to the session's first user message instead (runtime.c). */
     char *system_prompt;
+
+    /* Runtime-owned task preset selection. Bodies are resolved lazily for CLI
+     * contexts and are never ambiently discovered by deterministic embedders. */
+    char *task_name;
+    char *task_source;
+    char *task_instructions;
+    /* SHA-1 hex digest of the private task snapshot (integrity marker, not a
+     * credential).  The complete body is persisted alongside metadata. */
+    char task_digest[TNY_TASK_DIGEST_HEX_LEN + 1];
+    bool task_explicit;
 
     /* reasoning effort (all providers). Canonical levels are
      * TNY_EFFORT_LEVELS; other tokens are provider-advertised values passed

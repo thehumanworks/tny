@@ -1,4 +1,5 @@
 #include "core/config.h"
+#include "core/tasks.h"
 #include "core/backend.h"
 #include "core/extensions.h"
 #include "core/instructions.h"
@@ -537,6 +538,7 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     ctx->extension_timeout_ms = 5000;
     ctx->max_tool_result_bytes = 32768;
     ctx->context_enabled = true;
+    ctx->task_explicit = false;
     ctx->sandbox_mode = xstrdup("auto");
 
     /* settings-level defaults. Provider/model/effort/fast are completed in
@@ -1185,6 +1187,9 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->ssh_control);
     free(ctx->service_tier);
     free(ctx->system_prompt);
+    free(ctx->task_name);
+    free(ctx->task_source);
+    free(ctx->task_instructions);
     free(ctx->reasoning_effort);
     free(ctx->instructions_snapshot);
     for (int i = 0; i < ctx->n_instruction_paths; i++) free(ctx->instruction_paths[i]);

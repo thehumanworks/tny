@@ -18,8 +18,13 @@ tny ask --json "fix the failing test"
 tny ask --ephemeral "review this without saving the session"
 tny ask --backend cursor "explain this repo"
 tny --backend acp --agent gemini -- acp -- ask "hi"
+tny --task review ask "inspect the current diff"
 tny acp                      # serve tny's native loop to any ACP client
 ```
+
+`--task NAME` selects a runtime preset (`review`, `optimizer`, `document`, or
+`retro`, plus `.tny/tasks/NAME.md` custom definitions). It is distinct from
+ACP's `--agent CMD`, which selects the executable/WebSocket agent.
 
 ## Ephemeral sessions
 

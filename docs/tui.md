@@ -67,7 +67,10 @@ prompt), `/ssh off` goes back to local tools, and a bare `/ssh` shows the
 current target. The provider connection, session and history stay local
 ([ADR 0022](adr/0022-ssh-execution-boundary.md)). Project `AGENTS.md` follows
 the remote cwd while attached ([ADR 0040](adr/0040-ssh-agents-md.md));
-`/ssh off` restores the local chain.
+`/ssh off` restores the local chain. Task discovery is deliberately builtin-only
+while attached. If a local user, project, or workflow task is selected, `/ssh`
+refuses the transition; run `/task clear`, attach, then select a builtin task.
+This prevents local project instructions from crossing into the remote workspace.
 
 ## Input
 
@@ -124,6 +127,13 @@ boundaries, so it applies immediately with no backend rebind. Host providers
 run their own loops and ignore it.
 
 Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace` `/ssh`
+
+`/task` lists available runtime presets and selects `review`, `optimizer`,
+`document`, `retro`, or a custom name. Selection is session-scoped: it must be
+made before the first turn; after a turn or on a resumed host conversation,
+changing or clearing the task is rejected. `/new` starts a fresh session.
+On resume, tny restores the saved task snapshot when no task was explicitly
+selected; an explicit selection must match the saved name and digest.
 
 `/image PATH` explicitly queues a file for the next prompt (max 8 queued;
 further `/image` prints `too many images queued`). The native loop

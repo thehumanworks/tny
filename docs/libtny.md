@@ -143,6 +143,18 @@ Home/ancestor instructions and home skill catalogs are never imported. Only an
 Process-spawning or ambient-state tools (`subagent`, skills/install, memory,
 and interactive clarification) are also omitted from ABI 0.
 
+### Deterministic task presets
+
+ABI 1.1 embedders that need a named task use the additive `v2` options record:
+initialize `tny_runtime_options_v2` with `tny_runtime_options_v2_init`, fill its
+embedded base options, and set `task.name` before calling
+`tny_runtime_create_v2`. An empty `task.instructions` selects one of the
+built-ins (`review`, `optimizer`, `document`, or `retro`); a non-empty body is
+an explicit custom preset. This path never searches user or project files,
+which keeps embedded runtimes deterministic. The body is copied and is not
+included in ordinary status or diagnostic output. Existing v0/v1 callers and
+symbols are unchanged.
+
 Credentials are copied, never persisted by libtny, omitted from errors/events,
 and wiped from library-owned long-lived storage at teardown. Every allocation
 path reachable through the public runtime is contained by the ABI fault scope:
@@ -178,6 +190,10 @@ are also clear. Built-in native tools are not “custom tools.”
 ABI 0.6 additionally advertises `TNY_CAP_FEATURE_HOST_SERVICES` as available.
 It is enabled only for a runtime created through the v1 entry point with a
 copied host-services table.
+
+ABI 1.1 advertises `TNY_CAP_FEATURE_TASK_PRESETS` as available. It is enabled
+only when the runtime was created through the v2 entry point with an explicit
+task selection; the capability snapshot never exposes the task body.
 
 The snapshot also names the platform, architecture, HTTP transport, TLS
 implementation, and linkage, and reports owner-thread/cross-thread-wake cancel

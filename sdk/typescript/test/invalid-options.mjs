@@ -13,6 +13,11 @@ for (const options of [
   { maxSteps: NaN }, { maxSteps: 2 ** 40 }, { maxSteps: 2147483648 },
   { maxToolResultBytes: -1 }, { maxToolResultBytes: 1.5 }, { persistence: "yes" },
   { model: "bad\0model" }, { model: "\ud800" },
+  { taskPreset: "" }, { taskPreset: ".hidden" }, { taskPreset: "a..b" },
+  { taskPreset: "bad/name" }, { taskPreset: "x".repeat(64) },
+  { taskPreset: { name: "review", instructions: "bad\0body" } },
+  { taskPreset: { name: "review", instructions: "\ud800" } },
+  { taskPreset: { name: "review", instructions: "x".repeat(262145) } },
 ]) {
   await assert.rejects(Runtime.create({ ...base, ...options }));
 }

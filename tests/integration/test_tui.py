@@ -471,6 +471,64 @@ def test_menu_overlay_transient(home, ws):
     print("ok  /help menu is transient: esc and the next command both clear it")
 
 
+def test_task_resume_and_session_guards(home, ws, port):
+    """Every TUI resume path restores the saved task and rejects mismatch;
+    /task may change or clear only on a fresh zero-turn session."""
+    env = dict(
+        base_env(home),
+        OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1",
+        OPENAI_API_KEY="test-key-not-real",
+    )
+    created = subprocess.run(
+        [TNY, "--cwd", ws, "ask", "--json", "--task", "review", "task session"],
+        env=env,
+        capture_output=True,
+        timeout=30,
+    )
+    assert created.returncode == 0, created.stderr.decode()
+    sid = json.loads(created.stdout)["session_id"]
+
+    mismatch = Term([TNY, "--cwd", ws, "--task", "optimizer", "resume", sid], env, ws)
+    try:
+        mismatch.expect("name and digest must match")
+        assert mismatch.wait() == 1
+    finally:
+        mismatch.close()
+
+    startup = Term([TNY, "--cwd", ws, "resume", sid], env, ws)
+    try:
+        startup.expect_on_screen(f"resumed {sid}")
+        startup.expect_on_screen("task:review")
+        startup.send("/task\r")
+        startup.expect_on_screen("review")
+        startup.expect_on_screen("builtin")
+        startup.send("/task optimizer\r")
+        startup.expect_on_screen("start /new before changing it")
+        startup.send("/task clear\r")
+        startup.expect_on_screen("start /new before changing it")
+        startup.send("/new\r")
+        startup.expect_on_screen("new session")
+        startup.send("/task optimizer\r")
+        startup.expect_on_screen("task selected for this session")
+        startup.expect_on_screen("task:optimizer")
+        startup.send("/quit\r")
+        assert startup.wait() == 0
+    finally:
+        startup.close()
+
+    command = Term([TNY, "--cwd", ws], env, ws)
+    try:
+        command.expect(BANNER)
+        command.send(f"/resume {sid}\r")
+        command.expect_on_screen("resumed session")
+        command.expect_on_screen("task:review")
+        command.send("/quit\r")
+        assert command.wait() == 0
+    finally:
+        command.close()
+    print("ok  task snapshot restores and all TUI task/resume guards agree")
+
+
 COLOR_SGR = re.compile(r"\x1b\[(?:[0-9]+;)*[349][0-9]m")
 
 
@@ -1039,6 +1097,7 @@ def main():
             test_approval_ui(home, ws)
             test_yolo_default_auto_approves(home, ws)
             test_menu_overlay_transient(home, ws)
+            test_task_resume_and_session_guards(home, ws, port)
             test_no_color_keeps_the_status_bar(home, ws)
             test_color_never_drops_all_sgr(home, ws)
             test_clicolor_force_beats_no_color(home, ws)

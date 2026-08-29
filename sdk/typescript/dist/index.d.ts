@@ -79,6 +79,8 @@ export interface RuntimeCapabilities {
   readonly linkage: string;
   readonly abiMajor: 1;
   readonly abiMinor: number;
+  /** True only when this runtime selected an ABI 1.1 task preset. */
+  readonly taskPresets: boolean;
   readonly experimental: false;
 }
 export interface RuntimeOptions {
@@ -95,6 +97,13 @@ export interface RuntimeOptions {
   /** Integer from 0 through 2,147,483,647. */
   maxSteps?: number;
   maxToolResultBytes?: number | bigint;
+  /** Explicit deterministic task preset. A name selects a built-in; the
+   * object form supplies a rebuild-free custom instruction body. */
+  taskPreset?: string | TaskPreset;
+}
+export interface TaskPreset {
+  readonly name: string;
+  readonly instructions?: string;
 }
 export interface RunOptions {
   signal?: AbortSignal;

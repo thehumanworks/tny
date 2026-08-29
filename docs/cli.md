@@ -16,6 +16,8 @@ tny session last|<id>
 tny session <id> --wait     # block until a background task finishes ([--timeout S])
 tny session stop <id>       # stop a background task ([--kill])
 tny providers               # list configured providers and doctor hints
+tny tasks                   # list built-in and discovered task presets
+tny task show NAME          # inspect one resolved preset
 tny backends                # compatibility alias for providers
 tny models
 tny permissions
@@ -37,6 +39,7 @@ tny --cwd DIR
 tny --model ID
 tny --effort LEVEL          # reasoning effort (--reasoning-effort is an alias)
 tny --system-prompt TEXT    # custom system prompt (docs/adr/0045)
+tny --task NAME             # select a runtime task preset (issue #81)
 tny --add-dir DIR           # repeatable, process-only
 tny --permission-mode ask|auto|yolo   # default: yolo (docs/adr/0001)
 tny --max-steps N|unlimited # cap native-loop model calls per turn
@@ -60,6 +63,57 @@ structural and stay, so the status bar keeps its reverse video.
 `CLICOLOR_FORCE` (non-empty, not `0`) or `--color=always` forces full styling,
 beating `NO_COLOR` and applying even when piped. `--color=never` /
 `--no-color` emits no SGR at all.
+
+## Task presets
+
+`--task NAME` selects a runtime-owned instruction preset. Resolution order is
+the workflow-private `TNY_WORKFLOW_TASK_DIR`, the workspace
+`.tny/tasks/NAME.md`, the user `~/.tny/tasks/NAME.md`, then a built-in. The
+private workflow variable is always set explicitly by the shell workflow
+launcher, including an empty value, so unrelated ambient state cannot leak
+into children. SSH workspaces conservatively resolve built-ins only.
+
+Preset names match `[A-Za-z0-9_.-]{1,63}`, may not begin with `.` or contain
+`..`, and files must be regular, non-symlink UTF-8 Markdown no larger than 256
+KiB with a non-empty body; discovery accepts at most 256 definitions. Plain Markdown is valid. Optional frontmatter may
+contain only `name:` (which must match the filename) and `description:`; the
+frontmatter and leading blank lines after it are not sent to the model.
+
+`tny tasks` prints deterministic name, source category, validity, and optional
+description. `tny --json tasks` emits `{"kind":"tasks","tasks":[...]}`
+objects with `name`, `source`, `description`, and `valid`. The source is one of
+`workflow`, `project`, `user`, or `builtin`; absolute paths and instruction
+bodies are never emitted. `ask --json`, `status --json`, and public session
+JSON similarly expose only task name/source/digest metadata.
+`tny task show NAME` is the explicit inspection surface and prints the resolved
+instructions; `tny --json task show NAME` emits one `kind: "task"` object.
+Session listings include the same `task` metadata object (or `null`) alongside
+status, without exposing instruction bodies.
+The digest is a 40-character SHA-1 integrity marker for the private snapshot;
+the snapshot bytes are always checked as the source of truth and the digest is
+never treated as a credential.
+
+Create a project preset without rebuilding tny:
+
+```markdown
+---
+name: release-review
+description: Review release-readiness risks
+---
+
+Inspect the change for correctness, compatibility, rollback, and test coverage.
+Report prioritized findings; do not edit unless explicitly asked.
+```
+
+Save it as `.tny/tasks/release-review.md`, then run
+`tny --task release-review ask "Review this release"`.
+
+The resolved snapshot belongs to the session. Resuming without `--task`
+restores it; an explicit task must match the saved name and digest. A task may
+not be grafted onto an older session after turns exist, and `/task` may change
+or clear a task only before the fresh session's first turn. In browser/wasm
+builds, built-ins and presets present in MEMFS work; persistent host user or
+project discovery is unavailable.
 
 ## Ephemeral mode
 

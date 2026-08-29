@@ -8,6 +8,7 @@ import {
   type WorkflowDependency,
   type WorkflowResult,
   type WorkflowTaskRunner,
+  type TaskPreset,
 } from "@thehumanworks/tny";
 
 declare const workspace: string;
@@ -26,7 +27,8 @@ function describe(event: TnyEvent): string {
 }
 
 async function useSdk(): Promise<void> {
-  await using runtime = await Runtime.create({ workspace });
+  const task: TaskPreset = { name: "review" };
+  await using runtime = await Runtime.create({ workspace, taskPreset: task });
   await using session = await runtime.createSession();
   for await (const event of session.run("hello")) {
     describe(event);

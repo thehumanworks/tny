@@ -22,6 +22,8 @@ void help_root(void) {
           "  providers | backends   List configured providers and doctor hints\n"
           "  provider setup NAME    Add an OpenAI-compatible provider (interactive on a tty)\n"
           "  models                 List available models for the active provider\n"
+          "  tasks                  List built-in and discovered task presets\n"
+          "  task show NAME         Inspect one resolved task preset\n"
           "  permissions            Show the permission mode and rules\n"
           "  workspace list|add|remove|clear\n"
           "                         Manage additional workspace directories\n"
@@ -48,6 +50,8 @@ void help_root(void) {
           "                         carry it on the system/instructions field; cursor,\n"
           "                         codex and acp have no such field, so it is prepended\n"
           "                         to the session's first user message\n"
+          "  --task NAME            Apply a named task preset (review, optimizer,\n"
+          "                         document, retro, or a discovered .tny/tasks NAME.md)\n"
           "  --add-dir DIR          Extra workspace directory; repeatable, process-only\n"
           "  --permission-mode M    ask | auto | yolo (default: yolo)\n"
           "  --auto | --yolo        Permission-mode convenience aliases\n"
@@ -94,6 +98,7 @@ void help_root(void) {
           "  tny --ssh dev@box --ssh-cwd '~/app'   TUI whose tools act on the remote box\n"
           "  tny --ssh dev@box:2222 ask \"run the tests\"   One-shot, tools run remotely\n"
           "  tny ask \"explain src/main.c\"  One request, Markdown on stdout\n"
+          "  tny --task review ask \"inspect the current diff\"\n"
           "  tny ask --json \"list the public CLI\"\n"
           "  tny --provider codex login   ChatGPT sign-in over the app-server\n"
           "  tny --provider codex ask \"run the tests\"\n"
@@ -130,6 +135,7 @@ static const char *ask_help =
     "  --auto               Auto-review unresolved permissions (native loop)\n"
     "  --yolo               Disable permission checks and sandbox (the default)\n"
     "  --resume-id ID       Compatibility alias for --resume ID\n"
+    "  --task NAME          Apply a runtime task preset (global or ask-local)\n"
     "  --                   Treat every following argument as prompt text\n"
     "\n"
     "Stdout is assistant Markdown (or one JSON object with --json).\n"
@@ -154,6 +160,17 @@ static const char *sessions_help =
     "Examples:\n"
     "  tny sessions\n"
     "  tny sessions --json --limit 10\n";
+
+static const char *tasks_help =
+    "Usage: tny tasks\n\n"
+    "List built-in and discovered task presets. Use --json as a global flag.\n"
+    "Inspect one preset with `tny task show NAME`.\n";
+
+static const char *task_help =
+    "Usage: tny task show NAME\n\n"
+    "Show one resolved task preset, including its instructions. Use --json as a\n"
+    "global flag. This is the explicit inspection surface; status and errors never\n"
+    "print task instruction bodies.\n";
 
 static const char *session_help =
     "Usage: tny session <last|id> [--json] [--wait] [--timeout SECS]\n"
@@ -229,6 +246,8 @@ bool help_for(const char *command) {
     if (strcmp(command, "ask") == 0) text = ask_help;
     else if (strcmp(command, "sessions") == 0) text = sessions_help;
     else if (strcmp(command, "session") == 0) text = session_help;
+    else if (strcmp(command, "tasks") == 0) text = tasks_help;
+    else if (strcmp(command, "task") == 0) text = task_help;
     else if (strcmp(command, "workspace") == 0) text = workspace_help;
     else if (strcmp(command, "acp") == 0) text = acp_help;
     else if (strcmp(command, "setup") == 0) text = setup_help;

@@ -29,6 +29,9 @@ typedef struct {
     session_mem_result *mem_results; /* large results in ephemeral mode */
     int n_mem_results;
     int lock_fd; /* <dir>/lock flock fd, -1 when not held */
+    /* Exact resolved task instructions are persisted in the private
+     * <session>/task.md sidecar. Public session JSON carries metadata only. */
+    char *task_body;
 } tny_session_state;
 
 /* Create a fresh session for this workspace (not yet saved). */
@@ -99,6 +102,13 @@ void session_set_status_finished(tny_session_state *s, const char *status, int e
                                  const char *result_json);
 const char *session_status(tny_session_state *s); /* NULL if absent */
 
+/* Bind/clear the current ctx task on a fresh session. Reconcile restores the
+ * saved snapshot when no task was explicitly requested and rejects a
+ * mismatch (name+digest) before provider work begins. */
+int session_task_bind_current(tny_session_state *s);
+void session_task_clear(tny_session_state *s);
+int session_task_reconcile(tny_session_state *s, char *err, size_t errsz);
+
 /* Writer lock: flock(LOCK_EX|LOCK_NB) on <dir>/lock, held for the duration
  * of a turn. The lock lives on the open file description, so a forked child
  * inherits it and the parent exiting does not release it. 0 ok (idempotent
@@ -132,7 +142,8 @@ void session_recovery_clear(tny_session_state *s);
 typedef struct {
     char *id, *title, *updated, *backend, *model, *workspace;
     char *status; /* stored status field; NULL for pre-0031 sessions */
-    bool running; /* live writer-lock probe at list time */
+    char *task_name, *task_source, *task_digest; /* secret-safe task metadata */
+    bool running;                                /* live writer-lock probe at list time */
     int turns;
 } session_meta;
 

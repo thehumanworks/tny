@@ -76,8 +76,8 @@ tny_result implement</code></pre>
 <p><code>tny_task</code> accepts repeated <code>--after</code>, plus <code>--task</code>, <code>--provider</code>, <code>--model</code>, <code>--effort</code>, <code>--cwd</code>, <code>--system-prompt</code>, <code>--permission-mode</code>, <code>--max-steps</code>, <code>--ssh</code>, <code>--ssh-cwd</code>, <code>--agent</code>, <code>--fast</code>, <code>--persist</code>, <code>--stdin</code>, and <code>--no-context</code>. Arguments are passed directly; the helper never uses <code>eval</code>.</p>
 <p>Each task starts in its own process group using <code>setsid</code>, or Perl with <code>POSIX::setsid</code> on macOS, so cancellation can terminate descendants and escalate to <code>KILL</code> after a bounded grace period.</p>
 <p>Inspect with <code>tny_status NAME</code>, <code>tny_result NAME</code>, <code>tny_result_path NAME</code>, <code>tny_stderr NAME</code>, and <code>tny_workflow_report</code>.</p>
-<h2 id="task-types">Agent task types</h2>
-<p><code>--task review|optimizer|document|retro</code> applies a reusable system-instruction preset while the task prompt remains the concrete job. <code>review</code> performs evidence-driven review; <code>optimizer</code> targets performance and complexity; <code>document</code> verifies and writes documentation; <code>retro</code> analyzes the session and may update <code>AGENTS.md</code> or a skill when the lesson is durable.</p>
+<h2 id="task-types">Runtime task presets</h2>
+<p>A task preset is reusable runtime configuration: system-level instructions that describe how an agent should approach a workflow node, while the task prompt remains the concrete job. The workflow helper passes <code>--task NAME</code> directly to <code>tny</code>, so the CLI, TUI, SDKs, and shell use the same definitions. Built-ins are <code>review</code>, <code>optimizer</code>, <code>document</code>, and <code>retro</code>.</p>
 <pre><code>tny_task review-change --task review -- "Review the current diff"
 tny_task optimize --task optimizer --after review-change -- "Optimize accepted findings"
 tny_task docs --task document --after optimize -- "Document final behavior"
@@ -89,7 +89,7 @@ TASK
 
 tny_task audit --task security-review -- "Audit this change"
 tny_task_types</code></pre>
-<p>For reusable project presets, keep the instructions in a checked-in file and load it with <code>tny_task_type NAME --stdin &lt; FILE</code>. Issue <a href="https://github.com/thehumanworks/tny/issues/81">#81</a> tracks moving presets into runtime configuration so direct CLI, TUI, SDK, and workflow use share one persistent model.</p>
+<p>Custom workflow types remain available for compatibility. They are stored under <code>$TNY_WORKFLOW_DIR/task-types/</code> and exposed to each child through an explicit <code>TNY_WORKFLOW_TASK_DIR</code>; bodies are resolved by <code>tny</code>, never composed by the shell. The launcher sets an explicit empty value when no workflow-local override applies, preventing ambient path leakage. For persistent cross-surface presets, use <code>.tny/tasks/NAME.md</code> or <code>~/.tny/tasks/NAME.md</code>. See issue <a href="https://github.com/thehumanworks/tny/issues/81">#81</a>.</p>
 <h2 id="sdks">Python and TypeScript</h2>
 <p>Both native SDKs expose <code>Workflow</code> with the same validated graph, bounded concurrency, direct-output fan-in, blocked-descendant behavior, and result ordering. Each active task owns a separate native runtime, preserving libtny's owner-thread rules.</p>
 <pre><code># Python

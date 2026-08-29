@@ -7,6 +7,7 @@
 #include "core/tools.h"
 #include "cli/cli.h"
 #include "core/ssh.h"
+#include "core/tasks.h"
 #include "mcp/mcp.h"
 
 #include <ctype.h>
@@ -36,6 +37,7 @@ static const struct {
     {"provider", "/provider [NAME]"}, /* hint built from cmd_hint() */
     {"fast", "/fast [fast|priority|default] — provider speed tier"},
     {"effort", "/effort [" TNY_EFFORT_LEVELS "|default]"},
+    {"task", "/task [NAME|clear] — select a session task preset"},
     {"max-steps", "/max-steps [set N|clear] — cap the agent loop per turn"},
     {"status", "provider, auth, workspace"},
     {"usage", "token usage for this workspace"},
@@ -278,6 +280,66 @@ static void drop_backend(tui *t) {
     tui_prewarm_start(t);
 }
 
+typedef struct {
+    char *name;
+    char *source;
+    char *instructions;
+    char digest[TNY_TASK_DIGEST_HEX_LEN + 1];
+    bool explicit_selection;
+} task_selection_state;
+
+/* Task changes on a fresh TUI session are transactional with respect to the
+ * in-memory runtime/session view. Move the old owned strings aside so an OOM or
+ * persistence failure can restore the exact previous selection without another
+ * allocation. */
+static void task_selection_take(tny_ctx *ctx, task_selection_state *state) {
+    memset(state, 0, sizeof *state);
+    state->name = ctx->task_name;
+    state->source = ctx->task_source;
+    state->instructions = ctx->task_instructions;
+    memcpy(state->digest, ctx->task_digest, sizeof state->digest);
+    state->explicit_selection = ctx->task_explicit;
+    ctx->task_name = NULL;
+    ctx->task_source = NULL;
+    ctx->task_instructions = NULL;
+    ctx->task_digest[0] = 0;
+    ctx->task_explicit = false;
+}
+
+static void task_selection_restore(tny_ctx *ctx, task_selection_state *state) {
+    free(ctx->task_name);
+    free(ctx->task_source);
+    free(ctx->task_instructions);
+    ctx->task_name = state->name;
+    ctx->task_source = state->source;
+    ctx->task_instructions = state->instructions;
+    memcpy(ctx->task_digest, state->digest, sizeof ctx->task_digest);
+    ctx->task_explicit = state->explicit_selection;
+    state->name = NULL;
+    state->source = NULL;
+    state->instructions = NULL;
+}
+
+static void task_selection_discard(task_selection_state *state) {
+    free(state->name);
+    free(state->source);
+    free(state->instructions);
+    memset(state, 0, sizeof *state);
+}
+
+/* Rebuild the session's mutable task metadata from the restored ctx and retry
+ * the atomic save. The caller still reports the original failure; this merely
+ * prevents a partial disk publication from changing what a later resume sees. */
+static void task_selection_rollback_session(tui *t) {
+    if (!t->session) return;
+    if (t->ctx->task_name) {
+        if (session_task_bind_current(t->session) != 0) return;
+    } else {
+        session_task_clear(t->session);
+    }
+    (void)session_save(t->session);
+}
+
 /* Rendered as a transient overlay: visible while the user reads it, gone
  * from the buffer once they move on (esc dismisses, submit clears). */
 static void cmd_help(tui *t) {
@@ -390,9 +452,20 @@ static void cmd_resume_id(tui *t, const char *id) {
         tui_err(t, "no such session for this workspace (try /sessions)");
         return;
     }
+    /* Reconciliation may replace ctx task strings. Wait out the warm-up
+     * reader before doing so, and do not start the target provider until the
+     * saved snapshot has been accepted. */
+    tui_prewarm_drop(t);
+    char task_err[192];
+    if (session_task_reconcile(s, task_err, sizeof task_err) != 0) {
+        session_close(s);
+        if (!t->engine) tui_prewarm_start(t);
+        tui_err(t, task_err);
+        return;
+    }
     char *previous = t->session && t->session->id ? xstrdup(t->session->id) : NULL;
     if (t->engine) tny_engine_end_session(t->engine, "resume");
-    drop_backend(t); /* old engine still owns the old session until here */
+    tui_drop_backend(t); /* old engine still owns the old session until here */
     if (t->session) session_close(t->session);
     t->session = s;
     session_set_extension_start(s, "resume", previous);
@@ -401,6 +474,7 @@ static void cmd_resume_id(tui *t, const char *id) {
     session_get_usage(s, &in_tok, &out_tok);
     t->in_tok = in_tok;
     t->out_tok = out_tok;
+    tui_prewarm_start(t);
     tui_sys(t, "resumed session");
     tui_linef(t, "  %s  %s", s->id, session_title(s) ? session_title(s) : "(untitled)");
 }
@@ -441,6 +515,10 @@ void tui_command(tui *t, const char *line) {
                 tui_note(t, "disconnected from %s; tools run locally", t->ctx->ssh_host);
                 ssh_disconnect(t->ctx);
             } else tui_sys(t, "not connected");
+        } else if (t->ctx->task_name &&
+                   (!t->ctx->task_source || strcmp(t->ctx->task_source, "builtin") != 0)) {
+            tui_err(t, "custom task presets cannot cross the SSH workspace boundary; "
+                       "run /task clear before /ssh, then select a builtin task");
         } else {
             char *target = xstrdup(arg);
             char *dir = strchr(target, ' ');
@@ -632,6 +710,69 @@ void tui_command(tui *t, const char *line) {
                 tui_linef(t, "  reasoning effort: %s%s (next turn on)", arg,
                           tny_effort_canonical(arg) ? ""
                                                     : " (provider-advertised value, unverified)");
+        }
+        t->dirty = true;
+    } else if (strcmp(c, "task") == 0) {
+        if (!arg || !*arg) {
+            tui_linef(t, "  task: %s", t->ctx->task_name ? t->ctx->task_name : "none");
+            tny_task_info *items = NULL;
+            size_t count = 0;
+            if (tny_task_list(t->ctx, &items, &count) != TNY_TASK_OK) {
+                tui_err(t, "could not list task presets");
+            } else {
+                for (size_t i = 0; i < count; i++)
+                    tui_linef(t, "    %-18s %-9s %s%s", items[i].name, items[i].source,
+                              items[i].valid ? "" : "[invalid] ",
+                              items[i].description ? items[i].description : "");
+                tny_task_list_free(items, count);
+            }
+        } else if (t->turn_active ||
+                   (t->session && (session_turns(t->session) > 0 ||
+                                   (t->session->extension_start_reason &&
+                                    strcmp(t->session->extension_start_reason, "resume") == 0)))) {
+            tui_err(t, "task selection is session-scoped; start /new before changing it");
+        } else if (strcmp(arg, "clear") == 0) {
+            task_selection_state previous;
+            tui_prewarm_drop(t);
+            task_selection_take(t->ctx, &previous);
+            if (t->session) {
+                session_task_clear(t->session);
+                if (session_save(t->session) != 0) {
+                    task_selection_restore(t->ctx, &previous);
+                    task_selection_rollback_session(t);
+                    if (!t->engine) tui_prewarm_start(t);
+                    tui_err(t, "could not persist cleared task; selection is unchanged");
+                    t->dirty = true;
+                    return;
+                }
+            }
+            task_selection_discard(&previous);
+            drop_backend(t);
+            tui_sys(t, "task cleared");
+        } else {
+            task_selection_state previous;
+            tui_prewarm_drop(t);
+            task_selection_take(t->ctx, &previous);
+            if (tny_task_apply(t->ctx, arg) != 0) {
+                task_selection_restore(t->ctx, &previous);
+                if (!t->engine) tui_prewarm_start(t);
+                tui_err(t, "unknown task (use /task to list available presets)");
+            } else if (t->session && session_task_bind_current(t->session) != 0) {
+                task_selection_restore(t->ctx, &previous);
+                task_selection_rollback_session(t);
+                if (!t->engine) tui_prewarm_start(t);
+                tui_err(t, "could not bind task to the fresh session; selection is unchanged");
+            } else if (t->session && session_save(t->session) != 0) {
+                task_selection_restore(t->ctx, &previous);
+                task_selection_rollback_session(t);
+                if (!t->engine) tui_prewarm_start(t);
+                tui_err(t, "could not persist task selection; selection is unchanged");
+            } else {
+                task_selection_discard(&previous);
+                drop_backend(t);
+                tui_linef(t, "  task: %s (%s)", t->ctx->task_name, t->ctx->task_source);
+                tui_sys(t, "task selected for this session");
+            }
         }
         t->dirty = true;
     } else if (strcmp(c, "max-steps") == 0) {

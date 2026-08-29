@@ -425,7 +425,6 @@ def compare(baseline: dict[str, Any], candidate: dict[str, Any]) -> list[str]:
         "data_model",
         "calling_convention",
         "compatibility",
-        "capacity_signatures",
     ):
         if candidate[key] != baseline[key]:
             errors.append(
@@ -483,6 +482,8 @@ def compare(baseline: dict[str, Any], candidate: dict[str, Any]) -> list[str]:
     ):
         errors.append("unsupported artifact policy changed")
     for name, number in sorted(baseline["constants"].items()):
+        if name in {"TNY_ABI_MINOR", "TNY_ABI_VERSION"}:
+            continue
         actual = candidate["constants"].get(name)
         if actual != number:
             errors.append(f"constant {name}: expected {number}, got {actual!r}")
@@ -508,6 +509,23 @@ def compare(baseline: dict[str, Any], candidate: dict[str, Any]) -> list[str]:
             errors.append(
                 f"new export {name} must enter a later minor node, got {candidate['exports'][name]!r}"
             )
+    # Capacity-bearing entry points are additive ABI surface too. Preserve
+    # every frozen signature, while allowing new signatures only in a later
+    # minor node (and requiring every such export to have one).
+    for name, signature in baseline["capacity_signatures"].items():
+        if candidate["capacity_signatures"].get(name) != signature:
+            errors.append(f"capacity signature changed: {name}")
+    added_capacity = sorted(
+        set(candidate["capacity_signatures"]) - set(baseline["capacity_signatures"])
+    )
+    if added_capacity and candidate["abi"]["minor"] <= baseline["abi"]["minor"]:
+        errors.append(
+            "new capacity signatures require a later ABI minor: "
+            + ", ".join(added_capacity)
+        )
+    for name in added_capacity:
+        if name not in added_exports:
+            errors.append(f"new capacity signature lacks a new export: {name}")
     try:
         baseline_signatures = _read(Path.cwd() / baseline["signature_manifest"]["path"])
         candidate_signatures = _read(
