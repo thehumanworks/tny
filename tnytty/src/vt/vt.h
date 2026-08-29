@@ -64,6 +64,8 @@ int vt_cursor_y(const vt *t);
 bool vt_cursor_visible(const vt *t);
 bool vt_alt_screen(const vt *t);
 bool vt_bracketed_paste(const vt *t);
+/* DECCKM: arrow/Home/End keys should send SS3 rather than CSI. */
+bool vt_app_cursor(const vt *t);
 const char *vt_title(const vt *t);
 int vt_graphics_count(const vt *t);
 

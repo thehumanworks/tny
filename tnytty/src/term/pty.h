@@ -18,6 +18,8 @@ int tt_pty_spawn(tt_pty *p, char *const argv[], int cols, int rows);
 int tt_pty_resize(tt_pty *p, int cols, int rows);
 /* SIGHUP the child's process group (session teardown). */
 void tt_pty_kill(tt_pty *p);
+/* SIGKILL the child's process group after a bounded graceful shutdown. */
+void tt_pty_force_kill(tt_pty *p);
 /* Reap if exited; returns 1 (reaped, *exit_code set), 0 (still running),
  * -1 (no child). Never blocks unless block is true. */
 int tt_pty_reap(tt_pty *p, int *exit_code, bool block);

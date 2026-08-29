@@ -3,6 +3,7 @@
 #include "api/http.h"
 #include "icat/icat.h"
 #include "session/session.h"
+#include "ui/gui.h"
 #include "util/tt.h"
 
 #include <errno.h>
@@ -29,6 +30,7 @@ static const char root_help[] =
     "tnytty — the tiny terminal\n"
     "\n"
     "usage: tnytty [run] [flags] [-- CMD ARGS...]   passthrough terminal (default)\n"
+    "       tnytty gui [flags] [-- CMD ARGS...]     native window (macOS)\n"
     "       tnytty serve [flags]                    headless HTTP API server\n"
     "       tnytty icat FILE|-                      inline image (kitty graphics)\n"
     "       tnytty --help | --version\n"
@@ -43,6 +45,7 @@ static const char root_help[] =
     "  tnytty                                  # $SHELL in a scriptable session\n"
     "  tnytty run --listen 127.0.0.1:7681 -- htop\n"
     "  curl -s 127.0.0.1:7681/v1/sessions      # then .../ID/screen, .../ID/input\n"
+    "  tnytty gui --titlebar opaque            # native window, system titlebar\n"
     "  tnytty icat photo.png\n"
     "\n"
     "docs: tnytty/docs/ in the tny monorepo\n";
@@ -188,6 +191,7 @@ static int cmd_run(int argc, char **argv) {
         fprintf(stderr, "tnytty: spawn failed: %s\n", strerror(errno));
         return 1;
     }
+    s->attached = true;
     char token_buf[33];
     tt_api api = {&reg, o.token, TNYTTY_VERSION};
     tt_http *http = maybe_listen(&api, &o, token_buf, sizeof token_buf, NULL);
@@ -210,8 +214,11 @@ static int cmd_run(int argc, char **argv) {
     bool watch_stdin = true;
     for (;;) {
         int n = 0;
-        int stdin_i = -1, sig_i = -1, pty_i = -1, http_i = -1;
-        if (watch_stdin) {
+        int stdin_i = -1, sig_i = -1, pty_i = -1, headless_i = -1, headless_n = 0, http_i = -1;
+        tt_session *headless[MAX_LOOP_FDS / 2] = {0};
+        /* Back-pressure: stop reading the tty while the pty is far
+         * behind, so the queue never reaches its cap (session.h). */
+        if (watch_stdin && tt_session_pending(s) < TT_INPUT_HIGH_WATER) {
             stdin_i = n;
             fds[n].fd = STDIN_FILENO;
             fds[n].events = POLLIN;
@@ -228,13 +235,18 @@ static int cmd_run(int argc, char **argv) {
         if (s->alive) {
             pty_i = n;
             fds[n].fd = s->pty.master;
-            fds[n].events = POLLIN;
+            fds[n].events = POLLIN | (tt_session_pending(s) ? POLLOUT : 0);
             fds[n].revents = 0;
             n++;
         }
         if (http) {
+            headless_i = n;
+            headless_n = tt_registry_poll_fill(&reg, fds + n, headless, MAX_LOOP_FDS / 2, false);
+            n += headless_n;
+        }
+        if (http) {
             http_i = n;
-            n += tt_http_fill(http, fds + n, MAX_LOOP_FDS);
+            n += tt_http_fill(http, fds + n, (int)(sizeof fds / sizeof *fds) - n);
         }
         if (poll(fds, (nfds_t)n, -1) < 0) {
             if (errno == EINTR) continue;
@@ -256,8 +268,9 @@ static int cmd_run(int argc, char **argv) {
             if (r > 0) tt_session_write(s, scratch, (size_t)r);
             else if (r == 0) watch_stdin = false; /* EOF: run on until the child exits */
         }
+        if (pty_i >= 0 && (fds[pty_i].revents & POLLOUT)) tt_session_flush(s);
         if (pty_i >= 0 && (fds[pty_i].revents & (POLLIN | POLLHUP))) {
-            while (tt_session_pump(s, scratch, sizeof scratch, stdout_sink, NULL) > 0) {}
+            tt_session_drain(s, scratch, sizeof scratch, TT_PUMP_READS_PER_TURN, stdout_sink, NULL);
             if (!s->alive) {
                 exit_code = s->exit_code;
                 if (!http) break;
@@ -266,6 +279,9 @@ static int cmd_run(int argc, char **argv) {
                         exit_code);
             }
         }
+        if (headless_i >= 0)
+            tt_registry_poll_handle(fds + headless_i, headless, headless_n, scratch,
+                                    sizeof scratch);
         if (http && http_i >= 0) tt_http_handle(http, fds + http_i, n - http_i);
         if (!s->alive && !http) break;
     }
@@ -305,15 +321,9 @@ static int cmd_serve(int argc, char **argv) {
             n++;
         }
         int sess_start = n;
-        tt_session *by_fd[MAX_LOOP_FDS] = {0};
-        for (tt_session *s = reg.head; s && n < MAX_LOOP_FDS / 2; s = s->next) {
-            if (!s->alive) continue;
-            by_fd[n] = s;
-            fds[n].fd = s->pty.master;
-            fds[n].events = POLLIN;
-            fds[n].revents = 0;
-            n++;
-        }
+        tt_session *sessions[MAX_LOOP_FDS / 2] = {0};
+        int nsessions = tt_registry_poll_fill(&reg, fds + n, sessions, MAX_LOOP_FDS / 2, false);
+        n += nsessions;
         int http_i = n;
         n += tt_http_fill(http, fds + n, MAX_LOOP_FDS - n);
         if (poll(fds, (nfds_t)n, -1) < 0) {
@@ -327,9 +337,7 @@ static int cmd_serve(int argc, char **argv) {
                 if (sig == SIGINT || sig == SIGTERM) quit = true;
             if (quit) break;
         }
-        for (int i = sess_start; i < http_i; i++)
-            if (by_fd[i] && (fds[i].revents & (POLLIN | POLLHUP)))
-                while (tt_session_pump(by_fd[i], scratch, sizeof scratch, NULL, NULL) > 0) {}
+        tt_registry_poll_handle(fds + sess_start, sessions, nsessions, scratch, sizeof scratch);
         tt_http_handle(http, fds + http_i, n - http_i);
     }
     tt_http_free(http);
@@ -356,6 +364,7 @@ int main(int argc, char **argv) {
         }
         return tt_icat_main(argv[2]);
     }
+    if (argc > 1 && strcmp(argv[1], "gui") == 0) return tt_gui_main(argc - 2, argv + 2);
     if (argc > 1 && strcmp(argv[1], "serve") == 0) return cmd_serve(argc - 2, argv + 2);
     if (argc > 1 && strcmp(argv[1], "run") == 0) return cmd_run(argc - 2, argv + 2);
     return cmd_run(argc - 1, argv + 1);

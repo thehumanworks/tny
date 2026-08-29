@@ -628,7 +628,10 @@ ANALYZER_CC  ?= gcc
 # First-party scopes only; third_party/ and frozen ABI fixtures stay exempt.
 # Derive these lists from the tracked tree so new source and shell files enter
 # the quality gate automatically instead of depending on maintained globs.
-FMT_SRC := $(shell git ls-files -- '*.c' '*.h' | \
+# Tracked *and* untracked-but-not-ignored sources: a file in flight is
+# exactly the one whose formatting has not been checked yet.
+FMT_SRC := $(shell { git ls-files -- '*.c' '*.h'; \
+	git ls-files --others --exclude-standard -- '*.c' '*.h'; } | sort -u | \
 	grep -Ev '^(third_party/|tests/abi/fixtures/)')
 SH_SRC  := $(shell git ls-files -- '*.sh')
 SHFMT_FLAGS := -i 4 -ci -sr

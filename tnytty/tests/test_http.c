@@ -165,6 +165,38 @@ TEST bad_bodies_are_400(void) {
     PASS();
 }
 
+TEST attached_session_lifecycle_belongs_to_frontend(void) {
+    char *argv[] = {(char *)"sleep", (char *)"30", NULL};
+    tt_registry reg;
+    tt_registry_init(&reg, 0);
+    tt_session *s = tt_session_create(&reg, argv, 40, 10);
+    ASSERT(s != NULL);
+    s->attached = true;
+    tt_api api = {&reg, NULL, "test"};
+    tt_buf out;
+    char path[64];
+
+    snprintf(path, sizeof path, "/v1/sessions/%s/resize", s->id);
+    tt_buf_init(&out);
+    const char *resize = "{\"cols\":100,\"rows\":30}";
+    tt_api_route(&api, "POST", path, resize, strlen(resize), &out);
+    ASSERT_EQ(409, status_of(&out));
+    ASSERT_EQ(40, vt_cols(s->term));
+    ASSERT_EQ(10, vt_rows(s->term));
+    tt_buf_free(&out);
+
+    snprintf(path, sizeof path, "/v1/sessions/%s", s->id);
+    tt_buf_init(&out);
+    tt_api_route(&api, "DELETE", path, NULL, 0, &out);
+    ASSERT_EQ(409, status_of(&out));
+    ASSERT_EQ(1, reg.count);
+    ASSERT_EQ(s, tt_session_find(&reg, s->id));
+    tt_buf_free(&out);
+
+    tt_registry_free(&reg);
+    PASS();
+}
+
 TEST const_eq_ignores_length_leaks(void) {
     ASSERT(tt_const_eq("abc", "abc"));
     ASSERT_FALSE(tt_const_eq("abc", "abd"));
@@ -179,5 +211,6 @@ SUITE(http_suite) {
     RUN_TEST(bearer_auth_is_enforced);
     RUN_TEST(session_lifecycle_over_the_api);
     RUN_TEST(bad_bodies_are_400);
+    RUN_TEST(attached_session_lifecycle_belongs_to_frontend);
     RUN_TEST(const_eq_ignores_length_leaks);
 }

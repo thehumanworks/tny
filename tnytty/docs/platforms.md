@@ -7,20 +7,26 @@ stated behavior, mirroring the root wasm-parity rule.
 
 | Platform | Phase 1 | Target end-state |
 | --- | --- | --- |
-| Linux (glibc, musl) | **works** — `run`, `serve`, `icat`, full API; CI-built and tested | first-class, static musl publish builds |
-| macOS (arm64) | **works** — same as Linux; CI-built and tested | first-class |
-| Windows | **clean error** from `run`/`serve` ("pty: not supported on this platform yet"); `icat` works (it is pure stdout) | `pty_win.c` on ConPTY (phase 4); MSYS2 first like the harness, native Win32 later |
-| iOS | **remote-only** by design: iOS forbids fork/exec, so no local pty ever | tnytty as renderer + HTTP client attaching to remote sessions over the [HTTP API](http-api.md); the VT core compiles unchanged (it is I/O-free) and renders shared sessions on-device (phase 4) |
+| Linux (glibc, musl) | **works** — `run`, `serve`, `icat`, full API; CI-built and tested. `gui` is a **clean error** ("gui: not supported on this platform yet") | first-class, static musl publish builds; a Wayland/X11 `window_linux.c` behind the same seam |
+| macOS (arm64) | **works** — same as Linux, plus `gui`: a native window with a CoreText-rasterized grid and a transparent titlebar by default ([ADR 0005](adr/0005-native-renderer-and-macos-window.md)); CI builds it, and the AppKit layer itself needs a window server so it is verified by build + manual launch, not by a headless test | first-class |
+| Windows | **clean error** from `run`/`serve` ("pty: not supported on this platform yet") and from `gui` ("gui: not supported on this platform yet"); `icat` works (it is pure stdout) | `pty_win.c` on ConPTY (phase 4); MSYS2 first like the harness, native Win32 later |
+| iOS | **remote-only** by design: iOS forbids fork/exec, so no local pty ever; `gui` (which spawns a session) never applies | tnytty as renderer + HTTP client attaching to remote sessions over the [HTTP API](http-api.md); the VT core compiles unchanged (it is I/O-free) and renders shared sessions on-device (phase 4) |
 
 ## Rules
 
 - New platform support = a new `pty_*.c` behind the existing header plus
   a row update here plus CI coverage. Never `#ifdef` platform branches
   into `src/vt/` or `src/api/`.
+- Native windows have their own seam, `src/ui/window.h`, with the same
+  rule: one `window_*.c` per platform, and `window_stub.c` for everything
+  that has none yet. The cell rasterizer (`src/ui/render.c`) and the key
+  encoder (`src/ui/keys.c`) are platform-free and unit-tested on every
+  host; only glyph masks, event intake and the blit are per-platform.
 - The VT core must always compile on every target above, including iOS
   and wasm — it takes bytes and returns state, nothing else. Anything
   that stops that is a core bug.
-- Renderers (Metal/UIKit on Apple platforms, a Win32/DirectWrite view, a
-  browser view) are adapters over the core + API and live outside this
-  tree until they exist; fonts (nerd fonts included) are rasterized by
-  renderers, never by the core ([ADR 0004](adr/0004-nerd-font-width-policy.md)).
+- Renderers are adapters over the core, and fonts (nerd fonts included)
+  are rasterized by the renderer, never by the core
+  ([ADR 0004](adr/0004-nerd-font-width-policy.md)). The macOS renderer
+  gets its glyph masks from CoreText; a Win32/DirectWrite or browser
+  renderer supplies masks the same way, through `tt_glyph_fn`.
