@@ -4,6 +4,7 @@
 # both and receives their output as context (docs/workflows.md).
 set -eu
 
+# shellcheck source=/dev/null
 . "${TNY_PREFIX:-$HOME/.local}/share/tny/tny-workflows.sh"
 
 tny_workflow_begin
