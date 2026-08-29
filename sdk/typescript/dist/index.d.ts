@@ -156,23 +156,25 @@ export class WorkflowRunError extends WorkflowError {
   constructor(message: string, options?: ErrorOptions);
 }
 
+export interface WorkflowDependency {
+  readonly name: string;
+  /** Append this dependency's output to the consumer prompt. Defaults to true. */
+  readonly includeOutput?: boolean;
+}
+
 export interface WorkflowTaskOptions {
-  dependsOn?: Iterable<string>;
-  /** Append successful dependency outputs to the prompt. Defaults to true. */
-  includeDependencies?: boolean;
+  dependsOn?: readonly (string | WorkflowDependency)[];
   /** Override the workflow's default runtime for this task. */
   runtime?: RuntimeOptions;
 }
 
 export class WorkflowTask {
   readonly name: string;
-  readonly dependsOn: readonly string[];
-  readonly includeDependencies: boolean;
+  readonly dependsOn: readonly WorkflowDependency[];
   constructor(name: string, prompt: string, options?: WorkflowTaskOptions);
   toJSON(): {
     name: string;
-    dependsOn: readonly string[];
-    includeDependencies: boolean;
+    dependsOn: readonly WorkflowDependency[];
   };
 }
 

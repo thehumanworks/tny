@@ -101,7 +101,10 @@ async def main() -> None:
     workflow.task(
         "implement",
         "Implement and verify the change",
-        depends_on=("architecture", "tests"),
+        depends_on=(
+            "architecture",
+            tny.WorkflowDependency("tests", include_output=False),
+        ),
     )
 
     result = await workflow.run_async()
@@ -115,8 +118,10 @@ asyncio.run(main())
 Every active task owns an independent `AsyncRuntime` and session. Failed tasks
 block descendants without cancelling unrelated branches. Results preserve
 definition order and retain output, session id, stop reason, blocked
-dependencies, and an explicit error. Use `include_dependencies=False` for a
-sequencing-only edge and `max_dependency_bytes` to bound direct-output fan-in.
+dependencies, and an explicit error. Plain dependency names include output;
+use `WorkflowDependency(name, include_output=False)` for a sequencing-only
+edge. Mixed fan-in preserves the declared edge order, and
+`max_dependency_bytes` bounds only the outputs included in direct fan-in.
 
 `Workflow.run()` is the synchronous wrapper and rejects use inside an active
 event loop. Native permission requests default to deny; pass `on_permission=`

@@ -113,14 +113,17 @@ console.log(result.output("implement"));
 ```
 
 Failed tasks block descendants without cancelling independent branches.
-`includeDependencies: false` makes an edge ordering-only;
-`maxDependencyBytes` bounds direct-output fan-in. Results retain status,
+Each `dependsOn` entry may be a task name or
+`{ name: "task", includeOutput: false }` for an ordering-only edge, so mixed
+fan-in includes only the selected outputs in declared order.
+`maxDependencyBytes` bounds included direct-output fan-in. Results retain status,
 output, session id, stop reason, blocked dependencies, and an explicit error,
 while representations and aggregate errors omit prompts, credentials, output,
 and underlying exception text.
 
-`workflow.run({ signal })` propagates `AbortSignal` cancellation to every active
-native task and waits for cleanup. Native permission requests default to deny.
+`workflow.run({ signal })` propagates `AbortSignal` cancellation and its exact
+`signal.reason` to every active native task and waits for cleanup. Native
+permission requests default to deny.
 A custom `runner(task, prompt, { signal })` can replace native execution while
 retaining the scheduler; it returns `WorkflowTaskExecution` or the equivalent
 object shape and must honor the signal.

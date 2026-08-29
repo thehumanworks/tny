@@ -65,8 +65,7 @@ test("parallel roots feed deterministic dependency chains", async () => {
   workflow.add("tests", "audit the tests");
   workflow.task("implement", "implement", { dependsOn: ["research", "tests"] });
   workflow.task("ordered", "ordered", {
-    dependsOn: ["implement"],
-    includeDependencies: false,
+    dependsOn: [{ name: "implement", includeOutput: false }],
   });
 
   const result = await workflow.run();
@@ -86,6 +85,37 @@ test("parallel roots feed deterministic dependency chains", async () => {
     "research", "tests", "implement", "ordered",
   ]);
   result.raiseForFailure();
+});
+
+test("dependency output inclusion is per edge and preserves declared order", async () => {
+  const { runner, state } = fakeRunner();
+  const workflow = new Workflow({ runner, maxDependencyBytes: 24 })
+    .task("first", "first")
+    .task("ordering-only", "ordering-only")
+    .task("third", "third")
+    .task("consumer", "consume", {
+      dependsOn: [
+        "first",
+        { name: "ordering-only", includeOutput: false },
+        { name: "third", includeOutput: true },
+      ],
+    });
+
+  const result = await workflow.run();
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(workflow.tasks.at(-1).dependsOn, [
+    { name: "first", includeOutput: true },
+    { name: "ordering-only", includeOutput: false },
+    { name: "third", includeOutput: true },
+  ]);
+  assert.equal(Object.isFrozen(workflow.tasks.at(-1).dependsOn), true);
+  assert.equal(Object.isFrozen(workflow.tasks.at(-1).dependsOn[0]), true);
+  const prompt = state.prompts.get("consumer");
+  assert.ok(prompt.indexOf('name="first"') < prompt.indexOf('name="third"'));
+  assert.match(prompt, /result:first/);
+  assert.doesNotMatch(prompt, /ordering-only/);
+  assert.match(prompt, /result:third/);
 });
 
 test("a failed branch blocks descendants without cancelling siblings", async () => {
@@ -179,6 +209,28 @@ test("AbortSignal cancels active runners and leaves the workflow reusable", asyn
   assert.equal(second.ok, true);
 });
 
+test("AbortSignal preserves primitive and cross-realm reasons exactly", async () => {
+  const { runInNewContext } = await import("node:vm");
+  const reasons = ["cancel fixture", runInNewContext('new Error("cross-realm fixture")')];
+
+  for (const reason of reasons) {
+    const fixture = fakeRunner({ delays: { slow: 200 } });
+    const workflow = new Workflow({ runner: fixture.runner }).task("slow", "prompt");
+    const controller = new AbortController();
+    const running = workflow.run({ signal: controller.signal });
+    setTimeout(() => controller.abort(reason), 10);
+    let rejection;
+    try {
+      await running;
+      assert.fail("aborted workflow unexpectedly resolved");
+    } catch (error) {
+      rejection = error;
+    }
+    assert.equal(rejection, reason);
+    assert.equal(fixture.state.active, 0);
+  }
+});
+
 test("definitions and diagnostics do not accidentally render secrets", () => {
   const apiKey = "API-KEY-SECRET";
   const prompt = "PROMPT-SECRET";
@@ -218,5 +270,18 @@ test("definitions and diagnostics do not accidentally render secrets", () => {
   assert.throws(
     () => new Workflow({ maxDependencyBytes: 1.5, runner: async () => ({ output: "" }) }),
     (error) => error instanceof WorkflowDefinitionError,
+  );
+  assert.throws(
+    () => workflow.task("legacy", "prompt", {
+      dependsOn: ["safe"],
+      includeDependencies: false,
+    }),
+    (error) => error instanceof WorkflowDefinitionError && /includeOutput/.test(error.message),
+  );
+  assert.throws(
+    () => workflow.task("invalid-edge", "prompt", {
+      dependsOn: [{ name: "safe", includeOutput: "no" }],
+    }),
+    (error) => error instanceof WorkflowDefinitionError && /includeOutput/.test(error.message),
   );
 });

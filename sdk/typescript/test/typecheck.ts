@@ -5,6 +5,7 @@ import {
   WorkflowTaskExecution,
   WorkflowTaskStatus,
   type TnyEvent,
+  type WorkflowDependency,
   type WorkflowResult,
   type WorkflowTaskRunner,
 } from "@thehumanworks/tny";
@@ -53,7 +54,17 @@ async function useWorkflow(): Promise<void> {
     onPermission: () => PermissionDecision.deny,
   });
   workflow.task("inspect", "inspect the repository");
-  workflow.task("implement", "implement", { dependsOn: ["inspect"] });
+  const dependencies = ["inspect"] as const;
+  const orderingOnly: WorkflowDependency = {
+    name: "implement",
+    includeOutput: false,
+  };
+  workflow.task("implement", "implement", { dependsOn: dependencies });
+  workflow.task("review", "review", {
+    dependsOn: [orderingOnly],
+  });
+  // @ts-expect-error A bare string is not a dependency list.
+  workflow.task("invalid", "invalid", { dependsOn: "inspect" });
   const result: WorkflowResult = await workflow.run();
   const implementation = result.require("implement");
   const status = implementation.status;

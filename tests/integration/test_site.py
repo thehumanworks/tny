@@ -106,8 +106,8 @@ def main() -> None:
         fail("term-wasm.js appears to persist the key in localStorage")
 
     workflow_example = """tny_task implement \\
-  --after architecture --after tests --provider codex -- \\
-  \"Implement and verify the change from both reports\""""
+  --after architecture --after tests --no-context --provider codex -- \\
+  \"Implement from the architecture report after both reviews finish\""""
     if workflow_example not in workflows:
         fail("workflows.html lost shell line continuations")
 

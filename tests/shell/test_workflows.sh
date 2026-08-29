@@ -9,7 +9,84 @@ root=$(CDPATH='' cd -- "$script_dir/../.." && pwd -P)
 . "$root/shell/tny-workflows.sh"
 
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/tny-workflow-test.XXXXXX")
+scheduler_launcher_pid=
+scheduler_pid=
+
+valid_fixture_pid() {
+    case ${1:-} in
+        '' | *[!0-9]*) return 1 ;;
+        *) [ "$1" -gt 1 ] 2> /dev/null ;;
+    esac
+}
+
+signal_recorded_groups() {
+    local signal child_file child_pid
+    signal=$1
+    [ -n "${TNY_WORKFLOW_DIR:-}" ] || return 0
+    [ -d "$TNY_WORKFLOW_DIR/run" ] || return 0
+    find "$TNY_WORKFLOW_DIR/run" -name child_pid -type f -print 2> /dev/null |
+        while IFS= read -r child_file; do
+            child_pid=$(cat "$child_file" 2> /dev/null || true)
+            valid_fixture_pid "$child_pid" || continue
+            kill "-$signal" -- "-$child_pid" 2> /dev/null || true
+        done
+}
+
+signal_recorded_workers() {
+    local signal task worker_pid
+    signal=$1
+    [ -n "${TNY_WORKFLOW_DIR:-}" ] || return 0
+    [ -f "$TNY_WORKFLOW_DIR/tasks.list" ] || return 0
+    while IFS= read -r task || [ -n "$task" ]; do
+        [ -n "$task" ] || continue
+        [ -f "$TNY_WORKFLOW_DIR/run/$task/pid" ] || continue
+        worker_pid=$(cat "$TNY_WORKFLOW_DIR/run/$task/pid" 2> /dev/null || true)
+        valid_fixture_pid "$worker_pid" || continue
+        kill "-$signal" "$worker_pid" 2> /dev/null || true
+    done < "$TNY_WORKFLOW_DIR/tasks.list"
+}
+
+recorded_worker_alive() {
+    local task worker_pid
+    [ -n "${TNY_WORKFLOW_DIR:-}" ] || return 1
+    [ -f "$TNY_WORKFLOW_DIR/tasks.list" ] || return 1
+    while IFS= read -r task || [ -n "$task" ]; do
+        [ -n "$task" ] || continue
+        [ -f "$TNY_WORKFLOW_DIR/run/$task/pid" ] || continue
+        worker_pid=$(cat "$TNY_WORKFLOW_DIR/run/$task/pid" 2> /dev/null || true)
+        if valid_fixture_pid "$worker_pid" && kill -0 "$worker_pid" 2> /dev/null; then
+            return 0
+        fi
+    done < "$TNY_WORKFLOW_DIR/tasks.list"
+    return 1
+}
+
 cleanup() {
+    if valid_fixture_pid "${scheduler_pid:-}"; then
+        kill -TERM "$scheduler_pid" 2> /dev/null || true
+    fi
+    signal_recorded_groups TERM
+    attempt=0
+    while valid_fixture_pid "${scheduler_pid:-}" && kill -0 "$scheduler_pid" 2> /dev/null; do
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 30 ] || break
+        sleep 0.05
+    done
+    signal_recorded_groups KILL
+    if valid_fixture_pid "${scheduler_pid:-}"; then
+        kill -KILL "$scheduler_pid" 2> /dev/null || true
+    fi
+    if valid_fixture_pid "${scheduler_launcher_pid:-}"; then
+        kill -TERM "$scheduler_launcher_pid" 2> /dev/null || true
+        wait "$scheduler_launcher_pid" 2> /dev/null || true
+    fi
+    attempt=0
+    while recorded_worker_alive; do
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 30 ] || break
+        sleep 0.05
+    done
+    signal_recorded_workers KILL
     rm -r -f "$temporary"
 }
 trap cleanup EXIT HUP INT TERM
@@ -91,6 +168,24 @@ printf 'result:%s\n' "$task"
 FAKE
 chmod 755 "$fake"
 
+uncooperative="$temporary/uncooperative-tny"
+cat > "$uncooperative" << 'UNCOOPERATIVE'
+#!/bin/sh
+set -eu
+: "${TNY_UNCOOPERATIVE_LOG:?}"
+trap '' HUP INT TERM
+printf '%s\n' "$$" > "$TNY_UNCOOPERATIVE_LOG/parent"
+sh -c '
+    trap "" HUP INT TERM
+    printf "%s\n" "$$" > "$1/grandchild"
+    while :; do sleep 1; done
+' _ "$TNY_UNCOOPERATIVE_LOG" &
+while [ ! -f "$TNY_UNCOOPERATIVE_LOG/grandchild" ]; do sleep 0.01; done
+: > "$TNY_UNCOOPERATIVE_LOG/ready"
+while :; do sleep 1; done
+UNCOOPERATIVE
+chmod 755 "$uncooperative"
+
 reset_log() {
     mkdir -p "$1"
     TNY_FAKE_LOG="$1/log"
@@ -128,7 +223,11 @@ tny_task tests --stdin << 'PROMPT'
 TASK tests
 DELAY 0.20
 PROMPT
-tny_task merge --after research --after tests --stdin << 'PROMPT'
+tny_task evidence --stdin << 'PROMPT'
+TASK evidence
+DELAY 0
+PROMPT
+tny_task merge --after research --after tests --no-context --after evidence --stdin << 'PROMPT'
 TASK merge
 DELAY 0
 PROMPT
@@ -141,6 +240,7 @@ tny_workflow_run --jobs 2 --quiet || fail "successful workflow returned non-zero
 assert_eq "$(cat "$TNY_FAKE_LOG.maximum")" 2 "parallel roots"
 assert_eq "$(tny_status research)" success
 assert_eq "$(tny_status tests)" success
+assert_eq "$(tny_status evidence)" success
 assert_eq "$(tny_status merge)" success
 assert_eq "$(tny_status ordered)" success
 assert_eq "$(tny_result merge)" result:merge
@@ -148,7 +248,13 @@ assert_eq "$(tny_result merge)" result:merge
 assert_file_contains "$TNY_FAKE_LOG.prompt.merge" '<tny_workflow_dependencies>'
 assert_file_contains "$TNY_FAKE_LOG.prompt.merge" '<dependency name="research">'
 assert_file_contains "$TNY_FAKE_LOG.prompt.merge" 'result:research'
-assert_file_contains "$TNY_FAKE_LOG.prompt.merge" 'result:tests'
+assert_file_not_contains "$TNY_FAKE_LOG.prompt.merge" '<dependency name="tests">'
+assert_file_not_contains "$TNY_FAKE_LOG.prompt.merge" 'result:tests'
+assert_file_contains "$TNY_FAKE_LOG.prompt.merge" '<dependency name="evidence">'
+assert_file_contains "$TNY_FAKE_LOG.prompt.merge" 'result:evidence'
+research_context=$(grep -n '<dependency name="research">' "$TNY_FAKE_LOG.prompt.merge" | cut -d: -f1)
+evidence_context=$(grep -n '<dependency name="evidence">' "$TNY_FAKE_LOG.prompt.merge" | cut -d: -f1)
+[ "$research_context" -lt "$evidence_context" ] || fail "included dependency outputs lost declaration order"
 assert_file_not_contains "$TNY_FAKE_LOG.prompt.ordered" '<tny_workflow_dependencies>'
 assert_file_contains "$TNY_FAKE_LOG.args.research" '--provider'
 assert_file_contains "$TNY_FAKE_LOG.args.research" 'codex'
@@ -215,20 +321,23 @@ assert_eq "$(cat "$TNY_WORKFLOW_DIR/tasks/security/task_type")" security
 # Failed tasks block descendants but do not cancel independent branches.
 reset_log "$temporary/scenario-two"
 tny_workflow_begin "$temporary/flow-two" > /dev/null
-tny_task bad --stdin << 'PROMPT'
-TASK bad
-DELAY 0.05
-FAIL
-PROMPT
+# Define this chain in reverse topological order. Blocking must propagate to a
+# fixed point in the same scheduler pass after the rapid root failure.
+tny_task grandchild --after child -- "TASK grandchild"
+tny_task child --after bad -- "TASK child"
 tny_task independent --stdin << 'PROMPT'
 TASK independent
 DELAY 0.10
 PROMPT
-tny_task child --after bad -- "TASK child"
-tny_task grandchild --after child -- "TASK grandchild"
-if tny_workflow_run -j 2 --quiet; then
-    fail "failing workflow returned zero"
-fi
+tny_task bad --stdin << 'PROMPT'
+TASK bad
+FAIL
+PROMPT
+set +e
+tny_workflow_run -j 2 --quiet
+workflow_rc=$?
+set -e
+assert_eq "$workflow_rc" 1 "rapid failure workflow status"
 assert_eq "$(tny_status bad)" failed
 assert_eq "$(tny_status independent)" success
 assert_eq "$(tny_status child)" blocked
@@ -236,6 +345,12 @@ assert_eq "$(tny_status grandchild)" blocked
 assert_eq "$(cat "$TNY_WORKFLOW_DIR/run/bad/exit_code")" 7
 [ ! -f "$TNY_FAKE_LOG.prompt.child" ] || fail "blocked child was launched"
 assert_file_contains "$TNY_WORKFLOW_DIR/run/child/stderr" "dependency 'bad' is failed"
+
+tny_workflow_begin "$temporary/flow-edge-validation" > /dev/null
+if tny_task invalid --no-context --after independent -- "TASK invalid" 2> "$temporary/edge-validation.err"; then
+    fail "--no-context without a preceding edge was accepted"
+fi
+assert_file_contains "$temporary/edge-validation.err" '--no-context must immediately follow --after NAME'
 
 # Missing edges and cycles fail validation before any process starts.
 reset_log "$temporary/scenario-three"
@@ -308,11 +423,38 @@ case ${ZSH_VERSION:-} in
     '') current_shell=${BASH:-bash} ;;
     *) current_shell=${ZSH:-zsh} ;;
 esac
-# The single-quoted program is intentionally expanded by the child shell.
+# Expanded by the child scheduler shell, not this test process.
 # shellcheck disable=SC2016
-"$current_shell" -c '. "$1"; TNY_WORKFLOW_DIR=$2; export TNY_WORKFLOW_DIR; _tny_workflow_run_impl --quiet' \
-    _ "$root/shell/tny-workflows.sh" "$TNY_WORKFLOW_DIR" &
-scheduler_pid=$!
+scheduler_program='. "$1"; TNY_WORKFLOW_DIR=$2; export TNY_WORKFLOW_DIR; _tny_workflow_run_impl --quiet'
+start_scheduler() {
+    local pid_file attempt
+    pid_file=$1
+    rm -f "$pid_file"
+    # Zsh may put an asynchronous `exec` behind a short-lived job wrapper, so
+    # its outer $! is not reliably the process that installed scheduler traps.
+    # Keep a supervisor alive, record its direct child, signal that exact PID,
+    # and wait on the supervisor job for the scheduler's final status.
+    sh -c '
+        "$1" -c "$2" _ "$3" "$4" &
+        scheduler=$!
+        printf "%s\n" "$scheduler" > "$5"
+        wait "$scheduler"
+        exit $?
+    ' _ "$current_shell" "$scheduler_program" "$root/shell/tny-workflows.sh" \
+        "$TNY_WORKFLOW_DIR" "$pid_file" &
+    scheduler_launcher_pid=$!
+    attempt=0
+    while [ ! -s "$pid_file" ]; do
+        kill -0 "$scheduler_launcher_pid" 2> /dev/null || fail "scheduler supervisor exited before publishing its PID"
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 300 ] || fail "scheduler supervisor did not publish its PID"
+        sleep 0.01
+    done
+    scheduler_pid=$(cat "$pid_file")
+    valid_fixture_pid "$scheduler_pid" || fail "scheduler supervisor published an invalid PID"
+}
+
+start_scheduler "$temporary/signal-scheduler.pid"
 attempt=0
 while ! grep -Fqx 'start slow' "$TNY_FAKE_LOG.events" 2> /dev/null; do
     kill -0 "$scheduler_pid" 2> /dev/null || fail "scheduler exited before the signal fixture started"
@@ -322,12 +464,62 @@ while ! grep -Fqx 'start slow' "$TNY_FAKE_LOG.events" 2> /dev/null; do
 done
 kill -TERM "$scheduler_pid"
 set +e
-wait "$scheduler_pid"
+wait "$scheduler_launcher_pid"
 scheduler_rc=$?
 set -e
 assert_eq "$scheduler_rc" 130 "scheduler signal exit"
+if kill -0 "$scheduler_pid" 2> /dev/null; then
+    fail "scheduler survived its signal fixture"
+fi
+scheduler_pid=
+scheduler_launcher_pid=
 assert_eq "$(cat "$TNY_FAKE_LOG.active")" 0 "active child after scheduler signal"
 assert_file_contains "$TNY_FAKE_LOG.events" 'end slow'
 tny_workflow_cleanup
+
+# Cancellation targets the entire child process group and escalates after a
+# bounded TERM grace period when both the command and its descendant ignore it.
+TNY_UNCOOPERATIVE_LOG="$temporary/scenario-uncooperative"
+export TNY_UNCOOPERATIVE_LOG
+mkdir -p "$TNY_UNCOOPERATIVE_LOG"
+TNY_WORKFLOW_TNY=$uncooperative
+export TNY_WORKFLOW_TNY
+tny_workflow_begin "$temporary/flow-uncooperative" > /dev/null
+tny_task stubborn -- "TASK stubborn"
+start_scheduler "$temporary/uncooperative-scheduler.pid"
+attempt=0
+while [ ! -f "$TNY_UNCOOPERATIVE_LOG/ready" ]; do
+    kill -0 "$scheduler_pid" 2> /dev/null || fail "uncooperative scheduler exited before fixture readiness"
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 300 ] || fail "uncooperative fixture did not start"
+    sleep 0.01
+done
+stubborn_pid=$(cat "$TNY_UNCOOPERATIVE_LOG/parent")
+grandchild_pid=$(cat "$TNY_UNCOOPERATIVE_LOG/grandchild")
+assert_eq "$(tr -d ' ' < "$TNY_WORKFLOW_DIR/run/stubborn/child_pid")" "$stubborn_pid" "process group leader"
+assert_eq "$(ps -o pgid= -p "$grandchild_pid" | tr -d ' ')" "$stubborn_pid" "grandchild process group"
+started_at=$(date +%s)
+kill -TERM "$scheduler_pid"
+set +e
+wait "$scheduler_launcher_pid"
+scheduler_rc=$?
+set -e
+elapsed=$(($(date +%s) - started_at))
+assert_eq "$scheduler_rc" 130 "uncooperative scheduler signal exit"
+if kill -0 "$scheduler_pid" 2> /dev/null; then
+    fail "scheduler survived uncooperative cancellation"
+fi
+scheduler_pid=
+scheduler_launcher_pid=
+[ "$elapsed" -lt 5 ] || fail "uncooperative cancellation exceeded bounded grace (${elapsed}s)"
+attempt=0
+while kill -0 "$stubborn_pid" 2> /dev/null || kill -0 "$grandchild_pid" 2> /dev/null; do
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 100 ] || fail "uncooperative process group survived cancellation"
+    sleep 0.01
+done
+tny_workflow_cleanup
+TNY_WORKFLOW_TNY=$fake
+export TNY_WORKFLOW_TNY
 
 printf 'ok: shell workflows (%s)\n' "${ZSH_VERSION:+zsh ${ZSH_VERSION}}${BASH_VERSION:+bash ${BASH_VERSION}}"

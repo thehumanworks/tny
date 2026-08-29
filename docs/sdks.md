@@ -60,8 +60,10 @@ checkout fallback requiring libtny headers and a C11 compiler. See
 
 Both SDKs validate the complete graph before starting native work, run ready
 nodes under a positive concurrency limit, inject direct dependency output in
-declared order, and mark descendants of failed tasks as blocked while
-independent branches continue. A task may make a dependency ordering-only.
+declared edge order, and mark descendants of failed tasks as blocked while
+independent branches continue. Each dependency edge independently controls
+whether its successful output is injected, so one fan-in can mix context and
+ordering-only dependencies.
 Task failure remains represented in the aggregate result until the caller asks
 it to raise.
 

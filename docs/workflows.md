@@ -61,7 +61,7 @@ PROMPT
 
 tny_task implement \
     --after architecture \
-    --after tests \
+    --after tests --no-context \
     --provider codex \
     --effort high \
     --stdin <<'PROMPT'
@@ -78,8 +78,10 @@ fi
 ```
 
 `architecture` and `tests` can run together. `implement` starts after both
-succeed and receives both outputs. The order in `--after architecture --after
-tests` is the order of the injected context, independent of completion timing.
+succeed, receives `architecture` output, and treats `tests` as ordering-only.
+`--no-context` applies to the immediately preceding `--after`; omit it when
+that edge should inject output. Included outputs retain their declared edge
+order, independent of completion timing.
 
 ### Definitions
 
@@ -107,8 +109,8 @@ Task names begin with a letter or digit and contain only letters, digits, `.`,
 
 | Option | Meaning |
 | --- | --- |
-| `--after NAME` | Add a direct dependency; repeat for fan-in |
-| `--no-context` | Keep dependency ordering but do not append outputs |
+| `--after NAME` | Add a direct dependency that includes successful output; repeat for fan-in |
+| `--no-context` | Make the immediately preceding `--after` edge ordering-only |
 | `--provider NAME` | Pass the CLI provider/profile selection |
 | `--model ID` | Select a model for this task |
 | `--effort LEVEL` | Select reasoning effort |
@@ -237,8 +239,10 @@ time clears the prior run directory and executes every task again; there is no
 implicit cache or resume.
 
 The scheduler installs signal handlers only inside its own subshell. On
-`HUP`, `INT`, or `TERM` it terminates active workers and waits for them before
-returning, without replacing traps owned by the calling script.
+`HUP`, `INT`, or `TERM` it sends `TERM` to each active worker process group,
+waits for a bounded grace period, sends `KILL` to any surviving group, and
+reaps the workers before returning. It does not replace traps owned by the
+calling script.
 
 ### Environment
 
@@ -248,6 +252,10 @@ returning, without replacing traps owned by the calling script.
 | `TNY_WORKFLOW_MAX_DEPENDENCY_BYTES` | `1048576` | Maximum combined stdout bytes from a task's direct dependencies |
 | `TNY_WORKFLOW_TNY` | `tny` | Exact executable used for task processes |
 | `TNY_WORKFLOW_DIR` | set by `tny_workflow_begin` | Active definition and result directory |
+
+Launching each task in its own process group requires `setsid` (normally
+available on Linux) or Perl with `POSIX::setsid` (the macOS fallback). The
+workflow fails the task cleanly if neither launcher is available.
 
 The dependency-byte limit is checked before the consumer process starts. It
 bounds accidental prompt growth but is not a token estimator.
@@ -290,7 +298,10 @@ async def main() -> None:
     workflow.task(
         "implement",
         "Implement and verify the change",
-        depends_on=("architecture", "tests"),
+        depends_on=(
+            "architecture",
+            tny.WorkflowDependency("tests", include_output=False),
+        ),
     )
 
     result = await workflow.run_async()
@@ -322,6 +333,10 @@ for adapters and deterministic tests. `library_path`, `on_event`, and
 `on_permission` are native-runner options and cannot be combined with a custom
 runner.
 
+Each `depends_on` entry is either a task-name string (include output) or a
+`WorkflowDependency(name, include_output=False)` ordering-only edge. Mixed
+fan-in preserves declaration order among the included outputs.
+
 ## TypeScript
 
 The Node SDK follows the same graph contract. Each native task creates and
@@ -352,7 +367,10 @@ workflow
   .task("architecture", "Audit the architecture")
   .task("tests", "Audit the tests")
   .task("implement", "Implement and verify the change", {
-    dependsOn: ["architecture", "tests"],
+    dependsOn: [
+      "architecture",
+      { name: "tests", includeOutput: false },
+    ],
   });
 
 const result = await workflow.run();
@@ -375,11 +393,16 @@ iteration. `get(name)` is optional lookup; `require(name)` and `output(name)`
 throw for an unknown name. Task failures remain values until
 `raiseForFailure()` is called.
 
+`dependsOn` is a readonly array whose entries are task-name strings (include
+output) or `{ name, includeOutput: false }` ordering-only edges. A bare string
+is not a valid `dependsOn` collection. Mixed fan-in preserves declaration order
+among the included outputs.
+
 ## Dependency context and trust
 
-Only outputs of **direct, successful** dependencies are appended. Failed-task
-partials are retained in that task's result but never fed to descendants. The
-common envelope is:
+Only outputs of **direct, successful edges with output enabled** are appended.
+Failed-task partials are retained in that task's result but never fed to
+descendants. The common envelope is:
 
 ```text
 <tny_workflow_dependencies>

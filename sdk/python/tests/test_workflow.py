@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import unittest
 from collections.abc import Iterable
+from unittest.mock import patch
 
 import tny
 
@@ -56,13 +58,15 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         workflow.task(
             "implement",
             "implement the change",
-            depends_on=("research", "tests"),
+            depends_on=(
+                "research",
+                tny.WorkflowDependency("tests", include_output=False),
+            ),
         )
         workflow.task(
             "ordered",
             "run after implementation",
-            depends_on=("implement",),
-            include_dependencies=False,
+            depends_on=(tny.WorkflowDependency("implement", include_output=False),),
         )
 
         result = await workflow.run_async()
@@ -73,7 +77,8 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["implement"].session_id, b"session:implement")
         self.assertIn(b'<dependency name="research">', runner.prompts["implement"])
         self.assertIn(b"result:research", runner.prompts["implement"])
-        self.assertIn(b"result:tests", runner.prompts["implement"])
+        self.assertNotIn(b'<dependency name="tests">', runner.prompts["implement"])
+        self.assertNotIn(b"result:tests", runner.prompts["implement"])
         self.assertNotIn(b"tny_workflow_dependencies", runner.prompts["ordered"])
         self.assertLess(
             runner.finished.index("research"), runner.started.index("implement")
@@ -82,6 +87,32 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
             runner.finished.index("tests"), runner.started.index("implement")
         )
         result.raise_for_failure()
+
+    async def test_mixed_fan_in_preserves_included_edge_order(self) -> None:
+        runner = FakeRunner()
+        workflow = tny.Workflow(runner=runner)
+        workflow.task("first", "first")
+        workflow.task("ordering-only", "ordering-only")
+        workflow.task("third", "third")
+        workflow.task(
+            "consumer",
+            "consumer",
+            depends_on=(
+                "first",
+                tny.WorkflowDependency("ordering-only", include_output=False),
+                "third",
+            ),
+        )
+
+        result = await workflow.run_async()
+
+        self.assertTrue(result.ok)
+        prompt = runner.prompts["consumer"]
+        first = prompt.index(b'<dependency name="first">')
+        third = prompt.index(b'<dependency name="third">')
+        self.assertLess(first, third)
+        self.assertNotIn(b'<dependency name="ordering-only">', prompt)
+        self.assertNotIn(b"result:ordering-only", prompt)
 
     async def test_failure_blocks_only_descendants(self) -> None:
         runner = FakeRunner(failures=("bad",))
@@ -164,7 +195,9 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(tny.WorkflowDefinitionError):
             workflow.task(123, "prompt")  # type: ignore[arg-type]
         with self.assertRaises(tny.WorkflowDefinitionError):
-            workflow.task("invalid-bool", "prompt", include_dependencies=1)  # type: ignore[arg-type]
+            tny.WorkflowDependency("safe", include_output=1)  # type: ignore[arg-type]
+        with self.assertRaises(tny.WorkflowDefinitionError):
+            workflow.task("invalid-edge", "prompt", depends_on=(123,))  # type: ignore[arg-type]
         with self.assertRaises(tny.WorkflowDefinitionError):
             tny.Workflow(max_concurrency=0, runner=runner)
         duplicate = tny.WorkflowTaskResult(
@@ -206,6 +239,161 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         second = await reusable.run_async()
         self.assertTrue(first.ok)
         self.assertTrue(second.ok)
+
+    async def test_repeated_cancellation_waits_for_cleanup_before_reset(self) -> None:
+        started = asyncio.Event()
+        cleanup_started = asyncio.Event()
+        finish_cleanup = asyncio.Event()
+
+        class SlowCleanupRunner:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def __call__(
+                self, task: tny.WorkflowTask, prompt: bytes
+            ) -> tny.WorkflowTaskExecution:
+                _ = task, prompt
+                self.calls += 1
+                if self.calls > 1:
+                    return tny.WorkflowTaskExecution(output=b"reused")
+                started.set()
+                try:
+                    await asyncio.sleep(60)
+                except asyncio.CancelledError:
+                    cleanup_started.set()
+                    await finish_cleanup.wait()
+                    raise
+
+        runner = SlowCleanupRunner()
+        workflow = tny.Workflow(runner=runner).task("one", "one")
+        run = asyncio.create_task(workflow.run_async())
+        await asyncio.wait_for(started.wait(), timeout=1)
+        run.cancel()
+        await asyncio.wait_for(cleanup_started.wait(), timeout=1)
+        run.cancel()
+        await asyncio.sleep(0)
+        try:
+            self.assertFalse(run.done())
+            with self.assertRaisesRegex(
+                tny.WorkflowDefinitionError, "cannot change a running workflow"
+            ):
+                workflow.task("too-early", "prompt")
+            with self.assertRaisesRegex(
+                tny.WorkflowRunError, "workflow is already running"
+            ):
+                await workflow.run_async()
+        finally:
+            finish_cleanup.set()
+
+        with self.assertRaises(asyncio.CancelledError):
+            await run
+        result = await workflow.run_async()
+        self.assertTrue(result.ok)
+        self.assertEqual(result.output("one"), b"reused")
+
+    async def test_permission_handler_rejects_bool_and_invalid_results(self) -> None:
+        permission = tny.PermissionRequestEvent(
+            kind=4,
+            schema_version=1,
+            sequence=1,
+            timestamp_ms=0,
+            provider=b"fixture",
+            session_id=b"session",
+            turn_id=b"turn",
+            type="permission_request",
+            permission_id=b"permission",
+            summary=b"fixture",
+            options=tny.PermissionOptions.ALLOW | tny.PermissionOptions.DENY,
+        )
+
+        class FakeSession:
+            def __init__(self) -> None:
+                self.responses: list[tny.PermissionDecision] = []
+
+            async def __aenter__(self) -> FakeSession:
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                return None
+
+            async def id(self) -> bytes:
+                return b"session"
+
+            async def run(self, prompt: bytes):  # type: ignore[no-untyped-def]
+                _ = prompt
+                yield permission
+                yield tny.TurnEndEvent(
+                    kind=7,
+                    schema_version=1,
+                    sequence=2,
+                    timestamp_ms=0,
+                    provider=b"fixture",
+                    session_id=b"session",
+                    turn_id=b"turn",
+                    type="turn_end",
+                    stop_reason=int(tny.StopReason.DONE),
+                )
+
+            async def respond_permission(
+                self,
+                event: tny.PermissionRequestEvent,
+                decision: tny.PermissionDecision,
+            ) -> None:
+                _ = event
+                self.responses.append(decision)
+
+        class FakeRuntime:
+            def __init__(self, session: FakeSession) -> None:
+                self.session = session
+
+            async def __aenter__(self) -> FakeRuntime:
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                return None
+
+            async def create_session(self) -> FakeSession:
+                return self.session
+
+        workflow_module = importlib.import_module("tny.workflow")
+        for value in (False, True, 1, "allow"):
+            with self.subTest(value=value):
+                session = FakeSession()
+                with patch.object(
+                    workflow_module,
+                    "AsyncRuntime",
+                    return_value=FakeRuntime(session),
+                ):
+                    result = (
+                        await tny.Workflow(
+                            tny.RuntimeConfig(workspace="."),
+                            on_permission=lambda task, event, value=value: value,
+                        )
+                        .task("permission", "prompt")
+                        .run_async()
+                    )  # type: ignore[arg-type]
+                self.assertEqual(
+                    result["permission"].status, tny.WorkflowTaskStatus.FAILED
+                )
+                self.assertIsInstance(result["permission"].error, tny.WorkflowRunError)
+                self.assertEqual(session.responses, [])
+
+        session = FakeSession()
+        with patch.object(
+            workflow_module,
+            "AsyncRuntime",
+            return_value=FakeRuntime(session),
+        ):
+            allowed = (
+                await tny.Workflow(
+                    tny.RuntimeConfig(workspace="."),
+                    on_permission=lambda task, event: tny.PermissionDecision.ALLOW,
+                )
+                .task("permission", "prompt")
+                .run_async()
+            )
+        self.assertEqual(allowed["permission"].status, tny.WorkflowTaskStatus.SUCCESS)
+        self.assertEqual(session.responses, [tny.PermissionDecision.ALLOW])
 
     async def test_task_execution_validates_at_construction(self) -> None:
         with self.assertRaises(TypeError):

@@ -54,12 +54,12 @@ trap 'tny_workflow_cleanup' EXIT
 tny_task architecture --task review --provider codex -- "Audit the architecture"
 tny_task tests --task review --provider cursor -- "Audit the tests"
 tny_task implement \
-  --after architecture --after tests --provider codex -- \
-  "Implement and verify the change from both reports"
+  --after architecture --after tests --no-context --provider codex -- \
+  "Implement from the architecture report after both reviews finish"
 
 tny_workflow_run --jobs 2
 tny_result implement</code></pre>
-<p>The two root tasks run together. <code>implement</code> starts only after both succeed and receives their outputs in the declared <code>--after</code> order.</p>
+<p>The two root tasks run together. <code>implement</code> starts only after both succeed, receives the architecture output, and treats tests as ordering-only. <code>--no-context</code> applies to the immediately preceding <code>--after</code> edge.</p>
 <h2 id="semantics">Execution contract</h2>
 <table>
   <thead><tr><th>Rule</th><th>Behavior</th></tr></thead>
@@ -68,12 +68,13 @@ tny_result implement</code></pre>
     <tr><td>Parallelism</td><td>Ready tasks run up to <code>--jobs</code>; default four.</td></tr>
     <tr><td>Failure</td><td>A failure blocks descendants only. Independent branches finish.</td></tr>
     <tr><td>Context</td><td>Successful direct-dependency outputs are appended in declaration order.</td></tr>
-    <tr><td>Ordering only</td><td><code>--no-context</code> waits without appending output.</td></tr>
+    <tr><td>Ordering only</td><td><code>--after NAME --no-context</code> makes that edge wait without appending output.</td></tr>
     <tr><td>Storage</td><td>Shell tasks are ephemeral by default; captured streams live under <code>TNY_WORKFLOW_DIR</code>.</td></tr>
   </tbody>
 </table>
 <h2 id="task-options">Task options</h2>
 <p><code>tny_task</code> accepts repeated <code>--after</code>, plus <code>--task</code>, <code>--provider</code>, <code>--model</code>, <code>--effort</code>, <code>--cwd</code>, <code>--system-prompt</code>, <code>--permission-mode</code>, <code>--max-steps</code>, <code>--ssh</code>, <code>--ssh-cwd</code>, <code>--agent</code>, <code>--fast</code>, <code>--persist</code>, <code>--stdin</code>, and <code>--no-context</code>. Arguments are passed directly; the helper never uses <code>eval</code>.</p>
+<p>Each task starts in its own process group using <code>setsid</code>, or Perl with <code>POSIX::setsid</code> on macOS, so cancellation can terminate descendants and escalate to <code>KILL</code> after a bounded grace period.</p>
 <p>Inspect with <code>tny_status NAME</code>, <code>tny_result NAME</code>, <code>tny_result_path NAME</code>, <code>tny_stderr NAME</code>, and <code>tny_workflow_report</code>.</p>
 <h2 id="task-types">Agent task types</h2>
 <p><code>--task review|optimizer|document|retro</code> applies a reusable system-instruction preset while the task prompt remains the concrete job. <code>review</code> performs evidence-driven review; <code>optimizer</code> targets performance and complexity; <code>document</code> verifies and writes documentation; <code>retro</code> analyzes the session and may update <code>AGENTS.md</code> or a skill when the lesson is durable.</p>
@@ -94,12 +95,18 @@ tny_task_types</code></pre>
 <pre><code># Python
 workflow = tny.Workflow(config, max_concurrency=2)
 workflow.task("inspect", "Inspect")
-workflow.task("implement", "Implement", depends_on=("inspect",))
+workflow.task("tests", "Test")
+workflow.task("implement", "Implement", depends_on=(
+    "inspect", tny.WorkflowDependency("tests", include_output=False)
+))
 result = await workflow.run_async()</code></pre>
 <pre><code>// TypeScript
 const workflow = new Workflow({ runtime, maxConcurrency: 2 });
 workflow.task("inspect", "Inspect");
-workflow.task("implement", "Implement", { dependsOn: ["inspect"] });
+workflow.task("tests", "Test");
+workflow.task("implement", "Implement", {
+  dependsOn: ["inspect", { name: "tests", includeOutput: false }],
+});
 const result = await workflow.run();</code></pre>
 <p>Task failures remain values so independent work can finish. Call <code>raise_for_failure()</code> in Python or <code>raiseForFailure()</code> in TypeScript when the aggregate should throw.</p>
 <h2 id="safety">Safety and limits</h2>

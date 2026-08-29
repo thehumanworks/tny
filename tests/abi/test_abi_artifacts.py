@@ -582,7 +582,7 @@ class AbiArtifactTests(unittest.TestCase):
 
     def test_installed_pkg_config_roots_do_not_collide(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            prefix = Path(directory) / "prefix"
+            prefix = Path(directory) / "prefix with spaces"
             run(["make", "install-lib", f"PREFIX={prefix}", "TNY_VERSION=1.0.0"])
             current_pc = prefix / "lib/pkgconfig/libtny.pc"
             compat_pc = prefix / "lib/pkgconfig/libtny-0.pc"

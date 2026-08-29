@@ -64,6 +64,7 @@ from .workflow import PermissionHandler as PermissionHandler
 from .workflow import Workflow as Workflow
 from .workflow import WorkflowContextError as WorkflowContextError
 from .workflow import WorkflowDefinitionError as WorkflowDefinitionError
+from .workflow import WorkflowDependency as WorkflowDependency
 from .workflow import WorkflowError as WorkflowError
 from .workflow import WorkflowResult as WorkflowResult
 from .workflow import WorkflowRunError as WorkflowRunError
@@ -116,6 +117,7 @@ __all__ = (
     "UnsupportedError",
     "Workflow",
     "WorkflowContextError",
+    "WorkflowDependency",
     "WorkflowDefinitionError",
     "WorkflowError",
     "WorkflowResult",
