@@ -5,10 +5,12 @@
   lib,
   stdenv,
   darwin,
+  bash,
   nodejs,
   openssl,
   procps,
   python3,
+  zsh,
   version ? "0.0.0-unknown",
 }:
 
@@ -21,7 +23,9 @@ stdenv.mkDerivation {
 
   strictDeps = true;
   nativeBuildInputs = [
+    bash
     python3
+    zsh
     nodejs # tests/site/test_term.js, driven by test_site.py
     openssl.bin # tests/integration/test_https.py mints a throwaway cert
   ]
@@ -57,19 +61,21 @@ stdenv.mkDerivation {
   # The fixture agents and mock hosts are `#!/usr/bin/env python3` scripts that
   # tny execs directly; /usr/bin/env does not exist in the sandbox.
   postPatch = ''
-    patchShebangs tests examples scripts
+    patchShebangs tests examples scripts shell
   '';
 
   makeFlags = [
     "CC=${stdenv.cc.targetPrefix}cc"
     "TNY_VERSION=${version}"
     "TNY_SHELL_PATH=${stdenv.shell}"
+    "BASH=${bash}/bin/bash"
+    "ZSH=${zsh}/bin/zsh"
   ] ++ lib.optionals stdenv.hostPlatform.isDarwin [
     # Keep the displayed flake revision while supplying dyld's numeric field
     # to the active-library integration tests.
     "LIBTNY_MACH_CURRENT_VERSION=1.0.0"
   ];
-  buildFlags = [ "test" ];
+  buildFlags = [ "test" "test-shell-workflows" ];
 
   # `make test` is the whole point; there is nothing to install.
   installPhase = ''

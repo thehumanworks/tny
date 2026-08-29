@@ -23,6 +23,7 @@ Do not start product code until you have read this index and the files it names.
 | Doc | Why |
 | --- | --- |
 | [cli.md](cli.md) | Command tree, flags, agent-friendly output |
+| [workflows.md](workflows.md) | Dependency DAGs and parallel agents from shell, Python, and TypeScript |
 | [settings.md](settings.md) | settings.json defaults, schema, named providers and ACP agents |
 | [tui.md](tui.md) | Interactive shell, slash commands, keys |
 | [libtny.md](libtny.md) | Experimental headless C embedding ABI |

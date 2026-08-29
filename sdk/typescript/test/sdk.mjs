@@ -14,6 +14,16 @@ const { resolveNativeAddon } = await import(
 const { addonPath } = resolveNativeAddon({ packageRoot });
 
 export const {
-  PermissionDecision, Runtime, TnyError, UnsupportedFeatureError, eventKinds,
+  PermissionDecision,
+  Runtime,
+  TnyError,
+  UnsupportedFeatureError,
+  Workflow,
+  WorkflowContextError,
+  WorkflowDefinitionError,
+  WorkflowRunError,
+  WorkflowTaskExecution,
+  WorkflowTaskStatus,
+  eventKinds,
 } = sdk;
 export { packageRoot as sdkPackageRoot, addonPath as sdkAddonPath };

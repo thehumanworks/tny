@@ -4,6 +4,8 @@
 
 CC      ?= cc
 GIT     ?= git
+BASH    ?= bash
+ZSH     ?= zsh
 STD      = -std=c11
 WARN     = -Wall -Wextra -Werror -Wno-deprecated-declarations
 INC      = -Iinclude -Isrc -Ithird_party -Ithird_party/yyjson -Ithird_party/picohttpparser \
@@ -258,7 +260,7 @@ else
   SIZE_MAX ?= 1572864
 endif
 
-.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
+.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
 all: release
 
@@ -430,6 +432,13 @@ test-conformance-contract:
 test-extensions-python:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/extensions -p 'test_*.py' -v
 
+test-shell-workflows:
+	$(BASH) tests/shell/test_workflows.sh
+	$(ZSH) tests/shell/test_workflows.sh
+
+test-install-prefix: release
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/packaging/test_make_install.py
+
 TNY ?= $(abspath $(BIN))
 test-help-flags: release
 	TNY="$(TNY)" python3 tests/integration/test_help_flags.py
@@ -545,7 +554,7 @@ test-libtny-tsan:
 	@exit 2
 endif
 
-test: test-unit test-event-schema test-conformance-contract test-extensions-python test-help-flags release
+test: test-unit test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags release
 	@if [ -x tests/integration/run.sh ]; then tests/integration/run.sh; fi
 
 size: release
@@ -577,36 +586,39 @@ bench: release
 	hyperfine --warmup 5 -N './$(BIN) --version'
 
 install: release
-	mkdir -p $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/lib/tny/tny_ext
-	cp $(BIN) $(DESTDIR)$(PREFIX)/bin/tny$(EXE)
-	cp python/tny_extension_host.py $(DESTDIR)$(PREFIX)/lib/tny/
+	mkdir -p "$(DESTDIR)$(PREFIX)/bin" "$(DESTDIR)$(PREFIX)/lib/tny/tny_ext" \
+		"$(DESTDIR)$(PREFIX)/share/tny"
+	cp "$(BIN)" "$(DESTDIR)$(PREFIX)/bin/tny$(EXE)"
+	cp python/tny_extension_host.py "$(DESTDIR)$(PREFIX)/lib/tny/"
 	cp python/tny_ext/*.py python/tny_ext/py.typed \
-		$(DESTDIR)$(PREFIX)/lib/tny/tny_ext/
+		"$(DESTDIR)$(PREFIX)/lib/tny/tny_ext/"
+	cp shell/tny-workflows.sh "$(DESTDIR)$(PREFIX)/share/tny/"
+	chmod 755 "$(DESTDIR)$(PREFIX)/share/tny/tny-workflows.sh"
 
 install-lib-active: lib-shared-active
-	mkdir -p $(DESTDIR)$(PREFIX)/include/tny \
-		$(DESTDIR)$(PREFIX)/lib/pkgconfig
-	cp include/tny/tny.h $(DESTDIR)$(PREFIX)/include/tny/tny.h
-	cp -P $(LIB_REAL) $(LIB_LINK) $(DESTDIR)$(PREFIX)/lib/
+	mkdir -p "$(DESTDIR)$(PREFIX)/include/tny" \
+		"$(DESTDIR)$(PREFIX)/lib/pkgconfig"
+	cp include/tny/tny.h "$(DESTDIR)$(PREFIX)/include/tny/tny.h"
+	cp -P $(LIB_REAL) $(LIB_LINK) "$(DESTDIR)$(PREFIX)/lib/"
 	sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@VERSION@|$(TNY_VERSION)|g' \
 		libtny.pc.in > \
-		$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny.pc
+		"$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny.pc"
 
 install-lib: lib-shared
-	mkdir -p $(DESTDIR)$(PREFIX)/include/tny \
-		$(DESTDIR)$(PREFIX)/include/tny-0/tny \
-		$(DESTDIR)$(PREFIX)/lib/pkgconfig
-	cp include/tny/tny.h $(DESTDIR)$(PREFIX)/include/tny/tny.h
+	mkdir -p "$(DESTDIR)$(PREFIX)/include/tny" \
+		"$(DESTDIR)$(PREFIX)/include/tny-0/tny" \
+		"$(DESTDIR)$(PREFIX)/lib/pkgconfig"
+	cp include/tny/tny.h "$(DESTDIR)$(PREFIX)/include/tny/tny.h"
 	cp $(ABI0_COMPAT_SRC)/include/tny/tny.h \
-		$(DESTDIR)$(PREFIX)/include/tny-0/tny/tny.h
+		"$(DESTDIR)$(PREFIX)/include/tny-0/tny/tny.h"
 	cp -P $(LIB_REAL) $(LIB_LINK) $(LIB_COMPAT0_REAL) \
-		$(DESTDIR)$(PREFIX)/lib/
+		"$(DESTDIR)$(PREFIX)/lib/"
 	sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@VERSION@|$(TNY_VERSION)|g' \
 		libtny.pc.in > \
-		$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny.pc
+		"$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny.pc"
 	sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@VERSION@|$(TNY_VERSION)|g' \
 		-e 's|@COMPAT_LIBS@|$(ABI0_COMPAT_LIBS)|g' libtny-0.pc.in > \
-		$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny-0.pc
+		"$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny-0.pc"
 
 site:
 	python3 scripts/site_build.py
@@ -637,7 +649,8 @@ SH_SRC  := $(shell git ls-files -- '*.sh')
 SHFMT_FLAGS := -i 4 -ci -sr
 JS_SRC  := docs/assets/site.js docs/assets/term-core.js docs/assets/term-wasm.js \
            $(wildcard site/assets/*.js src/wasm/*.js tests/site/*.js \
-           sdk/typescript/scripts/*.mjs sdk/typescript/test/*.mjs) \
+           sdk/typescript/examples/*.mjs sdk/typescript/scripts/*.mjs \
+           sdk/typescript/test/*.mjs) \
            sdk/typescript/dist/index.mjs
 
 # clang-tidy analyzes the native translation units with the release flag

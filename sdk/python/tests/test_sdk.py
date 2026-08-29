@@ -412,6 +412,59 @@ class SDKTests(unittest.TestCase):
         finally:
             mock.close()
 
+    def test_native_workflow_runs_parallel_sessions_and_context(self) -> None:
+        mock = Mock(MOCK_SLOW_MS="50")
+        seen: list[tuple[str, str]] = []
+
+        async def on_event(task: tny.WorkflowTask, event: tny.AnyEvent) -> None:
+            seen.append((task.name, event.type))
+
+        async def run() -> tny.WorkflowResult:
+            workflow = tny.Workflow(
+                self.config(mock.url),
+                max_concurrency=2,
+                library_path=LIBRARY,
+                on_event=on_event,
+            )
+            workflow.task("first", "first native task")
+            workflow.task("second", "second native task")
+            workflow.task(
+                "merge", "merge native outputs", depends_on=("first", "second")
+            )
+            return await workflow.run_async()
+
+        try:
+            result = asyncio.run(run())
+            self.assertTrue(result.ok)
+            self.assertIn(b"MOCK-OK", result.output("first"))
+            self.assertIn(b"MOCK-OK", result.output("second"))
+            self.assertIn(b"MOCK-OK", result.output("merge"))
+            self.assertTrue(result["first"].session_id)
+            self.assertEqual(result["merge"].stop_reason, int(tny.StopReason.DONE))
+            self.assertIn(("first", "text_delta"), seen)
+            self.assertIn(("merge", "turn_end"), seen)
+        finally:
+            mock.close()
+
+    def test_native_workflow_denies_unhandled_permissions(self) -> None:
+        mock = Mock(MOCK_SENSITIVE="1")
+
+        async def run() -> tny.WorkflowResult:
+            workflow = tny.Workflow(self.config(mock.url), library_path=LIBRARY).task(
+                "sensitive", "request a sensitive operation"
+            )
+            return await workflow.run_async()
+
+        try:
+            result = asyncio.run(run())
+            self.assertFalse(result.ok)
+            self.assertEqual(result["sensitive"].status, tny.WorkflowTaskStatus.FAILED)
+            self.assertEqual(
+                result["sensitive"].stop_reason, int(tny.StopReason.DENIED)
+            )
+        finally:
+            mock.close()
+
     def test_async_full_turn(self) -> None:
         mock = Mock()
 

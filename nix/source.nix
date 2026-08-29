@@ -20,6 +20,7 @@ let
     ../libtny.pc.in
     ../python
     ../scripts/check_abi_baseline.py
+    ../shell
     ../src
     ../third_party
   ];

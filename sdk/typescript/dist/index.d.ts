@@ -135,3 +135,161 @@ export class Session implements AsyncDisposable {
   close(): Promise<void>;
   [Symbol.asyncDispose](): Promise<void>;
 }
+
+export type WorkflowTaskStatusName = "success" | "failed" | "blocked";
+export declare const WorkflowTaskStatus: Readonly<{
+  success: "success";
+  failed: "failed";
+  blocked: "blocked";
+}>;
+
+export class WorkflowError extends Error {
+  constructor(message: string, options?: ErrorOptions);
+}
+export class WorkflowDefinitionError extends WorkflowError {
+  constructor(message: string, options?: ErrorOptions);
+}
+export class WorkflowContextError extends WorkflowError {
+  constructor(message: string, options?: ErrorOptions);
+}
+export class WorkflowRunError extends WorkflowError {
+  constructor(message: string, options?: ErrorOptions);
+}
+
+export interface WorkflowDependency {
+  readonly name: string;
+  /** Append this dependency's output to the consumer prompt. Defaults to true. */
+  readonly includeOutput?: boolean;
+}
+
+export interface WorkflowTaskOptions {
+  dependsOn?: readonly (string | WorkflowDependency)[];
+  /** Override the workflow's default runtime for this task. */
+  runtime?: RuntimeOptions;
+}
+
+export class WorkflowTask {
+  readonly name: string;
+  readonly dependsOn: readonly WorkflowDependency[];
+  constructor(name: string, prompt: string, options?: WorkflowTaskOptions);
+  toJSON(): {
+    name: string;
+    dependsOn: readonly WorkflowDependency[];
+  };
+}
+
+export interface WorkflowTaskExecutionOptions {
+  output: string;
+  sessionId?: string;
+  stopReason?: TnyStopReason;
+  error?: Error;
+}
+
+export class WorkflowTaskExecution {
+  readonly output: string;
+  readonly sessionId: string;
+  readonly stopReason?: TnyStopReason;
+  readonly error?: Error;
+  constructor(options: WorkflowTaskExecutionOptions);
+  toJSON(): {
+    outputBytes: number;
+    sessionIdBytes: number;
+    stopReason?: TnyStopReason;
+    error?: string;
+  };
+}
+
+export interface WorkflowTaskResultOptions {
+  name: string;
+  status: WorkflowTaskStatusName;
+  output?: string;
+  sessionId?: string;
+  stopReason?: TnyStopReason;
+  blockedBy?: readonly string[];
+  error?: Error;
+}
+
+export class WorkflowTaskResult {
+  readonly name: string;
+  readonly status: WorkflowTaskStatusName;
+  readonly output: string;
+  readonly sessionId: string;
+  readonly stopReason?: TnyStopReason;
+  readonly blockedBy: readonly string[];
+  readonly error?: Error;
+  readonly ok: boolean;
+  constructor(options: WorkflowTaskResultOptions);
+  toJSON(): {
+    name: string;
+    status: WorkflowTaskStatusName;
+    outputBytes: number;
+    sessionIdBytes: number;
+    stopReason?: TnyStopReason;
+    blockedBy: readonly string[];
+    error?: string;
+  };
+}
+
+export class WorkflowResult implements Iterable<readonly [string, WorkflowTaskResult]> {
+  readonly results: readonly WorkflowTaskResult[];
+  readonly size: number;
+  readonly ok: boolean;
+  readonly failed: readonly WorkflowTaskResult[];
+  constructor(results: readonly WorkflowTaskResult[]);
+  get(name: string): WorkflowTaskResult | undefined;
+  require(name: string): WorkflowTaskResult;
+  output(name: string): string;
+  entries(): MapIterator<[string, WorkflowTaskResult]>;
+  [Symbol.iterator](): MapIterator<[string, WorkflowTaskResult]>;
+  raiseForFailure(): void;
+  toJSON(): {
+    ok: boolean;
+    results: ReturnType<WorkflowTaskResult["toJSON"]>[];
+  };
+}
+
+export interface WorkflowRunnerContext {
+  readonly signal: AbortSignal;
+}
+
+export type WorkflowTaskRunner = (
+  task: WorkflowTask,
+  prompt: string,
+  context: WorkflowRunnerContext,
+) => WorkflowTaskExecution | WorkflowTaskExecutionOptions |
+  Promise<WorkflowTaskExecution | WorkflowTaskExecutionOptions>;
+
+export interface WorkflowOptions {
+  /** Default native runtime. Required unless every task overrides it or runner is set. */
+  runtime?: RuntimeOptions;
+  /** Maximum number of simultaneously active task runners. Defaults to 4. */
+  maxConcurrency?: number;
+  /** Maximum combined UTF-8 bytes injected from direct dependencies. Defaults to 1 MiB. */
+  maxDependencyBytes?: number;
+  /** Replace native execution while retaining DAG scheduling and result semantics. */
+  runner?: WorkflowTaskRunner;
+  onEvent?: (task: WorkflowTask, event: TnyEvent) => void | Promise<void>;
+  onPermission?: (
+    task: WorkflowTask,
+    event: PermissionRequestEvent,
+  ) => PermissionDecisionName | 0 | 1 | 2 |
+    Promise<PermissionDecisionName | 0 | 1 | 2>;
+}
+
+export interface WorkflowRunOptions {
+  signal?: AbortSignal;
+}
+
+export class Workflow {
+  readonly tasks: readonly WorkflowTask[];
+  constructor(options?: WorkflowOptions);
+  task(name: string, prompt: string, options?: WorkflowTaskOptions): this;
+  add(name: string, prompt: string, options?: WorkflowTaskOptions): this;
+  run(options?: WorkflowRunOptions): Promise<WorkflowResult>;
+  toJSON(): {
+    tasks: number;
+    maxConcurrency: number;
+    maxDependencyBytes: number;
+    runner: "native" | "custom";
+  };
+}

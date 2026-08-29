@@ -78,6 +78,7 @@ stdenv.mkDerivation (finalAttrs: {
     $out/bin/tny --help > /dev/null
     $out/bin/tny ask --help > /dev/null
     test -f $out/lib/tny/tny_extension_host.py
+    test -f $out/share/tny/tny-workflows.sh
     payload=$out/bin/tny
     if test -x $out/bin/.tny-wrapped; then payload=$out/bin/.tny-wrapped; fi
     grep -aF '${stdenv.shell}' "$payload" > /dev/null

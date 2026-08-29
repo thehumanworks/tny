@@ -321,6 +321,31 @@ JSON object (keep field names stable):
 
 `--json` is required on `ask`, `status`, `doctor`, `permissions`, `models`, `session`, `sessions`, `workspace`, `usage`.
 
+## Multi-agent workflow scripts
+
+The installed `share/tny/tny-workflows.sh` library builds validated dependency
+DAGs from ordinary `tny ask --stdin` processes. It provides bounded fan-out,
+ordered fan-in context, branch-isolated failures, captured results, and clean
+signal propagation under both Bash and Zsh:
+
+```sh
+. "$HOME/.local/share/tny/tny-workflows.sh"
+tny_workflow_begin
+trap 'tny_workflow_cleanup' EXIT
+
+tny_task inspect --provider codex -- "Inspect the implementation"
+tny_task test-plan --provider cursor -- "Design the missing tests"
+tny_task implement --after inspect --after test-plan --   "Implement and verify using both reports"
+
+tny_workflow_run --jobs 2
+tny_result implement
+```
+
+Shell tasks are ephemeral by default. The helper exposes the normal provider,
+model, effort, workspace, permission, SSH, and ACP-agent selections; it does not
+implement provider behavior itself. Full API and failure semantics:
+[workflows.md](workflows.md).
+
 ## Background one-shots (`tny ask -B`)
 
 `-B` / `--background` runs the identical ask turn detached and defers its

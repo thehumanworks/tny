@@ -35,6 +35,11 @@ Leading flags: `--provider cursor|codex|acp|openai` (`--backend` alias), `--cwd`
 
 `tny ask` stdout is Markdown (or one JSON object with `--json`). Exit 0/1/2/130.
 
+
+## Workflows
+
+Source `<prefix>/share/tny/tny-workflows.sh` from Bash or Zsh. Define tasks with `tny_task NAME`, repeat `--after NAME` for dependencies, and run with `tny_workflow_run --jobs N`. Ready roots run in parallel; failed tasks block descendants only; successful direct-dependency outputs feed consumers in declared order. Python and TypeScript expose the same contract through `Workflow` with one native runtime per active task.
+
 ## Providers
 
 - openai (default fallback): OpenAI-compatible Responses API (`/v1/responses` SSE; `wire_api: "chat"` selects legacy `/v1/chat/completions`). tny owns tools/MCP/skills/permissions. `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_WIRE_API`.
@@ -55,6 +60,7 @@ Default yolo for every provider. ask/auto are opt-ins and only enforceable on th
 
 - /docs/ — quick start
 - /docs/cli.html — command tree
+- /docs/workflows.html — dependency chains and parallel agents
 - /docs/tui.html — shell
 - /docs/backends.html — protocols
 - /docs/architecture.html — process model

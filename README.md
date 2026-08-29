@@ -96,6 +96,34 @@ running the full `make test` suite. Non-flake users get `nix-build -A tny` and
 `nix-shell`. Details, including the TLS and version specifics Nix needs:
 [docs/nix.md](docs/nix.md), [ADR 0035](docs/adr/0035-nix-flake-packaging.md).
 
+## Scriptable workflows
+
+Source the installed Bash/Zsh helpers to run dependency chains with bounded
+parallel agents. Root tasks fan out; a dependent task receives successful
+outputs in declared order and starts only after all of them finish:
+
+```sh
+. "$HOME/.local/share/tny/tny-workflows.sh"
+tny_workflow_begin
+trap 'tny_workflow_cleanup' EXIT
+
+tny_task review-api --task review --provider codex -- "Review the public API"
+tny_task review-tests --task review --provider cursor -- "Find missing tests"
+tny_task implement --after review-api --after review-tests -- \
+  "Implement the change from both reports and run the tests"
+tny_task optimize --task optimizer --after implement -- "Optimize performance and complexity"
+tny_task docs --task document --after optimize -- "Document the final behavior"
+tny_task retro --task retro --after docs -- "Capture durable lessons from the work"
+
+tny_workflow_run --jobs 2
+tny_result implement
+```
+
+The Python and TypeScript SDKs expose the same validated DAG, branch-isolated
+failure semantics, dependency context, and concurrency bound through
+`Workflow`. See [docs/workflows.md](docs/workflows.md) for the full shell API,
+SDK examples, cancellation, result handling, and security limits.
+
 ## Build & test
 
 ```sh
@@ -121,8 +149,8 @@ only — not Intel x86), and Windows x86_64 (MSYS2). See [docs/ci.md](docs/ci.md
 The experimental [Python/cffi and TypeScript/Node-API SDKs](docs/sdks.md)
 embed the same native `libtny` loop. They provide typed events, explicit
 lifecycle management, permissions, steering, cancellation, sync/async Python
-iteration, and pull-driven TypeScript async iteration without duplicating
-provider logic. Supported native SDK targets are macOS arm64 and Linux glibc
+iteration, pull-driven TypeScript async iteration, and validated dependency
+workflows with bounded parallel runtimes without duplicating provider logic. Supported native SDK targets are macOS arm64 and Linux glibc
 x86_64/aarch64.
 
 ## Docs

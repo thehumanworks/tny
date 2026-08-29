@@ -915,7 +915,7 @@ def main():
     # paths. The no-argument run reaches main and returns its usage status.
     stage("clean-prefix consumers")
     with tempfile.TemporaryDirectory() as install_root:
-        prefix = os.path.join(install_root, "prefix")
+        prefix = os.path.join(install_root, "prefix with spaces")
         subprocess.run(
             ["make", "install-lib-active", "PREFIX=" + prefix],
             cwd=ROOT,
