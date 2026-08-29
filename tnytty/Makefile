@@ -47,7 +47,9 @@ ifeq ($(UNAME_S),Darwin)
   DBG_LDFLAGS = $(UI_FRAMEWORKS)
 else
   REL_LDFLAGS = -Wl,--gc-sections
-  DBG_LDFLAGS =
+  # macOS folds libm into libSystem; glibc keeps it separate, so the unit
+  # suite (tests/test_config.c uses pow() for the contrast check) needs -lm.
+  DBG_LDFLAGS = -lm
 endif
 
 SANITIZE ?= 1

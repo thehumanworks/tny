@@ -10,6 +10,29 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+/* MSYS2 on Windows refuses symlink(2) unless the user holds
+ * SeCreateSymbolicLinkPrivilege (Developer Mode). These guards are POSIX
+ * symlink semantics, so probe the host once instead of asserting a
+ * capability it does not have. */
+static bool symlinks_supported(void) {
+    static int cached = -1;
+    if (cached >= 0) return cached != 0;
+    const char *tmp = getenv("TMPDIR");
+    if (!tmp || !*tmp) tmp = "/tmp";
+    char dir[600];
+    snprintf(dir, sizeof dir, "%s/tny-symlink-probe-XXXXXX", tmp);
+    if (!mkdtemp(dir)) {
+        cached = 0;
+        return false;
+    }
+    char link[640];
+    snprintf(link, sizeof link, "%s/link", dir);
+    cached = symlink("target", link) == 0;
+    unlink(link);
+    rmdir(dir);
+    return cached != 0;
+}
+
 typedef struct {
     char root[512];
     char workspace[540];
@@ -222,10 +245,12 @@ TEST invalid_utf8_and_symlink_shadow_without_mutation(void) {
     ASSERT_EQ(TNY_TASK_INVALID, tny_task_apply(ctx, "review"));
 
     unlink(path);
-    ASSERT_EQ(0, symlink("missing-target", path));
-    ASSERT_EQ(TNY_TASK_INVALID, tny_task_apply(ctx, "review"));
-    ASSERT_STR_EQ("builtin", ctx->task_source);
-    unlink(path);
+    if (symlinks_supported()) {
+        ASSERT_EQ(0, symlink("missing-target", path));
+        ASSERT_EQ(TNY_TASK_INVALID, tny_task_apply(ctx, "review"));
+        ASSERT_STR_EQ("builtin", ctx->task_source);
+        unlink(path);
+    }
     ASSERT_EQ(0, mkfifo(path, 0600));
     ASSERT_EQ(TNY_TASK_INVALID, tny_task_apply(ctx, "review"));
     tny_ctx_free(ctx);
@@ -235,6 +260,7 @@ TEST invalid_utf8_and_symlink_shadow_without_mutation(void) {
 }
 
 TEST hostile_home_and_workflow_symlinks_are_not_ambient_authority(void) {
+    if (!symlinks_supported()) SKIP();
     task_env env;
     task_env_begin(&env);
     char *workflow_task = path_join(env.workflow, "review");
@@ -297,6 +323,7 @@ TEST ssh_task_discovery_is_builtin_only(void) {
 }
 
 TEST custom_directory_symlinks_do_not_escape_the_root(void) {
+    if (!symlinks_supported()) SKIP();
     task_env env;
     task_env_begin(&env);
     char outside[560];

@@ -63,10 +63,12 @@ never the generated files in `docs/`.
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`: the same matrix,
 packaged as `tny-<os>-<arch>[-musl].tar.gz` (Windows: `.zip` with
-`msys-2.0.dll`) plus `SHA256SUMS`, published as a GitHub release. Each archive
-also carries the pure-Python extension host under `lib/tny/` and the sourceable
-Bash/Zsh workflow library under `share/tny/`; Python and the shells themselves
-are never bundled. The
+`msys-2.0.dll`), plus `libtny1-*` / `libtny0-compat-*`, SDK wheels, npm
+tarballs, conformance reports, and `SHA256SUMS`, published as a GitHub
+release. The publish job flattens `dist/sdk/*` to the asset root before the
+globs run. Each CLI archive also carries the pure-Python extension host under
+`lib/tny/` and the sourceable Bash/Zsh workflow library under `share/tny/`;
+Python and the shells themselves are never bundled. The
 version is not hardcoded anywhere: make derives it from `git describe`
 (docs/adr/0014), release jobs pass `TNY_VERSION=${tag#v}` explicitly
 (shallow checkouts and the Alpine container have no tags), and the

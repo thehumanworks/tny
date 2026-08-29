@@ -25,6 +25,29 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+/* MSYS2 on Windows refuses symlink(2) unless the user holds
+ * SeCreateSymbolicLinkPrivilege (Developer Mode). The snapshot guard below is
+ * POSIX symlink semantics, so probe the host once instead of asserting a
+ * capability it does not have. */
+static bool symlinks_supported(void) {
+    static int cached = -1;
+    if (cached >= 0) return cached != 0;
+    const char *tmp = getenv("TMPDIR");
+    if (!tmp || !*tmp) tmp = "/tmp";
+    char dir[600];
+    snprintf(dir, sizeof dir, "%s/tny-symlink-probe-XXXXXX", tmp);
+    if (!mkdtemp(dir)) {
+        cached = 0;
+        return false;
+    }
+    char link[640];
+    snprintf(link, sizeof link, "%s/link", dir);
+    cached = symlink("target", link) == 0;
+    unlink(link);
+    rmdir(dir);
+    return cached != 0;
+}
+
 static char g_home[512], g_ws[520];
 
 /* Drop every *_BASE_URL from the environment: the host shell (CI, dev
@@ -607,6 +630,7 @@ TEST session_task_snapshot_roundtrip_and_resume_guards(void) {
 }
 
 TEST session_task_snapshot_atomic_window_and_symlink_guards(void) {
+    if (!symlinks_supported()) SKIP();
     ensure_env();
     write_settings("{}");
     const char *body = "Crash-safe private task body.";
