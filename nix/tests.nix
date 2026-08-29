@@ -8,8 +8,10 @@
   bash,
   nodejs,
   openssl,
+  perl,
   procps,
   python3,
+  util-linux,
   zsh,
   version ? "0.0.0-unknown",
 }:
@@ -28,11 +30,18 @@ stdenv.mkDerivation {
     zsh
     nodejs # tests/site/test_term.js, driven by test_site.py
     openssl.bin # tests/integration/test_https.py mints a throwaway cert
+    # shell/tny-workflows.sh launches each task in its own process group so the
+    # scheduler can signal the whole tree. It uses setsid, falls back to perl's
+    # POSIX::setsid, and fails the task outright when neither is on the PATH.
+    # A builder's PATH holds only its inputs, so tests/shell/test_workflows.sh
+    # needs both named here: util-linux for the setsid path (Linux only; it is
+    # what a Linux user has), perl for the fallback path everywhere else.
+    perl
   ]
   # tests/integration/test_tui.py reads `ps` to prove the TUI pre-warm spawned
   # exactly one host. A builder's PATH holds only its inputs, so macOS needs an
   # explicit ps too — /bin/ps is on the disk but never on the PATH.
-  ++ lib.optionals stdenv.hostPlatform.isLinux [ procps ]
+  ++ lib.optionals stdenv.hostPlatform.isLinux [ procps util-linux ]
   ++ lib.optionals stdenv.hostPlatform.isDarwin [ darwin.ps ];
 
   # The debug/test binary is -O0, and glibc's features.h emits a #warning when

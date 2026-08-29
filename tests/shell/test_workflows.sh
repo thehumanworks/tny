@@ -563,7 +563,12 @@ if kill -0 "$scheduler_pid" 2> /dev/null; then
 fi
 scheduler_pid=
 scheduler_launcher_pid=
-[ "$elapsed" -lt 5 ] || fail "uncooperative cancellation exceeded bounded grace (${elapsed}s)"
+# The bound proves the scheduler cannot hang on a child that ignores TERM, not
+# a precise deadline. The grace loop spawns TNY_WORKFLOW_CANCEL_GRACE_ATTEMPTS
+# `sleep` processes, so its real cost is process-spawn latency, not the 0.05s
+# argument: ~1s on Linux but ~4s on macOS, where /bin/sleep costs ~180ms a
+# spawn. Keep the headroom platform-independent rather than tuning per host.
+[ "$elapsed" -lt 15 ] || fail "uncooperative cancellation exceeded bounded grace (${elapsed}s)"
 attempt=0
 while kill -0 "$stubborn_pid" 2> /dev/null || kill -0 "$grandchild_pid" 2> /dev/null; do
     attempt=$((attempt + 1))

@@ -540,7 +540,11 @@ int tny_task_list(tny_ctx *ctx, tny_task_info **out, size_t *count) {
         free(home);
     }
     if (names.too_many) goto scan_failed;
-    qsort(names.items, names.count, sizeof *names.items, compare_names);
+    /* BUILTINS is never empty, so names.items is always allocated by the time
+     * we get here — but -fanalyzer cannot see that through the loop, and
+     * qsort(NULL, 0, ...) is undefined even when it is harmless in practice. */
+    if (names.items && names.count > 1)
+        qsort(names.items, names.count, sizeof *names.items, compare_names);
     tny_task_info *items = calloc(names.count, sizeof *items);
     if (!items) goto oom;
     size_t used = 0;

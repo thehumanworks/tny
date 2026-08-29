@@ -45,6 +45,14 @@ VERSION = subprocess.run(
 ).stdout.strip()
 BANNER = f"tny {VERSION}"
 
+# The pty the tests drive. test_menu_overlay_transient needs the whole /help
+# overlay *and* some transcript on screen at once, so the window has to hold
+# the menu (3 key-hint rows + one row per /command + the "esc hides" footer)
+# plus tny's own status and composer rows, plus the banner and hint lines it
+# asserts survive. Adding a /command grows the menu by a row; when this stops
+# leaving headroom, raise ROWS rather than trimming the menu.
+ROWS, COLS = 44, 100
+
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][B0]|\r")
 
 
@@ -60,7 +68,7 @@ class Screen:
 
     SEQ = re.compile(r"\x1b\[([0-9;?]*)([a-zA-Z])")
 
-    def __init__(self, rows=40, cols=100):
+    def __init__(self, rows=ROWS, cols=COLS):
         self.rows, self.cols = rows, cols
         self.grid = [[" "] * cols for _ in range(rows)]
         self.r = self.c = 0
@@ -135,7 +143,9 @@ class Term:
 
     def __init__(self, argv, env, cwd):
         self.master, self.slave = pty.openpty()
-        fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 100, 0, 0))
+        fcntl.ioctl(
+            self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0)
+        )
         self.before = termios.tcgetattr(self.slave)
         self.proc = subprocess.Popen(
             argv,
