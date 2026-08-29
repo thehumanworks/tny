@@ -138,6 +138,11 @@ TEST color_keys_parse_hex(void) {
                        sizeof err));
     ASSERT_EQ(0xff8800u, c.fg);
     ASSERT_EQ(0x102030u, c.bg);
+    /* The rule between split panes is a colour like any other. */
+    ASSERT_EQ(0x3a4152u, c.divider); /* still the default at this point */
+    ASSERT_EQ(0, parse(&c, "divider = #445566\n", err, sizeof err));
+    ASSERT_EQ(0x445566u, c.divider);
+    ASSERT_EQ(-1, parse(&c, "divider = grey\n", err, sizeof err));
     ASSERT_EQ(0x1a2b3cu, c.palette[4]);
     ASSERT_EQ(0, parse(&c, "palette15 = #ffffff\n", err, sizeof err));
     ASSERT_EQ(0xffffffu, c.palette[15]);

@@ -30,8 +30,8 @@ DBG_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -O0 -g
 # The native window (docs/adr/0005): one implementation per platform
 # behind src/ui/window.h. AppKit/CoreText are reached from C through the
 # Objective-C runtime, so this stays a C11 build — no .m files.
-UI_SRC = src/ui/render.c src/ui/keys.c src/ui/selection.c src/ui/status.c \
-         src/ui/reply.c src/ui/gui.c
+UI_SRC = src/ui/render.c src/ui/layout.c src/ui/keys.c src/ui/selection.c \
+         src/ui/status.c src/ui/reply.c src/ui/gui.c
 UI_FRAMEWORKS =
 ifeq ($(UNAME_S),Darwin)
   UI_SRC += src/ui/window_macos.c

@@ -87,15 +87,19 @@ rasterizer that reads the same getters the HTTP screen endpoint reads
 and paints an RGBA framebuffer, repainting only rows whose cells
 changed; glyph coverage masks come from the platform through one
 callback, so cell geometry, dirty rows and clipping unit-test with a
-stub. `keys.c` turns a classified key press into pty bytes, and `gui.c`
-is the `tnytty gui` adapter. Decided in
-[ADR 0005](adr/0005-native-renderer-and-macos-window.md).
+stub. `keys.c` turns a classified key press into pty bytes (and decodes
+the Command chords the window binds), `layout.c` is the binary split tree
+that gives each pane its rectangle, and `gui.c` is the `tnytty gui`
+adapter. A window's panes share one framebuffer, one rasterizer each.
+Decided in [ADR 0005](adr/0005-native-renderer-and-macos-window.md) and
+[ADR 0006](adr/0006-split-panes-and-the-layout-tree.md).
 
 ### `src/cli/` + `src/main.c` — the CLI adapter
 
 `tnytty run` attaches the controlling tty raw to a session (passthrough
 bytes both ways, mirror into the vt so the session is scriptable while a
-human uses it); `tnytty gui` attaches a native window instead;
+human uses it); `tnytty gui` attaches a native window instead, holding
+one session per split pane;
 `tnytty serve` runs headless API-only;
 `tnytty icat` encodes images to kitty graphics escapes. Flags in
 [cli.md](cli.md).
@@ -114,9 +118,12 @@ lose bytes. `run`, `serve`, and `gui` all do this.
 
 `tnytty gui` keeps that loop and adds the window: AppKit's event queue is
 not a pollable fd, so the poll timeout is bounded (8 ms) and each turn
-also drains the queue and presents the dirty rows. The main thread stays
-the only thread that touches the VT core
-([ADR 0005](adr/0005-native-renderer-and-macos-window.md)).
+also drains the queue and presents the dirty rows. A split window puts
+**every pane's** pty master in that same set, with the same `POLLOUT`
+drain — panes are more fds in one loop, not more loops and not threads.
+The main thread stays the only thread that touches a VT core
+([ADR 0005](adr/0005-native-renderer-and-macos-window.md),
+[ADR 0006](adr/0006-split-panes-and-the-layout-tree.md)).
 
 ## Vendored dependencies
 

@@ -101,6 +101,53 @@ TEST empty_press_and_tight_buffers_write_nothing(void) {
     PASS();
 }
 
+/* Command chords are the window's, decoded here so window_macos.c keeps
+ * no second copy of the key map (docs/adr/0006). */
+TEST command_chords_decode(void) {
+    ASSERT_EQ(TT_CHORD_COPY, tt_key_chord(TT_KEY_TEXT, "c", 1, TT_MOD_SUPER));
+    ASSERT_EQ(TT_CHORD_PASTE, tt_key_chord(TT_KEY_TEXT, "v", 1, TT_MOD_SUPER));
+    ASSERT_EQ(TT_CHORD_SPLIT_VERT, tt_key_chord(TT_KEY_TEXT, "d", 1, TT_MOD_SUPER));
+    ASSERT_EQ(TT_CHORD_CLOSE_PANE, tt_key_chord(TT_KEY_TEXT, "w", 1, TT_MOD_SUPER));
+    /* Shift picks the other split. macOS hands the shifted press over as
+     * "D" with the Shift bit set; the letter case must not matter. */
+    ASSERT_EQ(TT_CHORD_SPLIT_HORZ, tt_key_chord(TT_KEY_TEXT, "D", 1, TT_MOD_SUPER | TT_MOD_SHIFT));
+    ASSERT_EQ(TT_CHORD_SPLIT_HORZ, tt_key_chord(TT_KEY_TEXT, "d", 1, TT_MOD_SUPER | TT_MOD_SHIFT));
+    ASSERT_EQ(TT_CHORD_SPLIT_VERT, tt_key_chord(TT_KEY_TEXT, "D", 1, TT_MOD_SUPER));
+    /* Cycling: Cmd-[ back, Cmd-] forward. */
+    ASSERT_EQ(TT_CHORD_FOCUS_PREV, tt_key_chord(TT_KEY_TEXT, "[", 1, TT_MOD_SUPER));
+    ASSERT_EQ(TT_CHORD_FOCUS_NEXT, tt_key_chord(TT_KEY_TEXT, "]", 1, TT_MOD_SUPER));
+    PASS();
+}
+
+TEST command_option_arrows_move_focus(void) {
+    unsigned m = TT_MOD_SUPER | TT_MOD_ALT;
+    ASSERT_EQ(TT_CHORD_FOCUS_LEFT, tt_key_chord(TT_KEY_LEFT, "", 0, m));
+    ASSERT_EQ(TT_CHORD_FOCUS_RIGHT, tt_key_chord(TT_KEY_RIGHT, "", 0, m));
+    ASSERT_EQ(TT_CHORD_FOCUS_UP, tt_key_chord(TT_KEY_UP, "", 0, m));
+    ASSERT_EQ(TT_CHORD_FOCUS_DOWN, tt_key_chord(TT_KEY_DOWN, "", 0, m));
+    /* Without Option an arrow is not a chord: Cmd-Left belongs to the
+     * child program, and without Command nothing is. */
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_LEFT, "", 0, TT_MOD_SUPER));
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_LEFT, "", 0, TT_MOD_ALT));
+    PASS();
+}
+
+TEST presses_that_are_not_chords_are_left_to_appkit(void) {
+    /* No Command: every one of these is text or an escape sequence. */
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "d", 1, 0));
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "d", 1, TT_MOD_ALT));
+    /* Command with Control, or a letter we do not bind: AppKit's. */
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "d", 1, TT_MOD_SUPER | TT_MOD_CTRL));
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "m", 1, TT_MOD_SUPER));
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "h", 1, TT_MOD_SUPER));
+    /* Shift-Cmd-C is not copy, and Cmd-Opt-D is not a split. */
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "C", 1, TT_MOD_SUPER | TT_MOD_SHIFT));
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "d", 1, TT_MOD_SUPER | TT_MOD_ALT));
+    /* Multi-byte text (a composed character) is never a chord. */
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "\xc3\xa5", 2, TT_MOD_SUPER));
+    PASS();
+}
+
 SUITE(keys_suite) {
     RUN_TEST(printable_text_passes_through);
     RUN_TEST(named_keys_are_control_bytes);
@@ -111,5 +158,8 @@ SUITE(keys_suite) {
     RUN_TEST(ctrl_without_a_control_byte_stays_literal);
     RUN_TEST(option_is_meta_esc_prefix);
     RUN_TEST(command_never_reaches_the_pty);
+    RUN_TEST(command_chords_decode);
+    RUN_TEST(command_option_arrows_move_focus);
+    RUN_TEST(presses_that_are_not_chords_are_left_to_appkit);
     RUN_TEST(empty_press_and_tight_buffers_write_nothing);
 }

@@ -54,6 +54,39 @@ static char ctrl_byte(unsigned char c) {
     return 0;
 }
 
+tt_chord tt_key_chord(tt_key key, const char *text, size_t text_len, unsigned mods) {
+    if (!(mods & TT_MOD_SUPER)) return TT_CHORD_NONE;
+    bool shift = (mods & TT_MOD_SHIFT) != 0;
+    bool alt = (mods & TT_MOD_ALT) != 0;
+    bool ctrl = (mods & TT_MOD_CTRL) != 0;
+    if (ctrl) return TT_CHORD_NONE;
+
+    /* Cmd-Opt-arrow walks the split tree; the arrows carry no text. */
+    if (alt && !shift) {
+        switch (key) {
+        case TT_KEY_LEFT: return TT_CHORD_FOCUS_LEFT;
+        case TT_KEY_RIGHT: return TT_CHORD_FOCUS_RIGHT;
+        case TT_KEY_UP: return TT_CHORD_FOCUS_UP;
+        case TT_KEY_DOWN: return TT_CHORD_FOCUS_DOWN;
+        default: break;
+        }
+    }
+    if (alt || key != TT_KEY_TEXT || !text || text_len != 1) return TT_CHORD_NONE;
+    char c = text[0];
+    if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    switch (c) {
+    case 'c': return shift ? TT_CHORD_NONE : TT_CHORD_COPY;
+    case 'v': return shift ? TT_CHORD_NONE : TT_CHORD_PASTE;
+    case 'd': return shift ? TT_CHORD_SPLIT_HORZ : TT_CHORD_SPLIT_VERT;
+    case 'w': return shift ? TT_CHORD_NONE : TT_CHORD_CLOSE_PANE;
+    /* Cycling has no geometry to fail on, so unlike the arrows it always
+     * lands somewhere (docs/adr/0006). */
+    case '[': return shift ? TT_CHORD_NONE : TT_CHORD_FOCUS_PREV;
+    case ']': return shift ? TT_CHORD_NONE : TT_CHORD_FOCUS_NEXT;
+    default: return TT_CHORD_NONE;
+    }
+}
+
 size_t tt_key_encode(tt_key key, const char *text, size_t text_len, unsigned mods, bool app_cursor,
                      char *out, size_t cap) {
     /* Command belongs to the window (Cmd-Q, Cmd-W); it never goes to the

@@ -288,14 +288,23 @@ static bool glyph_lookup(void *user, uint32_t cp, uint16_t attrs, tt_glyph *out)
 /* ---- window ----------------------------------------------------------- */
 
 /* NSEvent location -> device pixels with a top-left origin, matching the
- * rasterizer's framebuffer. NSView's default coordinates run bottom-up. */
-static void event_point(tt_window *w, id e, int *px, int *py) {
+ * rasterizer's framebuffer. NSView's default coordinates run bottom-up.
+ *
+ * Returns false when the press did not land on the view. That is not a
+ * nicety: AppKit synthesizes mouse-downs whose locationInWindow is a
+ * sentinel far outside the window (300000, -299382 on macOS 27) when it
+ * activates an app, and a caller that clamps such a point onto the grid
+ * starts a selection in the last cell -- a phantom caret in the corner
+ * that no mouse-up ever clears (docs/adr/0006). */
+static bool event_point(tt_window *w, id e, int *px, int *py) {
     CGPoint p = ((CGPoint (*)(id, SEL))objc_msgSend)(e, sel("locationInWindow"));
     CGPoint v = ((CGPoint (*)(id, SEL, CGPoint, id))objc_msgSend)(
         w->view, sel("convertPoint:fromView:"), p, NULL);
     CGRect b = ((CGRect (*)(id, SEL))objc_msgSend)(w->view, sel("bounds"));
+    if (!(v.x >= 0.0) || !(v.y >= 0.0) || v.x >= b.size.width || v.y >= b.size.height) return false;
     *px = (int)lround(v.x * w->scale);
     *py = (int)lround((b.size.height - v.y) * w->scale);
+    return true;
 }
 
 static void backing_size(tt_window *w, int *px_w, int *px_h) {
@@ -645,8 +654,7 @@ bool tt_window_pump(tt_window *w, tt_win_ev *ev) {
             /* Let AppKit see it too: the titlebar, the traffic lights and
              * window dragging all live on the same button. */
             msg_vp(w->app, sel("sendEvent:"), e);
-            event_point(w, e, &ev->px_x, &ev->px_y);
-            if (ev->px_y < 0) continue; /* in the titlebar, not the grid */
+            if (!event_point(w, e, &ev->px_x, &ev->px_y)) continue;
             ev->clicks = (int)msg_ul(e, sel("clickCount"));
             if (ev->clicks < 1) ev->clicks = 1;
             ev->type = etype == NS_EVENT_L_MOUSE_DOWN ? TT_WIN_EV_MOUSE_DOWN
@@ -663,18 +671,30 @@ bool tt_window_pump(tt_window *w, tt_win_ev *ev) {
             if (bare && msg_ul(bare, sel("length")) > 0)
                 u = ((unsigned short (*)(id, SEL, unsigned long))objc_msgSend)(
                     bare, sel("characterAtIndex:"), 0);
-            if ((m & TT_MOD_SUPER) && (u == 'q' || u == 'w')) {
-                w->closed = true;
+            if ((m & TT_MOD_SUPER) && (u == 'q' || u == 'Q')) {
+                w->closed = true; /* Cmd-Q is the app's, not a pane's */
                 continue;
-            }
-            if ((m & TT_MOD_SUPER) && (u == 'c' || u == 'v')) {
-                ev->type = u == 'c' ? TT_WIN_EV_COPY : TT_WIN_EV_PASTE;
-                got = true;
-                break;
             }
             if (m & TT_MOD_SUPER) {
-                msg_vp(w->app, sel("sendEvent:"), e);
-                continue;
+                /* Which Command presses are ours is decided by the
+                 * platform-free chord table, so this file holds no
+                 * second copy of the key map. Everything else goes back
+                 * to AppKit, which still owns Cmd-M, Cmd-H and friends. */
+                char text[8];
+                size_t tlen = 0;
+                copy_text(bare, text, sizeof text, &tlen);
+                unsigned kmods = m;
+                tt_key k = key_from(u, &kmods);
+                tt_chord chord = tt_key_chord(k, text, tlen, kmods);
+                if (chord == TT_CHORD_NONE) {
+                    msg_vp(w->app, sel("sendEvent:"), e);
+                    continue;
+                }
+                ev->type = TT_WIN_EV_CHORD;
+                ev->chord = chord;
+                ev->mods = kmods;
+                got = true;
+                break;
             }
             ev->type = TT_WIN_EV_KEY;
             ev->mods = m;

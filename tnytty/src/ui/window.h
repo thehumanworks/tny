@@ -30,19 +30,22 @@ typedef enum {
     TT_WIN_EV_MOUSE_DOWN, /* px_x/px_y/clicks */
     TT_WIN_EV_MOUSE_DRAG,
     TT_WIN_EV_MOUSE_UP,
-    TT_WIN_EV_COPY,  /* Cmd-C */
-    TT_WIN_EV_PASTE, /* Cmd-V */
+    TT_WIN_EV_CHORD, /* a Command chord the window did not handle itself */
 } tt_win_ev_type;
 
 typedef struct {
     tt_win_ev_type type;
     tt_key key;
-    unsigned mods; /* TT_MOD_* */
-    char text[32]; /* UTF-8 committed by the press */
+    tt_chord chord; /* TT_WIN_EV_CHORD only */
+    unsigned mods;  /* TT_MOD_* */
+    char text[32];  /* UTF-8 committed by the press */
     size_t text_len;
     bool focused;
-    int px_x, px_y; /* device pixels, top-left origin */
-    int clicks;     /* 1 = single, 2 = double, 3 = triple */
+    /* Device pixels, top-left origin, always inside the surface: a press
+     * AppKit reports outside the window (it uses a sentinel location for
+     * synthesized activation clicks) is dropped, never clamped. */
+    int px_x, px_y;
+    int clicks; /* 1 = single, 2 = double, 3 = triple */
 } tt_win_ev;
 
 /* Open a window sized to cols x rows cells using cfg's font, padding and

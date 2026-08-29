@@ -9,6 +9,7 @@ extern SUITE(session_suite);
 extern SUITE(config_suite);
 extern SUITE(keys_suite);
 extern SUITE(render_suite);
+extern SUITE(layout_suite);
 extern SUITE(selection_suite);
 extern SUITE(status_suite);
 
@@ -21,6 +22,7 @@ int main(int argc, char **argv) {
     RUN_SUITE(config_suite);
     RUN_SUITE(keys_suite);
     RUN_SUITE(render_suite);
+    RUN_SUITE(layout_suite);
     RUN_SUITE(selection_suite);
     RUN_SUITE(status_suite);
     GREATEST_MAIN_END();

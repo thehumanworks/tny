@@ -448,6 +448,161 @@ TEST mix_blends_endpoints(void) {
     PASS();
 }
 
+/* The bug this exists for: a caret painted in the last cell of one grid
+ * survived into the next one, so the window showed two carets -- the
+ * live one at the prompt and a filled block stranded in the corner. */
+TEST resizing_clears_the_caret_the_old_grid_left_behind(void) {
+    tt_render_config c = base_cfg();
+    tt_render *r = tt_render_new(&c, 4 + 10 * CELL_W + 4, 30 + 4 * CELL_H + 4);
+    vt *t = vt_new(10, 4, 0);
+    /* Park the caret in the last cell of the last row and paint it. */
+    vt_feed(t, "\x1b[4;10H", 7);
+    ASSERT_EQ(9, vt_cursor_x(t));
+    ASSERT_EQ(3, vt_cursor_y(t));
+    tt_render_frame(r, t, true, NULL, NULL);
+    int cx = 0, cy = 0;
+    tt_render_cell_origin(&c, 9, 3, &cx, &cy);
+    ASSERT_EQ(c.fg, px_at(r, cx + 1, cy + 1)); /* the filled block */
+
+    /* The window grows; the session follows and puts the caret home. */
+    ASSERT_EQ(0, tt_render_resize(r, 4 + 20 * CELL_W + 4, 30 + 8 * CELL_H + 4));
+    vt_resize(t, 20, 8);
+    vt_feed(t, "\x1b[1;1H", 7);
+    ASSERT(tt_render_frame(r, t, true, NULL, NULL) > 0);
+    /* The old cell is background again, and the only caret is the new one. */
+    ASSERT_EQ(c.bg, px_at(r, cx + 1, cy + 1));
+    int nx = 0, ny = 0;
+    tt_render_cell_origin(&c, 0, 0, &nx, &ny);
+    ASSERT_EQ(c.fg, px_at(r, nx + 1, ny + 1));
+    vt_free(t);
+    tt_render_free(r);
+    PASS();
+}
+
+/* The same, unfocused: the hollow box has to be erased too, and its
+ * edges are the pixels that would be left behind. */
+TEST resizing_clears_an_unfocused_hollow_caret_too(void) {
+    tt_render_config c = base_cfg();
+    tt_render *r = tt_render_new(&c, 4 + 10 * CELL_W + 4, 30 + 4 * CELL_H + 4);
+    vt *t = vt_new(10, 4, 0);
+    vt_feed(t, "\x1b[4;10H", 7);
+    tt_render_frame(r, t, false, NULL, NULL);
+    int cx = 0, cy = 0;
+    tt_render_cell_origin(&c, 9, 3, &cx, &cy);
+    ASSERT_EQ(c.fg, px_at(r, cx, cy));              /* top edge */
+    ASSERT_EQ(c.fg, px_at(r, cx, cy + CELL_H - 1)); /* bottom edge */
+    ASSERT_EQ(c.bg, px_at(r, cx + 1, cy + 1));      /* hollow inside */
+
+    ASSERT_EQ(0, tt_render_resize(r, 4 + 20 * CELL_W + 4, 30 + 8 * CELL_H + 4));
+    vt_resize(t, 20, 8);
+    vt_feed(t, "\x1b[1;1H", 7);
+    tt_render_frame(r, t, false, NULL, NULL);
+    ASSERT_EQ(c.bg, px_at(r, cx, cy));
+    ASSERT_EQ(c.bg, px_at(r, cx, cy + CELL_H - 1));
+    vt_free(t);
+    tt_render_free(r);
+    PASS();
+}
+
+/* Moving the caret without any resize has to erase the row it left. */
+TEST moving_the_caret_erases_the_row_it_left(void) {
+    tt_render_config c = base_cfg();
+    tt_render *r = tt_render_new(&c, 4 + 10 * CELL_W + 4, 30 + 4 * CELL_H + 4);
+    vt *t = vt_new(10, 4, 0);
+    vt_feed(t, "\x1b[4;10H", 7);
+    tt_render_frame(r, t, true, NULL, NULL);
+    int cx = 0, cy = 0;
+    tt_render_cell_origin(&c, 9, 3, &cx, &cy);
+    ASSERT_EQ(c.fg, px_at(r, cx + 1, cy + 1));
+    vt_feed(t, "\x1b[2;3H", 6);
+    /* Two rows: the one the caret left and the one it arrived on. */
+    ASSERT_EQ(2, tt_render_frame(r, t, true, NULL, NULL));
+    ASSERT_EQ(c.bg, px_at(r, cx + 1, cy + 1));
+    vt_free(t);
+    tt_render_free(r);
+    PASS();
+}
+
+/* A press in the padding or past the last row is not a cell. Clamping
+ * one onto the corner cell is what started a phantom selection there. */
+TEST hit_testing_rejects_points_outside_the_grid(void) {
+    tt_render_config c = base_cfg();
+    int col = -1, row = -1;
+    ASSERT(tt_render_cell_hit(&c, 4, 30, 10, 4, &col, &row));
+    ASSERT_EQ(0, col);
+    ASSERT_EQ(0, row);
+    ASSERT(tt_render_cell_hit(&c, 4 + 10 * CELL_W - 1, 30 + 4 * CELL_H - 1, 10, 4, &col, &row));
+    ASSERT_EQ(9, col);
+    ASSERT_EQ(3, row);
+    /* Left padding, titlebar inset, past the last column, past the last
+     * row, and AppKit's far-off sentinel location. */
+    ASSERT_FALSE(tt_render_cell_hit(&c, 3, 40, 10, 4, &col, &row));
+    ASSERT_FALSE(tt_render_cell_hit(&c, 10, 29, 10, 4, &col, &row));
+    ASSERT_FALSE(tt_render_cell_hit(&c, 4 + 10 * CELL_W, 40, 10, 4, &col, &row));
+    ASSERT_FALSE(tt_render_cell_hit(&c, 10, 30 + 4 * CELL_H, 10, 4, &col, &row));
+    ASSERT_FALSE(tt_render_cell_hit(&c, 300000, 300000, 10, 4, &col, &row));
+    /* The clamped cell is still reported, so callers that want it (a
+     * drag already under way) can use it. */
+    ASSERT_EQ(9, col);
+    ASSERT_EQ(3, row);
+    PASS();
+}
+
+/* Split panes share one framebuffer; each owns a rectangle of it and
+ * neither may paint into the other's or over the divider between them. */
+TEST panes_paint_only_inside_their_own_rectangle(void) {
+    tt_render_config c = base_cfg();
+    c.pad_top = 4; /* no titlebar inset in this test */
+    tt_fb fb = {0};
+    int half = 4 + 6 * CELL_W + 4;
+    ASSERT_EQ(0, tt_fb_alloc(&fb, half * 2 + 1, 4 + 3 * CELL_H + 4));
+    tt_fb_fill(&fb, 0, 0, fb.w, fb.h, 0x00ff00); /* the divider ground */
+
+    tt_rect left = {0, 0, half, fb.h};
+    tt_rect right = {half + 1, 0, half, fb.h};
+    tt_render *lr = tt_render_new_in(&c, &fb, left);
+    tt_render *rr = tt_render_new_in(&c, &fb, right);
+    ASSERT(lr && rr);
+    ASSERT_EQ(6, tt_render_cols(lr));
+    ASSERT_EQ(6, tt_render_cols(rr));
+    ASSERT_EQ(3, tt_render_rows(lr));
+
+    vt *lt = vt_new(6, 3, 0), *rt = vt_new(6, 3, 0);
+    /* Two blanks in a coloured background: the cells carry the colour
+     * and no glyph, and the caret ends up past both. */
+    vt_feed(lt, "\x1b[48;2;255;0;0m  ", 17);
+    vt_feed(rt, "\x1b[48;2;0;0;255m  ", 17);
+    int y0 = 0, y1 = 0;
+    ASSERT(tt_render_frame(lr, lt, true, &y0, &y1) > 0);
+    ASSERT_EQ(0, y0);
+    ASSERT_EQ(fb.h, y1); /* a first frame is a full one */
+    tt_render_frame(rr, rt, false, NULL, NULL);
+
+    /* Each pane's first cell carries its own background... */
+    int x = 0, y = 0;
+    tt_render_cell_origin(&c, 0, 0, &x, &y);
+    ASSERT_EQ(0xff0000u, fb.px[(size_t)(y + 1) * (size_t)fb.w + (size_t)(x + 1)] & 0xffffffu);
+    ASSERT_EQ(0x0000ffu,
+              fb.px[(size_t)(y + 1) * (size_t)fb.w + (size_t)(right.x + x + 1)] & 0xffffffu);
+    /* ...and the 1 px rule between them is untouched by both. */
+    for (int py = 0; py < fb.h; py++)
+        ASSERT_EQ(0x00ff00u, fb.px[(size_t)py * (size_t)fb.w + (size_t)half] & 0xffffffu);
+
+    /* A pane's dirty band is reported in framebuffer coordinates. */
+    tt_rect low = {half + 1, 2 * CELL_H, half, fb.h - 2 * CELL_H};
+    ASSERT_EQ(0, tt_render_set_area(rr, low));
+    tt_render_frame(rr, rt, false, &y0, &y1);
+    ASSERT_EQ(low.y, y0);
+    ASSERT_EQ(low.y + low.h, y1);
+
+    vt_free(lt);
+    vt_free(rt);
+    tt_render_free(lr);
+    tt_render_free(rr);
+    tt_fb_free(&fb);
+    PASS();
+}
+
 SUITE(render_suite) {
     memset(solid, 0xff, sizeof solid);
     RUN_TEST(grid_fits_inside_the_padding);
@@ -459,6 +614,11 @@ SUITE(render_suite) {
     RUN_TEST(glyphs_and_backgrounds_land_on_the_right_pixels);
     RUN_TEST(reverse_video_swaps_fg_and_bg);
     RUN_TEST(resize_reflows_the_grid_and_forces_a_full_paint);
+    RUN_TEST(resizing_clears_the_caret_the_old_grid_left_behind);
+    RUN_TEST(resizing_clears_an_unfocused_hollow_caret_too);
+    RUN_TEST(moving_the_caret_erases_the_row_it_left);
+    RUN_TEST(hit_testing_rejects_points_outside_the_grid);
+    RUN_TEST(panes_paint_only_inside_their_own_rectangle);
     RUN_TEST(overhanging_glyphs_clip_to_the_surface);
     RUN_TEST(overhang_pulls_the_neighbouring_row_into_the_repaint);
     RUN_TEST(bold_brightens_indexed_foregrounds);

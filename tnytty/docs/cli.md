@@ -40,7 +40,13 @@ this phase; every other platform exits 1 with
 The window starts a session the same way `run` does (`$SHELL`, or the
 command after `--`), sizes the grid from the window's pixels, resizes the
 session when the window resizes, and exits with the child's exit code.
-Closing the window, Cmd-Q or Cmd-W ends the session.
+Closing the window or Cmd-Q ends every session in it.
+
+A window can hold **several sessions as split panes**
+([ADR 0006](adr/0006-split-panes-and-the-layout-tree.md)): each pane has
+its own session, its own scrollback and its own selection, and every pane
+of a `--listen` window is a session in the API. A new pane runs the same
+command in the directory the window was launched from. Up to 32 panes.
 
 | Flag | Meaning |
 | --- | --- |
@@ -65,17 +71,36 @@ tnytty gui --listen 127.0.0.1:7681 -- vim    # drive the window over HTTP
 
 Keyboard: printable text, Enter/Tab/Backspace/Escape, arrows and editing
 keys as CSI/SS3 (SS3 under DECCKM), Ctrl-letter as control bytes, and
-Option as Meta (ESC prefix). Cmd-Q and Cmd-W close the window; Cmd-C
-copies the selection; Cmd-V pastes the pasteboard into the session
-(bracketed when the program enabled mode 2004). Programs that ask the
-terminal a question — cursor position (DSR/CPR), device attributes — are
-answered into the pty, because in the window tnytty *is* the terminal.
+Option as Meta (ESC prefix). Everything typed goes to the **focused
+pane**. Programs that ask the terminal a question — cursor position
+(DSR/CPR), device attributes — are answered into that pane's pty, because
+in the window tnytty *is* the terminal.
 
-Mouse: click-drag selects characters, double-click a word, triple-click a
-line; releasing the drag copies to the pasteboard
-(`copy-on-select = false` turns that off). The selection clears when the
-text under it scrolls or is overwritten. Mouse *reporting* to the child
-program (SGR 1006) is phase-2 work and is not wired up.
+Command chords are the window's and never reach the child; the bindings
+follow iTerm2:
+
+| Chord | Action |
+| --- | --- |
+| `Cmd-D` | Split vertically: a new pane to the right |
+| `Cmd-Shift-D` | Split horizontally: a new pane below |
+| `Cmd-W` | Close the focused pane; closes the window when it is the last |
+| `Cmd-Opt-←/→/↑/↓` | Move focus to the neighbouring pane in that direction (nothing happens when there is none) |
+| `Cmd-[` / `Cmd-]` | Focus the previous / next pane in reading order, wrapping — always lands somewhere |
+| `Cmd-C` | Copy the selection |
+| `Cmd-V` | Paste into the focused pane (bracketed when it enabled mode 2004) |
+| `Cmd-Q` | Quit |
+
+Any other Command press is left to macOS, so `Cmd-M`, `Cmd-H` and friends
+still work. Key bindings are not configurable yet ([config.md](config.md)).
+
+Mouse: clicking in a pane focuses it; click-drag selects characters,
+double-click a word, triple-click a line; releasing the drag copies to
+the pasteboard (`copy-on-select = false` turns that off). Only one pane
+holds a selection at a time — starting one clears the others. A press in
+the padding, on a divider or under the traffic lights selects nothing.
+The selection clears when the text under it scrolls or is overwritten.
+Mouse *reporting* to the child program (SGR 1006) is phase-2 work and is
+not wired up.
 
 A one-line status bar along the bottom edge reports transient messages
 ("Copied 42 characters") for two seconds; `status-bar = false` hides it

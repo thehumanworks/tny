@@ -48,6 +48,7 @@ theme; see [contrast](#contrast) for why these numbers and not xterm's.
 | --- | --- | --- |
 | `foreground` | `#d7dae3` | Default text color |
 | `background` | `#14161f` | Terminal background; also the window background, which is what makes the transparent titlebar read as one surface |
+| `divider` | `#3a4152` | The 1 px rule drawn between split panes ([ADR 0006](adr/0006-split-panes-and-the-layout-tree.md)). Dim by design: it separates panes without competing with their text. Invisible when nothing is split. |
 | `palette0` … `palette15` | see the table below | SGR colors 30–37 / 90–97 and the low 16 of the 256-color space. Indices 16–255 are the fixed xterm cube and grayscale ramp and are not configurable. |
 | `bold-brightens` | `true` | SGR 1 on an indexed foreground 0–7 also selects the bright entry 8–15. Bold always uses the bold *face* as well; turning this off keeps the weight and drops the color change. |
 
@@ -127,6 +128,7 @@ A bad value on the command line is an error, never a warning.
 ## Not configurable yet
 
 Cursor style, key bindings, selection colors (the highlight inverts the
-cell), the status-bar timeout, and scrollback size are compiled-in
-defaults in this phase. Each becomes a key when the behavior behind it exists; new keys
+cell), the status-bar timeout, the split ratio (always 50/50; dividers
+are not draggable yet) and scrollback size are compiled-in defaults in
+this phase. Each becomes a key when the behavior behind it exists; new keys
 are additive, and removing or renaming one needs an ADR.

@@ -30,6 +30,8 @@ typedef struct {
      * (docs/config.md has the table); index 0 is a background color and
      * is exempt. */
     uint32_t fg, bg;
+    /* The 1-px rule drawn between split panes (docs/adr/0006). */
+    uint32_t divider;
     uint32_t palette[TT_PALETTE_LEN];
     bool bold_brightens; /* SGR 1 on an indexed 0..7 fg also picks 8..15 */
     bool copy_on_select; /* releasing a drag copies to the pasteboard */

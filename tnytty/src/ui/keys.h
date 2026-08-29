@@ -46,6 +46,33 @@ typedef enum {
     TT_KEY_F12,
 } tt_key;
 
+/* Window commands bound to Command chords (docs/adr/0006,
+ * docs/cli.md). Decoding is here, with the rest of the key translation,
+ * so it is platform-free and unit-tested: `window_macos.c` asks whether
+ * a Command press is one of ours before it consumes it, and `gui.c` asks
+ * what it means. */
+typedef enum {
+    TT_CHORD_NONE = 0,
+    TT_CHORD_COPY,        /* Cmd-C */
+    TT_CHORD_PASTE,       /* Cmd-V */
+    TT_CHORD_SPLIT_VERT,  /* Cmd-D: a new pane to the right */
+    TT_CHORD_SPLIT_HORZ,  /* Cmd-Shift-D: a new pane below */
+    TT_CHORD_CLOSE_PANE,  /* Cmd-W */
+    TT_CHORD_FOCUS_LEFT,  /* Cmd-Opt-Left */
+    TT_CHORD_FOCUS_RIGHT, /* Cmd-Opt-Right */
+    TT_CHORD_FOCUS_UP,    /* Cmd-Opt-Up */
+    TT_CHORD_FOCUS_DOWN,  /* Cmd-Opt-Down */
+    TT_CHORD_FOCUS_PREV,  /* Cmd-[ : the previous pane in leaf order */
+    TT_CHORD_FOCUS_NEXT,  /* Cmd-] : the next pane in leaf order */
+} tt_chord;
+
+/* text/text_len is the unmodified character of the press (macOS
+ * `charactersIgnoringModifiers`), so Cmd-Shift-D arrives as "D" or "d"
+ * and both decode the same; the Shift bit in mods is what distinguishes
+ * the two splits. Returns TT_CHORD_NONE when the press is not a chord,
+ * including every press without Command. */
+tt_chord tt_key_chord(tt_key key, const char *text, size_t text_len, unsigned mods);
+
 /* Encode one key press into out (not NUL-terminated). Returns the number
  * of bytes written, or 0 when the press produces nothing. text/text_len
  * is the UTF-8 the platform committed for the press (may be empty).

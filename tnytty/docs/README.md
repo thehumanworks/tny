@@ -41,3 +41,4 @@ Numbered, append-only, same rules as the root
 | [0003](adr/0003-kitty-graphics-and-icat.md) | Kitty graphics passes through and is recorded; `icat` is a built-in subcommand, not a separate binary |
 | [0004](adr/0004-nerd-font-width-policy.md) | Private Use Area codepoints (nerd fonts) are width 1; width is computed from built-in tables, not locale `wcwidth` |
 | [0005](adr/0005-native-renderer-and-macos-window.md) | The native renderer is a CPU cell rasterizer behind a window seam; macOS drives AppKit from C through the Objective-C runtime, titlebar transparent by default |
+| [0006](adr/0006-split-panes-and-the-layout-tree.md) | A window holds many sessions in a binary split tree; panes share one framebuffer and one loop, and iTerm2's Cmd-D / Cmd-Shift-D are the bindings |

@@ -23,6 +23,7 @@ void tt_config_defaults(tt_config *c) {
     c->padding = 8;
     c->fg = 0xd7dae3;
     c->bg = 0x14161f;
+    c->divider = 0x3a4152;
     memcpy(c->palette, default_palette, sizeof c->palette);
     c->bold_brightens = true;
     c->copy_on_select = true;
@@ -87,8 +88,9 @@ int tt_config_set(tt_config *c, const char *key, const char *value, char *err, s
             return 0;
         }
     }
-    if (strcmp(key, "foreground") == 0 || strcmp(key, "background") == 0) {
-        uint32_t *slot = key[0] == 'f' ? &c->fg : &c->bg;
+    if (strcmp(key, "foreground") == 0 || strcmp(key, "background") == 0 ||
+        strcmp(key, "divider") == 0) {
+        uint32_t *slot = key[0] == 'f' ? &c->fg : key[0] == 'b' ? &c->bg : &c->divider;
         if (!parse_color(value, slot)) {
             fail(err, errcap, "config: %s: %s is not a #rrggbb color", key, value);
             return -1;
