@@ -554,8 +554,9 @@ test-libtny-tsan:
 	@exit 2
 endif
 
-test: test-unit test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags release
-	@if [ -x tests/integration/run.sh ]; then tests/integration/run.sh; fi
+test: test-unit test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags release tests/integration/run.sh
+	@test -x tests/integration/run.sh || { echo "error: tests/integration/run.sh is not executable" >&2; exit 1; }
+	tests/integration/run.sh
 
 size: release
 	@wc -c $(BIN)
