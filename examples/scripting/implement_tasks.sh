@@ -8,6 +8,7 @@
 # Usage:
 #   examples/scripting/implement_tasks.sh [OPTIONS] [TASK.md ...]
 #     default TASK set: tasks/[0-9]*.md (not tasks/doing or tasks/done)
+#   --tasks 08,10,15  run only these task numbers (matches tasks/<NN>_*.md)
 #   --jobs N        max concurrent agent processes (default 3)
 #   --no-push       merge into local main but do not push to origin/main
 #   --plan          print the task graph and exit without running agents
@@ -31,8 +32,10 @@ push=1
 plan_only=0
 keep=0
 tasks=()
+numbers=
 while [ $# -gt 0 ]; do
     case "$1" in
+    --tasks) numbers=$2; shift 2 ;;
     --jobs) jobs=$2; shift 2 ;;
     --no-push) push=0; shift ;;
     --plan) plan_only=1; shift ;;
@@ -42,7 +45,15 @@ while [ $# -gt 0 ]; do
     *) tasks+=("$1"); shift ;;
     esac
 done
-if [ ${#tasks[@]} -eq 0 ]; then
+if [ -n "$numbers" ]; then
+    [ ${#tasks[@]} -eq 0 ] || { echo "--tasks cannot be combined with task file arguments" >&2; exit 2; }
+    for n in ${numbers//,/ }; do
+        matches=(tasks/"$n"_*.md)
+        [ ${#matches[@]} -eq 1 ] && [ -f "${matches[0]}" ] ||
+            { echo "task $n: expected exactly one tasks/${n}_*.md" >&2; exit 2; }
+        tasks+=("${matches[0]}")
+    done
+elif [ ${#tasks[@]} -eq 0 ]; then
     for f in tasks/[0-9]*.md; do [ -f "$f" ] && tasks+=("$f"); done
 fi
 [ ${#tasks[@]} -gt 0 ] || { echo "no task files" >&2; exit 2; }

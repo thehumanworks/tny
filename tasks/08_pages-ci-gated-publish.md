@@ -1,7 +1,8 @@
 # 08 — Gate Pages publish on CI-tested wasm
 
-High. From the repository-wide test audit. Independent of 09–14 except
-that 11's `docs/` staging should ride the same publish path.
+High. From the repository-wide test audit. Absorbs former tasks 09
+(mobile smoke lane) and 11 (docs mirror manifest): all three edit the
+same Pages/wasm CI path and are landed as one change.
 
 `docs/ci.md` claims the landing terminal is the CI-tested artifact. The
 Pages workflow contradicts that: it rebuilds wasm itself, commits to
@@ -25,6 +26,28 @@ Pages workflow contradicts that: it rebuilds wasm itself, commits to
 - Update `docs/ci.md` so the “CI-tested artifact” sentence matches the
   new wiring.
 
+### Mirror manifest (former 11)
+
+- Record the generated site paths (HTML + `site/assets/**`, excluding
+  engineering markdown that Pages must not overwrite) and assert the
+  published `docs/` tree matches: every generated path exists, and no
+  previously generated path survives after it is removed from `site/`.
+- Change the Pages mirror from blind additive `cp -a site/. docs/` to a
+  sync that deletes stale generated files. Never delete contract
+  markdown under `docs/` (`docs/*.md`, ADRs).
+- Point the browser smoke at the staged `docs/` docroot, not a temp copy
+  of `site/`. One shared docroot helper; do not copy `site/` a third way.
+
+### Mobile smoke lane (former 09)
+
+- `tests/integration/test_site_mobile.py` exits 0 when Playwright is
+  missing, and the wasm job never invokes it, so its layout assertions
+  never run. Invoke it in the wasm job's “Browser smoke” step after
+  Playwright/Chromium install, against the same staged docroot.
+- Keep the skip-if-no-Playwright path for local/Nix runs so `make test`
+  stays runnable without browsers — but that skip must not be the CI
+  path.
+
 ## Acceptance
 
 - A commit whose wasm/browser tests fail cannot publish Pages.
@@ -32,3 +55,9 @@ Pages workflow contradicts that: it rebuilds wasm itself, commits to
   bytes the wasm CI job uploaded, not a separately rebuilt pair.
 - `docs/ci.md` no longer claims a CI-tested landing terminal while Pages
   rebuilds independently.
+- Removing `site/docs/cli.html` (or an asset) from the source tree and
+  running the publish/sync path leaves no `docs/docs/cli.html`;
+  engineering markdown under `docs/` is untouched.
+- A forced failure in `test_site_mobile.py` turns the wasm job red;
+  local `make test` without Playwright still exits 0 via the documented
+  skip.

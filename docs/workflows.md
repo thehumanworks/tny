@@ -404,9 +404,9 @@ among the included outputs.
 
 - `code_optimisation.sh` — two parallel `review` tasks fan in to a task that
   writes `tasks/NN_*.md` files.
-- `implement_tasks.sh [--jobs N] [--no-push] [--plan] [--keep] [TASK.md ...]`
+- `implement_tasks.sh [--tasks 08,10,15] [--jobs N] [--no-push] [--plan] [--keep] [TASK.md ...]`
   — one git worktree and `task/<slug>` branch per task file (default
-  `tasks/[0-9]*.md`); each runs plan → contract → implement → qa → document →
+  `tasks/[0-9]*.md`; `--tasks` picks numbers; `tasks/deferred/` is skipped); each runs plan → contract → implement → qa → document →
   commit+push, then a single `integrate` task merges every branch into `main`,
   reruns `make test` / `make quality` / site tests, moves the task files to
   `tasks/done/`, and pushes `main` (skip with `--no-push`). Task-type presets
