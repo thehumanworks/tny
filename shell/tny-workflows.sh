@@ -3,6 +3,8 @@
 #
 # The public entry points are:
 #   tny_workflow_begin [DIRECTORY]
+#   tny_task_type NAME [--stdin|PROMPT...]
+#   tny_task_types
 #   tny_task NAME [OPTIONS] [--] PROMPT...
 #   tny_workflow_run [--jobs N] [--quiet]
 #   tny_status NAME
@@ -102,6 +104,105 @@ _tny_workflow_count_tasks() {
     printf '%s\n' "$count"
 }
 
+_tny_workflow_builtin_task_type() {
+    case ${1:-} in
+        review)
+            cat << 'EOF'
+Act as a rigorous code reviewer. Inspect the requested change and directly relevant repository context before judging it. Prioritize correctness, security, regressions, concurrency, error handling, API compatibility, portability, tests, documentation, and maintainability. Be evidence-driven: cite concrete files/lines or behavior, distinguish defects from preferences, and rank actionable findings by severity. Do not modify code unless the user explicitly asks you to fix findings. If there are no material findings, say so and state what you validated.
+EOF
+            ;;
+        optimizer)
+            cat << 'EOF'
+Act as a performance and complexity optimizer. Preserve externally observable behavior unless the user explicitly requests a semantic change. Measure or establish evidence before optimizing when practical. Look for algorithmic complexity, unnecessary allocations/copies, avoidable I/O or network work, contention, serialization, excessive abstraction, duplicated logic, large dependency/runtime footprint, and hard-to-maintain control flow. Prefer the smallest change that improves both runtime/resource efficiency and implementation simplicity. Run relevant tests and benchmarks, report before/after evidence where available, and call out tradeoffs rather than hiding them.
+EOF
+            ;;
+        document)
+            cat << 'EOF'
+Act as a documentation expert. Read the implementation, tests, existing documentation, examples, and public API before writing. Produce accurate, concise, task-oriented documentation that matches real behavior exactly. Update the most relevant user-facing and contributor-facing docs, runnable examples, references, and generated documentation when required. Do not invent flags, APIs, guarantees, or examples that have not been verified. Check links, commands, terminology, and cross-references, and run available documentation/site validation before finishing.
+EOF
+            ;;
+        retro)
+            cat << 'EOF'
+Perform a retrospective of the work/session. Reconstruct the important decisions, mistakes, friction, successful techniques, validation gaps, and reusable lessons from the available conversation context, git diff/history, tests, and repository state. Turn durable lessons into repository improvements only when justified: optionally update AGENTS.md when a rule should guide future work in this repository, and optionally create or update a skill when a repeatable multi-step procedure would materially improve future execution. Avoid recording transient details, secrets, personal information, or one-off instructions as durable guidance. Keep any AGENTS.md/skill changes concise, scoped, and evidence-based; test or validate them where possible. End with concrete follow-ups and unresolved risks.
+EOF
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+_tny_workflow_task_type_prompt() {
+    local name custom
+    name=$1
+    custom="$TNY_WORKFLOW_DIR/task-types/$name"
+    if [ -f "$custom" ]; then
+        cat "$custom"
+    else
+        _tny_workflow_builtin_task_type "$name"
+    fi
+}
+
+# Define a workflow-local agent preset. This deliberately mirrors the future
+# `tny --task NAME` shape while presets are still owned by the shell overlay.
+# A local definition may override a builtin for this workflow only.
+tny_task_type() {
+    local name use_stdin destination first argument
+    _tny_workflow_require_active || return
+    if [ "$#" -lt 1 ]; then
+        _tny_workflow_error "usage: tny_task_type NAME [--stdin|PROMPT...]"
+        return 2
+    fi
+    name=$1
+    shift
+    if ! _tny_workflow_valid_name "$name"; then
+        _tny_workflow_error "invalid task type name '$name'"
+        return 2
+    fi
+    use_stdin=0
+    if [ "${1:-}" = --stdin ]; then
+        use_stdin=1
+        shift
+    fi
+    if [ "$use_stdin" -eq 1 ] && [ "$#" -ne 0 ]; then
+        _tny_workflow_error "--stdin cannot be combined with task type prompt arguments"
+        return 2
+    fi
+    if [ "$use_stdin" -eq 0 ] && [ "$#" -eq 0 ]; then
+        _tny_workflow_error "task type '$name' needs instructions or --stdin"
+        return 2
+    fi
+    mkdir -p "$TNY_WORKFLOW_DIR/task-types" || return
+    destination="$TNY_WORKFLOW_DIR/task-types/$name"
+    if [ "$use_stdin" -eq 1 ]; then
+        cat > "$destination" || return
+    else
+        first=1
+        : > "$destination" || return
+        for argument in "$@"; do
+            if [ "$first" -eq 0 ]; then printf ' ' >> "$destination" || return; fi
+            printf '%s' "$argument" >> "$destination" || return
+            first=0
+        done
+    fi
+    if [ ! -s "$destination" ]; then
+        rm -f "$destination"
+        _tny_workflow_error "task type '$name' has empty instructions"
+        return 2
+    fi
+}
+
+# List available task types. Workflow-local definitions are printed after the
+# builtins and are marked `custom`; duplicate names therefore show the override.
+tny_task_types() {
+    local name
+    _tny_workflow_require_active || return
+    printf 'review\tbuiltin\noptimizer\tbuiltin\ndocument\tbuiltin\nretro\tbuiltin\n'
+    if [ -d "$TNY_WORKFLOW_DIR/task-types" ]; then
+        find "$TNY_WORKFLOW_DIR/task-types" -type f -maxdepth 1 -print 2> /dev/null | sort | while IFS= read -r name; do
+            printf '%s\tcustom\n' "${name##*/}"
+        done
+    fi
+}
+
 _tny_workflow_validate_integer() {
     case $1 in
         '' | *[!0-9]*) return 1 ;;
@@ -133,7 +234,7 @@ tny_workflow_begin() {
         mkdir -p "$directory" || return
         directory=$(CDPATH='' cd -- "$directory" && pwd -P) || return
         if [ -f "$directory/.tny-workflow" ]; then
-            rm -r -f "$directory/tasks" "$directory/run"
+            rm -r -f "$directory/tasks" "$directory/run" "$directory/task-types"
             rm -f "$directory/tasks.list"
         else
             existing=$(find "$directory" -mindepth 1 -maxdepth 1 -print -quit 2> /dev/null)
@@ -144,7 +245,7 @@ tny_workflow_begin() {
         fi
     fi
 
-    mkdir -p "$directory/tasks" "$directory/run" || return
+    mkdir -p "$directory/tasks" "$directory/run" "$directory/task-types" || return
     printf '%s\n' "$TNY_WORKFLOW_FORMAT_VERSION" > "$directory/.tny-workflow" || return
     printf '%s\n' "$temporary" > "$directory/.tny-workflow-temporary" || return
     : > "$directory/tasks.list" || return
@@ -159,8 +260,8 @@ tny_workflow_begin() {
 # to the prompt unless --no-context is present.
 tny_task() {
     local name task_dir temporary_dir dependencies use_stdin include_dependencies
-    local provider model effort cwd system_prompt permission_mode max_steps ssh ssh_cwd agent
-    local fast persistent first argument dependency
+    local provider model effort cwd system_prompt permission_mode max_steps ssh ssh_cwd agent task_type
+    local fast persistent first argument dependency preset_prompt
 
     _tny_workflow_require_active || return
     if [ "$#" -lt 1 ]; then
@@ -192,6 +293,7 @@ tny_task() {
     ssh=
     ssh_cwd=
     agent=
+    task_type=
     fast=0
     persistent=0
 
@@ -216,7 +318,7 @@ $dependency"
                 fi
                 shift 2
                 ;;
-            --provider | --model | --effort | --cwd | --system-prompt | --permission-mode | --max-steps | --ssh | --ssh-cwd | --agent)
+            --provider | --model | --effort | --cwd | --system-prompt | --permission-mode | --max-steps | --ssh | --ssh-cwd | --agent | --task)
                 argument=$1
                 _tny_workflow_require_value "$argument" "${2:-}" || return
                 case $argument in
@@ -230,6 +332,7 @@ $dependency"
                     --ssh) ssh=$2 ;;
                     --ssh-cwd) ssh_cwd=$2 ;;
                     --agent) agent=$2 ;;
+                    --task) task_type=$2 ;;
                 esac
                 shift 2
                 ;;
@@ -260,6 +363,21 @@ $dependency"
             *) break ;;
         esac
     done
+
+    if [ -n "$task_type" ]; then
+        if ! _tny_workflow_valid_name "$task_type" || ! preset_prompt=$(_tny_workflow_task_type_prompt "$task_type"); then
+            _tny_workflow_error "unknown task type '$task_type' (run tny_task_types to list available types)"
+            return 2
+        fi
+        if [ -n "$system_prompt" ]; then
+            system_prompt="$preset_prompt
+
+Additional task instructions:
+$system_prompt"
+        else
+            system_prompt=$preset_prompt
+        fi
+    fi
 
     if [ "$use_stdin" -eq 1 ] && [ "$#" -ne 0 ]; then
         _tny_workflow_error "--stdin cannot be combined with prompt arguments"
@@ -310,6 +428,7 @@ $dependency"
     [ -z "$ssh" ] || _tny_workflow_set_option "$temporary_dir" ssh "$ssh" || return
     [ -z "$ssh_cwd" ] || _tny_workflow_set_option "$temporary_dir" ssh_cwd "$ssh_cwd" || return
     [ -z "$agent" ] || _tny_workflow_set_option "$temporary_dir" agent "$agent" || return
+    [ -z "$task_type" ] || _tny_workflow_set_option "$temporary_dir" task_type "$task_type" || return
 
     mv "$temporary_dir" "$task_dir" || return
     printf '%s\n' "$name" >> "$TNY_WORKFLOW_DIR/tasks.list" || return
@@ -771,7 +890,7 @@ tny_workflow_cleanup() {
     if [ "$temporary" = 1 ]; then
         rm -r -f "$directory"
     else
-        rm -r -f "$directory/tasks" "$directory/run"
+        rm -r -f "$directory/tasks" "$directory/run" "$directory/task-types"
         rm -f "$directory/tasks.list" "$directory/.tny-workflow" "$directory/.tny-workflow-temporary"
     fi
     unset TNY_WORKFLOW_DIR

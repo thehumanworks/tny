@@ -113,7 +113,8 @@ Task names begin with a letter or digit and contain only letters, digits, `.`,
 | `--model ID` | Select a model for this task |
 | `--effort LEVEL` | Select reasoning effort |
 | `--cwd DIR` | Set this task's local workspace |
-| `--system-prompt TEXT` | Set the task's system prompt |
+| `--system-prompt TEXT` | Add explicit system instructions for this task |
+| `--task TYPE` | Apply a named agent task preset before explicit system instructions |
 | `--permission-mode MODE` | Use `ask`, `auto`, or `yolo` for this task |
 | `--max-steps N` | Bound the native model/tool loop |
 | `--ssh TARGET` | Run native workspace tools over SSH |
@@ -126,6 +127,80 @@ Task names begin with a letter or digit and contain only letters, digits, `.`,
 The helper passes arguments directly; it never uses `eval`. `TNY_WORKFLOW_TNY`
 may be an executable path for tests or a custom installation, but it is not a
 shell command string.
+
+### Agent task types
+
+A task type is a reusable agent preset: system-level instructions that describe
+*how* an agent should approach a workflow node, while the normal task prompt
+describes *what* it should do. The shell overlay currently owns these presets;
+[issue #81](https://github.com/thehumanworks/tny/issues/81) tracks moving them
+into runtime configuration so `tny --task`, the TUI, workflows, and SDKs share
+the same definitions.
+
+Four built-ins are available:
+
+| Type | Intended behavior |
+| --- | --- |
+| `review` | Evidence-driven code review, prioritized correctness/security/regression findings, no edits unless explicitly requested |
+| `optimizer` | Improve runtime/resource performance **and** algorithmic/implementation complexity, with measurement and behavior preservation |
+| `document` | Documentation expert that verifies implementation, examples, commands, links, and generated docs before writing |
+| `retro` | Retrospective analysis of the work/session; may update `AGENTS.md` or create/update a skill when a durable lesson or repeatable procedure justifies it |
+
+Use one with `--task`:
+
+```sh
+tny_task review-change --task review -- "Review the current diff"
+tny_task optimize-hot-path --task optimizer --after review-change -- \
+  "Optimize the accepted findings without changing public behavior"
+tny_task docs --task document --after optimize-hot-path -- \
+  "Update the documentation for the final implementation"
+tny_task retrospective --task retro --after docs -- \
+  "Capture durable lessons and remaining follow-ups"
+```
+
+`--task` composes with `--system-prompt`. The preset comes first, followed by
+an `Additional task instructions:` section containing the explicit system
+prompt. This makes specialization predictable without replacing the preset.
+The selected task type is also recorded in the task definition directory for
+inspection.
+
+#### Create your own task type
+
+Custom types are intentionally simple and require no shell-library edits. Define
+one after `tny_workflow_begin` with prompt arguments:
+
+```sh
+tny_task_type security-review \
+  "Act as a security reviewer. Inspect trust boundaries, auth, secrets, and input handling."
+
+tny_task audit --task security-review -- "Audit the authentication change"
+```
+
+For multiline instructions, use stdin directly or redirect a file:
+
+```sh
+tny_task_type migration --stdin <<'TASK'
+Act as a migration specialist.
+Preserve backwards compatibility, identify rollback paths, and verify data
+migration safety before recommending rollout.
+TASK
+
+# Equivalently:
+tny_task_type migration --stdin < ./automation/tasks/migration.md
+```
+
+List built-in and workflow-local definitions with:
+
+```sh
+tny_task_types
+```
+
+Definitions are **workflow-local** and live under
+`$TNY_WORKFLOW_DIR/task-types/`. A custom definition may intentionally override
+a built-in name for that workflow. This keeps the format trivial and portable
+across Bash 3.2 and Zsh 5 while runtime-owned persistent preset discovery is
+designed in #81. For reusable project automation today, keep task-type text in
+a checked-in file and load it with `tny_task_type NAME --stdin < FILE`.
 
 ### Run and inspect
 

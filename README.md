@@ -107,9 +107,13 @@ outputs in declared order and starts only after all of them finish:
 tny_workflow_begin
 trap 'tny_workflow_cleanup' EXIT
 
-tny_task review-api --provider codex -- "Review the public API"
-tny_task review-tests --provider cursor -- "Find missing tests"
-tny_task implement --after review-api --after review-tests --   "Implement the change from both reports and run the tests"
+tny_task review-api --task review --provider codex -- "Review the public API"
+tny_task review-tests --task review --provider cursor -- "Find missing tests"
+tny_task implement --after review-api --after review-tests -- \
+  "Implement the change from both reports and run the tests"
+tny_task optimize --task optimizer --after implement -- "Optimize performance and complexity"
+tny_task docs --task document --after optimize -- "Document the final behavior"
+tny_task retro --task retro --after docs -- "Capture durable lessons from the work"
 
 tny_workflow_run --jobs 2
 tny_result implement

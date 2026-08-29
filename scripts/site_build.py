@@ -637,8 +637,8 @@ def docs_workflows() -> str:
 <pre><code>tny_workflow_begin
 trap 'tny_workflow_cleanup' EXIT
 
-tny_task architecture --provider codex -- "Audit the architecture"
-tny_task tests --provider cursor -- "Audit the tests"
+tny_task architecture --task review --provider codex -- "Audit the architecture"
+tny_task tests --task review --provider cursor -- "Audit the tests"
 tny_task implement \\
   --after architecture --after tests --provider codex -- \\
   "Implement and verify the change from both reports"
@@ -659,8 +659,22 @@ tny_result implement</code></pre>
   </tbody>
 </table>
 <h2 id="task-options">Task options</h2>
-<p><code>tny_task</code> accepts repeated <code>--after</code>, plus <code>--provider</code>, <code>--model</code>, <code>--effort</code>, <code>--cwd</code>, <code>--system-prompt</code>, <code>--permission-mode</code>, <code>--max-steps</code>, <code>--ssh</code>, <code>--ssh-cwd</code>, <code>--agent</code>, <code>--fast</code>, <code>--persist</code>, <code>--stdin</code>, and <code>--no-context</code>. Arguments are passed directly; the helper never uses <code>eval</code>.</p>
+<p><code>tny_task</code> accepts repeated <code>--after</code>, plus <code>--task</code>, <code>--provider</code>, <code>--model</code>, <code>--effort</code>, <code>--cwd</code>, <code>--system-prompt</code>, <code>--permission-mode</code>, <code>--max-steps</code>, <code>--ssh</code>, <code>--ssh-cwd</code>, <code>--agent</code>, <code>--fast</code>, <code>--persist</code>, <code>--stdin</code>, and <code>--no-context</code>. Arguments are passed directly; the helper never uses <code>eval</code>.</p>
 <p>Inspect with <code>tny_status NAME</code>, <code>tny_result NAME</code>, <code>tny_result_path NAME</code>, <code>tny_stderr NAME</code>, and <code>tny_workflow_report</code>.</p>
+<h2 id="task-types">Agent task types</h2>
+<p><code>--task review|optimizer|document|retro</code> applies a reusable system-instruction preset while the task prompt remains the concrete job. <code>review</code> performs evidence-driven review; <code>optimizer</code> targets performance and complexity; <code>document</code> verifies and writes documentation; <code>retro</code> analyzes the session and may update <code>AGENTS.md</code> or a skill when the lesson is durable.</p>
+<pre><code>tny_task review-change --task review -- "Review the current diff"
+tny_task optimize --task optimizer --after review-change -- "Optimize accepted findings"
+tny_task docs --task document --after optimize -- "Document final behavior"
+tny_task retro --task retro --after docs -- "Capture durable lessons"</code></pre>
+<p>Create a workflow-local type without editing the library:</p>
+<pre><code>tny_task_type security-review --stdin &lt;&lt;'TASK'
+Act as a security reviewer. Inspect trust boundaries, auth, secrets, and input handling.
+TASK
+
+tny_task audit --task security-review -- "Audit this change"
+tny_task_types</code></pre>
+<p>For reusable project presets, keep the instructions in a checked-in file and load it with <code>tny_task_type NAME --stdin &lt; FILE</code>. Issue <a href="https://github.com/thehumanworks/tny/issues/81">#81</a> tracks moving presets into runtime configuration so direct CLI, TUI, SDK, and workflow use share one persistent model.</p>
 <h2 id="sdks">Python and TypeScript</h2>
 <p>Both native SDKs expose <code>Workflow</code> with the same validated graph, bounded concurrency, direct-output fan-in, blocked-descendant behavior, and result ordering. Each active task owns a separate native runtime, preserving libtny's owner-thread rules.</p>
 <pre><code># Python
@@ -690,6 +704,7 @@ const result = await workflow.run();</code></pre>
             ("shell", "Bash and Zsh"),
             ("semantics", "Semantics"),
             ("task-options", "Task options"),
+            ("task-types", "Task types"),
             ("sdks", "SDKs"),
             ("safety", "Safety"),
         ],

@@ -167,6 +167,51 @@ merge_start=$(grep -n '^start merge$' "$TNY_FAKE_LOG.events" | cut -d: -f1)
 [ "$merge_start" -gt "$research_end" ] || fail "merge started before research ended"
 [ "$merge_start" -gt "$tests_end" ] || fail "merge started before tests ended"
 
+# Built-in agent task types, composition with explicit instructions, and
+# workflow-local custom task types.
+reset_log "$temporary/scenario-task-types"
+tny_workflow_begin "$temporary/flow-task-types" > /dev/null
+types=$(tny_task_types)
+printf '%s\n' "$types" | grep -F "review" > /dev/null || fail "review task type missing"
+printf '%s\n' "$types" | grep -F "optimizer" > /dev/null || fail "optimizer task type missing"
+printf '%s\n' "$types" | grep -F "document" > /dev/null || fail "document task type missing"
+printf '%s\n' "$types" | grep -F "retro" > /dev/null || fail "retro task type missing"
+tny_task_type security --stdin << 'TYPE'
+Act as a repository security reviewer. Verify trust boundaries and report concrete risks.
+TYPE
+printf '%s\n' "$(tny_task_types)" | grep -F "security" > /dev/null || fail "custom task type missing"
+
+tny_task reviewer --task review --system-prompt "Focus on the changed public API." --stdin << 'PROMPT'
+TASK reviewer
+PROMPT
+tny_task optimizer --task optimizer --stdin << 'PROMPT'
+TASK optimizer
+PROMPT
+tny_task documenter --task document --stdin << 'PROMPT'
+TASK documenter
+PROMPT
+tny_task retrospective --task retro --stdin << 'PROMPT'
+TASK retrospective
+PROMPT
+tny_task security --task security --stdin << 'PROMPT'
+TASK security
+PROMPT
+if tny_task unknown --task does-not-exist -- "TASK unknown" 2> "$temporary/task-type.err"; then
+    fail "unknown task type was accepted"
+fi
+assert_file_contains "$temporary/task-type.err" "unknown task type 'does-not-exist'"
+
+tny_workflow_run --jobs 5 --quiet || fail "task type workflow returned non-zero"
+assert_file_contains "$TNY_FAKE_LOG.args.reviewer" 'Act as a rigorous code reviewer.'
+assert_file_contains "$TNY_FAKE_LOG.args.reviewer" 'Additional task instructions:'
+assert_file_contains "$TNY_FAKE_LOG.args.reviewer" 'Focus on the changed public API.'
+assert_file_contains "$TNY_FAKE_LOG.args.optimizer" 'performance and complexity optimizer'
+assert_file_contains "$TNY_FAKE_LOG.args.documenter" 'documentation expert'
+assert_file_contains "$TNY_FAKE_LOG.args.retrospective" 'optionally update AGENTS.md'
+assert_file_contains "$TNY_FAKE_LOG.args.security" 'repository security reviewer'
+assert_eq "$(cat "$TNY_WORKFLOW_DIR/tasks/reviewer/task_type")" review
+assert_eq "$(cat "$TNY_WORKFLOW_DIR/tasks/security/task_type")" security
+
 # Failed tasks block descendants but do not cancel independent branches.
 reset_log "$temporary/scenario-two"
 tny_workflow_begin "$temporary/flow-two" > /dev/null
