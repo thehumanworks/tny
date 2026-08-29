@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install tny from source into ~/.local/bin.
+# Install tny and its support files from source into ~/.local.
 # Read this file before piping it to a shell.
 set -euo pipefail
 
@@ -23,12 +23,11 @@ cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
 
 git clone --depth 1 ${REF:+--branch "$REF"} "$REPO" "$work/tny"
-make -C "$work/tny" release
-mkdir -p "$PREFIX/bin"
-cp "$work/tny/build/tny" "$PREFIX/bin/tny"
-chmod 755 "$PREFIX/bin/tny"
+make -C "$work/tny" install PREFIX="$PREFIX"
+chmod 755 "$PREFIX/bin/tny" "$PREFIX/share/tny/tny-workflows.sh"
 
 printf 'installed %s (%s bytes)\n' "$PREFIX/bin/tny" "$(wc -c < "$PREFIX/bin/tny" | tr -d ' ')"
+printf 'installed workflow helpers at %s\n' "$PREFIX/share/tny/tny-workflows.sh"
 if ! command -v tny > /dev/null 2>&1; then
     printf 'add %s/bin to PATH to run tny\n' "$PREFIX" >&2
 fi

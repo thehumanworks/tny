@@ -80,6 +80,54 @@ handshake still runs synchronously on the owner and is bounded by libtny's
 15-second connect deadline; cancellation or worker-environment cleanup cannot
 preempt that pre-turn handshake yet.
 
+## Dependency workflows
+
+`Workflow` adds a validated DAG over independent native runtimes. Ready tasks
+run concurrently up to `maxConcurrency`; successful direct-dependency outputs
+are appended in declaration order before a consumer starts.
+
+```ts
+import { PermissionDecision, Workflow } from "@thehumanworks/tny";
+
+const workflow = new Workflow({
+  runtime: {
+    workspace: process.cwd(),
+    baseUrl: "https://api.openai.com/v1",
+    apiKey: process.env.OPENAI_API_KEY,
+    permissionMode: "ask",
+  },
+  maxConcurrency: 2,
+  onPermission: () => PermissionDecision.deny,
+});
+
+workflow
+  .task("architecture", "Audit the architecture")
+  .task("tests", "Audit the tests")
+  .task("implement", "Implement and verify the change", {
+    dependsOn: ["architecture", "tests"],
+  });
+
+const result = await workflow.run();
+result.raiseForFailure();
+console.log(result.output("implement"));
+```
+
+Failed tasks block descendants without cancelling independent branches.
+`includeDependencies: false` makes an edge ordering-only;
+`maxDependencyBytes` bounds direct-output fan-in. Results retain status,
+output, session id, stop reason, blocked dependencies, and an explicit error,
+while representations and aggregate errors omit prompts, credentials, output,
+and underlying exception text.
+
+`workflow.run({ signal })` propagates `AbortSignal` cancellation to every active
+native task and waits for cleanup. Native permission requests default to deny.
+A custom `runner(task, prompt, { signal })` can replace native execution while
+retaining the scheduler; it returns `WorkflowTaskExecution` or the equivalent
+object shape and must honor the signal.
+
+See [`docs/workflows.md`](../../docs/workflows.md) for the Bash/Zsh surface,
+complete result semantics, and safety guidance.
+
 ## ABI 1 limitations
 
 `runtime.capabilities` and `await runtime.getCapabilities()` are copied from

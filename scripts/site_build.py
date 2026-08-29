@@ -33,6 +33,7 @@ SIDEBAR = (
         (
             ("tny ask", "docs/ask.html"),
             ("CLI", "docs/cli.html"),
+            ("Workflows", "docs/workflows.html"),
             ("Interactive shell", "docs/tui.html"),
             ("Sessions", "docs/sessions.html"),
         ),
@@ -628,6 +629,78 @@ tny -c                      # resume last for this workspace</code></pre>
     )
 
 
+def docs_workflows() -> str:
+    inner = f"""
+<h2 id="shell">Bash and Zsh</h2>
+<p><code>make install</code>, Nix, and release archives install a sourceable library at <code>&lt;prefix&gt;/share/tny/tny-workflows.sh</code>.</p>
+{cmd('. "$HOME/.local/share/tny/tny-workflows.sh"')}
+<pre><code>tny_workflow_begin
+trap 'tny_workflow_cleanup' EXIT
+
+tny_task architecture --provider codex -- "Audit the architecture"
+tny_task tests --provider cursor -- "Audit the tests"
+tny_task implement \\
+  --after architecture --after tests --provider codex -- \\
+  "Implement and verify the change from both reports"
+
+tny_workflow_run --jobs 2
+tny_result implement</code></pre>
+<p>The two root tasks run together. <code>implement</code> starts only after both succeed and receives their outputs in the declared <code>--after</code> order.</p>
+<h2 id="semantics">Execution contract</h2>
+<table>
+  <thead><tr><th>Rule</th><th>Behavior</th></tr></thead>
+  <tbody>
+    <tr><td>Preflight</td><td>Undefined dependencies and cycles fail before an agent starts.</td></tr>
+    <tr><td>Parallelism</td><td>Ready tasks run up to <code>--jobs</code>; default four.</td></tr>
+    <tr><td>Failure</td><td>A failure blocks descendants only. Independent branches finish.</td></tr>
+    <tr><td>Context</td><td>Successful direct-dependency outputs are appended in declaration order.</td></tr>
+    <tr><td>Ordering only</td><td><code>--no-context</code> waits without appending output.</td></tr>
+    <tr><td>Storage</td><td>Shell tasks are ephemeral by default; captured streams live under <code>TNY_WORKFLOW_DIR</code>.</td></tr>
+  </tbody>
+</table>
+<h2 id="task-options">Task options</h2>
+<p><code>tny_task</code> accepts repeated <code>--after</code>, plus <code>--provider</code>, <code>--model</code>, <code>--effort</code>, <code>--cwd</code>, <code>--system-prompt</code>, <code>--permission-mode</code>, <code>--max-steps</code>, <code>--ssh</code>, <code>--ssh-cwd</code>, <code>--agent</code>, <code>--fast</code>, <code>--persist</code>, <code>--stdin</code>, and <code>--no-context</code>. Arguments are passed directly; the helper never uses <code>eval</code>.</p>
+<p>Inspect with <code>tny_status NAME</code>, <code>tny_result NAME</code>, <code>tny_result_path NAME</code>, <code>tny_stderr NAME</code>, and <code>tny_workflow_report</code>.</p>
+<h2 id="sdks">Python and TypeScript</h2>
+<p>Both native SDKs expose <code>Workflow</code> with the same validated graph, bounded concurrency, direct-output fan-in, blocked-descendant behavior, and result ordering. Each active task owns a separate native runtime, preserving libtny's owner-thread rules.</p>
+<pre><code># Python
+workflow = tny.Workflow(config, max_concurrency=2)
+workflow.task("inspect", "Inspect")
+workflow.task("implement", "Implement", depends_on=("inspect",))
+result = await workflow.run_async()</code></pre>
+<pre><code>// TypeScript
+const workflow = new Workflow({{ runtime, maxConcurrency: 2 }});
+workflow.task("inspect", "Inspect");
+workflow.task("implement", "Implement", {{ dependsOn: ["inspect"] }});
+const result = await workflow.run();</code></pre>
+<p>Task failures remain values so independent work can finish. Call <code>raise_for_failure()</code> in Python or <code>raiseForFailure()</code> in TypeScript when the aggregate should throw.</p>
+<h2 id="safety">Safety and limits</h2>
+<p>Dependency output is untrusted model text. The envelope labels it as context but cannot eliminate prompt injection. Keep permissions least-privileged and use separate worktrees for parallel agents that write files.</p>
+<p>Direct dependency output is bounded to 1 MiB by default. Runs have no implicit retry, cache, distributed queue, or resume policy. The shell reaches every CLI provider; the native SDK currently reaches the OpenAI-compatible libtny backend.</p>
+<p><a href="https://github.com/thehumanworks/tny/blob/main/docs/workflows.md">Read the complete workflow reference</a>.</p>
+"""
+    return page_shell(
+        title="Workflows — tny",
+        description="Dependency chains and bounded parallel agents from Bash, Zsh, Python, and TypeScript.",
+        from_docs=True,
+        active="docs",
+        canonical="docs/workflows.html",
+        current_doc="docs/workflows.html",
+        toc=[
+            ("shell", "Bash and Zsh"),
+            ("semantics", "Semantics"),
+            ("task-options", "Task options"),
+            ("sdks", "SDKs"),
+            ("safety", "Safety"),
+        ],
+        body=article(
+            "Workflows",
+            "Validated dependency chains, bounded fan-out, and ordered fan-in.",
+            inner,
+        ),
+    )
+
+
 def docs_tui() -> str:
     inner = """
 <h2 id="layout">Layout</h2>
@@ -1041,6 +1114,7 @@ def main() -> None:
         "docs/providers.html": docs_providers(),
         "docs/ask.html": docs_ask(),
         "docs/cli.html": docs_cli(),
+        "docs/workflows.html": docs_workflows(),
         "docs/tui.html": docs_tui(),
         "docs/sessions.html": docs_sessions(),
         "docs/permissions.html": docs_permissions(),

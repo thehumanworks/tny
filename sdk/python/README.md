@@ -76,6 +76,59 @@ downloads and hashes all three wheels, and performs a clean installed
 import/native-library readback. Ordinary release-wheel install tests use a
 local cffi dependency wheelhouse with network access disabled.
 
+## Dependency workflows
+
+`Workflow` is the high-level API for dependency chains and parallel native
+agents. Ready tasks run concurrently up to `max_concurrency`; a dependent task
+starts only after every direct dependency succeeds and receives their outputs
+in declared order.
+
+```python
+import asyncio
+import tny
+
+config = tny.RuntimeConfig(
+    workspace=".",
+    base_url="http://127.0.0.1:8080/v1",
+    api_key="...",
+)
+
+
+async def main() -> None:
+    workflow = tny.Workflow(config, max_concurrency=2)
+    workflow.task("architecture", "Audit the architecture")
+    workflow.task("tests", "Audit the tests")
+    workflow.task(
+        "implement",
+        "Implement and verify the change",
+        depends_on=("architecture", "tests"),
+    )
+
+    result = await workflow.run_async()
+    result.raise_for_failure()
+    print(result.output("implement").decode("utf-8", "strict"))
+
+
+asyncio.run(main())
+```
+
+Every active task owns an independent `AsyncRuntime` and session. Failed tasks
+block descendants without cancelling unrelated branches. Results preserve
+definition order and retain output, session id, stop reason, blocked
+dependencies, and an explicit error. Use `include_dependencies=False` for a
+sequencing-only edge and `max_dependency_bytes` to bound direct-output fan-in.
+
+`Workflow.run()` is the synchronous wrapper and rejects use inside an active
+event loop. Native permission requests default to deny; pass `on_permission=`
+to make an explicit sync or async decision and `on_event=` for observation.
+Cancellation of `run_async()` reaches active sessions and waits for cleanup.
+A custom async runner returning `WorkflowTaskExecution` can replace native
+execution for adapters and deterministic tests.
+
+Workflow reprs and aggregate errors omit prompts, credentials, outputs, and
+underlying exception text. See [`docs/workflows.md`](../../docs/workflows.md)
+for the shell-equivalent API, full status semantics, and security limits.
+
 ## Ownership and concurrency
 
 `Runtime` and `Session` are context managers. Explicit `close()` is required;

@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 
-import { Runtime, TnyError } from "./sdk.mjs";
+import { Runtime, TnyError, Workflow, WorkflowTaskStatus } from "./sdk.mjs";
 import { recordResult } from "./result.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -124,6 +124,62 @@ await withMock({}, async (baseUrl) => {
   observed.success_two_turns = transcript;
   await session.close();
   await runtime.close();
+});
+
+await withMock({ MOCK_SLOW_MS: "50" }, async (baseUrl) => {
+  const seen = new Set();
+  const workflow = new Workflow({
+    runtime: {
+      ...fixture(), baseUrl, apiKey: "test-key-not-real",
+    },
+    maxConcurrency: 2,
+    onEvent: (task, event) => seen.add(`${task.name}:${event.type}`),
+  })
+    .task("workflow-first", "first native workflow task")
+    .task("workflow-second", "second native workflow task")
+    .task("workflow-merge", "merge native workflow outputs", {
+      dependsOn: ["workflow-first", "workflow-second"],
+    });
+  const result = await workflow.run();
+  assert.equal(result.ok, true);
+  assert.match(result.output("workflow-first"), /MOCK-OK/);
+  assert.match(result.output("workflow-second"), /MOCK-OK/);
+  assert.match(result.output("workflow-merge"), /MOCK-OK/);
+  assert.ok(result.require("workflow-first").sessionId);
+  assert.equal(result.require("workflow-merge").stopReason, "done");
+  assert.ok(seen.has("workflow-first:text_delta"));
+  assert.ok(seen.has("workflow-merge:turn_end"));
+});
+
+await withMock({ MOCK_SENSITIVE: "1" }, async (baseUrl) => {
+  const workflow = new Workflow({
+    runtime: {
+      ...fixture(), baseUrl, apiKey: "test-key-not-real",
+    },
+  }).task("workflow-sensitive", "request a sensitive operation");
+  const result = await workflow.run();
+  assert.equal(result.ok, false);
+  assert.equal(
+    result.require("workflow-sensitive").status,
+    WorkflowTaskStatus.failed,
+  );
+  assert.equal(result.require("workflow-sensitive").stopReason, "denied");
+});
+
+await withMock({ MOCK_SLOW_MS: "5000" }, async (baseUrl) => {
+  const controller = new AbortController();
+  const reason = new Error("workflow cancellation fixture");
+  const workflow = new Workflow({
+    runtime: {
+      ...fixture(), baseUrl, apiKey: "test-key-not-real",
+    },
+    maxConcurrency: 2,
+  })
+    .task("workflow-cancel-one", "cancel native workflow task one")
+    .task("workflow-cancel-two", "cancel native workflow task two");
+  const running = workflow.run({ signal: controller.signal });
+  setTimeout(() => controller.abort(reason), 25);
+  await assert.rejects(running, (error) => error === reason);
 });
 
 await withMock({ MOCK_SLOW_MS: "5000" }, async (baseUrl) => {
@@ -335,4 +391,4 @@ recordResult("slow_consumer_backpressure", "not_run", {
   reason: "delayed AsyncIterator covers wrapper demand but does not force native event-queue overflow",
 });
 
-console.log("typescript-sdk integration: strict mock, permission, cancel, slow consumer, lifecycle passed");
+console.log("typescript-sdk integration: strict mock, workflows, permission, cancel, slow consumer, lifecycle passed");

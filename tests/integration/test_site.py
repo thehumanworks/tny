@@ -23,6 +23,7 @@ def main() -> None:
     css = (SITE / "assets" / "site.css").read_text(encoding="utf-8")
     core = (SITE / "assets" / "term-core.js").read_text(encoding="utf-8")
     wasm_boot = (SITE / "assets" / "term-wasm.js").read_text(encoding="utf-8")
+    workflows = (SITE / "docs" / "workflows.html").read_text(encoding="utf-8")
 
     for needle in (
         'id="tny-term"',
@@ -103,6 +104,17 @@ def main() -> None:
         fail("term-wasm.js leaves raw wasm LF output at the previous column")
     if "localStorage" in wasm_boot and "OPENAI_API_KEY" in wasm_boot:
         fail("term-wasm.js appears to persist the key in localStorage")
+
+    workflow_example = """tny_task implement \\
+  --after architecture --after tests --provider codex -- \\
+  \"Implement and verify the change from both reports\""""
+    if workflow_example not in workflows:
+        fail("workflows.html lost shell line continuations")
+
+    workflow_url = "https://thehumanworks.github.io/tny/docs/workflows.html"
+    for sitemap in (SITE / "sitemap.xml", ROOT / "docs" / "sitemap.xml"):
+        if workflow_url not in sitemap.read_text(encoding="utf-8"):
+            fail(f"{sitemap.relative_to(ROOT)} is missing the workflows page")
 
     node = subprocess.run(["node", "-v"], capture_output=True, text=True)
     if node.returncode != 0:

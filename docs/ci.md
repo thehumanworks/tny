@@ -59,8 +59,9 @@ never the generated files in `docs/`.
 Pushing a `v*` tag runs `.github/workflows/release.yml`: the same matrix,
 packaged as `tny-<os>-<arch>[-musl].tar.gz` (Windows: `.zip` with
 `msys-2.0.dll`) plus `SHA256SUMS`, published as a GitHub release. Each archive
-also carries the pure-Python extension host under `lib/tny/`; Python itself is
-never bundled. The
+also carries the pure-Python extension host under `lib/tny/` and the sourceable
+Bash/Zsh workflow library under `share/tny/`; Python and the shells themselves
+are never bundled. The
 version is not hardcoded anywhere: make derives it from `git describe`
 (docs/adr/0014), release jobs pass `TNY_VERSION=${tag#v}` explicitly
 (shallow checkouts and the Alpine container have no tags), and the
@@ -115,6 +116,7 @@ CI fails the job if the stripped binary exceeds the Must column in
 
 ```sh
 make quality           # formatting, lint, tidy, strict warnings; GCC analyzer on Linux
+make test-shell-workflows # the workflow scheduler under both Bash and Zsh
 make test              # unit (ASan) + integration fixtures
 make test-abi          # ABI baseline, old consumers, exports, artifacts
 make test-sdks         # Python and TypeScript SDK + conformance adapters

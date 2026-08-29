@@ -59,6 +59,19 @@ from .runtime import PermissionMode as PermissionMode
 from .runtime import Runtime as Runtime
 from .runtime import RuntimeConfig as RuntimeConfig
 from .runtime import Session as Session
+from .workflow import EventHandler as EventHandler
+from .workflow import PermissionHandler as PermissionHandler
+from .workflow import Workflow as Workflow
+from .workflow import WorkflowContextError as WorkflowContextError
+from .workflow import WorkflowDefinitionError as WorkflowDefinitionError
+from .workflow import WorkflowError as WorkflowError
+from .workflow import WorkflowResult as WorkflowResult
+from .workflow import WorkflowRunError as WorkflowRunError
+from .workflow import WorkflowTask as WorkflowTask
+from .workflow import WorkflowTaskExecution as WorkflowTaskExecution
+from .workflow import WorkflowTaskResult as WorkflowTaskResult
+from .workflow import WorkflowTaskRunner as WorkflowTaskRunner
+from .workflow import WorkflowTaskStatus as WorkflowTaskStatus
 
 try:
     __version__ = _distribution_version("tny")
@@ -77,17 +90,18 @@ __all__ = (
     "BadStateError",
     "BusyError",
     "CancellationToken",
-    "Capabilities",
-    "CustomTool",
-    "HostServices",
-    "build_conformance_report",
     "CancelledError",
+    "Capabilities",
     "ConfigurationError",
+    "CustomTool",
+    "EventHandler",
+    "HostServices",
     "InternalError",
     "InvalidArgumentError",
     "Library",
     "OutOfMemoryError",
     "PermissionDecision",
+    "PermissionHandler",
     "PermissionMode",
     "ProtocolError",
     "Runtime",
@@ -100,6 +114,18 @@ __all__ = (
     "ToolResult",
     "ToolSensitivity",
     "UnsupportedError",
+    "Workflow",
+    "WorkflowContextError",
+    "WorkflowDefinitionError",
+    "WorkflowError",
+    "WorkflowResult",
+    "WorkflowRunError",
+    "WorkflowTask",
+    "WorkflowTaskExecution",
+    "WorkflowTaskResult",
+    "WorkflowTaskRunner",
+    "WorkflowTaskStatus",
+    "build_conformance_report",
     "discover_library",
     "write_conformance_report",
 ) + _event_all

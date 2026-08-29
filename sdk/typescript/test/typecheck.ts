@@ -1,7 +1,12 @@
 import {
   PermissionDecision,
   Runtime,
+  Workflow,
+  WorkflowTaskExecution,
+  WorkflowTaskStatus,
   type TnyEvent,
+  type WorkflowResult,
+  type WorkflowTaskRunner,
 } from "@thehumanworks/tny";
 
 declare const workspace: string;
@@ -31,3 +36,37 @@ async function useSdk(): Promise<void> {
 }
 
 void useSdk;
+
+
+const customRunner: WorkflowTaskRunner = async (task, prompt, context) => {
+  if (context.signal.aborted) throw context.signal.reason;
+  return new WorkflowTaskExecution({
+    output: `${task.name}:${prompt}`,
+    stopReason: "done",
+  });
+};
+
+async function useWorkflow(): Promise<void> {
+  const workflow = new Workflow({
+    runtime: { workspace },
+    maxConcurrency: 2,
+    onPermission: () => PermissionDecision.deny,
+  });
+  workflow.task("inspect", "inspect the repository");
+  workflow.task("implement", "implement", { dependsOn: ["inspect"] });
+  const result: WorkflowResult = await workflow.run();
+  const implementation = result.require("implement");
+  const status = implementation.status;
+  const output: string = result.output("implement");
+  if (status === WorkflowTaskStatus.failed) result.raiseForFailure();
+  for (const [name, task] of result) {
+    void name;
+    void task.ok;
+  }
+  void output;
+
+  const custom = new Workflow({ runner: customRunner }).task("one", "prompt");
+  await custom.run();
+}
+
+void useWorkflow;

@@ -59,3 +59,14 @@ async def async_callback_types(config: tny.RuntimeConfig) -> None:
     )
     await registration.close()
     await runtime.close()
+
+
+async def workflow_types(config: tny.RuntimeConfig) -> None:
+    workflow = tny.Workflow(config, max_concurrency=2)
+    workflow.task("first", "inspect")
+    workflow.task("second", b"implement", depends_on=("first",))
+    result: tny.WorkflowResult = await workflow.run_async()
+    task: tny.WorkflowTaskResult = result["second"]
+    output: bytes = result.output("second")
+    status: tny.WorkflowTaskStatus = task.status
+    _ = output, status

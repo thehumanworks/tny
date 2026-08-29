@@ -17,7 +17,8 @@ snapshots—not platform guesses—govern supported behavior.
 
 The Python package provides context-managed `Runtime` and `Session` objects,
 typed immutable events and errors, sync iterators, asyncio adapters,
-permissions, steering, and cross-thread cancellation. Text and identifiers
+permissions, steering, cross-thread cancellation, and a high-level `Workflow`
+DAG that uses one independent runtime per concurrently active task. Text and identifiers
 remain `bytes`; decoding is always explicit.
 
 Two wheel modes are deliberate:
@@ -34,8 +35,9 @@ wheel policy.
 
 The TypeScript package exposes ESM-first `Runtime`, `Session.run()` as a
 pull-driven `AsyncGenerator`, `Session.ask()`, permissions, steering,
-`AbortSignal` cancellation, explicit async disposal, and canonical typed
-events. The C addon owns a bounded command/completion queue; all owner-affine
+`AbortSignal` cancellation, explicit async disposal, canonical typed events,
+and a high-level `Workflow` DAG that uses one independent runtime per
+concurrently active task. The C addon owns a bounded command/completion queue; all owner-affine
 libtny calls run on its native owner thread, while ABI-1 cancellation uses
 the runtime wake path.
 
@@ -53,6 +55,24 @@ missing, wrong-platform, wrong-version, ABI-incompatible, or SHA-mismatched
 payload before loading native code. Source compilation remains an explicit
 checkout fallback requiring libtny headers and a C11 compiler. See
 [`sdk/typescript/README.md`](../sdk/typescript/README.md).
+
+## Workflow orchestration
+
+Both SDKs validate the complete graph before starting native work, run ready
+nodes under a positive concurrency limit, inject direct dependency output in
+declared order, and mark descendants of failed tasks as blocked while
+independent branches continue. A task may make a dependency ordering-only.
+Task failure remains represented in the aggregate result until the caller asks
+it to raise.
+
+Python offers `Workflow.run_async()` plus a sync `run()` wrapper; TypeScript
+offers `Workflow.run({ signal })`. Native permission requests default to deny
+unless a workflow permission callback returns a decision. Prompts, credentials,
+outputs, and underlying exception text are omitted from representations and
+aggregate errors. Both SDKs expose a custom runner seam for adapters and tests.
+
+See [workflows.md](workflows.md) for complete examples, status semantics,
+context bounds, cancellation, and the shell equivalent.
 
 ## Platforms and authority
 
