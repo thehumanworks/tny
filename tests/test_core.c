@@ -2028,6 +2028,47 @@ TEST perm_read_image_is_safe(void) {
     PASS();
 }
 
+TEST cmd_ask_image_overflow_frees_prompt(void) {
+    ensure_env();
+    write_settings("{}");
+    cli_globals g = {0};
+    g.cwd = g_ws;
+    g.backend = "openai";
+    tny_ctx *ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+
+    char *argv[35];
+    argv[0] = "hello"; /* allocate prompt.data before the overflow path */
+    for (int i = 0; i < 17; i++) {
+        argv[1 + i * 2] = "--image";
+        argv[2 + i * 2] = "x.png";
+    }
+
+    int stderr_pipe[2];
+    ASSERT_EQ(0, pipe(stderr_pipe));
+    int saved_stderr = dup(STDERR_FILENO);
+    ASSERT(saved_stderr >= 0);
+    fflush(stderr);
+    ASSERT_EQ(STDERR_FILENO, dup2(stderr_pipe[1], STDERR_FILENO));
+    close(stderr_pipe[1]);
+
+    int rc = cmd_ask(ctx, &g, 35, argv);
+    fflush(stderr);
+    ASSERT_EQ(STDERR_FILENO, dup2(saved_stderr, STDERR_FILENO));
+    close(saved_stderr);
+
+    char stderr_output[256];
+    ssize_t n = read(stderr_pipe[0], stderr_output, sizeof stderr_output - 1);
+    close(stderr_pipe[0]);
+    ASSERT(n >= 0);
+    stderr_output[n] = '\0';
+    tny_ctx_free(ctx);
+
+    ASSERT_EQ(1, rc);
+    ASSERT(strstr(stderr_output, "tny: too many --image flags (max 16)"));
+    PASS();
+}
+
 /* ---- structured outputs (tny ask --output-schema) ---- */
 
 TEST output_schema_wraps_bare_schema(void) {
@@ -2790,6 +2831,7 @@ SUITE(core_suite) {
     RUN_TEST(image_data_url_roundtrip);
     RUN_TEST(read_image_queues_user_message);
     RUN_TEST(perm_read_image_is_safe);
+    RUN_TEST(cmd_ask_image_overflow_frees_prompt);
     RUN_TEST(output_schema_wraps_bare_schema);
     RUN_TEST(output_schema_accepts_json_schema_object);
     RUN_TEST(output_schema_names_anonymous_json_schema_object);

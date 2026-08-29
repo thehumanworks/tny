@@ -125,8 +125,10 @@ run their own loops and ignore it.
 
 Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace` `/ssh`
 
-`/image PATH` explicitly queues a file for the next prompt. The native loop
+`/image PATH` explicitly queues a file for the next prompt (max 8 queued;
+further `/image` prints `too many images queued`). The native loop
 sends it as an `image_url` data URL ([ADR 0008](adr/0008-native-loop-images.md)).
+`tny ask --image` is a separate cap of 16 flags (see [cli.md](cli.md)).
 Ctrl-V instead inserts the materialized clipboard-image path as ordinary text,
 so it works with hosts that have no image-input capability ([ADR
 0025](adr/0025-clipboard-images-paste-as-paths.md)). The model can then call

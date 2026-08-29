@@ -534,7 +534,7 @@ def docs_ask() -> str:
 <h2 id="ci">Scripts and CI</h2>
 <p><code>tny ask</code> never blocks on an approval. Unresolved permissions fail the run unless you pass <code>--auto</code> (native loop) or stay on the default <code>--yolo</code>. Host providers must be pre-authorized or they fail closed.</p>
 <p>When the prompt is piped on stdin, connect overlaps the read so the provider is already warming while the prompt arrives.</p>
-{note("Images", "Cursor and Codex ignore <code>--image</code> with a status line. The native loop accepts it.")}
+{note("Images", "The native loop accepts <code>--image PATH</code> (repeatable, max 16). A 17th flag prints <code>tny: too many --image flags (max 16)</code> and exits 1 before opening files or connecting. Cursor and Codex ignore or refuse <code>--image</code> with a status line.")}
 """
     return page_shell(
         title="tny ask — tny",

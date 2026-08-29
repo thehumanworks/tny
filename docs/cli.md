@@ -475,7 +475,12 @@ from the environment (`CODEX_DEFAULT_MODEL`, `OPENROUTER_DEFAULT_MODEL`, …).
 `--image PATH` (repeatable) attaches image files to the first user message as
 `image_url` data URLs on the native OpenAI-compatible loop. The same encoding
 is used when the model calls `read_image` mid-turn. Max 8 MiB; type comes
-from magic bytes (png/jpeg/gif/webp), not the extension.
+from magic bytes (png/jpeg/gif/webp), not the extension. At most 16 `--image`
+flags are accepted. A 17th prints `tny: too many --image flags (max 16)` and
+exits 1 before any image file is opened or a backend is connected. That
+startup path frees the prompt buffer it may already have allocated, matching
+the `--output-schema` and unknown-flag error returns
+([ADR 0008](adr/0008-native-loop-images.md)).
 
 ## Structured output (`--output-schema`)
 
