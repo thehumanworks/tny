@@ -6,6 +6,18 @@ Instructions for coding agents working on **tny**.
 
 ## What this repo is
 
+This repository is a **monorepo** (docs/adr/0045). The root is **tny**, the
+agent harness; sibling apps are self-contained top-level directories with
+their own Makefile, sources, tests, and docs contract:
+
+- [`tnytty/`](tnytty/docs/README.md) — **tnytty**, the tiny terminal: a C11
+  terminal emulator core (VT engine, pty, kitty graphics, bundled `icat`)
+  with a REST HTTP API for scripting and session sharing. Read
+  `tnytty/docs/` before touching `tnytty/`; the rest of this file governs
+  the harness at the root. Shared across apps: `third_party/` (vendored,
+  pinned once) and the quality gates below — `make quality` format-checks
+  sibling `*.c`/`*.h` too, and `make tnytty` / `make tnytty-test` delegate.
+
 tny is a **C11** TUI + CLI coding-agent harness. It must beat [vercel-labs/fx](https://github.com/vercel-labs/fx) (Zig, advertised **7.8 MiB**) on size and startup, keep fx's Unix-shell functionality, and drive:
 
 1. Cursor via the **SDK Bridge** (`sdk.v1` Connect HTTP/1.1)

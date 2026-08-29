@@ -50,3 +50,4 @@ these as `docs/adr/NNNN`.
 | [0042](0042-help-flag-alignment.md) | CLI parser flags and rendered help are checked in both directions, and root help must list every dispatched subcommand |
 | [0043](0043-macho-version-floor.md) | Mach-O current_version floors at 1.0.0 for every pre-1.0 product version so 0.y.z release tags build libtny on macOS |
 | [0044](0044-cursor-stays-on-sdk-bridge.md) | Cursor stays on the `sdk.v1` bridge; the private `agent.v1` HTTP/2 route measured slower per warm turn (2.2–2.6 s vs 1.3–1.4 s) and would cost HTTP/2, protobuf, and a CLI-pinned executor protocol |
+| [0045](0045-monorepo-and-tnytty.md) | The repo is a monorepo by addition: the harness keeps the root (Pages/release/packaging pin root paths), sibling apps like `tnytty/` are self-contained top-level dirs sharing `third_party/` and the quality gates |

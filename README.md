@@ -1,5 +1,12 @@
 # tny
 
+> This repository is a monorepo
+> ([ADR 0045](docs/adr/0045-monorepo-and-tnytty.md)): the root is the tny
+> harness; [`tnytty/`](tnytty/) is **tnytty, the tiny terminal** — a C11
+> terminal emulator core with a pty host, kitty graphics + bundled `icat`,
+> and a REST HTTP API for scripting and session sharing. See
+> [`tnytty/docs/`](tnytty/docs/README.md).
+
 A tiny C11 coding-agent harness: an interactive TUI shell and a
 noninteractive-first CLI that drive four kinds of agent backends through one
 normalized event loop.
