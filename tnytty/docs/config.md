@@ -111,6 +111,10 @@ skipped**, so a config written for a newer tnytty still starts. A key
 that is known but whose value is not is a **clean error**, because the
 line was meant for something.
 
+The file is limited to 64 KiB and each line to 511 bytes. Larger input
+is a clean error rather than silently ignoring a suffix or later
+settings.
+
 ## Flags win
 
 Every key has a flag on `tnytty gui`; the flag overrides the file for

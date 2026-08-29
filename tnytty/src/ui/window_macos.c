@@ -301,10 +301,9 @@ static bool event_point(tt_window *w, id e, int *px, int *py) {
     CGPoint v = ((CGPoint (*)(id, SEL, CGPoint, id))objc_msgSend)(
         w->view, sel("convertPoint:fromView:"), p, NULL);
     CGRect b = ((CGRect (*)(id, SEL))objc_msgSend)(w->view, sel("bounds"));
-    if (!(v.x >= 0.0) || !(v.y >= 0.0) || v.x >= b.size.width || v.y >= b.size.height) return false;
     *px = (int)lround(v.x * w->scale);
     *py = (int)lround((b.size.height - v.y) * w->scale);
-    return true;
+    return v.x >= 0.0 && v.y >= 0.0 && v.x < b.size.width && v.y < b.size.height;
 }
 
 static void backing_size(tt_window *w, int *px_w, int *px_h) {
@@ -654,7 +653,8 @@ bool tt_window_pump(tt_window *w, tt_win_ev *ev) {
             /* Let AppKit see it too: the titlebar, the traffic lights and
              * window dragging all live on the same button. */
             msg_vp(w->app, sel("sendEvent:"), e);
-            if (!event_point(w, e, &ev->px_x, &ev->px_y)) continue;
+            bool inside = event_point(w, e, &ev->px_x, &ev->px_y);
+            if (!inside && etype == NS_EVENT_L_MOUSE_DOWN) continue;
             ev->clicks = (int)msg_ul(e, sel("clickCount"));
             if (ev->clicks < 1) ev->clicks = 1;
             ev->type = etype == NS_EVENT_L_MOUSE_DOWN ? TT_WIN_EV_MOUSE_DOWN

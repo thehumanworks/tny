@@ -28,6 +28,7 @@ static const char *status_text(int code) {
     case 401: return "Unauthorized";
     case 404: return "Not Found";
     case 405: return "Method Not Allowed";
+    case 409: return "Conflict";
     case 503: return "Service Unavailable";
     default: return "Internal Server Error";
     }
@@ -342,6 +343,10 @@ static void handle_input(tt_api *api, tt_session *s, const char *body, size_t bo
 static void handle_resize(tt_api *api, tt_session *s, const char *body, size_t body_len,
                           tt_buf *out) {
     (void)api;
+    if (s->attached) {
+        tt_api_error(out, 409, "session geometry is controlled by its frontend");
+        return;
+    }
     yyjson_doc *doc = body_len ? yyjson_read(body, body_len, 0) : NULL;
     if (!doc) {
         tt_api_error(out, 400, "invalid JSON body");
@@ -407,8 +412,12 @@ void tt_api_route(tt_api *api, const char *method, const char *path, const char 
                 respond_json_doc(out, 200, d);
                 yyjson_mut_doc_free(d);
             } else if (del) {
-                tt_session_destroy(api->reg, s);
-                respond(out, 200, "application/json", "{\"ok\":true}", 11);
+                if (s->attached) {
+                    tt_api_error(out, 409, "session lifetime is controlled by its frontend");
+                } else {
+                    tt_session_destroy(api->reg, s);
+                    respond(out, 200, "application/json", "{\"ok\":true}", 11);
+                }
             } else {
                 tt_api_error(out, 405, "method not allowed");
             }

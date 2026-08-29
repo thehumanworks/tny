@@ -114,7 +114,19 @@ never bypass the loop.
 A session's pty master is polled for `POLLIN` always and for `POLLOUT`
 while its input queue is non-empty; on `POLLOUT` the loop calls
 `tt_session_flush`. Writers therefore never block the loop and never
-lose bytes. `run`, `serve`, and `gui` all do this.
+lose bytes. `run`, `serve`, and `gui` all do this, including for
+headless sessions created through a `run` or `gui` HTTP listener.
+Each ready pty gets a bounded number of reads per turn, so a continuous
+producer cannot starve signals, HTTP, window events, or sibling panes.
+
+Foreground adapters mark their terminal or pane sessions as attached.
+The HTTP API can read their screen and write input, but cannot resize or
+destroy them behind the adapter's retained pointer; geometry and
+lifetime remain owned by the tty or window.
+
+Session teardown sends `SIGHUP` to the child process group. A child that
+does not exit within 100 ms is sent `SIGKILL` and reaped, so closing a
+pane or window cannot hang forever.
 
 `tnytty gui` keeps that loop and adds the window: AppKit's event queue is
 not a pollable fd, so the poll timeout is bounded (8 ms) and each turn

@@ -169,7 +169,10 @@ int tt_config_parse(tt_config *c, const char *text, size_t len, char *err, size_
         while (end < len && text[end] != '\n') end++;
         size_t n = end - off;
         lineno++;
-        if (n >= sizeof line) n = sizeof line - 1;
+        if (n >= sizeof line) {
+            if (err && errcap) snprintf(err, errcap, "line %d: exceeds 511 bytes", lineno);
+            return -1;
+        }
         memcpy(line, text + off, n);
         line[n] = '\0';
         off = end < len ? end + 1 : len;
@@ -232,14 +235,21 @@ int tt_config_load(tt_config *c, char *err, size_t errcap, tt_config_warn_fn war
         if (err && errcap) snprintf(err, errcap, "%s: %s", path, strerror(errno));
         return -1;
     }
-    char *text = malloc(CONFIG_MAX_BYTES);
+    char *text = malloc(CONFIG_MAX_BYTES + 1);
     if (!text) {
         fclose(f);
         if (err && errcap) snprintf(err, errcap, "%s: out of memory", path);
         return -1;
     }
-    size_t len = fread(text, 1, CONFIG_MAX_BYTES, f);
+    size_t len = fread(text, 1, CONFIG_MAX_BYTES + 1, f);
+    bool read_failed = ferror(f) != 0;
     fclose(f);
+    if (read_failed || len > CONFIG_MAX_BYTES) {
+        free(text);
+        if (err && errcap)
+            snprintf(err, errcap, "%s: %s", path, read_failed ? "read failed" : "exceeds 64 KiB");
+        return -1;
+    }
     char perr[256];
     perr[0] = '\0';
     int rc = tt_config_parse(c, text, len, perr, sizeof perr, warn, warn_user);

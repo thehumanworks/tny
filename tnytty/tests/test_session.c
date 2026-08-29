@@ -164,8 +164,91 @@ TEST flush_and_write_on_a_dead_session(void) {
     PASS();
 }
 
+TEST registry_poll_pumps_detached_sessions(void) {
+    char *argv[] = {(char *)"sh", (char *)"-c", (char *)"printf detached; sleep 1", NULL};
+    tt_registry reg;
+    tt_registry_init(&reg, 0);
+    tt_session *s = tt_session_create(&reg, argv, 40, 4);
+    ASSERT(s != NULL);
+
+    struct pollfd fds[1];
+    tt_session *sessions[1] = {0};
+    ASSERT_EQ(1, tt_registry_poll_fill(&reg, fds, sessions, 1, false));
+    ASSERT_EQ(s, sessions[0]);
+
+    char scratch[256];
+    double deadline = now_sec() + 5.0;
+    while (now_sec() < deadline) {
+        ASSERT_GTE(poll(fds, 1, 50), 0);
+        tt_registry_poll_handle(fds, sessions, 1, scratch, sizeof scratch);
+        char line[64];
+        vt_line_text(s->term, 0, line, sizeof line);
+        if (strstr(line, "detached")) break;
+        ASSERT_EQ(1, tt_registry_poll_fill(&reg, fds, sessions, 1, false));
+    }
+    char line[64];
+    vt_line_text(s->term, 0, line, sizeof line);
+    ASSERT(strstr(line, "detached") != NULL);
+
+    s->attached = true;
+    ASSERT_EQ(0, tt_registry_poll_fill(&reg, fds, sessions, 1, false));
+    ASSERT_EQ(1, tt_registry_poll_fill(&reg, fds, sessions, 1, true));
+
+    tt_registry_free(&reg);
+    PASS();
+}
+
+TEST drain_bounds_a_continuous_producer(void) {
+    char *argv[] = {(char *)"yes", NULL};
+    tt_registry reg;
+    tt_registry_init(&reg, 0);
+    tt_session *s = tt_session_create(&reg, argv, 40, 4);
+    ASSERT(s != NULL);
+
+    struct pollfd pfd = {s->pty.master, POLLIN, 0};
+    ASSERT_GTE(poll(&pfd, 1, 1000), 1);
+    char scratch[128];
+    int n = tt_session_drain(s, scratch, sizeof scratch, 2, NULL, NULL);
+    ASSERT(n > 0);
+    ASSERT(n <= (int)(2 * sizeof scratch));
+    ASSERT(s->alive);
+
+    tt_registry_free(&reg);
+    PASS();
+}
+
+TEST destroy_escalates_past_ignored_sighup(void) {
+    char *argv[] = {(char *)"sh", (char *)"-c",
+                    (char *)"trap '' HUP; printf ready; while :; do sleep 1; done", NULL};
+    tt_registry reg;
+    tt_registry_init(&reg, 0);
+    tt_session *s = tt_session_create(&reg, argv, 40, 4);
+    ASSERT(s != NULL);
+
+    char scratch[64], line[64];
+    double deadline = now_sec() + 5.0;
+    do {
+        struct pollfd pfd = {s->pty.master, POLLIN, 0};
+        poll(&pfd, 1, 50);
+        tt_session_drain(s, scratch, sizeof scratch, TT_PUMP_READS_PER_TURN, NULL, NULL);
+        vt_line_text(s->term, 0, line, sizeof line);
+    } while (!strstr(line, "ready") && now_sec() < deadline);
+    ASSERT(strstr(line, "ready") != NULL);
+
+    double started = now_sec();
+    tt_session_destroy(&reg, s);
+    ASSERT(now_sec() - started < 1.0);
+    ASSERT_EQ(0, reg.count);
+
+    tt_registry_free(&reg);
+    PASS();
+}
+
 SUITE(session_suite) {
     RUN_TEST(paused_reader_loses_no_input);
     RUN_TEST(queue_cap_rejects_whole_writes);
     RUN_TEST(flush_and_write_on_a_dead_session);
+    RUN_TEST(registry_poll_pumps_detached_sessions);
+    RUN_TEST(drain_bounds_a_continuous_producer);
+    RUN_TEST(destroy_escalates_past_ignored_sighup);
 }

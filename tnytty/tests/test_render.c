@@ -373,6 +373,42 @@ TEST overhang_pulls_the_neighbouring_row_into_the_repaint(void) {
     PASS();
 }
 
+TEST lower_row_does_not_erase_vertical_overhang(void) {
+    memset(wide_mask, 0xff, sizeof wide_mask);
+    tt_render_config c = base_cfg();
+    c.glyph = tall_glyph;
+    tt_render *r = tt_render_new(&c, 4 + 4 * CELL_W + 4, 30 + 3 * CELL_H + 4);
+    vt *t = vt_new(4, 3, 0);
+    vt_feed(t, "\x1b[?25l", 6);
+    vt_feed(t, "\x1b[2;1HX", 7);
+    tt_render_frame(r, t, false, NULL, NULL);
+
+    int x = 0, row2_y = 0;
+    tt_render_cell_origin(&c, 0, 2, &x, &row2_y);
+    ASSERT_EQ(c.fg, px_at(r, x + 1, row2_y + 1));
+
+    vt_free(t);
+    tt_render_free(r);
+    PASS();
+}
+
+TEST hollow_caret_contrasts_with_reverse_video_background(void) {
+    tt_render_config c = base_cfg();
+    tt_render *r = tt_render_new(&c, 4 + 4 * CELL_W + 4, 30 + 2 * CELL_H + 4);
+    vt *t = vt_new(4, 2, 0);
+    vt_feed(t, "\x1b[7m \r", 6);
+    tt_render_frame(r, t, false, NULL, NULL);
+
+    int x = 0, y = 0;
+    tt_render_cell_origin(&c, 0, 0, &x, &y);
+    ASSERT_EQ(c.bg, px_at(r, x, y));
+    ASSERT_EQ(c.fg, px_at(r, x + 1, y + 1));
+
+    vt_free(t);
+    tt_render_free(r);
+    PASS();
+}
+
 /* The bar is not part of the grid: its height comes out of the rows, so
  * the session never draws under it. */
 TEST status_bar_height_comes_out_of_the_grid(void) {
@@ -621,6 +657,8 @@ SUITE(render_suite) {
     RUN_TEST(panes_paint_only_inside_their_own_rectangle);
     RUN_TEST(overhanging_glyphs_clip_to_the_surface);
     RUN_TEST(overhang_pulls_the_neighbouring_row_into_the_repaint);
+    RUN_TEST(lower_row_does_not_erase_vertical_overhang);
+    RUN_TEST(hollow_caret_contrasts_with_reverse_video_background);
     RUN_TEST(bold_brightens_indexed_foregrounds);
     RUN_TEST(truecolor_and_default_foregrounds_ignore_bold_brightening);
     RUN_TEST(selection_inverts_its_cells_and_dirties_only_those_rows);

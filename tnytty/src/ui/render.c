@@ -340,6 +340,29 @@ static bool cell_eq(const vt_cell *a, const vt_cell *b) {
            a->attrs == b->attrs;
 }
 
+static void display_colors(const tt_render *r, const vt_cell *c, bool invert, uint32_t *fg_out,
+                           uint32_t *bg_out) {
+    uint32_t cell_fg = c->fg;
+    if ((c->attrs & VT_ATTR_BOLD) && r->cfg.bold_brightens &&
+        VT_COLOR_TAG(cell_fg) == VT_COLOR_IDX && VT_COLOR_VAL(cell_fg) < 8)
+        cell_fg = VT_COLOR_IDX | (VT_COLOR_VAL(cell_fg) + 8);
+    uint32_t fg = tt_render_color(&r->cfg, cell_fg, r->cfg.fg);
+    uint32_t bg = tt_render_color(&r->cfg, c->bg, r->cfg.bg);
+    if (c->attrs & VT_ATTR_REVERSE) {
+        uint32_t t = fg;
+        fg = bg;
+        bg = t;
+    }
+    if (c->attrs & VT_ATTR_FAINT) fg = mix(bg, fg, 176);
+    if (invert) {
+        uint32_t t = fg;
+        fg = bg;
+        bg = t;
+    }
+    *fg_out = fg;
+    *bg_out = bg;
+}
+
 /* cursor_col < 0 = no cursor on this row; cursor_solid = the pane has
  * focus, so the caret is a filled block rather than a hollow box. */
 static void paint_row(tt_render *r, const vt_cell *line, int cols, int row, int cursor_col,
@@ -347,38 +370,17 @@ static void paint_row(tt_render *r, const vt_cell *line, int cols, int row, int 
     int rx = 0, ry = 0;
     *up = *down = false;
     tt_render_cell_origin(&r->cfg, 0, row, &rx, &ry);
-    /* Clear the whole band, padding columns included, so last frame's
-     * overhang cannot survive under the new text. */
-    fill_rect(r, 0, ry, r->area.w, r->cfg.cell_h, r->cfg.bg);
 
     for (int col = 0; col < cols; col++) {
         const vt_cell *c = &line[col];
         if (c->attrs & VT_ATTR_WIDE_CONT) continue;
         int span = (c->attrs & VT_ATTR_WIDE) ? 2 : 1;
         int x = rx + col * r->cfg.cell_w;
-        uint32_t cell_fg = c->fg;
-        /* Bold is a heavier face (the glyph lookup sees the attr) and,
-         * when bold-brightens is on, the bright half of the palette --
-         * every bright entry is contrast-checked, so this cannot make
-         * text less readable (docs/config.md). */
-        if ((c->attrs & VT_ATTR_BOLD) && r->cfg.bold_brightens &&
-            VT_COLOR_TAG(cell_fg) == VT_COLOR_IDX && VT_COLOR_VAL(cell_fg) < 8)
-            cell_fg = VT_COLOR_IDX | (VT_COLOR_VAL(cell_fg) + 8);
-        uint32_t fg = tt_render_color(&r->cfg, cell_fg, r->cfg.fg);
-        uint32_t bg = tt_render_color(&r->cfg, c->bg, r->cfg.bg);
-        if (c->attrs & VT_ATTR_REVERSE) {
-            uint32_t t = fg;
-            fg = bg;
-            bg = t;
-        }
-        if (c->attrs & VT_ATTR_FAINT) fg = mix(bg, fg, 176);
         bool selected = col >= sel_c0 && col < sel_c1;
         bool cursor = cursor_solid && col == cursor_col;
-        if (selected != cursor) { /* selection and caret both invert; both = no-op */
-            uint32_t t = fg;
-            fg = bg;
-            bg = t;
-        }
+        uint32_t fg = 0, bg = 0;
+        /* Selection and a solid caret both invert; both together cancel. */
+        display_colors(r, c, selected != cursor, &fg, &bg);
         if (bg != r->cfg.bg || cursor || selected)
             fill_rect(r, x, ry, r->cfg.cell_w * span, r->cfg.cell_h, bg);
 
@@ -399,11 +401,19 @@ static void paint_row(tt_render *r, const vt_cell *line, int cols, int row, int 
     if (!cursor_solid && cursor_col >= 0 && cursor_col < cols) {
         /* Unfocused: hollow box, so the caret is visible but not solid. */
         int x = rx + cursor_col * r->cfg.cell_w;
-        uint32_t fg = tt_render_color(&r->cfg, line[cursor_col].fg, r->cfg.fg);
-        fill_rect(r, x, ry, r->cfg.cell_w, 1, fg);
-        fill_rect(r, x, ry + r->cfg.cell_h - 1, r->cfg.cell_w, 1, fg);
+        const vt_cell *c = &line[cursor_col];
+        int span = (c->attrs & VT_ATTR_WIDE) ? 2 : 1;
+        bool selected = cursor_col >= sel_c0 && cursor_col < sel_c1;
+        uint32_t fg = 0, bg = 0;
+        display_colors(r, c, selected, &fg, &bg);
+        if (fg == bg)
+            fg = ((bg >> 16) & 0xffu) + ((bg >> 8) & 0xffu) + (bg & 0xffu) > 384 ? 0x000000
+                                                                                 : 0xffffff;
+        int w = r->cfg.cell_w * span;
+        fill_rect(r, x, ry, w, 1, fg);
+        fill_rect(r, x, ry + r->cfg.cell_h - 1, w, 1, fg);
         fill_rect(r, x, ry, 1, r->cfg.cell_h, fg);
-        fill_rect(r, x + r->cfg.cell_w - 1, ry, 1, r->cfg.cell_h, fg);
+        fill_rect(r, x + w - 1, ry, 1, r->cfg.cell_h, fg);
     }
 }
 
@@ -504,9 +514,16 @@ int tt_render_frame(tt_render *r, const vt *t, bool focused, int *y0, int *y1) {
         hi = r->area.y + r->area.h;
     }
 
-    /* Pass 3: paint. Backgrounds first for the whole run of dirty rows
-     * would be tidier still, but a repainted row already re-blends its
-     * neighbours' overhang because pass 2 pulled them in. */
+    /* Pass 3: clear every dirty band before drawing any glyph. Clearing
+     * row N+1 after row N would erase ink that overhangs downward. */
+    for (int row = 0; row < rows; row++) {
+        if (!r->dirty[row]) continue;
+        int ry = 0;
+        tt_render_cell_origin(&r->cfg, 0, row, NULL, &ry);
+        fill_rect(r, 0, ry, r->area.w, r->cfg.cell_h, r->cfg.bg);
+    }
+
+    /* Pass 4: paint cells and glyphs into the already-cleared bands. */
     for (int row = 0; row < rows; row++) {
         if (!r->dirty[row]) continue;
         const vt_cell *line = vt_line(t, row);

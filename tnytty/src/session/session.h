@@ -6,6 +6,7 @@
 #include "term/pty.h"
 #include "vt/vt.h"
 
+#include <poll.h>
 #include <stdbool.h>
 #include <time.h>
 
@@ -19,6 +20,9 @@
 /* Adapters that own their input source (the `run` tty) stop reading it
  * above this mark, so the cap itself is only reachable through the API. */
 #define TT_INPUT_HIGH_WATER (1u * 1024u * 1024u)
+/* Bound one readable pty's work per event-loop turn so a continuous
+ * producer cannot starve signals, HTTP, window events, or other panes. */
+#define TT_PUMP_READS_PER_TURN 4
 
 typedef struct tt_session {
     char id[TT_SESSION_ID_LEN + 1];
@@ -26,6 +30,10 @@ typedef struct tt_session {
     tt_pty pty;
     vt *term;
     bool alive;
+    /* A foreground adapter retains this pointer and owns its geometry and
+     * lifetime. The HTTP API may still read/write it, but must not resize
+     * or destroy it behind that adapter. */
+    bool attached;
     int exit_code; /* valid once !alive */
     time_t created;
     /* Input the pty could not take yet: [pend_off, pend_len) is live. */
@@ -55,6 +63,10 @@ void tt_session_destroy(tt_registry *r, tt_session *s);
  * non-NULL the same bytes are appended there (passthrough mirror). */
 int tt_session_pump(tt_session *s, char *scratch, size_t scratch_len,
                     void (*raw)(void *user, const char *bytes, size_t len), void *raw_user);
+/* Pump at most `max_reads` chunks. Returns the bytes consumed, or -1
+ * when no bytes were consumed and the session reached EOF. */
+int tt_session_drain(tt_session *s, char *scratch, size_t scratch_len, int max_reads,
+                     void (*raw)(void *user, const char *bytes, size_t len), void *raw_user);
 
 /* Write to the pty, queueing whatever write(2) cannot take right now so
  * no byte is ever dropped mid-sequence. All-or-nothing: returns len when
@@ -69,5 +81,13 @@ size_t tt_session_pending(const tt_session *s);
  * Returns bytes written, or -1 if the pty died (queue dropped). */
 int tt_session_flush(tt_session *s);
 int tt_session_resize(tt_session *s, int cols, int rows);
+
+/* Add alive sessions whose attached flag matches `attached` to a poll
+ * slice, then service that same slice without forwarding raw output.
+ * `sessions` has `max` entries and records the session for each fd. */
+int tt_registry_poll_fill(tt_registry *r, struct pollfd *fds, tt_session **sessions, int max,
+                          bool attached);
+void tt_registry_poll_handle(const struct pollfd *fds, tt_session *const *sessions, int n,
+                             char *scratch, size_t scratch_len);
 
 #endif

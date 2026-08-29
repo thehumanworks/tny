@@ -111,6 +111,9 @@ back as usable rows.
 session did. No threads, no second event source, no per-pane loop. A pane
 whose child exits is closed on the spot and its sibling takes the space;
 the last pane closes the window and its exit code is the process's.
+Reads are budgeted per pty per turn, so a continuous producer in one pane
+cannot starve its siblings, the window queue, signals, or HTTP. Headless
+sessions created through the window's HTTP API join the same poll set.
 
 ### Keys are iTerm2's, decoded once
 
@@ -175,7 +178,8 @@ guess. Clicking in a pane focuses it.
   API (ADR 0002) lists every pane of the window as a session. That is the
   behaviour we want — each pane is scriptable and shareable — and it means
   a `--listen` window's session list grows and shrinks as panes come and
-  go.
+  go. The API can read pane screens and write input, but pane geometry and
+  lifetime belong to the window: HTTP resize and delete return `409`.
 - A window is capped at `MAX_PANES` (32) panes, which bounds the `poll`
   set and the leaf arrays the loop walks without allocating per frame.
 - **Kitty graphics are still not drawn in the window** (ADR 0005). Panes

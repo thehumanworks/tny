@@ -1,9 +1,9 @@
 # tnytty — HTTP API
 
 The REST surface that makes sessions scriptable and shareable. Served by
-`tnytty serve` or `tnytty run --listen`. JSON in, JSON out (except the
-plain-text screen dump). HTTP/1.1, `Connection: close` per response in
-phase 1; SSE streaming is phase 3.
+`tnytty serve`, `tnytty run --listen`, or `tnytty gui --listen`. JSON in,
+JSON out (except the plain-text screen dump). HTTP/1.1,
+`Connection: close` per response in phase 1; SSE streaming is phase 3.
 
 ## Binding and auth (ADR 0002)
 
@@ -35,6 +35,8 @@ loopback; token required elsewhere like everything else.
 Body (all optional): `{"cmd":["bash","-l"],"cols":80,"rows":24}`.
 Defaults: `$SHELL` (else `/bin/sh`), 80×24.
 `201 {...session}` or `500 {"error":...}` if the spawn fails.
+Sessions created through a `run` or `gui` listener are headless but use
+the same event loop as the attached terminal or window panes.
 
 ### `GET /v1/sessions/{id}`
 
@@ -98,18 +100,23 @@ capped at 1 MiB, so reaching the queue cap takes repeated posts.
 ### `POST /v1/sessions/{id}/resize`
 
 Body `{"cols":120,"rows":40}` → grid reflow + `TIOCSWINSZ` + `SIGWINCH`
-to the child. `200 {...session}`.
+to the child. `200 {...session}`. A session attached to `run` or a GUI
+pane gets its geometry from that frontend instead and returns `409`.
 
 ### `DELETE /v1/sessions/{id}`
 
 `SIGHUP` to the child process group, reap, drop the session.
-`200 {"ok":true}`.
+`200 {"ok":true}`. A session attached to `run` or a GUI pane gets its
+lifetime from that frontend instead and returns `409`; close the
+terminal or pane to end it. Teardown escalates to `SIGKILL` after
+100 ms when a child ignores `SIGHUP`.
 
 ## Errors
 
 Always JSON: `{"error":"<message>"}` with 400 (bad request/JSON), 401
-(auth), 404 (unknown session or route), 405 (method), 500 (spawn/OS),
-503 (input queue full — the child is not draining its input).
+(auth), 404 (unknown session or route), 405 (method), 409 (the attached
+frontend owns session geometry or lifetime), 500 (spawn/OS), 503 (input
+queue full — the child is not draining its input).
 
 ## Examples
 

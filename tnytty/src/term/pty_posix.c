@@ -107,10 +107,15 @@ void tt_pty_kill(tt_pty *p) {
     if (p->pid > 0) kill(-p->pid, SIGHUP);
 }
 
+void tt_pty_force_kill(tt_pty *p) {
+    if (p->pid > 0) kill(-p->pid, SIGKILL);
+}
+
 int tt_pty_reap(tt_pty *p, int *exit_code, bool block) {
     if (p->pid <= 0) return -1;
     int status = 0;
-    pid_t r = waitpid(p->pid, &status, block ? 0 : WNOHANG);
+    pid_t r;
+    do { r = waitpid(p->pid, &status, block ? 0 : WNOHANG); } while (r < 0 && errno == EINTR);
     if (r == 0) return 0;
     if (r < 0) return errno == ECHILD ? -1 : 0;
     p->pid = -1;

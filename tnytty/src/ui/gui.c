@@ -103,6 +103,12 @@ typedef struct {
 } gui_opts;
 
 static int parse_flags(int argc, char **argv, gui_opts *o) {
+    for (int i = 0; i < argc && strcmp(argv[i], "--") != 0; i++) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            fputs(gui_help, stdout);
+            return 1;
+        }
+    }
     char err[256];
     err[0] = '\0';
     if (tt_config_load(&o->cfg, err, sizeof err, warn_line, NULL) != 0) {
@@ -126,10 +132,6 @@ static int parse_flags(int argc, char **argv, gui_opts *o) {
         if (strcmp(argv[i], "--") == 0) {
             o->cmd = i + 1 < argc ? &argv[i + 1] : NULL;
             return 0;
-        }
-        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-            fputs(gui_help, stdout);
-            return 1;
         }
         bool matched = false;
         for (size_t f = 0; f < sizeof cfg_flags / sizeof *cfg_flags; f++) {
@@ -157,6 +159,20 @@ static int parse_flags(int argc, char **argv, gui_opts *o) {
             return -1;
         }
     }
+    return 0;
+}
+
+static int parse_listen(const char *spec, char *host, size_t hostlen, int *port) {
+    const char *colon = strrchr(spec, ':');
+    if (!colon || colon == spec) return -1;
+    size_t len = (size_t)(colon - spec);
+    if (len >= hostlen) return -1;
+    memcpy(host, spec, len);
+    host[len] = '\0';
+    char *end = NULL;
+    long value = strtol(colon + 1, &end, 10);
+    if (!end || *end || value < 1 || value > 65535) return -1;
+    *port = (int)value;
     return 0;
 }
 
@@ -230,6 +246,7 @@ static pane *pane_new(gui_ctx *g, int cols, int rows) {
         free(p);
         return NULL;
     }
+    p->s->attached = true;
     tt_reply_attach(p->s->term, &p->reply, reply_to_pty, p->s);
     tt_sel_clear(&p->sel);
     return p;
@@ -305,9 +322,26 @@ static void paste_clipboard(gui_ctx *g, pane *p) {
     const char *text = tt_window_clipboard(g->win);
     if (!text || !*text) return;
     bool bracketed = vt_bracketed_paste(p->s->term);
-    if (bracketed) tt_session_write(p->s, "\x1b[200~", 6);
-    tt_session_write(p->s, text, strlen(text));
-    if (bracketed) tt_session_write(p->s, "\x1b[201~", 6);
+    size_t len = strlen(text);
+    char *framed = NULL;
+    const char *bytes = text;
+    if (bracketed) {
+        if (len > TT_INPUT_QUEUE_MAX - 12 || !(framed = malloc(len + 12))) {
+            tt_status_set(&g->status, "paste failed: input is too large", now_sec());
+            return;
+        }
+        memcpy(framed, "\x1b[200~", 6);
+        memcpy(framed + 6, text, len);
+        memcpy(framed + 6 + len, "\x1b[201~", 6);
+        bytes = framed;
+        len += 12;
+    }
+    if (tt_session_write(p->s, bytes, len) < 0)
+        tt_status_set(&g->status,
+                      errno == ENOBUFS ? "paste failed: input queue is full"
+                                       : "paste failed: session is not writable",
+                      now_sec());
+    free(framed);
 }
 
 /* Only one pane may hold a selection: starting one drops the others, so
@@ -324,6 +358,14 @@ static void clear_other_selections(gui_ctx *g, const pane *keep) {
         free(p->sel_snapshot);
         p->sel_snapshot = NULL;
     }
+}
+
+static void finish_selection(gui_ctx *g, pane *p) {
+    if (!p || !p->sel.dragging) return;
+    if (tt_sel_finish(&p->sel, p->s->term) && g->copy_on_select) copy_selection(g, p);
+    free(p->sel_snapshot);
+    p->sel_snapshot = sel_dup(&p->sel, p->s->term);
+    tt_render_set_selection(p->r, &p->sel);
 }
 
 /* ---- splitting and closing -------------------------------------------- */
@@ -403,9 +445,7 @@ static void on_mouse(gui_ctx *g, const tt_win_ev *ev) {
     } else if (ev->type == TT_WIN_EV_MOUSE_DRAG) {
         tt_sel_extend(&p->sel, p->s->term, col, row);
     } else {
-        if (tt_sel_finish(&p->sel, p->s->term) && g->copy_on_select) copy_selection(g, p);
-        free(p->sel_snapshot);
-        p->sel_snapshot = sel_dup(&p->sel, p->s->term);
+        finish_selection(g, p);
     }
     tt_render_set_selection(p->r, &p->sel);
 }
@@ -512,25 +552,38 @@ int tt_gui_main(int argc, char **argv) {
     root_pane->node = g.layout.root;
     relayout(&g);
 
+    char token_buf[33];
     tt_api api = {&reg, o.token, TNYTTY_VERSION};
     tt_http *http = NULL;
     if (o.listen) {
         char host[128];
         int port = 0;
-        const char *colon = strrchr(o.listen, ':');
-        size_t hl = colon ? (size_t)(colon - o.listen) : 0;
-        if (colon && hl > 0 && hl < sizeof host) {
-            memcpy(host, o.listen, hl);
-            host[hl] = '\0';
-            port = atoi(colon + 1);
-        }
-        if (port < 1 || port > 65535) {
+        if (parse_listen(o.listen, host, sizeof host, &port) != 0) {
             fprintf(stderr, "tnytty: bad --listen %s (want HOST:PORT)\n", o.listen);
-        } else {
-            http = tt_http_listen(&api, host, port, err, sizeof err);
-            if (!http) fprintf(stderr, "tnytty: %s\n", err);
-            else fprintf(stderr, "tnytty: HTTP API on http://%s:%d\n", host, port);
+            tt_layout_free(&g.layout, pane_free, &g);
+            tt_fb_free(&g.fb);
+            tt_window_close(win);
+            tt_registry_free(&reg);
+            return 2;
         }
+        bool loopback = strcmp(host, "127.0.0.1") == 0 || strcmp(host, "::1") == 0 ||
+                        strcmp(host, "localhost") == 0;
+        if (!loopback && (!api.token || !api.token[0])) {
+            tt_rand_hex(token_buf, sizeof token_buf - 1);
+            api.token = token_buf;
+            fprintf(stderr, "tnytty: generated API token (docs/adr/0002): %s\n", token_buf);
+        }
+        http = tt_http_listen(&api, host, port, err, sizeof err);
+        if (!http) {
+            fprintf(stderr, "tnytty: %s\n", err);
+            tt_layout_free(&g.layout, pane_free, &g);
+            tt_fb_free(&g.fb);
+            tt_window_close(win);
+            tt_registry_free(&reg);
+            return 2;
+        }
+        fprintf(stderr, "tnytty: HTTP API on http://%s:%d (auth: %s)\n", host, port,
+                api.token && api.token[0] ? "bearer token" : "none, loopback");
     }
     install_signals();
 
@@ -567,10 +620,7 @@ int tt_gui_main(int argc, char **argv) {
                  * live: it would keep painting a highlight forever. */
                 if (!focused) {
                     pane *p = node_pane(g.layout.focus);
-                    if (p && p->sel.dragging) {
-                        tt_sel_finish(&p->sel, p->s->term);
-                        tt_render_set_selection(p->r, &p->sel);
-                    }
+                    finish_selection(&g, p);
                 }
                 break;
             case TT_WIN_EV_CLOSE: quit = true; break;
@@ -584,7 +634,8 @@ int tt_gui_main(int argc, char **argv) {
         if (npanes > MAX_PANES) npanes = MAX_PANES;
 
         int n = 0;
-        int sig_i = -1, http_i = -1;
+        int sig_i = -1, headless_i = -1, headless_n = 0, http_i = -1;
+        tt_session *headless[MAX_LOOP_FDS / 2] = {0};
         if (sig_pipe[0] >= 0) {
             sig_i = n;
             fds[n].fd = sig_pipe[0];
@@ -603,8 +654,13 @@ int tt_gui_main(int argc, char **argv) {
             n++;
         }
         if (http) {
+            headless_i = n;
+            headless_n = tt_registry_poll_fill(&reg, fds + n, headless, MAX_LOOP_FDS / 2, false);
+            n += headless_n;
+        }
+        if (http) {
             http_i = n;
-            n += tt_http_fill(http, fds + n, MAX_LOOP_FDS);
+            n += tt_http_fill(http, fds + n, (int)(sizeof fds / sizeof *fds) - n);
         }
         if (poll(fds, (nfds_t)n, PUMP_TIMEOUT) < 0 && errno != EINTR) break;
 
@@ -618,7 +674,7 @@ int tt_gui_main(int argc, char **argv) {
             if (!p || pty_i[i] < 0) continue;
             if (fds[pty_i[i]].revents & POLLOUT) tt_session_flush(p->s);
             if (!(fds[pty_i[i]].revents & (POLLIN | POLLHUP))) continue;
-            while (tt_session_pump(p->s, scratch, sizeof scratch, NULL, NULL) > 0) {}
+            tt_session_drain(p->s, scratch, sizeof scratch, TT_PUMP_READS_PER_TURN, NULL, NULL);
             if (p->s->alive) continue;
             /* A pane whose child exited leaves the tree; its sibling
              * takes the space. The last one takes the window with it. */
@@ -630,6 +686,9 @@ int tt_gui_main(int argc, char **argv) {
             break; /* the leaf array is stale now; rebuild it next turn */
         }
         if (quit) break;
+        if (headless_i >= 0)
+            tt_registry_poll_handle(fds + headless_i, headless, headless_n, scratch,
+                                    sizeof scratch);
         if (http && http_i >= 0) tt_http_handle(http, fds + http_i, n - http_i);
 
         pane *fp = node_pane(g.layout.focus);

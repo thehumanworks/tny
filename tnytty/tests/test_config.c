@@ -117,6 +117,20 @@ TEST overlong_font_name_is_an_error(void) {
     PASS();
 }
 
+TEST overlong_lines_are_rejected_not_truncated(void) {
+    tt_config c;
+    tt_config_defaults(&c);
+    char text[600];
+    char err[128];
+    memset(text, 'x', sizeof text);
+    memcpy(text, "padding = 4 ", 12);
+    text[sizeof text - 1] = '\0';
+    ASSERT_EQ(-1, parse(&c, text, err, sizeof err));
+    ASSERT(strstr(err, "exceeds 511 bytes") != NULL);
+    ASSERT_EQ(8, c.padding);
+    PASS();
+}
+
 /* tt_config_set is the flag path too: --titlebar reuses the same code,
  * and an unknown key comes back as 1 so the CLI can reject it. */
 TEST set_reports_unknown_keys_separately(void) {
@@ -235,6 +249,7 @@ SUITE(config_suite) {
     RUN_TEST(bad_titlebar_is_a_clean_error);
     RUN_TEST(bad_numbers_are_clean_errors);
     RUN_TEST(overlong_font_name_is_an_error);
+    RUN_TEST(overlong_lines_are_rejected_not_truncated);
     RUN_TEST(set_reports_unknown_keys_separately);
     RUN_TEST(color_keys_parse_hex);
     RUN_TEST(bool_keys_parse);
