@@ -72,6 +72,10 @@ in codex `config.toml`; tny sends `"priority"`, the value every app-server
 release accepts). Unset means the host's own default; the host ignores
 unknown values.
 
+`--system-prompt`: the pinned `thread/start` / `turn/start` surface exposes no
+instructions field, so tny prepends the text to the first user message of a
+fresh thread instead ([ADR 0045](../adr/0045-system-prompt-flag.md)).
+
 `--ephemeral` adds `"ephemeral":true` to `thread/start`. The flag is injected
 at tny's request-framing boundary, so retries carry the same setting. tny also
 suppresses its local alias/session artifacts; the Codex flag prevents the host

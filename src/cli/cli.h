@@ -11,6 +11,7 @@ typedef struct {
     const char *cwd;                      /* --cwd */
     const char *model;                    /* --model */
     const char *effort;                   /* --effort | --reasoning-effort */
+    const char *system_prompt;            /* --system-prompt */
     const char *perm_mode;                /* --permission-mode | --yolo | --auto */
     const char *max_steps;                /* --max-steps N|unlimited (0 = no cap) */
     const char *max_extension_iterations; /* 0/unlimited = no cap */

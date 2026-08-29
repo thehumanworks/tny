@@ -40,7 +40,7 @@ unset OPENAI_API_KEY CODEX_REMOTE_TOKEN 2> /dev/null
 token="s3cr3t-capability-token"
 printf '%s\n' "$token" > "$tmp/token"
 export MOCK_TOKEN="$token"
-export MOCK_CONNECTIONS=8
+export MOCK_CONNECTIONS=9
 export MOCK_BUSY_CONN=3           # connection 3 replies -32001 once per request kind
 export MOCK_EXPECT_EFFORT="xhigh" # run 1 passes --effort xhigh; others none
 export MOCK_FAST_CONN=6           # connection 6 runs with --fast: serviceTier=priority
@@ -211,6 +211,18 @@ grep -q 'Signed in' "$tmp/run8.out" &&
     bad "run 8 claimed success on a failed login" ||
     ok "run 8 did not claim success"
 
+# --- run 9: --system-prompt prefixes the first user message --------------
+# codex thread/start pins no instructions field (docs/adr/0045), so the
+# text must arrive prepended to the fresh session's first turn/start input.
+HOME="$TNY_HOME" CODEX_REMOTE_TOKEN="$token" "$TNY" --cwd "$tmp/ws" --backend codex \
+    --codex-ws "$url" --system-prompt "SYS-PIRATE-MARK" ask --json --yolo --no-save "sysrun" \
+    > "$tmp/run9.out" 2> "$tmp/run9.err"
+rc9=$?
+[ $rc9 -eq 0 ] && ok "run 9 exit 0 with --system-prompt" || bad "run 9 exit $rc9"
+grep -q 'CODEX-MOCK-OK' "$tmp/run9.out" &&
+    ok "run 9 streamed CODEX-MOCK-OK" ||
+    bad "run 9 output did not contain CODEX-MOCK-OK"
+
 # --- mock verdict --------------------------------------------------------
 wait "$mock_pid"
 mock_rc=$?
@@ -231,6 +243,9 @@ grep -q 'MOCK-NOTE turn/start effort=xhigh ok' "$tmp/mock.err" &&
 grep -q 'MOCK-NOTE thread/start serviceTier=priority ok' "$tmp/mock.err" &&
     ok "--fast rode thread/start as serviceTier=priority" ||
     bad "mock never saw serviceTier=priority on the --fast run"
+grep -qF "prompt='SYS-PIRATE-MARK\n\nsysrun'" "$tmp/mock.err" &&
+    ok "--system-prompt prefixed the first user message" ||
+    bad "mock never saw the system-prompt-prefixed first message"
 
 if [ $mock_rc -ne 0 ]; then
     bad "mock app-server reported protocol failures"
@@ -239,7 +254,7 @@ fi
 if [ $fails -ne 0 ]; then
     echo "--- mock log ---" >&2
     cat "$tmp/mock.err" >&2
-    for f in run1 run2 run3 run4 run5 run6; do
+    for f in run1 run2 run3 run4 run5 run6 run9; do
         [ -f "$tmp/$f.err" ] || continue
         echo "--- $f stderr ---" >&2
         cat "$tmp/$f.err" >&2

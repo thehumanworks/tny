@@ -1184,6 +1184,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->ssh_cwd);
     free(ctx->ssh_control);
     free(ctx->service_tier);
+    free(ctx->system_prompt);
     free(ctx->reasoning_effort);
     free(ctx->instructions_snapshot);
     for (int i = 0; i < ctx->n_instruction_paths; i++) free(ctx->instruction_paths[i]);

@@ -272,6 +272,34 @@ TEST runtime_copies_events_and_suppresses_duplicate_terminal(void) {
     PASS();
 }
 
+/* --system-prompt fallback (docs/adr/0045): host backends with no schema
+ * field get the text prepended to the first user message only. */
+TEST runtime_system_prompt_prefixes_only_the_first_user_message(void) {
+    fixture x = fixture_new(0);
+    x.ctx->system_prompt = xstrdup("Answer like a pirate.");
+    char err[128];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
+    ASSERT(drain_engine(x.engine, NULL) >= 0);
+    ASSERT_STR_EQ("Answer like a pirate.\n\nhello", x.fake->prompts[0]);
+    ASSERT_EQ(0, tny_engine_start(x.engine, "again", NULL, err, sizeof err));
+    ASSERT(drain_engine(x.engine, NULL) >= 0);
+    ASSERT_STR_EQ("again", x.fake->prompts[1]);
+    fixture_free(&x);
+    PASS();
+}
+
+TEST runtime_system_prompt_skips_resumed_host_sessions(void) {
+    fixture x = fixture_new(0);
+    x.ctx->system_prompt = xstrdup("Answer like a pirate.");
+    session_set_host_pointer(x.session, "thr_resumed");
+    char err[128];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
+    ASSERT(drain_engine(x.engine, NULL) >= 0);
+    ASSERT_STR_EQ("hello", x.fake->prompts[0]);
+    fixture_free(&x);
+    PASS();
+}
+
 TEST runtime_synthesizes_transport_error_and_terminal(void) {
     fixture x = fixture_new(1);
     char err[128];
@@ -860,6 +888,8 @@ TEST runtime_permission_fold_is_correlated_suppressed_and_deny_sticky(void) {
 
 SUITE(runtime_suite) {
     RUN_TEST(runtime_copies_events_and_suppresses_duplicate_terminal);
+    RUN_TEST(runtime_system_prompt_prefixes_only_the_first_user_message);
+    RUN_TEST(runtime_system_prompt_skips_resumed_host_sessions);
     RUN_TEST(runtime_synthesizes_transport_error_and_terminal);
     RUN_TEST(runtime_overflow_keeps_error_and_single_terminal);
     RUN_TEST(runtime_cancel_emits_one_interrupted_terminal);

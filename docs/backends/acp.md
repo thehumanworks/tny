@@ -62,6 +62,10 @@ agents expose it as a session config option (`thought_level` category), but tny
 does not consume that option yet, so `--effort` on an ACP provider emits one
 status line and the agent default applies ([ADR 0009](../adr/0009-reasoning-effort.md)).
 
+`--system-prompt`: `session/new` has no system-prompt field at
+protocolVersion 1, so tny prepends the text to the first `session/prompt`
+of a fresh session instead ([ADR 0045](../adr/0045-system-prompt-flag.md)).
+
 ## Methods (client ← agent)
 
 `session/update` (messages, tool calls, plans, slash-command ads, config options), permission requests, optional elicitation, optional filesystem/terminal if we advertise those capabilities.

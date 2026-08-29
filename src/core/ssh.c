@@ -326,7 +326,13 @@ int ssh_connect(tny_ctx *ctx, char *err, size_t errlen) {
     buf_init(&script);
     buf_init(&out);
     buf_appends(&script, "cd ");
-    ssh_shell_quote(&script, want);
+    /* A leading ~ means the *remote* home, never the local one; sh only
+     * expands ~ unquoted, so rewrite it to "$HOME" (cf. rpath in
+     * tools_ssh.c). */
+    if (want[0] == '~' && (want[1] == '/' || want[1] == '\0')) {
+        buf_appends(&script, "\"$HOME\"");
+        if (want[1]) ssh_shell_quote(&script, want + 1);
+    } else ssh_shell_quote(&script, want);
     buf_appends(&script, " && pwd");
     bool tr, to;
     int rc = ssh_run(ctx, script.data, NULL, 0, 30, 4096, &out, &tr, &to);
