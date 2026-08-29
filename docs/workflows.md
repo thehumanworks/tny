@@ -398,6 +398,21 @@ output) or `{ name, includeOutput: false }` ordering-only edges. A bare string
 is not a valid `dependsOn` collection. Mixed fan-in preserves declaration order
 among the included outputs.
 
+## Example scripts
+
+`examples/scripting/` holds runnable shell workflows:
+
+- `code_optimisation.sh` — two parallel `review` tasks fan in to a task that
+  writes `tasks/NN_*.md` files.
+- `implement_tasks.sh [--jobs N] [--no-push] [--plan] [--keep] [TASK.md ...]`
+  — one git worktree and `task/<slug>` branch per task file (default
+  `tasks/[0-9]*.md`); each runs plan → contract → implement → qa → document →
+  commit+push, then a single `integrate` task merges every branch into `main`,
+  reruns `make test` / `make quality` / site tests, moves the task files to
+  `tasks/done/`, and pushes `main` (skip with `--no-push`). Task-type presets
+  live in `examples/scripting/task-types/*.md`. Worktrees are created under
+  `.worktrees/run-<timestamp>/` and removed on success.
+
 ## Dependency context and trust
 
 Only outputs of **direct, successful edges with output enabled** are appended.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fan out two codex reviews, then fan in to a grok task that turns the review
+# Fan out two grok reviews, then fan in to a grok task that turns the review
 # findings into task files. Reviews run concurrently; generate-tasks waits for
 # both and receives their output as context (docs/workflows.md).
 set -eu
@@ -9,10 +9,10 @@ set -eu
 tny_workflow_begin
 trap 'tny_workflow_cleanup' EXIT
 
-tny_task review-tests --task review --provider codex -- \
+tny_task review-tests --task review --provider grok -- \
     "Review the depth, breadth and validity of the tests in this project."
 
-tny_task review-complexity --task review --provider codex -- \
+tny_task review-complexity --task review --provider grok -- \
     "Identify code that is overly complex when a simpler solution would deliver the same value. Identify areas of code with high cyclomatic complexity that could be improved."
 
 tny_task generate-tasks --provider grok \
