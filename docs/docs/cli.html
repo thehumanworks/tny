@@ -73,6 +73,24 @@ tny --permission-mode ask|auto|yolo   # default: yolo
 tny --json                  # where listed
 tny -r                      # session picker (TUI)
 tny -c                      # resume last for this workspace</code></pre>
+<h2 id="task-presets">Runtime task presets</h2>
+<p><code>--task NAME</code> selects one of the built-ins <code>review</code>,
+<code>optimizer</code>, <code>document</code>, or <code>retro</code>, or a custom
+Markdown file at <code>.tny/tasks/NAME.md</code> (project) or
+<code>~/.tny/tasks/NAME.md</code> (user). Project definitions win. Files may
+use only <code>name:</code> and <code>description:</code> frontmatter and a
+non-empty UTF-8 body no larger than 256 KiB. SSH sessions use built-ins only.
+The selected name/source/digest is recorded with the session; resuming restores
+it and rejects a mismatched explicit selector. <code>--agent CMD</code> remains
+the ACP executable/WebSocket option.</p>
+<pre><code>cat &gt; .tny/tasks/release-review.md &lt;&lt;'TASK'
+---
+name: release-review
+description: Review release-readiness risks
+---
+Inspect correctness, compatibility, rollback, and test coverage.
+TASK
+tny --task release-review ask "Review this release"</code></pre>
 <h2 id="help">Help shape</h2>
 <p>Every subcommand has <code>--help</code> with copy-paste examples. Missing required values print the error, then a correct example, then exit 1. No timed prompts.</p>
 <div class="cmd"><div class="left"><span class="prompt">$</span><code>tny ask --help</code></div><button type="button" data-copy="tny ask --help" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
