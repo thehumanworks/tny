@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>Configuration — tnytty</title>
+  <meta name="description" content="Config file location, keys, palette, and flag overrides.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://thehumanworks.github.io/tny/docs/tnytty-config.html">
+  <meta property="og:title" content="Configuration — tnytty">
+  <meta property="og:description" content="Config file location, keys, palette, and flag overrides.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("theme");
+        if (t === "light" || t === "dark") document.documentElement.classList.add(t);
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../index.html" aria-label="tny home"><svg class="brand-slash" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="m4.02 15.4.3-.7 6-14 .29-.68 1.37.59-.3.69-6 14-.29.68z" fill="var(--logo-divider)"></path></svg><span class="brand-word">tny</span></a>
+  <nav class="nav"><a href="index.html">docs</a><a href="cli.html">cli</a><a href="tnytty.html" aria-current="page">tnytty</a><a href="https://github.com/thehumanworks/tny" target="_blank" rel="noreferrer">source</a></nav>
+  <button type="button" class="theme-cta" data-theme aria-label="Toggle color theme">theme</button>
+  <button type="button" class="install-cta" data-site-install aria-label="Copy install command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-copy-status>install</span></button>
+</header>
+<div class="docs-shell">
+  <div class="docs-mobile">
+    <button type="button" id="docs-open" aria-expanded="false" aria-controls="docs-drawer">Browse</button>
+  </div>
+  <div class="drawer" id="docs-drawer" aria-hidden="true">
+    <div class="drawer-backdrop" id="docs-backdrop"></div>
+    <div class="drawer-panel">
+      <button type="button" id="docs-close">Close</button>
+      <nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div><div class="docs-nav-group"><p>tnytty</p><div><a href="tnytty.html">The tiny terminal</a><a href="tnytty-cli.html">CLI</a><a href="tnytty-config.html" aria-current="page">Configuration</a><a href="tnytty-api.html">HTTP API</a><a href="tnytty-architecture.html">Architecture</a></div></div></nav>
+    </div>
+  </div>
+  <main class="docs-layout">
+    <aside class="docs-sidebar"><nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div><div class="docs-nav-group"><p>tnytty</p><div><a href="tnytty.html">The tiny terminal</a><a href="tnytty-cli.html">CLI</a><a href="tnytty-config.html" aria-current="page">Configuration</a><a href="tnytty-api.html">HTTP API</a><a href="tnytty-architecture.html">Architecture</a></div></div></nav></aside>
+    <article class="article"><h1>tnytty configuration</h1><p class="lede">Optional file. Flags override it. Missing is not an error.</p>
+<h2 id="location">Location</h2>
+<p>tnytty needs no config file. Every key has a default. CLI flags override both. The file exists so the native window can be styled once.</p>
+<pre><code>$XDG_CONFIG_HOME/tnytty/config      # if XDG_CONFIG_HOME is set
+~/.config/tnytty/config             # otherwise</code></pre>
+<p>A missing file is fine. An unreadable one, or one with a bad value, is not: tnytty prints the path, the line number, and what it expected, then exits 2.</p>
+<h2 id="format">Format</h2>
+<p><code>key = value</code>, one per line. <code>#</code> starts a comment. Whitespace around the key and value is trimmed. No sections, no quoting, no continuations.</p>
+<pre><code># ~/.config/tnytty/config
+font = JetBrains Mono
+font-size = 14
+macos-titlebar = transparent
+padding = 10</code></pre>
+<p>Unknown keys and lines without <code>=</code> are warned on stderr and skipped, so a file written for a newer tnytty still starts. A known key with a bad value is a clean error. The file is limited to 64 KiB; each line to 511 bytes.</p>
+<h2 id="window">Window</h2>
+<table>
+  <thead><tr><th>Key</th><th>Values</th><th>Default</th></tr></thead>
+  <tbody>
+    <tr><td><code>font</code></td><td>installed family name</td><td>empty → Menlo, then the system fixed-pitch UI font</td></tr>
+    <tr><td><code>font-size</code></td><td>4–288</td><td><code>13</code></td></tr>
+    <tr><td><code>macos-titlebar</code></td><td><code>transparent</code>, <code>opaque</code></td><td><code>transparent</code></td></tr>
+    <tr><td><code>padding</code></td><td>0–256</td><td><code>8</code></td></tr>
+  </tbody>
+</table>
+<p>Transparent extends the terminal background under the traffic lights and hides the title; the grid is inset so no text is covered. Opaque restores the system titlebar and shows the session title.</p>
+<h2 id="colors">Colors</h2>
+<p>Values are <code>#rrggbb</code> (the <code>#</code> is optional). Defaults are a dark theme chosen so every palette entry except index 0 clears WCAG AA (4.5:1) against the default background. The unit suite recomputes those ratios and fails the build if a change drops one.</p>
+<table>
+  <thead><tr><th>Key</th><th>Default</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>foreground</code></td><td><code>#d7dae3</code></td><td>Default text (12.91:1 on the background — AAA)</td></tr>
+    <tr><td><code>background</code></td><td><code>#14161f</code></td><td>Terminal and window background</td></tr>
+    <tr><td><code>divider</code></td><td><code>#3a4152</code></td><td>1 px rule between split panes</td></tr>
+    <tr><td><code>palette0</code> … <code>palette15</code></td><td>see below</td><td>SGR 30–37 / 90–97 and the low 16 of the 256-color space</td></tr>
+    <tr><td><code>bold-brightens</code></td><td><code>true</code></td><td>SGR 1 on indexed 0–7 also selects bright 8–15</td></tr>
+  </tbody>
+</table>
+<p>Indices 16–255 are the fixed xterm cube and grayscale ramp and are not configurable. Index 0 is a background color and is allowed to sit below 4.5:1.</p>
+<table>
+  <thead><tr><th>Key</th><th>Color</th><th>Role</th></tr></thead>
+  <tbody>
+    <tr><td><code>palette0</code></td><td><code>#2a2f3a</code></td><td>black</td></tr>
+    <tr><td><code>palette1</code></td><td><code>#f07178</code></td><td>red</td></tr>
+    <tr><td><code>palette2</code></td><td><code>#9ece6a</code></td><td>green</td></tr>
+    <tr><td><code>palette3</code></td><td><code>#e0c980</code></td><td>yellow</td></tr>
+    <tr><td><code>palette4</code></td><td><code>#7aa2f7</code></td><td>blue</td></tr>
+    <tr><td><code>palette5</code></td><td><code>#c792ea</code></td><td>magenta</td></tr>
+    <tr><td><code>palette6</code></td><td><code>#56cfd8</code></td><td>cyan</td></tr>
+    <tr><td><code>palette7</code></td><td><code>#b9bfca</code></td><td>white</td></tr>
+    <tr><td><code>palette8</code></td><td><code>#7a8296</code></td><td>bright black</td></tr>
+    <tr><td><code>palette9</code></td><td><code>#ff8b92</code></td><td>bright red</td></tr>
+    <tr><td><code>palette10</code></td><td><code>#b4f08a</code></td><td>bright green</td></tr>
+    <tr><td><code>palette11</code></td><td><code>#ffe08a</code></td><td>bright yellow</td></tr>
+    <tr><td><code>palette12</code></td><td><code>#9fc1ff</code></td><td>bright blue</td></tr>
+    <tr><td><code>palette13</code></td><td><code>#e0b0ff</code></td><td>bright magenta</td></tr>
+    <tr><td><code>palette14</code></td><td><code>#7fe6ee</code></td><td>bright cyan</td></tr>
+    <tr><td><code>palette15</code></td><td><code>#eef1f7</code></td><td>bright white</td></tr>
+  </tbody>
+</table>
+<h2 id="behavior">Behavior</h2>
+<table>
+  <thead><tr><th>Key</th><th>Values</th><th>Default</th></tr></thead>
+  <tbody>
+    <tr><td><code>copy-on-select</code></td><td><code>true</code>, <code>false</code> (also yes/no, 1/0)</td><td><code>true</code></td></tr>
+    <tr><td><code>status-bar</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code> — one-line transient messages; <code>false</code> returns the row to the grid</td></tr>
+  </tbody>
+</table>
+<h2 id="flags">Flags win</h2>
+<p>Every window key has a flag on <code>tnytty gui</code>. A bad flag is an error, never a warning. Colors and behavior keys have no flags yet.</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tnytty gui --titlebar opaque --font Menlo --font-size 15 --padding 0</code></div><button type="button" data-copy="tnytty gui --titlebar opaque --font Menlo --font-size 15 --padding 0" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<h2 id="later">Not configurable yet</h2>
+<p>Cursor style, key bindings, selection colors (the highlight inverts the cell), the status-bar timeout, the split ratio (always 50/50; dividers are not draggable), and scrollback size are compiled-in. New keys are additive.</p>
+</article>
+    <aside class="toc"><p>on this page</p><a href="#location">Location</a><a href="#format">Format</a><a href="#window">Window</a><a href="#colors">Colors</a><a href="#behavior">Behavior</a><a href="#flags">Flags</a><a href="#later">Not yet</a></aside>
+  </main>
+</div>
+<script src="../assets/site.js"></script>
+</body>
+</html>

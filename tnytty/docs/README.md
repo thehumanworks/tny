@@ -10,7 +10,8 @@ Do not start product code until you have read this index and the files it
 names. tnytty lives in the tny monorepo
 ([root ADR 0045](../../docs/adr/0045-monorepo-and-tnytty.md)); the root
 `AGENTS.md` governs shared conventions (quality gates, vendored libraries),
-this tree governs tnytty.
+this tree governs tnytty. User-facing pages are on the public site:
+[tnytty](https://thehumanworks.github.io/tny/docs/tnytty.html).
 
 ## Read first
 

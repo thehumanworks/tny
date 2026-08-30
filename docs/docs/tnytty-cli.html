@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>CLI — tnytty</title>
+  <meta name="description" content="tnytty run, gui, serve, and icat.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://thehumanworks.github.io/tny/docs/tnytty-cli.html">
+  <meta property="og:title" content="CLI — tnytty">
+  <meta property="og:description" content="tnytty run, gui, serve, and icat.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("theme");
+        if (t === "light" || t === "dark") document.documentElement.classList.add(t);
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../index.html" aria-label="tny home"><svg class="brand-slash" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="m4.02 15.4.3-.7 6-14 .29-.68 1.37.59-.3.69-6 14-.29.68z" fill="var(--logo-divider)"></path></svg><span class="brand-word">tny</span></a>
+  <nav class="nav"><a href="index.html">docs</a><a href="cli.html">cli</a><a href="tnytty.html" aria-current="page">tnytty</a><a href="https://github.com/thehumanworks/tny" target="_blank" rel="noreferrer">source</a></nav>
+  <button type="button" class="theme-cta" data-theme aria-label="Toggle color theme">theme</button>
+  <button type="button" class="install-cta" data-site-install aria-label="Copy install command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-copy-status>install</span></button>
+</header>
+<div class="docs-shell">
+  <div class="docs-mobile">
+    <button type="button" id="docs-open" aria-expanded="false" aria-controls="docs-drawer">Browse</button>
+  </div>
+  <div class="drawer" id="docs-drawer" aria-hidden="true">
+    <div class="drawer-backdrop" id="docs-backdrop"></div>
+    <div class="drawer-panel">
+      <button type="button" id="docs-close">Close</button>
+      <nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div><div class="docs-nav-group"><p>tnytty</p><div><a href="tnytty.html">The tiny terminal</a><a href="tnytty-cli.html" aria-current="page">CLI</a><a href="tnytty-config.html">Configuration</a><a href="tnytty-api.html">HTTP API</a><a href="tnytty-architecture.html">Architecture</a></div></div></nav>
+    </div>
+  </div>
+  <main class="docs-layout">
+    <aside class="docs-sidebar"><nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div><div class="docs-nav-group"><p>tnytty</p><div><a href="tnytty.html">The tiny terminal</a><a href="tnytty-cli.html" aria-current="page">CLI</a><a href="tnytty-config.html">Configuration</a><a href="tnytty-api.html">HTTP API</a><a href="tnytty-architecture.html">Architecture</a></div></div></nav></aside>
+    <article class="article"><h1>tnytty CLI</h1><p class="lede">run, gui, serve, icat. Flags before a pty is opened.</p>
+<h2 id="tree">Command tree</h2>
+<p>Noninteractive-first, like the harness. Layered <code>--help</code> with examples. No pty or socket until a subcommand needs one.</p>
+<pre><code>tnytty                      # alias for tnytty run (spawn $SHELL)
+tnytty run [flags] [-- CMD ARGS...]
+tnytty gui [flags] [-- CMD ARGS...]
+tnytty serve [flags]
+tnytty icat [flags] FILE|-
+tnytty --help | --version</code></pre>
+<h2 id="run">tnytty run</h2>
+<p>Attach the current terminal to a new session: raw-mode passthrough both ways, mirrored through the VT core so the session stays scriptable while a human types. Exits with the child's exit code. Local termios is always restored.</p>
+<table>
+  <thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>-- CMD ARGS...</code></td><td>Command to run (default <code>$SHELL</code>, else <code>/bin/sh</code>)</td></tr>
+    <tr><td><code>--cols N --rows N</code></td><td>Initial size (default: the attached tty)</td></tr>
+    <tr><td><code>--listen HOST:PORT</code></td><td>Also serve the HTTP API on this loop</td></tr>
+    <tr><td><code>--token T</code></td><td>API bearer token</td></tr>
+  </tbody>
+</table>
+<p><code>SIGWINCH</code> on the attached tty resizes the session live.</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tnytty run --listen 127.0.0.1:7681 -- htop</code></div><button type="button" data-copy="tnytty run --listen 127.0.0.1:7681 -- htop" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<h2 id="gui">tnytty gui</h2>
+<p>A native window — tnytty's own renderer, not a passthrough into another terminal. macOS only in this phase. Everywhere else exits 1 with <code>gui: not supported on this platform yet</code>.</p>
+<p>The window starts a session the same way <code>run</code> does, sizes the grid from the window's pixels, and exits with the child's exit code. Closing the window or Cmd-Q ends every session in it.</p>
+<p>A window can hold several sessions as split panes. Each pane has its own session, scrollback, and selection. Every pane of a <code>--listen</code> window is a session in the API. A new pane runs the same command from the launch directory. Up to 32 panes.</p>
+<table>
+  <thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>--titlebar transparent|opaque</code></td><td>Overrides <code>macos-titlebar</code></td></tr>
+    <tr><td><code>--font NAME</code></td><td>Monospaced family</td></tr>
+    <tr><td><code>--font-size N</code></td><td>Points</td></tr>
+    <tr><td><code>--padding N</code></td><td>Points around the grid</td></tr>
+    <tr><td><code>--cols N --rows N</code></td><td>Initial grid (default 100×30)</td></tr>
+    <tr><td><code>--listen HOST:PORT</code></td><td>HTTP API on the same loop</td></tr>
+    <tr><td><code>--token T</code></td><td>API bearer token</td></tr>
+  </tbody>
+</table>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tnytty gui</code></div><button type="button" data-copy="tnytty gui" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tnytty gui --titlebar opaque -- htop</code></div><button type="button" data-copy="tnytty gui --titlebar opaque -- htop" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tnytty gui --listen 127.0.0.1:7681 -- vim</code></div><button type="button" data-copy="tnytty gui --listen 127.0.0.1:7681 -- vim" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<p>Command chords belong to the window and never reach the child. Bindings follow iTerm2:</p>
+<table>
+  <thead><tr><th>Chord</th><th>Action</th></tr></thead>
+  <tbody>
+    <tr><td>Cmd-D</td><td>Split vertically (new pane to the right)</td></tr>
+    <tr><td>Cmd-Shift-D</td><td>Split horizontally (new pane below)</td></tr>
+    <tr><td>Cmd-W</td><td>Close the focused pane; closes the window when it is the last</td></tr>
+    <tr><td>Cmd-Opt-arrows</td><td>Focus the neighbouring pane, or do nothing if there is none</td></tr>
+    <tr><td>Cmd-[ / Cmd-]</td><td>Previous / next pane in reading order, wrapping</td></tr>
+    <tr><td>Cmd-C / Cmd-V</td><td>Copy the selection / paste into the focused pane</td></tr>
+    <tr><td>Cmd-Q</td><td>Quit</td></tr>
+  </tbody>
+</table>
+<p>Click a pane to focus it. Click-drag selects characters; double-click a word; triple-click a line. Releasing a drag copies to the pasteboard unless <code>copy-on-select = false</code>. Mouse reporting to the child (SGR 1006) is not wired yet.</p>
+<p>Not in this phase: scrollback scrolling, kitty graphics drawn in the window (they are still parsed and recorded), and IME / marked text.</p>
+<h2 id="serve">tnytty serve</h2>
+<p>Headless. No local tty. Sessions exist only through the API.</p>
+<table>
+  <thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>--listen HOST:PORT</code></td><td>Bind address (default <code>127.0.0.1:7681</code>)</td></tr>
+    <tr><td><code>--token T</code></td><td>Bearer token; required for non-loopback binds. Auto-generated and printed if omitted</td></tr>
+  </tbody>
+</table>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tnytty serve --listen 0.0.0.0:7681 --token &quot;$TNYTTY_TOKEN&quot;</code></div><button type="button" data-copy="tnytty serve --listen 0.0.0.0:7681 --token &quot;$TNYTTY_TOKEN&quot;" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<h2 id="icat">tnytty icat</h2>
+<p>Print an image inline in any kitty-graphics terminal (kitty, ghostty, WezTerm, tnytty renderers). Reads a file or stdin (<code>-</code>). PNG is transmitted as-is. Other formats are a clean error in this phase.</p>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tnytty icat photo.png</code></div><button type="button" data-copy="tnytty icat photo.png" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>curl -s https://example.com/x.png | tnytty icat -</code></div><button type="button" data-copy="curl -s https://example.com/x.png | tnytty icat -" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<h2 id="env">Environment</h2>
+<p><code>TNYTTY_TOKEN</code> (API token), <code>SHELL</code> (default command), <code>XDG_CONFIG_HOME</code> / <code>HOME</code> (the <a href="tnytty-config.html">config file</a>). <code>NO_COLOR</code> does not apply — tnytty emits the child's bytes, not its own styling.</p>
+</article>
+    <aside class="toc"><p>on this page</p><a href="#tree">Command tree</a><a href="#run">run</a><a href="#gui">gui</a><a href="#serve">serve</a><a href="#icat">icat</a><a href="#env">Environment</a></aside>
+  </main>
+</div>
+<script src="../assets/site.js"></script>
+</body>
+</html>

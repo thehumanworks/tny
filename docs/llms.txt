@@ -68,6 +68,25 @@ Unix shell, not an IDE. `/` commands, `@` files, `$` skills. Esc/Ctrl-C interrup
 
 Default yolo for every provider. ask/auto are opt-ins and only enforceable on the native loop. Rules live in `~/.tny/settings.json`. Never load repo-local MCP.
 
+## tnytty
+
+tnytty is the tiny terminal in the same monorepo: a C11 emulator with a
+headless VT core, a pty host, kitty graphics plus bundled `icat`, and a
+REST HTTP API so every session is scriptable and shareable.
+
+```
+make tnytty                 # tnytty/build/tnytty
+tnytty                      # passthrough $SHELL
+tnytty run --listen 127.0.0.1:7681 -- htop
+tnytty serve [--listen HOST:PORT] [--token T]
+tnytty gui                  # macOS native window; clean error elsewhere
+tnytty icat FILE|-          # PNG via kitty graphics
+```
+
+Loopback API binds need no token. Non-loopback requires `--token` /
+`TNYTTY_TOKEN` (or a generated token printed once). Treat the token like
+an SSH key.
+
 ## Docs
 
 - /docs/ — quick start
@@ -77,3 +96,8 @@ Default yolo for every provider. ask/auto are opt-ins and only enforceable on th
 - /docs/backends.html — protocols
 - /docs/architecture.html — process model
 - /docs/size.html — bake-off vs fx
+- /docs/tnytty.html — tnytty, the tiny terminal
+- /docs/tnytty-cli.html — tnytty command tree
+- /docs/tnytty-config.html — tnytty config file
+- /docs/tnytty-api.html — tnytty HTTP API
+- /docs/tnytty-architecture.html — tnytty process model

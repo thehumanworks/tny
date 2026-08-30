@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>Architecture — tnytty</title>
+  <meta name="description" content="Headless VT core, pty seam, one event loop, platform adapters.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://thehumanworks.github.io/tny/docs/tnytty-architecture.html">
+  <meta property="og:title" content="Architecture — tnytty">
+  <meta property="og:description" content="Headless VT core, pty seam, one event loop, platform adapters.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("theme");
+        if (t === "light" || t === "dark") document.documentElement.classList.add(t);
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../index.html" aria-label="tny home"><svg class="brand-slash" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="m4.02 15.4.3-.7 6-14 .29-.68 1.37.59-.3.69-6 14-.29.68z" fill="var(--logo-divider)"></path></svg><span class="brand-word">tny</span></a>
+  <nav class="nav"><a href="index.html">docs</a><a href="cli.html">cli</a><a href="tnytty.html" aria-current="page">tnytty</a><a href="https://github.com/thehumanworks/tny" target="_blank" rel="noreferrer">source</a></nav>
+  <button type="button" class="theme-cta" data-theme aria-label="Toggle color theme">theme</button>
+  <button type="button" class="install-cta" data-site-install aria-label="Copy install command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-copy-status>install</span></button>
+</header>
+<div class="docs-shell">
+  <div class="docs-mobile">
+    <button type="button" id="docs-open" aria-expanded="false" aria-controls="docs-drawer">Browse</button>
+  </div>
+  <div class="drawer" id="docs-drawer" aria-hidden="true">
+    <div class="drawer-backdrop" id="docs-backdrop"></div>
+    <div class="drawer-panel">
+      <button type="button" id="docs-close">Close</button>
+      <nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div><div class="docs-nav-group"><p>tnytty</p><div><a href="tnytty.html">The tiny terminal</a><a href="tnytty-cli.html">CLI</a><a href="tnytty-config.html">Configuration</a><a href="tnytty-api.html">HTTP API</a><a href="tnytty-architecture.html" aria-current="page">Architecture</a></div></div></nav>
+    </div>
+  </div>
+  <main class="docs-layout">
+    <aside class="docs-sidebar"><nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div><div class="docs-nav-group"><p>tnytty</p><div><a href="tnytty.html">The tiny terminal</a><a href="tnytty-cli.html">CLI</a><a href="tnytty-config.html">Configuration</a><a href="tnytty-api.html">HTTP API</a><a href="tnytty-architecture.html" aria-current="page">Architecture</a></div></div></nav></aside>
+    <article class="article"><h1>tnytty architecture</h1><p class="lede">The core takes bytes and returns state. Everything else is an adapter.</p>
+<h2 id="shape">Shape</h2>
+<pre><code>            keystrokes / HTTP POST input          bytes from child
+                     │                                   ▲
+                     ▼                                   │
+   ┌──────────┐   write   ┌─────────┐   read   ┌─────────────────┐
+   │ adapters │ ────────► │   pty   │ ───────► │  vt core (lib)  │
+   │ cli/api  │           │  seam   │          │ grid+parser+gfx │
+   └──────────┘           └─────────┘          └─────────────────┘
+        ▲                                               │
+        └── screen dumps (text/JSON), passthrough bytes ┘</code></pre>
+<p>Three layers, one rule: the core is headless and I/O-free.</p>
+<h2 id="vt">VT core</h2>
+<p><code>src/vt/</code> is a pure state machine. <code>vt_feed(vt, bytes, len)</code> consumes child output and updates a cell grid. It performs no I/O. When the emulated program asks a question (DSR, DA), the core emits the answer through a caller-provided <code>respond</code> callback. Kitty graphics APC payloads go through a <code>graphics</code> callback plus a per-session record.</p>
+<p>Cells store a codepoint, one combining mark, packed attributes, and tagged fg/bg (default / 256 / truecolor). Width comes from built-in tables: East-Asian wide blocks and emoji are 2, combining marks are 0, Private Use Area is 1. The parser is incremental — UTF-8, CSI, OSC, and APC all survive arbitrary read-boundary splits, enforced by the unit suite.</p>
+<h2 id="pty">pty seam</h2>
+<p><code>src/term/pty.h</code> is the platform seam. POSIX uses <code>posix_openpt</code> / <code>fork</code> / <code>TIOCSCTTY</code>. Other platforms implement the same header (ConPTY on Windows, none on iOS). Platform code lives only behind this seam, never as <code>#ifdef</code>s in the core.</p>
+<h2 id="session">Session registry</h2>
+<p>A session is pty + VT + metadata (id, argv, size, creation time, exit status). The registry owns lifecycle. Both adapters address sessions through it. Input is queued, never dropped: a write is all-or-nothing from the caller's side, capped at 4 MiB. Past the cap the HTTP adapter returns 503. <code>tnytty run</code> applies back-pressure on the attached tty instead.</p>
+<h2 id="http">HTTP adapter</h2>
+<p>A minimal HTTP/1.1 server on vendored picohttpparser. Request handling is a pure function from (method, path, body, auth) to a response buffer, so the router is unit-testable without sockets.</p>
+<h2 id="ui">Native renderer</h2>
+<p>The window seam sits beside the pty seam: one implementation per platform (<code>window_macos.c</code>; <code>window_stub.c</code> elsewhere). A CPU cell rasterizer reads the same getters the HTTP screen endpoint reads and paints an RGBA framebuffer, dirty rows only. Split panes share one framebuffer and one loop. Glyph masks come from the platform through one callback.</p>
+<h2 id="loop">One event loop</h2>
+<p>A single <code>poll(2)</code> multiplexes the listening socket, HTTP connections, every session's pty master, and (in <code>run</code>) stdin plus <code>SIGWINCH</code> via a self-pipe. No threads in the hot path. Each ready pty gets a bounded number of reads per turn so a continuous producer cannot starve HTTP, signals, or sibling panes.</p>
+<p><code>tnytty gui</code> keeps that loop and adds the window. AppKit's queue is not a pollable fd, so the poll timeout is bounded (8 ms) and each turn also drains the queue and presents dirty rows. The main thread is the only thread that touches a VT core.</p>
+<p>Foreground adapters mark their terminal or pane sessions as attached. The HTTP API can read the screen and write input, but cannot resize or destroy them behind the adapter's retained pointer.</p>
+<h2 id="deps">Vendored dependencies</h2>
+<p>From the shared root <code>third_party/</code> only: picohttpparser, yyjson, greatest. The VT core depends on none of them. No ncurses. No GUI toolkit in the core.</p>
+<h2 id="platforms">Platforms</h2>
+<table>
+  <thead><tr><th>Platform</th><th>Phase 1</th><th>Target</th></tr></thead>
+  <tbody>
+    <tr><td>Linux</td><td>works — <code>run</code>, <code>serve</code>, <code>icat</code>, API. <code>gui</code> is a clean error</td><td>Wayland/X11 window behind the same seam; static musl publish builds</td></tr>
+    <tr><td>macOS arm64</td><td>works, including <code>gui</code></td><td>first-class</td></tr>
+    <tr><td>Windows</td><td>clean error from <code>run</code>/<code>serve</code>/<code>gui</code>; <code>icat</code> works</td><td>ConPTY + DirectWrite window</td></tr>
+    <tr><td>iOS</td><td>remote-only — no local pty</td><td>renderer + HTTP client attaching to a remote session</td></tr>
+  </tbody>
+</table>
+<p>New platform support is a new <code>pty_*.c</code> (and <code>window_*.c</code> if there is a window) plus a row on this table plus CI. The VT core must compile on every target, including iOS and wasm.</p>
+</article>
+    <aside class="toc"><p>on this page</p><a href="#shape">Shape</a><a href="#vt">VT core</a><a href="#pty">pty seam</a><a href="#session">Sessions</a><a href="#http">HTTP</a><a href="#ui">Renderer</a><a href="#loop">Event loop</a><a href="#deps">Dependencies</a><a href="#platforms">Platforms</a></aside>
+  </main>
+</div>
+<script src="../assets/site.js"></script>
+</body>
+</html>

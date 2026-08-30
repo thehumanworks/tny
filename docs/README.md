@@ -2,7 +2,7 @@
 
 Research and implementation contract for **tny**: a C11 TUI + CLI agent harness.
 
-The public static site (Geist Mono, same shape as [fx.sh](https://fx.sh)) is generated from `scripts/site_build.py` into [`site/`](../site/) and published by GitHub Pages. Rebuild with `make site`. The landing terminal is a client-side BYOK preview ([ADR 0005](adr/0005-client-side-landing-terminal.md)), not WASM tny. User-facing pages live there; this tree remains the implementation contract.
+The public static site (Geist Mono, same shape as [fx.sh](https://fx.sh)) is generated from `scripts/site_build.py` into [`site/`](../site/) and published by GitHub Pages. Rebuild with `make site`. The landing terminal is a client-side BYOK preview ([ADR 0005](adr/0005-client-side-landing-terminal.md)), not WASM tny. User-facing pages live there, including [tnytty](https://thehumanworks.github.io/tny/docs/tnytty.html); this tree remains the harness implementation contract. tnytty's contract is [`tnytty/docs/`](../tnytty/docs/README.md).
 
 Do not start product code until you have read this index and the files it names. The goal is to beat [fx](https://github.com/vercel-labs/fx) on size and speed, keep its user-facing functionality, and add Cursor SDK Bridge, Codex app-server (WebSocket), ACP, and OpenAI-compatible providers.
 
@@ -53,3 +53,10 @@ Do not start product code until you have read this index and the files it names.
 ## Sources
 
 Primary URLs and version pins: [sources.md](sources.md).
+
+## Sibling apps
+
+| Doc | Why |
+| --- | --- |
+| [tnytty/docs](../tnytty/docs/README.md) | tnytty implementation contract (VT core, CLI, HTTP API, platforms) |
+| [Public tnytty pages](https://thehumanworks.github.io/tny/docs/tnytty.html) | User-facing tnytty docs on GitHub Pages |

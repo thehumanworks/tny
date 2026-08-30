@@ -10,12 +10,17 @@ SITE = ROOT / "site"
 
 REPO = "https://github.com/thehumanworks/tny"
 INSTALL = "git clone https://github.com/thehumanworks/tny && cd tny && make"
+TNYTTY_INSTALL = (
+    "git clone https://github.com/thehumanworks/tny && cd tny && make tnytty"
+)
 VERSION = "0.1.0"
 SIZE = "0.41mib"
+SITE_BASE = "https://thehumanworks.github.io/tny/"
 
 NAV = (
     ("docs", "docs/index.html", "docs"),
     ("cli", "docs/cli.html", "cli"),
+    ("tnytty", "docs/tnytty.html", "tnytty"),
     ("source", REPO, "source"),
 )
 
@@ -51,6 +56,16 @@ SIDEBAR = (
             ("Backends", "docs/backends.html"),
             ("Architecture", "docs/architecture.html"),
             ("Size and speed", "docs/size.html"),
+        ),
+    ),
+    (
+        "tnytty",
+        (
+            ("The tiny terminal", "docs/tnytty.html"),
+            ("CLI", "docs/tnytty-cli.html"),
+            ("Configuration", "docs/tnytty-config.html"),
+            ("HTTP API", "docs/tnytty-api.html"),
+            ("Architecture", "docs/tnytty-architecture.html"),
         ),
     ),
 )
@@ -303,6 +318,7 @@ def landing() -> str:
       <p>The terminal on this page is the real <span class="name">tny</span> binary compiled to WebAssembly — the same sources and the same CI test suite as the native CLI. Pass <code>OPENAI_API_KEY</code> (and optionally <code>OPENAI_BASE_URL</code>) in the URL hash or paste them at the prompt. Keys stay in this tab and go only to the provider you set — never to GitHub. Your provider must allow browser (CORS) calls; <code>api.openai.com</code> does not.</p>
       <p>For end users, the form factor aims to be closer to a Unix shell than a heavy "IDE in the terminal" TUI.</p>
       <p>It's open source, model-agnostic, and suitable for local models, subscriptions, and cloud inference.</p>
+      <p>The same monorepo ships <a href="docs/tnytty.html">tnytty</a>, a tiny C11 terminal emulator: a headless VT core, a pty host, kitty graphics with bundled <code>icat</code>, and a REST API so every session is scriptable and shareable.</p>
     </div>
     <button type="button" class="scroll-hint" data-scroll="features" aria-label="Scroll to features">***</button>
   </div>
@@ -370,6 +386,7 @@ def docs_quick() -> str:
     <tr><td>Change permissions</td><td><code>/permissions</code></td></tr>
     <tr><td>New session</td><td><code>/new</code></td></tr>
     <tr><td>One-shot from a script</td><td><code>tny ask --json "…"</code></td></tr>
+    <tr><td>A scriptable terminal</td><td><a href="tnytty.html">tnytty</a></td></tr>
   </tbody>
 </table>
 """
@@ -426,6 +443,10 @@ def docs_install() -> str:
   </tbody>
 </table>
 <p><code>tny doctor</code> tells you which of those are missing. Missing hosts are not a failed install.</p>
+<h2 id="tnytty">tnytty</h2>
+<p>The same clone builds the tiny terminal. It is a sibling app, not part of the harness binary:</p>
+{cmd("make tnytty")}
+<p>Equivalent: <code>make -C tnytty</code>. The stripped binary lands at <code>tnytty/build/tnytty</code>. Details in <a href="tnytty.html">tnytty</a>.</p>
 """
     return page_shell(
         title="Installation — tny",
@@ -440,6 +461,7 @@ def docs_install() -> str:
             ("ci", "CI binaries"),
             ("size", "What you should see"),
             ("hosts", "Optional hosts"),
+            ("tnytty", "tnytty"),
         ],
         body=article(
             "Installation", "Clone, make, strip. Host agents stay on PATH.", inner
@@ -1138,6 +1160,429 @@ def docs_size() -> str:
     )
 
 
+def docs_tnytty() -> str:
+    inner = f"""
+<h2 id="what">What it is</h2>
+<p><span class="name">tnytty</span> is a C11 terminal emulator in the tny monorepo. The core is a headless VT library. Adapters around it run a real program in a real pty, paint a native window, or serve every session over HTTP so a script, an agent, or another person can read the screen and type keys.</p>
+<p>Same principles as the harness: one small static-friendly binary, microsecond <code>--help</code>, one <code>poll(2)</code> loop, docs as the contract. It is not bundled into <code>tny</code>. Host agents stay out of this binary too.</p>
+<h2 id="build">Build</h2>
+{cmd(TNYTTY_INSTALL)}
+<p>A C11 compiler and <code>make</code> are enough. Vendored libraries come from the shared <code>third_party/</code> tree. The release binary is <code>tnytty/build/tnytty</code>. Stripped size target: under 500 KiB on Linux x86_64.</p>
+{cmd("tnytty --version")}
+{cmd("tnytty --help")}
+<p>Neither flag opens a pty or a socket.</p>
+<h2 id="first">First session</h2>
+<p>With no arguments tnytty is a passthrough terminal running <code>$SHELL</code>. The local termios is restored on exit, and the child's exit code is the process exit code.</p>
+{cmd("tnytty")}
+{cmd("tnytty run --listen 127.0.0.1:7681 -- htop")}
+{cmd("curl -s 127.0.0.1:7681/v1/sessions")}
+<p>The attached tty stays interactive. The same session is also a REST object: read the grid, send keys, share the URL.</p>
+<h2 id="pillars">What you get</h2>
+<table>
+  <thead><tr><th>Pillar</th><th>Behavior</th></tr></thead>
+  <tbody>
+    <tr><td>VT engine</td><td>xterm-compatible subset: cursor, erase, scroll regions, alternate screen, SGR 16/256/truecolor, UTF-8 with wide and combining glyphs, scrollback, title, bracketed paste, DSR/DA</td></tr>
+    <tr><td>Nerd fonts</td><td>Private Use Area glyphs are width 1 by policy. Width comes from built-in tables, not locale <code>wcwidth</code></td></tr>
+    <tr><td>Kitty graphics</td><td>APC <code>G</code> sequences are parsed, recorded per session, and passed through. <code>tnytty icat</code> is a subcommand, not a second binary</td></tr>
+    <tr><td>HTTP API</td><td>Create, read, type into, resize, and tear down sessions with <code>curl</code>. Loopback is open; anything else needs a bearer token</td></tr>
+    <tr><td>Native window</td><td><code>tnytty gui</code> on macOS: CoreText grid, transparent titlebar by default, iTerm2-style split panes</td></tr>
+  </tbody>
+</table>
+<h2 id="who">Who it is for</h2>
+<ul>
+  <li>Humans who want a lean terminal — passthrough today, platform windows where they exist.</li>
+  <li>Agents and scripts that need a terminal as a service: spawn a TUI, read the rendered screen as text or JSON, send keys, tear it down. No expect scripts.</li>
+  <li>Session sharing: give someone the base URL and token and they watch or drive the same live pty.</li>
+</ul>
+<h2 id="not">What it is not</h2>
+<p>Not an IDE. Not a shell — it spawns <code>$SHELL</code> or the command after <code>--</code>. The VT core has no panes; split panes live in the macOS window adapter. There is no in-tree web frontend. Font rasterization is the renderer's job.</p>
+<h2 id="platforms">Platforms</h2>
+<table>
+  <thead><tr><th>Platform</th><th>Today</th></tr></thead>
+  <tbody>
+    <tr><td>Linux (glibc, musl)</td><td><code>run</code>, <code>serve</code>, <code>icat</code>, full API. <code>gui</code> exits 1 with a clean error</td></tr>
+    <tr><td>macOS arm64</td><td>Same, plus <code>gui</code></td></tr>
+    <tr><td>Windows</td><td><code>icat</code> works. <code>run</code> / <code>serve</code> / <code>gui</code> exit 1 with a clean error until ConPTY</td></tr>
+    <tr><td>iOS</td><td>Remote-only by design — no local pty. Future renderer attaches over the HTTP API</td></tr>
+  </tbody>
+</table>
+<p>Next: <a href="tnytty-cli.html">CLI</a>, <a href="tnytty-api.html">HTTP API</a>, <a href="tnytty-architecture.html">architecture</a>.</p>
+"""
+    return page_shell(
+        title="tnytty — the tiny terminal",
+        description="C11 terminal emulator: headless VT core, pty sessions, kitty graphics, and a REST API.",
+        from_docs=True,
+        active="tnytty",
+        canonical="docs/tnytty.html",
+        current_doc="docs/tnytty.html",
+        toc=[
+            ("what", "What it is"),
+            ("build", "Build"),
+            ("first", "First session"),
+            ("pillars", "What you get"),
+            ("who", "Who it is for"),
+            ("not", "What it is not"),
+            ("platforms", "Platforms"),
+        ],
+        body=article(
+            "tnytty",
+            "The tiny terminal. A headless VT core, a pty, and a REST API.",
+            inner,
+        ),
+    )
+
+
+def docs_tnytty_cli() -> str:
+    inner = f"""
+<h2 id="tree">Command tree</h2>
+<p>Noninteractive-first, like the harness. Layered <code>--help</code> with examples. No pty or socket until a subcommand needs one.</p>
+<pre><code>tnytty                      # alias for tnytty run (spawn $SHELL)
+tnytty run [flags] [-- CMD ARGS...]
+tnytty gui [flags] [-- CMD ARGS...]
+tnytty serve [flags]
+tnytty icat [flags] FILE|-
+tnytty --help | --version</code></pre>
+<h2 id="run">tnytty run</h2>
+<p>Attach the current terminal to a new session: raw-mode passthrough both ways, mirrored through the VT core so the session stays scriptable while a human types. Exits with the child's exit code. Local termios is always restored.</p>
+<table>
+  <thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>-- CMD ARGS...</code></td><td>Command to run (default <code>$SHELL</code>, else <code>/bin/sh</code>)</td></tr>
+    <tr><td><code>--cols N --rows N</code></td><td>Initial size (default: the attached tty)</td></tr>
+    <tr><td><code>--listen HOST:PORT</code></td><td>Also serve the HTTP API on this loop</td></tr>
+    <tr><td><code>--token T</code></td><td>API bearer token</td></tr>
+  </tbody>
+</table>
+<p><code>SIGWINCH</code> on the attached tty resizes the session live.</p>
+{cmd("tnytty run --listen 127.0.0.1:7681 -- htop")}
+<h2 id="gui">tnytty gui</h2>
+<p>A native window — tnytty's own renderer, not a passthrough into another terminal. macOS only in this phase. Everywhere else exits 1 with <code>gui: not supported on this platform yet</code>.</p>
+<p>The window starts a session the same way <code>run</code> does, sizes the grid from the window's pixels, and exits with the child's exit code. Closing the window or Cmd-Q ends every session in it.</p>
+<p>A window can hold several sessions as split panes. Each pane has its own session, scrollback, and selection. Every pane of a <code>--listen</code> window is a session in the API. A new pane runs the same command from the launch directory. Up to 32 panes.</p>
+<table>
+  <thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>--titlebar transparent|opaque</code></td><td>Overrides <code>macos-titlebar</code></td></tr>
+    <tr><td><code>--font NAME</code></td><td>Monospaced family</td></tr>
+    <tr><td><code>--font-size N</code></td><td>Points</td></tr>
+    <tr><td><code>--padding N</code></td><td>Points around the grid</td></tr>
+    <tr><td><code>--cols N --rows N</code></td><td>Initial grid (default 100×30)</td></tr>
+    <tr><td><code>--listen HOST:PORT</code></td><td>HTTP API on the same loop</td></tr>
+    <tr><td><code>--token T</code></td><td>API bearer token</td></tr>
+  </tbody>
+</table>
+{cmd("tnytty gui")}
+{cmd("tnytty gui --titlebar opaque -- htop")}
+{cmd("tnytty gui --listen 127.0.0.1:7681 -- vim")}
+<p>Command chords belong to the window and never reach the child. Bindings follow iTerm2:</p>
+<table>
+  <thead><tr><th>Chord</th><th>Action</th></tr></thead>
+  <tbody>
+    <tr><td>Cmd-D</td><td>Split vertically (new pane to the right)</td></tr>
+    <tr><td>Cmd-Shift-D</td><td>Split horizontally (new pane below)</td></tr>
+    <tr><td>Cmd-W</td><td>Close the focused pane; closes the window when it is the last</td></tr>
+    <tr><td>Cmd-Opt-arrows</td><td>Focus the neighbouring pane, or do nothing if there is none</td></tr>
+    <tr><td>Cmd-[ / Cmd-]</td><td>Previous / next pane in reading order, wrapping</td></tr>
+    <tr><td>Cmd-C / Cmd-V</td><td>Copy the selection / paste into the focused pane</td></tr>
+    <tr><td>Cmd-Q</td><td>Quit</td></tr>
+  </tbody>
+</table>
+<p>Click a pane to focus it. Click-drag selects characters; double-click a word; triple-click a line. Releasing a drag copies to the pasteboard unless <code>copy-on-select = false</code>. Mouse reporting to the child (SGR 1006) is not wired yet.</p>
+<p>Not in this phase: scrollback scrolling, kitty graphics drawn in the window (they are still parsed and recorded), and IME / marked text.</p>
+<h2 id="serve">tnytty serve</h2>
+<p>Headless. No local tty. Sessions exist only through the API.</p>
+<table>
+  <thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>--listen HOST:PORT</code></td><td>Bind address (default <code>127.0.0.1:7681</code>)</td></tr>
+    <tr><td><code>--token T</code></td><td>Bearer token; required for non-loopback binds. Auto-generated and printed if omitted</td></tr>
+  </tbody>
+</table>
+{cmd('tnytty serve --listen 0.0.0.0:7681 --token "$TNYTTY_TOKEN"')}
+<h2 id="icat">tnytty icat</h2>
+<p>Print an image inline in any kitty-graphics terminal (kitty, ghostty, WezTerm, tnytty renderers). Reads a file or stdin (<code>-</code>). PNG is transmitted as-is. Other formats are a clean error in this phase.</p>
+{cmd("tnytty icat photo.png")}
+{cmd("curl -s https://example.com/x.png | tnytty icat -")}
+<h2 id="env">Environment</h2>
+<p><code>TNYTTY_TOKEN</code> (API token), <code>SHELL</code> (default command), <code>XDG_CONFIG_HOME</code> / <code>HOME</code> (the <a href="tnytty-config.html">config file</a>). <code>NO_COLOR</code> does not apply — tnytty emits the child's bytes, not its own styling.</p>
+"""
+    return page_shell(
+        title="CLI — tnytty",
+        description="tnytty run, gui, serve, and icat.",
+        from_docs=True,
+        active="tnytty",
+        canonical="docs/tnytty-cli.html",
+        current_doc="docs/tnytty-cli.html",
+        toc=[
+            ("tree", "Command tree"),
+            ("run", "run"),
+            ("gui", "gui"),
+            ("serve", "serve"),
+            ("icat", "icat"),
+            ("env", "Environment"),
+        ],
+        body=article(
+            "tnytty CLI",
+            "run, gui, serve, icat. Flags before a pty is opened.",
+            inner,
+        ),
+    )
+
+
+def docs_tnytty_config() -> str:
+    inner = f"""
+<h2 id="location">Location</h2>
+<p>tnytty needs no config file. Every key has a default. CLI flags override both. The file exists so the native window can be styled once.</p>
+<pre><code>$XDG_CONFIG_HOME/tnytty/config      # if XDG_CONFIG_HOME is set
+~/.config/tnytty/config             # otherwise</code></pre>
+<p>A missing file is fine. An unreadable one, or one with a bad value, is not: tnytty prints the path, the line number, and what it expected, then exits 2.</p>
+<h2 id="format">Format</h2>
+<p><code>key = value</code>, one per line. <code>#</code> starts a comment. Whitespace around the key and value is trimmed. No sections, no quoting, no continuations.</p>
+<pre><code># ~/.config/tnytty/config
+font = JetBrains Mono
+font-size = 14
+macos-titlebar = transparent
+padding = 10</code></pre>
+<p>Unknown keys and lines without <code>=</code> are warned on stderr and skipped, so a file written for a newer tnytty still starts. A known key with a bad value is a clean error. The file is limited to 64 KiB; each line to 511 bytes.</p>
+<h2 id="window">Window</h2>
+<table>
+  <thead><tr><th>Key</th><th>Values</th><th>Default</th></tr></thead>
+  <tbody>
+    <tr><td><code>font</code></td><td>installed family name</td><td>empty → Menlo, then the system fixed-pitch UI font</td></tr>
+    <tr><td><code>font-size</code></td><td>4–288</td><td><code>13</code></td></tr>
+    <tr><td><code>macos-titlebar</code></td><td><code>transparent</code>, <code>opaque</code></td><td><code>transparent</code></td></tr>
+    <tr><td><code>padding</code></td><td>0–256</td><td><code>8</code></td></tr>
+  </tbody>
+</table>
+<p>Transparent extends the terminal background under the traffic lights and hides the title; the grid is inset so no text is covered. Opaque restores the system titlebar and shows the session title.</p>
+<h2 id="colors">Colors</h2>
+<p>Values are <code>#rrggbb</code> (the <code>#</code> is optional). Defaults are a dark theme chosen so every palette entry except index 0 clears WCAG AA (4.5:1) against the default background. The unit suite recomputes those ratios and fails the build if a change drops one.</p>
+<table>
+  <thead><tr><th>Key</th><th>Default</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>foreground</code></td><td><code>#d7dae3</code></td><td>Default text (12.91:1 on the background — AAA)</td></tr>
+    <tr><td><code>background</code></td><td><code>#14161f</code></td><td>Terminal and window background</td></tr>
+    <tr><td><code>divider</code></td><td><code>#3a4152</code></td><td>1 px rule between split panes</td></tr>
+    <tr><td><code>palette0</code> … <code>palette15</code></td><td>see below</td><td>SGR 30–37 / 90–97 and the low 16 of the 256-color space</td></tr>
+    <tr><td><code>bold-brightens</code></td><td><code>true</code></td><td>SGR 1 on indexed 0–7 also selects bright 8–15</td></tr>
+  </tbody>
+</table>
+<p>Indices 16–255 are the fixed xterm cube and grayscale ramp and are not configurable. Index 0 is a background color and is allowed to sit below 4.5:1.</p>
+<table>
+  <thead><tr><th>Key</th><th>Color</th><th>Role</th></tr></thead>
+  <tbody>
+    <tr><td><code>palette0</code></td><td><code>#2a2f3a</code></td><td>black</td></tr>
+    <tr><td><code>palette1</code></td><td><code>#f07178</code></td><td>red</td></tr>
+    <tr><td><code>palette2</code></td><td><code>#9ece6a</code></td><td>green</td></tr>
+    <tr><td><code>palette3</code></td><td><code>#e0c980</code></td><td>yellow</td></tr>
+    <tr><td><code>palette4</code></td><td><code>#7aa2f7</code></td><td>blue</td></tr>
+    <tr><td><code>palette5</code></td><td><code>#c792ea</code></td><td>magenta</td></tr>
+    <tr><td><code>palette6</code></td><td><code>#56cfd8</code></td><td>cyan</td></tr>
+    <tr><td><code>palette7</code></td><td><code>#b9bfca</code></td><td>white</td></tr>
+    <tr><td><code>palette8</code></td><td><code>#7a8296</code></td><td>bright black</td></tr>
+    <tr><td><code>palette9</code></td><td><code>#ff8b92</code></td><td>bright red</td></tr>
+    <tr><td><code>palette10</code></td><td><code>#b4f08a</code></td><td>bright green</td></tr>
+    <tr><td><code>palette11</code></td><td><code>#ffe08a</code></td><td>bright yellow</td></tr>
+    <tr><td><code>palette12</code></td><td><code>#9fc1ff</code></td><td>bright blue</td></tr>
+    <tr><td><code>palette13</code></td><td><code>#e0b0ff</code></td><td>bright magenta</td></tr>
+    <tr><td><code>palette14</code></td><td><code>#7fe6ee</code></td><td>bright cyan</td></tr>
+    <tr><td><code>palette15</code></td><td><code>#eef1f7</code></td><td>bright white</td></tr>
+  </tbody>
+</table>
+<h2 id="behavior">Behavior</h2>
+<table>
+  <thead><tr><th>Key</th><th>Values</th><th>Default</th></tr></thead>
+  <tbody>
+    <tr><td><code>copy-on-select</code></td><td><code>true</code>, <code>false</code> (also yes/no, 1/0)</td><td><code>true</code></td></tr>
+    <tr><td><code>status-bar</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code> — one-line transient messages; <code>false</code> returns the row to the grid</td></tr>
+  </tbody>
+</table>
+<h2 id="flags">Flags win</h2>
+<p>Every window key has a flag on <code>tnytty gui</code>. A bad flag is an error, never a warning. Colors and behavior keys have no flags yet.</p>
+{cmd("tnytty gui --titlebar opaque --font Menlo --font-size 15 --padding 0")}
+<h2 id="later">Not configurable yet</h2>
+<p>Cursor style, key bindings, selection colors (the highlight inverts the cell), the status-bar timeout, the split ratio (always 50/50; dividers are not draggable), and scrollback size are compiled-in. New keys are additive.</p>
+"""
+    return page_shell(
+        title="Configuration — tnytty",
+        description="Config file location, keys, palette, and flag overrides.",
+        from_docs=True,
+        active="tnytty",
+        canonical="docs/tnytty-config.html",
+        current_doc="docs/tnytty-config.html",
+        toc=[
+            ("location", "Location"),
+            ("format", "Format"),
+            ("window", "Window"),
+            ("colors", "Colors"),
+            ("behavior", "Behavior"),
+            ("flags", "Flags"),
+            ("later", "Not yet"),
+        ],
+        body=article(
+            "tnytty configuration",
+            "Optional file. Flags override it. Missing is not an error.",
+            inner,
+        ),
+    )
+
+
+def docs_tnytty_api() -> str:
+    inner = f"""
+<h2 id="bind">Binding and auth</h2>
+<p>Served by <code>tnytty serve</code>, <code>tnytty run --listen</code>, or <code>tnytty gui --listen</code>. JSON in, JSON out, except the plain-text screen dump. HTTP/1.1, <code>Connection: close</code> per response. SSE streaming is later work.</p>
+<ul>
+  <li>Default bind: <code>127.0.0.1:7681</code>. Loopback needs no token.</li>
+  <li>Non-loopback (<code>--listen 0.0.0.0:7681</code>) requires a token: <code>--token</code> / <code>TNYTTY_TOKEN</code>, or tnytty generates one and prints it once. Requests then need <code>Authorization: Bearer &lt;token&gt;</code>.</li>
+  <li><code>--token</code> on loopback enforces the token there too.</li>
+  <li>Token comparison is constant-time. Failures are <code>401 {{"error":"unauthorized"}}</code>.</li>
+</ul>
+<p>Sharing a session is sharing the base URL plus the token. Anyone with both can read the screen and type into the pty. Treat the token like an SSH key. There is no TLS in-process — put a reverse proxy in front of a public bind.</p>
+<h2 id="health">GET /v1/health</h2>
+<p><code>200 {{"ok":true,"version":"…","sessions":N}}</code>. No auth on loopback; token required elsewhere.</p>
+<h2 id="list">GET /v1/sessions</h2>
+<p><code>200 {{"sessions":[{{...session}},...]}}</code></p>
+<h2 id="create">POST /v1/sessions</h2>
+<p>Body, all optional: <code>{{"cmd":["bash","-l"],"cols":80,"rows":24}}</code>. Defaults: <code>$SHELL</code> (else <code>/bin/sh</code>), 80×24. <code>201</code> with the session object, or <code>500</code> if spawn fails. Sessions created through a <code>run</code> or <code>gui</code> listener share that process's event loop.</p>
+<h2 id="one">GET /v1/sessions/{{id}}</h2>
+<pre><code>{{
+  "id": "a1b2c3d4",
+  "cmd": ["bash", "-l"],
+  "cols": 80, "rows": 24,
+  "title": "~/src — bash",
+  "alive": true, "exit_code": null,
+  "created_unix": 1756400000,
+  "graphics": 2
+}}</code></pre>
+<p><code>404 {{"error":"no such session"}}</code> if the id is unknown. Ids are short random hex, not sequential, because they appear in shared URLs.</p>
+<h2 id="screen">GET /v1/sessions/{{id}}/screen</h2>
+<p>Default / <code>?format=text</code>: <code>text/plain; charset=utf-8</code> — the grid as UTF-8 lines, trailing blanks trimmed, one newline per row.</p>
+<p><code>?format=json</code> adds cursor, size, title, and styled runs:</p>
+<pre><code>{{
+  "cols": 80, "rows": 24,
+  "cursor": {{"x": 3, "y": 0, "visible": true}},
+  "alt_screen": false,
+  "lines": [
+    {{"text": "hi",
+     "runs": [{{"start":0,"len":2,"fg":"#ff0000","bg":"","attrs":["bold"]}}]}}
+  ]
+}}</code></pre>
+<p>Colors: <code>""</code> default, <code>"@n"</code> for indexed n, <code>"#rrggbb"</code> for truecolor. Attrs: <code>bold, faint, italic, underline, blink, reverse, hidden, strike</code>.</p>
+<h2 id="input">POST /v1/sessions/{{id}}/input</h2>
+<p>Body <code>{{"text":"ls -la\\r"}}</code> (UTF-8, written verbatim) or <code>{{"base64":"…"}}</code> for exact bytes. <code>200 {{"written":N}}</code>. Control characters are the caller's job (<code>\\r</code> for Enter). The API never rewrites input.</p>
+<p>Bytes that do not fit in the kernel pty buffer are queued on the session and drained as the child reads, so <code>"written":N</code> always equals the bytes you sent. The queue is 4 MiB per session. A write that would exceed it is rejected whole with <code>503 {{"error":"input queue full"}}</code>. Request bodies are capped at 1 MiB.</p>
+<h2 id="resize">POST /v1/sessions/{{id}}/resize</h2>
+<p>Body <code>{{"cols":120,"rows":40}}</code> → grid reflow, <code>TIOCSWINSZ</code>, <code>SIGWINCH</code>. <code>200</code> with the session. A session attached to <code>run</code> or a GUI pane gets its geometry from that frontend and returns <code>409</code>.</p>
+<h2 id="delete">DELETE /v1/sessions/{{id}}</h2>
+<p><code>SIGHUP</code> to the child process group, reap, drop the session. <code>200 {{"ok":true}}</code>. Attached <code>run</code> / pane sessions return <code>409</code> — close the terminal or pane instead. Teardown escalates to <code>SIGKILL</code> after 100 ms if the child ignores <code>SIGHUP</code>.</p>
+<h2 id="errors">Errors</h2>
+<p>Always JSON: <code>{{"error":"&lt;message&gt;"}}</code>. 400 bad request, 401 auth, 404 unknown session or route, 405 method, 409 the attached frontend owns geometry or lifetime, 500 spawn/OS, 503 input queue full.</p>
+<h2 id="examples">Examples</h2>
+{cmd('tnytty serve --listen 0.0.0.0:7681 --token "$TNYTTY_TOKEN"')}
+<pre><code>curl -s -H "Authorization: Bearer $TNYTTY_TOKEN" \\
+     -d '{{"cmd":["htop"],"cols":120,"rows":32}}' \\
+     http://host:7681/v1/sessions
+curl -s -H "Authorization: Bearer $TNYTTY_TOKEN" \\
+     http://host:7681/v1/sessions/a1b2c3d4/screen
+curl -s -H "Authorization: Bearer $TNYTTY_TOKEN" \\
+     -d '{{"text":"q"}}' http://host:7681/v1/sessions/a1b2c3d4/input</code></pre>
+"""
+    return page_shell(
+        title="HTTP API — tnytty",
+        description="REST surface for scriptable, shareable terminal sessions.",
+        from_docs=True,
+        active="tnytty",
+        canonical="docs/tnytty-api.html",
+        current_doc="docs/tnytty-api.html",
+        toc=[
+            ("bind", "Auth"),
+            ("health", "health"),
+            ("list", "list"),
+            ("create", "create"),
+            ("one", "one session"),
+            ("screen", "screen"),
+            ("input", "input"),
+            ("resize", "resize"),
+            ("delete", "delete"),
+            ("errors", "Errors"),
+            ("examples", "Examples"),
+        ],
+        body=article(
+            "tnytty HTTP API",
+            "curl is the reference client. A leaked token is shell access.",
+            inner,
+        ),
+    )
+
+
+def docs_tnytty_architecture() -> str:
+    inner = """
+<h2 id="shape">Shape</h2>
+<pre><code>            keystrokes / HTTP POST input          bytes from child
+                     │                                   ▲
+                     ▼                                   │
+   ┌──────────┐   write   ┌─────────┐   read   ┌─────────────────┐
+   │ adapters │ ────────► │   pty   │ ───────► │  vt core (lib)  │
+   │ cli/api  │           │  seam   │          │ grid+parser+gfx │
+   └──────────┘           └─────────┘          └─────────────────┘
+        ▲                                               │
+        └── screen dumps (text/JSON), passthrough bytes ┘</code></pre>
+<p>Three layers, one rule: the core is headless and I/O-free.</p>
+<h2 id="vt">VT core</h2>
+<p><code>src/vt/</code> is a pure state machine. <code>vt_feed(vt, bytes, len)</code> consumes child output and updates a cell grid. It performs no I/O. When the emulated program asks a question (DSR, DA), the core emits the answer through a caller-provided <code>respond</code> callback. Kitty graphics APC payloads go through a <code>graphics</code> callback plus a per-session record.</p>
+<p>Cells store a codepoint, one combining mark, packed attributes, and tagged fg/bg (default / 256 / truecolor). Width comes from built-in tables: East-Asian wide blocks and emoji are 2, combining marks are 0, Private Use Area is 1. The parser is incremental — UTF-8, CSI, OSC, and APC all survive arbitrary read-boundary splits, enforced by the unit suite.</p>
+<h2 id="pty">pty seam</h2>
+<p><code>src/term/pty.h</code> is the platform seam. POSIX uses <code>posix_openpt</code> / <code>fork</code> / <code>TIOCSCTTY</code>. Other platforms implement the same header (ConPTY on Windows, none on iOS). Platform code lives only behind this seam, never as <code>#ifdef</code>s in the core.</p>
+<h2 id="session">Session registry</h2>
+<p>A session is pty + VT + metadata (id, argv, size, creation time, exit status). The registry owns lifecycle. Both adapters address sessions through it. Input is queued, never dropped: a write is all-or-nothing from the caller's side, capped at 4 MiB. Past the cap the HTTP adapter returns 503. <code>tnytty run</code> applies back-pressure on the attached tty instead.</p>
+<h2 id="http">HTTP adapter</h2>
+<p>A minimal HTTP/1.1 server on vendored picohttpparser. Request handling is a pure function from (method, path, body, auth) to a response buffer, so the router is unit-testable without sockets.</p>
+<h2 id="ui">Native renderer</h2>
+<p>The window seam sits beside the pty seam: one implementation per platform (<code>window_macos.c</code>; <code>window_stub.c</code> elsewhere). A CPU cell rasterizer reads the same getters the HTTP screen endpoint reads and paints an RGBA framebuffer, dirty rows only. Split panes share one framebuffer and one loop. Glyph masks come from the platform through one callback.</p>
+<h2 id="loop">One event loop</h2>
+<p>A single <code>poll(2)</code> multiplexes the listening socket, HTTP connections, every session's pty master, and (in <code>run</code>) stdin plus <code>SIGWINCH</code> via a self-pipe. No threads in the hot path. Each ready pty gets a bounded number of reads per turn so a continuous producer cannot starve HTTP, signals, or sibling panes.</p>
+<p><code>tnytty gui</code> keeps that loop and adds the window. AppKit's queue is not a pollable fd, so the poll timeout is bounded (8 ms) and each turn also drains the queue and presents dirty rows. The main thread is the only thread that touches a VT core.</p>
+<p>Foreground adapters mark their terminal or pane sessions as attached. The HTTP API can read the screen and write input, but cannot resize or destroy them behind the adapter's retained pointer.</p>
+<h2 id="deps">Vendored dependencies</h2>
+<p>From the shared root <code>third_party/</code> only: picohttpparser, yyjson, greatest. The VT core depends on none of them. No ncurses. No GUI toolkit in the core.</p>
+<h2 id="platforms">Platforms</h2>
+<table>
+  <thead><tr><th>Platform</th><th>Phase 1</th><th>Target</th></tr></thead>
+  <tbody>
+    <tr><td>Linux</td><td>works — <code>run</code>, <code>serve</code>, <code>icat</code>, API. <code>gui</code> is a clean error</td><td>Wayland/X11 window behind the same seam; static musl publish builds</td></tr>
+    <tr><td>macOS arm64</td><td>works, including <code>gui</code></td><td>first-class</td></tr>
+    <tr><td>Windows</td><td>clean error from <code>run</code>/<code>serve</code>/<code>gui</code>; <code>icat</code> works</td><td>ConPTY + DirectWrite window</td></tr>
+    <tr><td>iOS</td><td>remote-only — no local pty</td><td>renderer + HTTP client attaching to a remote session</td></tr>
+  </tbody>
+</table>
+<p>New platform support is a new <code>pty_*.c</code> (and <code>window_*.c</code> if there is a window) plus a row on this table plus CI. The VT core must compile on every target, including iOS and wasm.</p>
+"""
+    return page_shell(
+        title="Architecture — tnytty",
+        description="Headless VT core, pty seam, one event loop, platform adapters.",
+        from_docs=True,
+        active="tnytty",
+        canonical="docs/tnytty-architecture.html",
+        current_doc="docs/tnytty-architecture.html",
+        toc=[
+            ("shape", "Shape"),
+            ("vt", "VT core"),
+            ("pty", "pty seam"),
+            ("session", "Sessions"),
+            ("http", "HTTP"),
+            ("ui", "Renderer"),
+            ("loop", "Event loop"),
+            ("deps", "Dependencies"),
+            ("platforms", "Platforms"),
+        ],
+        body=article(
+            "tnytty architecture",
+            "The core takes bytes and returns state. Everything else is an adapter.",
+            inner,
+        ),
+    )
+
+
 def not_found() -> str:
     return page_shell(
         title="404 — tny",
@@ -1145,7 +1590,27 @@ def not_found() -> str:
         from_docs=False,
         active=None,
         canonical="404.html",
-        body='<main class="not-found"><div><h1>404</h1><p>This page could not be found. <a href="index.html">Home</a> · <a href="docs/index.html">Docs</a></p></div></main>',
+        body='<main class="not-found"><div><h1>404</h1><p>This page could not be found. <a href="index.html">Home</a> · <a href="docs/index.html">Docs</a> · <a href="docs/tnytty.html">tnytty</a></p></div></main>',
+    )
+
+
+def sitemap_xml(page_names: list[str]) -> str:
+    urls = []
+    for rel_path in page_names:
+        if rel_path == "404.html":
+            continue
+        if rel_path == "index.html":
+            loc = SITE_BASE
+        elif rel_path == "docs/index.html":
+            loc = SITE_BASE + "docs/"
+        else:
+            loc = SITE_BASE + rel_path
+        urls.append(f"  <url><loc>{loc}</loc></url>")
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + "\n".join(urls)
+        + "\n</urlset>\n"
     )
 
 
@@ -1173,10 +1638,17 @@ def main() -> None:
         "docs/backends.html": docs_backends(),
         "docs/architecture.html": docs_architecture(),
         "docs/size.html": docs_size(),
+        "docs/tnytty.html": docs_tnytty(),
+        "docs/tnytty-cli.html": docs_tnytty_cli(),
+        "docs/tnytty-config.html": docs_tnytty_config(),
+        "docs/tnytty-api.html": docs_tnytty_api(),
+        "docs/tnytty-architecture.html": docs_tnytty_architecture(),
     }
     for rel_path, html in pages.items():
         write(SITE / rel_path, html)
         print("wrote", rel_path)
+    write(SITE / "sitemap.xml", sitemap_xml(list(pages)))
+    print("wrote sitemap.xml")
 
 
 if __name__ == "__main__":

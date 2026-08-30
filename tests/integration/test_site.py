@@ -112,9 +112,36 @@ def main() -> None:
         fail("workflows.html lost shell line continuations")
 
     workflow_url = "https://thehumanworks.github.io/tny/docs/workflows.html"
+    tnytty_urls = (
+        "https://thehumanworks.github.io/tny/docs/tnytty.html",
+        "https://thehumanworks.github.io/tny/docs/tnytty-cli.html",
+        "https://thehumanworks.github.io/tny/docs/tnytty-config.html",
+        "https://thehumanworks.github.io/tny/docs/tnytty-api.html",
+        "https://thehumanworks.github.io/tny/docs/tnytty-architecture.html",
+    )
     for sitemap in (SITE / "sitemap.xml", ROOT / "docs" / "sitemap.xml"):
-        if workflow_url not in sitemap.read_text(encoding="utf-8"):
+        text = sitemap.read_text(encoding="utf-8")
+        if workflow_url not in text:
             fail(f"{sitemap.relative_to(ROOT)} is missing the workflows page")
+        for url in tnytty_urls:
+            if url not in text:
+                fail(f"{sitemap.relative_to(ROOT)} is missing {url}")
+
+    tnytty = (SITE / "docs" / "tnytty.html").read_text(encoding="utf-8")
+    for needle in (
+        "the tiny terminal",
+        "tnytty run --listen",
+        'href="tnytty-api.html"',
+        'aria-current="page">tnytty</a>',
+    ):
+        if needle not in tnytty:
+            fail(f"docs/tnytty.html missing {needle!r}")
+    api = (SITE / "docs" / "tnytty-api.html").read_text(encoding="utf-8")
+    for needle in ("Authorization: Bearer", "/v1/sessions", "input queue full"):
+        if needle not in api:
+            fail(f"docs/tnytty-api.html missing {needle!r}")
+    if "tnytty.html" not in (SITE / "docs" / "index.html").read_text(encoding="utf-8"):
+        fail("docs/index.html lost the tnytty sidebar link")
 
     node = subprocess.run(["node", "-v"], capture_output=True, text=True)
     if node.returncode != 0:
