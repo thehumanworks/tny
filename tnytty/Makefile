@@ -30,8 +30,8 @@ DBG_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -O0 -g
 # The native window (docs/adr/0005): one implementation per platform
 # behind src/ui/window.h. AppKit/CoreText are reached from C through the
 # Objective-C runtime, so this stays a C11 build — no .m files.
-UI_SRC = src/ui/render.c src/ui/layout.c src/ui/keys.c src/ui/selection.c \
-         src/ui/status.c src/ui/reply.c src/ui/gui.c
+UI_SRC = src/ui/render.c src/ui/layout.c src/ui/tabs.c src/ui/workspace.c src/ui/keys.c \
+         src/ui/selection.c src/ui/status.c src/ui/reply.c src/ui/gui.c
 UI_FRAMEWORKS =
 ifeq ($(UNAME_S),Darwin)
   UI_SRC += src/ui/window_macos.c
@@ -64,7 +64,7 @@ OBJ_DBG = $(BUILD)/dbg
 BIN     = $(BUILD)/tnytty
 TEST_BIN = $(BUILD)/tnytty-test
 
-SRC = $(wildcard src/*.c src/vt/*.c src/term/*.c src/session/*.c src/api/*.c \
+SRC = $(wildcard src/*.c src/vt/*.c src/term/*.c src/session/*.c src/api/*.c src/broker/*.c \
       src/icat/*.c src/util/*.c) $(UI_SRC)
 # Shared vendored libraries, pinned once at the monorepo root.
 TP  = $(TP_DIR)/yyjson/yyjson.c $(TP_DIR)/picohttpparser/picohttpparser.c

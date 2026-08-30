@@ -119,6 +119,26 @@ TEST command_chords_decode(void) {
     PASS();
 }
 
+TEST tab_and_lifecycle_chords_decode(void) {
+    unsigned cmd = TT_MOD_SUPER;
+    unsigned cmd_shift = TT_MOD_SUPER | TT_MOD_SHIFT;
+    ASSERT_EQ(TT_CHORD_QUIT, tt_key_chord(TT_KEY_TEXT, "q", 1, cmd));
+    ASSERT_EQ(TT_CHORD_NEW_TAB, tt_key_chord(TT_KEY_TEXT, "t", 1, cmd));
+    ASSERT_EQ(TT_CHORD_CLOSE_TAB, tt_key_chord(TT_KEY_TEXT, "W", 1, cmd_shift));
+    ASSERT_EQ(TT_CHORD_TAB_PREV, tt_key_chord(TT_KEY_TEXT, "[", 1, cmd_shift));
+    ASSERT_EQ(TT_CHORD_TAB_PREV, tt_key_chord(TT_KEY_TEXT, "{", 1, cmd_shift));
+    ASSERT_EQ(TT_CHORD_TAB_NEXT, tt_key_chord(TT_KEY_TEXT, "]", 1, cmd_shift));
+    ASSERT_EQ(TT_CHORD_TAB_NEXT, tt_key_chord(TT_KEY_TEXT, "}", 1, cmd_shift));
+    for (int i = 0; i < 9; i++) {
+        char digit = (char)('1' + i);
+        tt_chord chord = tt_key_chord(TT_KEY_TEXT, &digit, 1, cmd);
+        ASSERT_EQ((tt_chord)(TT_CHORD_TAB_1 + i), chord);
+        ASSERT_EQ(i, tt_chord_tab_index(chord));
+    }
+    ASSERT_EQ(-1, tt_chord_tab_index(TT_CHORD_NEW_TAB));
+    PASS();
+}
+
 TEST command_option_arrows_move_focus(void) {
     unsigned m = TT_MOD_SUPER | TT_MOD_ALT;
     ASSERT_EQ(TT_CHORD_FOCUS_LEFT, tt_key_chord(TT_KEY_LEFT, "", 0, m));
@@ -143,6 +163,17 @@ TEST presses_that_are_not_chords_are_left_to_appkit(void) {
     /* Shift-Cmd-C is not copy, and Cmd-Opt-D is not a split. */
     ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "C", 1, TT_MOD_SUPER | TT_MOD_SHIFT));
     ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "d", 1, TT_MOD_SUPER | TT_MOD_ALT));
+    /* Lifecycle and tab chords require exact modifiers. */
+    ASSERT_EQ(TT_CHORD_NONE,
+              tt_key_chord(TT_KEY_TEXT, "Q", 1, TT_MOD_SUPER | TT_MOD_SHIFT));
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "q", 1, TT_MOD_SUPER | TT_MOD_ALT));
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "q", 1, TT_MOD_SUPER | TT_MOD_CTRL));
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "t", 1, TT_MOD_SUPER | TT_MOD_ALT));
+    ASSERT_EQ(TT_CHORD_NONE,
+              tt_key_chord(TT_KEY_TEXT, "W", 1,
+                           TT_MOD_SUPER | TT_MOD_SHIFT | TT_MOD_ALT));
+    ASSERT_EQ(TT_CHORD_NONE,
+              tt_key_chord(TT_KEY_TEXT, "1", 1, TT_MOD_SUPER | TT_MOD_SHIFT));
     /* Multi-byte text (a composed character) is never a chord. */
     ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "\xc3\xa5", 2, TT_MOD_SUPER));
     PASS();
@@ -159,6 +190,7 @@ SUITE(keys_suite) {
     RUN_TEST(option_is_meta_esc_prefix);
     RUN_TEST(command_never_reaches_the_pty);
     RUN_TEST(command_chords_decode);
+    RUN_TEST(tab_and_lifecycle_chords_decode);
     RUN_TEST(command_option_arrows_move_focus);
     RUN_TEST(presses_that_are_not_chords_are_left_to_appkit);
     RUN_TEST(empty_press_and_tight_buffers_write_nothing);

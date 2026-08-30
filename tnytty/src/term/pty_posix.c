@@ -18,7 +18,7 @@ static int set_nonblock(int fd) {
     return fcntl(fd, F_SETFL, fl | O_NONBLOCK);
 }
 
-int tt_pty_spawn(tt_pty *p, char *const argv[], int cols, int rows) {
+int tt_pty_spawn_at(tt_pty *p, char *const argv[], int cols, int rows, const char *cwd) {
     p->master = -1;
     p->pid = -1;
     int master = posix_openpt(O_RDWR | O_NOCTTY);
@@ -71,6 +71,10 @@ int tt_pty_spawn(tt_pty *p, char *const argv[], int cols, int rows) {
         close(sync_pipe[1]);
         setenv("TERM", "xterm-256color", 1);
         signal(SIGPIPE, SIG_DFL);
+        if (cwd && cwd[0] == '/' && chdir(cwd) != 0) {
+            fprintf(stderr, "tnytty: chdir %s: %s\r\n", cwd, strerror(errno));
+            _exit(127);
+        }
         execvp(argv[0], argv);
         fprintf(stderr, "tnytty: exec %s: %s\r\n", argv[0], strerror(errno));
         _exit(127);
@@ -91,6 +95,10 @@ int tt_pty_spawn(tt_pty *p, char *const argv[], int cols, int rows) {
     p->master = master;
     p->pid = pid;
     return 0;
+}
+
+int tt_pty_spawn(tt_pty *p, char *const argv[], int cols, int rows) {
+    return tt_pty_spawn_at(p, argv, cols, rows, NULL);
 }
 
 int tt_pty_resize(tt_pty *p, int cols, int rows) {

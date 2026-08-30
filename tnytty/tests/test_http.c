@@ -104,6 +104,25 @@ TEST session_lifecycle_over_the_api(void) {
     ASSERT(strstr(body_of(&out), "\"text\":\"hello world\"") != NULL);
     ASSERT(strstr(body_of(&out), "\"attrs\":[\"bold\"]") != NULL);
     ASSERT(strstr(body_of(&out), "\"cursor\"") != NULL);
+    ASSERT(strstr(body_of(&out), "\"generation\"") != NULL);
+    ASSERT(strstr(body_of(&out), "\"history\":[]") != NULL);
+    tt_buf_free(&out);
+
+    /* The native frontend receives the canonical, versioned VT snapshot,
+     * not a second broker-specific serialization. */
+    snprintf(path, sizeof path, "/v1/sessions/%s/screen?format=wire", id);
+    tt_buf_init(&out);
+    tt_api_route(&api, "GET", path, NULL, 0, &out);
+    ASSERT_EQ(200, status_of(&out));
+    const char *wire = body_of(&out);
+    size_t wire_len = out.len - (size_t)(wire - out.data);
+    vt *mirror = vt_new(1, 1, 0);
+    ASSERT(mirror != NULL);
+    ASSERT_EQ(0, vt_snapshot_read(mirror, wire, wire_len));
+    char mirrored[64];
+    vt_line_text(mirror, 0, mirrored, sizeof mirrored);
+    ASSERT(strstr(mirrored, "hello world") != NULL);
+    vt_free(mirror);
     tt_buf_free(&out);
 
     /* input reaches the pty */
@@ -165,6 +184,27 @@ TEST bad_bodies_are_400(void) {
     PASS();
 }
 
+TEST screen_history_is_bounded_by_the_registry(void) {
+    char *argv[] = {(char *)"sleep", (char *)"30", NULL};
+    tt_registry reg;
+    tt_registry_init(&reg, 1);
+    tt_session *s = tt_session_create(&reg, argv, 12, 1);
+    ASSERT(s != NULL);
+    vt_feed(s->term, "old\r\nnew", 8);
+    tt_api api = {&reg, NULL, "test"};
+    char path[96];
+    snprintf(path, sizeof path, "/v1/sessions/%s/screen?format=json&scrollback=999", s->id);
+    tt_buf out;
+    tt_buf_init(&out);
+    tt_api_route(&api, "GET", path, NULL, 0, &out);
+    ASSERT_EQ(200, status_of(&out));
+    ASSERT(strstr(body_of(&out), "\"history\":[\"old\"]") != NULL);
+    ASSERT(strstr(body_of(&out), "\"text\":\"new\"") != NULL);
+    tt_buf_free(&out);
+    tt_registry_free(&reg);
+    PASS();
+}
+
 TEST attached_session_lifecycle_belongs_to_frontend(void) {
     char *argv[] = {(char *)"sleep", (char *)"30", NULL};
     tt_registry reg;
@@ -211,6 +251,7 @@ SUITE(http_suite) {
     RUN_TEST(bearer_auth_is_enforced);
     RUN_TEST(session_lifecycle_over_the_api);
     RUN_TEST(bad_bodies_are_400);
+    RUN_TEST(screen_history_is_bounded_by_the_registry);
     RUN_TEST(attached_session_lifecycle_belongs_to_frontend);
     RUN_TEST(const_eq_ignores_length_leaks);
 }

@@ -54,7 +54,12 @@ void tt_registry_free(tt_registry *r);
 /* Spawn argv (NULL argv = $SHELL, else /bin/sh). Returns the session or
  * NULL with errno set. */
 tt_session *tt_session_create(tt_registry *r, char *const argv[], int cols, int rows);
+tt_session *tt_session_create_at(tt_registry *r, char *const argv[], int cols, int rows,
+                                 const char *cwd);
 tt_session *tt_session_find(tt_registry *r, const char *id);
+/* Make this registry owner answer DSR/DA directly into the PTY. Broker-owned
+ * sessions enable this so queries keep working with no frontend attached. */
+void tt_session_enable_replies(tt_session *s);
 /* Kill, reap (blocking), and remove. */
 void tt_session_destroy(tt_registry *r, tt_session *s);
 

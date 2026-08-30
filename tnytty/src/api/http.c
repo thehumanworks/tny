@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #define MAX_CONNS   32
@@ -76,12 +78,28 @@ static yyjson_mut_val *session_obj(yyjson_mut_doc *d, const tt_session *s) {
     yyjson_mut_obj_add_int(d, o, "cols", vt_cols(s->term));
     yyjson_mut_obj_add_int(d, o, "rows", vt_rows(s->term));
     yyjson_mut_obj_add_str(d, o, "title", vt_title(s->term));
+    yyjson_mut_obj_add_str(d, o, "cwd", vt_cwd(s->term));
     yyjson_mut_obj_add_bool(d, o, "alive", s->alive);
     if (s->alive) yyjson_mut_obj_add_null(d, o, "exit_code");
     else yyjson_mut_obj_add_int(d, o, "exit_code", s->exit_code);
     yyjson_mut_obj_add_int(d, o, "created_unix", (int64_t)s->created);
     yyjson_mut_obj_add_int(d, o, "graphics", vt_graphics_count(s->term));
+    yyjson_mut_obj_add_uint(d, o, "generation", vt_generation(s->term));
+    yyjson_mut_obj_add_bool(d, o, "attached", s->attached);
     return o;
+}
+
+static void screen_wire(tt_session *s, tt_buf *out) {
+    size_t size = vt_snapshot_size(s->term);
+    void *body = size ? malloc(size) : NULL;
+    size_t written = 0;
+    if (!body || vt_snapshot_write(s->term, body, size, &written) != 0) {
+        free(body);
+        tt_api_error(out, 500, "cannot snapshot terminal");
+        return;
+    }
+    respond(out, 200, "application/vnd.tnytty.snapshot-v1", body, written);
+    free(body);
 }
 
 static void color_str(uint32_t c, char *out, size_t cap) {
@@ -105,7 +123,7 @@ static yyjson_mut_val *attrs_arr(yyjson_mut_doc *d, uint16_t a) {
     return arr;
 }
 
-static void screen_json(tt_api *api, tt_session *s, tt_buf *out) {
+static void screen_json(tt_api *api, tt_session *s, int history, tt_buf *out) {
     (void)api;
     vt *t = s->term;
     yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
@@ -121,6 +139,47 @@ static void screen_json(tt_api *api, tt_session *s, tt_buf *out) {
     yyjson_mut_obj_add_bool(d, root, "alt_screen", vt_alt_screen(t));
     yyjson_mut_obj_add_str(d, root, "title", vt_title(t));
     yyjson_mut_obj_add_int(d, root, "scrollback", vt_scrollback_len(t));
+    yyjson_mut_obj_add_uint(d, root, "generation", vt_generation(s->term));
+
+    int available = vt_scrollback_len(t);
+    if (history < 0) history = 0;
+    if (history > available) history = available;
+    yyjson_mut_val *hist = yyjson_mut_arr(d);
+    for (int i = available - history; i < available; i++) {
+        int hcols = 0;
+        const vt_cell *hline = vt_scrollback_line(t, i, &hcols);
+        size_t hcap = (size_t)hcols * 8 + 1;
+        char *htext = malloc(hcap);
+        if (!htext) break;
+        size_t used = 0, last = 0;
+        for (int x = 0; hline && x < hcols; x++) {
+            uint32_t cp = hline[x].cp;
+            if (hline[x].attrs & VT_ATTR_WIDE_CONT) continue;
+            char tmp[4];
+            size_t n = 0;
+            if (cp < 0x80) tmp[n++] = (char)(cp ? cp : ' ');
+            else if (cp < 0x800) {
+                tmp[n++] = (char)(0xc0 | (cp >> 6));
+                tmp[n++] = (char)(0x80 | (cp & 0x3f));
+            } else if (cp < 0x10000) {
+                tmp[n++] = (char)(0xe0 | (cp >> 12));
+                tmp[n++] = (char)(0x80 | ((cp >> 6) & 0x3f));
+                tmp[n++] = (char)(0x80 | (cp & 0x3f));
+            } else {
+                tmp[n++] = (char)(0xf0 | (cp >> 18));
+                tmp[n++] = (char)(0x80 | ((cp >> 12) & 0x3f));
+                tmp[n++] = (char)(0x80 | ((cp >> 6) & 0x3f));
+                tmp[n++] = (char)(0x80 | (cp & 0x3f));
+            }
+            if (used + n < hcap) memcpy(htext + used, tmp, n);
+            used += n;
+            if (cp) last = used;
+        }
+        if (last < hcap) htext[last] = '\0';
+        yyjson_mut_arr_add_strcpy(d, hist, htext);
+        free(htext);
+    }
+    yyjson_mut_obj_add_val(d, root, "history", hist);
 
     size_t text_cap = (size_t)vt_cols(t) * 8 + 1;
     char *text = malloc(text_cap);
@@ -162,7 +221,7 @@ static void screen_json(tt_api *api, tt_session *s, tt_buf *out) {
     yyjson_mut_doc_free(d);
 }
 
-static void screen_text(tt_session *s, tt_buf *out) {
+static void screen_text(tt_session *s, int history, tt_buf *out) {
     vt *t = s->term;
     size_t cap = (size_t)vt_cols(t) * 8 + 2;
     char *text = malloc(cap);
@@ -172,6 +231,35 @@ static void screen_text(tt_session *s, tt_buf *out) {
     }
     tt_buf body;
     tt_buf_init(&body);
+    int available = vt_scrollback_len(t);
+    if (history < 0) history = 0;
+    if (history > available) history = available;
+    for (int i = available - history; i < available; i++) {
+        int hcols = 0;
+        const vt_cell *line = vt_scrollback_line(t, i, &hcols);
+        for (int x = 0; line && x < hcols; x++) {
+            if (line[x].attrs & VT_ATTR_WIDE_CONT) continue;
+            uint32_t cp = line[x].cp ? line[x].cp : ' ';
+            char tmp[4];
+            size_t n = 0;
+            if (cp < 0x80) tmp[n++] = (char)cp;
+            else if (cp < 0x800) {
+                tmp[n++] = (char)(0xc0 | (cp >> 6));
+                tmp[n++] = (char)(0x80 | (cp & 0x3f));
+            } else if (cp < 0x10000) {
+                tmp[n++] = (char)(0xe0 | (cp >> 12));
+                tmp[n++] = (char)(0x80 | ((cp >> 6) & 0x3f));
+                tmp[n++] = (char)(0x80 | (cp & 0x3f));
+            } else {
+                tmp[n++] = (char)(0xf0 | (cp >> 18));
+                tmp[n++] = (char)(0x80 | ((cp >> 12) & 0x3f));
+                tmp[n++] = (char)(0x80 | ((cp >> 6) & 0x3f));
+                tmp[n++] = (char)(0x80 | (cp & 0x3f));
+            }
+            tt_buf_append(&body, tmp, n);
+        }
+        tt_buf_append(&body, "\n", 1);
+    }
     for (int y = 0; y < vt_rows(t); y++) {
         size_t n = vt_line_text(t, y, text, cap);
         text[n] = '\n';
@@ -211,6 +299,7 @@ static void handle_list(tt_api *api, tt_buf *out) {
 static void handle_create(tt_api *api, const char *body, size_t body_len, tt_buf *out) {
     int cols = 80, rows = 24;
     char **argv = NULL;
+    char *cwd = NULL;
     size_t argc = 0;
     if (body_len) {
         yyjson_doc *doc = yyjson_read(body, body_len, 0);
@@ -223,6 +312,8 @@ static void handle_create(tt_api *api, const char *body, size_t body_len, tt_buf
         if (yyjson_is_int(v)) cols = (int)yyjson_get_int(v);
         v = yyjson_obj_get(root, "rows");
         if (yyjson_is_int(v)) rows = (int)yyjson_get_int(v);
+        v = yyjson_obj_get(root, "cwd");
+        if (yyjson_is_str(v)) cwd = strdup(yyjson_get_str(v));
         yyjson_val *cmd = yyjson_obj_get(root, "cmd");
         if (yyjson_is_arr(cmd) && yyjson_arr_size(cmd) > 0) {
             argc = yyjson_arr_size(cmd);
@@ -237,6 +328,7 @@ static void handle_create(tt_api *api, const char *body, size_t body_len, tt_buf
                 if (argv)
                     for (size_t j = 0; argv[j]; j++) free(argv[j]);
                 free(argv);
+                free(cwd);
                 yyjson_doc_free(doc);
                 tt_api_error(out, 400, "cmd must be an array of strings");
                 return;
@@ -248,17 +340,22 @@ static void handle_create(tt_api *api, const char *body, size_t body_len, tt_buf
         if (argv)
             for (size_t j = 0; argv[j]; j++) free(argv[j]);
         free(argv);
+        free(cwd);
         tt_api_error(out, 400, "cols/rows out of range");
         return;
     }
-    tt_session *s = tt_session_create(api->reg, argv, cols, rows);
+    tt_session *s = tt_session_create_at(api->reg, argv, cols, rows, cwd);
     if (argv)
         for (size_t j = 0; argv[j]; j++) free(argv[j]);
     free(argv);
+    free(cwd);
     if (!s) {
         tt_api_error(out, 500, "failed to spawn session");
         return;
     }
+    /* An API-created session has no outer terminal to answer DSR/DA, on
+     * either the public server or the private broker socket. */
+    tt_session_enable_replies(s);
     yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
     yyjson_mut_doc_set_root(d, session_obj(d, s));
     respond_json_doc(out, 201, d);
@@ -340,10 +437,9 @@ static void handle_input(tt_api *api, tt_session *s, const char *body, size_t bo
     respond(out, 200, "application/json", b, (size_t)n);
 }
 
-static void handle_resize(tt_api *api, tt_session *s, const char *body, size_t body_len,
+static void handle_resize(tt_session *s, const char *body, size_t body_len, bool trusted_local,
                           tt_buf *out) {
-    (void)api;
-    if (s->attached) {
+    if (s->attached && !trusted_local) {
         tt_api_error(out, 409, "session geometry is controlled by its frontend");
         return;
     }
@@ -369,8 +465,8 @@ static void handle_resize(tt_api *api, tt_session *s, const char *body, size_t b
 
 /* ---- router ---------------------------------------------------------- */
 
-void tt_api_route(tt_api *api, const char *method, const char *path, const char *body,
-                  size_t body_len, tt_buf *out) {
+static void api_route(tt_api *api, const char *method, const char *path, const char *body,
+                      size_t body_len, bool trusted_local, tt_buf *out) {
     /* split off the query string */
     char pathbuf[256];
     snprintf(pathbuf, sizeof pathbuf, "%s", path);
@@ -412,7 +508,7 @@ void tt_api_route(tt_api *api, const char *method, const char *path, const char 
                 respond_json_doc(out, 200, d);
                 yyjson_mut_doc_free(d);
             } else if (del) {
-                if (s->attached) {
+                if (s->attached && !trusted_local) {
                     tt_api_error(out, 409, "session lifetime is controlled by its frontend");
                 } else {
                     tt_session_destroy(api->reg, s);
@@ -423,9 +519,36 @@ void tt_api_route(tt_api *api, const char *method, const char *path, const char 
             }
             return;
         }
+        if (strcmp(sub, "attach") == 0 && post) {
+            if (!trusted_local) tt_api_error(out, 404, "no such route");
+            else {
+                s->attached = true;
+                respond(out, 200, "application/json", "{\"ok\":true}", 11);
+            }
+            return;
+        }
+        if (strcmp(sub, "detach") == 0 && post) {
+            if (!trusted_local) tt_api_error(out, 404, "no such route");
+            else {
+                s->attached = false;
+                respond(out, 200, "application/json", "{\"ok\":true}", 11);
+            }
+            return;
+        }
         if (strcmp(sub, "screen") == 0 && get) {
-            if (query && strstr(query, "format=json")) screen_json(api, s, out);
-            else screen_text(s, out);
+            int history = 0;
+            if (query) {
+                const char *p = strstr(query, "scrollback=");
+                if (p) {
+                    long requested = strtol(p + 11, NULL, 10);
+                    if (requested > 0)
+                        history = requested > api->reg->scrollback ? api->reg->scrollback
+                                                                   : (int)requested;
+                }
+            }
+            if (query && strstr(query, "format=wire")) screen_wire(s, out);
+            else if (query && strstr(query, "format=json")) screen_json(api, s, history, out);
+            else screen_text(s, history, out);
             return;
         }
         if (strcmp(sub, "input") == 0 && post) {
@@ -433,13 +556,18 @@ void tt_api_route(tt_api *api, const char *method, const char *path, const char 
             return;
         }
         if (strcmp(sub, "resize") == 0 && post) {
-            handle_resize(api, s, body, body_len, out);
+            handle_resize(s, body, body_len, trusted_local, out);
             return;
         }
         tt_api_error(out, 404, "no such route");
         return;
     }
     tt_api_error(out, 404, "no such route");
+}
+
+void tt_api_route(tt_api *api, const char *method, const char *path, const char *body,
+                  size_t body_len, tt_buf *out) {
+    api_route(api, method, path, body, body_len, false, out);
 }
 
 /* ---- socket server --------------------------------------------------- */
@@ -454,12 +582,30 @@ typedef struct {
 struct tt_http {
     tt_api *api;
     int listen_fd;
+    bool same_uid;
+    char unix_path[sizeof(((struct sockaddr_un *)0)->sun_path)];
     conn conns[MAX_CONNS];
 };
 
 static bool host_is_loopback(const char *host) {
     return strcmp(host, "127.0.0.1") == 0 || strcmp(host, "::1") == 0 ||
            strcmp(host, "localhost") == 0;
+}
+
+static tt_http *http_alloc(tt_api *api, int fd, bool same_uid, const char *unix_path, char *err,
+                           size_t errlen) {
+    tt_http *h = calloc(1, sizeof *h);
+    if (!h) {
+        close(fd);
+        snprintf(err, errlen, "out of memory");
+        return NULL;
+    }
+    h->api = api;
+    h->listen_fd = fd;
+    h->same_uid = same_uid;
+    if (unix_path) snprintf(h->unix_path, sizeof h->unix_path, "%s", unix_path);
+    for (int i = 0; i < MAX_CONNS; i++) h->conns[i].fd = -1;
+    return h;
 }
 
 tt_http *tt_http_listen(tt_api *api, const char *host, int port, char *err, size_t errlen) {
@@ -490,15 +636,61 @@ tt_http *tt_http_listen(tt_api *api, const char *host, int port, char *err, size
         return NULL;
     }
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
-    tt_http *h = calloc(1, sizeof *h);
-    if (!h) {
-        close(fd);
-        snprintf(err, errlen, "out of memory");
+    return http_alloc(api, fd, false, NULL, err, errlen);
+}
+
+tt_http *tt_http_listen_unix(tt_api *api, const char *path, char *err, size_t errlen) {
+    if (!path || !*path || strlen(path) >= sizeof(((struct sockaddr_un *)0)->sun_path)) {
+        snprintf(err, errlen, "unix socket path is empty or too long");
         return NULL;
     }
-    h->api = api;
-    h->listen_fd = fd;
-    for (int i = 0; i < MAX_CONNS; i++) h->conns[i].fd = -1;
+    struct stat st;
+    if (lstat(path, &st) == 0) {
+        if (!S_ISSOCK(st.st_mode) || st.st_uid != geteuid()) {
+            snprintf(err, errlen, "refusing to replace unsafe socket path %s", path);
+            return NULL;
+        }
+        int probe = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (probe >= 0) {
+            struct sockaddr_un existing;
+            memset(&existing, 0, sizeof existing);
+            existing.sun_family = AF_UNIX;
+            snprintf(existing.sun_path, sizeof existing.sun_path, "%s", path);
+            if (connect(probe, (struct sockaddr *)&existing, sizeof existing) == 0) {
+                close(probe);
+                snprintf(err, errlen, "unix socket is already active: %s", path);
+                errno = EADDRINUSE;
+                return NULL;
+            }
+            close(probe);
+        }
+        if (unlink(path) != 0) {
+            snprintf(err, errlen, "unlink %s: %s", path, strerror(errno));
+            return NULL;
+        }
+    } else if (errno != ENOENT) {
+        snprintf(err, errlen, "stat %s: %s", path, strerror(errno));
+        return NULL;
+    }
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) {
+        snprintf(err, errlen, "unix socket: %s", strerror(errno));
+        return NULL;
+    }
+    struct sockaddr_un sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sun_family = AF_UNIX;
+    snprintf(sa.sun_path, sizeof sa.sun_path, "%s", path);
+    if (bind(fd, (struct sockaddr *)&sa, sizeof sa) != 0 || chmod(path, 0600) != 0 ||
+        listen(fd, 16) != 0) {
+        snprintf(err, errlen, "bind %s: %s", path, strerror(errno));
+        close(fd);
+        unlink(path);
+        return NULL;
+    }
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+    tt_http *h = http_alloc(api, fd, true, path, err, errlen);
+    if (!h) unlink(path);
     return h;
 }
 
@@ -514,7 +706,28 @@ void tt_http_free(tt_http *h) {
     if (!h) return;
     for (int i = 0; i < MAX_CONNS; i++) conn_close(&h->conns[i]);
     if (h->listen_fd >= 0) close(h->listen_fd);
+    if (h->unix_path[0]) unlink(h->unix_path);
     free(h);
+}
+
+static bool peer_is_same_uid(int fd) {
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    uid_t uid = (uid_t)-1;
+    gid_t gid = (gid_t)-1;
+    return getpeereid(fd, &uid, &gid) == 0 && uid == geteuid();
+#elif defined(__linux__) && defined(SO_PEERCRED)
+    struct {
+        pid_t pid;
+        uid_t uid;
+        gid_t gid;
+    } cred;
+    socklen_t len = sizeof cred;
+    return getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) == 0 && len == sizeof cred &&
+           cred.uid == geteuid();
+#else
+    (void)fd;
+    return false;
+#endif
 }
 
 int tt_http_fill(tt_http *h, struct pollfd *fds, int max) {
@@ -576,7 +789,8 @@ static void conn_try_respond(tt_http *h, conn *c) {
     snprintf(methodbuf, sizeof methodbuf, "%.*s", (int)method_len, method);
     snprintf(pathbuf, sizeof pathbuf, "%.*s", (int)path_len, path);
     if (!tt_api_auth_ok(h->api, auth)) tt_api_error(&c->out, 401, "unauthorized");
-    else tt_api_route(h->api, methodbuf, pathbuf, c->in.data + hlen, content_len, &c->out);
+    else
+        api_route(h->api, methodbuf, pathbuf, c->in.data + hlen, content_len, h->same_uid, &c->out);
 }
 
 void tt_http_handle(tt_http *h, const struct pollfd *fds, int n) {
@@ -586,6 +800,10 @@ void tt_http_handle(tt_http *h, const struct pollfd *fds, int n) {
             for (;;) {
                 int cfd = accept(h->listen_fd, NULL, NULL);
                 if (cfd < 0) break;
+                if (h->same_uid && !peer_is_same_uid(cfd)) {
+                    close(cfd);
+                    continue;
+                }
                 fcntl(cfd, F_SETFL, fcntl(cfd, F_GETFL, 0) | O_NONBLOCK);
                 int slot = -1;
                 for (int i = 0; i < MAX_CONNS; i++)

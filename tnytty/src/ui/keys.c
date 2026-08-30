@@ -56,13 +56,9 @@ static char ctrl_byte(unsigned char c) {
 
 tt_chord tt_key_chord(tt_key key, const char *text, size_t text_len, unsigned mods) {
     if (!(mods & TT_MOD_SUPER)) return TT_CHORD_NONE;
-    bool shift = (mods & TT_MOD_SHIFT) != 0;
-    bool alt = (mods & TT_MOD_ALT) != 0;
-    bool ctrl = (mods & TT_MOD_CTRL) != 0;
-    if (ctrl) return TT_CHORD_NONE;
 
     /* Cmd-Opt-arrow walks the split tree; the arrows carry no text. */
-    if (alt && !shift) {
+    if (mods == (TT_MOD_SUPER | TT_MOD_ALT)) {
         switch (key) {
         case TT_KEY_LEFT: return TT_CHORD_FOCUS_LEFT;
         case TT_KEY_RIGHT: return TT_CHORD_FOCUS_RIGHT;
@@ -71,20 +67,42 @@ tt_chord tt_key_chord(tt_key key, const char *text, size_t text_len, unsigned mo
         default: break;
         }
     }
-    if (alt || key != TT_KEY_TEXT || !text || text_len != 1) return TT_CHORD_NONE;
+    if (key != TT_KEY_TEXT || !text || text_len != 1) return TT_CHORD_NONE;
     char c = text[0];
     if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
-    switch (c) {
-    case 'c': return shift ? TT_CHORD_NONE : TT_CHORD_COPY;
-    case 'v': return shift ? TT_CHORD_NONE : TT_CHORD_PASTE;
-    case 'd': return shift ? TT_CHORD_SPLIT_HORZ : TT_CHORD_SPLIT_VERT;
-    case 'w': return shift ? TT_CHORD_NONE : TT_CHORD_CLOSE_PANE;
-    /* Cycling has no geometry to fail on, so unlike the arrows it always
-     * lands somewhere (docs/adr/0006). */
-    case '[': return shift ? TT_CHORD_NONE : TT_CHORD_FOCUS_PREV;
-    case ']': return shift ? TT_CHORD_NONE : TT_CHORD_FOCUS_NEXT;
-    default: return TT_CHORD_NONE;
+    if (mods == TT_MOD_SUPER) {
+        switch (c) {
+        case 'c': return TT_CHORD_COPY;
+        case 'v': return TT_CHORD_PASTE;
+        case 'd': return TT_CHORD_SPLIT_VERT;
+        case 'w': return TT_CHORD_CLOSE_PANE;
+        case 'q': return TT_CHORD_QUIT;
+        case 't': return TT_CHORD_NEW_TAB;
+        /* Cycling has no geometry to fail on, so unlike the arrows it always
+         * lands somewhere (docs/adr/0006). */
+        case '[': return TT_CHORD_FOCUS_PREV;
+        case ']': return TT_CHORD_FOCUS_NEXT;
+        default:
+            if (c >= '1' && c <= '9') return (tt_chord)(TT_CHORD_TAB_1 + c - '1');
+            return TT_CHORD_NONE;
+        }
     }
+    if (mods == (TT_MOD_SUPER | TT_MOD_SHIFT)) {
+        switch (c) {
+        case 'd': return TT_CHORD_SPLIT_HORZ;
+        case 'w': return TT_CHORD_CLOSE_TAB;
+        case '[':
+        case '{': return TT_CHORD_TAB_PREV;
+        case ']':
+        case '}': return TT_CHORD_TAB_NEXT;
+        default: return TT_CHORD_NONE;
+        }
+    }
+    return TT_CHORD_NONE;
+}
+
+int tt_chord_tab_index(tt_chord chord) {
+    return chord >= TT_CHORD_TAB_1 && chord <= TT_CHORD_TAB_9 ? chord - TT_CHORD_TAB_1 : -1;
 }
 
 size_t tt_key_encode(tt_key key, const char *text, size_t text_len, unsigned mods, bool app_cursor,

@@ -43,7 +43,8 @@ static char **copy_argv(char *const argv[]) {
     return copy;
 }
 
-tt_session *tt_session_create(tt_registry *r, char *const argv[], int cols, int rows) {
+tt_session *tt_session_create_at(tt_registry *r, char *const argv[], int cols, int rows,
+                                 const char *cwd) {
     if (cols < 1) cols = 80;
     if (rows < 1) rows = 24;
     tt_session *s = calloc(1, sizeof *s);
@@ -52,7 +53,7 @@ tt_session *tt_session_create(tt_registry *r, char *const argv[], int cols, int 
     s->term = vt_new(cols, rows, r->scrollback);
     if (!s->argv || !s->term) goto fail;
     tt_rand_hex(s->id, TT_SESSION_ID_LEN);
-    if (tt_pty_spawn(&s->pty, s->argv, cols, rows) != 0) goto fail;
+    if (tt_pty_spawn_at(&s->pty, s->argv, cols, rows, cwd) != 0) goto fail;
     s->alive = true;
     s->created = time(NULL);
     s->next = r->head;
@@ -69,10 +70,23 @@ fail: {
 }
 }
 
+tt_session *tt_session_create(tt_registry *r, char *const argv[], int cols, int rows) {
+    return tt_session_create_at(r, argv, cols, rows, NULL);
+}
+
 tt_session *tt_session_find(tt_registry *r, const char *id) {
     for (tt_session *s = r->head; s; s = s->next)
         if (strcmp(s->id, id) == 0) return s;
     return NULL;
+}
+
+static void session_reply(void *user, const char *bytes, size_t len) {
+    tt_session *s = user;
+    (void)tt_session_write(s, bytes, len);
+}
+
+void tt_session_enable_replies(tt_session *s) {
+    if (s && s->term) vt_set_respond(s->term, session_reply, s);
 }
 
 static void session_free(tt_session *s) {

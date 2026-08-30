@@ -15,6 +15,9 @@ typedef struct {
  * set (and a clean "not supported" error on platforms without ptys).
  * The master fd is left non-blocking. */
 int tt_pty_spawn(tt_pty *p, char *const argv[], int cols, int rows);
+/* As above, with an optional absolute working directory applied in the
+ * child before exec. Used by OSC 7-aware new panes and tabs. */
+int tt_pty_spawn_at(tt_pty *p, char *const argv[], int cols, int rows, const char *cwd);
 int tt_pty_resize(tt_pty *p, int cols, int rows);
 /* SIGHUP the child's process group (session teardown). */
 void tt_pty_kill(tt_pty *p);

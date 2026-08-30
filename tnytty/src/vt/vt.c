@@ -1,6 +1,8 @@
 /* vt.c — headless VT engine: incremental parser + cell grid (docs/adr/0001). */
 #include "vt/vt.h"
 
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +12,12 @@
 /* One kitty graphics chunk is <= 4096 raw key bytes plus ~5.5 KiB of
  * base64 payload; 8 KiB holds any conforming APC (docs/adr/0003). */
 #define VT_STR_CAP 8192
+
+#define VT_SNAPSHOT_VERSION   1u
+#define VT_SNAPSHOT_HEADER    56u
+#define VT_SNAPSHOT_CELL      18u
+#define VT_SNAPSHOT_MAX_DIM   1000u
+#define VT_SNAPSHOT_MAX_CELLS (VT_SNAPSHOT_MAX_DIM * VT_SNAPSHOT_MAX_DIM)
 
 enum parser_state {
     S_GROUND,
@@ -49,6 +57,8 @@ struct vt {
     bool bracketed;
     bool app_cursor; /* DECCKM: arrows send SS3, not CSI */
     char title[256];
+    char cwd[VT_OSC_CAP];
+    uint64_t generation;
 
     /* parser */
     int state;
@@ -74,6 +84,10 @@ struct vt {
     vt_write_cb gfx_cb;
     void *gfx_user;
 };
+
+static void semantic_change(vt *t) {
+    if (t->generation != UINT64_MAX) t->generation++;
+}
 
 /* ---- width tables (docs/adr/0004) ----------------------------------- */
 
@@ -122,12 +136,25 @@ static vt_cell blank_cell(const vt *t) {
     return c;
 }
 
+static bool cell_equal(const vt_cell *a, const vt_cell *b) {
+    return a->cp == b->cp && a->combine == b->combine && a->fg == b->fg && a->bg == b->bg &&
+           a->attrs == b->attrs;
+}
+
 static vt_cell *cell_at(vt *t, int y, int x) { return &t->grid[(size_t)y * t->cols + x]; }
 
 static void clear_cells(vt *t, int y, int x0, int x1) {
     vt_cell b = blank_cell(t);
+    bool changed = false;
     for (int x = x0; x <= x1 && x < t->cols; x++)
-        if (x >= 0) *cell_at(t, y, x) = b;
+        if (x >= 0) {
+            vt_cell *c = cell_at(t, y, x);
+            if (!cell_equal(c, &b)) {
+                *c = b;
+                changed = true;
+            }
+        }
+    if (changed) semantic_change(t);
 }
 
 static void clear_rows(vt *t, int y0, int y1) {
@@ -171,6 +198,7 @@ static void scroll_up(vt *t, int n, bool keep) {
     memmove(cell_at(t, t->top, 0), cell_at(t, t->top + n, 0),
             (size_t)(span - n) * t->cols * sizeof(vt_cell));
     clear_rows(t, t->bot - n + 1, t->bot);
+    semantic_change(t);
 }
 
 static void scroll_down(vt *t, int n) {
@@ -180,21 +208,27 @@ static void scroll_down(vt *t, int n) {
     memmove(cell_at(t, t->top + n, 0), cell_at(t, t->top, 0),
             (size_t)(span - n) * t->cols * sizeof(vt_cell));
     clear_rows(t, t->top, t->top + n - 1);
+    semantic_change(t);
 }
 
 static void linefeed(vt *t) {
+    int old_cy = t->cy;
     if (t->cy == t->bot) scroll_up(t, 1, true);
     else if (t->cy < t->rows - 1) t->cy++;
     t->wrap_pending = false;
+    if (t->cy != old_cy) semantic_change(t);
 }
 
 static void reverse_index(vt *t) {
+    int old_cy = t->cy;
     if (t->cy == t->top) scroll_down(t, 1);
     else if (t->cy > 0) t->cy--;
     t->wrap_pending = false;
+    if (t->cy != old_cy) semantic_change(t);
 }
 
 static void move_cursor(vt *t, int y, int x) {
+    int old_x = t->cx, old_y = t->cy;
     if (x < 0) x = 0;
     if (x > t->cols - 1) x = t->cols - 1;
     if (y < 0) y = 0;
@@ -202,6 +236,7 @@ static void move_cursor(vt *t, int y, int x) {
     t->cx = x;
     t->cy = y;
     t->wrap_pending = false;
+    if (t->cx != old_x || t->cy != old_y) semantic_change(t);
 }
 
 /* ---- printable input ------------------------------------------------- */
@@ -215,7 +250,10 @@ static void put_cp(vt *t, uint32_t cp) {
         else if (t->wrap_pending) x = t->cols - 1;
         vt_cell *c = cell_at(t, t->cy, x);
         if (c->attrs & VT_ATTR_WIDE_CONT && x > 0) c = cell_at(t, t->cy, x - 1);
-        if (c->cp && !c->combine) c->combine = cp;
+        if (c->cp && !c->combine) {
+            c->combine = cp;
+            semantic_change(t);
+        }
         return;
     }
     if (t->wrap_pending && t->autowrap) {
@@ -266,6 +304,7 @@ static void put_cp(vt *t, uint32_t cp) {
         t->cx = t->cols - 1;
         t->wrap_pending = true;
     }
+    semantic_change(t);
 }
 
 /* ---- responses ------------------------------------------------------- */
@@ -353,6 +392,7 @@ static void enter_alt(vt *t) {
     clear_rows(t, 0, t->rows - 1);
     t->bg = bg;
     move_cursor(t, 0, 0);
+    semantic_change(t);
 }
 
 static void leave_alt(vt *t) {
@@ -365,18 +405,39 @@ static void leave_alt(vt *t) {
     t->fg = t->saved_fg;
     t->bg = t->saved_bg;
     t->wrap_pending = false;
+    semantic_change(t);
 }
 
 static void dec_mode(vt *t, bool set) {
     for (int i = 0; i < t->nparams; i++) {
         switch (t->params[i]) {
-        case 1: t->app_cursor = set; break;
-        case 7: t->autowrap = set; break;
-        case 25: t->cursor_visible = set; break;
+        case 1:
+            if (t->app_cursor != set) {
+                t->app_cursor = set;
+                semantic_change(t);
+            }
+            break;
+        case 7:
+            if (t->autowrap != set) {
+                t->autowrap = set;
+                semantic_change(t);
+            }
+            break;
+        case 25:
+            if (t->cursor_visible != set) {
+                t->cursor_visible = set;
+                semantic_change(t);
+            }
+            break;
         case 47:
         case 1047: set ? enter_alt(t) : leave_alt(t); break;
         case 1049: set ? enter_alt(t) : leave_alt(t); break;
-        case 2004: t->bracketed = set; break;
+        case 2004:
+            if (t->bracketed != set) {
+                t->bracketed = set;
+                semantic_change(t);
+            }
+            break;
         default: break; /* mouse/keyboard reporting modes: phase 2 */
         }
     }
@@ -394,6 +455,7 @@ static void insert_cells(vt *t, int n) {
     vt_cell *row = cell_at(t, t->cy, 0);
     memmove(&row[t->cx + n], &row[t->cx], (size_t)(t->cols - t->cx - n) * sizeof(vt_cell));
     clear_cells(t, t->cy, t->cx, t->cx + n - 1);
+    semantic_change(t);
 }
 
 static void delete_cells(vt *t, int n) {
@@ -401,6 +463,7 @@ static void delete_cells(vt *t, int n) {
     vt_cell *row = cell_at(t, t->cy, 0);
     memmove(&row[t->cx], &row[t->cx + n], (size_t)(t->cols - t->cx - n) * sizeof(vt_cell));
     clear_cells(t, t->cy, t->cols - n, t->cols - 1);
+    semantic_change(t);
 }
 
 static void do_csi(vt *t, char final) {
@@ -511,15 +574,83 @@ static void do_csi(vt *t, char final) {
 
 /* ---- string terminators (OSC / APC) --------------------------------- */
 
+static int hex_digit(unsigned char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static bool ascii_equal(const char *s, size_t n, const char *literal) {
+    size_t ln = strlen(literal);
+    if (n != ln) return false;
+    for (size_t i = 0; i < n; i++) {
+        unsigned char a = (unsigned char)s[i], b = (unsigned char)literal[i];
+        if (a >= 'A' && a <= 'Z') a = (unsigned char)(a - 'A' + 'a');
+        if (b >= 'A' && b <= 'Z') b = (unsigned char)(b - 'A' + 'a');
+        if (a != b) return false;
+    }
+    return true;
+}
+
+/* OSC 7 is deliberately metadata-only: accept an absolute local file URL,
+ * decode percent escapes, and reject anything that could turn the value into
+ * a control stream or a non-local path. Invalid input leaves the last valid
+ * cwd untouched. */
+static void osc_cwd(vt *t, const char *url, size_t len) {
+    static const char prefix[] = "file://";
+    if (len < sizeof prefix || memcmp(url, prefix, sizeof prefix - 1) != 0) return;
+    const char *authority = url + sizeof prefix - 1;
+    size_t remain = len - (sizeof prefix - 1);
+    const char *slash = memchr(authority, '/', remain);
+    if (!slash) return;
+    size_t host_len = (size_t)(slash - authority);
+    if (host_len != 0 && !ascii_equal(authority, host_len, "localhost")) return;
+
+    char path[VT_OSC_CAP];
+    size_t used = 0;
+    const char *p = slash, *end = url + len;
+    while (p < end) {
+        unsigned char c = (unsigned char)*p++;
+        if (c == '?' || c == '#') return; /* URL query/fragment is not a cwd */
+        if (c == '%') {
+            if (end - p < 2) return;
+            int hi = hex_digit((unsigned char)p[0]);
+            int lo = hex_digit((unsigned char)p[1]);
+            if (hi < 0 || lo < 0) return;
+            c = (unsigned char)((hi << 4) | lo);
+            p += 2;
+        }
+        if (c == 0 || c < 0x20 || c == 0x7f || used + 1 >= sizeof path) return;
+        path[used++] = (char)c;
+    }
+    if (used == 0 || path[0] != '/') return;
+    path[used] = '\0';
+    if (strcmp(t->cwd, path) != 0) {
+        memcpy(t->cwd, path, used + 1);
+        semantic_change(t);
+    }
+}
+
 static void dispatch_string(vt *t) {
     t->str_buf[t->str_len] = '\0';
     if (t->str_kind == STR_OSC) {
         /* OSC 0;title or 2;title */
-        if ((t->str_buf[0] == '0' || t->str_buf[0] == '2') && t->str_buf[1] == ';') {
-            snprintf(t->title, sizeof t->title, "%s", t->str_buf + 2);
+        if (!t->str_overflow && (t->str_buf[0] == '0' || t->str_buf[0] == '2') &&
+            t->str_buf[1] == ';') {
+            const char *title = t->str_buf + 2;
+            char next[sizeof t->title] = {0};
+            snprintf(next, sizeof next, "%s", title);
+            if (strcmp(t->title, next) != 0) {
+                memcpy(t->title, next, sizeof next);
+                semantic_change(t);
+            }
+        } else if (!t->str_overflow && t->str_buf[0] == '7' && t->str_buf[1] == ';') {
+            osc_cwd(t, t->str_buf + 2, t->str_len - 2);
         }
     } else if (t->str_kind == STR_APC && t->str_buf[0] == 'G' && !t->str_overflow) {
         t->gfx_count++;
+        semantic_change(t);
         if (t->gfx_cb) {
             t->gfx_cb(t->gfx_user, "\x1b_", 2);
             t->gfx_cb(t->gfx_user, t->str_buf, t->str_len);
@@ -549,6 +680,7 @@ static void start_string(vt *t, int kind) {
 }
 
 static void full_reset(vt *t) {
+    bool mode_changed = !t->autowrap || !t->cursor_visible || t->bracketed || t->app_cursor;
     t->attrs = 0;
     t->fg = t->bg = VT_COLOR_DEFAULT;
     t->top = 0;
@@ -560,27 +692,36 @@ static void full_reset(vt *t) {
     leave_alt(t);
     clear_rows(t, 0, t->rows - 1);
     move_cursor(t, 0, 0);
+    if (mode_changed) semantic_change(t);
 }
 
 static void control_byte(vt *t, unsigned char b) {
     switch (b) {
-    case '\b':
+    case '\b': {
+        int old_x = t->cx;
         if (t->wrap_pending) t->wrap_pending = false;
         else if (t->cx > 0) t->cx--;
+        if (t->cx != old_x) semantic_change(t);
         break;
+    }
     case '\t': {
+        int old_x = t->cx;
         int next = (t->cx / 8 + 1) * 8;
         t->cx = next < t->cols ? next : t->cols - 1;
         t->wrap_pending = false;
+        if (t->cx != old_x) semantic_change(t);
         break;
     }
     case '\n':
     case 0x0b:
     case 0x0c: linefeed(t); break;
-    case '\r':
+    case '\r': {
+        int old_x = t->cx;
         t->cx = 0;
         t->wrap_pending = false;
+        if (t->cx != old_x) semantic_change(t);
         break;
+    }
     case 0x1b: t->state = S_ESC; break;
     default: break; /* NUL, BEL outside strings, SO/SI, ... */
     }
@@ -780,23 +921,32 @@ void vt_set_graphics(vt *t, vt_write_cb cb, void *user) {
     t->gfx_user = user;
 }
 
-static void resize_grid(vt *t, vt_cell **gridp, int cols, int rows) {
+static vt_cell *resize_grid(const vt_cell *grid, int old_cols, int old_rows, int cols, int rows) {
+    if ((size_t)cols > SIZE_MAX / (size_t)rows / sizeof(vt_cell)) return NULL;
     vt_cell *ng = calloc((size_t)cols * rows, sizeof(vt_cell));
-    if (!ng) return;
-    int copy_rows = rows < t->rows ? rows : t->rows;
-    int copy_cols = cols < t->cols ? cols : t->cols;
+    if (!ng) return NULL;
+    int copy_rows = rows < old_rows ? rows : old_rows;
+    int copy_cols = cols < old_cols ? cols : old_cols;
     for (int y = 0; y < copy_rows; y++)
-        memcpy(&ng[(size_t)y * cols], &(*gridp)[(size_t)y * t->cols],
+        memcpy(&ng[(size_t)y * cols], &grid[(size_t)y * old_cols],
                (size_t)copy_cols * sizeof(vt_cell));
-    free(*gridp);
-    *gridp = ng;
+    return ng;
 }
 
 void vt_resize(vt *t, int cols, int rows) {
     if (cols < 1 || rows < 1 || (cols == t->cols && rows == t->rows)) return;
+    vt_cell *main_grid = resize_grid(t->main_grid, t->cols, t->rows, cols, rows);
+    if (!main_grid) return;
+    vt_cell *alt_grid = resize_grid(t->alt_grid, t->cols, t->rows, cols, rows);
+    if (!alt_grid) {
+        free(main_grid);
+        return;
+    }
     bool was_alt = t->alt_on;
-    resize_grid(t, &t->main_grid, cols, rows);
-    resize_grid(t, &t->alt_grid, cols, rows);
+    free(t->main_grid);
+    free(t->alt_grid);
+    t->main_grid = main_grid;
+    t->alt_grid = alt_grid;
     t->cols = cols;
     t->rows = rows;
     t->grid = was_alt ? t->alt_grid : t->main_grid;
@@ -805,6 +955,234 @@ void vt_resize(vt *t, int cols, int rows) {
     if (t->cx > cols - 1) t->cx = cols - 1;
     if (t->cy > rows - 1) t->cy = rows - 1;
     t->wrap_pending = false;
+    semantic_change(t);
+}
+
+/* ---- broker snapshot ------------------------------------------------- */
+
+static const unsigned char snapshot_magic[8] = {'T', 'N', 'Y', 'V', 'T', 'S', 'N', 'P'};
+
+enum {
+    SNAP_CURSOR_VISIBLE = 1u << 0,
+    SNAP_ALT_SCREEN = 1u << 1,
+    SNAP_BRACKETED = 1u << 2,
+    SNAP_APP_CURSOR = 1u << 3,
+    SNAP_ALL_FLAGS = SNAP_CURSOR_VISIBLE | SNAP_ALT_SCREEN | SNAP_BRACKETED | SNAP_APP_CURSOR,
+};
+
+static void put_u16(unsigned char *p, uint16_t v) {
+    p[0] = (unsigned char)v;
+    p[1] = (unsigned char)(v >> 8);
+}
+
+static void put_u32(unsigned char *p, uint32_t v) {
+    for (int i = 0; i < 4; i++) p[i] = (unsigned char)(v >> (i * 8));
+}
+
+static void put_u64(unsigned char *p, uint64_t v) {
+    for (int i = 0; i < 8; i++) p[i] = (unsigned char)(v >> (i * 8));
+}
+
+static uint16_t get_u16(const unsigned char *p) {
+    return (uint16_t)((uint16_t)p[0] | (uint16_t)p[1] << 8);
+}
+
+static uint32_t get_u32(const unsigned char *p) {
+    uint32_t v = 0;
+    for (int i = 0; i < 4; i++) v |= (uint32_t)p[i] << (i * 8);
+    return v;
+}
+
+static uint64_t get_u64(const unsigned char *p) {
+    uint64_t v = 0;
+    for (int i = 0; i < 8; i++) v |= (uint64_t)p[i] << (i * 8);
+    return v;
+}
+
+size_t vt_snapshot_size(const vt *t) {
+    if (!t || t->cols < 1 || t->rows < 1) return 0;
+    size_t cells = (size_t)t->cols * (size_t)t->rows;
+    size_t title_len = strlen(t->title), cwd_len = strlen(t->cwd);
+    if (cells > VT_SNAPSHOT_MAX_CELLS || title_len >= sizeof t->title ||
+        cwd_len >= sizeof t->cwd || cells > (SIZE_MAX - VT_SNAPSHOT_HEADER - title_len - cwd_len) /
+                                      VT_SNAPSHOT_CELL)
+        return 0;
+    return VT_SNAPSHOT_HEADER + title_len + cwd_len + cells * VT_SNAPSHOT_CELL;
+}
+
+int vt_snapshot_write(const vt *t, void *buf, size_t cap, size_t *written) {
+    size_t need = vt_snapshot_size(t);
+    if (written) *written = need;
+    if (need == 0) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    if (!buf || cap < need) {
+        errno = ENOSPC;
+        return -1;
+    }
+    unsigned char *p = buf;
+    size_t title_len = strlen(t->title), cwd_len = strlen(t->cwd);
+    size_t cells = (size_t)t->cols * (size_t)t->rows;
+    memcpy(p, snapshot_magic, sizeof snapshot_magic);
+    put_u16(p + 8, VT_SNAPSHOT_VERSION);
+    put_u16(p + 10, VT_SNAPSHOT_HEADER);
+    put_u32(p + 12, (uint32_t)need);
+    put_u32(p + 16, (uint32_t)t->cols);
+    put_u32(p + 20, (uint32_t)t->rows);
+    put_u32(p + 24, (uint32_t)t->cx);
+    put_u32(p + 28, (uint32_t)t->cy);
+    put_u64(p + 32, t->generation);
+    uint32_t flags = (t->cursor_visible ? SNAP_CURSOR_VISIBLE : 0u) |
+                     (t->alt_on ? SNAP_ALT_SCREEN : 0u) |
+                     (t->bracketed ? SNAP_BRACKETED : 0u) |
+                     (t->app_cursor ? SNAP_APP_CURSOR : 0u);
+    put_u32(p + 40, flags);
+    put_u16(p + 44, (uint16_t)title_len);
+    put_u16(p + 46, (uint16_t)cwd_len);
+    put_u32(p + 48, (uint32_t)cells);
+    put_u16(p + 52, VT_SNAPSHOT_CELL);
+    put_u16(p + 54, 0);
+    p += VT_SNAPSHOT_HEADER;
+    memcpy(p, t->title, title_len);
+    p += title_len;
+    memcpy(p, t->cwd, cwd_len);
+    p += cwd_len;
+    for (size_t i = 0; i < cells; i++, p += VT_SNAPSHOT_CELL) {
+        const vt_cell *c = &t->grid[i];
+        put_u32(p, c->cp);
+        put_u32(p + 4, c->combine);
+        put_u32(p + 8, c->fg);
+        put_u32(p + 12, c->bg);
+        put_u16(p + 16, c->attrs);
+    }
+    return 0;
+}
+
+static bool scalar_or_zero(uint32_t cp) {
+    return cp == 0 || (cp <= 0x10FFFF && !(cp >= 0xD800 && cp <= 0xDFFF));
+}
+
+static bool valid_color(uint32_t c) {
+    uint32_t tag = VT_COLOR_TAG(c), value = VT_COLOR_VAL(c);
+    if (tag == VT_COLOR_DEFAULT) return value == 0;
+    if (tag == VT_COLOR_IDX) return value <= 255;
+    return tag == VT_COLOR_RGB;
+}
+
+static bool valid_metadata(const unsigned char *s, size_t n, bool path) {
+    if (path && (n == 0 || s[0] != '/')) return n == 0;
+    for (size_t i = 0; i < n; i++)
+        if (s[i] == 0 || (path && (s[i] < 0x20 || s[i] == 0x7f))) return false;
+    return true;
+}
+
+static bool valid_grid(const vt_cell *grid, int cols, int rows) {
+    const uint16_t all_attrs = VT_ATTR_BOLD | VT_ATTR_FAINT | VT_ATTR_ITALIC | VT_ATTR_UNDERLINE |
+                               VT_ATTR_BLINK | VT_ATTR_REVERSE | VT_ATTR_HIDDEN | VT_ATTR_STRIKE |
+                               VT_ATTR_WIDE | VT_ATTR_WIDE_CONT;
+    size_t cells = (size_t)cols * (size_t)rows;
+    for (size_t i = 0; i < cells; i++) {
+        const vt_cell *c = &grid[i];
+        if (!scalar_or_zero(c->cp) || !scalar_or_zero(c->combine) ||
+            (c->combine && (!c->cp || vt_cp_width(c->combine) != 0)) || !valid_color(c->fg) ||
+            !valid_color(c->bg) || (c->attrs & (uint16_t)~all_attrs) ||
+            ((c->attrs & VT_ATTR_WIDE) && (c->attrs & VT_ATTR_WIDE_CONT)) ||
+            (c->cp && vt_cp_width(c->cp) == 2 && !(c->attrs & VT_ATTR_WIDE)))
+            return false;
+        if (c->attrs & VT_ATTR_WIDE) {
+            if (!c->cp || vt_cp_width(c->cp) != 2 || i % (size_t)cols == (size_t)cols - 1)
+                return false;
+            const vt_cell *next = &grid[i + 1];
+            if (!(next->attrs & VT_ATTR_WIDE_CONT) || next->cp || next->combine ||
+                next->fg != c->fg || next->bg != c->bg ||
+                (next->attrs & (uint16_t)~VT_ATTR_WIDE_CONT) !=
+                    (c->attrs & (uint16_t)~VT_ATTR_WIDE))
+                return false;
+        } else if (c->attrs & VT_ATTR_WIDE_CONT) {
+            if (i % (size_t)cols == 0 || !(grid[i - 1].attrs & VT_ATTR_WIDE)) return false;
+        }
+    }
+    return true;
+}
+
+static void free_contents(vt *t) {
+    if (t->sb) sb_free_all(t);
+    free(t->sb);
+    free(t->main_grid);
+    free(t->alt_grid);
+}
+
+int vt_snapshot_read(vt *t, const void *buf, size_t len) {
+    if (!t || !buf || len < VT_SNAPSHOT_HEADER) goto invalid;
+    const unsigned char *p = buf;
+    if (memcmp(p, snapshot_magic, sizeof snapshot_magic) != 0 ||
+        get_u16(p + 8) != VT_SNAPSHOT_VERSION || get_u16(p + 10) != VT_SNAPSHOT_HEADER ||
+        get_u32(p + 12) != len || get_u16(p + 52) != VT_SNAPSHOT_CELL || get_u16(p + 54) != 0)
+        goto invalid;
+    uint32_t cols = get_u32(p + 16), rows = get_u32(p + 20);
+    uint32_t cx = get_u32(p + 24), cy = get_u32(p + 28), flags = get_u32(p + 40);
+    uint32_t cells = get_u32(p + 48);
+    size_t title_len = get_u16(p + 44), cwd_len = get_u16(p + 46);
+    if (cols == 0 || rows == 0 || cols > VT_SNAPSHOT_MAX_DIM || rows > VT_SNAPSHOT_MAX_DIM ||
+        cx >= cols || cy >= rows || flags & ~SNAP_ALL_FLAGS || cells != cols * rows ||
+        title_len >= sizeof t->title || cwd_len >= sizeof t->cwd ||
+        cells > (SIZE_MAX - VT_SNAPSHOT_HEADER - title_len - cwd_len) / VT_SNAPSHOT_CELL)
+        goto invalid;
+    size_t expected = VT_SNAPSHOT_HEADER + title_len + cwd_len + (size_t)cells * VT_SNAPSHOT_CELL;
+    if (expected != len) goto invalid;
+    const unsigned char *title = p + VT_SNAPSHOT_HEADER;
+    const unsigned char *cwd = title + title_len;
+    if (!valid_metadata(title, title_len, false) || !valid_metadata(cwd, cwd_len, true)) goto invalid;
+
+    vt *fresh = vt_new((int)cols, (int)rows, t->sb_max);
+    if (!fresh) {
+        errno = ENOMEM;
+        return -1;
+    }
+    fresh->alt_on = (flags & SNAP_ALT_SCREEN) != 0;
+    fresh->grid = fresh->alt_on ? fresh->alt_grid : fresh->main_grid;
+    fresh->cursor_visible = (flags & SNAP_CURSOR_VISIBLE) != 0;
+    fresh->bracketed = (flags & SNAP_BRACKETED) != 0;
+    fresh->app_cursor = (flags & SNAP_APP_CURSOR) != 0;
+    fresh->cx = (int)cx;
+    fresh->cy = (int)cy;
+    fresh->saved_cx = fresh->cx;
+    fresh->saved_cy = fresh->cy;
+    fresh->generation = get_u64(p + 32);
+    memcpy(fresh->title, title, title_len);
+    fresh->title[title_len] = '\0';
+    memcpy(fresh->cwd, cwd, cwd_len);
+    fresh->cwd[cwd_len] = '\0';
+    p = cwd + cwd_len;
+    for (size_t i = 0; i < cells; i++, p += VT_SNAPSHOT_CELL) {
+        vt_cell *c = &fresh->grid[i];
+        c->cp = get_u32(p);
+        c->combine = get_u32(p + 4);
+        c->fg = get_u32(p + 8);
+        c->bg = get_u32(p + 12);
+        c->attrs = get_u16(p + 16);
+    }
+    if (!valid_grid(fresh->grid, fresh->cols, fresh->rows)) {
+        vt_free(fresh);
+        goto invalid;
+    }
+
+    vt old = *t;
+    vt_write_cb respond_cb = old.respond, gfx_cb = old.gfx_cb;
+    void *respond_user = old.respond_user, *gfx_user = old.gfx_user;
+    *t = *fresh;
+    t->respond = respond_cb;
+    t->respond_user = respond_user;
+    t->gfx_cb = gfx_cb;
+    t->gfx_user = gfx_user;
+    free(fresh); /* allocations now belong to t */
+    free_contents(&old);
+    return 0;
+
+invalid:
+    errno = EINVAL;
+    return -1;
 }
 
 /* ---- getters --------------------------------------------------------- */
@@ -818,6 +1196,8 @@ bool vt_alt_screen(const vt *t) { return t->alt_on; }
 bool vt_bracketed_paste(const vt *t) { return t->bracketed; }
 bool vt_app_cursor(const vt *t) { return t->app_cursor; }
 const char *vt_title(const vt *t) { return t->title; }
+const char *vt_cwd(const vt *t) { return t->cwd; }
+uint64_t vt_generation(const vt *t) { return t->generation; }
 int vt_graphics_count(const vt *t) { return t->gfx_count; }
 
 const vt_cell *vt_line(const vt *t, int row) {

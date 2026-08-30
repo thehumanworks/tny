@@ -30,6 +30,10 @@ typedef struct tt_http tt_http;
 /* Bind and listen. Non-loopback hosts require api->token (docs/adr/0002).
  * Returns NULL with a message in err. */
 tt_http *tt_http_listen(tt_api *api, const char *host, int port, char *err, size_t errlen);
+/* Bind the same HTTP surface on an AF_UNIX socket. The parent directory
+ * must already be private; the socket is chmod 0600 and accepted peers
+ * must have the server's effective uid. */
+tt_http *tt_http_listen_unix(tt_api *api, const char *path, char *err, size_t errlen);
 void tt_http_free(tt_http *h);
 
 /* Poll-loop integration: fill appends this server's pollfds (listener +

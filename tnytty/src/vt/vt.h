@@ -57,6 +57,16 @@ void vt_set_graphics(vt *t, vt_write_cb cb, void *user);
 void vt_feed(vt *t, const char *bytes, size_t len);
 void vt_resize(vt *t, int cols, int rows);
 
+/* Portable, versioned snapshot of the visible terminal state. The wire
+ * format is independent of compiler padding and host byte order. Import is
+ * transactional: on any malformed, truncated, oversized, or allocation
+ * failure, `t` is unchanged. Snapshot import preserves callbacks and the
+ * configured scrollback capacity, but intentionally clears scrollback: only
+ * the visible grid is part of this broker/client synchronization record. */
+size_t vt_snapshot_size(const vt *t);
+int vt_snapshot_write(const vt *t, void *buf, size_t cap, size_t *written);
+int vt_snapshot_read(vt *t, const void *buf, size_t len);
+
 int vt_cols(const vt *t);
 int vt_rows(const vt *t);
 int vt_cursor_x(const vt *t);
@@ -67,6 +77,12 @@ bool vt_bracketed_paste(const vt *t);
 /* DECCKM: arrow/Home/End keys should send SS3 rather than CSI. */
 bool vt_app_cursor(const vt *t);
 const char *vt_title(const vt *t);
+/* Sanitized absolute path from OSC 7 file://localhost/... (or an empty
+ * host). Invalid/non-local URLs leave the last valid path unchanged. */
+const char *vt_cwd(const vt *t);
+/* Monotonic semantic-state generation for coalescing screen/title/mode
+ * updates. It saturates rather than wrapping. */
+uint64_t vt_generation(const vt *t);
 int vt_graphics_count(const vt *t);
 
 const vt_cell *vt_line(const vt *t, int row);

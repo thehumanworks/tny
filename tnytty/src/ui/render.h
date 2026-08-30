@@ -123,6 +123,20 @@ const uint32_t *tt_render_pixels(const tt_render *r);
  * bar to the window (it belongs to no pane), so it is exported. */
 void tt_render_status_bar(const tt_fb *fb, const tt_render_config *cfg, const char *text);
 
+typedef struct {
+    const char *title;
+    bool active;
+    bool activity;
+} tt_render_tab;
+
+/* Paint a bounded tab strip at [y, y + h). Tabs share the width evenly;
+ * active and background-activity state stay visible without a platform
+ * widget, so every renderer gets the same projection. */
+void tt_render_tab_bar(const tt_fb *fb, const tt_render_config *cfg, int y, int h,
+                       const tt_render_tab *tabs, int count);
+/* Hit-test the same equal-width projection. */
+int tt_render_tab_at(int px_w, int count, int px_x);
+
 /* Paint every dirty row of t, plus the status bar when its text
  * changed. Returns the number of lines painted (the bar counts as one);
  * *y0 and *y1 (may be NULL) get the touched device-pixel band in

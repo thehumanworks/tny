@@ -484,6 +484,24 @@ TEST mix_blends_endpoints(void) {
     PASS();
 }
 
+TEST tab_bar_hit_testing_and_projection(void) {
+    ASSERT_EQ(-1, tt_render_tab_at(100, 0, 10));
+    ASSERT_EQ(-1, tt_render_tab_at(100, 3, -1));
+    ASSERT_EQ(0, tt_render_tab_at(100, 3, 0));
+    ASSERT_EQ(1, tt_render_tab_at(100, 3, 34));
+    ASSERT_EQ(2, tt_render_tab_at(100, 3, 99));
+
+    tt_render_config c = base_cfg();
+    tt_fb fb = {0};
+    ASSERT_EQ(0, tt_fb_alloc(&fb, 90, CELL_H));
+    tt_render_tab tabs[] = {{"one", true, false}, {"two", false, true}};
+    tt_render_tab_bar(&fb, &c, 0, CELL_H, tabs, 2);
+    ASSERT_EQ(c.status_bg, fb.px[1] & 0xffffffu);
+    ASSERT_EQ(tt_render_mix(c.status_bg, c.bg, 96), fb.px[46] & 0xffffffu);
+    tt_fb_free(&fb);
+    PASS();
+}
+
 /* The bug this exists for: a caret painted in the last cell of one grid
  * survived into the next one, so the window showed two carets -- the
  * live one at the prompt and a filled block stranded in the corner. */
@@ -667,4 +685,5 @@ SUITE(render_suite) {
     RUN_TEST(status_bar_paints_only_when_its_text_changes);
     RUN_TEST(status_bar_is_absent_when_its_height_is_zero);
     RUN_TEST(mix_blends_endpoints);
+    RUN_TEST(tab_bar_hit_testing_and_projection);
 }

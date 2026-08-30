@@ -458,6 +458,44 @@ void tt_render_status_bar(const tt_fb *fb, const tt_render_config *cfg, const ch
     }
 }
 
+int tt_render_tab_at(int px_w, int count, int px_x) {
+    if (px_w < 1 || count < 1 || px_x < 0 || px_x >= px_w) return -1;
+    int at = (int)((long long)px_x * count / px_w);
+    return at < count ? at : count - 1;
+}
+
+void tt_render_tab_bar(const tt_fb *fb, const tt_render_config *cfg, int y, int h,
+                       const tt_render_tab *tabs, int count) {
+    if (!fb || !cfg || !tabs || count < 1 || h < 1) return;
+    tt_rect all = {0, 0, fb->w, fb->h};
+    uint32_t inactive = tt_render_mix(cfg->status_bg, cfg->bg, 96);
+    uint32_t activity = tt_render_mix(cfg->status_fg, cfg->status_bg, 128);
+    for (int i = 0; i < count; i++) {
+        int x0 = fb->w * i / count;
+        int x1 = fb->w * (i + 1) / count;
+        uint32_t bg = tabs[i].active ? cfg->status_bg : inactive;
+        fill_clip(fb, all, x0, y, x1 - x0, h, bg);
+        if (i > 0) fill_clip(fb, all, x0, y, 1, h, cfg->bg);
+        if (!cfg->glyph || x1 - x0 <= cfg->cell_w) continue;
+        char label[160];
+        snprintf(label, sizeof label, "%d %s%s", i + 1,
+                 tabs[i].title && tabs[i].title[0] ? tabs[i].title : "shell",
+                 tabs[i].activity && !tabs[i].active ? " *" : "");
+        int x = x0 + cfg->cell_w / 2;
+        int limit = x1 - cfg->cell_w / 2;
+        int ty = y + (h - cfg->cell_h) / 2;
+        const unsigned char *p = (const unsigned char *)label;
+        while (*p && x + cfg->cell_w <= limit) {
+            uint32_t cp = next_cp(&p);
+            tt_glyph g;
+            uint32_t fg = tabs[i].activity && !tabs[i].active ? activity : cfg->status_fg;
+            if (cfg->glyph(cfg->glyph_user, cp, 0, &g) && g.alpha && g.w > 0)
+                blend_clip(fb, all, &g, x, ty, cfg->cell_h, fg, NULL, NULL);
+            x += cfg->cell_w;
+        }
+    }
+}
+
 int tt_render_frame(tt_render *r, const vt *t, bool focused, int *y0, int *y1) {
     int rows = vt_rows(t) < r->rows ? vt_rows(t) : r->rows;
     int cols = vt_cols(t) < r->cols ? vt_cols(t) : r->cols;

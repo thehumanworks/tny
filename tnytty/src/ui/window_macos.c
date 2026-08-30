@@ -671,10 +671,6 @@ bool tt_window_pump(tt_window *w, tt_win_ev *ev) {
             if (bare && msg_ul(bare, sel("length")) > 0)
                 u = ((unsigned short (*)(id, SEL, unsigned long))objc_msgSend)(
                     bare, sel("characterAtIndex:"), 0);
-            if ((m & TT_MOD_SUPER) && (u == 'q' || u == 'Q')) {
-                w->closed = true; /* Cmd-Q is the app's, not a pane's */
-                continue;
-            }
             if (m & TT_MOD_SUPER) {
                 /* Which Command presses are ours is decided by the
                  * platform-free chord table, so this file holds no
