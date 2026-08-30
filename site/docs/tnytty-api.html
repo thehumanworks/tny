@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>HTTP API — tnytty</title>
+  <meta name="description" content="REST surface for scriptable, shareable terminal sessions.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://thehumanworks.github.io/tny/docs/tnytty-api.html">
+  <meta property="og:title" content="HTTP API — tnytty">
+  <meta property="og:description" content="REST surface for scriptable, shareable terminal sessions.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("theme");
+        if (t === "light" || t === "dark") document.documentElement.classList.add(t);
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../index.html" aria-label="tny home"><svg class="brand-slash" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="m4.02 15.4.3-.7 6-14 .29-.68 1.37.59-.3.69-6 14-.29.68z" fill="var(--logo-divider)"></path></svg><span class="brand-word">tny</span></a>
+  <nav class="nav"><a href="index.html">docs</a><a href="cli.html">cli</a><a href="tnytty.html" aria-current="page">tnytty</a><a href="https://github.com/thehumanworks/tny" target="_blank" rel="noreferrer">source</a></nav>
+  <button type="button" class="theme-cta" data-theme aria-label="Toggle color theme">theme</button>
+  <button type="button" class="install-cta" data-site-install aria-label="Copy install command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-copy-status>install</span></button>
+</header>
+<div class="docs-shell">
+  <div class="docs-mobile">
+    <button type="button" id="docs-open" aria-expanded="false" aria-controls="docs-drawer">Browse</button>
+  </div>
+  <div class="drawer" id="docs-drawer" aria-hidden="true">
+    <div class="drawer-backdrop" id="docs-backdrop"></div>
+    <div class="drawer-panel">
+      <button type="button" id="docs-close">Close</button>
+      <nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div><div class="docs-nav-group"><p>tnytty</p><div><a href="tnytty.html">The tiny terminal</a><a href="tnytty-cli.html">CLI</a><a href="tnytty-config.html">Configuration</a><a href="tnytty-api.html" aria-current="page">HTTP API</a><a href="tnytty-architecture.html">Architecture</a></div></div></nav>
+    </div>
+  </div>
+  <main class="docs-layout">
+    <aside class="docs-sidebar"><nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div><div class="docs-nav-group"><p>tnytty</p><div><a href="tnytty.html">The tiny terminal</a><a href="tnytty-cli.html">CLI</a><a href="tnytty-config.html">Configuration</a><a href="tnytty-api.html" aria-current="page">HTTP API</a><a href="tnytty-architecture.html">Architecture</a></div></div></nav></aside>
+    <article class="article"><h1>tnytty HTTP API</h1><p class="lede">curl is the reference client. A leaked token is shell access.</p>
+<h2 id="bind">Binding and auth</h2>
+<p>Served by <code>tnytty serve</code>, <code>tnytty run --listen</code>, or <code>tnytty gui --listen</code>. JSON in, JSON out, except the plain-text screen dump. HTTP/1.1, <code>Connection: close</code> per response. SSE streaming is later work.</p>
+<ul>
+  <li>Default bind: <code>127.0.0.1:7681</code>. Loopback needs no token.</li>
+  <li>Non-loopback (<code>--listen 0.0.0.0:7681</code>) requires a token: <code>--token</code> / <code>TNYTTY_TOKEN</code>, or tnytty generates one and prints it once. Requests then need <code>Authorization: Bearer &lt;token&gt;</code>.</li>
+  <li><code>--token</code> on loopback enforces the token there too.</li>
+  <li>Token comparison is constant-time. Failures are <code>401 {"error":"unauthorized"}</code>.</li>
+</ul>
+<p>Sharing a session is sharing the base URL plus the token. Anyone with both can read the screen and type into the pty. Treat the token like an SSH key. There is no TLS in-process — put a reverse proxy in front of a public bind.</p>
+<h2 id="health">GET /v1/health</h2>
+<p><code>200 {"ok":true,"version":"…","sessions":N}</code>. No auth on loopback; token required elsewhere.</p>
+<h2 id="list">GET /v1/sessions</h2>
+<p><code>200 {"sessions":[{...session},...]}</code></p>
+<h2 id="create">POST /v1/sessions</h2>
+<p>Body, all optional: <code>{"cmd":["bash","-l"],"cols":80,"rows":24}</code>. Defaults: <code>$SHELL</code> (else <code>/bin/sh</code>), 80×24. <code>201</code> with the session object, or <code>500</code> if spawn fails. Sessions created through a <code>run</code> or <code>gui</code> listener share that process's event loop.</p>
+<h2 id="one">GET /v1/sessions/{id}</h2>
+<pre><code>{
+  "id": "a1b2c3d4",
+  "cmd": ["bash", "-l"],
+  "cols": 80, "rows": 24,
+  "title": "~/src — bash",
+  "alive": true, "exit_code": null,
+  "created_unix": 1756400000,
+  "graphics": 2
+}</code></pre>
+<p><code>404 {"error":"no such session"}</code> if the id is unknown. Ids are short random hex, not sequential, because they appear in shared URLs.</p>
+<h2 id="screen">GET /v1/sessions/{id}/screen</h2>
+<p>Default / <code>?format=text</code>: <code>text/plain; charset=utf-8</code> — the grid as UTF-8 lines, trailing blanks trimmed, one newline per row.</p>
+<p><code>?format=json</code> adds cursor, size, title, and styled runs:</p>
+<pre><code>{
+  "cols": 80, "rows": 24,
+  "cursor": {"x": 3, "y": 0, "visible": true},
+  "alt_screen": false,
+  "lines": [
+    {"text": "hi",
+     "runs": [{"start":0,"len":2,"fg":"#ff0000","bg":"","attrs":["bold"]}]}
+  ]
+}</code></pre>
+<p>Colors: <code>""</code> default, <code>"@n"</code> for indexed n, <code>"#rrggbb"</code> for truecolor. Attrs: <code>bold, faint, italic, underline, blink, reverse, hidden, strike</code>.</p>
+<h2 id="input">POST /v1/sessions/{id}/input</h2>
+<p>Body <code>{"text":"ls -la\r"}</code> (UTF-8, written verbatim) or <code>{"base64":"…"}</code> for exact bytes. <code>200 {"written":N}</code>. Control characters are the caller's job (<code>\r</code> for Enter). The API never rewrites input.</p>
+<p>Bytes that do not fit in the kernel pty buffer are queued on the session and drained as the child reads, so <code>"written":N</code> always equals the bytes you sent. The queue is 4 MiB per session. A write that would exceed it is rejected whole with <code>503 {"error":"input queue full"}</code>. Request bodies are capped at 1 MiB.</p>
+<h2 id="resize">POST /v1/sessions/{id}/resize</h2>
+<p>Body <code>{"cols":120,"rows":40}</code> → grid reflow, <code>TIOCSWINSZ</code>, <code>SIGWINCH</code>. <code>200</code> with the session. A session attached to <code>run</code> or a GUI pane gets its geometry from that frontend and returns <code>409</code>.</p>
+<h2 id="delete">DELETE /v1/sessions/{id}</h2>
+<p><code>SIGHUP</code> to the child process group, reap, drop the session. <code>200 {"ok":true}</code>. Attached <code>run</code> / pane sessions return <code>409</code> — close the terminal or pane instead. Teardown escalates to <code>SIGKILL</code> after 100 ms if the child ignores <code>SIGHUP</code>.</p>
+<h2 id="errors">Errors</h2>
+<p>Always JSON: <code>{"error":"&lt;message&gt;"}</code>. 400 bad request, 401 auth, 404 unknown session or route, 405 method, 409 the attached frontend owns geometry or lifetime, 500 spawn/OS, 503 input queue full.</p>
+<h2 id="examples">Examples</h2>
+<div class="cmd"><div class="left"><span class="prompt">$</span><code>tnytty serve --listen 0.0.0.0:7681 --token &quot;$TNYTTY_TOKEN&quot;</code></div><button type="button" data-copy="tnytty serve --listen 0.0.0.0:7681 --token &quot;$TNYTTY_TOKEN&quot;" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<pre><code>curl -s -H "Authorization: Bearer $TNYTTY_TOKEN" \
+     -d '{"cmd":["htop"],"cols":120,"rows":32}' \
+     http://host:7681/v1/sessions
+curl -s -H "Authorization: Bearer $TNYTTY_TOKEN" \
+     http://host:7681/v1/sessions/a1b2c3d4/screen
+curl -s -H "Authorization: Bearer $TNYTTY_TOKEN" \
+     -d '{"text":"q"}' http://host:7681/v1/sessions/a1b2c3d4/input</code></pre>
+</article>
+    <aside class="toc"><p>on this page</p><a href="#bind">Auth</a><a href="#health">health</a><a href="#list">list</a><a href="#create">create</a><a href="#one">one session</a><a href="#screen">screen</a><a href="#input">input</a><a href="#resize">resize</a><a href="#delete">delete</a><a href="#errors">Errors</a><a href="#examples">Examples</a></aside>
+  </main>
+</div>
+<script src="../assets/site.js"></script>
+</body>
+</html>

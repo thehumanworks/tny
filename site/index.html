@@ -33,7 +33,7 @@
 <body>
 <header class="site-header">
   <a class="brand" href="index.html" aria-label="tny home"><svg class="brand-slash" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="m4.02 15.4.3-.7 6-14 .29-.68 1.37.59-.3.69-6 14-.29.68z" fill="var(--logo-divider)"></path></svg><span class="brand-word">tny</span></a>
-  <nav class="nav"><a href="docs/index.html">docs</a><a href="docs/cli.html">cli</a><a href="https://github.com/thehumanworks/tny" target="_blank" rel="noreferrer">source</a></nav>
+  <nav class="nav"><a href="docs/index.html">docs</a><a href="docs/cli.html">cli</a><a href="docs/tnytty.html">tnytty</a><a href="https://github.com/thehumanworks/tny" target="_blank" rel="noreferrer">source</a></nav>
   <button type="button" class="theme-cta" data-theme aria-label="Toggle color theme">theme</button>
   <button type="button" class="install-cta" data-site-install aria-label="Copy install command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-copy-status>install</span></button>
 </header>
@@ -78,6 +78,7 @@
       <p>The terminal on this page is the real <span class="name">tny</span> binary compiled to WebAssembly — the same sources and the same CI test suite as the native CLI. Pass <code>OPENAI_API_KEY</code> (and optionally <code>OPENAI_BASE_URL</code>) in the URL hash or paste them at the prompt. Keys stay in this tab and go only to the provider you set — never to GitHub. Your provider must allow browser (CORS) calls; <code>api.openai.com</code> does not.</p>
       <p>For end users, the form factor aims to be closer to a Unix shell than a heavy "IDE in the terminal" TUI.</p>
       <p>It's open source, model-agnostic, and suitable for local models, subscriptions, and cloud inference.</p>
+      <p>The same monorepo ships <a href="docs/tnytty.html">tnytty</a>, a tiny C11 terminal emulator: a headless VT core, a pty host, kitty graphics with bundled <code>icat</code>, and a REST API so every session is scriptable and shareable.</p>
     </div>
     <button type="button" class="scroll-hint" data-scroll="features" aria-label="Scroll to features">***</button>
   </div>

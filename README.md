@@ -164,8 +164,11 @@ Public site (Geist Mono, fx.sh-style): [thehumanworks.github.io/tny](https://the
 The landing terminal is a client-side BYOK preview — pass `OPENAI_API_KEY`
 (and optionally `OPENAI_BASE_URL`) in the URL hash; both are encrypted in
 the tab ([ADR 0005](docs/adr/0005-client-side-landing-terminal.md)).
+tnytty's user-facing pages start at
+[docs/tnytty.html](https://thehumanworks.github.io/tny/docs/tnytty.html).
 
 The implementation contract lives in [docs/](docs/README.md): product scope,
 architecture, CLI/TUI specs, per-backend protocol notes,
-sessions/permissions/skills/MCP behavior, and the size/speed budgets. Update
+sessions/permissions/skills/MCP behavior, and the size/speed budgets.
+tnytty's contract is [`tnytty/docs/`](tnytty/docs/README.md). Update
 both the contract and `site/` when behavior changes (`make site`).
