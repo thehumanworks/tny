@@ -10,7 +10,9 @@ SITE = ROOT / "site"
 
 REPO = "https://github.com/thehumanworks/tny"
 INSTALL = "git clone https://github.com/thehumanworks/tny && cd tny && make"
-TNYTTY_INSTALL = "git clone https://github.com/thehumanworks/tny && cd tny && make tnytty"
+TNYTTY_INSTALL = (
+    "git clone https://github.com/thehumanworks/tny && cd tny && make tnytty"
+)
 VERSION = "0.1.0"
 SIZE = "0.41mib"
 SITE_BASE = "https://thehumanworks.github.io/tny/"
@@ -1296,7 +1298,7 @@ tnytty --help | --version</code></pre>
     <tr><td><code>--token T</code></td><td>Bearer token; required for non-loopback binds. Auto-generated and printed if omitted</td></tr>
   </tbody>
 </table>
-{cmd("tnytty serve --listen 0.0.0.0:7681 --token \"$TNYTTY_TOKEN\"")}
+{cmd('tnytty serve --listen 0.0.0.0:7681 --token "$TNYTTY_TOKEN"')}
 <h2 id="icat">tnytty icat</h2>
 <p>Print an image inline in any kitty-graphics terminal (kitty, ghostty, WezTerm, tnytty renderers). Reads a file or stdin (<code>-</code>). PNG is transmitted as-is. Other formats are a clean error in this phase.</p>
 {cmd("tnytty icat photo.png")}
@@ -1476,7 +1478,7 @@ def docs_tnytty_api() -> str:
 <h2 id="errors">Errors</h2>
 <p>Always JSON: <code>{{"error":"&lt;message&gt;"}}</code>. 400 bad request, 401 auth, 404 unknown session or route, 405 method, 409 the attached frontend owns geometry or lifetime, 500 spawn/OS, 503 input queue full.</p>
 <h2 id="examples">Examples</h2>
-{cmd("tnytty serve --listen 0.0.0.0:7681 --token \"$TNYTTY_TOKEN\"")}
+{cmd('tnytty serve --listen 0.0.0.0:7681 --token "$TNYTTY_TOKEN"')}
 <pre><code>curl -s -H "Authorization: Bearer $TNYTTY_TOKEN" \\
      -d '{{"cmd":["htop"],"cols":120,"rows":32}}' \\
      http://host:7681/v1/sessions
