@@ -372,6 +372,25 @@ static int conf_headers_object(mcp_conf *conf, yyjson_val *obj, bool env_values,
     return 0;
 }
 
+static char **argv_from_conf(yyjson_val *conf) {
+    yyjson_val *cmd = jget(conf, "command");
+    if (!cmd || !yyjson_is_arr(cmd) || yyjson_arr_size(cmd) == 0) return NULL;
+    char **argv = calloc(32, sizeof *argv);
+    if (!argv) return NULL;
+    size_t idx, max;
+    yyjson_val *v;
+    int argc = 0;
+    yyjson_arr_foreach(cmd, idx, max, v) {
+        if (argc >= 31 || !yyjson_is_str(v)) break;
+        argv[argc++] = xstrdup(yyjson_get_str(v));
+    }
+    if (!argv[0]) {
+        free(argv);
+        return NULL;
+    }
+    return argv;
+}
+
 static int conf_from_entry(yyjson_val *entry, mcp_conf *conf, char *err, size_t errlen) {
     memset(conf, 0, sizeof *conf);
     if (!entry || !yyjson_is_obj(entry)) {
@@ -428,8 +447,7 @@ fail:
     return -1;
 }
 
-static int conn_open(mcp_conn *c, mcp_conf *conf, const char *cwd,
-                     const mcp_imported_server *srv) {
+static int conn_open(mcp_conn *c, mcp_conf *conf, const char *cwd, const mcp_imported_server *srv) {
     if (conf->transport == MCP_TRANSPORT_STDIO) return conn_open_stdio(c, conf->argv, cwd, srv);
     return mcp_conn_open_http(c, conf);
 }

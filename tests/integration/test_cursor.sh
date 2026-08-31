@@ -114,13 +114,13 @@ SESSION=$(sed -n 's/.*"session_id":"\([^"]*\)".*/\1/p' "$TMP/1.out")
 [ -n "$SESSION" ] || fail "no session_id in the JSON output"
 SESSION_FILE=$(find "$HOME"/.tny/sessions -path "*/$SESSION/session.json" -print -quit)
 [ -n "$SESSION_FILE" ] || fail "session.json was not persisted"
-STORED=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["host_pointer"])' \
+STORED=$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["host_pointer"])' \
     "$SESSION_FILE")
 case "$STORED" in
     cursor-sdk.v1:*) ;;
     *) fail "session stored an unversioned Cursor host pointer '$STORED'" ;;
 esac
-STORED_AGENT=$(python3 -c \
+STORED_AGENT=$("$PY" -c \
     'import json,sys; print(json.loads(sys.argv[1].split(":", 1)[1])["agent_id"])' "$STORED")
 [ "$STORED_AGENT" = "$AGENT" ] ||
     fail "session stored agent '$STORED_AGENT', want '$AGENT'"

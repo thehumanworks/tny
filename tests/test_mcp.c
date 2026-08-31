@@ -728,6 +728,8 @@ TEST http_401_is_silent_until_named(void) {
     mcp_shutdown_all();
     tny_ctx_free(ctx);
     stop_http_mock(m);
+    PASS();
+}
 
 static void write_settings(const char *json) {
     char path[620];
