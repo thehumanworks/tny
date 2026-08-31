@@ -12,6 +12,9 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(packageRoot, "../..");
 const mockScript = join(repoRoot, "tests/integration/mock_openai.py");
 const STEER_TEXT = "tny-conformance-steer-rejected-v1";
+const configuredSteerTimeout = Number(process.env.TNY_CONFORMANCE_STEER_TIMEOUT ?? 30);
+const STEER_READY_TIMEOUT_MS = Number.isFinite(configuredSteerTimeout) &&
+  configuredSteerTimeout > 0 ? configuredSteerTimeout * 1000 : 30_000;
 const observed = {};
 
 function normalized(event) {
@@ -94,6 +97,22 @@ async function create(baseUrl, options = {}) {
     apiKey: "test-key-not-real",
     ...options,
   });
+}
+
+async function steerWhenActive(session, text) {
+  const deadline = Date.now() + STEER_READY_TIMEOUT_MS;
+  for (;;) {
+    try {
+      await session.steer(text);
+      return;
+    } catch (error) {
+      if (!(error instanceof TnyError) || error.status !== -2) throw error;
+      if (Date.now() >= deadline) {
+        throw new Error("turn did not become steerable before the test deadline");
+      }
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 1));
+    }
+  }
 }
 
 await withMock({}, async (baseUrl) => {
@@ -251,8 +270,7 @@ await withMock({ MOCK_SLOW_MS: "5000" }, async (baseUrl) => {
   const sessionId = session.id;
   const iterator = session.run("steer then cancel");
   let pending = iterator.next();
-  await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
-  await session.steer(STEER_TEXT);
+  await steerWhenActive(session, STEER_TEXT);
   await session.cancel();
   const interrupted = [];
   for (;;) {
@@ -347,7 +365,7 @@ await withMock({ MOCK_SLOW_MS: "200" }, async (baseUrl) => {
   const events = [];
   const iterator = session.run("cancel this turn", { signal: controller.signal });
   let pending = iterator.next();
-  await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+  await steerWhenActive(session, "queued-ready");
   const pressure = Array.from({ length: 5000 }, (_, index) =>
     session.steer(`queued-${index}`).catch((error) => error));
   controller.abort();
