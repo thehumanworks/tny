@@ -47,9 +47,7 @@ static char *env_assignment(const char *name, const char *value) {
     if (nl > SIZE_MAX - vl - 2) return NULL;
     char *entry = malloc(nl + vl + 2);
     if (!entry) return NULL;
-    memcpy(entry, name, nl);
-    entry[nl] = '=';
-    memcpy(entry + nl + 1, value, vl + 1);
+    snprintf(entry, nl + vl + 2, "%s=%s", name, value);
     return entry;
 }
 
