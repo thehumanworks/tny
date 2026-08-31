@@ -22,6 +22,7 @@ SUITE_EXTERN(ephemeral_suite);
 SUITE_EXTERN(session_bg_suite);
 SUITE_EXTERN(ssh_suite);
 SUITE_EXTERN(tasks_suite);
+SUITE_EXTERN(mcp_suite);
 
 int main(int argc, char **argv) {
     GREATEST_MAIN_BEGIN();
@@ -44,5 +45,6 @@ int main(int argc, char **argv) {
     RUN_SUITE(session_bg_suite);
     RUN_SUITE(ssh_suite);
     RUN_SUITE(tasks_suite);
+    RUN_SUITE(mcp_suite);
     GREATEST_MAIN_END();
 }

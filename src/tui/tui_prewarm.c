@@ -25,6 +25,7 @@
  * commands keep the lazy-connect startup contract.
  */
 #include "tui/tui.h"
+#include "mcp/mcp.h"
 
 #include <pthread.h>
 #include <stdlib.h>
@@ -144,6 +145,10 @@ static const char *resume_pointer_for(tui *t) {
 }
 
 void tui_prewarm_start(tui *t) {
+    /* MCP servers warm alongside the host (docs/adr/0049): only the native
+     * loop dispatches mcp_* tools, and mcp_warm_start latches after the
+     * first call, so provider switches back to native re-enter for free. */
+    if (t->ctx->backend == TNY_BK_OPENAI) mcp_warm_start(t->ctx);
     const char *hp = resume_pointer_for(t);
     if (t->prewarm) {
         if (t->prewarm->backend_id == t->ctx->backend &&

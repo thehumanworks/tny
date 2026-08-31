@@ -7,6 +7,7 @@
 #include "core/instructions.h"
 #include "core/tasks.h"
 #include "core/skills.h"
+#include "mcp/mcp.h"
 #include "lib/custom_tools.h"
 #include "net/net.h"
 #include "util/alloc.h"
@@ -208,6 +209,11 @@ static void build_system_prompt(oa_impl *o, buf_t *sys) {
         }
         skills_free(sk, nsk);
     }
+    /* MCP catalog: namespaced names + one-line descriptions from the cache
+     * the background warm-up filled (docs/adr/0049). Built per request, so
+     * it appears as soon as a server finishes its handshake — no tools/list
+     * round trip on the model's clock, and never a blocking wait here. */
+    mcp_catalog_collect(o->ctx, sys);
     if (o->ctx->task_instructions && *o->ctx->task_instructions) {
         buf_appends(sys, "\n");
         tny_task_collect(o->ctx, sys);
