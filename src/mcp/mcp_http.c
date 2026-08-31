@@ -137,7 +137,7 @@ static void append_routing_value(buf_t *line, const char *name, const char *valu
 static yyjson_doc *http_message(mcp_conn *c, const char *method, const char *name, const char *body,
                                 bool capture_session, bool notification, int *status_out) {
     c->last_error[0] = '\0';
-    char neterr[256] = "";
+    char neterr[200] = ""; /* fits last_error after the prefix (format-truncation) */
     http_conn *h = http_open(c->url, neterr, sizeof neterr);
     if (!h) {
         snprintf(c->last_error, sizeof c->last_error, "HTTP connection failed: %s",
