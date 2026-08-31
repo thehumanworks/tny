@@ -4,6 +4,7 @@
 #include "core/backend.h"
 #include "core/tasks.h"
 #include "core/session.h"
+#include "mcp/mcp.h"
 #include "backends/codex/codex.h" /* tny_codex_login */
 #include "net/net.h"
 #include "util/util.h"
@@ -665,6 +666,31 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     if (json) buf_appends(&b, "]}\n");
     fwrite(b.data, 1, b.len, stdout);
     buf_free(&b);
+    return 0;
+}
+
+int cmd_mcp(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
+    bool json = g->json;
+    const char *sub = NULL;
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--json") == 0) json = true;
+        else if (!sub) sub = argv[i];
+        else {
+            fprintf(stderr,
+                    "tny: mcp: unexpected argument '%s'\n"
+                    "Usage: tny [--json] mcp [list]\n",
+                    argv[i]);
+            return 1;
+        }
+    }
+    if (sub && strcmp(sub, "list") != 0) {
+        fprintf(stderr, "tny: mcp: unknown subcommand '%s'\nUsage: tny [--json] mcp [list]\n", sub);
+        return 1;
+    }
+    char *out = json ? mcp_list_json(ctx) : mcp_list_text(ctx);
+    if (!out) return 1;
+    fputs(out, stdout);
+    free(out);
     return 0;
 }
 

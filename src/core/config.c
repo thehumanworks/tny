@@ -581,6 +581,41 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
         (strcmp(ext_env, "0") == 0 || strcmp(ext_env, "false") == 0 || strcmp(ext_env, "off") == 0))
         ctx->extensions_enabled = false;
 
+    /* Foreign MCP profiles can name executables and carry credentials. Only
+     * this global user setting can authorize reading them; repo config never
+     * can. An absent/invalid list leaves the mask at zero, so no foreign path
+     * is even inspected by the MCP config layer (docs/adr/0051). */
+    yyjson_val *mcp = jget(sroot, "mcp");
+    yyjson_val *imports = jget(mcp, "import_from");
+    if (imports && !yyjson_is_arr(imports)) {
+        fprintf(stderr, "tny: warning: settings.json mcp.import_from must be an array\n");
+    } else if (imports) {
+        size_t idx, max;
+        yyjson_val *v;
+        yyjson_arr_foreach(imports, idx, max, v) {
+            if (!yyjson_is_str(v)) {
+                fprintf(stderr,
+                        "tny: warning: settings.json mcp.import_from[%zu] must be a string\n", idx);
+                continue;
+            }
+            const char *name = yyjson_get_str(v);
+            unsigned bit = 0;
+            if (strcmp(name, "codex") == 0) bit = TNY_MCP_IMPORT_CODEX;
+            else if (strcmp(name, "claude") == 0) bit = TNY_MCP_IMPORT_CLAUDE;
+            else if (strcmp(name, "grok") == 0) bit = TNY_MCP_IMPORT_GROK;
+            else if (strcmp(name, "cursor") == 0 || strcmp(name, "cursor-agent") == 0)
+                bit = TNY_MCP_IMPORT_CURSOR;
+            else {
+                fprintf(stderr,
+                        "tny: warning: settings.json mcp.import_from: unknown source '%s'\n", name);
+                continue;
+            }
+            if (!(ctx->mcp_import_mask & bit) && ctx->n_mcp_import_sources < 4)
+                ctx->mcp_import_order[ctx->n_mcp_import_sources++] = bit;
+            ctx->mcp_import_mask |= bit;
+        }
+    }
+
     /* reasoning effort: env here; a settings.json default is applied after
      * the provider resolves (apply_provider_effort); --effort overrides in
      * cli_make_ctx. tny never *writes* the effort back to settings — a
@@ -1024,9 +1059,9 @@ int tny_provider_write_profile(tny_ctx *ctx, const char *name, const tny_provide
     }
     /* reserved top-level settings keys must never become profiles */
     static const char *const reserved[] = {
-        "$schema", "workspaces",    "models",          "model",          "provider",
-        "fast",    "permission",    "permission_mode", "effort",         "extensions",
-        "acp",     "last_provider", "last_backend",    "web_search_url", NULL};
+        "$schema",      "workspaces",      "models", "model",      "provider", "fast",
+        "permission",   "permission_mode", "effort", "extensions", "acp",      "last_provider",
+        "last_backend", "web_search_url",  "mcp",    NULL};
     for (int i = 0; reserved[i]; i++)
         if (strcmp(name, reserved[i]) == 0) {
             snprintf(errbuf, errlen, "'%s' is a reserved settings key", name);

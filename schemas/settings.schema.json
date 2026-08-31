@@ -75,10 +75,24 @@
     "web_search_url": {
       "type": "string",
       "description": "Web-search endpoint template containing {query}."
+    },
+    "mcp": {
+      "type": "object",
+      "description": "MCP client options. Import from other harnesses is off by default.",
+      "properties": {
+        "import_from": {
+          "type": "array",
+          "description": "Opt-in list of harnesses whose documented user/project MCP configs tny may read. Empty/absent means no foreign files are opened.",
+          "items": { "enum": ["codex", "claude", "grok", "cursor", "cursor-agent"] },
+          "uniqueItems": true,
+          "default": []
+        }
+      },
+      "additionalProperties": false
     }
   },
   "patternProperties": {
-    "^(?!\\$schema$|provider$|model$|models$|effort$|fast$|permission_mode$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_url$)[A-Za-z0-9_-]+$": {
+    "^(?!\\$schema$|provider$|model$|models$|effort$|fast$|permission_mode$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_url$|mcp$)[A-Za-z0-9_-]+$": {
       "$ref": "#/$defs/openAIProfile",
       "description": "Named OpenAI-compatible provider profile."
     }

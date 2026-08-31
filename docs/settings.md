@@ -40,6 +40,29 @@ permission/cost escalation.
 | `effort` | string, or per-provider object | `--effort LEVEL` |
 | `fast` | boolean/string, or per-provider object | `--fast` when true/`fast`/`priority`; standard tier when false/`default` |
 | `permission_mode` | `ask`, `auto`, or `yolo` | `--permission-mode` |
+| `mcp.import_from` | array of `codex`, `claude`, `grok`, `cursor-agent` (`cursor` alias accepted) | `tny mcp list` (opt-in; off by default; project files for enabled sources are trusted, [ADR 0051](adr/0051-mcp-import-from-harnesses.md)) |
+
+## MCP imports
+
+Foreign MCP discovery is a user-controlled authority boundary and is empty by
+default:
+
+```json
+{ "mcp": { "import_from": ["codex", "claude", "grok", "cursor-agent"] } }
+```
+
+Only named sources are opened. tny reads Codex `$CODEX_HOME/config.toml`
+(`~/.codex/config.toml`), Claude `~/.claude.json` plus workspace `.mcp.json`,
+Grok Build `~/.grok/config.toml` plus `.grok/config.toml` overlays from the
+repository root through the current workspace, and cursor-agent
+user/workspace `.cursor/mcp.json`.
+It never writes these files. `~/.tny/mcp.json` wins collisions; among foreign
+sources the first `import_from` entry wins, while each harness's project scope
+wins its user scope. Missing or malformed enabled sources warn and are skipped.
+Current stdio entries run under the normal `mcp:server/tool` permission path;
+HTTP/SSE records appear in `tny mcp list` as `skipped: unsupported transport`.
+Commands, arguments, environment values, and URLs are never emitted by the
+listing.
 
 `models` and `last_provider` are also valid. tny maintains them after provider
 and model use. Explicit `provider` and `model` defaults are user-authored and

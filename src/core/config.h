@@ -8,6 +8,11 @@
 
 #define TNY_TASK_DIGEST_HEX_LEN 40u
 
+#define TNY_MCP_IMPORT_CODEX  (1u << 0)
+#define TNY_MCP_IMPORT_CLAUDE (1u << 1)
+#define TNY_MCP_IMPORT_GROK   (1u << 2)
+#define TNY_MCP_IMPORT_CURSOR (1u << 3)
+
 struct tny_extensions;
 struct tny_host_services_state;
 struct custom_tool_registry;
@@ -133,8 +138,12 @@ typedef struct tny_ctx {
     int n_instruction_paths;
     char instructions_digest[17];
     bool instructions_snapshot_ready;
-    bool mcp_disabled;  /* `tny acp` server: client owns MCP */
-    char *sandbox_mode; /* "none" | "auto" | "os" */
+    bool mcp_disabled;            /* `tny acp` server: client owns MCP */
+    unsigned mcp_import_mask;     /* explicit settings mcp.import_from opt-ins */
+    unsigned mcp_import_order[4]; /* source bits, in user-authored order */
+    int n_mcp_import_sources;
+    bool mcp_import_warned; /* source diagnostics are emitted once per context */
+    char *sandbox_mode;     /* "none" | "auto" | "os" */
 
     /* paths */
     char *tny_dir;       /* ~/.tny */

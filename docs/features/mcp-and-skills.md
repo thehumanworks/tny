@@ -26,7 +26,11 @@ No browser/CDP tools in v1.
 
 ## MCP client
 
-Trusted profile only: `~/.tny/mcp.json`. **Never** load repo-local MCP files (cloning a repo must not start a server).
+Authoritative profile: `~/.tny/mcp.json`. A clone cannot opt itself into MCP
+authority: project files are considered only after the user's global settings
+explicitly enable their harness source.
+
+Opt-in import ([ADR 0051](../adr/0051-mcp-import-from-harnesses.md)): `mcp.import_from` in `~/.tny/settings.json` may list `"codex"`, `"claude"`, `"grok"`, and/or `"cursor-agent"` (`"cursor"` alias). Off by default — no foreign file is opened until named. Claude `.mcp.json`, Grok Build `.grok/config.toml`, and cursor-agent `.cursor/mcp.json` project files load only after their global source opt-in. Native names win on collision. Stdio servers run; the current tree lists remote HTTP/SSE/WS entries as `skipped: unsupported transport` behind the transport capability seam, ready for issue #87. `tny mcp list --json` attributes `source`, `scope`, and `transport`. tny never writes those files. wasm: parse works, spawn stays the existing clean error.
 
 Transports: stdio JSONL and Streamable HTTP ([ADR
 0051](../adr/0051-mcp-streamable-http.md)). Existing entries keep their exact

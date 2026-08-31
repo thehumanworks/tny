@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "cursor_project": {
+      "command": "${TNY_TEST_MCP_BIN}",
+      "args": []
+    },
+    "cursor_project_wins": {
+      "command": "project-command"
+    },
+    "cursor_remote": {
+      "type": "http",
+      "url": "https://example.test/mcp"
+    },
+    "shared": {
+      "command": "foreign-collision"
+    }
+  }
+}
+

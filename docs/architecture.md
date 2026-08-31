@@ -81,8 +81,8 @@ remain CLI surfaces and do not expand the embedding ABI.
 
 | Path | Contents |
 | --- | --- |
-| `~/.tny/settings.json` | Provider/model/effort/fast defaults, trusted Cursor sdk.v1 options, permission mode, named provider/ACP-agent profiles, UI, per-workspace overrides ([schema](../schemas/settings.schema.json)) |
-| `~/.tny/mcp.json` | Trusted stdio and Streamable HTTP MCP servers only (never repo-local MCP) |
+| `~/.tny/settings.json` | Provider/model/effort/fast defaults, trusted Cursor sdk.v1 options, permission mode, named provider/ACP-agent profiles, UI, per-workspace overrides, optional `mcp.import_from` ([schema](../schemas/settings.schema.json)) |
+| `~/.tny/mcp.json` | Authoritative stdio and Streamable HTTP MCP servers (never repo-local MCP). Foreign user/project configs load only when global `mcp.import_from` explicitly names their harness ([ADR 0052](adr/0052-mcp-import-from-harnesses.md)) |
 | `~/.tny/sessions/` | Transcripts and recovery checkpoints |
 | `~/.tny/skills/` | Managed skill installs |
 | `~/.tny/extensions/` | Trusted global Python event hooks (`*.py`, `*/index.py`) |

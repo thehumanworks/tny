@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "claude_user": {
+      "type": "stdio",
+      "command": "${TNY_TEST_MCP_BIN}",
+      "args": [],
+      "env": { "TNY_MCP_FIXTURE": "claude-user" }
+    },
+    "claude_project_wins": {
+      "command": "user-command"
+    }
+  }
+}
+

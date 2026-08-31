@@ -45,6 +45,9 @@ let
     ../sdk/schema
     ../site
     ../tests
+    # Explicit contract for issue #88: every foreign MCP harness parser is
+    # exercised from immutable fixture data inside the sandbox.
+    ../tests/fixtures/mcp-import
     # Optional `make -C tnytty benchmark`: keep its product sources, helper,
     # and JSON runner available in the hermetic test source without running
     # the timing-sensitive benchmark as a routine Nix check.

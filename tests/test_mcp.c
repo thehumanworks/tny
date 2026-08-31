@@ -5,6 +5,8 @@
 #include "core/config.h"
 #include "core/tools.h"
 #include "mcp/mcp.h"
+#include "mcp/mcp_import.h"
+#include "util/toml.h"
 #include "util/util.h"
 
 #include <arpa/inet.h>
@@ -16,6 +18,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <stdarg.h>
 
 static char m_home[512], m_ws[520], m_bin[sizeof m_home + sizeof "/fake-mcp.sh"];
 
@@ -53,6 +56,7 @@ static void mcp_test_env(void) {
     snprintf(m_home, sizeof m_home, "%s/tny-mcp-home-XXXXXX", t);
     if (!mkdtemp(m_home)) abort();
     setenv("HOME", m_home, 1);
+    unsetenv("CODEX_HOME");
     snprintf(m_ws, sizeof m_ws, "%s/ws", m_home);
     mkdir_p(m_ws);
     char tnydir[600];
@@ -724,6 +728,307 @@ TEST http_401_is_silent_until_named(void) {
     mcp_shutdown_all();
     tny_ctx_free(ctx);
     stop_http_mock(m);
+
+static void write_settings(const char *json) {
+    char path[620];
+    snprintf(path, sizeof path, "%s/.tny/settings.json", m_home);
+    file_write_atomic(path, json, strlen(json));
+}
+
+static void write_home(const char *rel, const char *body) {
+    char path[720];
+    snprintf(path, sizeof path, "%s/%s", m_home, rel);
+    char dir[720];
+    snprintf(dir, sizeof dir, "%s", path);
+    char *slash = strrchr(dir, '/');
+    if (slash) {
+        *slash = 0;
+        mkdir_p(dir);
+    }
+    file_write_atomic(path, body, strlen(body));
+}
+
+static bool copy_fixture_home(const char *fixture, const char *rel) {
+    char path[720];
+    snprintf(path, sizeof path, "tests/fixtures/mcp-import/%s", fixture);
+    size_t len = 0;
+    char *body = file_slurp(path, &len);
+    if (!body) return false;
+    write_home(rel, body);
+    free(body);
+    return true;
+}
+
+static bool copy_fixture_workspace(const char *fixture, const char *rel) {
+    char source[720], path[720], dir[720];
+    snprintf(source, sizeof source, "tests/fixtures/mcp-import/%s", fixture);
+    size_t len = 0;
+    char *body = file_slurp(source, &len);
+    if (!body) return false;
+    snprintf(path, sizeof path, "%s/%s", m_ws, rel);
+    snprintf(dir, sizeof dir, "%s", path);
+    char *slash = strrchr(dir, '/');
+    if (slash) {
+        *slash = 0;
+        mkdir_p(dir);
+    }
+    bool ok = file_write_atomic(path, body, len) == 0;
+    free(body);
+    return ok;
+}
+
+/* Default-off: foreign files exist but are not opened until import_from
+ * names the source. Native names win; remote entries are skipped. */
+TEST import_off_by_default_then_merges_stdio(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    setenv("TNY_TEST_MCP_BIN", m_bin, 1);
+    write_profile("{\"servers\":{\"shared\":{\"command\":[\"/bin/true\"]}}}");
+    ASSERT(copy_fixture_home("codex.toml", ".codex/config.toml"));
+    ASSERT(copy_fixture_home("claude-user.json", ".claude.json"));
+    ASSERT(copy_fixture_workspace("claude-project.json", ".mcp.json"));
+    ASSERT(copy_fixture_home("grok.toml", ".grok/config.toml"));
+    ASSERT(copy_fixture_workspace("grok-project.toml", ".grok/config.toml"));
+    ASSERT(copy_fixture_home("cursor-user.json", ".cursor/mcp.json"));
+    ASSERT(copy_fixture_workspace("cursor-project.json", ".cursor/mcp.json"));
+
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    mcp_catalog *cat = mcp_catalog_load(ctx);
+    ASSERT(cat);
+    ASSERT_EQ(1, cat->nservers);
+    ASSERT(mcp_catalog_find(cat, "shared"));
+    ASSERT(!mcp_catalog_find(cat, "cursor_user"));
+    ASSERT(!mcp_catalog_find(cat, "codex_stdio"));
+    mcp_catalog_free(cat);
+    tny_ctx_free(ctx);
+
+    write_settings("{\"mcp\":{\"import_from\":[\"codex\",\"claude\",\"grok\",\"cursor-agent\"]}}");
+    ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    cat = mcp_catalog_load(ctx);
+    ASSERT(cat);
+    ASSERT_EQ(MCP_SRC_TNY, mcp_catalog_find(cat, "shared")->source);
+    ASSERT_EQ(MCP_SRC_CURSOR, mcp_catalog_find(cat, "cursor_user")->source);
+    ASSERT(mcp_catalog_find(cat, "cursor_project"));
+    ASSERT(strcmp(mcp_catalog_find(cat, "cursor_project_wins")->scope, "project") == 0);
+    ASSERT(mcp_catalog_find(cat, "claude_user"));
+    ASSERT(mcp_catalog_find(cat, "claude_project"));
+    ASSERT(strcmp(mcp_catalog_find(cat, "claude_project_wins")->scope, "project") == 0);
+    ASSERT(mcp_catalog_find(cat, "grok_user"));
+    ASSERT(mcp_catalog_find(cat, "grok_project"));
+    ASSERT(strcmp(mcp_catalog_find(cat, "grok_project_wins")->scope, "project") == 0);
+    const mcp_imported_server *codex = mcp_catalog_find(cat, "codex_stdio");
+    ASSERT(codex);
+    ASSERT(codex->argc >= 2);
+    ASSERT(strcmp(codex->argv[0], "/bin/echo") == 0);
+    ASSERT(codex->nenv == 1);
+    ASSERT(strcmp(codex->env[0].key, "FIXTURE_TOKEN") == 0);
+    const mcp_imported_server *remote = mcp_catalog_find(cat, "cursor_remote");
+    ASSERT(remote);
+    ASSERT(remote->skipped);
+    ASSERT(strcmp(remote->transport, "http") == 0);
+    const mcp_imported_server *sse = mcp_catalog_find(cat, "grok_sse");
+    ASSERT(sse);
+    ASSERT(sse->skipped);
+    /* collision: native stays tny, cursor duplicate is a notice */
+    bool saw_collision = false;
+    for (int i = 0; i < cat->nnotices; i++)
+        if (cat->notices[i] && strstr(cat->notices[i], "shared")) saw_collision = true;
+    ASSERT(saw_collision);
+
+    char *json = mcp_list_json(ctx);
+    ASSERT(json);
+    ASSERT(strstr(json, "\"kind\":\"mcp_servers\""));
+    ASSERT(strstr(json, "\"source\":\"tny\""));
+    ASSERT(strstr(json, "\"source\":\"cursor-agent\""));
+    ASSERT(strstr(json, "\"source\":\"codex\""));
+    ASSERT(strstr(json, "\"scope\":\"project\""));
+    ASSERT(strstr(json, "\"transport\":\"http\""));
+    ASSERT(!strstr(json, "fixture-secret"));
+    ASSERT(!strstr(json, "FIXTURE_TOKEN"));
+    free(json);
+
+    tools_env env = {.ctx = ctx};
+    char *called = mcp_call_tool(&env, "codex_runtime", "deploy_app", "{}");
+    ASSERT(called);
+    ASSERT(strstr(called, "called ok"));
+    free(called);
+    mcp_shutdown_all();
+    mcp_catalog_free(cat);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST import_malformed_source_is_notice_not_fatal(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    write_profile(NULL);
+    write_settings("{\"mcp\":{\"import_from\":[\"cursor-agent\"]}}");
+    ASSERT(copy_fixture_home("malformed.json", ".cursor/mcp.json"));
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    mcp_catalog *cat = mcp_catalog_load(ctx);
+    ASSERT(cat);
+    ASSERT_EQ(0, cat->nservers);
+    bool saw = false;
+    for (int i = 0; i < cat->nnotices; i++)
+        if (cat->notices[i] && strstr(cat->notices[i], "malformed")) saw = true;
+    ASSERT(saw);
+    mcp_catalog_free(cat);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST import_project_configs_are_opt_in_and_attributed(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    write_profile(NULL);
+    write_settings("{\"mcp\":{\"import_from\":[\"cursor-agent\",\"claude\"]}}");
+    char user_path[720];
+    snprintf(user_path, sizeof user_path, "%s/.cursor/mcp.json", m_home);
+    unlink(user_path);
+    snprintf(user_path, sizeof user_path, "%s/.claude.json", m_home);
+    unlink(user_path);
+    char ws_cursor[640];
+    snprintf(ws_cursor, sizeof ws_cursor, "%s/.cursor", m_ws);
+    mkdir_p(ws_cursor);
+    snprintf(ws_cursor, sizeof ws_cursor, "%s/.cursor/mcp.json", m_ws);
+    const char *proj = "{\"mcpServers\":{\"proj\":{\"command\":\"npx\",\"args\":[\"x\"]}}}";
+    file_write_atomic(ws_cursor, proj, strlen(proj));
+    char ws_mcp[640];
+    snprintf(ws_mcp, sizeof ws_mcp, "%s/.mcp.json", m_ws);
+    const char *proj2 = "{\"mcpServers\":{\"proj2\":{\"command\":\"npx\",\"args\":[\"y\"]}}}";
+    file_write_atomic(ws_mcp, proj2, strlen(proj2));
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    mcp_catalog *cat = mcp_catalog_load(ctx);
+    ASSERT(cat);
+    ASSERT(mcp_catalog_find(cat, "proj"));
+    ASSERT(mcp_catalog_find(cat, "proj2"));
+    ASSERT(strcmp(mcp_catalog_find(cat, "proj")->scope, "project") == 0);
+    ASSERT(strcmp(mcp_catalog_find(cat, "proj2")->scope, "project") == 0);
+    mcp_catalog_free(cat);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST import_missing_and_malformed_toml_are_notices(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    write_profile(NULL);
+    write_settings("{\"mcp\":{\"import_from\":[\"codex\",\"grok\"]}}");
+    ASSERT(copy_fixture_home("malformed.toml", ".codex/config.toml"));
+    char grok_user[720], grok_project[720];
+    snprintf(grok_user, sizeof grok_user, "%s/.grok/config.toml", m_home);
+    snprintf(grok_project, sizeof grok_project, "%s/.grok/config.toml", m_ws);
+    unlink(grok_user);
+    unlink(grok_project);
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    mcp_catalog *cat = mcp_catalog_load(ctx);
+    ASSERT(cat);
+    bool malformed = false, missing = false;
+    for (int i = 0; i < cat->nnotices; i++) {
+        if (strstr(cat->notices[i], "codex") && strstr(cat->notices[i], "malformed"))
+            malformed = true;
+        if (strstr(cat->notices[i], "grok") && strstr(cat->notices[i], "no config")) missing = true;
+    }
+    ASSERT(malformed);
+    ASSERT(missing);
+    mcp_catalog_free(cat);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST imported_stdio_server_runs_through_existing_permission_path(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    write_profile(NULL);
+    write_settings("{\"mcp\":{\"import_from\":[\"cursor-agent\"]}}");
+    char json[900];
+    snprintf(json, sizeof json,
+             "{\"mcpServers\":{\"imported\":{\"type\":\"stdio\",\"command\":\"%s\","
+             "\"args\":[\"0\"],\"env\":{\"MCP_FIXTURE\":\"synthetic\"}}}}",
+             m_bin);
+    char dir[640], path[680];
+    snprintf(dir, sizeof dir, "%s/.cursor", m_ws);
+    mkdir_p(dir);
+    snprintf(path, sizeof path, "%s/mcp.json", dir);
+    ASSERT_EQ(0, file_write_atomic(path, json, strlen(json)));
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    tools_env env = {.ctx = ctx};
+    char *out = mcp_call_tool(&env, "imported", "deploy_app", "{}");
+    ASSERT(out);
+    ASSERT(strstr(out, "called ok"));
+    free(out);
+    mcp_shutdown_all();
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST toml_subset_parses_mcp_servers_tables(void) {
+    const char *src = "# comment\n"
+                      "model = \"gpt\"\n"
+                      "[mcp_servers.ctx7]\n"
+                      "command = \"npx\"\n"
+                      "args = [\"-y\", \"@upstash/context7-mcp\"]\n"
+                      "enabled = true\n"
+                      "\n"
+                      "[mcp_servers.ctx7.env]\n"
+                      "API_KEY = \"x\"\n"
+                      "\n"
+                      "[[hooks.PreToolUse]]\n"
+                      "matcher = \"^Bash$\"\n";
+    yyjson_doc *doc = toml_parse_subset(src, strlen(src));
+    ASSERT(doc);
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    ASSERT(yyjson_is_obj(root));
+    ASSERT(strcmp(jget_str(root, "model"), "gpt") == 0);
+    yyjson_val *srv = jget(jget(root, "mcp_servers"), "ctx7");
+    ASSERT(srv);
+    ASSERT(strcmp(jget_str(srv, "command"), "npx") == 0);
+    yyjson_val *args = jget(srv, "args");
+    ASSERT(yyjson_is_arr(args));
+    ASSERT_EQ(2, (int)yyjson_arr_size(args));
+    ASSERT(jget_bool(srv, "enabled", false));
+    ASSERT(strcmp(jget_str(jget(srv, "env"), "API_KEY"), "x") == 0);
+    ASSERT(!jget(root, "hooks")); /* arrays of tables ignored */
+    yyjson_doc_free(doc);
+    PASS();
+}
+
+/* Hostile shapes: deep nesting must fail the parse (never smash the stack),
+ * a server literally named `env` is a server table, and unsupported quoted
+ * table headers are discarded instead of spilling keys onto the root. */
+TEST toml_subset_survives_hostile_shapes(void) {
+    char *deep = malloc(200000 + 32);
+    ASSERT(deep);
+    size_t n = (size_t)snprintf(deep, 32, "args = ");
+    for (int i = 0; i < 100000; i++) deep[n++] = '[';
+    deep[n] = '\0';
+    yyjson_doc *doc = toml_parse_subset(deep, n);
+    free(deep);
+    if (doc) yyjson_doc_free(doc); /* either result is fine; crashing is not */
+
+    const char *named_env = "[mcp_servers.env]\ncommand = \"x\"\nargs = [\"a\"]\n";
+    doc = toml_parse_subset(named_env, strlen(named_env));
+    ASSERT(doc);
+    yyjson_val *srv = jget(jget(yyjson_doc_get_root(doc), "mcp_servers"), "env");
+    ASSERT(srv);
+    ASSERT(strcmp(jget_str(srv, "command"), "x") == 0);
+    ASSERT(yyjson_is_arr(jget(srv, "args"))); /* args allowed: server table */
+    yyjson_doc_free(doc);
+
+    const char *quoted = "[mcp_servers.\"my.server\"]\ncommand = \"evil\"\n"
+                         "[mcp_servers.ok]\ncommand = \"fine\"\n";
+    doc = toml_parse_subset(quoted, strlen(quoted));
+    ASSERT(doc);
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    ASSERT(!jget(root, "command")); /* no spill onto the root table */
+    ASSERT(strcmp(jget_str(jget(jget(root, "mcp_servers"), "ok"), "command"), "fine") == 0);
+    yyjson_doc_free(doc);
     PASS();
 }
 
@@ -739,4 +1044,12 @@ SUITE(mcp_suite) {
     RUN_TEST(http_legacy_initialize_fallback);
     RUN_TEST(http_auth_from_env_and_rejects_literal_authorization);
     RUN_TEST(http_401_is_silent_until_named);
+
+    RUN_TEST(import_off_by_default_then_merges_stdio);
+    RUN_TEST(import_malformed_source_is_notice_not_fatal);
+    RUN_TEST(import_project_configs_are_opt_in_and_attributed);
+    RUN_TEST(import_missing_and_malformed_toml_are_notices);
+    RUN_TEST(imported_stdio_server_runs_through_existing_permission_path);
+    RUN_TEST(toml_subset_parses_mcp_servers_tables);
+    RUN_TEST(toml_subset_survives_hostile_shapes);
 }

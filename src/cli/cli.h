@@ -82,6 +82,7 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_provider(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_usage(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_cursor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+int cmd_mcp(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_setup(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_tasks(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_task(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
