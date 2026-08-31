@@ -13,9 +13,13 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <signal.h>
+#include <time.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -772,6 +776,193 @@ TEST bridge_rejects_partial_store_callback_credentials_before_spawn(void) {
     PASS();
 }
 
+static int open_fd_count(void) {
+    int count = 0;
+    for (int fd = 0; fd < 512; fd++)
+        if (fcntl(fd, F_GETFD) >= 0) count++;
+    return count;
+}
+
+static bool process_group_gone(pid_t pgid) {
+    for (int i = 0; i < 50; i++) {
+        if (kill(-pgid, 0) != 0 && errno == ESRCH) return true;
+        struct timespec delay = {0, 10 * 1000 * 1000};
+        while (nanosleep(&delay, &delay) != 0 && errno == EINTR) {}
+    }
+    return false;
+}
+
+typedef struct {
+    const char *name;
+    char *value;
+    bool present;
+} saved_env;
+
+static saved_env save_env(const char *name) {
+    const char *value = getenv(name);
+    saved_env saved = {name, value ? xstrdup(value) : NULL, value != NULL};
+    return saved;
+}
+
+static void restore_env(saved_env *saved) {
+    if (saved->present) setenv(saved->name, saved->value, 1);
+    else unsetenv(saved->name);
+    free(saved->value);
+    saved->value = NULL;
+}
+
+static const char bridge_spawn_fixture[] =
+    "#!/bin/sh\n"
+    "fail() { echo \"fixture check failed: $1\" >&2; exit 42; }\n"
+    "actual_cwd=$(pwd -P) || fail cwd\n"
+    "[ \"$actual_cwd\" = \"$EXPECT_CWD\" ] || fail cwd\n"
+    "[ \"${CURSOR_API_KEY-}\" = \"$EXPECT_API_KEY\" ] || fail api-key\n"
+    "[ \"${CURSOR_SDK_CLIENT_LANGUAGE-}\" = c ] || fail client-language\n"
+    "if [ \"$EXPECT_STORE_MODE\" = set ]; then\n"
+    "  [ \"${CURSOR_SDK_STORE_CALLBACK_AUTH_TOKEN-}\" = \"$EXPECT_STORE_TOKEN\" ] || "
+    "fail store-token\n"
+    "else\n"
+    "  [ \"${CURSOR_SDK_STORE_CALLBACK_AUTH_TOKEN+x}\" != x ] || fail store-token-present\n"
+    "fi\n"
+    "[ \"$1\" = --workspace ] && [ \"$2\" = \"$EXPECT_CWD\" ] || fail workspace-argv\n"
+    "[ \"$3\" = --host ] && [ \"$4\" = 127.0.0.1 ] || fail host-argv\n"
+    "[ \"$5\" = --port ] && [ \"$6\" = 0 ] || fail port-argv\n"
+    "if [ \"$EXPECT_ARGS_MODE\" = full ]; then\n"
+    "  [ \"$#\" = 12 ] || fail argc\n"
+    "  [ \"$7\" = --state-root ] && [ \"$8\" = \"$EXPECT_STATE_ROOT\" ] || fail "
+    "state-argv\n"
+    "  [ \"$9\" = --local-store ] && [ \"${10}\" = '{\"type\":\"memory\"}' ] || fail "
+    "local-store-argv\n"
+    "  [ \"${11}\" = --store-callback-url ] && [ \"${12}\" = http://127.0.0.1:7 ] || "
+    "fail callback-argv\n"
+    "else\n"
+    "  [ \"$#\" = 6 ] || fail argc\n"
+    "fi\n"
+    "echo 'cursor-sdk-bridge ready {\"schemaVersion\":1,\"transport\":\"tcp\","
+    "\"protocol\":\"connect\",\"url\":\"http://127.0.0.1:9\","
+    "\"authToken\":\"fixture-bearer\"}' >&2\n"
+    "while :; do :; done\n";
+
+TEST bridge_spawn_sets_exact_cwd_argv_and_environment(void) {
+    saved_env saved[] = {
+        save_env("CURSOR_API_KEY"),
+        save_env("CURSOR_SDK_CLIENT_LANGUAGE"),
+        save_env("CURSOR_SDK_STORE_CALLBACK_AUTH_TOKEN"),
+        save_env("EXPECT_CWD"),
+        save_env("EXPECT_API_KEY"),
+        save_env("EXPECT_STORE_MODE"),
+        save_env("EXPECT_STORE_TOKEN"),
+        save_env("EXPECT_ARGS_MODE"),
+        save_env("EXPECT_STATE_ROOT"),
+    };
+    char root_template[] = "/tmp/tny-bridge-spawn-XXXXXX";
+    char *root = mkdtemp(root_template);
+    ASSERT(root);
+    char cwd[PATH_MAX];
+    ASSERT(realpath(root, cwd));
+    char *fixture = path_join(cwd, "bridge-fixture");
+    ASSERT(fixture);
+    ASSERT_EQ(0, file_write_atomic(fixture, bridge_spawn_fixture, sizeof bridge_spawn_fixture - 1));
+    ASSERT_EQ(0, chmod(fixture, 0700));
+    int baseline_fds = open_fd_count();
+
+    ASSERT_EQ(0, setenv("CURSOR_API_KEY", "ambient-api", 1));
+    ASSERT_EQ(0, setenv("CURSOR_SDK_CLIENT_LANGUAGE", "ambient-language", 1));
+    ASSERT_EQ(0, setenv("CURSOR_SDK_STORE_CALLBACK_AUTH_TOKEN", "ambient-store", 1));
+    ASSERT_EQ(0, setenv("EXPECT_CWD", cwd, 1));
+    ASSERT_EQ(0, setenv("EXPECT_API_KEY", "explicit-api", 1));
+    ASSERT_EQ(0, setenv("EXPECT_STORE_MODE", "set", 1));
+    ASSERT_EQ(0, setenv("EXPECT_STORE_TOKEN", "explicit-store", 1));
+    ASSERT_EQ(0, setenv("EXPECT_ARGS_MODE", "full", 1));
+    ASSERT_EQ(0, setenv("EXPECT_STATE_ROOT", cwd, 1));
+
+    tny_ctx ctx = {0};
+    ctx.cwd = cwd;
+    ctx.bridge_bin = fixture;
+    ctx.library_mode = true;
+    cursor_bridge_launch_options options = {
+        .state_root = cwd,
+        .local_store_json = "{\"type\":\"memory\"}",
+        .store_callback_url = "http://127.0.0.1:7",
+        .store_callback_token = "explicit-store",
+    };
+    cursor_bridge bridge;
+    cursor_bridge_init(&bridge);
+    static char err[512];
+    memset(err, 0, sizeof err);
+    ASSERTm(err, cursor_bridge_spawn(&bridge, &ctx, "explicit-api", &options, 2000, err,
+                                     sizeof err) == 0);
+    pid_t first_pid = bridge.pid;
+    ASSERT(first_pid > 0);
+    cursor_bridge_stop(&bridge, 0);
+    ASSERT(process_group_gone(first_pid));
+
+    ASSERT_STR_EQ("ambient-api", getenv("CURSOR_API_KEY"));
+    ASSERT_STR_EQ("ambient-language", getenv("CURSOR_SDK_CLIENT_LANGUAGE"));
+    ASSERT_STR_EQ("ambient-store", getenv("CURSOR_SDK_STORE_CALLBACK_AUTH_TOKEN"));
+    ASSERT_EQ(0, setenv("EXPECT_API_KEY", "ambient-api", 1));
+    ASSERT_EQ(0, setenv("EXPECT_STORE_MODE", "unset", 1));
+    ASSERT_EQ(0, setenv("EXPECT_ARGS_MODE", "basic", 1));
+    cursor_bridge_init(&bridge);
+    memset(err, 0, sizeof err);
+    ASSERTm(err, cursor_bridge_spawn(&bridge, &ctx, NULL, NULL, 2000, err, sizeof err) == 0);
+    cursor_bridge_stop(&bridge, 0);
+    ASSERT_EQ(baseline_fds, open_fd_count());
+
+    ASSERT_EQ(0, unlink(fixture));
+    ASSERT_EQ(0, rmdir(cwd));
+    free(fixture);
+    for (size_t i = 0; i < sizeof saved / sizeof saved[0]; i++) restore_env(&saved[i]);
+    PASS();
+}
+
+TEST bridge_spawn_failures_release_process_and_pipe(void) {
+    char root_template[] = "/tmp/tny-bridge-failure-XXXXXX";
+    char *root = mkdtemp(root_template);
+    ASSERT(root);
+    char cwd[PATH_MAX];
+    ASSERT(realpath(root, cwd));
+    char *fixture = path_join(cwd, "not-ready");
+    char *missing = path_join(cwd, "missing-bridge");
+    ASSERT(fixture);
+    ASSERT(missing);
+    static const char exits_before_ready[] = "#!/bin/sh\n"
+                                             "echo 'fixture refused readiness' >&2\n"
+                                             "exit 23\n";
+    ASSERT_EQ(0, file_write_atomic(fixture, exits_before_ready, sizeof exits_before_ready - 1));
+    ASSERT_EQ(0, chmod(fixture, 0700));
+    int baseline_fds = open_fd_count();
+
+    tny_ctx ctx = {0};
+    ctx.cwd = cwd;
+    ctx.bridge_bin = missing;
+    ctx.library_mode = true;
+    cursor_bridge bridge;
+    cursor_bridge_init(&bridge);
+    char err[512] = {0};
+    ASSERT_EQ(-1, cursor_bridge_spawn(&bridge, &ctx, "key", NULL, 1000, err, sizeof err));
+    ASSERT(strstr(err, "cannot run") != NULL);
+    ASSERT_EQ(0, bridge.pid);
+    ASSERT_EQ(-1, bridge.err_fd);
+    ASSERT_EQ(baseline_fds, open_fd_count());
+
+    ctx.bridge_bin = fixture;
+    memset(err, 0, sizeof err);
+    ASSERT_EQ(-1, cursor_bridge_spawn(&bridge, &ctx, "key", NULL, 1000, err, sizeof err));
+    ASSERT(strstr(err, "status 23") != NULL);
+    ASSERT(strstr(err, "fixture refused readiness") != NULL);
+    ASSERT_EQ(0, bridge.pid);
+    ASSERT_EQ(-1, bridge.err_fd);
+    ASSERT_EQ(baseline_fds, open_fd_count());
+
+    cursor_bridge_stop(&bridge, 0);
+    ASSERT_EQ(0, unlink(fixture));
+    ASSERT_EQ(0, rmdir(cwd));
+    free(missing);
+    free(fixture);
+    PASS();
+}
+
 TEST sdk_text_is_authoritative_over_interaction_and_step_restatements(void) {
     cu_impl o;
     rec_t r = {0};
@@ -1399,6 +1590,8 @@ SUITE(cursor_suite) {
     RUN_TEST(send_resets_cancel_rpc_state_for_each_turn);
     RUN_TEST(session_pointer_is_versioned_and_carries_durable_run_state);
     RUN_TEST(bridge_rejects_partial_store_callback_credentials_before_spawn);
+    RUN_TEST(bridge_spawn_sets_exact_cwd_argv_and_environment);
+    RUN_TEST(bridge_spawn_failures_release_process_and_pipe);
     RUN_TEST(sdk_text_is_authoritative_over_interaction_and_step_restatements);
     RUN_TEST(done_without_result_is_not_a_terminal_success);
     RUN_TEST(cancel_lost_race_preserves_finished_result);

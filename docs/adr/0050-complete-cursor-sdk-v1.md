@@ -67,6 +67,9 @@ but makes no claim about bridge/Cloud retention.
   without importing Cursor's private HTTP/2/protobuf executor protocol.
 - The C binary gains Connect callback/server and schema-validation code, but
   not Bun, gRPC, HTTP/2, or the private agent schema.
+- Native bridge launch uses `posix_spawn` with a parent-built environment and
+  file actions. Multithreaded SDK hosts never run non-async-signal-safe setup
+  in a post-`fork()` child, and credentials remain absent from argv.
 - wasm keeps a clean unsupported error because it cannot spawn the bridge.
 - Schema updates must use a release tag and regenerate the checked contract;
   never patch vendored protobuf files by hand.

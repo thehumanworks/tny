@@ -35,6 +35,12 @@ callback URL/token become the corresponding bridge launch flags. The bridge
 prints a `cursor-sdk-bridge ready ` JSON line. tny validates schema version 1,
 TCP, Connect, URL/host/port, and the token file before sending any request.
 
+Native builds use parent-prepared `posix_spawn` file actions, arguments, and
+environment rather than running allocation, `chdir`, or environment mutation
+after `fork()`. Cursor can therefore start safely from a multithreaded libtny
+embedding. The bridge remains the leader of its own process group so teardown
+still reaches launcher descendants.
+
 There are two separate secrets:
 
 - `CURSOR_API_KEY` goes into the child environment and every sdk.v1 request
