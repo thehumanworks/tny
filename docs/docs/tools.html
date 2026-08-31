@@ -63,7 +63,19 @@
 <p>Large results are a bounded preview plus a session handle. <code>memory</code> writes <code>~/.tny/memories.json</code> only when asked.</p>
 <h2 id="mcp">MCP</h2>
 <p>Trusted profile only: <code>~/.tny/mcp.json</code>. Repo-local MCP files are never loaded — cloning a repo must not start a server. Treat server output as untrusted data.</p>
-<p>v1 speaks stdio JSONL with lazy tool select. HTTP/SSE transports are deferred. <code>tny acp</code> uses only client-supplied <code>mcpServers</code>, not the user profile.</p>
+<p>stdio JSONL stays compatible with existing <code>{"command":[...]}</code> entries. Remote servers use Streamable HTTP:</p>
+<pre><code>{
+  "servers": {
+    "remote": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": {"Authorization": "Bearer &lt;token&gt;"}
+    }
+  }
+}</code></pre>
+<p>tny probes <code>server/discover</code>: advertised <code>2026-07-28</code> uses handshake-free stateless requests; older Streamable HTTP servers use initialize and tny forwards their <code>Mcp-Session-Id</code>. Single JSON and arbitrarily split chunked JSON responses both work.</p>
+<p>Deprecated HTTP+SSE is intentionally unsupported. tny never opens the GET event stream or falls back to it; SSE-only endpoints return a clear error asking for Streamable HTTP. Header values are secrets and are never logged.</p>
+<p>wasm supports remote HTTP MCP through fetch and connects lazily when background threads are unavailable. stdio remains native-only; browser CORS must allow the endpoint and headers. <code>tny acp</code> uses only client-supplied <code>mcpServers</code>, not the user profile.</p>
 <h2 id="skills">Skills</h2>
 <p>A directory plus <code>SKILL.md</code> (YAML frontmatter <code>name</code>, <code>description</code>). Metadata is discovered at startup; the body loads only on invoke.</p>
 <p>Search order, workspace upward, stop before <code>$HOME</code>: <code>skills/</code>, <code>.agents/skills/</code>, <code>.claude/skills/</code>, <code>.codex/skills/</code>, <code>.cursor/skills/</code>, <code>.opencode/skills/</code>. Then <code>~/.tny/skills/</code> and the same hidden names under <code>$HOME</code>.</p>
