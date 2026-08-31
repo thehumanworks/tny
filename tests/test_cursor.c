@@ -23,8 +23,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-int cu_bridge_ready_timeout_ms(const char *value, int *timeout_ms, char *err, size_t errlen);
-
 /* ---- event recorder ---- */
 
 #define REC_MAX 16
@@ -782,25 +780,26 @@ TEST bridge_ready_timeout_override_is_strict_and_clamped(void) {
     int timeout_ms = -1;
     char err[160] = {0};
 
-    ASSERT_EQ(0, cu_bridge_ready_timeout_ms(NULL, &timeout_ms, err, sizeof err));
+    ASSERT_EQ(0, cursor_bridge_ready_timeout_ms(NULL, &timeout_ms, err, sizeof err));
     ASSERT_EQ(30000, timeout_ms);
-    ASSERT_EQ(0, cu_bridge_ready_timeout_ms("60000", &timeout_ms, err, sizeof err));
+    ASSERT_EQ(0, cursor_bridge_ready_timeout_ms("60000", &timeout_ms, err, sizeof err));
     ASSERT_EQ(60000, timeout_ms);
-    ASSERT_EQ(0, cu_bridge_ready_timeout_ms("999", &timeout_ms, err, sizeof err));
+    ASSERT_EQ(0, cursor_bridge_ready_timeout_ms("999", &timeout_ms, err, sizeof err));
     ASSERT_EQ(1000, timeout_ms);
-    ASSERT_EQ(0, cu_bridge_ready_timeout_ms("1000", &timeout_ms, err, sizeof err));
+    ASSERT_EQ(0, cursor_bridge_ready_timeout_ms("1000", &timeout_ms, err, sizeof err));
     ASSERT_EQ(1000, timeout_ms);
-    ASSERT_EQ(0, cu_bridge_ready_timeout_ms("120000", &timeout_ms, err, sizeof err));
+    ASSERT_EQ(0, cursor_bridge_ready_timeout_ms("120000", &timeout_ms, err, sizeof err));
     ASSERT_EQ(120000, timeout_ms);
-    ASSERT_EQ(0, cu_bridge_ready_timeout_ms("120001", &timeout_ms, err, sizeof err));
+    ASSERT_EQ(0, cursor_bridge_ready_timeout_ms("120001", &timeout_ms, err, sizeof err));
     ASSERT_EQ(120000, timeout_ms);
-    ASSERT_EQ(0, cu_bridge_ready_timeout_ms("999999999999999999999", &timeout_ms, err, sizeof err));
+    ASSERT_EQ(
+        0, cursor_bridge_ready_timeout_ms("999999999999999999999", &timeout_ms, err, sizeof err));
     ASSERT_EQ(120000, timeout_ms);
 
     const char *invalid[] = {"", " 60000", "+60000", "60000ms", "60\n000", NULL};
     for (size_t i = 0; invalid[i]; i++) {
         memset(err, 0, sizeof err);
-        ASSERT_EQ(-1, cu_bridge_ready_timeout_ms(invalid[i], &timeout_ms, err, sizeof err));
+        ASSERT_EQ(-1, cursor_bridge_ready_timeout_ms(invalid[i], &timeout_ms, err, sizeof err));
         ASSERT(strstr(err, "TNY_CURSOR_BRIDGE_READY_TIMEOUT_MS"));
     }
     PASS();

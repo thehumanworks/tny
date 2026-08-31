@@ -14,9 +14,14 @@
 
 /* The bridge is a host process: treat everything it prints or returns as
  * untrusted input and cap it. */
-#define CURSOR_MAX_MSG_BYTES (8u * 1024u * 1024u)
-#define CURSOR_MAX_STDERR    (1u * 1024u * 1024u)
-#define CURSOR_READY_PREFIX  "cursor-sdk-bridge ready "
+#define CURSOR_MAX_MSG_BYTES            (8u * 1024u * 1024u)
+#define CURSOR_MAX_STDERR               (1u * 1024u * 1024u)
+#define CURSOR_READY_PREFIX             "cursor-sdk-bridge ready "
+#define CURSOR_BRIDGE_READY_TIMEOUT_ENV "TNY_CURSOR_BRIDGE_READY_TIMEOUT_MS"
+
+/* Parse the optional ready-line timeout override shared by conversational and
+ * management bridge startup. NULL selects the 30-second default. */
+int cursor_bridge_ready_timeout_ms(const char *value, int *timeout_ms, char *err, size_t errlen);
 
 /* Connect service paths (docs/backends/cursor-bridge.md, "Services tny must
  * call"). Method names are appended by the RPC helpers. */

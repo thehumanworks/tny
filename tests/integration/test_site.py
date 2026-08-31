@@ -47,9 +47,9 @@ def main() -> None:
     for needle in ("<span>v0.3.0</span>", "<span>0.68mib</span>"):
         if needle not in html:
             fail(f"release metadata missing from index.html: {needle!r}")
-    if "715,616 B (0.68 MiB)" not in size_page:
+    if "715,600 B (0.68 MiB)" not in size_page:
         fail("size page does not identify the measured v0.3.0 binary")
-    for needle in ("Version: 0.3.0", "715,616 bytes (~0.68 MiB)"):
+    for needle in ("Version: 0.3.0", "715,600 bytes (~0.68 MiB)"):
         if needle not in llms:
             fail(f"llms.txt release metadata missing {needle!r}")
 

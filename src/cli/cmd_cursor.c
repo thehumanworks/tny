@@ -581,8 +581,15 @@ int cmd_cursor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         return 1;
     }
 
+    int ready_timeout_ms;
+    if (cursor_bridge_ready_timeout_ms(getenv(CURSOR_BRIDGE_READY_TIMEOUT_ENV), &ready_timeout_ms,
+                                       err, sizeof err) != 0) {
+        fprintf(stderr, "tny: %s\n", err);
+        return 1;
+    }
+
     cursor_management management;
-    if (cursor_management_open(&management, ctx, 30000, err, sizeof err) != 0) {
+    if (cursor_management_open(&management, ctx, ready_timeout_ms, err, sizeof err) != 0) {
         fprintf(stderr, "tny: %s\n", err);
         return 1;
     }

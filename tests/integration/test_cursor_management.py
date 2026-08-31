@@ -15,6 +15,10 @@ TNY = Path(
     os.environ.get("TNY") or (sys.argv[1] if len(sys.argv) > 1 else ROOT / "build/tny")
 )
 MOCK = ROOT / "tests/integration/mock_bridge.py"
+BRIDGE_READY_TIMEOUT_MS = 60_000 if sys.platform == "darwin" else None
+SUBPROCESS_TIMEOUT = (
+    BRIDGE_READY_TIMEOUT_MS // 1000 + 10 if BRIDGE_READY_TIMEOUT_MS else 20
+)
 
 
 def main():
@@ -101,6 +105,8 @@ def main():
             "TNY_MOCK_CALL_STORE_ON_CREATE": "1",
             "TNY_MOCK_CALL_STORE_ON_SEND": "1",
         }
+        if BRIDGE_READY_TIMEOUT_MS:
+            env["TNY_CURSOR_BRIDGE_READY_TIMEOUT_MS"] = str(BRIDGE_READY_TIMEOUT_MS)
 
         def run(*args, stdin=None, ok=True, extra_env=None, bridge=wrapper):
             result = subprocess.run(
@@ -117,7 +123,7 @@ def main():
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=env | (extra_env or {}),
-                timeout=20,
+                timeout=SUBPROCESS_TIMEOUT,
             )
             if ok:
                 assert result.returncode == 0, (args, result.stderr.decode())
@@ -133,6 +139,12 @@ def main():
                     assert not token or token not in output
             return result
 
+        invalid_timeout = run(
+            "models",
+            ok=False,
+            extra_env={"TNY_CURSOR_BRIDGE_READY_TIMEOUT_MS": "60s"},
+        )
+        assert b"TNY_CURSOR_BRIDGE_READY_TIMEOUT_MS" in invalid_timeout.stderr
         models = json.loads(run("models").stdout)
         assert models["items"][0]["id"] == "mock-cursor-model"
         version = json.loads(

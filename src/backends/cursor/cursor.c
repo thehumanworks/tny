@@ -23,7 +23,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define READY_TIMEOUT_ENV                "TNY_CURSOR_BRIDGE_READY_TIMEOUT_MS"
 #define READY_TIMEOUT_MS                 30000
 #define READY_TIMEOUT_MIN_MS             1000
 #define READY_TIMEOUT_MAX_MS             120000
@@ -32,17 +31,14 @@
 #define OBSERVE_RECOVERY_MAX_NO_PROGRESS 4u
 #define OBSERVE_RECOVERY_BASE_DELAY_MS   50
 
-/* Kept externally callable for the focused parser tests; this is an internal,
- * hidden symbol in libtny builds, not part of the public ABI. */
-int cu_bridge_ready_timeout_ms(const char *value, int *timeout_ms, char *err, size_t errlen);
-
-int cu_bridge_ready_timeout_ms(const char *value, int *timeout_ms, char *err, size_t errlen) {
+int cursor_bridge_ready_timeout_ms(const char *value, int *timeout_ms, char *err, size_t errlen) {
     if (!value) {
         *timeout_ms = READY_TIMEOUT_MS;
         return 0;
     }
     if (!*value) {
-        snprintf(err, errlen, "cursor: %s must be a decimal integer", READY_TIMEOUT_ENV);
+        snprintf(err, errlen, "cursor: %s must be a decimal integer",
+                 CURSOR_BRIDGE_READY_TIMEOUT_ENV);
         return -1;
     }
 
@@ -50,7 +46,8 @@ int cu_bridge_ready_timeout_ms(const char *value, int *timeout_ms, char *err, si
     bool above_max = false;
     for (const char *p = value; *p; p++) {
         if (*p < '0' || *p > '9') {
-            snprintf(err, errlen, "cursor: %s must be a decimal integer", READY_TIMEOUT_ENV);
+            snprintf(err, errlen, "cursor: %s must be a decimal integer",
+                     CURSOR_BRIDGE_READY_TIMEOUT_ENV);
             return -1;
         }
         unsigned digit = (unsigned)(*p - '0');
@@ -685,7 +682,8 @@ static int cu_connect(tny_backend *b, char *e, size_t el) {
         return -1;
     }
     int ready_timeout_ms;
-    if (cu_bridge_ready_timeout_ms(getenv(READY_TIMEOUT_ENV), &ready_timeout_ms, e, el) != 0)
+    if (cursor_bridge_ready_timeout_ms(getenv(CURSOR_BRIDGE_READY_TIMEOUT_ENV), &ready_timeout_ms,
+                                       e, el) != 0)
         return -1;
     tny_cursor_config *cfg = o->ctx->cursor_config;
     if (o->ctx->no_save && strcmp(runtime_name(o), "local") == 0) {
