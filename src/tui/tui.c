@@ -657,12 +657,13 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     while (!t.quit) {
         tui_render(&t);
 
-        struct pollfd fds[9];
+        struct pollfd fds[TNY_BACKEND_POLLFD_MAX + 1];
         fds[0].fd = STDIN_FILENO;
         fds[0].events = POLLIN;
         fds[0].revents = 0;
         int nb = 0;
-        if (t.turn_active && t.engine) nb = tny_engine_pollfds(t.engine, fds + 1, 8);
+        if (t.turn_active && t.engine)
+            nb = tny_engine_pollfds(t.engine, fds + 1, TNY_BACKEND_POLLFD_MAX);
         nfds_t nfds = 1;
         if (nb > 0) nfds += (nfds_t)nb;
         int pr = tny_poll(fds, nfds, t.turn_active ? 40 : 400);

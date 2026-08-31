@@ -635,8 +635,8 @@ static int restore_workspace(gui_ctx *g, const tt_workspace *ws) {
         if (!tab) return -1;
         tab->layout.divider = DIVIDER_PX;
         tab->layout.focus = NULL;
-        tab->layout.root = restore_node(g, &ws->tabs[i], ws->tabs[i].root, NULL,
-                                        &tab->layout.focus);
+        tab->layout.root =
+            restore_node(g, &ws->tabs[i], ws->tabs[i].root, NULL, &tab->layout.focus);
         if (!tab->layout.root || !tab->layout.focus || tt_tabs_add(&g->tabs, tab) < 0) {
             free_restored_node(tab->layout.root);
             free(tab);
@@ -717,8 +717,7 @@ static void on_chord(gui_ctx *g, tt_chord chord, bool *quit, int *exit_code) {
     }
     case TT_CHORD_FOCUS_PREV:
     case TT_CHORD_FOCUS_NEXT: {
-        tt_node *to =
-            tt_layout_cycle(layout, layout->focus, chord == TT_CHORD_FOCUS_NEXT ? 1 : -1);
+        tt_node *to = tt_layout_cycle(layout, layout->focus, chord == TT_CHORD_FOCUS_NEXT ? 1 : -1);
         if (to) layout->focus = to;
         break;
     }
@@ -824,8 +823,8 @@ static void paint_tabs(gui_ctx *g) {
         view[i].active = i == tt_tabs_active_index(&g->tabs);
         view[i].activity = tab->activity;
     }
-    tt_render_tab_bar(&g->fb, &g->base, g->titlebar_inset,
-                      g->tab_h - g->titlebar_inset, view, count);
+    tt_render_tab_bar(&g->fb, &g->base, g->titlebar_inset, g->tab_h - g->titlebar_inset, view,
+                      count);
 }
 
 static void release_all_tabs(gui_ctx *g, bool kill) {
@@ -861,9 +860,8 @@ int tt_gui_main(int argc, char **argv) {
         return 1;
     }
     if (o.listen) {
-        fprintf(stderr,
-                "tnytty: gui --listen is unavailable with durable sessions; "
-                "the same API is available on the private broker socket\n");
+        fprintf(stderr, "tnytty: gui --listen is unavailable with durable sessions; "
+                        "the same API is available on the private broker socket\n");
         tt_broker_client_close(&g.broker);
         return 2;
     }
@@ -1032,8 +1030,8 @@ int tt_gui_main(int argc, char **argv) {
                 free(now);
             }
             int a = 0, b = 0;
-            int lines = tt_render_frame(p->r, p->term, focused && layout && leaves[i] == layout->focus,
-                                        &a, &b);
+            int lines = tt_render_frame(p->r, p->term,
+                                        focused && layout && leaves[i] == layout->focus, &a, &b);
             if (lines <= 0) continue;
             painted += lines;
             if (a < y0) y0 = a;

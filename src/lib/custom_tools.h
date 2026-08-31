@@ -21,10 +21,15 @@ void *custom_tool_registration_runtime(tny_tool_registration *registration);
 
 tny_tool_registration *custom_tools_find(custom_tool_registry *registry, const char *name);
 const char *custom_tool_name(const tny_tool_registration *registration);
+const char *custom_tool_description(const tny_tool_registration *registration);
 const char *custom_tool_schema(const tny_tool_registration *registration);
 bool custom_tool_sensitive(const tny_tool_registration *registration);
 uint64_t custom_tool_argument_limit(const tny_tool_registration *registration);
 char *custom_tools_schema_json(custom_tool_registry *registry);
+typedef bool (*custom_tools_visit_fn)(const tny_tool_registration *registration, void *ud);
+/* Visits an immutable metadata snapshot while registration mutation is
+ * excluded.  The visitor must not register/unregister or invoke tools. */
+bool custom_tools_visit(custom_tool_registry *registry, custom_tools_visit_fn visit, void *ud);
 
 /* 0 synchronous result, 1 pending async result, negative stable status. */
 int32_t custom_tool_invoke(tny_tool_registration *registration, const char *arguments_json,

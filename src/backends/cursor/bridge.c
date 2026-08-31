@@ -106,10 +106,15 @@ static int load_token(cursor_bridge *bp, char *err, size_t errlen) {
     return 0;
 }
 
-int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key, int timeout_ms,
-                        char *err, size_t errlen) {
+int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key,
+                        const cursor_bridge_launch_options *options, int timeout_ms, char *err,
+                        size_t errlen) {
     const char *bin = resolve_bin(ctx);
     bp->quiet = ctx && ctx->library_mode;
+    if (options && (!!options->store_callback_url != !!options->store_callback_token)) {
+        snprintf(err, errlen, "cursor: store callback URL and token must be supplied together");
+        return -1;
+    }
     int p[2];
     if (pipe(p) != 0) {
         snprintf(err, errlen, "pipe: %s", strerror(errno));
@@ -134,19 +139,46 @@ int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key, in
         close(p[0]);
         close(p[1]);
         if (chdir(ctx->cwd) != 0) _exit(127);
-        /* setenv may reallocate environ and invalidate a getenv-derived bin */
+        /* setenv may reallocate environ and invalidate getenv-derived input.
+         * Duplicate the two sensitive/launcher values before touching it. */
         char *binp = xstrdup(bin);
-        if (!binp) _exit(127);
-        if (api_key && *api_key) setenv("CURSOR_API_KEY", api_key, 1);
-        setenv("CURSOR_SDK_CLIENT_LANGUAGE", "c", 1);
-        char *argv[] = {binp,
-                        (char *)"--workspace",
-                        ctx->cwd,
-                        (char *)"--host",
-                        (char *)"127.0.0.1",
-                        (char *)"--port",
-                        (char *)"0",
-                        NULL};
+        char *store_token = options && options->store_callback_token
+                                ? xstrdup(options->store_callback_token)
+                                : NULL;
+        if (!binp || (options && options->store_callback_token && !store_token)) {
+            secure_free(store_token);
+            _exit(127);
+        }
+        if ((api_key && *api_key && setenv("CURSOR_API_KEY", api_key, 1) != 0) ||
+            setenv("CURSOR_SDK_CLIENT_LANGUAGE", "c", 1) != 0 ||
+            unsetenv("CURSOR_SDK_STORE_CALLBACK_AUTH_TOKEN") != 0 ||
+            (store_token && setenv("CURSOR_SDK_STORE_CALLBACK_AUTH_TOKEN", store_token, 1) != 0)) {
+            secure_free(store_token);
+            _exit(127);
+        }
+        secure_free(store_token);
+        char *argv[18];
+        int argc = 0;
+        argv[argc++] = binp;
+        argv[argc++] = (char *)"--workspace";
+        argv[argc++] = ctx->cwd;
+        argv[argc++] = (char *)"--host";
+        argv[argc++] = (char *)"127.0.0.1";
+        argv[argc++] = (char *)"--port";
+        argv[argc++] = (char *)"0";
+        if (options && options->state_root) {
+            argv[argc++] = (char *)"--state-root";
+            argv[argc++] = (char *)options->state_root;
+        }
+        if (options && options->local_store_json) {
+            argv[argc++] = (char *)"--local-store";
+            argv[argc++] = (char *)options->local_store_json;
+        }
+        if (options && options->store_callback_url) {
+            argv[argc++] = (char *)"--store-callback-url";
+            argv[argc++] = (char *)options->store_callback_url;
+        }
+        argv[argc] = NULL;
         execvp(binp, argv);
         _exit(127);
     }

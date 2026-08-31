@@ -75,7 +75,7 @@
 <h2 id="ci">Scripts and CI</h2>
 <p><code>tny ask</code> never blocks on an approval. Unresolved permissions fail the run unless you pass <code>--auto</code> (native loop) or stay on the default <code>--yolo</code>. Host providers must be pre-authorized or they fail closed.</p>
 <p>When the prompt is piped on stdin, connect overlaps the read so the provider is already warming while the prompt arrives.</p>
-<div class="note"><strong>Images</strong><p>The native loop accepts <code>--image PATH</code> (repeatable, max 16). A 17th flag prints <code>tny: too many --image flags (max 16)</code> and exits 1 before opening files or connecting. Cursor and Codex ignore or refuse <code>--image</code> with a status line.</p></div>
+<div class="note"><strong>Images</strong><p>The native loop and Cursor v1.0.30 accept <code>--image PATH</code> (repeatable, max 16; 8 MiB each) after magic-byte MIME validation. A 17th flag exits before files or backend connection. Cursor sends base64 <code>SdkImageData</code>. Codex still ignores image input. libtny ABI 1 does not expose image attachments yet.</p></div>
 </article>
     <aside class="toc"><p>on this page</p><a href="#shape">Shape</a><a href="#exit">Exit codes</a><a href="#json">JSON mode</a><a href="#ci">Scripts and CI</a></aside>
   </main>

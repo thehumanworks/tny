@@ -23,6 +23,22 @@ with Runtime(config) as runtime:
 See `examples/` for complete sync, asyncio, permission, cancellation, and
 resume flows.
 
+Cursor uses the same session/event API and requires explicit authority and
+state. The bridge remains an external host:
+
+```python
+cursor_config = RuntimeConfig(
+    provider="cursor",
+    workspace=".",
+    state_dir=".tny-cursor-state",
+    model="composer-2",
+    api_key="...",
+)
+```
+
+Set `CURSOR_SDK_BRIDGE_BIN` when the v1.0.30 bridge is not on `PATH`.
+ABI 1 does not expose Cursor management RPCs or image attachments.
+
 This package is currently **UNLICENSED**: distribution by the repository owner
 does not grant downstream reuse rights. Do not upload it to PyPI or another
 public package registry until the owner adopts a project license. Its runtime
@@ -192,9 +208,13 @@ Future is not treated as handler termination: close waits for the coroutine's
 actual `finally` acknowledgement and the completion callback's pending-empty
 acknowledgement before dropping Python references.
 
-See `examples/sync_custom_tool.py` and `examples/async_custom_tool.py`. MCP
-ownership and providers other than the native OpenAI-compatible backend remain
-unavailable; capability discovery, rather than ABI/platform guesses, governs
+See `examples/sync_custom_tool.py` and `examples/async_custom_tool.py`. Runtime
+configuration accepts `provider="openai"` or `provider="cursor"`. Cursor
+requires explicit `state_dir`, `api_key`, and `model`, plus an external
+`cursor-sdk-bridge` selected by `CURSOR_SDK_BRIDGE_BIN` or `PATH`; it supports
+the normal conversation, cancellation, event, and custom-tool surfaces. Cursor
+management and image inputs, MCP ownership, Codex, and ACP remain unavailable
+through ABI 1. Capability discovery, rather than ABI/platform guesses, governs
 all optional behavior.
 
 ## Shared conformance adapter

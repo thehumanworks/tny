@@ -2,5 +2,5 @@
   <rect width="1200" height="630" fill="#000"/>
   <text x="80" y="280" fill="#ededed" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="96" font-weight="600">tny</text>
   <text x="80" y="360" fill="#a1a1a1" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="32">Tiny C11 coding-agent harness.</text>
-  <text x="80" y="540" fill="#666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22">v0.1.0 · 0.41mib · experimental</text>
+  <text x="80" y="540" fill="#666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22">v0.3.0 Â· 0.68mib Â· experimental</text>
 </svg>

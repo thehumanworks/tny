@@ -37,6 +37,11 @@ typedef enum {
 
 typedef struct tny_backend tny_backend;
 
+/* One provider may multiplex a host stream, host diagnostics, a loopback
+ * callback listener, callback clients, and an async-tool wake fd. Keep this
+ * private bound comfortably above the Cursor callback server's fixed cap. */
+#define TNY_BACKEND_POLLFD_MAX 16
+
 struct tny_backend {
     tny_backend_id id;
     void *impl;
@@ -84,6 +89,11 @@ struct tny_backend {
     /* Fill fds the frontend should poll while a turn is active.
      * Returns count written (<= max). */
     int (*pollfds)(tny_backend *b, struct pollfd *fds, int max);
+    /* Optional deadline for backend work that has no fd. Returns the
+     * nonnegative number of milliseconds until dispatch() should run, or -1
+     * when no deadline is pending. The engine caps (never extends) its
+     * caller-provided poll timeout with this value. */
+    int (*poll_timeout)(tny_backend *b);
     /* Called when poll reports readiness (or every tick with n==0 for
      * timeouts). Returns 0, or -1 on dead transport. */
     int (*dispatch)(tny_backend *b, struct pollfd *fds, int n);

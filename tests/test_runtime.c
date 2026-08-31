@@ -23,6 +23,7 @@ typedef struct {
     int permission_responses;
     tny_perm_decision permission_decision;
     int cancels;
+    int64_t deadline_ms;
 } fake_runtime_backend;
 
 static int fake_connect(tny_backend *b, char *err, size_t errlen) {
@@ -51,6 +52,8 @@ static int fake_send(tny_backend *b, const char *p, const char **images, tny_bac
     f->cb = cb;
     f->ud = ud;
     f->dispatched = false;
+    if (f->mode == 6) f->deadline_ms = monotonic_ms() + 30;
+    if (f->mode == 7) f->deadline_ms = monotonic_ms() + 20;
     return 0;
 }
 static void fake_cancel(tny_backend *b) {
@@ -78,12 +81,21 @@ static int fake_pollfds(tny_backend *b, struct pollfd *fds, int max) {
     (void)max;
     return 0;
 }
+static int fake_poll_timeout(tny_backend *b) {
+    fake_runtime_backend *f = b->impl;
+    if ((f->mode < 6 || f->mode > 8) || f->dispatched) return -1;
+    if (f->mode == 8) return 0;
+    int64_t remaining = f->deadline_ms - monotonic_ms();
+    return remaining > 0 ? (int)remaining : 0;
+}
 static int fake_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     (void)fds;
     (void)n;
     fake_runtime_backend *f = b->impl;
+    if ((f->mode == 6 || f->mode == 7) && monotonic_ms() < f->deadline_ms) return 0;
     if (f->dispatched) return 0;
     f->dispatched = true;
+    if (f->mode == 7) return 0;  /* deadline wake is internal, not a caller timeout */
     if (f->mode == 1) return -1; /* transport death without events */
     if (f->mode == 2) {
         f->mode = 0; /* the next turn proves overflow state was cleared */
@@ -152,6 +164,7 @@ static tny_backend *fake_backend(int mode, fake_runtime_backend **out) {
     b->steer = fake_steer;
     b->cancel = fake_cancel;
     b->pollfds = fake_pollfds;
+    b->poll_timeout = fake_poll_timeout;
     b->respond_permission = fake_respond_permission;
     b->dispatch = fake_dispatch;
     b->destroy = fake_destroy;
@@ -405,6 +418,59 @@ TEST runtime_next_event_waits_without_spinning(void) {
     int64_t elapsed = monotonic_ms() - start;
     ASSERT(elapsed >= 30);
     ASSERT(elapsed < 500);
+    fixture_free(&x);
+    PASS();
+}
+
+TEST runtime_backend_deadline_caps_long_caller_wait(void) {
+    fixture x = fixture_new(6);
+    char err[128];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
+    tny_owned_event *ev = NULL;
+    int64_t start = monotonic_ms();
+    ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, tny_engine_next_event(x.engine, 1000, &ev, err, sizeof err));
+    int64_t elapsed = monotonic_ms() - start;
+    ASSERT(elapsed >= 20);
+    ASSERT(elapsed < 500);
+    ASSERT(ev);
+    ASSERT_EQ(TNY_EV_TEXT_DELTA, ev->ev.kind);
+    tny_owned_event_free(ev);
+    ev = NULL;
+    ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, tny_engine_next_event(x.engine, 0, &ev, err, sizeof err));
+    ASSERT(ev);
+    ASSERT_EQ(TNY_EV_TURN_END, ev->ev.kind);
+    tny_owned_event_free(ev);
+    fixture_free(&x);
+    PASS();
+}
+
+TEST runtime_backend_deadline_preserves_caller_timeout(void) {
+    fixture x = fixture_new(7);
+    char err[128];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
+    tny_owned_event *ev = NULL;
+    int64_t start = monotonic_ms();
+    ASSERT_EQ(TNY_ENGINE_NEXT_TIMEOUT, tny_engine_next_event(x.engine, 100, &ev, err, sizeof err));
+    int64_t elapsed = monotonic_ms() - start;
+    ASSERT_EQ(NULL, ev);
+    ASSERT(elapsed >= 75);
+    ASSERT(elapsed < 500);
+    fixture_free(&x);
+    PASS();
+}
+
+TEST runtime_backend_due_deadline_dispatches_without_caller_delay(void) {
+    fixture x = fixture_new(8);
+    char err[128];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
+    tny_owned_event *ev = NULL;
+    int64_t start = monotonic_ms();
+    ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, tny_engine_next_event(x.engine, 1000, &ev, err, sizeof err));
+    int64_t elapsed = monotonic_ms() - start;
+    ASSERT(elapsed < 100);
+    ASSERT(ev);
+    ASSERT_EQ(TNY_EV_TEXT_DELTA, ev->ev.kind);
+    tny_owned_event_free(ev);
     fixture_free(&x);
     PASS();
 }
@@ -917,6 +983,9 @@ SUITE(runtime_suite) {
     RUN_TEST(runtime_overflow_keeps_error_and_single_terminal);
     RUN_TEST(runtime_cancel_emits_one_interrupted_terminal);
     RUN_TEST(runtime_next_event_waits_without_spinning);
+    RUN_TEST(runtime_backend_deadline_caps_long_caller_wait);
+    RUN_TEST(runtime_backend_deadline_preserves_caller_timeout);
+    RUN_TEST(runtime_backend_due_deadline_dispatches_without_caller_delay);
     RUN_TEST(runtime_oom_uses_reserved_error_and_terminal_once);
     RUN_TEST(runtime_extension_continues_visibly_then_settles);
     RUN_TEST(runtime_extension_positive_continuation_cap_settles);

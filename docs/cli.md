@@ -20,6 +20,7 @@ tny tasks                   # list built-in and discovered task presets
 tny task show NAME          # inspect one resolved preset
 tny backends                # compatibility alias for providers
 tny models
+tny cursor COMMAND          # complete Cursor sdk.v1 catalog/management/raw RPC
 tny permissions
 tny workspace list|add|remove|clear
 tny status
@@ -508,6 +509,54 @@ wasm behavior: `-B` is **native only** — the browser build has no
 (`tny: --background is not available in the browser build`, exit 1) before
 any backend work.
 
+## `tny cursor` management
+
+`tny cursor` starts a short-lived v1.0.30 bridge, negotiates capabilities,
+performs one operation, and applies the same authenticated shutdown/process
+cleanup as a conversational turn. Readable aliases cover the public catalog
+and management surface:
+
+```text
+tny cursor ping | version | me | models | repositories
+tny cursor create [NAME]
+tny cursor resume|reload|close AGENT_ID
+tny cursor send AGENT_ID MESSAGE
+tny cursor wait|run|conversation RUN_ID
+tny cursor runs|agent|messages|artifacts AGENT_ID
+tny cursor observe RUN_ID [AFTER_OFFSET]
+tny cursor cancel RUN_ID [AGENT_ID]
+tny cursor agents
+tny cursor archive|unarchive AGENT_ID
+tny cursor delete AGENT_ID --yes
+tny cursor download AGENT_ID PATH
+tny cursor usage AGENT_ID [RUN_ID]
+```
+
+Create, resume, and send use the same validated `settings.cursor` option
+composition as normal conversations. `download` writes artifact bytes to
+stdout incrementally, capped at 8 MiB. Destructive delete requires `--yes`
+before a bridge is spawned.
+
+For additive fields and operations without a convenience alias:
+
+```text
+tny cursor rpc SERVICE METHOD [JSON|-] [--yes]
+```
+
+`SERVICE` may be `SdkAgentService`, `sdk.v1.SdkAgentService`, or the canonical
+`/sdk.v1.SdkAgentService`; `METHOD` is case-sensitive. Only the 27 pinned
+client-to-bridge routes are accepted. The request must be one UTF-8 JSON object
+no larger than 8 MiB, supplied as one argument, on stdin with `-`, or as `{}`
+when omitted on a terminal. Unary output remains the bridge JSON object;
+server-stream output is one unmodified JSON frame per line. Raw
+`DeleteAgent` also requires `--yes`. Prefer stdin for requests containing an
+API key or other secret so it does not enter the shell history/process list.
+
+This command is native-only and exits 1 with
+`tny: cursor: sdk.v1 management is unavailable in WebAssembly` before reading
+credentials or starting bridge work. Provider management is not part of the public libtny ABI;
+libtny exposes Cursor conversations through its normal runtime API.
+
 ## Provider-specific flags
 
 | Provider | Flags / env |
@@ -526,10 +575,11 @@ from the environment (`CODEX_DEFAULT_MODEL`, `OPENROUTER_DEFAULT_MODEL`, …).
 
 `tny ask` never blocks on an approval. Unresolved permissions fail the run unless `--auto` reviews (native loop) or `--yolo`. Host providers must be pre-authorized or they fail closed.
 
-`--image PATH` (repeatable) attaches image files to the first user message as
-`image_url` data URLs on the native OpenAI-compatible loop. The same encoding
-is used when the model calls `read_image` mid-turn. Max 8 MiB; type comes
-from magic bytes (png/jpeg/gif/webp), not the extension. At most 16 `--image`
+`--image PATH` (repeatable) attaches image files to the first user message.
+The native OpenAI-compatible loop uses `image_url` data URLs; Cursor v1.0.30
+uses base64 `SdkImageData` with the same detected MIME type. The native loop
+also uses the encoding when the model calls `read_image` mid-turn. Max 8 MiB;
+type comes from magic bytes (png/jpeg/gif/webp), not the extension. At most 16 `--image`
 flags are accepted. A 17th prints `tny: too many --image flags (max 16)` and
 exits 1 before any image file is opened or a backend is connected. That
 startup path frees the prompt buffer it may already have allocated, matching
@@ -570,7 +620,10 @@ own wire field:
 
 The interactive TUI exposes the same capability as `/fast [fast|priority|default]`.
 
-Provider caveats: `--provider cursor` runs Cursor's own headless loop — the bridge exposes no per-call approval RPC, so tny's permission mode does not apply (a status line says so); it also rejects `--image`. `--provider codex` ignores `--image` with a status line (no documented image input item).
+Provider caveat: `--provider cursor` runs Cursor's own headless loop. Its
+built-in tools have no per-call approval RPC, so tny permission rules apply
+only to explicitly registered custom-tool callbacks. `--provider codex`
+ignores `--image` with a status line (no documented image input item).
 
 ## `--max-steps` (agent loop cap)
 

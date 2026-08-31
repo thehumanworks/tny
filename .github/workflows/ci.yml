@@ -270,6 +270,18 @@ jobs:
           emcc --version | head -1
           node --version
           make -j"$(getconf _NPROCESSORS_ONLN)" wasm wasm-web
+          if cursor_conversation="$("$PWD/build/wasm/tny" --provider cursor ask wasm 2>&1)"; then
+            echo "Cursor conversation unexpectedly succeeded in wasm" >&2
+            exit 1
+          fi
+          printf '%s\n' "$cursor_conversation" | \
+            grep -Fq 'tny: cursor: conversational sdk.v1 bridge is unavailable in WebAssembly'
+          if cursor_management="$("$PWD/build/wasm/tny" cursor ping 2>&1)"; then
+            echo "Cursor management unexpectedly succeeded in wasm" >&2
+            exit 1
+          fi
+          printf '%s\n' "$cursor_management" | \
+            grep -Fq 'tny: cursor: sdk.v1 management is unavailable in WebAssembly'
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_openai.py
           tests/integration/test_acp_ws.sh "$PWD/build/wasm/tny"
           tests/integration/test_codex_attach.sh "$PWD/build/wasm/tny"

@@ -17,8 +17,9 @@ declaration order, unless the edge is marked as ordering-only.
 This is orchestration around existing tny turns, not a second agent protocol.
 The shell surface can select Cursor, Codex, ACP, builtin subscription profiles,
 named OpenAI-compatible profiles, or SSH execution through the normal CLI.
-The native SDK surfaces retain the current libtny limitation: OpenAI-compatible
-providers only.
+The native SDK surfaces can select the OpenAI-compatible or Cursor sdk.v1
+libtny providers. Cursor tasks require explicit state directory, API key, and
+model configuration plus an external bridge.
 
 ## Shell functions
 
@@ -453,8 +454,8 @@ and always call `tny_workflow_cleanup`.
   out, task-specific `--cwd` worktrees, or an explicit merge task.
 - Shell tasks default to `--ephemeral`; provider-side retention remains the
   provider's policy.
-- SDK tasks use the native OpenAI-compatible backend until libtny advertises
-  additional provider capabilities.
+- SDK tasks use the native OpenAI-compatible or Cursor sdk.v1 backend. Cursor
+  management and image inputs remain CLI-only.
 
 See [ADR 0047](adr/0047-scriptable-workflow-dags.md) for the execution and
 failure-semantics decision.

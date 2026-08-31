@@ -48,11 +48,11 @@
 <h2 id="why">Why this exists</h2>
 <p>fx v0.0.3 is a 6.44 MiB macOS / 11.12 MiB static Linux Zig binary. tny's job is to keep the Unix-shell harness and undercut those numbers in C11.</p>
 <h2 id="measured">Measured bake-off</h2>
-<p>Same machine, macOS arm64, hyperfine, fx 0.0.3 vs tny 0.1.0:</p>
+<p>Same machine, macOS arm64, hyperfine. Binary size is current for tny 0.3.0; startup and RSS retain the historical v0.1.0 bake-off until the next performance remeasurement:</p>
 <table>
-  <thead><tr><th>Metric</th><th>fx 0.0.3</th><th>tny 0.1.0</th><th>Result</th></tr></thead>
+  <thead><tr><th>Metric</th><th>fx 0.0.3</th><th>tny</th><th>Result</th></tr></thead>
   <tbody>
-    <tr><td>Stripped binary</td><td>6,748,416 B (6.4 MiB)</td><td>426,792 B (0.41 MiB)</td><td>15.8× smaller</td></tr>
+    <tr><td>Stripped binary</td><td>6,748,416 B (6.4 MiB)</td><td>714,624 B (0.68 MiB)</td><td>9.4× smaller</td></tr>
     <tr><td><code>--version</code></td><td>2.2 ms ± 0.3</td><td>1.7 ms ± 0.2</td><td>1.3× faster</td></tr>
     <tr><td>Max RSS</td><td>3.0 MiB</td><td>2.1 MiB</td><td>1.4× less memory</td></tr>
     <tr><td>TUI first prompt</td><td>—</td><td>3.3–4.3 ms</td><td>budget &lt; 10 ms</td></tr>

@@ -112,9 +112,18 @@ check_no_secret_leak "$TMP/1.out" "$TMP/1.err"
 
 SESSION=$(sed -n 's/.*"session_id":"\([^"]*\)".*/\1/p' "$TMP/1.out")
 [ -n "$SESSION" ] || fail "no session_id in the JSON output"
-STORED=$(cat "$HOME"/.tny/sessions/*/"$SESSION"/session.json 2> /dev/null | tr -d ' \n' |
-    sed -n 's/.*"host_pointer":"\([^"]*\)".*/\1/p')
-[ "$STORED" = "$AGENT" ] || fail "session stored host pointer '$STORED', want '$AGENT'"
+SESSION_FILE=$(find "$HOME"/.tny/sessions -path "*/$SESSION/session.json" -print -quit)
+[ -n "$SESSION_FILE" ] || fail "session.json was not persisted"
+STORED=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["host_pointer"])' \
+    "$SESSION_FILE")
+case "$STORED" in
+    cursor-sdk.v1:*) ;;
+    *) fail "session stored an unversioned Cursor host pointer '$STORED'" ;;
+esac
+STORED_AGENT=$(python3 -c \
+    'import json,sys; print(json.loads(sys.argv[1].split(":", 1)[1])["agent_id"])' "$STORED")
+[ "$STORED_AGENT" = "$AGENT" ] ||
+    fail "session stored agent '$STORED_AGENT', want '$AGENT'"
 
 # ---- run 2: resume must reuse the same agent id ----
 echo "== run 2: --resume $SESSION"

@@ -45,7 +45,8 @@ void *tt_tabs_remove(tt_tabs *tabs, int index) {
 }
 
 void *tt_tabs_active(const tt_tabs *tabs) {
-    return tabs && tabs->active >= 0 && tabs->active < tabs->count ? tabs->items[tabs->active] : NULL;
+    return tabs && tabs->active >= 0 && tabs->active < tabs->count ? tabs->items[tabs->active]
+                                                                   : NULL;
 }
 
 void *tt_tabs_at(const tt_tabs *tabs, int index) {

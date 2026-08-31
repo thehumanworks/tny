@@ -1,0 +1,3254 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "repository": "https://github.com/cursor/sdk-bridge",
+    "tag": "v1.0.30",
+    "tag_object": "026d21b23641ee488a6650ba850327b8a66ab1cd",
+    "commit": "8157597c625b5f642d3c4a1472d20c9c330a9d18",
+    "manifest": {
+      "protocol": "sdk.v1",
+      "sdkVersion": "1.0.30",
+      "sourceRepo": "anysphere/everysphere",
+      "sourceCommit": "a401fe7f346d4d3ba66fd596cc842b0ad5e5259c"
+    }
+  },
+  "counts": {
+    "services": 5,
+    "rpcs": 29,
+    "messages": 114,
+    "fields": 285,
+    "enums": 8,
+    "enum_values": 54,
+    "oneofs": 5,
+    "reserved_declarations": 2
+  },
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "d337e05fe93a9bd6c8573b63f8ac14db10e11d897c36df2bfae3a5c5b91bea29",
+      "size": 1072
+    },
+    {
+      "path": "proto/manifest.json",
+      "sha256": "4ce638a905dc1d2e6067609c89eb259bfb06b14433f5f8bdcb3217d117157293",
+      "size": 156
+    },
+    {
+      "path": "proto/sdk/v1/sdk_agent_service.proto",
+      "sha256": "0f4da463f1c95d6627a3cb5131b1926d5abd21d978f560b9c50376f06b460a15",
+      "size": 7044
+    },
+    {
+      "path": "proto/sdk/v1/sdk_bridge_control_service.proto",
+      "sha256": "a8fbb2303f2286095ec6fb5aa4f179284d43a06d33731ab2b6c3c37eeb53993f",
+      "size": 2119
+    },
+    {
+      "path": "proto/sdk/v1/sdk_cursor_service.proto",
+      "sha256": "f925cb88412ef0223c9fb968fb86d119c4942c651a50e844f54469031a59beb3",
+      "size": 1472
+    },
+    {
+      "path": "proto/sdk/v1/sdk_custom_tool_callback_service.proto",
+      "sha256": "29063b363db382827b547b928637ee5c064d5d43ecb6531a7b5aba8086948ecf",
+      "size": 1497
+    },
+    {
+      "path": "proto/sdk/v1/sdk_errors.proto",
+      "sha256": "6e7165182ec63b563f3bed0bb19634ff073bcf6e562a83f86107e4b8d0ee7ab6",
+      "size": 2409
+    },
+    {
+      "path": "proto/sdk/v1/sdk_messages.proto",
+      "sha256": "71e571171c3582d24df3169b0c19f194d13d51dbbe8e6508a5a720bc363a4b9d",
+      "size": 13840
+    },
+    {
+      "path": "proto/sdk/v1/sdk_store_callback_service.proto",
+      "sha256": "a5e6b8727cd4b86dae40f5d6cb0a1b5facf2ca541d45c29e77abb501c43fea13",
+      "size": 1538
+    }
+  ],
+  "services": [
+    {
+      "name": "SdkAgentService",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "rpcs": [
+        {
+          "name": "CreateAgent",
+          "request": "CreateAgentRequest",
+          "response": "CreateAgentResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "ResumeAgent",
+          "request": "ResumeAgentRequest",
+          "response": "ResumeAgentResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "ReloadAgent",
+          "request": "ReloadAgentRequest",
+          "response": "ReloadAgentResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "CloseAgent",
+          "request": "CloseAgentRequest",
+          "response": "CloseAgentResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "Send",
+          "request": "SendRequest",
+          "response": "RunStreamMessage",
+          "client_streaming": false,
+          "server_streaming": true
+        },
+        {
+          "name": "WaitLiveRun",
+          "request": "WaitLiveRunRequest",
+          "response": "WaitLiveRunResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "GetRun",
+          "request": "GetRunRequest",
+          "response": "GetRunResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "ListRuns",
+          "request": "ListRunsRequest",
+          "response": "ListRunsResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "GetRunConversation",
+          "request": "GetRunConversationRequest",
+          "response": "GetRunConversationResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "ObserveRun",
+          "request": "ObserveRunRequest",
+          "response": "RunStreamMessage",
+          "client_streaming": false,
+          "server_streaming": true
+        },
+        {
+          "name": "CancelRun",
+          "request": "CancelRunRequest",
+          "response": "CancelRunResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "GetAgent",
+          "request": "GetAgentRequest",
+          "response": "GetAgentResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "ListAgents",
+          "request": "ListAgentsRequest",
+          "response": "ListAgentsResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "ArchiveAgent",
+          "request": "ArchiveAgentRequest",
+          "response": "ArchiveAgentResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "UnarchiveAgent",
+          "request": "UnarchiveAgentRequest",
+          "response": "UnarchiveAgentResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "DeleteAgent",
+          "request": "DeleteAgentRequest",
+          "response": "DeleteAgentResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "ListAgentMessages",
+          "request": "ListAgentMessagesRequest",
+          "response": "ListAgentMessagesResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "ListArtifacts",
+          "request": "ListArtifactsRequest",
+          "response": "ListArtifactsResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "DownloadArtifact",
+          "request": "DownloadArtifactRequest",
+          "response": "DownloadArtifactChunk",
+          "client_streaming": false,
+          "server_streaming": true
+        },
+        {
+          "name": "GetUsage",
+          "request": "GetUsageRequest",
+          "response": "GetUsageResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        }
+      ]
+    },
+    {
+      "name": "SdkBridgeControlService",
+      "file": "proto/sdk/v1/sdk_bridge_control_service.proto",
+      "rpcs": [
+        {
+          "name": "Ping",
+          "request": "PingRequest",
+          "response": "PingResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "Shutdown",
+          "request": "ShutdownRequest",
+          "response": "ShutdownResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "GetVersion",
+          "request": "GetVersionRequest",
+          "response": "GetVersionResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "SetToolCallback",
+          "request": "SetToolCallbackRequest",
+          "response": "SetToolCallbackResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        }
+      ]
+    },
+    {
+      "name": "SdkCursorService",
+      "file": "proto/sdk/v1/sdk_cursor_service.proto",
+      "rpcs": [
+        {
+          "name": "Me",
+          "request": "MeRequest",
+          "response": "MeResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "ListModels",
+          "request": "ListModelsRequest",
+          "response": "ListModelsResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        },
+        {
+          "name": "ListRepositories",
+          "request": "ListRepositoriesRequest",
+          "response": "ListRepositoriesResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        }
+      ]
+    },
+    {
+      "name": "SdkCustomToolCallbackService",
+      "file": "proto/sdk/v1/sdk_custom_tool_callback_service.proto",
+      "rpcs": [
+        {
+          "name": "CallCustomTool",
+          "request": "CallCustomToolRequest",
+          "response": "CallCustomToolResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        }
+      ]
+    },
+    {
+      "name": "SdkStoreCallbackService",
+      "file": "proto/sdk/v1/sdk_store_callback_service.proto",
+      "rpcs": [
+        {
+          "name": "CallStore",
+          "request": "CallStoreRequest",
+          "response": "CallStoreResponse",
+          "client_streaming": false,
+          "server_streaming": false
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "name": "AgentOperationOptions",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "cwd",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "api_key",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ArchiveAgentRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "options",
+          "number": 2,
+          "type": "AgentOperationOptions",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ArchiveAgentResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CancelRunRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "run_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "agent_id",
+          "number": 2,
+          "type": "string",
+          "label": "optional"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CancelRunResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CloseAgentRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CloseAgentResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CreateAgentRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "options",
+          "number": 1,
+          "type": "AgentOptions",
+          "label": "singular"
+        },
+        {
+          "name": "idempotency_key",
+          "number": 2,
+          "type": "string",
+          "label": "optional"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CreateAgentResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "model",
+          "number": 2,
+          "type": "ModelSelection",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "DeleteAgentRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "options",
+          "number": 2,
+          "type": "AgentOperationOptions",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "DeleteAgentResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "DownloadArtifactRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "path",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "GetAgentMessagesOptions",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "limit",
+          "number": 1,
+          "type": "uint32",
+          "label": "singular"
+        },
+        {
+          "name": "offset",
+          "number": 2,
+          "type": "uint32",
+          "label": "singular"
+        },
+        {
+          "name": "runtime",
+          "number": 3,
+          "type": "Runtime",
+          "label": "singular"
+        },
+        {
+          "name": "cwd",
+          "number": 4,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "api_key",
+          "number": 5,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "GetAgentRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "options",
+          "number": 2,
+          "type": "AgentOperationOptions",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "GetAgentResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent",
+          "number": 1,
+          "type": "SdkAgentInfo",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "GetRunConversationRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "run_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "GetRunConversationResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "conversation_json",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "GetRunOptions",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "runtime",
+          "number": 1,
+          "type": "Runtime",
+          "label": "singular"
+        },
+        {
+          "name": "cwd",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "agent_id",
+          "number": 3,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "api_key",
+          "number": 4,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "GetRunRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "run_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "options",
+          "number": 2,
+          "type": "GetRunOptions",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "GetRunResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "run",
+          "number": 1,
+          "type": "RunSnapshot",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "GetUsageRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "run_id",
+          "number": 2,
+          "type": "string",
+          "label": "optional"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "GetUsageResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "usage",
+          "number": 1,
+          "type": "AgentUsage",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ListAgentMessagesRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "options",
+          "number": 2,
+          "type": "GetAgentMessagesOptions",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ListAgentMessagesResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "messages",
+          "number": 1,
+          "type": "AgentMessage",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ListAgentsOptions",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "limit",
+          "number": 1,
+          "type": "uint32",
+          "label": "singular"
+        },
+        {
+          "name": "cursor",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "runtime",
+          "number": 3,
+          "type": "Runtime",
+          "label": "singular"
+        },
+        {
+          "name": "cwd",
+          "number": 4,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "pr_url",
+          "number": 5,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "include_archived",
+          "number": 6,
+          "type": "bool",
+          "label": "optional"
+        },
+        {
+          "name": "api_key",
+          "number": 7,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ListAgentsRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "options",
+          "number": 1,
+          "type": "ListAgentsOptions",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ListAgentsResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "items",
+          "number": 1,
+          "type": "SdkAgentInfo",
+          "label": "repeated"
+        },
+        {
+          "name": "next_cursor",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ListArtifactsRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ListArtifactsResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "artifacts",
+          "number": 1,
+          "type": "SdkArtifact",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ListRunsOptions",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "limit",
+          "number": 1,
+          "type": "uint32",
+          "label": "singular"
+        },
+        {
+          "name": "cursor",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "runtime",
+          "number": 3,
+          "type": "Runtime",
+          "label": "singular"
+        },
+        {
+          "name": "cwd",
+          "number": 4,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "api_key",
+          "number": 5,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ListRunsRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "options",
+          "number": 2,
+          "type": "ListRunsOptions",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ListRunsResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "items",
+          "number": 1,
+          "type": "RunSnapshot",
+          "label": "repeated"
+        },
+        {
+          "name": "next_cursor",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ObserveRunRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "run_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "after_offset",
+          "number": 2,
+          "type": "string",
+          "label": "optional"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ReloadAgentRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ReloadAgentResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ResumeAgentRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "options",
+          "number": 2,
+          "type": "AgentOptions",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ResumeAgentResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "model",
+          "number": 2,
+          "type": "ModelSelection",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "SendRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "message",
+          "number": 2,
+          "type": "UserMessage",
+          "label": "singular"
+        },
+        {
+          "name": "options",
+          "number": 3,
+          "type": "SendOptions",
+          "label": "singular"
+        },
+        {
+          "name": "idempotency_key",
+          "number": 4,
+          "type": "string",
+          "label": "optional"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "UnarchiveAgentRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "options",
+          "number": 2,
+          "type": "AgentOperationOptions",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "UnarchiveAgentResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "WaitLiveRunRequest",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "run_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "WaitLiveRunResponse",
+      "file": "proto/sdk/v1/sdk_agent_service.proto",
+      "fields": [
+        {
+          "name": "result",
+          "number": 1,
+          "type": "RunResult",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "GetVersionRequest",
+      "file": "proto/sdk/v1/sdk_bridge_control_service.proto",
+      "fields": [],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "GetVersionResponse",
+      "file": "proto/sdk/v1/sdk_bridge_control_service.proto",
+      "fields": [
+        {
+          "name": "bridge_version",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "protocol_version",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "capabilities",
+          "number": 3,
+          "type": "string",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "PingRequest",
+      "file": "proto/sdk/v1/sdk_bridge_control_service.proto",
+      "fields": [],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "PingResponse",
+      "file": "proto/sdk/v1/sdk_bridge_control_service.proto",
+      "fields": [
+        {
+          "name": "message",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "SetToolCallbackRequest",
+      "file": "proto/sdk/v1/sdk_bridge_control_service.proto",
+      "fields": [
+        {
+          "name": "url",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "auth_token",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "SetToolCallbackResponse",
+      "file": "proto/sdk/v1/sdk_bridge_control_service.proto",
+      "fields": [],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ShutdownRequest",
+      "file": "proto/sdk/v1/sdk_bridge_control_service.proto",
+      "fields": [
+        {
+          "name": "grace_seconds",
+          "number": 1,
+          "type": "uint32",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ShutdownResponse",
+      "file": "proto/sdk/v1/sdk_bridge_control_service.proto",
+      "fields": [],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CursorRequestOptions",
+      "file": "proto/sdk/v1/sdk_cursor_service.proto",
+      "fields": [
+        {
+          "name": "api_key",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ListModelsRequest",
+      "file": "proto/sdk/v1/sdk_cursor_service.proto",
+      "fields": [
+        {
+          "name": "options",
+          "number": 1,
+          "type": "CursorRequestOptions",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ListModelsResponse",
+      "file": "proto/sdk/v1/sdk_cursor_service.proto",
+      "fields": [
+        {
+          "name": "items",
+          "number": 1,
+          "type": "SdkModel",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ListRepositoriesRequest",
+      "file": "proto/sdk/v1/sdk_cursor_service.proto",
+      "fields": [
+        {
+          "name": "options",
+          "number": 1,
+          "type": "CursorRequestOptions",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ListRepositoriesResponse",
+      "file": "proto/sdk/v1/sdk_cursor_service.proto",
+      "fields": [
+        {
+          "name": "items",
+          "number": 1,
+          "type": "SdkRepository",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "MeRequest",
+      "file": "proto/sdk/v1/sdk_cursor_service.proto",
+      "fields": [
+        {
+          "name": "options",
+          "number": 1,
+          "type": "CursorRequestOptions",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "MeResponse",
+      "file": "proto/sdk/v1/sdk_cursor_service.proto",
+      "fields": [
+        {
+          "name": "user",
+          "number": 1,
+          "type": "SdkUser",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CallCustomToolRequest",
+      "file": "proto/sdk/v1/sdk_custom_tool_callback_service.proto",
+      "fields": [
+        {
+          "name": "tool_name",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "args",
+          "number": 2,
+          "type": "google.protobuf.Struct",
+          "label": "singular"
+        },
+        {
+          "name": "tool_call_id",
+          "number": 3,
+          "type": "string",
+          "label": "optional"
+        },
+        {
+          "name": "agent_id",
+          "number": 4,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CallCustomToolResponse",
+      "file": "proto/sdk/v1/sdk_custom_tool_callback_service.proto",
+      "fields": [
+        {
+          "name": "result",
+          "number": 1,
+          "type": "google.protobuf.Struct",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "RateLimitInfo",
+      "file": "proto/sdk/v1/sdk_errors.proto",
+      "fields": [
+        {
+          "name": "limit",
+          "number": 1,
+          "type": "uint64",
+          "label": "optional"
+        },
+        {
+          "name": "remaining",
+          "number": 2,
+          "type": "uint64",
+          "label": "optional"
+        },
+        {
+          "name": "reset_epoch_seconds",
+          "number": 3,
+          "type": "uint64",
+          "label": "optional"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "SdkErrorDetails",
+      "file": "proto/sdk/v1/sdk_errors.proto",
+      "fields": [
+        {
+          "name": "request_id",
+          "number": 1,
+          "type": "string",
+          "label": "optional"
+        },
+        {
+          "name": "sdk_error_code",
+          "number": 2,
+          "type": "SdkErrorCode",
+          "label": "singular"
+        },
+        {
+          "name": "message",
+          "number": 3,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "help_url",
+          "number": 4,
+          "type": "string",
+          "label": "optional"
+        },
+        {
+          "name": "provider",
+          "number": 5,
+          "type": "string",
+          "label": "optional"
+        },
+        {
+          "name": "retry_after",
+          "number": 6,
+          "type": "google.protobuf.Duration",
+          "label": "optional"
+        },
+        {
+          "name": "rate_limit",
+          "number": 7,
+          "type": "RateLimitInfo",
+          "label": "optional"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "AgentDefinition",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "description",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "prompt",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "model",
+          "number": 3,
+          "type": "ModelSelection",
+          "label": "singular"
+        },
+        {
+          "name": "inherit_model",
+          "number": 4,
+          "type": "bool",
+          "label": "optional"
+        },
+        {
+          "name": "mcp_servers",
+          "number": 5,
+          "type": "AgentDefinitionMcpServer",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "AgentDefinitionMcpServer",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "name",
+          "number": 1,
+          "type": "string",
+          "label": "singular",
+          "oneof": "value"
+        },
+        {
+          "name": "inline_config",
+          "number": 2,
+          "type": "McpServerConfig",
+          "label": "singular",
+          "oneof": "value"
+        }
+      ],
+      "oneofs": [
+        {
+          "name": "value",
+          "fields": [
+            "name",
+            "inline_config"
+          ]
+        }
+      ],
+      "reserved": []
+    },
+    {
+      "name": "AgentMessage",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "type",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "uuid",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "agent_id",
+          "number": 3,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "message",
+          "number": 4,
+          "type": "google.protobuf.Struct",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "AgentOptions",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "model",
+          "number": 1,
+          "type": "ModelSelection",
+          "label": "singular"
+        },
+        {
+          "name": "api_key",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "name",
+          "number": 3,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "local",
+          "number": 4,
+          "type": "LocalAgentOptions",
+          "label": "singular"
+        },
+        {
+          "name": "cloud",
+          "number": 5,
+          "type": "CloudAgentOptions",
+          "label": "singular"
+        },
+        {
+          "name": "mcp_servers",
+          "number": 6,
+          "type": "map<string,McpServerConfig>",
+          "label": "singular"
+        },
+        {
+          "name": "agents",
+          "number": 7,
+          "type": "map<string,AgentDefinition>",
+          "label": "singular"
+        },
+        {
+          "name": "agent_id",
+          "number": 8,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "mode",
+          "number": 9,
+          "type": "AgentModeOption",
+          "label": "singular"
+        },
+        {
+          "name": "tools",
+          "number": 10,
+          "type": "ToolList",
+          "label": "singular"
+        },
+        {
+          "name": "disallowed_tools",
+          "number": 11,
+          "type": "string",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "AgentUsage",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "usage",
+          "number": 1,
+          "type": "TokenUsage",
+          "label": "singular"
+        },
+        {
+          "name": "cost",
+          "number": 2,
+          "type": "UsageCost",
+          "label": "optional"
+        },
+        {
+          "name": "runs",
+          "number": 3,
+          "type": "RunUsage",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CloudAgentInfo",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "env",
+          "number": 1,
+          "type": "CloudEnvironment",
+          "label": "singular"
+        },
+        {
+          "name": "repos",
+          "number": 2,
+          "type": "string",
+          "label": "repeated"
+        },
+        {
+          "name": "metadata",
+          "number": 3,
+          "type": "map<string,string>",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CloudAgentOptions",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "env",
+          "number": 1,
+          "type": "CloudEnvironment",
+          "label": "singular"
+        },
+        {
+          "name": "repos",
+          "number": 2,
+          "type": "CloudRepository",
+          "label": "repeated"
+        },
+        {
+          "name": "work_on_current_branch",
+          "number": 3,
+          "type": "bool",
+          "label": "optional"
+        },
+        {
+          "name": "auto_create_pr",
+          "number": 4,
+          "type": "bool",
+          "label": "optional"
+        },
+        {
+          "name": "skip_reviewer_request",
+          "number": 5,
+          "type": "bool",
+          "label": "optional"
+        },
+        {
+          "name": "env_vars",
+          "number": 6,
+          "type": "map<string,string>",
+          "label": "singular"
+        },
+        {
+          "name": "metadata",
+          "number": 7,
+          "type": "map<string,string>",
+          "label": "singular"
+        },
+        {
+          "name": "open_as_cursor_github_app",
+          "number": 8,
+          "type": "bool",
+          "label": "optional"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CloudEnvironment",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "type",
+          "number": 1,
+          "type": "CloudEnvironmentType",
+          "label": "singular"
+        },
+        {
+          "name": "name",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CloudRepository",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "url",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "starting_ref",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "pr_url",
+          "number": 3,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CloudSendOptions",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "env_vars",
+          "number": 1,
+          "type": "map<string,string>",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ConversationStep",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "type",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "step",
+          "number": 2,
+          "type": "google.protobuf.Struct",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CustomToolDefinition",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "description",
+          "number": 1,
+          "type": "string",
+          "label": "optional"
+        },
+        {
+          "name": "input_schema",
+          "number": 2,
+          "type": "google.protobuf.Struct",
+          "label": "singular"
+        },
+        {
+          "name": "output_schema",
+          "number": 3,
+          "type": "google.protobuf.Struct",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "DownloadArtifactChunk",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "data",
+          "number": 1,
+          "type": "bytes",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "HttpMcpServerConfig",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "type",
+          "number": 1,
+          "type": "HttpMcpTransportType",
+          "label": "singular"
+        },
+        {
+          "name": "url",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "headers",
+          "number": 3,
+          "type": "map<string,string>",
+          "label": "singular"
+        },
+        {
+          "name": "auth",
+          "number": 4,
+          "type": "McpAuthConfig",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "InteractionUpdate",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "type",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "update",
+          "number": 2,
+          "type": "google.protobuf.Struct",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "LocalAgentInfo",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "cwd",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "LocalAgentOptions",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "cwd",
+          "number": 1,
+          "type": "string",
+          "label": "repeated"
+        },
+        {
+          "name": "setting_sources",
+          "number": 2,
+          "type": "SettingSource",
+          "label": "repeated"
+        },
+        {
+          "name": "sandbox_options",
+          "number": 3,
+          "type": "SandboxOptions",
+          "label": "singular"
+        },
+        {
+          "name": "store",
+          "number": 4,
+          "type": "LocalAgentStoreConfig",
+          "label": "singular"
+        },
+        {
+          "name": "auto_review",
+          "number": 5,
+          "type": "bool",
+          "label": "optional"
+        },
+        {
+          "name": "custom_tools",
+          "number": 6,
+          "type": "map<string,CustomToolDefinition>",
+          "label": "singular"
+        },
+        {
+          "name": "dirs",
+          "number": 7,
+          "type": "string",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "LocalAgentStoreConfig",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "type",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "root_dir",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "LocalSendOptions",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "force",
+          "number": 1,
+          "type": "bool",
+          "label": "optional"
+        }
+      ],
+      "oneofs": [],
+      "reserved": [
+        "2",
+        "\"custom_tools\""
+      ]
+    },
+    {
+      "name": "McpAuthConfig",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "client_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "client_secret",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "scopes",
+          "number": 3,
+          "type": "string",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "McpServerConfig",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "stdio",
+          "number": 1,
+          "type": "StdioMcpServerConfig",
+          "label": "singular",
+          "oneof": "config"
+        },
+        {
+          "name": "http",
+          "number": 2,
+          "type": "HttpMcpServerConfig",
+          "label": "singular",
+          "oneof": "config"
+        }
+      ],
+      "oneofs": [
+        {
+          "name": "config",
+          "fields": [
+            "stdio",
+            "http"
+          ]
+        }
+      ],
+      "reserved": []
+    },
+    {
+      "name": "ModelParameterDefinition",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "display_name",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "values",
+          "number": 3,
+          "type": "ModelParameterDefinitionValue",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ModelParameterDefinitionValue",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "value",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "display_name",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ModelParameterValue",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "value",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ModelSelection",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "params",
+          "number": 2,
+          "type": "ModelParameterValue",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ModelVariant",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "params",
+          "number": 1,
+          "type": "ModelParameterValue",
+          "label": "repeated"
+        },
+        {
+          "name": "display_name",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "description",
+          "number": 3,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "is_default",
+          "number": 4,
+          "type": "bool",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "RunGitBranchInfo",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "repo_url",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "branch",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "pr_url",
+          "number": 3,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "RunGitInfo",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "branches",
+          "number": 1,
+          "type": "RunGitBranchInfo",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "RunResult",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "run_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "agent_id",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "status",
+          "number": 3,
+          "type": "RunLifecycleStatus",
+          "label": "singular"
+        },
+        {
+          "name": "result",
+          "number": 4,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "model",
+          "number": 5,
+          "type": "ModelSelection",
+          "label": "singular"
+        },
+        {
+          "name": "duration_ms",
+          "number": 6,
+          "type": "uint64",
+          "label": "singular"
+        },
+        {
+          "name": "git",
+          "number": 7,
+          "type": "RunGitInfo",
+          "label": "singular"
+        },
+        {
+          "name": "created_at",
+          "number": 8,
+          "type": "google.protobuf.Timestamp",
+          "label": "singular"
+        },
+        {
+          "name": "usage",
+          "number": 9,
+          "type": "TokenUsage",
+          "label": "optional"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "RunSnapshot",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "run_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "agent_id",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "status",
+          "number": 3,
+          "type": "RunLifecycleStatus",
+          "label": "singular"
+        },
+        {
+          "name": "result",
+          "number": 4,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "model",
+          "number": 5,
+          "type": "ModelSelection",
+          "label": "singular"
+        },
+        {
+          "name": "duration_ms",
+          "number": 6,
+          "type": "uint64",
+          "label": "singular"
+        },
+        {
+          "name": "git",
+          "number": 7,
+          "type": "RunGitInfo",
+          "label": "singular"
+        },
+        {
+          "name": "created_at",
+          "number": 8,
+          "type": "google.protobuf.Timestamp",
+          "label": "singular"
+        },
+        {
+          "name": "usage",
+          "number": 9,
+          "type": "TokenUsage",
+          "label": "optional"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "RunStreamDone",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "run_id",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "RunStreamMessage",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "sdk_message",
+          "number": 1,
+          "type": "SdkMessage",
+          "label": "singular",
+          "oneof": "envelope"
+        },
+        {
+          "name": "result",
+          "number": 2,
+          "type": "RunStreamResult",
+          "label": "singular",
+          "oneof": "envelope"
+        },
+        {
+          "name": "done",
+          "number": 3,
+          "type": "RunStreamDone",
+          "label": "singular",
+          "oneof": "envelope"
+        },
+        {
+          "name": "offset",
+          "number": 4,
+          "type": "string",
+          "label": "optional"
+        },
+        {
+          "name": "interaction_update",
+          "number": 5,
+          "type": "InteractionUpdate",
+          "label": "singular",
+          "oneof": "envelope"
+        },
+        {
+          "name": "step",
+          "number": 6,
+          "type": "ConversationStep",
+          "label": "singular",
+          "oneof": "envelope"
+        }
+      ],
+      "oneofs": [
+        {
+          "name": "envelope",
+          "fields": [
+            "sdk_message",
+            "result",
+            "done",
+            "interaction_update",
+            "step"
+          ]
+        }
+      ],
+      "reserved": []
+    },
+    {
+      "name": "RunStreamResult",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "run_id",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "status",
+          "number": 3,
+          "type": "RunLifecycleStatus",
+          "label": "singular"
+        },
+        {
+          "name": "error_code",
+          "number": 4,
+          "type": "string",
+          "label": "optional"
+        },
+        {
+          "name": "result",
+          "number": 5,
+          "type": "RunResult",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "RunUsage",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "run_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "usage",
+          "number": 2,
+          "type": "TokenUsage",
+          "label": "singular"
+        },
+        {
+          "name": "cost",
+          "number": 3,
+          "type": "UsageCost",
+          "label": "optional"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "SandboxOptions",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "enabled",
+          "number": 1,
+          "type": "bool",
+          "label": "optional"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "SdkAgentInfo",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "name",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "summary",
+          "number": 3,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "last_modified",
+          "number": 4,
+          "type": "google.protobuf.Timestamp",
+          "label": "singular"
+        },
+        {
+          "name": "status",
+          "number": 5,
+          "type": "AgentInfoStatus",
+          "label": "singular"
+        },
+        {
+          "name": "created_at",
+          "number": 6,
+          "type": "google.protobuf.Timestamp",
+          "label": "singular"
+        },
+        {
+          "name": "archived",
+          "number": 7,
+          "type": "bool",
+          "label": "singular"
+        },
+        {
+          "name": "local",
+          "number": 8,
+          "type": "LocalAgentInfo",
+          "label": "singular",
+          "oneof": "runtime_info"
+        },
+        {
+          "name": "cloud",
+          "number": 9,
+          "type": "CloudAgentInfo",
+          "label": "singular",
+          "oneof": "runtime_info"
+        }
+      ],
+      "oneofs": [
+        {
+          "name": "runtime_info",
+          "fields": [
+            "local",
+            "cloud"
+          ]
+        }
+      ],
+      "reserved": []
+    },
+    {
+      "name": "SdkArtifact",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "path",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "size_bytes",
+          "number": 2,
+          "type": "uint64",
+          "label": "singular"
+        },
+        {
+          "name": "updated_at",
+          "number": 3,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "SdkImage",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "url",
+          "number": 1,
+          "type": "SdkImageUrl",
+          "label": "singular",
+          "oneof": "source"
+        },
+        {
+          "name": "data",
+          "number": 2,
+          "type": "SdkImageData",
+          "label": "singular",
+          "oneof": "source"
+        },
+        {
+          "name": "dimension",
+          "number": 3,
+          "type": "SdkImageDimension",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [
+        {
+          "name": "source",
+          "fields": [
+            "url",
+            "data"
+          ]
+        }
+      ],
+      "reserved": []
+    },
+    {
+      "name": "SdkImageData",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "data",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "mime_type",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "SdkImageDimension",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "width",
+          "number": 1,
+          "type": "uint32",
+          "label": "singular"
+        },
+        {
+          "name": "height",
+          "number": 2,
+          "type": "uint32",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "SdkImageUrl",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "url",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "SdkMessage",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "type",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "message",
+          "number": 2,
+          "type": "google.protobuf.Struct",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "SdkModel",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "id",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "display_name",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "description",
+          "number": 3,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "parameters",
+          "number": 4,
+          "type": "ModelParameterDefinition",
+          "label": "repeated"
+        },
+        {
+          "name": "variants",
+          "number": 5,
+          "type": "ModelVariant",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "SdkRepository",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "url",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "SdkUser",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "api_key_name",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "user_id",
+          "number": 2,
+          "type": "uint64",
+          "label": "singular"
+        },
+        {
+          "name": "user_email",
+          "number": 3,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "user_first_name",
+          "number": 4,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "user_last_name",
+          "number": 5,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "created_at",
+          "number": 6,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "SendOptions",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "model",
+          "number": 1,
+          "type": "ModelSelection",
+          "label": "singular"
+        },
+        {
+          "name": "mcp_servers",
+          "number": 2,
+          "type": "map<string,McpServerConfig>",
+          "label": "singular"
+        },
+        {
+          "name": "local",
+          "number": 3,
+          "type": "LocalSendOptions",
+          "label": "singular"
+        },
+        {
+          "name": "enable_deltas",
+          "number": 4,
+          "type": "bool",
+          "label": "singular"
+        },
+        {
+          "name": "enable_steps",
+          "number": 5,
+          "type": "bool",
+          "label": "singular"
+        },
+        {
+          "name": "mode",
+          "number": 6,
+          "type": "AgentModeOption",
+          "label": "singular"
+        },
+        {
+          "name": "cloud",
+          "number": 7,
+          "type": "CloudSendOptions",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "StdioMcpServerConfig",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "command",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "args",
+          "number": 2,
+          "type": "string",
+          "label": "repeated"
+        },
+        {
+          "name": "env",
+          "number": 3,
+          "type": "map<string,string>",
+          "label": "singular"
+        },
+        {
+          "name": "cwd",
+          "number": 4,
+          "type": "string",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "TokenUsage",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "input_tokens",
+          "number": 1,
+          "type": "int64",
+          "label": "singular"
+        },
+        {
+          "name": "output_tokens",
+          "number": 2,
+          "type": "int64",
+          "label": "singular"
+        },
+        {
+          "name": "cache_read_tokens",
+          "number": 3,
+          "type": "int64",
+          "label": "singular"
+        },
+        {
+          "name": "cache_write_tokens",
+          "number": 4,
+          "type": "int64",
+          "label": "singular"
+        },
+        {
+          "name": "total_tokens",
+          "number": 5,
+          "type": "int64",
+          "label": "singular"
+        },
+        {
+          "name": "reasoning_tokens",
+          "number": 6,
+          "type": "int64",
+          "label": "optional"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "ToolList",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "names",
+          "number": 1,
+          "type": "string",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "UsageCost",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "raw_cost_cents",
+          "number": 1,
+          "type": "double",
+          "label": "singular"
+        },
+        {
+          "name": "charged_cents",
+          "number": 2,
+          "type": "double",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "UserMessage",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "fields": [
+        {
+          "name": "text",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "images",
+          "number": 2,
+          "type": "SdkImage",
+          "label": "repeated"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CallStoreRequest",
+      "file": "proto/sdk/v1/sdk_store_callback_service.proto",
+      "fields": [
+        {
+          "name": "substore",
+          "number": 1,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "method",
+          "number": 2,
+          "type": "string",
+          "label": "singular"
+        },
+        {
+          "name": "input",
+          "number": 3,
+          "type": "google.protobuf.Struct",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    },
+    {
+      "name": "CallStoreResponse",
+      "file": "proto/sdk/v1/sdk_store_callback_service.proto",
+      "fields": [
+        {
+          "name": "output",
+          "number": 1,
+          "type": "google.protobuf.Struct",
+          "label": "singular"
+        }
+      ],
+      "oneofs": [],
+      "reserved": []
+    }
+  ],
+  "enums": [
+    {
+      "name": "SdkErrorCode",
+      "file": "proto/sdk/v1/sdk_errors.proto",
+      "values": [
+        {
+          "name": "SDK_ERROR_CODE_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "SDK_ERROR_CODE_UNAUTHORIZED",
+          "number": 1
+        },
+        {
+          "name": "SDK_ERROR_CODE_API_KEY_NOT_FOUND",
+          "number": 2
+        },
+        {
+          "name": "SDK_ERROR_CODE_PLAN_REQUIRED",
+          "number": 3
+        },
+        {
+          "name": "SDK_ERROR_CODE_ROLE_FORBIDDEN",
+          "number": 4
+        },
+        {
+          "name": "SDK_ERROR_CODE_FEATURE_UNAVAILABLE",
+          "number": 5
+        },
+        {
+          "name": "SDK_ERROR_CODE_AGENT_NOT_FOUND",
+          "number": 6
+        },
+        {
+          "name": "SDK_ERROR_CODE_RUN_NOT_FOUND",
+          "number": 7
+        },
+        {
+          "name": "SDK_ERROR_CODE_VALIDATION_ERROR",
+          "number": 8
+        },
+        {
+          "name": "SDK_ERROR_CODE_INVALID_MODEL",
+          "number": 9
+        },
+        {
+          "name": "SDK_ERROR_CODE_INVALID_BRANCH_NAME",
+          "number": 10
+        },
+        {
+          "name": "SDK_ERROR_CODE_REPOSITORY_REQUIRED",
+          "number": 11
+        },
+        {
+          "name": "SDK_ERROR_CODE_REPOSITORY_ACCESS",
+          "number": 12
+        },
+        {
+          "name": "SDK_ERROR_CODE_PR_RESOLUTION_FAILED",
+          "number": 13
+        },
+        {
+          "name": "SDK_ERROR_CODE_USAGE_LIMIT_EXCEEDED",
+          "number": 14
+        },
+        {
+          "name": "SDK_ERROR_CODE_AGENT_BUSY",
+          "number": 15
+        },
+        {
+          "name": "SDK_ERROR_CODE_AGENT_ARCHIVED",
+          "number": 16
+        },
+        {
+          "name": "SDK_ERROR_CODE_RUN_NOT_CANCELLABLE",
+          "number": 17
+        },
+        {
+          "name": "SDK_ERROR_CODE_RATE_LIMIT_EXCEEDED",
+          "number": 18
+        },
+        {
+          "name": "SDK_ERROR_CODE_UPSTREAM_ERROR",
+          "number": 19
+        },
+        {
+          "name": "SDK_ERROR_CODE_INTERNAL_ERROR",
+          "number": 20
+        },
+        {
+          "name": "SDK_ERROR_CODE_CLIENT_CANCELLED",
+          "number": 21
+        }
+      ],
+      "reserved": []
+    },
+    {
+      "name": "AgentInfoStatus",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "values": [
+        {
+          "name": "AGENT_INFO_STATUS_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "AGENT_INFO_STATUS_RUNNING",
+          "number": 1
+        },
+        {
+          "name": "AGENT_INFO_STATUS_FINISHED",
+          "number": 2
+        },
+        {
+          "name": "AGENT_INFO_STATUS_ERROR",
+          "number": 3
+        }
+      ],
+      "reserved": []
+    },
+    {
+      "name": "AgentModeOption",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "values": [
+        {
+          "name": "AGENT_MODE_OPTION_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "AGENT_MODE_OPTION_AGENT",
+          "number": 1
+        },
+        {
+          "name": "AGENT_MODE_OPTION_PLAN",
+          "number": 2
+        }
+      ],
+      "reserved": []
+    },
+    {
+      "name": "CloudEnvironmentType",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "values": [
+        {
+          "name": "CLOUD_ENVIRONMENT_TYPE_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "CLOUD_ENVIRONMENT_TYPE_CLOUD",
+          "number": 1
+        },
+        {
+          "name": "CLOUD_ENVIRONMENT_TYPE_POOL",
+          "number": 2
+        },
+        {
+          "name": "CLOUD_ENVIRONMENT_TYPE_MACHINE",
+          "number": 3
+        }
+      ],
+      "reserved": []
+    },
+    {
+      "name": "HttpMcpTransportType",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "values": [
+        {
+          "name": "HTTP_MCP_TRANSPORT_TYPE_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "HTTP_MCP_TRANSPORT_TYPE_HTTP",
+          "number": 1
+        },
+        {
+          "name": "HTTP_MCP_TRANSPORT_TYPE_SSE",
+          "number": 2
+        }
+      ],
+      "reserved": []
+    },
+    {
+      "name": "RunLifecycleStatus",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "values": [
+        {
+          "name": "RUN_LIFECYCLE_STATUS_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "RUN_LIFECYCLE_STATUS_CREATING",
+          "number": 1
+        },
+        {
+          "name": "RUN_LIFECYCLE_STATUS_RUNNING",
+          "number": 2
+        },
+        {
+          "name": "RUN_LIFECYCLE_STATUS_FINISHED",
+          "number": 3
+        },
+        {
+          "name": "RUN_LIFECYCLE_STATUS_ERROR",
+          "number": 4
+        },
+        {
+          "name": "RUN_LIFECYCLE_STATUS_CANCELLED",
+          "number": 5
+        },
+        {
+          "name": "RUN_LIFECYCLE_STATUS_EXPIRED",
+          "number": 6
+        }
+      ],
+      "reserved": []
+    },
+    {
+      "name": "Runtime",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "values": [
+        {
+          "name": "RUNTIME_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "RUNTIME_AUTO",
+          "number": 1
+        },
+        {
+          "name": "RUNTIME_LOCAL",
+          "number": 2
+        },
+        {
+          "name": "RUNTIME_CLOUD",
+          "number": 3
+        }
+      ],
+      "reserved": []
+    },
+    {
+      "name": "SettingSource",
+      "file": "proto/sdk/v1/sdk_messages.proto",
+      "values": [
+        {
+          "name": "SETTING_SOURCE_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "SETTING_SOURCE_PROJECT",
+          "number": 1
+        },
+        {
+          "name": "SETTING_SOURCE_USER",
+          "number": 2
+        },
+        {
+          "name": "SETTING_SOURCE_TEAM",
+          "number": 3
+        },
+        {
+          "name": "SETTING_SOURCE_MDM",
+          "number": 4
+        },
+        {
+          "name": "SETTING_SOURCE_PLUGINS",
+          "number": 5
+        },
+        {
+          "name": "SETTING_SOURCE_ALL",
+          "number": 6
+        }
+      ],
+      "reserved": []
+    }
+  ]
+}

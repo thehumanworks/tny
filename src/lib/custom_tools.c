@@ -398,6 +398,9 @@ tny_tool_registration *custom_tools_find(custom_tool_registry *registry, const c
 }
 
 const char *custom_tool_name(const tny_tool_registration *item) { return item ? item->name : NULL; }
+const char *custom_tool_description(const tny_tool_registration *item) {
+    return item ? item->description : NULL;
+}
 const char *custom_tool_schema(const tny_tool_registration *item) {
     return item ? item->schema : NULL;
 }
@@ -406,6 +409,20 @@ bool custom_tool_sensitive(const tny_tool_registration *item) {
 }
 uint64_t custom_tool_argument_limit(const tny_tool_registration *item) {
     return item ? item->max_argument_bytes : 0;
+}
+
+bool custom_tools_visit(custom_tool_registry *registry, custom_tools_visit_fn visit, void *ud) {
+    if (!registry || !visit) return false;
+    bool completed = true;
+    pthread_mutex_lock(&registry->mutex);
+    for (tny_tool_registration *item = registry->registrations; item; item = item->next) {
+        if (item->active && !visit(item, ud)) {
+            completed = false;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&registry->mutex);
+    return completed;
 }
 
 char *custom_tools_schema_json(custom_tool_registry *registry) {

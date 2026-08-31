@@ -63,10 +63,18 @@ typedef struct {
     char token[512];
 } cursor_bridge;
 
+typedef struct {
+    const char *state_root;         /* optional --state-root */
+    const char *local_store_json;   /* optional --local-store object */
+    const char *store_callback_url; /* both callback fields or neither */
+    const char *store_callback_token;
+} cursor_bridge_launch_options;
+
 void cursor_bridge_init(cursor_bridge *bp);
 /* Spawn, block until the ready line (timeout_ms), load the bearer token. */
-int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key, int timeout_ms,
-                        char *err, size_t errlen);
+int cursor_bridge_spawn(cursor_bridge *bp, tny_ctx *ctx, const char *api_key,
+                        const cursor_bridge_launch_options *options, int timeout_ms, char *err,
+                        size_t errlen);
 /* Non-blocking: forward complete lines to our stderr. Never the ready line. */
 void cursor_bridge_pump(cursor_bridge *bp);
 /* SIGTERM, wait grace_ms, SIGKILL. Idempotent. */
@@ -85,6 +93,10 @@ void cursor_rpc_close(cursor_rpc *r);
 /* Blocking POST. Returns the malloc'd response body, or NULL with err set. */
 char *cursor_rpc_unary(cursor_rpc *r, const char *service, const char *method, const char *body,
                        int timeout_ms, char *err, size_t errlen);
+/* Transport-level variant: returns the bounded body for every HTTP status and
+ * writes status_out. NULL means no complete HTTP response was received. */
+char *cursor_rpc_unary_raw(cursor_rpc *r, const char *service, const char *method, const char *body,
+                           int timeout_ms, int *status_out, char *err, size_t errlen);
 
 /* ---- Connect server stream ---- */
 
@@ -107,6 +119,10 @@ int cursor_stream_fd(cursor_stream *s); /* -1 when idle */
 /* Pump readable bytes; cb runs per decoded envelope.
  * 0 need more, 1 stream ended, -1 fatal (err set). */
 int cursor_stream_pump(cursor_stream *s, connect_frame_cb cb, void *ud, char *err, size_t errlen);
+/* As above, but returns a non-200 Connect body to the caller for structured
+ * sdk.v1 error decoding. error_body_out is malloc'd when set. */
+int cursor_stream_pump_raw(cursor_stream *s, connect_frame_cb cb, void *ud, int *status_out,
+                           char **error_body_out, char *err, size_t errlen);
 
 /* Shared: turn a Connect error body into a one-line message. */
 void cursor_error_line(const char *body, size_t len, const char *fallback, char *out,
