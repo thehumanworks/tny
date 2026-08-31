@@ -5,7 +5,7 @@ tny is a C11 TUI + CLI coding-agent harness. It beats vercel-labs/fx on binary s
 - Site: https://thehumanworks.github.io/tny/
 - Source: https://github.com/thehumanworks/tny
 - Version: 0.3.0
-- Size: 715,744 bytes (~0.68 MiB) stripped (macOS arm64)
+- Size: 749,264 bytes (~0.71 MiB) stripped (macOS arm64)
 - License: see the repository
 
 ## Install

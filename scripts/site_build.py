@@ -14,7 +14,7 @@ TNYTTY_INSTALL = (
     "git clone https://github.com/thehumanworks/tny && cd tny && make tnytty"
 )
 VERSION = "0.3.0"
-SIZE = "0.68mib"
+SIZE = "0.71mib"
 SITE_BASE = "https://thehumanworks.github.io/tny/"
 
 NAV = (
@@ -245,7 +245,7 @@ def article(title: str, lede: str, inner: str) -> str:
 def landing() -> str:
     features = [
         (
-            "Tiny 0.68mb binary",
+            "Tiny 0.71mb binary",
             "Nine times smaller than fx on macOS. Designed for instant installation and embedding in resource-constrained environments and agent sandboxes.",
         ),
         (
@@ -1132,7 +1132,7 @@ def docs_size() -> str:
 <table>
   <thead><tr><th>Metric</th><th>fx 0.0.3</th><th>tny</th><th>Result</th></tr></thead>
   <tbody>
-    <tr><td>Stripped binary</td><td>6,748,416 B (6.4 MiB)</td><td>715,744 B (0.68 MiB)</td><td>9.4× smaller</td></tr>
+    <tr><td>Stripped binary</td><td>6,748,416 B (6.4 MiB)</td><td>749,264 B (0.71 MiB)</td><td>9.0× smaller</td></tr>
     <tr><td><code>--version</code></td><td>2.2 ms ± 0.3</td><td>1.7 ms ± 0.2</td><td>1.3× faster</td></tr>
     <tr><td>Max RSS</td><td>3.0 MiB</td><td>2.1 MiB</td><td>1.4× less memory</td></tr>
     <tr><td>TUI first prompt</td><td>—</td><td>3.3–4.3 ms</td><td>budget &lt; 10 ms</td></tr>
