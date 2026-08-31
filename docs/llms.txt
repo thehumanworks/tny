@@ -32,7 +32,6 @@ tny cursor COMMAND          # Cursor v1.0.30 management/raw RPC
 tny tasks                    # list built-in and discovered task presets
 tny task show NAME           # inspect one resolved preset
 tny login | logout | setup
-tny mcp [list]               # configured MCP servers (source attributed)
 ```
 
 Leading flags: `--provider cursor|codex|acp|openai` (`--backend` alias), `--cwd`, `--model`, `--task NAME`, `--add-dir`, `--permission-mode ask|auto|yolo` (default yolo), `--json`, `-r`, `-c`. `--task` selects a runtime preset; `--agent CMD` remains the ACP executable option.
@@ -76,7 +75,7 @@ Configure trusted protojson under `settings.cursor`: `runtime`, `state_root`, `l
 
 ## Permissions
 
-Default yolo for every provider. ask/auto are opt-ins and enforce the native loop. Cursor built-ins remain host-owned; sensitive registered custom callbacks fail closed unless yolo. Rules live in `~/.tny/settings.json`. Never load repo-local MCP. Foreign project MCP loads only after an explicit global per-harness opt-in.
+Default yolo for every provider. ask/auto are opt-ins and enforce the native loop. Cursor built-ins remain host-owned; sensitive registered custom callbacks fail closed unless yolo. Rules live in `~/.tny/settings.json`. Never load repo-local MCP.
 
 ## tnytty
 
