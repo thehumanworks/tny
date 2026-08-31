@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from enum import IntEnum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from urllib.parse import urlsplit
 
 from ._binding import (
@@ -77,6 +77,9 @@ class PermissionDecision(IntEnum):
     DENY = 2
 
 
+ProviderName = Literal["openai", "cursor"]
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class TaskPreset:
     """A deterministic runtime task preset selection.
@@ -101,7 +104,7 @@ class TaskPreset:
 class RuntimeConfig:
     workspace: str | os.PathLike[str]
     state_dir: str | os.PathLike[str] | None = None
-    provider: str | bytes = "openai"
+    provider: ProviderName | bytes = "openai"
     model: str | bytes = b""
     base_url: str | bytes = b""
     api_key: str | bytes = b""

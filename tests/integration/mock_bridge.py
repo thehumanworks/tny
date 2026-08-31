@@ -4,8 +4,8 @@
 Behaves like the real host as far as tny can observe it:
   * writes a 0600 bearer-token file, then prints `cursor-sdk-bridge ready {json}`
     on stderr (schemaVersion/transport/protocol/url/authTokenFile),
-  * serves sdk.v1 over Connect HTTP/1.1 with the JSON codec: unary bodies are
-    bare JSON, `Send` is a stream of 5-byte-enveloped frames,
+  * serves all 27 adapter-to-bridge RPCs in sdk.v1.0.30 over Connect HTTP/1.1,
+    including stateful local/cloud agents and all three server streams,
   * rejects any request without the right `Authorization: Bearer` with 401.
 
 Assertions (cwd, model, agent-id reuse, bearer on Shutdown) are appended to
@@ -397,8 +397,29 @@ class Handler(BaseHTTPRequestHandler):
         threading.Timer(0.2, lambda: os._exit(0)).start()
 
 
+# The original fixture above remains deliberately readable because it documents
+# the live Send payload shapes.  The v1.0.30 extension supplies the complete
+# service/state surface and overrides the legacy route dispatcher.
+from mock_bridge_v130 import extend_handler
+
+COMPLETE_MOCK_STATE = None
+Handler = extend_handler(Handler, globals())
+
+
 def main():
     os.makedirs(DIR, exist_ok=True)
+    assert COMPLETE_MOCK_STATE is not None
+    COMPLETE_MOCK_STATE.save()
+    with open(os.path.join(DIR, "launch.json"), "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "storeCallback": COMPLETE_MOCK_STATE.data.get("storeCallback"),
+                "workspace": EXPECT_CWD,
+                "apiKeyPresent": bool(os.environ.get("CURSOR_API_KEY")),
+            },
+            f,
+            sort_keys=True,
+        )
     fd = os.open(TOKEN_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     os.write(fd, (TOKEN + "\n").encode())
     os.close(fd)

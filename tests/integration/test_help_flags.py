@@ -22,6 +22,7 @@ COMMAND_PARSERS = {
     "acp": ("cmd_acp_server",),
     "ask": ("cmd_ask",),
     "backends": ("cmd_backends",),
+    "cursor": ("cmd_cursor",),
     "doctor": ("cmd_doctor",),
     "login": ("cmd_login",),
     "logout": ("cmd_logout",),

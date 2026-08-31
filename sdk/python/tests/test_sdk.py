@@ -88,6 +88,42 @@ class SDKTests(unittest.TestCase):
             **kwargs,
         )
 
+    def test_cursor_provider_is_accepted_and_reported_without_connecting(self) -> None:
+        with tny.Runtime(
+            tny.RuntimeConfig(
+                workspace=self.workspace,
+                state_dir=self.state,
+                provider="cursor",
+                model="cursor-model",
+                api_key="cursor-key-not-real",
+            ),
+            library=self.library,
+        ) as runtime:
+            self.assertEqual(runtime.capabilities.provider, "cursor")
+            self.assertEqual(runtime.capabilities.provider_selected, 2)
+            self.assertEqual(runtime.capabilities.provider_available_mask & 3, 3)
+            self.assertEqual(runtime.capabilities.transport, b"sdk.v1-connect-http1")
+        required = {
+            "state_dir": self.state,
+            "model": "cursor-model",
+            "api_key": "cursor-key-not-real",
+        }
+        for missing in required:
+            options = dict(required)
+            options[missing] = None if missing == "state_dir" else ""
+            with (
+                self.subTest(missing=missing),
+                self.assertRaises(tny.InvalidArgumentError),
+            ):
+                tny.Runtime(
+                    tny.RuntimeConfig(
+                        workspace=self.workspace,
+                        provider="cursor",
+                        **options,
+                    ),
+                    library=self.library,
+                )
+
     def test_metadata_capabilities_and_secret_safe_repr(self) -> None:
         self.assertEqual(self.library.abi_major, 1)
         self.assertGreaterEqual(self.library.abi_minor, 1)

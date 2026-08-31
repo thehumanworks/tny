@@ -38,7 +38,20 @@ async function useSdk(): Promise<void> {
   }
 }
 
+async function useCursor(): Promise<void> {
+  await using runtime = await Runtime.create({
+    workspace,
+    stateDir: workspace,
+    provider: "cursor",
+    model: "cursor-model",
+    apiKey: "cursor-key",
+  });
+  // @ts-expect-error Codex is not a public-runtime provider.
+  await Runtime.create({ workspace, provider: "codex" });
+}
+
 void useSdk;
+void useCursor;
 
 
 const customRunner: WorkflowTaskRunner = async (task, prompt, context) => {

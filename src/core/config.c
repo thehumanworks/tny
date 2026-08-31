@@ -1,4 +1,5 @@
 #include "core/config.h"
+#include "core/cursor_config.h"
 #include "core/tasks.h"
 #include "core/backend.h"
 #include "core/extensions.h"
@@ -527,6 +528,15 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     yyjson_val *wso = ws_obj(ctx);
     yyjson_val *rroot = ctx->repo_cfg ? yyjson_doc_get_root(ctx->repo_cfg) : NULL;
 
+    char cursor_err[256] = {0};
+    ctx->cursor_config = tny_cursor_config_load(jget(sroot, "cursor"), jget(rroot, "cursor"),
+                                                cursor_err, sizeof cursor_err);
+    if (!ctx->cursor_config) {
+        if (*cursor_err) fprintf(stderr, "tny: %s\n", cursor_err);
+        tny_ctx_free(ctx);
+        return NULL;
+    }
+
     /* defaults. yolo is deliberate: host providers run their own loops and
      * never hand tny a real approval gate, so tny runs every agent in yolo
      * unless the user explicitly opts into ask/auto (docs/adr/0001). */
@@ -660,6 +670,11 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
     ctx->auth_header_name = xstrdup("Authorization");
     ctx->auth_header_prefix = xstrdup("Bearer ");
     ctx->bridge_bin = xstrdup("cursor-sdk-bridge");
+    ctx->cursor_config = tny_cursor_config_load(NULL, NULL, NULL, 0);
+    if (!ctx->cursor_config) {
+        tny_ctx_free(ctx);
+        return NULL;
+    }
     ctx->codex_bin = xstrdup("codex");
     (void)instructions_refresh(ctx);
     return ctx;
@@ -1179,6 +1194,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->output_schema);
     tny_ctx_clear_extra_headers(ctx);
     free(ctx->bridge_bin);
+    tny_cursor_config_free(ctx->cursor_config);
     free(ctx->codex_ws);
     free(ctx->codex_bin);
     free(ctx->ws_token_file);

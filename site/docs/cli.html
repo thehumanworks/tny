@@ -56,6 +56,7 @@ tny providers
 tny tasks
 tny task show NAME          # inspect one resolved preset
 tny models
+tny cursor COMMAND          # Cursor v1.0.30 management/raw RPC
 tny permissions
 tny workspace list|add|remove|clear
 tny status
@@ -91,6 +92,23 @@ description: Review release-readiness risks
 Inspect correctness, compatibility, rollback, and test coverage.
 TASK
 tny --task release-review ask "Review this release"</code></pre>
+<h2 id="cursor-management">Cursor management</h2>
+<p><code>tny cursor</code> starts a short-lived v1.0.30 bridge and exposes the complete public management surface. Create/resume/send preserve trusted <code>settings.cursor</code> local/cloud options. Downloads stream decoded artifact bytes with a strict 8 MiB cap; delete requires <code>--yes</code>.</p>
+<pre><code>tny cursor ping | version | me | models | repositories
+tny cursor create [NAME]
+tny cursor resume|reload|close AGENT_ID
+tny cursor send AGENT_ID MESSAGE
+tny cursor wait|run|conversation RUN_ID
+tny cursor runs|agent|messages|artifacts AGENT_ID
+tny cursor observe RUN_ID [AFTER_OFFSET]
+tny cursor cancel RUN_ID [AGENT_ID]
+tny cursor agents
+tny cursor archive|unarchive AGENT_ID
+tny cursor delete AGENT_ID --yes
+tny cursor download AGENT_ID PATH
+tny cursor usage AGENT_ID [RUN_ID]
+tny cursor rpc SERVICE METHOD [JSON|-] [--yes]</code></pre>
+<p>Raw RPC accepts only the 27 client-to-bridge routes and one bounded UTF-8 JSON object from an argument or stdin. Unary JSON and stream frames are preserved. Pipe secret-bearing requests so they do not enter shell history. This command and Cursor conversations return a clean unsupported error in wasm.</p>
 <h2 id="help">Help shape</h2>
 <p>Every subcommand has <code>--help</code> with copy-paste examples. Missing required values print the error, then a correct example, then exit 1. No timed prompts.</p>
 <div class="cmd"><div class="left"><span class="prompt">$</span><code>tny ask --help</code></div><button type="button" data-copy="tny ask --help" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
@@ -115,7 +133,7 @@ tny --task release-review ask "Review this release"</code></pre>
 <div class="cmd"><div class="left"><span class="prompt">$</span><code>tny --provider cursor ask --model composer-2 &quot;fix the leak&quot;</code></div><button type="button" data-copy="tny --provider cursor ask --model composer-2 &quot;fix the leak&quot;" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
 <div class="cmd"><div class="left"><span class="prompt">$</span><code>tny --provider acp --agent gemini -- --acp</code></div><button type="button" data-copy="tny --provider acp --agent gemini -- --acp" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
 </article>
-    <aside class="toc"><p>on this page</p><a href="#tree">Command tree</a><a href="#globals">Global flags</a><a href="#help">Help</a><a href="#provider-flags">Provider flags</a><a href="#json-cmds">JSON</a><a href="#examples">Examples</a></aside>
+    <aside class="toc"><p>on this page</p><a href="#tree">Command tree</a><a href="#globals">Global flags</a><a href="#cursor-management">Cursor management</a><a href="#help">Help</a><a href="#provider-flags">Provider flags</a><a href="#json-cmds">JSON</a><a href="#examples">Examples</a></aside>
   </main>
 </div>
 <script src="../assets/site.js"></script>

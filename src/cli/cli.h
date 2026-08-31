@@ -5,6 +5,9 @@
 
 #include "core/config.h"
 
+#include <stdint.h>
+#include <stdio.h>
+
 /* Leading global flags, parsed before the subcommand. */
 typedef struct {
     const char *backend;                  /* --backend */
@@ -39,6 +42,16 @@ typedef struct {
     const char *wire_api; /* --wire-api responses|chat */
 } cli_globals;
 
+/* Internal Cursor management stream seam. Kept here so unit tests can inject
+ * a failing FILE without changing stdout or the public embedding ABI. */
+typedef struct {
+    FILE *stream;
+    size_t total;
+} cursor_artifact_output;
+
+int cursor_cli_artifact_frame(uint8_t flags, const char *payload, size_t len, void *ud, char *err,
+                              size_t errlen);
+
 /* Parse leading globals; returns index of the subcommand in argv or -1 on
  * error (message already printed). */
 int cli_parse_globals(int argc, char **argv, cli_globals *g);
@@ -68,6 +81,7 @@ int cmd_workspace(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_provider(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_usage(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+int cmd_cursor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_setup(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_tasks(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_task(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

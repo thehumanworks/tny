@@ -11,6 +11,7 @@
 struct tny_extensions;
 struct tny_host_services_state;
 struct custom_tool_registry;
+struct tny_cursor_config;
 
 /* TNY_VERSION lives in build/generated/tny_version.h, written by make from
  * `git describe` (docs/adr/0014). The fallback keeps editors and static
@@ -70,6 +71,7 @@ typedef struct tny_ctx {
 
     /* cursor */
     char *bridge_bin;
+    struct tny_cursor_config *cursor_config; /* user-level sdk.v1 options */
     /* codex */
     char *codex_ws;
     char *codex_bin;

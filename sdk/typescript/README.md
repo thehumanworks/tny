@@ -2,9 +2,9 @@
 
 This package is the Node.js/TypeScript binding for stable **libtny ABI 1**.
 Task presets require ABI 1.1; ABI 1.0 remains usable when no task is requested.
-It embeds the native OpenAI-compatible agent runtime through a small C
-Node-API addon. It does not spawn `tny` and contains no provider-wire or agent
-loop implementation in JavaScript.
+It embeds the native OpenAI-compatible and Cursor sdk.v1 conversation runtimes
+through a small C Node-API addon. It does not spawn `tny` and contains no
+provider-wire or agent loop implementation in JavaScript.
 
 The package is intentionally marked `UNLICENSED` until the repository adopts
 project licensing.
@@ -64,6 +64,21 @@ console.log(answer.text);
 await session.close();
 await runtime.close();
 ```
+
+Cursor uses the same runtime/session API:
+
+```ts
+const cursor = await Runtime.create({
+  provider: "cursor",
+  workspace: process.cwd(),
+  stateDir: "/tmp/my-cursor-state",
+  model: "composer-2",
+  apiKey: process.env.CURSOR_API_KEY,
+});
+```
+
+Set `CURSOR_SDK_BRIDGE_BIN` when the v1.0.30 bridge is not on `PATH`.
+ABI 1 does not expose Cursor management RPCs or image attachments.
 
 Task selection is runtime configuration shared by every session. Use
 `taskPreset: "review"` for a built-in, or `taskPreset: { name: "release", instructions:
@@ -146,9 +161,12 @@ libtny's sized capability view; the latter reflects reachability changes after
 ordinary turn traffic. The view reports these limitations explicitly:
 
 - multiple isolated runtimes per process, with one open session per runtime;
-- native OpenAI-compatible backend only;
+- native OpenAI-compatible and Cursor sdk.v1 conversations; Cursor requires an
+  explicit `stateDir`, `apiKey`, and `model`, plus an external
+  `cursor-sdk-bridge` selected by `CURSOR_SDK_BRIDGE_BIN` or `PATH`;
 - no public `send_ex`, so image inputs and output schemas throw
   `UnsupportedFeatureError`;
+- Cursor management RPCs remain CLI-only;
 - cross-thread cancellation is available and reported in the capability mask;
 - SecureTransport on macOS and dynamically loaded system OpenSSL on glibc
   Linux.

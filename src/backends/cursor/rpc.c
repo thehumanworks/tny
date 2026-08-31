@@ -80,8 +80,9 @@ static int read_body(http_conn *c, buf_t *out, int64_t deadline, char *err, size
     }
 }
 
-char *cursor_rpc_unary(cursor_rpc *r, const char *service, const char *method, const char *body,
-                       int timeout_ms, char *err, size_t errlen) {
+char *cursor_rpc_unary_raw(cursor_rpc *r, const char *service, const char *method, const char *body,
+                           int timeout_ms, int *status_out, char *err, size_t errlen) {
+    if (status_out) *status_out = 0;
     char path[256];
     snprintf(path, sizeof path, "%s/%s", service, method);
     buf_t auth;
@@ -135,19 +136,28 @@ char *cursor_rpc_unary(cursor_rpc *r, const char *service, const char *method, c
         cursor_rpc_close(r);
         return NULL;
     }
+    if (status_out) *status_out = status;
+    if (!out.data) buf_appends(&out, "{}");
+    return buf_detach(&out);
+}
+
+char *cursor_rpc_unary(cursor_rpc *r, const char *service, const char *method, const char *body,
+                       int timeout_ms, char *err, size_t errlen) {
+    int status = 0;
+    char *out = cursor_rpc_unary_raw(r, service, method, body, timeout_ms, &status, err, errlen);
+    if (!out) return NULL;
     if (status != 200) {
         char detail[300];
         char fallback[64];
         snprintf(fallback, sizeof fallback, "HTTP %d", status);
-        cursor_error_line(out.data ? out.data : "", out.len, fallback, detail, sizeof detail);
+        cursor_error_line(out, strlen(out), fallback, detail, sizeof detail);
         if (status == 401 || status == 403)
             snprintf(err, errlen, "%s rejected: bridge auth failed (%s)", method, detail);
         else snprintf(err, errlen, "%s failed: %s", method, detail);
-        buf_free(&out);
+        free(out);
         return NULL;
     }
-    if (!out.data) buf_appends(&out, "{}");
-    return buf_detach(&out);
+    return out;
 }
 
 /* ---- server stream ---- */
@@ -203,7 +213,10 @@ int cursor_stream_start(cursor_stream *s, const char *service, const char *metho
     return 0;
 }
 
-int cursor_stream_pump(cursor_stream *s, connect_frame_cb cb, void *ud, char *err, size_t errlen) {
+int cursor_stream_pump_raw(cursor_stream *s, connect_frame_cb cb, void *ud, int *status_out,
+                           char **error_body_out, char *err, size_t errlen) {
+    if (status_out) *status_out = 0;
+    if (error_body_out) *error_body_out = NULL;
     if (s->state == CS_IDLE || !s->conn) return 1;
 
     if (s->state == CS_HEADERS) {
@@ -222,6 +235,8 @@ int cursor_stream_pump(cursor_stream *s, connect_frame_cb cb, void *ud, char *er
             snprintf(fallback, sizeof fallback, "HTTP %d", status);
             cursor_error_line(body.data ? body.data : "", body.len, fallback, detail,
                               sizeof detail);
+            if (status_out) *status_out = status;
+            if (error_body_out) *error_body_out = buf_detach(&body);
             if (status == 401 || status == 403)
                 snprintf(err, errlen, "bridge auth failed (%s)", detail);
             else snprintf(err, errlen, "bridge stream failed: %s", detail);
@@ -245,4 +260,8 @@ int cursor_stream_pump(cursor_stream *s, connect_frame_cb cb, void *ud, char *er
             return -1;
         }
     }
+}
+
+int cursor_stream_pump(cursor_stream *s, connect_frame_cb cb, void *ud, char *err, size_t errlen) {
+    return cursor_stream_pump_raw(s, cb, ud, NULL, NULL, err, errlen);
 }

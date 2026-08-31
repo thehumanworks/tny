@@ -4,8 +4,8 @@ tny is a C11 TUI + CLI coding-agent harness. It beats vercel-labs/fx on binary s
 
 - Site: https://thehumanworks.github.io/tny/
 - Source: https://github.com/thehumanworks/tny
-- Version: 0.1.0
-- Size: ~0.41 MiB stripped (macOS arm64)
+- Version: 0.3.0
+- Size: 715,600 bytes (~0.68 MiB) stripped (macOS arm64)
 - License: see the repository
 
 ## Install
@@ -28,6 +28,7 @@ tny resume [last|<id>]
 tny acp                     # ACP server (native loop only)
 tny sessions | session last|<id>
 tny providers | models | permissions | workspace | status | doctor | usage
+tny cursor COMMAND          # Cursor v1.0.30 management/raw RPC
 tny tasks                    # list built-in and discovered task presets
 tny task show NAME           # inspect one resolved preset
 tny login | logout | setup
@@ -55,7 +56,7 @@ Source `<prefix>/share/tny/tny-workflows.sh` from Bash or Zsh. Define tasks with
 ## Providers
 
 - openai (default fallback): OpenAI-compatible Responses API (`/v1/responses` SSE; `wire_api: "chat"` selects legacy `/v1/chat/completions`). tny owns tools/MCP/skills/permissions. `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_WIRE_API`.
-- cursor: spawn `cursor-sdk-bridge`, Connect `sdk.v1` HTTP/1.1. `CURSOR_API_KEY`. Headless — no per-call approvals.
+- cursor: spawn the supported `cursor-sdk-bridge` v1.0.30 and implement its complete public Connect `sdk.v1` HTTP/1.1 contract. Local/cloud agents support CLI images, modes, MCP/subagents, sandbox/review, tool allow/deny, durable runs, artifacts/usage, and authenticated custom-tool/store callbacks. Cursor owns built-in tools and exposes no per-call approval RPC; tny policy applies only to registered custom callbacks. `CURSOR_API_KEY`. wasm is clean unsupported. The private `agent.v1` HTTP/2 route remains rejected.
 - codex: WebSocket JSON-RPC to `codex app-server`. Attach `--codex-ws`, inherit a live TUI host, or spawn on an ephemeral loopback port.
 - acp client: `tny --provider acp --agent CMD -- args`.
 - acp server: `tny acp` exposes the native loop only.
@@ -64,9 +65,17 @@ Source `<prefix>/share/tny/tny-workflows.sh` from Bash or Zsh. Define tasks with
 
 Unix shell, not an IDE. `/` commands, `@` files, `$` skills. Esc/Ctrl-C interrupt. First paint does not wait on a backend; the selected host is pre-warmed after the banner.
 
+## Cursor management
+
+`tny cursor` provides readable aliases for ping/version/account/models/repositories, create/resume/reload/close/send, run wait/get/list/conversation/observe/cancel, agent get/list/archive/unarchive/delete/messages, artifacts/download, and cloud usage. `delete` requires `--yes`; downloads stream strict base64-decoded bytes with an 8 MiB cap.
+
+`tny cursor rpc SERVICE METHOD [JSON|-] [--yes]` accepts only the 27 public client-to-bridge routes and one bounded JSON object from an argument or stdin. Versioned session pointers retain agent id, run id, durable offset, and local/cloud runtime so dropped Send streams resume through ObserveRun without duplicate events.
+
+Configure trusted protojson under `settings.cursor`: `runtime`, `state_root`, `local_store`, callback enablement, and complete AgentOptions/SendOptions. Project `.tny.json` cannot add Cursor authority. `--ephemeral` strips persistent local-store configuration. The CLI accepts `--image` for Cursor; libtny ABI 1 Cursor conversations and custom tools are supported, but image attachments and management RPCs are not exposed through that ABI.
+
 ## Permissions
 
-Default yolo for every provider. ask/auto are opt-ins and only enforceable on the native loop. Rules live in `~/.tny/settings.json`. Never load repo-local MCP.
+Default yolo for every provider. ask/auto are opt-ins and enforce the native loop. Cursor built-ins remain host-owned; sensitive registered custom callbacks fail closed unless yolo. Rules live in `~/.tny/settings.json`. Never load repo-local MCP.
 
 ## tnytty
 

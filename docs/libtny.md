@@ -127,9 +127,12 @@ unavailable for an ephemeral runtime because there is no durable session to
 open.
 
 The public API does not read tny settings or choose a provider from the
-environment. ABI 0 embeds the native OpenAI-compatible loop. Cursor, Codex,
-and ACP remain CLI providers until their authority and host-state contracts
-are explicit.
+environment. It accepts `openai` (or empty) and `cursor`; Codex and ACP remain
+CLI providers. Cursor requires explicit `state_dir`, `api_key`, and `model`
+options and an external `cursor-sdk-bridge` selected by
+`CURSOR_SDK_BRIDGE_BIN` or `PATH`. Cursor create/resume/send/cancel,
+normalized events, and registered sync/async custom tools use the ordinary
+ABI-1 lifecycle. Catalog/management RPCs and image attachments remain CLI-only.
 
 The default permission policy is `TNY_PERMISSION_ASK`, unlike the CLI's
 deliberate yolo default. `max_steps` defaults to 0 (unlimited, matching the
@@ -171,7 +174,7 @@ configuration, or writes state.
 The snapshot separates:
 
 - `provider_available_mask`: providers compiled and supported by this public
-  library (OpenAI only in ABI 0.5);
+  library (OpenAI-compatible and Cursor sdk.v1);
 - `provider_selected`: the runtime's selected provider;
 - `provider_initialized`: whether its local backend has completed
   initialization;
@@ -180,12 +183,15 @@ The snapshot separates:
   itself is not a probe.
 
 `feature_available_mask` reports compiled/library support, while
-`feature_enabled_mask` reports selection for this runtime. ABI 0.5 advertises
+`feature_enabled_mask` reports selection for this runtime. The runtime advertises
 shared-library packaging, optional session persistence, the platform TLS
 implementation, and cross-thread cancellation. It deliberately leaves the
-bits for static packaging, MCP, custom in-process tools, terminal embedding,
-Windows, wasm, and fully static TLS clear. Cursor, Codex, and ACP provider bits
-are also clear. Built-in native tools are not “custom tools.”
+bits for static packaging, MCP, terminal embedding, Windows, wasm, and fully
+static TLS clear. Cursor and OpenAI provider bits are set; Codex and ACP remain
+clear. Registered custom tools are separately available and become enabled
+only after registration. Built-in native tools are not “custom tools.”
+The selected Cursor runtime reports transport `sdk.v1-connect-http1` and keeps
+endpoint reachability unknown until ordinary turn traffic observes a result.
 
 ABI 0.6 additionally advertises `TNY_CAP_FEATURE_HOST_SERVICES` as available.
 It is enabled only for a runtime created through the v1 entry point with a

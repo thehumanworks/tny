@@ -4,6 +4,15 @@ from __future__ import annotations
 
 import tny
 
+cursor_provider: tny.ProviderName = "cursor"
+cursor_config = tny.RuntimeConfig(
+    workspace=".",
+    state_dir=".",
+    provider=cursor_provider,
+    model="cursor-model",
+    api_key="cursor-key",
+)
+
 TASK_CONFIG = tny.RuntimeConfig(workspace=".", task_preset=tny.TaskPreset("review"))
 
 

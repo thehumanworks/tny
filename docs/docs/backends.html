@@ -49,15 +49,15 @@
 <table>
   <thead><tr><th>Kind</th><th>Backends</th><th>Who runs tools?</th></tr></thead>
   <tbody>
-    <tr><td>Host</td><td>Cursor bridge, Codex app-server, ACP client</td><td>The host process</td></tr>
+    <tr><td>Host</td><td>Cursor bridge, Codex app-server, ACP client</td><td>The host process; tny executes only registered Cursor custom callbacks</td></tr>
     <tr><td>Native</td><td>OpenAI-compatible</td><td>tny</td></tr>
   </tbody>
 </table>
 <p>Never leak host-specific types into the TUI. Every backend maps onto one event set: <code>text_delta</code>, <code>thinking</code>, <code>tool_start</code>, <code>tool_end</code>, <code>permission_request</code>, <code>plan</code>, <code>usage</code>, <code>turn_end</code>, <code>error</code>.</p>
 <h2 id="cursor">Cursor SDK Bridge</h2>
-<p>A local Connect server embedding <code>@cursor/sdk</code>, exposing <code>sdk.v1</code> over HTTP/1.1. Classic gRPC/HTTP2 will not connect. Pin standalone + protos to a release, not <code>main</code>.</p>
-<p>Auth is two secrets: <code>CURSOR_API_KEY</code> on the env and on RPC options, plus a per-process bearer from the ready line. Never log the ready-line JSON.</p>
-<p>This path is headless. There is no Allow/Deny RPC. Per-call approvals are ACP (<code>agent acp</code>), a different backend.</p>
+<p>tny pins the supported v1.0.30 release and implements all 5 services/29 RPCs: 27 outbound catalog/agent/run/artifact/usage/control calls plus reverse <code>CallCustomTool</code> and <code>CallStore</code>. Local/cloud AgentOptions cover images, modes, sandbox/review, MCP/subagents, and presence-sensitive built-in tool allow/deny. Classic gRPC/HTTP2 and Cursor's private <code>agent.v1</code> are not used.</p>
+<p>Auth is <code>CURSOR_API_KEY</code> plus a per-process bridge bearer and independent loopback callback bearers. None enters logs or argv. Cursor owns built-in tools and exposes no per-call approval RPC; tny permission policy applies only to registered custom tools. Custom store callbacks own bounded local agent/run/event/checkpoint persistence.</p>
+<p>Versioned session pointers retain agent, run, durable offset, and runtime. A dropped Send reconnects through ObserveRun without duplicating events; cancel waits for authoritative terminal state. <code>tny cursor</code> exposes full management/raw access. wasm reports distinct clean unsupported errors for conversations and management before spawn.</p>
 <h2 id="codex">Codex app-server</h2>
 <p>WebSocket JSON-RPC text frames, same surface the VS Code extension uses. The <code>"jsonrpc":"2.0"</code> header is omitted on the wire. Default to loopback; current Codex refuses non-loopback without <code>--ws-auth</code>. Do not send an <code>Origin</code> header.</p>
 <p>Attach with <code>--codex-ws</code>, inherit a TUI-registered live host, or spawn on an ephemeral port. Never a fixed port that could collide.</p>
@@ -72,7 +72,7 @@
 </table>
 <p>Always answer <code>session/request_permission</code> or the agent hangs. Cursor extras (<code>cursor/ask_question</code>, <code>cursor/create_plan</code>) are answered if the argv is Cursor's ACP — that is still <code>--provider acp</code>.</p>
 <h2 id="openai">OpenAI-compatible</h2>
-<p>The Responses API (<code>POST /v1/responses</code>) with typed SSE events is the default wire; legacy Chat Completions stays available per provider via <code>wire_api: "chat"</code>. This is the only backend where tny executes tools itself. The agent loop assembles preamble + <code>AGENTS.md</code> + skill catalog + history, posts, executes tool calls, and repeats until final text, a step limit, cancel, or deny. Sessions store the portable chat-shaped transcript on either wire.</p>
+<p>The Responses API (<code>POST /v1/responses</code>) with typed SSE events is the default wire; legacy Chat Completions stays available per provider via <code>wire_api: "chat"</code>. This is the only backend where tny owns the complete tool loop. The agent loop assembles preamble + <code>AGENTS.md</code> + skill catalog + history, posts, executes tool calls, and repeats until final text, a step limit, cancel, or deny. Sessions store the portable chat-shaped transcript on either wire.</p>
 </article>
     <aside class="toc"><p>on this page</p><a href="#kinds">Two kinds</a><a href="#cursor">Cursor</a><a href="#codex">Codex</a><a href="#acp">ACP</a><a href="#openai">OpenAI-compatible</a></aside>
   </main>

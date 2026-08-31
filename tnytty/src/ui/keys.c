@@ -102,7 +102,8 @@ tt_chord tt_key_chord(tt_key key, const char *text, size_t text_len, unsigned mo
 }
 
 int tt_chord_tab_index(tt_chord chord) {
-    return chord >= TT_CHORD_TAB_1 && chord <= TT_CHORD_TAB_9 ? chord - TT_CHORD_TAB_1 : -1;
+    return chord >= TT_CHORD_TAB_1 && chord <= TT_CHORD_TAB_9 ? (int)chord - (int)TT_CHORD_TAB_1
+                                                              : -1;
 }
 
 size_t tt_key_encode(tt_key key, const char *text, size_t text_len, unsigned mods, bool app_cursor,

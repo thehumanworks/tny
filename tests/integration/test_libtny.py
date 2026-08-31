@@ -252,8 +252,8 @@ def run_ctypes(
     lib.tny_error_free(invalid_error)
 
     unsupported = RuntimeOptions.from_buffer_copy(opts)
-    cursor_raw = b"cursor"
-    unsupported.provider = TnyBytes(cursor_raw, len(cursor_raw))
+    codex_raw = b"codex"
+    unsupported.provider = TnyBytes(codex_raw, len(codex_raw))
     unsupported_runtime = ctypes.c_void_p()
     unsupported_error = ctypes.c_void_p()
     assert (
@@ -345,7 +345,7 @@ def run_ctypes(
     assert caps.provider_selected == 1 and caps.provider_initialized == 0
     assert caps.endpoint_reachability == 0
     assert caps.threading_model == 1 and caps.cancel_model == 2
-    assert caps.provider_available_mask == 1
+    assert caps.provider_available_mask == 3
     # ABI 1.1 advertises the task-preset capability (bit 12) in addition to
     # the frozen 1.0 feature set.
     expected_features = 0x8A7 | (1 << 12)
