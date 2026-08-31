@@ -25,6 +25,7 @@ COMMAND_PARSERS = {
     "doctor": ("cmd_doctor",),
     "login": ("cmd_login",),
     "logout": ("cmd_logout",),
+    "mcp": ("cmd_mcp",),
     "models": ("cmd_models",),
     "permissions": ("cmd_permissions",),
     "provider": ("cmd_provider",),

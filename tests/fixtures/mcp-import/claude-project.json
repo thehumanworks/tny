@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "claude_project": {
+      "command": "${TNY_TEST_MCP_BIN}",
+      "args": []
+    },
+    "claude_project_wins": {
+      "command": "project-command"
+    }
+  }
+}
+

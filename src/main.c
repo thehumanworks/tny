@@ -76,6 +76,8 @@ int main(int argc, char **argv) {
         rc = cmd_doctor(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "usage") == 0) {
         rc = cmd_usage(ctx, &g, cargc, cargv);
+    } else if (strcmp(cmd, "mcp") == 0) {
+        rc = cmd_mcp(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "login") == 0) {
         rc = cmd_login(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "logout") == 0) {

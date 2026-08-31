@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "cursor_user": { "command": "/bin/echo", "args": ["cursor-user"] },
+    "cursor_project_wins": { "command": "/bin/echo", "args": ["user"] }
+  }
+}

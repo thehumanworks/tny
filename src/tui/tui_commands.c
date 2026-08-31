@@ -423,7 +423,7 @@ static void cmd_undo(tui *t) {
     free(line);
 }
 
-static void cmd_mcp(tui *t) {
+static void tui_cmd_mcp(tui *t) {
     tools_env env = {0};
     env.ctx = t->ctx;
     env.session = t->session;
@@ -825,7 +825,7 @@ void tui_command(tui *t, const char *line) {
     } else if (strcmp(c, "logout") == 0) {
         run_cli(t, cmd_logout, 0, NULL);
     } else if (strcmp(c, "mcp") == 0) {
-        cmd_mcp(t);
+        tui_cmd_mcp(t);
     } else if (strcmp(c, "skills") == 0) {
         cmd_skills(t);
     } else if (strcmp(c, "image") == 0) {

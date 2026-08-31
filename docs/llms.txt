@@ -31,6 +31,7 @@ tny providers | models | permissions | workspace | status | doctor | usage
 tny tasks                    # list built-in and discovered task presets
 tny task show NAME           # inspect one resolved preset
 tny login | logout | setup
+tny mcp [list]               # configured MCP servers (source attributed)
 ```
 
 Leading flags: `--provider cursor|codex|acp|openai` (`--backend` alias), `--cwd`, `--model`, `--task NAME`, `--add-dir`, `--permission-mode ask|auto|yolo` (default yolo), `--json`, `-r`, `-c`. `--task` selects a runtime preset; `--agent CMD` remains the ACP executable option.
@@ -66,7 +67,7 @@ Unix shell, not an IDE. `/` commands, `@` files, `$` skills. Esc/Ctrl-C interrup
 
 ## Permissions
 
-Default yolo for every provider. ask/auto are opt-ins and only enforceable on the native loop. Rules live in `~/.tny/settings.json`. Never load repo-local MCP.
+Default yolo for every provider. ask/auto are opt-ins and only enforceable on the native loop. Rules live in `~/.tny/settings.json`. Foreign project MCP loads only after an explicit global per-harness opt-in.
 
 ## tnytty
 

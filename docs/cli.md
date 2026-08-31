@@ -27,6 +27,7 @@ tny doctor
 tny login                   # provider-specific; see --provider
 tny logout
 tny setup                   # write provider config from flags/env
+tny mcp [list]              # list configured MCP servers (source attributed)
 ```
 
 Global flags are **leading**:
@@ -373,7 +374,27 @@ JSON object (keep field names stable):
 }
 ```
 
-`--json` is required on `ask`, `status`, `doctor`, `permissions`, `models`, `session`, `sessions`, `workspace`, `usage`.
+`--json` is required on `ask`, `status`, `doctor`, `permissions`, `models`, `session`, `sessions`, `workspace`, `usage`. `tny mcp --json` is optional.
+
+## `tny mcp`
+
+```text
+tny mcp
+tny mcp list
+tny --json mcp
+```
+
+Lists configured MCP servers without spawning them. Each row names the
+server, its source (`tny` / `codex` / `claude` / `grok` / `cursor-agent`), and
+whether it is connected, still starting, skipped, or not yet started.
+`--json` emits `{"kind":"mcp_servers","servers":[...],"notices":[...]}`;
+each server includes `source`, `scope`, `transport`, `status`, and `skipped`. Foreign
+harness configs are read only when `mcp.import_from` in
+`~/.tny/settings.json` names them ([ADR 0051](adr/0051-mcp-import-from-harnesses.md));
+the default is off. Native `~/.tny/mcp.json` wins on name collision.
+Command lines and env values are omitted from the listing so secrets stay
+out of `--json`. wasm: the list still works; spawn stays the existing
+clean error.
 
 ## Multi-agent workflow scripts
 

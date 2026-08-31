@@ -1,0 +1,12 @@
+[mcp_servers.codex_stdio]
+command = "/bin/echo"
+args = ["codex-stdio"]
+env = { FIXTURE_TOKEN = "fixture-secret" }
+
+[mcp_servers.codex_runtime]
+command = "${TNY_TEST_MCP_BIN}"
+args = []
+
+[mcp_servers.codex_remote]
+url = "https://example.test/mcp"
+

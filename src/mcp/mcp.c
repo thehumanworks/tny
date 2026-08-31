@@ -1,6 +1,7 @@
 /* mcp.c — stdio JSONL MCP client. Server output is untrusted data.
  * Profile: ~/.tny/mcp.json {"servers":{"<name>":{"command":["…"]}}}.
- * Repo-local MCP files are never read (docs/features/mcp-and-skills.md).
+ * Optional mcp.import_from (docs/adr/0051) merges the named harness's user
+ * and documented project configs; no foreign file is read without opt-in.
  *
  * Startup (docs/adr/0049): a native session calls mcp_warm_start once, off
  * the event loop — one detached thread per profile server runs spawn +
@@ -12,6 +13,7 @@
  * Without threads (wasm) every slot stays lazy and calls keep today's
  * clean spawn error. */
 #include "mcp/mcp.h"
+#include "mcp/mcp_import.h"
 #include "util/util.h"
 #include "util/tny_poll.h"
 
@@ -146,19 +148,78 @@ static yyjson_doc *conn_tools(mcp_conn *c) {
     return c->tools;
 }
 
-/* Spawn one server process and run the initialize handshake. */
-static int conn_open(mcp_conn *c, char *const argv[], const char *cwd) {
+extern char **environ;
+
+/* Build the child environment before fork(): warm-up threads fork
+ * concurrently, so the child may only use async-signal-safe calls — setenv()
+ * there can deadlock on the allocator lock. Entries at index >= *owned_from
+ * are malloc'd; the rest borrow the parent's environ strings. */
+static char **build_envp(const mcp_imported_server *srv, size_t *owned_from) {
+    size_t base = 0;
+    while (environ[base]) base++;
+    char **envp = calloc(base + (size_t)srv->nenv + 1, sizeof *envp);
+    if (!envp) return NULL;
+    size_t n = 0;
+    for (size_t i = 0; i < base; i++) {
+        const char *e = environ[i];
+        const char *eq = strchr(e, '=');
+        size_t klen = eq ? (size_t)(eq - e) : strlen(e);
+        bool overridden = false;
+        for (int j = 0; j < srv->nenv; j++) {
+            const char *k = srv->env[j].key;
+            if (k && strlen(k) == klen && memcmp(k, e, klen) == 0) overridden = true;
+        }
+        if (!overridden) envp[n++] = (char *)e;
+    }
+    *owned_from = n;
+    for (int j = 0; j < srv->nenv; j++) {
+        if (!srv->env[j].key || !srv->env[j].key[0]) continue;
+        const char *val = srv->env[j].value ? srv->env[j].value : "";
+        size_t len = strlen(srv->env[j].key) + strlen(val) + 2;
+        char *kv = malloc(len);
+        if (!kv) {
+            for (size_t i = *owned_from; i < n; i++) free(envp[i]);
+            free(envp);
+            return NULL;
+        }
+        snprintf(kv, len, "%s=%s", srv->env[j].key, val);
+        envp[n++] = kv;
+    }
+    return envp;
+}
+
+static void free_envp(char **envp, size_t owned_from) {
+    if (!envp) return;
+    for (size_t i = owned_from; envp[i]; i++) secure_free(envp[i]);
+    free(envp);
+}
+
+/* Spawn one server process and run the initialize handshake. Extra env
+ * (from a foreign harness profile) is applied only in the child. */
+static int conn_open(mcp_conn *c, char *const argv[], const char *cwd,
+                     const mcp_imported_server *srv) {
     memset(c, 0, sizeof *c);
     buf_init(&c->rbuf);
+    char **child_env = NULL;
+    size_t child_env_owned = 0;
+    if (srv && srv->nenv > 0) {
+        child_env = build_envp(srv, &child_env_owned);
+        if (!child_env) return -1;
+    }
     int inpipe[2], outpipe[2];
-    if (pipe(inpipe) != 0) return -1;
+    if (pipe(inpipe) != 0) {
+        free_envp(child_env, child_env_owned);
+        return -1;
+    }
     if (pipe(outpipe) != 0) {
+        free_envp(child_env, child_env_owned);
         close(inpipe[0]);
         close(inpipe[1]);
         return -1;
     }
     pid_t pid = fork();
     if (pid < 0) {
+        free_envp(child_env, child_env_owned);
         close(inpipe[0]);
         close(inpipe[1]);
         close(outpipe[0]);
@@ -173,11 +234,14 @@ static int conn_open(mcp_conn *c, char *const argv[], const char *cwd) {
         close(inpipe[1]);
         close(outpipe[0]);
         close(outpipe[1]);
+        /* pointer store only — the child must stay async-signal-safe */
+        if (child_env) environ = child_env;
         if (chdir(cwd) != 0) _exit(127);
         if (!argv[0]) _exit(127);
         execvp(argv[0], argv);
         _exit(127);
     }
+    free_envp(child_env, child_env_owned);
     close(inpipe[0]);
     close(outpipe[1]);
     c->pid = pid;
@@ -196,30 +260,25 @@ static int conn_open(mcp_conn *c, char *const argv[], const char *cwd) {
     return 0;
 }
 
-/* malloc'd NULL-terminated argv copy from a profile entry, or NULL. */
-static char **argv_from_conf(yyjson_val *conf) {
-    yyjson_val *cmd = jget(conf, "command");
-    if (!cmd || !yyjson_is_arr(cmd) || yyjson_arr_size(cmd) == 0) return NULL;
-    char **argv = calloc(32, sizeof *argv);
+/* malloc'd NULL-terminated argv copy from a catalog entry, or NULL. */
+static char **argv_from_server(const mcp_imported_server *srv) {
+    if (!srv || srv->skipped || srv->argc <= 0) return NULL;
+    char **argv = calloc((size_t)srv->argc + 1, sizeof *argv);
     if (!argv) return NULL;
-    size_t idx, max;
-    yyjson_val *v;
-    int argc = 0;
-    yyjson_arr_foreach(cmd, idx, max, v) {
-        if (argc >= 31 || !yyjson_is_str(v)) break;
-        argv[argc++] = xstrdup(yyjson_get_str(v));
-    }
-    if (!argv[0]) {
-        free(argv);
-        return NULL;
-    }
+    for (int i = 0; i < srv->argc; i++) argv[i] = xstrdup(srv->argv[i] ? srv->argv[i] : "");
     return argv;
 }
 
 static void argv_free(char **argv) {
     if (!argv) return;
-    for (int i = 0; argv[i]; i++) free(argv[i]);
+    for (int i = 0; argv[i]; i++) secure_free(argv[i]);
     free(argv);
+}
+
+static char *server_cwd(const struct tny_ctx *ctx, const mcp_imported_server *server) {
+    if (!server || !server->cwd || !*server->cwd) return xstrdup(ctx->cwd);
+    if (server->cwd[0] == '/') return xstrdup(server->cwd);
+    return path_join(ctx->cwd, server->cwd);
 }
 
 /* ---- slot registry (g_mu held for every access) ---- */
@@ -252,18 +311,28 @@ typedef struct {
     int slot;
     char **argv;
     char *cwd;
+    mcp_env_pair env[MCP_IMPORT_MAX_ENV];
+    int nenv;
 } mcp_warm_job;
 
 static void warm_job_free(mcp_warm_job *j) {
     argv_free(j->argv);
     free(j->cwd);
+    for (int i = 0; i < j->nenv; i++) {
+        free(j->env[i].key);
+        secure_free(j->env[i].value);
+    }
     free(j);
 }
 
 static void *warm_main(void *arg) {
     mcp_warm_job *j = arg;
     mcp_conn c;
-    int rc = conn_open(&c, j->argv, j->cwd);
+    mcp_imported_server tmp;
+    memset(&tmp, 0, sizeof tmp);
+    tmp.nenv = j->nenv;
+    for (int i = 0; i < j->nenv; i++) tmp.env[i] = j->env[i];
+    int rc = conn_open(&c, j->argv, j->cwd, j->nenv ? &tmp : NULL);
     if (rc == 0) (void)conn_tools(&c); /* prefetch the catalog */
     pthread_mutex_lock(&g_mu);
     mcp_server *s = &g_servers[j->slot];
@@ -288,64 +357,59 @@ void mcp_warm_start(struct tny_ctx *ctx) {
     g_warm_started = true;
     pthread_mutex_unlock(&g_mu);
     if (started) return;
-    char *file = path_join(ctx->tny_dir, "mcp.json");
-    yyjson_doc *prof = jparse_file(file);
-    free(file);
-    if (!prof) return; /* nothing configured: warm-up is a no-op */
-    yyjson_val *servers = jget(yyjson_doc_get_root(prof), "servers");
-    if (servers && yyjson_is_obj(servers)) {
-        size_t idx, max;
-        yyjson_val *k, *v;
-        yyjson_obj_foreach(servers, idx, max, k, v) {
-            const char *name = yyjson_get_str(k);
-            if (!name) continue;
-            char **argv = argv_from_conf(v);
-            if (!argv) continue;
-            pthread_mutex_lock(&g_mu);
-            mcp_server *s = slot_find(name) ? NULL : slot_alloc(name);
-            if (!s) {
-                pthread_mutex_unlock(&g_mu);
-                argv_free(argv);
-                continue;
-            }
-            s->state = SRV_WARMING;
-            int slot = (int)(s - g_servers);
+    mcp_catalog *cat = mcp_catalog_load(ctx);
+    if (!cat) return;
+    for (int i = 0; i < cat->nservers; i++) {
+        const mcp_imported_server *srv = &cat->servers[i];
+        if (!srv->name || srv->skipped) continue;
+        char **argv = argv_from_server(srv);
+        if (!argv) continue;
+        pthread_mutex_lock(&g_mu);
+        mcp_server *s = slot_find(srv->name) ? NULL : slot_alloc(srv->name);
+        if (!s) {
             pthread_mutex_unlock(&g_mu);
+            argv_free(argv);
+            continue;
+        }
+        s->state = SRV_WARMING;
+        int slot = (int)(s - g_servers);
+        pthread_mutex_unlock(&g_mu);
 
-            mcp_warm_job *j = calloc(1, sizeof *j);
-            pthread_t th;
-            pthread_attr_t at;
-            pthread_attr_init(&at);
-            pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
-            int rc = -1;
-            if (j) {
-                j->slot = slot;
-                j->argv = argv;
-                j->cwd = xstrdup(ctx->cwd);
-                rc = pthread_create(&th, &at, warm_main, j);
+        mcp_warm_job *j = calloc(1, sizeof *j);
+        pthread_t th;
+        pthread_attr_t at;
+        pthread_attr_init(&at);
+        pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
+        int rc = -1;
+        if (j) {
+            j->slot = slot;
+            j->argv = argv;
+            j->cwd = server_cwd(ctx, srv);
+            j->nenv = srv->nenv < MCP_IMPORT_MAX_ENV ? srv->nenv : MCP_IMPORT_MAX_ENV;
+            for (int e = 0; e < j->nenv; e++) {
+                j->env[e].key = xstrdup(srv->env[e].key);
+                j->env[e].value = xstrdup(srv->env[e].value);
             }
-            pthread_attr_destroy(&at);
-            if (rc != 0) { /* no thread (wasm): stay lazy, today's behavior */
-                pthread_mutex_lock(&g_mu);
-                free(s->name);
-                memset(s, 0, sizeof *s);
-                pthread_mutex_unlock(&g_mu);
-                if (j) warm_job_free(j); /* frees argv too */
-                else argv_free(argv);
-            }
+            rc = pthread_create(&th, &at, warm_main, j);
+        }
+        pthread_attr_destroy(&at);
+        if (rc != 0) { /* no thread (wasm): stay lazy, today's behavior */
+            pthread_mutex_lock(&g_mu);
+            free(s->name);
+            memset(s, 0, sizeof *s);
+            pthread_mutex_unlock(&g_mu);
+            if (j) warm_job_free(j); /* frees argv too */
+            else argv_free(argv);
         }
     }
-    yyjson_doc_free(prof);
+    mcp_catalog_free(cat);
 }
 
-static yyjson_doc *load_profile(tools_env *env) {
+static mcp_catalog *load_profile(tools_env *env) {
     /* server mode (`tny acp`): the ACP client owns MCP — never read the
      * local profile (docs/backends/acp.md) */
-    if (env->ctx->mcp_disabled) return NULL;
-    char *file = path_join(env->ctx->tny_dir, "mcp.json");
-    yyjson_doc *doc = jparse_file(file);
-    free(file);
-    return doc;
+    if (!env || !env->ctx || env->ctx->mcp_disabled) return NULL;
+    return mcp_catalog_load(env->ctx);
 }
 
 /* Server ready for a call on this thread. Waits out a warm-up in flight
@@ -365,26 +429,64 @@ static mcp_server *get_server(tools_env *env, const char *name, char **err) {
     }
     pthread_mutex_unlock(&g_mu);
 
-    yyjson_doc *prof = load_profile(env);
-    if (!prof) {
-        *err = tool_err("no ~/.tny/mcp.json profile");
+    mcp_catalog *prof = load_profile(env);
+    if (!prof || prof->nservers == 0) {
+        mcp_catalog_free(prof);
+        *err = env->ctx->n_mcp_import_sources ? tool_err("no MCP servers configured")
+                                              : tool_err("no ~/.tny/mcp.json profile");
         return NULL;
     }
-    yyjson_val *conf = jget(jget(yyjson_doc_get_root(prof), "servers"), name);
-    char **argv = conf ? argv_from_conf(conf) : NULL;
+    const mcp_imported_server *conf = mcp_catalog_find(prof, name);
+    char **argv = conf ? argv_from_server(conf) : NULL;
+    mcp_imported_server env_copy;
+    memset(&env_copy, 0, sizeof env_copy);
+    bool skipped = conf && conf->skipped;
+    char *cwd = conf ? server_cwd(env->ctx, conf) : NULL;
+    if (conf) {
+        env_copy.nenv = conf->nenv < MCP_IMPORT_MAX_ENV ? conf->nenv : MCP_IMPORT_MAX_ENV;
+        for (int i = 0; i < env_copy.nenv; i++) {
+            env_copy.env[i].key = xstrdup(conf->env[i].key);
+            env_copy.env[i].value = xstrdup(conf->env[i].value);
+        }
+    }
     if (!conf) {
-        *err = tool_err("no MCP server named %s in ~/.tny/mcp.json", name);
-        yyjson_doc_free(prof);
+        *err = env->ctx->n_mcp_import_sources
+                   ? tool_err("no MCP server named %s", name)
+                   : tool_err("no MCP server named %s in ~/.tny/mcp.json", name);
+        mcp_catalog_free(prof);
+        argv_free(argv);
+        free(cwd);
         return NULL;
     }
-    yyjson_doc_free(prof);
+    if (skipped) {
+        *err = tool_err("could not start MCP server %s", name);
+        mcp_catalog_free(prof);
+        argv_free(argv);
+        free(cwd);
+        for (int i = 0; i < env_copy.nenv; i++) {
+            free(env_copy.env[i].key);
+            secure_free(env_copy.env[i].value);
+        }
+        return NULL;
+    }
+    mcp_catalog_free(prof);
     if (!argv) {
         *err = tool_err("could not start MCP server %s", name);
+        free(cwd);
+        for (int i = 0; i < env_copy.nenv; i++) {
+            free(env_copy.env[i].key);
+            secure_free(env_copy.env[i].value);
+        }
         return NULL;
     }
     mcp_conn c;
-    int rc = conn_open(&c, argv, env->ctx->cwd);
+    int rc = conn_open(&c, argv, cwd ? cwd : env->ctx->cwd, env_copy.nenv ? &env_copy : NULL);
     argv_free(argv);
+    free(cwd);
+    for (int i = 0; i < env_copy.nenv; i++) {
+        free(env_copy.env[i].key);
+        secure_free(env_copy.env[i].value);
+    }
 
     pthread_mutex_lock(&g_mu);
     s = slot_find(name);
@@ -467,34 +569,38 @@ void mcp_catalog_collect(struct tny_ctx *ctx, buf_t *out) {
     buf_free(&body);
 }
 
+static const char *live_label(const char *name, bool skipped) {
+    if (skipped) return "skipped";
+    pthread_mutex_lock(&g_mu);
+    mcp_server *s = slot_find(name);
+    mcp_state st = s ? s->state : SRV_EMPTY;
+    pthread_mutex_unlock(&g_mu);
+    return st == SRV_READY     ? "connected"
+           : st == SRV_WARMING ? "starting"
+           : st == SRV_FAILED  ? "failed to start (a call retries)"
+                               : "configured, not started";
+}
+
 char *mcp_features(tools_env *env) {
-    yyjson_doc *prof = load_profile(env);
-    if (!prof)
+    mcp_catalog *prof = load_profile(env);
+    if (!prof || prof->nservers == 0) {
+        mcp_catalog_free(prof);
         return xstrdup("no MCP servers configured (create ~/.tny/mcp.json with "
                        "{\"servers\":{\"name\":{\"command\":[\"…\"]}}})");
-    yyjson_val *servers = jget(yyjson_doc_get_root(prof), "servers");
+    }
     buf_t out;
     buf_init(&out);
-    if (servers && yyjson_is_obj(servers)) {
-        size_t idx, max;
-        yyjson_val *k, *v;
-        yyjson_obj_foreach(servers, idx, max, k, v) {
-            (void)v;
-            const char *name = yyjson_get_str(k);
-            if (!name) continue;
-            pthread_mutex_lock(&g_mu);
-            mcp_server *s = slot_find(name);
-            mcp_state st = s ? s->state : SRV_EMPTY;
-            pthread_mutex_unlock(&g_mu);
-            const char *label = st == SRV_READY     ? "connected"
-                                : st == SRV_WARMING ? "starting"
-                                : st == SRV_FAILED  ? "failed to start (a call retries)"
-                                                    : "configured, not started";
-            buf_appendf(&out, "%s (%s)\n", name, label);
-        }
+    for (int i = 0; i < prof->nservers; i++) {
+        const mcp_imported_server *srv = &prof->servers[i];
+        if (!srv->name) continue;
+        if (srv->source == MCP_SRC_TNY)
+            buf_appendf(&out, "%s (%s)\n", srv->name, live_label(srv->name, srv->skipped));
+        else
+            buf_appendf(&out, "%s (%s) [%s]\n", srv->name, live_label(srv->name, srv->skipped),
+                        srv->origin ? srv->origin : "tny");
     }
     if (!out.len) buf_appends(&out, "(no MCP servers configured)");
-    yyjson_doc_free(prof);
+    mcp_catalog_free(prof);
     return buf_detach(&out);
 }
 
@@ -559,37 +665,31 @@ char *mcp_search_tools(tools_env *env, const char *query) {
     char *query_lc = xstrdup(query);
     for (char *p = query_lc; *p; p++) *p = (char)tolower((unsigned char)*p);
 
-    yyjson_doc *prof = load_profile(env);
+    mcp_catalog *prof = load_profile(env);
     if (!prof) {
         free(query_lc);
         buf_free(&out);
         return xstrdup("no MCP servers configured");
     }
-    yyjson_val *servers = jget(yyjson_doc_get_root(prof), "servers");
-    if (servers && yyjson_is_obj(servers)) {
-        size_t idx, max;
-        yyjson_val *k, *v;
-        yyjson_obj_foreach(servers, idx, max, k, v) {
-            (void)v;
-            const char *name = yyjson_get_str(k);
-            if (!name) continue;
-            char *err = NULL;
-            mcp_server *s = get_server(env, name, &err);
-            free(err); /* a server that will not start is silent in search */
-            if (!s) continue;
-            yyjson_val *tools = tools_of(conn_tools(&s->conn));
-            if (!tools) continue;
-            size_t i2, m2;
-            yyjson_val *t;
-            yyjson_arr_foreach(tools, i2, m2, t) {
-                const char *tn = jget_str(t, "name");
-                const char *td = jget_str(t, "description");
-                if (!tn) continue;
-                if (tool_matches(tn, td, query_lc)) append_tool_line(&out, name, tn, td);
-            }
+    for (int i = 0; i < prof->nservers; i++) {
+        const mcp_imported_server *srv = &prof->servers[i];
+        if (!srv->name || srv->skipped) continue;
+        char *err = NULL;
+        mcp_server *s = get_server(env, srv->name, &err);
+        free(err); /* a server that will not start is silent in search */
+        if (!s) continue;
+        yyjson_val *tools = tools_of(conn_tools(&s->conn));
+        if (!tools) continue;
+        size_t i2, m2;
+        yyjson_val *t;
+        yyjson_arr_foreach(tools, i2, m2, t) {
+            const char *tn = jget_str(t, "name");
+            const char *td = jget_str(t, "description");
+            if (!tn) continue;
+            if (tool_matches(tn, td, query_lc)) append_tool_line(&out, srv->name, tn, td);
         }
     }
-    yyjson_doc_free(prof);
+    mcp_catalog_free(prof);
     free(query_lc);
     if (!out.len) buf_appends(&out, "(no matching MCP tools)");
     buf_appends(&out, "\nCall one with mcp_select_tool(server, tool, arguments).");
@@ -641,4 +741,71 @@ char *mcp_call_tool(tools_env *env, const char *server, const char *tool, const 
     char *bounded = tool_bound_result(env, out.data, out.len);
     buf_free(&out);
     return bounded;
+}
+
+char *mcp_list_text(struct tny_ctx *ctx) {
+    mcp_catalog *cat = mcp_catalog_load(ctx);
+    buf_t out;
+    buf_init(&out);
+    if (!cat || cat->nservers == 0) {
+        buf_appends(&out, "no MCP servers configured (create ~/.tny/mcp.json, or set "
+                          "mcp.import_from in ~/.tny/settings.json)\n");
+    } else {
+        for (int i = 0; i < cat->nservers; i++) {
+            const mcp_imported_server *s = &cat->servers[i];
+            const char *name = s->name ? s->name : "?";
+            buf_appendf(&out, "%-20s %-12s %-7s %-7s %s", name, s->origin ? s->origin : "tny",
+                        s->scope ? s->scope : "user", s->transport ? s->transport : "stdio",
+                        live_label(name, s->skipped));
+            if (s->skipped && s->skip_reason) buf_appendf(&out, " (%s)", s->skip_reason);
+            buf_appends(&out, "\n");
+        }
+    }
+    if (cat) {
+        for (int i = 0; i < cat->nnotices; i++) {
+            if (cat->notices[i]) buf_appendf(&out, "note: %s\n", cat->notices[i]);
+        }
+    }
+    mcp_catalog_free(cat);
+    return buf_detach(&out);
+}
+
+char *mcp_list_json(struct tny_ctx *ctx) {
+    mcp_catalog *cat = mcp_catalog_load(ctx);
+    buf_t out;
+    buf_init(&out);
+    buf_appends(&out, "{\"kind\":\"mcp_servers\",\"servers\":[");
+    if (cat) {
+        for (int i = 0; i < cat->nservers; i++) {
+            const mcp_imported_server *s = &cat->servers[i];
+            const char *name = s->name ? s->name : "";
+            if (i) buf_appends(&out, ",");
+            buf_appends(&out, "{\"name\":");
+            jescape(&out, name);
+            buf_appends(&out, ",\"source\":");
+            jescape(&out, s->origin ? s->origin : "tny");
+            buf_appends(&out, ",\"scope\":");
+            jescape(&out, s->scope ? s->scope : "user");
+            buf_appends(&out, ",\"transport\":");
+            jescape(&out, s->transport ? s->transport : "stdio");
+            buf_appends(&out, ",\"status\":");
+            jescape(&out, live_label(name, s->skipped));
+            buf_appendf(&out, ",\"skipped\":%s", s->skipped ? "true" : "false");
+            if (s->skip_reason) {
+                buf_appends(&out, ",\"skip_reason\":");
+                jescape(&out, s->skip_reason);
+            }
+            buf_appends(&out, "}");
+        }
+    }
+    buf_appends(&out, "],\"notices\":[");
+    if (cat) {
+        for (int i = 0; i < cat->nnotices; i++) {
+            if (i) buf_appends(&out, ",");
+            jescape(&out, cat->notices[i] ? cat->notices[i] : "");
+        }
+    }
+    buf_appends(&out, "]}\n");
+    mcp_catalog_free(cat);
+    return buf_detach(&out);
 }

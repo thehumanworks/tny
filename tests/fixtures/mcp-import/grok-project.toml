@@ -1,0 +1,11 @@
+[mcp_servers.grok_project]
+command = "/bin/echo"
+args = ["grok-project"]
+
+[mcp_servers.grok_project_wins]
+command = "/bin/echo"
+args = ["project"]
+
+[mcp_servers.grok_sse]
+url = "https://fixture.invalid/sse"
+type = "sse"

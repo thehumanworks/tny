@@ -30,6 +30,7 @@ void help_root(void) {
           "  status                 Show configuration and runtime information\n"
           "  doctor                 Run local health and preflight checks\n"
           "  usage                  Show local token usage\n"
+          "  mcp [list]             List configured MCP servers (source attributed)\n"
           "  login | logout | setup Provider-specific auth and configuration\n"
           "  help                   Show this help\n"
           "\n"
@@ -284,6 +285,17 @@ bool help_for(const char *command) {
     else if (strcmp(command, "usage") == 0)
         text = "Usage: tny usage [--json]\n\nShow local token usage recorded from native-loop "
                "sessions.\n";
+    else if (strcmp(command, "mcp") == 0)
+        text = "Usage: tny mcp [list] [--json]\n"
+               "\n"
+               "List MCP servers from ~/.tny/mcp.json plus any sources named in\n"
+               "settings.json mcp.import_from (codex, claude, grok, cursor-agent). Import is\n"
+               "off by default. Native names win on collision. Remote/SSE entries are\n"
+               "skipped with a notice. tny never writes foreign config files.\n"
+               "\n"
+               "Examples:\n"
+               "  tny mcp\n"
+               "  tny mcp list --json\n";
     else if (strcmp(command, "login") == 0)
         text = "Usage: tny [--provider NAME] login [--device | --device-code]\n"
                "\n"

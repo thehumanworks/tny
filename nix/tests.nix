@@ -76,6 +76,14 @@ stdenv.mkDerivation {
   # cooperative child's EXIT trap records the active-count drop.
   buildPhase = ''
     runHook preBuild
+    for fixture in codex.toml claude-user.json claude-project.json \
+      grok.toml grok-project.toml cursor-user.json cursor-project.json \
+      malformed.json malformed.toml; do
+      test -f "tests/fixtures/mcp-import/$fixture" || {
+        echo "error: missing MCP import fixture $fixture" >&2
+        exit 1
+      }
+    done
     make -j''${NIX_BUILD_CORES} $makeFlags test
     make $makeFlags test-shell-workflows
     runHook postBuild

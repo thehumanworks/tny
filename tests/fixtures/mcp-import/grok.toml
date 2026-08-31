@@ -1,0 +1,9 @@
+[mcp_servers.grok_user]
+command = "${TNY_TEST_MCP_BIN}"
+args = []
+env = { TNY_MCP_FIXTURE = "grok" }
+
+[mcp_servers.grok_project_wins]
+command = "/bin/echo"
+args = ["user"]
+

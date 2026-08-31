@@ -45,6 +45,15 @@ release claims.
 - https://fx.sh/docs/capabilities/tools.md
 - https://fx.sh/docs/capabilities/mcp.md
 - https://fx.sh/docs/capabilities/mcp/protocol.md
+
+## MCP import formats (ADR 0051, captured 2026-08-31)
+
+- Codex `config.toml` `[mcp_servers.*]`: https://learn.chatgpt.com/docs/config-file/config-reference.md (user file `$CODEX_HOME/config.toml`, default `~/.codex/config.toml`). Stable Codex pin remains rust-v0.149.1.
+- Claude Code user/local/project `mcpServers`: https://code.claude.com/docs/en/mcp
+- Cursor global/project `mcp.json`: https://docs.cursor.com/context/model-context-protocol
+- Official xAI Grok Build user/project `[mcp_servers.*]`, pinned commit `bc7f02eddd3d84085849dc19ed216f11c23b0571` (stable channel 1.0.13; public snapshot 1.0.12): https://github.com/xai-org/grok-build/blob/bc7f02eddd3d84085849dc19ed216f11c23b0571/crates/codegen/xai-grok-pager/docs/user-guide/07-mcp-servers.md
+- Grok Build home resolution: https://github.com/xai-org/grok-build/blob/bc7f02eddd3d84085849dc19ed216f11c23b0571/crates/codegen/xai-grok-home/src/lib.rs
+- Grok Build project discovery/precedence: https://github.com/xai-org/grok-build/blob/bc7f02eddd3d84085849dc19ed216f11c23b0571/crates/codegen/xai-grok-shell/src/util/config/mcp.rs
 - https://fx.sh/docs/capabilities/skills.md
 - https://fx.sh/docs/capabilities/subagents.md
 - https://fx.sh/docs/getting-started/authentication.md
