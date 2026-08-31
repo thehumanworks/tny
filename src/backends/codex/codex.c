@@ -196,26 +196,30 @@ static int cx_start_thread(cx_impl *o, const char *resume, char *err, size_t err
     buf_t p;
     buf_init(&p);
     const char *method;
+    /* Always pin the thread to tny's workspace. Unset, the host defaults to
+     * its own process cwd — wrong for every attached host (--codex-ws, or
+     * the shared registry a one-shot ask adopts, docs/adr/0004), which was
+     * spawned from wherever the first tny ran. */
     if (resume) {
         method = "thread/resume";
         buf_appends(&p, "{\"threadId\":");
         jescape(&p, resume);
+        buf_appends(&p, ",\"cwd\":");
+        jescape(&p, o->ctx->cwd);
         buf_appends(&p, "}");
     } else {
         method = "thread/start";
-        buf_appends(&p, "{");
-        bool first = true;
+        buf_appends(&p, "{\"cwd\":");
+        jescape(&p, o->ctx->cwd);
         if (o->ctx->model && *o->ctx->model) {
-            buf_appends(&p, "\"model\":");
+            buf_appends(&p, ",\"model\":");
             jescape(&p, o->ctx->model);
-            first = false;
         }
         /* TNY_CAP_FAST: "priority" is the paid fast tier ("fast" is the
          * renamed alias — send "priority", the value every app-server
          * release accepts). The host ignores unknown values. */
         if (o->ctx->service_tier && *o->ctx->service_tier) {
-            if (!first) buf_appends(&p, ",");
-            buf_appends(&p, "\"serviceTier\":");
+            buf_appends(&p, ",\"serviceTier\":");
             jescape(&p, tny_tier_is_fast(o->ctx->service_tier) ? "priority" : o->ctx->service_tier);
         }
         buf_appends(&p, "}");

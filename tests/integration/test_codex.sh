@@ -45,6 +45,7 @@ export MOCK_BUSY_CONN=3           # connection 3 replies -32001 once per request
 export MOCK_EXPECT_EFFORT="xhigh" # run 1 passes --effort xhigh; others none
 export MOCK_FAST_CONN=6           # connection 6 runs with --fast: serviceTier=priority
 export MOCK_LOGIN_FAIL_CONN=8     # connection 8: login completes without success
+export MOCK_EXPECT_CWD="$tmp/ws"  # every thread/start|resume must pin this cwd
 
 "$PYTHON" "$here/mock_codex_ws.py" 0 > "$tmp/mock.out" 2> "$tmp/mock.err" &
 mock_pid=$!
@@ -231,6 +232,12 @@ mock_pid=""
 grep -q 'MOCK-NOTE thread/resume ok' "$tmp/mock.err" &&
     ok "mock saw thread/resume with the stored threadId" ||
     bad "mock never saw a matching thread/resume"
+grep -q 'MOCK-NOTE thread/start cwd ok' "$tmp/mock.err" &&
+    ok "thread/start pinned the workspace cwd" ||
+    bad "mock never saw thread/start carry the workspace cwd"
+grep -q 'MOCK-NOTE thread/resume cwd ok' "$tmp/mock.err" &&
+    ok "thread/resume pinned the workspace cwd" ||
+    bad "mock never saw thread/resume carry the workspace cwd"
 grep -q 'MOCK-NOTE approval answered decision=accept' "$tmp/mock.err" &&
     ok "approval was answered with decision=accept (--yolo)" ||
     bad "approval was not answered with decision=accept"

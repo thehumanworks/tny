@@ -79,6 +79,22 @@ def fail(msg):
     print("MOCK-FAIL %s" % msg, file=sys.stderr, flush=True)
 
 
+def check_cwd(method, msg):
+    # thread/start and thread/resume must pin the client's workspace: unset,
+    # the app-server defaults to its own process cwd, which is wrong for
+    # every attached host (the ADR-0004 wrong-directory bug). Compare
+    # realpaths: tny resolves --cwd through realpath(3).
+    cwd = (msg.get("params") or {}).get("cwd")
+    if not cwd or not os.path.isabs(cwd):
+        fail("%s cwd=%r, expected an absolute workspace path" % (method, cwd))
+        return
+    want = os.environ.get("MOCK_EXPECT_CWD")
+    if want and os.path.realpath(cwd) != os.path.realpath(want):
+        fail("%s cwd=%r, expected %r" % (method, cwd, want))
+    else:
+        note("%s cwd ok (%s)" % (method, cwd))
+
+
 # ---------------------------------------------------------------- handshake
 
 
@@ -548,6 +564,7 @@ def serve(conn, index):
             knob_delay("MOCK_THREAD_DELAY_MS")
             if index == 2:
                 fail("connection 2 used thread/start instead of thread/resume")
+            check_cwd(method, msg)
             # MOCK_FAST_CONN=<n>: that connection ran with --fast and must
             # carry serviceTier "priority" (the pre-rename spelling tny pins
             # on the wire); every other connection must omit the field.
@@ -566,6 +583,7 @@ def serve(conn, index):
             ws.send_json({"id": req_id, "result": {"thread": {"id": THREAD_ID}}})
         elif method == "thread/resume":
             knob_delay("MOCK_THREAD_DELAY_MS")
+            check_cwd(method, msg)
             got = (msg.get("params") or {}).get("threadId")
             if got != THREAD_ID:
                 fail("thread/resume threadId=%r, expected %r" % (got, THREAD_ID))

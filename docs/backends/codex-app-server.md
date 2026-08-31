@@ -66,6 +66,14 @@ Request:
 { "method": "thread/start", "id": 10, "params": { "model": "gpt-5.4" } }
 ```
 
+`thread/start` and `thread/resume` always carry `"cwd"` = tny's primary
+workspace. Left unset, the app-server defaults the thread to its **own
+process cwd** — wrong for every attached host (`--codex-ws`, or the shared
+registry host a one-shot `tny ask` adopts per [ADR
+0004](../adr/0004-time-to-first-token.md)), which was spawned from
+wherever the first tny session ran. `tests/integration/test_codex.sh`
+(`MOCK_EXPECT_CWD`) asserts the field on both methods.
+
 `--fast` / `/fast` (`TNY_CAP_FAST`) adds `"serviceTier":"priority"` to
 `thread/start` params — the paid fast tier (`service_tier = fast|priority`
 in codex `config.toml`; tny sends `"priority"`, the value every app-server
