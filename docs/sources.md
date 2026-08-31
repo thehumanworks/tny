@@ -45,6 +45,10 @@ release claims.
 - https://fx.sh/docs/capabilities/tools.md
 - https://fx.sh/docs/capabilities/mcp.md
 - https://fx.sh/docs/capabilities/mcp/protocol.md
+- MCP Streamable HTTP (ADR 0050): https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http
+- MCP versioning: https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning
+- MCP `server/discover`: https://modelcontextprotocol.io/specification/2026-07-28/server/discover
+- Legacy Streamable HTTP initialize: https://modelcontextprotocol.io/specification/2025-06-18/basic/transports
 - https://fx.sh/docs/capabilities/skills.md
 - https://fx.sh/docs/capabilities/subagents.md
 - https://fx.sh/docs/getting-started/authentication.md

@@ -7,9 +7,13 @@
 #include "mcp/mcp.h"
 #include "util/util.h"
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -312,6 +316,417 @@ TEST workspace_profile_never_loads_and_acp_never_warms(void) {
     PASS();
 }
 
+/* ---- Streamable HTTP (docs/adr/0050) ---- */
+
+typedef struct {
+    int listen_fd;
+    pthread_t thread;
+    int mode; /* 0 modern json, 1 modern sse, 2 legacy initialize, 3 401 */
+    int ready;
+    int saw_get;
+    int saw_literal_auth;
+    char last_method[64];
+    char last_mcp_method[64];
+    char last_mcp_name[64];
+    char last_version[32];
+    char last_auth[128];
+    char last_workspace[64];
+    char last_session[64];
+    int discover_count;
+    int initialize_count;
+    int initialized_count;
+} http_mock;
+
+static int mock_listen(void) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    int one = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+    struct sockaddr_in sa = {0};
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (bind(fd, (struct sockaddr *)&sa, sizeof sa) != 0 || listen(fd, 16) != 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+static int mock_port(int fd) {
+    struct sockaddr_in sa = {0};
+    socklen_t sl = sizeof sa;
+    if (getsockname(fd, (struct sockaddr *)&sa, &sl) != 0) return -1;
+    return (int)ntohs(sa.sin_port);
+}
+
+static char *find_bytes(char *hay, size_t hlen, const char *needle, size_t nlen) {
+    if (hlen < nlen) return NULL;
+    for (size_t i = 0; i + nlen <= hlen; i++)
+        if (memcmp(hay + i, needle, nlen) == 0) return hay + i;
+    return NULL;
+}
+
+static const char *header_ci(const char *req, const char *name) {
+    size_t nlen = strlen(name);
+    for (const char *p = req; *p; p++) {
+        if (p != req && p[-1] != '\n') continue;
+        if (strncasecmp(p, name, nlen) == 0 && p[nlen] == ':') return p + nlen + 1;
+    }
+    return NULL;
+}
+
+static int read_http_request(int cfd, buf_t *req) {
+    for (;;) {
+        char tmp[4096];
+        ssize_t n = read(cfd, tmp, sizeof tmp);
+        if (n <= 0) return -1;
+        buf_append(req, tmp, (size_t)n);
+        if (req->len >= 4) {
+            char *end = find_bytes(req->data, req->len, "\r\n\r\n", 4);
+            if (end) {
+                size_t hdr = (size_t)(end - req->data) + 4;
+                const char *cl = header_ci(req->data, "Content-Length");
+                size_t body = 0;
+                if (cl && cl < end) body = (size_t)strtoul(cl, NULL, 10);
+                if (req->len >= hdr + body) return 0;
+            }
+        }
+    }
+}
+
+static void write_all_fd(int fd, const char *s) {
+    size_t n = strlen(s);
+    while (n) {
+        ssize_t w = write(fd, s, n);
+        if (w <= 0) return;
+        s += (size_t)w;
+        n -= (size_t)w;
+    }
+}
+
+static void rpc_result(const char *body, const char *method, char *out, size_t cap) {
+    const char *id = "1";
+    const char *idp = strstr(body, "\"id\":");
+    static char idbuf[16];
+    if (idp) {
+        idp += 5;
+        size_t n = 0;
+        while (idp[n] && idp[n] != ',' && idp[n] != '}' && n + 1 < sizeof idbuf) {
+            idbuf[n] = idp[n];
+            n++;
+        }
+        idbuf[n] = 0;
+        id = idbuf;
+    }
+    const char *result = "{}";
+    if (strstr(method, "server/discover") || strstr(body, "\"method\":\"server/discover\""))
+        result = "{\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"tools\":{}}}";
+    else if (strstr(method, "tools/list") || strstr(body, "\"method\":\"tools/list\""))
+        result = "{\"tools\":[{\"name\":\"deploy_app\",\"description\":\"Deploy the application "
+                 "to production\"}]}";
+    else if (strstr(method, "tools/call") || strstr(body, "\"method\":\"tools/call\""))
+        result = "{\"content\":[{\"type\":\"text\",\"text\":\"called ok\"}]}";
+    else if (strstr(method, "initialize") || strstr(body, "\"method\":\"initialize\""))
+        result = "{\"protocolVersion\":\"2025-06-18\"}";
+    snprintf(out, cap, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}", id, result);
+}
+
+static void capture_header(const char *req, const char *name, char *out, size_t cap) {
+    const char *p = header_ci(req, name);
+    if (!p) {
+        out[0] = 0;
+        return;
+    }
+    while (*p == ' ') p++;
+    size_t n = 0;
+    while (p[n] && p[n] != '\r' && n + 1 < cap) n++;
+    memcpy(out, p, n);
+    out[n] = 0;
+}
+
+static void *http_mock_main(void *arg) {
+    http_mock *m = arg;
+    m->ready = 1;
+    for (;;) {
+        int cfd = accept(m->listen_fd, NULL, NULL);
+        if (cfd < 0) break;
+        buf_t req;
+        buf_init(&req);
+        if (read_http_request(cfd, &req) != 0) {
+            buf_free(&req);
+            close(cfd);
+            continue;
+        }
+        if (!strncmp(req.data, "GET ", 4)) m->saw_get++;
+        capture_header(req.data, "Mcp-Method", m->last_mcp_method, sizeof m->last_mcp_method);
+        capture_header(req.data, "Mcp-Name", m->last_mcp_name, sizeof m->last_mcp_name);
+        capture_header(req.data, "MCP-Protocol-Version", m->last_version, sizeof m->last_version);
+        capture_header(req.data, "Authorization", m->last_auth, sizeof m->last_auth);
+        capture_header(req.data, "X-Workspace", m->last_workspace, sizeof m->last_workspace);
+        capture_header(req.data, "Mcp-Session-Id", m->last_session, sizeof m->last_session);
+        if (strstr(req.data, "\"method\":\"server/discover\"")) m->discover_count++;
+        if (strstr(req.data, "\"method\":\"initialize\"")) m->initialize_count++;
+        if (strstr(req.data, "\"method\":\"notifications/initialized\"")) m->initialized_count++;
+        if (strstr(req.data, "\r\nAuthorization: secret-literal")) m->saw_literal_auth = 1;
+        const char *sp = strchr(req.data, ' ');
+        snprintf(m->last_method, sizeof m->last_method, "%.*s",
+                 sp && sp - req.data < 8 ? (int)(sp - req.data) : 4, req.data);
+
+        if (m->mode == 3) {
+            write_all_fd(
+                cfd, "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            buf_free(&req);
+            close(cfd);
+            continue;
+        }
+        if (m->mode == 2 && strstr(req.data, "\"method\":\"server/discover\"")) {
+            write_all_fd(
+                cfd, "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            buf_free(&req);
+            close(cfd);
+            continue;
+        }
+        char payload[768];
+        rpc_result(req.data, m->last_mcp_method, payload, sizeof payload);
+        char hdr[256];
+        if (m->mode == 1 && strstr(req.data, "\"method\":\"tools/call\"")) {
+            char sse[1024];
+            snprintf(sse, sizeof sse,
+                     "event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/"
+                     "progress\"}\n\ndata: %s\n\n",
+                     payload);
+            snprintf(hdr, sizeof hdr,
+                     "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: %zu\r\n"
+                     "Connection: close\r\n\r\n",
+                     strlen(sse));
+            write_all_fd(cfd, hdr);
+            write_all_fd(cfd, sse);
+        } else {
+            const char *session = "";
+            if (m->mode == 2 && strstr(req.data, "\"method\":\"initialize\""))
+                session = "Mcp-Session-Id: sess-1\r\n";
+            snprintf(hdr, sizeof hdr,
+                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %zu\r\n"
+                     "%sConnection: close\r\n\r\n",
+                     strlen(payload), session);
+            write_all_fd(cfd, hdr);
+            write_all_fd(cfd, payload);
+        }
+        buf_free(&req);
+        close(cfd);
+    }
+    return NULL;
+}
+
+static http_mock *start_http_mock(int mode) {
+    http_mock *m = calloc(1, sizeof *m);
+    m->mode = mode;
+    m->listen_fd = mock_listen();
+    if (m->listen_fd < 0) abort();
+    pthread_t th;
+    pthread_create(&th, NULL, http_mock_main, m);
+    m->thread = th;
+    while (!m->ready) usleep(1000);
+    return m;
+}
+
+static void stop_http_mock(http_mock *m) {
+    shutdown(m->listen_fd, SHUT_RDWR);
+    close(m->listen_fd);
+    pthread_join(m->thread, NULL);
+    free(m);
+}
+
+static void write_http_profile(http_mock *m, const char *extra) {
+    char json[900];
+    snprintf(json, sizeof json,
+             "{\"servers\":{\"remote\":{\"type\":\"http\",\"url\":\"http://127.0.0.1:%d/mcp\"%s}}}",
+             mock_port(m->listen_fd), extra ? extra : "");
+    write_profile(json);
+}
+
+TEST http_modern_json_warms_and_calls(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    http_mock *m = start_http_mock(0);
+    write_http_profile(m, NULL);
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    tools_env env = {.ctx = ctx};
+    mcp_warm_start(ctx);
+    int64_t deadline = now_ms() + 8000;
+    buf_t cat;
+    for (;;) {
+        buf_init(&cat);
+        mcp_catalog_collect(ctx, &cat);
+        bool ok = cat.data && strstr(cat.data, "remote/deploy_app");
+        buf_free(&cat);
+        if (ok) break;
+        ASSERT(now_ms() < deadline);
+        usleep(20 * 1000);
+    }
+    ASSERT(m->discover_count >= 1);
+    ASSERT_EQ(0, m->initialize_count);
+    ASSERT_STR_EQ("tools/list", m->last_mcp_method);
+    char *out = mcp_call_tool(&env, "remote", "deploy_app", "{}");
+    ASSERT(out);
+    ASSERT(strstr(out, "called ok"));
+    free(out);
+    ASSERT_STR_EQ("tools/call", m->last_mcp_method);
+    ASSERT_STR_EQ("deploy_app", m->last_mcp_name);
+    ASSERT_STR_EQ("2026-07-28", m->last_version);
+    ASSERT_EQ(0, m->saw_get);
+    mcp_shutdown_all();
+    tny_ctx_free(ctx);
+    stop_http_mock(m);
+    PASS();
+}
+
+TEST http_sse_tools_call_fails_actionably(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    http_mock *m = start_http_mock(1);
+    write_http_profile(m, NULL);
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    tools_env env = {.ctx = ctx};
+    mcp_warm_start(ctx);
+    int64_t deadline = now_ms() + 8000;
+    for (;;) {
+        buf_t cat;
+        buf_init(&cat);
+        mcp_catalog_collect(ctx, &cat);
+        bool ok = cat.data && strstr(cat.data, "remote/deploy_app");
+        buf_free(&cat);
+        if (ok) break;
+        ASSERT(now_ms() < deadline);
+        usleep(20 * 1000);
+    }
+    char *out = mcp_call_tool(&env, "remote", "deploy_app", "{}");
+    ASSERT(out);
+    ASSERT(strstr(out, "unsupported SSE response transport"));
+    ASSERT(strstr(out, "Streamable HTTP POST"));
+    ASSERT(!strstr(out, "called ok"));
+    free(out);
+    ASSERT_EQ(0, m->saw_get);
+    mcp_shutdown_all();
+    tny_ctx_free(ctx);
+    stop_http_mock(m);
+    PASS();
+}
+
+TEST http_legacy_initialize_fallback(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    http_mock *m = start_http_mock(2);
+    write_http_profile(m, NULL);
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    tools_env env = {.ctx = ctx};
+    mcp_warm_start(ctx);
+    int64_t deadline = now_ms() + 8000;
+    for (;;) {
+        buf_t cat;
+        buf_init(&cat);
+        mcp_catalog_collect(ctx, &cat);
+        bool ok = cat.data && strstr(cat.data, "remote/deploy_app");
+        buf_free(&cat);
+        if (ok) break;
+        ASSERT(now_ms() < deadline);
+        usleep(20 * 1000);
+    }
+    char *out = mcp_call_tool(&env, "remote", "deploy_app", "{}");
+    ASSERT(strstr(out, "called ok"));
+    free(out);
+    ASSERT(m->discover_count >= 1);
+    ASSERT(m->initialize_count >= 1);
+    ASSERT(m->initialized_count >= 1);
+    ASSERT_STR_EQ("sess-1", m->last_session);
+    ASSERT_EQ(0, m->saw_get);
+    mcp_shutdown_all();
+    tny_ctx_free(ctx);
+    stop_http_mock(m);
+    PASS();
+}
+
+TEST http_auth_from_env_and_rejects_literal_authorization(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    http_mock *m = start_http_mock(0);
+    setenv("TNY_MCP_TOKEN", "tok-from-env", 1);
+    setenv("TNY_MCP_WS", "acme", 1);
+    write_http_profile(m, ",\"header_env\":{\"X-Workspace\":\"TNY_MCP_WS\"},"
+                          "\"bearer_token_env\":\"TNY_MCP_TOKEN\"");
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    tools_env env = {.ctx = ctx};
+    mcp_warm_start(ctx);
+    int64_t deadline = now_ms() + 8000;
+    for (;;) {
+        buf_t cat;
+        buf_init(&cat);
+        mcp_catalog_collect(ctx, &cat);
+        bool ok = cat.data && strstr(cat.data, "remote/deploy_app");
+        buf_free(&cat);
+        if (ok) break;
+        ASSERT(now_ms() < deadline);
+        usleep(20 * 1000);
+    }
+    ASSERT(strstr(m->last_auth, "Bearer tok-from-env"));
+    ASSERT_STR_EQ("acme", m->last_workspace);
+    mcp_shutdown_all();
+    tny_ctx_free(ctx);
+
+    write_profile("{\"servers\":{\"bad\":{\"type\":\"http\",\"url\":\"http://127.0.0.1:9/mcp\","
+                  "\"headers\":{\"Authorization\":\"secret-literal\"}}}}");
+    ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    env.ctx = ctx;
+    char *out = mcp_call_tool(&env, "bad", "x", "{}");
+    ASSERT(strstr(out, "literal Authorization"));
+    free(out);
+    ASSERT_EQ(0, m->saw_literal_auth);
+    mcp_shutdown_all();
+    tny_ctx_free(ctx);
+    stop_http_mock(m);
+    PASS();
+}
+
+TEST http_401_is_silent_until_named(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    http_mock *m = start_http_mock(3);
+    write_http_profile(m, NULL);
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    tools_env env = {.ctx = ctx};
+    mcp_warm_start(ctx);
+    int64_t deadline = now_ms() + 5000;
+    char *feats = NULL;
+    for (;;) {
+        feats = mcp_features(&env);
+        if (strstr(feats, "remote (failed to start")) break;
+        free(feats);
+        feats = NULL;
+        ASSERT(now_ms() < deadline);
+        usleep(20 * 1000);
+    }
+    free(feats);
+    buf_t cat;
+    buf_init(&cat);
+    mcp_catalog_collect(ctx, &cat);
+    ASSERT_EQ_FMT(0, (int)cat.len, "%d");
+    buf_free(&cat);
+    char *out = mcp_call_tool(&env, "remote", "x", "{}");
+    ASSERT(strstr(out, "HTTP 401"));
+    ASSERT(!strstr(out, "Authorization"));
+    free(out);
+    mcp_shutdown_all();
+    tny_ctx_free(ctx);
+    stop_http_mock(m);
+    PASS();
+}
+
 SUITE(mcp_suite) {
     RUN_TEST(warm_start_does_not_block_and_catalog_appears);
     RUN_TEST(select_waits_for_warming_server);
@@ -319,4 +734,9 @@ SUITE(mcp_suite) {
     RUN_TEST(search_matches_tokens_not_substring);
     RUN_TEST(failed_server_silent_until_call);
     RUN_TEST(workspace_profile_never_loads_and_acp_never_warms);
+    RUN_TEST(http_modern_json_warms_and_calls);
+    RUN_TEST(http_sse_tools_call_fails_actionably);
+    RUN_TEST(http_legacy_initialize_fallback);
+    RUN_TEST(http_auth_from_env_and_rejects_literal_authorization);
+    RUN_TEST(http_401_is_silent_until_named);
 }

@@ -65,7 +65,7 @@ not a separate provider lifecycle.
 | Path | Contents |
 | --- | --- |
 | `~/.tny/settings.json` | Provider/model/effort/fast defaults, permission mode, named provider/ACP-agent profiles, UI, per-workspace overrides ([schema](../schemas/settings.schema.json)) |
-| `~/.tny/mcp.json` | Trusted MCP servers only (never repo-local MCP) |
+| `~/.tny/mcp.json` | Trusted stdio and Streamable HTTP MCP servers only (never repo-local MCP) |
 | `~/.tny/sessions/` | Transcripts and recovery checkpoints |
 | `~/.tny/skills/` | Managed skill installs |
 | `~/.tny/extensions/` | Trusted global Python event hooks (`*.py`, `*/index.py`) |
@@ -74,7 +74,7 @@ not a separate provider lifecycle.
 | `<repo>/.tny/tasks/` | Project task-preset Markdown definitions; project files cannot add authority or cost |
 | `<repo>/AGENTS.md` | Project instructions (also `CLAUDE.md` as alias if present). Over `--ssh`, the remote cwd's file is used instead of this local path ([ADR 0040](adr/0040-ssh-agents-md.md)) |
 
-Credentials stay in the OS store or env vars (`CURSOR_API_KEY`, `OPENAI_API_KEY`, provider-specific keys, Codex's own login). Not in project JSON.
+Credentials stay in the OS store or env vars (`CURSOR_API_KEY`, `OPENAI_API_KEY`, provider-specific keys, MCP `header_env` / `bearer_token_env`, Codex's own login). Not in project JSON.
 
 ## Shared internals
 
@@ -95,7 +95,7 @@ src/
   mcp/              # used by native loop and ACP server
 ```
 
-POSIX `poll`/`kqueue` only, always through the `tny_poll` seam (`src/util/tny_poll.h`): native forwards to `poll(2)`; the wasm build ([ADR 0017](adr/0017-wasm-browser-parity.md)) waits on `net_wasm.c`'s pseudo-fd registry and yields to the JS event loop via Asyncify. `src/net/net.h` is the transport boundary — on wasm, `http_conn` rides `fetch()` and `ws_conn` the browser/node WebSocket, with `tcp.c`/`stream.c`/`http1.c`/`ws.c` excluded from the source list wholesale. No libuv, no threads-per-connection unless a host callback server requires it. One deliberate exception: the TUI's pre-warm runs a single backend `connect()` on a detached pthread at startup ([ADR 0002](adr/0002-tui-provider-prewarm.md)); the connected backend is handed back before any turn starts, so all events still flow through the one event loop.
+POSIX `poll`/`kqueue` only, always through the `tny_poll` seam (`src/util/tny_poll.h`): native forwards to `poll(2)`; the wasm build ([ADR 0017](adr/0017-wasm-browser-parity.md)) waits on `net_wasm.c`'s pseudo-fd registry and yields to the JS event loop via Asyncify. `src/net/net.h` is the transport boundary — on wasm, `http_conn` rides `fetch()` and `ws_conn` the browser/node WebSocket, with `tcp.c`/`stream.c`/`http1.c`/`ws.c` excluded from the source list wholesale. Remote MCP reuses that same `http_conn` boundary ([ADR 0050](adr/0050-mcp-streamable-http.md)); it does not add a platform seam, and wasm is remote-only. No libuv, no threads-per-connection unless a host callback server requires it. One deliberate exception: the TUI's pre-warm runs a single backend `connect()` on a detached pthread at startup ([ADR 0002](adr/0002-tui-provider-prewarm.md)); the connected backend is handed back before any turn starts, so all events still flow through the one event loop.
 
 ## ACP server vs ACP client
 

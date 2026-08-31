@@ -1,18 +1,20 @@
-/* mcp.c — stdio JSONL MCP client. Server output is untrusted data.
- * Profile: ~/.tny/mcp.json {"servers":{"<name>":{"command":["…"]}}}.
- * Repo-local MCP files are never read (docs/features/mcp-and-skills.md).
+/* mcp.c — stdio JSONL + Streamable HTTP MCP client.
+ * Server output is untrusted data. Profile: ~/.tny/mcp.json, with
+ * {"command":["…"]} stdio entries and {"type":"http","url":"…"} HTTP
+ * entries. Repo-local MCP files are never read
+ * (docs/features/mcp-and-skills.md). HTTP framing lives in mcp_http.c
+ * (docs/adr/0050).
  *
  * Startup (docs/adr/0049): a native session calls mcp_warm_start once, off
- * the event loop — one detached thread per profile server runs spawn +
- * initialize + tools/list and commits the connection under g_mu, so the
- * first prompt already has the tool catalog. A tool call that names a
- * server mid-warm waits on the condvar (the same cost the lazy path paid);
+ * the event loop — one detached thread per profile server opens its
+ * transport, negotiates the protocol era, and caches tools/list under g_mu,
+ * so the first prompt already has the tool catalog. A tool call that names
+ * a server mid-warm waits on the condvar (the same cost the lazy path paid);
  * nothing else ever blocks. A failed warm-up stays silent until a call
- * names that server, which retries the spawn and reports the usual error.
- * Without threads (wasm) every slot stays lazy and calls keep today's
- * clean spawn error. */
-#include "mcp/mcp.h"
-#include "util/util.h"
+ * names that server, which retries and reports the usual error. Without
+ * threads (wasm) every slot stays lazy; HTTP remains available and stdio
+ * keeps its clean spawn error. */
+#include "mcp/mcp_priv.h"
 #include "util/tny_poll.h"
 
 #include <ctype.h>
@@ -25,23 +27,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define MCP_MAX_SERVERS 16
-#define MCP_TIMEOUT_MS  30000
 /* catalog caps (docs/adr/0049): one line per tool, a bounded list per
  * session; overflow is discoverable through mcp_search_tools */
 #define MCP_CATALOG_DESC_MAX  120
 #define MCP_CATALOG_MAX_TOOLS 64
-
-/* One live stdio connection. Owned by exactly one thread at a time: the
- * warm thread until its commit under g_mu, the calling thread after. */
-typedef struct {
-    pid_t pid;
-    int in_fd;  /* write requests here */
-    int out_fd; /* read responses here */
-    buf_t rbuf;
-    int next_id;
-    yyjson_doc *tools; /* cached tools/list result */
-} mcp_conn;
 
 typedef enum {
     SRV_EMPTY = 0, /* free slot */
@@ -63,18 +52,6 @@ static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_cv = PTHREAD_COND_INITIALIZER;
 static bool g_warm_started = false;
 
-static void conn_close(mcp_conn *c) {
-    if (c->pid > 0) {
-        close(c->in_fd);
-        close(c->out_fd);
-        kill(c->pid, SIGTERM);
-        waitpid(c->pid, NULL, WNOHANG);
-    }
-    buf_free(&c->rbuf);
-    yyjson_doc_free(c->tools);
-    memset(c, 0, sizeof *c);
-}
-
 void mcp_shutdown_all(void) {
     pthread_mutex_lock(&g_mu);
     bool warming_left = false;
@@ -88,7 +65,7 @@ void mcp_shutdown_all(void) {
             warming_left = true;
             continue;
         }
-        conn_close(&s->conn);
+        mcp_conn_close(&s->conn);
         free(s->name);
         memset(s, 0, sizeof *s);
     }
@@ -97,8 +74,8 @@ void mcp_shutdown_all(void) {
     pthread_mutex_unlock(&g_mu);
 }
 
-/* Send one JSON-RPC request and wait for the matching id. Returns doc. */
-static yyjson_doc *rpc(mcp_conn *c, const char *method, const char *params_json) {
+/* Send one stdio JSON-RPC request and wait for the matching id. */
+static yyjson_doc *rpc_stdio(mcp_conn *c, const char *method, const char *params_json) {
     int id = ++c->next_id;
     buf_t req;
     buf_init(&req);
@@ -132,23 +109,37 @@ static yyjson_doc *rpc(mcp_conn *c, const char *method, const char *params_json)
     }
 }
 
-static void notify(mcp_conn *c, const char *method) {
+static int notify_stdio(mcp_conn *c, const char *method) {
     buf_t req;
     buf_init(&req);
     buf_appendf(&req, "{\"jsonrpc\":\"2.0\",\"method\":\"%s\"}\n", method);
     ssize_t w = write(c->in_fd, req.data, req.len);
-    (void)w;
     buf_free(&req);
+    return w < 0 ? -1 : 0;
+}
+
+static yyjson_doc *rpc(mcp_conn *c, const char *method, const char *name, const char *params_json) {
+    if (c->transport == MCP_TRANSPORT_STDIO) return rpc_stdio(c, method, params_json);
+    int status = 0;
+    yyjson_doc *doc = mcp_rpc_http(c, method, name, params_json, false, &status);
+    if (status < 200 || status >= 300) {
+        yyjson_doc_free(doc);
+        if (status > 0) mcp_http_status_error(c, status);
+        return NULL;
+    }
+    return doc;
 }
 
 static yyjson_doc *conn_tools(mcp_conn *c) {
-    if (!c->tools) c->tools = rpc(c, "tools/list", "{}");
+    if (!c->tools) c->tools = rpc(c, "tools/list", NULL, "{}");
     return c->tools;
 }
 
-/* Spawn one server process and run the initialize handshake. */
-static int conn_open(mcp_conn *c, char *const argv[], const char *cwd) {
+/* Spawn one stdio server process and run the legacy initialize handshake. */
+static int conn_open_stdio(mcp_conn *c, char *const argv[], const char *cwd) {
     memset(c, 0, sizeof *c);
+    c->transport = MCP_TRANSPORT_STDIO;
+    c->era = MCP_ERA_LEGACY;
     buf_init(&c->rbuf);
     int inpipe[2], outpipe[2];
     if (pipe(inpipe) != 0) return -1;
@@ -184,15 +175,22 @@ static int conn_open(mcp_conn *c, char *const argv[], const char *cwd) {
     c->in_fd = inpipe[1];
     c->out_fd = outpipe[0];
 
-    yyjson_doc *init = rpc(c, "initialize",
-                           "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
-                           "\"clientInfo\":{\"name\":\"tny\",\"version\":\"" TNY_VERSION "\"}}");
+    yyjson_doc *init =
+        rpc_stdio(c, "initialize",
+                  "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
+                  "\"clientInfo\":{\"name\":\"tny\",\"version\":\"" TNY_VERSION "\"}}");
     if (!init) {
-        conn_close(c);
+        mcp_conn_close(c);
+        snprintf(c->last_error, sizeof c->last_error, "stdio server did not complete initialize");
         return -1;
     }
     yyjson_doc_free(init);
-    notify(c, "notifications/initialized");
+    if (notify_stdio(c, "notifications/initialized") != 0) {
+        mcp_conn_close(c);
+        snprintf(c->last_error, sizeof c->last_error,
+                 "stdio server did not accept notifications/initialized");
+        return -1;
+    }
     return 0;
 }
 
@@ -216,10 +214,169 @@ static char **argv_from_conf(yyjson_val *conf) {
     return argv;
 }
 
-static void argv_free(char **argv) {
-    if (!argv) return;
-    for (int i = 0; argv[i]; i++) free(argv[i]);
-    free(argv);
+static bool header_name_char(unsigned char ch) {
+    return isalnum(ch) || strchr("!#$%&'*+-.^_`|~", ch) != NULL;
+}
+
+static bool header_name_owned(const char *name) {
+    static const char *const owned[] = {
+        "host",
+        "content-length",
+        "connection",
+        "content-type",
+        "accept",
+        "transfer-encoding",
+        "mcp-protocol-version",
+        "mcp-method",
+        "mcp-name",
+        "mcp-session-id",
+        NULL,
+    };
+    for (const char *const *p = owned; *p; p++)
+        if (strcasecmp(name, *p) == 0) return true;
+    return false;
+}
+
+static int conf_add_header(mcp_conf *conf, const char *name, const char *value, bool from_env,
+                           char *err, size_t errlen) {
+    if (!name || !*name || !value || conf->nheaders >= MCP_MAX_HEADERS) {
+        snprintf(err, errlen, "invalid or excessive MCP HTTP headers");
+        return -1;
+    }
+    for (const unsigned char *p = (const unsigned char *)name; *p; p++)
+        if (!header_name_char(*p)) {
+            snprintf(err, errlen, "invalid MCP HTTP header name");
+            return -1;
+        }
+    if (header_name_owned(name)) {
+        snprintf(err, errlen, "MCP HTTP header %s is transport-owned", name);
+        return -1;
+    }
+    if (!from_env && strcasecmp(name, "authorization") == 0) {
+        snprintf(err, errlen,
+                 "literal Authorization is not allowed; use bearer_token_env or header_env");
+        return -1;
+    }
+    size_t name_len = strlen(name);
+    for (size_t i = 0; i < conf->nheaders; i++) {
+        const char *colon = strchr(conf->headers[i], ':');
+        size_t existing_len = colon ? (size_t)(colon - conf->headers[i]) : 0;
+        if (existing_len == name_len && strncasecmp(conf->headers[i], name, existing_len) == 0) {
+            snprintf(err, errlen, "duplicate MCP HTTP header %s", name);
+            return -1;
+        }
+    }
+    for (const unsigned char *p = (const unsigned char *)value; *p; p++)
+        if ((*p < 0x20 && *p != '\t') || *p == 0x7f) {
+            snprintf(err, errlen, "invalid control character in MCP HTTP header");
+            return -1;
+        }
+    char **grown = realloc(conf->headers, (conf->nheaders + 1) * sizeof *grown);
+    if (!grown) {
+        snprintf(err, errlen, "out of memory parsing MCP HTTP headers");
+        return -1;
+    }
+    conf->headers = grown;
+    buf_t line;
+    buf_init(&line);
+    buf_appendf(&line, "%s: %s", name, value);
+    if (buf_oom(&line)) {
+        buf_free(&line);
+        snprintf(err, errlen, "out of memory parsing MCP HTTP headers");
+        return -1;
+    }
+    conf->headers[conf->nheaders++] = buf_detach(&line);
+    return 0;
+}
+
+static int conf_headers_object(mcp_conf *conf, yyjson_val *obj, bool env_values, char *err,
+                               size_t errlen) {
+    if (!obj) return 0;
+    if (!yyjson_is_obj(obj)) {
+        snprintf(err, errlen, "%s must be an object", env_values ? "header_env" : "headers");
+        return -1;
+    }
+    size_t idx, max;
+    yyjson_val *k, *v;
+    yyjson_obj_foreach(obj, idx, max, k, v) {
+        const char *name = yyjson_get_str(k);
+        const char *raw = yyjson_is_str(v) ? yyjson_get_str(v) : NULL;
+        if (!raw) {
+            snprintf(err, errlen, "MCP HTTP header values must be strings");
+            return -1;
+        }
+        const char *value = raw;
+        if (env_values) {
+            value = getenv(raw);
+            if (!value) {
+                snprintf(err, errlen, "MCP HTTP header environment variable %s is not set", raw);
+                return -1;
+            }
+        }
+        if (conf_add_header(conf, name, value, env_values, err, errlen) != 0) return -1;
+    }
+    return 0;
+}
+
+static int conf_from_entry(yyjson_val *entry, mcp_conf *conf, char *err, size_t errlen) {
+    memset(conf, 0, sizeof *conf);
+    if (!entry || !yyjson_is_obj(entry)) {
+        snprintf(err, errlen, "MCP server entry must be an object");
+        return -1;
+    }
+    const char *type = jget_str(entry, "type");
+    if (!type || strcmp(type, "stdio") == 0) {
+        conf->transport = MCP_TRANSPORT_STDIO;
+        conf->argv = argv_from_conf(entry);
+        if (!conf->argv) {
+            snprintf(err, errlen, "stdio MCP server needs a non-empty command array");
+            return -1;
+        }
+        return 0;
+    }
+    if (strcmp(type, "http") != 0) {
+        snprintf(err, errlen, "unsupported MCP transport type %s", type);
+        return -1;
+    }
+    conf->transport = MCP_TRANSPORT_HTTP;
+    const char *url = jget_str(entry, "url");
+    url_parts parsed;
+    if (!url || url_parse(url, &parsed) != 0 ||
+        (strcmp(parsed.scheme, "http") != 0 && strcmp(parsed.scheme, "https") != 0)) {
+        snprintf(err, errlen, "HTTP MCP server needs an http:// or https:// url");
+        return -1;
+    }
+    conf->url = xstrdup(url);
+    if (conf_headers_object(conf, jget(entry, "headers"), false, err, errlen) != 0) goto fail;
+    if (conf_headers_object(conf, jget(entry, "header_env"), true, err, errlen) != 0) goto fail;
+    const char *bearer_env = jget_str(entry, "bearer_token_env");
+    if (bearer_env) {
+        const char *token = getenv(bearer_env);
+        if (!token) {
+            snprintf(err, errlen, "MCP bearer environment variable %s is not set", bearer_env);
+            goto fail;
+        }
+        buf_t bearer;
+        buf_init(&bearer);
+        buf_appendf(&bearer, "Bearer %s", token);
+        if (buf_oom(&bearer) ||
+            conf_add_header(conf, "Authorization", bearer.data, true, err, errlen) != 0) {
+            if (bearer.data) secure_zero(bearer.data, bearer.cap);
+            buf_free(&bearer);
+            goto fail;
+        }
+        if (bearer.data) secure_zero(bearer.data, bearer.cap);
+        buf_free(&bearer);
+    }
+    return 0;
+fail:
+    mcp_conf_free(conf);
+    return -1;
+}
+
+static int conn_open(mcp_conn *c, mcp_conf *conf, const char *cwd) {
+    if (conf->transport == MCP_TRANSPORT_STDIO) return conn_open_stdio(c, conf->argv, cwd);
+    return mcp_conn_open_http(c, conf);
 }
 
 /* ---- slot registry (g_mu held for every access) ---- */
@@ -250,12 +407,12 @@ static mcp_server *slot_alloc(const char *name) {
 
 typedef struct {
     int slot;
-    char **argv;
+    mcp_conf conf;
     char *cwd;
 } mcp_warm_job;
 
 static void warm_job_free(mcp_warm_job *j) {
-    argv_free(j->argv);
+    mcp_conf_free(&j->conf);
     free(j->cwd);
     free(j);
 }
@@ -263,12 +420,13 @@ static void warm_job_free(mcp_warm_job *j) {
 static void *warm_main(void *arg) {
     mcp_warm_job *j = arg;
     mcp_conn c;
-    int rc = conn_open(&c, j->argv, j->cwd);
-    if (rc == 0) (void)conn_tools(&c); /* prefetch the catalog */
+    int rc = conn_open(&c, &j->conf, j->cwd);
+    if (rc == 0 && !conn_tools(&c)) rc = -1; /* prefetch the catalog */
+    if (rc != 0) mcp_conn_close(&c);
     pthread_mutex_lock(&g_mu);
     mcp_server *s = &g_servers[j->slot];
     if (s->abandoned) { /* shutdown gave up on us: last owner cleans up */
-        conn_close(&c);
+        mcp_conn_close(&c);
         free(s->name);
         memset(s, 0, sizeof *s);
     } else {
@@ -299,13 +457,14 @@ void mcp_warm_start(struct tny_ctx *ctx) {
         yyjson_obj_foreach(servers, idx, max, k, v) {
             const char *name = yyjson_get_str(k);
             if (!name) continue;
-            char **argv = argv_from_conf(v);
-            if (!argv) continue;
+            mcp_conf conf;
+            char conf_err[256] = "";
+            if (conf_from_entry(v, &conf, conf_err, sizeof conf_err) != 0) continue;
             pthread_mutex_lock(&g_mu);
             mcp_server *s = slot_find(name) ? NULL : slot_alloc(name);
             if (!s) {
                 pthread_mutex_unlock(&g_mu);
-                argv_free(argv);
+                mcp_conf_free(&conf);
                 continue;
             }
             s->state = SRV_WARMING;
@@ -320,7 +479,8 @@ void mcp_warm_start(struct tny_ctx *ctx) {
             int rc = -1;
             if (j) {
                 j->slot = slot;
-                j->argv = argv;
+                j->conf = conf;
+                memset(&conf, 0, sizeof conf);
                 j->cwd = xstrdup(ctx->cwd);
                 rc = pthread_create(&th, &at, warm_main, j);
             }
@@ -330,8 +490,8 @@ void mcp_warm_start(struct tny_ctx *ctx) {
                 free(s->name);
                 memset(s, 0, sizeof *s);
                 pthread_mutex_unlock(&g_mu);
-                if (j) warm_job_free(j); /* frees argv too */
-                else argv_free(argv);
+                if (j) warm_job_free(j);
+                mcp_conf_free(&conf);
             }
         }
     }
@@ -370,41 +530,50 @@ static mcp_server *get_server(tools_env *env, const char *name, char **err) {
         *err = tool_err("no ~/.tny/mcp.json profile");
         return NULL;
     }
-    yyjson_val *conf = jget(jget(yyjson_doc_get_root(prof), "servers"), name);
-    char **argv = conf ? argv_from_conf(conf) : NULL;
-    if (!conf) {
+    yyjson_val *entry = jget(jget(yyjson_doc_get_root(prof), "servers"), name);
+    if (!entry) {
         *err = tool_err("no MCP server named %s in ~/.tny/mcp.json", name);
         yyjson_doc_free(prof);
         return NULL;
     }
+    mcp_conf conf;
+    char conf_err[256] = "";
+    int conf_rc = conf_from_entry(entry, &conf, conf_err, sizeof conf_err);
     yyjson_doc_free(prof);
-    if (!argv) {
-        *err = tool_err("could not start MCP server %s", name);
+    if (conf_rc != 0) {
+        *err = tool_err("invalid MCP server %s: %s", name,
+                        conf_err[0] ? conf_err : "invalid configuration");
         return NULL;
     }
+    mcp_transport transport = conf.transport;
     mcp_conn c;
-    int rc = conn_open(&c, argv, env->ctx->cwd);
-    argv_free(argv);
+    int rc = conn_open(&c, &conf, env->ctx->cwd);
+    mcp_conf_free(&conf);
+    char detail[sizeof c.last_error];
+    snprintf(detail, sizeof detail, "%s", c.last_error);
 
     pthread_mutex_lock(&g_mu);
     s = slot_find(name);
     if (!s) s = slot_alloc(name);
     if (!s) {
         pthread_mutex_unlock(&g_mu);
-        if (rc == 0) conn_close(&c);
+        mcp_conn_close(&c);
         *err = tool_err("could not start MCP server %s", name);
         return NULL;
     }
     if (rc == 0) {
-        conn_close(&s->conn); /* drop a stale failed conn, if any */
+        mcp_conn_close(&s->conn); /* drop a stale failed conn, if any */
         s->conn = c;
         s->state = SRV_READY;
     } else {
+        mcp_conn_close(&c);
         s->state = SRV_FAILED;
     }
     pthread_mutex_unlock(&g_mu);
     if (rc != 0) {
-        *err = tool_err("could not start MCP server %s", name);
+        const char *action = transport == MCP_TRANSPORT_HTTP ? "connect" : "start";
+        if (detail[0]) *err = tool_err("could not %s MCP server %s: %s", action, name, detail);
+        else *err = tool_err("could not %s MCP server %s", action, name);
         return NULL;
     }
     return s;
@@ -484,7 +653,7 @@ char *mcp_features(tools_env *env) {
             if (!name) continue;
             pthread_mutex_lock(&g_mu);
             mcp_server *s = slot_find(name);
-            mcp_state st = s ? s->state : SRV_EMPTY;
+            mcp_state st = (s && !s->abandoned) ? s->state : SRV_EMPTY;
             pthread_mutex_unlock(&g_mu);
             const char *label = st == SRV_READY     ? "connected"
                                 : st == SRV_WARMING ? "starting"
@@ -606,9 +775,13 @@ char *mcp_call_tool(tools_env *env, const char *server, const char *tool, const 
     buf_appends(&params, "{\"name\":");
     jescape(&params, tool);
     buf_appendf(&params, ",\"arguments\":%s}", args_json ? args_json : "{}");
-    yyjson_doc *resp = rpc(&s->conn, "tools/call", params.data);
+    yyjson_doc *resp = rpc(&s->conn, "tools/call", tool, params.data);
     buf_free(&params);
-    if (!resp) return tool_err("MCP call to %s/%s timed out", server, tool);
+    if (!resp) {
+        if (s->conn.transport == MCP_TRANSPORT_HTTP && s->conn.last_error[0])
+            return tool_err("MCP call to %s/%s failed: %s", server, tool, s->conn.last_error);
+        return tool_err("MCP call to %s/%s timed out", server, tool);
+    }
     yyjson_val *root = yyjson_doc_get_root(resp);
     yyjson_val *jerr = jget(root, "error");
     buf_t out;
