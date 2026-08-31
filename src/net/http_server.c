@@ -68,7 +68,7 @@ static void set_error(char *errbuf, size_t errlen, const char *message) {
 /* GCC's descriptor analyzer confuses the borrowed listener passed to accept(2)
  * with the descriptor returned by accept(2) (GCC analyzer/108648).  It then
  * reports that listener at any operation on the accepted descriptor.  Keep
- * the workaround scoped to the two exact calls in those false traces; the
+ * the workaround scoped to the two exact regions in those false traces; the
  * accepted descriptor is closed on every failure or transferred to conns[]. */
 static int fd_add_flags(int fd, int get_op, int set_op, int flags) {
 #if defined(__GNUC__) && !defined(__clang__)
@@ -457,13 +457,13 @@ static void accept_ready(http_server *server) {
 #pragma GCC diagnostic ignored "-Wanalyzer-fd-leak"
 #endif
         int fd = accept(server->listener, NULL, NULL);
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
         if (fd < 0) {
             if (errno == EINTR) continue;
             return;
         }
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
         if (prepare_socket(fd) != 0) {
             close(fd);
             continue;

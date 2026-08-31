@@ -430,6 +430,14 @@ static int list_records(cursor_callbacks *cb, const char *substore, const char *
         yyjson_doc_free(doc);
     }
     if (scan) closedir(scan);
+    if (!items) {
+        buf_clear(&cb->reply);
+        buf_appends(&cb->reply, "{\"output\":{\"items\":[]}}");
+        response->status = 200;
+        response->body = cb->reply.data;
+        response->body_len = cb->reply.len;
+        return HTTP_SERVER_POST_HANDLED;
+    }
     if (count > 1) qsort(items, count, sizeof *items, listed_compare);
     uint64_t after_seq = event_store && cursor ? (uint64_t)strtoull(cursor, NULL, 10) : 0;
     size_t start = 0;
