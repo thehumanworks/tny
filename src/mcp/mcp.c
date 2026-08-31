@@ -192,6 +192,10 @@ static int conn_open_stdio(mcp_conn *c, char *const argv[], const char *cwd,
     c->transport = MCP_TRANSPORT_STDIO;
     c->era = MCP_ERA_LEGACY;
     buf_init(&c->rbuf);
+    if (!argv || !argv[0]) {
+        snprintf(c->last_error, sizeof c->last_error, "stdio MCP server has no command");
+        return -1;
+    }
     char **child_env = NULL;
     size_t child_env_owned = 0;
     if (srv && srv->nenv > 0) {
@@ -291,6 +295,13 @@ static bool header_name_owned(const char *name) {
     return false;
 }
 
+/* -fanalyzer loses track of conf->headers across the caller's goto-fail
+ * cleanup (mcp_conf_free frees the grown array); the realloc result is
+ * always stored or freed. */
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wanalyzer-malloc-leak"
+#endif
 static int conf_add_header(mcp_conf *conf, const char *name, const char *value, bool from_env,
                            char *err, size_t errlen) {
     if (!name || !*name || !value || conf->nheaders >= MCP_MAX_HEADERS) {
@@ -342,6 +353,9 @@ static int conf_add_header(mcp_conf *conf, const char *name, const char *value, 
     conf->headers[conf->nheaders++] = buf_detach(&line);
     return 0;
 }
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 static int conf_headers_object(mcp_conf *conf, yyjson_val *obj, bool env_values, char *err,
                                size_t errlen) {
@@ -641,6 +655,10 @@ static mcp_server *get_server(tools_env *env, const char *name, char **err) {
     }
     pthread_mutex_unlock(&g_mu);
 
+    if (!env || !env->ctx) {
+        *err = tool_err("no MCP servers configured");
+        return NULL;
+    }
     mcp_catalog *prof = load_profile(env);
     if (!prof || prof->nservers == 0) {
         mcp_catalog_free(prof);
