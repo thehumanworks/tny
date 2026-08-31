@@ -44,12 +44,12 @@ def main() -> None:
     if "assets/term.js" in html:
         fail("index.html still loads the deleted JS agent loop (docs/adr/0017)")
 
-    for needle in ("<span>v0.3.0</span>", "<span>0.68mib</span>"):
+    for needle in ("<span>v0.3.0</span>", "<span>0.71mib</span>"):
         if needle not in html:
             fail(f"release metadata missing from index.html: {needle!r}")
-    if "715,744 B (0.68 MiB)" not in size_page:
+    if "749,264 B (0.71 MiB)" not in size_page:
         fail("size page does not identify the measured v0.3.0 binary")
-    for needle in ("Version: 0.3.0", "715,744 bytes (~0.68 MiB)"):
+    for needle in ("Version: 0.3.0", "749,264 bytes (~0.71 MiB)"):
         if needle not in llms:
             fail(f"llms.txt release metadata missing {needle!r}")
 
