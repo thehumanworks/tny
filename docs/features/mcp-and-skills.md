@@ -15,7 +15,7 @@ Keep fx names so prompts and muscle memory transfer:
 | Images | `read_image` (png/jpeg/gif/webp via magic bytes; `vision` is an alias). Tool result is a short text; pixels go out as a follow-up user `image_url` message ([ADR 0008](../adr/0008-native-loop-images.md)). `tny ask --image PATH` attaches the same shape on the first user message (max 16 flags; a 17th is exit 1) |
 | Skills | `skill`, `install_skill` |
 | Subagents | `subagent` (`create`, `inspect`, `message`, `relationship`, `configure`, `lifecycle`) |
-| MCP | `mcp_search_tools`, `mcp_select_tool`, `mcp_features` + selected namespaced tools |
+| MCP | `mcp_search_tools`, `mcp_select_tool`, `mcp_features` only; namespaced `server/tool` names ride a system-prompt catalog, never the tools array ([ADR 0049](../adr/0049-mcp-background-warmup.md)) |
 | Runtime | `ask_user_question`, `memory`, `read_tool_result` |
 
 Large results: bounded preview + session handle; `read_tool_result` reads a byte range or literal search. Background commands persist pid, cwd, log path, detected URL.
@@ -30,7 +30,11 @@ Trusted profile only: `~/.tny/mcp.json`. **Never** load repo-local MCP files (cl
 
 Transports: stdio JSONL, Streamable HTTP, legacy HTTP+SSE if needed. Protocol target: current MCP (fx documents `2026-07-28`); negotiate down.
 
-Lazy tools: model searches then selects so huge catalogs stay out of context. Re-check permissions immediately before `tools/call`. Treat server output as untrusted data, not instructions.
+Startup ([ADR 0049](../adr/0049-mcp-background-warmup.md)): a native session warms every profile server in the background at session start — TUI after first paint, `tny ask` overlapping its connect (after the `-B` fork) — one detached thread per server running spawn + `initialize` + `tools/list`. Never for `--help`/`--version`, `tny acp` server mode, or libtny. A call that names a server mid-warm waits out its handshake (the prewarm-take contract); a failed warm-up is silent until a call names it, which retries and reports the usual error. Without threads (wasm) spawn stays lazy at the first `mcp_*` call and keeps its clean error.
+
+Catalog, not schemas: the per-request system prompt lists the cached tools as `server/tool — one-line description` (capped per tool and per session; overflow says to use `mcp_search_tools`), so the model knows what exists with no extra round trip. Full MCP JSON schemas are never promoted into the function-schema `tools` array — the only MCP entries there are `mcp_search_tools`, `mcp_select_tool`, `mcp_features`, and every call goes through `mcp_select_tool` so the permission identity stays `mcp:server/tool`.
+
+`mcp_search_tools` AND-matches whitespace-separated tokens against name + description; an empty query lists the cached catalog without starting or waiting for any server. Re-check permissions immediately before `tools/call`. Treat server output as untrusted data, not instructions.
 
 Remote auth: `header_env`, `bearer_token_env`, optional OAuth from an interactive session. No literal `Authorization` values in the profile.
 

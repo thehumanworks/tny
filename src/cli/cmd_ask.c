@@ -561,6 +561,12 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     }
 #endif
 
+    /* MCP servers warm on detached threads while the provider connects
+     * (docs/adr/0049). After the -B fork on purpose: threads do not survive
+     * fork, and the servers must be the background child's children so
+     * `session stop`'s group signal reaches them. Native loop only. */
+    if (ctx->backend == TNY_BK_OPENAI) mcp_warm_start(ctx);
+
     if (continue_recovery && session) {
         char *rec = session_recovery_read(session);
         if (rec) {

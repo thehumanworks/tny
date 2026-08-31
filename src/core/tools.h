@@ -51,7 +51,8 @@ typedef struct {
     struct tny_tool_call *custom_call;
 } tools_call;
 
-/* OpenAI "tools" array JSON for every built-in (+ selected MCP tools).
+/* OpenAI "tools" array JSON for every built-in. MCP tools are never
+ * promoted here; they ride the system-prompt catalog (docs/adr/0049).
  * malloc'd. */
 char *tools_schema_json(tools_env *env);
 
