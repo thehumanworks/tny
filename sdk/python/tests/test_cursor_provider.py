@@ -23,6 +23,9 @@ LIBRARY = Path(
         / ("libtny.1.dylib" if sys.platform == "darwin" else "libtny.so.1"),
     )
 )
+TURN_TIMEOUT = float(
+    os.environ.get("TNY_TEST_TURN_TIMEOUT", "60" if sys.platform == "darwin" else "15")
+)
 
 
 @contextmanager
@@ -110,29 +113,42 @@ class CursorProviderTests(unittest.IsolatedAsyncioTestCase):
             )
             with cursor_environment(self.workspace, state, invoke_tool=True):
                 runtime = tny.AsyncRuntime(self.config(state), library=self.library)
-                registration = await runtime.register_tool(tool)
-                session = await runtime.create_session()
-                events = [event async for event in session.run("invoke the host tool")]
-                self.assertIsNotNone(runtime._runtime)
-                assert runtime._runtime is not None
-                self.assertEqual(runtime._runtime.capabilities.provider, "cursor")
-                current = await runtime._call(
-                    runtime._runtime.library.read_capabilities,
-                    runtime._runtime._handle,
-                    extended=True,
-                )
-                self.assertTrue(current.provider_initialized)
-                self.assertTrue(all(event.provider == b"cursor" for event in events))
-                self.assertEqual(len(seen), 1)
-                arguments = json.loads(seen[0])
-                self.assertEqual(arguments["text"], "mock custom tool input")
-                self.assertEqual(arguments["count"], 1)
-                self.assertEqual(
-                    sum(isinstance(event, tny.TurnEndEvent) for event in events), 1
-                )
-                await session.close()
-                await registration.close()
-                await runtime.close()
+                async with runtime:
+                    registration = await runtime.register_tool(tool)
+                    async with registration:
+                        session = await runtime.create_session()
+                        async with session:
+                            events = await asyncio.wait_for(
+                                self._collect(session.run("invoke the host tool")),
+                                timeout=TURN_TIMEOUT,
+                            )
+                            self.assertIsNotNone(runtime._runtime)
+                            assert runtime._runtime is not None
+                            self.assertEqual(
+                                runtime._runtime.capabilities.provider, "cursor"
+                            )
+                            current = await runtime._call(
+                                runtime._runtime.library.read_capabilities,
+                                runtime._runtime._handle,
+                                extended=True,
+                            )
+                            self.assertTrue(current.provider_initialized)
+                            self.assertTrue(
+                                all(event.provider == b"cursor" for event in events)
+                            )
+                            self.assertEqual(len(seen), 1)
+                            arguments = json.loads(seen[0])
+                            self.assertEqual(
+                                arguments["text"], "mock custom tool input"
+                            )
+                            self.assertEqual(arguments["count"], 1)
+                            self.assertEqual(
+                                sum(
+                                    isinstance(event, tny.TurnEndEvent)
+                                    for event in events
+                                ),
+                                1,
+                            )
             failures = state / "bridge" / "failures.log"
             self.assertFalse(
                 failures.exists(), failures.read_text() if failures.exists() else ""
@@ -151,34 +167,46 @@ class CursorProviderTests(unittest.IsolatedAsyncioTestCase):
 
         with cursor_environment(self.workspace, state, invoke_tool=True):
             runtime = tny.AsyncRuntime(self.config(state), library=self.library)
-            registration = await runtime.register_tool(
-                tny.AsyncCustomTool(
-                    name="host_echo",
-                    description="registered during cancellation",
-                    input_schema_json='{"type":"object"}',
-                    handler=pending_handler,
+            async with runtime:
+                registration = await runtime.register_tool(
+                    tny.AsyncCustomTool(
+                        name="host_echo",
+                        description="registered during cancellation",
+                        input_schema_json='{"type":"object"}',
+                        handler=pending_handler,
+                    )
                 )
-            )
-            session = await runtime.create_session()
-            consumer = asyncio.create_task(
-                asyncio.wait_for(
-                    self._collect(session.run("cancel this Cursor run")), timeout=10
-                )
-            )
-            await asyncio.wait_for(started.wait(), timeout=5)
-            await session.cancel()
-            release.set()
-            events = await consumer
-            terminals = [
-                event for event in events if isinstance(event, tny.TurnEndEvent)
-            ]
-            self.assertEqual(len(terminals), 1)
-            routes = (state / "bridge" / "routes.log").read_text()
-            self.assertIn("/sdk.v1.SdkAgentService/CancelRun", routes)
-            self.assertEqual(terminals[0].stop_reason, 1)
-            await session.close()
-            await registration.close()
-            await runtime.close()
+                async with registration:
+                    session = await runtime.create_session()
+                    async with session:
+                        consumer = asyncio.create_task(
+                            self._collect(session.run("cancel this Cursor run"))
+                        )
+                        try:
+                            await self._wait_for_handler_or_run_end(started, consumer)
+                            await session.cancel()
+                            release.set()
+                            events = await asyncio.wait_for(
+                                asyncio.shield(consumer), timeout=TURN_TIMEOUT
+                            )
+                        finally:
+                            release.set()
+                            if not consumer.done():
+                                try:
+                                    await session.cancel()
+                                except tny.BadStateError:
+                                    pass
+                                consumer.cancel()
+                            await asyncio.gather(consumer, return_exceptions=True)
+                        terminals = [
+                            event
+                            for event in events
+                            if isinstance(event, tny.TurnEndEvent)
+                        ]
+                        self.assertEqual(len(terminals), 1)
+                        routes = (state / "bridge" / "routes.log").read_text()
+                        self.assertIn("/sdk.v1.SdkAgentService/CancelRun", routes)
+                        self.assertEqual(terminals[0].stop_reason, 1)
         failures = state / "bridge" / "failures.log"
         self.assertFalse(
             failures.exists(), failures.read_text() if failures.exists() else ""
@@ -187,6 +215,31 @@ class CursorProviderTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
     async def _collect(events: object) -> list[tny.AnyEvent]:
         return [event async for event in events]  # type: ignore[attr-defined]
+
+    async def _wait_for_handler_or_run_end(
+        self,
+        started: asyncio.Event,
+        consumer: asyncio.Task[list[tny.AnyEvent]],
+    ) -> None:
+        """Wait for the lifecycle edge without assuming bridge startup latency."""
+        started_waiter = asyncio.create_task(started.wait())
+        try:
+            done, _ = await asyncio.wait(
+                (started_waiter, consumer),
+                timeout=TURN_TIMEOUT,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                self.fail(
+                    "Cursor custom-tool handler did not start before turn timeout"
+                )
+            if consumer in done:
+                await consumer
+                self.fail("Cursor run ended before invoking the custom-tool handler")
+        finally:
+            if not started_waiter.done():
+                started_waiter.cancel()
+            await asyncio.gather(started_waiter, return_exceptions=True)
 
 
 if __name__ == "__main__":
