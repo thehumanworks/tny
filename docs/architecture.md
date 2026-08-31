@@ -1,6 +1,9 @@
 # Architecture
 
-tny is a **frontend + native loop**, not a fourth coding agent. Host backends already own planning, tools, and sandboxing. The native OpenAI-compatible backend is the only place tny executes tools itself.
+tny is a **frontend + native loop**, not a fourth coding agent. Host backends
+already own planning, tools, and sandboxing. The native OpenAI-compatible
+backend owns the general tny tool loop; explicitly registered Cursor custom
+tools are the narrow callback exception.
 
 ```text
                     +-------------------------------------+
@@ -13,8 +16,9 @@ tny is a **frontend + native loop**, not a fourth coding agent. Host backends al
            +---------------+-----------+----------+---------------+
            v               v                      v               v
      cursor-bridge    codex-app-server        acp-client     openai-native
-     spawn/attach     ws:// or unix://        spawn stdio    HTTP SSE + tools
+     spawn            ws:// or unix://        spawn stdio    HTTP SSE + tools
      Connect sdk.v1   JSON-RPC (no jsonrpc)   JSON-RPC 2.0   tny owns tools
+     + callbacks
            |               |                      |               |
            v               v                      v               v
      cursor-sdk-bridge  codex app-server    gemini/claude/...  provider API
@@ -24,7 +28,7 @@ tny is a **frontend + native loop**, not a fourth coding agent. Host backends al
 
 | Kind | Backends | Who runs tools? | tny role |
 | --- | --- | --- | --- |
-| **Host** | Cursor bridge, Codex app-server, ACP client | The host process | Protocol client, approvals UI, session mapping |
+| **Host** | Cursor bridge, Codex app-server, ACP client | The host process | Protocol client, approvals UI, session mapping; Cursor custom-tool/store callbacks are explicit exceptions |
 | **Native** | OpenAI-compatible | tny | Agent loop, MCP, skills, sandbox, ACP **server**, `read_image` |
 
 Never leak host-specific types into the TUI. Map every backend onto one event set: `text_delta`, `thinking`, `tool_start`, `tool_end`, `permission_request`, `plan`, `usage`, `turn_end`, `error`, `status`, `steer_rejected` (a mid-turn `steer()` the host refused after accepting it; the event carries the rejected text and the frontend re-queues it — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md), [ADR 0013](adr/0013-steer-rejection-owns-the-text.md)).
@@ -42,6 +46,14 @@ provider request/response edges. The callback never runs from a backend event
 callback or re-enters the backend. Extension-free calls return without
 allocating event JSON or starting Python.
 
+Cursor's reverse callbacks do not change that ownership model. The bridge owns
+the agent loop and its built-in tools. A registered libtny custom tool is
+executed only through the authenticated `CallCustomTool` boundary; an optional
+`CallStore` service owns only local agent/run/event/checkpoint persistence.
+Both share one bounded loopback HTTP server. Blocking Create/Resume lends that
+server to a bounded pump thread for store traffic only; normal Send/Observe
+polls its fds in the main event loop.
+
 ## Embedding boundary
 
 [`libtny`](adr/0023-libtny-embedding-abi.md) exposes opaque
@@ -51,6 +63,11 @@ layouts.
 The public `next_event` operation and the CLI adapters drive the same private
 runtime engine. TUI prewarm remains an acceleration adapter over that engine,
 not a separate provider lifecycle.
+
+The runtime provider selector supports Cursor conversations through that same
+API: create/resume/send/cancel, normalized events, and registered custom
+tools. ABI 1 has no image-send entry point. Cursor images and management RPCs
+remain CLI surfaces and do not expand the embedding ABI.
 
 ## Process rules
 
@@ -64,7 +81,7 @@ not a separate provider lifecycle.
 
 | Path | Contents |
 | --- | --- |
-| `~/.tny/settings.json` | Provider/model/effort/fast defaults, permission mode, named provider/ACP-agent profiles, UI, per-workspace overrides ([schema](../schemas/settings.schema.json)) |
+| `~/.tny/settings.json` | Provider/model/effort/fast defaults, trusted Cursor sdk.v1 options, permission mode, named provider/ACP-agent profiles, UI, per-workspace overrides ([schema](../schemas/settings.schema.json)) |
 | `~/.tny/mcp.json` | Trusted MCP servers only (never repo-local MCP) |
 | `~/.tny/sessions/` | Transcripts and recovery checkpoints |
 | `~/.tny/skills/` | Managed skill installs |
@@ -85,14 +102,15 @@ src/
   tui/              # ANSI renderer, input, slash/@/$
   core/             # events, session store, permissions, AGENTS.md loader, images
   backends/
-    cursor/         # bridge manager + Connect client
+    cursor/         # v1.0.30 bridge/client, recovery, management, callbacks
     codex/          # websocket JSON-RPC
     acp/            # client + server
     openai/         # HTTP + SSE + tool loop
   net/              # http1, connect framing, websocket, tls shim
   json/             # yyjson wrappers
-  proto/            # nanopb sdk.v1 (generated, not edited)
   mcp/              # used by native loop and ACP server
+third_party/
+  cursor-sdk-bridge/v1.0.30/ # pinned sdk.v1 protos/contract; never hand-edited
 ```
 
 POSIX `poll`/`kqueue` only, always through the `tny_poll` seam (`src/util/tny_poll.h`): native forwards to `poll(2)`; the wasm build ([ADR 0017](adr/0017-wasm-browser-parity.md)) waits on `net_wasm.c`'s pseudo-fd registry and yields to the JS event loop via Asyncify. `src/net/net.h` is the transport boundary — on wasm, `http_conn` rides `fetch()` and `ws_conn` the browser/node WebSocket, with `tcp.c`/`stream.c`/`http1.c`/`ws.c` excluded from the source list wholesale. No libuv, no threads-per-connection unless a host callback server requires it. One deliberate exception: the TUI's pre-warm runs a single backend `connect()` on a detached pthread at startup ([ADR 0002](adr/0002-tui-provider-prewarm.md)); the connected backend is handed back before any turn starts, so all events still flow through the one event loop.

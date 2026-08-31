@@ -1764,8 +1764,8 @@ tny_engine_next tny_engine_next_event(tny_engine *e, int timeout_ms, tny_owned_e
 
     int64_t deadline = engine_monotonic_ms(e) + timeout_ms;
     do {
-        struct pollfd fds[9];
-        int n = tny_engine_pollfds(e, fds, 8);
+        struct pollfd fds[TNY_BACKEND_POLLFD_MAX + 1];
+        int n = tny_engine_pollfds(e, fds, TNY_BACKEND_POLLFD_MAX);
         int backend_n = n;
         int wake_index = -1;
         if (e->threadsafe_cancel) {
@@ -1776,6 +1776,12 @@ tny_engine_next tny_engine_next_event(tny_engine *e, int timeout_ms, tny_owned_e
         }
         int remaining = (int)(deadline - engine_monotonic_ms(e));
         if (remaining < 0) remaining = 0;
+        if (e->bk->poll_timeout) {
+            int backend_timeout = e->bk->poll_timeout(e->bk);
+            if (backend_timeout >= 0) {
+                if (backend_timeout < remaining) remaining = backend_timeout;
+            }
+        }
         int pr = tny_poll(n ? fds : NULL, (nfds_t)n, remaining);
         if (pr < 0) {
             if (errno == EINTR) continue;

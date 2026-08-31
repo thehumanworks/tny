@@ -12,12 +12,25 @@ workflow (`.github/workflows/ci.yml`).
 | `tny-linux-aarch64` | `ubuntu-24.04-arm` | glibc, same tests |
 | `tny-linux-x86_64-musl` | `ubuntu-24.04` + Alpine 3.21 | **static** musl; unit tests + smoke |
 | `tny-linux-aarch64-musl` | `ubuntu-24.04-arm` + Alpine 3.21 | **static** musl; unit tests + smoke |
-| `tny-darwin-arm64` | `macos-15` | Apple Silicon only; `make test` minus cursor mock |
+| `tny-darwin-arm64` | `macos-15` | Apple Silicon only; deterministic sdk.v1 contract/unit tests run, while the spawned Python Cursor bridge fixture retains its documented Darwin-CI skip |
 | `tny-windows-x86_64.exe` | `windows-2025` + MSYS2 `MSYS` | POSIX via `msys-2.0.dll`; unit + smoke |
 | `tny-wasm` (`tny.js`+`tny.wasm`, `tny-web.mjs`+`.wasm`) | `ubuntu-24.04` + emsdk 6.0.8 | the SAME openai/acp-ws/codex-attach mock suites with `TNY=build/wasm/tny`, `wasm-size-check`, and a headless-Chromium page smoke ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
 
 The Pages workflow also builds `tny-web.mjs` with emsdk and publishes it
 under `assets/wasm/` — the landing terminal is the CI-tested artifact.
+
+`make quality` and `make test` verify the vendored Cursor v1.0.30 hashes and
+contract counts before accepting the adapter. Native integration fixtures
+cover all 27 outbound routes, the custom-tool and custom-store reverse RPCs,
+local/cloud options, Create/Resume callback re-entry, Send/Observe recovery,
+all three stream types, cancellation, management aliases/raw RPC, structured
+errors, auth, secret non-leakage, and process cleanup. wasm asserts exact clean
+unsupported errors for both conversational Cursor and `tny cursor` management
+before any bridge or callback work. These are deterministic
+protocol tests; CI has no `CURSOR_API_KEY` and makes no live Cursor Cloud claim.
+The libtny/Python/TypeScript matrices also exercise Cursor provider creation,
+normalized events, cancellation, custom tools, capabilities, and validation;
+they do not expose the management RPC surface.
 
 A separate `nix` workflow (`.github/workflows/nix.yml`) runs `nix flake check`
 on `ubuntu-24.04` (`x86_64-linux`), `ubuntu-24.04-arm` (`aarch64-linux`), and

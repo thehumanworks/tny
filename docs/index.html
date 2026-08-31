@@ -49,9 +49,9 @@
         </button>
       </p>
       <p class="meta">
-        <span>v0.1.0</span>
+        <span>v0.3.0</span>
         <span aria-hidden="true"> · </span>
-        <span>0.41mib</span>
+        <span>0.68mib</span>
         <span aria-hidden="true"> · </span>
         status: <span class="status">experimental</span>
         <span class="info">
@@ -74,7 +74,7 @@
     </div>
     <div class="prose">
       <p><span class="name">tny</span> is a coding agent harness and CLI written in C11, built to beat <a href="https://fx.sh">fx</a> on size and startup while keeping a Unix-shell UI.</p>
-      <p>It focuses on a thin multiplexed frontend over host agents, plus a native OpenAI-compatible loop for BYOK providers. The stripped binary is 0.41mib.</p>
+      <p>It focuses on a thin multiplexed frontend over host agents, plus a native OpenAI-compatible loop for BYOK providers. The stripped binary is 0.68mib.</p>
       <p>The terminal on this page is the real <span class="name">tny</span> binary compiled to WebAssembly — the same sources and the same CI test suite as the native CLI. Pass <code>OPENAI_API_KEY</code> (and optionally <code>OPENAI_BASE_URL</code>) in the URL hash or paste them at the prompt. Keys stay in this tab and go only to the provider you set — never to GitHub. Your provider must allow browser (CORS) calls; <code>api.openai.com</code> does not.</p>
       <p>For end users, the form factor aims to be closer to a Unix shell than a heavy "IDE in the terminal" TUI.</p>
       <p>It's open source, model-agnostic, and suitable for local models, subscriptions, and cloud inference.</p>
@@ -83,7 +83,7 @@
     <button type="button" class="scroll-hint" data-scroll="features" aria-label="Scroll to features">***</button>
   </div>
   <section class="features" id="features">
-    <div><h2>Tiny 0.41mb binary</h2><p>Fifteen times smaller than fx on macOS. Designed for instant installation and embedding in resource-constrained environments and agent sandboxes.</p></div><div><h2>Instant time to prompt</h2><p>The interactive shell first-paints in <span class="hi">3–4ms</span> and does no backend I/O before accepting input. Host processes are pre-warmed after first paint so Enter is not a spawn.</p></div><div><h2>Four first-class backends</h2><p>Cursor via the SDK Bridge, Codex via <code>app-server</code> WebSockets, other agents via <a href="docs/backends.html">ACP</a>, and a native OpenAI-compatible tool loop.</p></div><div><h2>Minimal memory footprint</h2><p>About 2.1 MiB RSS for <code>--version</code>. Pack many instances on one machine without dragging a runtime along.</p></div><div><h2>Shell-like UI and ergonomics</h2><p>A Unix shell, not an IDE in the terminal. Append-only transcript, a pinned composer, slash commands, and sparing use of paints.</p></div><div><h2>Context efficient</h2><p>Minimal system prompt and lazy tool catalogs, so token cost and time-to-first-token stay on the model — not the harness.</p></div><div><h2>Host processes stay external</h2><p><code>cursor-sdk-bridge</code> and <code>codex</code> are spawned or attached, never embedded. The tny binary does not ship Node, Bun, or Rust.</p></div><div><h2>Model and provider agnostic</h2><p>Local models, OpenRouter, Groq, Azure, Cursor, Codex subscriptions, or any <a href="docs/backends.html">ACP</a> agent.</p></div>
+    <div><h2>Tiny 0.68mb binary</h2><p>Nine times smaller than fx on macOS. Designed for instant installation and embedding in resource-constrained environments and agent sandboxes.</p></div><div><h2>Instant time to prompt</h2><p>The interactive shell first-paints in <span class="hi">3–4ms</span> and does no backend I/O before accepting input. Host processes are pre-warmed after first paint so Enter is not a spawn.</p></div><div><h2>Four first-class backends</h2><p>Cursor via the complete public SDK Bridge v1.0.30, Codex via <code>app-server</code> WebSockets, other agents via <a href="docs/backends.html">ACP</a>, and a native OpenAI-compatible tool loop.</p></div><div><h2>Minimal memory footprint</h2><p>About 2.1 MiB RSS for <code>--version</code>. Pack many instances on one machine without dragging a runtime along.</p></div><div><h2>Shell-like UI and ergonomics</h2><p>A Unix shell, not an IDE in the terminal. Append-only transcript, a pinned composer, slash commands, and sparing use of paints.</p></div><div><h2>Context efficient</h2><p>Minimal system prompt and lazy tool catalogs, so token cost and time-to-first-token stay on the model — not the harness.</p></div><div><h2>Host processes stay external</h2><p><code>cursor-sdk-bridge</code> and <code>codex</code> are spawned or attached, never embedded. The tny binary does not ship Node, Bun, or Rust.</p></div><div><h2>Model and provider agnostic</h2><p>Local models, OpenRouter, Groq, Azure, Cursor, Codex subscriptions, or any <a href="docs/backends.html">ACP</a> agent.</p></div>
   </section>
 </main>
 <script src="assets/site.js"></script>

@@ -50,6 +50,73 @@ Codex model or paid tier from leaking into OpenAI, Cursor, or an ACP agent.
 Providers that do not implement the fast capability reject an enabled `fast`
 default instead of silently ignoring it.
 
+## Cursor SDK Bridge v1.0.30
+
+`cursor` is a trusted user-level object for the public sdk.v1 protojson
+surface. Project `.tny.json` cannot provide it and is rejected if Cursor
+configuration contains a credential-like key.
+
+```json
+{
+  "cursor": {
+    "runtime": "local",
+    "state_root": "/Users/me/.tny/cursor-state",
+    "local_store": { "type": "sqlite" },
+    "callbacks": { "custom_tools": true, "store": true },
+    "agent_options": {
+      "mode": "AGENT_MODE_OPTION_PLAN",
+      "tools": { "names": ["read", "grep"] },
+      "disallowedTools": ["shell"],
+      "local": {
+        "settingSources": ["SETTING_SOURCE_ALL"],
+        "sandboxOptions": { "enabled": true },
+        "autoReview": true
+      },
+      "mcpServers": {
+        "docs": { "http": { "type": "HTTP_MCP_TRANSPORT_TYPE_HTTP", "url": "https://example.invalid/mcp" } }
+      },
+      "agents": {
+        "reviewer": { "description": "Review changes", "prompt": "Inspect correctness", "inheritModel": true }
+      }
+    },
+    "send_options": {
+      "enableSteps": true,
+      "mode": "AGENT_MODE_OPTION_AGENT"
+    }
+  }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `runtime` | `auto`, `local`, or `cloud`; conflicts with an explicit opposite `agent_options` branch are rejected |
+| `state_root` | Optional bridge `--state-root` and default root for tny's custom store |
+| `local_store` | Bridge-wide `{ "type": "sqlite" }`, `{ "type": "jsonl", "rootDir": "…" }`, or `{ "type": "custom" }` |
+| `callbacks.custom_tools` | Enable local registered-tool callbacks; defaults true |
+| `callbacks.store` | Enable the authenticated tny `CallStore` service for custom stores; defaults true |
+| `agent_options` | Validated `AgentOptions`: model, name, local/cloud, MCP servers, subagents, mode, tool allow/deny, sandbox/review, environment and metadata |
+| `send_options` | Validated `SendOptions`: model, MCP, local force, cloud environment, deltas/steps, and mode |
+
+tny removes configured `apiKey`/`api_key` and injects `CURSOR_API_KEY`, so a
+key does not belong in settings. It overlays an explicit/discovered model,
+workspace `cwd`/extra `dirs` when absent, streaming deltas, and active libtny
+custom-tool definitions. Presence-sensitive fields are preserved: an empty
+`tools.names` means no built-ins, while an absent `tools` means Cursor's
+default set; deny wins over allow.
+
+For cloud agents, set `agent_options.cloud.repos` and optional environment,
+branch/PR, metadata, and GitHub-app fields. For local agents, set `local.cwd`
+at most once (normally let tny inject it), multi-root `dirs`, setting sources,
+sandbox/review, store, and custom-tool metadata. HTTP MCP authentication and
+environment maps may contain secrets; settings.json is mode 0600, but
+environment/host-managed credentials remain preferable and no secret is ever
+printed.
+
+Store type `custom` requires `callbacks.store:true`. `--ephemeral` strips a
+persistent agent store and does not launch the custom-store callback. Custom
+host tools are local-only; sensitive callbacks require yolo mode because
+Cursor supplies no interactive approval round trip.
+
 ## Named OpenAI-compatible providers
 
 Any top-level object with `base_url` defines a named OpenAI-compatible

@@ -47,6 +47,7 @@
       "description": "Legacy alias for last_provider."
     },
     "openai": { "$ref": "#/$defs/openAIProfile" },
+    "cursor": { "$ref": "#/$defs/cursorProfile" },
     "acp": {
       "type": "object",
       "description": "Named ACP agents. Select one with --provider acp@NAME.",
@@ -77,7 +78,7 @@
     }
   },
   "patternProperties": {
-    "^(?!\\$schema$|provider$|model$|models$|effort$|fast$|permission_mode$|last_provider$|last_backend$|openai$|acp$|extensions$|permission$|workspaces$|web_search_url$)[A-Za-z0-9_-]+$": {
+    "^(?!\\$schema$|provider$|model$|models$|effort$|fast$|permission_mode$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_url$)[A-Za-z0-9_-]+$": {
       "$ref": "#/$defs/openAIProfile",
       "description": "Named OpenAI-compatible provider profile."
     }
@@ -107,6 +108,234 @@
         { "type": "boolean" },
         { "enum": ["fast", "priority", "default", "off"] }
       ]
+    },
+    "cursorProfile": {
+      "type": "object",
+      "description": "Cursor SDK Bridge v1 options. Values use protojson camelCase; tny injects the API key, selected model, workspace roots, streaming deltas, and registered custom tools.",
+      "properties": {
+        "runtime": { "enum": ["auto", "local", "cloud"], "default": "auto" },
+        "state_root": { "type": "string", "minLength": 1, "description": "Optional bridge --state-root." },
+        "local_store": { "$ref": "#/$defs/cursorStore" },
+        "callbacks": {
+          "type": "object",
+          "properties": {
+            "custom_tools": { "type": "boolean", "default": true },
+            "store": { "type": "boolean", "default": true }
+          },
+          "additionalProperties": false
+        },
+        "agent_options": { "$ref": "#/$defs/cursorAgentOptions" },
+        "send_options": { "$ref": "#/$defs/cursorSendOptions" }
+      },
+      "additionalProperties": false
+    },
+    "cursorMode": {
+      "oneOf": [
+        { "enum": ["AGENT_MODE_OPTION_UNSPECIFIED", "AGENT_MODE_OPTION_AGENT", "AGENT_MODE_OPTION_PLAN"] },
+        { "type": "integer", "minimum": 0, "maximum": 2 }
+      ]
+    },
+    "cursorModel": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "params": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": { "id": { "type": "string" }, "value": { "type": "string" } },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "cursorStore": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": { "type": { "enum": ["sqlite", "custom"] } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "rootDir"],
+          "properties": {
+            "type": { "const": "jsonl" },
+            "rootDir": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "cursorCustomTool": {
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+    "cursorMcpServer": {
+      "type": "object",
+      "properties": {
+        "stdio": {
+          "type": "object",
+          "properties": {
+            "command": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "cwd": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "http": {
+          "type": "object",
+          "properties": {
+            "type": { "enum": ["HTTP_MCP_TRANSPORT_TYPE_UNSPECIFIED", "HTTP_MCP_TRANSPORT_TYPE_HTTP", "HTTP_MCP_TRANSPORT_TYPE_SSE", 0, 1, 2] },
+            "url": { "type": "string" },
+            "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+            "auth": {
+              "type": "object",
+              "properties": {
+                "clientId": { "type": "string" },
+                "clientSecret": { "type": "string" },
+                "scopes": { "type": "array", "items": { "type": "string" } }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "oneOf": [{ "required": ["stdio"] }, { "required": ["http"] }],
+      "additionalProperties": false
+    },
+    "cursorAgentDefinition": {
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "prompt": { "type": "string" },
+        "model": { "$ref": "#/$defs/cursorModel" },
+        "inheritModel": { "type": "boolean" },
+        "mcpServers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "inlineConfig": { "$ref": "#/$defs/cursorMcpServer" }
+            },
+            "oneOf": [{ "required": ["name"] }, { "required": ["inlineConfig"] }],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "cursorLocalAgentOptions": {
+      "type": "object",
+      "properties": {
+        "cwd": { "type": "array", "maxItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "settingSources": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "enum": ["SETTING_SOURCE_UNSPECIFIED", "SETTING_SOURCE_PROJECT", "SETTING_SOURCE_USER", "SETTING_SOURCE_TEAM", "SETTING_SOURCE_MDM", "SETTING_SOURCE_PLUGINS", "SETTING_SOURCE_ALL"] },
+              { "type": "integer", "minimum": 0, "maximum": 6 }
+            ]
+          }
+        },
+        "sandboxOptions": {
+          "type": "object",
+          "properties": { "enabled": { "type": "boolean" } },
+          "additionalProperties": false
+        },
+        "store": { "$ref": "#/$defs/cursorStore" },
+        "autoReview": { "type": "boolean" },
+        "customTools": { "type": "object", "additionalProperties": { "$ref": "#/$defs/cursorCustomTool" } },
+        "dirs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": false
+    },
+    "cursorCloudAgentOptions": {
+      "type": "object",
+      "properties": {
+        "env": {
+          "type": "object",
+          "properties": {
+            "type": { "enum": ["CLOUD_ENVIRONMENT_TYPE_UNSPECIFIED", "CLOUD_ENVIRONMENT_TYPE_CLOUD", "CLOUD_ENVIRONMENT_TYPE_POOL", "CLOUD_ENVIRONMENT_TYPE_MACHINE", 0, 1, 2, 3] },
+            "name": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "repos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "url": { "type": "string" },
+              "startingRef": { "type": "string" },
+              "prUrl": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "workOnCurrentBranch": { "type": "boolean" },
+        "autoCreatePr": { "type": "boolean" },
+        "skipReviewerRequest": { "type": "boolean" },
+        "envVars": { "type": "object", "additionalProperties": { "type": "string" } },
+        "metadata": { "type": "object", "additionalProperties": { "type": "string" } },
+        "openAsCursorGithubApp": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "cursorAgentOptions": {
+      "type": "object",
+      "properties": {
+        "model": { "$ref": "#/$defs/cursorModel" },
+        "apiKey": { "type": "string", "description": "Ignored and replaced by CURSOR_API_KEY at runtime." },
+        "name": { "type": "string" },
+        "local": { "$ref": "#/$defs/cursorLocalAgentOptions" },
+        "cloud": { "$ref": "#/$defs/cursorCloudAgentOptions" },
+        "mcpServers": { "type": "object", "additionalProperties": { "$ref": "#/$defs/cursorMcpServer" } },
+        "agents": { "type": "object", "additionalProperties": { "$ref": "#/$defs/cursorAgentDefinition" } },
+        "agentId": { "type": "string" },
+        "mode": { "$ref": "#/$defs/cursorMode" },
+        "tools": {
+          "type": "object",
+          "required": ["names"],
+          "properties": { "names": { "type": "array", "items": { "type": "string" } } },
+          "additionalProperties": false
+        },
+        "disallowedTools": { "type": "array", "items": { "type": "string" } }
+      },
+      "not": { "required": ["local", "cloud"] },
+      "additionalProperties": true
+    },
+    "cursorSendOptions": {
+      "type": "object",
+      "properties": {
+        "model": { "$ref": "#/$defs/cursorModel" },
+        "mcpServers": { "type": "object", "additionalProperties": { "$ref": "#/$defs/cursorMcpServer" } },
+        "local": {
+          "type": "object",
+          "properties": { "force": { "type": "boolean" } },
+          "additionalProperties": false
+        },
+        "enableDeltas": { "type": "boolean", "description": "Forced true for interactive streaming." },
+        "enableSteps": { "type": "boolean" },
+        "mode": { "$ref": "#/$defs/cursorMode" },
+        "cloud": {
+          "type": "object",
+          "properties": { "envVars": { "type": "object", "additionalProperties": { "type": "string" } } },
+          "additionalProperties": false
+        }
+      },
+      "not": { "required": ["local", "cloud"] },
+      "additionalProperties": true
     },
     "openAIProfile": {
       "type": "object",

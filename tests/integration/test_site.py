@@ -24,6 +24,8 @@ def main() -> None:
     core = (SITE / "assets" / "term-core.js").read_text(encoding="utf-8")
     wasm_boot = (SITE / "assets" / "term-wasm.js").read_text(encoding="utf-8")
     workflows = (SITE / "docs" / "workflows.html").read_text(encoding="utf-8")
+    size_page = (SITE / "docs" / "size.html").read_text(encoding="utf-8")
+    llms = (SITE / "llms.txt").read_text(encoding="utf-8")
 
     for needle in (
         'id="tny-term"',
@@ -41,6 +43,15 @@ def main() -> None:
 
     if "assets/term.js" in html:
         fail("index.html still loads the deleted JS agent loop (docs/adr/0017)")
+
+    for needle in ("<span>v0.3.0</span>", "<span>0.68mib</span>"):
+        if needle not in html:
+            fail(f"release metadata missing from index.html: {needle!r}")
+    if "715,744 B (0.68 MiB)" not in size_page:
+        fail("size page does not identify the measured v0.3.0 binary")
+    for needle in ("Version: 0.3.0", "715,744 bytes (~0.68 MiB)"):
+        if needle not in llms:
+            fail(f"llms.txt release metadata missing {needle!r}")
 
     if 'role="img"' in html:
         fail("landing terminal is still a static role=img mock")

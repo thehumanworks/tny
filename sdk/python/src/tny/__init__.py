@@ -56,6 +56,7 @@ from .events import __all__ as _event_all
 from .runtime import CancellationToken as CancellationToken
 from .runtime import PermissionDecision as PermissionDecision
 from .runtime import PermissionMode as PermissionMode
+from .runtime import ProviderName as ProviderName
 from .runtime import Runtime as Runtime
 from .runtime import RuntimeConfig as RuntimeConfig
 from .runtime import Session as Session
@@ -106,6 +107,7 @@ __all__ = (
     "PermissionHandler",
     "PermissionMode",
     "ProtocolError",
+    "ProviderName",
     "Runtime",
     "RuntimeConfig",
     "TaskPreset",

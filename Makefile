@@ -120,9 +120,9 @@ SRC_ALL := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c
 # hand-rolled HTTP/1.1 + wslay WebSocket) and the poll(2) wrapper are excluded
 # from the wasm build wholesale rather than #ifdef-riddled; src/net/net_wasm.c
 # replaces the whole seam there (fetch, browser WebSocket, pseudo-fd registry).
-SRC_NATIVE := src/net/tcp.c src/net/stream.c src/net/http1.c src/net/ws.c \
-              src/util/tny_poll.c
-SRC_WASM_ONLY := src/net/net_wasm.c
+SRC_NATIVE := src/net/tcp.c src/net/stream.c src/net/http1.c src/net/http_server.c src/net/ws.c \
+              src/util/tny_poll.c src/backends/cursor/callbacks.c
+SRC_WASM_ONLY := src/net/net_wasm.c src/backends/cursor/callbacks_wasm.c
 SRC_SHARED := $(filter-out $(SRC_NATIVE) $(SRC_WASM_ONLY),$(SRC_ALL))
 SRC := $(SRC_SHARED) $(SRC_NATIVE)
 
@@ -260,7 +260,7 @@ else
   SIZE_MAX ?= 1572864
 endif
 
-.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
+.PHONY: all release debug test test-unit test-event-schema test-conformance-contract check-cursor-sdk-contract test-cursor-sdk-contract test-extensions-python test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
 all: release
 
@@ -429,6 +429,13 @@ test-conformance-contract:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 		-s tests/conformance -p 'test_*.py' -v
 
+check-cursor-sdk-contract:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_cursor_sdk_v1.py
+
+test-cursor-sdk-contract: check-cursor-sdk-contract
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+		tests.integration.test_cursor_sdk_contract -v
+
 test-extensions-python:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/extensions -p 'test_*.py' -v
 
@@ -557,7 +564,7 @@ test-libtny-tsan:
 	@exit 2
 endif
 
-test: test-unit test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags release
+test: test-unit test-event-schema test-conformance-contract test-cursor-sdk-contract test-extensions-python test-install-prefix test-help-flags release
 	@if [ -x tests/integration/run.sh ]; then tests/integration/run.sh; fi
 
 size: release
@@ -718,7 +725,7 @@ else
   QUALITY_ANALYZE :=
 endif
 
-quality: format-check tidy warn-strict lint-py lint-sh lint-workflows lint-js $(QUALITY_ANALYZE)
+quality: check-cursor-sdk-contract format-check tidy warn-strict lint-py lint-sh lint-workflows lint-js $(QUALITY_ANALYZE)
 	@if [ -z "$(QUALITY_ANALYZE)" ]; then \
 		echo "quality: GCC -fanalyzer skipped on $(UNAME_S); CI runs it on Linux"; \
 	fi

@@ -77,9 +77,17 @@ test("known and unknown native events match the canonical schema", () => {
   });
 });
 
-test("rejects unsupported provider and send_ex features precisely", async () => {
+test("accepts Cursor in the SDK surface and rejects unsupported providers precisely", async () => {
+  const options = paths();
+  const cursor = await Runtime.create({ ...options, provider: "cursor",
+    stateDir: options.workspace, model: "cursor-model", apiKey: "test-key-not-real" });
+  assert.equal(cursor.capabilities.providerSelected, 2);
+  assert.equal(cursor.capabilities.providerInitialized, false);
+  assert.equal(cursor.capabilities.providerAvailableMask & 3n, 3n);
+  assert.equal(cursor.capabilities.transport, "sdk.v1-connect-http1");
+  await cursor.close();
   await assert.rejects(
-    Runtime.create({ ...paths(), provider: "cursor" }),
+    Runtime.create({ ...paths(), provider: "codex" }),
     (error) => error instanceof UnsupportedFeatureError && error.status === -9,
   );
   const runtime = await Runtime.create({

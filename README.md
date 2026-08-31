@@ -57,11 +57,12 @@ usage/turn-end) rendered by the same TUI and CLI. See
 tny exists to beat [vercel-labs/fx](https://github.com/vercel-labs/fx) on size
 and startup while keeping its Unix-shell feature set. Measured against the real
 fx v0.0.3 binary, macOS arm64, hyperfine, same machine (fx 2026-08-19,
-tny 2026-08-20):
+tny 2026-08-20). The binary-size row is refreshed for v0.3.0; startup and RSS
+rows retain that historical v0.1.0 bake-off until they are remeasured:
 
-| Metric | fx 0.0.3 | tny 0.1.0 | Result |
+| Metric | fx 0.0.3 | tny | Result |
 | --- | --- | --- | --- |
-| Stripped binary | 6,748,416 B (6.4 MiB) | **426,792 B (0.41 MiB)** | 15.8× smaller |
+| Stripped binary | 6,748,416 B (6.4 MiB) | **715,744 B (0.68 MiB)** | 9.4× smaller |
 | `tny --version` | 2.2 ms ± 0.3 | **1.7 ms ± 0.2** | 1.3× faster |
 | Max RSS (`--version`) | 3.0 MiB | **2.1 MiB** | 1.4× less memory |
 | TUI first prompt | — | 3.3–4.3 ms | budget < 10 ms |

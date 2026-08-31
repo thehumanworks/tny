@@ -6,7 +6,7 @@ Pick a backend per process with `--backend` or `settings.json`. Switching mid-se
 
 | Backend | Transport | Auth | Tools | Sessions |
 | --- | --- | --- | --- | --- |
-| `cursor` | Spawn/attach `cursor-sdk-bridge`, Connect HTTP/1.1 `sdk.v1` | `CURSOR_API_KEY` on env **and** RPC options; bridge bearer from ready-line | Cursor runtime | Bridge local store / cloud IDs |
+| `cursor` | Spawn `cursor-sdk-bridge` v1.0.30, Connect HTTP/1.1 `sdk.v1` | `CURSOR_API_KEY` on env **and** RPC options; bridge/callback bearers stay loopback-private | Cursor runtime for built-ins; tny only for registered custom callbacks | Bridge SQLite/JSONL, tny custom store, or cloud IDs/runs |
 | `codex` | WebSocket (`ws://`, `wss://`, `unix://`) to `codex app-server` | Codex CLI login + optional WS bearer | Codex core | Codex threads |
 | `acp` | Spawn agent, JSON-RPC 2.0 JSONL stdio | Agent's `auth/login` or pre-auth | Agent | `session/new` / `resume` |
 | `openai` | HTTPS `POST /v1/responses` SSE (`/v1/chat/completions` via `wire_api:"chat"`, [ADR 0016](../adr/0016-responses-api-default-wire.md)) | Bearer or custom header | **tny** | `~/.tny/sessions` |
@@ -24,6 +24,12 @@ Pick a backend per process with `--backend` or `settings.json`. Switching mid-se
 
 Cursor also speaks ACP (`agent acp`). Support that only as a generic ACP agent, not as the Cursor backend. The product requirement is the **SDK bridge**.
 
+Cursor's complete public bridge surface is available through conversational
+CLI/TUI/libtny runtimes and `tny cursor` management. The latter covers catalog,
+agent/run lifecycle, messages, artifacts/download, usage, and a safe raw
+27-route escape hatch. It does not expose the two reverse callback RPCs as
+outbound calls.
+
 ## wasm behavior ([ADR 0017](../adr/0017-wasm-browser-parity.md))
 
 Every backend states what it does in the wasm build; a new backend must add
@@ -34,7 +40,7 @@ its row here and its behavior is enforced by the wasm CI suites.
 | `openai` | ✓ works | both wires over `fetch()` |
 | `codex` | ✓ attach-only | `--codex-ws` over WebSocket; no spawn. Browser callers cannot send a bearer (no `Authorization` on browser WebSockets) and always send `Origin` — loopback, token-less hosts only |
 | `acp` | ✓ remote-only | `--agent ws://…` (below); no spawn |
-| `cursor` | ✗ clean error | needs a spawned local bridge |
+| `cursor` | ✗ clean error | conversations report `cursor: conversational sdk.v1 bridge is unavailable in WebAssembly`; management reports `cursor: sdk.v1 management is unavailable in WebAssembly`; callback listeners are native-only |
 
 ## Shared client contract
 

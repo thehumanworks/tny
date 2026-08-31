@@ -87,7 +87,7 @@ export interface RuntimeOptions {
   workspace: string;
   /** Required iff persistence is true. */
   stateDir?: string;
-  provider?: "openai";
+  provider?: "openai" | "cursor";
   model?: string;
   baseUrl?: string;
   apiKey?: string;

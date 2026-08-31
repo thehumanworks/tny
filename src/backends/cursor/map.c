@@ -16,6 +16,79 @@
 
 #define DETAIL_MAX 200
 
+static uint64_t frame_hash(const char *payload, size_t len) {
+    uint64_t h = UINT64_C(1469598103934665603);
+    for (size_t i = 0; i < len; i++) {
+        h ^= (unsigned char)payload[i];
+        h *= UINT64_C(1099511628211);
+    }
+    return h ? h : 1;
+}
+
+bool cu_accept_frame(cu_impl *o, const char *payload, size_t len) {
+    if (!o || o->stream_kind == CU_STREAM_NONE) return true;
+    yyjson_doc *doc = jparse(payload, len);
+    yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+    if (!yyjson_is_obj(root)) {
+        yyjson_doc_free(doc);
+        return true; /* keepalive or malformed frame: not part of durable replay */
+    }
+    const char *offset = jget_str(root, "offset");
+    uint64_t hash = frame_hash(payload, len);
+    /* Send may omit offsets while ObserveRun attaches one to the identical
+     * durable envelope. Hash the semantic object without that transport
+     * cursor so recovery cannot duplicate already rendered output. */
+    if (yyjson_is_obj(root)) {
+        yyjson_mut_doc *normalized = yyjson_doc_mut_copy(doc, jallocator());
+        if (normalized) {
+            yyjson_mut_obj_remove_key(yyjson_mut_doc_get_root(normalized), "offset");
+            char *json = jwrite(normalized);
+            if (json) {
+                hash = frame_hash(json, strlen(json));
+                free(json);
+            }
+            yyjson_mut_doc_free(normalized);
+        }
+    }
+
+    if (o->stream_kind == CU_STREAM_SEND) {
+        if (o->send_hash_count == o->send_hash_capacity) {
+            size_t next_capacity = o->send_hash_capacity ? o->send_hash_capacity * 2 : 64;
+            uint64_t *next = realloc(o->send_hashes, next_capacity * sizeof *next);
+            if (next) {
+                o->send_hashes = next;
+                o->send_hash_capacity = next_capacity;
+            }
+        }
+        if (o->send_hash_count < o->send_hash_capacity) o->send_hashes[o->send_hash_count++] = hash;
+        yyjson_doc_free(doc);
+        return true;
+    }
+
+    bool repeated_offset = offset && o->observe_offset && strcmp(offset, o->observe_offset) == 0;
+    if (offset && *offset) {
+        free(o->observe_offset);
+        o->observe_offset = xstrdup(offset);
+    }
+    if (repeated_offset) {
+        yyjson_doc_free(doc);
+        return false;
+    }
+    if (o->observe_replay) {
+        size_t match = o->replay_index;
+        while (match < o->send_hash_count && o->send_hashes[match] != hash) match++;
+        if (match < o->send_hash_count) {
+            o->replay_index = match + 1;
+            if (o->replay_index == o->send_hash_count) o->observe_replay = false;
+            yyjson_doc_free(doc);
+            return false;
+        }
+        o->observe_replay = false;
+    }
+    yyjson_doc_free(doc);
+    return true;
+}
+
 static const char *str2(yyjson_val *v, const char *a, const char *b) {
     const char *s = jget_str(v, a);
     return s ? s : jget_str(v, b);
@@ -90,6 +163,8 @@ static int64_t tok_count(yyjson_val *u, const char *key, int64_t dflt) {
 
 static void take_usage(cu_impl *o, yyjson_val *u) {
     if (!u || !yyjson_is_obj(u)) return;
+    yyjson_val *nested_usage = jget(u, "usage");
+    if (yyjson_is_obj(nested_usage) && nested_usage != u) take_usage(o, nested_usage);
     int64_t in =
         tok_count(u, "inputTokens",
                   tok_count(u, "input_tokens",
@@ -100,6 +175,18 @@ static void take_usage(cu_impl *o, yyjson_val *u) {
                   tok_count(u, "completionTokens", tok_count(u, "completion_tokens", -1))));
     if (in >= 0) o->in_tok = in;
     if (out >= 0) o->out_tok = out;
+    yyjson_val *cost = jget(u, "cost");
+    if (yyjson_is_obj(cost)) {
+        yyjson_val *charged = jget(cost, "chargedCents");
+        if (!charged) charged = jget(cost, "charged_cents");
+        yyjson_val *raw = jget(cost, "rawCostCents");
+        if (!raw) raw = jget(cost, "raw_cost_cents");
+        yyjson_val *chosen = yyjson_is_num(charged) ? charged : raw;
+        if (yyjson_is_num(chosen)) {
+            o->cost = yyjson_get_num(chosen) / 100.0;
+            o->has_cost = true;
+        }
+    }
 }
 
 /* "readToolCall" / "shell_tool_call" -> "read" / "shell". NULL when the key
@@ -257,10 +344,21 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
 
     const char *rid = str2(v, "runId", "run_id");
     if (rid && *rid && !o->run_id) o->run_id = xstrdup(rid);
-    take_usage(o, jget(v, "usage"));
+    take_usage(o, v);
 
     const char *type = jget_str(v, "type");
     if (!type) type = "";
+
+    /* InteractionUpdate and ConversationStep carry their discriminator next
+     * to a Struct rather than inside it. Preserve that type while mapping the
+     * structured payload, including future additions we do not recognize. */
+    yyjson_val *typed = jget(v, "update");
+    if (!typed) typed = jget(v, "step");
+    if (*type && yyjson_is_obj(typed)) {
+        const char *inner_type = jget_str(typed, "type");
+        v = typed;
+        if (inner_type && *inner_type) type = inner_type;
+    }
 
     /* SdkMessage is `type` + a Struct payload in `message`
      * (sdk_messages.proto): the payload is the real SDK event, which may
@@ -275,7 +373,7 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
             v = inner;
             rid = str2(v, "runId", "run_id");
             if (rid && *rid && !o->run_id) o->run_id = xstrdup(rid);
-            take_usage(o, jget(v, "usage"));
+            take_usage(o, v);
         }
     }
 
@@ -288,6 +386,11 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
         buf_init(&t);
         collect_text(v, &t, 0);
         if (t.len) {
+            if (o->text_source != CU_TEXT_NONE && o->text_source != o->mapping_source) {
+                buf_free(&t);
+                return;
+            }
+            if (o->text_source == CU_TEXT_NONE) o->text_source = o->mapping_source;
             o->got_text = true;
             tny_backend_event ev = {0};
             ev.kind = TNY_EV_TEXT_DELTA;
@@ -376,11 +479,22 @@ static void handle_result(cu_impl *o, yyjson_val *r) {
      * usage in `usage` (sdk_messages.proto). */
     yyjson_val *rr = jget(r, "result");
     if (!yyjson_is_obj(rr)) rr = NULL;
-    take_usage(o, jget(r, "usage"));
-    if (rr) take_usage(o, jget(rr, "usage"));
+    take_usage(o, r);
+    if (rr) take_usage(o, rr);
     const char *sub = jget_str(r, "subtype");
     const char *st = jget_str(r, "status"); /* RunLifecycleStatus enum name */
+    if ((!st || !*st) && rr) st = jget_str(rr, "status");
+    const char *rid = str2(r, "runId", "run_id");
+    if ((!rid || !*rid) && rr) rid = str2(rr, "runId", "run_id");
+    if (rid && *rid && (!o->run_id || strcmp(o->run_id, rid) != 0)) {
+        free(o->run_id);
+        o->run_id = xstrdup(rid);
+    }
     const char *code = str2(r, "errorCode", "error_code");
+    bool cancelled = st && (strstr(st, "CANCELLED") || strcmp(st, "cancelled") == 0);
+    bool pending = st && (strstr(st, "CREATING") || strstr(st, "RUNNING") ||
+                          strcmp(st, "creating") == 0 || strcmp(st, "running") == 0);
+    bool finished = !st || !*st || strstr(st, "FINISHED") || strcmp(st, "finished") == 0;
     bool bad = (code && *code) || jget_bool(r, "isError", false) ||
                jget_bool(r, "is_error", false) || jget(r, "error") != NULL ||
                (sub && str_starts(sub, "error")) ||
@@ -401,6 +515,16 @@ static void handle_result(cu_impl *o, yyjson_val *r) {
         }
         buf_free(&t);
     }
+    if (pending) return;
+    if (!finished && !cancelled && !bad) {
+        buf_t unknown;
+        buf_init(&unknown);
+        buf_appendf(&unknown, "cursor run ended with unknown status %s", st ? st : "?");
+        cu_emit_text(o, TNY_EV_ERROR, unknown.data, unknown.len);
+        buf_free(&unknown);
+        cu_end_turn(o, TNY_STOP_ERROR);
+        return;
+    }
     if (bad || o->saw_error) {
         buf_t m;
         buf_init(&m);
@@ -413,7 +537,8 @@ static void handle_result(cu_impl *o, yyjson_val *r) {
         cu_end_turn(o, TNY_STOP_ERROR);
         return;
     }
-    cu_end_turn(o, TNY_STOP_DONE);
+    o->saw_terminal_result = true;
+    cu_end_turn(o, cancelled ? TNY_STOP_INTERRUPTED : TNY_STOP_DONE);
 }
 
 /* EndStreamResponse: JSON with an optional "error". */
@@ -441,6 +566,7 @@ void cu_on_frame(uint8_t flags, const char *payload, size_t len, void *ud) {
         return;
     }
     if (o->ended) return;
+    if (!cu_accept_frame(o, payload, len)) return;
 
     yyjson_doc *doc = jparse(payload, len);
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
@@ -451,7 +577,10 @@ void cu_on_frame(uint8_t flags, const char *payload, size_t len, void *ud) {
 
     yyjson_val *sm = jget(root, "sdkMessage");
     if (!sm) sm = jget(root, "sdk_message");
-    if (sm) handle_sdk(o, sm, 0);
+    if (sm) {
+        o->mapping_source = CU_TEXT_SDK;
+        handle_sdk(o, sm, 0);
+    }
 
     /* enableDeltas exposes the SDK's lower-level InteractionUpdate union.
      * It is another typed Struct: route recognized text/thinking/tool/status
@@ -459,14 +588,22 @@ void cu_on_frame(uint8_t flags, const char *payload, size_t len, void *ud) {
     yyjson_val *interaction = jget(root, "interactionUpdate");
     if (!interaction) interaction = jget(root, "interaction_update");
     if (interaction) {
-        yyjson_val *update = jget(interaction, "update");
-        handle_sdk(o, update ? update : interaction, 0);
+        o->mapping_source = CU_TEXT_INTERACTION;
+        handle_sdk(o, interaction, 0);
+    }
+
+    yyjson_val *step = jget(root, "step");
+    if (step) {
+        const char *type = jget_str(step, "type");
+        /* Completed assistant steps restate text already delivered through
+         * sdkMessage/interaction deltas. Keep them as a fallback only. */
+        o->mapping_source = CU_TEXT_STEP;
+        if (!o->got_text || !type || strcmp(type, "assistant") != 0) handle_sdk(o, step, 0);
     }
 
     yyjson_val *res = jget(root, "result");
     if (res && yyjson_is_obj(res)) handle_result(o, res);
-    else if (jget(root, "done") && !o->ended)
-        cu_end_turn(o, o->saw_error ? TNY_STOP_ERROR : TNY_STOP_DONE);
+    else if (jget(root, "done") && !o->ended) o->saw_done = true;
 
     yyjson_doc_free(doc);
 }

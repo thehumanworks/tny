@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +12,9 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(packageRoot, "../..");
 const mockScript = join(repoRoot, "tests/integration/mock_openai.py");
 const STEER_TEXT = "tny-conformance-steer-rejected-v1";
+const configuredSteerTimeout = Number(process.env.TNY_CONFORMANCE_STEER_TIMEOUT ?? 30);
+const STEER_READY_TIMEOUT_MS = Number.isFinite(configuredSteerTimeout) &&
+  configuredSteerTimeout > 0 ? configuredSteerTimeout * 1000 : 30_000;
 const observed = {};
 
 function normalized(event) {
@@ -26,32 +28,51 @@ function normalized(event) {
   };
 }
 
-async function freePort() {
-  return await new Promise((resolvePort, reject) => {
-    const server = createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const { port } = server.address();
-      server.close(() => resolvePort(port));
-    });
-  });
-}
-
 async function withMock(env, fn) {
-  const port = await freePort();
-  const child = spawn(process.env.PYTHON || "python3", [mockScript, String(port)], {
+  const child = spawn(process.env.PYTHON || "python3", [mockScript, "0"], {
     env: { ...process.env, MOCK_EXPECT_WIRE: "responses", ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stderr = "";
   child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
-  await new Promise((resolveReady, reject) => {
+  const port = await new Promise((resolveReady, reject) => {
+    let stdout = "";
+    const cleanup = () => {
+      child.stdout.off("data", onData);
+      child.off("error", onError);
+      child.off("exit", onExit);
+    };
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = (code) => {
+      cleanup();
+      reject(new Error(`mock exited ${code}: ${stderr}`));
+    };
+    const onData = (chunk) => {
+      stdout += chunk;
+      const match = /^ready on ([1-9]\d*)\r?$/m.exec(stdout);
+      if (!match) {
+        if (stdout.length > 4096) {
+          cleanup();
+          reject(new Error("mock readiness output exceeded 4096 bytes"));
+        }
+        return;
+      }
+      const actualPort = Number(match[1]);
+      if (!Number.isInteger(actualPort) || actualPort > 65535) {
+        cleanup();
+        reject(new Error(`mock reported invalid port: ${match[1]}`));
+        return;
+      }
+      cleanup();
+      resolveReady(actualPort);
+    };
     child.stdout.setEncoding("utf8");
-    child.stdout.once("data", (chunk) => {
-      if (chunk.includes("ready")) resolveReady();
-      else reject(new Error(`mock did not become ready: ${chunk}`));
-    });
-    child.once("exit", (code) => reject(new Error(`mock exited ${code}: ${stderr}`)));
+    child.stdout.on("data", onData);
+    child.once("error", onError);
+    child.once("exit", onExit);
   });
   try {
     return await fn(`http://127.0.0.1:${port}/v1`);
@@ -76,6 +97,22 @@ async function create(baseUrl, options = {}) {
     apiKey: "test-key-not-real",
     ...options,
   });
+}
+
+async function steerWhenActive(session, text) {
+  const deadline = Date.now() + STEER_READY_TIMEOUT_MS;
+  for (;;) {
+    try {
+      await session.steer(text);
+      return;
+    } catch (error) {
+      if (!(error instanceof TnyError) || error.status !== -2) throw error;
+      if (Date.now() >= deadline) {
+        throw new Error("turn did not become steerable before the test deadline");
+      }
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 1));
+    }
+  }
 }
 
 await withMock({}, async (baseUrl) => {
@@ -233,8 +270,7 @@ await withMock({ MOCK_SLOW_MS: "5000" }, async (baseUrl) => {
   const sessionId = session.id;
   const iterator = session.run("steer then cancel");
   let pending = iterator.next();
-  await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
-  await session.steer(STEER_TEXT);
+  await steerWhenActive(session, STEER_TEXT);
   await session.cancel();
   const interrupted = [];
   for (;;) {
@@ -329,7 +365,7 @@ await withMock({ MOCK_SLOW_MS: "200" }, async (baseUrl) => {
   const events = [];
   const iterator = session.run("cancel this turn", { signal: controller.signal });
   let pending = iterator.next();
-  await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+  await steerWhenActive(session, "queued-ready");
   const pressure = Array.from({ length: 5000 }, (_, index) =>
     session.steer(`queued-${index}`).catch((error) => error));
   controller.abort();

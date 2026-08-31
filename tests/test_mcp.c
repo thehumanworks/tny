@@ -13,7 +13,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-static char m_home[512], m_ws[520], m_bin[520];
+static char m_home[512], m_ws[520], m_bin[sizeof m_home + sizeof "/fake-mcp.sh"];
 
 /* Fake MCP server: answers initialize / tools/list / tools/call in JSONL,
  * matching ids by counting id-bearing requests (tny numbers them 1..n per
@@ -40,7 +40,7 @@ static const char *FAKE_SERVER =
 
 /* Reads stdin forever, answers nothing, exits on EOF: a server that hangs
  * in its handshake without outliving the test process. */
-static const char *HUNG_SERVER = "#!/bin/sh\nexec cat >/dev/null\n";
+static const char *HUNG_SERVER = "#!/bin/sh\nwhile IFS= read -r line; do :; done\n";
 
 static void mcp_test_env(void) {
     if (m_home[0]) return;

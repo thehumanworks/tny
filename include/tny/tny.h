@@ -311,11 +311,11 @@ typedef struct {
     uint32_t max_steps;   /* 0 = unlimited; otherwise <= INT32_MAX */
     uint64_t max_tool_result_bytes;
     tny_bytes workspace; /* required existing directory */
-    tny_bytes state_dir; /* required iff persistence=1; not created when 0 */
-    tny_bytes provider;  /* empty or "openai" in ABI 0 */
-    tny_bytes model;     /* empty = provider default */
+    tny_bytes state_dir; /* required for Cursor or persistence=1 */
+    tny_bytes provider;  /* empty/"openai", or "cursor" */
+    tny_bytes model;     /* required for Cursor; otherwise provider default */
     tny_bytes base_url;  /* OpenAI-compatible provider only */
-    tny_bytes api_key;   /* copied; never persisted by libtny */
+    tny_bytes api_key;   /* required for Cursor; copied and never persisted */
     tny_bytes wire_api;  /* empty/responses or chat */
     uint64_t reserved[8];
 } tny_runtime_options_v0;
@@ -354,9 +354,13 @@ typedef struct {
     uint64_t reserved[8];
 } tny_runtime_options_v2;
 
-/* Public runtimes use a fixed 15-second native connection deadline. Destruction closes
- * an active OpenAI HTTP transport without waiting for provider completion.
- * Process-spawning tools are unavailable in public runtimes. */
+/* Public runtimes support OpenAI-compatible and Cursor sdk.v1 conversations.
+ * Cursor requires an external cursor-sdk-bridge selected by
+ * CURSOR_SDK_BRIDGE_BIN or PATH; provider-specific management and image input
+ * are not ABI-1 surfaces. Public runtimes use a fixed 15-second native
+ * connection deadline. Destruction closes the active provider transport
+ * without waiting for provider completion. Process-spawning tools are
+ * unavailable in public runtimes. */
 
 TNY_API uint32_t TNY_CALL tny_abi_version(void);
 TNY_API tny_bytes TNY_CALL tny_library_version(void);

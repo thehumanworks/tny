@@ -22,6 +22,7 @@ void help_root(void) {
           "  providers | backends   List configured providers and doctor hints\n"
           "  provider setup NAME    Add an OpenAI-compatible provider (interactive on a tty)\n"
           "  models                 List available models for the active provider\n"
+          "  cursor COMMAND         Cursor sdk.v1 catalog, agents, runs, artifacts, and raw RPCs\n"
           "  tasks                  List built-in and discovered task presets\n"
           "  task show NAME         Inspect one resolved task preset\n"
           "  permissions            Show the permission mode and rules\n"
@@ -241,6 +242,21 @@ static const char *resume_help =
     "  tny resume last\n"
     "  tny resume 4f2a1c90aa317b22\n";
 
+static const char *cursor_help =
+    "Usage: tny cursor COMMAND [ARGS]\n\n"
+    "Manage the complete Cursor SDK Bridge sdk.v1 surface. Catalog and lifecycle\n"
+    "aliases cover users, models, repositories, agents, runs, messages, artifacts,\n"
+    "and usage. `rpc SERVICE METHOD [JSON|-]` exposes every pinned outbound RPC;\n"
+    "DeleteAgent requires --yes. CURSOR_API_KEY and cursor-sdk-bridge are required.\n\n"
+    "Options:\n"
+    "  -h, --help              Show this help.\n\n"
+    "Examples:\n"
+    "  tny cursor me\n"
+    "  tny cursor agents\n"
+    "  tny cursor runs AGENT_ID\n"
+    "  tny cursor download AGENT_ID artifact/path > artifact.bin\n"
+    "  tny cursor rpc SdkAgentService GetRun '{\"runId\":\"run-…\"}'\n";
+
 bool help_for(const char *command) {
     const char *text = NULL;
     if (strcmp(command, "ask") == 0) text = ask_help;
@@ -253,6 +269,7 @@ bool help_for(const char *command) {
     else if (strcmp(command, "setup") == 0) text = setup_help;
     else if (strcmp(command, "doctor") == 0) text = doctor_help;
     else if (strcmp(command, "resume") == 0) text = resume_help;
+    else if (strcmp(command, "cursor") == 0) text = cursor_help;
     else if (strcmp(command, "status") == 0)
         text = "Usage: tny status [--json]\n\nShow provider, model, permissions, workspace, and "
                "session counts.\n";

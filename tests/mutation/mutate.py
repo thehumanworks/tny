@@ -351,6 +351,65 @@ TARGETS = [
         r"fast|tier",
         "tests/integration/test_cursor.sh",
     ),
+    # Complete public Cursor sdk.v1 support (ADR 0050): negotiated route
+    # gating, strict artifacts, callback/store ownership, recovery/cancel, and
+    # image/session bounds. Unit tests kill most mutants; the v1.0.30
+    # management fixture exercises the real bridge-launch and Connect paths.
+    (
+        "src/backends/cursor/sdk_client.c",
+        [
+            "cursor_sdk_version_parse",
+            "cursor_sdk_route_supported",
+            "validate_request",
+            "cursor_sdk_client_negotiate",
+        ],
+        r"protocol|capabil|route|json|timeout|sdk\.v1|return",
+        "tests/integration/test_cursor_management.py",
+        "cursor-sdk-v1",
+    ),
+    (
+        "src/cli/cmd_cursor.c",
+        ["cursor_cli_base64_decode_strict", "cursor_cli_artifact_frame"],
+        r"encoded|padding|decoded|output|artifact|flags|data|return",
+        "tests/integration/test_cursor_management.py",
+        "cursor-sdk-v1",
+    ),
+    (
+        "src/backends/cursor/callbacks.c",
+        [
+            "exact_path",
+            "callback_post",
+            "blocking_pump",
+            "cursor_callbacks_blocking_begin",
+            "cursor_callbacks_blocking_end",
+        ],
+        r"pending|blocking|store|TOOL_PATH|STORE_PATH|status|return|stop",
+        "tests/integration/test_cursor_management.py",
+        "cursor-sdk-v1",
+    ),
+    (
+        "src/backends/cursor/cursor.c",
+        [
+            "cu_ephemeral_root_remove",
+            "cu_append_images",
+            "runtime_name",
+            "parse_session_pointer",
+            "cu_start_observe",
+            "cu_send_cancel",
+            "cu_cancel",
+            "cu_poll_timeout",
+        ],
+        r"ephemeral|image|runtime|offset|observe|cancel|terminal|return|limit",
+        "tests/integration/test_cursor.sh",
+        "cursor-sdk-v1",
+    ),
+    (
+        "src/core/runtime.c",
+        ["tny_engine_next_event"],
+        r"poll_timeout|backend_timeout|remaining",
+        "tests/integration/test_libtny.py",
+        "cursor-sdk-v1",
+    ),
     # cursor SdkMessage envelope + tool_call union mapping (the opaque-tool
     # fix): the rewritten tool mapper whole, only the unwrap/result lines
     # inside the pre-existing handlers.
@@ -508,6 +567,21 @@ OPS = [
 # Sites where a mutant is *equivalent* (no observable behavior change) or
 # unobservable without heroics. Matched against "file:line-content".
 EQUIVALENT = [
+    # At exactly zero, cu_poll_timeout returns 0 through either branch; at
+    # exactly INT_MAX the capped and direct-cast results are both INT_MAX.
+    "cursor.c:if (remaining <= 0) return 0;",
+    "cursor.c:return remaining > INT_MAX ? INT_MAX : (int)remaining;",
+    # Assigning zero to an already-zero caller remainder and clamping an equal
+    # backend/caller remainder are exact no-ops. The backend_timeout >= 0 guard
+    # is on a separate line and remains mutated/tested (not allowlisted).
+    "runtime.c:if (remaining < 0) remaining = 0;",
+    "runtime.c:if (backend_timeout < remaining) remaining = backend_timeout;",
+    # cursor_sdk_version_parse zeroes the complete version struct before this
+    # scan, and empty capability names are rejected above it. Visiting the
+    # one-past, still-zeroed slot with <= therefore cannot match the current
+    # nonempty name. The increment lives on its own mutated/tested line so this
+    # annotation does not hide a broken duplicate scan.
+    "sdk_client.c:while (i < version->capability_count) {",
     # Equality waits one more monotonic tick with a zero-timeout poll; it can
     # add at most a sub-millisecond spin and cannot change timeout ordering.
     "runtime.c:if (engine_monotonic_ms(e) >= deadline)",

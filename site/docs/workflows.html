@@ -111,7 +111,7 @@ const result = await workflow.run();</code></pre>
 <p>Task failures remain values so independent work can finish. Call <code>raise_for_failure()</code> in Python or <code>raiseForFailure()</code> in TypeScript when the aggregate should throw.</p>
 <h2 id="safety">Safety and limits</h2>
 <p>Dependency output is untrusted model text. The envelope labels it as context but cannot eliminate prompt injection. Keep permissions least-privileged and use separate worktrees for parallel agents that write files.</p>
-<p>Direct dependency output is bounded to 1 MiB by default. Runs have no implicit retry, cache, distributed queue, or resume policy. The shell reaches every CLI provider; the native SDK currently reaches the OpenAI-compatible libtny backend.</p>
+<p>Direct dependency output is bounded to 1 MiB by default. Runs have no implicit retry, cache, distributed queue, or resume policy. The shell reaches every CLI provider; native SDK workflows can select OpenAI-compatible or Cursor sdk.v1 libtny runtimes. Cursor requires explicit state directory, API key, and model configuration plus an external bridge.</p>
 <p><a href="https://github.com/thehumanworks/tny/blob/main/docs/workflows.md">Read the complete workflow reference</a>.</p>
 </article>
     <aside class="toc"><p>on this page</p><a href="#shell">Bash and Zsh</a><a href="#semantics">Semantics</a><a href="#task-options">Task options</a><a href="#task-types">Task types</a><a href="#sdks">SDKs</a><a href="#safety">Safety</a></aside>

@@ -56,15 +56,16 @@
         +---------------+-----------+----------+---------------+
         v               v                      v               v
   cursor-bridge    codex-app-server        acp-client     openai-native
-  Connect sdk.v1   ws:// JSON-RPC          stdio JSON-RPC HTTP SSE + tools</code></pre>
+  Connect sdk.v1   ws:// JSON-RPC          stdio JSON-RPC HTTP SSE + tools
+  + callbacks</code></pre>
 <p>One tny process, one primary workspace. Host processes are children or attach targets. Always have a shutdown path: cancel turn → close stream → Shutdown/EOF → wait → kill. Drain host stderr on a dedicated reader — a full pipe stalls the bridge and most ACP agents.</p>
 <h2 id="loop">One event loop</h2>
-<p>POSIX <code>poll</code>/<code>kqueue</code> only. No libuv. The TUI pre-warm is the one deliberate extra thread: it runs <code>connect()</code> plus <code>create_or_resume()</code> and hands the backend back before any events flow.</p>
+<p>POSIX <code>poll</code>/<code>kqueue</code> only. No libuv. TUI pre-warm runs <code>connect()</code> plus <code>create_or_resume()</code> on one bounded thread and hands the backend back before events flow. Cursor's authenticated callback server normally shares the event loop; blocking Create/Resume may lend store traffic to one bounded pump thread, while owner-thread custom tools fail closed there.</p>
 <h2 id="state">Config and state</h2>
 <table>
   <thead><tr><th>Path</th><th>Contents</th></tr></thead>
   <tbody>
-    <tr><td><code>~/.tny/settings.json</code></td><td>Model, permission mode, UI, per-workspace overrides</td></tr>
+    <tr><td><code>~/.tny/settings.json</code></td><td>Model, permission mode, trusted Cursor local/cloud sdk.v1 options, UI, per-workspace overrides</td></tr>
     <tr><td><code>~/.tny/mcp.json</code></td><td>Trusted MCP servers only</td></tr>
     <tr><td><code>~/.tny/sessions/</code></td><td>Transcripts and recovery</td></tr>
     <tr><td><code>~/.tny/skills/</code></td><td>Managed skill installs</td></tr>
@@ -75,6 +76,7 @@
   </tbody>
 </table>
 <p>Credentials stay in the OS store or env vars. Not in project JSON. Never log tokens or ready-line JSON.</p>
+<p>Cursor versioned pointers retain <code>agent_id</code>, <code>run_id</code>, <code>after_offset</code>, and local/cloud runtime. The bridge owns built-in tools; tny owns only explicit custom-tool and optional custom-store callbacks. The supported v1.0.30 bridge remains external; no private <code>agent.v1</code> HTTP/2 protocol is embedded. wasm returns distinct clean unsupported errors for conversations and management before bridge/callback work.</p>
 <h2 id="lang">Language</h2>
 <p>C11, vendored .c files you can see in <code>nm</code>: yyjson, picohttpparser, wslay. ANSI TUI, not a widget kit. macOS TLS is Security.framework, <code>dlopen</code>'d at first use. Never static OpenSSL or libcurl.</p>
 </article>

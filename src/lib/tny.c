@@ -3,6 +3,7 @@
 
 #include "core/backend.h"
 #include "core/config.h"
+#include "core/cursor_config.h"
 #include "core/perm.h"
 #include "core/runtime.h"
 #include "core/session.h"
@@ -442,9 +443,14 @@ static int32_t runtime_create_full(const tny_runtime_options_v0 *o, tny_runtime 
 
     const char *selected = provider ? provider : "openai";
     int backend = tny_backend_from_name(selected);
-    if (backend != TNY_BK_OPENAI) {
+    if (backend != TNY_BK_OPENAI && backend != TNY_BK_CURSOR) {
         rc = failf(error, backend < 0 ? TNY_STATUS_INVALID_ARGUMENT : TNY_STATUS_UNSUPPORTED,
-                   "provider '%s' is not supported by ABI 0", selected);
+                   "provider '%s' is not supported by the public runtime", selected);
+        goto fail;
+    }
+    if (backend == TNY_BK_CURSOR && (!state_dir || !api_key || !model)) {
+        rc = failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                   "Cursor requires explicit state_dir, api_key, and model options");
         goto fail;
     }
     /* An ephemeral context still needs an internal absolute path base for its
@@ -483,6 +489,26 @@ static int32_t runtime_create_full(const tny_runtime_options_v0 *o, tny_runtime 
     ctx->max_steps = (int)o->max_steps;
     ctx->max_tool_result_bytes = (size_t)o->max_tool_result_bytes;
     ctx->mcp_disabled = true;
+    if (backend == TNY_BK_CURSOR) {
+        const char *bridge = getenv("CURSOR_SDK_BRIDGE_BIN");
+        if (bridge && *bridge) {
+            char *copy = xstrdup(bridge);
+            if (!copy) {
+                tny_ctx_free(ctx);
+                rc = failf(error, TNY_STATUS_OOM, "out of memory");
+                goto fail;
+            }
+            free(ctx->bridge_bin);
+            ctx->bridge_bin = copy;
+        }
+        free(ctx->cursor_config->state_root);
+        ctx->cursor_config->state_root = xstrdup(state_dir);
+        if (!ctx->cursor_config->state_root) {
+            tny_ctx_free(ctx);
+            rc = failf(error, TNY_STATUS_OOM, "out of memory");
+            goto fail;
+        }
+    }
 
     tny_runtime *runtime = calloc(1, sizeof *runtime);
     if (!runtime) {
@@ -773,13 +799,14 @@ static int32_t runtime_get_capabilities_full(const tny_runtime *runtime,
     capabilities_init_full(&full);
     full.schema_version = TNY_CAPABILITY_SCHEMA_VERSION;
     full.abi_version = TNY_ABI_VERSION;
-    full.provider_selected = TNY_PROVIDER_OPENAI;
+    full.provider_selected =
+        runtime->ctx->backend == TNY_BK_CURSOR ? TNY_PROVIDER_CURSOR : TNY_PROVIDER_OPENAI;
     full.provider_initialized =
         runtime->session && tny_engine_ready(runtime->session->engine) ? 1u : 0u;
     full.endpoint_reachability = runtime->endpoint_reachability;
     full.threading_model = TNY_THREADING_OWNER_THREAD;
     full.cancel_model = TNY_CANCEL_CROSS_THREAD_ASYNC_WAKE;
-    full.provider_available_mask = TNY_PROVIDER_MASK_OPENAI;
+    full.provider_available_mask = TNY_PROVIDER_MASK_OPENAI | TNY_PROVIDER_MASK_CURSOR;
     full.feature_available_mask =
         TNY_CAP_FEATURE_PERSISTENCE | TNY_CAP_FEATURE_CROSS_THREAD_CANCEL |
         TNY_CAP_FEATURE_HOST_SERVICES | TNY_CAP_FEATURE_CUSTOM_TOOLS | TNY_CAP_FEATURE_TASK_PRESETS;
@@ -790,7 +817,8 @@ static int32_t runtime_get_capabilities_full(const tny_runtime *runtime,
 #endif
     if (cap_tls_available()) {
         full.feature_available_mask |= TNY_CAP_FEATURE_TLS;
-        if (str_starts(runtime->ctx->base_url, "https://"))
+        if (runtime->ctx->backend == TNY_BK_OPENAI &&
+            str_starts(runtime->ctx->base_url, "https://"))
             full.feature_enabled_mask |= TNY_CAP_FEATURE_TLS;
     }
     if (!runtime->ctx->no_save) full.feature_enabled_mask |= TNY_CAP_FEATURE_PERSISTENCE;
@@ -807,7 +835,8 @@ static int32_t runtime_get_capabilities_full(const tny_runtime *runtime,
     full.library_version = tny_library_version();
     full.platform_family = cstr_bytes(cap_platform());
     full.architecture = cstr_bytes(cap_architecture());
-    full.transport = cstr_bytes("native-http1");
+    full.transport = cstr_bytes(runtime->ctx->backend == TNY_BK_CURSOR ? "sdk.v1-connect-http1"
+                                                                       : "native-http1");
     full.tls_implementation = cstr_bytes(cap_tls());
 #ifdef TNY_SHARED_LIBRARY_BUILD
     full.linkage = cstr_bytes("shared");
@@ -1167,7 +1196,8 @@ int32_t tny_session_send(tny_session *session, tny_bytes prompt, tny_error **err
     if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
     if (!tny_engine_ready(session->engine)) {
         char errbuf[512] = {0};
-        tny_backend *backend = tny_backend_openai_new(session->runtime->ctx);
+        tny_backend *backend = tny_backend_create((tny_backend_id)session->runtime->ctx->backend,
+                                                  session->runtime->ctx);
         if (!backend) {
             free(text);
             return scoped_status(failf(error, TNY_STATUS_OOM, "out of memory"), error);

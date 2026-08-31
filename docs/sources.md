@@ -1,6 +1,6 @@
 # Sources
 
-Fetched or rechecked 2026-08-25. Pin implementations to these pages and to a
+Fetched or rechecked 2026-08-31. Pin implementations to these pages and to a
 **release tag**, not `main`. Moving-main observations are labeled and are not
 release claims.
 
@@ -53,15 +53,16 @@ release claims.
 
 - https://cursor.com/docs/sdk/bridge
 - https://github.com/cursor/sdk-bridge
-- https://github.com/cursor/sdk-bridge/blob/main/docs/protocol.md
-- https://github.com/cursor/sdk-bridge/blob/main/docs/services.md
-- https://github.com/cursor/sdk-bridge/blob/main/docs/streaming.md
-- https://github.com/cursor/sdk-bridge/blob/main/docs/errors.md
-- https://github.com/cursor/sdk-bridge/blob/main/docs/smoke-test.md
-- https://github.com/cursor/sdk-bridge/releases/tag/v1.0.28
-- Pin: tag object `3c91b3a6cdf9a5fdeb2917816275fb2aedbf9cda`, commit `260a73d33f906abe9f4adfde486bbdeb133344b7`
-- https://github.com/cursor/sdk-bridge/blob/v1.0.28/proto/sdk/v1/sdk_messages.proto
-- https://github.com/cursor/sdk-bridge/blob/v1.0.28/docs/streaming.md
+- https://github.com/cursor/sdk-bridge/releases/tag/v1.0.30
+- Pin: tag object `026d21b23641ee488a6650ba850327b8a66ab1cd`, commit `8157597c625b5f642d3c4a1472d20c9c330a9d18`
+- Manifest SDK source commit: `a401fe7f346d4d3ba66fd596cc842b0ad5e5259c`
+- https://github.com/cursor/sdk-bridge/blob/v1.0.30/docs/protocol.md
+- https://github.com/cursor/sdk-bridge/blob/v1.0.30/docs/services.md
+- https://github.com/cursor/sdk-bridge/blob/v1.0.30/docs/streaming.md
+- https://github.com/cursor/sdk-bridge/blob/v1.0.30/docs/errors.md
+- https://github.com/cursor/sdk-bridge/blob/v1.0.30/docs/smoke-test.md
+- https://github.com/cursor/sdk-bridge/tree/v1.0.30/proto/sdk/v1
+- Vendored integrity/count manifest: `third_party/cursor-sdk-bridge/v1.0.30/contract.json` (5 services, 29 RPCs, 114 messages, 285 fields)
 - https://cursor.com/docs/sdk/typescript
 - https://cursor.com/docs/sdk/python
 - https://connectrpc.com/docs/protocol
