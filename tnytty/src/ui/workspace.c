@@ -258,7 +258,8 @@ int tt_workspace_save(const char *path, const tt_workspace *ws, char *err, size_
 static int trailing_byte(int fd) {
     unsigned char byte;
     ssize_t n;
-    do n = read(fd, &byte, 1); while (n < 0 && errno == EINTR);
+    do n = read(fd, &byte, 1);
+    while (n < 0 && errno == EINTR);
     if (n == 0) return 0;
     errno = EINVAL;
     return -1;

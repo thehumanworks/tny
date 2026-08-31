@@ -1003,9 +1003,8 @@ size_t vt_snapshot_size(const vt *t) {
     if (!t || t->cols < 1 || t->rows < 1) return 0;
     size_t cells = (size_t)t->cols * (size_t)t->rows;
     size_t title_len = strlen(t->title), cwd_len = strlen(t->cwd);
-    if (cells > VT_SNAPSHOT_MAX_CELLS || title_len >= sizeof t->title ||
-        cwd_len >= sizeof t->cwd || cells > (SIZE_MAX - VT_SNAPSHOT_HEADER - title_len - cwd_len) /
-                                      VT_SNAPSHOT_CELL)
+    if (cells > VT_SNAPSHOT_MAX_CELLS || title_len >= sizeof t->title || cwd_len >= sizeof t->cwd ||
+        cells > (SIZE_MAX - VT_SNAPSHOT_HEADER - title_len - cwd_len) / VT_SNAPSHOT_CELL)
         return 0;
     return VT_SNAPSHOT_HEADER + title_len + cwd_len + cells * VT_SNAPSHOT_CELL;
 }
@@ -1034,8 +1033,7 @@ int vt_snapshot_write(const vt *t, void *buf, size_t cap, size_t *written) {
     put_u32(p + 28, (uint32_t)t->cy);
     put_u64(p + 32, t->generation);
     uint32_t flags = (t->cursor_visible ? SNAP_CURSOR_VISIBLE : 0u) |
-                     (t->alt_on ? SNAP_ALT_SCREEN : 0u) |
-                     (t->bracketed ? SNAP_BRACKETED : 0u) |
+                     (t->alt_on ? SNAP_ALT_SCREEN : 0u) | (t->bracketed ? SNAP_BRACKETED : 0u) |
                      (t->app_cursor ? SNAP_APP_CURSOR : 0u);
     put_u32(p + 40, flags);
     put_u16(p + 44, (uint16_t)title_len);
@@ -1133,7 +1131,8 @@ int vt_snapshot_read(vt *t, const void *buf, size_t len) {
     if (expected != len) goto invalid;
     const unsigned char *title = p + VT_SNAPSHOT_HEADER;
     const unsigned char *cwd = title + title_len;
-    if (!valid_metadata(title, title_len, false) || !valid_metadata(cwd, cwd_len, true)) goto invalid;
+    if (!valid_metadata(title, title_len, false) || !valid_metadata(cwd, cwd_len, true))
+        goto invalid;
 
     vt *fresh = vt_new((int)cols, (int)rows, t->sb_max);
     if (!fresh) {

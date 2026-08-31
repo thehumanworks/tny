@@ -64,12 +64,12 @@ typedef enum {
     TT_CHORD_FOCUS_DOWN,  /* Cmd-Opt-Down */
     TT_CHORD_FOCUS_PREV,  /* Cmd-[ : the previous pane in leaf order */
     TT_CHORD_FOCUS_NEXT,  /* Cmd-] : the next pane in leaf order */
-    TT_CHORD_QUIT,         /* Cmd-Q: detach the window and quit */
-    TT_CHORD_NEW_TAB,      /* Cmd-T */
-    TT_CHORD_CLOSE_TAB,    /* Cmd-Shift-W */
-    TT_CHORD_TAB_PREV,     /* Cmd-Shift-[ */
-    TT_CHORD_TAB_NEXT,     /* Cmd-Shift-] */
-    TT_CHORD_TAB_1,        /* Cmd-1: select tab 1 */
+    TT_CHORD_QUIT,        /* Cmd-Q: detach the window and quit */
+    TT_CHORD_NEW_TAB,     /* Cmd-T */
+    TT_CHORD_CLOSE_TAB,   /* Cmd-Shift-W */
+    TT_CHORD_TAB_PREV,    /* Cmd-Shift-[ */
+    TT_CHORD_TAB_NEXT,    /* Cmd-Shift-] */
+    TT_CHORD_TAB_1,       /* Cmd-1: select tab 1 */
     TT_CHORD_TAB_2,
     TT_CHORD_TAB_3,
     TT_CHORD_TAB_4,

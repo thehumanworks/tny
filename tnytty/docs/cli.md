@@ -38,15 +38,18 @@ this phase; every other platform exits 1 with
 ([platforms.md](platforms.md)).
 
 The window starts a session the same way `run` does (`$SHELL`, or the
-command after `--`), sizes the grid from the window's pixels, resizes the
-session when the window resizes, and exits with the child's exit code.
-Closing the window or Cmd-Q ends every session in it.
+command after `--`), sizes the grid from the window's pixels, and resizes the
+session when the window resizes. A detached per-user broker owns its pty and
+VT state ([ADR 0007](adr/0007-durable-session-broker.md)). Closing the window
+or using Cmd-Q saves the tab/split topology and detaches the frontend; the
+sessions keep running and the next `tnytty gui` reattaches them.
 
 A window can hold **several sessions as split panes**
 ([ADR 0006](adr/0006-split-panes-and-the-layout-tree.md)): each pane has
 its own session, its own scrollback and its own selection, and every pane
 of a `--listen` window is a session in the API. A new pane runs the same
-command in the directory the window was launched from. Up to 32 panes.
+command in the focused terminal's OSC 7 working directory when known.
+The window holds up to 16 tabs, each with up to 32 panes.
 
 | Flag | Meaning |
 | --- | --- |
@@ -56,12 +59,18 @@ command in the directory the window was launched from. Up to 32 panes.
 | `--font-size N` | Points; overrides `font-size` |
 | `--padding N` | Points around the grid; overrides `padding` |
 | `--cols N --rows N` | Initial grid (default `100x30`) |
-| `--listen HOST:PORT` | Also serve the HTTP API on the same loop |
+| `--listen HOST:PORT` | Ask the broker to serve the same sessions over the public HTTP API |
 | `--token T` | API bearer token |
 
 Defaults for the style flags come from
 [the config file](config.md); a bad value on the command line is an
 error, not a warning.
+
+`gui --listen` configures the durable broker, so that listener remains up
+with its sessions after the window closes. Repeating the same address is
+idempotent; an omitted auto-generated token is retained, while an explicit
+conflicting address or token is rejected rather than replacing a live
+listener.
 
 ```sh
 tnytty gui                                   # $SHELL, transparent titlebar
@@ -83,12 +92,16 @@ follow iTerm2:
 | --- | --- |
 | `Cmd-D` | Split vertically: a new pane to the right |
 | `Cmd-Shift-D` | Split horizontally: a new pane below |
-| `Cmd-W` | Close the focused pane; closes the window when it is the last |
+| `Cmd-W` | Kill and close the focused pane; closes the frontend when it is the last |
+| `Cmd-T` | Create and focus a new tab |
+| `Cmd-Shift-W` | Kill every session in the focused tab and close it |
+| `Cmd-Shift-[` / `Cmd-Shift-]` | Focus the previous / next tab |
+| `Cmd-1` … `Cmd-9` | Focus that numbered tab |
 | `Cmd-Opt-←/→/↑/↓` | Move focus to the neighbouring pane in that direction (nothing happens when there is none) |
 | `Cmd-[` / `Cmd-]` | Focus the previous / next pane in reading order, wrapping — always lands somewhere |
 | `Cmd-C` | Copy the selection |
 | `Cmd-V` | Paste into the focused pane (bracketed when it enabled mode 2004) |
-| `Cmd-Q` | Quit |
+| `Cmd-Q` | Save, detach every session, and quit the frontend |
 
 Any other Command press is left to macOS, so `Cmd-M`, `Cmd-H` and friends
 still work. Key bindings are not configurable yet ([config.md](config.md)).

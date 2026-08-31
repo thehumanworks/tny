@@ -26,6 +26,9 @@ stdenv.mkDerivation {
   strictDeps = true;
   nativeBuildInputs = [
     bash
+    # Integration fixtures plus the optional stdlib-only
+    # tnytty/tests/bench/bench_tnytty.py runner. The performance benchmark is
+    # intentionally not part of buildPhase because shared CI timing is noisy.
     python3
     zsh
     nodejs # tests/site/test_term.js, driven by test_site.py

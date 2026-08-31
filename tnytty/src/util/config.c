@@ -27,7 +27,9 @@ void tt_config_defaults(tt_config *c) {
     memcpy(c->palette, default_palette, sizeof c->palette);
     c->bold_brightens = true;
     c->copy_on_select = true;
-    c->status_bar = true;
+    c->status_bar = false;
+    c->backdrop_opacity = 92;
+    c->backdrop_blur = true;
 }
 
 static void fail(char *err, size_t errcap, const char *fmt, const char *a, const char *b) {
@@ -98,10 +100,11 @@ int tt_config_set(tt_config *c, const char *key, const char *value, char *err, s
         return 0;
     }
     if (strcmp(key, "bold-brightens") == 0 || strcmp(key, "copy-on-select") == 0 ||
-        strcmp(key, "status-bar") == 0) {
-        bool *slot = key[0] == 'b'   ? &c->bold_brightens
-                     : key[0] == 'c' ? &c->copy_on_select
-                                     : &c->status_bar;
+        strcmp(key, "status-bar") == 0 || strcmp(key, "backdrop-blur") == 0) {
+        bool *slot = strcmp(key, "bold-brightens") == 0   ? &c->bold_brightens
+                     : strcmp(key, "copy-on-select") == 0 ? &c->copy_on_select
+                     : strcmp(key, "status-bar") == 0     ? &c->status_bar
+                                                          : &c->backdrop_blur;
         if (!parse_bool(value, slot)) {
             fail(err, errcap, "config: %s: %s is not true or false", key, value);
             return -1;
@@ -132,6 +135,16 @@ int tt_config_set(tt_config *c, const char *key, const char *value, char *err, s
             return -1;
         }
         c->padding = (int)n;
+        return 0;
+    }
+    if (strcmp(key, "backdrop-opacity") == 0) {
+        long n = 0;
+        if (!parse_int(value, &n, 0, 100)) {
+            fail(err, errcap, "config: backdrop-opacity: %s is not an integer in 0..100%s", value,
+                 "");
+            return -1;
+        }
+        c->backdrop_opacity = (int)n;
         return 0;
     }
     if (strcmp(key, "macos-titlebar") == 0) {

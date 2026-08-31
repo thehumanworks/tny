@@ -163,6 +163,20 @@ static int parse_flags(int argc, char **argv, gui_opts *o) {
     return 0;
 }
 
+static int parse_listen(const char *spec, char *host, size_t hostlen, int *port) {
+    const char *colon = strrchr(spec, ':');
+    if (!colon || colon == spec) return -1;
+    size_t len = (size_t)(colon - spec);
+    if (len >= hostlen) return -1;
+    memcpy(host, spec, len);
+    host[len] = '\0';
+    char *end = NULL;
+    long value = strtol(colon + 1, &end, 10);
+    if (!end || *end || value < 1 || value > 65535) return -1;
+    *port = (int)value;
+    return 0;
+}
+
 /* ---- panes ------------------------------------------------------------ */
 
 /* One leaf of the split tree: a session, the rasterizer that paints it
@@ -205,6 +219,12 @@ typedef struct {
     int sync_cursor;
     char workspace_path[1024];
 } gui_ctx;
+
+/* AppKit may terminate the process from inside red-button event dispatch,
+ * before tt_window_pump can report TT_WIN_EV_CLOSE. An atexit hook keeps the
+ * durability boundary outside the platform seam and runs the same save +
+ * detach policy as the ordinary loop exit. */
+static gui_ctx *exit_gui;
 
 static pane *node_pane(const tt_node *n) { return n ? (pane *)n->user : NULL; }
 static gui_tab *active_tab(const gui_ctx *g) { return (gui_tab *)tt_tabs_active(&g->tabs); }
@@ -592,11 +612,14 @@ static void save_workspace(gui_ctx *g) {
         tt_status_set(&g->status, "workspace could not be saved", now_sec());
 }
 
-static void free_restored_node(tt_node *n) {
+static void free_restored_node(gui_ctx *g, tt_node *n) {
     if (!n) return;
-    free_restored_node(n->a);
-    free_restored_node(n->b);
-    if (tt_layout_is_leaf(n)) pane_free(n->user, NULL);
+    free_restored_node(g, n->a);
+    free_restored_node(g, n->b);
+    if (tt_layout_is_leaf(n)) {
+        pane_detach(g, n->user);
+        pane_free(n->user, NULL);
+    }
     free(n);
 }
 
@@ -621,7 +644,7 @@ static tt_node *restore_node(gui_ctx *g, const tt_workspace_tab *src, int at, tt
         node->a = restore_node(g, src, saved->a, node, focus);
         node->b = restore_node(g, src, saved->b, node, focus);
         if (!node->a || !node->b) {
-            free_restored_node(node);
+            free_restored_node(g, node);
             return NULL;
         }
     }
@@ -635,10 +658,10 @@ static int restore_workspace(gui_ctx *g, const tt_workspace *ws) {
         if (!tab) return -1;
         tab->layout.divider = DIVIDER_PX;
         tab->layout.focus = NULL;
-        tab->layout.root = restore_node(g, &ws->tabs[i], ws->tabs[i].root, NULL,
-                                        &tab->layout.focus);
+        tab->layout.root =
+            restore_node(g, &ws->tabs[i], ws->tabs[i].root, NULL, &tab->layout.focus);
         if (!tab->layout.root || !tab->layout.focus || tt_tabs_add(&g->tabs, tab) < 0) {
-            free_restored_node(tab->layout.root);
+            free_restored_node(g, tab->layout.root);
             free(tab);
             return -1;
         }
@@ -717,8 +740,7 @@ static void on_chord(gui_ctx *g, tt_chord chord, bool *quit, int *exit_code) {
     }
     case TT_CHORD_FOCUS_PREV:
     case TT_CHORD_FOCUS_NEXT: {
-        tt_node *to =
-            tt_layout_cycle(layout, layout->focus, chord == TT_CHORD_FOCUS_NEXT ? 1 : -1);
+        tt_node *to = tt_layout_cycle(layout, layout->focus, chord == TT_CHORD_FOCUS_NEXT ? 1 : -1);
         if (to) layout->focus = to;
         break;
     }
@@ -824,8 +846,8 @@ static void paint_tabs(gui_ctx *g) {
         view[i].active = i == tt_tabs_active_index(&g->tabs);
         view[i].activity = tab->activity;
     }
-    tt_render_tab_bar(&g->fb, &g->base, g->titlebar_inset,
-                      g->tab_h - g->titlebar_inset, view, count);
+    tt_render_tab_bar(&g->fb, &g->base, g->titlebar_inset, g->tab_h - g->titlebar_inset, view,
+                      count);
 }
 
 static void release_all_tabs(gui_ctx *g, bool kill) {
@@ -833,6 +855,15 @@ static void release_all_tabs(gui_ctx *g, bool kill) {
         gui_tab *tab = tt_tabs_remove(&g->tabs, tt_tabs_count(&g->tabs) - 1);
         tab_release(g, tab, kill);
     }
+}
+
+static void detach_registered_gui(void) {
+    gui_ctx *g = exit_gui;
+    if (!g) return;
+    exit_gui = NULL; /* make normal cleanup and atexit idempotent */
+    save_workspace(g);
+    release_all_tabs(g, false);
+    tt_broker_client_close(&g->broker);
 }
 
 /* ---- main -------------------------------------------------------------- */
@@ -849,6 +880,10 @@ int tt_gui_main(int argc, char **argv) {
 
     gui_ctx g;
     memset(&g, 0, sizeof g);
+    if (atexit(detach_registered_gui) != 0) {
+        fprintf(stderr, "tnytty: gui: cannot install durable shutdown hook\n");
+        return 1;
+    }
     tt_tabs_init(&g.tabs);
     g.cmd = o.cmd;
     g.divider = o.cfg.divider;
@@ -861,11 +896,38 @@ int tt_gui_main(int argc, char **argv) {
         return 1;
     }
     if (o.listen) {
-        fprintf(stderr,
-                "tnytty: gui --listen is unavailable with durable sessions; "
-                "the same API is available on the private broker socket\n");
-        tt_broker_client_close(&g.broker);
-        return 2;
+        char host[128];
+        int port = 0;
+        if (parse_listen(o.listen, host, sizeof host, &port) != 0) {
+            fprintf(stderr, "tnytty: bad --listen %s (want HOST:PORT)\n", o.listen);
+            tt_broker_client_close(&g.broker);
+            return 2;
+        }
+        char generated[33];
+        const char *token = o.token;
+        bool loopback = strcmp(host, "127.0.0.1") == 0 || strcmp(host, "::1") == 0 ||
+                        strcmp(host, "localhost") == 0;
+        bool public_auth = false;
+        err[0] = '\0';
+        int listen_rc =
+            tt_broker_client_listen(&g.broker, host, port, token, &public_auth, err, sizeof err);
+        if (listen_rc != 0 && !loopback && (!token || !token[0])) {
+            /* An already-configured broker accepts an omitted token without
+             * rotating it. A new non-loopback listener needs a generated one. */
+            tt_rand_hex(generated, sizeof generated - 1);
+            token = generated;
+            fprintf(stderr, "tnytty: generated API token (docs/adr/0002): %s\n", token);
+            err[0] = '\0';
+            listen_rc = tt_broker_client_listen(&g.broker, host, port, token, &public_auth, err,
+                                                sizeof err);
+        }
+        if (listen_rc != 0) {
+            fprintf(stderr, "tnytty: %s\n", err[0] ? err : "broker listener failed");
+            tt_broker_client_close(&g.broker);
+            return 2;
+        }
+        fprintf(stderr, "tnytty: HTTP API on http://%s:%d (auth: %s)\n", host, port,
+                public_auth ? "bearer token" : "none, loopback");
     }
 
     tt_window *win = tt_window_open(&o.cfg, cols, rows, "tnytty", err, sizeof err);
@@ -920,6 +982,7 @@ int tt_gui_main(int argc, char **argv) {
         save_workspace(&g);
     }
     relayout(&g);
+    exit_gui = &g;
     install_signals();
 
     bool focused = true;
@@ -1032,8 +1095,8 @@ int tt_gui_main(int argc, char **argv) {
                 free(now);
             }
             int a = 0, b = 0;
-            int lines = tt_render_frame(p->r, p->term, focused && layout && leaves[i] == layout->focus,
-                                        &a, &b);
+            int lines = tt_render_frame(p->r, p->term,
+                                        focused && layout && leaves[i] == layout->focus, &a, &b);
             if (lines <= 0) continue;
             painted += lines;
             if (a < y0) y0 = a;
@@ -1058,10 +1121,8 @@ int tt_gui_main(int argc, char **argv) {
         if (painted > 0 && y1 > y0) tt_window_present(win, g.fb.px, g.fb.w, g.fb.h, y0, y1);
     }
 
-    save_workspace(&g);
-    release_all_tabs(&g, false);
+    detach_registered_gui();
     tt_fb_free(&g.fb);
     tt_window_close(win);
-    tt_broker_client_close(&g.broker);
     return exit_code;
 }

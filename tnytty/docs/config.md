@@ -1,7 +1,7 @@
 # tnytty — configuration
 
-tnytty needs no config file: every key has a default and the CLI flags
-override both. The file exists so the native window
+tnytty needs no config file: every key has a default, and supported CLI flags
+override the corresponding file values. The file exists so the native window
 ([ADR 0005](adr/0005-native-renderer-and-macos-window.md)) can be styled
 once instead of on every launch.
 
@@ -28,6 +28,8 @@ font = JetBrains Mono
 font-size = 14
 macos-titlebar = transparent
 padding = 10
+backdrop-opacity = 92
+backdrop-blur = true
 ```
 
 ## Keys
@@ -38,6 +40,23 @@ padding = 10
 | `font-size` | 4 – 288 | `13` | Points. Device pixels are derived from the display's backing scale. |
 | `macos-titlebar` | `transparent`, `opaque` | `transparent` | Transparent extends the terminal background under the traffic lights and hides the title; the grid is inset below them so no text is covered. Opaque restores the system titlebar and shows the session title. |
 | `padding` | 0 – 256 | `8` | Points of blank margin around the grid. With a transparent titlebar the top margin additionally includes the titlebar height. |
+
+### Window backdrop
+
+The macOS window uses the public, compositor-managed AppKit backdrop
+([ADR 0008](adr/0008-public-macos-backdrop.md)). These settings affect cells
+painted with the default terminal background; glyphs and explicit ANSI cell
+backgrounds stay opaque for legibility.
+
+| Key | Values | Default | Meaning |
+| --- | --- | --- | --- |
+| `backdrop-opacity` | 0 – 100 | `92` | Opacity percentage of the default terminal background. `100` is fully opaque; lower values reveal more of the backdrop. |
+| `backdrop-blur` | `true`, `false` | `true` | Use AppKit's system-managed behind-window blur. `false` keeps the configured translucency but shows the unblurred desktop/window behind it. |
+
+The blur is deliberately a switch, not a numeric radius. AppKit chooses the
+material's blur, tint, vibrancy and accessibility fallback; it exposes no public
+blur-radius control or WindowServer backdrop texture. On macOS, Reduce
+Transparency and the active/inactive window state therefore remain authoritative.
 
 ### Colors
 
@@ -57,7 +76,7 @@ theme; see [contrast](#contrast) for why these numbers and not xterm's.
 | Key | Values | Default | Meaning |
 | --- | --- | --- | --- |
 | `copy-on-select` | `true`, `false` | `true` | Releasing a drag puts the selected text on the system pasteboard. Cmd-C copies regardless. |
-| `status-bar` | `true`, `false` | `true` | A one-line bar along the bottom edge that shows transient messages ("Copied 42 characters") for two seconds. Its height is taken out of the grid, so the session gets one row fewer; `false` reclaims that row. |
+| `status-bar` | `true`, `false` | `false` | A one-line bar along the bottom edge that shows transient messages ("Copied 42 characters") for two seconds. Its height is taken out of the grid, so the session gets one row fewer; enable it explicitly when wanted. |
 
 Booleans also accept `yes`/`no` and `1`/`0`.
 
@@ -117,15 +136,15 @@ settings.
 
 ## Flags win
 
-Every key has a flag on `tnytty gui`; the flag overrides the file for
-that run ([cli.md](cli.md)):
+Style keys that have a flag on `tnytty gui` override the file for that run
+([cli.md](cli.md)):
 
 ```sh
 tnytty gui --titlebar opaque --font Menlo --font-size 15 --padding 0
 ```
 
-Colors and behavior keys have no flags yet: they are settings you choose
-once, not per-run switches.
+Colors, backdrop and behavior keys have no flags yet: they are settings you
+choose once, not per-run switches.
 
 A bad value on the command line is an error, never a warning.
 

@@ -42,6 +42,11 @@
 #define NS_MOD_OPTION             (1UL << 19)
 #define NS_MOD_COMMAND            (1UL << 20)
 #define NS_VIEW_SIZABLE           (2UL | 16UL) /* width | height */
+/* Public NSVisualEffectView enums (AppKit/NSVisualEffectView.h). */
+#define NS_VISUAL_UNDER_WINDOW 21L
+#define NS_VISUAL_BEHIND       0L
+#define NS_VISUAL_FOLLOWS      0L
+#define NS_GLASS_REGULAR       0L
 
 /* NSEvent function-key codepoints (NSUpArrowFunctionKey & friends). */
 #define FN_UP     0xF700
@@ -124,7 +129,7 @@ typedef struct {
 } glyph_slot;
 
 struct tt_window {
-    id app, win, view, layer;
+    id app, win, backdrop, view, layer;
     CTFontRef face[FACE_COUNT];
     int cell_w, cell_h, baseline;
     int pad_left, pad_top, pad_right, pad_bottom;
@@ -144,8 +149,11 @@ struct tt_window {
     int mask_w, mask_h, mask_stride;
     /* present */
     CGContextRef bmp_ctx;
-    const uint32_t *bmp_px;
+    uint32_t *bmp_px;
+    const uint32_t *bmp_src;
     int bmp_w, bmp_h;
+    unsigned backdrop_alpha;
+    bool backdrop_blur;
     /* event state */
     int last_px_w, last_px_h;
     bool last_focus, closed, close_sent;
@@ -345,6 +353,11 @@ tt_window *tt_window_open(const tt_config *cfg, int cols, int rows, const char *
      * palette itself lives in the config (docs/config.md). */
     w->fg = cfg->fg;
     w->bg = cfg->bg;
+    int backdrop_opacity = cfg->backdrop_opacity;
+    if (backdrop_opacity < 0) backdrop_opacity = 0;
+    if (backdrop_opacity > 100) backdrop_opacity = 100;
+    w->backdrop_alpha = (unsigned)(backdrop_opacity * 255 + 50) / 100;
+    w->backdrop_blur = cfg->backdrop_blur;
     memcpy(w->palette, cfg->palette, sizeof w->palette);
     w->bold_brightens = cfg->bold_brightens;
     /* A bar just lighter than the terminal background, with dimmed
@@ -433,6 +446,10 @@ tt_window *tt_window_open(const tt_config *cfg, int cols, int rows, const char *
         if (err && errcap) snprintf(err, errcap, "gui: cannot create a window");
         goto fail;
     }
+    /* The polling seam observes a red-button close after AppKit handles the
+     * event. Retain the NSWindow until tt_window_close so `view` and `layer`
+     * cannot become dangling pointers between those two steps. */
+    msg_vb(w->win, sel("setReleasedWhenClosed:"), NO);
     msg_vp(w->win, sel("setTitle:"), nsstr(title ? title : "tnytty"));
     id appearance =
         msg_p(cls("NSAppearance"), sel("appearanceNamed:"), nsstr("NSAppearanceNameDarkAqua"));
@@ -441,7 +458,12 @@ tt_window *tt_window_open(const tt_config *cfg, int cols, int rows, const char *
         cls("NSColor"), sel("colorWithSRGBRed:green:blue:alpha:"),
         (double)((w->bg >> 16) & 0xff) / 255.0, (double)((w->bg >> 8) & 0xff) / 255.0,
         (double)(w->bg & 0xff) / 255.0, 1.0);
-    if (color) msg_vp(w->win, sel("setBackgroundColor:"), color);
+    /* The framebuffer supplies premultiplied alpha for default-background
+     * pixels. A transparent NSWindow lets the public compositor material (or
+     * the unblurred desktop when disabled) show through those pixels. */
+    msg_vb(w->win, sel("setOpaque:"), NO);
+    id clear = msg(cls("NSColor"), sel("clearColor"));
+    msg_vp(w->win, sel("setBackgroundColor:"), clear ? clear : color);
     if (transparent) {
         msg_vb(w->win, sel("setTitlebarAppearsTransparent:"), YES);
         msg_vi(w->win, sel("setTitleVisibility:"), NS_TITLE_HIDDEN);
@@ -459,7 +481,42 @@ tt_window *tt_window_open(const tt_config *cfg, int cols, int rows, const char *
     ((void (*)(id, SEL, CGRect))objc_msgSend)(w->layer, sel("setFrame:"), rect);
     msg_vp(w->view, sel("setLayer:"), w->layer);
     msg_vb(w->view, sel("setWantsLayer:"), YES);
-    msg_vp(w->win, sel("setContentView:"), w->view);
+    if (w->backdrop_blur && cls("NSGlassEffectView")) {
+        /* macOS 26+: this is Apple's public exact Liquid Glass surface. Its
+         * contentView contract lets AppKit keep terminal content legible as
+         * the compositor-managed material adapts behind it. */
+        w->backdrop =
+            msg(((id (*)(id, SEL, CGRect))objc_msgSend)(msg(cls("NSGlassEffectView"), sel("alloc")),
+                                                        sel("initWithFrame:"), rect),
+                sel("autorelease"));
+        if (w->backdrop) {
+            msg_vu(w->backdrop, sel("setAutoresizingMask:"), NS_VIEW_SIZABLE);
+            msg_vi(w->backdrop, sel("setStyle:"), NS_GLASS_REGULAR);
+            msg_vd(w->backdrop, sel("setCornerRadius:"), 0.0);
+            id tint = ((id (*)(id, SEL, double, double, double, double))objc_msgSend)(
+                cls("NSColor"), sel("colorWithSRGBRed:green:blue:alpha:"),
+                (double)((w->bg >> 16) & 0xff) / 255.0, (double)((w->bg >> 8) & 0xff) / 255.0,
+                (double)(w->bg & 0xff) / 255.0, (double)w->backdrop_alpha / 255.0 * 0.18);
+            if (tint) msg_vp(w->backdrop, sel("setTintColor:"), tint);
+            msg_vp(w->backdrop, sel("setContentView:"), w->view);
+        }
+    }
+    if (w->backdrop_blur && !w->backdrop && cls("NSVisualEffectView")) {
+        /* Older macOS: public semantic whole-window blur. No private CAFilter
+         * or direct WindowServer backdrop texture is used. */
+        w->backdrop =
+            msg(((id (*)(id, SEL, CGRect))objc_msgSend)(
+                    msg(cls("NSVisualEffectView"), sel("alloc")), sel("initWithFrame:"), rect),
+                sel("autorelease"));
+        if (w->backdrop) {
+            msg_vu(w->backdrop, sel("setAutoresizingMask:"), NS_VIEW_SIZABLE);
+            msg_vi(w->backdrop, sel("setMaterial:"), NS_VISUAL_UNDER_WINDOW);
+            msg_vi(w->backdrop, sel("setBlendingMode:"), NS_VISUAL_BEHIND);
+            msg_vi(w->backdrop, sel("setState:"), NS_VISUAL_FOLLOWS);
+            msg_vp(w->backdrop, sel("addSubview:"), w->view);
+        }
+    }
+    msg_vp(w->win, sel("setContentView:"), w->backdrop ? w->backdrop : w->view);
 
     msg_v(w->win, sel("center"));
     msg_vp(w->win, sel("makeKeyAndOrderFront:"), NULL);
@@ -479,9 +536,13 @@ fail:
 
 void tt_window_close(tt_window *w) {
     if (!w) return;
-    if (w->win) msg_v(w->win, sel("close"));
+    if (w->win) {
+        msg_v(w->win, sel("close"));
+        msg_v(w->win, sel("release"));
+    }
     if (w->layer) msg_v(w->layer, sel("release"));
     if (w->bmp_ctx) CGContextRelease(w->bmp_ctx);
+    free(w->bmp_px);
     if (w->mask_ctx) CGContextRelease(w->mask_ctx);
     free(w->mask_px);
     for (int i = 0; i < FACE_COUNT; i++)
@@ -713,16 +774,48 @@ bool tt_window_pump(tt_window *w, tt_win_ev *ev) {
 void tt_window_present(tt_window *w, const uint32_t *px, int px_w, int px_h, int y0, int y1) {
     if (y1 <= y0 || px_w < 1 || px_h < 1) return;
     id pool = msg(msg(cls("NSAutoreleasePool"), sel("alloc")), sel("init"));
-    if (w->bmp_px != px || w->bmp_w != px_w || w->bmp_h != px_h) {
+    if (!w->bmp_ctx || !w->bmp_px || w->bmp_w != px_w || w->bmp_h != px_h) {
         if (w->bmp_ctx) CGContextRelease(w->bmp_ctx);
-        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-        w->bmp_ctx = CGBitmapContextCreate((void *)(uintptr_t)px, (size_t)px_w, (size_t)px_h, 8,
-                                           (size_t)px_w * 4, cs,
-                                           kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little);
-        CGColorSpaceRelease(cs);
-        w->bmp_px = px;
+        free(w->bmp_px);
+        w->bmp_px = calloc((size_t)px_w * (size_t)px_h, sizeof *w->bmp_px);
+        w->bmp_ctx = NULL;
+        w->bmp_src = NULL;
         w->bmp_w = px_w;
         w->bmp_h = px_h;
+        if (!w->bmp_px) {
+            msg_v(pool, sel("drain"));
+            return;
+        }
+        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+        w->bmp_ctx =
+            CGBitmapContextCreate(w->bmp_px, (size_t)px_w, (size_t)px_h, 8, (size_t)px_w * 4, cs,
+                                  kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+        CGColorSpaceRelease(cs);
+    }
+    /* A new source allocation cannot rely on its dirty band describing the
+     * pixels retained from the old source. */
+    if (w->bmp_src != px) {
+        w->bmp_src = px;
+        y0 = 0;
+        y1 = px_h;
+    }
+    if (y0 < 0) y0 = 0;
+    if (y1 > px_h) y1 = px_h;
+    for (int y = y0; y < y1; y++) {
+        const uint32_t *src = px + (size_t)y * (size_t)px_w;
+        uint32_t *dst = w->bmp_px + (size_t)y * (size_t)px_w;
+        for (int x = 0; x < px_w; x++) {
+            uint32_t p = src[x] | 0xff000000u;
+            if ((p & 0x00ffffffu) != w->bg || w->backdrop_alpha == 255) {
+                dst[x] = p;
+                continue;
+            }
+            unsigned a = w->backdrop_alpha;
+            unsigned r = ((p >> 16) & 0xffu) * a / 255;
+            unsigned g = ((p >> 8) & 0xffu) * a / 255;
+            unsigned b = (p & 0xffu) * a / 255;
+            dst[x] = (a << 24) | (r << 16) | (g << 8) | b;
+        }
     }
     if (w->bmp_ctx) {
         CGImageRef img = CGBitmapContextCreateImage(w->bmp_ctx);

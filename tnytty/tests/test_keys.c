@@ -164,16 +164,13 @@ TEST presses_that_are_not_chords_are_left_to_appkit(void) {
     ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "C", 1, TT_MOD_SUPER | TT_MOD_SHIFT));
     ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "d", 1, TT_MOD_SUPER | TT_MOD_ALT));
     /* Lifecycle and tab chords require exact modifiers. */
-    ASSERT_EQ(TT_CHORD_NONE,
-              tt_key_chord(TT_KEY_TEXT, "Q", 1, TT_MOD_SUPER | TT_MOD_SHIFT));
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "Q", 1, TT_MOD_SUPER | TT_MOD_SHIFT));
     ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "q", 1, TT_MOD_SUPER | TT_MOD_ALT));
     ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "q", 1, TT_MOD_SUPER | TT_MOD_CTRL));
     ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "t", 1, TT_MOD_SUPER | TT_MOD_ALT));
     ASSERT_EQ(TT_CHORD_NONE,
-              tt_key_chord(TT_KEY_TEXT, "W", 1,
-                           TT_MOD_SUPER | TT_MOD_SHIFT | TT_MOD_ALT));
-    ASSERT_EQ(TT_CHORD_NONE,
-              tt_key_chord(TT_KEY_TEXT, "1", 1, TT_MOD_SUPER | TT_MOD_SHIFT));
+              tt_key_chord(TT_KEY_TEXT, "W", 1, TT_MOD_SUPER | TT_MOD_SHIFT | TT_MOD_ALT));
+    ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "1", 1, TT_MOD_SUPER | TT_MOD_SHIFT));
     /* Multi-byte text (a composed character) is never a chord. */
     ASSERT_EQ(TT_CHORD_NONE, tt_key_chord(TT_KEY_TEXT, "\xc3\xa5", 2, TT_MOD_SUPER));
     PASS();

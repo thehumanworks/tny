@@ -102,9 +102,9 @@ static int receive_response(int fd, tt_http_response_parser *p) {
 
 static int request(tt_broker_client *c, const char *method, const char *path, const void *body,
                    size_t body_len, tt_http_response_parser *response) {
+    tt_http_response_parser_init(response);
     int fd = connect_socket(c->socket_path);
     if (fd < 0) return -1;
-    tt_http_response_parser_init(response);
     if (send_request(fd, method, path, body, body_len) != 0 ||
         receive_response(fd, response) != 1) {
         int saved = errno;
@@ -277,6 +277,53 @@ int tt_broker_client_list(tt_broker_client *c, tt_buf *json) {
     const unsigned char *body = tt_http_response_body(&response, &len);
     int rc = tt_buf_append(json, body, len) ? 0 : -1;
     if (rc != 0) errno = ENOMEM;
+    tt_http_response_parser_free(&response);
+    return rc;
+}
+
+int tt_broker_client_listen(tt_broker_client *c, const char *host, int port, const char *token,
+                            bool *auth_enabled, char *err, size_t errcap) {
+    if (auth_enabled) *auth_enabled = false;
+    if (!host || !*host || port < 1 || port > 65535) {
+        if (err && errcap) snprintf(err, errcap, "invalid broker listen configuration");
+        errno = EINVAL;
+        return -1;
+    }
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = doc ? yyjson_mut_obj(doc) : NULL;
+    if (!doc || !root) {
+        if (doc) yyjson_mut_doc_free(doc);
+        errno = ENOMEM;
+        return -1;
+    }
+    yyjson_mut_doc_set_root(doc, root);
+    yyjson_mut_obj_add_str(doc, root, "host", host);
+    yyjson_mut_obj_add_int(doc, root, "port", port);
+    if (token) yyjson_mut_obj_add_str(doc, root, "token", token);
+    else yyjson_mut_obj_add_null(doc, root, "token");
+    size_t body_len = 0;
+    char *body = yyjson_mut_write(doc, 0, &body_len);
+    yyjson_mut_doc_free(doc);
+    if (!body) {
+        errno = ENOMEM;
+        return -1;
+    }
+    tt_http_response_parser response;
+    int rc = request(c, "POST", "/v1/broker/listen", body, body_len, &response);
+    free(body);
+    if (response.complete) {
+        size_t len = 0;
+        const unsigned char *raw = tt_http_response_body(&response, &len);
+        yyjson_doc *parsed = yyjson_read((const char *)raw, len, 0);
+        yyjson_val *response_root = parsed ? yyjson_doc_get_root(parsed) : NULL;
+        if (rc == 0 && auth_enabled)
+            *auth_enabled = yyjson_get_bool(yyjson_obj_get(response_root, "auth"));
+        if (rc != 0 && err && errcap) {
+            const char *message = yyjson_get_str(yyjson_obj_get(response_root, "error"));
+            snprintf(err, errcap, "%s", message ? message : "broker listener failed");
+        }
+        if (parsed) yyjson_doc_free(parsed);
+    }
     tt_http_response_parser_free(&response);
     return rc;
 }

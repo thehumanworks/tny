@@ -53,6 +53,12 @@ exit status). The registry owns lifecycle and is the single source both
 adapters address sessions through. IDs are short random hex, never
 guessable-sequential, because they appear in shared URLs.
 
+For `gui`, that registry lives in a detached per-user broker, not in the
+AppKit process ([ADR 0007](adr/0007-durable-session-broker.md)). The broker
+keeps ptys drained and VT state current with zero attached windows. The GUI
+holds session IDs and renderer-side VT mirrors populated from versioned
+snapshots; it never owns the child process.
+
 **Input is queued, never dropped.** A pty master takes only a kernel
 buffer's worth of input before it returns `EAGAIN`; discarding the rest
 truncates input mid-sequence (lose the `ESC` of `ESC[201~` and a literal
@@ -78,6 +84,10 @@ function from (method, path, body, auth) to a response buffer, so the
 router is unit-testable without sockets. Auth per
 [ADR 0002](adr/0002-http-api-and-auth.md).
 
+The broker serves this same surface on a mode-0600, same-uid Unix socket.
+`gui --listen` asks the broker to add a TCP listener to that same registry;
+it does not start a proxy or a second session store.
+
 ### `src/ui/` — the native renderer
 
 The window seam (`window.h`) sits beside the pty seam: one
@@ -98,42 +108,42 @@ Decided in [ADR 0005](adr/0005-native-renderer-and-macos-window.md) and
 
 `tnytty run` attaches the controlling tty raw to a session (passthrough
 bytes both ways, mirror into the vt so the session is scriptable while a
-human uses it); `tnytty gui` attaches a native window instead, holding
-one session per split pane;
+human uses it); `tnytty gui` attaches a native window to broker sessions,
+holding one session ID and VT mirror per split pane;
 `tnytty serve` runs headless API-only;
 `tnytty icat` encodes images to kitty graphics escapes. Flags in
 [cli.md](cli.md).
 
 ## One event loop
 
-A single `poll(2)` loop multiplexes: the listening socket, HTTP
-connections, every session's pty master, and (in `run`) stdin +
-`SIGWINCH` via a self-pipe. No threads; no busy waits. Blocking waits
-never bypass the loop.
+Each process has one `poll(2)` loop and no shared VT mutator. The `run` and
+`serve` loops multiplex their listener, HTTP connections, pty masters and
+(in `run`) stdin + `SIGWINCH`. The detached GUI broker similarly owns every
+broker pty plus its private and optional public HTTP listeners. The AppKit
+frontend loop polls its broker snapshot request and pumps window events.
 
 A session's pty master is polled for `POLLIN` always and for `POLLOUT`
-while its input queue is non-empty; on `POLLOUT` the loop calls
+while its input queue is non-empty; on `POLLOUT` the owner calls
 `tt_session_flush`. Writers therefore never block the loop and never
-lose bytes. `run`, `serve`, and `gui` all do this, including for
-headless sessions created through a `run` or `gui` HTTP listener.
+lose bytes. The `run`/`serve` process or detached GUI broker does this,
+including for headless sessions created through their HTTP listeners.
 Each ready pty gets a bounded number of reads per turn, so a continuous
 producer cannot starve signals, HTTP, window events, or sibling panes.
 
 Foreground adapters mark their terminal or pane sessions as attached.
-The HTTP API can read their screen and write input, but cannot resize or
-destroy them behind the adapter's retained pointer; geometry and
-lifetime remain owned by the tty or window.
+The public HTTP API can read their screen and write input, but cannot resize
+or destroy them behind the frontend's ownership. Geometry stays with the tty
+or GUI; explicit pane/tab close goes through the same-uid broker control path.
 
-Session teardown sends `SIGHUP` to the child process group. A child that
-does not exit within 100 ms is sent `SIGKILL` and reaped, so closing a
-pane or window cannot hang forever.
+Explicit session teardown sends `SIGHUP` to the child process group. A child
+that does not exit within 100 ms is sent `SIGKILL` and reaped. Cmd-W and
+Cmd-Shift-W use that path. Cmd-Q, red-window close and frontend termination
+save topology and detach instead, leaving broker-owned sessions running.
 
-`tnytty gui` keeps that loop and adds the window: AppKit's event queue is
-not a pollable fd, so the poll timeout is bounded (8 ms) and each turn
-also drains the queue and presents the dirty rows. A split window puts
-**every pane's** pty master in that same set, with the same `POLLOUT`
-drain — panes are more fds in one loop, not more loops and not threads.
-The main thread stays the only thread that touches a VT core
+AppKit's event queue is not a pollable fd, so the GUI poll timeout is bounded
+at 8 ms and each turn also drains the queue and presents dirty rows. The
+broker, rather than AppKit, fairly drains every pane pty. The GUI main thread
+is the only thread that touches its renderer-side VT mirrors
 ([ADR 0005](adr/0005-native-renderer-and-macos-window.md),
 [ADR 0006](adr/0006-split-panes-and-the-layout-tree.md)).
 

@@ -45,6 +45,12 @@ let
     ../sdk/schema
     ../site
     ../tests
+    # Optional `make -C tnytty benchmark`: keep its product sources, helper,
+    # and JSON runner available in the hermetic test source without running
+    # the timing-sensitive benchmark as a routine Nix check.
+    ../tnytty/Makefile
+    ../tnytty/src
+    ../tnytty/tests/bench
   ];
 in
 {

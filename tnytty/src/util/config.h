@@ -36,6 +36,10 @@ typedef struct {
     bool bold_brightens; /* SGR 1 on an indexed 0..7 fg also picks 8..15 */
     bool copy_on_select; /* releasing a drag copies to the pasteboard */
     bool status_bar;     /* one-line bar along the bottom edge */
+    /* Opacity of cells using the default background, 0..100 percent. */
+    int backdrop_opacity;
+    /* Use the public system compositor material behind translucent cells. */
+    bool backdrop_blur;
 } tt_config;
 
 typedef void (*tt_config_warn_fn)(void *user, const char *msg);
