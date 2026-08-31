@@ -31,7 +31,8 @@ static tny_ctx test_ctx(tny_cursor_config *cfg) {
 }
 
 TEST cursor_defaults_and_trusted_values_are_injected(void) {
-    char err[256] = {0};
+    static char err[256];
+    err[0] = '\0';
     tny_cursor_config *cfg =
         load_cfg("{\"runtime\":\"local\",\"agent_options\":{\"apiKey\":\"stored-secret\"}}", NULL,
                  err, sizeof err);
@@ -58,7 +59,8 @@ TEST cursor_defaults_and_trusted_values_are_injected(void) {
 }
 
 TEST bridge_spawn_configuration_is_retained(void) {
-    char err[256] = {0};
+    static char err[256];
+    err[0] = '\0';
     tny_cursor_config *cfg =
         load_cfg("{\"state_root\":\"/state/cursor\","
                  "\"local_store\":{\"type\":\"jsonl\",\"rootDir\":\"/state/jsonl\"},"
@@ -82,7 +84,8 @@ TEST agent_pass_through_preserves_presence_sensitive_tools(void) {
                            "\"settingSources\":[\"SETTING_SOURCE_ALL\"],"
                            "\"sandboxOptions\":{\"enabled\":true},\"autoReview\":false,"
                            "\"store\":{\"type\":\"sqlite\"},\"customTools\":{}}}}";
-    char err[256] = {0};
+    static char err[256];
+    err[0] = '\0';
     tny_cursor_config *cfg = load_cfg(settings, NULL, err, sizeof err);
     ASSERTm(err, cfg);
     tny_ctx ctx = test_ctx(cfg);
@@ -118,7 +121,8 @@ TEST cloud_and_send_options_pass_through(void) {
         "\"envVars\":{\"A\":\"B\"},\"metadata\":{\"team\":\"sdk\"}}},"
         "\"send_options\":{\"enableDeltas\":false,\"enableSteps\":true,"
         "\"mode\":\"AGENT_MODE_OPTION_PLAN\",\"cloud\":{\"envVars\":{\"RUN\":\"1\"}}}}";
-    char err[256] = {0};
+    static char err[256];
+    err[0] = '\0';
     tny_cursor_config *cfg = load_cfg(settings, NULL, err, sizeof err);
     ASSERTm(err, cfg);
     tny_ctx ctx = test_ctx(cfg);

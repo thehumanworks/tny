@@ -97,7 +97,12 @@ static int pump_sdk_fixture(const char *body, size_t body_len, size_t slice,
     close(listener);
     int status = 0;
     (void)waitpid(child, &status, 0);
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) return -97;
+    /* A malformed envelope can be rejected from its five-byte header.  The
+     * client then closes while this deliberately byte-sliced fixture may
+     * still be writing the body; Darwin commonly reports that as SIGPIPE.
+     * Preserve the protocol error that caused the close, but still surface a
+     * fixture failure when the client did not already reject the stream. */
+    if ((!WIFEXITED(status) || WEXITSTATUS(status) != 0) && rc >= 0) return -97;
     return rc;
 }
 

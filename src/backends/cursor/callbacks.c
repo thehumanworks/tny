@@ -430,7 +430,7 @@ static int list_records(cursor_callbacks *cb, const char *substore, const char *
         yyjson_doc_free(doc);
     }
     if (scan) closedir(scan);
-    qsort(items, count, sizeof *items, listed_compare);
+    if (count > 1) qsort(items, count, sizeof *items, listed_compare);
     uint64_t after_seq = event_store && cursor ? (uint64_t)strtoull(cursor, NULL, 10) : 0;
     size_t start = 0;
     while (start < count && ((event_store && items[start].seq <= after_seq) ||
