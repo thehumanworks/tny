@@ -29,6 +29,9 @@ TEST defaults_are_transparent_menlo_13(void) {
     ASSERT_EQ(TT_TITLEBAR_TRANSPARENT, c.titlebar);
     ASSERT_EQ(8, c.padding);
     ASSERT(c.font_size > 12.9 && c.font_size < 13.1);
+    ASSERT_FALSE(c.status_bar);
+    ASSERT_EQ(92, c.backdrop_opacity);
+    ASSERT(c.backdrop_blur);
     PASS();
 }
 
@@ -101,6 +104,12 @@ TEST bad_numbers_are_clean_errors(void) {
     ASSERT_EQ(-1, parse(&c, "padding = -1\n", err, sizeof err));
     tt_config_defaults(&c);
     ASSERT_EQ(-1, parse(&c, "padding = 4px\n", err, sizeof err));
+    tt_config_defaults(&c);
+    ASSERT_EQ(-1, parse(&c, "backdrop-opacity = -1\n", err, sizeof err));
+    tt_config_defaults(&c);
+    ASSERT_EQ(-1, parse(&c, "backdrop-opacity = 101\n", err, sizeof err));
+    tt_config_defaults(&c);
+    ASSERT_EQ(-1, parse(&c, "backdrop-opacity = glassy\n", err, sizeof err));
     PASS();
 }
 
@@ -176,12 +185,25 @@ TEST bool_keys_parse(void) {
     char err[128];
     ASSERT(c.bold_brightens);
     ASSERT(c.copy_on_select);
-    ASSERT_EQ(0, parse(&c, "bold-brightens = false\ncopy-on-select = no\n", err, sizeof err));
+    ASSERT(c.backdrop_blur);
+    ASSERT_FALSE(c.status_bar);
+    ASSERT_EQ(0, parse(&c,
+                       "bold-brightens = false\ncopy-on-select = no\nstatus-bar = yes\n"
+                       "backdrop-blur = false\nbackdrop-opacity = 73\n",
+                       err, sizeof err));
     ASSERT(!c.bold_brightens);
     ASSERT(!c.copy_on_select);
+    ASSERT(c.status_bar);
+    ASSERT_FALSE(c.backdrop_blur);
+    ASSERT_EQ(73, c.backdrop_opacity);
+    ASSERT_EQ(0, parse(&c, "backdrop-opacity = 0\n", err, sizeof err));
+    ASSERT_EQ(0, c.backdrop_opacity);
+    ASSERT_EQ(0, parse(&c, "backdrop-opacity = 100\n", err, sizeof err));
+    ASSERT_EQ(100, c.backdrop_opacity);
     ASSERT_EQ(0, parse(&c, "bold-brightens = 1\n", err, sizeof err));
     ASSERT(c.bold_brightens);
     ASSERT_EQ(-1, parse(&c, "copy-on-select = maybe\n", err, sizeof err));
+    ASSERT_EQ(-1, parse(&c, "backdrop-blur = maybe\n", err, sizeof err));
     PASS();
 }
 

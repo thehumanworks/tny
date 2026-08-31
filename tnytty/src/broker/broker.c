@@ -3,6 +3,8 @@
 #include "api/http.h"
 #include "session/session.h"
 
+#include "yyjson.h"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -22,13 +24,112 @@
 #endif
 
 #define BROKER_SCROLLBACK 2000
-#define BROKER_MAX_FDS    128
+/* Listener + 32 connections for each of the private and public servers. */
+#define BROKER_HTTP_FDS 66
 
 static volatile sig_atomic_t broker_stop;
+
+typedef struct {
+    tt_registry reg;
+    tt_api local_api;
+    tt_api public_api;
+    tt_http *local_http;
+    tt_http *public_http;
+    char host[128];
+    int port;
+    char *token;
+} broker_runtime;
 
 static void on_stop(int signo) {
     (void)signo;
     broker_stop = 1;
+}
+
+static void broker_listen_response(tt_buf *out, const broker_runtime *b) {
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = doc ? yyjson_mut_obj(doc) : NULL;
+    if (!doc || !root) {
+        if (doc) yyjson_mut_doc_free(doc);
+        tt_api_error(out, 500, "out of memory");
+        return;
+    }
+    yyjson_mut_doc_set_root(doc, root);
+    yyjson_mut_obj_add_bool(doc, root, "listening", b->public_http != NULL);
+    yyjson_mut_obj_add_str(doc, root, "host", b->public_http ? b->host : "");
+    yyjson_mut_obj_add_int(doc, root, "port", b->public_http ? b->port : 0);
+    yyjson_mut_obj_add_bool(doc, root, "auth", b->token && b->token[0]);
+    size_t len = 0;
+    char *json = yyjson_mut_write(doc, 0, &len);
+    yyjson_mut_doc_free(doc);
+    if (!json) {
+        tt_api_error(out, 500, "out of memory");
+        return;
+    }
+    tt_api_respond(out, 200, "application/json", json, len);
+    free(json);
+}
+
+static bool broker_local_route(void *user, const char *method, const char *path, const char *body,
+                               size_t body_len, tt_buf *out) {
+    broker_runtime *b = user;
+    if (strcmp(path, "/v1/broker/listen") != 0) return false;
+    if (strcmp(method, "GET") == 0) {
+        broker_listen_response(out, b);
+        return true;
+    }
+    if (strcmp(method, "POST") != 0) {
+        tt_api_error(out, 405, "method not allowed");
+        return true;
+    }
+    yyjson_doc *doc = body_len ? yyjson_read(body, body_len, 0) : NULL;
+    yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+    yyjson_val *host_val = root ? yyjson_obj_get(root, "host") : NULL;
+    yyjson_val *port_val = root ? yyjson_obj_get(root, "port") : NULL;
+    yyjson_val *token_val = root ? yyjson_obj_get(root, "token") : NULL;
+    const char *host = yyjson_is_str(host_val) ? yyjson_get_str(host_val) : NULL;
+    int64_t port = yyjson_is_int(port_val) ? yyjson_get_sint(port_val) : 0;
+    bool token_supplied = yyjson_is_str(token_val);
+    const char *token = token_supplied ? yyjson_get_str(token_val) : "";
+    if (!host || !*host || strlen(host) >= sizeof b->host || port < 1 || port > 65535 ||
+        (token_supplied && strlen(token) >= 240)) {
+        if (doc) yyjson_doc_free(doc);
+        tt_api_error(out, 400, "invalid broker listen configuration");
+        return true;
+    }
+    if (b->public_http) {
+        bool same_address = strcmp(host, b->host) == 0 && port == b->port;
+        bool same_token = !token_supplied || strcmp(token, b->token ? b->token : "") == 0;
+        yyjson_doc_free(doc);
+        if (!same_address || !same_token) {
+            tt_api_error(out, 409, "broker already has a different public listener");
+            return true;
+        }
+        broker_listen_response(out, b);
+        return true;
+    }
+    char *owned_token = strdup(token);
+    if (!owned_token) {
+        yyjson_doc_free(doc);
+        tt_api_error(out, 500, "out of memory");
+        return true;
+    }
+    b->public_api.token = owned_token;
+    char err[256];
+    tt_http *listener = tt_http_listen(&b->public_api, host, (int)port, err, sizeof err);
+    if (!listener) {
+        b->public_api.token = NULL;
+        free(owned_token);
+        yyjson_doc_free(doc);
+        tt_api_error(out, 409, err);
+        return true;
+    }
+    b->public_http = listener;
+    b->token = owned_token;
+    b->port = (int)port;
+    snprintf(b->host, sizeof b->host, "%s", host);
+    yyjson_doc_free(doc);
+    broker_listen_response(out, b);
+    return true;
 }
 
 static int socket_probe(const char *path) {
@@ -91,21 +192,24 @@ int tt_broker_prepare_socket(const char *path, char *err, size_t errcap) {
 
 int tt_broker_run(const char *socket_path, int ready_fd) {
     broker_stop = 0;
-    tt_registry reg;
-    tt_registry_init(&reg, BROKER_SCROLLBACK);
-    tt_api api = {&reg, NULL, TNYTTY_VERSION};
+    broker_runtime b;
+    memset(&b, 0, sizeof b);
+    tt_registry_init(&b.reg, BROKER_SCROLLBACK);
+    b.local_api = (tt_api){&b.reg, NULL, TNYTTY_VERSION};
+    b.public_api = (tt_api){&b.reg, NULL, TNYTTY_VERSION};
     char err[256];
-    tt_http *http = tt_http_listen_unix(&api, socket_path, err, sizeof err);
-    if (!http) {
+    b.local_http = tt_http_listen_unix(&b.local_api, socket_path, err, sizeof err);
+    if (!b.local_http) {
         fprintf(stderr, "tnytty: broker: %s\n", err);
         if (ready_fd >= 0) {
             ssize_t ignored = write(ready_fd, "0", 1);
             (void)ignored;
             close(ready_fd);
         }
-        tt_registry_free(&reg);
+        tt_registry_free(&b.reg);
         return 1;
     }
+    tt_http_set_local_route(b.local_http, broker_local_route, &b);
     if (ready_fd >= 0) {
         ssize_t ignored = write(ready_fd, "1", 1);
         (void)ignored;
@@ -119,28 +223,51 @@ int tt_broker_run(const char *socket_path, int ready_fd) {
     sigaction(SIGINT, &sa, NULL);
     signal(SIGPIPE, SIG_IGN);
 
-    struct pollfd fds[BROKER_MAX_FDS];
-    tt_session *sessions[BROKER_MAX_FDS];
+    struct pollfd *fds = NULL;
+    tt_session **sessions = NULL;
+    int fds_cap = 0;
     char scratch[16384];
     while (!broker_stop) {
+        int needed = b.reg.count + BROKER_HTTP_FDS;
+        if (needed < 128) needed = 128;
+        if (needed > fds_cap) {
+            struct pollfd *grown_fds = realloc(fds, (size_t)needed * sizeof *fds);
+            if (!grown_fds) break;
+            fds = grown_fds;
+            tt_session **grown_sessions = realloc(sessions, (size_t)needed * sizeof *sessions);
+            if (!grown_sessions) break;
+            sessions = grown_sessions;
+            fds_cap = needed;
+        }
         int n = 0;
-        int ndetached = tt_registry_poll_fill(&reg, fds, sessions, BROKER_MAX_FDS / 2, false);
+        int session_cap = fds_cap - BROKER_HTTP_FDS;
+        int ndetached = tt_registry_poll_fill(&b.reg, fds, sessions, session_cap, false);
         n += ndetached;
-        int nattached =
-            tt_registry_poll_fill(&reg, fds + n, sessions + n, BROKER_MAX_FDS / 2, true);
+        int nattached = tt_registry_poll_fill(&b.reg, fds + n, sessions + n, session_cap - n, true);
         n += nattached;
-        int http_i = n;
-        n += tt_http_fill(http, fds + n, BROKER_MAX_FDS - n);
+        int local_i = n;
+        n += tt_http_fill(b.local_http, fds + n, fds_cap - n);
+        int public_i = -1, public_n = 0;
+        if (b.public_http) {
+            public_i = n;
+            public_n = tt_http_fill(b.public_http, fds + n, fds_cap - n);
+            n += public_n;
+        }
         int rc = poll(fds, (nfds_t)n, 100);
         if (rc < 0) {
             if (errno == EINTR) continue;
             break;
         }
         tt_registry_poll_handle(fds, sessions, ndetached + nattached, scratch, sizeof scratch);
-        tt_http_handle(http, fds + http_i, n - http_i);
+        tt_http_handle(b.local_http, fds + local_i, (public_i >= 0 ? public_i : n) - local_i);
+        if (public_i >= 0) tt_http_handle(b.public_http, fds + public_i, public_n);
     }
-    tt_http_free(http);
-    tt_registry_free(&reg);
+    tt_http_free(b.public_http);
+    tt_http_free(b.local_http);
+    free(b.token);
+    free(sessions);
+    free(fds);
+    tt_registry_free(&b.reg);
     return 0;
 }
 

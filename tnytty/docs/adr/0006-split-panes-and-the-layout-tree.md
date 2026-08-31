@@ -3,6 +3,10 @@
 Date: 2026-08-29
 Status: accepted
 
+Process ownership and close/quit lifecycle are superseded by
+[ADR 0007](0007-durable-session-broker.md). The split-tree geometry and key
+layout remain in force.
+
 ## Context
 
 [ADR 0005](0005-native-renderer-and-macos-window.md) gave tnytty a window

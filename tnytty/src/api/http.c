@@ -44,6 +44,11 @@ static void respond(tt_buf *out, int code, const char *ctype, const char *body, 
     tt_buf_append(out, body, blen);
 }
 
+void tt_api_respond(tt_buf *out, int status, const char *content_type, const void *body,
+                    size_t body_len) {
+    respond(out, status, content_type, body, body_len);
+}
+
 static void respond_json_doc(tt_buf *out, int code, yyjson_mut_doc *doc) {
     size_t len = 0;
     char *json = yyjson_mut_write(doc, 0, &len);
@@ -584,6 +589,8 @@ struct tt_http {
     int listen_fd;
     bool same_uid;
     char unix_path[sizeof(((struct sockaddr_un *)0)->sun_path)];
+    tt_http_local_route_fn local_route;
+    void *local_route_user;
     conn conns[MAX_CONNS];
 };
 
@@ -694,6 +701,12 @@ tt_http *tt_http_listen_unix(tt_api *api, const char *path, char *err, size_t er
     return h;
 }
 
+void tt_http_set_local_route(tt_http *h, tt_http_local_route_fn route, void *user) {
+    if (!h || !h->same_uid) return;
+    h->local_route = route;
+    h->local_route_user = user;
+}
+
 static void conn_close(conn *c) {
     if (c->fd >= 0) close(c->fd);
     c->fd = -1;
@@ -788,9 +801,13 @@ static void conn_try_respond(tt_http *h, conn *c) {
     char methodbuf[16], pathbuf[256];
     snprintf(methodbuf, sizeof methodbuf, "%.*s", (int)method_len, method);
     snprintf(pathbuf, sizeof pathbuf, "%.*s", (int)path_len, path);
-    if (!tt_api_auth_ok(h->api, auth)) tt_api_error(&c->out, 401, "unauthorized");
-    else
+    if (!tt_api_auth_ok(h->api, auth)) {
+        tt_api_error(&c->out, 401, "unauthorized");
+    } else if (!(h->same_uid && h->local_route &&
+                 h->local_route(h->local_route_user, methodbuf, pathbuf, c->in.data + hlen,
+                                content_len, &c->out))) {
         api_route(h->api, methodbuf, pathbuf, c->in.data + hlen, content_len, h->same_uid, &c->out);
+    }
 }
 
 void tt_http_handle(tt_http *h, const struct pollfd *fds, int n) {

@@ -62,6 +62,20 @@ cell-to-pixel mapping and key encoding on every host; `gui` is a clean
 error off macOS. Kitty graphics in the window are explicitly deferred to
 phase 2's placement geometry.
 
+## Phase 3.6 — tabs and durable GUI sessions (shipped)
+
+- A detached, same-user broker owns GUI ptys and authoritative VT state
+  ([ADR 0007](adr/0007-durable-session-broker.md)); the GUI uses the existing
+  HTTP surface over a private Unix socket and mirrors versioned snapshots.
+- Tab/split/session-ID topology is saved atomically. Cmd-Q and red-window
+  close detach; Cmd-W and Cmd-Shift-W explicitly kill pane/tab sessions.
+- `gui --listen` adds the broker's public TCP listener, so the documented API
+  continues to address those sessions while the GUI is closed.
+
+**Gate:** unit tests prove snapshot-safe detach, same PID/ID survival and
+explicit kill/reap; an isolated AppKit check closes via both Cmd-Q and the red
+button, reattaches the same process, and verifies Cmd-W removes it.
+
 ## Phase 4 — platforms
 
 - Windows: `pty_win.c` on ConPTY; CI job on MSYS2/native as the root

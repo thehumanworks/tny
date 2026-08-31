@@ -1,8 +1,10 @@
 # tnytty — HTTP API
 
 The REST surface that makes sessions scriptable and shareable. Served by
-`tnytty serve`, `tnytty run --listen`, or `tnytty gui --listen`. JSON in,
-JSON out (except the plain-text screen dump). HTTP/1.1,
+`tnytty serve`, `tnytty run --listen`, or the durable broker configured by
+`tnytty gui --listen`. The GUI listener addresses the broker's authoritative
+sessions and remains available while they run after the GUI closes. JSON in,
+JSON out (except the plain-text and binary screen formats). HTTP/1.1,
 `Connection: close` per response in phase 1; SSE streaming is phase 3.
 
 ## Binding and auth (ADR 0002)
@@ -32,7 +34,8 @@ loopback; token required elsewhere like everything else.
 
 ### `POST /v1/sessions`
 
-Body (all optional): `{"cmd":["bash","-l"],"cols":80,"rows":24}`.
+Body (all optional):
+`{"cmd":["bash","-l"],"cwd":"/workspace","cols":80,"rows":24}`.
 Defaults: `$SHELL` (else `/bin/sh`), 80×24.
 `201 {...session}` or `500 {"error":...}` if the spawn fails.
 Sessions created through a `run` or `gui` listener are headless but use
@@ -49,10 +52,10 @@ The session object:
   "id": "a1b2c3d4",
   "cmd": ["bash", "-l"],
   "cols": 80, "rows": 24,
-  "title": "~/src — bash",
+  "title": "~/src — bash", "cwd": "/home/me/src",
   "alive": true, "exit_code": null,
   "created_unix": 1756400000,
-  "graphics": 2
+  "graphics": 2, "generation": 42, "attached": true
 }
 ```
 
@@ -60,7 +63,14 @@ The session object:
 
 - Default / `?format=text`: `200 text/plain; charset=utf-8` — the grid
   as UTF-8 lines, trailing blanks trimmed, one `\n` per row.
-- `?format=json`: cursor, size, title, per-line text plus styled runs:
+- `?format=json`: cursor, size, title, retained-history strings, and per-line
+  text plus styled runs.
+- `?format=wire`: `application/vnd.tnytty.snapshot-v1`, the canonical
+  bounded, endian-stable VT snapshot used by native frontends.
+- `?scrollback=N` prepends/includes at most the registry's configured
+  retained history depth in the text/JSON formats.
+
+JSON example:
 
 ```json
 {

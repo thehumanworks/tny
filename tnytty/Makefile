@@ -1,5 +1,5 @@
 # tnytty — the tiny terminal (tny monorepo sibling app; root ADR 0045).
-# Targets: make (release), make debug, make test, make size, make warn-strict
+# Targets: make (release), make debug, make test, make benchmark, make size, make warn-strict
 
 CC  ?= cc
 GIT ?= git
@@ -63,6 +63,7 @@ OBJ_REL = $(BUILD)/rel
 OBJ_DBG = $(BUILD)/dbg
 BIN     = $(BUILD)/tnytty
 TEST_BIN = $(BUILD)/tnytty-test
+BENCH_BROKER = $(BUILD)/tnytty-bench-broker
 
 SRC = $(wildcard src/*.c src/vt/*.c src/term/*.c src/session/*.c src/api/*.c src/broker/*.c \
       src/icat/*.c src/util/*.c) $(UI_SRC)
@@ -77,6 +78,10 @@ DBG_DEPS  = $(filter-out src/main.c src/ui/gui.c src/ui/window_macos.c \
               src/ui/window_stub.c,$(SRC))
 TEST_OBJS = $(DBG_DEPS:%.c=$(OBJ_DBG)/%.o) $(TP:$(TP_DIR)/%.c=$(OBJ_DBG)/tp/%.o) \
             $(TEST_SRC:%.c=$(OBJ_DBG)/%.o)
+BENCH_BROKER_OBJS = $(OBJ_REL)/src/broker/broker.o $(OBJ_REL)/src/api/http.o \
+                    $(OBJ_REL)/src/session/session.o $(OBJ_REL)/src/term/pty_posix.o \
+                    $(OBJ_REL)/src/vt/vt.o $(OBJ_REL)/src/util/tt.o \
+                    $(OBJ_REL)/tp/yyjson/yyjson.o $(OBJ_REL)/tp/picohttpparser/picohttpparser.o
 
 all: release
 release: $(BIN)
@@ -111,6 +116,16 @@ debug: $(TEST_BIN)
 test: $(TEST_BIN)
 	./$(TEST_BIN)
 
+$(BENCH_BROKER): tests/bench/bench_broker.c $(BENCH_BROKER_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(REL_CFLAGS) -o $@ $^ $(REL_LDFLAGS)
+
+# Reproducible JSON performance and durability report. Override BENCH_ARGS
+# for a baseline binary, output path, or longer run counts.
+benchmark: $(BIN) $(BENCH_BROKER)
+	python3 tests/bench/bench_tnytty.py --binary ./$(BIN) \
+		--broker-helper ./$(BENCH_BROKER) --enforce $(BENCH_ARGS)
+
 size: $(BIN)
 	@cp $(BIN) $(BUILD)/tnytty.stripped
 	@strip $(BUILD)/tnytty.stripped 2>/dev/null || true
@@ -128,4 +143,4 @@ clean:
 
 -include $(REL_OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: all release debug test size warn-strict clean
+.PHONY: all release debug test benchmark size warn-strict clean

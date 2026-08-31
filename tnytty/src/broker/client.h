@@ -26,6 +26,11 @@ int tt_broker_client_kill(tt_broker_client *c, const char *id);
 int tt_broker_client_input(tt_broker_client *c, const char *id, const void *bytes, size_t len);
 int tt_broker_client_resize(tt_broker_client *c, const char *id, int cols, int rows);
 int tt_broker_client_list(tt_broker_client *c, tt_buf *json);
+/* Ask the detached broker to expose its registry on the public TCP API.
+ * Repeating the same configuration is idempotent; a conflicting listener
+ * fails rather than disrupting another GUI. */
+int tt_broker_client_listen(tt_broker_client *c, const char *host, int port, const char *token,
+                            bool *auth_enabled, char *err, size_t errcap);
 
 /* Blocking startup/reconnect snapshot. The returned bytes are owned by
  * body; view points into them. */
