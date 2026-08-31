@@ -188,12 +188,18 @@ static void free_envp(char **envp, size_t owned_from) {
  * Extra env (from a foreign harness profile) is applied only in the child. */
 static int conn_open_stdio(mcp_conn *c, char *const argv[], const char *cwd,
                            const mcp_imported_server *srv) {
+    if (!c) return -1;
     memset(c, 0, sizeof *c);
     c->transport = MCP_TRANSPORT_STDIO;
     c->era = MCP_ERA_LEGACY;
     buf_init(&c->rbuf);
     if (!argv || !argv[0]) {
-        snprintf(c->last_error, sizeof c->last_error, "stdio MCP server has no command");
+        snprintf(c->last_error, sizeof c->last_error,
+                 "stdio MCP server needs a non-empty command array");
+        return -1;
+    }
+    if (!cwd) {
+        snprintf(c->last_error, sizeof c->last_error, "stdio MCP server needs a working directory");
         return -1;
     }
     char **child_env = NULL;
@@ -233,7 +239,6 @@ static int conn_open_stdio(mcp_conn *c, char *const argv[], const char *cwd,
         /* pointer store only — the child must stay async-signal-safe */
         if (child_env) environ = child_env;
         if (chdir(cwd) != 0) _exit(127);
-        if (!argv[0]) _exit(127);
         execvp(argv[0], argv);
         _exit(127);
     }
@@ -295,13 +300,6 @@ static bool header_name_owned(const char *name) {
     return false;
 }
 
-/* -fanalyzer loses track of conf->headers across the caller's goto-fail
- * cleanup (mcp_conf_free frees the grown array); the realloc result is
- * always stored or freed. */
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wanalyzer-malloc-leak"
-#endif
 static int conf_add_header(mcp_conf *conf, const char *name, const char *value, bool from_env,
                            char *err, size_t errlen) {
     if (!name || !*name || !value || conf->nheaders >= MCP_MAX_HEADERS) {
@@ -336,11 +334,14 @@ static int conf_add_header(mcp_conf *conf, const char *name, const char *value, 
             snprintf(err, errlen, "invalid control character in MCP HTTP header");
             return -1;
         }
-    char **grown = realloc(conf->headers, (conf->nheaders + 1) * sizeof *grown);
+    size_t count = conf->nheaders + 1;
+    char **grown = malloc(count * sizeof *grown);
     if (!grown) {
         snprintf(err, errlen, "out of memory parsing MCP HTTP headers");
         return -1;
     }
+    if (conf->nheaders > 0) memcpy(grown, conf->headers, conf->nheaders * sizeof *grown);
+    free(conf->headers);
     conf->headers = grown;
     buf_t line;
     buf_init(&line);
@@ -353,9 +354,6 @@ static int conf_add_header(mcp_conf *conf, const char *name, const char *value, 
     conf->headers[conf->nheaders++] = buf_detach(&line);
     return 0;
 }
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 
 static int conf_headers_object(mcp_conf *conf, yyjson_val *obj, bool env_values, char *err,
                                size_t errlen) {
@@ -642,7 +640,12 @@ static mcp_catalog *load_profile(tools_env *env) {
  * (the prewarm-take contract); a failed or never-warmed server is started
  * synchronously here, so the lazy path and its errors are unchanged. */
 static mcp_server *get_server(tools_env *env, const char *name, char **err) {
+    if (!err) return NULL;
     *err = NULL;
+    if (!env || !env->ctx) {
+        *err = tool_err("MCP context unavailable");
+        return NULL;
+    }
     pthread_mutex_lock(&g_mu);
     mcp_server *s = slot_find(name);
     while (s && s->state == SRV_WARMING) {
@@ -655,10 +658,6 @@ static mcp_server *get_server(tools_env *env, const char *name, char **err) {
     }
     pthread_mutex_unlock(&g_mu);
 
-    if (!env || !env->ctx) {
-        *err = tool_err("no MCP servers configured");
-        return NULL;
-    }
     mcp_catalog *prof = load_profile(env);
     if (!prof || prof->nservers == 0) {
         mcp_catalog_free(prof);
