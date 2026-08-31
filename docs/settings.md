@@ -168,3 +168,11 @@ suggestions use `acp.NAME`, `command` + `args`, and `acp@NAME`.
 Named ACP profiles work in native and wasm builds. Native builds can spawn
 stdio agents; wasm can use remote `ws://` or `wss://` agents and otherwise
 returns the existing clean spawn-unavailable error.
+
+## MCP server profile
+
+MCP servers are deliberately not settings keys. Trusted definitions live in
+`~/.tny/mcp.json`, never in a repository file, and support backward-compatible
+stdio entries plus remote Streamable HTTP entries. The complete configuration,
+authentication, JSON framing, explicit SSE non-support, and wasm behavior is documented in
+[Tools, MCP, skills, subagents](features/mcp-and-skills.md#mcp-client).

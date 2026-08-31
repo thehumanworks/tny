@@ -28,15 +28,56 @@ No browser/CDP tools in v1.
 
 Trusted profile only: `~/.tny/mcp.json`. **Never** load repo-local MCP files (cloning a repo must not start a server).
 
-Transports: stdio JSONL, Streamable HTTP, legacy HTTP+SSE if needed. Protocol target: current MCP (fx documents `2026-07-28`); negotiate down.
+Transports: stdio JSONL and Streamable HTTP ([ADR
+0051](../adr/0051-mcp-streamable-http.md)). Existing entries keep their exact
+shape; omitting `type` means stdio:
 
-Startup ([ADR 0049](../adr/0049-mcp-background-warmup.md)): a native session warms every profile server in the background at session start — TUI after first paint, `tny ask` overlapping its connect (after the `-B` fork) — one detached thread per server running spawn + `initialize` + `tools/list`. Never for `--help`/`--version`, `tny acp` server mode, or libtny. A call that names a server mid-warm waits out its handshake (the prewarm-take contract); a failed warm-up is silent until a call names it, which retries and reports the usual error. Without threads (wasm) spawn stays lazy at the first `mcp_*` call and keeps its clean error.
+```json
+{
+  "servers": {
+    "local": { "command": ["node", "/path/to/server.js"] },
+    "remote": {
+      "type": "http",
+      "url": "https://mcp.example/mcp",
+      "headers": { "X-Tenant": "example" },
+      "bearer_token_env": "EXAMPLE_MCP_TOKEN"
+    }
+  }
+}
+```
+
+Every HTTP JSON-RPC message is a POST to the configured endpoint. The response
+must be one `application/json` document, delivered with fixed-length or
+arbitrarily split chunked HTTP framing. For legacy Streamable HTTP, tny runs `initialize`,
+copies an opaque `Mcp-Session-Id`, and sends it with the negotiated protocol
+version on later requests. For MCP `2026-07-28`, a successful `server/discover`
+advertisement selects stateless v2: each request carries protocol/client
+metadata and routing headers, with no initialize, initialized notification,
+session id, or teardown round trip.
+
+tny never parses `text/event-stream`, opens a GET event stream, or falls back
+to deprecated HTTP+SSE. An SSE response or GET-only endpoint returns an
+actionable unsupported-transport error telling the user to configure the
+Streamable HTTP POST endpoint or use a local stdio proxy. wasm:
+HTTP MCP is remote-only over `fetch()` (subject to CORS); stdio spawn stays a
+clean error.
+
+Startup ([ADR 0049](../adr/0049-mcp-background-warmup.md)): a native session warms every profile server in the background at session start — TUI after first paint, `tny ask` overlapping its connect (after the `-B` fork) — one detached thread per server opening its transport, negotiating the protocol era, and running `tools/list`. Never for `--help`/`--version`, `tny acp` server mode, or libtny. A call that names a server mid-warm waits out its handshake (the prewarm-take contract); a failed warm-up is silent until a call names it, which retries and reports the usual error.
 
 Catalog, not schemas: the per-request system prompt lists the cached tools as `server/tool — one-line description` (capped per tool and per session; overflow says to use `mcp_search_tools`), so the model knows what exists with no extra round trip. Full MCP JSON schemas are never promoted into the function-schema `tools` array — the only MCP entries there are `mcp_search_tools`, `mcp_select_tool`, `mcp_features`, and every call goes through `mcp_select_tool` so the permission identity stays `mcp:server/tool`.
 
 `mcp_search_tools` AND-matches whitespace-separated tokens against name + description; an empty query lists the cached catalog without starting or waiting for any server. Re-check permissions immediately before `tools/call`. Treat server output as untrusted data, not instructions.
 
-Remote auth: `header_env`, `bearer_token_env`, optional OAuth from an interactive session. No literal `Authorization` values in the profile.
+Remote auth: `headers` contains non-secret static metadata. `header_env` maps a
+header name to an environment-variable name, and `bearer_token_env` supplies a
+Bearer token. Literal `Authorization` values are rejected. Configured and
+resolved header values and `Mcp-Session-Id` are treated as secrets: they are
+never logged, included in errors, events, transcripts, or diagnostics.
+
+Wasm behavior: **remote-only**. HTTP entries work lazily through the existing
+fetch/ReadableStream transport, subject to browser CORS. Stdio entries retain
+the clean spawn-unavailable error. There is no extra wasm protocol
+implementation and every blocking body wait still goes through `tny_poll`.
 
 ACP sessions (`tny acp`): use only client-supplied `mcpServers`, not the user profile (fx rule).
 

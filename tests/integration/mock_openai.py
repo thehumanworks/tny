@@ -41,6 +41,8 @@ Env knobs:
   MOCK_CHUNK_WIDTH    responses wire HTTP chunk width (default 17); a value at
                       least as large as the body selects Content-Length
   MOCK_CUSTOM_TOOL    request this custom tool once, then validate its output
+  MOCK_CUSTOM_ARGUMENTS
+                      JSON arguments for MOCK_CUSTOM_TOOL
 
 The responses wire streams TWO parallel tool calls (list_files +
 glob_files). The second one's output_item.added carries only the item id;
@@ -91,6 +93,7 @@ _drop_reused_done = False
 EXPECT_EXTENSION_REWRITE = os.environ.get("MOCK_EXPECT_EXTENSION_REWRITE") == "1"
 EXPECT_TOOL_OUTPUT = os.environ.get("MOCK_EXPECT_TOOL_OUTPUT")
 CUSTOM_TOOL = os.environ.get("MOCK_CUSTOM_TOOL")
+CUSTOM_ARGUMENTS = os.environ.get("MOCK_CUSTOM_ARGUMENTS")
 
 
 def sse(obj):
@@ -608,7 +611,7 @@ class Handler(BaseHTTPRequestHandler):
                     },
                 ]
             elif CUSTOM_TOOL:
-                custom_arguments = (
+                custom_arguments = CUSTOM_ARGUMENTS or (
                     os.environ.get("MOCK_HALLUCINATED_ARGUMENTS")
                     if CUSTOM_TOOL == "terminal"
                     else None

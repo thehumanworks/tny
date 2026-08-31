@@ -13,7 +13,7 @@ fx sources: [README](https://github.com/vercel-labs/fx), [fx.sh/llms.txt](https:
 | Sandbox | `os` (macOS), `none`, `auto` | `none` documented until seatbelt lands | ⚠️ deferred: `doctor` discloses "os sandbox not implemented in this build"; permission engine is the guard |
 | Tools | files, grep/glob, `terminal`, web_search/fetch, vision, memory, skill, subagent, MCP lazy select | same names where possible | ✅ 27 tools; `run_command` aliased to `terminal`; `read_image` (`vision` alias) shows png/jpeg/gif/webp |
 | Skills | `SKILL.md`, `$`, multi-root discovery | same roots plus `~/.tny/skills/` | ✅ `.agents/.claude/.codex/.cursor/.opencode` roots, `$` picker in TUI |
-| MCP | trusted `~/.fx/mcp.json` only, stdio + HTTP + legacy SSE | `~/.tny/mcp.json`, same isolation | ✅ stdio JSONL, lazy select; HTTP/SSE transports deferred; disabled entirely in `tny acp` server mode |
+| MCP | trusted `~/.fx/mcp.json` only, stdio + HTTP + legacy SSE | `~/.tny/mcp.json`, same isolation | ✅ stdio JSONL plus JSON-only Streamable HTTP ([ADR 0051](../adr/0051-mcp-streamable-http.md)); request-scoped SSE, deprecated HTTP+SSE GET, and OAuth deferred; disabled entirely in `tny acp` server mode |
 | Subagents | session-backed children, ctrl+x, `subagent` tool | native loop only | ✅ `subagent` tool spawns child `tny ask --json`; children cannot raise perm mode |
 | ACP server | `fx acp` | `tny acp` | ✅ initialize fails closed w/o credential, session/load replays history |
 | Project instructions | `AGENTS.md` chain, target-scoped | same + `CLAUDE.md` alias | ✅ ~/.tny → ancestors below $HOME → cwd; over `--ssh`, ~/.tny (labeled local) → remote cwd ([ADR 0040](../adr/0040-ssh-agents-md.md)) |

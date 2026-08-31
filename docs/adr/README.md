@@ -56,3 +56,4 @@ these as `docs/adr/NNNN`.
 | [0048](0048-runtime-task-presets.md) | Runtime-owned task presets with deterministic discovery, source-safe metadata, ABI 1.1 embedding, workflow isolation, and session-scoped resume semantics |
 | [0049](0049-mcp-background-warmup.md) | Native sessions warm `~/.tny/mcp.json` servers on background threads at session start and inject a capped cached `server/tool` catalog into the system prompt; calls stay on `mcp_select_tool`, failures stay silent until a call, wasm stays lazy |
 | [0050](0050-complete-cursor-sdk-v1.md) | Implement the complete public Cursor SDK Bridge v1.0.30 contract while retaining the external host and rejecting private agent.v1 |
+| [0051](0051-mcp-streamable-http.md) | Remote MCP uses POST-only Streamable HTTP with legacy sessions and stateless 2026-07-28 negotiation; GET/SSE and SSE responses fail actionably; wasm is remote-only |

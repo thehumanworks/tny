@@ -1,15 +1,17 @@
-/* mcp.h — MCP client (stdio JSONL v1; trusted profile ~/.tny/mcp.json only).
- * Servers warm in the background at native-session start (docs/adr/0049);
- * without threads, or for a server the warm-up missed, spawn stays lazy at
- * the first mcp_* tool call. */
+/* mcp.h — MCP client (stdio JSONL + Streamable HTTP; trusted profile
+ * ~/.tny/mcp.json only).
+ * Servers warm in the background at native-session start (docs/adr/0049,
+ * docs/adr/0051); without threads, or for a server the warm-up missed,
+ * connect stays lazy at the first mcp_* tool call. HTTP works on wasm. */
 #ifndef TNY_MCP_H
 #define TNY_MCP_H
 
 #include "core/tools.h"
 #include "util/util.h"
 
-/* Start every ~/.tny/mcp.json server on detached threads: spawn, initialize,
- * cache tools/list. Non-blocking; call once per process at native session
+/* Start every ~/.tny/mcp.json server on detached threads: open its transport,
+ * negotiate stateless v2 or legacy initialization, and cache tools/list.
+ * Non-blocking; call once per process at native session
  * start (never for --help/--version or `tny acp` server mode — mcp_disabled
  * makes it a no-op). Failures stay silent until a call names the server. */
 void mcp_warm_start(struct tny_ctx *ctx);

@@ -274,6 +274,90 @@ TEST chunked_survives_every_split_boundary(void) {
     PASS();
 }
 
+/* MCP uses the same HTTP response for fixed JSON and chunked JSON. Exercise
+ * every exact two-write boundary across status, session header, chunk size,
+ * JSON UTF-8 bytes, data CRLF, and the terminal zero chunk. */
+static int chunked_drive_exact_split(const char *resp, size_t resp_len, size_t split, buf_t *body,
+                                     char *session, size_t session_cap) {
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return -1;
+    set_nonblock(sv[0], true);
+    http_conn *c = http_from_fd(sv[0]);
+    int status = -2;
+    int rc = 0;
+    const size_t parts[2] = {split, resp_len - split};
+    size_t off = 0;
+    for (int part = 0; part < 2 && rc == 0; part++) {
+        if (write(sv[1], resp + off, parts[part]) != (ssize_t)parts[part]) {
+            rc = -1;
+            break;
+        }
+        off += parts[part];
+        if (status == -2) {
+            status = http_read_response(c, 0);
+            if (status == 200) {
+                const char *value = http_header(c, "Mcp-Session-Id");
+                if (!value) {
+                    rc = -1;
+                    break;
+                }
+                snprintf(session, session_cap, "%s", value);
+            } else if (status != -2) {
+                rc = -1;
+                break;
+            }
+        }
+        if (status != 200) continue;
+        for (;;) {
+            char tmp[17];
+            ssize_t n = http_body_read(c, tmp, sizeof tmp);
+            if (n > 0) {
+                buf_append(body, tmp, (size_t)n);
+                continue;
+            }
+            if (n == -2) break;
+            rc = n == 0 ? 1 : -1;
+            break;
+        }
+    }
+    http_close(c);
+    close(sv[1]);
+    return rc;
+}
+
+TEST mcp_chunked_json_survives_each_exact_split(void) {
+    const char payload[] =
+        "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"tools\":[{\"name\":\"echo\","
+        "\"description\":\"split ☃ safely\"}]}}";
+    buf_t response;
+    buf_init(&response);
+    buf_appends(&response, "HTTP/1.1 200 OK\r\n");
+    buf_appends(&response, "Content-Type: application/json\r\n");
+    buf_appends(&response, "Mcp-Session-Id: session-split-87\r\n");
+    buf_appends(&response, "Transfer-Encoding: chunked\r\n\r\n");
+    size_t first = 19;
+    buf_appendf(&response, "%zX\r\n", first);
+    buf_append(&response, payload, first);
+    buf_appends(&response, "\r\n");
+    buf_appendf(&response, "%zX\r\n", sizeof payload - 1 - first);
+    buf_append(&response, payload + first, sizeof payload - 1 - first);
+    buf_appends(&response, "\r\n0\r\n\r\n");
+
+    for (size_t split = 1; split < response.len; split++) {
+        buf_t body;
+        buf_init(&body);
+        char session[64] = "";
+        int rc = chunked_drive_exact_split(response.data, response.len, split, &body, session,
+                                           sizeof session);
+        ASSERT_EQm("clean end-of-body at each exact split", 1, rc);
+        ASSERT_STR_EQ(payload, body.data);
+        ASSERT_STR_EQ("session-split-87", session);
+        buf_free(&body);
+    }
+    buf_free(&response);
+    PASS();
+}
+
 TEST chunked_garbage_size_line_is_an_error(void) {
     const char resp[] = "HTTP/1.1 200 OK\r\n"
                         "Transfer-Encoding: chunked\r\n\r\n"
@@ -345,6 +429,7 @@ SUITE(net_suite) {
     RUN_TEST(connect_oversized_rejected);
     RUN_TEST(url_parse_forms);
     RUN_TEST(chunked_survives_every_split_boundary);
+    RUN_TEST(mcp_chunked_json_survives_each_exact_split);
     RUN_TEST(chunked_garbage_size_line_is_an_error);
     RUN_TEST(tls_to_plain_http_server_fails_cleanly);
 }

@@ -275,6 +275,7 @@ int http_request(http_conn *c, const char *method, const char *path,
   js_http_start(c->fd, method, url.data, hj.data ? hj.data : "",
                 body ? body : "", body ? (int)body_len : -1);
   buf_free(&url);
+  if (hj.data) secure_zero(hj.data, hj.cap);
   buf_free(&hj);
   return 0;
 }
