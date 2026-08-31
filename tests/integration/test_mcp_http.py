@@ -130,13 +130,17 @@ def main():
             assert state["modern"].get("server/discover", 0) >= 1, state
             assert state["modern"].get("initialize", 0) == 0, state
             assert state["modern"].get("notifications/initialized", 0) == 0, state
-            assert state["modern"].get("tools/list", 0) >= 1, state
+            # wasm has no warm-up threads, so the catalog prefetch (tools/list)
+            # is lazy and may not run before the calls above.
+            if not os.environ.get("TNY_TEST_EXPECT_WASM"):
+                assert state["modern"].get("tools/list", 0) >= 1, state
             assert state["modern"].get("tools/call", 0) == 1, state
             assert state["sse"].get("tools/call", 0) == 1, state
             assert state["legacy"].get("server/discover", 0) >= 1, state
             assert state["legacy"].get("initialize", 0) >= 1, state
             assert state["legacy"].get("notifications/initialized", 0) >= 1, state
-            assert state["legacy"].get("tools/list", 0) >= 1, state
+            if not os.environ.get("TNY_TEST_EXPECT_WASM"):
+                assert state["legacy"].get("tools/list", 0) >= 1, state
             assert state["legacy"].get("tools/call", 0) == 1, state
             assert state["auth_ok"] > 0, state
         finally:
