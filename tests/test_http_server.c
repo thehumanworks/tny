@@ -302,6 +302,37 @@ TEST teardown_is_idempotent_and_does_not_change_sigpipe(void) {
     PASS();
 }
 
+TEST stop_closes_an_accepted_idle_connection(void) {
+    handler_state state = {0};
+    buf_init(&state.body);
+    http_server *server = start_server(&state);
+    ASSERT(server != NULL);
+    int fd = connect_client(server);
+    ASSERT(fd >= 0);
+
+    struct pollfd fds[HTTP_SERVER_POLLFD_CAPACITY];
+    int count = 0;
+    for (int i = 0; i < 10 && count < 2; i++) {
+        ASSERT_EQ(0, server_step(server, 1));
+        count = http_server_pollfds(server, fds, HTTP_SERVER_POLLFD_CAPACITY);
+    }
+    ASSERT_EQ(2, count);
+    int listener_fd = fds[0].fd;
+    int accepted_fd = fds[1].fd;
+
+    http_server_stop(server);
+    errno = 0;
+    ASSERT_EQ(-1, fcntl(listener_fd, F_GETFD, 0));
+    ASSERT_EQ(EBADF, errno);
+    errno = 0;
+    ASSERT_EQ(-1, fcntl(accepted_fd, F_GETFD, 0));
+    ASSERT_EQ(EBADF, errno);
+    close(fd);
+    http_server_destroy(&server);
+    buf_free(&state.body);
+    PASS();
+}
+
 TEST deferred_response_completes_later_and_detects_disconnect(void) {
     handler_state state = {0};
     buf_init(&state.body);
@@ -356,6 +387,7 @@ SUITE(http_server_suite) {
     RUN_TEST(http_server_returns_bounded_protocol_errors);
     RUN_TEST(deferred_response_completes_later_and_detects_disconnect);
     RUN_TEST(teardown_is_idempotent_and_does_not_change_sigpipe);
+    RUN_TEST(stop_closes_an_accepted_idle_connection);
 }
 
 #ifdef HTTP_SERVER_STANDALONE
