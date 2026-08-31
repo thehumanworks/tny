@@ -62,7 +62,7 @@ rows retain that historical v0.1.0 bake-off until they are remeasured:
 
 | Metric | fx 0.0.3 | tny | Result |
 | --- | --- | --- | --- |
-| Stripped binary | 6,748,416 B (6.4 MiB) | **715,584 B (0.68 MiB)** | 9.4× smaller |
+| Stripped binary | 6,748,416 B (6.4 MiB) | **715,616 B (0.68 MiB)** | 9.4× smaller |
 | `tny --version` | 2.2 ms ± 0.3 | **1.7 ms ± 0.2** | 1.3× faster |
 | Max RSS (`--version`) | 3.0 MiB | **2.1 MiB** | 1.4× less memory |
 | TUI first prompt | — | 3.3–4.3 ms | budget < 10 ms |

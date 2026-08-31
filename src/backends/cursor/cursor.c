@@ -23,11 +23,49 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#define READY_TIMEOUT_ENV                "TNY_CURSOR_BRIDGE_READY_TIMEOUT_MS"
 #define READY_TIMEOUT_MS                 30000
+#define READY_TIMEOUT_MIN_MS             1000
+#define READY_TIMEOUT_MAX_MS             120000
 #define RPC_TIMEOUT_MS                   30000
 #define SHUTDOWN_GRACE_S                 5
 #define OBSERVE_RECOVERY_MAX_NO_PROGRESS 4u
 #define OBSERVE_RECOVERY_BASE_DELAY_MS   50
+
+/* Kept externally callable for the focused parser tests; this is an internal,
+ * hidden symbol in libtny builds, not part of the public ABI. */
+int cu_bridge_ready_timeout_ms(const char *value, int *timeout_ms, char *err, size_t errlen);
+
+int cu_bridge_ready_timeout_ms(const char *value, int *timeout_ms, char *err, size_t errlen) {
+    if (!value) {
+        *timeout_ms = READY_TIMEOUT_MS;
+        return 0;
+    }
+    if (!*value) {
+        snprintf(err, errlen, "cursor: %s must be a decimal integer", READY_TIMEOUT_ENV);
+        return -1;
+    }
+
+    unsigned value_ms = 0;
+    bool above_max = false;
+    for (const char *p = value; *p; p++) {
+        if (*p < '0' || *p > '9') {
+            snprintf(err, errlen, "cursor: %s must be a decimal integer", READY_TIMEOUT_ENV);
+            return -1;
+        }
+        unsigned digit = (unsigned)(*p - '0');
+        if (value_ms > (READY_TIMEOUT_MAX_MS - digit) / 10u) {
+            above_max = true;
+        } else if (!above_max) {
+            value_ms = value_ms * 10u + digit;
+        }
+    }
+
+    if (above_max || value_ms > READY_TIMEOUT_MAX_MS) value_ms = READY_TIMEOUT_MAX_MS;
+    if (value_ms < READY_TIMEOUT_MIN_MS) value_ms = READY_TIMEOUT_MIN_MS;
+    *timeout_ms = (int)value_ms;
+    return 0;
+}
 
 char *cu_ephemeral_root_create(char *err, size_t errlen) {
     char template[] = "/tmp/tny-cursor-ephemeral.XXXXXX";
@@ -646,6 +684,9 @@ static int cu_connect(tny_backend *b, char *e, size_t el) {
                  "(user or service-account key; Team Admin keys are not supported)");
         return -1;
     }
+    int ready_timeout_ms;
+    if (cu_bridge_ready_timeout_ms(getenv(READY_TIMEOUT_ENV), &ready_timeout_ms, e, el) != 0)
+        return -1;
     tny_cursor_config *cfg = o->ctx->cursor_config;
     if (o->ctx->no_save && strcmp(runtime_name(o), "local") == 0) {
         o->ephemeral_root = cu_ephemeral_root_create(e, el);
@@ -684,7 +725,7 @@ static int cu_connect(tny_backend *b, char *e, size_t el) {
         custom_store ? cursor_callbacks_url(o->callbacks) : NULL,
         custom_store ? cursor_callbacks_token(o->callbacks) : NULL,
     };
-    if (cursor_bridge_spawn(&o->bridge, o->ctx, o->api_key, &launch, READY_TIMEOUT_MS, e, el) !=
+    if (cursor_bridge_spawn(&o->bridge, o->ctx, o->api_key, &launch, ready_timeout_ms, e, el) !=
         0) {
         cursor_callbacks_destroy(&o->callbacks);
         cu_ephemeral_root_remove(&o->ephemeral_root);

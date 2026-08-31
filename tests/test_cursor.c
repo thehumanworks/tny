@@ -23,6 +23,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+int cu_bridge_ready_timeout_ms(const char *value, int *timeout_ms, char *err, size_t errlen);
+
 /* ---- event recorder ---- */
 
 #define REC_MAX 16
@@ -773,6 +775,34 @@ TEST bridge_rejects_partial_store_callback_credentials_before_spawn(void) {
     ASSERT_EQ(0, bridge.pid);
     ASSERT_EQ(-1, bridge.err_fd);
     cursor_bridge_stop(&bridge, 0);
+    PASS();
+}
+
+TEST bridge_ready_timeout_override_is_strict_and_clamped(void) {
+    int timeout_ms = -1;
+    char err[160] = {0};
+
+    ASSERT_EQ(0, cu_bridge_ready_timeout_ms(NULL, &timeout_ms, err, sizeof err));
+    ASSERT_EQ(30000, timeout_ms);
+    ASSERT_EQ(0, cu_bridge_ready_timeout_ms("60000", &timeout_ms, err, sizeof err));
+    ASSERT_EQ(60000, timeout_ms);
+    ASSERT_EQ(0, cu_bridge_ready_timeout_ms("999", &timeout_ms, err, sizeof err));
+    ASSERT_EQ(1000, timeout_ms);
+    ASSERT_EQ(0, cu_bridge_ready_timeout_ms("1000", &timeout_ms, err, sizeof err));
+    ASSERT_EQ(1000, timeout_ms);
+    ASSERT_EQ(0, cu_bridge_ready_timeout_ms("120000", &timeout_ms, err, sizeof err));
+    ASSERT_EQ(120000, timeout_ms);
+    ASSERT_EQ(0, cu_bridge_ready_timeout_ms("120001", &timeout_ms, err, sizeof err));
+    ASSERT_EQ(120000, timeout_ms);
+    ASSERT_EQ(0, cu_bridge_ready_timeout_ms("999999999999999999999", &timeout_ms, err, sizeof err));
+    ASSERT_EQ(120000, timeout_ms);
+
+    const char *invalid[] = {"", " 60000", "+60000", "60000ms", "60\n000", NULL};
+    for (size_t i = 0; invalid[i]; i++) {
+        memset(err, 0, sizeof err);
+        ASSERT_EQ(-1, cu_bridge_ready_timeout_ms(invalid[i], &timeout_ms, err, sizeof err));
+        ASSERT(strstr(err, "TNY_CURSOR_BRIDGE_READY_TIMEOUT_MS"));
+    }
     PASS();
 }
 
@@ -1590,6 +1620,7 @@ SUITE(cursor_suite) {
     RUN_TEST(send_resets_cancel_rpc_state_for_each_turn);
     RUN_TEST(session_pointer_is_versioned_and_carries_durable_run_state);
     RUN_TEST(bridge_rejects_partial_store_callback_credentials_before_spawn);
+    RUN_TEST(bridge_ready_timeout_override_is_strict_and_clamped);
     RUN_TEST(bridge_spawn_sets_exact_cwd_argv_and_environment);
     RUN_TEST(bridge_spawn_failures_release_process_and_pipe);
     RUN_TEST(sdk_text_is_authoritative_over_interaction_and_step_restatements);

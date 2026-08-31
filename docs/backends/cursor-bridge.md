@@ -35,6 +35,13 @@ callback URL/token become the corresponding bridge launch flags. The bridge
 prints a `cursor-sdk-bridge ready ` JSON line. tny validates schema version 1,
 TCP, Connect, URL/host/port, and the token file before sending any request.
 
+Conversational startup waits 30 seconds for that ready line by default. Set
+`TNY_CURSOR_BRIDGE_READY_TIMEOUT_MS` to a decimal millisecond value when a cold
+or resource-constrained host needs longer. The value is parsed strictly and
+clamped to 1,000–120,000 ms; malformed or empty values fail before the bridge
+is spawned. Cursor management commands and Doctor retain their explicit
+command/probe timeouts.
+
 Native builds use parent-prepared `posix_spawn` file actions, arguments, and
 environment rather than running allocation, `chdir`, or environment mutation
 after `fork()`. Cursor can therefore start safely from a multithreaded libtny

@@ -45,6 +45,10 @@ def cursor_environment(
         "TNY_MOCK_CWD": os.fspath(workspace),
         "TNY_MOCK_INVOKE_CUSTOM_TOOL": "host_echo" if invoke_tool else None,
     }
+    if sys.platform == "darwin":
+        # Hosted macOS Python processes can take over 30 seconds to import the
+        # bridge fixture before it emits its ready line.
+        values["TNY_CURSOR_BRIDGE_READY_TIMEOUT_MS"] = "60000"
     Path(values["TNY_MOCK_DIR"]).mkdir()
     previous = {name: os.environ.get(name) for name in values}
     try:
@@ -82,6 +86,23 @@ class CursorProviderTests(unittest.IsolatedAsyncioTestCase):
             api_key="cursor-sdk-test-key-not-real",
             permission_mode=tny.PermissionMode.YOLO,
         )
+
+    def test_cursor_environment_restores_ready_timeout_override(self) -> None:
+        name = "TNY_CURSOR_BRIDGE_READY_TIMEOUT_MS"
+        previous = os.environ.get(name)
+        os.environ[name] = "ambient-sentinel"
+        state = self.root / "environment"
+        state.mkdir()
+        try:
+            with cursor_environment(self.workspace, state, invoke_tool=False):
+                expected = "60000" if sys.platform == "darwin" else "ambient-sentinel"
+                self.assertEqual(os.environ.get(name), expected)
+            self.assertEqual(os.environ.get(name), "ambient-sentinel")
+        finally:
+            if previous is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = previous
 
     async def test_sync_and_async_tools_round_trip_through_cursor_callback(
         self,
