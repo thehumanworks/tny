@@ -272,6 +272,20 @@ TEST failed_server_silent_until_call(void) {
     PASS();
 }
 
+TEST missing_runtime_context_fails_cleanly(void) {
+    char *out = mcp_call_tool(NULL, "srv", "deploy_app", "{}");
+    ASSERT(out);
+    ASSERT(strstr(out, "MCP context unavailable"));
+    free(out);
+
+    tools_env env = {0};
+    out = mcp_call_tool(&env, "srv", "deploy_app", "{}");
+    ASSERT(out);
+    ASSERT(strstr(out, "MCP context unavailable"));
+    free(out);
+    PASS();
+}
+
 /* Workspace mcp.json files never load (cloning a repo must not start a
  * server), and `tny acp` server mode (mcp_disabled) never warms even with
  * a valid user profile. */
@@ -1040,6 +1054,7 @@ SUITE(mcp_suite) {
     RUN_TEST(hung_server_does_not_stall);
     RUN_TEST(search_matches_tokens_not_substring);
     RUN_TEST(failed_server_silent_until_call);
+    RUN_TEST(missing_runtime_context_fails_cleanly);
     RUN_TEST(workspace_profile_never_loads_and_acp_never_warms);
     RUN_TEST(http_modern_json_warms_and_calls);
     RUN_TEST(http_sse_tools_call_fails_actionably);
