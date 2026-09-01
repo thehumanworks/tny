@@ -6,8 +6,11 @@
 #include "greatest.h"
 #include "core/runner.h"
 #include "net/net.h"
+#include "util/tny_poll.h"
 #include "util/util.h"
 
+#include <poll.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,20 +43,41 @@ typedef struct {
     char sock[256];
 } wire_env;
 
+/* Cygwin/MSYS AF_UNIX emulation completes connect() only after the server
+ * accepts, so a single-threaded connect-then-accept deadlocks there. The
+ * runner never has this shape (parent and runner are separate processes);
+ * the test connects on a thread while this one accepts. */
+static void *wire_connect_main(void *arg) {
+    wire_env *w = arg;
+    w->client = tny_runner_client_connect(w->sock, 4000);
+    return NULL;
+}
+
 static int wire_begin(wire_env *w) {
     const char *tmp = getenv("TMPDIR");
     if (!tmp || !*tmp) tmp = "/tmp";
     snprintf(w->sock, sizeof w->sock, "%s/tny-rn-test-%ld.sock", tmp, (long)getpid());
+    w->client = NULL;
+    w->server_fd = -1;
     int lfd = unix_listen(w->sock);
     if (lfd < 0) return -1;
-    w->client = tny_runner_client_connect(w->sock, 2000);
-    if (!w->client) {
+    pthread_t th;
+    if (pthread_create(&th, NULL, wire_connect_main, w) != 0) {
         close(lfd);
         return -1;
     }
-    w->server_fd = accept(lfd, NULL, NULL);
+    for (int i = 0; i < 100 && w->server_fd < 0; i++) {
+        struct pollfd pf = {lfd, POLLIN, 0};
+        if (tny_poll(&pf, 1, 50) > 0) w->server_fd = accept(lfd, NULL, NULL);
+    }
+    pthread_join(th, NULL);
     close(lfd);
-    return w->server_fd < 0 ? -1 : 0;
+    if (w->server_fd < 0 || !w->client) {
+        if (w->client) tny_runner_client_close(w->client);
+        if (w->server_fd >= 0) close(w->server_fd);
+        return -1;
+    }
+    return 0;
 }
 
 static void wire_end(wire_env *w) {
