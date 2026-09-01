@@ -10,6 +10,7 @@
 #include "cli/cli.h"
 #include "core/backend.h"
 #include "core/perm.h"
+#include "core/runner.h"
 #include "core/runtime.h"
 #include "core/session.h"
 #include "util/util.h"
@@ -69,6 +70,13 @@ typedef struct tui {
     tui_prewarm *prewarm; /* host warm-up running in the background */
     bool bk_adopted;      /* engine backend came pre-resumed from warm-up and has
                            * not sent yet: one lazy retry if send() fails */
+
+    /* Native isolation (docs/adr/0053): turns run in a detached serve
+     * runner; rc is its wire client and engine stays NULL. wasm and
+     * TNY_ISOLATE=0 keep the in-process engine path. */
+    tny_runner_client *rc;
+    pid_t rc_pid;
+    bool rc_restart_pending; /* ctx changed mid-turn: restart after it ends */
 
     bool turn_active, turn_done, want_cancel, quit, trace;
     bool in_thinking; /* streaming reasoning: keep it on its own lines */
@@ -172,9 +180,19 @@ void tui_new_session(tui *t, bool clear_screen);
 tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary);
 void tui_drop_backend(tui *t); /* disconnect + destroy the bound backend */
 
+/* tui_runner.c — serve-runner client plumbing (docs/adr/0053). */
+bool tui_runner_mode(const tui *t);               /* isolation on for this shell? */
+int tui_runner_ensure(tui *t, bool quiet);        /* spawn+connect if missing; 0 ok */
+void tui_runner_drop(tui *t, const char *reason); /* end + close (idempotent) */
+void tui_runner_dispatch(tui *t);                 /* pump the socket, translate messages */
+int tui_runner_fd(const tui *t);                  /* poll fd, -1 when no runner */
+/* tui.c: render one normalized event (shared by engine and runner paths). */
+void tui_handle_backend_event(tui *t, const tny_backend_event *ev);
+
 /* tui_prewarm.c — spawn + connect + create/resume the provider's host in the
  * background so the first turn pays neither the startup nor the session
- * round trip (docs/adr/0002). */
+ * round trip (docs/adr/0002; in isolation mode the serve runner is the
+ * pre-warm and these delegate to tui_runner_*, docs/adr/0053). */
 void tui_prewarm_start(tui *t);        /* warm ctx->backend if it applies */
 tny_backend *tui_prewarm_take(tui *t); /* resumed backend or NULL; consumes */
 /* Abandon whatever is pending. Waits out an in-flight create_or_resume, so

@@ -72,6 +72,7 @@ remain CLI surfaces and do not expand the embedding ABI.
 ## Process rules
 
 - One tny process, one primary workspace (`cwd` unless `--cwd`).
+- **Turns run in a detached session runner** ([ADR 0053](adr/0053-forked-turn-isolation.md)): on native builds, `ask` and the TUI fork a `setsid()` runner that owns the backend, engine, MCP servers, and every `session.json` write, streaming normalized events back over `<session>/sock` (NDJSON). The caller is a renderer; its death detaches, never kills, the turn. wasm, `--ephemeral`, and `TNY_ISOLATE=0` run in-process; `tny acp` (server) and libtny embedders stay in-process by design — their callers own lifecycle.
 - Host processes are children or attach targets. Do not embed Node/Bun/Rust runtimes.
 - Always have a RAII-style shutdown path: cancel turn → close stream → `Shutdown`/EOF → wait → kill.
 - Drain host stderr on a dedicated reader. A full pipe stalls `cursor-sdk-bridge` and most ACP agents.

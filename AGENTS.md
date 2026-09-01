@@ -37,8 +37,9 @@ The product source is live under `src/` with unit, integration, mutation, and la
 ## Invariants
 
 - Language: C11 only. Vendored C libraries listed in `docs/language-and-runtime.md`.
-- Size: stripped `tny` **< 2.0 MiB**. Host binaries (`cursor-sdk-bridge`, `codex`, ACP agents) stay external.
+- Size: stripped `tny` **< 1.0 MiB** on Linux (dynamic; per-target budgets in `docs/size-and-speed.md`, loosest gate 2.0 MiB Windows). Host binaries (`cursor-sdk-bridge`, `codex`, ACP agents) stay external.
 - Startup: the CLI spawns no backend before a turn; `--help` / `--version` stay microseconds-to-milliseconds. The interactive TUI **pre-warms** the selected provider's host after first paint (`docs/adr/0002`); one-shot `tny ask` may overlap its `connect()` with reading the prompt from stdin and may attach to a registered live codex host (`docs/adr/0004`).
+- Isolation: on native builds every turn — interactive and one-shot — executes in a detached, forked **session runner** that survives caller crashes and finalizes into the session; the caller renders its NDJSON stream from `<session>/sock` (`docs/adr/0053`). No tmux. wasm, `--ephemeral`, and `TNY_ISOLATE=0` are the only in-process turns.
 - One event loop. Normalize every backend to the shared event set in `docs/architecture.md`. (The pre-warm thread runs only `connect()` + `create_or_resume()` and hands the backend back before any events flow; ctx mutations must `tui_prewarm_drop` first.)
 - Native loop owns tools/MCP/skills/permissions. Host backends own their own loops.
 - Permission mode defaults to **yolo** for every provider (`docs/adr/0001`); `ask`/`auto` are explicit opt-ins.

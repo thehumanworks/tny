@@ -251,13 +251,15 @@ ifeq ($(STATIC),0)
 endif
 
 # Size budgets (docs/size-and-speed.md). Override SIZE_MAX in CI per target.
-# 1.5 MiB Linux, 1.8 MiB Darwin, 2.0 MiB Windows (MSYS-linked).
+# 1.0 MiB Linux dynamic (docs/adr/0053 — no tmux, app stays light; musl
+# static overrides to 1.5 MiB in CI), 1.8 MiB Darwin, 2.0 MiB Windows
+# (MSYS-linked).
 ifeq ($(UNAME_S),Darwin)
   SIZE_MAX ?= 1887436
 else ifeq ($(WINDOWS),1)
   SIZE_MAX ?= 2097152
 else
-  SIZE_MAX ?= 1572864
+  SIZE_MAX ?= 1048576
 endif
 
 .PHONY: all release debug test test-unit test-event-schema test-conformance-contract check-cursor-sdk-contract test-cursor-sdk-contract test-extensions-python test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE

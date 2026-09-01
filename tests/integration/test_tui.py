@@ -674,6 +674,16 @@ def children_of(pid):
     return kids
 
 
+def descendants_of(pid):
+    """children_of, transitively. Isolation (docs/adr/0053) puts hosts under
+    the detached session runner, so the agent is the TUI's grandchild."""
+    out = []
+    for kid in children_of(pid):
+        out.append(kid)
+        out.extend(descendants_of(kid[0]))
+    return out
+
+
 def test_prewarm_spawns_acp_agent(home, ws):
     """docs/adr/0002: with a host provider selected, the TUI spawns and
     initializes the host right after the first paint — before any prompt."""
@@ -707,19 +717,21 @@ def test_prewarm_spawns_acp_agent(home, ws):
         end = time.time() + 8
         spawned = []
         while time.time() < end:
-            spawned = [c for c in children_of(t.proc.pid) if "fake_acp_agent" in c[1]]
+            spawned = [
+                c for c in descendants_of(t.proc.pid) if "fake_acp_agent" in c[1]
+            ]
             if spawned:
                 break
             t.pump(0.2)
         assert spawned, "agent not pre-warmed after startup; children: %r\n%s" % (
-            children_of(t.proc.pid),
+            descendants_of(t.proc.pid),
             clean(t.buf),
         )
         # the warm host is adopted by the first turn, not respawned
         t.send("hello\r")
         t.expect("Hello from the fake ACP agent.", 20.0)
         assert json.load(open(state))["model_at_prompt"] == "selected-model"
-        agents = [c for c in children_of(t.proc.pid) if "fake_acp_agent" in c[1]]
+        agents = [c for c in descendants_of(t.proc.pid) if "fake_acp_agent" in c[1]]
         assert len(agents) == 1, "prewarmed agent was not adopted: %r" % agents
         assert agents[0][0] == spawned[0][0], "agent was respawned for the turn"
         # /new drops the bound backend and re-warms: a fresh agent must be
@@ -732,14 +744,14 @@ def test_prewarm_spawns_acp_agent(home, ws):
         while time.time() < end:
             fresh = [
                 c
-                for c in children_of(t.proc.pid)
+                for c in descendants_of(t.proc.pid)
                 if "fake_acp_agent" in c[1] and c[0] != first_pid
             ]
             if fresh:
                 break
             t.pump(0.2)
         assert fresh, "no re-warmed agent after /new; children: %r\n%s" % (
-            children_of(t.proc.pid),
+            descendants_of(t.proc.pid),
             clean(t.buf),
         )
         t.send("/quit\r")

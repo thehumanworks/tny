@@ -134,6 +134,7 @@ int tcp_connect(const char *host, int port, int timeout_ms) {
   return -1;
 }
 int unix_connect(const char *path) { (void)path; return -1; }
+int unix_listen(const char *path) { (void)path; return -1; }
 
 /* ---- HTTP over fetch ---- */
 

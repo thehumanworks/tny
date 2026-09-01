@@ -432,6 +432,35 @@ model, effort, workspace, permission, SSH, and ACP-agent selections; it does not
 implement provider behavior itself. Full API and failure semantics:
 [workflows.md](workflows.md).
 
+## Process isolation (every turn, [ADR 0053](adr/0053-forked-turn-isolation.md))
+
+On native builds **every** turn — foreground `tny ask` and the TUI included
+— executes in a detached session-runner process; the invoking `tny` is only
+a renderer streaming the runner's events from `<session-dir>/sock`. Killing
+the caller (crash, closed terminal, SIGKILL) detaches the turn instead of
+killing it: the runner finishes, finalizes the session's
+`status`/`exit_code`/`result`, and exits, so `tny ask --resume <id>` (or
+`tny resume`) continues the conversation afterwards. `^C` in a foreground
+`ask` still cancels the turn; a second `^C` detaches and leaves it running.
+In-process turns remain only on wasm, with `--ephemeral`, or with the
+`TNY_ISOLATE=0` debug escape hatch.
+
+### `tny session attach <id>`
+
+Attach to a **live** run — a `-B` task, a foreground turn whose caller
+died, or a turn owned by another shell — and stream it: a snapshot of the
+output so far, then live events (text to stdout, tool/status lines to
+stderr). `^C` detaches and the turn keeps running; cancelling stays
+`tny session stop`. Approvals are answered by the owning client (or by the
+runner's permission mode when none is attached), never by an attach. On a
+session with no live runner, attach exits 1 and points at `tny session
+<id>`.
+
+```sh
+id=$(tny ask -B "audit the Makefile")
+tny session attach $id             # watch it live; ^C detaches
+```
+
 ## Background one-shots (`tny ask -B`)
 
 `-B` / `--background` runs the identical ask turn detached and defers its
@@ -519,6 +548,7 @@ Bare `--resume` on a session whose turn is still running fails, exit 1:
 ```text
 tny: session <id> is still running (pid N)
   watch:     tny session <id>
+  attach:    tny session attach <id>
   stop:      tny session stop <id>
   take over: tny ask --resume <id> --steer "new prompt"
 ```

@@ -1,9 +1,13 @@
-/* cmd_sessions.c — sessions list / session inspect / recover / resume entry. */
+/* cmd_sessions.c — sessions list / session inspect / attach / recover /
+ * resume entry. */
 #include "cli/cli.h"
+#include "core/runner.h"
 #include "core/session.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
 
+#include <poll.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,9 +18,10 @@ void cli_print_still_running(tny_ctx *ctx, const char *id) {
     else fprintf(stderr, "tny: session %s is still running\n", id);
     fprintf(stderr,
             "  watch:     tny session %s\n"
+            "  attach:    tny session attach %s\n"
             "  stop:      tny session stop %s\n"
             "  take over: tny ask --resume %s --steer \"new prompt\"\n",
-            id, id, id);
+            id, id, id, id);
 }
 
 /* One line, newlines flattened, truncated at a UTF-8 boundary. */
@@ -211,12 +216,141 @@ static int cmd_session_stop(tny_ctx *ctx, bool json, int argc, char **argv) {
     return ret;
 }
 
+/* `tny session attach <id>` — stream a live runner's turn (docs/adr/0053):
+ * hello, a snapshot of the output so far, then live events. ^C detaches and
+ * leaves the turn running; cancelling stays `tny session stop`. */
+static volatile sig_atomic_t g_attach_int = 0;
+static void attach_on_sigint(int sig) {
+    (void)sig;
+    g_attach_int = 1;
+}
+
+static int cmd_session_attach(tny_ctx *ctx, int argc, char **argv) {
+    const char *id = NULL;
+    for (int i = 0; i < argc; i++)
+        if (argv[i] && argv[i][0] != '-' && !id) id = argv[i];
+    if (!id) {
+        fprintf(stderr, "tny: session attach <id>\n"
+                        "Example: tny session attach 4f2a1c90aa317b22\n");
+        return 1;
+    }
+    tny_session_state *s = session_open(ctx, id);
+    if (!s) {
+        fprintf(stderr, "tny: no session '%s' for this workspace\n", id);
+        return 1;
+    }
+    if (!session_is_running(ctx, s->id)) {
+        const char *st = session_status(s);
+        fprintf(stderr,
+                "tny: session %s has no live turn (status: %s)\n"
+                "  read it: tny session %s\n",
+                s->id, st ? st : "none", s->id);
+        session_close(s);
+        return 1;
+    }
+    char *sock = tny_runner_sock_path(s->dir);
+    tny_runner_client *rc = sock ? tny_runner_client_connect(sock, 1500) : NULL;
+    free(sock);
+    if (!rc) {
+        fprintf(stderr,
+                "tny: session %s is running but not attachable\n"
+                "  watch instead: tny session %s\n",
+                s->id, s->id);
+        session_close(s);
+        return 1;
+    }
+    fprintf(stderr, "tny: attached to session %s — ^C detaches, the turn keeps running\n", s->id);
+    signal(SIGINT, attach_on_sigint);
+    signal(SIGPIPE, SIG_IGN);
+    int code = 0;
+    bool done = false, ends_nl = true, any_out = false;
+    while (!done) {
+        struct pollfd pf = {tny_runner_client_fd(rc), POLLIN, 0};
+        int pr = tny_poll(&pf, 1, 200);
+        if (g_attach_int) {
+            if (any_out && !ends_nl) fputs("\n", stdout);
+            fprintf(stderr, "tny: detached (tny session stop %s to stop the turn)\n", s->id);
+            break;
+        }
+        int alive = 0;
+        if (pr > 0) alive = tny_runner_client_pump(rc);
+        tny_runner_msg *m;
+        while ((m = tny_runner_client_pop(rc))) {
+            switch (m->kind) {
+            case TNY_RMSG_EVENT:
+                switch (m->ev.kind) {
+                case TNY_EV_TEXT_DELTA:
+                    if (m->ev.text && m->ev.text_len) {
+                        fwrite(m->ev.text, 1, m->ev.text_len, stdout);
+                        fflush(stdout);
+                        any_out = true;
+                        ends_nl = m->ev.text[m->ev.text_len - 1] == '\n';
+                    }
+                    break;
+                case TNY_EV_TOOL_START:
+                    fprintf(stderr, "⏺ %s %.120s\n", m->ev.tool_name,
+                            m->ev.tool_detail ? m->ev.tool_detail : "");
+                    break;
+                case TNY_EV_TOOL_END:
+                    fprintf(stderr, "  %s %s\n", m->ev.tool_ok ? "✓" : "✗", m->ev.tool_name);
+                    break;
+                case TNY_EV_PERMISSION:
+                    /* the owning client answers; an observer only reports */
+                    fprintf(stderr, "approval pending in the owning shell: %s\n",
+                            m->ev.perm_summary ? m->ev.perm_summary : "");
+                    break;
+                case TNY_EV_STATUS:
+                case TNY_EV_ERROR:
+                    fprintf(stderr, "%.*s\n", (int)m->ev.text_len, m->ev.text);
+                    break;
+                default: break;
+                }
+                break;
+            case TNY_RMSG_SNAPSHOT:
+                if (m->text && *m->text) {
+                    fputs(m->text, stdout);
+                    fflush(stdout);
+                    any_out = true;
+                    ends_nl = m->text[strlen(m->text) - 1] == '\n';
+                }
+                break;
+            case TNY_RMSG_HELLO:
+                fprintf(stderr, "  %s  %s  %s\n", m->provider ? m->provider : "?",
+                        m->model ? m->model : "default",
+                        m->turn_active ? "turn in flight" : "idle");
+                break;
+            case TNY_RMSG_TURN_END:
+                if (any_out && !ends_nl) {
+                    fputs("\n", stdout);
+                    ends_nl = true;
+                }
+                code = m->exit_code;
+                fprintf(stderr, "tny: turn finished (exit %d)\n", m->exit_code);
+                break;
+            case TNY_RMSG_TURN_ERR:
+                if (m->text) fprintf(stderr, "tny: %s\n", m->text);
+                break;
+            case TNY_RMSG_LOG:
+                if (m->text) fprintf(stderr, "%s\n", m->text);
+                break;
+            case TNY_RMSG_RECOVERY: break;
+            case TNY_RMSG_BYE: done = true; break;
+            }
+            tny_runner_msg_free(m);
+        }
+        if (!done && alive != 0) done = true; /* runner exited */
+    }
+    tny_runner_client_close(rc);
+    session_close(s);
+    return code;
+}
+
 int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = g->json, wait = false;
     long timeout_s = -1;
     const char *id = NULL, *sub = NULL;
     if (argc >= 1 && (strcmp(argv[0], "recover") == 0 || strcmp(argv[0], "migrate") == 0 ||
-                      strcmp(argv[0], "stop") == 0)) {
+                      strcmp(argv[0], "stop") == 0 || strcmp(argv[0], "attach") == 0)) {
         sub = argv[0];
         if (argc >= 2) id = argv[1];
     } else {
@@ -243,6 +377,7 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         return 1;
     }
     if (sub && strcmp(sub, "stop") == 0) return cmd_session_stop(ctx, json, argc - 1, argv + 1);
+    if (sub && strcmp(sub, "attach") == 0) return cmd_session_attach(ctx, argc - 1, argv + 1);
     if (sub && strcmp(sub, "recover") == 0) {
         char *nid = session_recover_copy(ctx, id);
         if (!nid) {
@@ -403,7 +538,16 @@ int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             return 1;
         }
     }
-    if (probe && session_lock_acquire(probe) != 0) {
+    if (probe && tny_isolation_enabled(ctx)) {
+        /* Isolation mode (docs/adr/0053): the serve runner the TUI spawns
+         * will hold the writer lock for its lifetime; the parent only
+         * probes so it never conflicts with its own runner. */
+        if (session_is_running(ctx, probe->id)) {
+            cli_print_still_running(ctx, probe->id);
+            session_close(probe);
+            return 1;
+        }
+    } else if (probe && session_lock_acquire(probe) != 0) {
         /* another process (a background child or foreground resume) is
          * running a turn on this session (docs/adr/0031 decision 7) */
         cli_print_still_running(ctx, probe->id);
