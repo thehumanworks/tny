@@ -2587,6 +2587,56 @@ TEST embedded_tool_schema_has_no_process_spawning_tools(void) {
     PASS();
 }
 
+/* The subagent child command must forward the parent's resolved provider —
+ * without it the child re-resolves from settings, where a remembered
+ * last_provider (e.g. codex) beats environment detection and the child
+ * fails at startup. Every model-supplied value must also be shell-quoted:
+ * id and prompt reach a popen(3) shell. */
+TEST subagent_command_forwards_provider_and_quotes(void) {
+    ensure_env();
+    tny_ctx *ctx = tny_ctx_new_explicit(g_ws, g_home);
+    ASSERT(ctx);
+    free(ctx->provider_name);
+    ctx->provider_name = xstrdup("openrouter");
+    free(ctx->base_url);
+    ctx->base_url = xstrdup("https://example.test/v1");
+    free(ctx->wire_api);
+    ctx->wire_api = xstrdup("chat");
+    free(ctx->model);
+    ctx->model = xstrdup("mock-model");
+    ctx->perm_mode = TNY_MODE_ASK;
+    tools_env env = {.ctx = ctx};
+
+    char *cmd =
+        tools_subagent_command(&env, "x'; touch pwned; '", "say 'hi' $(date)", "/tmp/err file");
+    ASSERT(cmd);
+    ASSERT(strstr(cmd, " --provider 'openrouter'"));
+    ASSERT(strstr(cmd, " --base-url 'https://example.test/v1'"));
+    ASSERT(strstr(cmd, " --wire-api chat"));
+    ASSERT(strstr(cmd, " --model 'mock-model'"));
+    ASSERT(strstr(cmd, " --permission-mode ask"));
+    ASSERT(strstr(cmd, " ask --json"));
+    ASSERT_EQ(NULL, strstr(cmd, "--ephemeral"));
+    /* an embedded single quote must be broken out of the quoted span, so
+     * the injection attempt stays one argv string for the child */
+    ASSERT(strstr(cmd, " --resume-id 'x'\\''; touch pwned; '\\'''"));
+    ASSERT(strstr(cmd, " -- 'say '\\''hi'\\'' $(date)'"));
+    ASSERT(strstr(cmd, " 2>'/tmp/err file'"));
+    free(cmd);
+
+    /* ephemeral parents pass the mode through; no stderr redirect when the
+     * temp file could not be created */
+    ctx->no_save = true;
+    cmd = tools_subagent_command(&env, NULL, "hi", NULL);
+    ASSERT(cmd);
+    ASSERT(strstr(cmd, " --ephemeral ask --json -- 'hi'"));
+    ASSERT_EQ(NULL, strstr(cmd, "--resume-id"));
+    ASSERT_EQ(NULL, strstr(cmd, "2>"));
+    free(cmd);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 /* Chat response_format wrappers flatten into the Responses text.format
  * object: json_schema members hoisted, no nested "json_schema" key. */
 TEST responses_text_format_flattens(void) {
@@ -3021,6 +3071,7 @@ SUITE(core_suite) {
     RUN_TEST(responses_input_skips_malformed);
     RUN_TEST(responses_tools_flatten);
     RUN_TEST(embedded_tool_schema_has_no_process_spawning_tools);
+    RUN_TEST(subagent_command_forwards_provider_and_quotes);
     RUN_TEST(responses_text_format_flattens);
     RUN_TEST(wire_api_resolution);
     RUN_TEST(wire_api_flag);

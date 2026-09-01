@@ -99,6 +99,8 @@ Managed installs go only to `~/.tny/skills/`.
 
 Child **native** sessions. One-off or persistent. Parent/child messages queued on disk so the child transcript is not dumped into the parent. Children cannot raise permission mode above the creator unless a human set it in the manager (Ctrl-X). Host backends: no tny-spawned subagents; show host task events if they exist (e.g. Cursor `cursor/task`).
 
+The child is a `tny ask` process and **runs the parent's resolved provider**: the parent forwards `--provider` (its effective profile name), `--base-url` and `--wire-api` on the native backend, plus `--model`, `--effort`, `--permission-mode`, and `--ephemeral` on the child command line. The child never re-resolves from settings, so a remembered `last_provider` from an earlier host-backend chat cannot re-route it. API keys are never placed on the command line; they travel through the inherited environment or the same settings the parent read. Model-supplied strings (`id`, `prompt`) are shell-quoted into single arguments. A child that dies before its turn reports its captured stderr in the tool result; a child turn that ends in an error (nonzero `exit_code` or an `error` in its `--json` payload) is a tool error, not a success.
+
 Native `create`/`message` operations emit correlated `subagent_start` and
 `subagent_end` extension events around the child process. A pre-tool deny or
 stop occurs before the process is started. Host task/subagent events are only
