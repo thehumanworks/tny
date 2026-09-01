@@ -10,6 +10,7 @@
 #include <poll.h>
 #include <netdb.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -77,6 +78,25 @@ int tcp_connect(const char *host, int port, int timeout_ms) {
     if (fd >= 0) {
         int one = 1;
         setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+    }
+    return fd;
+}
+
+int unix_listen(const char *path) {
+    struct sockaddr_un sa = {0};
+    sa.sun_family = AF_UNIX;
+    if (strlen(path) >= sizeof sa.sun_path) return -1;
+    strcpy(sa.sun_path, path);
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    unlink(path); /* stale socket from a SIGKILLed runner; see header */
+    mode_t saved = umask(0177);
+    int rc = bind(fd, (struct sockaddr *)&sa, sizeof sa);
+    umask(saved);
+    if (rc != 0 || listen(fd, 4) != 0 || set_nonblock(fd, true) != 0) {
+        close(fd);
+        unlink(path);
+        return -1;
     }
     return fd;
 }

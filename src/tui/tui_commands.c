@@ -560,17 +560,25 @@ void tui_command(tui *t, const char *line) {
     } else if (strcmp(c, "rename") == 0) {
         if (!t->session) tui_sys(t, "no session yet");
         else if (!arg || !*arg) tui_sys(t, "usage: /rename TITLE");
+        else if (t->rc && t->turn_active) tui_sys(t, "finish the turn first");
         else {
+            /* runner mode: end the idle runner first — its stale session
+             * copy must not clobber the new title (docs/adr/0053) */
+            if (t->rc) tui_prewarm_drop(t);
             session_set_title(t->session, arg);
             session_save(t->session);
+            if (tui_runner_mode(t)) tui_prewarm_start(t);
             tui_sys(t, "renamed");
         }
     } else if (strcmp(c, "compact") == 0) {
         if (!t->session) tui_sys(t, "no session yet");
+        else if (t->rc && t->turn_active) tui_sys(t, "finish the turn first");
         else {
+            if (t->rc) tui_prewarm_drop(t); /* same stale-copy rule as /rename */
             int rc = t->engine ? tny_engine_compact(t->engine, true, "manual")
                                : session_compact(t->session, true);
             if (!t->engine && rc >= 0) session_save(t->session);
+            if (tui_runner_mode(t) && !t->engine) tui_prewarm_start(t);
             if (rc > 0) tui_sys(t, "transcript compacted");
             else if (rc == 0) tui_sys(t, "nothing to compact");
             else tui_err(t, "compaction failed");

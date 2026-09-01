@@ -176,13 +176,17 @@ static const char *task_help =
 
 static const char *session_help =
     "Usage: tny session <last|id> [--json] [--wait] [--timeout SECS]\n"
+    "       tny session attach <id>\n"
     "       tny session stop <id> [--kill]\n"
     "       tny session recover <id>\n"
     "\n"
-    "Inspect one saved session, stop a running background task, or copy a\n"
-    "recoverable corrupt session. `stop` SIGTERMs the task's process group\n"
-    "(spawned hosts included) and the session finalizes status \"interrupted\";\n"
-    "--kill escalates to SIGKILL if the task ignores SIGTERM (docs/adr/0031).\n"
+    "Inspect one saved session, attach to a live one, stop a running\n"
+    "background task, or copy a recoverable corrupt session. `attach`\n"
+    "streams a running turn live (snapshot, then events; docs/adr/0053) —\n"
+    "^C detaches and the turn keeps running. `stop` SIGTERMs the task's\n"
+    "process group (spawned hosts included) and the session finalizes status\n"
+    "\"interrupted\"; --kill escalates to SIGKILL if the task ignores SIGTERM\n"
+    "(docs/adr/0031).\n"
     "\n"
     "--wait blocks until a detached background turn has finished, then\n"
     "prints the session; the exit code is the turn's exit_code (0 done, 2 run\n"
@@ -194,6 +198,7 @@ static const char *session_help =
     "  tny session 4f2a1c90aa317b22 --json\n"
     "  tny session $id --wait --json | jq -r .result.output\n"
     "  tny session $id --wait --timeout 600\n"
+    "  tny session attach 4f2a1c90aa317b22\n"
     "  tny session stop 4f2a1c90aa317b22\n";
 
 static const char *workspace_help =

@@ -603,9 +603,15 @@ TEST prewarm_start_restarts_on_a_stale_resume_pointer(void) {
     ctx.backend = TNY_BK_CODEX;
     ctx.codex_bin = "/nonexistent/codex";
 
+    /* this exercises the thread pre-warm (the wasm / TNY_ISOLATE=0 path);
+     * with isolation on, prewarm_start maps to the serve runner instead
+     * (docs/adr/0053) and never touches the pending thread warm-up */
+    setenv("TNY_ISOLATE", "0", 1);
+
     stub_state s = {0};
     ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX, "thread-old"));
     tui_prewarm_start(&t); /* no session: the pending pointer is now stale */
+    unsetenv("TNY_ISOLATE");
     ASSERT(t.prewarm != NULL);
     wait_for(&s.destroys, 2000);
     ASSERT_EQ(1, s.destroys);             /* the stale stub was dropped */

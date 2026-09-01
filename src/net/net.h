@@ -22,6 +22,10 @@ int url_parse(const char *url, url_parts *out); /* 0 ok */
 /* ---- TCP ---- */
 int tcp_connect(const char *host, int port, int timeout_ms); /* fd or -1 */
 int unix_connect(const char *path);                          /* fd or -1 */
+/* Bind + listen on an AF_UNIX stream socket (0600, nonblocking). Unlinks a
+ * stale path first — callers hold the session writer flock, so a live
+ * listener is never unlinked (docs/adr/0053). fd or -1. */
+int unix_listen(const char *path);
 int set_nonblock(int fd, bool nb);
 
 /* ---- stream: plain fd or TLS ---- */

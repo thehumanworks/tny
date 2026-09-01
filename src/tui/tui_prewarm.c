@@ -145,6 +145,19 @@ static const char *resume_pointer_for(tui *t) {
 }
 
 void tui_prewarm_start(tui *t) {
+    if (tui_runner_mode(t)) {
+        /* Isolation mode (docs/adr/0053): the serve runner IS the pre-warm.
+         * It connects and create_or_resumes in its own process, and MCP
+         * servers warm inside it as its children so `session stop` reaches
+         * them. Mid-turn this is a deferred rebind; providers without
+         * startup cost spawn lazily at the first prompt instead. */
+        if (t->turn_active) {
+            t->rc_restart_pending = true;
+            return;
+        }
+        if (tui_prewarm_applicable(t->ctx, t->ctx->backend)) tui_runner_ensure(t, true);
+        return;
+    }
     /* MCP servers warm alongside the host (docs/adr/0049): only the native
      * loop dispatches mcp_* tools, and mcp_warm_start latches after the
      * first call, so provider switches back to native re-enter for free. */
@@ -187,6 +200,16 @@ tny_backend *tui_prewarm_take(tui *t) {
 }
 
 void tui_prewarm_drop(tui *t) {
+    if (t->rc) {
+        /* Isolation mode: the runner holds its own forked copy of ctx, so a
+         * caller may mutate this process's ctx freely either way. Idle: end
+         * the runner now (the next prewarm_start spawns a fresh one that
+         * inherits the new ctx). Mid-turn: defer the restart to after_turn —
+         * dropping now would kill the live turn (docs/adr/0053). */
+        if (t->turn_active) t->rc_restart_pending = true;
+        else tui_runner_drop(t, "rebind");
+        return;
+    }
     tui_prewarm *p = t->prewarm;
     if (!p) return;
     t->prewarm = NULL;

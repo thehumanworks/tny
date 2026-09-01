@@ -20,6 +20,7 @@ SUITE_EXTERN(acp_suite);
 SUITE_EXTERN(openai_suite);
 SUITE_EXTERN(ephemeral_suite);
 SUITE_EXTERN(session_bg_suite);
+SUITE_EXTERN(runner_suite);
 SUITE_EXTERN(ssh_suite);
 SUITE_EXTERN(tasks_suite);
 SUITE_EXTERN(mcp_suite);
@@ -43,6 +44,7 @@ int main(int argc, char **argv) {
     RUN_SUITE(openai_suite);
     RUN_SUITE(ephemeral_suite);
     RUN_SUITE(session_bg_suite);
+    RUN_SUITE(runner_suite);
     RUN_SUITE(ssh_suite);
     RUN_SUITE(tasks_suite);
     RUN_SUITE(mcp_suite);

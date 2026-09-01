@@ -185,7 +185,7 @@ return the missing-host tool error. The provider must allow CORS —
 
 ## Startup
 
-First paint never waits on a backend, but the TUI **pre-warms** the selected provider's host right after the banner ([ADR 0002](adr/0002-tui-provider-prewarm.md)): `codex app-server`, the cursor bridge, or the ACP agent is spawned and initialized on a background thread so the first prompt adopts a live connection instead of paying seconds of startup. Pre-warm failures stay silent and resurface on the ordinary lazy path. One-shot CLI commands do not pre-warm.
+First paint never waits on a backend, but the TUI **pre-warms** the selected provider's host right after the banner ([ADR 0002](adr/0002-tui-provider-prewarm.md)): `codex app-server`, the cursor bridge, or the ACP agent is spawned and initialized in the background so the first prompt adopts a live connection instead of paying seconds of startup. On native builds the pre-warm — and every turn — lives in a detached **session runner** process ([ADR 0053](adr/0053-forked-turn-isolation.md)): the shell is a renderer over the runner's socket, so a crashed or killed TUI leaves the in-flight turn finishing into the session (`tny resume` afterwards, `tny session attach` to watch). On wasm the pre-warm stays an in-process thread. Pre-warm failures stay silent and resurface on the ordinary lazy path. One-shot CLI commands do not pre-warm.
 
 In ephemeral mode, pre-warm may still create process-local provider state.
 Codex receives `ephemeral:true` on `thread/start`; adapters without a portable

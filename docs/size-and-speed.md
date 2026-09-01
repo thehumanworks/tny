@@ -25,7 +25,7 @@ These apply to the **tny executable only**. `cursor-sdk-bridge` is a Bun-package
 | --- | --- | --- |
 | macOS arm64, stripped, libSystem + Security.framework | **< 1.8 MiB** | < 1.2 MiB |
 | Linux musl static, stripped | **< 1.5 MiB** | < 1.0 MiB |
-| Linux glibc dynamic | **< 1.5 MiB** | < 1.0 MiB |
+| Linux glibc dynamic | **< 1.0 MiB** ([ADR 0053](adr/0053-forked-turn-isolation.md): isolation without tmux keeps this budget hard) | < 0.8 MiB |
 | Windows x86_64 (MSYS-linked exe) | **< 2.0 MiB** | — |
 | wasm artifact, js glue + `.wasm`, Asyncify included ([ADR 0017](adr/0017-wasm-browser-parity.md)) | **< 1.5 MiB** | < 1.0 MiB |
 | Idle RSS after prompt | **< 4 MiB** | < 2 MiB |

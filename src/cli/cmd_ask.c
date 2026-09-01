@@ -1,13 +1,19 @@
 /* cmd_ask.c — one noninteractive turn (docs/cli.md). Never blocks on an
- * approval: unresolved permissions end the run with exit 2. */
+ * approval: unresolved permissions end the run with exit 2. On native
+ * builds the turn executes in a detached session runner (docs/adr/0053);
+ * this process is only the renderer, so a crashed or killed caller never
+ * takes the agent with it. wasm and TNY_ISOLATE=0 keep the in-process
+ * path. */
 #include "cli/cli.h"
 #include "core/backend.h"
 #include "core/session.h"
 #include "core/perm.h"
+#include "core/runner.h"
 #include "core/runtime.h"
 #include "core/tasks.h"
 #include "backends/openai/openai.h"
 #include "mcp/mcp.h"
+#include "util/tny_poll.h"
 #include "util/util.h"
 
 #include <pthread.h>
@@ -34,7 +40,8 @@ static bool ask_cancel_probe(void *ud) {
 /* connect() run off the main thread while stdin drains (safe per backend.h:
  * no terminal output, no ctx reads that anyone mutates meanwhile — same
  * contract the TUI pre-warm relies on, docs/adr/0002). Always joined before
- * rc/err are read. */
+ * rc/err are read. In-process path only; the isolated path overlaps by
+ * letting the runner connect while this process reads stdin. */
 typedef struct {
     tny_backend *bk;
     char err[512];
@@ -157,56 +164,20 @@ static void ask_event_cb(const tny_backend_event *ev, void *ud) {
     }
 }
 
-/* The foreground --json blob and the background session `result` are the
- * same bytes (docs/adr/0031 decision 3). engine may be NULL on background
- * failures before one existed. Malloc'd, includes the trailing newline. */
+/* The foreground --json blob and the session `result` are the same bytes
+ * (docs/adr/0031 decision 3); the shared builder lives with the runner. */
 static char *ask_result_json(tny_ctx *ctx, ask_state *st, tny_engine *engine,
                              tny_session_state *session, int exit_code) {
-    buf_t out;
-    buf_init(&out);
-    buf_appends(&out, "{\"output\":");
-    jescape(&out, st->output.data ? st->output.data : "");
-    buf_appendf(&out, ",\"exit_code\":%d,\"provider\":\"%s\",\"model\":", exit_code,
-                tny_provider_name(ctx));
-    jescape(&out, ctx->model ? ctx->model : "default");
-    buf_appends(&out, ",\"session_id\":");
-    jescape(&out, (ctx->no_save || !session) ? "" : session->id);
-    buf_appendf(&out, ",\"ephemeral\":%s", ctx->no_save ? "true" : "false");
-    buf_appends(&out, ",\"task\":");
-    if (ctx->task_name) {
-        buf_appends(&out, "{\"name\":");
-        jescape(&out, ctx->task_name);
-        buf_appends(&out, ",\"source\":");
-        jescape(&out, ctx->task_source ? ctx->task_source : "unknown");
-        buf_appends(&out, ",\"digest\":");
-        jescape(&out, ctx->task_digest);
-        buf_appends(&out, "}");
-    } else buf_appends(&out, "null");
-    int steps = engine ? tny_engine_openai_steps(engine) : 0;
-    buf_appendf(&out, ",\"steps\":%d,\"tool_calls\":", steps);
-    if (engine && tny_engine_backend_id(engine) == TNY_BK_OPENAI) {
-        buf_appends(&out, tny_engine_openai_toolcalls_json(engine));
-    } else {
-        buf_appends(&out, "[");
-        if (st->host_tools.len) buf_append(&out, st->host_tools.data, st->host_tools.len);
-        buf_appends(&out, "]");
-    }
-    if (st->errline.len) {
-        buf_appends(&out, ",\"error\":");
-        jescape(&out, st->errline.data);
-    }
-    buf_appends(&out, ",\"extension_messages\":[");
-    if (st->extension_messages.len)
-        buf_append(&out, st->extension_messages.data, st->extension_messages.len);
-    buf_appends(&out, "]");
-    buf_appends(&out, "}\n");
-    return buf_detach(&out);
+    return tny_turn_result_json(ctx, engine, session, st->output.data ? st->output.data : "",
+                                st->host_tools.len ? st->host_tools.data : NULL,
+                                st->extension_messages.len ? st->extension_messages.data : NULL,
+                                st->errline.len ? st->errline.data : NULL, exit_code);
 }
 
-/* Background child: every exit path after the fork records the terminal
- * status and result, then releases the writer lock (docs/adr/0031). */
-static void bg_finalize(tny_ctx *ctx, tny_session_state *session, ask_state *st, tny_engine *engine,
-                        int exit_code, const char *status) {
+/* Refresh the ADR-0031 status fields after an in-process turn on a session
+ * that carries them, so `tny session <id>` reflects this run. */
+static void ask_finalize_status(tny_ctx *ctx, tny_session_state *session, ask_state *st,
+                                tny_engine *engine, int exit_code, const char *status) {
     char *result = ask_result_json(ctx, st, engine, session, exit_code);
     session_set_status_finished(session, status, exit_code, result);
     free(result);
@@ -255,6 +226,168 @@ static int load_output_schema(tny_ctx *ctx, const char *value) {
     ctx->output_schema = rf;
     return 0;
 }
+
+#ifndef __EMSCRIPTEN__
+/* ---- isolated foreground: render the runner's stream (docs/adr/0053) ---- */
+
+typedef struct {
+    bool json;
+    bool print_usage;
+    bool steer_takeover;
+    bool any_out; /* wrote answer bytes to stdout */
+    bool ends_nl; /* ...and the last one was a newline */
+    tny_runner_client *rc;
+    pid_t pid; /* the runner: cancels are op + SIGTERM (see loop) */
+} ask_client;
+
+static void ask_client_render(ask_client *a, const tny_runner_msg *m) {
+    const tny_backend_event *ev = &m->ev;
+    switch (ev->kind) {
+    case TNY_EV_TEXT_DELTA:
+        if (!a->json && ev->text && ev->text_len) {
+            fwrite(ev->text, 1, ev->text_len, stdout);
+            fflush(stdout);
+            a->any_out = true;
+            a->ends_nl = ev->text[ev->text_len - 1] == '\n';
+        }
+        break;
+    case TNY_EV_THINKING: break;
+    case TNY_EV_TOOL_START:
+        fprintf(stderr, "⏺ %s %.120s\n", ev->tool_name, ev->tool_detail ? ev->tool_detail : "");
+        break;
+    case TNY_EV_TOOL_END:
+        fprintf(stderr, "  %s %s\n", ev->tool_ok ? "✓" : "✗", ev->tool_name);
+        break;
+    case TNY_EV_TOOL_PROGRESS:
+        fprintf(stderr, "  … %s %.120s\n", ev->tool_name ? ev->tool_name : "tool",
+                ev->tool_detail ? ev->tool_detail : "");
+        break;
+    case TNY_EV_PERMISSION:
+        /* only forwarded outside yolo; ask never blocks on approvals */
+        fprintf(stderr, "denying (ask mode cannot approve): %s\n",
+                ev->perm_summary ? ev->perm_summary : "");
+        tny_runner_client_perm(a->rc, ev->perm_id, TNY_PERM_DECISION_DENY);
+        break;
+    case TNY_EV_STATUS: fprintf(stderr, "%.*s\n", (int)ev->text_len, ev->text); break;
+    case TNY_EV_CUSTOM_MESSAGE:
+        if (ev->message_type)
+            fprintf(stderr, "extension context (%s): %.*s\n", ev->message_type, (int)ev->text_len,
+                    ev->text);
+        else fprintf(stderr, "extension context: %.*s\n", (int)ev->text_len, ev->text);
+        break;
+    case TNY_EV_USER_MESSAGE:
+        fprintf(stderr, "extension follow-up: %.*s\n", (int)ev->text_len, ev->text);
+        break;
+    case TNY_EV_PLAN: fprintf(stderr, "plan: %.*s\n", (int)ev->text_len, ev->text); break;
+    case TNY_EV_USAGE:
+        if (!a->print_usage) break;
+        if (!a->json && a->any_out && !a->ends_nl) {
+            fputs("\n", stdout);
+            fflush(stdout);
+            a->ends_nl = true;
+        }
+        if (ev->context_size > 0)
+            fprintf(stderr, "context: %lld/%lld%s\n", (long long)ev->context_used,
+                    (long long)ev->context_size, ev->has_cost ? " (cost reported)" : "");
+        else
+            fprintf(stderr, "tokens: %lld in, %lld out\n", (long long)ev->in_tokens,
+                    (long long)ev->out_tokens);
+        break;
+    case TNY_EV_ERROR: fprintf(stderr, "tny: %.*s\n", (int)ev->text_len, ev->text); break;
+    case TNY_EV_STEER_REJECTED:
+    case TNY_EV_TURN_END: break;
+    }
+}
+
+/* Stream until turn_end, then wait out the runner's bye/EOF so its session
+ * writes are all on disk before this process returns — the same "teardown
+ * precedes exit" contract the in-process turn kept. The runner outlives us
+ * on purpose otherwise: a second ^C (or our death) detaches and the turn
+ * finishes into the session. */
+static int ask_isolated_loop(ask_client *a, const char *session_id) {
+    signal(SIGINT, on_sigint);
+    signal(SIGPIPE, SIG_IGN);
+    int exit_code = -1;
+    bool done = false, cancelled = false, finishing = false;
+    int64_t finish_deadline = 0;
+    while (!done) {
+        struct pollfd pf = {tny_runner_client_fd(a->rc), POLLIN, 0};
+        int pr = tny_poll(&pf, 1, 200);
+        if (finishing && now_ms() > finish_deadline) break; /* wedged wind-down */
+        if (g_interrupted) {
+            g_interrupted = 0;
+            if (!cancelled) {
+                cancelled = true;
+                fprintf(stderr, "tny: cancelling…\n");
+                tny_runner_client_cancel(a->rc, false);
+                /* The op alone cannot reach an engine blocked inside a
+                 * bounded extension hook or connect — the runner's loop is
+                 * not reading the socket then. SIGTERM sets its cancel
+                 * probe, which those blocking sections re-check
+                 * (docs/adr/0053). */
+                if (a->pid > 0) kill(a->pid, SIGTERM);
+            } else {
+                fprintf(stderr,
+                        "tny: detached; the turn keeps running "
+                        "(tny session %s to read it, tny session stop %s to stop it)\n",
+                        session_id, session_id);
+                return 130;
+            }
+        }
+        int alive = 0;
+        if (pr > 0) alive = tny_runner_client_pump(a->rc);
+        tny_runner_msg *m;
+        while ((m = tny_runner_client_pop(a->rc))) {
+            switch (m->kind) {
+            case TNY_RMSG_EVENT: ask_client_render(a, m); break;
+            case TNY_RMSG_RECOVERY:
+                if (!a->json && !a->steer_takeover && m->text) {
+                    fputs(m->text, stdout);
+                    fputs("\n", stdout);
+                }
+                break;
+            case TNY_RMSG_SNAPSHOT:
+                if (!a->json && m->text && *m->text) {
+                    fputs(m->text, stdout);
+                    fflush(stdout);
+                    a->any_out = true;
+                    a->ends_nl = m->text[strlen(m->text) - 1] == '\n';
+                }
+                break;
+            case TNY_RMSG_LOG:
+                /* host stderr and runner diagnostics: the same trail the
+                 * in-process turn printed to this terminal */
+                if (m->text) fprintf(stderr, "%s\n", m->text);
+                break;
+            case TNY_RMSG_TURN_ERR:
+                if (m->text) fprintf(stderr, "tny: %s\n", m->text);
+                break;
+            case TNY_RMSG_TURN_END:
+                exit_code = m->exit_code;
+                if (a->json && m->result_json) fputs(m->result_json, stdout);
+                else if (a->any_out && !a->ends_nl) fputs("\n", stdout);
+                finishing = true;
+                finish_deadline = now_ms() + 10000;
+                break;
+            case TNY_RMSG_HELLO: break;
+            case TNY_RMSG_BYE:
+                if (finishing) done = true;
+                break;
+            }
+            tny_runner_msg_free(m);
+        }
+        if (!done && alive != 0) {
+            if (finishing) break; /* wind-down complete: the socket closed */
+            fprintf(stderr,
+                    "tny: the session runner exited before finishing the turn "
+                    "(tny session %s for its status)\n",
+                    session_id);
+            return 2;
+        }
+    }
+    return exit_code < 0 ? 2 : exit_code;
+}
+#endif
 
 int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = g->json, use_stdin = false, ephemeral = ctx->no_save;
@@ -366,6 +499,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     ctx->no_save = ephemeral;
     ctx->json_out = json;
 
+    bool isolate = tny_isolation_enabled(ctx);
+
     /* Resolve the session task snapshot before any provider connection is
      * started. This keeps every resume spelling provider-independent. */
     tny_session_state *session = resume ? session_open(ctx, resume) : session_new(ctx);
@@ -385,46 +520,11 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         }
     }
 
-    /* Piped stdin can be slow (upstream producer): overlap the host connect
-     * with the read. The argv-prompt path stays serial and untouched. */
-    tny_backend *bk = NULL;
-    connect_job job = {0};
-    pthread_t connect_th;
-    bool connecting = false;
-    if (!prompt.len && (use_stdin || !isatty(0))) {
-        /* background: the fork must precede any pthread_create, so skip the
-         * overlap and connect serially in the child (docs/adr/0031). */
-        if (!background) {
-            bk = tny_backend_create((tny_backend_id)ctx->backend, ctx);
-            if (bk) {
-                job.bk = bk;
-                if (pthread_create(&connect_th, NULL, connect_job_main, &job) == 0)
-                    connecting = true;
-                /* pthread_create failed: fall back to the serial connect below */
-            }
-        }
-        char tmp[8192];
-        size_t n;
-        while ((n = fread(tmp, 1, sizeof tmp, stdin)) > 0) buf_append(&prompt, tmp, n);
-        while (prompt.len &&
-               (prompt.data[prompt.len - 1] == '\n' || prompt.data[prompt.len - 1] == '\r'))
-            prompt.data[--prompt.len] = 0;
-        if (connecting) pthread_join(connect_th, NULL);
-    }
-    if (!prompt.len) {
-        fprintf(stderr,
-                "tny: ask needs a prompt\nExample: tny ask \"summarize this repository\"\n");
-        abort_backend(bk, connecting && job.rc == 0);
-        session_close(session);
-        buf_free(&prompt);
-        return 1;
-    }
-
-    /* Writer lock (docs/adr/0031 decision 7): whoever runs a turn on a saved
-     * session holds <dir>/lock, so resuming a live session fails loudly
-     * instead of corrupting it. Released by session_close at the end (or
-     * carried into the background child across the fork). */
-    if (session && (background || resume)) {
+    /* Writer lock (docs/adr/0031 decision 7, widened by 0053): whoever runs
+     * a turn on a saved session holds <dir>/lock, so resuming a live session
+     * fails loudly instead of corrupting it. Released by session_close at
+     * the end (or carried into the detached runner across the fork). */
+    if (session && (background || resume || isolate)) {
         int lrc = session_lock_acquire(session);
         if (lrc != 0 && steer) {
             /* Interrupt-and-redirect (docs/adr/0031 decision 7a): stop the
@@ -438,14 +538,12 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                         "tny: session %s did not stop; try: "
                         "tny session stop %s --kill\n",
                         session->id, session->id);
-                abort_backend(bk, connecting && job.rc == 0);
                 session_close(session);
                 buf_free(&prompt);
                 return 2;
             }
             if (src < 0) {
                 fprintf(stderr, "tny: %s\n", serr);
-                abort_backend(bk, connecting && job.rc == 0);
                 session_close(session);
                 buf_free(&prompt);
                 return 1;
@@ -480,7 +578,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             } else {
                 cli_print_still_running(ctx, sid);
                 free(sid);
-                abort_backend(bk, connecting && job.rc == 0);
                 session_close(session);
                 buf_free(&prompt);
                 return 1;
@@ -489,82 +586,154 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         }
         if (lrc != 0) {
             cli_print_still_running(ctx, session->id);
-            abort_backend(bk, connecting && job.rc == 0);
             session_close(session);
             buf_free(&prompt);
             return 1;
         }
     }
 
-    ask_state st = {0};
-    buf_init(&st.output);
-    buf_init(&st.errline);
-    buf_init(&st.extension_messages);
-    st.json = json && !background; /* child streams plain text into task.log */
-    st.perm_mode = ctx->perm_mode;
-    st.print_usage = print_usage;
+#ifndef __EMSCRIPTEN__
+    if (isolate && !background) {
+        /* Foreground isolation (docs/adr/0053): fork the runner before
+         * reading stdin so its provider connect overlaps the pipe drain
+         * (the 0004 overlap, processified), then render its stream. */
+        char err[512];
+        tny_runner_opts opts = {0};
+        signal(SIGPIPE, SIG_IGN); /* a dying runner must not SIGPIPE us mid-send */
+        pid_t child = tny_runner_spawn(ctx, session, &opts, err, sizeof err);
+        if (child > 0) {
+            char *sock = tny_runner_sock_path(session->dir);
+            tny_runner_client *rc = sock ? tny_runner_client_connect(sock, 5000) : NULL;
+            free(sock);
+            if (!rc) {
+                fprintf(stderr, "tny: cannot reach the session runner\n");
+                kill(child, SIGTERM);
+                session_close(session);
+                buf_free(&prompt);
+                return 1;
+            }
+            if (!prompt.len && (use_stdin || !isatty(0))) {
+                char tmp[8192];
+                size_t n;
+                while ((n = fread(tmp, 1, sizeof tmp, stdin)) > 0) buf_append(&prompt, tmp, n);
+                while (prompt.len &&
+                       (prompt.data[prompt.len - 1] == '\n' || prompt.data[prompt.len - 1] == '\r'))
+                    prompt.data[--prompt.len] = 0;
+            }
+            if (!prompt.len) {
+                fprintf(stderr, "tny: ask needs a prompt\n"
+                                "Example: tny ask \"summarize this repository\"\n");
+                tny_runner_client_end(rc, "no prompt");
+                tny_runner_client_close(rc);
+                session_close(session);
+                buf_free(&prompt);
+                return 1;
+            }
+            ask_client a = {0};
+            a.json = json;
+            a.print_usage = print_usage;
+            a.steer_takeover = steer_takeover;
+            a.rc = rc;
+            a.pid = child;
+            int rrc = tny_runner_client_turn(rc, prompt.data, n_images ? images : NULL,
+                                             continue_recovery);
+            int code = rrc == 0 ? ask_isolated_loop(&a, session->id)
+                                : (fprintf(stderr, "tny: cannot reach the session runner\n"), 2);
+            tny_runner_client_close(rc);
+            session_close(session);
+            buf_free(&prompt);
+            return code;
+        }
+        fprintf(stderr, "tny: %s; running in-process\n", err);
+        /* fall through to the in-process path below */
+    }
+#endif
+
+    /* Piped stdin can be slow (upstream producer): overlap the host connect
+     * with the read. The argv-prompt path stays serial and untouched. */
+    tny_backend *bk = NULL;
+    connect_job job = {0};
+    pthread_t connect_th;
+    bool connecting = false;
+    if (!prompt.len && (use_stdin || !isatty(0))) {
+        /* background: the fork must precede any pthread_create, so skip the
+         * overlap and connect serially in the runner (docs/adr/0031). */
+        if (!background) {
+            bk = tny_backend_create((tny_backend_id)ctx->backend, ctx);
+            if (bk) {
+                job.bk = bk;
+                if (pthread_create(&connect_th, NULL, connect_job_main, &job) == 0)
+                    connecting = true;
+                /* pthread_create failed: fall back to the serial connect below */
+            }
+        }
+        char tmp[8192];
+        size_t n;
+        while ((n = fread(tmp, 1, sizeof tmp, stdin)) > 0) buf_append(&prompt, tmp, n);
+        while (prompt.len &&
+               (prompt.data[prompt.len - 1] == '\n' || prompt.data[prompt.len - 1] == '\r'))
+            prompt.data[--prompt.len] = 0;
+        if (connecting) pthread_join(connect_th, NULL);
+    }
+    if (!prompt.len) {
+        fprintf(stderr,
+                "tny: ask needs a prompt\nExample: tny ask \"summarize this repository\"\n");
+        abort_backend(bk, connecting && job.rc == 0);
+        session_close(session);
+        buf_free(&prompt);
+        return 1;
+    }
 
 #ifndef __EMSCRIPTEN__
     if (background) {
-        /* Detach (docs/adr/0031 decision 4) — this ordering is load-bearing:
-         * status save, flush, fork; the parent then only reports and exits. */
+        /* Detach (docs/adr/0031 decision 4, runner-ized by 0053) — the
+         * ordering is load-bearing: status save, then spawn, then the
+         * parent only reports and exits. The runner inherits the flock. */
         session_set_status_running(session);
         if (session_save(session) != 0) {
             fprintf(stderr, "tny: cannot write session %s\n", session->id);
             session_close(session);
             buf_free(&prompt);
-            buf_free(&st.output);
-            buf_free(&st.errline);
-            buf_free(&st.extension_messages);
             return 1;
         }
-        fflush(NULL); /* buffered stdio must not replay into task.log */
-        pid_t child = fork();
+        char err[512];
+        tny_runner_opts opts = {0};
+        opts.initial_prompt = prompt.data;
+        opts.initial_images = n_images ? images : NULL;
+        opts.continue_recovery = continue_recovery;
+        opts.no_host_registry = true; /* decision 8: invisible process must
+                                       * not become the attach target */
+        pid_t child = tny_runner_spawn(ctx, session, &opts, err, sizeof err);
         if (child < 0) {
-            fprintf(stderr, "tny: fork failed; cannot background\n");
+            fprintf(stderr, "tny: %s; cannot background\n", err);
             session_close(session);
             buf_free(&prompt);
-            buf_free(&st.output);
-            buf_free(&st.errline);
-            buf_free(&st.extension_messages);
             return 1;
         }
-        if (child > 0) {
-            /* Parent: report the launch and _exit. No cleanup here — closing
-             * or freeing could release the flock the child inherited (it
-             * lives on the shared open file description). */
-            if (json)
-                printf("{\"kind\":\"ask_background\",\"session_id\":\"%s\","
-                       "\"pid\":%d}\n",
-                       session->id, (int)child);
-            else printf("%s\n", session->id);
-            fflush(stdout);
-            _exit(0);
-        }
-        /* Child: the sole session writer from here on. */
-        setsid(); /* own group: survives terminal close; `session stop`
-                   * signals the group so spawned hosts die with us */
-        session_write_pid(session, getpid());
-        ctx->no_host_registry = true;            /* decision 8: invisible process must
-                                                  * not become the attach target */
-        if (!freopen("/dev/null", "r", stdin)) { /* best effort */
-        }
-        char *logf = path_join(session->dir, "task.log");
-        if (logf) {
-            if (!freopen(logf, "a", stdout)) { /* keep inherited stdout */
-            }
-            if (!freopen(logf, "a", stderr)) { /* keep inherited stderr */
-            }
-            free(logf);
-        }
-        setvbuf(stderr, NULL, _IONBF, 0); /* stderr stays unbuffered in the log */
+        /* Parent: report the launch and _exit. No cleanup here — the child
+         * owns the session files from now on. */
+        if (json)
+            printf("{\"kind\":\"ask_background\",\"session_id\":\"%s\","
+                   "\"pid\":%d}\n",
+                   session->id, (int)child);
+        else printf("%s\n", session->id);
+        fflush(stdout);
+        _exit(0);
     }
 #endif
 
+    /* ---- in-process turn (wasm, TNY_ISOLATE=0, ephemeral) ---- */
+
+    ask_state st = {0};
+    buf_init(&st.output);
+    buf_init(&st.errline);
+    buf_init(&st.extension_messages);
+    st.json = json;
+    st.perm_mode = ctx->perm_mode;
+    st.print_usage = print_usage;
+
     /* MCP servers warm on detached threads while the provider connects
-     * (docs/adr/0049). After the -B fork on purpose: threads do not survive
-     * fork, and the servers must be the background child's children so
-     * `session stop`'s group signal reaches them. Native loop only. */
+     * (docs/adr/0049). Native loop only. */
     if (ctx->backend == TNY_BK_OPENAI) mcp_warm_start(ctx);
 
     if (continue_recovery && session) {
@@ -584,10 +753,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
      * stdin path above) */
     if (!bk) bk = tny_backend_create((tny_backend_id)ctx->backend, ctx);
     if (!bk) {
-        if (background) {
-            buf_appends(&st.errline, "backend create failed");
-            bg_finalize(ctx, session, &st, NULL, 1, "error");
-        }
         buf_free(&prompt);
         session_close(session);
         buf_free(&st.output);
@@ -605,10 +770,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     }
     if (crc != 0) {
         fprintf(stderr, "tny: %s\n", err);
-        if (background) {
-            buf_appends(&st.errline, err);
-            bg_finalize(ctx, session, &st, NULL, 1, "error");
-        }
         bk->destroy(bk);
         session_close(session);
         buf_free(&prompt);
@@ -621,10 +782,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     tny_engine *engine = tny_engine_new(ctx, session, perm, NULL, NULL);
     if (!perm || !engine) {
         fprintf(stderr, "tny: out of memory\n");
-        if (background) {
-            buf_appends(&st.errline, "out of memory");
-            bg_finalize(ctx, session, &st, engine, 1, "error");
-        }
         if (engine) tny_engine_free(engine);
         else bk->destroy(bk);
         perm_free(perm);
@@ -637,10 +794,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     }
     if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_CONNECTED, err, sizeof err) != 0) {
         fprintf(stderr, "tny: %s\n", err);
-        if (background) {
-            buf_appends(&st.errline, err);
-            bg_finalize(ctx, session, &st, engine, 1, "error");
-        }
         tny_engine_free(engine);
         perm_free(perm);
         session_close(session);
@@ -656,14 +809,9 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
 
     signal(SIGINT, on_sigint);
     signal(SIGPIPE, SIG_IGN);
-    if (background) signal(SIGTERM, on_sigint); /* `session stop` cancels exactly like ^C */
 
     if (tny_engine_start(engine, prompt.data, n_images ? images : NULL, err, sizeof err) != 0) {
         fprintf(stderr, "tny: %s\n", err);
-        if (background) {
-            buf_appends(&st.errline, err);
-            bg_finalize(ctx, session, &st, engine, 2, "error");
-        }
         tny_engine_free(engine);
         perm_free(perm);
         session_close(session);
@@ -674,7 +822,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         return 2;
     }
 
-    int64_t last_ckpt = now_ms();
     while (!st.turn_ended) {
         if (g_interrupted) {
             g_interrupted = 0;
@@ -684,15 +831,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         tny_owned_event *owned = NULL;
         tny_engine_next next = tny_engine_next_event(engine, 200, &owned, err, sizeof err);
         if (next == TNY_ENGINE_NEXT_EVENT) {
-            int evk = owned->ev.kind;
             ask_event_cb(&owned->ev, &st);
             tny_owned_event_free(owned);
-            /* background: checkpoint the partial answer so a crashed child
-             * leaves something recoverable (~2 s cadence, docs/adr/0031) */
-            if (background && evk == TNY_EV_TEXT_DELTA && now_ms() - last_ckpt >= 2000) {
-                session_recovery_write(session, st.output.data ? st.output.data : "");
-                last_ckpt = now_ms();
-            }
         } else if (next == TNY_ENGINE_NEXT_TIMEOUT) {
             continue;
         } else if (next == TNY_ENGINE_NEXT_DRAINED) {
@@ -716,28 +856,20 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     const char *stname = st.stop == TNY_STOP_DONE          ? "done"
                          : st.stop == TNY_STOP_INTERRUPTED ? "interrupted"
                                                            : "error";
-    if (background) {
-        /* Child end: never print the --json blob (stdout is task.log; the
-         * streamed text already went there). Record status + result instead. */
+    /* A foreground turn on a session that carries ADR-0031 status fields
+     * (a resumed runner/background session) must refresh them, or
+     * `tny session <id>` keeps reporting the pre-resume status and
+     * result. Legacy sessions (no status field) stay untouched. */
+    if (session && !ctx->no_save && session_status(session)) {
         if (st.stop == TNY_STOP_DONE) session_recovery_clear(session);
-        bg_finalize(ctx, session, &st, engine, exit_code, stname);
-        if (st.output.len && st.output.data[st.output.len - 1] != '\n') fputs("\n", stdout);
-    } else {
-        /* A foreground turn on a session that carries ADR-0031 status
-         * fields (a resumed background session) must refresh them, or
-         * `tny session <id>` keeps reporting the pre-resume status and
-         * result. Legacy sessions (no status field) stay untouched. */
-        if (session && !ctx->no_save && session_status(session)) {
-            if (st.stop == TNY_STOP_DONE) session_recovery_clear(session);
-            bg_finalize(ctx, session, &st, engine, exit_code, stname);
-        }
-        if (json) {
-            char *out = ask_result_json(ctx, &st, engine, session, exit_code);
-            fputs(out, stdout);
-            free(out);
-        } else if (st.output.len && st.output.data[st.output.len - 1] != '\n') {
-            fputs("\n", stdout);
-        }
+        ask_finalize_status(ctx, session, &st, engine, exit_code, stname);
+    }
+    if (json) {
+        char *out = ask_result_json(ctx, &st, engine, session, exit_code);
+        fputs(out, stdout);
+        free(out);
+    } else if (st.output.len && st.output.data[st.output.len - 1] != '\n') {
+        fputs("\n", stdout);
     }
 
     mcp_shutdown_all();
