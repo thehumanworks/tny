@@ -82,7 +82,10 @@ char *tny_turn_result_json(tny_ctx *ctx, tny_engine *engine, tny_session_state *
     return buf_detach(&out);
 }
 
-/* ---- wire vocabulary (shared by server and client) ---- */
+#ifndef __EMSCRIPTEN__
+
+/* ---- wire vocabulary (server and client; native only — every caller
+ * lives behind the fork/socket guard below) ---- */
 
 static const char *rn_kind_name(tny_event_kind k) {
     switch (k) {
@@ -205,8 +208,6 @@ static void rn_event_line(buf_t *b, const tny_backend_event *ev) {
     }
     buf_appends(b, "}");
 }
-
-#ifndef __EMSCRIPTEN__
 
 /* Prompts, snapshots, and result blobs ride single NDJSON lines, and the
  * engine accepts multi-megabyte prompts today — the caps only bound a
