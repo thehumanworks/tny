@@ -237,6 +237,7 @@ typedef struct {
     bool any_out; /* wrote answer bytes to stdout */
     bool ends_nl; /* ...and the last one was a newline */
     tny_runner_client *rc;
+    pid_t pid; /* the runner: cancels are op + SIGTERM (see loop) */
 } ask_client;
 
 static void ask_client_render(ask_client *a, const tny_runner_msg *m) {
@@ -319,6 +320,12 @@ static int ask_isolated_loop(ask_client *a, const char *session_id) {
                 cancelled = true;
                 fprintf(stderr, "tny: cancelling…\n");
                 tny_runner_client_cancel(a->rc, false);
+                /* The op alone cannot reach an engine blocked inside a
+                 * bounded extension hook or connect — the runner's loop is
+                 * not reading the socket then. SIGTERM sets its cancel
+                 * probe, which those blocking sections re-check
+                 * (docs/adr/0053). */
+                if (a->pid > 0) kill(a->pid, SIGTERM);
             } else {
                 fprintf(stderr,
                         "tny: detached; the turn keeps running "
@@ -627,6 +634,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             a.print_usage = print_usage;
             a.steer_takeover = steer_takeover;
             a.rc = rc;
+            a.pid = child;
             int rrc = tny_runner_client_turn(rc, prompt.data, n_images ? images : NULL,
                                              continue_recovery);
             int code = rrc == 0 ? ask_isolated_loop(&a, session->id)

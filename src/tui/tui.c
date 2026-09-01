@@ -494,8 +494,14 @@ void tui_cancel_turn(tui *t) {
     }
     t->cancel_ms = now_ms();
     tui_note(t, "cancelling…");
-    if (t->rc) tny_runner_client_cancel(t->rc, false);
-    else tny_engine_cancel(t->engine);
+    if (t->rc) {
+        tny_runner_client_cancel(t->rc, false);
+        /* op + SIGTERM: the signal reaches the runner's cancel probe even
+         * while its loop is blocked in a bounded hook (docs/adr/0053) */
+        if (t->rc_pid > 0) kill(t->rc_pid, SIGTERM);
+    } else {
+        tny_engine_cancel(t->engine);
+    }
 }
 
 void tui_submit(tui *t, const char *text) {
@@ -770,8 +776,10 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         tny_engine_cancel(t.engine);
         drain_engine_events(&t);
     }
-    if (t.turn_active && t.rc) /* quit mid-turn keeps today's semantics: stop */
+    if (t.turn_active && t.rc) { /* quit mid-turn keeps today's semantics: stop */
         tny_runner_client_cancel(t.rc, false);
+        if (t.rc_pid > 0) kill(t.rc_pid, SIGTERM);
+    }
     tui_raw_begin(&t);
     fflush(stdout);
     term_restore();

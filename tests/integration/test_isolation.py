@@ -211,6 +211,36 @@ def test_tui_sigkill_mid_turn_survives(ctx, slow_port):
     print("ok: TUI SIGKILL mid-turn — the agent finished into the session")
 
 
+def test_client_sigint_cancels_turn(ctx, slow_port):
+    """^C on the foreground client cancels the runner's turn (op + SIGTERM,
+    so even an engine blocked in a bounded hook sees the probe) and the
+    client exits 130 with the session finalized interrupted."""
+    import signal as _signal
+
+    before = set(ctx.sdirs())
+    p = subprocess.Popen(
+        [TNY, "--cwd", ctx.ws, "ask", "slow cancel me"],
+        env=ctx.env(slow_port),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    sdir = poll(lambda: next(iter(set(ctx.sdirs()) - before), None), 10, "session dir")
+    poll(lambda: os.path.exists(os.path.join(sdir, "pid")), 10, "runner pid file")
+    p.send_signal(_signal.SIGINT)
+    assert p.wait(timeout=15) == 130, p.returncode
+    doc = poll(
+        lambda: (lambda d: d if d.get("status") not in (None, "running") else None)(
+            json.load(open(os.path.join(sdir, "session.json")))
+            if os.path.exists(os.path.join(sdir, "session.json"))
+            else {}
+        ),
+        15,
+        "finalize after client SIGINT",
+    )
+    assert doc["status"] == "interrupted", doc
+    print("ok: client ^C cancelled the runner's turn (exit 130, interrupted)")
+
+
 def test_attach_streams_live_turn(ctx, slow_port):
     r = subprocess.run(
         [TNY, "--cwd", ctx.ws, "ask", "-B", "slow attach target"],
@@ -269,7 +299,7 @@ def main():
         print("test_isolation: wasm build — isolation intentionally absent")
         return
     fast, fport = start_mock()
-    slow_a = slow_b = slow_c = None
+    slow_a = slow_b = slow_c = slow_d = None
     try:
         with tempfile.TemporaryDirectory() as home:
             ctx = Ctx(home)
@@ -283,9 +313,11 @@ def main():
             test_tui_sigkill_mid_turn_survives(ctx, bport)
             slow_c, cport = start_mock(MOCK_SLOW_MS="3000")
             test_attach_streams_live_turn(ctx, cport)
+            slow_d, dport = start_mock(MOCK_SLOW_MS="5000")
+            test_client_sigint_cancels_turn(ctx, dport)
             test_escape_hatch_runs_in_process(ctx, fport)
     finally:
-        for m in (fast, slow_a, slow_b, slow_c):
+        for m in (fast, slow_a, slow_b, slow_c, slow_d):
             if m is not None:
                 m.terminate()
     print("test_isolation: all assertions passed")

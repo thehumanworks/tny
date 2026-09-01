@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 
 bool tui_runner_mode(const tui *t) { return tny_isolation_enabled(t->ctx); }
 
@@ -27,6 +28,10 @@ int tui_runner_fd(const tui *t) { return t->rc ? tny_runner_client_fd(t->rc) : -
 
 int tui_runner_ensure(tui *t, bool quiet) {
     if (t->rc) return 0;
+    /* Reap runners that ended earlier (provider switches, /new, bye). In
+     * runner mode this shell's only children are runners and inline-waited
+     * editor spawns, so a WNOHANG sweep cannot steal anyone's status. */
+    while (waitpid(-1, NULL, WNOHANG) > 0) {}
     if (!t->session) t->session = session_new(t->ctx);
     if (!t->session) {
         if (!quiet) tui_err(t, "could not create a session");
