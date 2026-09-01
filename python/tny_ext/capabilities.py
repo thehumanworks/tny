@@ -1,10 +1,18 @@
 """Immutable, forward-compatible extension capability views."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping, Optional, Tuple
 
 KNOWN_STATES = ("supported", "unsupported", "unavailable")
+
+# Python 3.11+ dataclasses reject unhashable field defaults (mappingproxy
+# included), so the empty mapping must arrive via default_factory.
+_EMPTY_MAPPING: Mapping[str, Any] = MappingProxyType({})
+
+
+def _empty_mapping() -> Mapping[str, Any]:
+    return _EMPTY_MAPPING
 
 
 def _freeze(value: Any) -> Any:
@@ -32,7 +40,7 @@ class CapabilityEntry:
     name: str
     state: str
     reason: str = ""
-    extra: Mapping[str, Any] = MappingProxyType({})
+    extra: Mapping[str, Any] = field(default_factory=_empty_mapping)
 
     @property
     def supported(self) -> bool:
@@ -48,7 +56,7 @@ class ProviderCapabilities:
     provider: str
     runtime: str
     entries: Tuple[CapabilityEntry, ...]
-    extra: Mapping[str, Any] = MappingProxyType({})
+    extra: Mapping[str, Any] = field(default_factory=_empty_mapping)
 
     def get(self, name: str) -> Optional[CapabilityEntry]:
         for entry in self.entries:
@@ -79,7 +87,7 @@ class CapabilityView:
     extension_enabled: bool
     python: str
     providers: Tuple[ProviderCapabilities, ...]
-    extra: Mapping[str, Any] = MappingProxyType({})
+    extra: Mapping[str, Any] = field(default_factory=_empty_mapping)
 
     @classmethod
     def empty(cls) -> "CapabilityView":
