@@ -229,11 +229,18 @@ static char *rn_sock_fallback(const char *tmp, const char *session_id) {
         return NULL;
     }
     struct stat st;
-    if (lstat(b.data, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != getuid() ||
-        (st.st_mode & 077) != 0) {
+    if (lstat(b.data, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != getuid()) {
         buf_free(&b);
         return NULL;
     }
+#if !defined(__CYGWIN__) && !defined(__MSYS__)
+    /* POSIX mode bits are not faithfully representable on NTFS (MSYS chmod
+     * caveat, see test_session_bg); the ownership check above still holds. */
+    if ((st.st_mode & 077) != 0) {
+        buf_free(&b);
+        return NULL;
+    }
+#endif
     buf_appendf(&b, "/%s.sock", session_id);
     if (b.len >= 100) {
         buf_free(&b);
