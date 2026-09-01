@@ -72,6 +72,14 @@ void tools_call_free(tools_call *call);
  * status line. */
 char *tools_undo_last(tools_env *env);
 
+/* Shell command for one subagent turn (`tny ask` child). The parent's
+ * resolved provider travels with the child (docs/features/mcp-and-skills.md)
+ * and every interpolated value — including the model-supplied id and prompt —
+ * is shell-quoted. stderr_path, when non-NULL, becomes a `2>` redirect so
+ * startup failures stay diagnosable. malloc'd. Exposed for unit tests. */
+char *tools_subagent_command(tools_env *env, const char *id, const char *prompt,
+                             const char *stderr_path);
+
 /* Individual tool groups (internal wiring) */
 char *tool_fs_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
 char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);

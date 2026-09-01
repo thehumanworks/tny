@@ -293,6 +293,15 @@ TARGETS = [
     # + stdin/timeout primitive, and every remote tool script
     ("src/core/ssh.c", ["ssh_target_set", "ssh_shell_quote", "ssh_run"], None),
     ("src/core/tools_ssh.c", None, None),
+    # subagent child command: the parent's resolved provider must be
+    # forwarded and every model-supplied value shell-quoted; startup
+    # failures must surface the child's stderr
+    (
+        "src/core/tools_ext.c",
+        ["tools_subagent_command", "subagent_stderr_tail"],
+        None,
+        "tests/integration/test_subagent.py",
+    ),
     ("src/core/instructions.c", None, None),
     # native grok device-code login / refresh / logout (docs/adr/0021)
     ("src/core/grok_login.c", None, None),
