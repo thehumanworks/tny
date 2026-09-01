@@ -394,6 +394,50 @@ def main():
                 smock.terminate()
                 smock.wait(timeout=5)
 
+            # --task rides the provider's native instructions field too: the
+            # full preset body must reach the model in the system prompt
+            # (docs/adr/0048) alongside any --system-prompt addition — the
+            # agent never has to discover or read the preset file itself
+            tport = free_port()
+            tmock = subprocess.Popen(
+                [sys.executable, MOCK, str(tport)],
+                env=dict(
+                    os.environ,
+                    MOCK_EXPECT_INSTRUCTIONS="# Task preset: review\n"
+                    "rigorous code reviewer\n"
+                    "SYSMARK-TASK-COMBO",
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                line = tmock.stdout.readline().decode()
+                assert "ready" in line, f"task mock did not start: {line!r}"
+                tenv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{tport}/v1")
+                rt = subprocess.run(
+                    [
+                        TNY,
+                        "--task",
+                        "review",
+                        "--system-prompt",
+                        "SYSMARK-TASK-COMBO",
+                        "--cwd",
+                        ws,
+                        "ask",
+                        "--json",
+                        "--no-save",
+                        "list files in .",
+                    ],
+                    env=tenv,
+                    capture_output=True,
+                    timeout=30,
+                )
+                assert rt.returncode == 0, rt.stderr.decode()
+                assert "MOCK-OK" in json.loads(rt.stdout)["output"], rt.stdout
+            finally:
+                tmock.terminate()
+                tmock.wait(timeout=5)
+
             # piped stdin: the connect/stdin overlap path must still run a
             # full turn end-to-end
             r4 = subprocess.run(
