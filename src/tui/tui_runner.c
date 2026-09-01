@@ -22,7 +22,12 @@
 #include <string.h>
 #include <sys/wait.h>
 
-bool tui_runner_mode(const tui *t) { return tny_isolation_enabled(t->ctx); }
+bool tui_runner_mode(const tui *t) {
+    /* Caller-side TLS can disable future forks on macOS while an already
+     * healthy runner is serving this shell. Keep using that runner until a
+     * rebind drops it; the replacement then takes the safe in-process path. */
+    return t->rc != NULL || tny_isolation_enabled(t->ctx);
+}
 
 int tui_runner_fd(const tui *t) { return t->rc ? tny_runner_client_fd(t->rc) : -1; }
 

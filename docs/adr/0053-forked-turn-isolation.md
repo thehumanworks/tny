@@ -113,16 +113,24 @@ loss, never an agent loss.
    end of stdio, and a detached runner with a dead stdio peer serves
    nobody. libtny embedders own their process model (0023/0037); the ABI
    is unchanged.
-10. **In-process remains for three cases, all deliberate.** wasm: no
+10. **In-process remains for four cases, all deliberate.** wasm: no
     `fork(2)` in the browser; `ask`/TUI keep the pre-0053 paths, `-B`
     keeps its clean error (0031 decision 10), and `session attach`
     reports no live runner (CI-enforced parity, 0017). `--ephemeral`:
     nothing durable exists to survive for and there is no session
     directory to serve from, so ephemeral turns stay in-process (0020).
     `TNY_ISOLATE=0`: a diagnostic escape hatch on native, not a supported
-    mode. The in-process code therefore stays compiled everywhere;
-    runner.c carries the `#ifdef __EMSCRIPTEN__` clean-error stubs (the
-    extensions.c host-OS-seam pattern this ADR sanctions).
+    mode. **macOS after caller-side TLS:** SecureTransport/CoreFoundation
+    reports a fork-only child as unsafe once the caller has initialized its
+    process-global trust runtime (`multi-threaded process forked`, `child side
+    of fork pre-exec`) and can crash in `SecTrustEvaluateIfNecessary`. Any
+    later turn in that caller therefore uses the existing in-process path;
+    runners already forked before TLS initialization continue normally. This
+    containment remains until runners use an exec boundary rather than
+    executing arbitrary C after `fork(2)`. The in-process code therefore
+    stays compiled everywhere; runner.c carries the `#ifdef __EMSCRIPTEN__`
+    clean-error stubs (the extensions.c host-OS-seam pattern this ADR
+    sanctions).
 11. **No tmux, no daemon.** There is no long-lived broker: runners are
     per-session, exist only while a session has work or a warm host, and
     the registry of "what is attachable" is the session store itself

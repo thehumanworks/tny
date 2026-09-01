@@ -43,6 +43,11 @@ ssize_t nstream_read(nstream *s, void *buf, size_t cap);
 int nstream_write_all(nstream *s, const void *data, size_t len);
 int nstream_fd(nstream *s);
 void nstream_close(nstream *s);
+/* macOS SecureTransport/CoreFoundation starts process-global runtime state
+ * that Apple marks unsafe to inherit across fork without an immediate exec.
+ * False only after this process has attempted its first TLS connection;
+ * other platforms currently remain fork-safe for the runner transport. */
+bool nstream_fork_safe(void);
 
 /* ---- HTTP/1.1 client ---- */
 typedef struct http_conn http_conn;

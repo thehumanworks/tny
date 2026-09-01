@@ -25,16 +25,22 @@
 #include <time.h>
 #include <unistd.h>
 
-bool tny_isolation_enabled(const tny_ctx *ctx) {
+bool tny_isolation_policy(const tny_ctx *ctx, bool transport_fork_safe) {
 #ifdef __EMSCRIPTEN__
     (void)ctx;
+    (void)transport_fork_safe;
     return false; /* no fork in the browser (docs/adr/0017) */
 #else
     if (ctx && ctx->no_save) return false; /* ephemeral: nothing durable to survive for */
     const char *v = getenv("TNY_ISOLATE");
     if (v && strcmp(v, "0") == 0) return false; /* debug escape hatch */
+    if (!transport_fork_safe) return false;     /* macOS fork-pre-exec trust safety */
     return true;
 #endif
+}
+
+bool tny_isolation_enabled(const tny_ctx *ctx) {
+    return tny_isolation_policy(ctx, nstream_fork_safe());
 }
 
 /* Shared with cmd_ask's in-process path so the foreground --json blob and

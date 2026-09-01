@@ -252,9 +252,13 @@ TEST runner_sock_path_falls_back_for_deep_dirs(void) {
 TEST runner_isolation_switch(void) {
     const char *prev = getenv("TNY_ISOLATE");
     unsetenv("TNY_ISOLATE");
-    ASSERT(tny_isolation_enabled(NULL));
+    ASSERT(tny_isolation_policy(NULL, true));
+    /* Once macOS has initialized SecureTransport, a fork-only child must
+     * not enter CoreFoundation/SecTrust. The production wrapper supplies
+     * the live transport state; this pure seam makes the gate portable. */
+    ASSERT_FALSE(tny_isolation_policy(NULL, false));
     setenv("TNY_ISOLATE", "0", 1);
-    ASSERT_FALSE(tny_isolation_enabled(NULL));
+    ASSERT_FALSE(tny_isolation_policy(NULL, true));
     if (prev) setenv("TNY_ISOLATE", prev, 1);
     else unsetenv("TNY_ISOLATE");
     PASS();

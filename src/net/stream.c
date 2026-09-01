@@ -6,6 +6,7 @@
 #include "util/tny_poll.h"
 
 #include <stdio.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -131,10 +132,16 @@ static int st_api_load_impl(void) {
 
 static pthread_once_t st_api_once = PTHREAD_ONCE_INIT;
 static int st_api_load_result = -1;
+static atomic_bool st_fork_unsafe = ATOMIC_VAR_INIT(false);
 
 static void st_api_load_once(void) { st_api_load_result = st_api_load_impl(); }
 
 static int st_api_load(void) {
+    /* Security.framework may create libdispatch/CoreFoundation state even
+     * when loading or the handshake later fails. A fork-only child that
+     * re-enters SecTrust after this point can crash in Apple's `trust` queue
+     * ("multi-threaded process forked", child side of fork pre-exec). */
+    atomic_store_explicit(&st_fork_unsafe, true, memory_order_release);
     return pthread_once(&st_api_once, st_api_load_once) == 0 ? st_api_load_result : -1;
 }
 
@@ -307,6 +314,14 @@ static void ossl_wait(int fd, int want, int timeout_ms) {
     tny_poll(&pf, 1, timeout_ms);
 }
 #endif /* __linux__ */
+
+bool nstream_fork_safe(void) {
+#ifdef __APPLE__
+    return !atomic_load_explicit(&st_fork_unsafe, memory_order_acquire);
+#else
+    return true;
+#endif
+}
 
 nstream *nstream_from_fd(int fd) {
     nstream *s = calloc(1, sizeof *s);

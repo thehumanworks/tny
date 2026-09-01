@@ -19,8 +19,12 @@ struct tny_engine;
 
 /* Native default on; TNY_ISOLATE=0 (debug escape hatch) or wasm turn it
  * off. Ephemeral sessions always run in-process: there is no session
- * directory to serve from and nothing durable to survive for. */
+ * directory to serve from and nothing durable to survive for. On macOS,
+ * once the caller has initialized SecureTransport, subsequent turns stay
+ * in-process because Apple's trust runtime is unsafe after fork pre-exec. */
 bool tny_isolation_enabled(const tny_ctx *ctx);
+/* Pure policy seam for tests; production passes nstream_fork_safe(). */
+bool tny_isolation_policy(const tny_ctx *ctx, bool transport_fork_safe);
 
 /* <session-dir>/sock; malloc'd, NULL when the path exceeds sun_path. */
 char *tny_runner_sock_path(const char *session_dir);

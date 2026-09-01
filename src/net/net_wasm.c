@@ -117,6 +117,10 @@ int tny_wake_fd(const tny_wake *wake) { (void)wake; return -1; }
 void tny_wake_signal(tny_wake *wake) { (void)wake; }
 void tny_wake_drain(tny_wake *wake) { (void)wake; }
 
+/* wasm never forks; keep the native transport-policy query linkable even
+ * though runner.c's wasm policy returns false before consulting it. */
+bool nstream_fork_safe(void) { return true; }
+
 int set_nonblock(int fd, bool nb) {
   int fl = fcntl(fd, F_GETFL, 0);
   if (fl < 0) return -1;
