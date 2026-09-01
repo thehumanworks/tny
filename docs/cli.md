@@ -110,6 +110,16 @@ Report prioritized findings; do not edit unless explicitly asked.
 Save it as `.tny/tasks/release-review.md`, then run
 `tny --task release-review ask "Review this release"`.
 
+The resolved instruction body travels with the request itself, so the model
+adopts the preset without spending tool calls to locate or read the file. The
+native openai-compatible loop carries it in the system prompt, after tny's
+runtime instructions and project context and before any explicit
+`--system-prompt` additions; host providers (cursor, codex, acp), whose pinned
+protocols expose no system field, receive the same sections at the top of a
+fresh session's first user message
+([ADR 0045](adr/0045-system-prompt-flag.md),
+[ADR 0048](adr/0048-runtime-task-presets.md)).
+
 The resolved snapshot belongs to the session. Resuming without `--task`
 restores it; an explicit task must match the saved name and digest. A task may
 not be grafted onto an older session after turns exist, and `/task` may change

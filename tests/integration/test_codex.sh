@@ -40,7 +40,7 @@ unset OPENAI_API_KEY CODEX_REMOTE_TOKEN 2> /dev/null
 token="s3cr3t-capability-token"
 printf '%s\n' "$token" > "$tmp/token"
 export MOCK_TOKEN="$token"
-export MOCK_CONNECTIONS=9
+export MOCK_CONNECTIONS=10
 export MOCK_BUSY_CONN=3           # connection 3 replies -32001 once per request kind
 export MOCK_EXPECT_EFFORT="xhigh" # run 1 passes --effort xhigh; others none
 export MOCK_FAST_CONN=6           # connection 6 runs with --fast: serviceTier=priority
@@ -224,6 +224,27 @@ grep -q 'CODEX-MOCK-OK' "$tmp/run9.out" &&
     ok "run 9 streamed CODEX-MOCK-OK" ||
     bad "run 9 output did not contain CODEX-MOCK-OK"
 
+# --- run 10: --task delivers the preset document, no tool calls needed ---
+# The pinned codex surface has no system field either, so the resolved task
+# body must arrive verbatim as the leading section of the fresh session's
+# first turn/start input, before the explicit --system-prompt addition and
+# the user prompt (docs/adr/0048). The agent must never have to find or
+# read the preset file itself.
+mkdir -p "$tmp/ws/.tny/tasks"
+printf 'TASK-PRESET-MARK speak in haiku.\n' > "$tmp/ws/.tny/tasks/haiku.md"
+HOME="$TNY_HOME" CODEX_REMOTE_TOKEN="$token" "$TNY" --cwd "$tmp/ws" --backend codex \
+    --codex-ws "$url" --task haiku --system-prompt "SYS-ORDER-MARK" \
+    ask --json --yolo --no-save "taskrun" \
+    > "$tmp/run10.out" 2> "$tmp/run10.err"
+rc10=$?
+[ $rc10 -eq 0 ] && ok "run 10 exit 0 with --task" || bad "run 10 exit $rc10"
+grep -q 'CODEX-MOCK-OK' "$tmp/run10.out" &&
+    ok "run 10 streamed CODEX-MOCK-OK" ||
+    bad "run 10 output did not contain CODEX-MOCK-OK"
+grep -q '"task":{"name":"haiku","source":"project"' "$tmp/run10.out" &&
+    ok "run 10 json reported the selected task" ||
+    bad "run 10 json did not report the task selection"
+
 # --- mock verdict --------------------------------------------------------
 wait "$mock_pid"
 mock_rc=$?
@@ -253,6 +274,9 @@ grep -q 'MOCK-NOTE thread/start serviceTier=priority ok' "$tmp/mock.err" &&
 grep -qF "prompt='SYS-PIRATE-MARK\n\nsysrun'" "$tmp/mock.err" &&
     ok "--system-prompt prefixed the first user message" ||
     bad "mock never saw the system-prompt-prefixed first message"
+grep -qF "prompt='# Task preset: haiku\n\nTASK-PRESET-MARK speak in haiku.\n\n\nSYS-ORDER-MARK\n\ntaskrun'" "$tmp/mock.err" &&
+    ok "--task injected the preset document before the system addition and prompt" ||
+    bad "mock never saw the task-injected first message in composition order"
 
 if [ $mock_rc -ne 0 ]; then
     bad "mock app-server reported protocol failures"
@@ -261,7 +285,7 @@ fi
 if [ $fails -ne 0 ]; then
     echo "--- mock log ---" >&2
     cat "$tmp/mock.err" >&2
-    for f in run1 run2 run3 run4 run5 run6 run9; do
+    for f in run1 run2 run3 run4 run5 run6 run9 run10; do
         [ -f "$tmp/$f.err" ] || continue
         echo "--- $f stderr ---" >&2
         cat "$tmp/$f.err" >&2

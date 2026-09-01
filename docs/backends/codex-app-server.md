@@ -82,7 +82,10 @@ unknown values.
 
 `--system-prompt`: the pinned `thread/start` / `turn/start` surface exposes no
 instructions field, so tny prepends the text to the first user message of a
-fresh thread instead ([ADR 0045](../adr/0045-system-prompt-flag.md)).
+fresh thread instead ([ADR 0045](../adr/0045-system-prompt-flag.md)). A
+selected `--task` preset rides the same first message, ahead of the explicit
+system addition, so the agent adopts the task document without reading any
+file ([ADR 0048](../adr/0048-runtime-task-presets.md)).
 
 `--ephemeral` adds `"ephemeral":true` to `thread/start`. The flag is injected
 at tny's request-framing boundary, so retries carry the same setting. tny also
