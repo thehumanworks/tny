@@ -9,7 +9,7 @@ and lets the agent read only the pages it needs.
 
 ## `brave-search`
 
-`examples/web-search/brave-search` (added in a separate change) is a script
+`examples/web-search/brave-search` is a script
 with this contract:
 
 - **Input**: `$1` is the percent-encoded query exactly as tny substitutes it
