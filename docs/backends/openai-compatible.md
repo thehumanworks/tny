@@ -151,7 +151,7 @@ Console key must not carry the beta header. These extra headers live in
    `"https://accounts.x.ai/sign-in".key` entry, or an OIDC
    `"{issuer}::{client_id}"` entry written by tny's **native device-code
    login** (`tny --provider grok login`,
-   [ADR 0019](../adr/0019-native-grok-device-login.md)) or by the grok CLI:
+   [ADR 0019](../adr/0021-native-grok-device-login.md)) or by the grok CLI:
    base URL `https://cli-chat-proxy.grok.com/v1`, chat wire (proxy models
    are streaming-only chat), headers `X-XAI-Token-Auth: xai-grok-cli`,
    `x-grok-model-override: <model>` (the proxy routes on the header, not

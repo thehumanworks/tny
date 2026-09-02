@@ -538,7 +538,7 @@ whether it is connected, still starting, skipped, or not yet started.
 `--json` emits `{"kind":"mcp_servers","servers":[...],"notices":[...]}`;
 each server includes `source`, `scope`, `transport`, `status`, and `skipped`. Foreign
 harness configs are read only when `mcp.import_from` in
-`~/.tny/settings.json` names them ([ADR 0051](adr/0051-mcp-import-from-harnesses.md));
+`~/.tny/settings.json` names them ([ADR 0051](adr/0052-mcp-import-from-harnesses.md));
 the default is off. Native `~/.tny/mcp.json` wins on name collision.
 Command lines and env values are omitted from the listing so secrets stay
 out of `--json`. wasm: the list still works; spawn stays the existing
