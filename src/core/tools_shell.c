@@ -1,6 +1,7 @@
-/* tools_shell.c — terminal tool. Sandbox v1: none/auto→none, documented in
- * doctor (docs/features/permissions.md allows this with disclosure). */
+/* tools_shell.c — terminal tool. Only the forked command child receives the
+ * OS sandbox wrapper; the tny runner and host-provider tools stay outside. */
 #include "core/tools.h"
+#include "core/sandbox.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
 
@@ -20,6 +21,11 @@
 #define SHELL_MAX_OUT (512u * 1024u)
 
 static char *run_background(tools_env *env, const char *cmd) {
+    tny_sandbox_command sandbox = {0};
+    char sandbox_err[192] = {0};
+    if (tny_sandbox_command_build(env->ctx, TNY_SHELL_PATH, cmd, &sandbox, sandbox_err,
+                                  sizeof sandbox_err) != 0)
+        return tool_err("%s", sandbox_err);
     char *logdir = env->session ? path_join(env->session->dir, "bg") : xstrdup("/tmp/tny-bg");
     mkdir_p(logdir);
     char *id = gen_id();
@@ -29,6 +35,7 @@ static char *run_background(tools_env *env, const char *cmd) {
 
     pid_t pid = fork();
     if (pid < 0) {
+        tny_sandbox_command_free(&sandbox);
         free(logdir);
         free(id);
         buf_free(&logpath);
@@ -48,9 +55,10 @@ static char *run_background(tools_env *env, const char *cmd) {
             close(devnull);
         }
         if (chdir(env->ctx->cwd) != 0) _exit(127);
-        execl(TNY_SHELL_PATH, "sh", "-c", cmd, (char *)NULL);
+        execv(sandbox.argv[0], sandbox.argv);
         _exit(127);
     }
+    tny_sandbox_command_free(&sandbox);
     buf_t out;
     buf_init(&out);
     buf_appendf(&out,
@@ -75,10 +83,20 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     if (timeout_s <= 0 || timeout_s > 600) timeout_s = 120;
     if (jget_bool(args, "background", false)) return run_background(env, cmd);
 
+    tny_sandbox_command sandbox = {0};
+    char sandbox_err[192] = {0};
+    if (tny_sandbox_command_build(env->ctx, TNY_SHELL_PATH, cmd, &sandbox, sandbox_err,
+                                  sizeof sandbox_err) != 0)
+        return tool_err("%s", sandbox_err);
+
     int pipefd[2];
-    if (pipe(pipefd) != 0) return tool_err("pipe failed");
+    if (pipe(pipefd) != 0) {
+        tny_sandbox_command_free(&sandbox);
+        return tool_err("pipe failed");
+    }
     pid_t pid = fork();
     if (pid < 0) {
+        tny_sandbox_command_free(&sandbox);
         close(pipefd[0]);
         close(pipefd[1]);
         return tool_err("fork failed");
@@ -90,9 +108,11 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
         close(pipefd[1]);
         if (chdir(env->ctx->cwd) != 0) _exit(127);
         setpgid(0, 0);
-        execl(TNY_SHELL_PATH, "sh", "-c", cmd, (char *)NULL);
+        execv(sandbox.argv[0], sandbox.argv);
         _exit(127);
     }
+    tny_sandbox_kind sandbox_kind = sandbox.kind;
+    tny_sandbox_command_free(&sandbox);
     close(pipefd[1]);
     buf_t out;
     buf_init(&out);
@@ -125,6 +145,13 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     buf_t res;
     buf_init(&res);
     int code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    char *denied_path = sandbox_kind != TNY_SANDBOX_NONE ? tny_sandbox_denied_path(out.data) : NULL;
+    if (denied_path) {
+        buf_appendf(&res,
+                    "error: os sandbox denied a write to %s; add its parent directory to "
+                    "workspace extra dirs with `tny workspace add DIR` or `--add-dir DIR`\n",
+                    denied_path);
+    }
     if (timed_out)
         buf_appendf(&res, "(timed out after %llds and was killed)\n", (long long)timeout_s);
     buf_appendf(&res, "exit code: %d\n", code);
@@ -135,6 +162,7 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     } else {
         buf_appends(&res, "(no output)");
     }
+    free(denied_path);
     buf_free(&out);
     char *bounded = tool_bound_result(env, res.data, res.len);
     buf_free(&res);
