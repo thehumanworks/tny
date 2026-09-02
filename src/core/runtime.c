@@ -1,4 +1,5 @@
 #include "core/runtime.h"
+#include "core/skills.h"
 #include "core/tasks.h"
 
 #include "backends/openai/openai.h"
@@ -1594,6 +1595,29 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images, cha
         after_backend(e, 0);
         return 0;
     }
+    /* Skill mentions (docs/adr/0056): `/name` or `$name` in the typed text
+     * puts that SKILL.md ahead of the user turn for every backend — the
+     * system prompt stays cacheable and hosts never see tny's skill tool.
+     * Recorded only once the send was entered, keyed by the message index the
+     * native backend appends next, so transcripts still show `prompt`. */
+    char **skill_names = NULL;
+    int n_skill_names = 0;
+    int skill_message_index = session_message_count(e->session);
+    {
+        char *with_skills = skills_inject(e->ctx, e->session, effective.data ? effective.data : "",
+                                          e->bk->id == TNY_BK_OPENAI, &skill_names, &n_skill_names);
+        if (with_skills) {
+            buf_clear(&effective);
+            buf_appends(&effective, with_skills);
+            free(with_skills);
+            if (buf_oom(&effective)) {
+                if (err && errlen) snprintf(err, errlen, "out of memory");
+                buf_free(&effective);
+                skills_names_free(skill_names, n_skill_names);
+                return -1;
+            }
+        }
+    }
     bool prefixed_system_prompt = wants_system_prompt_prefix(e);
     if (prefixed_system_prompt) {
         buf_t with_sys;
@@ -1608,6 +1632,7 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images, cha
             if (err && errlen) snprintf(err, errlen, "out of memory");
             buf_free(&with_sys);
             buf_free(&effective);
+            skills_names_free(skill_names, n_skill_names);
             return -1;
         }
         buf_free(&effective);
@@ -1618,6 +1643,10 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images, cha
      * entered. Allocation failure or a before_agent_start stop leaves the
      * task/system sections pending for the next real first turn. */
     if (rc == 0 && prefixed_system_prompt && e->turn_started) e->system_prompt_delivered = true;
+    if (rc == 0 && n_skill_names && e->turn_started)
+        session_record_skill_injection(e->session, skill_message_index, skill_names, n_skill_names,
+                                       prompt);
+    skills_names_free(skill_names, n_skill_names);
     buf_free(&effective);
     if (rc != 0) {
         tny_owned_event *queued;

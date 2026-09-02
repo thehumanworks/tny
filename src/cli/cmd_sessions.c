@@ -46,7 +46,7 @@ static void print_block(const char *s) {
 
 /* Readable transcript: full user/assistant text, one compact line per tool
  * call (⏺, mirroring the ask progress lines) and per tool result (✓). */
-static void print_transcript(yyjson_mut_val *msgs) {
+static void print_transcript(tny_session_state *s, yyjson_mut_val *msgs) {
     size_t i, n;
     yyjson_mut_val *m;
     yyjson_mut_arr_foreach(msgs, i, n, m) {
@@ -54,6 +54,8 @@ static void print_transcript(yyjson_mut_val *msgs) {
         const char *role = yyjson_mut_get_str(yyjson_mut_obj_get(m, "role"));
         const char *content = yyjson_mut_get_str(yyjson_mut_obj_get(m, "content"));
         if (!role) continue;
+        const char *typed = session_message_display(s, (int)i);
+        if (typed) content = typed; /* skill blocks were injected (docs/adr/0056) */
         if (strcmp(role, "tool") == 0) {
             printf("  ✓ ");
             print_excerpt(content ? content : "", 120);
@@ -485,7 +487,7 @@ int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         yyjson_mut_val *msgs = session_messages(s);
         size_t total = msgs ? yyjson_mut_arr_size(msgs) : 0;
         printf("messages: %zu\n", total);
-        if (total) print_transcript(msgs);
+        if (total) print_transcript(s, msgs);
         /* Stored result: the read surface for host-backend answers (their
          * transcripts hold only a resume pointer). */
         if (!live && st && strcmp(st, "running") != 0) {

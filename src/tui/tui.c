@@ -518,11 +518,19 @@ void tui_submit(tui *t, const char *text) {
     }
 
     if (*s == '/') {
-        tui_hist_add(t, s);
-        tui_bol(t);
-        tui_command(t, s);
-        t->dirty = true;
-        return;
+        /* builtin commands win; an unknown `/name` that names a discovered
+         * skill is a prompt mentioning that skill (docs/adr/0056) */
+        size_t nlen = strcspn(s + 1, " \t\n");
+        char *name = xstrndup(s + 1, nlen);
+        bool is_cmd = tui_command_is_builtin(name) || !tui_skill_exists(t, name);
+        free(name);
+        if (is_cmd) {
+            tui_hist_add(t, s);
+            tui_bol(t);
+            tui_command(t, s);
+            t->dirty = true;
+            return;
+        }
     }
     if (t->turn_active) {
         tui_hist_add(t, s);

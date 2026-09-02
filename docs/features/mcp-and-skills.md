@@ -128,6 +128,35 @@ Search order (workspace upward, stop before `$HOME`): `skills/`, `.agents/skills
 
 Managed installs go only to `~/.tny/skills/`.
 
+### Mentions ([ADR 0056](../adr/0056-skill-mention-injection.md))
+
+A user message that contains `/<name>` or `$<name>` as a whole token — at the
+start or after whitespace, followed by the end, whitespace, or punctuation
+other than `/`, `-`, `_` — where `<name>` is a discovered skill, carries that
+skill's `SKILL.md` ahead of the text, with no `skill` tool round trip:
+
+```text
+<skill name="deploy" path="/abs/skills/deploy/SKILL.md">
+...SKILL.md verbatim...
+</skill>
+
+ship $deploy to staging
+```
+
+`/foo` does not match `foobar`, `foo-bar`, `a/foo`, or `/foo/bar`; `$foo.`
+does. Several mentions inject each skill once, in order of first appearance.
+Bodies above `max_tool_result_bytes` are cut like a tool result (native: a
+`read_tool_result` handle; hosts: the file path). This applies wherever a
+prompt reaches a backend through the engine — `tny ask`, the TUI, `tny acp`
+server, and the host backends (cursor, codex, ACP client), which cannot see
+tny's `skill` tool. The system-prompt catalog is unchanged.
+
+The native transcript stores the text the model saw; a top-level
+`skill_injections` record in `session.json` keeps the typed text for
+`/transcript` and `tny session <id>` and marks the skill delivered, so a later
+mention sends a one-line reminder instead of the body until compaction drops
+it. In the TUI a builtin slash command always wins over a same-named skill.
+
 ## Subagents
 
 Child **native** sessions. One-off or persistent. Parent/child messages queued on disk so the child transcript is not dumped into the parent. Children cannot raise permission mode above the creator unless a human set it in the manager (Ctrl-X). Host backends: no tny-spawned subagents; show host task events if they exist (e.g. Cursor `cursor/task`).

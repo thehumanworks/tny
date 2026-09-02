@@ -256,6 +256,10 @@ void tui_pick_refresh(tui *t);
 
 /* tui_commands.c */
 void tui_command(tui *t, const char *line);
+/* true when `name` (no slash) is a builtin slash command; a `/name` line that
+ * is not builtin but names a discovered skill is a prompt (docs/adr/0056) */
+bool tui_command_is_builtin(const char *name);
+bool tui_skill_exists(tui *t, const char *name);
 /* /provider setup wizard (tui_commands.c): start, feed one composer line,
  * cancel (drops state, frees fields). */
 void tui_wizard_start(tui *t, const char *name);

@@ -710,6 +710,62 @@ void session_record_prompt_audit(tny_session_state *s, const char *submission_id
     yyjson_mut_arr_add_val(extension_audit(s), entry);
 }
 
+static yyjson_mut_val *skill_injections(tny_session_state *s) {
+    yyjson_mut_val *arr = yyjson_mut_obj_get(root_of(s), "skill_injections");
+    if (arr && yyjson_mut_is_arr(arr)) return arr;
+    arr = yyjson_mut_arr(s->doc);
+    yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "skill_injections"), arr);
+    return arr;
+}
+
+void session_record_skill_injection(tny_session_state *s, int message_index, char **names,
+                                    int n_names, const char *display) {
+    if (!s || n_names <= 0) return;
+    yyjson_mut_val *entry = yyjson_mut_obj(s->doc);
+    yyjson_mut_obj_add_int(s->doc, entry, "message", message_index);
+    yyjson_mut_val *arr = yyjson_mut_arr(s->doc);
+    for (int i = 0; i < n_names; i++) yyjson_mut_arr_add_strcpy(s->doc, arr, names[i]);
+    yyjson_mut_obj_put(entry, yyjson_mut_strcpy(s->doc, "skills"), arr);
+    if (display) yyjson_mut_obj_add_strcpy(s->doc, entry, "display", display);
+    yyjson_mut_arr_add_val(skill_injections(s), entry);
+}
+
+bool session_skill_injected(tny_session_state *s, const char *name) {
+    if (!s || !name) return false;
+    yyjson_mut_val *arr = yyjson_mut_obj_get(root_of(s), "skill_injections");
+    if (!arr || !yyjson_mut_is_arr(arr)) return false;
+    int boundary = session_compact_boundary(s, NULL);
+    size_t idx, max;
+    yyjson_mut_val *entry;
+    yyjson_mut_arr_foreach(arr, idx, max, entry) {
+        if (!entry) break;
+        if ((int)yyjson_mut_get_int(yyjson_mut_obj_get(entry, "message")) < boundary) continue;
+        yyjson_mut_val *skills = yyjson_mut_obj_get(entry, "skills");
+        size_t j, jn;
+        yyjson_mut_val *v;
+        yyjson_mut_arr_foreach(skills, j, jn, v) {
+            const char *n = yyjson_mut_get_str(v);
+            if (n && strcmp(n, name) == 0) return true;
+        }
+    }
+    return false;
+}
+
+const char *session_message_display(tny_session_state *s, int message_index) {
+    if (!s) return NULL;
+    yyjson_mut_val *arr = yyjson_mut_obj_get(root_of(s), "skill_injections");
+    if (!arr || !yyjson_mut_is_arr(arr)) return NULL;
+    size_t idx, max;
+    yyjson_mut_val *entry;
+    yyjson_mut_arr_foreach(arr, idx, max, entry) {
+        if (!entry) break;
+        if ((int)yyjson_mut_get_int(yyjson_mut_obj_get(entry, "message")) != message_index)
+            continue;
+        return yyjson_mut_get_str(yyjson_mut_obj_get(entry, "display"));
+    }
+    return NULL;
+}
+
 void session_replace_tool_arguments(tny_session_state *s, const char *tool_call_id,
                                     const char *arguments_json) {
     if (!s || !tool_call_id || !arguments_json) return;
