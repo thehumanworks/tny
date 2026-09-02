@@ -50,6 +50,50 @@ hard cap. The `all` profile keeps the existing result shape and
 
 No browser/CDP tools in v1.
 
+### First-party `tny` verbs inside `terminal` ([ADR 0063](../adr/0063-in-process-intercept-of-first-party-verbs.md))
+
+A single simple `tny …` command typed into `terminal` is **not** run as a
+nested process. tny recognises it while preparing the tool call and dispatches
+it in-process, so it keeps the permission engine, session grants, `/undo`, the
+warmed MCP client, and the `--ssh` route:
+
+| Command | Runs | Permission identity |
+| --- | --- | --- |
+| `tny edit [--json] [--marker M] FILE` | the shared exact-match editor with the `edit_file` undo hook; over `--ssh`, `cat` + local replace + atomic write-back on the remote host | `edit_file` + resolved path |
+| `tny mcp call SERVER/TOOL` | one `tools/call` on the session's already-warmed client — never a second server | `mcp:server/tool` |
+| `tny memory get\|set\|list …` | the `memory` tool | `memory` |
+| `tny skill show NAME` | the `skill` tool | `skill` |
+| `tny image attach PATH` | the same queue as `read_image`, allowed roots only | `read_image` |
+| `tny ask-user [--json] QUESTION` | the frontend ask hook, with no socket round trip | `ask_user_question` |
+| `tny ask …` (no `-B`) | refused: a foreground nested agent inside a turn | — |
+| `tny ask -B …`, and everything else | `/bin/sh`, unchanged | `terminal` + command |
+
+The result is the verb's own contract — an `exit: N` line then its stdout and
+stderr — not a shell transcript, and `tool_start` names the verb
+(`tny edit docs/x.md`) instead of the raw command.
+
+**Payloads still ride stdin.** Two shapes are understood: a here-doc
+(`tny edit FILE <<'EOF' … EOF`) and one left-hand producer piped in
+(`printf '…' | tny edit FILE`, `echo '{…}' | tny mcp call s/t`,
+`cat args.json | tny mcp call s/t`). `printf` must carry no `%` conversion and
+`echo` no backslash, because shells disagree about those.
+
+**Everything else runs in the shell exactly as before**: a second command
+(`;`, `&&`, `||`, `&`), any redirection other than that here-doc, a second
+pipe, a substitution or variable (`$(…)`, `` ` ` ``, `$VAR`), a glob, an
+env-assignment prefix (`FOO=bar tny …`), a global flag other than `--json`
+before the verb, `background: true`, or any verb not in the table. The
+standalone binary still works there — it just runs cold, without the session's
+permissions, undo, or warm MCP client.
+
+Every `terminal` child is started with `TNY_NESTED=1` and `TNY_NESTED_MODE`
+naming the turn's effective permission mode; a nested tny cannot widen it (see
+[permissions](permissions.md)).
+
+wasm: not applicable. `terminal` cannot start a child process in the browser
+and returns its existing clean tool error, so no command reaches the
+recogniser.
+
 ### Web search providers
 
 tny ships no search engine. `web_search` is **advertised to the model only
@@ -214,7 +258,7 @@ it. In the TUI a builtin slash command always wins over a same-named skill.
 
 ## Subagents
 
-Child **native** sessions. One-off or persistent. Parent/child messages queued on disk so the child transcript is not dumped into the parent. Children cannot raise permission mode above the creator unless a human set it in the manager (Ctrl-X). Host backends: no tny-spawned subagents; show host task events if they exist (e.g. Cursor `cursor/task`).
+Child **native** sessions. One-off or persistent. Parent/child messages queued on disk so the child transcript is not dumped into the parent. Children cannot raise permission mode above the creator unless a human set it in the manager (Ctrl-X); a `tny ask -B` the model starts from `terminal` is held to the same rule by `TNY_NESTED` ([ADR 0063](../adr/0063-in-process-intercept-of-first-party-verbs.md)). Host backends: no tny-spawned subagents; show host task events if they exist (e.g. Cursor `cursor/task`).
 
 The child is a `tny ask` process and **runs the parent's resolved provider**: the parent forwards `--provider` (its effective profile name), `--base-url` and `--wire-api` on the native backend, plus `--model`, `--effort`, `--permission-mode`, and `--ephemeral` on the child command line. The child never re-resolves from settings, so a remembered `last_provider` from an earlier host-backend chat cannot re-route it. API keys are never placed on the command line; they travel through the inherited environment or the same settings the parent read. Model-supplied strings (`id`, `prompt`) are shell-quoted into single arguments. A child that dies before its turn reports its captured stderr in the tool result; a child turn that ends in an error (nonzero `exit_code` or an `error` in its `--json` payload) is a tool error, not a success.
 

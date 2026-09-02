@@ -68,6 +68,32 @@ the configured mode, and cannot authorize a later call. Abstain preserves the
 normal TUI/CLI decision path; extension-resolved requests are not shown as stale
 frontend prompts.
 
+## Verbs typed into `terminal`
+
+A single simple `tny` verb inside a `terminal` command is dispatched
+in-process and reviewed as the typed tool it stands for — `tny edit FILE` is
+an `edit_file` decision on the resolved path (so `"edit"` rules and grants
+apply), `tny mcp call s/t` is `mcp:s/t`, `tny memory …` is `memory`. The
+prompt shows the verb ahead of the identity it resolved to, e.g.
+`tny edit docs/x.md -> edit_file /repo/docs/x.md`. Anything the recogniser
+does not understand stays a `bash` decision on the whole command line. See
+[ADR 0063](../adr/0063-in-process-intercept-of-first-party-verbs.md) for the
+exact boundary.
+
+### Nested runs (`TNY_NESTED`)
+
+Every child the `terminal` tool starts inherits `TNY_NESTED=1` and
+`TNY_NESTED_MODE=<effective mode>`. In such a process:
+
+- a `permission_mode` from settings is clamped to the parent's mode silently;
+- an explicit `--permission-mode` or `TNY_PERMISSION_MODE` that is **wider**
+  than the parent's is refused with one line on stderr and exit 1.
+
+Width is `ask < auto < yolo`. This is what stops a `tny ask -B` the model
+launches from a turn from running with more authority than the turn itself.
+Narrowing is always allowed. Outside a nested run the variables are absent and
+nothing changes.
+
 ## Persistent rules
 
 Only in `~/.tny/settings.json` (global or per-workspace). Project `.tny.json` cannot grant authority.

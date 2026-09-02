@@ -437,6 +437,70 @@ TEST disconnect_sends_control_exit(void) {
     PASS();
 }
 
+/* The intercepted `tny edit` is the one verb that follows --ssh: the remote
+ * host has no tny, so the file is cat'd out, edited with the shared exact
+ * match engine, and streamed back (docs/adr/0063). The command string is
+ * never sent to the remote shell. */
+TEST intercepted_edit_follows_the_ssh_host(void) {
+    tny_ctx *ctx = remote_ctx();
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {0};
+    env.ctx = ctx;
+    env.perm = perm;
+    char remote_file[700];
+    snprintf(remote_file, sizeof remote_file, "%s/notes.txt", g_remote);
+    file_write_atomic(remote_file, "alpha\nold line\nomega\n", 22);
+
+    char *r = tools_execute(&env, "terminal",
+                            "{\"command\":\"tny edit notes.txt <<'EOF'\\n*** SEARCH\\n"
+                            "old line\\n*** REPLACE\\nnew line\\n*** END\\nEOF\\n\"}");
+    ASSERT_STR_EQ("exit: 0\nedited notes.txt: replaced 1 occurrence\n", r);
+    free(r);
+    size_t n = 0;
+    char *data = file_slurp(remote_file, &n);
+    ASSERT_STR_EQ("alpha\nnew line\nomega\n", data);
+    free(data);
+
+    /* the remote shell never saw a `tny` command, and the content travelled
+     * on stdin: the log holds the last argv, the atomic write-back */
+    char *log = slurp_log();
+    ASSERT(!strstr(log, "tny edit"));
+    ASSERT(!strstr(log, "new line"));
+    ASSERT(strstr(log, "mv -f --"));
+    free(log);
+
+    /* the same match policy and diagnostics as locally */
+    r = tools_execute(&env, "terminal",
+                      "{\"command\":\"tny edit notes.txt <<'EOF'\\n*** SEARCH\\nold lyne\\n"
+                      "*** REPLACE\\nx\\n*** END\\nEOF\\n\"}");
+    ASSERT(str_starts(r, "exit: 2\n"));
+    ASSERT(strstr(r, "0 matches in notes.txt"));
+    ASSERT(strstr(r, "nearest unique context is line 2: new line"));
+    free(r);
+    r = tools_execute(&env, "terminal",
+                      "{\"command\":\"tny edit missing.txt <<'EOF'\\n*** SEARCH\\na\\n"
+                      "*** REPLACE\\nb\\n*** END\\nEOF\\n\"}");
+    ASSERT(str_starts(r, "exit: 1\n"));
+    ASSERT(strstr(r, "tny: edit: cannot read"));
+    free(r);
+
+    /* the permission detail is the remote path, as for the edit_file tool */
+    tools_call call;
+    ASSERT_EQ(0,
+              tools_call_prepare(&env, "terminal", "{\"command\":\"tny edit notes.txt\"}", &call));
+    ASSERT_STR_EQ("edit_file", call.permission_tool);
+    ASSERT_STR_EQ(remote_file, call.detail);
+    tools_call_free(&call);
+
+    /* anything else still runs on the remote host, unchanged */
+    r = tools_execute(&env, "terminal", "{\"command\":\"tny --version\"}");
+    ASSERT(strstr(r, "exit code: "));
+    free(r);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 SUITE(ssh_suite) {
     RUN_TEST(target_parsing);
     RUN_TEST(connect_resolves_cwd_and_argv_shape);
@@ -444,6 +508,7 @@ SUITE(ssh_suite) {
     RUN_TEST(run_stdin_timeout_and_cap);
     RUN_TEST(file_tools_round_trip);
     RUN_TEST(terminal_runs_remotely);
+    RUN_TEST(intercepted_edit_follows_the_ssh_host);
     RUN_TEST(local_when_not_attached);
     RUN_TEST(instructions_follow_the_remote_workspace);
     RUN_TEST(disconnect_sends_control_exit);

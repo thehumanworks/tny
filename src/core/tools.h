@@ -4,12 +4,14 @@
 #define TNY_TOOLS_H
 
 #include "core/config.h"
+#include "core/edit.h"
 #include "core/session.h"
 #include "core/perm.h"
 #include "core/events.h"
 #include "core/backend.h"
 
-struct mcp_client; /* mcp/mcp.h */
+struct mcp_client;    /* mcp/mcp.h */
+struct tny_intercept; /* core/intercept.h */
 struct tny_tool_registration;
 struct tny_tool_call;
 
@@ -60,7 +62,15 @@ typedef struct {
     perm_verdict verdict;
     struct tny_tool_registration *custom;
     struct tny_tool_call *custom_call;
+    /* Set when a `terminal` command was recognised as a first-party tny verb
+     * and runs in-process instead (docs/adr/0063). */
+    struct tny_intercept *intercept;
 } tools_call;
+
+/* Human label of an intercepted call ("tny edit docs/x.md"), or NULL for an
+ * ordinary call. Backends put it in the TOOL_START detail so extensions and
+ * ACP clients see the verb rather than an opaque shell blob. */
+const char *tools_call_label(const tools_call *call);
 
 /* OpenAI "tools" array JSON for every built-in. MCP tools are never
  * promoted here; they ride the system-prompt catalog (docs/adr/0049).
@@ -85,6 +95,14 @@ void tools_call_free(tools_call *call);
  * status line. */
 char *tools_undo_last(tools_env *env);
 
+/* Snapshot `abs` into the session's one-deep undo slot before a mutating
+ * file operation overwrites it. */
+void tools_undo_record(tools_env *env, const char *abs);
+
+/* The path a permission rule sees for a path-shaped argument: absolute
+ * locally, ssh_cwd-relative under --ssh. malloc'd, NULL on failure. */
+char *tools_path_detail(tools_env *env, const char *path);
+
 /* Shell command for one subagent turn (`tny ask` child). The parent's
  * resolved provider travels with the child (docs/features/mcp-and-skills.md)
  * and every interpolated value — including the model-supplied id and prompt —
@@ -107,6 +125,13 @@ char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool 
 /* Remote variants of the workspace tools when ctx->ssh_host is set
  * (tools_ssh.c, docs/adr/0022); *handled=false when tools stay local. */
 char *tool_ssh_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
+/* Exact-match edit of a file on the --ssh host for the intercepted
+ * `tny edit` (docs/adr/0063): cat it, apply tny_edit_file_exact semantics to
+ * a local staging copy, then send the result back over stdin and rename it
+ * into place. A transport failure returns a malloc'd message in *err_out. */
+tny_edit_status tool_ssh_edit_exact(tools_env *env, const char *path, const char *old_text,
+                                    const char *new_text, bool replace_all, tny_edit_result *result,
+                                    char **err_out);
 
 /* Shared helpers for tool impls */
 char *tool_err(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
