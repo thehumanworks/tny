@@ -68,3 +68,16 @@ wasm has no child-process OS boundary: `auto` resolves to `none`, and explicit
   occur only when a terminal tool runs, never on startup/help paths.
 - Wrapper diagnostics are best-effort text parsing. Unknown denial wording is
   still returned verbatim with the command exit code, but cannot name a path.
+
+## Amendment (2026-09-02): availability is probed, not assumed
+
+The first cut treated a wrapper binary on disk as an available sandbox. CI
+disproved that on every Linux runner and inside every nix build: Ubuntu 24.04
+ships bubblewrap but restricts unprivileged user namespaces, and
+`sandbox-exec` cannot nest inside Nix's own Seatbelt sandbox, so `auto`
+wrapped the terminal child in a wrapper that exited 1 before the shell ran.
+`tny_sandbox_available` now runs the wrapper once per process around
+`sh -c 'exit 0'` (3 s cap, `tny_sandbox_probe`) and trusts the exit status:
+a wrapper that cannot launch makes `auto` resolve to `none`, doctor reports
+`none`, and an explicit `os` stays a clean error. Namespace *policy* failures
+on a working wrapper (a denied write) remain execution-time tool errors.

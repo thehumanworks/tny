@@ -3,9 +3,12 @@
 #include "core/sandbox.h"
 #include "util/util.h"
 
+#include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 static char *find_on_path(const char *name) {
@@ -39,22 +42,77 @@ static char *wrapper_path(tny_sandbox_kind kind) {
     return NULL;
 }
 
-tny_sandbox_kind tny_sandbox_available(void) {
+/* A wrapper binary on disk is not a wrapper that works: sandbox-exec cannot
+ * nest inside another Seatbelt sandbox (nix builds), and bubblewrap needs
+ * unprivileged user namespaces, which Ubuntu 24.04 and many CI images
+ * restrict. Run the wrapper once around `sh -c 'exit 0'` and believe the exit
+ * status, not the file system. */
+bool tny_sandbox_probe_ms(tny_sandbox_kind kind, const char *wrapper, int timeout_ms) {
+    if (!wrapper || !*wrapper || kind == TNY_SANDBOX_NONE) return false;
+    const char *argv_seatbelt[] = {wrapper,  "-p", "(version 1)(allow default)", "/bin/sh", "-c",
+                                   "exit 0", NULL};
+    const char *argv_bwrap[] = {
+        wrapper, "--ro-bind",     "/",  "/",       "--dev", "/dev",   "--proc",
+        "/proc", "--unshare-pid", "--", "/bin/sh", "-c",    "exit 0", NULL};
+    const char **argv = kind == TNY_SANDBOX_SEATBELT ? argv_seatbelt : argv_bwrap;
+    pid_t pid = fork();
+    if (pid < 0) return false;
+    if (pid == 0) {
+        int devnull = open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+            dup2(devnull, 0);
+            dup2(devnull, 1);
+            dup2(devnull, 2);
+            close(devnull);
+        }
+        setpgid(0, 0);
+        execv(argv[0], (char *const *)argv);
+        _exit(127);
+    }
+    int64_t deadline = now_ms() + (timeout_ms > 0 ? timeout_ms : 3000);
+    int status = 0;
+    for (;;) {
+        pid_t done = waitpid(pid, &status, WNOHANG);
+        if (done == pid) break;
+        if (done < 0) return false;
+        if (now_ms() >= deadline) {
+            kill(-pid, SIGKILL);
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
+            return false;
+        }
+        usleep(10 * 1000);
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+bool tny_sandbox_probe(tny_sandbox_kind kind, const char *wrapper) {
+    return tny_sandbox_probe_ms(kind, wrapper, 3000);
+}
+
+static tny_sandbox_kind host_wrapper_kind(void) {
 #if defined(__EMSCRIPTEN__)
     return TNY_SANDBOX_NONE;
 #elif defined(__APPLE__)
-    char *path = wrapper_path(TNY_SANDBOX_SEATBELT);
-    if (!path) return TNY_SANDBOX_NONE;
-    free(path);
     return TNY_SANDBOX_SEATBELT;
 #elif defined(__linux__)
-    char *path = wrapper_path(TNY_SANDBOX_BWRAP);
-    if (!path) return TNY_SANDBOX_NONE;
-    free(path);
     return TNY_SANDBOX_BWRAP;
 #else
     return TNY_SANDBOX_NONE;
 #endif
+}
+
+tny_sandbox_kind tny_sandbox_available(void) {
+    /* Cached per process: the probe forks the wrapper once, and doctor,
+     * status, the TUI and every terminal call share the answer. */
+    static int cached = -1;
+    if (cached >= 0) return (tny_sandbox_kind)cached;
+    tny_sandbox_kind kind = host_wrapper_kind();
+    char *path = kind == TNY_SANDBOX_NONE ? NULL : wrapper_path(kind);
+    if (!path || !tny_sandbox_probe(kind, path)) kind = TNY_SANDBOX_NONE;
+    free(path);
+    cached = (int)kind;
+    return kind;
 }
 
 tny_sandbox_kind tny_sandbox_effective(const tny_ctx *ctx) {

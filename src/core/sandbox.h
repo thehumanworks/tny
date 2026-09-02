@@ -4,6 +4,7 @@
 
 #include "core/config.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 
 typedef enum {
@@ -18,10 +19,17 @@ typedef struct {
     size_t argc;
 } tny_sandbox_command;
 
-/* Installed wrapper for this host, or NONE. Availability is deliberately a
- * PATH/executable check: doctor must not claim a wrapper that cannot be
- * launched, while namespace policy failures remain an execution-time error. */
+/* Working wrapper for this host, or NONE. Presence on disk is not enough:
+ * the wrapper is probed once per process around `sh -c 'exit 0'` (nested
+ * Seatbelt and namespace-restricted bubblewrap both fail that probe), so
+ * doctor never claims a wrapper that cannot launch and `auto` falls back
+ * to none on such hosts instead of failing every terminal call. */
 tny_sandbox_kind tny_sandbox_available(void);
+
+/* Run wrapper around a trivial command and report whether it exited 0
+ * within timeout_ms (3 s for the plain form). Exposed for tests and doctor. */
+bool tny_sandbox_probe(tny_sandbox_kind kind, const char *wrapper);
+bool tny_sandbox_probe_ms(tny_sandbox_kind kind, const char *wrapper, int timeout_ms);
 
 /* Effective terminal-child mode. yolo always returns NONE; auto selects the
  * available wrapper and explicit os returns NONE when unsupported. */

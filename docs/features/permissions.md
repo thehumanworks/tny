@@ -125,7 +125,7 @@ Separate from permission. An allowed command still runs inside:
 | --- | --- |
 | `os` | Wrap each local `terminal` child with macOS Seatbelt or Linux bubblewrap. Files are readable, but writes are limited to the workspace, extra dirs, `$TMPDIR` (or `/tmp`), and required devices. |
 | `none` | No tny isolation |
-| `auto` | `os` when `/usr/bin/sandbox-exec` (macOS) or `bwrap` on `PATH` (Linux) is available; otherwise `none` |
+| `auto` | `os` when `/usr/bin/sandbox-exec` (macOS) or `bwrap` on `PATH` (Linux) is installed **and passes a launch probe** (the wrapper around `sh -c 'exit 0'`, once per process); otherwise `none`. A present-but-broken wrapper (nested Seatbelt inside a nix build, bubblewrap without unprivileged user namespaces as on Ubuntu 24.04 runners) resolves to `none` ([ADR 0060](../adr/0060-os-sandbox-seatbelt-and-bubblewrap.md) amendment) |
 
 Set the requested mode with the repo-safe `.tny.json` key, for example
 `{"sandbox":"os"}`. `yolo` forces effective `none` for the process without

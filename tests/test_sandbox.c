@@ -3,8 +3,11 @@
 #include "core/sandbox.h"
 #include "util/util.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 static bool argv_has(const tny_sandbox_command *command, const char *value) {
     for (size_t i = 0; i < command->argc; i++)
@@ -103,7 +106,54 @@ TEST denied_path_parses_seatbelt_and_bubblewrap_shell_errors(void) {
     PASS();
 }
 
+/* The probe believes the wrapper's exit status, not its presence: a wrapper
+ * that exists but cannot launch (nested Seatbelt, bubblewrap without user
+ * namespaces) must resolve `auto` to none. */
+static char *write_fake_wrapper(const char *body) {
+    const char *tmp = getenv("TMPDIR");
+    if (!tmp || !*tmp) tmp = "/tmp";
+    char *path = NULL;
+    buf_t b;
+    buf_init(&b);
+    buf_appendf(&b, "%s/tny-sandbox-probe-XXXXXX", tmp);
+    int fd = mkstemp(b.data);
+    if (fd >= 0) {
+        FILE *f = fdopen(fd, "w");
+        if (f) {
+            fprintf(f, "#!/bin/sh\n%s\n", body);
+            fclose(f);
+            chmod(b.data, 0700);
+            path = buf_detach(&b);
+        } else close(fd);
+    }
+    if (!path) buf_free(&b);
+    return path;
+}
+
+TEST probe_trusts_the_wrapper_exit_status_not_its_presence(void) {
+    char *ok = write_fake_wrapper("exit 0");
+    char *broken = write_fake_wrapper("echo 'sandbox_apply: Operation not permitted' >&2; exit 1");
+    char *hung = write_fake_wrapper("sleep 30");
+    ASSERT(ok && broken && hung);
+    ASSERT(tny_sandbox_probe(TNY_SANDBOX_SEATBELT, ok));
+    ASSERT(tny_sandbox_probe(TNY_SANDBOX_BWRAP, ok));
+    ASSERT_FALSE(tny_sandbox_probe(TNY_SANDBOX_SEATBELT, broken));
+    ASSERT_FALSE(tny_sandbox_probe(TNY_SANDBOX_BWRAP, broken));
+    ASSERT_FALSE(tny_sandbox_probe_ms(TNY_SANDBOX_BWRAP, hung, 150));
+    ASSERT_FALSE(tny_sandbox_probe(TNY_SANDBOX_SEATBELT, "/nonexistent/sandbox-exec"));
+    ASSERT_FALSE(tny_sandbox_probe(TNY_SANDBOX_NONE, ok));
+    ASSERT_FALSE(tny_sandbox_probe(TNY_SANDBOX_SEATBELT, NULL));
+    unlink(ok);
+    unlink(broken);
+    unlink(hung);
+    free(ok);
+    free(broken);
+    free(hung);
+    PASS();
+}
+
 SUITE(sandbox_suite) {
+    RUN_TEST(probe_trusts_the_wrapper_exit_status_not_its_presence);
     RUN_TEST(effective_mode_honors_yolo_and_configuration);
     RUN_TEST(unsandboxed_argv_is_the_original_shell_command);
     RUN_TEST(seatbelt_profile_limits_writes_and_escapes_paths);
