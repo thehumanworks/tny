@@ -39,10 +39,50 @@ session stop` cancels). The TUI's serve runner also owns the provider
 host and MCP servers across turns — they are its children, so
 `session stop`'s group signal reaches everything and nothing orphans.
 
-In-process turns remain in exactly three cases: wasm (no `fork`),
-`--ephemeral` (nothing durable to survive for, [ADR
-0020](../adr/0020-ephemeral-sessions.md)), and the `TNY_ISOLATE=0` debug
-escape hatch.
+In-process turns remain deliberate outside the runner-owned CLI/TUI path:
+wasm (no `fork`), `--ephemeral` (nothing durable to survive for, [ADR
+0020](../adr/0020-ephemeral-sessions.md)), the `TNY_ISOLATE=0` debug escape
+hatch, `tny acp` server mode, and libtny embedders. On macOS, a caller that
+has already initialized SecureTransport also keeps later turns in-process;
+that fork-safety containment is separate from the deep-path socket fallback
+above. These in-process modes have no runner socket.
+
+## Session control channel ([ADR 0058](../adr/0058-session-control-channel-roles-and-tool-ops.md))
+
+Each socket client must first declare exactly one role:
+
+- `owner` — the unique frontend that may start, steer, cancel, end, answer
+  permissions, and answer free-text questions;
+- `observer` — an attach client that receives snapshots/events but may only
+  detach;
+- `tool` — a short-lived child that may only request `ask_user` or
+  `image_attach`.
+
+The TUI owner's hello includes `"can_answer_questions":true`. A
+non-interactive `tny ask` owner omits it, so `ask_user_question` returns its
+fallback immediately instead of waiting on stdin.
+
+Tool requests carry bounded string correlation ids. `ask_user` is forwarded
+only to the owner; an observer cannot answer, and owner disconnect fails a
+pending question closed. `image_attach` accepts only paths under the existing
+allowed roots and png/jpeg/gif/webp files detected by magic bytes. Its success
+ack is sent only after the image enters ADR 0008's pending-image queue, so it
+becomes user-role content on the next native provider request.
+
+While a `terminal` child is running, the terminal wait performs a bounded pump
+of these control requests and their owner replies only. It never re-enters
+backend dispatch. Local terminal children receive the runner's actual socket
+path in `TNY_SESSION_SOCK` — including the deep-path fallback shown above — and
+the current id in `TNY_SESSION_ID`.
+
+The subprocess verbs are unavailable without that environment/socket. This
+includes wasm and the deliberate in-process modes above: they print
+`tny: no session socket (set TNY_SESSION_SOCK or run inside tny)` as one stderr
+line, exit 1, and never read `/dev/tty`. `tny acp` instead routes its
+in-process `ask_user_question` through an ACP client question/permission
+callback when the client supports one, otherwise it preserves the
+non-interactive fallback; it does not create a session socket or promise
+universal free-text ACP input.
 
 ## Runtime status ([ADR 0031](../adr/0031-background-ask.md))
 

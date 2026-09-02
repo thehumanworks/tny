@@ -420,7 +420,7 @@ $(TEST_BIN): $(TEST_OBJS) $(TEST_SRC:%.c=$(OBJ_DBG)/%.o)
 
 debug: $(TEST_BIN)
 
-test-unit: $(TEST_BIN)
+test-unit: $(TEST_BIN) $(BIN)
 	./$(TEST_BIN)
 
 test-event-schema:

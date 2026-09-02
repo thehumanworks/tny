@@ -41,6 +41,8 @@ typedef enum {
 } tny_engine_next;
 
 typedef bool (*tny_engine_cancel_probe)(void *ud);
+typedef char *(*tny_engine_ask_user_cb)(const char *question, void *ud);
+typedef int (*tny_engine_control_pump_cb)(void *ud, int timeout_ms);
 
 /* ctx/session/perm are borrowed and must outlive the engine. The engine owns
  * the non-NULL backend passed to prepare() from the moment prepare is called. */
@@ -49,6 +51,13 @@ tny_engine *tny_engine_new(tny_ctx *ctx, tny_session_state *session, perm_engine
                            void *prompt_ud);
 int tny_engine_prepare(tny_engine *e, tny_backend *prepared, tny_engine_prepare_state state,
                        char *err, size_t errlen);
+/* Runner-only frontend adapter. Set before prepare so the native backend's
+ * tool environment inherits it. The pump is control-socket-only. */
+void tny_engine_set_frontend_control(tny_engine *e, tny_engine_ask_user_cb ask_user,
+                                     void *ask_user_ud, tny_engine_control_pump_cb control_pump,
+                                     void *control_pump_ud, const char *session_sock,
+                                     const char *session_id);
+int tny_engine_queue_image(tny_engine *e, const char *path, char *err, size_t errlen);
 /* Optional signal-safe frontend flag probe. Native control hooks re-check it
  * after every bounded Python invocation and before side effects/POSTs. */
 void tny_engine_set_cancel_probe(tny_engine *e, tny_engine_cancel_probe probe, void *ud);

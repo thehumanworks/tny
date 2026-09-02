@@ -155,10 +155,12 @@ loss, never an agent loss.
   keeps the thread.
 - Two engine-loop consumers remain in-process by design (`tny acp`,
   libtny); their callers own crash semantics.
-- A second observer client (attach) sees the same broadcast stream; ops
-  from any client of the same user are honored. The socket lives in the
-  user's `~/.tny` with 0600 modes — same trust boundary as the session
-  files beside it.
+- A second observer client (attach) sees the same broadcast stream. ADR 0058
+  supersedes the original equal-client operation policy with a role handshake:
+  observers cannot mutate the turn, and tool clients have only the two control
+  operations needed by shell-first verbs. The socket lives in the user's
+  `~/.tny` with 0600 modes — the same trust boundary as the session files
+  beside it.
 - Foreground turns now leave `status:"done"`/`result` in `session.json`,
   so `tny session <id> --json | jq .result` works for every completed
   turn, not just backgrounded ones.
@@ -170,3 +172,15 @@ loss, never an agent loss.
   turn's finalize. `session attach` is an observer — permission prompts
   are answered by the owning client (or by mode when none is attached),
   never by an attach.
+
+## Amendment: typed session control (ADR 0058)
+
+[ADR 0058](0058-session-control-channel-roles-and-tool-ops.md) replaces the
+original same-user, equal-client assumption with a mandatory
+`owner | observer | tool` handshake and a per-role operation allowlist. It
+adds correlated `ask_user` and `image_attach` tool requests, and permits the
+`terminal` wait to pump only those control operations and their owner replies;
+backend dispatch is never re-entered. The runner exports its resolved socket
+path and session id to local terminal children. wasm and deliberate in-process
+modes still have no runner socket and return the documented clean unsupported
+error; `tny acp` uses its in-process frontend callback instead.

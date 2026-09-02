@@ -48,4 +48,5 @@ void acp_srv_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
  * (borrowed static text). 0 ok, -1 when the transport died. */
 int acp_srv_run_turn(acp_srv *s, const char *text, const char **reason);
 tny_perm_decision acp_srv_prompt(const char *tool, const char *summary, void *ud);
+char *acp_srv_ask_user(const char *question, void *ud);
 #endif

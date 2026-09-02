@@ -65,6 +65,7 @@ typedef enum {
     TNY_RMSG_RECOVERY,  /* text: replayed recovery partial */
     TNY_RMSG_LOG,       /* text: one runner-side stderr line (host stderr,
                          * diagnostics) — the pre-0053 terminal trail */
+    TNY_RMSG_ASK_USER,  /* id + text: owner-only free-text question */
     TNY_RMSG_TURN_END,  /* ev.stop + exit_code + result_json */
     TNY_RMSG_TURN_ERR,  /* text: the turn could not start */
     TNY_RMSG_BYE        /* text: reason; the runner is exiting */
@@ -74,6 +75,7 @@ typedef struct tny_runner_msg {
     tny_runner_msg_kind kind;
     tny_backend_event ev; /* strings borrow from the owned line below */
     char *text;
+    char *id;
     int exit_code;
     char *result_json;
     pid_t pid;
@@ -86,8 +88,13 @@ typedef struct tny_runner_msg {
 
 typedef struct tny_runner_client tny_runner_client;
 
-/* Connect to a runner socket. NULL when nothing listens there. */
-tny_runner_client *tny_runner_client_connect(const char *sock_path, int timeout_ms);
+typedef enum { TNY_RUNNER_OWNER = 1, TNY_RUNNER_OBSERVER, TNY_RUNNER_TOOL } tny_runner_role;
+bool tny_runner_role_allows(tny_runner_role role, const char *op);
+
+/* Connect and send the mandatory client-role handshake. An owner is unique;
+ * can_answer_questions distinguishes the interactive TUI from `tny ask`. */
+tny_runner_client *tny_runner_client_connect(const char *sock_path, int timeout_ms,
+                                             tny_runner_role role, bool can_answer_questions);
 int tny_runner_client_fd(const tny_runner_client *c);
 /* Drain readable bytes into parsed messages. 0 ok, -1 connection gone
  * (already-queued messages remain poppable). */
@@ -100,6 +107,7 @@ int tny_runner_client_turn(tny_runner_client *c, const char *prompt, const char 
 int tny_runner_client_steer(tny_runner_client *c, const char *text);
 int tny_runner_client_cancel(tny_runner_client *c, bool hard);
 int tny_runner_client_perm(tny_runner_client *c, const char *perm_id, tny_perm_decision d);
+int tny_runner_client_ask_user_reply(tny_runner_client *c, const char *id, const char *answer);
 /* Graceful shutdown: the runner ends the session and exits. */
 int tny_runner_client_end(tny_runner_client *c, const char *reason);
 /* Plain close = detach: an active turn keeps running (docs/adr/0053). */

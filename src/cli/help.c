@@ -16,6 +16,8 @@ void help_root(void) {
           "Commands:\n"
           "  ask <prompt>           Run one noninteractive request\n"
           "  edit FILE              Exact-match replacement from stdin\n"
+          "  ask-user QUESTION      Ask the owning session frontend (socket-bound)\n"
+          "  image attach PATH      Attach an image to the next request (socket-bound)\n"
           "  resume [last|<id>]     Resume a session interactively\n"
           "  acp                    Start an ACP server over stdio (native loop)\n"
           "  sessions               List saved sessions for this workspace\n"
@@ -290,6 +292,17 @@ bool help_for(const char *command) {
     const char *text = NULL;
     if (strcmp(command, "ask") == 0) text = ask_help;
     else if (strcmp(command, "edit") == 0) text = edit_help;
+    else if (strcmp(command, "ask-user") == 0)
+        text = "Usage: tny ask-user [--json] QUESTION\n"
+               "       printf 'QUESTION' | tny ask-user [--json]\n\n"
+               "Ask the owning tny frontend a free-text question. Requires\n"
+               "TNY_SESSION_SOCK from a tny terminal tool child.\n\n"
+               "Options: --json machine output; -h, --help show this help.\n";
+    else if (strcmp(command, "image") == 0)
+        text = "Usage: tny image attach [--json] PATH\n\n"
+               "Queue a validated image for the next provider request. Requires\n"
+               "TNY_SESSION_SOCK from a tny terminal tool child.\n\n"
+               "Options: --json machine output; -h, --help show this help.\n";
     else if (strcmp(command, "sessions") == 0) text = sessions_help;
     else if (strcmp(command, "session") == 0) text = session_help;
     else if (strcmp(command, "tasks") == 0) text = tasks_help;

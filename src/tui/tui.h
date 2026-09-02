@@ -183,6 +183,7 @@ void tui_queue_push(tui *t, const char *text, bool front);
 void tui_queue_clear(tui *t);
 void tui_new_session(tui *t, bool clear_screen);
 tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary);
+char *tui_ask_user(tui *t, const char *question);
 void tui_drop_backend(tui *t); /* disconnect + destroy the bound backend */
 
 /* tui_runner.c — serve-runner client plumbing (docs/adr/0053). */

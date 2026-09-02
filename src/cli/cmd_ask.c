@@ -392,6 +392,7 @@ static int ask_isolated_loop(ask_client *a, const char *session_id) {
                 finish_deadline = now_ms() + 10000;
                 break;
             case TNY_RMSG_HELLO: break;
+            case TNY_RMSG_ASK_USER: break; /* one-shot owners never answer */
             case TNY_RMSG_BYE:
                 if (finishing) done = true;
                 break;
@@ -625,7 +626,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         pid_t child = tny_runner_spawn(ctx, session, &opts, err, sizeof err);
         if (child > 0) {
             char *sock = tny_runner_sock_path(session->dir);
-            tny_runner_client *rc = sock ? tny_runner_client_connect(sock, 5000) : NULL;
+            tny_runner_client *rc =
+                sock ? tny_runner_client_connect(sock, 5000, TNY_RUNNER_OWNER, false) : NULL;
             free(sock);
             if (!rc) {
                 fprintf(stderr, "tny: cannot reach the session runner\n");

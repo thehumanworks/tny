@@ -5,6 +5,7 @@
 #include <stdlib.h>
 
 #include "cli/cli.h"
+#include "cli/cmd_control.h"
 #include "core/backend.h"
 
 int main(int argc, char **argv) {
@@ -44,6 +45,16 @@ int main(int argc, char **argv) {
 #ifdef __EMSCRIPTEN__
         exit(rc);
 #endif
+        return rc;
+    }
+
+    /* Socket-bound tool verbs are self-contained clients: do not load
+     * provider config or create a runtime merely to contact the runner. */
+    if (cmd && (strcmp(cmd, "ask-user") == 0 || strcmp(cmd, "image") == 0)) {
+        int rc = strcmp(cmd, "ask-user") == 0 ? cmd_ask_user(g.json, cargc, cargv)
+                                              : cmd_image(g.json, cargc, cargv);
+        free(g.add_dirs);
+        free(g.agent_argv);
         return rc;
     }
 

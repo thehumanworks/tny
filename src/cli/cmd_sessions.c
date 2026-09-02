@@ -251,7 +251,8 @@ static int cmd_session_attach(tny_ctx *ctx, int argc, char **argv) {
         return 1;
     }
     char *sock = tny_runner_sock_path(s->dir);
-    tny_runner_client *rc = sock ? tny_runner_client_connect(sock, 1500) : NULL;
+    tny_runner_client *rc =
+        sock ? tny_runner_client_connect(sock, 1500, TNY_RUNNER_OBSERVER, false) : NULL;
     free(sock);
     if (!rc) {
         fprintf(stderr,
@@ -336,6 +337,9 @@ static int cmd_session_attach(tny_ctx *ctx, int argc, char **argv) {
                 if (m->text) fprintf(stderr, "%s\n", m->text);
                 break;
             case TNY_RMSG_RECOVERY: break;
+            case TNY_RMSG_ASK_USER:
+                if (m->text) fprintf(stderr, "question pending in the owning shell: %s\n", m->text);
+                break;
             case TNY_RMSG_BYE: done = true; break;
             }
             tny_runner_msg_free(m);
