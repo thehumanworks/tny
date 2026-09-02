@@ -72,6 +72,85 @@ output into `docs/` on `main`. Generated HTML and assets in `docs/` are a
 published mirror of `site/` — edit `site/` and `scripts/site_build.py`,
 never the generated files in `docs/`.
 
+## Toolchain (`mise install`)
+
+Every tool the gates shell out to is pinned twice, in lockstep
+([ADR 0061](adr/0061-toolchain-and-leak-gates.md)): `.mise.toml` for
+developers and the `quality` job in `ci.yml` for CI. One command gets a
+machine to parity, and `make quality` then needs no flags:
+
+```sh
+mise install
+make quality
+make leaks
+```
+
+| Tool | Pin | mise backend |
+| --- | --- | --- |
+| clang-format | 21.1.2 | `pipx:` (the PyPI wheel CI installs; LLVM is not in the registry as a versioned pair) |
+| clang-tidy | 22.1.8 | `pipx:` |
+| ruff | 0.14.0 | `aqua:astral-sh/ruff` |
+| shellcheck | 0.11.0 | `aqua:koalaman/shellcheck` |
+| shfmt | 3.13.1 | `aqua:mvdan/sh` |
+| actionlint | 1.7.12 | `aqua:rhysd/actionlint` |
+| python | 3.12 | core |
+| node | 22 | core |
+
+The `pipx:` entries are driven through `uv`, which `.mise.toml` pins as
+their prerequisite; no `experimental` setting is required.
+`tests/integration/test_toolchain_pins.py` fails the suite if `.mise.toml`
+and `ci.yml` drift apart.
+
+Without mise, the per-invocation fallback still works:
+
+```sh
+make quality CLANG_FORMAT='uvx clang-format@21.1.2' \
+             CLANG_TIDY='uvx clang-tidy@22.1.8' RUFF='uvx ruff@0.14.0'
+```
+
+The Nix dev shell carries the same tools at the channel's versions
+([nix.md](nix.md)); `mise install` is the version-exact path.
+
+## Leak checks
+
+`make leaks` is the memory gate. ASan/UBSan is the default test build and no
+leak checker can see through it, so the target rebuilds the same sources with
+`SANITIZE=0` into `build/leakcheck/` and runs the unit binary plus the CLI
+smoke (`--version`, `--help`, `ask --help`, `doctor --json`) under the host's
+checker:
+
+| Host | Checker | Coverage |
+| --- | --- | --- |
+| Linux | `valgrind --leak-check=full --error-exitcode=1 --child-silent-after-fork=yes --errors-for-leak-kinds=definite,indirect --suppressions=tests/valgrind.supp` | whole unit binary in one run, then the smoke |
+| macOS | `/usr/bin/leaks --atExit` | suite by suite; valgrind has no arm64 Darwin port |
+| other | honest skip, exit 0 | Linux CI is the gate |
+
+`make valgrind` is the explicit Linux-only target (an error elsewhere);
+`make leaks-docker` runs the valgrind flavour from a non-Linux host in a
+throwaway `ubuntu:24.04` container (`LEAK_DOCKER_IMAGE=` overrides it). Note
+that the container mounts the working copy, so the tree has to be inside your
+Docker file-sharing roots — colima and Docker Desktop share `$HOME`, not
+`/tmp`, by default.
+
+macOS runs suite by suite and skips `cursor_suite`, `cursor_sdk_suite`,
+`mcp_suite`, `session_bg_suite` and `ssh_suite`: `leaks --atExit` installs an
+exit hook that stops the process for analysis and `fork(2)` copies it into
+every child, so a suite that spawns a helper deadlocks, and
+MallocStackLogging's banner corrupts the stdout those tests read back. The
+Linux `valgrind` job covers all five, which is why it is the gate.
+
+Two valgrind flags beyond the obvious ones earn their place. Several suites
+fork, and a child that exits mid-test reports the parent's still-live heap as
+lost — only the parent's report is the truth, so
+`--child-silent-after-fork=yes`. And `possibly lost` here is glibc's per-thread
+stack and DTV for threads alive at exit, never a first-party leak, so
+`--errors-for-leak-kinds=definite,indirect` decides the exit code.
+
+A `valgrind` job on `ubuntu-24.04` runs `make valgrind` on every PR.
+`tests/valgrind.supp` suppresses only the dynamic loader and the dlopen'd
+system OpenSSL that `src/net/stream.c` deliberately never closes; first-party
+leaks are never suppressed.
+
 ## Releases (mise / `github:` backend)
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`: the same matrix,
@@ -135,7 +214,9 @@ CI fails the job if the stripped binary exceeds the Must column in
 ## Local
 
 ```sh
+mise install           # the pinned toolchain (docs/adr/0061)
 make quality           # formatting, lint, tidy, strict warnings; GCC analyzer on Linux
+make leaks             # valgrind (Linux) / leaks (macOS) over the unit suite + smoke
 make test-shell-workflows # the workflow scheduler under both Bash and Zsh
 make test              # unit (ASan) + integration fixtures
 make test-abi          # ABI baseline, old consumers, exports, artifacts

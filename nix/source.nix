@@ -35,7 +35,11 @@ let
   # keep in lockstep.
   testFiles = unions [
     buildFiles
+    ../.github/workflows/ci.yml
     ../.github/workflows/nix.yml
+    # tests/integration/test_toolchain_pins.py keeps the mise pins and the CI
+    # quality job on the same tool versions (docs/adr/0061).
+    ../.mise.toml
     ../docs
     ../examples # tests/extensions/test_examples.py loads every shipped example
     ../flake.nix

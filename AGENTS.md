@@ -63,6 +63,7 @@ docs/          # this contract; update when behavior changes
 
 ## Verification
 
+- `mise install` once, then `make quality` and `make leaks` run flag-free (pinned toolchain + leak gate, `docs/adr/0061`; `make valgrind` on Linux, `make leaks-docker` from a Mac).
 - `make test` (unit + protocol fixtures) before claiming a backend works.
 - `make quality` (docs/adr/0039) before pushing: clang-format/clang-tidy/strict warnings/Ruff/ShellCheck/shfmt/actionlint/JS syntax; on Linux it also includes GCC `-fanalyzer`, while non-Linux hosts print an explicit analyzer skip. `make format` auto-fixes style. CI also runs `make warn-strict` under both gcc and clang. Local without LLVM tools: `make quality CLANG_FORMAT='uvx clang-format@21.1.2' CLANG_TIDY='uvx clang-tidy@22.1.8' RUFF='uvx ruff@0.14.0'`.
 - Measure size with `wc -c` on a stripped Release binary.

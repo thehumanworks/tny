@@ -640,8 +640,10 @@ site:
 # ---- quality gates (docs/adr/0039) --------------------------------------
 # `make quality` is the authoritative first-party lint/format/analysis
 # aggregate; CI runs it in a fast job before the platform matrix. Tool
-# versions are pinned in .github/workflows/ci.yml; locally you can point
-# the variables at pinned wrappers, e.g.
+# versions are pinned twice, in lockstep (docs/adr/0061): .mise.toml for
+# developers and .github/workflows/ci.yml for CI, so
+#   mise install && make quality
+# needs no flags anywhere. Without mise, point the variables at uvx wrappers:
 #   make quality CLANG_FORMAT='uvx clang-format@21.1.2' CLANG_TIDY='uvx clang-tidy@22.1.8'
 CLANG_FORMAT ?= clang-format
 CLANG_TIDY   ?= clang-tidy
@@ -735,6 +737,78 @@ quality: check-cursor-sdk-contract format-check tidy warn-strict lint-py lint-sh
 	fi
 
 .PHONY: format format-check tidy warn-strict analyze lint-py lint-sh lint-workflows lint-js quality
+
+# ---- leak checks (docs/adr/0061) ----------------------------------------
+# ASan/UBSan is the default test build, and neither checker can see through
+# it: both replace malloc. So the leak gate rebuilds the same sources with
+# SANITIZE=0 into $(LEAK_BUILD) and runs them under the host's checker —
+# valgrind on Linux, /usr/bin/leaks on macOS (valgrind has no arm64 Darwin
+# port), an honest skip elsewhere. scripts/leakcheck.sh is the driver.
+LEAK_BUILD     = $(BUILD)/leakcheck
+LEAK_TEST_BIN  = $(LEAK_BUILD)/tny-test$(EXE)
+LEAK_CLI_BIN   = $(LEAK_BUILD)/tny$(EXE)
+VALGRIND      ?= valgrind
+# --child-silent-after-fork: several suites fork, and a child that exits
+# mid-test reports the parent's still-live heap as lost. Only the parent's
+# report is the truth. --errors-for-leak-kinds: "possibly lost" here is
+# glibc's per-thread stack/DTV for threads alive at exit, never a first-party
+# leak; definite and indirect losses are what fail the build.
+VALGRIND_FLAGS ?= --leak-check=full --error-exitcode=1 \
+                  --child-silent-after-fork=yes \
+                  --errors-for-leak-kinds=definite,indirect \
+                  --suppressions=tests/valgrind.supp
+LEAKS         ?= leaks
+
+# `leaks --atExit` installs an exit hook that stops the process for analysis,
+# and fork(2) copies it into every child: a suite that spawns a helper
+# deadlocks the run, and MallocStackLogging's banner corrupts the stdout the
+# tests read back. macOS therefore runs suite by suite and skips the five
+# process-spawning suites, which valgrind still covers on Linux.
+LEAK_SUITE_SKIP := cursor_suite cursor_sdk_suite mcp_suite session_bg_suite ssh_suite
+LEAK_SUITES := $(filter-out $(LEAK_SUITE_SKIP),\
+	$(shell sed -n 's/.*RUN_SUITE(\([A-Za-z0-9_]*\)).*/\1/p' tests/test_main.c))
+
+LEAK_ENV = TEST_BIN=$(LEAK_TEST_BIN) CLI_BIN=$(LEAK_CLI_BIN) \
+	VALGRIND='$(VALGRIND)' VALGRIND_FLAGS='$(VALGRIND_FLAGS)' \
+	LEAKS='$(LEAKS)' LEAK_SUITES='$(LEAK_SUITES)'
+
+leak-build:
+	$(MAKE) SANITIZE=0 BUILD=$(LEAK_BUILD) debug release
+
+leaks: leak-build
+	@$(LEAK_ENV) $(BASH) scripts/leakcheck.sh auto
+
+ifeq ($(UNAME_S),Linux)
+valgrind: leak-build
+	@$(LEAK_ENV) $(BASH) scripts/leakcheck.sh valgrind
+else
+valgrind:
+	@echo "error: make valgrind is Linux-only; use make leaks (macOS) or make leaks-docker" >&2
+	@exit 2
+endif
+
+# The valgrind flavour from a non-Linux host: a throwaway Linux container
+# builds and checks a copy of the tree, so nothing root-owned lands in the
+# working copy. Override LEAK_DOCKER_IMAGE to reuse a prebuilt toolchain.
+LEAK_DOCKER_IMAGE ?= ubuntu:24.04
+LEAK_DOCKER_SETUP ?= apt-get update -qq && \
+	DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+	build-essential valgrind git python3 ca-certificates
+leaks-docker:
+	@command -v docker > /dev/null 2>&1 || { \
+		echo "error: docker not found; install it or run make leaks" >&2; \
+		exit 2; \
+	}
+	docker run --rm --init -v "$(CURDIR):/src:ro" -w /work \
+		$(LEAK_DOCKER_IMAGE) sh -euc \
+		'cp -a /src/. /work && rm -rf /work/build; \
+		 test -f /work/Makefile || { \
+		   echo "error: /src is empty — your docker file sharing does not cover $(CURDIR) (colima and Docker Desktop share $$HOME by default)" >&2; \
+		   exit 2; \
+		 }; \
+		 $(LEAK_DOCKER_SETUP) && make valgrind TNY_VERSION=$(TNY_VERSION)'
+
+.PHONY: leak-build leaks valgrind leaks-docker
 
 # ---- wasm (docs/adr/0017): the same sources, the browser/node seams ----
 # Two links from one object set: tny.js (node, NODERAWFS — what CI drives

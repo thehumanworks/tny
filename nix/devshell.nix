@@ -4,6 +4,8 @@
   lib,
   stdenv,
   mkShell,
+  actionlint,
+  clang-tools,
   git,
   gnumake,
   hyperfine,
@@ -12,6 +14,10 @@
   patchelf,
   pkg-config,
   python3,
+  ruff,
+  shellcheck,
+  shfmt,
+  valgrind,
 }:
 
 mkShell {
@@ -24,7 +30,20 @@ mkShell {
     patchelf
     pkg-config
     python3 # integration fixtures, extension host, make site
-  ];
+    # `make quality` (docs/adr/0039). nixpkgs pins these to whatever the
+    # channel carries, not to the exact versions in .mise.toml and
+    # .github/workflows/ci.yml, so a formatting diff here is a channel skew,
+    # not a real failure — `mise install` is the version-exact path
+    # (docs/adr/0061).
+    actionlint
+    clang-tools # clang-format, clang-tidy
+    ruff
+    shellcheck
+    shfmt
+  ]
+  # `make leaks` / `make valgrind`. valgrind has no aarch64-darwin port, and
+  # the leak gate falls back to /usr/bin/leaks there (docs/adr/0061).
+  ++ lib.optionals stdenv.hostPlatform.isLinux [ valgrind ];
 
   # See nix/package.nix: the -O0 sanitizer build trips glibc's
   # "_FORTIFY_SOURCE requires compiling with optimization" warning, and the
@@ -43,6 +62,6 @@ mkShell {
   NIX_CFLAGS_COMPILE = lib.optionalString stdenv.cc.isClang "-Wno-unused-command-line-argument";
 
   shellHook = ''
-    echo "tny dev shell — make | make test | make size-check | make bench"
+    echo "tny dev shell — make | make test | make quality | make leaks | make bench"
   '';
 }

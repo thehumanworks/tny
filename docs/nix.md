@@ -150,7 +150,8 @@ the binary to inherit your environment untouched, use
 ## Developing
 
 ```sh
-nix develop                # cc, make, python3, node, hyperfine, openssl, git
+nix develop                # cc, make, python3, node, hyperfine, openssl, git,
+                           # the make quality linters, valgrind on Linux
 nix flake check            # builds every package and runs the whole make test
 nix build .#checks.x86_64-linux.tests --print-build-logs
 nix fmt                    # format the Nix files
@@ -170,6 +171,26 @@ them — so the installed-header check in `tests/integration/test_libtny.py` get
 turns into a failure; the derivation and the dev shell answer that with
 `-Wno-unused-command-line-argument` wherever the compiler is clang. The dev
 shell keeps your PATH, so it needs the flag but not `ps`.
+
+The shell also carries the `make quality` linters — clang-tools
+(clang-format, clang-tidy), ruff, shellcheck, shfmt, actionlint — at whatever
+versions the pinned nixpkgs channel holds. Those are not the versions
+[ADR 0061](adr/0061-toolchain-and-leak-gates.md) pins for CI, and formatter
+output moves between majors, so treat a `make format-check` diff inside
+`nix develop` as channel skew and reformat with `mise install`'s exact
+toolchain before pushing.
+
+`valgrind` is in the shell on Linux only: there is no aarch64-darwin port, and
+macOS uses `/usr/bin/leaks` instead (`make leaks` picks the right one). The
+leak gate is **not** a flake check. Memcheck needs `ptrace` on a process it
+launches, the sandbox has no `/usr/bin/leaks` on Darwin at all, and a
+valgrind-paced unit suite is roughly twenty times the runtime of `checks.tests`
+— so the leak gate stays a `make` target that the dedicated `valgrind` job in
+`.github/workflows/ci.yml` runs on `ubuntu-24.04`. Inside the dev shell:
+
+```sh
+make leaks                 # valgrind on Linux, /usr/bin/leaks on macOS
+```
 
 The dev shell deliberately does **not** export `LD_LIBRARY_PATH` — a store
 OpenSSL on that path is inherited by every process you start from the shell and
