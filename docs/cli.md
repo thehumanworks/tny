@@ -420,6 +420,13 @@ directory; absolute paths work directly. `--ssh` is intentionally not part of
 this standalone verb. In wasm it works like the `edit_file` tool on the virtual
 filesystem (MEMFS in the browser and NODERAWFS in node).
 
+**Inside tny** ([ADR 0063](adr/0063-in-process-intercept-of-first-party-verbs.md)):
+typed into the `terminal` tool, `tny edit FILE` with a here-doc or a
+`printf … |` payload is dispatched in-process instead of forking. It is
+reviewed as `edit_file` on the resolved path, is undoable with `/undo`, and
+under `--ssh` edits the file on the remote host. The printed result and exit
+code are the ones above.
+
 ## `tny ask` (scripts and CI)
 
 ```text
@@ -462,6 +469,13 @@ JSON object (keep field names stable):
 
 `--json` is required on `ask`, `status`, `doctor`, `permissions`, `models`, `session`, `sessions`, `workspace`, `usage`. `tny mcp --json` is optional.
 
+**Inside tny**: a foreground `tny ask` typed into the `terminal` tool is
+refused — it would run a second agent loop under the current turn, invisible
+to the frontend, to cancellation, and to the step budget. Use `tny ask -B "…"`
+(which runs as a real detached child, inheriting the turn's permission mode
+and unable to widen it) and collect it with `tny session ID --wait --json`.
+See [ADR 0063](adr/0063-in-process-intercept-of-first-party-verbs.md).
+
 ## Runner control verbs: `ask-user` and `image attach`
 
 Shell commands launched by the native `terminal` tool receive the runner's
@@ -495,6 +509,12 @@ owner does not wait for a human and preserves the existing
 `ask_user_question` fallback string. `tny acp` stays in-process and maps the
 question through its ACP client permission callback rather than creating a
 runner socket. See [ADR 0058](adr/0058-session-control-channel-roles-and-tool-ops.md).
+
+**Inside tny**: typed directly into the `terminal` tool, both verbs skip the
+socket entirely and reach the turn in memory
+([ADR 0063](adr/0063-in-process-intercept-of-first-party-verbs.md)); the
+output and exit codes are the same. The socket path stays for everything
+deeper — a script, a `make` recipe, or another process the command started.
 
 ## `tny mcp`
 
@@ -540,10 +560,12 @@ another harness, or a script ([ADR 0057](adr/0057-shell-first-native-loop.md),
 - **Servers come from `~/.tny/mcp.json`** plus any source named in
   `mcp.import_from`; a repo-local `.mcp.json` is never read on its own. The
   command is a one-shot, so it pays a cold start (spawn + `initialize` +
-  `tools/list`) and shuts the server down again on exit — including when the
-  model runs it from `terminal`, until the in-process intercept
-  ([ADR 0057](adr/0057-shell-first-native-loop.md) decision 5) routes it to
-  the session's warmed client.
+  `tools/list`) and shuts the server down again on exit.
+- **Inside tny** ([ADR 0063](adr/0063-in-process-intercept-of-first-party-verbs.md)):
+  typed into the `terminal` tool, `tny mcp call SERVER/TOOL` (optionally with
+  an `echo`/`cat` producer for the arguments) is answered by the session's
+  already-warmed client. There is no second server process and no cold start;
+  the identity, output, and exit codes are unchanged.
 - **Output.** The result content goes to stdout, diagnostics to stderr.
   `--json` prints one object:
   `{"kind":"mcp_call","server":…,"tool":…,"ok":true,"result":"…","bytes":N,"truncated":false}`,

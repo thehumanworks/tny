@@ -97,7 +97,7 @@ TNY_TOOLS_TEST_VISIBLE int tny_tools_test_walk(const char *root) {
 
 /* ---- undo: one-deep stack per session ---- */
 
-static void undo_record(tools_env *env, const char *abs) {
+void tools_undo_record(tools_env *env, const char *abs) {
     if (!env->session) return;
     mkdir_p(env->session->dir);
     char *meta = path_join(env->session->dir, "undo.json");
@@ -410,7 +410,7 @@ static char *t_write_file(tools_env *env, yyjson_val *args) {
         free(abs);
         return tool_err("missing content");
     }
-    undo_record(env, abs);
+    tools_undo_record(env, abs);
     /* ensure parent exists */
     char *slash = strrchr(abs, '/');
     if (slash && slash != abs) {
@@ -427,7 +427,9 @@ static char *t_write_file(tools_env *env, yyjson_val *args) {
     return buf_detach(&out);
 }
 
-static void edit_record_undo(const char *path, void *userdata) { undo_record(userdata, path); }
+static void edit_record_undo(const char *path, void *userdata) {
+    tools_undo_record(userdata, path);
+}
 
 static char *t_edit_file(tools_env *env, yyjson_val *args) {
     char *err = NULL;
@@ -481,7 +483,7 @@ static char *t_simple_path_op(tools_env *env, yyjson_val *args, const char *op) 
     buf_t out;
     buf_init(&out);
     if (strcmp(op, "delete") == 0) {
-        undo_record(env, abs);
+        tools_undo_record(env, abs);
         if (remove(abs) == 0) buf_appendf(&out, "deleted %s", abs);
         else buf_appendf(&out, "error: cannot delete %s", abs);
     } else if (strcmp(op, "mkdir") == 0) {

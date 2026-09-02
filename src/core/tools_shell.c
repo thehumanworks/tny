@@ -25,6 +25,10 @@ static void shell_control_env(tools_env *env) {
     else unsetenv("TNY_SESSION_SOCK");
     if (env->session_id && *env->session_id) setenv("TNY_SESSION_ID", env->session_id, 1);
     else unsetenv("TNY_SESSION_ID");
+    /* Anything this child starts is nested inside a turn: it inherits the
+     * effective permission mode and may not widen it (docs/adr/0063). */
+    setenv("TNY_NESTED", "1", 1);
+    setenv("TNY_NESTED_MODE", tny_perm_mode_name(env->ctx->perm_mode), 1);
 }
 
 static char *run_background(tools_env *env, const char *cmd) {

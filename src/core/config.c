@@ -21,6 +21,36 @@ const char *tny_perm_mode_name(tny_perm_mode m) {
     }
 }
 
+/* TNY_MODE_ASK < TNY_MODE_AUTO < TNY_MODE_YOLO in authority. */
+static bool parse_perm_mode(const char *name, tny_perm_mode *out) {
+    if (!name) return false;
+    if (strcmp(name, "ask") == 0) *out = TNY_MODE_ASK;
+    else if (strcmp(name, "auto") == 0) *out = TNY_MODE_AUTO;
+    else if (strcmp(name, "yolo") == 0) *out = TNY_MODE_YOLO;
+    else return false;
+    return true;
+}
+
+bool tny_nested_perm_mode(tny_perm_mode *parent) {
+    const char *nested = getenv("TNY_NESTED");
+    if (!nested || strcmp(nested, "1") != 0) return false;
+    tny_perm_mode mode = TNY_MODE_ASK;
+    if (!parse_perm_mode(getenv("TNY_NESTED_MODE"), &mode)) mode = TNY_MODE_ASK;
+    if (parent) *parent = mode;
+    return true;
+}
+
+bool tny_perm_mode_allowed_nested(tny_perm_mode requested, char *err, size_t errlen) {
+    tny_perm_mode parent = TNY_MODE_ASK;
+    if (!tny_nested_perm_mode(&parent) || requested <= parent) return true;
+    if (err && errlen)
+        snprintf(err, errlen,
+                 "permission mode '%s' is wider than the '%s' mode of the tny turn this command "
+                 "runs inside; a nested run cannot widen it",
+                 tny_perm_mode_name(requested), tny_perm_mode_name(parent));
+    return false;
+}
+
 int tny_parse_max_steps(const char *s) {
     if (!s || !*s) return -1;
     if (strcmp(s, "unlimited") == 0 || strcmp(s, "none") == 0) return 0;
@@ -554,16 +584,24 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     /* settings-level defaults. Provider/model/effort/fast are completed in
      * tny_resolve_backend because named providers need their effective name. */
     const char *s;
-    if ((s = jget_str(wso, "permission_mode")) || (s = jget_str(sroot, "permission_mode"))) {
-        if (strcmp(s, "auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
-        else if (strcmp(s, "yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
-        else if (strcmp(s, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;
-    }
+    tny_perm_mode mode = ctx->perm_mode;
+    if ((s = jget_str(wso, "permission_mode")) || (s = jget_str(sroot, "permission_mode")))
+        parse_perm_mode(s, &mode);
+    /* Settings are the machine's default, not a request: a nested run clamps
+     * them silently. An explicit environment override is refused instead, so
+     * the caller learns the mode it asked for is unavailable (ADR 0063). */
+    tny_perm_mode parent = TNY_MODE_ASK;
+    if (tny_nested_perm_mode(&parent) && mode > parent) mode = parent;
+    ctx->perm_mode = mode;
     const char *pm_env = getenv("TNY_PERMISSION_MODE");
-    if (pm_env) {
-        if (strcmp(pm_env, "auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
-        else if (strcmp(pm_env, "yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
-        else if (strcmp(pm_env, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;
+    if (pm_env && parse_perm_mode(pm_env, &mode)) {
+        char nested_error[256];
+        if (!tny_perm_mode_allowed_nested(mode, nested_error, sizeof nested_error)) {
+            fprintf(stderr, "tny: TNY_PERMISSION_MODE: %s\n", nested_error);
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        ctx->perm_mode = mode;
     }
 
     /* Extensions are global user code, never repo authority. Configuration

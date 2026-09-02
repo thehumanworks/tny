@@ -1,6 +1,7 @@
 /* tools.c — registry, permission gate, dispatch, result bounding. */
 #include "core/tools.h"
 #include "core/image.h"
+#include "core/intercept.h"
 #include "lib/custom_tools.h"
 #include "util/alloc.h"
 #include "util/util.h"
@@ -349,9 +350,7 @@ static int validate_call_schema(const char *name, yyjson_val *args, char **error
     return status;
 }
 
-/* Extract one path-like human detail used for permission rules/prompts. */
-static char *path_detail(tools_env *env, yyjson_val *args, const char *field) {
-    const char *p = jget_str(args, field);
+char *tools_path_detail(tools_env *env, const char *p) {
     if (!p) return NULL;
     if (p[0] == '/') return xstrdup(p);
     if (env->ctx->ssh_host) {
@@ -364,6 +363,11 @@ static char *path_detail(tools_env *env, yyjson_val *args, const char *field) {
     char *abs = tool_resolve_path(env, p, &err);
     free(err);
     return abs;
+}
+
+/* Extract one path-like human detail used for permission rules/prompts. */
+static char *path_detail(tools_env *env, yyjson_val *args, const char *field) {
+    return tools_path_detail(env, jget_str(args, field));
 }
 
 /* Extract the primary human detail used for permission rules and prompts. */
@@ -424,6 +428,25 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
     call->detail = call_detail(env, call->name, call->args);
     if (strcmp(call->name, "rename_file") == 0 || strcmp(call->name, "copy_file") == 0)
         call->detail2 = path_detail(env, call->args, "new_path");
+    /* A first-party tny verb typed into `terminal` becomes the typed tool it
+     * stands for: same permission identity, same detail, same executor
+     * (docs/adr/0063). A background command keeps its detached contract and
+     * is never intercepted. */
+    if (!call->custom && strcmp(call->name, "terminal") == 0 &&
+        !jget_bool(call->args, "background", false)) {
+        call->intercept = tny_intercept_parse(env, call->detail);
+        if (call->intercept) {
+            if (call->intercept->kind == TNY_INTERCEPT_REFUSED) {
+                call->error = tool_err("%s", call->intercept->message);
+                return -1;
+            }
+            free(call->permission_tool);
+            call->permission_tool = xstrdup(call->intercept->permission_tool);
+            free(call->detail);
+            call->detail = call->intercept->detail ? xstrdup(call->intercept->detail) : NULL;
+            if (!call->permission_tool) return -1;
+        }
+    }
     call->verdict = call->custom && !custom_tool_sensitive(call->custom)
                         ? PERM_ALLOW
                         : perm_check(env->perm, call->permission_tool, call->detail);
@@ -435,6 +458,7 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
     if (call->verdict == PERM_PROMPT) {
         buf_t summary;
         buf_init(&summary);
+        if (call->intercept) buf_appendf(&summary, "%s -> ", call->intercept->label);
         buf_appendf(&summary, "%s %s", call->permission_tool, call->detail ? call->detail : "");
         if (call->detail2) buf_appendf(&summary, " -> %s", call->detail2);
         call->summary = buf_detach(&summary);
@@ -449,9 +473,15 @@ void tools_call_grant(tools_env *env, const tools_call *call) {
     if (call->detail2) perm_grant(env->perm, call->permission_tool, call->detail2);
 }
 
+const char *tools_call_label(const tools_call *call) {
+    return call && call->intercept ? call->intercept->label : NULL;
+}
+
 char *tools_call_execute(tools_env *env, tools_call *call) {
     const char *name = call->name;
     yyjson_val *args = call->args;
+
+    if (call->intercept) return tny_intercept_execute(env, call->intercept);
 
     if (call->custom) {
         char *result = NULL;
@@ -503,6 +533,7 @@ void tools_call_free(tools_call *call) {
     free(call->detail2);
     free(call->summary);
     free(call->error);
+    tny_intercept_free(call->intercept);
     yyjson_doc_free(call->doc);
     memset(call, 0, sizeof *call);
 }

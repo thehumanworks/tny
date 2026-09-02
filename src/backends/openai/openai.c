@@ -770,7 +770,10 @@ static int execute_call(oa_impl *o, const char *cid, const char *original_args,
     start.kind = TNY_EV_TOOL_START;
     start.tool_name = call->name;
     start.tool_id = cid;
-    start.tool_detail = effective_args;
+    /* An intercepted first-party verb shows itself, not the shell blob it
+     * arrived as (docs/adr/0063). */
+    const char *label = tools_call_label(call);
+    start.tool_detail = label ? label : effective_args;
     emit(o, &start);
     subagent_control(o, TNY_OPENAI_CONTROL_SUBAGENT_START, cid, call, NULL, false);
     char *result = o->cancelled ? tool_err("interrupted before %s ran", call->name)

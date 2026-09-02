@@ -251,6 +251,13 @@ int tny_workspace_remove(tny_ctx *ctx, const char *dir);
 int tny_workspace_clear(tny_ctx *ctx);
 
 const char *tny_perm_mode_name(tny_perm_mode m);
+/* True when this process runs inside another tny turn's `terminal` tool
+ * (TNY_NESTED=1); *parent then holds the mode that turn resolved
+ * (docs/adr/0063). */
+bool tny_nested_perm_mode(tny_perm_mode *parent);
+/* False when `requested` is wider than the nested parent's mode; err then
+ * holds a one-line explanation. Always true outside a nested run. */
+bool tny_perm_mode_allowed_nested(tny_perm_mode requested, char *err, size_t errlen);
 
 /* Resolve SGR output for one session (docs/adr/0026). *color: SGR color
  * sequences; *attr: non-color SGR (bold/dim/reverse/reset). Precedence:

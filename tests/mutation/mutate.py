@@ -59,9 +59,44 @@ TARGETS = [
         "tests/integration/test_openai.py",
     ),
     (
+        # In-process intercept of first-party verbs (issue #99, ADR 0063):
+        # the recogniser decides whether a command runs in the shell at all,
+        # so every branch of it must be observable.
+        "src/core/shellwords.c",
+        ["tny_shellwords", "tny_shellword_meta", "scan_double", "tilde_expands"],
+        None,
+        "tests/integration/test_intercept.py",
+    ),
+    (
+        "src/core/intercept.c",
+        [
+            "tny_intercept_parse",
+            "parse_verb",
+            "parse_edit",
+            "parse_mcp",
+            "parse_memory",
+            "parse_ask",
+            "heredoc_body",
+            "producer_output",
+            "printf_expand",
+            "echo_expand",
+            "cat_expand",
+            "exec_edit",
+            "exec_mcp_call",
+        ],
+        None,
+        "tests/integration/test_intercept.py",
+    ),
+    (
+        "src/core/tools_ssh.c",
+        ["tool_ssh_edit_exact"],
+        None,
+        "tests/integration/test_intercept.py",
+    ),
+    (
         "src/core/tools_shell.c",
         ["shell_control_env", "tool_shell_execute"],
-        r"TNY_SESSION|control_pump|slice|tny_poll",
+        r"TNY_SESSION|TNY_NESTED|control_pump|slice|tny_poll",
         "tests/integration/test_openai.py",
     ),
     (
