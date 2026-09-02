@@ -169,6 +169,7 @@ class Term:
             start_new_session=True,
         )
         self.buf = ""
+        self.pos = 0  # end of the last expect() match in clean(self.buf)
 
     def pump(self, timeout):
         end = time.time() + timeout
@@ -184,19 +185,33 @@ class Term:
                 return
             self.buf += data.decode("utf-8", "replace")
 
-    def expect(self, needle, timeout=15.0, absent=None):
+    def expect(self, needle, timeout=15.0, absent=None, after_last=False):
+        """Wait for `needle` anywhere in the cumulative output. With
+        `after_last=True` only text after the previous successful expect
+        counts, so a marker the child legitimately emits once per turn
+        ("ALLOWED.", "working") cannot be satisfied by an earlier turn's copy
+        on a slow runner. Either way the match end becomes the new anchor."""
         end = time.time() + timeout
         while time.time() < end:
-            if needle in clean(self.buf):
-                if absent and absent in clean(self.buf):
+            text = clean(self.buf)
+            start = min(self.pos, len(text)) if after_last else 0
+            at = text.find(needle, start)
+            if at >= 0:
+                if absent and absent in text:
                     raise AssertionError(
-                        "unexpected %r in output:\n%s" % (absent, clean(self.buf))
+                        "unexpected %r in output:\n%s" % (absent, text)
                     )
+                self.pos = at + len(needle)
                 return
             self.pump(0.25)
         raise AssertionError(
-            "timed out waiting for %r; got:\n%s" % (needle, clean(self.buf))
+            "timed out waiting for %r%s; got:\n%s"
+            % (needle, " after the last match" if after_last else "", clean(self.buf))
         )
+
+    def expect_next(self, needle, timeout=15.0, absent=None):
+        """`expect` anchored after the previous match (see `after_last`)."""
+        self.expect(needle, timeout, absent, after_last=True)
 
     def send(self, s):
         os.write(self.master, s.encode())
@@ -833,7 +848,7 @@ def test_provider_setup_wizard(home, ws, port):
         t.expect("MOCK-OK", 20.0)
         # /cancel aborts a wizard without touching settings
         t.send("/provider setup droppedprov\r")
-        t.expect("base url", 10.0)
+        t.expect_next("base url", 10.0)  # the first wizard already printed one
         t.send("/cancel\r")
         t.expect("cancelled", 10.0)
         assert (
@@ -915,13 +930,16 @@ def test_queue_sends_after_turn(home, ws):
         t.expect("queued (1): second question", 5.0)
         assert "already running" not in clean(t.buf), clean(t.buf)
         t.expect("[asked: first question]", 20.0)
-        t.expect("[asked: second question]", 20.0)  # sent after turn 1 ended
-        t.expect("ALLOWED.", 20.0)
+        t.expect_next("[asked: second question]", 20.0)  # sent after turn 1 ended
+        # turn 1 already printed "ALLOWED."; anchor on turn 2's copy so a slow
+        # runner (aarch64 CI) cannot type "third question" while turn 2 is
+        # still live — that would queue it and make "fourth" queued (2)
+        t.expect_next("ALLOWED.", 20.0)
         # esc while a turn runs drops the queue
         t.send("third question\r")
-        t.expect("working", 5.0)
+        t.expect_next("working", 5.0)
         t.send("fourth question\r")
-        t.expect("queued (1): fourth question", 5.0)
+        t.expect_next("queued (1): fourth question", 5.0)
         t.send("\x1b")
         t.expect("dropped 1 queued message", 10.0)
         t.expect("DENIED.", 20.0)  # the fake agent finishes turn 3 cancelled
