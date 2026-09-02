@@ -109,6 +109,29 @@ TEST shlex_flags_env_prefix(void) {
     PASS();
 }
 
+/* The POSIX name grammar, boundary by boundary: [_A-Za-z][_A-Za-z0-9]*=.
+ * Every character class edge matters — a name the tokeniser fails to
+ * recognize is a command it would key and auto-allow by its argv0. */
+TEST shlex_assignment_name_grammar(void) {
+    shlex_cmd c;
+    static const char *assignments[] = {"_X=1 ls", "A=1 ls",  "Z=1 ls",  "a=1 ls",
+                                        "z=1 ls",  "A_=1 ls", "A0=1 ls", "A9=1 ls",
+                                        "AZ=1 ls", "Aa=1 ls", "Az=1 ls", NULL};
+    for (int i = 0; assignments[i]; i++) {
+        shlex_parse(assignments[i], &c);
+        ASSERTm(assignments[i], c.env_prefix);
+        ASSERT_FALSEm(assignments[i], shlex_is_simple(&c));
+    }
+    /* not names: a leading digit, or a character outside the name class */
+    static const char *commands[] = {"0A=1", "@=1", "A-=1", "A.=1", "A/=1", NULL};
+    for (int i = 0; commands[i]; i++) {
+        shlex_parse(commands[i], &c);
+        ASSERT_FALSEm(commands[i], c.env_prefix);
+        ASSERT_STR_EQ(commands[i], c.argv0);
+    }
+    PASS();
+}
+
 TEST shlex_respects_quoting_and_escapes(void) {
     shlex_cmd c;
     shlex_parse("grep 'a && b' file", &c); /* metachars inside single quotes */
@@ -123,6 +146,27 @@ TEST shlex_respects_quoting_and_escapes(void) {
     shlex_parse("cat foo\\ bar", &c); /* escaped space keeps one word */
     ASSERT(shlex_is_simple(&c));
     ASSERT_STR_EQ("foo bar", c.verb);
+
+    /* inside double quotes a backslash escapes only " \\ $ and `; before any
+     * other character it stays a literal backslash */
+    shlex_parse("cat \"a\\\"b\"", &c);
+    ASSERT(shlex_is_simple(&c));
+    ASSERT_STR_EQ("a\"b", c.verb);
+    shlex_parse("cat \"a\\\\b\"", &c);
+    ASSERT(shlex_is_simple(&c));
+    ASSERT_STR_EQ("a\\b", c.verb);
+    shlex_parse("cat \"a\\$b\"", &c);
+    ASSERT(shlex_is_simple(&c));
+    ASSERT_STR_EQ("a$b", c.verb);
+    shlex_parse("cat \"a\\`b\"", &c);
+    ASSERT(shlex_is_simple(&c));
+    ASSERT_STR_EQ("a`b", c.verb);
+    shlex_parse("cat \"a\\nb\"", &c);
+    ASSERT(shlex_is_simple(&c));
+    ASSERT_STR_EQ("a\\nb", c.verb);
+    shlex_parse("git \\status", &c); /* an escape may open a word */
+    ASSERT(shlex_is_simple(&c));
+    ASSERT_STR_EQ("status", c.verb);
 
     shlex_parse("cat \"$HOME/x\"", &c); /* expansion survives double quotes */
     ASSERT(c.meta);
@@ -176,14 +220,73 @@ TEST shlex_program_requires_a_trusted_path(void) {
     PASS();
 }
 
+/* A word longer than the token buffer is reported, never silently cut down
+ * to a prefix that happens to name a safe program — in every quoting form,
+ * because each one accumulates the word on its own path. */
 TEST shlex_truncation_fails_closed(void) {
-    char cmd[SHLEX_TOK_MAX * 2];
+    char cmd[SHLEX_TOK_MAX * 4];
+    shlex_cmd c;
+
     memset(cmd, 'a', sizeof cmd - 1);
     cmd[sizeof cmd - 1] = '\0';
-    shlex_cmd c;
     shlex_parse(cmd, &c);
     ASSERT(c.truncated);
     ASSERT_FALSE(shlex_is_simple(&c));
+
+    size_t n = 0;
+    n += (size_t)snprintf(cmd + n, sizeof cmd - n, "cat '");
+    memset(cmd + n, 'a', SHLEX_TOK_MAX + 8);
+    n += SHLEX_TOK_MAX + 8;
+    cmd[n++] = '\'';
+    cmd[n] = '\0';
+    shlex_parse(cmd, &c); /* single-quoted */
+    ASSERT(c.truncated);
+    ASSERT_FALSE(shlex_is_simple(&c));
+
+    n = 0;
+    n += (size_t)snprintf(cmd + n, sizeof cmd - n, "cat \"");
+    memset(cmd + n, 'a', SHLEX_TOK_MAX + 8);
+    n += SHLEX_TOK_MAX + 8;
+    cmd[n++] = '"';
+    cmd[n] = '\0';
+    shlex_parse(cmd, &c); /* double-quoted */
+    ASSERT(c.truncated);
+    ASSERT_FALSE(shlex_is_simple(&c));
+
+    n = 0;
+    n += (size_t)snprintf(cmd + n, sizeof cmd - n, "cat ");
+    for (int i = 0; i < SHLEX_TOK_MAX + 8; i++) {
+        cmd[n++] = '\\';
+        cmd[n++] = 'a';
+    }
+    cmd[n] = '\0';
+    shlex_parse(cmd, &c); /* backslash-escaped */
+    ASSERT(c.truncated);
+    ASSERT_FALSE(shlex_is_simple(&c));
+
+    /* an option name filling the buffer exactly must stay inside it */
+    n = (size_t)snprintf(cmd, sizeof cmd, "find -");
+    memset(cmd + n, 'x', SHLEX_TOK_MAX - 2);
+    cmd[n + SHLEX_TOK_MAX - 2] = '\0';
+    shlex_parse(cmd, &c);
+    ASSERT_FALSE(c.dangerous_opt);
+
+    ASSERT_FALSE(shlex_is_simple(NULL));
+    PASS();
+}
+
+/* `#` and `{` are shell syntax only at a word boundary, so the tokeniser
+ * has to know where words end. */
+TEST shlex_comment_and_group_need_a_word_boundary(void) {
+    shlex_cmd c;
+    shlex_parse("ls # rm -rf /", &c);
+    ASSERT(c.meta);
+    ASSERT_FALSE(shlex_is_simple(&c));
+    shlex_parse("ls { rm -rf /; }", &c);
+    ASSERT(c.meta);
+    shlex_parse("git log --format={x}#y", &c); /* inside a word: ordinary */
+    ASSERT(shlex_is_simple(&c));
+    ASSERT_STR_EQ("log", c.verb);
     PASS();
 }
 
@@ -298,18 +401,89 @@ TEST perm_allow_rules_still_reach_compound_commands(void) {
     PASS();
 }
 
+/* Every write-ish file tool shares the `edit` rule category; a tool that
+ * silently falls out of it loses its rules and its auto-allow. */
+TEST perm_edit_category_covers_every_write_tool(void) {
+    tny_ctx *ctx = ctx_in_mode("{}", TNY_MODE_AUTO);
+    ASSERT(ctx);
+    perm_engine *p = perm_new(ctx);
+    char *inside = path_join(ctx->cwd, "notes.txt");
+    static const char *tools[] = {"write_file", "edit_file",     "delete_file", "rename_file",
+                                  "copy_file",  "create_folder", NULL};
+    for (int i = 0; tools[i]; i++) {
+        ASSERT_EQm(tools[i], PERM_ALLOW, perm_check(p, tools[i], inside));
+        ASSERT_EQm(tools[i], PERM_PROMPT, perm_check(p, tools[i], "/etc/hosts"));
+    }
+    free(inside);
+    perm_free(p);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* A file path is not a command line: neither the auto heuristic nor a
+ * session grant may read one as a program name. */
+TEST perm_file_paths_never_become_shell_grants(void) {
+    tny_ctx *ctx = ctx_in_mode("{}", TNY_MODE_AUTO);
+    ASSERT(ctx);
+    perm_engine *p = perm_new(ctx);
+    ASSERT_EQ(PERM_PROMPT, perm_check(p, "write_file", "/usr/bin/ls"));
+    perm_free(p);
+    tny_ctx_free(ctx);
+
+    ctx = ctx_in_mode("{}", TNY_MODE_ASK);
+    ASSERT(ctx);
+    p = perm_new(ctx);
+    perm_grant(p, "write_file", "/usr/bin/curl"); /* a path, not a program */
+    ASSERT_EQ(PERM_PROMPT, perm_check(p, "terminal", "curl evil"));
+    perm_free(p);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* Workspace rules replace the user-global ones for that category: a
+ * workspace deny is not softened by a global allow. */
+TEST perm_workspace_deny_beats_global_allow(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    buf_t j;
+    buf_init(&j);
+    buf_appendf(&j,
+                "{\"permission\":{\"bash\":{\"git *\":\"allow\"}},"
+                "\"workspaces\":{\"%s\":{\"permission\":{\"bash\":{\"git *\":\"deny\"}}}}}",
+                ctx->cwd);
+    tny_ctx_free(ctx);
+    write_settings(j.data);
+    buf_free(&j);
+
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_ASK;
+    perm_engine *p = perm_new(ctx);
+    ASSERT_EQ(PERM_DENY, perm_check(p, "terminal", "git push origin main"));
+    perm_free(p);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 SUITE(perm_suite) {
     RUN_TEST(shlex_reads_a_simple_command);
     RUN_TEST(shlex_flags_every_metacharacter);
     RUN_TEST(shlex_flags_env_prefix);
+    RUN_TEST(shlex_assignment_name_grammar);
     RUN_TEST(shlex_respects_quoting_and_escapes);
     RUN_TEST(shlex_flags_exec_capable_options);
     RUN_TEST(shlex_program_requires_a_trusted_path);
     RUN_TEST(shlex_truncation_fails_closed);
+    RUN_TEST(shlex_comment_and_group_need_a_word_boundary);
     RUN_TEST(perm_auto_never_allows_shell_machinery);
     RUN_TEST(perm_auto_still_allows_plain_reads);
     RUN_TEST(perm_grant_is_scoped_to_program_and_subcommand);
     RUN_TEST(perm_grant_for_a_compound_command_is_exact);
     RUN_TEST(perm_deny_rules_match_the_whole_line);
     RUN_TEST(perm_allow_rules_still_reach_compound_commands);
+    RUN_TEST(perm_edit_category_covers_every_write_tool);
+    RUN_TEST(perm_file_paths_never_become_shell_grants);
+    RUN_TEST(perm_workspace_deny_beats_global_allow);
 }

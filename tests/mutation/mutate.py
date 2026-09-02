@@ -701,6 +701,9 @@ EQUIVALENT = [
     "acp_client.c:if (!options || !yyjson_is_arr(options)) return false;",
     "acp_client.c:if (!configs || !yyjson_is_arr(configs)) return NULL;",
     "acp_client.c:if (configs && yyjson_is_arr(configs)) {",
+    # `index` is only ever compared against 0 (argv0 vs argument), so counting
+    # words down instead of up produces the identical classification.
+    "shlex.c:take_word(out, tok, index++, over);",
     # The config profile parser cannot deterministically inject calloc/strdup
     # failure; both branches leave the previously selected profile untouched.
     "config.c:if (!argv) return -1; /* OOM: no observable profile state changed */",

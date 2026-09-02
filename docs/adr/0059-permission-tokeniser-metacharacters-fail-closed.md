@@ -86,9 +86,19 @@ the shell the primary tool surface — every command now flows through here.
 - **wasm: works.** `shlex.c` is pure C11 with no syscalls and builds in
   `SRC_SHARED`; the wasm build carries the same decisions, and the terminal
   tool's own availability is unchanged by this ADR.
-- Verified by `tests/test_perm.c` (13 tests: quoting, escapes, every
-  metacharacter, env prefixes, option injection, trusted paths, truncation,
-  grant scoping, deny reach) and by `tests/mutation/mutate.py` targets for
-  `shlex_parse`, `shlex_is_simple`, `shlex_program`, `dangerous_option`,
-  `meta_char`, `is_assignment`, `take_word`, `grant_key_bash`, `multi_verb`
-  and `perm_check`.
+- Verified by `tests/test_perm.c` (18 tests: quoting, escapes, every
+  metacharacter, the assignment-name grammar boundary by boundary, option
+  injection, trusted paths, truncation in each quoting form, grant scoping,
+  deny reach, rule categories) and by a `tests/mutation/mutate.py` target
+  (`--focus perm-tokeniser`) covering all of `src/core/shlex.c` plus
+  `grant_key`, `grant_key_bash`, `multi_verb`, `rule_category` and
+  `perm_check`. The first run over that target killed 132 of 174 valid
+  mutants (75.9%); the survivors were character-class, escape-set and
+  buffer-bound edges, and the tests above were written to close them. The
+  re-run kills 171 of 173 (98.8%). The two remaining mutants are equivalent
+  and cannot be killed: relaxing the option-name copy bound in
+  `dangerous_option` is unreachable (a token is at most `SHLEX_TOK_MAX - 1`
+  bytes), and reading `cmd[i - 1]` instead of `cmd[i + 1]` in the
+  double-quote escape guard decides the same way at every reachable index.
+  `take_word`'s word counter is annotated as equivalent in `EQUIVALENT`
+  because the index is only ever compared against 0.
