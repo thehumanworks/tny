@@ -227,3 +227,48 @@ make STATIC=1 release  # musl static, on Alpine or a musl toolchain
 make pack TRIPLE=linux-x86_64
 nix flake check        # the same suite, hermetically (docs/nix.md)
 ```
+
+## Benchmarks
+
+Benchmarks are never part of `make test` — shared runners are too noisy for a
+timing or pass-rate gate. They are run deliberately, and their numbers are
+recorded in the ADR that motivated them.
+
+`tests/bench/bench_ttft.py` measures time-to-first-token against the scripted
+codex mock ([ADR 0004](adr/0004-ttft.md)).
+
+`tests/bench/bench_tools.py` is the three-arm A/B of the native tool profiles
+`all`, `terminal+edit` and `terminal` ([ADR 0062](adr/0062-tool-profiles.md)),
+whose result is recorded in the Measurement section of
+[ADR 0057](adr/0057-shell-first-native-loop.md). Every run copies one frozen
+fixture from `tests/bench/fixtures/tools/<task>/` into a fresh scratch
+directory, feeds its `task.md` to `tny ask -B --json --stdin`, blocks on
+`tny session ID --wait --json`, and scores the scratch with the fixture's
+`check.sh` (exit 0 = pass). The session document supplies steps, tool calls,
+token usage, repair loops and edit-method drift, so no second provider call is
+needed. The harness shadows `PATH` with the binary under test, because the
+shell profiles tell the model to reach for `tny edit`.
+
+```sh
+python3 tests/bench/bench_tools.py --dry-run           # list the frozen task set
+python3 tests/bench/bench_tools.py --verify-fixtures   # red before, green after
+python3 tests/bench/bench_tools.py --mock --tasks fix-py-sum-range
+python3 tests/bench/bench_tools.py --provider aiproxy --effort high --runs 1 \
+    --max-steps 40 --timeout 600                       # the live pilot; needs a key
+```
+
+`--mock` needs no key: it scripts `tests/integration/mock_openai.py` to issue
+one `terminal` call that runs the fixture's own `solution.sh`, so the whole
+pipeline is exercised offline. That is what the CI smoke
+`tests/integration/test_bench_tools.py` runs — one task in each of the three
+arms, plus `--dry-run`, `--verify-fixtures`, and the unknown-task error — and
+it is picked up automatically by `tests/integration/run.sh`, so `make test` and
+`nix flake check` both cover it. Live arms need a provider key and are never
+run in CI.
+
+Each fixture directory holds the workspace files plus four pieces of
+bookkeeping that are never copied into the scratch a model sees: `task.md`
+(the prompt), `check.sh` (the programmatic check), `family`, and `solution.sh`
+(the reference solution, which both proves the check is satisfiable and drives
+the `--mock` trajectory). Checks are deterministic and offline; the C fixtures
+need only `cc`.
