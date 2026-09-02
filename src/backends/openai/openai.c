@@ -231,8 +231,11 @@ static void build_system_prompt(oa_impl *o, buf_t *sys) {
         if (o->ctx->tool_profile == TNY_TOOLS_TERMINAL_EDIT)
             buf_appends(sys, "Mutate files with the `edit_file` tool; never use `sed -i`. ");
         else
-            buf_appends(sys, "Mutate files with `tny edit FILE` (exact match; exit 2 means zero or "
-                             "many matches); never use `sed -i`. ");
+            buf_appends(sys, "Mutate files with `tny edit FILE`, exact match, payload on stdin as "
+                             "a fence: `printf '*** SEARCH\\nOLD\\n*** REPLACE\\nNEW\\n*** END\\n' "
+                             "| tny edit FILE` (or a quoted heredoc with the same three lines); "
+                             "no --old/--new flags, one FILE; exit 2 means zero or many matches, "
+                             "widen OLD and retry; never use `sed -i`. ");
         buf_appends(sys,
                     "Read the `exit:` line before claiming success. Call MCP tools with `tny "
                     "mcp call SERVER/TOOL` and JSON on stdin; the MCP catalog above names the "

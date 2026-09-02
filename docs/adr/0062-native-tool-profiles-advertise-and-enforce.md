@@ -75,3 +75,11 @@ count, cwd, and a complete spill file without first consuming a second tool.
 - MCP schemas no longer consume the shell-profile context, while the same MCP
   permission identity remains available through the CLI verb specified by
   ADR 0057 and ADR 0064.
+
+Amendment (2026-09-02, after the #103 pilot): 9 of the `terminal` arm's 10
+repair loops were a first `tny edit` call with an invented calling convention
+(`--old`/`--new` flags, two FILE arguments, or a bare heredoc without the
+`*** SEARCH` fence). The prompt block therefore carries the fence form
+verbatim — `printf '*** SEARCH\nOLD\n*** REPLACE\nNEW\n*** END\n' | tny edit
+FILE` — and says "no --old/--new flags, one FILE". The block stays stable
+across turns, so the cache-friendliness argument is unchanged.
