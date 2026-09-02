@@ -48,7 +48,7 @@ search phrase, if the command wants human-readable text. If both keys are set,
 
 ```json
 {
-  "web_search_command": "lightpanda fetch --dump markdown --log-level fatal --strip-mode full \"https://search.brave.com/search?query={{query}}&source=web\"",
+  "web_search_command": "lightpanda fetch --dump markdown --log-level fatal --strip-mode full \"https://search.brave.com/search?q={{query}}&source=web\"",
   "web_search_url": "https://html.duckduckgo.com/html/?q={query}"
 }
 ```
