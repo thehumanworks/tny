@@ -40,6 +40,22 @@ TARGETS = [
         None,
     ),
     ("src/net/stream.c", None, r"ossl|OSSL", "tests/integration/test_https.py"),
+    # permission tokeniser (docs/adr/0059): every fail-closed branch. The unit
+    # suite is the killer here — the tokeniser never leaves the process.
+    (
+        "src/core/shlex.c",
+        None,
+        None,
+        "tests/integration/test_tui.py",
+        "perm-tokeniser",
+    ),
+    (
+        "src/core/perm.c",
+        ["grant_key_bash", "grant_key", "multi_verb", "perm_check", "rule_category"],
+        None,
+        "tests/integration/test_tui.py",
+        "perm-tokeniser",
+    ),
     ("src/tui/tui_prewarm.c", None, None),
     (
         "src/tui/tui_draw.c",
