@@ -198,11 +198,22 @@ static bool schema_tool_disabled(const tools_env *env, const char *name) {
            strcmp(name, "ask_user_question") == 0;
 }
 
+static bool profile_allows_builtin(const tools_env *env, const char *name) {
+    if (!env || !env->ctx || !name || env->ctx->library_mode ||
+        env->ctx->tool_profile == TNY_TOOLS_ALL)
+        return true;
+    if (strcmp(name, "terminal") == 0 || strcmp(name, "read_image") == 0) return true;
+    return env->ctx->tool_profile == TNY_TOOLS_TERMINAL_EDIT &&
+           (strcmp(name, "edit_file") == 0 ||
+            (strcmp(name, "ask_user_question") == 0 && env->prompt));
+}
+
 /* Hidden from the advertised schema but still callable directly: web_search
  * without a configured provider (docs/adr/0055) keeps its runtime error. */
 static bool schema_tool_hidden(const tools_env *env, const char *name) {
     if (schema_tool_disabled(env, name)) return true;
     if (!env || !env->ctx || !name) return false;
+    if (!profile_allows_builtin(env, name)) return true;
     return strcmp(name, "web_search") == 0 && !tool_web_search_configured(env->ctx);
 }
 
@@ -231,7 +242,7 @@ static char *append_custom_schema(char *base, custom_tool_registry *registry) {
 char *tools_schema_json(tools_env *env) {
     if (env && env->ctx &&
         (env->ctx->mcp_disabled || env->ctx->library_mode ||
-         !tool_web_search_configured(env->ctx))) {
+         env->ctx->tool_profile != TNY_TOOLS_ALL || !tool_web_search_configured(env->ctx))) {
         yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
         yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
         yyjson_mut_doc *mut = yyjson_mut_doc_new(jallocator());
@@ -391,10 +402,6 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
     call->name = xstrdup(canonical_name(name));
     call->permission_tool = call->name ? xstrdup(call->name) : NULL;
     if (!call->name || !call->permission_tool) return -1;
-    if (schema_tool_disabled(env, call->name)) {
-        call->error = tool_err("tool %s is unavailable in embedded runtimes", call->name);
-        return -1;
-    }
     call->doc = args_json ? jparse(args_json, strlen(args_json)) : NULL;
     call->args = call->doc ? yyjson_doc_get_root(call->doc) : NULL;
     call->custom = custom_tools_find(env->ctx->custom_tools, call->name);
@@ -409,8 +416,16 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         int valid = validate_parameters(call->name, call->args, parameters, &call->error);
         yyjson_doc_free(schema);
         if (valid != 0) return -1;
-    } else if (validate_call_schema(call->name, call->args, &call->error) != 0) {
-        return -1;
+    } else {
+        if (schema_tool_disabled(env, call->name)) {
+            call->error = tool_err("tool %s is unavailable in embedded runtimes", call->name);
+            return -1;
+        }
+        if (!profile_allows_builtin(env, call->name)) {
+            call->error = tool_err("unknown tool %s", call->name);
+            return -1;
+        }
+        if (validate_call_schema(call->name, call->args, &call->error) != 0) return -1;
     }
     if (strcmp(call->name, "mcp_select_tool") == 0) {
         const char *server = jget_str(call->args, "server");

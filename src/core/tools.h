@@ -67,8 +67,10 @@ typedef struct {
  * malloc'd. */
 char *tools_schema_json(tools_env *env);
 
-/* Execute one call. Returns a malloc'd string for the role:"tool" message
- * (bounded; large output is stored as a session result handle). Never NULL. */
+/* Execute one call. Returns a malloc'd string for the role:"tool" message.
+ * `all` bounds large output behind a session handle; shell profiles give
+ * terminal a small preview plus a complete spill-file path (ADR 0062).
+ * Never NULL. */
 char *tools_execute(tools_env *env, const char *name, const char *args_json);
 
 int tools_call_prepare(tools_env *env, const char *name, const char *args_json, tools_call *call);

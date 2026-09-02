@@ -330,6 +330,30 @@ TEST terminal_runs_remotely(void) {
     ASSERT(strstr(r, "started in background on alice@example.test: pid "));
     ASSERT(strstr(r, "log: "));
     free(r);
+    ctx->tool_profile = TNY_TOOLS_TERMINAL;
+    r = tools_execute(
+        &env, "terminal",
+        "{\"command\":\"i=0; while [ $i -lt 9000 ]; do printf x; i=$((i+1)); done; exit 7\"}");
+    ASSERT(strstr(r, "exit: 7\nbytes: 9000\ncwd: "));
+    const char *full = strstr(r, "\nfull: ");
+    ASSERT(full);
+    full += strlen("\nfull: ");
+    size_t full_len = 0;
+    char *stored = file_slurp(full, &full_len);
+    ASSERT(stored);
+    ASSERT_EQ(9000, full_len);
+    ASSERT_EQ('x', stored[0]);
+    ASSERT_EQ('x', stored[8999]);
+    struct stat st;
+    ASSERT_EQ(0, stat(full, &st));
+    ASSERT_EQ(0600, st.st_mode & 0777);
+    free(stored);
+    free(r);
+    r = tools_execute(&env, "terminal", "{\"command\":\"echo bg-done\",\"background\":true}");
+    ASSERT(strstr(r, "exit: 0\nbytes: "));
+    ASSERT(strstr(r, "started in background on alice@example.test: pid "));
+    free(r);
+    ctx->tool_profile = TNY_TOOLS_ALL;
     /* the permission detail is the remote path, not a local realpath */
     r = tools_execute(&env, "read_file", "{\"path\":\"nothere\"}");
     ASSERT(strstr(r, g_remote));

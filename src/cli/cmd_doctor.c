@@ -112,7 +112,8 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                     python ? "true" : "false");
         buf_appends(&b, capabilities ? capabilities : "{}");
         buf_appends(&b, "},");
-        buf_appendf(&b, "\"sandbox\":\"%s\",\"sandbox_note\":", tny_sandbox_kind_name(sandbox));
+        buf_appendf(&b, "\"tools\":\"%s\",\"sandbox\":\"%s\",\"sandbox_note\":",
+                    tny_tool_profile_name(ctx->tool_profile), tny_sandbox_kind_name(sandbox));
         jescape(&b, sandbox_note);
         buf_appends(&b, ",");
         buf_appendf(&b, "\"hosts\":{\"cursor_sdk_bridge\":%s,\"codex\":%s,\"acp_agents\":",
@@ -143,6 +144,7 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                    extension_entries ? ", python3 available" : "");
         printf("%s sandbox: %s (%s)\n", sandbox == TNY_SANDBOX_NONE ? "note" : "ok ",
                tny_sandbox_kind_name(sandbox), sandbox_note);
+        printf("ok  tools: %s\n", tny_tool_profile_name(ctx->tool_profile));
         printf("%s cursor-sdk-bridge: %s\n", bridge ? "ok " : "miss",
                bridge ? ctx->bridge_bin : "not on PATH (set CURSOR_SDK_BRIDGE_BIN)");
         printf("%s codex: %s\n", codex ? "ok " : "miss", codex ? ctx->codex_bin : "not on PATH");

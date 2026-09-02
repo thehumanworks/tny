@@ -20,6 +20,32 @@ Keep fx names so prompts and muscle memory transfer:
 
 Large results: bounded preview + session handle; `read_tool_result` reads a byte range or literal search. Background commands persist pid, cwd, log path, detected URL.
 
+### Native tool profiles
+
+The user setting `tools` and higher-precedence `TNY_TOOLS` select what the
+native OpenAI-compatible loop both advertises and accepts ([ADR
+0062](../adr/0062-native-tool-profiles-advertise-and-enforce.md)):
+
+| Profile | Advertised built-ins |
+| --- | --- |
+| `all` (default) | The complete table above |
+| `terminal+edit` | `terminal`, `edit_file`, `read_image`; also `ask_user_question` in an interactive session |
+| `terminal` | `terminal`, plus `read_image` because pixels cannot ride terminal stdout (ADR 0008) |
+
+libtny custom tools are appended in every profile. Shell profiles hide the MCP
+meta-tools and use `tny mcp call SERVER/TOOL`; replaying or directly requesting
+any hidden built-in, including `mcp_select_tool`, returns `unknown tool` before
+dispatch. libtny, wasm, and `tny acp` keep `all`. wasm retains the existing
+clean error for `terminal`; profiles do not add a browser shell.
+
+Foreground terminal results in either shell profile begin with `exit:`,
+`bytes:`, and `cwd:`. The preview is capped at the smaller of the configured
+tool-result limit and 8 KiB. A truncated result adds `full: PATH`; the `0600`
+file contains output from byte zero and lives under the session's `results/`
+directory, or `~/.tny/results/` without a session. Collection has a 64 MiB
+hard cap. The `all` profile keeps the existing result shape and
+`read_tool_result` handles.
+
 `memory` writes `~/.tny/memories.json` only when asked. Do not inject it into every prompt. In [ephemeral mode](../adr/0020-ephemeral-sessions.md), `memory set` is rejected so a conversation cannot create durable user memory; `get` and `list` may still read existing memories.
 
 No browser/CDP tools in v1.

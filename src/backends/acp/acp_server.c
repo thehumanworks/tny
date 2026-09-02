@@ -401,6 +401,7 @@ int acp_srv_pump(acp_srv *s, int timeout_ms) {
 
 int cmd_acp_server(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     (void)g;
+    tny_tool_profile_ignore(ctx, "ACP server mode");
     ctx->mcp_disabled = true; /* the ACP client owns MCP in server mode */
     for (int i = 0; i < argc; i++) {
         if (strcmp(argv[i], "--log-file") == 0 && i + 1 < argc) {

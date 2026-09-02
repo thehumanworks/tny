@@ -14,8 +14,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define R_MAX_OUT  (512u * 1024u)
-#define R_MAX_FILE (8u * 1024u * 1024u)
+#define R_MAX_OUT             (512u * 1024u)
+#define R_MAX_FILE            (8u * 1024u * 1024u)
+#define R_PROFILE_PREVIEW_MAX (8u * 1024u)
+#define R_PROFILE_OUTPUT_MAX  (64u * 1024u * 1024u)
 #define PRUNE                                                             \
     "\\( -name .git -o -name node_modules -o -name build -o -name target" \
     " -o -name dist -o -name __pycache__ \\) -prune -o "
@@ -67,6 +69,52 @@ static char *bounded_or_empty(tools_env *env, buf_t *out, const char *empty) {
     char *res = tool_bound_result(env, out->data, out->len);
     buf_free(out);
     return res;
+}
+
+static char *r_spill_result(tools_env *env, const char *data, size_t len) {
+    const char *root = env->session && env->session->dir && !env->ctx->no_save ? env->session->dir
+                                                                               : env->ctx->tny_dir;
+    char *dir = path_join(root, "results");
+    char *id = gen_id();
+    if (!dir || !id || mkdir_p(dir) != 0) {
+        free(dir);
+        free(id);
+        return NULL;
+    }
+    char name[64];
+    snprintf(name, sizeof name, "terminal-ssh-%s.txt", id);
+    char *path = path_join(dir, name);
+    free(dir);
+    free(id);
+    if (!path || file_write_atomic(path, data, len) != 0) {
+        free(path);
+        return NULL;
+    }
+    return path;
+}
+
+static char *r_shell_profile_result(tools_env *env, int code, buf_t *out, bool truncated,
+                                    bool timed_out, int64_t timeout_s) {
+    size_t preview = env->ctx->max_tool_result_bytes;
+    if (preview > R_PROFILE_PREVIEW_MAX) preview = R_PROFILE_PREVIEW_MAX;
+    if (preview > out->len) preview = out->len;
+    char *full =
+        (out->len > preview || truncated) ? r_spill_result(env, out->data, out->len) : NULL;
+    buf_t result;
+    buf_init(&result);
+    buf_appendf(&result, "exit: %d\nbytes: %zu\ncwd: %s\n", code, out->len,
+                env->ctx->ssh_cwd ? env->ctx->ssh_cwd : "");
+    if (timed_out)
+        buf_appendf(&result, "timed out after %llds and was killed\n", (long long)timeout_s);
+    if (truncated)
+        buf_appendf(&result, "output stopped at the %u MiB hard cap\n",
+                    R_PROFILE_OUTPUT_MAX / (1024u * 1024u));
+    if (preview) buf_append(&result, out->data, preview);
+    else buf_appends(&result, "(no output)");
+    if (full) buf_appendf(&result, "\nfull: %s", full);
+    free(full);
+    buf_free(out);
+    return buf_detach(&result);
 }
 
 static char *r_list_files(tools_env *env, yyjson_val *args) {
@@ -571,10 +619,21 @@ static char *r_terminal(tools_env *env, yyjson_val *args) {
                         nl ? nl : "?");
         }
         buf_free(&out);
-        return buf_detach(&res);
+        char *started = buf_detach(&res);
+        if (!tny_tool_profile_is_shell(env->ctx) || !started) return started;
+        buf_t result;
+        buf_init(&result);
+        buf_appendf(&result, "exit: 0\nbytes: %zu\ncwd: %s\n%s", strlen(started),
+                    env->ctx->ssh_cwd ? env->ctx->ssh_cwd : "", started);
+        free(started);
+        return buf_detach(&result);
     }
     bool truncated, timed_out;
-    int code = run(env, cmd, NULL, 0, (int)timeout_s, &out, &truncated, &timed_out);
+    int code = ssh_run(env->ctx, cmd, NULL, 0, (int)timeout_s,
+                       tny_tool_profile_is_shell(env->ctx) ? R_PROFILE_OUTPUT_MAX : R_MAX_OUT, &out,
+                       &truncated, &timed_out);
+    if (tny_tool_profile_is_shell(env->ctx))
+        return r_shell_profile_result(env, code, &out, truncated, timed_out, timeout_s);
     if (timed_out)
         buf_appendf(&res, "(timed out after %llds and was killed)\n", (long long)timeout_s);
     buf_appendf(&res, "exit code: %d\n", code);

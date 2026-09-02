@@ -260,8 +260,11 @@ int ssh_run(tny_ctx *ctx, const char *script, const char *in, size_t inlen, int 
                 if (errno == EINTR || errno == EAGAIN) continue;
                 break;
             }
-            if (out->len < out_cap) buf_append(out, tmp, (size_t)r);
-            else *truncated = true;
+            size_t got = (size_t)r;
+            size_t keep = out->len < out_cap ? out_cap - out->len : 0;
+            if (keep > got) keep = got;
+            if (keep) buf_append(out, tmp, keep);
+            if (keep < got) *truncated = true;
         }
     }
     if (inpipe[1] >= 0) close(inpipe[1]);

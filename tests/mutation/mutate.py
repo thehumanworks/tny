@@ -35,6 +35,35 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
+        "src/core/config.c",
+        ["tool_profile_parse", "tny_tool_profile_is_shell", "tny_tool_profile_ignore"],
+        None,
+        "tests/integration/test_openai.py",
+    ),
+    (
+        "src/core/tools.c",
+        [
+            "profile_allows_builtin",
+            "schema_tool_hidden",
+            "tools_schema_json",
+            "tools_call_prepare",
+        ],
+        r"profile|custom|unknown tool|schema_tool_hidden",
+        "tests/integration/test_openai.py",
+    ),
+    (
+        "src/core/tools_shell.c",
+        ["write_complete", "result_file_open", "tool_shell_execute"],
+        r"SHELL_PROFILE|result_|output_bytes|preview|full|tool_profile|write_complete",
+        "tests/integration/test_openai.py",
+    ),
+    (
+        "src/core/tools_ssh.c",
+        ["r_spill_result", "r_shell_profile_result", "r_terminal"],
+        r"PROFILE|profile|preview|full|bytes|exit:",
+        "tests/integration/test_ssh.py",
+    ),
+    (
         "src/core/edit.c",
         ["tny_edit_file_exact"],
         None,

@@ -70,6 +70,14 @@ never claims `os` unless Seatbelt or bubblewrap is launchable, and the default
 `yolo` process reports `none` even when `.tny.json` requests `auto` or `os`.
 `tny status` uses the same effective-mode resolution.
 
+`TNY_TOOLS=all|terminal+edit|terminal` overrides the `tools` user setting for
+the native OpenAI-compatible loop. `all` is the unchanged default; the shell
+profiles reduce both advertised and accepted built-ins as documented in
+[Tools, MCP, skills, subagents](features/mcp-and-skills.md#native-tool-profiles).
+`tny status` and `tny doctor` print the effective `tools` profile and expose it
+as the JSON string field `"tools"`. libtny, wasm, and `tny acp` keep `all`; an
+explicit profile ignored by wasm or ACP server mode emits one status line.
+
 Color resolution ([ADR 0026](adr/0026-color-vs-attribute-sgr.md)): `NO_COLOR`
 (any value, even empty) disables SGR *colors* only — bold/dim/reverse are
 structural and stay, so the status bar keeps its reverse video.

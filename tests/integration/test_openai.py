@@ -24,6 +24,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TNY = os.environ.get("TNY", os.path.join(ROOT, "build", "tny"))
 MOCK = os.path.join(ROOT, "tests", "integration", "mock_openai.py")
+IS_WASM = "/wasm/" in TNY.replace("\\", "/")
 
 
 def free_port():
@@ -32,6 +33,107 @@ def free_port():
     port = s.getsockname()[1]
     s.close()
     return port
+
+
+def check_tool_profile_wire(base_env, ws, wire):
+    """Pin schema, enforcement, and prompt behavior on one OpenAI wire."""
+    for profile in ("terminal", "terminal+edit", "all"):
+        port = free_port()
+        mock_env = dict(os.environ, MOCK_EXPECT_WIRE=wire)
+        if profile in ("terminal", "terminal+edit") and not IS_WASM:
+            names = "terminal,read_image"
+            instructions = "Shell tool profile\ntny edit FILE"
+            if profile == "terminal+edit":
+                names += ",edit_file"
+                instructions = "Shell tool profile\nedit_file"
+            mock_env.update(
+                MOCK_EXPECT_TOOL_NAMES=names,
+                MOCK_EXPECT_INSTRUCTIONS=instructions,
+                MOCK_CUSTOM_TOOL="read_file",
+                MOCK_CUSTOM_ARGUMENTS='{"path":"a.txt"}',
+                MOCK_EXPECT_TOOL_OUTPUT="error: unknown tool read_file",
+            )
+        else:
+            mock_env["MOCK_REJECT_INSTRUCTIONS"] = "Shell tool profile"
+        mock = subprocess.Popen(
+            [sys.executable, MOCK, str(port)],
+            env=mock_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            line = mock.stdout.readline().decode()
+            assert "ready" in line, (
+                f"{wire} {profile} profile mock did not start: {line!r}"
+            )
+            run_env = dict(
+                base_env,
+                TNY_TOOLS=profile,
+                OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1",
+            )
+            if wire == "chat":
+                run_env["OPENAI_WIRE_API"] = "chat"
+            result = subprocess.run(
+                [
+                    TNY,
+                    "--cwd",
+                    ws,
+                    "ask",
+                    "--json",
+                    "--no-save",
+                    "inspect the workspace",
+                ],
+                env=run_env,
+                capture_output=True,
+                timeout=30,
+            )
+            assert result.returncode == 0, (
+                f"{wire} {profile} profile exit {result.returncode}: {result.stderr.decode()}"
+            )
+            assert "MOCK-OK" in json.loads(result.stdout)["output"], result.stdout
+        finally:
+            mock.terminate()
+            mock.wait(timeout=5)
+
+
+def check_shell_profile_result_file(base_env, ws):
+    if IS_WASM:
+        return
+    port = free_port()
+    command = "i=0; while [ $i -lt 9000 ]; do printf x; i=$((i+1)); done; exit 7"
+    mock = subprocess.Popen(
+        [sys.executable, MOCK, str(port)],
+        env=dict(
+            os.environ,
+            MOCK_EXPECT_WIRE="responses",
+            MOCK_EXPECT_TOOL_NAMES="terminal,read_image",
+            MOCK_EXPECT_INSTRUCTIONS="Shell tool profile",
+            MOCK_CUSTOM_TOOL="terminal",
+            MOCK_CUSTOM_ARGUMENTS=json.dumps({"command": command}),
+            MOCK_EXPECT_SHELL_RESULT="1",
+        ),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        line = mock.stdout.readline().decode()
+        assert "ready" in line, f"shell-result mock did not start: {line!r}"
+        run_env = dict(
+            base_env,
+            TNY_TOOLS="terminal",
+            OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1",
+        )
+        result = subprocess.run(
+            [TNY, "--cwd", ws, "ask", "--json", "produce a large result"],
+            env=run_env,
+            capture_output=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stderr.decode()
+        assert "MOCK-OK" in json.loads(result.stdout)["output"], result.stdout
+    finally:
+        mock.terminate()
+        mock.wait(timeout=5)
 
 
 def main():
@@ -60,6 +162,10 @@ def main():
                 OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1",
                 OPENAI_API_KEY="test-key-not-real",
             )
+
+            check_tool_profile_wire(env, ws, "responses")
+            check_tool_profile_wire(env, ws, "chat")
+            check_shell_profile_result_file(env, ws)
 
             task_dir = os.path.join(ws, ".tny", "tasks")
             os.makedirs(task_dir)
