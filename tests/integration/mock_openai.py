@@ -43,6 +43,8 @@ Env knobs:
   MOCK_CUSTOM_TOOL    request this custom tool once, then validate its output
   MOCK_CUSTOM_ARGUMENTS
                       JSON arguments for MOCK_CUSTOM_TOOL
+  MOCK_EXPECT_TOOL_NAMES
+                      comma-separated exact advertised tool-name set
   MOCK_LEADING_WS=1   open the answer with nine newlines, as some models do;
                       the human renderers drop them, --json keeps them
 
@@ -64,6 +66,7 @@ import json
 import os
 import socket
 import ssl
+import stat
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -96,6 +99,8 @@ EXPECT_EXTENSION_REWRITE = os.environ.get("MOCK_EXPECT_EXTENSION_REWRITE") == "1
 EXPECT_TOOL_OUTPUT = os.environ.get("MOCK_EXPECT_TOOL_OUTPUT")
 CUSTOM_TOOL = os.environ.get("MOCK_CUSTOM_TOOL")
 CUSTOM_ARGUMENTS = os.environ.get("MOCK_CUSTOM_ARGUMENTS")
+EXPECT_TOOL_NAMES = os.environ.get("MOCK_EXPECT_TOOL_NAMES")
+EXPECT_SHELL_RESULT = os.environ.get("MOCK_EXPECT_SHELL_RESULT") == "1"
 LEADING_WS = os.environ.get("MOCK_LEADING_WS") == "1"
 
 
@@ -115,6 +120,31 @@ class BadRequest(Exception):
 def need(cond, msg):
     if not cond:
         raise BadRequest(msg)
+
+
+def validate_shell_result(text):
+    need(
+        text.startswith("exit: 7\nbytes: 9000\ncwd: "),
+        f"bad shell result header: {text[:120]!r}",
+    )
+    marker = "\nfull: "
+    need(marker in text, "truncated shell result has no full path")
+    path = text.rsplit(marker, 1)[1]
+    need(
+        "/sessions/" in path and "/results/" in path,
+        f"bad session result path {path!r}",
+    )
+    try:
+        with open(path, "rb") as result_file:
+            data = result_file.read()
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+    except OSError as exc:
+        raise BadRequest(f"cannot read shell result {path!r}: {exc}") from exc
+    need(
+        data == b"x" * 9000,
+        f"full shell result is {len(data)} bytes or has wrong content",
+    )
+    need(mode == 0o600, f"shell result mode is {mode:o}, want 600")
 
 
 def unpaired_tool_calls(messages):
@@ -266,6 +296,13 @@ class Handler(BaseHTTPRequestHandler):
         need(msgs[0].get("role") == "system", "no system preamble")
         for t in req.get("tools", []):
             need("function" in t, "chat tools must nest under function")
+        if EXPECT_TOOL_NAMES is not None:
+            actual = {t["function"]["name"] for t in req.get("tools", [])}
+            expected = set(EXPECT_TOOL_NAMES.split(",")) if EXPECT_TOOL_NAMES else set()
+            need(
+                actual == expected,
+                f"tool names are {sorted(actual)}, want {sorted(expected)}",
+            )
         has_tool_result = any(m.get("role") == "tool" for m in msgs)
         need(not unpaired_tool_calls(msgs), "; ".join(unpaired_tool_calls(msgs)))
         if not has_tool_result and SLOW_MS:
@@ -275,6 +312,17 @@ class Handler(BaseHTTPRequestHandler):
             need(
                 last.get("role") == "user" and last.get("content") == EXPECT_STEER,
                 f"steer: last message is {last!r}, want user {EXPECT_STEER!r}",
+            )
+        if has_tool_result and EXPECT_TOOL_OUTPUT is not None:
+            tool_msg = next(m for m in msgs if m.get("role") == "tool")
+            need(
+                tool_msg.get("content") == EXPECT_TOOL_OUTPUT,
+                f"effective tool output is {tool_msg.get('content')!r}, "
+                f"want {EXPECT_TOOL_OUTPUT!r}",
+            )
+        if has_tool_result and EXPECT_SHELL_RESULT:
+            validate_shell_result(
+                next(m for m in msgs if m.get("role") == "tool")["content"]
             )
 
         structured = req.get("response_format")
@@ -289,6 +337,31 @@ class Handler(BaseHTTPRequestHandler):
                     "error": {"code": 502, "message": CHAT_ERROR},
                     "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
                 }
+            ]
+        elif CUSTOM_TOOL and not has_tool_result:
+            frames = [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "role": "assistant",
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "custom_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": CUSTOM_TOOL,
+                                            "arguments": CUSTOM_ARGUMENTS or "{}",
+                                        },
+                                    }
+                                ],
+                            },
+                        }
+                    ]
+                },
+                {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]},
             ]
         elif SENSITIVE and not has_tool_result:
             frames = [
@@ -545,6 +618,13 @@ class Handler(BaseHTTPRequestHandler):
                 t.get("type") == "function" and "name" in t and "function" not in t,
                 f"responses tools must be flat: {t}",
             )
+        if EXPECT_TOOL_NAMES is not None:
+            actual = {t["name"] for t in req.get("tools", [])}
+            expected = set(EXPECT_TOOL_NAMES.split(",")) if EXPECT_TOOL_NAMES else set()
+            need(
+                actual == expected,
+                f"tool names are {sorted(actual)}, want {sorted(expected)}",
+            )
 
         structured = (req.get("text") or {}).get("format")
         if structured is not None:
@@ -559,6 +639,8 @@ class Handler(BaseHTTPRequestHandler):
                 f"effective tool output is {outputs[0].get('output')!r}, "
                 f"want {EXPECT_TOOL_OUTPUT!r}",
             )
+        if outputs and EXPECT_SHELL_RESULT:
+            validate_shell_result(outputs[0].get("output", ""))
         if DROP_REUSED_ONCE and outputs and not _drop_reused_done:
             # Deterministic read-side stale keep-alive: the first request has
             # completed cleanly, this reused POST reaches the server, and the

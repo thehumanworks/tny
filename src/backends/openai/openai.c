@@ -223,6 +223,25 @@ static void build_system_prompt(oa_impl *o, buf_t *sys) {
         buf_appends(sys, o->ctx->system_prompt);
         buf_appends(sys, "\n");
     }
+    if (tny_tool_profile_is_shell(o->ctx)) {
+        buf_appends(sys, "# Shell tool profile\n\n"
+                         "Commands start in the workspace cwd, and cwd resets on every terminal "
+                         "call; chain dependent commands with `&&`. Inspect narrowly with `rg -n` "
+                         "and `sed -n`; never dump whole files. ");
+        if (o->ctx->tool_profile == TNY_TOOLS_TERMINAL_EDIT)
+            buf_appends(sys, "Mutate files with the `edit_file` tool; never use `sed -i`. ");
+        else
+            buf_appends(sys, "Mutate files with `tny edit FILE` (exact match; exit 2 means zero or "
+                             "many matches); never use `sed -i`. ");
+        buf_appends(sys,
+                    "Read the `exit:` line before claiming success. Call MCP tools with `tny "
+                    "mcp call SERVER/TOOL` and JSON on stdin; the MCP catalog above names the "
+                    "tools. Attach images with `tny image attach PATH` and ask questions with "
+                    "`tny ask-user \"...\"`; if either prints `no session socket`, skip it or "
+                    "state the assumption. Use subagents only with `tny ask -B --json ...` then "
+                    "`tny session ID --wait --json`; never run a foreground `tny ask` inside a "
+                    "turn.\n");
+    }
 }
 
 /* Build the legacy Chat Completions request body from the session view. */

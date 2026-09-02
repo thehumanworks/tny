@@ -31,6 +31,11 @@ struct tny_cursor_config;
 #endif
 
 typedef enum { TNY_MODE_ASK = 0, TNY_MODE_AUTO, TNY_MODE_YOLO } tny_perm_mode;
+typedef enum {
+    TNY_TOOLS_ALL = 0,
+    TNY_TOOLS_TERMINAL_EDIT,
+    TNY_TOOLS_TERMINAL,
+} tny_tool_profile;
 
 typedef struct tny_ctx {
     /* workspace */
@@ -46,6 +51,7 @@ typedef struct tny_ctx {
     bool model_from_flag; /* --model on the command line beats settings and
                            * saved models */
     tny_perm_mode perm_mode;
+    tny_tool_profile tool_profile; /* native-loop built-ins advertised/accepted */
     bool json_out;
     bool no_save;
     bool no_color;     /* --no-color | --color=never: no SGR at all */
@@ -198,6 +204,11 @@ void tny_ctx_add_extra_header(tny_ctx *ctx, const char *line);
  * "acp@claude") when active, else the builtin backend name. Never NULL after
  * tny_resolve_backend. */
 const char *tny_provider_name(const tny_ctx *ctx);
+const char *tny_tool_profile_name(tny_tool_profile profile);
+bool tny_tool_profile_is_shell(const tny_ctx *ctx);
+/* Force an unsupported runtime surface back to `all`, emitting one status
+ * line only when an opt-in profile was actually requested. */
+void tny_tool_profile_ignore(tny_ctx *ctx, const char *surface);
 /* True when `name` is a user-named OpenAI-compatible provider: a top-level
  * settings.json object with a base_url, or NAME_BASE_URL set in the
  * environment. Builtin names (openai|cursor|codex|acp) are never custom. */
