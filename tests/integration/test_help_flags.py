@@ -24,6 +24,7 @@ COMMAND_PARSERS = {
     "backends": ("cmd_backends",),
     "cursor": ("cmd_cursor",),
     "doctor": ("cmd_doctor",),
+    "edit": ("cmd_edit",),
     "login": ("cmd_login",),
     "logout": ("cmd_logout",),
     "mcp": ("cmd_mcp",),

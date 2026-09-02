@@ -15,6 +15,7 @@ void help_root(void) {
           "\n"
           "Commands:\n"
           "  ask <prompt>           Run one noninteractive request\n"
+          "  edit FILE              Exact-match replacement from stdin\n"
           "  resume [last|<id>]     Resume a session interactively\n"
           "  acp                    Start an ACP server over stdio (native loop)\n"
           "  sessions               List saved sessions for this workspace\n"
@@ -154,6 +155,28 @@ static const char *ask_help =
     "  tny ask --output-schema schema.json \"extract the TODOs as JSON\"\n"
     "  tny --provider cursor --model composer-2 ask \"find the login bug\"\n";
 
+static const char *edit_help =
+    "Usage: tny edit [--json] [--marker STR] FILE\n"
+    "\n"
+    "Replace an exact string from stdin. Fence input replaces exactly one match;\n"
+    "--json reads {\"old\":...,\"new\":...,\"replace_all\":false} and writes one\n"
+    "kind:\"edit\" object. No edit occurs on zero or ambiguous matches.\n"
+    "\n"
+    "Options:\n"
+    "  --json          Read the JSON stdin form and write one JSON object\n"
+    "  --marker STR    Fence prefix (default: ***)\n"
+    "  -h, --help      Show this help\n"
+    "\n"
+    "Stdout carries the result. Stderr carries progress and errors.\n"
+    "Exit codes: 0 edited, 1 usage/I/O, 2 zero or multiple matches, 130 interrupted.\n"
+    "\n"
+    "Examples:\n"
+    "  printf '*** SEARCH\\nold\\n*** REPLACE\\nnew\\n*** END\\n' | tny edit FILE\n"
+    "  printf '%s\\n' '{\"old\":\"old\",\"new\":\"new\",\"replace_all\":false}' | \\\n"
+    "    tny edit --json FILE\n"
+    "  printf '@@ SEARCH\\nold\\n@@ REPLACE\\nnew\\n@@ END\\n' | \\\n"
+    "    tny edit --marker @@ FILE\n";
+
 static const char *sessions_help =
     "Usage: tny sessions [--json] [--all] [--limit N] [--cursor ID]\n"
     "\n"
@@ -266,6 +289,7 @@ static const char *cursor_help =
 bool help_for(const char *command) {
     const char *text = NULL;
     if (strcmp(command, "ask") == 0) text = ask_help;
+    else if (strcmp(command, "edit") == 0) text = edit_help;
     else if (strcmp(command, "sessions") == 0) text = sessions_help;
     else if (strcmp(command, "session") == 0) text = session_help;
     else if (strcmp(command, "tasks") == 0) text = tasks_help;

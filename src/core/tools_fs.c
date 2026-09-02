@@ -1,5 +1,6 @@
 /* tools_fs.c — file tools: list/glob/grep/read/write/edit/…, /undo support. */
 #include "core/tools.h"
+#include "core/edit.h"
 #include "core/image.h"
 #include "util/alloc.h"
 #include "util/util.h"
@@ -426,6 +427,8 @@ static char *t_write_file(tools_env *env, yyjson_val *args) {
     return buf_detach(&out);
 }
 
+static void edit_record_undo(const char *path, void *userdata) { undo_record(userdata, path); }
+
 static char *t_edit_file(tools_env *env, yyjson_val *args) {
     char *err = NULL;
     char *abs = tool_resolve_path(env, jget_str(args, "path"), &err);
@@ -437,56 +440,35 @@ static char *t_edit_file(tools_env *env, yyjson_val *args) {
         free(abs);
         return tool_err("missing old_string/new_string");
     }
-    size_t len = 0;
-    char *data = file_slurp(abs, &len);
-    if (!data) {
+    tny_edit_result result = {0};
+    tny_edit_hooks hooks = {.before_write = edit_record_undo, .before_write_userdata = env};
+    tny_edit_status status = tny_edit_file_exact(abs, olds, news, all, &hooks, &result);
+    if (status == TNY_EDIT_READ_ERROR) {
         char *e = tool_err("cannot read %s", abs);
         free(abs);
         return e;
     }
-    size_t ol = strlen(olds);
-    /* count matches */
-    int count = 0;
-    for (char *p = data; (p = strstr(p, olds)); p += ol) count++;
-    if (count == 0) {
-        free(data);
+    if (status == TNY_EDIT_NOT_FOUND) {
+        tny_edit_result_free(&result);
         char *e = tool_err("old_string not found in %s", abs);
         free(abs);
         return e;
     }
-    if (count > 1 && !all) {
-        free(data);
-        char *e = tool_err("old_string occurs %d times in %s; pass replace_all or a longer match",
-                           count, abs);
+    if (status == TNY_EDIT_AMBIGUOUS) {
+        char *e = tool_err("old_string occurs %zu times in %s; pass replace_all or a longer match",
+                           result.matches, abs);
         free(abs);
         return e;
     }
-    undo_record(env, abs);
-    buf_t out;
-    buf_init(&out);
-    char *p = data;
-    for (;;) {
-        char *hit = strstr(p, olds);
-        if (!hit) {
-            buf_appends(&out, p);
-            break;
-        }
-        buf_append(&out, p, (size_t)(hit - p));
-        buf_appends(&out, news);
-        p = hit + ol;
-        if (!all) {
-            buf_appends(&out, p);
-            break;
-        }
+    if (status == TNY_EDIT_NOMEM) {
+        free(abs);
+        return NULL;
     }
-    free(data);
-    int rc = file_write_atomic(abs, out.data, out.len);
-    buf_free(&out);
     buf_t msg;
     buf_init(&msg);
-    if (rc == 0)
-        buf_appendf(&msg, "replaced %d occurrence%s in %s", all ? count : 1,
-                    (all && count > 1) ? "s" : "", abs);
+    if (status == TNY_EDIT_OK)
+        buf_appendf(&msg, "replaced %zu occurrence%s in %s", result.replaced,
+                    (all && result.matches > 1) ? "s" : "", abs);
     else buf_appendf(&msg, "error: write to %s failed", abs);
     free(abs);
     return buf_detach(&msg);
