@@ -136,6 +136,11 @@ run their own loops and ignore it.
 
 Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace` `/ssh`
 
+A `/name` line whose first token is not a builtin but names a discovered
+skill is a prompt, sent with that `SKILL.md` ahead of the text ([ADR
+0056](adr/0056-skill-mention-injection.md)); `$name` anywhere in a message
+does the same. Builtins always win on a name collision.
+
 `/task` lists available runtime presets and selects `review`, `optimizer`,
 `document`, `retro`, or a custom name. Selection is session-scoped: it must be
 made before the first turn; after a turn or on a resumed host conversation,

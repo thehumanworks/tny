@@ -384,6 +384,8 @@ static void cmd_transcript(tui *t) {
         const char *role = r ? yyjson_mut_get_str(r) : NULL;
         const char *txt = c ? yyjson_mut_get_str(c) : NULL;
         if (!role) continue;
+        const char *typed = session_message_display(t->session, (int)idx);
+        if (typed) txt = typed; /* skill blocks were injected; show the typed text */
         tui_linef(t, "%s[%s]%s %s", tui_attr(t, "\x1b[2m"), role, tui_attr(t, "\x1b[0m"),
                   txt ? txt : "(structured)");
     }
@@ -480,6 +482,27 @@ static void cmd_resume_id(tui *t, const char *id) {
 }
 
 /* ---- dispatch ---- */
+
+bool tui_command_is_builtin(const char *name) {
+    if (!name || !*name) return true; /* a bare "/" is /help */
+    for (int i = 0; i < N_CMDS; i++)
+        if (strcmp(CMDS[i].name, name) == 0) return true;
+    /* dispatched below but kept out of the palette */
+    static const char *HIDDEN[] = {"help", "exit", "backend", "cancel", NULL};
+    for (const char **h = HIDDEN; *h; h++)
+        if (strcmp(*h, name) == 0) return true;
+    return false;
+}
+
+bool tui_skill_exists(tui *t, const char *name) {
+    if (!name || !*name) return false;
+    int n = 0;
+    skill_meta *s = skills_discover(t->ctx, &n);
+    bool found = false;
+    for (int i = 0; i < n && !found; i++) found = strcmp(s[i].name, name) == 0;
+    skills_free(s, n);
+    return found;
+}
 
 void tui_command(tui *t, const char *line) {
     char *copy = xstrdup(line + 1); /* skip '/' */

@@ -150,6 +150,10 @@ Host mapping:
 | acp | agent argv + `sessionId` |
 | openai | full transcript |
 
+## Skill injections
+
+A user message that mentioned a skill ([ADR 0056](../adr/0056-skill-mention-injection.md)) is stored as the model saw it: the `<skill>` block, then the typed text. A top-level `skill_injections` array, one `{ "message": <index>, "skills": [...], "display": "<typed text>" }` per such message, lets transcript views show the typed text and stops a repeat mention from re-sending a body that is still in the verbatim window. Host sessions record it too (with no messages) so the reminder logic is the same. Old sessions simply lack the array.
+
 ## Compaction (native)
 
 After **eight** completed turns, keep the latest **four** verbatim and replace older turns with a structured summary (requests, outcomes, files, commands, interruptions). `/compact` forces condensation of everything before the latest turn. The on-disk transcript stays intact; only the model view shrinks. Host backends: send `/compact` only if the protocol has an equivalent; otherwise no-op with a status line.

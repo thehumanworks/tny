@@ -4,6 +4,7 @@
 #include "core/instructions.h"
 #include "core/extensions.h"
 #include "core/tasks.h"
+#include "core/skills.h"
 #include "util/util.h"
 
 #include <stdlib.h>
@@ -319,6 +320,46 @@ TEST runtime_task_precedes_explicit_system_prompt_on_host_first_turn(void) {
     ASSERT_EQ(0, tny_engine_start(x.engine, "again", NULL, err, sizeof err));
     ASSERT(drain_engine(x.engine, NULL) >= 0);
     ASSERT_STR_EQ("again", x.fake->prompts[1]);
+    fixture_free(&x);
+    PASS();
+}
+
+/* docs/adr/0056: a `$name` / `/name` mention puts the SKILL.md ahead of the
+ * user text on every backend; the typed text is what the session shows and a
+ * repeat mention in the same verbatim window sends a reminder, not a body. */
+TEST runtime_skill_mention_rides_ahead_of_the_user_text(void) {
+    fixture x = fixture_new(0);
+    char *dir = path_join(x.ctx->cwd, "skills/deploy");
+    mkdir_p(dir);
+    char *sf = path_join(dir, "SKILL.md");
+    const char *skill = "---\nname: deploy\ndescription: ship it\n---\nTag, then push.\n";
+    file_write_atomic(sf, skill, strlen(skill));
+    x.ctx->system_prompt = xstrdup("Be brief.");
+    char err[128];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "$deploy now", NULL, err, sizeof err));
+    ASSERT(drain_engine(x.engine, NULL) >= 0);
+    buf_t want;
+    buf_init(&want);
+    buf_appendf(&want,
+                "Be brief.\n\n<skill name=\"deploy\" path=\"%s\">\n%s</skill>\n\n$deploy now", sf,
+                skill);
+    ASSERT_STR_EQ(want.data, x.fake->prompts[0]);
+    buf_free(&want);
+    ASSERT(session_skill_injected(x.session, "deploy"));
+    ASSERT_STR_EQ("$deploy now", session_message_display(x.session, 0));
+
+    ASSERT_EQ(0, tny_engine_start(x.engine, "/deploy again", NULL, err, sizeof err));
+    ASSERT(drain_engine(x.engine, NULL) >= 0);
+    ASSERT(strstr(x.fake->prompts[1], "already loaded earlier"));
+    ASSERT(!strstr(x.fake->prompts[1], "Tag, then push."));
+    ASSERT(strstr(x.fake->prompts[1], "/>\n\n/deploy again"));
+
+    ASSERT_EQ(0,
+              tny_engine_start(x.engine, "see /deploy/logs and $deployer", NULL, err, sizeof err));
+    ASSERT(drain_engine(x.engine, NULL) >= 0);
+    ASSERT_STR_EQ("see /deploy/logs and $deployer", x.fake->prompts[2]);
+    free(sf);
+    free(dir);
     fixture_free(&x);
     PASS();
 }
@@ -978,6 +1019,7 @@ SUITE(runtime_suite) {
     RUN_TEST(runtime_copies_events_and_suppresses_duplicate_terminal);
     RUN_TEST(runtime_system_prompt_prefixes_only_the_first_user_message);
     RUN_TEST(runtime_task_precedes_explicit_system_prompt_on_host_first_turn);
+    RUN_TEST(runtime_skill_mention_rides_ahead_of_the_user_text);
     RUN_TEST(runtime_system_prompt_skips_resumed_host_sessions);
     RUN_TEST(runtime_synthesizes_transport_error_and_terminal);
     RUN_TEST(runtime_overflow_keeps_error_and_single_terminal);

@@ -75,6 +75,19 @@ void session_record_tool_audit(tny_session_state *s, const char *tool_call_id,
                                bool original_ok, const char *effective_result, bool effective_ok,
                                const char *replacement_extension, const char *annotations_json);
 
+/* Skill mention injection (docs/adr/0056). Top-level `skill_injections`,
+ * never serialized into messages[]: records which skill bodies were sent
+ * ahead of the user message at `message_index` and the text the user
+ * actually typed, so transcripts show that text and a later mention of a
+ * skill still in the verbatim window is not re-sent. */
+void session_record_skill_injection(tny_session_state *s, int message_index, char **names,
+                                    int n_names, const char *display);
+/* true when `name` was injected at or after the compaction boundary */
+bool session_skill_injected(tny_session_state *s, const char *name);
+/* The typed text for a message index whose stored content carries injected
+ * skill blocks; NULL when the stored content is what the user typed. */
+const char *session_message_display(tny_session_state *s, int message_index);
+
 /* Large tool results: store blob, return malloc'd handle id. Ephemeral
  * sessions retain the blob only until session_close(). */
 char *session_store_result(tny_session_state *s, const char *data, size_t len);
