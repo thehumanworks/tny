@@ -42,6 +42,20 @@ TARGETS = [
     ("src/net/stream.c", None, r"ossl|OSSL", "tests/integration/test_https.py"),
     ("src/tui/tui_prewarm.c", None, None),
     (
+        # `tny mcp call` (issue #97): the CLI seam the unit suite drives
+        # directly, plus the status the exit code is derived from.
+        "src/mcp/mcp.c",
+        [
+            "mcp_call_cli",
+            "mcp_call_tool_raw",
+            "spill_result",
+            "call_json_out",
+            "call_fail",
+        ],
+        None,
+        "tests/integration/test_mcp_call.py",
+    ),
+    (
         "src/tui/tui_draw.c",
         [
             "tui_push_ansi",

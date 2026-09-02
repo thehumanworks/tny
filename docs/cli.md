@@ -29,6 +29,7 @@ tny login                   # provider-specific; see --provider
 tny logout
 tny setup                   # write provider config from flags/env
 tny mcp [list]              # list configured MCP servers (source attributed)
+tny mcp call SERVER/TOOL    # one MCP tools/call; JSON arguments on stdin
 ```
 
 Global flags are **leading**:
@@ -387,6 +388,7 @@ JSON object (keep field names stable):
 
 `--json` is required on `ask`, `status`, `doctor`, `permissions`, `models`, `session`, `sessions`, `workspace`, `usage`. `tny mcp --json` is optional.
 
+
 ## `tny mcp`
 
 ```text
@@ -406,6 +408,48 @@ the default is off. Native `~/.tny/mcp.json` wins on name collision.
 Command lines and env values are omitted from the listing so secrets stay
 out of `--json`. wasm: the list still works; spawn stays the existing
 clean error.
+
+### `tny mcp call SERVER/TOOL`
+
+```text
+echo '{"path":"src/main.c"}' | tny mcp call fs/read_text_file
+tny --json mcp call deploy/status < args.json
+```
+
+One MCP `tools/call`, reachable from any shell — tny's own `terminal` tool,
+another harness, or a script ([ADR 0057](adr/0057-shell-first-native-loop.md),
+[ADR 0064](adr/0064-cli-verb-conventions.md)).
+
+- **Arguments ride stdin**, never argv: one JSON object, or nothing at all
+  (empty stdin, or a terminal on stdin, means `{}`). Anything else — invalid
+  JSON, an array, a scalar — is a usage error. The payload is capped at 1 MiB.
+- **Permissions** are checked immediately before `tools/call` with the same
+  engine and the same identity the native loop uses,
+  `mcp:<server>/<tool>`. In the default `yolo` mode
+  ([ADR 0001](adr/0001-run-all-agents-in-yolo-mode.md)) the call proceeds. In `ask` mode the
+  command never prompts: it fails closed with exit 2 until a rule allows that
+  exact identity, e.g. `"permission": {"mcp:deploy/status": "allow"}` in
+  `~/.tny/settings.json`.
+- **Servers come from `~/.tny/mcp.json`** plus any source named in
+  `mcp.import_from`; a repo-local `.mcp.json` is never read on its own. The
+  command is a one-shot, so it pays a cold start (spawn + `initialize` +
+  `tools/list`) and shuts the server down again on exit — including when the
+  model runs it from `terminal`, until the in-process intercept
+  ([ADR 0057](adr/0057-shell-first-native-loop.md) decision 5) routes it to
+  the session's warmed client.
+- **Output.** The result content goes to stdout, diagnostics to stderr.
+  `--json` prints one object:
+  `{"kind":"mcp_call","server":…,"tool":…,"ok":true,"result":"…","bytes":N,"truncated":false}`,
+  plus `"result_file"` when the result was spilled. Server output is untrusted
+  data and is bounded like a tool result: above `max_tool_result_bytes`
+  (32 KiB by default) the preview is capped and the whole result is written to
+  a `0600` file under `~/.tny/results/` whose path is printed.
+- **Exit codes.** 0 the tool answered; 1 usage or configuration (bad
+  `SERVER/TOOL`, stdin that is not one JSON object, unknown server, a server
+  that will not start); 2 the call was refused or failed (permission denied,
+  JSON-RPC error, `isError: true`, timeout); 130 interrupted.
+- **wasm:** HTTP MCP servers work (remote-only, subject to CORS); a stdio
+  server keeps the existing clean spawn error.
 
 ## Multi-agent workflow scripts
 

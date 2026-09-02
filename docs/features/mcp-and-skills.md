@@ -120,6 +120,31 @@ fetch/ReadableStream transport, subject to browser CORS. Stdio entries retain
 the clean spawn-unavailable error. There is no extra wasm protocol
 implementation and every blocking body wait still goes through `tny_poll`.
 
+From a shell ([ADR 0057](../adr/0057-shell-first-native-loop.md), [ADR 0064](../adr/0064-cli-verb-conventions.md)): `tny mcp call SERVER/TOOL`
+runs one `tools/call` for any harness with a shell — tny's own `terminal`
+tool, Claude Code, Codex, CI. The JSON arguments ride stdin (empty stdin, or a
+terminal on stdin, means `{}`; argv would be a quoting footgun), the result
+content goes to stdout, diagnostics to stderr, and `--json` prints one
+`{"kind":"mcp_call",…}` object. The permission identity is the same
+`mcp:server/tool` the native loop uses, checked with the same engine
+immediately before `tools/call`: in the default `yolo` mode it passes, and in
+`ask` mode the command never prompts — it fails closed with exit 2 until a
+rule names that identity. Exit codes: 0 ok, 1 usage/config (bad spec, stdin
+that is not one JSON object, unknown server), 2 refused or failed
+(`isError: true`, a JSON-RPC error, a timeout), 130 interrupted.
+
+Cross-harness rules are unchanged by the CLI: servers come from the
+user-global `~/.tny/mcp.json` plus any `mcp.import_from` source; a project
+`.mcp.json` is never read on its own. A one-shot `tny mcp call` outside a
+session pays a cold start (spawn, `initialize`, `tools/list`) and shuts the
+server down again on exit; inside a running tny session the warmed client
+answers instead. Server output stays untrusted data and is bounded like a
+tool result: above `max_tool_result_bytes` the preview is capped and the full
+result is written to a `0600` file under `~/.tny/results/` whose path is
+printed (`result_file` in `--json`). wasm: HTTP servers work remote-only,
+stdio keeps the clean spawn error, so `tny mcp call` against a stdio server in
+the browser reports that error and exits 1.
+
 ACP sessions (`tny acp`): use only client-supplied `mcpServers`, not the user profile (fx rule).
 
 tny is not an MCP server.
