@@ -669,22 +669,69 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     return 0;
 }
 
+#define MCP_CALL_STDIN_MAX (1024U * 1024U)
+
+/* Arguments for `tny mcp call` ride stdin (argv JSON is a quoting footgun).
+ * A terminal on stdin means "no arguments": the command never blocks waiting
+ * for a human to type JSON. NULL = read error or over the cap. */
+static char *mcp_call_read_stdin(void) {
+    if (isatty(STDIN_FILENO)) return xstrdup("{}");
+    buf_t in;
+    buf_init(&in);
+    char tmp[4096];
+    size_t n;
+    while ((n = fread(tmp, 1, sizeof tmp, stdin)) > 0) {
+        buf_append(&in, tmp, n);
+        if (in.len > MCP_CALL_STDIN_MAX) {
+            buf_free(&in);
+            return NULL;
+        }
+    }
+    if (ferror(stdin)) {
+        buf_free(&in);
+        return NULL;
+    }
+    char *s = buf_detach(&in);
+    if (!s) return NULL;
+    size_t len = strlen(s);
+    while (len &&
+           (s[len - 1] == '\n' || s[len - 1] == '\r' || s[len - 1] == ' ' || s[len - 1] == '\t'))
+        s[--len] = '\0';
+    return s;
+}
+
+static const char MCP_USAGE[] = "Usage: tny [--json] mcp [list | call SERVER/TOOL]\n";
+
 int cmd_mcp(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = g->json;
-    const char *sub = NULL;
+    const char *sub = NULL, *spec = NULL;
     for (int i = 0; i < argc; i++) {
         if (strcmp(argv[i], "--json") == 0) json = true;
         else if (!sub) sub = argv[i];
+        else if (!spec && sub && strcmp(sub, "call") == 0) spec = argv[i];
         else {
-            fprintf(stderr,
-                    "tny: mcp: unexpected argument '%s'\n"
-                    "Usage: tny [--json] mcp [list]\n",
-                    argv[i]);
+            fprintf(stderr, "tny: mcp: unexpected argument '%s'\n%s", argv[i], MCP_USAGE);
             return 1;
         }
     }
+    if (sub && strcmp(sub, "call") == 0) {
+        if (!spec) {
+            fprintf(stderr, "tny: mcp call: expected SERVER/TOOL\n%s", MCP_USAGE);
+            return 1;
+        }
+        char *args = mcp_call_read_stdin();
+        if (!args) {
+            fprintf(stderr, "tny: mcp call: could not read arguments from stdin (cap %u bytes)\n",
+                    MCP_CALL_STDIN_MAX);
+            return 1;
+        }
+        int rc = mcp_call_cli(ctx, spec, args, json, stdout, stderr);
+        free(args);
+        mcp_shutdown_all(); /* the call cold-started the server; do not orphan it */
+        return rc;
+    }
     if (sub && strcmp(sub, "list") != 0) {
-        fprintf(stderr, "tny: mcp: unknown subcommand '%s'\nUsage: tny [--json] mcp [list]\n", sub);
+        fprintf(stderr, "tny: mcp: unknown subcommand '%s'\n%s", sub, MCP_USAGE);
         return 1;
     }
     char *out = json ? mcp_list_json(ctx) : mcp_list_text(ctx);

@@ -31,7 +31,7 @@ void help_root(void) {
           "  status                 Show configuration and runtime information\n"
           "  doctor                 Run local health and preflight checks\n"
           "  usage                  Show local token usage\n"
-          "  mcp [list]             List configured MCP servers (source attributed)\n"
+          "  mcp [list|call]        List MCP servers, or call one MCP tool\n"
           "  login | logout | setup Provider-specific auth and configuration\n"
           "  help                   Show this help\n"
           "\n"
@@ -308,16 +308,24 @@ bool help_for(const char *command) {
         text = "Usage: tny usage [--json]\n\nShow local token usage recorded from native-loop "
                "sessions.\n";
     else if (strcmp(command, "mcp") == 0)
-        text = "Usage: tny mcp [list] [--json]\n"
+        text = "Usage: tny mcp [list | call SERVER/TOOL] [--json]\n"
                "\n"
                "List MCP servers from ~/.tny/mcp.json plus any sources named in\n"
                "settings.json mcp.import_from (codex, claude, grok, cursor-agent). Import is\n"
                "off by default. Native names win on collision. Remote/SSE entries are\n"
                "skipped with a notice. tny never writes foreign config files.\n"
                "\n"
+               "`call` runs one tools/call: the JSON arguments come from stdin (empty means\n"
+               "{}), the result goes to stdout, and permissions are checked as\n"
+               "mcp:SERVER/TOOL. Exit 1 for usage/config, 2 when the call is refused or\n"
+               "fails. A big result is capped and written to a 0600 file under\n"
+               "~/.tny/results/ whose path is printed.\n"
+               "\n"
                "Examples:\n"
                "  tny mcp\n"
-               "  tny mcp list --json\n";
+               "  tny mcp list --json\n"
+               "  echo '{\"path\":\"README.md\"}' | tny mcp call fs/read_text_file\n"
+               "  tny --json mcp call deploy/status < args.json\n";
     else if (strcmp(command, "login") == 0)
         text = "Usage: tny [--provider NAME] login [--device | --device-code]\n"
                "\n"
