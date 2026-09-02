@@ -97,6 +97,13 @@ static void fx_free(fx *x) {
     free(x->old_home);
 }
 
+static void strip_cr(char *s) {
+    char *w = s;
+    for (const char *r = s; *r; r++)
+        if (*r != '\r') *w++ = *r;
+    *w = 0;
+}
+
 TEST inject_wraps_body_ahead_of_prompt(void) {
     fx x = fx_new();
     char **names = NULL;
@@ -106,6 +113,9 @@ TEST inject_wraps_body_ahead_of_prompt(void) {
     ASSERT_EQ(1, n);
     ASSERT_STR_EQ("deploy", names[0]);
     ASSERT(strncmp(out, "<skill name=\"deploy\" path=\"", 27) == 0);
+    /* a Windows checkout without .gitattributes gives the fixture CRLF
+     * endings; the body is copied verbatim, so compare without the CRs */
+    strip_cr(out);
     ASSERT(strstr(out, "skills-ws/skills/deploy/SKILL.md\">\n---\nname: deploy\n"));
     ASSERT(strstr(
         out, "3. Push the tag; CI deploys to staging.\n</skill>\n\nplease $deploy the branch"));
