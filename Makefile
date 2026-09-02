@@ -764,7 +764,7 @@ LEAKS         ?= leaks
 # deadlocks the run, and MallocStackLogging's banner corrupts the stdout the
 # tests read back. macOS therefore runs suite by suite and skips the five
 # process-spawning suites, which valgrind still covers on Linux.
-LEAK_SUITE_SKIP := cursor_suite cursor_sdk_suite mcp_suite session_bg_suite ssh_suite
+LEAK_SUITE_SKIP := cursor_suite cursor_sdk_suite mcp_suite session_bg_suite ssh_suite runner_suite
 LEAK_SUITES := $(filter-out $(LEAK_SUITE_SKIP),\
 	$(shell sed -n 's/.*RUN_SUITE(\([A-Za-z0-9_]*\)).*/\1/p' tests/test_main.c))
 

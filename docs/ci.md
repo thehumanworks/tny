@@ -133,11 +133,12 @@ Docker file-sharing roots — colima and Docker Desktop share `$HOME`, not
 `/tmp`, by default.
 
 macOS runs suite by suite and skips `cursor_suite`, `cursor_sdk_suite`,
-`mcp_suite`, `session_bg_suite` and `ssh_suite`: `leaks --atExit` installs an
+`mcp_suite`, `session_bg_suite`, `ssh_suite` and `runner_suite` (its control-channel
+tests fork a terminal child, ADR 0058): `leaks --atExit` installs an
 exit hook that stops the process for analysis and `fork(2)` copies it into
 every child, so a suite that spawns a helper deadlocks, and
 MallocStackLogging's banner corrupts the stdout those tests read back. The
-Linux `valgrind` job covers all five, which is why it is the gate.
+Linux `valgrind` job covers all six, which is why it is the gate.
 
 Two valgrind flags beyond the obvious ones earn their place. Several suites
 fork, and a child that exits mid-test reports the parent's still-live heap as
