@@ -2,6 +2,8 @@
 #ifndef TNY_EDIT_H
 #define TNY_EDIT_H
 
+#include "util/util.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -45,5 +47,30 @@ tny_edit_status tny_edit_file_exact(const char *path, const char *old_text, cons
                                     tny_edit_result *result);
 
 void tny_edit_result_free(tny_edit_result *result);
+
+/* ---- the `tny edit` verb contract (docs/adr/0064), shared by the CLI in
+ * src/cli/cmd_edit.c and the in-process intercept (docs/adr/0063) so both
+ * accept the same stdin and print the same bytes. ---- */
+
+typedef struct {
+    char *old_text;
+    char *new_text;
+    bool replace_all;
+} tny_edit_payload;
+
+/* Parse one stdin payload: a single JSON object when json is true, else the
+ * marker fence. Returns false with a one-line reason in err. */
+bool tny_edit_parse_payload(const char *input, size_t len, bool json, const char *marker,
+                            tny_edit_payload *payload, char *err, size_t errlen);
+void tny_edit_payload_free(tny_edit_payload *payload);
+
+/* The verb's usage diagnostic: the caller's message (when any) followed by
+ * the example line, both as the CLI writes them to stderr. */
+void tny_edit_usage(const char *message, buf_t *err);
+
+/* Append what the verb prints on stdout to out and on stderr to err, and
+ * return its exit code. TNY_EDIT_INTERRUPTED prints nothing and returns 130. */
+int tny_edit_render(const char *path, bool json, tny_edit_status status,
+                    const tny_edit_result *result, buf_t *out, buf_t *err);
 
 #endif

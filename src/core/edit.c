@@ -1,5 +1,6 @@
 /* edit.c — exact-match, atomic file replacement shared by tools and CLI. */
 #include "core/edit.h"
+#include "json/json.h"
 #include "util/util.h"
 
 #include <errno.h>
@@ -254,4 +255,210 @@ tny_edit_status tny_edit_file_exact(const char *path, const char *old_text, cons
     free(data);
     free(resolved);
     return TNY_EDIT_OK;
+}
+
+/* ---- verb contract: stdin payloads and rendered output (docs/adr/0064) ---- */
+
+void tny_edit_payload_free(tny_edit_payload *payload) {
+    if (!payload) return;
+    free(payload->old_text);
+    free(payload->new_text);
+    memset(payload, 0, sizeof *payload);
+}
+
+static bool json_field_known(const char *name) {
+    return strcmp(name, "old") == 0 || strcmp(name, "new") == 0 || strcmp(name, "replace_all") == 0;
+}
+
+static bool parse_json_payload(const char *input, size_t len, tny_edit_payload *payload, char *err,
+                               size_t errlen) {
+    yyjson_doc *doc = jparse(input, len);
+    yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+    if (!root || !yyjson_is_obj(root)) {
+        snprintf(err, errlen, "stdin must be one JSON object");
+        yyjson_doc_free(doc);
+        return false;
+    }
+    yyjson_obj_iter iter = yyjson_obj_iter_with(root);
+    yyjson_val *key;
+    while ((key = yyjson_obj_iter_next(&iter))) {
+        const char *name = yyjson_get_str(key);
+        if (!name || !json_field_known(name)) {
+            snprintf(err, errlen, "unknown JSON field '%s'", name ? name : "");
+            yyjson_doc_free(doc);
+            return false;
+        }
+    }
+    yyjson_val *old_value = jget(root, "old");
+    yyjson_val *new_value = jget(root, "new");
+    yyjson_val *all_value = jget(root, "replace_all");
+    if (!yyjson_is_str(old_value) || !yyjson_get_len(old_value) || !yyjson_is_str(new_value) ||
+        (all_value && !yyjson_is_bool(all_value))) {
+        snprintf(err, errlen,
+                 "JSON needs non-empty string 'old', string 'new', and optional boolean "
+                 "'replace_all'");
+        yyjson_doc_free(doc);
+        return false;
+    }
+    const char *old_text = yyjson_get_str(old_value);
+    const char *new_text = yyjson_get_str(new_value);
+    if (strlen(old_text) != yyjson_get_len(old_value) ||
+        strlen(new_text) != yyjson_get_len(new_value)) {
+        snprintf(err, errlen, "edit strings may not contain NUL bytes");
+        yyjson_doc_free(doc);
+        return false;
+    }
+    payload->old_text = xstrdup(old_text);
+    payload->new_text = xstrdup(new_text);
+    payload->replace_all = all_value ? yyjson_get_bool(all_value) : false;
+    yyjson_doc_free(doc);
+    if (!payload->old_text || !payload->new_text) {
+        tny_edit_payload_free(payload);
+        snprintf(err, errlen, "out of memory");
+        return false;
+    }
+    return true;
+}
+
+static bool next_line(const char *input, size_t len, size_t *position, size_t *start,
+                      size_t *line_len) {
+    if (*position >= len) return false;
+    *start = *position;
+    size_t end = *position;
+    while (end < len && input[end] != '\n') end++;
+    *line_len = end - *start;
+    if (*line_len && input[*start + *line_len - 1] == '\r') (*line_len)--;
+    *position = end < len ? end + 1 : end;
+    return true;
+}
+
+static bool marker_line(const char *input, size_t start, size_t line_len, const char *marker,
+                        const char *name) {
+    size_t marker_len = strlen(marker);
+    size_t name_len = strlen(name);
+    return line_len == marker_len + 1 + name_len &&
+           memcmp(input + start, marker, marker_len) == 0 && input[start + marker_len] == ' ' &&
+           memcmp(input + start + marker_len + 1, name, name_len) == 0;
+}
+
+static size_t body_end(const char *input, size_t start, size_t end) {
+    if (end > start && input[end - 1] == '\n') end--;
+    if (end > start && input[end - 1] == '\r') end--;
+    return end;
+}
+
+static bool only_line_endings(const char *input, size_t start, size_t len) {
+    for (size_t i = start; i < len; i++)
+        if (input[i] != '\r' && input[i] != '\n') return false;
+    return true;
+}
+
+static bool parse_fence_payload(const char *input, size_t len, const char *marker,
+                                tny_edit_payload *payload, char *err, size_t errlen) {
+    if (!len || memchr(input, '\0', len)) {
+        snprintf(err, errlen, "fence input is empty or contains a NUL byte");
+        return false;
+    }
+    size_t position = 0;
+    size_t start = 0;
+    size_t line_len = 0;
+    if (!next_line(input, len, &position, &start, &line_len) ||
+        !marker_line(input, start, line_len, marker, "SEARCH")) {
+        snprintf(err, errlen, "expected '%s SEARCH' as the first line", marker);
+        return false;
+    }
+    size_t old_start = position;
+    size_t old_end = SIZE_MAX;
+    while (next_line(input, len, &position, &start, &line_len)) {
+        if (marker_line(input, start, line_len, marker, "REPLACE")) {
+            old_end = body_end(input, old_start, start);
+            break;
+        }
+    }
+    if (old_end == SIZE_MAX) {
+        snprintf(err, errlen, "missing '%s REPLACE' line", marker);
+        return false;
+    }
+    size_t new_start = position;
+    size_t new_end = SIZE_MAX;
+    while (next_line(input, len, &position, &start, &line_len)) {
+        if (marker_line(input, start, line_len, marker, "END")) {
+            new_end = body_end(input, new_start, start);
+            break;
+        }
+    }
+    if (new_end == SIZE_MAX) {
+        snprintf(err, errlen, "missing '%s END' line", marker);
+        return false;
+    }
+    if (!only_line_endings(input, position, len)) {
+        snprintf(err, errlen, "unexpected data after '%s END'", marker);
+        return false;
+    }
+    if (old_end == old_start) {
+        snprintf(err, errlen, "SEARCH block may not be empty");
+        return false;
+    }
+    payload->old_text = xstrndup(input + old_start, old_end - old_start);
+    payload->new_text = xstrndup(input + new_start, new_end - new_start);
+    if (!payload->old_text || !payload->new_text) {
+        tny_edit_payload_free(payload);
+        snprintf(err, errlen, "out of memory");
+        return false;
+    }
+    return true;
+}
+
+bool tny_edit_parse_payload(const char *input, size_t len, bool json, const char *marker,
+                            tny_edit_payload *payload, char *err, size_t errlen) {
+    if (!payload || !err || !errlen) return false;
+    memset(payload, 0, sizeof *payload);
+    if (!input) {
+        snprintf(err, errlen, "could not read stdin");
+        return false;
+    }
+    if (json) return parse_json_payload(input, len, payload, err, errlen);
+    return parse_fence_payload(input, len, marker && *marker ? marker : "***", payload, err,
+                               errlen);
+}
+
+void tny_edit_usage(const char *message, buf_t *err) {
+    if (!err) return;
+    if (message) buf_appendf(err, "tny: edit: %s\n", message);
+    buf_appendf(err, "Example: printf '%s' | tny edit FILE\n",
+                "*** SEARCH\\nold\\n*** REPLACE\\nnew\\n*** END\\n");
+}
+
+int tny_edit_render(const char *path, bool json, tny_edit_status status,
+                    const tny_edit_result *result, buf_t *out, buf_t *err) {
+    if (!path || !result || !out || !err) return 1;
+    switch (status) {
+    case TNY_EDIT_INTERRUPTED: return 130;
+    case TNY_EDIT_NOT_FOUND:
+        buf_appendf(err, "tny: edit: 0 matches in %s\n", path);
+        if (result->nearest_context)
+            buf_appendf(err, "tny: edit: nearest unique context is line %zu: %s\n",
+                        result->nearest_line, result->nearest_context);
+        return 2;
+    case TNY_EDIT_AMBIGUOUS:
+        buf_appendf(err, "tny: edit: %zu matches in %s; widen SEARCH or use JSON replace_all\n",
+                    result->matches, path);
+        return 2;
+    case TNY_EDIT_OK:
+        if (json) {
+            buf_appends(out, "{\"kind\":\"edit\",\"path\":");
+            jescape(out, path);
+            buf_appendf(out, ",\"matches\":%zu,\"replaced\":%zu}\n", result->matches,
+                        result->replaced);
+        } else {
+            buf_appendf(out, "edited %s: replaced %zu occurrence%s\n", path, result->replaced,
+                        result->replaced == 1 ? "" : "s");
+        }
+        return buf_oom(out) ? 1 : 0;
+    default: break;
+    }
+    buf_appendf(err, "tny: edit: cannot %s %s: %s\n",
+                status == TNY_EDIT_WRITE_ERROR ? "write" : "read", path,
+                result->error_number ? strerror(result->error_number) : "out of memory");
+    return 1;
 }

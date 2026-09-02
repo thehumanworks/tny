@@ -1262,6 +1262,63 @@ TEST cli_call_large_result_spills_to_file(void) {
     PASS();
 }
 
+/* The intercepted `tny mcp call` (docs/adr/0063) must use the warmed
+ * in-process client. A server that records every start proves the verb never
+ * spawns a second copy of itself the way the standalone CLI would. */
+TEST intercepted_mcp_call_reuses_the_warmed_server(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    char spawn_log[620], counted[620], profile[760];
+    snprintf(spawn_log, sizeof spawn_log, "%s/spawns.log", m_home);
+    snprintf(counted, sizeof counted, "%s/fake-mcp-counted.sh", m_home);
+    unlink(spawn_log);
+    buf_t script;
+    buf_init(&script);
+    buf_appendf(&script, "#!/bin/sh\necho spawn >> '%s'\n", spawn_log);
+    buf_appends(&script, FAKE_SERVER + strlen("#!/bin/sh\n"));
+    file_write_atomic(counted, script.data, script.len);
+    buf_free(&script);
+    chmod(counted, 0755);
+    snprintf(profile, sizeof profile, "{\"servers\":{\"srv\":{\"command\":[\"%s\"]}}}", counted);
+    write_profile(profile);
+
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    mcp_warm_start(ctx);
+    ASSERT(catalog_ready(ctx, 8000));
+    char *spawns = file_slurp(spawn_log, NULL);
+    ASSERT_STR_EQ("spawn\n", spawns);
+    free(spawns);
+
+    char *out = tools_execute(&env, "terminal",
+                              "{\"command\":\"echo '{}' | tny mcp call srv/deploy_app\"}");
+    ASSERT(out);
+    ASSERT(str_starts(out, "exit: 0\n"));
+    ASSERT(strstr(out, "called ok"));
+    free(out);
+    spawns = file_slurp(spawn_log, NULL);
+    ASSERT_STR_EQ("spawn\n", spawns); /* still one server process */
+    free(spawns);
+
+    /* a tool the server rejects keeps the CLI's exit code and diagnostic */
+    out = tools_execute(&env, "terminal", "{\"command\":\"tny mcp call srv/nosuch\"}");
+    ASSERT(out);
+    ASSERT(str_starts(out, "exit: 2\n"));
+    ASSERT(strstr(out, "tny: mcp call: "));
+    free(out);
+    spawns = file_slurp(spawn_log, NULL);
+    ASSERT_STR_EQ("spawn\n", spawns);
+    free(spawns);
+
+    mcp_shutdown_all();
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    write_profile(NULL);
+    PASS();
+}
+
 SUITE(mcp_suite) {
     RUN_TEST(warm_start_does_not_block_and_catalog_appears);
     RUN_TEST(select_waits_for_warming_server);
@@ -1289,4 +1346,5 @@ SUITE(mcp_suite) {
     RUN_TEST(cli_call_usage_and_unknown_server_exit_1);
     RUN_TEST(cli_call_permission_identity_is_mcp_server_tool);
     RUN_TEST(cli_call_large_result_spills_to_file);
+    RUN_TEST(intercepted_mcp_call_reuses_the_warmed_server);
 }

@@ -85,8 +85,9 @@ valgrind.**
    the run deadlocks. MallocStackLogging also writes a banner into every
    instrumented process, which corrupts the stdout `ssh_suite` reads back from
    its helpers. `cursor_suite`, `cursor_sdk_suite`, `mcp_suite`,
-   `session_bg_suite` and `ssh_suite` are therefore skipped on Darwin — the
-   Linux valgrind job covers all five, which is why that job, not the macOS
+   `session_bg_suite`, `ssh_suite` and (since ADR 0058 made it fork a terminal
+   child) `runner_suite` are therefore skipped on Darwin — the
+   Linux valgrind job covers all six, which is why that job, not the macOS
    convenience path, is the gate. The suite list is derived from
    `RUN_SUITE(...)` in `tests/test_main.c`, so a new suite joins the gate
    automatically.

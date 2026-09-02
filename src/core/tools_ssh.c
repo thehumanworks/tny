@@ -5,6 +5,7 @@
  * side needs POSIX sh + coreutils + grep/find only. Content-bearing arguments
  * (write_file, edit_file) travel on stdin, never inside the command line. */
 #include "core/tools.h"
+#include "core/edit.h"
 #include "core/ssh.h"
 #include "core/image.h"
 #include "util/util.h"
@@ -13,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define R_MAX_OUT             (512u * 1024u)
 #define R_MAX_FILE            (8u * 1024u * 1024u)
@@ -376,6 +378,71 @@ static char *r_edit_file(tools_env *env, yyjson_val *args) {
     buf_free(&msg);
     free(path);
     return buf_detach(&res);
+}
+
+/* The intercepted `tny edit` on the --ssh host (docs/adr/0063). The remote
+ * side stays POSIX sh: cat the file out, run the shared exact-match engine on
+ * a local staging copy so the model gets the same match policy and nearest
+ * context as it would locally, then stream the result back into a temp file
+ * that is renamed into place. There is no remote undo record, exactly as for
+ * the remote edit_file tool. */
+tny_edit_status tool_ssh_edit_exact(tools_env *env, const char *path, const char *old_text,
+                                    const char *new_text, bool replace_all, tny_edit_result *result,
+                                    char **err_out) {
+    *err_out = NULL;
+    memset(result, 0, sizeof *result);
+    char *rerr = NULL;
+    char *remote = rpath(env, path, &rerr);
+    if (!remote) {
+        *err_out = rerr;
+        return TNY_EDIT_READ_ERROR;
+    }
+    buf_t data;
+    buf_init(&data);
+    char *cat_error = r_cat(env, remote, &data);
+    if (cat_error) {
+        *err_out = xstrdup(str_starts(cat_error, "error: ") ? cat_error + 7 : cat_error);
+        free(cat_error);
+        free(remote);
+        return TNY_EDIT_READ_ERROR;
+    }
+
+    const char *tmpdir = getenv("TMPDIR");
+    char staged[4096];
+    snprintf(staged, sizeof staged, "%s/tny-ssh-edit-XXXXXX", tmpdir && *tmpdir ? tmpdir : "/tmp");
+    int fd = mkstemp(staged);
+    bool wrote = fd >= 0 && (data.len == 0 || write(fd, data.data, data.len) == (ssize_t)data.len);
+    if (fd >= 0) close(fd);
+    buf_free(&data);
+    if (!wrote) {
+        if (fd >= 0) unlink(staged);
+        *err_out = xstrdup("cannot stage the remote file locally");
+        free(remote);
+        return TNY_EDIT_READ_ERROR;
+    }
+
+    tny_edit_status status =
+        tny_edit_file_exact(staged, old_text, new_text, replace_all, NULL, result);
+    if (status == TNY_EDIT_OK) {
+        size_t len = 0;
+        char *edited = file_slurp(staged, &len);
+        buf_t msg;
+        buf_init(&msg);
+        int rc = edited ? r_put(env, remote, edited, len, &msg) : -1;
+        free(edited);
+        chomp(&msg);
+        if (rc != 0) {
+            buf_t why;
+            buf_init(&why);
+            buf_appendf(&why, "cannot write %s: %s", remote, msg.data ? msg.data : "");
+            *err_out = buf_detach(&why);
+            status = TNY_EDIT_WRITE_ERROR;
+        }
+        buf_free(&msg);
+    }
+    unlink(staged);
+    free(remote);
+    return status;
 }
 
 static char *r_simple_path_op(tools_env *env, yyjson_val *args, const char *op) {
