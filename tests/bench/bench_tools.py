@@ -247,7 +247,7 @@ def one_run(a, task, arm, home):
     }
     try:
         scratch_copy(task, scratch)
-        env = dict(os.environ, HOME=home, TNY_TOOLS=arm)
+        env = dict(os.environ, HOME=home, TNY_TOOLS=arm, **mise_env())
         env["PATH"] = os.path.join(home, "bin") + os.pathsep + env.get("PATH", "")
         env.pop("TNY_ISOLATE", None)
         provider = a.provider
@@ -510,6 +510,55 @@ def verify_fixtures(tasks):
     return 1 if bad else 0
 
 
+def mise_env():
+    """mise resolves its shims and its trust list against $HOME. The bench
+    overrides HOME, so an unpatched `rg` would fail with `not a valid shim` /
+    `not trusted` — burning one step on every `rg -n` the shell-profile prompt
+    recommends, and biasing the shell arms. Point mise back at the invoking
+    user's own directories; anything already set in the environment wins."""
+    if not shutil.which("mise"):
+        return {}
+    real = os.path.expanduser("~")
+    cfg = os.path.join(real, ".config", "mise")
+    return {
+        k: v
+        for k, v in (
+            ("MISE_DATA_DIR", os.path.join(real, ".local", "share", "mise")),
+            ("MISE_CONFIG_DIR", cfg),
+            ("MISE_CACHE_DIR", os.path.join(real, ".cache", "mise")),
+            ("MISE_STATE_DIR", os.path.join(real, ".local", "state", "mise")),
+            ("MISE_TRUSTED_CONFIG_PATHS", cfg),
+        )
+        if k not in os.environ
+    }
+
+
+def preflight(env):
+    """Report the workspace tools the fixtures and the shell prompt assume, as
+    resolved under the bench environment. A broken one is a measurement
+    artifact, not a model failure, so it belongs in the record."""
+    seen = {}
+    for tool, argv in (
+        ("python3", ["python3", "--version"]),
+        ("cc", ["cc", "--version"]),
+        ("rg", ["rg", "--version"]),
+    ):
+        try:
+            p = subprocess.run(argv, env=env, capture_output=True, timeout=60)
+            ok = p.returncode == 0
+            note = (p.stdout or p.stderr).decode("utf-8", "replace").split("\n")[0]
+        except (OSError, subprocess.TimeoutExpired) as e:
+            ok, note = False, str(e)
+        seen[tool] = {"ok": ok, "note": note.strip()[:120]}
+        if not ok:
+            print(
+                "preflight: %s is unavailable under the bench environment (%s)"
+                % (tool, seen[tool]["note"]),
+                file=sys.stderr,
+            )
+    return seen
+
+
 def bench_home(tny):
     """A private HOME so the bench never writes sessions into the user's, while
     still resolving the provider entries from the real settings file. `bin/tny`
@@ -593,6 +642,7 @@ def main():
     )
 
     home = bench_home(a.tny)
+    tools = preflight(dict(os.environ, HOME=home, **mise_env()))
     runs = []
     total = len(tasks) * len(arms) * a.runs
     i = 0
@@ -633,6 +683,7 @@ def main():
         "timeout": a.timeout,
         "tny_version": version,
         "label": a.label,
+        "workspace_tools": tools,
     }
     report = markdown(meta, tasks, runs, summaries)
     print(report)
