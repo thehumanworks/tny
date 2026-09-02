@@ -161,8 +161,7 @@ tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
         int pr = tny_poll(&pf, 1, 200);
         if (g_winch) {
             g_winch = 0;
-            tui_size(t);
-            t->dirty = true;
+            tui_resize(t);
         }
         if (g_sigint) {
             g_sigint = 0;
@@ -663,6 +662,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     }
 #endif
     tui_size(&t);
+    tui_size_probe(&t);
 
     install(SIGWINCH, on_winch);
     install(SIGINT, on_sigint);
@@ -726,8 +726,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
 
         if (g_winch) {
             g_winch = 0;
-            tui_size(&t);
-            t.dirty = true;
+            tui_resize(&t);
         }
         if (g_sigint) {
             g_sigint = 0;

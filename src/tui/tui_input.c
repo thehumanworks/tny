@@ -630,6 +630,16 @@ size_t tui_decode_one(const char *p, size_t n, bool final, tui_decoded *out) {
         case 'H': set_key(out, TUI_K_HOME); break;
         case 'F': set_key(out, TUI_K_END); break;
         case 'Z': set_key(out, TUI_K_TAB); break;
+        case 'R': /* CPR answer to tui_size_probe. xterm's modified F3 is
+                   * ESC[1;mR: a corner report never has row 1 */
+            if (a >= 2 && b >= 1) {
+                set_key(out, TUI_K_CPR);
+                if (out) {
+                    out->cpr_row = a;
+                    out->cpr_col = b;
+                }
+            }
+            break;
         case 'u': /* kitty / CSI-u */
             if (a == 13) set_key(out, b <= 1 ? TUI_K_ENTER : TUI_K_NEWLINE);
             else if (a == 10 || a == 106) set_key(out, TUI_K_NEWLINE);
@@ -709,7 +719,8 @@ static size_t decode_one(tui *t, const char *p, size_t n, bool final) {
     tui_decoded d;
     size_t used = tui_decode_one(p, n, final, &d);
     if (!used) return 0;
-    if (d.key != TUI_K_NONE) do_key(t, (int)d.key, d.ch, d.chlen);
+    if (d.key == TUI_K_CPR) tui_size_report(t, d.cpr_row, d.cpr_col);
+    else if (d.key != TUI_K_NONE) do_key(t, (int)d.key, d.ch, d.chlen);
     return used;
 }
 

@@ -66,7 +66,7 @@ class Screen:
     would actually SEE, which is the only way to assert that transient
     blocks (popover, overlay) really left the screen."""
 
-    SEQ = re.compile(r"\x1b\[([0-9;?]*)([a-zA-Z])")
+    SEQ = re.compile(r"\x1b\[([0-9;?]*)([a-zA-Z])|\x1b([78])")
 
     def __init__(self, rows=ROWS, cols=COLS):
         self.rows, self.cols = rows, cols
@@ -96,6 +96,13 @@ class Screen:
                 if not m:
                     i += 1
                     continue
+                if m.group(3):  # DECSC / DECRC around the size probe (ADR 0054)
+                    if m.group(3) == "7":
+                        self.saved = (self.r, self.c)
+                    else:
+                        self.r, self.c = getattr(self, "saved", (0, 0))
+                    i = m.end()
+                    continue
                 args, fin = m.group(1), m.group(2)
                 n = int(args.split(";")[0]) if args and args[0].isdigit() else None
                 if fin == "A":
@@ -110,8 +117,12 @@ class Screen:
                             self.grid[rr] = [" "] * self.cols
                     else:  # 2J / 3J
                         self.grid = [[" "] * self.cols for _ in range(self.rows)]
-                elif fin == "H":
-                    self.r = self.c = 0
+                elif fin == "H":  # CUP clamps to the screen, never scrolls
+                    parts = args.split(";") if args else []
+                    row = int(parts[0]) if parts and parts[0].isdigit() else 1
+                    col = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
+                    self.r = min(self.rows, row) - 1
+                    self.c = min(self.cols, col) - 1
                 # SGR (m) and cursor-visibility are ignored
                 i = m.end()
                 continue

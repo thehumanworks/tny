@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /* ---- tui_push_ansi ---- */
 
@@ -876,6 +877,237 @@ TEST decode_arrows_unchanged(void) {
     PASS();
 }
 
+/* ---- terminal size probe (docs/adr/0054) ---- */
+
+TEST decode_cpr_reports_terminal_size(void) {
+    tui_decoded d;
+    const char *rep = "\x1b[24;44R";
+    ASSERT_EQ(strlen(rep), tui_decode_one(rep, strlen(rep), true, &d));
+    ASSERT_EQ(TUI_K_CPR, d.key);
+    ASSERT_EQ(24, d.cpr_row);
+    ASSERT_EQ(44, d.cpr_col);
+
+    /* xterm's Shift-F3 is ESC[1;2R: consumed, never mistaken for a report */
+    const char *f3 = "\x1b[1;2R";
+    ASSERT_EQ(strlen(f3), tui_decode_one(f3, strlen(f3), true, &d));
+    ASSERT_EQ(TUI_K_NONE, d.key);
+
+    /* split anywhere: the decoder waits for the final byte */
+    for (size_t split = 1; split < strlen(rep); split++) {
+        ASSERT_EQ(0, (int)tui_decode_one(rep, split, false, &d));
+    }
+    PASS();
+}
+
+TEST size_report_applies_only_real_changes(void) {
+    tui t;
+    mk_tui(&t, 24);
+    t.cols = 80;
+    tui_size_report(&t, 24, 44);
+    ASSERT_EQ(44, t.cols);
+    ASSERT_EQ(24, t.rows);
+    ASSERT(t.dirty);
+
+    t.dirty = false;
+    tui_size_report(&t, 24, 44); /* same answer: no spurious repaint */
+    ASSERT_FALSE(t.dirty);
+
+    tui_size_report(&t, 1, 1); /* not a corner report */
+    ASSERT_EQ(44, t.cols);
+    ASSERT_FALSE(t.dirty);
+
+    tui_size_report(&t, 30, 5); /* floor matches tui_size */
+    ASSERT_EQ(20, t.cols);
+    ASSERT_EQ(30, t.rows);
+    free_tui(&t);
+    PASS();
+}
+
+/* A tiny VT model: enough of a screen to see what erase_block's cursor-up
+ * arithmetic leaves behind. Rows are cell arrays of code points (stored as
+ * the first byte, ASCII is all the block prints here); DECAWM honoured. */
+#define SCR_W 44
+#define SCR_H 12
+typedef struct {
+    char cell[SCR_H][SCR_W + 1];
+    int r, c;
+    bool wrap, pend;
+} scr;
+
+static void scr_init(scr *s) {
+    memset(s, 0, sizeof *s);
+    for (int i = 0; i < SCR_H; i++) memset(s->cell[i], ' ', SCR_W);
+    s->wrap = true;
+}
+
+static void scr_lf(scr *s) {
+    s->pend = false;
+    if (s->r + 1 < SCR_H) {
+        s->r++;
+        return;
+    }
+    memmove(s->cell[0], s->cell[1], sizeof s->cell[0] * (SCR_H - 1));
+    memset(s->cell[SCR_H - 1], ' ', SCR_W);
+}
+
+static void scr_put(scr *s, char ch) {
+    if (s->pend && s->wrap) {
+        s->c = 0;
+        scr_lf(s);
+    }
+    s->cell[s->r][s->c] = ch;
+    if (s->c + 1 < SCR_W) s->c++;
+    else s->pend = true; /* last column: wrap (if enabled) on the next glyph */
+}
+
+static void scr_feed(scr *s, const char *p, size_t n) {
+    for (size_t i = 0; i < n;) {
+        unsigned char ch = (unsigned char)p[i];
+        if (ch == '\r') {
+            s->c = 0;
+            s->pend = false;
+            i++;
+        } else if (ch == '\n') { /* raw mode keeps ONLCR: LF arrives as CR LF */
+            s->c = 0;
+            scr_lf(s);
+            i++;
+        } else if (ch == 0x1b && i + 1 < n && p[i + 1] == '[') {
+            size_t j = i + 2;
+            bool priv = j < n && p[j] == '?';
+            if (priv) j++;
+            int arg = 0;
+            while (j < n && p[j] >= '0' && p[j] <= '9') arg = arg * 10 + (p[j++] - '0');
+            while (j < n && !((unsigned char)p[j] >= 0x40 && (unsigned char)p[j] <= 0x7e)) j++;
+            char fin = j < n ? p[j] : 0;
+            if (fin == 'A') s->r -= arg ? arg : 1, s->pend = false;
+            else if (fin == 'C') s->c += arg ? arg : 1;
+            else if (fin == 'J') {
+                memset(s->cell[s->r] + s->c, ' ', (size_t)(SCR_W - s->c));
+                for (int k = s->r + 1; k < SCR_H; k++) memset(s->cell[k], ' ', SCR_W);
+            } else if (priv && arg == 7) s->wrap = fin == 'h';
+            if (s->r < 0) s->r = 0;
+            if (s->c >= SCR_W) s->c = SCR_W - 1;
+            i = j + 1;
+        } else if (ch == 0x1b) {
+            i += 2; /* ESC 7 / ESC 8 and friends: not used by the block */
+        } else {
+            size_t len = 1;
+            if (ch >= 0xF0) len = 4;
+            else if (ch >= 0xE0) len = 3;
+            else if (ch >= 0xC0) len = 2;
+            scr_put(s, (char)ch);
+            i += len;
+        }
+    }
+}
+
+static int scr_count(const scr *s, const char *needle) {
+    int hits = 0;
+    for (int i = 0; i < SCR_H; i++) {
+        char row[SCR_W + 1];
+        memcpy(row, s->cell[i], SCR_W);
+        row[SCR_W] = 0;
+        if (strstr(row, needle)) hits++;
+    }
+    return hits;
+}
+
+/* Render three times (the user typing) into a capture of stdout. */
+static char *render_capture(tui *t, size_t *len) {
+    int fds[2];
+    if (pipe(fds) != 0) return NULL;
+    fflush(stdout);
+    int saved = dup(STDOUT_FILENO);
+    dup2(fds[1], STDOUT_FILENO);
+    close(fds[1]);
+    for (int i = 0; i < 3; i++) {
+        buf_appends(&t->input, "x");
+        t->cur = t->input.len;
+        t->dirty = true;
+        tui_render(t);
+    }
+    fflush(stdout);
+    dup2(saved, STDOUT_FILENO);
+    close(saved);
+    buf_t b;
+    buf_init(&b);
+    char tmp[4096];
+    ssize_t n;
+    while ((n = read(fds[0], tmp, sizeof tmp)) > 0) buf_append(&b, tmp, (size_t)n);
+    close(fds[0]);
+    *len = b.len;
+    return b.data ? b.data : xstrdup("");
+}
+
+/* The screenshot bug: the pty says 80 columns, the phone terminal has 44.
+ * The reverse-video status row padded to 79 cells soft-wrapped onto two
+ * physical rows, erase_block moved up one row too few, and every keypress
+ * left one more copy of the status row on screen. */
+TEST render_narrow_terminal_leaves_one_status_row(void) {
+    tui t;
+    mk_tui(&t, SCR_H);
+    struct tny_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    ctx.cwd = (char *)"/workdir";
+    ctx.model = (char *)"claude-sonnet-4-6";
+    t.ctx = &ctx;
+    t.color = false;
+    t.cols = 80; /* what TIOCGWINSZ claims */
+
+    size_t n = 0;
+    char *out = render_capture(&t, &n);
+    ASSERT(out);
+    scr s;
+    scr_init(&s);
+    scr_feed(&s, out, n);
+    ASSERT_EQ(1, scr_count(&s, "claude-sonnet-4-6"));
+    ASSERT_EQ(1, scr_count(&s, "> xxx"));
+    ASSERT(strstr(out, "\x1b[?7l")); /* autowrap off around the block */
+    ASSERT(strstr(out, "\x1b[?7h")); /* ... and back on for the transcript */
+    ASSERT(s.wrap);                  /* so transcript lines still soft-wrap */
+    free(out);
+
+    /* once the CPR answer lands the row is cut to the real width and the
+     * picture is identical with autowrap on */
+    tui_size_report(&t, SCR_H, SCR_W);
+    out = render_capture(&t, &n);
+    ASSERT(out);
+    scr_init(&s);
+    scr_feed(&s, out, n);
+    ASSERT_EQ(1, scr_count(&s, "claude-sonnet-4-6"));
+    ASSERT_EQ(1, scr_count(&s, "> xxxxxx"));
+    free(out);
+    free_tui(&t);
+    PASS();
+}
+
+/* A streaming line whose glyphs the column counter thinks fit — the emoji
+ * in "Hello! 👋" is two cells wide on screen but one to tui_push_ansi — must
+ * not wrap either: the same DECAWM guard clips it. */
+TEST render_partial_line_at_the_margin_does_not_duplicate(void) {
+    tui t;
+    mk_tui(&t, SCR_H);
+    struct tny_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    ctx.cwd = (char *)"/w";
+    t.ctx = &ctx;
+    t.color = false;
+    t.cols = SCR_W + 2; /* rows one cell wider than the screen: each spills */
+    buf_appends(&t.partial, "Hello! How can I help you today? Whether you");
+
+    size_t n = 0;
+    char *out = render_capture(&t, &n);
+    ASSERT(out);
+    scr s;
+    scr_init(&s);
+    scr_feed(&s, out, n);
+    ASSERT_EQ(1, scr_count(&s, "Hello! How can"));
+    ASSERT_EQ(1, scr_count(&s, "openai"));
+    free(out);
+    free_tui(&t);
+    PASS();
+}
+
 SUITE(tui_suite) {
     RUN_TEST(push_ansi_plain_truncates);
     RUN_TEST(push_ansi_sgr_is_zero_width);
@@ -921,4 +1153,8 @@ SUITE(tui_suite) {
     RUN_TEST(decode_csi_u_shift_enter_and_ctrl_v);
     RUN_TEST(decode_csi_u_survives_every_split_boundary);
     RUN_TEST(decode_arrows_unchanged);
+    RUN_TEST(decode_cpr_reports_terminal_size);
+    RUN_TEST(size_report_applies_only_real_changes);
+    RUN_TEST(render_narrow_terminal_leaves_one_status_row);
+    RUN_TEST(render_partial_line_at_the_margin_does_not_duplicate);
 }

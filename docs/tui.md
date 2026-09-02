@@ -23,6 +23,14 @@ Match fx's form: a **Unix shell**, not an IDE. Streaming transcript, a pinned co
   as literal text with `\r`/`\r\n` normalized to `\n` — pasted newlines never
   submit. Only a real Enter keypress submits the draft.
 - Status line is off-by-default extras (sandbox, context bytes) like fx.
+- Terminal size comes from `TIOCGWINSZ` and then from the terminal itself:
+  the shell sends `ESC 7 CSI 999;999 H CSI 6 n ESC 8` at startup and on
+  `SIGWINCH` and applies the `CSI rows;cols R` answer, because a sandbox
+  shell or web console can leave the pty at 80x24 while the real terminal
+  is narrower. The bottom block (status row, composer, popover, streaming
+  line) is painted with autowrap off (`CSI ?7 l` … `CSI ?7 h`) so an
+  over-wide row is clipped, never soft-wrapped into a second physical row
+  the repaint would leave behind ([ADR 0054](adr/0054-terminal-size-probe-and-no-autowrap-block.md)).
 
 ## Colors and attributes
 

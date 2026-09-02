@@ -49,6 +49,7 @@ TARGETS = [
             "overlay_rows",
             "tui_overlay_linef",
             "tui_overlay_clear",
+            "tui_size_report",
         ],
         None,
     ),

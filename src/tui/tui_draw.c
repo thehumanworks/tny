@@ -100,9 +100,12 @@ void tui_size(tui *t) {
     struct winsize ws;
     t->rows = 24;
     t->cols = 80;
-    if (t->tty && ioctl(1, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0) {
+    static const int fds[] = {1, 0, 2};
+    for (size_t i = 0; t->tty && i < sizeof fds / sizeof *fds; i++) {
+        if (ioctl(fds[i], TIOCGWINSZ, &ws) != 0 || ws.ws_col == 0) continue;
         t->cols = ws.ws_col;
         t->rows = ws.ws_row > 0 ? ws.ws_row : 24;
+        break;
     }
 #ifdef __EMSCRIPTEN__
     if (js_tui_cols() > 0) {
@@ -111,6 +114,35 @@ void tui_size(tui *t) {
     }
 #endif
     if (t->cols < 20) t->cols = 20;
+}
+
+/* The pty's winsize is what the kernel was told, not what the user sees:
+ * a sandbox shell or web console that never forwards SIGWINCH leaves it at
+ * 80x24 while the real terminal is 44 columns wide. Ask the terminal itself
+ * (docs/adr/0054): park the cursor at the bottom-right corner (CUP clamps,
+ * never scrolls), request a report, restore. The answer arrives on stdin as
+ * ESC[rows;colsR and lands in tui_size_report via the key decoder. */
+void tui_size_probe(tui *t) {
+    if (!t->tty) return;
+    /* octal ESC: "\x1b7" would read as one hex escape */
+    static const char probe[] = "\0337\x1b[999;999H\x1b[6n\0338";
+    wout(probe, sizeof probe - 1);
+    fflush(stdout);
+}
+
+void tui_size_report(tui *t, int rows, int cols) {
+    if (rows < 2 || cols < 2) return; /* not a corner report */
+    if (cols < 20) cols = 20;
+    if (rows == t->rows && cols == t->cols) return;
+    t->rows = rows;
+    t->cols = cols;
+    t->dirty = true;
+}
+
+void tui_resize(tui *t) {
+    tui_size(t);
+    tui_size_probe(t);
+    t->dirty = true;
 }
 
 static void erase_block(tui *t) {
@@ -390,6 +422,14 @@ void tui_render(tui *t) {
     int maxw = t->cols - 1;
     buf_t b;
     buf_init(&b);
+    /* DECAWM off while the block is on screen: if t->cols is still wider
+     * than the real terminal (probe answer pending, or a terminal that
+     * never answers), an over-long row is clipped at the margin instead of
+     * soft-wrapping onto a second physical row that erase_block does not
+     * know about — which is how every repaint used to leave a stale copy of
+     * the status row behind (docs/adr/0054). The transcript above keeps
+     * wrapping: it is written before this and after the restore. */
+    buf_appends(&b, "\x1b[?7l");
     int rows = 0, cur_row = 0, cur_col = 0;
 
     if (t->partial.len) {
@@ -421,6 +461,7 @@ void tui_render(tui *t) {
         int n = snprintf(esc, sizeof esc, "\x1b[%dC", cur_col);
         wout(esc, (size_t)n);
     }
+    wout("\x1b[?7h", 5);
     t->block_rows = rows;
     t->cur_row = cur_row;
     t->dirty = false;

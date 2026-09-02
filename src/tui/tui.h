@@ -143,13 +143,15 @@ typedef enum {
     TUI_K_CTRLO,
     TUI_K_CTRLX,
     TUI_K_PASTE,
-    TUI_K_PASTE_BEGIN
+    TUI_K_PASTE_BEGIN,
+    TUI_K_CPR /* cursor position report: the answer to tui_size_probe */
 } tui_key;
 
 typedef struct {
     tui_key key;
     const char *ch;
     size_t chlen;
+    int cpr_row, cpr_col; /* TUI_K_CPR only, 1-based */
 } tui_decoded;
 
 /* Consume one key from p[0..n). 0 if more bytes are needed. */
@@ -207,6 +209,11 @@ int tui_prewarm_launch(tui *t, tny_backend *bk, int backend_id, const char *resu
 
 /* tui_draw.c */
 void tui_size(tui *t);
+/* Ask the terminal for its real size (docs/adr/0054); the CPR answer is
+ * decoded from stdin and applied by tui_size_report. */
+void tui_size_probe(tui *t);
+void tui_size_report(tui *t, int rows, int cols);
+void tui_resize(tui *t); /* SIGWINCH: winsize + probe + repaint */
 void tui_render(tui *t);
 void tui_render_force(tui *t);
 void tui_raw_begin(tui *t); /* drop the block so plain printf output scrolls */
