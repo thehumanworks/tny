@@ -57,6 +57,10 @@ wasm: `web_search_url` works as before (fetch); `web_search_command` returns
 the clean error `web_search_command is not available in wasm`, while the tool
 stays advertised because a provider is configured.
 
+For a token-efficient setup that saves result pages to disk and hands the
+model only an index to `read_file`, see
+[`examples/web-search/`](../../examples/web-search/README.md).
+
 ## MCP client
 
 Authoritative profile: `~/.tny/mcp.json`. A clone cannot opt itself into MCP

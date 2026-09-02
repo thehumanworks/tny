@@ -72,9 +72,13 @@
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/workspace" }
     },
+    "web_search_command": {
+      "type": "string",
+      "description": "Shell command template that provides web_search. Every {query} or {{query}} placeholder receives the percent-encoded query. The expanded command runs through the terminal tool path (workspace cwd, --ssh remote runner, 60 s timeout, bounded output). When both keys are set, web_search_command wins over web_search_url. Not available in wasm."
+    },
     "web_search_url": {
       "type": "string",
-      "description": "Web-search endpoint template containing {query}."
+      "description": "URL template that provides web_search. Every {query} or {{query}} placeholder receives the percent-encoded query; fetched over HTTP(S) like web_fetch."
     },
     "mcp": {
       "type": "object",
@@ -92,7 +96,7 @@
     }
   },
   "patternProperties": {
-    "^(?!\\$schema$|provider$|model$|models$|effort$|fast$|permission_mode$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_url$|mcp$)[A-Za-z0-9_-]+$": {
+    "^(?!\\$schema$|provider$|model$|models$|effort$|fast$|permission_mode$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_command$|web_search_url$|mcp$)[A-Za-z0-9_-]+$": {
       "$ref": "#/$defs/openAIProfile",
       "description": "Named OpenAI-compatible provider profile."
     }
