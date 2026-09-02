@@ -600,6 +600,8 @@ bench: release
 install: release
 	mkdir -p "$(DESTDIR)$(PREFIX)/bin" "$(DESTDIR)$(PREFIX)/lib/tny/tny_ext" \
 		"$(DESTDIR)$(PREFIX)/share/tny"
+	# unlink first: macOS kills (SIGKILL) a code-signed Mach-O overwritten in place
+	rm -f "$(DESTDIR)$(PREFIX)/bin/tny$(EXE)"
 	cp "$(BIN)" "$(DESTDIR)$(PREFIX)/bin/tny$(EXE)"
 	cp python/tny_extension_host.py "$(DESTDIR)$(PREFIX)/lib/tny/"
 	cp python/tny_ext/*.py python/tny_ext/py.typed \
