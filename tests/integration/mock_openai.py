@@ -96,6 +96,7 @@ EXPECT_EXTENSION_REWRITE = os.environ.get("MOCK_EXPECT_EXTENSION_REWRITE") == "1
 EXPECT_TOOL_OUTPUT = os.environ.get("MOCK_EXPECT_TOOL_OUTPUT")
 CUSTOM_TOOL = os.environ.get("MOCK_CUSTOM_TOOL")
 CUSTOM_ARGUMENTS = os.environ.get("MOCK_CUSTOM_ARGUMENTS")
+EXPECT_ATTACHED_IMAGE = os.environ.get("MOCK_EXPECT_ATTACHED_IMAGE") == "1"
 LEADING_WS = os.environ.get("MOCK_LEADING_WS") == "1"
 
 
@@ -553,6 +554,18 @@ class Handler(BaseHTTPRequestHandler):
             need("schema" in structured and "name" in structured, f"bad {structured}")
 
         outputs = [i for i in items if i.get("type") == "function_call_output"]
+        if outputs and EXPECT_ATTACHED_IMAGE:
+            images = [
+                part
+                for item in items
+                for part in item.get("content", [])
+                if isinstance(part, dict) and part.get("type") == "input_image"
+            ]
+            need(images, f"attached image missing from next request: {items!r}")
+            need(
+                images[-1].get("image_url", "").startswith("data:image/png;base64,"),
+                f"attached image has wrong content: {images[-1]!r}",
+            )
         if outputs and EXPECT_TOOL_OUTPUT is not None:
             need(
                 outputs[0].get("output") == EXPECT_TOOL_OUTPUT,

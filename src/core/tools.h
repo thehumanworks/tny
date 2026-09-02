@@ -21,6 +21,17 @@ typedef struct tools_env {
      * the call is denied and the run stops per docs/cli.md. */
     tny_perm_decision (*prompt)(const char *tool, const char *summary, void *ud);
     void *prompt_ud;
+    /* Free-text frontend question hook. NULL (or a NULL answer) preserves
+     * the non-interactive fallback used by one-shot/embedded callers. */
+    char *(*ask_user)(const char *question, void *ud);
+    void *ask_user_ud;
+    /* A terminal child can block on the runner control socket while the
+     * backend is inside this tool call. Pumping this callback may service
+     * only socket control traffic; it must never dispatch the backend. */
+    int (*control_pump)(void *ud, int timeout_ms);
+    void *control_pump_ud;
+    const char *session_sock;
+    const char *session_id;
     /* Event sink for TOOL_START / TOOL_END / STATUS. */
     tny_backend_event_cb ev_cb;
     void *ev_ud;
@@ -105,5 +116,12 @@ char *tool_resolve_path(tools_env *env, const char *path, char **err_out);
 char *tool_bound_result(tools_env *env, const char *data, size_t len);
 /* Inject queued read_image files as one user message. 0 ok, -1 on error. */
 int tools_flush_images(tools_env *env, char *err, size_t errlen);
+/* Validate a local png/jpeg/gif/webp and queue it through the same
+ * next-request path as read_image. allowed_roots_only is true for the socket
+ * operation; read_image already passed its permission gate. resolved_out
+ * borrows the queued path; mime_out is static. */
+int tools_queue_image(tools_env *env, const char *path, bool allowed_roots_only,
+                      const char **resolved_out, const char **mime_out, size_t *len_out, char *err,
+                      size_t errlen);
 
 #endif

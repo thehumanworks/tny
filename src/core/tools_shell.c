@@ -19,6 +19,13 @@
 
 #define SHELL_MAX_OUT (512u * 1024u)
 
+static void shell_control_env(tools_env *env) {
+    if (env->session_sock && *env->session_sock) setenv("TNY_SESSION_SOCK", env->session_sock, 1);
+    else unsetenv("TNY_SESSION_SOCK");
+    if (env->session_id && *env->session_id) setenv("TNY_SESSION_ID", env->session_id, 1);
+    else unsetenv("TNY_SESSION_ID");
+}
+
 static char *run_background(tools_env *env, const char *cmd) {
     char *logdir = env->session ? path_join(env->session->dir, "bg") : xstrdup("/tmp/tny-bg");
     mkdir_p(logdir);
@@ -36,6 +43,7 @@ static char *run_background(tools_env *env, const char *cmd) {
     }
     if (pid == 0) {
         setsid();
+        shell_control_env(env);
         int fd = open(logpath.data, O_WRONLY | O_CREAT | O_TRUNC, 0600);
         if (fd >= 0) {
             dup2(fd, 1);
@@ -88,6 +96,7 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
         dup2(pipefd[1], 1);
         dup2(pipefd[1], 2);
         close(pipefd[1]);
+        shell_control_env(env);
         if (chdir(env->ctx->cwd) != 0) _exit(127);
         setpgid(0, 0);
         execl(TNY_SHELL_PATH, "sh", "-c", cmd, (char *)NULL);
@@ -99,15 +108,20 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     int64_t deadline = now_ms() + timeout_s * 1000;
     bool truncated = false, timed_out = false;
     for (;;) {
+        if (env->control_pump) env->control_pump(env->control_pump_ud, 0);
         struct pollfd pf = {pipefd[0], POLLIN, 0};
         int left = (int)(deadline - now_ms());
         if (left <= 0) {
             timed_out = true;
             break;
         }
-        int pr = tny_poll(&pf, 1, left > 500 ? 500 : left);
+        int slice = env->control_pump ? 50 : 500;
+        int pr = tny_poll(&pf, 1, left > slice ? slice : left);
         if (pr < 0) break;
-        if (pr == 0) continue;
+        if (pr == 0) {
+            if (env->control_pump) env->control_pump(env->control_pump_ud, 0);
+            continue;
+        }
         char tmp[8192];
         ssize_t n = read(pipefd[0], tmp, sizeof tmp);
         if (n == 0) break;

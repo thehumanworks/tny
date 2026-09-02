@@ -9,6 +9,8 @@ Binary name: `tny`.
 ```text
 tny                         # interactive TUI, fresh session
 tny ask [prompt]            # one turn, then exit
+tny ask-user QUESTION       # ask the owning runner frontend (inside terminal)
+tny image attach PATH       # attach an image to the next request (inside terminal)
 tny resume [last|<id>]      # interactive resume
 tny acp                     # ACP server (native loop only)
 tny sessions
@@ -387,6 +389,40 @@ JSON object (keep field names stable):
 
 `--json` is required on `ask`, `status`, `doctor`, `permissions`, `models`, `session`, `sessions`, `workspace`, `usage`. `tny mcp --json` is optional.
 
+## Runner control verbs: `ask-user` and `image attach`
+
+Shell commands launched by the native `terminal` tool receive the runner's
+resolved socket path and session id as `TNY_SESSION_SOCK` and
+`TNY_SESSION_ID`. This includes the short per-user fallback socket used when a
+session directory is too deep for `sun_path`.
+
+```sh
+tny ask-user "Which deployment target should I use?"
+printf 'Describe the expected fallback behavior' | tny ask-user
+tny --json ask-user "Which branch?"
+tny image attach screenshots/failure.png
+tny --json image attach screenshots/failure.png
+```
+
+`ask-user` returns the owning interactive TUI's arbitrary text answer on
+stdout. `image attach` validates that the path is under an allowed workspace
+root and that its magic bytes identify png/jpeg/gif/webp, then queues it as
+user-role image content for the next native provider request (ADR 0008).
+`--json` emits `kind: "ask_user"` or `kind: "image_attach"` plus the request's
+string correlation id.
+
+Both commands are socket-bound and never read `/dev/tty`. Without
+`TNY_SESSION_SOCK` they print exactly
+`tny: no session socket (set TNY_SESSION_SOCK or run inside tny)` to stderr and
+exit 1. Exit codes are 0 success, 1 usage/configuration, 2 rejected or failed
+control operation, and 130 interrupted. wasm, `--ephemeral`,
+`TNY_ISOLATE=0`, and the macOS post-TLS in-process fallback have no runner
+socket and therefore take this clean-error path. A noninteractive `tny ask`
+owner does not wait for a human and preserves the existing
+`ask_user_question` fallback string. `tny acp` stays in-process and maps the
+question through its ACP client permission callback rather than creating a
+runner socket. See [ADR 0058](adr/0058-session-control-channel-roles-and-tool-ops.md).
+
 ## `tny mcp`
 
 ```text
@@ -444,6 +480,13 @@ killing it: the runner finishes, finalizes the session's
 `ask` still cancels the turn; a second `^C` detaches and leaves it running.
 In-process turns remain only on wasm, with `--ephemeral`, or with the
 `TNY_ISOLATE=0` debug escape hatch.
+
+Every socket client first handshakes as `owner`, `observer`, or `tool`. The
+unique owner may control turns and answer prompts; observers can only watch
+and detach; tool clients can only send correlated `ask_user` and
+`image_attach` requests. While `terminal` waits for a child, the runner pumps
+only these socket operations and owner replies—never backend dispatch—so a
+child blocked in `tny ask-user` cannot deadlock the active tool call.
 
 ### `tny session attach <id>`
 

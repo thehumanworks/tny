@@ -520,6 +520,44 @@ int tools_flush_images(tools_env *env, char *err, size_t errlen) {
     return rc;
 }
 
+int tools_queue_image(tools_env *env, const char *path, bool allowed_roots_only,
+                      const char **resolved_out, const char **mime_out, size_t *len_out, char *err,
+                      size_t errlen) {
+    if (resolved_out) *resolved_out = NULL;
+    if (mime_out) *mime_out = NULL;
+    if (len_out) *len_out = 0;
+    if (!env || !env->ctx || env->n_pending_images >= 8) {
+        if (err && errlen) snprintf(err, errlen, "too many images in this step (max 8)");
+        return -1;
+    }
+    char *resolve_err = NULL;
+    char *abs = tool_resolve_path(env, path, &resolve_err);
+    if (!abs) {
+        if (err && errlen)
+            snprintf(err, errlen, "%s", resolve_err ? resolve_err : "invalid image path");
+        free(resolve_err);
+        return -1;
+    }
+    if (allowed_roots_only && !perm_path_allowed(env->ctx, abs)) {
+        if (err && errlen) snprintf(err, errlen, "image path is outside the allowed roots");
+        free(abs);
+        return -1;
+    }
+    size_t len = 0;
+    const char *mime = NULL;
+    uint8_t *data = image_load(abs, &len, &mime, err, errlen);
+    if (!data) {
+        free(abs);
+        return -1;
+    }
+    free(data);
+    env->pending_images[env->n_pending_images++] = abs;
+    if (resolved_out) *resolved_out = abs;
+    if (mime_out) *mime_out = mime;
+    if (len_out) *len_out = len;
+    return 0;
+}
+
 char *tools_execute(tools_env *env, const char *name, const char *args_json) {
     name = canonical_name(name);
     tools_call call;

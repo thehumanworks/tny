@@ -214,6 +214,78 @@ static tny_perm_decision perm_hook(const char *tool, const char *summary, void *
     return tui_ask_perm((tui *)ud, tool, summary);
 }
 
+char *tui_ask_user(tui *t, const char *question) {
+    if (!t || !t->tty) return NULL;
+    buf_t saved, answer;
+    buf_init(&saved);
+    buf_init(&answer);
+    if (t->overlay.len) buf_append(&saved, t->overlay.data, t->overlay.len);
+    tui_pick_close(t);
+    t->approval = true; /* the nested reader owns stdin */
+    bool done = false, failed = false;
+    while (!done && !t->quit) {
+        buf_clear(&t->overlay);
+        tui_overlay_linef(t, "? %s", question ? question : "Question");
+        tui_overlay_linef(t, "> %s", answer.data ? answer.data : "");
+        tui_render(t);
+        struct pollfd pf = {STDIN_FILENO, POLLIN, 0};
+        int pr = tny_poll(&pf, 1, 200);
+        if (g_winch) {
+            g_winch = 0;
+            tui_resize(t);
+        }
+        if (g_sigint) {
+            g_sigint = 0;
+            failed = true;
+            break;
+        }
+        if (pr <= 0) continue;
+        char bytes[256];
+        ssize_t n = read(STDIN_FILENO, bytes, sizeof bytes);
+        if (n <= 0) {
+            if (n == 0) t->quit = true;
+            failed = true;
+            break;
+        }
+        for (ssize_t i = 0; i < n && !done; i++) {
+            unsigned char ch = (unsigned char)bytes[i];
+            if (ch == '\r' || ch == '\n') {
+                done = true;
+            } else if (ch == 3 || ch == 27) {
+                failed = true;
+                done = true;
+            } else if (ch == 0x7f || ch == 0x08) {
+                if (answer.len && answer.data) {
+                    answer.len--;
+                    while (answer.len && ((unsigned char)answer.data[answer.len] & 0xc0u) == 0x80u)
+                        answer.len--;
+                    answer.data[answer.len] = 0;
+                }
+            } else if (ch >= 0x20 && answer.len < (1u << 20)) {
+                buf_append(&answer, &bytes[i], 1);
+            }
+        }
+    }
+    t->approval = false;
+    buf_clear(&t->overlay);
+    if (saved.len) buf_append(&t->overlay, saved.data, saved.len);
+    tui_linef(t, "? %s", question ? question : "Question");
+    if (!failed) tui_linef(t, "> %s", answer.data ? answer.data : "");
+    else tui_sys(t, "  question cancelled");
+    t->dirty = true;
+    buf_free(&saved);
+    if (failed) {
+        buf_free(&answer);
+        return NULL;
+    }
+    if (!answer.data) return xstrdup("");
+    return buf_detach(&answer);
+}
+
+static char *ask_user_hook(const char *question, void *ud) {
+    return tui_ask_user((tui *)ud, question);
+}
+
 /* ---- normalized event rendering ---- */
 
 void tui_handle_backend_event(tui *t, const tny_backend_event *ev) {
@@ -442,6 +514,7 @@ static bool ensure_backend(tui *t) {
         tui_err(t, "could not create the runtime");
         return false;
     }
+    tny_engine_set_frontend_control(engine, ask_user_hook, t, NULL, NULL, NULL, t->session->id);
     tny_engine_set_cancel_probe(engine, tui_cancel_probe, t);
     tny_backend *bk = tui_prewarm_take(t);
     if (bk) {

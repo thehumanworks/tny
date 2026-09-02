@@ -199,6 +199,12 @@ tny_perm_decision acp_srv_prompt(const char *tool, const char *summary, void *ud
     return s->perm_result;
 }
 
+char *acp_srv_ask_user(const char *question, void *ud) {
+    tny_perm_decision answer = acp_srv_prompt("ask_user_question", question, ud);
+    if (answer == TNY_PERM_DECISION_DENY) return xstrdup("no");
+    return xstrdup("yes");
+}
+
 static void drain_engine_events(acp_srv *s) {
     tny_owned_event *owned;
     while ((owned = tny_engine_pop_event(s->engine))) {

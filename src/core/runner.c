@@ -272,6 +272,10 @@ typedef struct {
     int fd;
     buf_t in;
     buf_t out;
+    tny_runner_role role;
+    bool handshaken;
+    bool can_answer_questions;
+    int64_t accepted_ms;
 } rn_client;
 
 typedef struct {
@@ -298,6 +302,12 @@ typedef struct {
     int errpipe;            /* read end of the fd-2 tee (host stderr, diagnostics) */
     buf_t erracc;           /* partial line from the tee */
     char pending_perm[128]; /* forwarded permission id awaiting a client */
+    bool question_pending;
+    bool question_done;
+    bool question_failed;
+    int question_tool_client; /* -1: engine callback; >=0: tool client */
+    char question_id[128];
+    char *question_answer;
 } rn_state;
 
 static volatile sig_atomic_t g_rn_stop = 0;
@@ -320,12 +330,53 @@ static int rn_client_count(rn_state *r) {
     return n;
 }
 
+static int rn_frontend_count(rn_state *r) {
+    int n = 0;
+    for (int i = 0; i < RN_MAX_CLIENTS; i++)
+        if (r->cl[i].fd >= 0 && r->cl[i].handshaken && r->cl[i].role != TNY_RUNNER_TOOL) n++;
+    return n;
+}
+
+static int rn_owner(rn_state *r) {
+    for (int i = 0; i < RN_MAX_CLIENTS; i++)
+        if (r->cl[i].fd >= 0 && r->cl[i].handshaken && r->cl[i].role == TNY_RUNNER_OWNER) return i;
+    return -1;
+}
+
+static void rn_question_fail(rn_state *r, const char *error);
+static int rn_control_pump(void *ud, int timeout_ms);
+static char *rn_ask_user(const char *question, void *ud);
+
+static const char *rn_role_name(tny_runner_role role) {
+    switch (role) {
+    case TNY_RUNNER_OWNER: return "owner";
+    case TNY_RUNNER_OBSERVER: return "observer";
+    case TNY_RUNNER_TOOL: return "tool";
+    default: return "unknown";
+    }
+}
+
 static void rn_client_drop(rn_state *r, int i) {
     if (r->cl[i].fd < 0) return;
+    bool owner = r->cl[i].handshaken && r->cl[i].role == TNY_RUNNER_OWNER;
     close(r->cl[i].fd);
     r->cl[i].fd = -1;
     buf_free(&r->cl[i].in);
     buf_free(&r->cl[i].out);
+    if (r->question_pending && r->question_tool_client == i) {
+        r->question_pending = false;
+        r->question_done = true;
+        r->question_failed = true;
+    }
+    if (owner) {
+        if (r->pending_perm[0] && r->engine) {
+            char id[sizeof r->pending_perm];
+            snprintf(id, sizeof id, "%s", r->pending_perm);
+            r->pending_perm[0] = 0;
+            tny_engine_respond_permission(r->engine, id, TNY_PERM_DECISION_DENY);
+        }
+        if (r->question_pending) rn_question_fail(r, "owning frontend disconnected");
+    }
 }
 
 static void rn_client_flush(rn_state *r, int i) {
@@ -355,8 +406,41 @@ static void rn_send_line(rn_state *r, int i, const char *line, size_t len) {
     rn_client_flush(r, i);
 }
 
+static void rn_send_control_result(rn_state *r, int i, const char *id, const char *answer,
+                                   const char *error) {
+    buf_t b;
+    buf_init(&b);
+    buf_appends(&b, "{\"ev\":\"control_result\",\"id\":");
+    jescape(&b, id ? id : "");
+    buf_appendf(&b, ",\"ok\":%s", error ? "false" : "true");
+    if (answer) {
+        buf_appends(&b, ",\"answer\":");
+        jescape(&b, answer);
+    }
+    if (error) {
+        buf_appends(&b, ",\"error\":");
+        jescape(&b, error);
+    }
+    buf_appends(&b, "}");
+    rn_send_line(r, i, b.data, b.len);
+    buf_free(&b);
+}
+
+static void rn_question_fail(rn_state *r, const char *error) {
+    if (!r->question_pending) return;
+    if (r->question_tool_client >= 0 && r->question_tool_client < RN_MAX_CLIENTS)
+        rn_send_control_result(r, r->question_tool_client, r->question_id, NULL, error);
+    r->question_pending = false;
+    r->question_done = true;
+    r->question_failed = true;
+}
+
 static void rn_broadcast(rn_state *r, const buf_t *line) {
-    for (int i = 0; i < RN_MAX_CLIENTS; i++) rn_send_line(r, i, line->data, line->len);
+    for (int i = 0; i < RN_MAX_CLIENTS; i++) {
+        rn_client *c = &r->cl[i];
+        if (c->fd >= 0 && c->handshaken && c->role != TNY_RUNNER_TOOL)
+            rn_send_line(r, i, line->data, line->len);
+    }
 }
 
 static void rn_broadcast_event(rn_state *r, const tny_backend_event *ev) {
@@ -419,10 +503,14 @@ static void rn_send_hello(rn_state *r, int i) {
     jescape(&b, r->ctx->model ? r->ctx->model : "default");
     buf_appends(&b, ",\"session_id\":");
     jescape(&b, r->session->id);
+    buf_appends(&b, ",\"role\":");
+    jescape(&b, rn_role_name(r->cl[i].role));
     buf_appendf(&b, ",\"turn_active\":%s}", r->turn_active ? "true" : "false");
     rn_send_line(r, i, b.data, b.len);
     buf_clear(&b);
-    if (r->turn_active && r->output.len) { /* late joiner catches up */
+    if (r->cl[i].role != TNY_RUNNER_TOOL && r->turn_active && r->output.len) {
+        /* late-joining frontends catch up; tool clients receive only their
+         * correlated control result */
         buf_appends(&b, "{\"ev\":\"snapshot\",\"text\":");
         jescape(&b, r->output.data);
         buf_appends(&b, "}");
@@ -449,14 +537,14 @@ static void rn_accept(rn_state *r) {
         r->cl[slot].fd = fd;
         buf_init(&r->cl[slot].in);
         buf_init(&r->cl[slot].out);
-        r->had_client = true;
-        rn_send_hello(r, slot);
+        r->cl[slot].accepted_ms = now_ms();
     }
 }
 
 /* Finalize the turn that just ended (or failed): status + result + lock,
  * then tell everyone. Safe with engine == NULL (early failures). */
 static void rn_finalize(rn_state *r, tny_stop_reason stop, int exit_code) {
+    if (r->question_pending) rn_question_fail(r, "turn ended before the question was answered");
     const char *stname = stop == TNY_STOP_DONE          ? "done"
                          : stop == TNY_STOP_INTERRUPTED ? "interrupted"
                                                         : "error";
@@ -586,7 +674,7 @@ static void rn_on_event(rn_state *r, const tny_backend_event *ev) {
                      ev->perm_summary ? ev->perm_summary : "");
             rn_broadcast_status(r, line);
             tny_engine_respond_permission(r->engine, ev->perm_id, TNY_PERM_DECISION_ALLOW);
-        } else if (rn_client_count(r) > 0) {
+        } else if (rn_owner(r) >= 0) {
             snprintf(r->pending_perm, sizeof r->pending_perm, "%s", ev->perm_id ? ev->perm_id : "");
             rn_broadcast_event(r, ev); /* the client decides; `perm` op answers */
         } else {
@@ -633,6 +721,8 @@ static int rn_ensure_engine(rn_state *r, char *err, size_t errlen) {
         snprintf(err, errlen, "out of memory");
         return -1;
     }
+    tny_engine_set_frontend_control(engine, rn_ask_user, r, rn_control_pump, r, r->sock_path,
+                                    r->session->id);
     if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_CONNECTED, err, errlen) != 0) {
         tny_engine_free(engine);
         return -1;
@@ -705,9 +795,85 @@ static void rn_hard_cancel(rn_state *r) {
     rn_finalize(r, TNY_STOP_INTERRUPTED, 130);
 }
 
+bool tny_runner_role_allows(tny_runner_role role, const char *op) {
+    if (strcmp(op, "detach") == 0) return true;
+    if (role == TNY_RUNNER_OWNER)
+        return strcmp(op, "turn") == 0 || strcmp(op, "steer") == 0 || strcmp(op, "cancel") == 0 ||
+               strcmp(op, "perm") == 0 || strcmp(op, "end") == 0 ||
+               strcmp(op, "ask_user_reply") == 0;
+    if (role == TNY_RUNNER_TOOL)
+        return strcmp(op, "ask_user") == 0 || strcmp(op, "image_attach") == 0;
+    return false;
+}
+
+static void rn_op_error(rn_state *r, int ci, yyjson_val *root, const char *error) {
+    const char *id = jget_str(root, "id");
+    if (id) {
+        rn_send_control_result(r, ci, id, NULL, error);
+        return;
+    }
+    buf_t b;
+    buf_init(&b);
+    buf_appends(&b, "{\"ev\":\"error\",\"text\":");
+    jescape(&b, error);
+    buf_appends(&b, "}");
+    rn_send_line(r, ci, b.data, b.len);
+    buf_free(&b);
+}
+
+static int rn_start_question(rn_state *r, int tool_client, const char *id, const char *question) {
+    int owner = rn_owner(r);
+    if (owner < 0 || !r->cl[owner].can_answer_questions) return -1;
+    if (r->question_pending) return -2;
+    r->question_pending = true;
+    r->question_done = false;
+    r->question_failed = false;
+    r->question_tool_client = tool_client;
+    r->question_answer = NULL;
+    snprintf(r->question_id, sizeof r->question_id, "%s", id);
+    buf_t b;
+    buf_init(&b);
+    buf_appends(&b, "{\"ev\":\"ask_user\",\"id\":");
+    jescape(&b, r->question_id);
+    buf_appends(&b, ",\"question\":");
+    jescape(&b, question);
+    buf_appends(&b, "}");
+    rn_send_line(r, owner, b.data, b.len);
+    buf_free(&b);
+    return 0;
+}
+
 static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
     const char *op = jget_str(root, "op");
     if (!op) return;
+    rn_client *client = &r->cl[ci];
+    if (!client->handshaken) {
+        if (strcmp(op, "hello") != 0) {
+            rn_client_drop(r, ci);
+            return;
+        }
+        const char *role = jget_str(root, "role");
+        tny_runner_role parsed = !role                           ? 0
+                                 : strcmp(role, "owner") == 0    ? TNY_RUNNER_OWNER
+                                 : strcmp(role, "observer") == 0 ? TNY_RUNNER_OBSERVER
+                                 : strcmp(role, "tool") == 0     ? TNY_RUNNER_TOOL
+                                                                 : 0;
+        if (!parsed || (parsed == TNY_RUNNER_OWNER && rn_owner(r) >= 0)) {
+            rn_client_drop(r, ci);
+            return;
+        }
+        client->role = parsed;
+        client->can_answer_questions =
+            parsed == TNY_RUNNER_OWNER && jget_bool(root, "can_answer_questions", false);
+        client->handshaken = true;
+        r->had_client = true;
+        rn_send_hello(r, ci);
+        return;
+    }
+    if (strcmp(op, "hello") == 0 || !tny_runner_role_allows(client->role, op)) {
+        rn_op_error(r, ci, root, "operation is not allowed for this client role");
+        return;
+    }
     if (strcmp(op, "turn") == 0) {
         const char *prompt = jget_str(root, "prompt");
         if (!prompt || !*prompt) {
@@ -751,6 +917,40 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
                                                                  : TNY_PERM_DECISION_DENY;
         r->pending_perm[0] = 0;
         tny_engine_respond_permission(r->engine, id, dec);
+    } else if (strcmp(op, "ask_user") == 0) {
+        const char *id = jget_str(root, "id");
+        const char *question = jget_str(root, "question");
+        if (!id || !*id || strlen(id) >= sizeof r->question_id || !question || !*question) {
+            rn_op_error(r, ci, root, "ask_user needs a bounded string id and question");
+            return;
+        }
+        int rc = rn_start_question(r, ci, id, question);
+        if (rc == -1) rn_send_control_result(r, ci, id, NULL, "no interactive owner is attached");
+        else if (rc == -2) rn_send_control_result(r, ci, id, NULL, "another question is pending");
+    } else if (strcmp(op, "ask_user_reply") == 0) {
+        const char *id = jget_str(root, "id");
+        const char *answer = jget_str(root, "answer");
+        if (!r->question_pending || !id || strcmp(id, r->question_id) != 0 || !answer) {
+            rn_op_error(r, ci, root, "no matching question is pending");
+            return;
+        }
+        if (r->question_tool_client >= 0)
+            rn_send_control_result(r, r->question_tool_client, r->question_id, answer, NULL);
+        else r->question_answer = xstrdup(answer);
+        r->question_pending = false;
+        r->question_done = true;
+    } else if (strcmp(op, "image_attach") == 0) {
+        const char *id = jget_str(root, "id");
+        const char *path = jget_str(root, "path");
+        if (!id || !*id || strlen(id) >= sizeof r->question_id || !path || !*path) {
+            rn_op_error(r, ci, root, "image_attach needs a bounded string id and path");
+            return;
+        }
+        char err[512];
+        if (!r->turn_active || !r->engine ||
+            tny_engine_queue_image(r->engine, path, err, sizeof err) != 0)
+            rn_send_control_result(r, ci, id, NULL, !r->turn_active ? "no active turn" : err);
+        else rn_send_control_result(r, ci, id, NULL, NULL);
     } else if (strcmp(op, "end") == 0) {
         if (r->turn_active) {
             r->end_after_turn = true;
@@ -782,16 +982,7 @@ static void rn_client_read(rn_state *r, int i) {
         rn_client_drop(r, i); /* EOF or error: the client detached */
         break;
     }
-    if (r->cl[i].fd < 0) {
-        if (r->pending_perm[0] && rn_client_count(r) == 0 && r->engine) {
-            /* decision-pending client vanished: deny, keep the turn moving */
-            char id[128];
-            snprintf(id, sizeof id, "%s", r->pending_perm);
-            r->pending_perm[0] = 0;
-            tny_engine_respond_permission(r->engine, id, TNY_PERM_DECISION_DENY);
-        }
-        return;
-    }
+    if (r->cl[i].fd < 0) return;
     char *nl;
     while (c->fd >= 0 && (nl = memchr(c->in.data, '\n', c->in.len))) {
         size_t linelen = (size_t)(nl - c->in.data);
@@ -801,6 +992,63 @@ static void rn_client_read(rn_state *r, int i) {
         rn_handle_op(r, i, yyjson_doc_get_root(doc));
         yyjson_doc_free(doc);
     }
+}
+
+/* Bounded nested pump lent to a blocking terminal/ask-user tool. This fd set
+ * intentionally contains only the listener and session clients: never the
+ * backend, stderr tee, MCP, or extension fds. */
+static int rn_control_pump(void *ud, int timeout_ms) {
+    rn_state *r = ud;
+    struct pollfd fds[1 + RN_MAX_CLIENTS];
+    int cmap[RN_MAX_CLIENTS];
+    nfds_t n = 0;
+    int li = -1;
+    if (rn_client_count(r) < RN_MAX_CLIENTS) {
+        li = (int)n;
+        fds[n++] = (struct pollfd){r->lfd, POLLIN, 0};
+    }
+    for (int i = 0; i < RN_MAX_CLIENTS; i++) {
+        cmap[i] = -1;
+        if (r->cl[i].fd < 0) continue;
+        cmap[i] = (int)n;
+        fds[n++] =
+            (struct pollfd){r->cl[i].fd, (short)(POLLIN | (r->cl[i].out.len ? POLLOUT : 0)), 0};
+    }
+    int pr = tny_poll(fds, n, timeout_ms < 0 ? 0 : timeout_ms);
+    if (pr < 0 && errno != EINTR) return -1;
+    if (li >= 0 && (fds[li].revents & POLLIN)) rn_accept(r);
+    for (int i = 0; i < RN_MAX_CLIENTS; i++) {
+        if (cmap[i] < 0 || r->cl[i].fd < 0) continue;
+        short re = fds[cmap[i]].revents;
+        if (re & POLLOUT) rn_client_flush(r, i);
+        if (r->cl[i].fd >= 0 && (re & (POLLIN | POLLHUP | POLLERR))) rn_client_read(r, i);
+        if (r->cl[i].fd >= 0 && !r->cl[i].handshaken && now_ms() - r->cl[i].accepted_ms > 5000)
+            rn_client_drop(r, i);
+    }
+    return 0;
+}
+
+static char *rn_ask_user(const char *question, void *ud) {
+    rn_state *r = ud;
+    char *id = gen_id();
+    if (!id) return NULL;
+    int started = rn_start_question(r, -1, id, question);
+    free(id);
+    if (started != 0) return NULL;
+    while (!r->question_done && !g_rn_stop) {
+        if (rn_control_pump(r, 200) != 0) {
+            rn_question_fail(r, "session control channel failed");
+            break;
+        }
+    }
+    if (g_rn_stop && r->question_pending) rn_question_fail(r, "turn interrupted");
+    char *answer = r->question_failed ? NULL : r->question_answer;
+    r->question_answer = NULL;
+    r->question_pending = false;
+    r->question_done = false;
+    r->question_failed = false;
+    r->question_id[0] = 0;
+    return answer;
 }
 
 static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
@@ -937,6 +1185,8 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
             short re = fds[cmap[i]].revents;
             if (re & POLLOUT) rn_client_flush(&r, i);
             if (r.cl[i].fd >= 0 && (re & (POLLIN | POLLHUP | POLLERR))) rn_client_read(&r, i);
+            if (r.cl[i].fd >= 0 && !r.cl[i].handshaken && now_ms() - r.cl[i].accepted_ms > 5000)
+                rn_client_drop(&r, i);
         }
         if (pi >= 0 && (fds[pi].revents & (POLLIN | POLLHUP))) rn_drain_errpipe(&r);
         if (r.turn_active && r.engine) {
@@ -948,7 +1198,7 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
             int code = r.stop == TNY_STOP_DONE ? 0 : r.stop == TNY_STOP_INTERRUPTED ? 130 : 2;
             rn_finalize(&r, r.stop, code);
         }
-        if (r.serve && r.had_client && !r.turn_active && rn_client_count(&r) == 0)
+        if (r.serve && r.had_client && !r.turn_active && rn_frontend_count(&r) == 0)
             r.quit = true; /* the shell is gone and nothing is running */
         if (!r.serve && !r.turn_ran && !r.turn_active && rn_client_count(&r) == 0 &&
             now_ms() - r.started_ms > RN_ORPHAN_IDLE_MS)
@@ -987,6 +1237,7 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
     buf_free(&r.ext_msgs);
     buf_free(&r.errline);
     buf_free(&r.erracc);
+    free(r.question_answer);
     _exit(r.quit_code);
 }
 
@@ -1037,7 +1288,10 @@ struct tny_runner_client {
     bool dead;
 };
 
-tny_runner_client *tny_runner_client_connect(const char *sock_path, int timeout_ms) {
+static int rc_send(tny_runner_client *c, const buf_t *line);
+
+tny_runner_client *tny_runner_client_connect(const char *sock_path, int timeout_ms,
+                                             tny_runner_role role, bool can_answer_questions) {
     int64_t deadline = monotonic_ms() + (timeout_ms > 0 ? timeout_ms : 0);
     int fd = -1;
     for (;;) {
@@ -1054,6 +1308,19 @@ tny_runner_client *tny_runner_client_connect(const char *sock_path, int timeout_
     }
     c->fd = fd;
     buf_init(&c->in);
+    buf_t hello;
+    buf_init(&hello);
+    buf_appends(&hello, "{\"op\":\"hello\",\"role\":");
+    jescape(&hello, rn_role_name(role));
+    if (role == TNY_RUNNER_OWNER && can_answer_questions)
+        buf_appends(&hello, ",\"can_answer_questions\":true");
+    buf_appends(&hello, "}\n");
+    if (rc_send(c, &hello) != 0) {
+        buf_free(&hello);
+        tny_runner_client_close(c);
+        return NULL;
+    }
+    buf_free(&hello);
     return c;
 }
 
@@ -1096,6 +1363,10 @@ static void rc_parse_line(tny_runner_client *c, const char *line, size_t len) {
     } else if (strcmp(ev, "log") == 0) {
         m->kind = TNY_RMSG_LOG;
         m->text = (char *)jget_str(root, "text");
+    } else if (strcmp(ev, "ask_user") == 0) {
+        m->kind = TNY_RMSG_ASK_USER;
+        m->id = (char *)jget_str(root, "id");
+        m->text = (char *)jget_str(root, "question");
     } else if (strcmp(ev, "turn_end") == 0) {
         m->kind = TNY_RMSG_TURN_END;
         m->ev.kind = TNY_EV_TURN_END;
@@ -1266,6 +1537,19 @@ int tny_runner_client_perm(tny_runner_client *c, const char *perm_id, tny_perm_d
     return rc;
 }
 
+int tny_runner_client_ask_user_reply(tny_runner_client *c, const char *id, const char *answer) {
+    buf_t b;
+    buf_init(&b);
+    buf_appends(&b, "{\"op\":\"ask_user_reply\",\"id\":");
+    jescape(&b, id ? id : "");
+    buf_appends(&b, ",\"answer\":");
+    jescape(&b, answer ? answer : "");
+    buf_appends(&b, "}\n");
+    int rc = rc_send(c, &b);
+    buf_free(&b);
+    return rc;
+}
+
 int tny_runner_client_end(tny_runner_client *c, const char *reason) {
     buf_t b;
     buf_init(&b);
@@ -1304,9 +1588,12 @@ pid_t tny_runner_spawn(tny_ctx *ctx, tny_session_state *session, const tny_runne
     snprintf(err, errlen, "process isolation is not available in the browser build");
     return -1;
 }
-tny_runner_client *tny_runner_client_connect(const char *sock_path, int timeout_ms) {
+tny_runner_client *tny_runner_client_connect(const char *sock_path, int timeout_ms,
+                                             tny_runner_role role, bool can_answer_questions) {
     (void)sock_path;
     (void)timeout_ms;
+    (void)role;
+    (void)can_answer_questions;
     return NULL;
 }
 int tny_runner_client_fd(const tny_runner_client *c) {
@@ -1344,6 +1631,12 @@ int tny_runner_client_perm(tny_runner_client *c, const char *perm_id, tny_perm_d
     (void)c;
     (void)perm_id;
     (void)d;
+    return -1;
+}
+int tny_runner_client_ask_user_reply(tny_runner_client *c, const char *id, const char *answer) {
+    (void)c;
+    (void)id;
+    (void)answer;
     return -1;
 }
 int tny_runner_client_end(tny_runner_client *c, const char *reason) {

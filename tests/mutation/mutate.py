@@ -35,6 +35,30 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
+        "src/core/runner.c",
+        [
+            "tny_runner_role_allows",
+            "rn_start_question",
+            "rn_handle_op",
+            "rn_control_pump",
+            "rn_ask_user",
+        ],
+        None,
+        "tests/integration/test_openai.py",
+    ),
+    (
+        "src/core/tools.c",
+        ["tools_queue_image"],
+        None,
+        "tests/integration/test_openai.py",
+    ),
+    (
+        "src/core/tools_shell.c",
+        ["shell_control_env", "tool_shell_execute"],
+        r"TNY_SESSION|control_pump|slice|tny_poll",
+        "tests/integration/test_openai.py",
+    ),
+    (
         "src/core/tasks.c",
         ["tny_task_name_valid", "tny_task_set_explicit", "tny_task_apply"],
         None,

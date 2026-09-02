@@ -28,6 +28,12 @@ struct tny_engine {
     perm_engine *perm;
     tny_perm_decision (*prompt)(const char *, const char *, void *);
     void *prompt_ud;
+    tny_engine_ask_user_cb ask_user;
+    void *ask_user_ud;
+    tny_engine_control_pump_cb control_pump;
+    void *control_pump_ud;
+    const char *session_sock;
+    const char *session_id;
     tny_engine_cancel_probe cancel_probe;
     void *cancel_probe_ud;
     tny_wake cancel_wake;
@@ -1501,8 +1507,9 @@ int tny_engine_prepare(tny_engine *e, tny_backend *prepared, tny_engine_prepare_
         return -1;
     }
     if (bk->id == TNY_BK_OPENAI)
-        tny_backend_openai_bind(bk, e->session, e->perm, e->prompt, e->prompt_ud,
-                                native_openai_control, e);
+        tny_backend_openai_bind(bk, e->session, e->perm, e->prompt, e->prompt_ud, e->ask_user,
+                                e->ask_user_ud, e->control_pump, e->control_pump_ud,
+                                e->session_sock, e->session_id, native_openai_control, e);
     if (state != TNY_ENGINE_PREPARE_RESUMED && bk->create_or_resume) {
         const char *ptr = session_host_pointer(e->session);
         const char *owner = session_backend(e->session);
@@ -1513,6 +1520,27 @@ int tny_engine_prepare(tny_engine *e, tny_backend *prepared, tny_engine_prepare_
         }
     }
     return 0;
+}
+
+void tny_engine_set_frontend_control(tny_engine *e, tny_engine_ask_user_cb ask_user,
+                                     void *ask_user_ud, tny_engine_control_pump_cb control_pump,
+                                     void *control_pump_ud, const char *session_sock,
+                                     const char *session_id) {
+    if (!e || e->bk || e->active) return;
+    e->ask_user = ask_user;
+    e->ask_user_ud = ask_user_ud;
+    e->control_pump = control_pump;
+    e->control_pump_ud = control_pump_ud;
+    e->session_sock = session_sock;
+    e->session_id = session_id;
+}
+
+int tny_engine_queue_image(tny_engine *e, const char *path, char *err, size_t errlen) {
+    if (!e || !e->bk || e->bk->id != TNY_BK_OPENAI) {
+        if (err && errlen) snprintf(err, errlen, "image attach is unavailable on this backend");
+        return -1;
+    }
+    return tny_backend_openai_queue_image(e->bk, path, err, errlen);
 }
 
 void tny_engine_set_cancel_probe(tny_engine *e, tny_engine_cancel_probe probe, void *ud) {

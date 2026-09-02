@@ -1519,6 +1519,7 @@ static void oa_destroy(tny_backend *b) {
     oa_calls_reset(&o->calls);
     pending_perm_clear(o);
     pending_custom_clear(o, true);
+    for (int i = 0; i < o->env.n_pending_images; i++) free(o->env.pending_images[i]);
     free(o->steer);
     buf_free(&o->text);
     buf_free(&o->toolcall_log);
@@ -1529,14 +1530,33 @@ static void oa_destroy(tny_backend *b) {
 
 void tny_backend_openai_bind(tny_backend *b, tny_session_state *session, perm_engine *perm,
                              tny_perm_decision (*prompt)(const char *, const char *, void *),
-                             void *prompt_ud, tny_openai_control_cb control, void *control_ud) {
+                             void *prompt_ud, char *(*ask_user)(const char *, void *),
+                             void *ask_user_ud, int (*control_pump)(void *, int),
+                             void *control_pump_ud, const char *session_sock,
+                             const char *session_id, tny_openai_control_cb control,
+                             void *control_ud) {
     oa_impl *o = b->impl;
     o->env.session = session;
     o->env.perm = perm;
     o->env.prompt = prompt;
     o->env.prompt_ud = prompt_ud;
+    o->env.ask_user = ask_user;
+    o->env.ask_user_ud = ask_user_ud;
+    o->env.control_pump = control_pump;
+    o->env.control_pump_ud = control_pump_ud;
+    o->env.session_sock = session_sock;
+    o->env.session_id = session_id;
     o->control = control;
     o->control_ud = control_ud;
+}
+
+int tny_backend_openai_queue_image(tny_backend *b, const char *path, char *err, size_t errlen) {
+    if (!b || b->id != TNY_BK_OPENAI) {
+        if (err && errlen) snprintf(err, errlen, "image attach requires the native openai loop");
+        return -1;
+    }
+    oa_impl *o = b->impl;
+    return tools_queue_image(&o->env, path, true, NULL, NULL, NULL, err, errlen);
 }
 
 int tny_backend_openai_steps(tny_backend *b) {

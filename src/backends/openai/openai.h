@@ -72,10 +72,15 @@ typedef struct {
 typedef void (*tny_openai_control_cb)(const tny_openai_control_request *request,
                                       tny_openai_control_response *response, void *ud);
 
-void tny_backend_openai_bind(tny_backend *b, tny_session_state *session, perm_engine *perm,
-                             tny_perm_decision (*prompt)(const char *tool, const char *summary,
-                                                         void *ud),
-                             void *prompt_ud, tny_openai_control_cb control, void *control_ud);
+void tny_backend_openai_bind(
+    tny_backend *b, tny_session_state *session, perm_engine *perm,
+    tny_perm_decision (*prompt)(const char *tool, const char *summary, void *ud), void *prompt_ud,
+    char *(*ask_user)(const char *question, void *ud), void *ask_user_ud,
+    int (*control_pump)(void *ud, int timeout_ms), void *control_pump_ud, const char *session_sock,
+    const char *session_id, tny_openai_control_cb control, void *control_ud);
+/* Queue one validated local image for the next provider request through the
+ * same ADR-0008 pending-image path used by read_image. */
+int tny_backend_openai_queue_image(tny_backend *b, const char *path, char *err, size_t errlen);
 
 /* Number of agent steps taken in the last turn + tool call log (JSON array
  * text, borrowed until next send). */

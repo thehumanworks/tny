@@ -302,23 +302,13 @@ static char *t_subagent(tools_env *env, yyjson_val *args) {
 }
 
 static char *t_read_image(tools_env *env, yyjson_val *args) {
-    char *err = NULL;
-    char *abs = tool_resolve_path(env, jget_str(args, "path"), &err);
-    if (!abs) return err;
+    const char *abs = NULL;
     size_t len = 0;
     const char *mime = NULL;
     char loaderr[256];
-    uint8_t *data = image_load(abs, &len, &mime, loaderr, sizeof loaderr);
-    if (!data) {
-        free(abs);
+    if (tools_queue_image(env, jget_str(args, "path"), false, &abs, &mime, &len, loaderr,
+                          sizeof loaderr) != 0)
         return tool_err("%s", loaderr);
-    }
-    free(data); /* pixels go out as a follow-up user message, not this result */
-    if (env->n_pending_images >= 8) {
-        free(abs);
-        return tool_err("too many images in this step (max 8)");
-    }
-    env->pending_images[env->n_pending_images++] = abs;
     buf_t b;
     buf_init(&b);
     buf_appendf(&b,
@@ -332,12 +322,13 @@ static char *t_read_image(tools_env *env, yyjson_val *args) {
 static char *t_ask_user(tools_env *env, yyjson_val *args) {
     const char *q = jget_str(args, "question");
     if (!q) return tool_err("missing question");
-    if (!env->prompt)
+    if (!env->ask_user)
         return tool_err("not interactive; the user cannot be asked right now — "
                         "proceed with your best judgment and note the assumption");
-    /* reuse the permission prompt hook as a yes/no clarifier */
-    tny_perm_decision d = env->prompt("ask_user_question", q, env->prompt_ud);
-    return xstrdup(d == TNY_PERM_DECISION_DENY ? "user answered: no" : "user answered: yes");
+    char *answer = env->ask_user(q, env->ask_user_ud);
+    if (answer) return answer;
+    return tool_err("not interactive; the user cannot be asked right now — "
+                    "proceed with your best judgment and note the assumption");
 }
 
 char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled) {
