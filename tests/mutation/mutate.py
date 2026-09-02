@@ -99,6 +99,22 @@ TARGETS = [
         None,
     ),
     ("src/net/stream.c", None, r"ossl|OSSL", "tests/integration/test_https.py"),
+    # permission tokeniser (docs/adr/0059): every fail-closed branch. The unit
+    # suite is the killer here — the tokeniser never leaves the process.
+    (
+        "src/core/shlex.c",
+        None,
+        None,
+        "tests/integration/test_tui.py",
+        "perm-tokeniser",
+    ),
+    (
+        "src/core/perm.c",
+        ["grant_key_bash", "grant_key", "multi_verb", "perm_check", "rule_category"],
+        None,
+        "tests/integration/test_tui.py",
+        "perm-tokeniser",
+    ),
     ("src/tui/tui_prewarm.c", None, None),
     (
         # `tny mcp call` (issue #97): the CLI seam the unit suite drives
@@ -768,6 +784,9 @@ EQUIVALENT = [
     "acp_client.c:if (!options || !yyjson_is_arr(options)) return false;",
     "acp_client.c:if (!configs || !yyjson_is_arr(configs)) return NULL;",
     "acp_client.c:if (configs && yyjson_is_arr(configs)) {",
+    # `index` is only ever compared against 0 (argv0 vs argument), so counting
+    # words down instead of up produces the identical classification.
+    "shlex.c:take_word(out, tok, index++, over);",
     # The config profile parser cannot deterministically inject calloc/strdup
     # failure; both branches leave the previously selected profile untouched.
     "config.c:if (!argv) return -1; /* OOM: no observable profile state changed */",
