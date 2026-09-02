@@ -33,6 +33,10 @@ char *xstrndup(const char *s, size_t n);
 bool str_starts(const char *s, const char *prefix);
 bool str_ends(const char *s, const char *suffix);
 char *str_trim(char *s); /* in place, returns s */
+/* Length of the leading run of ASCII whitespace (space, \t \n \v \f \r).
+ * Renderers skip it at the start of a streamed reply so a model that opens
+ * with blank lines does not paint them; the wire keeps the raw delta. */
+size_t str_ws_prefix(const char *s, size_t n);
 /* Strict UTF-8 scalar validation. Embedded NUL is rejected so a validated
  * byte sequence is safe to copy into a C string. */
 bool utf8_valid_bytes(const void *data, size_t len);

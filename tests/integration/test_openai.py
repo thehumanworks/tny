@@ -438,6 +438,46 @@ def main():
                 tmock.terminate()
                 tmock.wait(timeout=5)
 
+            # A model that opens its answer with blank lines: plain `tny ask`
+            # starts printing at the first visible byte, on both the isolated
+            # runner path and the in-process one; --json keeps the raw text.
+            wport = free_port()
+            wmock = subprocess.Popen(
+                [sys.executable, MOCK, str(wport)],
+                env=dict(os.environ, MOCK_LEADING_WS="1", MOCK_EXPECT_WIRE="responses"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                line = wmock.stdout.readline().decode()
+                assert "ready" in line, f"whitespace mock did not start: {line!r}"
+                wenv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{wport}/v1")
+                for isolate in ("1", "0"):
+                    plain = subprocess.run(
+                        [TNY, "--cwd", ws, "ask", "--no-save", "list files in ."],
+                        env=dict(wenv, TNY_ISOLATE=isolate),
+                        capture_output=True,
+                        timeout=30,
+                    )
+                    assert plain.returncode == 0, plain.stderr.decode()
+                    assert plain.stdout.startswith(b"The workspace"), (
+                        isolate,
+                        plain.stdout,
+                    )
+                    assert plain.stdout.endswith(b"\n"), plain.stdout
+                raw = subprocess.run(
+                    [TNY, "--cwd", ws, "ask", "--json", "--no-save", "list files in ."],
+                    env=wenv,
+                    capture_output=True,
+                    timeout=30,
+                )
+                assert raw.returncode == 0, raw.stderr.decode()
+                raw_out = json.loads(raw.stdout)["output"]
+                assert raw_out.startswith("\n" * 9 + "The workspace"), raw_out
+            finally:
+                wmock.terminate()
+                wmock.wait(timeout=5)
+
             # piped stdin: the connect/stdin overlap path must still run a
             # full turn end-to-end
             r4 = subprocess.run(

@@ -174,6 +174,14 @@ Normalize before paint:
 
 Ignore keepalives and unknown envelope cases. Never block the input loop on a parse error; show a one-line warning and keep the connection.
 
+Leading whitespace of a streamed reply is not painted: the transcript starts
+at the first visible byte, however many deltas the blank run spans. A
+reasoning stream that is empty or whitespace-only paints nothing at all (no
+dim `· ` marker, no blank line); the marker appears with its first visible
+byte. Whitespace after that point is untouched. Plain `tny ask` follows the
+same rule on stdout; `--json`, the NDJSON stream and the session keep the
+raw deltas.
+
 Reasoning traces render dim, one SGR pair per physical line: color never
 depends on state from a previous line, because the renderer flushes the
 transcript per line and repaints the partial line from scratch every frame

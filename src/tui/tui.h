@@ -80,6 +80,9 @@ typedef struct tui {
 
     bool turn_active, turn_done, want_cancel, quit, trace;
     bool in_thinking; /* streaming reasoning: keep it on its own lines */
+    /* leading whitespace of a streamed reply / reasoning block is dropped
+     * until the first visible byte lands (split across deltas or not) */
+    bool text_seen, think_seen;
     int exit_code;
     tny_stop_reason stop;
     int64_t in_tok, out_tok, cancel_ms, last_ctrlc_ms;

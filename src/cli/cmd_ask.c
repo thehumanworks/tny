@@ -63,8 +63,11 @@ static void abort_backend(tny_backend *bk, bool connected) {
 }
 
 typedef struct {
-    buf_t output;
+    buf_t output; /* raw reply, as streamed: --json and the session keep it */
     bool json;
+    bool text_seen; /* stdout: leading whitespace of the reply is dropped */
+    bool any_out;   /* wrote answer bytes to stdout */
+    bool ends_nl;   /* ...and the last one was a newline */
     bool turn_ended;
     tny_stop_reason stop;
     buf_t errline;
@@ -78,13 +81,26 @@ typedef struct {
 static void ask_event_cb(const tny_backend_event *ev, void *ud) {
     ask_state *st = ud;
     switch (ev->kind) {
-    case TNY_EV_TEXT_DELTA:
+    case TNY_EV_TEXT_DELTA: {
         buf_append(&st->output, ev->text, ev->text_len);
-        if (!st->json) {
-            fwrite(ev->text, 1, ev->text_len, stdout);
-            fflush(stdout);
+        if (st->json) break;
+        const char *text = ev->text;
+        size_t len = ev->text_len;
+        if (!st->text_seen) {
+            /* a model that opens with blank lines: keep them off the terminal
+             * until the first visible byte (the buffer above stays raw) */
+            size_t ws = str_ws_prefix(text, len);
+            if (ws == len) break;
+            text += ws;
+            len -= ws;
+            st->text_seen = true;
         }
+        fwrite(text, 1, len, stdout);
+        fflush(stdout);
+        st->any_out = true;
+        st->ends_nl = text[len - 1] == '\n';
         break;
+    }
     case TNY_EV_THINKING: break; /* stderr noise in scripts; skip */
     case TNY_EV_TOOL_START:
         fprintf(stderr, "⏺ %s %.120s\n", ev->tool_name, ev->tool_detail ? ev->tool_detail : "");
@@ -140,10 +156,10 @@ static void ask_event_cb(const tny_backend_event *ev, void *ud) {
         if (!st->print_usage) break;
         /* streamed stdout may lack a trailing newline; finish that line so
          * the usage never glues onto the answer on a terminal */
-        if (!st->json && st->output.len && st->output.data[st->output.len - 1] != '\n') {
+        if (!st->json && st->any_out && !st->ends_nl) {
             fputs("\n", stdout);
             fflush(stdout);
-            buf_appends(&st->output, "\n");
+            st->ends_nl = true;
         }
         if (ev->context_size > 0)
             fprintf(stderr, "context: %lld/%lld%s\n", (long long)ev->context_used,
@@ -234,23 +250,34 @@ typedef struct {
     bool json;
     bool print_usage;
     bool steer_takeover;
-    bool any_out; /* wrote answer bytes to stdout */
-    bool ends_nl; /* ...and the last one was a newline */
+    bool text_seen; /* leading whitespace of the reply is dropped */
+    bool any_out;   /* wrote answer bytes to stdout */
+    bool ends_nl;   /* ...and the last one was a newline */
     tny_runner_client *rc;
     pid_t pid; /* the runner: cancels are op + SIGTERM (see loop) */
 } ask_client;
 
+/* stdout gets the reply minus its leading whitespace; the runner's NDJSON
+ * and the session keep the raw deltas */
+static void ask_client_text(ask_client *a, const char *text, size_t len) {
+    if (a->json || !text || !len) return;
+    if (!a->text_seen) {
+        size_t ws = str_ws_prefix(text, len);
+        if (ws == len) return;
+        text += ws;
+        len -= ws;
+        a->text_seen = true;
+    }
+    fwrite(text, 1, len, stdout);
+    fflush(stdout);
+    a->any_out = true;
+    a->ends_nl = text[len - 1] == '\n';
+}
+
 static void ask_client_render(ask_client *a, const tny_runner_msg *m) {
     const tny_backend_event *ev = &m->ev;
     switch (ev->kind) {
-    case TNY_EV_TEXT_DELTA:
-        if (!a->json && ev->text && ev->text_len) {
-            fwrite(ev->text, 1, ev->text_len, stdout);
-            fflush(stdout);
-            a->any_out = true;
-            a->ends_nl = ev->text[ev->text_len - 1] == '\n';
-        }
-        break;
+    case TNY_EV_TEXT_DELTA: ask_client_text(a, ev->text, ev->text_len); break;
     case TNY_EV_THINKING: break;
     case TNY_EV_TOOL_START:
         fprintf(stderr, "⏺ %s %.120s\n", ev->tool_name, ev->tool_detail ? ev->tool_detail : "");
@@ -347,12 +374,7 @@ static int ask_isolated_loop(ask_client *a, const char *session_id) {
                 }
                 break;
             case TNY_RMSG_SNAPSHOT:
-                if (!a->json && m->text && *m->text) {
-                    fputs(m->text, stdout);
-                    fflush(stdout);
-                    a->any_out = true;
-                    a->ends_nl = m->text[strlen(m->text) - 1] == '\n';
-                }
+                if (m->text) ask_client_text(a, m->text, strlen(m->text));
                 break;
             case TNY_RMSG_LOG:
                 /* host stderr and runner diagnostics: the same trail the
@@ -868,7 +890,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         char *out = ask_result_json(ctx, &st, engine, session, exit_code);
         fputs(out, stdout);
         free(out);
-    } else if (st.output.len && st.output.data[st.output.len - 1] != '\n') {
+    } else if (st.any_out && !st.ends_nl) {
         fputs("\n", stdout);
     }
 

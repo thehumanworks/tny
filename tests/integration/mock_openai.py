@@ -43,6 +43,8 @@ Env knobs:
   MOCK_CUSTOM_TOOL    request this custom tool once, then validate its output
   MOCK_CUSTOM_ARGUMENTS
                       JSON arguments for MOCK_CUSTOM_TOOL
+  MOCK_LEADING_WS=1   open the answer with nine newlines, as some models do;
+                      the human renderers drop them, --json keeps them
 
 The responses wire streams TWO parallel tool calls (list_files +
 glob_files). The second one's output_item.added carries only the item id;
@@ -94,6 +96,7 @@ EXPECT_EXTENSION_REWRITE = os.environ.get("MOCK_EXPECT_EXTENSION_REWRITE") == "1
 EXPECT_TOOL_OUTPUT = os.environ.get("MOCK_EXPECT_TOOL_OUTPUT")
 CUSTOM_TOOL = os.environ.get("MOCK_CUSTOM_TOOL")
 CUSTOM_ARGUMENTS = os.environ.get("MOCK_CUSTOM_ARGUMENTS")
+LEADING_WS = os.environ.get("MOCK_LEADING_WS") == "1"
 
 
 def sse(obj):
@@ -903,6 +906,9 @@ class Handler(BaseHTTPRequestHandler):
         text = f"The workspace contains {nfiles} entries. MOCK-OK. tier={tier}"
         if EXPECT_STEER:
             text += " STEER-OK"
+        if LEADING_WS:
+            # nine: longer than one 7-char delta, so the run splits
+            text = "\n" * 9 + text
         return text
 
 

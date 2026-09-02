@@ -1039,6 +1039,150 @@ static char *render_capture(tui *t, size_t *len) {
     return b.data ? b.data : xstrdup("");
 }
 
+/* ---- leading whitespace of a streamed reply / reasoning block ---- */
+
+static void mk_turn_tui(tui *t, struct tny_ctx *ctx) {
+    mk_tui(t, SCR_H);
+    memset(ctx, 0, sizeof *ctx);
+    ctx->cwd = (char *)"/workdir";
+    ctx->model = (char *)"m";
+    t->ctx = ctx;
+    t->color = false;
+    t->attr = false; /* plain bytes: "· " and the text stay greppable */
+    t->cols = SCR_W;
+    t->gap = 1; /* as after the echoed prompt: one blank line, then output */
+    t->turn_active = true;
+}
+
+static void ev_text(tui *t, tny_event_kind kind, const char *s) {
+    tny_backend_event ev;
+    memset(&ev, 0, sizeof ev);
+    ev.kind = kind;
+    ev.text = s;
+    ev.text_len = strlen(s);
+    tui_handle_backend_event(t, &ev);
+}
+
+/* Render into the screen emulator and free the capture. */
+static bool paint(tui *t, scr *s) {
+    size_t n = 0;
+    char *out = render_capture(t, &n);
+    if (!out) return false;
+    scr_init(s);
+    scr_feed(s, out, n);
+    free(out);
+    return true;
+}
+
+/* Row text with trailing blanks trimmed (scr keeps a glyph's first byte). */
+static bool row_is(const scr *s, int i, const char *want) {
+    char row[SCR_W + 1];
+    memcpy(row, s->cell[i], SCR_W);
+    row[SCR_W] = 0;
+    for (int k = SCR_W; k > 0 && row[k - 1] == ' '; k--) row[k - 1] = 0;
+    return strcmp(row, want) == 0;
+}
+
+static void free_turn_tui(tui *t) {
+    buf_free(&t->last_reply);
+    free_tui(t);
+}
+
+/* Some models open the answer with blank lines ("\n\n\n\nHi there!"). The
+ * transcript starts at the first visible byte; the wire keeps the newlines. */
+TEST render_drops_leading_newlines_of_the_reply(void) {
+    tui t;
+    struct tny_ctx ctx;
+    mk_turn_tui(&t, &ctx);
+    ev_text(&t, TNY_EV_TEXT_DELTA, "\n\n\n\nanswer");
+    scr s;
+    ASSERT(paint(&t, &s));
+    ASSERT(row_is(&s, 0, "")); /* the one gap line after the prompt */
+    ASSERT(row_is(&s, 1, "answer"));
+    ASSERT_STR_EQ("answer", t.last_reply.data); /* /copy sees the same */
+    free_turn_tui(&t);
+    PASS();
+}
+
+/* The same newlines split across deltas: "\n", "\n\nans", "wer". */
+TEST render_drops_leading_whitespace_split_across_deltas(void) {
+    tui t;
+    struct tny_ctx ctx;
+    mk_turn_tui(&t, &ctx);
+    ev_text(&t, TNY_EV_TEXT_DELTA, "\n");
+    ev_text(&t, TNY_EV_TEXT_DELTA, "\n\nans");
+    ev_text(&t, TNY_EV_TEXT_DELTA, "wer");
+    scr s;
+    ASSERT(paint(&t, &s));
+    ASSERT(row_is(&s, 0, ""));
+    ASSERT(row_is(&s, 1, "answer"));
+    free_turn_tui(&t);
+    PASS();
+}
+
+/* An empty / whitespace-only reasoning stream paints nothing: no "· "
+ * marker, no blank line, and the text still lands right after the gap. */
+TEST render_skips_empty_thinking_block(void) {
+    tui t;
+    struct tny_ctx ctx;
+    mk_turn_tui(&t, &ctx);
+    ev_text(&t, TNY_EV_THINKING, "");
+    ev_text(&t, TNY_EV_THINKING, "\n\n");
+    ev_text(&t, TNY_EV_THINKING, "  \n");
+    ASSERT_FALSE(t.in_thinking);
+    ev_text(&t, TNY_EV_TEXT_DELTA, "answer");
+    scr s;
+    ASSERT(paint(&t, &s));
+    ASSERT_EQ(0, scr_count(&s, "\xc2")); /* no "·" anywhere */
+    ASSERT(row_is(&s, 0, ""));
+    ASSERT(row_is(&s, 1, "answer"));
+    free_turn_tui(&t);
+    PASS();
+}
+
+/* Real reasoning still renders: marker, text, then the answer on its own
+ * line. Leading whitespace of the block is dropped, inner whitespace kept. */
+TEST render_keeps_real_thinking(void) {
+    tui t;
+    struct tny_ctx ctx;
+    mk_turn_tui(&t, &ctx);
+    ev_text(&t, TNY_EV_THINKING, "\n\n");
+    ev_text(&t, TNY_EV_THINKING, "plan a");
+    ev_text(&t, TNY_EV_THINKING, "\nthen b");
+    ev_text(&t, TNY_EV_TEXT_DELTA, "answer");
+    scr s;
+    ASSERT(paint(&t, &s));
+    ASSERT(row_is(&s, 0, ""));
+    ASSERT(row_is(&s, 1, "\xc2 plan a")); /* "·" keeps its first byte */
+    ASSERT(row_is(&s, 2, "then b"));
+    ASSERT(row_is(&s, 3, "answer"));
+    free_turn_tui(&t);
+    PASS();
+}
+
+/* Only the leading run goes: whitespace inside and after the first visible
+ * byte (code blocks, paragraph breaks) is untouched. */
+TEST render_keeps_whitespace_after_first_visible_byte(void) {
+    tui t;
+    struct tny_ctx ctx;
+    mk_turn_tui(&t, &ctx);
+    ev_text(&t, TNY_EV_TEXT_DELTA, " \nline one\n\n");
+    ev_text(&t, TNY_EV_TEXT_DELTA, "\n    indented\n\n");
+    ev_text(&t, TNY_EV_TEXT_DELTA, "  tail  ");
+    ASSERT_STR_EQ("line one\n\n\n    indented\n\n  tail  ", t.last_reply.data);
+    scr s;
+    ASSERT(paint(&t, &s));
+    ASSERT(row_is(&s, 0, ""));
+    ASSERT(row_is(&s, 1, "line one"));
+    ASSERT(row_is(&s, 2, ""));
+    ASSERT(row_is(&s, 3, ""));
+    ASSERT(row_is(&s, 4, "    indented"));
+    ASSERT(row_is(&s, 5, ""));
+    ASSERT(row_is(&s, 6, "  tail"));
+    free_turn_tui(&t);
+    PASS();
+}
+
 /* The screenshot bug: the pty says 80 columns, the phone terminal has 44.
  * The reverse-video status row padded to 79 cells soft-wrapped onto two
  * physical rows, erase_block moved up one row too few, and every keypress
@@ -1157,4 +1301,9 @@ SUITE(tui_suite) {
     RUN_TEST(size_report_applies_only_real_changes);
     RUN_TEST(render_narrow_terminal_leaves_one_status_row);
     RUN_TEST(render_partial_line_at_the_margin_does_not_duplicate);
+    RUN_TEST(render_drops_leading_newlines_of_the_reply);
+    RUN_TEST(render_drops_leading_whitespace_split_across_deltas);
+    RUN_TEST(render_skips_empty_thinking_block);
+    RUN_TEST(render_keeps_real_thinking);
+    RUN_TEST(render_keeps_whitespace_after_first_visible_byte);
 }

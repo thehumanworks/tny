@@ -162,6 +162,16 @@ char *str_trim(char *s) {
     return s;
 }
 
+size_t str_ws_prefix(const char *s, size_t n) {
+    size_t i = 0;
+    while (i < n) {
+        char c = s[i];
+        if (c != ' ' && c != '\t' && c != '\n' && c != '\v' && c != '\f' && c != '\r') break;
+        i++;
+    }
+    return i;
+}
+
 bool utf8_valid_bytes(const void *data, size_t len) {
     if (!data && len) return false;
     const unsigned char *s = data;

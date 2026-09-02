@@ -220,18 +220,44 @@ void tui_handle_backend_event(tui *t, const tny_backend_event *ev) {
     char line[512];
 
     /* reasoning streams on its own lines: break before anything else lands */
-    if (ev->kind != TNY_EV_THINKING && t->in_thinking) {
-        t->in_thinking = false;
-        tui_bol(t);
+    if (ev->kind != TNY_EV_THINKING) {
+        if (t->in_thinking) {
+            t->in_thinking = false;
+            tui_bol(t);
+        }
+        t->think_seen = false; /* the next reasoning block starts clean */
     }
 
     switch (ev->kind) {
-    case TNY_EV_TEXT_DELTA:
+    case TNY_EV_TEXT_DELTA: {
+        const char *text = ev->text;
+        size_t len = ev->text_len;
+        if (!t->text_seen) {
+            /* the model may open with blank lines: keep them off the screen
+             * until something visible arrives (the wire keeps them) */
+            size_t ws = str_ws_prefix(text, len);
+            if (ws == len) break;
+            text += ws;
+            len -= ws;
+            t->text_seen = true;
+        }
         maybe_gap(t, true);
-        tui_write(t, ev->text, ev->text_len);
-        buf_append(&t->last_reply, ev->text, ev->text_len);
+        tui_write(t, text, len);
+        buf_append(&t->last_reply, text, len);
         break;
-    case TNY_EV_THINKING:
+    }
+    case TNY_EV_THINKING: {
+        const char *text = ev->text;
+        size_t len = ev->text_len;
+        if (!t->think_seen) {
+            /* an empty or whitespace-only reasoning stream paints nothing:
+             * no marker, no blank line */
+            size_t ws = str_ws_prefix(text, len);
+            if (ws == len) break;
+            text += ws;
+            len -= ws;
+            t->think_seen = true;
+        }
         maybe_gap(t, true);
         if (!t->in_thinking) {
             t->in_thinking = true;
@@ -240,8 +266,9 @@ void tui_handle_backend_event(tui *t, const tny_backend_event *ev) {
             tui_write(t, "· ", 3); /* "·" is 2 bytes of UTF-8 plus the space */
             if (t->attr) tui_write(t, "\x1b[0m", 4);
         }
-        tui_write_dim(t, ev->text, ev->text_len);
+        tui_write_dim(t, text, len);
         break;
+    }
     case TNY_EV_TOOL_START:
         maybe_gap(t, false);
         oneline(line, sizeof line, ev->tool_detail);
@@ -626,6 +653,7 @@ void tui_submit(tui *t, const char *text) {
     }
     t->n_images = 0;
     t->turn_active = true;
+    t->text_seen = false; /* drop the reply's leading whitespace again */
     t->cancel_ms = 0;
     drain_engine_events(t);
     t->dirty = true;
