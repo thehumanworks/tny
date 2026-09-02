@@ -1058,10 +1058,23 @@ int tny_provider_write_profile(tny_ctx *ctx, const char *name, const tny_provide
         }
     }
     /* reserved top-level settings keys must never become profiles */
-    static const char *const reserved[] = {
-        "$schema",      "workspaces",      "models", "model",      "provider", "fast",
-        "permission",   "permission_mode", "effort", "extensions", "acp",      "last_provider",
-        "last_backend", "web_search_url",  "mcp",    NULL};
+    static const char *const reserved[] = {"$schema",
+                                           "workspaces",
+                                           "models",
+                                           "model",
+                                           "provider",
+                                           "fast",
+                                           "permission",
+                                           "permission_mode",
+                                           "effort",
+                                           "extensions",
+                                           "acp",
+                                           "last_provider",
+                                           "last_backend",
+                                           "web_search_url",
+                                           "web_search_command",
+                                           "mcp",
+                                           NULL};
     for (int i = 0; reserved[i]; i++)
         if (strcmp(name, reserved[i]) == 0) {
             snprintf(errbuf, errlen, "'%s' is a reserved settings key", name);

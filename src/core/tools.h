@@ -84,6 +84,12 @@ char *tools_subagent_command(tools_env *env, const char *id, const char *prompt,
 char *tool_fs_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
 char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
 char *tool_web_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
+/* true when settings name a web_search provider ("web_search_command" or
+ * "web_search_url"); the schema omits web_search otherwise (docs/adr/0055). */
+bool tool_web_search_configured(tny_ctx *ctx);
+/* Expand every {query} / {{query}} in tmpl with the percent-encoded query.
+ * malloc'd. */
+char *tool_web_search_expand(const char *tmpl, const char *query);
 char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
 /* Remote variants of the workspace tools when ctx->ssh_host is set
  * (tools_ssh.c, docs/adr/0022); *handled=false when tools stay local. */
