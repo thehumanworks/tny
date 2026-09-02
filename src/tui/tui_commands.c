@@ -3,6 +3,7 @@
  * reused verbatim: the block is torn down first so their stdout scrolls. */
 #include "tui/tui.h"
 #include "core/skills.h"
+#include "core/sandbox.h"
 #include "net/net.h"
 #include "core/tools.h"
 #include "cli/cli.h"
@@ -636,8 +637,9 @@ void tui_command(tui *t, const char *line) {
         tui_linef(t, "  permission mode: %s", tny_perm_mode_name(t->ctx->perm_mode));
         t->dirty = true;
     } else if (strcmp(c, "sandbox") == 0) {
-        tui_linef(t, "  sandbox: %s%s", t->ctx->sandbox_mode,
-                  strcmp(t->ctx->sandbox_mode, "os") == 0 ? " (unsupported: effective none)" : "");
+        tny_sandbox_kind sandbox = tny_sandbox_effective(t->ctx);
+        tui_linef(t, "  sandbox: %s (%s)", tny_sandbox_kind_name(sandbox),
+                  tny_sandbox_kind_description(sandbox));
     } else if (strcmp(c, "provider") == 0 || strcmp(c, "backend") == 0) {
         if (arg && strncmp(arg, "setup", 5) == 0 && (arg[5] == 0 || arg[5] == ' ')) {
             if (t->turn_active) {

@@ -52,13 +52,42 @@ Separate from permission. An allowed command still runs inside:
 
 | Mode | Meaning |
 | --- | --- |
-| `os` | macOS seatbelt / Linux equivalent: writes limited to workspace, extra dirs, temp, required devices. Outbound net allowed; listen on localhost extra. |
+| `os` | Wrap each local `terminal` child with macOS Seatbelt or Linux bubblewrap. Files are readable, but writes are limited to the workspace, extra dirs, `$TMPDIR` (or `/tmp`), and required devices. |
 | `none` | No tny isolation |
-| `auto` | `os` if supported, else `none` |
+| `auto` | `os` when `/usr/bin/sandbox-exec` (macOS) or `bwrap` on `PATH` (Linux) is available; otherwise `none` |
 
-`yolo` forces effective `none` for the process. Command approval and sandbox-widening approval are two prompts.
+Set the requested mode with the repo-safe `.tny.json` key, for example
+`{"sandbox":"os"}`. `yolo` forces effective `none` for the process without
+rewriting that file. `tny doctor` and `tny status` report the effective mode,
+not merely the requested string; explicit `os` fails the tool cleanly when no
+supported wrapper is available.
 
-v1 may ship `none` + `auto`→`none` on Linux if the seatbelt port is incomplete; `doctor` must say so. Do not silently claim `os` on an unsupported host.
+Only the native loop's **local `terminal` child** is wrapped. Foreground and
+`background:true` commands use the same wrapper. The tny process/session
+runner, built-in file tools, MCP, web fetch/search HTTP, extensions, and host
+providers stay outside it. `--ssh` commands also stay outside: the remote host
+is their execution boundary. Existing permission review still runs before the
+child starts.
+
+Network access remains open by default so package managers, test fixtures,
+provider CLIs, and local development servers keep working. Seatbelt allows
+outbound connections and localhost listeners. Bubblewrap deliberately shares
+the host network namespace; it is a filesystem/process boundary, not a network
+firewall. Use a separate network policy when egress control is required.
+
+Command approval and sandbox widening remain separate decisions. This change
+does not add an automatic second prompt: when the wrapper denies a write, the
+tool error names the reported path and points to `tny workspace add DIR` or
+`--add-dir DIR`. The user can widen and retry deliberately.
+
+macOS uses the external `sandbox-exec -p PROFILE` wrapper, verified on Darwin
+27 arm64. This keeps profile construction testable and avoids linking the
+private/deprecated `sandbox_init` interface. Linux uses `bwrap` with a
+read-only bind of `/`, writable bind overlays for the allowed roots, a minimal
+`/dev`, `/proc`, and `--unshare-pid`.
+
+wasm: the OS sandbox is not applicable. `auto` resolves to `none`; explicit
+`os` returns a clean unsupported tool error before attempting a command.
 
 ## Host mapping
 

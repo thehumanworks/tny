@@ -59,6 +59,13 @@ tny -c                      # resume last for this workspace
 `--no-save` is a compatibility alias for `--ephemeral`. `tny ask` accepts
 both spellings after the subcommand as well as in the leading global position.
 
+`tny doctor` reports the effective local-terminal sandbox as `sandbox: os`
+or `sandbox: none` and explains the reason. Its JSON shape carries the same
+truth in `"sandbox"` plus a human-readable `"sandbox_note"`. `auto` therefore
+never claims `os` unless Seatbelt or bubblewrap is launchable, and the default
+`yolo` process reports `none` even when `.tny.json` requests `auto` or `os`.
+`tny status` uses the same effective-mode resolution.
+
 Color resolution ([ADR 0026](adr/0026-color-vs-attribute-sgr.md)): `NO_COLOR`
 (any value, even empty) disables SGR *colors* only — bold/dim/reverse are
 structural and stay, so the status bar keeps its reverse video.

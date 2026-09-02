@@ -340,6 +340,16 @@ TARGETS = [
         r"NO_SPAWN|capabilit",
         "tests/integration/test_extension_capabilities.py",
     ),
+    (
+        "src/core/sandbox.c",
+        [
+            "tny_sandbox_effective",
+            "tny_sandbox_command_build_kind",
+            "tny_sandbox_denied_path",
+        ],
+        r"SEATBELT|BWRAP|ro-bind|file-write|network|unshare-pid",
+        "tests/integration/test_sandbox.py",
+    ),
     ("src/core/config.c", ["tny_tier_is_fast"], None),
     ("src/cli/args.c", ["cli_parse_globals", "cli_make_ctx"], r"fast|tier|TNY_CAP"),
     ("src/tui/tui_commands.c", ["tui_command"], r"fast|tier"),

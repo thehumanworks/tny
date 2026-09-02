@@ -6,6 +6,7 @@
   stdenv,
   darwin,
   bash,
+  bubblewrap,
   nodejs,
   openssl,
   perl,
@@ -44,7 +45,7 @@ stdenv.mkDerivation {
   # tests/integration/test_tui.py reads `ps` to prove the TUI pre-warm spawned
   # exactly one host. A builder's PATH holds only its inputs, so macOS needs an
   # explicit ps too — /bin/ps is on the disk but never on the PATH.
-  ++ lib.optionals stdenv.hostPlatform.isLinux [ procps util-linux ]
+  ++ lib.optionals stdenv.hostPlatform.isLinux [ bubblewrap procps util-linux ]
   ++ lib.optionals stdenv.hostPlatform.isDarwin [ darwin.ps ];
 
   # The debug/test binary is -O0, and glibc's features.h emits a #warning when
