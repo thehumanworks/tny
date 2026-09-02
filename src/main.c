@@ -37,6 +37,15 @@ int main(int argc, char **argv) {
         fputs(TNY_VERSION "\n", stdout);
         return 0;
     }
+    if (cmd && strcmp(cmd, "edit") == 0) {
+        int rc = cmd_edit(&g, cargc, cargv);
+        free(g.add_dirs);
+        free(g.agent_argv);
+#ifdef __EMSCRIPTEN__
+        exit(rc);
+#endif
+        return rc;
+    }
 
     tny_ctx *ctx = cli_make_ctx(&g);
     if (!ctx) return 1;

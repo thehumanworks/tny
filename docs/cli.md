@@ -9,6 +9,7 @@ Binary name: `tny`.
 ```text
 tny                         # interactive TUI, fresh session
 tny ask [prompt]            # one turn, then exit
+tny edit FILE               # exact-match replacement from stdin
 tny resume [last|<id>]      # interactive resume
 tny acp                     # ACP server (native loop only)
 tny sessions
@@ -352,6 +353,70 @@ Precedence: `--effort` / `/effort` (an explicit `default` included) beats
 `TNY_REASONING_EFFORT` beats the settings entry beats the provider default.
 tny never *writes* the effort back to settings — a scripted
 `tny ask --effort X` does not change what tomorrow's session does.
+
+## `tny edit` (stateless exact replacement)
+
+`tny edit FILE` replaces an exact string only when it occurs once. The search
+and replacement travel on stdin, never in argv. The default fence form is
+convenient from a shell or another coding harness:
+
+```sh
+cat <<'TNY_EDIT' | tny edit src/example.c
+*** SEARCH
+return old_value;
+*** REPLACE
+return new_value;
+*** END
+TNY_EDIT
+```
+
+The marker lines must match exactly. `--marker STR` changes their prefix when
+the payload itself contains a default marker line:
+
+```sh
+printf '@@ SEARCH\nold\n@@ REPLACE\nnew\n@@ END\n' |
+  tny edit --marker @@ notes.txt
+```
+
+One structural line ending before `REPLACE` and `END` is not part of the
+payload. Put a blank line before a marker when the exact search or replacement
+must end in a newline.
+
+`--json` selects both structured stdin and structured stdout. `old` and `new`
+are strings; `replace_all` is an optional boolean whose default is `false`:
+
+```sh
+printf '%s\n' '{"old":"draft","new":"final","replace_all":false}' |
+  tny edit --json README.md
+```
+
+Success writes one object on stdout:
+
+```json
+{"kind":"edit","path":"README.md","matches":1,"replaced":1}
+```
+
+Without `--json`, success prints one human-readable result line. Progress and
+all diagnostics go to stderr. The target is built completely and installed by
+atomic temp-file rename only after the match policy succeeds, so every failure
+leaves it untouched. Existing symlinks remain symlinks and their target is
+edited. On zero matches, stderr includes the single target line closest to the
+first non-empty SEARCH line when that closest line is unique; this gives the
+caller exact context for widening the search. Multiple matches report their
+count and require either a wider search or JSON `replace_all:true`.
+
+| Exit | Meaning |
+| ---: | --- |
+| 0 | One match replaced, or `replace_all:true` replaced one or more matches |
+| 1 | Usage, input parsing, allocation, or file I/O failure |
+| 2 | Zero matches, or multiple matches without `replace_all:true` |
+| 130 | Interrupted; no partial write |
+
+The verb is configuration-free: it does not load settings or require any
+`TNY_*` environment variable. Relative paths use the process current working
+directory; absolute paths work directly. `--ssh` is intentionally not part of
+this standalone verb. In wasm it works like the `edit_file` tool on the virtual
+filesystem (MEMFS in the browser and NODERAWFS in node).
 
 ## `tny ask` (scripts and CI)
 

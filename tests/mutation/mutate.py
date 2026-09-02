@@ -35,6 +35,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
+        "src/core/edit.c",
+        ["tny_edit_file_exact"],
+        None,
+        "tests/integration/test_edit.py",
+    ),
+    (
         "src/core/tasks.c",
         ["tny_task_name_valid", "tny_task_set_explicit", "tny_task_apply"],
         None,
