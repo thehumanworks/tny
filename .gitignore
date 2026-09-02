@@ -34,6 +34,8 @@ auth-token
 /third_party/cursor-sdk-bridge/bin/
 
 # Test / coverage
+# ad-hoc bench_tools.py reports; recorded runs live in tests/bench/results/
+tests/bench/out/
 *.gcda
 *.gcno
 coverage/

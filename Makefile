@@ -653,14 +653,15 @@ SHFMT        ?= shfmt
 ACTIONLINT   ?= actionlint
 ANALYZER_CC  ?= gcc
 
-# First-party scopes only; third_party/ and frozen ABI fixtures stay exempt.
+# First-party scopes only; third_party/ and the frozen ABI and bench task
+# fixtures stay exempt (reformatting a bench fixture changes the task).
 # Derive these lists from the tracked tree so new source and shell files enter
 # the quality gate automatically instead of depending on maintained globs.
 # Tracked *and* untracked-but-not-ignored sources: a file in flight is
 # exactly the one whose formatting has not been checked yet.
 FMT_SRC := $(shell { git ls-files -- '*.c' '*.h'; \
 	git ls-files --others --exclude-standard -- '*.c' '*.h'; } | sort -u | \
-	grep -Ev '^(third_party/|tests/abi/fixtures/)')
+	grep -Ev '^(third_party/|tests/abi/fixtures/|tests/bench/fixtures/)')
 SH_SRC  := $(shell git ls-files -- '*.sh')
 SHFMT_FLAGS := -i 4 -ci -sr
 JS_SRC  := docs/assets/site.js docs/assets/term-core.js docs/assets/term-wasm.js \

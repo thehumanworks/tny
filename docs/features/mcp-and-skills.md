@@ -46,6 +46,12 @@ directory, or `~/.tny/results/` without a session. Collection has a 64 MiB
 hard cap. The `all` profile keeps the existing result shape and
 `read_tool_result` handles.
 
+Which profile should be the default is a measured question, not a taste
+question: `tests/bench/bench_tools.py` runs all three arms over a frozen task
+set and the numbers are recorded in the Measurement section of [ADR
+0057](../adr/0057-shell-first-native-loop.md). See
+[ci.md](../ci.md#benchmarks) for how to run it.
+
 `memory` writes `~/.tny/memories.json` only when asked. Do not inject it into every prompt. In [ephemeral mode](../adr/0020-ephemeral-sessions.md), `memory set` is rejected so a conversation cannot create durable user memory; `get` and `list` may still read existing memories.
 
 No browser/CDP tools in v1.

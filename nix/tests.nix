@@ -41,6 +41,9 @@ stdenv.mkDerivation {
     # needs both named here: util-linux for the setsid path (Linux only; it is
     # what a Linux user has), perl for the fallback path everywhere else.
     perl
+    # tests/integration/test_bench_tools.py scores the tool-profile A/B
+    # fixtures: the Python families run under python3 above, the C ones
+    # compile with the stdenv cc already on the builder's PATH.
   ]
   # tests/integration/test_tui.py reads `ps` to prove the TUI pre-warm spawned
   # exactly one host. A builder's PATH holds only its inputs, so macOS needs an
