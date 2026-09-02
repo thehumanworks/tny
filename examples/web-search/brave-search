@@ -1,0 +1,627 @@
+#!/usr/bin/env python3
+"""Token-efficient Brave web search for the tny agent harness.
+
+Fetches Brave Search via lightpanda, saves the top result pages as
+markdown under /tmp/tny-search, and prints a compact index so the
+agent can read those files instead of re-fetching.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import html as html_lib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from datetime import datetime, timezone
+from html.parser import HTMLParser
+from pathlib import Path
+from urllib.parse import quote, unquote, urlparse
+
+BRAVE_SEARCH = "https://search.brave.com/search"
+OUT_ROOT = Path("/tmp/tny-search")
+DEFAULT_N = 5
+MAX_N = 20
+PAGE_WAIT_MS = 15_000
+PAGE_TERMINATE_MS = 20_000
+PAGE_HTTP_TIMEOUT_MS = 20_000
+SEARCH_WAIT_MS = 8_000
+SEARCH_TERMINATE_MS = 12_000
+SEARCH_RETRIES = 5
+SEARCH_RETRY_BASE_S = 3.0
+MAX_FILE_BYTES = 200 * 1024
+SNIPPET_CHARS = 220
+LIGHTPANDA_FAIL = 2
+
+_INJECT_JS = """
+(function () {
+  function extract() {
+    var nodes = document.querySelectorAll(".snippet[data-type=web]");
+    var out = [];
+    var seen = {};
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      var a = n.querySelector("a[href]");
+      if (!a) continue;
+      var href = a.href || "";
+      if (!href || href.indexOf("https://search.brave.com/") === 0) continue;
+      if (seen[href]) continue;
+      seen[href] = 1;
+      var t = n.querySelector(".search-snippet-title");
+      var title = ((t && (t.getAttribute("title") || t.textContent)) || "")
+        .replace(/\\s+/g, " ").trim();
+      var s = n.querySelector(".generic-snippet .content") || n.querySelector(".content");
+      var snippet = ((s && s.textContent) || "").replace(/\\s+/g, " ").trim();
+      if (title && href) out.push({title: title, href: href, snippet: snippet});
+    }
+    return out;
+  }
+  function publish() {
+    var out = extract();
+    if (!out.length) return false;
+    document.documentElement.innerHTML =
+      "<html><head></head><body><pre id=brave-out>" +
+      JSON.stringify(out) + "</pre></body></html>";
+    return true;
+  }
+  if (!publish()) {
+    var id = setInterval(function () { if (publish()) clearInterval(id); }, 50);
+  }
+})();
+"""
+
+
+class BraveResultsParser(HTMLParser):
+    """Pull title/href/snippet from Brave organic `.snippet[data-type=web]` cards."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.results: list[dict[str, str]] = []
+        self._snip_depth = 0
+        self._title_depth = 0
+        self._content_depth = 0
+        self._generic_depth = 0
+        self._cur: dict[str, str] | None = None
+        self._title_parts: list[str] = []
+        self._content_parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        d = {k: (v or "") for k, v in attrs}
+        classes = d.get("class", "").split()
+        if self._snip_depth == 0:
+            if "snippet" in classes and d.get("data-type") == "web":
+                self._snip_depth = 1
+                self._cur = {"title": "", "href": "", "snippet": ""}
+                self._title_depth = 0
+                self._content_depth = 0
+                self._generic_depth = 0
+                self._title_parts = []
+                self._content_parts = []
+            return
+        self._snip_depth += 1
+        if self._cur is None:
+            return
+        if tag == "a" and not self._cur["href"]:
+            href = d.get("href", "").strip()
+            if href.startswith("http"):
+                self._cur["href"] = href
+        if self._title_depth:
+            self._title_depth += 1
+        elif "search-snippet-title" in classes:
+            self._title_depth = 1
+            title_attr = d.get("title", "").strip()
+            if title_attr:
+                self._cur["title"] = title_attr
+        if self._generic_depth:
+            self._generic_depth += 1
+            if self._content_depth:
+                self._content_depth += 1
+            elif "content" in classes:
+                self._content_depth = 1
+        elif "generic-snippet" in classes:
+            self._generic_depth = 1
+
+    def handle_endtag(self, _tag: str) -> None:
+        if self._snip_depth == 0:
+            return
+        if self._title_depth:
+            self._title_depth -= 1
+            if self._title_depth == 0 and self._cur and not self._cur["title"]:
+                self._cur["title"] = "".join(self._title_parts).strip()
+        if self._content_depth:
+            self._content_depth -= 1
+            if self._content_depth == 0 and self._cur:
+                self._cur["snippet"] = collapse_ws("".join(self._content_parts))
+        if self._generic_depth:
+            self._generic_depth -= 1
+        self._snip_depth -= 1
+        if self._snip_depth == 0:
+            cur = self._cur
+            self._cur = None
+            if cur and _usable_result(cur):
+                self.results.append(cur)
+
+    def handle_data(self, data: str) -> None:
+        if self._title_depth:
+            self._title_parts.append(data)
+        elif self._content_depth:
+            self._content_parts.append(data)
+
+
+def collapse_ws(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _usable_result(item: dict[str, str]) -> bool:
+    href = item.get("href", "")
+    title = collapse_ws(item.get("title", ""))
+    if not href.startswith("http") or not title:
+        return False
+    host = (urlparse(href).hostname or "").lower()
+    if host == "search.brave.com" or host.endswith(".search.brave.com"):
+        return False
+    item["title"] = title
+    item["href"] = href
+    item["snippet"] = collapse_ws(item.get("snippet", ""))
+    return True
+
+
+def decode_query(raw: str) -> str:
+    """Decode a tny percent-encoded query (spaces as %20, not '+')."""
+    return unquote(raw.replace("+", "%2B"))
+
+
+def encode_query(decoded: str) -> str:
+    return quote(decoded, safe="")
+
+
+def query_dirname(decoded: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", decoded.lower()).strip("-")[:48]
+    digest = hashlib.sha1(decoded.encode("utf-8")).hexdigest()[:10]
+    return f"{slug}-{digest}" if slug else digest
+
+
+def host_slug(url: str) -> str:
+    host = (urlparse(url).hostname or "unknown").lower()
+    host = re.sub(r"[^a-z0-9.-]+", "-", host).strip("-.") or "unknown"
+    return host[:80]
+
+
+def one_line(text: str, limit: int = SNIPPET_CHARS) -> str:
+    text = collapse_ws(text)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+def kb_label(num_bytes: int) -> str:
+    kb = num_bytes / 1024
+    if kb < 10:
+        value = f"{kb:.1f}".removesuffix(".0")
+    else:
+        value = str(round(kb))
+    return f"{value} KB"
+
+
+def lightpanda_bin() -> str:
+    path = shutil.which("lightpanda")
+    if not path:
+        print("brave-search: lightpanda not found on PATH", file=sys.stderr)
+        raise SystemExit(127)
+    return path
+
+
+def run_lightpanda(
+    args: list[str], timeout_s: float
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [lightpanda_bin(), *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired as exc:
+        print(
+            f"brave-search: lightpanda timed out after {int(timeout_s)}s",
+            file=sys.stderr,
+        )
+        raise SystemExit(LIGHTPANDA_FAIL) from exc
+
+
+def parse_fetch_json(stdout: str) -> list[dict[str, object]]:
+    raw = stdout.strip()
+    if not raw:
+        return []
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"brave-search: lightpanda returned non-JSON: {exc}", file=sys.stderr)
+        raise SystemExit(LIGHTPANDA_FAIL) from exc
+    if isinstance(payload, dict) and isinstance(payload.get("results"), list):
+        return [x for x in payload["results"] if isinstance(x, dict)]
+    if isinstance(payload, dict):
+        return [payload]
+    if isinstance(payload, list):
+        return [x for x in payload if isinstance(x, dict)]
+    return []
+
+
+def dump_content(item: dict[str, object]) -> str:
+    content = item.get("content")
+    return content if isinstance(content, str) else ""
+
+
+def parse_brave_html(html: str) -> list[dict[str, str]]:
+    parser = BraveResultsParser()
+    try:
+        parser.feed(html)
+        parser.close()
+    except (AssertionError, ValueError, UnicodeDecodeError):
+        parser.results = []
+    results = _dedupe(parser.results)
+    if results:
+        return results
+    return _dedupe(_regex_results(html))
+
+
+def _dedupe(items: list[dict[str, str]]) -> list[dict[str, str]]:
+    seen: set[str] = set()
+    out: list[dict[str, str]] = []
+    for item in items:
+        key = item["href"].rstrip("/").lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
+def _regex_results(html: str) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    blocks = re.split(r'data-type="web"', html)[1:]
+    for block in blocks:
+        href_m = re.search(r'<a\s[^>]*href="(https?://[^"]+)"', block)
+        if not href_m:
+            continue
+        title_m = re.search(
+            r'search-snippet-title[^>]*(?:title="([^"]*)")?[^>]*>([^<]*)',
+            block,
+        )
+        snippet_m = re.search(
+            r'class="content[^"]*"[^>]*>(.*?)</div>',
+            block,
+            re.DOTALL,
+        )
+        title = ""
+        if title_m:
+            title = html_lib.unescape(title_m.group(1) or title_m.group(2) or "")
+        snippet = ""
+        if snippet_m:
+            snippet = collapse_ws(re.sub(r"<[^>]+>", " ", snippet_m.group(1)))
+        item = {
+            "title": collapse_ws(html_lib.unescape(title)),
+            "href": html_lib.unescape(href_m.group(1)),
+            "snippet": snippet,
+        }
+        if _usable_result(item):
+            out.append(item)
+    return out
+
+
+def results_from_injected_html(html: str) -> list[dict[str, str]]:
+    match = re.search(
+        r'id="brave-out"[^>]*>(.*?)</pre>',
+        html,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if not match:
+        return []
+    blob = html_lib.unescape(match.group(1)).strip()
+    try:
+        data = json.loads(blob)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[dict[str, str]] = []
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        item = {
+            "title": str(row.get("title") or ""),
+            "href": str(row.get("href") or ""),
+            "snippet": str(row.get("snippet") or ""),
+        }
+        if _usable_result(item):
+            out.append(item)
+    return _dedupe(out)
+
+
+def fetch_search(decoded: str) -> list[dict[str, str]]:
+    url = f"{BRAVE_SEARCH}?q={encode_query(decoded)}&source=web"
+    html = ""
+    for attempt in range(SEARCH_RETRIES):
+        proc = run_lightpanda(
+            [
+                "fetch",
+                "--dump",
+                "html",
+                "--log-level",
+                "fatal",
+                "--strip-mode",
+                "full",
+                "--wait-ms",
+                str(SEARCH_WAIT_MS),
+                "--terminate-ms",
+                str(SEARCH_TERMINATE_MS),
+                "--wait-until",
+                "load",
+                url,
+            ],
+            timeout_s=SEARCH_TERMINATE_MS / 1000 + 8,
+        )
+        if proc.returncode != 0:
+            print(
+                f"brave-search: lightpanda search failed (exit {proc.returncode})",
+                file=sys.stderr,
+            )
+            if proc.stderr.strip():
+                print(proc.stderr.strip(), file=sys.stderr)
+            raise SystemExit(LIGHTPANDA_FAIL)
+        html = proc.stdout
+        results = parse_brave_html(html)
+        if results:
+            return results
+        looks_rate_limited = (
+            'data-type="web"' not in html and "search-snippet-title" not in html
+        )
+        if looks_rate_limited and attempt + 1 < SEARCH_RETRIES:
+            time.sleep(SEARCH_RETRY_BASE_S * (2**attempt))
+            continue
+        break
+    if not html.strip():
+        print("brave-search: lightpanda search returned empty HTML", file=sys.stderr)
+        raise SystemExit(LIGHTPANDA_FAIL)
+    injected = fetch_search_injected(url)
+    return injected
+
+
+def fetch_search_injected(url: str) -> list[dict[str, str]]:
+    """Fallback: rewrite the SERP DOM to a JSON <pre> before dumping HTML."""
+    with tempfile.NamedTemporaryFile(
+        "w",
+        suffix=".js",
+        prefix="brave-search-inject-",
+        delete=False,
+        encoding="utf-8",
+    ) as handle:
+        handle.write(_INJECT_JS)
+        inject_path = handle.name
+    try:
+        proc = run_lightpanda(
+            [
+                "fetch",
+                "--json",
+                "--dump",
+                "html",
+                "--log-level",
+                "fatal",
+                "--strip-mode",
+                "full",
+                "--wait-ms",
+                str(SEARCH_WAIT_MS),
+                "--terminate-ms",
+                str(SEARCH_TERMINATE_MS),
+                "--wait-selector",
+                "#brave-out",
+                "--inject-script-file",
+                inject_path,
+                url,
+            ],
+            timeout_s=SEARCH_TERMINATE_MS / 1000 + 8,
+        )
+    finally:
+        try:
+            os.unlink(inject_path)
+        except OSError:
+            pass
+    if proc.returncode != 0:
+        return []
+    items = parse_fetch_json(proc.stdout)
+    if not items:
+        return []
+    return results_from_injected_html(dump_content(items[0]))
+
+
+def page_is_failure(item: dict[str, object]) -> bool:
+    content = dump_content(item).strip()
+    if not content:
+        return True
+    first = content.splitlines()[0] if content else ""
+    return "Navigation failed" in first
+
+
+def _url_key(url: str) -> str:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    path = parsed.path.rstrip("/") or "/"
+    return f"{host}{path}"
+
+
+def fetch_pages(urls: list[str]) -> dict[str, str]:
+    if not urls:
+        return {}
+    proc = run_lightpanda(
+        [
+            "fetch",
+            "--json",
+            "--dump",
+            "markdown",
+            "--log-level",
+            "fatal",
+            "--strip-mode",
+            "full",
+            "--wait-ms",
+            str(PAGE_WAIT_MS),
+            "--terminate-ms",
+            str(PAGE_TERMINATE_MS),
+            "--http-timeout",
+            str(PAGE_HTTP_TIMEOUT_MS),
+            "--disable-subframes",
+            "--disable-workers",
+            *urls,
+        ],
+        timeout_s=PAGE_TERMINATE_MS / 1000 + 15,
+    )
+    if proc.returncode != 0 and not proc.stdout.strip():
+        return {}
+    items = parse_fetch_json(proc.stdout)
+    by_url: dict[str, str] = {}
+    by_key: dict[str, str] = {}
+    for item in items:
+        if page_is_failure(item):
+            continue
+        fetched_url = str(item.get("url") or "")
+        markdown = dump_content(item)
+        if not markdown:
+            continue
+        if fetched_url:
+            by_url[fetched_url] = markdown
+            by_key[_url_key(fetched_url)] = markdown
+
+    out: dict[str, str] = {}
+    for requested in urls:
+        markdown = by_url.get(requested) or by_key.get(_url_key(requested))
+        if markdown:
+            out[requested] = markdown
+    return out
+
+
+def write_page(
+    path: Path,
+    title: str,
+    url: str,
+    markdown: str,
+    fetched_at: str,
+) -> int:
+    header = f"title: {title}\nurl: {url}\nfetched-at: {fetched_at}\n\n"
+    body = markdown.lstrip("\n")
+    payload = header + body
+    encoded = payload.encode("utf-8")
+    if len(encoded) > MAX_FILE_BYTES:
+        marker = b"\n\n[truncated]\n"
+        budget = MAX_FILE_BYTES - len(marker)
+        encoded = encoded[:budget].rsplit(b"\n", 1)[0] + marker
+    path.write_bytes(encoded)
+    return path.stat().st_size
+
+
+def format_index(
+    decoded: str,
+    hits: list[dict[str, str]],
+    saved: list[tuple[dict[str, str], Path, int]],
+) -> str:
+    n_saved = len(saved)
+    failed = len(hits) - n_saved
+    fail_note = f" ({failed} page fetch(es) failed)" if failed else ""
+    lines = [
+        (
+            f'Web search: "{decoded}" — {n_saved} results{fail_note}. '
+            "Full page content was saved as markdown; read the files below "
+            "with your file-reading tool (read_file) instead of re-fetching."
+        )
+    ]
+    for i, (hit, path, size) in enumerate(saved, start=1):
+        snippet = hit.get("snippet") or ""
+        lines.append(f"{i}. {hit['title']}")
+        lines.append(f"   url: {hit['href']}")
+        lines.append(f"   path: {path}  ({kb_label(size)})")
+        if snippet:
+            lines.append(f"   snippet: {one_line(snippet)}")
+    return "\n".join(lines) + "\n"
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    env_n = os.environ.get("BRAVE_SEARCH_N", "").strip()
+    default_n = DEFAULT_N
+    if env_n:
+        try:
+            default_n = int(env_n)
+        except ValueError:
+            print(
+                f"brave-search: ignoring invalid BRAVE_SEARCH_N={env_n!r}",
+                file=sys.stderr,
+            )
+    parser = argparse.ArgumentParser(
+        prog="brave-search",
+        description="Search the web with Brave via lightpanda and save result pages.",
+    )
+    parser.add_argument(
+        "-n",
+        type=int,
+        default=default_n,
+        metavar="N",
+        help=f"number of results to keep (default {DEFAULT_N}, env BRAVE_SEARCH_N)",
+    )
+    parser.add_argument(
+        "query",
+        help="search query; tny passes this percent-encoded",
+    )
+    args = parser.parse_args(argv)
+    if args.n < 1:
+        parser.error("-n must be >= 1")
+    args.n = min(args.n, MAX_N)
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    decoded = decode_query(args.query).strip()
+    if not decoded:
+        print('Web search: "" — no results.', flush=True)
+        return 0
+
+    hits = fetch_search(decoded)[: args.n]
+    if not hits:
+        print(f'Web search: "{decoded}" — no results.', flush=True)
+        return 0
+
+    fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    pages = fetch_pages([hit["href"] for hit in hits])
+
+    out_dir = OUT_ROOT / query_dirname(decoded)
+    if out_dir.exists():
+        shutil.rmtree(out_dir, ignore_errors=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    saved: list[tuple[dict[str, str], Path, int]] = []
+    for i, hit in enumerate(hits, start=1):
+        markdown = pages.get(hit["href"])
+        if not markdown:
+            continue
+        path = out_dir / f"{i:02d}-{host_slug(hit['href'])}.md"
+        size = write_page(path, hit["title"], hit["href"], markdown, fetched_at)
+        saved.append((hit, path, size))
+
+    if not saved:
+        print(
+            f'Web search: "{decoded}" — no results '
+            f"(found {len(hits)} hit(s) but every page fetch failed).",
+            flush=True,
+        )
+        return 0
+
+    sys.stdout.write(format_index(decoded, hits, saved))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
