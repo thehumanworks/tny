@@ -198,6 +198,14 @@ static bool schema_tool_disabled(const tools_env *env, const char *name) {
            strcmp(name, "ask_user_question") == 0;
 }
 
+/* Hidden from the advertised schema but still callable directly: web_search
+ * without a configured provider (docs/adr/0055) keeps its runtime error. */
+static bool schema_tool_hidden(const tools_env *env, const char *name) {
+    if (schema_tool_disabled(env, name)) return true;
+    if (!env || !env->ctx || !name) return false;
+    return strcmp(name, "web_search") == 0 && !tool_web_search_configured(env->ctx);
+}
+
 static char *append_custom_schema(char *base, custom_tool_registry *registry) {
     char *custom = custom_tools_schema_json(registry);
     if (!base || !custom) {
@@ -221,7 +229,9 @@ static char *append_custom_schema(char *base, custom_tool_registry *registry) {
 }
 
 char *tools_schema_json(tools_env *env) {
-    if (env && env->ctx && (env->ctx->mcp_disabled || env->ctx->library_mode)) {
+    if (env && env->ctx &&
+        (env->ctx->mcp_disabled || env->ctx->library_mode ||
+         !tool_web_search_configured(env->ctx))) {
         yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
         yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
         yyjson_mut_doc *mut = yyjson_mut_doc_new(jallocator());
@@ -231,7 +241,7 @@ char *tools_schema_json(tools_env *env) {
             yyjson_val *item;
             yyjson_arr_foreach(root, idx, max, item) {
                 const char *name = jget_str(jget(item, "function"), "name");
-                if (schema_tool_disabled(env, name)) continue;
+                if (schema_tool_hidden(env, name)) continue;
                 yyjson_mut_arr_add_val(out, yyjson_val_mut_copy(mut, item));
             }
             yyjson_mut_doc_set_root(mut, out);

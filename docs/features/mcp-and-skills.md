@@ -11,7 +11,7 @@ Keep fx names so prompts and muscle memory transfer:
 | Files | `list_files`, `glob_files`, `grep_files`, `read_file`, `write_file`, `edit_file`, `delete_file`, `rename_file`, `copy_file`, `create_folder`, `file_info` |
 | Search | `semantic_search` (lexical, not embeddings), `open_file` |
 | Shell | `terminal` (fx runtime name; accept `run_command` as an alias) |
-| Web | `web_search` (optional provider), `web_fetch` |
+| Web | `web_fetch`; `web_search` only when a provider is configured (see [Web search providers](#web-search-providers)) |
 | Images | `read_image` (png/jpeg/gif/webp via magic bytes; `vision` is an alias). Tool result is a short text; pixels go out as a follow-up user `image_url` message ([ADR 0008](../adr/0008-native-loop-images.md)). `tny ask --image PATH` attaches the same shape on the first user message (max 16 flags; a 17th is exit 1) |
 | Skills | `skill`, `install_skill` |
 | Subagents | `subagent` (`create`, `inspect`, `message`, `relationship`, `configure`, `lifecycle`) |
@@ -23,6 +23,39 @@ Large results: bounded preview + session handle; `read_tool_result` reads a byte
 `memory` writes `~/.tny/memories.json` only when asked. Do not inject it into every prompt. In [ephemeral mode](../adr/0020-ephemeral-sessions.md), `memory set` is rejected so a conversation cannot create durable user memory; `get` and `list` may still read existing memories.
 
 No browser/CDP tools in v1.
+
+### Web search providers
+
+tny ships no search engine. `web_search` is **advertised to the model only
+when `~/.tny/settings.json` names a provider** ([ADR
+0055](../adr/0055-web-search-gating-and-command-provider.md)); without one the
+tool is absent from the native loop's tools array, so the model never burns a
+call to learn there is no provider. A direct call (SDK, `--json` replay) still
+gets the runtime error `no web search provider configured`.
+
+| Key | Shape | Behaviour |
+| --- | --- | --- |
+| `web_search_command` | shell command template | Runs through the `terminal` tool's path (same cwd, `--ssh` remote, 60 s timeout, bounded output); the result is the command's exit code plus its stdout/stderr |
+| `web_search_url` | URL template | `GET` over HTTP(S), same bounded body as `web_fetch` |
+
+Both templates take the placeholder as `{query}` or `{{query}}`; every
+occurrence is replaced. The query is always **percent-encoded** (only
+`A-Za-z0-9-_.` pass through), for both keys: the encoded form is valid inside a
+URL and is a single safe shell word, so a query such as `$(id)` can never reach
+the shell unquoted. Put the placeholder inside the URL argument, not as a bare
+search phrase, if the command wants human-readable text. If both keys are set,
+`web_search_command` wins.
+
+```json
+{
+  "web_search_command": "lightpanda fetch --dump markdown --log-level fatal --strip-mode full \"https://search.brave.com/search?query={{query}}&source=web\"",
+  "web_search_url": "https://html.duckduckgo.com/html/?q={query}"
+}
+```
+
+wasm: `web_search_url` works as before (fetch); `web_search_command` returns
+the clean error `web_search_command is not available in wasm`, while the tool
+stays advertised because a provider is configured.
 
 ## MCP client
 

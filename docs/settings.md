@@ -40,6 +40,8 @@ permission/cost escalation.
 | `effort` | string, or per-provider object | `--effort LEVEL` |
 | `fast` | boolean/string, or per-provider object | `--fast` when true/`fast`/`priority`; standard tier when false/`default` |
 | `permission_mode` | `ask`, `auto`, or `yolo` | `--permission-mode` |
+| `web_search_command` | shell command template with `{query}` or `{{query}}` | enables `web_search`; runs like `terminal` ([ADR 0055](adr/0055-web-search-gating-and-command-provider.md)); wins over `web_search_url` |
+| `web_search_url` | URL template with `{query}` or `{{query}}` | enables `web_search`; fetched like `web_fetch` |
 | `mcp.import_from` | array of `codex`, `claude`, `grok`, `cursor-agent` (`cursor` alias accepted) | `tny mcp list` (opt-in; off by default; project files for enabled sources are trusted, [ADR 0051](adr/0051-mcp-import-from-harnesses.md)) |
 
 ## MCP imports
