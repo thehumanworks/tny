@@ -23,7 +23,7 @@ shell, and SWE-agent's 2024 shell-only ablation fell from 12% to 3% on
 older models.
 
 Three independent reviewers (codex gpt-5.6-sol, grok-4.6, Claude Opus via
-ACP; outputs in `agents/out/shell-first-*.md`) converged on the shape below.
+ACP; outputs attached to epic #105 and kept in `agents/out/`, which is gitignored) converged on the shape below.
 
 ## Decision
 
