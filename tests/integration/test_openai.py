@@ -398,46 +398,52 @@ def main():
             for blob in (r.stdout, r.stderr, r2.stdout, r2.stderr):
                 assert b"test-key-not-real" not in blob, "api key leaked"
 
-            # A terminal child receives the resolved runner socket and can
-            # queue an image while the terminal tool is still blocking. The
-            # mock rejects the next POST unless it carries an input_image.
-            image_path = os.path.join(ws, "runner-image.png")
-            open(image_path, "wb").write(b"\x89PNG\r\n\x1a\n\x00\x00\x00\x00")
-            iport = free_port()
-            imock = subprocess.Popen(
-                [sys.executable, MOCK, str(iport)],
-                env=dict(
-                    os.environ,
-                    MOCK_EXPECT_WIRE="responses",
-                    MOCK_CUSTOM_TOOL="terminal",
-                    MOCK_CUSTOM_ARGUMENTS=json.dumps(
-                        {
-                            "command": f"{shlex.quote(os.path.abspath(TNY))} image attach "
-                            "runner-image.png"
-                        }
+            # wasm has no forked runner and no terminal child (ADR 0017), so the
+            # socket-bound attach cannot happen there; the profile tests above
+            # already cover the wasm clean-error path.
+            if not IS_WASM:
+                # A terminal child receives the resolved runner socket and can
+                # queue an image while the terminal tool is still blocking. The
+                # mock rejects the next POST unless it carries an input_image.
+                image_path = os.path.join(ws, "runner-image.png")
+                open(image_path, "wb").write(b"\x89PNG\r\n\x1a\n\x00\x00\x00\x00")
+                iport = free_port()
+                imock = subprocess.Popen(
+                    [sys.executable, MOCK, str(iport)],
+                    env=dict(
+                        os.environ,
+                        MOCK_EXPECT_WIRE="responses",
+                        MOCK_CUSTOM_TOOL="terminal",
+                        MOCK_CUSTOM_ARGUMENTS=json.dumps(
+                            {
+                                "command": f"{shlex.quote(os.path.abspath(TNY))} image attach "
+                                "runner-image.png"
+                            }
+                        ),
+                        MOCK_EXPECT_ATTACHED_IMAGE="1",
                     ),
-                    MOCK_EXPECT_ATTACHED_IMAGE="1",
-                ),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            )
-            try:
-                line = imock.stdout.readline().decode()
-                assert "ready" in line, f"image mock did not start: {line!r}"
-                ienv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{iport}/v1")
-                attached = subprocess.run(
-                    [TNY, "--cwd", ws, "ask", "--json", "attach the image"],
-                    env=ienv,
-                    capture_output=True,
-                    timeout=30,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
                 )
-                assert attached.returncode == 0, attached.stderr.decode()
-                attached_out = json.loads(attached.stdout)
-                assert attached_out["tool_calls"][0]["name"] == "terminal", attached_out
-                assert "MOCK-OK" in attached_out["output"], attached_out
-            finally:
-                imock.terminate()
-                imock.wait(timeout=5)
+                try:
+                    line = imock.stdout.readline().decode()
+                    assert "ready" in line, f"image mock did not start: {line!r}"
+                    ienv = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{iport}/v1")
+                    attached = subprocess.run(
+                        [TNY, "--cwd", ws, "ask", "--json", "attach the image"],
+                        env=ienv,
+                        capture_output=True,
+                        timeout=30,
+                    )
+                    assert attached.returncode == 0, attached.stderr.decode()
+                    attached_out = json.loads(attached.stdout)
+                    assert attached_out["tool_calls"][0]["name"] == "terminal", (
+                        attached_out
+                    )
+                    assert "MOCK-OK" in attached_out["output"], attached_out
+                finally:
+                    imock.terminate()
+                    imock.wait(timeout=5)
                 os.unlink(image_path)
 
             # Native permissions can now park the OpenAI loop and resume from
