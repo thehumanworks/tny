@@ -95,9 +95,12 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else if (strcmp(a, "--bridge-bin") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->bridge_bin = v;
-        } else if (strcmp(a, "--codex-bin") == 0) {
+        } else if (strcmp(a, "--chatgpt-token") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
-            g->codex_bin = v;
+            g->chatgpt_token = v;
+        } else if (strcmp(a, "--chatgpt-account-id") == 0) {
+            if (!(v = need_val(argc, argv, &i, a))) return -1;
+            g->chatgpt_account_id = v;
         } else if (strcmp(a, "--base-url") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->base_url = v;
@@ -221,9 +224,21 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         free(ctx->bridge_bin);
         ctx->bridge_bin = xstrdup(g->bridge_bin);
     }
-    if (g->codex_bin) {
-        free(ctx->codex_bin);
-        ctx->codex_bin = xstrdup(g->codex_bin);
+    /* file-less ChatGPT credential (docs/adr/0066): must land before the
+     * provider resolves, since the codex profile reads it there */
+    if (g->chatgpt_token) {
+        if (!*g->chatgpt_token) {
+            fprintf(stderr,
+                    "tny: --chatgpt-token must not be empty (or set CHATGPT_ACCESS_TOKEN)\n");
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        free(ctx->chatgpt_token);
+        ctx->chatgpt_token = xstrdup(g->chatgpt_token);
+    }
+    if (g->chatgpt_account_id) {
+        free(ctx->chatgpt_account_id);
+        ctx->chatgpt_account_id = xstrdup(g->chatgpt_account_id);
     }
     /* Mark an explicit speed choice before provider resolution so a settings
      * default cannot run first. Capability validation stays after resolve. */

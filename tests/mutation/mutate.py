@@ -437,6 +437,14 @@ TARGETS = [
         None,
         "tests/integration/test_codex_chatgpt.py",
     ),
+    # native ChatGPT login: PKCE/state, callback parsing, device polling,
+    # token exchange + store (docs/adr/0066)
+    (
+        "src/core/codex_login.c",
+        None,
+        None,
+        "tests/integration/test_codex_chatgpt.py",
+    ),
     # --fast capability (TNY_CAP_FAST): new functions whole, only the
     # tier/fast lines inside the pre-existing ones.
     ("src/core/backend.c", ["tny_backend_caps"], None),

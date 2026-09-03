@@ -117,7 +117,7 @@ tny cursor rpc SERVICE METHOD [JSON|-] [--yes]</code></pre>
   <thead><tr><th>Provider</th><th>Flags / env</th></tr></thead>
   <tbody>
     <tr><td>cursor</td><td><code>--bridge-bin</code>, <code>CURSOR_SDK_BRIDGE_BIN</code>, <code>CURSOR_API_KEY</code></td></tr>
-    <tr><td>codex</td><td><code>$CODEX_HOME/auth.json</code> from <code>codex login</code>; <code>--codex-bin</code> / <code>TNY_CODEX_BIN</code> for <code>login</code>; <code>TNY_CODEX_BASE_URL</code></td></tr>
+    <tr><td>codex</td><td><code>--chatgpt-token</code>, <code>--chatgpt-account-id</code>, <code>CHATGPT_ACCESS_TOKEN</code>, <code>CHATGPT_ACCOUNT_ID</code>; else <code>~/.tny/codex-auth.json</code> (<code>tny --provider codex login</code>) or <code>$CODEX_HOME/auth.json</code>; <code>TNY_CODEX_BASE_URL</code></td></tr>
     <tr><td>acp</td><td><code>--agent CMD</code> plus extra args after <code>--</code></td></tr>
     <tr><td>openai</td><td><code>--base-url</code>, <code>--api-key-env</code>, <code>OPENAI_BASE_URL</code>, <code>OPENAI_API_KEY</code></td></tr>
   </tbody>

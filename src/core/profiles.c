@@ -200,10 +200,11 @@ static void apply_codex(tny_ctx *ctx) {
     profile_reset(ctx, "codex");
     set_str(&ctx->wire_api, NULL); /* the ChatGPT backend is Responses-only */
     /* Without the Codex CLI's background refresher, tny runs the
-     * refresh-token grant itself before reading (codex_auth.c). */
+     * refresh-token grant itself before reading (codex_auth.c); the file
+     * that wins the precedence order is the one refreshed. */
     tny_codex_refresh_if_stale();
     tny_codex_creds c;
-    tny_codex_credentials(&c);
+    tny_codex_credentials(ctx, &c);
     if (c.access_token) {
         /* TNY_CODEX_BASE_URL: test mocks / gateways; a plain CODEX_BASE_URL
          * would instead shadow the whole builtin as a user profile */

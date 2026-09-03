@@ -8,10 +8,11 @@ description: Run tny against the user's real provider accounts (codex subscripti
 ## Credentials and binaries
 
 - `CURSOR_API_KEY` lives in the login shell only: fetch it with
-  `zsh -lc 'printf %s $CURSOR_API_KEY'`. Codex auth is `~/.codex/auth.json`.
+  `zsh -lc 'printf %s $CURSOR_API_KEY'`. Codex auth is `~/.tny/codex-auth.json`
+  (tny's native login) or the Codex CLI's `~/.codex/auth.json`; either works.
 - Agent CLIs are wrapped by shell functions and mise shims: resolve real
-  paths with `zsh -lc 'whence -p codex'` and pass via `TNY_CODEX_BIN` (only
-  `tny --provider codex login` runs it; turns go straight to chatgpt.com).
+  paths with `zsh -lc 'whence -p codex'` for the *other* CLIs; codex needs
+  no binary at all (turns and login go straight to chatgpt.com/auth.openai.com).
   The user's HOME must stay real (mise shims break under a fake HOME).
 
 ## Protecting the user's state

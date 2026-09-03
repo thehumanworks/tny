@@ -254,7 +254,7 @@ def landing() -> str:
         ),
         (
             "Four first-class backends",
-            'Cursor via the complete public SDK Bridge v1.0.30, Codex via <code>app-server</code> WebSockets, other agents via <a href="docs/backends.html">ACP</a>, and a native OpenAI-compatible tool loop.',
+            'Cursor via the complete public SDK Bridge v1.0.30, Codex subscriptions via the ChatGPT Responses backend, other agents via <a href="docs/backends.html">ACP</a>, and a native OpenAI-compatible tool loop.',
         ),
         (
             "Minimal memory footprint",
@@ -270,7 +270,7 @@ def landing() -> str:
         ),
         (
             "Host processes stay external",
-            "<code>cursor-sdk-bridge</code> and <code>codex</code> are spawned or attached, never embedded. The tny binary does not ship Node, Bun, or Rust.",
+            "<code>cursor-sdk-bridge</code> and ACP agents are spawned or attached, never embedded; a Codex login is plain HTTPS. The tny binary does not ship Node, Bun, or Rust.",
         ),
         (
             "Model and provider agnostic",
@@ -363,13 +363,13 @@ def docs_quick() -> str:
 <p>For scripts and CI, skip the shell:</p>
 {cmd('tny ask --json "list the public CLI"')}
 <h2 id="providers">Pick a provider</h2>
-<p>tny is a frontend. The default provider is the last one you used, then whatever credentials are already on the machine — an OpenAI-compatible key, a Codex login, or <code>CURSOR_API_KEY</code>. Override it:</p>
+<p>tny is a frontend. The default provider is the last one you used, then whatever credentials are already on the machine — an OpenAI-compatible key, a ChatGPT login (<code>tny --provider codex login</code>, <code>CHATGPT_ACCESS_TOKEN</code>, or an existing <code>codex login</code>), or <code>CURSOR_API_KEY</code>. Override it:</p>
 {cmd('tny --provider cursor ask "explain this repo"')}
 {cmd("tny --provider codex")}
 {cmd("tny --provider acp --agent gemini -- --acp")}
 <p>See <a href="providers.html">Providers</a> for env vars and host binaries.</p>
 <h2 id="permissions">What tny asks before it acts</h2>
-<p>tny starts in <code>yolo</code> permission mode. Consenting to run an agent in a workspace is the approval. Host providers (Cursor, Codex, ACP) run their own loops; tny does not pretend to gate them.</p>
+<p>tny starts in <code>yolo</code> permission mode. Consenting to run an agent in a workspace is the approval. Host providers (Cursor, ACP) run their own loops; tny does not pretend to gate them.</p>
 <p><code>ask</code> and <code>auto</code> are explicit opt-ins on the native OpenAI-compatible loop. Listing, globbing, and reading files inside the workspace never need approval. Writes, shell, and paths outside the workspace do — when you opt in.</p>
 <p>Switch modes with <code>/permissions</code> or <code>--permission-mode</code>. Details in <a href="permissions.html">Permissions</a>.</p>
 {note("Approve deliberately", "yolo disables tny permission checks and the command sandbox for that process. Use it in a workspace you are willing to lose. Host sandboxes, if any, still apply.")}
@@ -437,7 +437,7 @@ def docs_install() -> str:
   <thead><tr><th>Provider</th><th>Host</th></tr></thead>
   <tbody>
     <tr><td><code>cursor</code></td><td><code>cursor-sdk-bridge</code> (never linked into tny)</td></tr>
-    <tr><td><code>codex</code></td><td><code>codex</code> CLI / <code>codex app-server</code></td></tr>
+    <tr><td><code>codex</code></td><td>none — tny signs in itself (<code>tny --provider codex login</code>)</td></tr>
     <tr><td><code>acp</code></td><td>whatever you pass to <code>--agent</code></td></tr>
     <tr><td><code>openai</code></td><td>none — tny owns the loop</td></tr>
   </tbody>
@@ -476,7 +476,7 @@ def docs_providers() -> str:
 <ol>
   <li>the provider last used, recorded in <code>~/.tny/settings.json</code></li>
   <li><code>openai</code> if <code>OPENAI_BASE_URL</code> or <code>OPENAI_API_KEY</code> is set</li>
-  <li><code>codex</code> if a Codex login exists (<code>~/.codex/auth.json</code>)</li>
+  <li><code>codex</code> if a ChatGPT credential exists (<code>CHATGPT_ACCESS_TOKEN</code>, <code>~/.tny/codex-auth.json</code>, or <code>~/.codex/auth.json</code>)</li>
   <li><code>cursor</code> if <code>CURSOR_API_KEY</code> is set</li>
   <li><code>openai</code>, whose connect error explains how to configure a key</li>
 </ol>
@@ -494,10 +494,10 @@ def docs_providers() -> str:
 <p>Configure trusted protojson under <code>settings.cursor</code>: runtime, state/store, Agent/Send options, sandbox/review, MCP, subagents, and tool selection. Registered libtny custom tools can execute through the local callback boundary; Cursor still owns built-in tools and their permission policy. Resolve the bridge from <code>CURSOR_SDK_BRIDGE_BIN</code> or <code>PATH</code>. The bridge is 23–43 MiB of Bun — that weight is why it is never linked into tny.</p>
 <p><code>tny cursor</code> exposes catalog, agent/run lifecycle, messages, artifacts/download, usage, and a checked raw 27-route RPC. In wasm, conversations report <code>cursor: conversational sdk.v1 bridge is unavailable in WebAssembly</code> and management reports <code>cursor: sdk.v1 management is unavailable in WebAssembly</code> before bridge work.</p>
 <h2 id="codex">codex</h2>
-<p>Attaches to a live <code>codex app-server</code> or spawns one on an ephemeral loopback port. Subscriptions need no API key; Codex's own login is enough.</p>
-{cmd("tny --provider codex")}
-{cmd("tny --provider codex --codex-ws ws://127.0.0.1:4500")}
-<p>Without <code>--codex-ws</code>, tny tries <code>TNY_CODEX_WS</code>, then a loopback host registered by a running tny TUI, then a spawn.</p>
+<p>Your ChatGPT subscription on tny's native loop against the Responses-compatible <code>chatgpt.com/backend-api/codex</code>. Sign in with <code>tny --provider codex login</code> (browser, or <code>--device</code> on headless machines) — no Codex CLI — or hand tny a token with <code>CHATGPT_ACCESS_TOKEN</code> / <code>--chatgpt-token</code> when there is no filesystem to keep one. An existing <code>codex login</code> is picked up too. Tokens refresh automatically.</p>
+{cmd("tny --provider codex login")}
+{cmd("tny --provider codex login --device")}
+{cmd("CHATGPT_ACCESS_TOKEN=… tny --provider codex ask 'run the tests'")}
 <h2 id="acp">acp</h2>
 <p>Drive any ACP agent as a client, or serve tny's native loop to an editor.</p>
 {cmd("tny --provider acp --agent gemini -- --acp")}
@@ -603,7 +603,7 @@ tny usage
 tny login | logout | setup</code></pre>
 <h2 id="globals">Global flags</h2>
 <p>Global flags are leading — they come before the command.</p>
-<pre><code>tny --provider cursor|codex|acp|openai [command]
+<pre><code>tny --provider cursor|acp|openai|codex|claude|grok [command]
 tny --cwd DIR
 tny --model ID
 tny --task NAME             # runtime preset: review|optimizer|document|retro
@@ -655,7 +655,7 @@ tny cursor rpc SERVICE METHOD [JSON|-] [--yes]</code></pre>
   <thead><tr><th>Provider</th><th>Flags / env</th></tr></thead>
   <tbody>
     <tr><td>cursor</td><td><code>--bridge-bin</code>, <code>CURSOR_SDK_BRIDGE_BIN</code>, <code>CURSOR_API_KEY</code></td></tr>
-    <tr><td>codex</td><td><code>--codex-ws</code>, <code>--codex-bin</code>, <code>--ws-token-file</code>, <code>TNY_CODEX_WS</code>, <code>CODEX_REMOTE_TOKEN</code></td></tr>
+    <tr><td>codex</td><td><code>--chatgpt-token</code>, <code>--chatgpt-account-id</code>, <code>CHATGPT_ACCESS_TOKEN</code>, <code>CHATGPT_ACCOUNT_ID</code>; else <code>~/.tny/codex-auth.json</code> (<code>tny --provider codex login</code>) or <code>$CODEX_HOME/auth.json</code>; <code>TNY_CODEX_BASE_URL</code></td></tr>
     <tr><td>acp</td><td><code>--agent CMD</code> plus extra args after <code>--</code></td></tr>
     <tr><td>openai</td><td><code>--base-url</code>, <code>--api-key-env</code>, <code>OPENAI_BASE_URL</code>, <code>OPENAI_API_KEY</code></td></tr>
   </tbody>
@@ -868,7 +868,6 @@ def docs_sessions() -> str:
   <thead><tr><th>Backend</th><th>Stored pointer</th></tr></thead>
   <tbody>
     <tr><td>cursor</td><td>versioned <code>cursor-sdk.v1</code>: <code>agent_id</code>, <code>run_id</code>, exclusive <code>after_offset</code>, local/cloud runtime</td></tr>
-    <tr><td>codex</td><td><code>thread_id</code></td></tr>
     <tr><td>acp</td><td>agent argv + <code>sessionId</code></td></tr>
     <tr><td>openai</td><td>full transcript</td></tr>
   </tbody>
@@ -935,7 +934,7 @@ def docs_permissions() -> str:
   </tbody>
 </table>
 <p><code>yolo</code> forces effective <code>none</code>. Only local native-loop <code>terminal</code> children are wrapped, including background commands; tny itself, host-provider tools, built-in file tools, and <code>--ssh</code> commands stay outside. Network remains open for package managers, provider CLIs, tests, and local development servers. A denied write names the path and points to workspace extra dirs; widening is a separate user decision, not an automatic retry. <code>doctor</code> reports the effective mode. wasm treats <code>auto</code> as <code>none</code> and rejects explicit <code>os</code> cleanly.</p>
-{note("Host mapping", "Cursor's built-in tools remain headless — there is no per-call approval RPC. Registered Cursor custom-tool callbacks are the narrow exception and retain tny validation/sensitivity policy. Codex and ACP requests map onto y / a / n.")}
+{note("Host mapping", "Cursor's built-in tools remain headless — there is no per-call approval RPC. Registered Cursor custom-tool callbacks are the narrow exception and retain tny validation/sensitivity policy. ACP requests map onto y / a / n; the codex profile is the native loop with real gates.")}
 """
     return page_shell(
         title="Permissions — tny",
@@ -1026,8 +1025,8 @@ def docs_backends() -> str:
 <table>
   <thead><tr><th>Kind</th><th>Backends</th><th>Who runs tools?</th></tr></thead>
   <tbody>
-    <tr><td>Host</td><td>Cursor bridge, Codex app-server, ACP client</td><td>The host process; tny executes only registered Cursor custom callbacks</td></tr>
-    <tr><td>Native</td><td>OpenAI-compatible</td><td>tny</td></tr>
+    <tr><td>Host</td><td>Cursor bridge, ACP client</td><td>The host process; tny executes only registered Cursor custom callbacks</td></tr>
+    <tr><td>Native</td><td>OpenAI-compatible, plus the builtin codex / claude / grok subscription profiles</td><td>tny</td></tr>
   </tbody>
 </table>
 <p>Never leak host-specific types into the TUI. Every backend maps onto one event set: <code>text_delta</code>, <code>thinking</code>, <code>tool_start</code>, <code>tool_end</code>, <code>permission_request</code>, <code>plan</code>, <code>usage</code>, <code>turn_end</code>, <code>error</code>.</p>
@@ -1035,9 +1034,9 @@ def docs_backends() -> str:
 <p>tny pins the supported v1.0.30 release and implements all 5 services/29 RPCs: 27 outbound catalog/agent/run/artifact/usage/control calls plus reverse <code>CallCustomTool</code> and <code>CallStore</code>. Local/cloud AgentOptions cover images, modes, sandbox/review, MCP/subagents, and presence-sensitive built-in tool allow/deny. Classic gRPC/HTTP2 and Cursor's private <code>agent.v1</code> are not used.</p>
 <p>Auth is <code>CURSOR_API_KEY</code> plus a per-process bridge bearer and independent loopback callback bearers. None enters logs or argv. Cursor owns built-in tools and exposes no per-call approval RPC; tny permission policy applies only to registered custom tools. Custom store callbacks own bounded local agent/run/event/checkpoint persistence.</p>
 <p>Versioned session pointers retain agent, run, durable offset, and runtime. A dropped Send reconnects through ObserveRun without duplicating events; cancel waits for authoritative terminal state. <code>tny cursor</code> exposes full management/raw access. wasm reports distinct clean unsupported errors for conversations and management before spawn.</p>
-<h2 id="codex">Codex app-server</h2>
-<p>WebSocket JSON-RPC text frames, same surface the VS Code extension uses. The <code>"jsonrpc":"2.0"</code> header is omitted on the wire. Default to loopback; current Codex refuses non-loopback without <code>--ws-auth</code>. Do not send an <code>Origin</code> header.</p>
-<p>Attach with <code>--codex-ws</code>, inherit a TUI-registered live host, or spawn on an ephemeral port. Never a fixed port that could collide.</p>
+<h2 id="codex">Codex</h2>
+<p>A builtin profile of the native loop: your ChatGPT login drives the Responses-compatible <code>chatgpt.com/backend-api/codex</code> with <code>chatgpt-account-id</code> and <code>OpenAI-Beta: responses=v1</code>. tny owns tools, permissions, MCP, and sessions; tokens auto-refresh; no <code>codex app-server</code> process.</p>
+<p><code>tny --provider codex login</code> signs in natively (browser PKCE, or <code>--device</code> for headless boxes) into <code>~/.tny/codex-auth.json</code>; <code>CHATGPT_ACCESS_TOKEN</code> / <code>--chatgpt-token</code> need no file at all; an existing <code>codex login</code> keeps working.</p>
 <h2 id="acp">ACP</h2>
 <p>JSON-RPC 2.0 over stdio, one message per line. tny implements both sides:</p>
 <table>
@@ -1053,7 +1052,7 @@ def docs_backends() -> str:
 """
     return page_shell(
         title="Backends — tny",
-        description="Cursor bridge, Codex WebSocket, ACP, and the native OpenAI loop.",
+        description="Cursor bridge, ACP, and the native OpenAI loop with the codex, claude, and grok subscription profiles.",
         from_docs=True,
         active="docs",
         canonical="docs/backends.html",
@@ -1083,11 +1082,11 @@ def docs_architecture() -> str:
                  +------------------v------------------+
                  |  session + permission + render bus  |
                  +------------------+------------------+
-        +---------------+-----------+----------+---------------+
-        v               v                      v               v
-  cursor-bridge    codex-app-server        acp-client     openai-native
-  Connect sdk.v1   ws:// JSON-RPC          stdio JSON-RPC HTTP SSE + tools
-  + callbacks</code></pre>
+        +---------------+-----------+----------+
+        v               v                      v
+  cursor-bridge      acp-client          openai-native
+  Connect sdk.v1     stdio JSON-RPC      HTTP SSE + tools
+  + callbacks                            (openai, codex, claude, grok)</code></pre>
 <p>One tny process, one primary workspace. Host processes are children or attach targets. Always have a shutdown path: cancel turn → close stream → Shutdown/EOF → wait → kill. Drain host stderr on a dedicated reader — a full pipe stalls the bridge and most ACP agents.</p>
 <h2 id="loop">One event loop</h2>
 <p>POSIX <code>poll</code>/<code>kqueue</code> only. No libuv. TUI pre-warm runs <code>connect()</code> plus <code>create_or_resume()</code> on one bounded thread and hands the backend back before events flow. Cursor's authenticated callback server normally shares the event loop; blocking Create/Resume may lend store traffic to one bounded pump thread, while owner-thread custom tools fail closed there.</p>
@@ -1148,13 +1147,12 @@ def docs_size() -> str:
 </table>
 <p>Do not publish a 10 µs claim. That number is fx's <code>FX_BENCH=1</code> path (parse argv, exit before TTY). Beat measured exec and first paint.</p>
 <h2 id="ttft">Time to first token</h2>
-<p>Everything between Enter and the provider seeing the turn is pre-paid or overlapped. The TUI warms the host and creates the session in the background. <code>tny ask</code> connects while it reads a piped prompt. Codex one-shots attach to an already-running app-server.</p>
+<p>Everything between Enter and the provider seeing the turn is pre-paid or overlapped. The TUI warms the host and creates the session in the background. <code>tny ask</code> connects while it reads a piped prompt.</p>
 <table>
   <thead><tr><th>Path</th><th>before</th><th>after</th></tr></thead>
   <tbody>
     <tr><td>TUI: Enter → first output</td><td>411 ms</td><td>6 ms</td></tr>
     <tr><td><code>ask</code> with piped stdin</td><td>875 ms</td><td>449 ms</td></tr>
-    <tr><td>codex one-shot (attach vs spawn)</td><td>235 ms</td><td>11 ms</td></tr>
   </tbody>
 </table>
 <p>What remains is the model's own time to first token. Client-side, tny is not the bottleneck.</p>

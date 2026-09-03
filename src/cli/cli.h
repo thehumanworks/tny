@@ -33,8 +33,9 @@ typedef struct {
     const char *resume;  /* --resume value */
     /* backend-specific */
     const char *bridge_bin;
-    const char *codex_bin;   /* login helper (docs/adr/0065) */
-    const char **agent_argv; /* --agent CMD -- args…, NULL-terminated */
+    const char *chatgpt_token;      /* --chatgpt-token (docs/adr/0066) */
+    const char *chatgpt_account_id; /* --chatgpt-account-id */
+    const char **agent_argv;        /* --agent CMD -- args…, NULL-terminated */
     const char *base_url;
     const char *api_key_env;
     const char *wire_api; /* --wire-api responses|chat */

@@ -1458,6 +1458,8 @@ TEST builtin_codex_profile(void) {
     unsetenv("CODEX_HOME");
     unsetenv("TNY_CODEX_BASE_URL");
     unsetenv("CURSOR_API_KEY");
+    unsetenv("CHATGPT_ACCESS_TOKEN");
+    unsetenv("CHATGPT_ACCOUNT_ID");
 
     /* account id from the access-token claim when tokens.account_id is absent */
     char *jwt = test_jwt("{\"exp\":9999999999,\"https://api.openai.com/auth\":"
@@ -1518,6 +1520,7 @@ TEST builtin_codex_profile(void) {
     tny_ctx_free(ctx);
 
     /* an empty auth.json still selects the profile; connect() reports it */
+    unsetenv("CHATGPT_ACCESS_TOKEN");
     codex_auth_write(true);
     ctx = tny_ctx_load(g_ws);
     ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
@@ -1536,6 +1539,163 @@ TEST builtin_codex_profile(void) {
     unsetenv("GW_KEY");
 
     codex_auth_write(false);
+    write_settings("{}");
+    PASS();
+}
+
+static void tny_store_write_json(const char *json) {
+    char path[600];
+    snprintf(path, sizeof path, "%s/.tny", g_home);
+    mkdir_p(path);
+    snprintf(path, sizeof path, "%s/.tny/codex-auth.json", g_home);
+    if (json) file_write_atomic(path, json, strlen(json));
+    else unlink(path);
+}
+
+/* Credential precedence (docs/adr/0066): --chatgpt-token > CHATGPT_ACCESS_TOKEN
+ * > ~/.tny/codex-auth.json > $CODEX_HOME/auth.json; the file-less sources
+ * need no HOME at all, and the account id is derived when not given. */
+TEST codex_credential_precedence(void) {
+    ensure_env();
+    write_settings("{}");
+    unsetenv("CODEX_HOME");
+    unsetenv("CHATGPT_ACCESS_TOKEN");
+    unsetenv("CHATGPT_ACCOUNT_ID");
+    unsetenv("CURSOR_API_KEY");
+    codex_auth_write(false);
+    tny_store_write_json(NULL);
+
+    char *cli_jwt =
+        test_jwt("{\"https://api.openai.com/auth\":{\"chatgpt_account_id\":\"acct_cli\"}}");
+    char *store_jwt =
+        test_jwt("{\"https://api.openai.com/auth\":{\"chatgpt_account_id\":\"acct_tny\"}}");
+    char *env_jwt =
+        test_jwt("{\"https://api.openai.com/auth\":{\"chatgpt_account_id\":\"acct_env\"}}");
+    tny_codex_creds c;
+
+    /* nothing anywhere */
+    ASSERT_FALSE(tny_codex_auth_present());
+    ASSERT_EQ(-1, tny_codex_credentials(NULL, &c));
+    ASSERT_EQ(TNY_CODEX_CRED_NONE, c.source);
+    tny_codex_creds_free(&c);
+
+    /* Codex CLI file only */
+    buf_t j;
+    buf_init(&j);
+    buf_appendf(&j, "{\"tokens\":{\"access_token\":\"%s\",\"refresh_token\":\"r\"}}", cli_jwt);
+    codex_auth_write_json(j.data);
+    buf_free(&j);
+    ASSERT(tny_codex_auth_present());
+    ASSERT_EQ(0, tny_codex_credentials(NULL, &c));
+    ASSERT_EQ(TNY_CODEX_CRED_CODEX_CLI, c.source);
+    ASSERT_STR_EQ("acct_cli", c.account_id);
+    tny_codex_creds_free(&c);
+
+    /* tny's own store beats the CLI file */
+    buf_init(&j);
+    buf_appendf(&j, "{\"auth_mode\":\"chatgpt\",\"tokens\":{\"access_token\":\"%s\"}}", store_jwt);
+    tny_store_write_json(j.data);
+    buf_free(&j);
+    ASSERT_EQ(0, tny_codex_credentials(NULL, &c));
+    ASSERT_EQ(TNY_CODEX_CRED_TNY_STORE, c.source);
+    ASSERT_STR_EQ(store_jwt, c.access_token);
+    ASSERT_STR_EQ("acct_tny", c.account_id);
+    ASSERT_STR_EQ("~/.tny/codex-auth.json", tny_codex_cred_source_name(c.source));
+    tny_codex_creds_free(&c);
+
+    /* env beats both files; CHATGPT_ACCOUNT_ID beats the claim */
+    setenv("CHATGPT_ACCESS_TOKEN", env_jwt, 1);
+    ASSERT_EQ(0, tny_codex_credentials(NULL, &c));
+    ASSERT_EQ(TNY_CODEX_CRED_ENV, c.source);
+    ASSERT_STR_EQ(env_jwt, c.access_token);
+    ASSERT_STR_EQ("acct_env", c.account_id);
+    tny_codex_creds_free(&c);
+    setenv("CHATGPT_ACCOUNT_ID", "acct_env_explicit", 1);
+    ASSERT_EQ(0, tny_codex_credentials(NULL, &c));
+    ASSERT_STR_EQ("acct_env_explicit", c.account_id);
+    tny_codex_creds_free(&c);
+
+    /* the flag beats env; an opaque flag token with an explicit id works,
+     * and the whole profile rides it (no file read at all) */
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->chatgpt_token = xstrdup("opaque-flag-token");
+    ctx->chatgpt_account_id = xstrdup("acct_flag");
+    ASSERT_EQ(0, tny_codex_credentials(ctx, &c));
+    ASSERT_EQ(TNY_CODEX_CRED_FLAG, c.source);
+    ASSERT_STR_EQ("opaque-flag-token", c.access_token);
+    ASSERT_STR_EQ("acct_flag", c.account_id);
+    tny_codex_creds_free(&c);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL)); /* auto-detected */
+    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
+    ASSERT_STR_EQ("opaque-flag-token", ctx->api_key);
+    ASSERT(has_extra_header(ctx, "chatgpt-account-id: acct_flag"));
+    ASSERT(has_extra_header(ctx, "OpenAI-Beta: responses=v1"));
+    tny_ctx_free(ctx);
+
+    /* env alone, no files, no id: derived from the claim; auto-detected */
+    unsetenv("CHATGPT_ACCOUNT_ID");
+    tny_store_write_json(NULL);
+    codex_auth_write(false);
+    ASSERT(tny_codex_auth_present()); /* env counts */
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
+    ASSERT_STR_EQ(env_jwt, ctx->api_key);
+    ASSERT(has_extra_header(ctx, "chatgpt-account-id: acct_env"));
+    tny_ctx_free(ctx);
+
+    /* a flag token with no derivable id: still usable, header omitted */
+    unsetenv("CHATGPT_ACCESS_TOKEN");
+    ctx = tny_ctx_load(g_ws);
+    ctx->chatgpt_token = xstrdup("opaque");
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
+    ASSERT_STR_EQ("opaque", ctx->api_key);
+    ASSERT_FALSE(has_extra_header(ctx, "chatgpt-account-id:"));
+    ASSERT(has_extra_header(ctx, "OpenAI-Beta: responses=v1"));
+    tny_ctx_free(ctx);
+
+    /* store_save writes the Codex shape with the derived account id and
+     * the expiry, readable back through the same resolver */
+    buf_init(&j);
+    buf_appendf(&j,
+                "{\"access_token\":\"%s\",\"refresh_token\":\"r2\",\"id_token\":\"x.y.z\","
+                "\"expires_in\":3600}",
+                store_jwt);
+    yyjson_doc *resp = jparse(j.data, j.len);
+    buf_free(&j);
+    ASSERT(resp);
+    ASSERT_EQ(0, tny_codex_store_save(yyjson_doc_get_root(resp)));
+    yyjson_doc_free(resp);
+    char *sp = tny_codex_store_path();
+    ASSERT(sp);
+    struct stat st;
+    ASSERT_EQ(0, stat(sp, &st));
+#if !defined(__CYGWIN__) && !defined(__MSYS__)
+    ASSERT_EQ(0, (int)(st.st_mode & 077));
+#endif
+    yyjson_doc *saved = jparse_file(sp);
+    ASSERT(saved);
+    yyjson_val *sroot = yyjson_doc_get_root(saved);
+    ASSERT_STR_EQ("chatgpt", jget_str(sroot, "auth_mode"));
+    ASSERT_STR_EQ("acct_tny", jget_str(jget(sroot, "tokens"), "account_id"));
+    ASSERT_STR_EQ("r2", jget_str(jget(sroot, "tokens"), "refresh_token"));
+    ASSERT(jget_str(sroot, "last_refresh"));
+    ASSERT(jget_str(sroot, "expires_at"));
+    ASSERT(iso8601_to_epoch(jget_str(sroot, "expires_at")) > now_ms() / 1000 + 3000);
+    yyjson_doc_free(saved);
+    free(sp);
+    ASSERT_EQ(0, tny_codex_credentials(NULL, &c));
+    ASSERT_EQ(TNY_CODEX_CRED_TNY_STORE, c.source);
+    ASSERT_STR_EQ("acct_tny", c.account_id);
+    tny_codex_creds_free(&c);
+
+    /* logout drops tny's store only */
+    ASSERT_EQ(0, tny_codex_logout());
+    ASSERT_FALSE(tny_codex_auth_present());
+
+    free(cli_jwt);
+    free(store_jwt);
+    free(env_jwt);
     write_settings("{}");
     PASS();
 }
@@ -3198,6 +3358,7 @@ TEST embedded_public_runtime_does_not_claim_library_linkage(void) {
 SUITE(core_suite) {
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(builtin_codex_profile);
+    RUN_TEST(codex_credential_precedence);
     RUN_TEST(backend_default_cursor_key_from_env);
     RUN_TEST(provider_last_used_and_scoped_models);
     RUN_TEST(custom_named_provider_profiles);

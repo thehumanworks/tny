@@ -108,7 +108,61 @@ TEST path_helpers(void) {
     PASS();
 }
 
+/* FIPS 180-4 vectors; the PKCE S256 challenge is base64url(sha256(v)). */
+TEST sha256_known_vectors(void) {
+    uint8_t d[32];
+    ASSERT(sha256((const uint8_t *)"abc", 3, d));
+    static const uint8_t abc[32] = {0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea,
+                                    0x41, 0x41, 0x40, 0xde, 0x5d, 0xae, 0x22, 0x23,
+                                    0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c,
+                                    0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00, 0x15, 0xad};
+    ASSERT_MEM_EQ(abc, d, 32);
+    ASSERT(sha256((const uint8_t *)"", 0, d));
+    ASSERT_EQ(0xe3, d[0]); /* e3b0c442…7852b855 */
+    ASSERT_EQ(0xb0, d[1]);
+    ASSERT_EQ(0x55, d[31]);
+    /* 56 bytes: the padding straddles a block boundary */
+    const char *two = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
+    ASSERT(sha256((const uint8_t *)two, strlen(two), d));
+    ASSERT_EQ(0x24, d[0]);
+    ASSERT_EQ(0x8d, d[1]);
+    ASSERT_EQ(0xc1, d[31]);
+    /* RFC 7636 appendix B: verifier -> S256 challenge */
+    const char *verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    ASSERT(sha256((const uint8_t *)verifier, strlen(verifier), d));
+    buf_t b;
+    buf_init(&b);
+    b64url_encode(d, 32, &b);
+    ASSERT_STR_EQ("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", b.data);
+    buf_free(&b);
+    PASS();
+}
+
+TEST b64url_and_form_encoding(void) {
+    buf_t b;
+    buf_init(&b);
+    b64url_encode((const uint8_t *)"\xfb\xff\xbf", 3, &b); /* std: +/+/ */
+    ASSERT_STR_EQ("-_-_", b.data);
+    buf_free(&b);
+    buf_init(&b);
+    b64url_encode((const uint8_t *)"a", 1, &b); /* no padding */
+    ASSERT_STR_EQ("YQ", b.data);
+    buf_free(&b);
+    buf_init(&b);
+    url_form_append(&b, "scope", "openid profile/email&x=1");
+    url_form_append(&b, "state", "A-b_c.d~e");
+    ASSERT_STR_EQ("scope=openid%20profile%2Femail%26x%3D1&state=A-b_c.d~e", b.data);
+    buf_free(&b);
+    uint8_t r1[16] = {0}, r2[16] = {0};
+    ASSERT(random_bytes(r1, sizeof r1));
+    ASSERT(random_bytes(r2, sizeof r2));
+    ASSERT(memcmp(r1, r2, sizeof r1) != 0);
+    PASS();
+}
+
 SUITE(util_suite) {
+    RUN_TEST(sha256_known_vectors);
+    RUN_TEST(b64url_and_form_encoding);
     RUN_TEST(glob_basics);
     RUN_TEST(glob_crosses_slash);
     RUN_TEST(glob_command_rules);

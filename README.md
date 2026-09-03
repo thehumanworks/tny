@@ -45,7 +45,7 @@ retention policy. See [ADR 0020](docs/adr/0020-ephemeral-sessions.md).
 | --- | --- | --- |
 | `openai` (default) | OpenAI-compatible `/v1/chat/completions`, SSE streaming, native tool loop | none — tny owns tools/MCP/skills/permissions |
 | `cursor` | [Cursor SDK Bridge](https://cursor.com/docs/sdk/bridge): Connect HTTP/1.1 (`sdk.v1`, JSON codec) | `cursor-sdk-bridge` (spawned, ready-line handshake) |
-| `codex` | ChatGPT Responses backend (`chatgpt.com/backend-api/codex`), native tool loop, bearer from `codex login` | none — the Codex CLI is only the login helper ([ADR 0065](docs/adr/0065-codex-chatgpt-responses-backend.md)) |
+| `codex` | ChatGPT Responses backend (`chatgpt.com/backend-api/codex`), native tool loop; `tny --provider codex login` (browser or `--device`), `CHATGPT_ACCESS_TOKEN`, or an existing `codex login` | none ([ADR 0065](docs/adr/0065-codex-chatgpt-responses-backend.md), [0066](docs/adr/0066-native-chatgpt-login-and-credential-sources.md)) |
 | `acp` | [ACP](https://agentclientprotocol.com/) over stdio JSONL | any ACP agent via `--agent CMD` |
 
 All four normalize onto one event set (text/thinking/tool/permission/plan/

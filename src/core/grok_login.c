@@ -66,21 +66,6 @@ static char *grok_auth_json_path(void) {
     return p;
 }
 
-/* ---------- x-www-form-urlencoded ---------- */
-
-static void form_append(buf_t *b, const char *key, const char *val) {
-    if (b->len) buf_appends(b, "&");
-    buf_appends(b, key);
-    buf_appends(b, "=");
-    for (const unsigned char *p = (const unsigned char *)val; *p; p++) {
-        unsigned char c = *p;
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-            c == '-' || c == '.' || c == '_' || c == '~')
-            buf_appendf(b, "%c", c);
-        else buf_appendf(b, "%%%02X", c);
-    }
-}
-
 /* ---------- HTTP: POST a form, slurp the JSON body ---------- */
 
 /* Returns the HTTP status, or -1 with err filled. Body bytes land in out. */
@@ -230,9 +215,9 @@ int tny_grok_login(void) {
     buf_t form, body;
     buf_init(&form);
     buf_init(&body);
-    form_append(&form, "client_id", client_id);
-    form_append(&form, "scope", GROK_OAUTH_SCOPES);
-    form_append(&form, "referrer", "grok-build");
+    url_form_append(&form, "client_id", client_id);
+    url_form_append(&form, "scope", GROK_OAUTH_SCOPES);
+    url_form_append(&form, "referrer", "grok-build");
     int status = oauth_post_form(issuer, "/oauth2/device/code", form.data, &body, err, sizeof err);
     buf_free(&form);
     if (status < 0) {
@@ -303,9 +288,9 @@ int tny_grok_login(void) {
         buf_t poll_form, poll_body;
         buf_init(&poll_form);
         buf_init(&poll_body);
-        form_append(&poll_form, "grant_type", GROK_DEVICE_GRANT);
-        form_append(&poll_form, "device_code", device_code);
-        form_append(&poll_form, "client_id", client_id);
+        url_form_append(&poll_form, "grant_type", GROK_DEVICE_GRANT);
+        url_form_append(&poll_form, "device_code", device_code);
+        url_form_append(&poll_form, "client_id", client_id);
         err[0] = 0;
         status =
             oauth_post_form(issuer, "/oauth2/token", poll_form.data, &poll_body, err, sizeof err);
@@ -405,9 +390,9 @@ void tny_grok_refresh_if_stale(void) {
     buf_t form, body;
     buf_init(&form);
     buf_init(&body);
-    form_append(&form, "grant_type", "refresh_token");
-    form_append(&form, "refresh_token", ref);
-    form_append(&form, "client_id", cid);
+    url_form_append(&form, "grant_type", "refresh_token");
+    url_form_append(&form, "refresh_token", ref);
+    url_form_append(&form, "client_id", cid);
     char err[256] = "";
     int status = oauth_post_form(iss, "/oauth2/token", form.data, &body, err, sizeof err);
     buf_free(&form);

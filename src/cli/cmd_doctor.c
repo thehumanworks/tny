@@ -59,7 +59,7 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     free(old_no_spawn);
 
     bool bridge = on_path(ctx->bridge_bin);
-    bool codex = on_path(ctx->codex_bin);
+    bool codex = ctx->chatgpt_token || tny_codex_auth_present(); /* a ChatGPT credential */
     bool settings_ok = !file_exists(ctx->settings_path) || ctx->settings != NULL;
 #ifdef __EMSCRIPTEN__
     bool python = false; /* no process/Python authority in wasm (ADR 0017/0028) */
@@ -147,9 +147,10 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         printf("ok  tools: %s\n", tny_tool_profile_name(ctx->tool_profile));
         printf("%s cursor-sdk-bridge: %s\n", bridge ? "ok " : "miss",
                bridge ? ctx->bridge_bin : "not on PATH (set CURSOR_SDK_BRIDGE_BIN)");
-        printf("%s codex CLI (login helper): %s\n", codex ? "ok " : "miss",
-               codex ? ctx->codex_bin
-                     : "not on PATH (needed only for `tny --provider codex login`)");
+        printf("%s codex: %s\n", codex ? "ok " : "miss",
+               codex ? "ChatGPT credential found (flag, env, ~/.tny/codex-auth.json, or "
+                       "$CODEX_HOME/auth.json)"
+                     : "no ChatGPT credential (run `tny --provider codex login`)");
         printf("%s ACP agents: %s\n", acp_found.len ? "ok " : "miss",
                acp_found.len ? acp_found.data : "none detected");
         printf("\nproviders:\n");

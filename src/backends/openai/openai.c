@@ -1237,8 +1237,8 @@ static int oa_connect(tny_backend *b, char *errbuf, size_t errlen) {
         const char *pn = o->ctx->provider_name;
         if (pn && strcmp(pn, "codex") == 0)
             snprintf(errbuf, errlen,
-                     "no codex login: run `tny --provider codex login` (or `codex login`) "
-                     "so $CODEX_HOME/auth.json exists");
+                     "no ChatGPT credential: run `tny --provider codex login` (or "
+                     "`login --device`), set CHATGPT_ACCESS_TOKEN, or pass --chatgpt-token");
         else if (pn && strcmp(pn, "claude") == 0)
             snprintf(errbuf, errlen,
                      "no Claude credential: run `tny --provider claude login`, "

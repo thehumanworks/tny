@@ -594,15 +594,19 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         bool healthy;
         if (strcmp(name, "codex") == 0) {
             tny_codex_creds c;
-            healthy = tny_codex_credentials(&c) == 0;
+            healthy = tny_codex_credentials(ctx, &c) == 0;
             if (c.access_token)
                 snprintf(line, sizeof line,
-                         "codex: ChatGPT login ($CODEX_HOME/auth.json, "
-                         "chatgpt.com/backend-api/codex)%s",
+                         "codex: ChatGPT login from %s (chatgpt.com/backend-api/codex)%s",
+                         tny_codex_cred_source_name(c.source),
                          c.account_id ? "" : " — no account id in the token");
             else if (c.api_key)
-                snprintf(line, sizeof line, "codex: API key from auth.json (api.openai.com)");
-            else snprintf(line, sizeof line, "codex: no login (run `tny --provider codex login`)");
+                snprintf(line, sizeof line,
+                         "codex: API key from $CODEX_HOME/auth.json (api.openai.com)");
+            else
+                snprintf(line, sizeof line,
+                         "codex: no login (run `tny --provider codex login`, or set "
+                         "CHATGPT_ACCESS_TOKEN)");
             tny_codex_creds_free(&c);
         } else if (strcmp(name, "claude") == 0) {
             const char *source = NULL;
@@ -867,32 +871,6 @@ static int login_claude(tny_ctx *ctx) {
     return 0;
 }
 
-/* Codex: the Codex CLI owns the ChatGPT OAuth ceremony (localhost PKCE
- * callback, or the device-code flow); tny reads the auth.json it writes
- * (docs/adr/0065). Never prints or parses tokens here. */
-static int login_codex(tny_ctx *ctx, bool device) {
-    const char *bin = ctx->codex_bin ? ctx->codex_bin : "codex";
-    buf_t cmd;
-    buf_init(&cmd);
-    buf_appendf(&cmd, "%s login%s", bin, device ? " --device-auth" : "");
-    fprintf(stderr, "running `%s`…\n", cmd.data);
-    int rc = system(cmd.data);
-    buf_free(&cmd);
-    if (rc != 0) {
-        fprintf(stderr,
-                "tny: `%s login` failed. Install the Codex CLI (`npm i -g @openai/codex`, "
-                "or set TNY_CODEX_BIN), or run `codex login` yourself; tny reads "
-                "$CODEX_HOME/auth.json afterwards.\n",
-                bin);
-        return 1;
-    }
-    printf("Signed in.%s\n", tny_codex_auth_present()
-                                 ? " The codex login is saved — try `tny --provider codex "
-                                   "ask \"hi\"`."
-                                 : "");
-    return tny_codex_auth_present() ? 0 : 1;
-}
-
 /* Grok: native RFC 8628 device-code sign-in against auth.x.ai
  * (grok_login.c, docs/adr/0021) — no grok CLI needed. */
 static int login_grok(tny_ctx *ctx) {
@@ -907,7 +885,7 @@ int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (strcmp(argv[i], "--device") == 0 || strcmp(argv[i], "--device-code") == 0)
             device = true;
     const char *pn = tny_provider_name(ctx);
-    if (strcmp(pn, "codex") == 0) return login_codex(ctx, device);
+    if (strcmp(pn, "codex") == 0) return tny_codex_login(ctx, device); /* docs/adr/0066 */
     if (strcmp(pn, "claude") == 0) return login_claude(ctx);
     if (strcmp(pn, "grok") == 0) return login_grok(ctx);
     const char *cursor_key = getenv("CURSOR_API_KEY");

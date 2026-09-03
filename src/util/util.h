@@ -60,7 +60,16 @@ bool dir_exists(const char *path);
 /* ---- codecs / ids ---- */
 void b64_encode(const uint8_t *in, size_t n, buf_t *out);
 size_t b64_decode(const char *in, uint8_t *out, size_t outcap); /* returns bytes or 0 */
+/* base64url without padding (RFC 4648 §5): PKCE, OAuth state, JWTs. */
+void b64url_encode(const uint8_t *in, size_t n, buf_t *out);
 bool sha1(const uint8_t *in, size_t n, uint8_t out[20]);
+bool sha256(const uint8_t *in, size_t n, uint8_t out[32]); /* PKCE S256 */
+/* CSPRNG bytes from /dev/urandom; false when unavailable (callers must
+ * refuse to mint secrets on false, never fall back to a clock). */
+bool random_bytes(uint8_t *out, size_t n);
+/* Append `key=value` (& separated) with application/x-www-form-urlencoded
+ * percent-escaping of the value. */
+void url_form_append(buf_t *b, const char *key, const char *val);
 uint64_t fnv1a(const void *data, size_t n);
 /* 16 lowercase hex chars from CSPRNG + time; caller frees */
 char *gen_id(void);

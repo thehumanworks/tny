@@ -2,7 +2,11 @@
 
 Date: 2026-09-03
 Status: accepted (supersedes the codex parts of 0002, 0004, 0011, 0013,
-0017, 0019, 0031, 0045; retires `docs/backends/codex-app-server.md`)
+0017, 0019, 0031, 0045; retires `docs/backends/codex-app-server.md`).
+Decision 4 (login via the Codex CLI) is amended by
+[ADR 0066](0066-native-chatgpt-login-and-credential-sources.md): the
+sign-in is native, tny keeps its own store, and a token can arrive by flag
+or environment with no file at all.
 
 ## Context
 

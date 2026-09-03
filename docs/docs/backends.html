@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>Backends — tny</title>
-  <meta name="description" content="Cursor bridge, Codex WebSocket, ACP, and the native OpenAI loop.">
+  <meta name="description" content="Cursor bridge, ACP, and the native OpenAI loop with the codex, claude, and grok subscription profiles.">
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <link rel="canonical" href="https://thehumanworks.github.io/tny/docs/backends.html">
   <meta property="og:title" content="Backends — tny">
-  <meta property="og:description" content="Cursor bridge, Codex WebSocket, ACP, and the native OpenAI loop.">
+  <meta property="og:description" content="Cursor bridge, ACP, and the native OpenAI loop with the codex, claude, and grok subscription profiles.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
   <meta name="twitter:card" content="summary_large_image">
@@ -59,8 +59,8 @@
 <p>Auth is <code>CURSOR_API_KEY</code> plus a per-process bridge bearer and independent loopback callback bearers. None enters logs or argv. Cursor owns built-in tools and exposes no per-call approval RPC; tny permission policy applies only to registered custom tools. Custom store callbacks own bounded local agent/run/event/checkpoint persistence.</p>
 <p>Versioned session pointers retain agent, run, durable offset, and runtime. A dropped Send reconnects through ObserveRun without duplicating events; cancel waits for authoritative terminal state. <code>tny cursor</code> exposes full management/raw access. wasm reports distinct clean unsupported errors for conversations and management before spawn.</p>
 <h2 id="codex">Codex</h2>
-<p>A builtin profile of the native loop: the ChatGPT login from <code>codex login</code> (<code>$CODEX_HOME/auth.json</code>) drives the Responses-compatible <code>chatgpt.com/backend-api/codex</code> with <code>chatgpt-account-id</code> and <code>OpenAI-Beta: responses=v1</code>. tny owns tools, permissions, MCP, and sessions; tokens auto-refresh; no <code>codex app-server</code> process.</p>
-<p><code>tny --provider codex login</code> runs the Codex CLI's sign-in; the CLI is otherwise not needed.</p>
+<p>A builtin profile of the native loop: your ChatGPT login drives the Responses-compatible <code>chatgpt.com/backend-api/codex</code> with <code>chatgpt-account-id</code> and <code>OpenAI-Beta: responses=v1</code>. tny owns tools, permissions, MCP, and sessions; tokens auto-refresh; no <code>codex app-server</code> process.</p>
+<p><code>tny --provider codex login</code> signs in natively (browser PKCE, or <code>--device</code> for headless boxes) into <code>~/.tny/codex-auth.json</code>; <code>CHATGPT_ACCESS_TOKEN</code> / <code>--chatgpt-token</code> need no file at all; an existing <code>codex login</code> keeps working.</p>
 <h2 id="acp">ACP</h2>
 <p>JSON-RPC 2.0 over stdio, one message per line. tny implements both sides:</p>
 <table>

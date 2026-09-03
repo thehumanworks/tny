@@ -702,7 +702,6 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
 
     /* host backend knobs */
     ctx->bridge_bin = dup_or("CURSOR_SDK_BRIDGE_BIN", "cursor-sdk-bridge");
-    ctx->codex_bin = dup_or("TNY_CODEX_BIN", "codex"); /* login helper only */
 
     /* repo limits — never authority */
     if (rroot) {
@@ -779,7 +778,6 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
         tny_ctx_free(ctx);
         return NULL;
     }
-    ctx->codex_bin = xstrdup("codex");
     (void)instructions_refresh(ctx);
     return ctx;
 }
@@ -943,7 +941,7 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
      * (docs/cli.md "Provider selection"). Codex login first, then a Claude
      * Code OAuth login, then a grok session, then a Cursor key from the
      * environment, then the openai backend's own error path. */
-    if (id == -1 && tny_codex_auth_present()) {
+    if (id == -1 && (ctx->chatgpt_token || tny_codex_auth_present())) {
         id = TNY_BK_OPENAI;
         builtin_profile = "codex";
     }
@@ -1294,7 +1292,8 @@ void tny_ctx_free(tny_ctx *ctx) {
     tny_ctx_clear_extra_headers(ctx);
     free(ctx->bridge_bin);
     tny_cursor_config_free(ctx->cursor_config);
-    free(ctx->codex_bin);
+    if (ctx->chatgpt_token) secure_free(ctx->chatgpt_token);
+    free(ctx->chatgpt_account_id);
     free(ctx->ssh_host);
     free(ctx->ssh_cwd);
     free(ctx->ssh_control);

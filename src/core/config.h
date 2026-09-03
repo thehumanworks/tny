@@ -83,8 +83,11 @@ typedef struct tny_ctx {
     /* cursor */
     char *bridge_bin;
     struct tny_cursor_config *cursor_config; /* user-level sdk.v1 options */
-    /* codex: the CLI is only a login helper now (docs/adr/0065) */
-    char *codex_bin;
+    /* codex (docs/adr/0065, 0066): a ChatGPT token + account id handed in
+     * by flag (--chatgpt-token / --chatgpt-account-id) — the file-less
+     * credential source; env and the stores are read in codex_auth.c */
+    char *chatgpt_token;
+    char *chatgpt_account_id;
     bool no_host_registry; /* background ask child: never publish a spawned
                             * host as an attach target (docs/adr/0031) */
     /* remote tool runtime (core/ssh.c, docs/adr/0022): when ssh_host is set
@@ -177,21 +180,45 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value);
  * user-named profiles, but ship with tny. A settings.json object or
  * NAME_BASE_URL env var with the same name shadows the builtin. */
 bool tny_builtin_profile_exists(const char *name);
-/* ---- codex_auth.c: $CODEX_HOME/auth.json from `codex login` ---- */
-char *tny_codex_home(void);      /* $CODEX_HOME or ~/.codex, malloc'd */
-char *tny_codex_auth_path(void); /* …/auth.json, malloc'd */
-bool tny_codex_auth_present(void);
+/* ---- codex_auth.c: ChatGPT credentials (docs/adr/0065, 0066) ----
+ * Precedence: --chatgpt-token flag > CHATGPT_ACCESS_TOKEN env >
+ * ~/.tny/codex-auth.json (tny's own login, native refresh) >
+ * $CODEX_HOME/auth.json (the Codex CLI's login, refreshed in place). */
+typedef enum {
+    TNY_CODEX_CRED_NONE = 0,
+    TNY_CODEX_CRED_FLAG,
+    TNY_CODEX_CRED_ENV,
+    TNY_CODEX_CRED_TNY_STORE,
+    TNY_CODEX_CRED_CODEX_CLI
+} tny_codex_cred_source;
 typedef struct {
-    char *access_token; /* ChatGPT OAuth bearer (tokens.access_token) */
-    char *account_id;   /* tokens.account_id or the JWT claim */
-    char *api_key;      /* auth.json OPENAI_API_KEY (API-key mode) */
+    char *access_token; /* ChatGPT OAuth bearer */
+    char *account_id;   /* explicit, or the JWT `chatgpt_account_id` claim */
+    char *api_key;      /* Codex CLI auth.json OPENAI_API_KEY (API-key mode) */
+    tny_codex_cred_source source;
 } tny_codex_creds;
-int tny_codex_credentials(tny_codex_creds *out); /* 0 when either credential exists */
+char *tny_codex_home(void);       /* $CODEX_HOME or ~/.codex, malloc'd */
+char *tny_codex_auth_path(void);  /* Codex CLI …/auth.json, malloc'd */
+char *tny_codex_store_path(void); /* ~/.tny/codex-auth.json, malloc'd */
+/* Any env or file credential source present (the flag is on ctx). */
+bool tny_codex_auth_present(void);
+/* 0 when a credential resolved; ctx may be NULL (no flag source). */
+int tny_codex_credentials(const tny_ctx *ctx, tny_codex_creds *out);
 void tny_codex_creds_free(tny_codex_creds *c);
-/* Refresh-token grant against auth.openai.com when the access token is
- * expired or last_refresh is stale; rewrites auth.json in place. */
+const char *tny_codex_cred_source_name(tny_codex_cred_source s);
+/* Refresh-token grant (auth.openai.com/oauth/token) on the store that will
+ * be read — tny's first, else the Codex CLI's — when its access token is
+ * expired/near expiry or last_refresh is stale; rewritten in place. */
 void tny_codex_refresh_if_stale(void);
-int tny_codex_logout(void);         /* delete auth.json (what `codex logout` does) */
+/* Write a fresh OAuth token response into ~/.tny/codex-auth.json (0600). */
+int tny_codex_store_save(yyjson_val *token_response);
+/* POST a body and slurp the JSON reply: HTTP status, or -1 with err. */
+int tny_codex_http_post(const char *url, const char *content_type, const char *body, buf_t *out,
+                        char *err, size_t errlen);
+/* codex_login.c: native ChatGPT sign-in — browser PKCE flow with the
+ * localhost callback, or the device-code flow (docs/adr/0066). Exit code. */
+int tny_codex_login(tny_ctx *ctx, bool device);
+int tny_codex_logout(void);         /* delete ~/.tny/codex-auth.json */
 bool tny_claude_auth_present(void); /* subscription login artifacts only */
 bool tny_grok_auth_present(void);   /* ~/.grok/auth.json session */
 /* Resolved Claude credential: CLAUDE_CODE_OAUTH_TOKEN, then
