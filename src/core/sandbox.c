@@ -11,6 +11,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#ifndef TNY_SHELL_PATH
+#define TNY_SHELL_PATH "/bin/sh"
+#endif
+
 static char *find_on_path(const char *name) {
     const char *path = getenv("PATH");
     if (!path || !*path) return NULL;
@@ -49,11 +53,22 @@ static char *wrapper_path(tny_sandbox_kind kind) {
  * status, not the file system. */
 bool tny_sandbox_probe_ms(tny_sandbox_kind kind, const char *wrapper, int timeout_ms) {
     if (!wrapper || !*wrapper || kind == TNY_SANDBOX_NONE) return false;
-    const char *argv_seatbelt[] = {wrapper,  "-p", "(version 1)(allow default)", "/bin/sh", "-c",
-                                   "exit 0", NULL};
-    const char *argv_bwrap[] = {
-        wrapper, "--ro-bind",     "/",  "/",       "--dev", "/dev",   "--proc",
-        "/proc", "--unshare-pid", "--", "/bin/sh", "-c",    "exit 0", NULL};
+    const char *argv_seatbelt[] = {
+        wrapper, "-p", "(version 1)(allow default)", TNY_SHELL_PATH, "-c", "exit 0", NULL};
+    const char *argv_bwrap[] = {wrapper,
+                                "--ro-bind",
+                                "/",
+                                "/",
+                                "--dev",
+                                "/dev",
+                                "--proc",
+                                "/proc",
+                                "--unshare-pid",
+                                "--",
+                                TNY_SHELL_PATH,
+                                "-c",
+                                "exit 0",
+                                NULL};
     const char **argv = kind == TNY_SANDBOX_SEATBELT ? argv_seatbelt : argv_bwrap;
     pid_t pid = fork();
     if (pid < 0) return false;
