@@ -1,7 +1,7 @@
 # 0045 — `--system-prompt`: native field where one exists, first-message prefix where none does
 
 Date: 2026-08-29
-Status: accepted
+Status: accepted. Codex references are historical: [ADR 0065](0065-codex-chatgpt-responses-backend.md) turned `codex` into a builtin profile of the native loop (no host process). `--provider codex` now carries `--system-prompt` on `instructions` like every openai profile.
 
 ## Context
 
@@ -15,7 +15,7 @@ system prompt is even expressible:
   ([cursor-bridge.md](../backends/cursor-bridge.md)); no instructions field.
 - **codex app-server** `thread/start` documents model/cwd/approvalPolicy/
   sandbox/personality/serviceName on the pinned surface; no instructions
-  field ([codex-app-server.md](../backends/codex-app-server.md), and the
+  field (historical; see [codex.md](../backends/codex.md), and the
   repo rule is to never guess fields the schema does not pin).
 - **ACP** `session/new` takes `cwd` + `mcpServers`; no system prompt at
   protocolVersion 1.

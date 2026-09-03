@@ -1,7 +1,7 @@
 # 0002 — The TUI pre-warms the provider's host at startup
 
 Date: 2026-08-20
-Status: accepted (amends the "no backend spawn until a turn starts" invariant)
+Status: accepted (amends the "no backend spawn until a turn starts" invariant). Codex references are historical: [ADR 0065](0065-codex-chatgpt-responses-backend.md) turned `codex` into a builtin profile of the native loop (no host process).
 
 ## Context
 

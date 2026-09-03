@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>Backends — tny</title>
-  <meta name="description" content="Cursor bridge, Codex WebSocket, ACP, and the native OpenAI loop.">
+  <meta name="description" content="Cursor bridge, ACP, and the native OpenAI loop with the codex, claude, and grok subscription profiles.">
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <link rel="canonical" href="https://thehumanworks.github.io/tny/docs/backends.html">
   <meta property="og:title" content="Backends — tny">
-  <meta property="og:description" content="Cursor bridge, Codex WebSocket, ACP, and the native OpenAI loop.">
+  <meta property="og:description" content="Cursor bridge, ACP, and the native OpenAI loop with the codex, claude, and grok subscription profiles.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
   <meta name="twitter:card" content="summary_large_image">
@@ -49,8 +49,8 @@
 <table>
   <thead><tr><th>Kind</th><th>Backends</th><th>Who runs tools?</th></tr></thead>
   <tbody>
-    <tr><td>Host</td><td>Cursor bridge, Codex app-server, ACP client</td><td>The host process; tny executes only registered Cursor custom callbacks</td></tr>
-    <tr><td>Native</td><td>OpenAI-compatible</td><td>tny</td></tr>
+    <tr><td>Host</td><td>Cursor bridge, ACP client</td><td>The host process; tny executes only registered Cursor custom callbacks</td></tr>
+    <tr><td>Native</td><td>OpenAI-compatible, plus the builtin codex / claude / grok subscription profiles</td><td>tny</td></tr>
   </tbody>
 </table>
 <p>Never leak host-specific types into the TUI. Every backend maps onto one event set: <code>text_delta</code>, <code>thinking</code>, <code>tool_start</code>, <code>tool_end</code>, <code>permission_request</code>, <code>plan</code>, <code>usage</code>, <code>turn_end</code>, <code>error</code>.</p>
@@ -58,9 +58,9 @@
 <p>tny pins the supported v1.0.30 release and implements all 5 services/29 RPCs: 27 outbound catalog/agent/run/artifact/usage/control calls plus reverse <code>CallCustomTool</code> and <code>CallStore</code>. Local/cloud AgentOptions cover images, modes, sandbox/review, MCP/subagents, and presence-sensitive built-in tool allow/deny. Classic gRPC/HTTP2 and Cursor's private <code>agent.v1</code> are not used.</p>
 <p>Auth is <code>CURSOR_API_KEY</code> plus a per-process bridge bearer and independent loopback callback bearers. None enters logs or argv. Cursor owns built-in tools and exposes no per-call approval RPC; tny permission policy applies only to registered custom tools. Custom store callbacks own bounded local agent/run/event/checkpoint persistence.</p>
 <p>Versioned session pointers retain agent, run, durable offset, and runtime. A dropped Send reconnects through ObserveRun without duplicating events; cancel waits for authoritative terminal state. <code>tny cursor</code> exposes full management/raw access. wasm reports distinct clean unsupported errors for conversations and management before spawn.</p>
-<h2 id="codex">Codex app-server</h2>
-<p>WebSocket JSON-RPC text frames, same surface the VS Code extension uses. The <code>"jsonrpc":"2.0"</code> header is omitted on the wire. Default to loopback; current Codex refuses non-loopback without <code>--ws-auth</code>. Do not send an <code>Origin</code> header.</p>
-<p>Attach with <code>--codex-ws</code>, inherit a TUI-registered live host, or spawn on an ephemeral port. Never a fixed port that could collide.</p>
+<h2 id="codex">Codex</h2>
+<p>A builtin profile of the native loop: your ChatGPT login drives the Responses-compatible <code>chatgpt.com/backend-api/codex</code> with <code>chatgpt-account-id</code> and <code>OpenAI-Beta: responses=v1</code>. tny owns tools, permissions, MCP, and sessions; tokens auto-refresh; no <code>codex app-server</code> process.</p>
+<p><code>tny --provider codex login</code> signs in natively (browser PKCE, or <code>--device</code> for headless boxes) into <code>~/.tny/codex-auth.json</code>; <code>CHATGPT_ACCESS_TOKEN</code> / <code>--chatgpt-token</code> need no file at all; an existing <code>codex login</code> keeps working.</p>
 <h2 id="acp">ACP</h2>
 <p>JSON-RPC 2.0 over stdio, one message per line. tny implements both sides:</p>
 <table>

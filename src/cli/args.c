@@ -95,15 +95,12 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else if (strcmp(a, "--bridge-bin") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->bridge_bin = v;
-        } else if (strcmp(a, "--codex-ws") == 0) {
+        } else if (strcmp(a, "--chatgpt-token") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
-            g->codex_ws = v;
-        } else if (strcmp(a, "--codex-bin") == 0) {
+            g->chatgpt_token = v;
+        } else if (strcmp(a, "--chatgpt-account-id") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
-            g->codex_bin = v;
-        } else if (strcmp(a, "--ws-token-file") == 0) {
-            if (!(v = need_val(argc, argv, &i, a))) return -1;
-            g->ws_token_file = v;
+            g->chatgpt_account_id = v;
         } else if (strcmp(a, "--base-url") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->base_url = v;
@@ -227,17 +224,21 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         free(ctx->bridge_bin);
         ctx->bridge_bin = xstrdup(g->bridge_bin);
     }
-    if (g->codex_ws) {
-        free(ctx->codex_ws);
-        ctx->codex_ws = xstrdup(g->codex_ws);
+    /* file-less ChatGPT credential (docs/adr/0066): must land before the
+     * provider resolves, since the codex profile reads it there */
+    if (g->chatgpt_token) {
+        if (!*g->chatgpt_token) {
+            fprintf(stderr,
+                    "tny: --chatgpt-token must not be empty (or set CHATGPT_ACCESS_TOKEN)\n");
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        free(ctx->chatgpt_token);
+        ctx->chatgpt_token = xstrdup(g->chatgpt_token);
     }
-    if (g->codex_bin) {
-        free(ctx->codex_bin);
-        ctx->codex_bin = xstrdup(g->codex_bin);
-    }
-    if (g->ws_token_file) {
-        free(ctx->ws_token_file);
-        ctx->ws_token_file = xstrdup(g->ws_token_file);
+    if (g->chatgpt_account_id) {
+        free(ctx->chatgpt_account_id);
+        ctx->chatgpt_account_id = xstrdup(g->chatgpt_account_id);
     }
     /* Mark an explicit speed choice before provider resolution so a settings
      * default cannot run first. Capability validation stays after resolve. */
@@ -325,7 +326,7 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
             for (int b = 0; b < TNY_BK_COUNT; b++)
                 if (tny_backend_caps((tny_backend_id)b) & TNY_CAP_FAST)
                     fprintf(stderr, " %s", tny_backend_name((tny_backend_id)b));
-            fprintf(stderr, "\nExample: tny --provider codex --fast ask \"hi\"\n");
+            fprintf(stderr, "\nExample: tny --provider openai --fast ask \"hi\"\n");
             tny_ctx_free(ctx);
             return NULL;
         }

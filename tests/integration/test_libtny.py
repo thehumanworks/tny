@@ -252,8 +252,8 @@ def run_ctypes(
     lib.tny_error_free(invalid_error)
 
     unsupported = RuntimeOptions.from_buffer_copy(opts)
-    codex_raw = b"codex"
-    unsupported.provider = TnyBytes(codex_raw, len(codex_raw))
+    acp_raw = b"acp"  # host loops are not embeddable (codex is a native profile now)
+    unsupported.provider = TnyBytes(acp_raw, len(acp_raw))
     unsupported_runtime = ctypes.c_void_p()
     unsupported_error = ctypes.c_void_p()
     assert (

@@ -113,7 +113,7 @@ INC     += -I$(GEN)
 SRC_PUBLIC_API := $(wildcard src/lib/*.c)
 SRC_ALL := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c \
         src/net/*.c src/mcp/*.c src/tui/*.c \
-        src/backends/openai/*.c src/backends/acp/*.c src/backends/codex/*.c \
+        src/backends/openai/*.c src/backends/acp/*.c \
         src/backends/cursor/*.c) src/lib/host_services.c src/lib/custom_tools.c
 
 # Per-platform source lists (docs/adr/0017). Native transports (sockets, TLS,

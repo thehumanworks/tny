@@ -186,9 +186,8 @@ Host mapping:
 | Backend | Stored pointer |
 | --- | --- |
 | cursor | `agent_id`, `run_id`, workspace, model |
-| codex | `thread_id` |
 | acp | agent argv + `sessionId` |
-| openai | full transcript |
+| openai (codex/claude/grok profiles included) | full transcript |
 
 ## Skill injections
 

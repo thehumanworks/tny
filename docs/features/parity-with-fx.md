@@ -9,7 +9,7 @@ fx sources: [README](https://github.com/vercel-labs/fx), [fx.sh/llms.txt](https:
 | Interactive shell | `fx` | `tny` | ✅ raw-termios ANSI shell, one poll loop, lazy backend, first paint ~4 ms |
 | One-shot | `fx ask`, stdin, `--json`, `--image`, `--resume`, `--no-save` | same shape | ✅ plus `--continue-recovery`; exit codes 0/1/2/130 |
 | Sessions | `~/.fx/sessions/`, `fx sessions`, `resume last`, compact after 8 turns, `/continue`, recover | `~/.tny/sessions/`, same UX | ✅ compact 8→keep 4, recovery checkpoints, `session recover` |
-| Permissions | `ask` / `auto` / `yolo`, rules, session grants | same (native loop; map host approvals) | ✅ rules last-match-wins, workspace>global; host approvals mapped (ACP, codex); cursor bridge is headless — no per-call approvals (documented) |
+| Permissions | `ask` / `auto` / `yolo`, rules, session grants | same (native loop; map host approvals) | ✅ rules last-match-wins, workspace>global; host approvals mapped (ACP); cursor bridge is headless — no per-call approvals (documented) |
 | Sandbox | `os` (macOS), `none`, `auto` | `os` via Seatbelt (macOS) / bubblewrap (Linux), plus `none` / `auto` | ✅ local foreground/background `terminal` children confine writes to workspace, extra dirs, temp, and devices; network stays open; `doctor` reports the effective mode |
 | Tools | files, grep/glob, `terminal`, web_search/fetch, vision, memory, skill, subagent, MCP lazy select | same names where possible | ✅ 27 tools; `run_command` aliased to `terminal`; `web_search` advertised only with a configured provider (`web_search_command` / `web_search_url`, ADR 0055); `read_image` (`vision` alias) shows png/jpeg/gif/webp |
 | Skills | `SKILL.md`, `$`, multi-root discovery | same roots plus `~/.tny/skills/` | ✅ `.agents/.claude/.codex/.cursor/.opencode` roots, `$` picker in TUI |
@@ -40,7 +40,7 @@ use (`src/net/stream.c`).
 | Extra | fx | tny |
 | --- | --- | --- |
 | Cursor SDK Bridge | no | `--backend cursor` |
-| Codex app-server WebSocket | no | `--backend codex` |
+| Codex subscription (ChatGPT Responses backend) | no | `--provider codex` |
 | ACP client | no (fx *is* an agent) | `--backend acp` |
 | OpenAI-compatible BYOK | Gateway-only; wire is **AI SDK LM spec v4**, custom URLs are loopback HTTP | `--backend openai` (`/v1/chat/completions`) |
 

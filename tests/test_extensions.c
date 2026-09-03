@@ -296,7 +296,7 @@ TEST extension_capability_matrices_are_typed_and_secret_free(void) {
     ASSERT_STR_EQ("implemented",
                   tny_extension_capability_reason(TNY_BK_OPENAI, TNY_EXT_CAP_PROMPT_OBSERVE));
     ASSERT_EQ(TNY_EXT_CAP_UNAVAILABLE,
-              tny_extension_capability_get(TNY_BK_CODEX, TNY_EXT_CAP_PERMISSION_ALLOW_ONCE));
+              tny_extension_capability_get(TNY_BK_ACP, TNY_EXT_CAP_PERMISSION_ALLOW_ONCE));
     ASSERT_EQ(TNY_EXT_CAP_UNSUPPORTED,
               tny_extension_capability_get(TNY_BK_CURSOR, TNY_EXT_CAP_PERMISSION_ALLOW_ONCE));
     ASSERT_STR_EQ("protocol_missing", tny_extension_capability_reason(
@@ -400,11 +400,11 @@ TEST extensions_negotiate_schema_and_send_selected_capabilities(void) {
     ext_fixture f = ext_fixture_new(true);
     ASSERT(f.host);
     setenv("TNY_EXTENSION_HOST", f.host, 1);
-    setenv("FAKE_REQUIRE_SELECTED_PROVIDER", "codex", 1);
+    setenv("FAKE_REQUIRE_SELECTED_PROVIDER", "acp", 1);
     setenv("FAKE_REQUIRE_RUNTIME_AVAILABLE", "1", 1);
     tny_extensions *x = tny_extensions_new(f.tny, f.workspace, 200);
     ASSERT(x);
-    tny_extensions_set_provider(x, TNY_BK_CODEX);
+    tny_extensions_set_provider(x, TNY_BK_ACP);
     tny_extension_result result;
     ASSERT_EQ(0, tny_extensions_invoke(x, "tool_end", "{\"type\":\"tool_end\"}", &result));
     ASSERT_EQ(2, result.action_count);

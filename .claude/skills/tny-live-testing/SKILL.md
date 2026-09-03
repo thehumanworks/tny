@@ -8,9 +8,11 @@ description: Run tny against the user's real provider accounts (codex subscripti
 ## Credentials and binaries
 
 - `CURSOR_API_KEY` lives in the login shell only: fetch it with
-  `zsh -lc 'printf %s $CURSOR_API_KEY'`. Codex auth is `~/.codex/auth.json`.
+  `zsh -lc 'printf %s $CURSOR_API_KEY'`. Codex auth is `~/.tny/codex-auth.json`
+  (tny's native login) or the Codex CLI's `~/.codex/auth.json`; either works.
 - Agent CLIs are wrapped by shell functions and mise shims: resolve real
-  paths with `zsh -lc 'whence -p codex'` and pass via `TNY_CODEX_BIN`.
+  paths with `zsh -lc 'whence -p codex'` for the *other* CLIs; codex needs
+  no binary at all (turns and login go straight to chatgpt.com/auth.openai.com).
   The user's HOME must stay real (mise shims break under a fake HOME).
 
 ## Protecting the user's state
@@ -41,13 +43,15 @@ emulator is the only honest way to assert what is *visible*, because the raw
 byte stream keeps everything ever printed). The live pre-warm check is:
 
 1. launch `tny --provider X` and send **no prompt**;
-2. poll `ps -ax -o pid=,ppid=,command=` for the host child (`app-server`,
-   `cursor-sdk-bridge`) — it must appear within seconds of the banner;
+2. poll `ps -ax -o pid=,ppid=,command=` for the host child
+   (`cursor-sdk-bridge`, the ACP agent) — it must appear within seconds of
+   the banner. `--provider codex` spawns nothing (docs/adr/0065): assert
+   that NO child appears and that the reply still arrives over HTTPS;
 3. submit a prompt, assert the reply AND that the host pid did not change
    (adoption, not respawn);
-4. `/quit`, then check for orphans: `pgrep -f "app-server --listen ws://"`.
-   Match precisely — the user runs unrelated codex app-servers (ChatGPT.app,
-   unix:// listeners) that a loose pgrep will flag.
+4. `/quit`, then check for orphans with a precise `pgrep -f` on the host
+   command line — the user runs unrelated agent processes (ChatGPT.app,
+   codex app-servers) that a loose pgrep will flag.
 
 ## Known lifecycle trap
 

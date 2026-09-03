@@ -7,18 +7,17 @@ Pick a backend per process with `--backend` or `settings.json`. Switching mid-se
 | Backend | Transport | Auth | Tools | Sessions |
 | --- | --- | --- | --- | --- |
 | `cursor` | Spawn `cursor-sdk-bridge` v1.0.30, Connect HTTP/1.1 `sdk.v1` | `CURSOR_API_KEY` on env **and** RPC options; bridge/callback bearers stay loopback-private | Cursor runtime for built-ins; tny only for registered custom callbacks | Bridge SQLite/JSONL, tny custom store, or cloud IDs/runs |
-| `codex` | WebSocket (`ws://`, `wss://`, `unix://`) to `codex app-server` | Codex CLI login + optional WS bearer | Codex core | Codex threads |
 | `acp` | Spawn agent, JSON-RPC 2.0 JSONL stdio | Agent's `auth/login` or pre-auth | Agent | `session/new` / `resume` |
 | `openai` | HTTPS `POST /v1/responses` SSE (`/v1/chat/completions` via `wire_api:"chat"`, [ADR 0016](../adr/0016-responses-api-default-wire.md)) | Bearer or custom header | **tny** | `~/.tny/sessions` |
+| `codex` (builtin openai profile) | HTTPS `POST /responses` SSE to `chatgpt.com/backend-api/codex` ([codex.md](codex.md), [ADR 0065](../adr/0065-codex-chatgpt-responses-backend.md)) | ChatGPT OAuth bearer + `chatgpt-account-id` — flag/env, tny's native login store, or `$CODEX_HOME/auth.json` ([ADR 0066](../adr/0066-native-chatgpt-login-and-credential-sources.md)) | **tny** | `~/.tny/sessions` |
 
 ## Decision rule
 
 - User wants Cursor's local/cloud SDK agent → `cursor` (bridge), not `agent acp`.
-- User wants Codex's full harness (approvals, threads, steer) → `codex` WebSocket, not Codex-via-ACP.
+- User has a ChatGPT subscription (`codex login`) → the builtin `codex` profile on the native loop; Codex's own harness lives in the Codex CLI.
 - User wants Gemini / Claude Code / OpenCode / Copilot / … agent harnesses → `acp`.
 - User has a Claude subscription (Claude Code OAuth token) or a grok CLI
-  session and wants tny's native loop → the builtin `claude` / `grok`
-  profiles on the openai backend ([ADR 0019](../adr/0019-subscription-logins-claude-grok.md),
+  session → the builtin `claude` / `grok` profiles on the openai backend ([ADR 0019](../adr/0019-subscription-logins-claude-grok.md),
   [openai-compatible.md](openai-compatible.md#builtin-subscription-profiles-claude-and-grok)).
 - User has an OpenAI-compatible base URL → `openai`.
 
@@ -38,7 +37,7 @@ its row here and its behavior is enforced by the wasm CI suites.
 | Backend | wasm | How |
 | --- | --- | --- |
 | `openai` | ✓ works | both wires over `fetch()` |
-| `codex` | ✓ attach-only | `--codex-ws` over WebSocket; no spawn. Browser callers cannot send a bearer (no `Authorization` on browser WebSockets) and always send `Origin` — loopback, token-less hosts only |
+| `codex` | ✓ works | plain HTTPS like `openai`; credentials by env/flag (no filesystem) or `login --device`; the browser login's listening socket is native-only; the wasm CI job runs `test_codex_chatgpt.py` against the same mocks |
 | `acp` | ✓ remote-only | `--agent ws://…` (below); no spawn |
 | `cursor` | ✗ clean error | conversations report `cursor: conversational sdk.v1 bridge is unavailable in WebAssembly`; management reports `cursor: sdk.v1 management is unavailable in WebAssembly`; callback listeners are native-only |
 

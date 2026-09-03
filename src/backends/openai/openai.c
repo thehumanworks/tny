@@ -1235,7 +1235,11 @@ static int oa_connect(tny_backend *b, char *errbuf, size_t errlen) {
     oa_impl *o = b->impl;
     if (!o->ctx->api_key && !str_starts(o->ctx->base_url, "http://")) {
         const char *pn = o->ctx->provider_name;
-        if (pn && strcmp(pn, "claude") == 0)
+        if (pn && strcmp(pn, "codex") == 0)
+            snprintf(errbuf, errlen,
+                     "no ChatGPT credential: run `tny --provider codex login` (or "
+                     "`login --device`), set CHATGPT_ACCESS_TOKEN, or pass --chatgpt-token");
+        else if (pn && strcmp(pn, "claude") == 0)
             snprintf(errbuf, errlen,
                      "no Claude credential: run `tny --provider claude login`, "
                      "or set CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY");

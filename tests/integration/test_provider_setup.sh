@@ -65,7 +65,7 @@ esac
 echo "ok  key stayed out of the output"
 
 # ---- error paths: host provider, missing base url, no tty no flags ------
-HOME="$TMP/home" "$TNY" provider setup codex --base-url http://h/v1 \
+HOME="$TMP/home" "$TNY" provider setup cursor --base-url http://h/v1 \
     > /dev/null 2> "$TMP/err2" && fail "host provider accepted"
 contains "$(cat "$TMP/err2")" "host provider"
 HOME="$TMP/home" "$TNY" provider setup fresh --api-key sk-x \

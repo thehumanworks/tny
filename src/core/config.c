@@ -84,7 +84,7 @@ bool tny_tier_is_fast(const char *tier) {
 
 bool tny_wire_is_chat(const char *wire_api) { return wire_api && strcmp(wire_api, "chat") == 0; }
 
-static const char *bk_names[TNY_BK_COUNT] = {"openai", "cursor", "codex", "acp"};
+static const char *bk_names[TNY_BK_COUNT] = {"openai", "cursor", "acp"};
 
 const char *tny_tool_profile_name(tny_tool_profile profile) {
     if (profile == TNY_TOOLS_TERMINAL_EDIT) return "terminal+edit";
@@ -117,14 +117,12 @@ static bool tool_profile_parse(const char *value, tny_tool_profile *profile) {
  * those pass through tny_effort_wire verbatim so the catalog stays usable. */
 static const struct {
     const char *level;
-    const char *openai; /* chat completions `reasoning_effort` */
-    const char *codex;  /* app-server turn/start `effort` */
+    const char *openai; /* reasoning_effort / reasoning.effort (codex too) */
     const char *cursor; /* ModelSelection params candidate value */
 } EFFORTS[] = {
     /* "max" is not an OpenAI chat-completions value: clamp it to xhigh. */
-    {"off", "none", "none", "none"},          {"light", "low", "low", "low"},
-    {"medium", "medium", "medium", "medium"}, {"high", "high", "high", "high"},
-    {"xhigh", "xhigh", "xhigh", "xhigh"},     {"max", "xhigh", "max", "max"},
+    {"off", "none", "none"},  {"light", "low", "low"},     {"medium", "medium", "medium"},
+    {"high", "high", "high"}, {"xhigh", "xhigh", "xhigh"}, {"max", "xhigh", "max"},
 };
 #define N_EFFORTS ((int)(sizeof EFFORTS / sizeof *EFFORTS))
 
@@ -141,7 +139,6 @@ const char *tny_effort_wire(int backend, const char *v) {
         if (strcmp(EFFORTS[i].level, v) != 0) continue;
         switch (backend) {
         case TNY_BK_OPENAI: return EFFORTS[i].openai;
-        case TNY_BK_CODEX: return EFFORTS[i].codex;
         case TNY_BK_CURSOR: return EFFORTS[i].cursor;
         default: return EFFORTS[i].level;
         }
@@ -705,11 +702,6 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
 
     /* host backend knobs */
     ctx->bridge_bin = dup_or("CURSOR_SDK_BRIDGE_BIN", "cursor-sdk-bridge");
-    ctx->codex_ws = NULL; /* set by flag; default handled by backend */
-    ctx->codex_bin = dup_or("TNY_CODEX_BIN", "codex");
-    const char *tf = getenv("CODEX_REMOTE_TOKEN");
-    ctx->ws_token_file = NULL;
-    (void)tf; /* env token consumed directly by the codex backend */
 
     /* repo limits — never authority */
     if (rroot) {
@@ -786,30 +778,8 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
         tny_ctx_free(ctx);
         return NULL;
     }
-    ctx->codex_bin = xstrdup("codex");
     (void)instructions_refresh(ctx);
     return ctx;
-}
-
-/* A `codex login` drops auth.json under $CODEX_HOME (default ~/.codex).
- * Its presence means the user's ChatGPT subscription can drive the codex
- * backend with no API key at all. */
-bool tny_codex_auth_present(void) {
-    char *dir;
-    const char *ch = getenv("CODEX_HOME");
-    if (ch && *ch) {
-        dir = xstrdup(ch);
-    } else {
-        char *home = path_home();
-        if (!home) return false;
-        dir = path_join(home, ".codex");
-        free(home);
-    }
-    char *p = path_join(dir, "auth.json");
-    free(dir);
-    bool ok = file_exists(p);
-    free(p);
-    return ok;
 }
 
 const char *tny_settings_provider_model(tny_ctx *ctx, const char *provider) {
@@ -911,7 +881,7 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
     int id = -1;
     if (!flag_value) flag_value = tny_settings_get_str(ctx, "provider");
     const char *custom_name = NULL;
-    const char *builtin_profile = NULL; /* claude|grok (profiles.c) */
+    const char *builtin_profile = NULL; /* codex|claude|grok (profiles.c) */
     const char *acp_profile = NULL;     /* full selector: acp@NAME */
     char *env_pick = NULL;
     if (flag_value) {
@@ -933,7 +903,7 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
         }
         if (id == -1) {
             fprintf(stderr,
-                    "tny: unknown provider '%s' (cursor|codex|acp|openai|"
+                    "tny: unknown provider '%s' (cursor|acp|openai|codex|"
                     "claude|grok|acp@NAME, a settings.json object with a "
                     "base_url, or NAME_BASE_URL in the environment)\n",
                     flag_value);
@@ -971,7 +941,10 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
      * (docs/cli.md "Provider selection"). Codex login first, then a Claude
      * Code OAuth login, then a grok session, then a Cursor key from the
      * environment, then the openai backend's own error path. */
-    if (id == -1 && tny_codex_auth_present()) id = TNY_BK_CODEX;
+    if (id == -1 && (ctx->chatgpt_token || tny_codex_auth_present())) {
+        id = TNY_BK_OPENAI;
+        builtin_profile = "codex";
+    }
     if (id == -1 && tny_claude_auth_present()) {
         id = TNY_BK_OPENAI;
         builtin_profile = "claude";
@@ -1319,9 +1292,8 @@ void tny_ctx_free(tny_ctx *ctx) {
     tny_ctx_clear_extra_headers(ctx);
     free(ctx->bridge_bin);
     tny_cursor_config_free(ctx->cursor_config);
-    free(ctx->codex_ws);
-    free(ctx->codex_bin);
-    free(ctx->ws_token_file);
+    if (ctx->chatgpt_token) secure_free(ctx->chatgpt_token);
+    free(ctx->chatgpt_account_id);
     free(ctx->ssh_host);
     free(ctx->ssh_cwd);
     free(ctx->ssh_control);
@@ -1352,7 +1324,7 @@ char *tny_provider_names_joined(tny_ctx *ctx) {
     buf_init(&b);
     for (int i = 0; i < TNY_BK_COUNT; i++)
         buf_appendf(&b, "%s%s", i ? "|" : "", tny_backend_name((tny_backend_id)i));
-    buf_appends(&b, "|claude|grok"); /* builtin profiles (docs/adr/0019) */
+    buf_appends(&b, "|codex|claude|grok"); /* builtin profiles (docs/adr/0019) */
     yyjson_val *root = ctx && ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
     size_t idx, max;
     yyjson_val *k, *v;

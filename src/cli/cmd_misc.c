@@ -6,7 +6,6 @@
 #include "core/tasks.h"
 #include "core/session.h"
 #include "mcp/mcp.h"
-#include "backends/codex/codex.h" /* tny_codex_login */
 #include "net/net.h"
 #include "util/util.h"
 #include "util/tny_poll.h"
@@ -587,13 +586,29 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     }
     /* builtin subscription profiles (docs/adr/0019); a settings/env profile
      * of the same name shadows the builtin and is listed below instead */
-    static const char *const builtin_profiles[] = {"claude", "grok"};
+    static const char *const builtin_profiles[] = {"codex", "claude", "grok"};
     for (size_t bi = 0; bi < sizeof builtin_profiles / sizeof *builtin_profiles; bi++) {
         const char *name = builtin_profiles[bi];
         if (tny_custom_provider_exists(ctx, name)) continue;
         char line[256];
         bool healthy;
-        if (strcmp(name, "claude") == 0) {
+        if (strcmp(name, "codex") == 0) {
+            tny_codex_creds c;
+            healthy = tny_codex_credentials(ctx, &c) == 0;
+            if (c.access_token)
+                snprintf(line, sizeof line,
+                         "codex: ChatGPT login from %s (chatgpt.com/backend-api/codex)%s",
+                         tny_codex_cred_source_name(c.source),
+                         c.account_id ? "" : " — no account id in the token");
+            else if (c.api_key)
+                snprintf(line, sizeof line,
+                         "codex: API key from $CODEX_HOME/auth.json (api.openai.com)");
+            else
+                snprintf(line, sizeof line,
+                         "codex: no login (run `tny --provider codex login`, or set "
+                         "CHATGPT_ACCESS_TOKEN)");
+            tny_codex_creds_free(&c);
+        } else if (strcmp(name, "claude") == 0) {
             const char *source = NULL;
             char *tok = tny_claude_token(&source);
             healthy = tok != NULL;
@@ -870,6 +885,7 @@ int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (strcmp(argv[i], "--device") == 0 || strcmp(argv[i], "--device-code") == 0)
             device = true;
     const char *pn = tny_provider_name(ctx);
+    if (strcmp(pn, "codex") == 0) return tny_codex_login(ctx, device); /* docs/adr/0066 */
     if (strcmp(pn, "claude") == 0) return login_claude(ctx);
     if (strcmp(pn, "grok") == 0) return login_grok(ctx);
     const char *cursor_key = getenv("CURSOR_API_KEY");
@@ -879,10 +895,6 @@ int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                    ? "CURSOR_API_KEY is set — the bridge will use it.\n"
                    : "Set CURSOR_API_KEY (user or service-account key) for the SDK bridge.\n");
         return 0;
-    case TNY_BK_CODEX:
-        /* app-server account/login/start (browser flow, or the device-code
-         * flow with --device); falls back to `codex login` on old hosts */
-        return tny_codex_login(ctx, device);
     case TNY_BK_ACP:
         printf("ACP agents authenticate themselves; pre-authorize the agent CLI.\n");
         return 0;
@@ -905,14 +917,7 @@ int cmd_logout(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         return 0;
     }
     if (strcmp(pn, "grok") == 0) return tny_grok_logout();
-    if (ctx->backend == TNY_BK_CODEX) {
-        buf_t cmd;
-        buf_init(&cmd);
-        buf_appendf(&cmd, "%s logout", ctx->codex_bin);
-        int rc = system(cmd.data);
-        buf_free(&cmd);
-        return rc == 0 ? 0 : 1;
-    }
+    if (strcmp(pn, "codex") == 0) return tny_codex_logout();
     printf("tny stores no provider secrets; unset the environment variable to log out.\n");
     return 0;
 }

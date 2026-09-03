@@ -47,6 +47,10 @@ Env knobs:
                       comma-separated exact advertised tool-name set
   MOCK_LEADING_WS=1   open the answer with nine newlines, as some models do;
                       the human renderers drop them, --json keeps them
+  MOCK_EXPECT_HEADERS semicolon-separated `Name=value` pairs every request
+                      must carry exactly (case-insensitive names) — the codex
+                      profile's chatgpt-account-id / OpenAI-Beta / bearer
+  MOCK_REJECT_HEADERS semicolon-separated header names that must be absent
 
 The responses wire streams TWO parallel tool calls (list_files +
 glob_files). The second one's output_item.added carries only the item id;
@@ -103,6 +107,12 @@ EXPECT_ATTACHED_IMAGE = os.environ.get("MOCK_EXPECT_ATTACHED_IMAGE") == "1"
 EXPECT_TOOL_NAMES = os.environ.get("MOCK_EXPECT_TOOL_NAMES")
 EXPECT_SHELL_RESULT = os.environ.get("MOCK_EXPECT_SHELL_RESULT") == "1"
 LEADING_WS = os.environ.get("MOCK_LEADING_WS") == "1"
+EXPECT_HEADERS = [
+    tuple(pair.split("=", 1))
+    for pair in os.environ.get("MOCK_EXPECT_HEADERS", "").split(";")
+    if pair
+]
+REJECT_HEADERS = [h for h in os.environ.get("MOCK_REJECT_HEADERS", "").split(";") if h]
 
 
 def sse(obj):
@@ -262,6 +272,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("Content-Length", "0"))
         req = json.loads(self.rfile.read(n))
+        for name, value in EXPECT_HEADERS:
+            got = self.headers.get(name)
+            if got != value:
+                self._reject(f"header {name} is {got!r}, want {value!r}")
+                return
+        for name in REJECT_HEADERS:
+            if self.headers.get(name) is not None:
+                self._reject(f"header {name} must be absent")
+                return
         if HTTP_STATUS:
             self._json(HTTP_STATUS, {"error": {"message": ERROR_SECRET}})
             return

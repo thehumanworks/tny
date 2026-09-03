@@ -9,7 +9,6 @@
 #include "core/tools.h"
 #include "core/image.h"
 #include "lib/custom_tools.h"
-#include "backends/codex/codex.h"
 #include "backends/openai/openai.h"
 #include "backends/cursor/cursor.h"
 #include "cli/cli.h"
@@ -277,21 +276,21 @@ TEST effort_wire_mapping(void) {
     ASSERT_FALSE(tny_effort_canonical(NULL));
 
     /* off and light translate; medium/high/xhigh are shared spellings */
-    ASSERT_STR_EQ("none", tny_effort_wire(TNY_BK_CODEX, "off"));
+    ASSERT_STR_EQ("none", tny_effort_wire(TNY_BK_CURSOR, "off"));
     ASSERT_STR_EQ("none", tny_effort_wire(TNY_BK_OPENAI, "off"));
-    ASSERT_STR_EQ("low", tny_effort_wire(TNY_BK_CODEX, "light"));
+    ASSERT_STR_EQ("low", tny_effort_wire(TNY_BK_OPENAI, "light"));
     ASSERT_STR_EQ("low", tny_effort_wire(TNY_BK_CURSOR, "light"));
     ASSERT_STR_EQ("medium", tny_effort_wire(TNY_BK_OPENAI, "medium"));
-    ASSERT_STR_EQ("high", tny_effort_wire(TNY_BK_CODEX, "high"));
+    ASSERT_STR_EQ("high", tny_effort_wire(TNY_BK_OPENAI, "high"));
     ASSERT_STR_EQ("xhigh", tny_effort_wire(TNY_BK_CURSOR, "xhigh"));
 
-    /* "max" exists on codex/cursor but not in the OpenAI API: clamp there */
-    ASSERT_STR_EQ("max", tny_effort_wire(TNY_BK_CODEX, "max"));
+    /* "max" exists on cursor but not in the OpenAI API (the codex profile
+     * rides the openai mapping): clamp there */
     ASSERT_STR_EQ("max", tny_effort_wire(TNY_BK_CURSOR, "max"));
     ASSERT_STR_EQ("xhigh", tny_effort_wire(TNY_BK_OPENAI, "max"));
 
     /* provider-advertised tokens pass through untouched, every backend */
-    ASSERT_STR_EQ("ultra", tny_effort_wire(TNY_BK_CODEX, "ultra"));
+    ASSERT_STR_EQ("ultra", tny_effort_wire(TNY_BK_CURSOR, "ultra"));
     ASSERT_STR_EQ("minimal", tny_effort_wire(TNY_BK_OPENAI, "minimal"));
     ASSERT_STR_EQ("whatever", tny_effort_wire(TNY_BK_ACP, "whatever"));
     PASS();
@@ -894,13 +893,16 @@ TEST backend_default_prefers_codex_login(void) {
     codex_auth_write(false);
     tny_ctx *ctx = tny_ctx_load(g_ws);
     ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL)); /* nothing configured */
+    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
     tny_ctx_free(ctx);
 
     codex_auth_write(true);
     ctx = tny_ctx_load(g_ws);
     ASSERT(tny_codex_auth_present());
-    ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, NULL)); /* subscription wins */
-    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp"));  /* flag beats it */
+    /* subscription wins: the codex builtin profile on the openai backend */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
+    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp")); /* flag beats it */
     tny_ctx_free(ctx);
 
     setenv("OPENAI_API_KEY", "sk-test", 1); /* explicit key beats detection */
@@ -938,8 +940,9 @@ TEST provider_last_used_and_scoped_models(void) {
     tny_ctx_free(ctx);
 
     ctx = tny_ctx_load(g_ws); /* another provider must not inherit the model */
-    ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, "codex"));
-    ASSERT_EQ(NULL, ctx->model);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
+    ASSERT(ctx->model);
+    ASSERT_STR_EQ("gpt-5.6-sol", ctx->model); /* the codex builtin default */
     tny_ctx_free(ctx);
 
     ctx = tny_ctx_load(g_ws); /* --model flag beats the saved entry */
@@ -1052,7 +1055,7 @@ TEST settings_general_defaults(void) {
                    "\"models\":{\"codex\":\"remembered-model\"},"
                    "\"effort\":\"high\",\"fast\":{\"codex\":true}}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, NULL));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
     ASSERT_STR_EQ("codex", tny_provider_name(ctx));
     ASSERT_STR_EQ("cfg-model", ctx->model);
     ASSERT_STR_EQ("high", ctx->reasoning_effort);
@@ -1323,12 +1326,12 @@ TEST env_defined_providers(void) {
 
     /* NAME_DEFAULT_MODEL also works for builtin providers */
     write_settings("{}");
-    setenv("CODEX_DEFAULT_MODEL", "o4-mini", 1);
+    setenv("CURSOR_DEFAULT_MODEL", "o4-mini", 1);
     ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, "codex"));
+    ASSERT_EQ(TNY_BK_CURSOR, tny_resolve_backend(ctx, "cursor"));
     ASSERT(ctx->model);
     ASSERT_STR_EQ("o4-mini", ctx->model);
-    unsetenv("CODEX_DEFAULT_MODEL");
+    unsetenv("CURSOR_DEFAULT_MODEL");
     tny_ctx_free(ctx);
 
     /* the scan itself: builtin exclusion, every prefix char class, and the
@@ -1417,6 +1420,284 @@ static void grok_auth_write(const char *token) {
     buf_appendf(&b, "{\"https://accounts.x.ai/sign-in\":{\"key\":\"%s\"}}", token);
     file_write_atomic(path, b.data, b.len);
     buf_free(&b);
+}
+
+/* Unsigned test JWT: base64url(header).base64url(payload).sig */
+static char *test_jwt(const char *payload_json) {
+    buf_t out;
+    buf_init(&out);
+    buf_appends(&out, "eyJhbGciOiJub25lIn0."); /* {"alg":"none"} */
+    buf_t b64;
+    buf_init(&b64);
+    b64_encode((const uint8_t *)payload_json, strlen(payload_json), &b64);
+    for (size_t i = 0; i < b64.len; i++) {
+        char c = b64.data[i];
+        if (c == '+') c = '-';
+        else if (c == '/') c = '_';
+        if (c != '=') buf_append(&out, &c, 1);
+    }
+    buf_free(&b64);
+    buf_appends(&out, ".sig");
+    return buf_detach(&out);
+}
+
+static void codex_auth_write_json(const char *json) {
+    char path[600];
+    snprintf(path, sizeof path, "%s/.codex", g_home);
+    mkdir_p(path);
+    snprintf(path, sizeof path, "%s/.codex/auth.json", g_home);
+    file_write_atomic(path, json, strlen(json));
+}
+
+/* The codex builtin (docs/adr/0065): the ChatGPT login from auth.json
+ * drives chatgpt.com/backend-api/codex on the Responses wire with the
+ * account-id and beta headers; an API-key auth.json means api.openai.com. */
+TEST builtin_codex_profile(void) {
+    ensure_env();
+    write_settings("{}");
+    unsetenv("CODEX_HOME");
+    unsetenv("TNY_CODEX_BASE_URL");
+    unsetenv("CURSOR_API_KEY");
+    unsetenv("CHATGPT_ACCESS_TOKEN");
+    unsetenv("CHATGPT_ACCOUNT_ID");
+
+    /* account id from the access-token claim when tokens.account_id is absent */
+    char *jwt = test_jwt("{\"exp\":9999999999,\"https://api.openai.com/auth\":"
+                         "{\"chatgpt_account_id\":\"acct_claim\"}}");
+    buf_t j;
+    buf_init(&j);
+    buf_appendf(&j,
+                "{\"auth_mode\":\"chatgpt\",\"OPENAI_API_KEY\":null,\"tokens\":{"
+                "\"access_token\":\"%s\",\"refresh_token\":\"r1\"},"
+                "\"last_refresh\":\"2099-01-01T00:00:00Z\"}",
+                jwt);
+    codex_auth_write_json(j.data);
+    buf_free(&j);
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
+    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
+    ASSERT_STR_EQ("https://chatgpt.com/backend-api/codex", ctx->base_url);
+    ASSERT_EQ(NULL, ctx->wire_api); /* Responses wire */
+    ASSERT(ctx->api_key);
+    ASSERT_STR_EQ(jwt, ctx->api_key);
+    ASSERT_STR_EQ("Authorization", ctx->auth_header_name);
+    ASSERT(has_extra_header(ctx, "chatgpt-account-id: acct_claim"));
+    ASSERT(has_extra_header(ctx, "OpenAI-Beta: responses=v1"));
+    ASSERT(ctx->model);
+    ASSERT_STR_EQ("gpt-5.6-sol", ctx->model);
+    ASSERT(tny_backend_caps((tny_backend_id)ctx->backend) & TNY_CAP_FAST);
+    /* switching away drops the profile headers and token */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_FALSE(has_extra_header(ctx, "chatgpt-account-id:"));
+    ASSERT_FALSE(has_extra_header(ctx, "OpenAI-Beta:"));
+    tny_ctx_free(ctx);
+
+    /* explicit tokens.account_id wins over the claim; TNY_CODEX_BASE_URL
+     * redirects the profile (mocks, gateways) without shadowing it */
+    buf_init(&j);
+    buf_appendf(&j, "{\"tokens\":{\"access_token\":\"%s\",\"account_id\":\"acct_field\"}}", jwt);
+    codex_auth_write_json(j.data);
+    buf_free(&j);
+    setenv("TNY_CODEX_BASE_URL", "http://127.0.0.1:1/codex", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL)); /* auto-detected */
+    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
+    ASSERT_STR_EQ("http://127.0.0.1:1/codex", ctx->base_url);
+    ASSERT(has_extra_header(ctx, "chatgpt-account-id: acct_field"));
+    ASSERT_FALSE(has_extra_header(ctx, "chatgpt-account-id: acct_claim"));
+    tny_ctx_free(ctx);
+    unsetenv("TNY_CODEX_BASE_URL");
+    free(jwt);
+
+    /* API-key auth.json (`codex login --with-api-key`): the public API */
+    codex_auth_write_json("{\"auth_mode\":\"apikey\",\"OPENAI_API_KEY\":\"sk-codex-key\"}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
+    ASSERT_STR_EQ("https://api.openai.com/v1", ctx->base_url);
+    ASSERT(ctx->api_key);
+    ASSERT_STR_EQ("sk-codex-key", ctx->api_key);
+    ASSERT_FALSE(has_extra_header(ctx, "chatgpt-account-id:"));
+    tny_ctx_free(ctx);
+
+    /* an empty auth.json still selects the profile; connect() reports it */
+    unsetenv("CHATGPT_ACCESS_TOKEN");
+    codex_auth_write(true);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
+    ASSERT_EQ(NULL, ctx->api_key);
+    ASSERT_STR_EQ("https://chatgpt.com/backend-api/codex", ctx->base_url);
+    tny_ctx_free(ctx);
+
+    /* a user settings profile named "codex" shadows the builtin */
+    write_settings("{\"codex\":{\"base_url\":\"https://gw.test/v1\",\"api_key_env\":\"GW_KEY\"}}");
+    setenv("GW_KEY", "sk-gw", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
+    ASSERT_STR_EQ("https://gw.test/v1", ctx->base_url);
+    ASSERT_FALSE(has_extra_header(ctx, "OpenAI-Beta:"));
+    tny_ctx_free(ctx);
+    unsetenv("GW_KEY");
+
+    codex_auth_write(false);
+    write_settings("{}");
+    PASS();
+}
+
+static void tny_store_write_json(const char *json) {
+    char path[600];
+    snprintf(path, sizeof path, "%s/.tny", g_home);
+    mkdir_p(path);
+    snprintf(path, sizeof path, "%s/.tny/codex-auth.json", g_home);
+    if (json) file_write_atomic(path, json, strlen(json));
+    else unlink(path);
+}
+
+/* Credential precedence (docs/adr/0066): --chatgpt-token > CHATGPT_ACCESS_TOKEN
+ * > ~/.tny/codex-auth.json > $CODEX_HOME/auth.json; the file-less sources
+ * need no HOME at all, and the account id is derived when not given. */
+TEST codex_credential_precedence(void) {
+    ensure_env();
+    write_settings("{}");
+    unsetenv("CODEX_HOME");
+    unsetenv("CHATGPT_ACCESS_TOKEN");
+    unsetenv("CHATGPT_ACCOUNT_ID");
+    unsetenv("CURSOR_API_KEY");
+    codex_auth_write(false);
+    tny_store_write_json(NULL);
+
+    char *cli_jwt =
+        test_jwt("{\"https://api.openai.com/auth\":{\"chatgpt_account_id\":\"acct_cli\"}}");
+    char *store_jwt =
+        test_jwt("{\"https://api.openai.com/auth\":{\"chatgpt_account_id\":\"acct_tny\"}}");
+    char *env_jwt =
+        test_jwt("{\"https://api.openai.com/auth\":{\"chatgpt_account_id\":\"acct_env\"}}");
+    tny_codex_creds c;
+
+    /* nothing anywhere */
+    ASSERT_FALSE(tny_codex_auth_present());
+    ASSERT_EQ(-1, tny_codex_credentials(NULL, &c));
+    ASSERT_EQ(TNY_CODEX_CRED_NONE, c.source);
+    tny_codex_creds_free(&c);
+
+    /* Codex CLI file only */
+    buf_t j;
+    buf_init(&j);
+    buf_appendf(&j, "{\"tokens\":{\"access_token\":\"%s\",\"refresh_token\":\"r\"}}", cli_jwt);
+    codex_auth_write_json(j.data);
+    buf_free(&j);
+    ASSERT(tny_codex_auth_present());
+    ASSERT_EQ(0, tny_codex_credentials(NULL, &c));
+    ASSERT_EQ(TNY_CODEX_CRED_CODEX_CLI, c.source);
+    ASSERT_STR_EQ("acct_cli", c.account_id);
+    tny_codex_creds_free(&c);
+
+    /* tny's own store beats the CLI file */
+    buf_init(&j);
+    buf_appendf(&j, "{\"auth_mode\":\"chatgpt\",\"tokens\":{\"access_token\":\"%s\"}}", store_jwt);
+    tny_store_write_json(j.data);
+    buf_free(&j);
+    ASSERT_EQ(0, tny_codex_credentials(NULL, &c));
+    ASSERT_EQ(TNY_CODEX_CRED_TNY_STORE, c.source);
+    ASSERT_STR_EQ(store_jwt, c.access_token);
+    ASSERT_STR_EQ("acct_tny", c.account_id);
+    ASSERT_STR_EQ("~/.tny/codex-auth.json", tny_codex_cred_source_name(c.source));
+    tny_codex_creds_free(&c);
+
+    /* env beats both files; CHATGPT_ACCOUNT_ID beats the claim */
+    setenv("CHATGPT_ACCESS_TOKEN", env_jwt, 1);
+    ASSERT_EQ(0, tny_codex_credentials(NULL, &c));
+    ASSERT_EQ(TNY_CODEX_CRED_ENV, c.source);
+    ASSERT_STR_EQ(env_jwt, c.access_token);
+    ASSERT_STR_EQ("acct_env", c.account_id);
+    tny_codex_creds_free(&c);
+    setenv("CHATGPT_ACCOUNT_ID", "acct_env_explicit", 1);
+    ASSERT_EQ(0, tny_codex_credentials(NULL, &c));
+    ASSERT_STR_EQ("acct_env_explicit", c.account_id);
+    tny_codex_creds_free(&c);
+
+    /* the flag beats env; an opaque flag token with an explicit id works,
+     * and the whole profile rides it (no file read at all) */
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->chatgpt_token = xstrdup("opaque-flag-token");
+    ctx->chatgpt_account_id = xstrdup("acct_flag");
+    ASSERT_EQ(0, tny_codex_credentials(ctx, &c));
+    ASSERT_EQ(TNY_CODEX_CRED_FLAG, c.source);
+    ASSERT_STR_EQ("opaque-flag-token", c.access_token);
+    ASSERT_STR_EQ("acct_flag", c.account_id);
+    tny_codex_creds_free(&c);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL)); /* auto-detected */
+    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
+    ASSERT_STR_EQ("opaque-flag-token", ctx->api_key);
+    ASSERT(has_extra_header(ctx, "chatgpt-account-id: acct_flag"));
+    ASSERT(has_extra_header(ctx, "OpenAI-Beta: responses=v1"));
+    tny_ctx_free(ctx);
+
+    /* env alone, no files, no id: derived from the claim; auto-detected */
+    unsetenv("CHATGPT_ACCOUNT_ID");
+    tny_store_write_json(NULL);
+    codex_auth_write(false);
+    ASSERT(tny_codex_auth_present()); /* env counts */
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
+    ASSERT_STR_EQ(env_jwt, ctx->api_key);
+    ASSERT(has_extra_header(ctx, "chatgpt-account-id: acct_env"));
+    tny_ctx_free(ctx);
+
+    /* a flag token with no derivable id: still usable, header omitted */
+    unsetenv("CHATGPT_ACCESS_TOKEN");
+    ctx = tny_ctx_load(g_ws);
+    ctx->chatgpt_token = xstrdup("opaque");
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
+    ASSERT_STR_EQ("opaque", ctx->api_key);
+    ASSERT_FALSE(has_extra_header(ctx, "chatgpt-account-id:"));
+    ASSERT(has_extra_header(ctx, "OpenAI-Beta: responses=v1"));
+    tny_ctx_free(ctx);
+
+    /* store_save writes the Codex shape with the derived account id and
+     * the expiry, readable back through the same resolver */
+    buf_init(&j);
+    buf_appendf(&j,
+                "{\"access_token\":\"%s\",\"refresh_token\":\"r2\",\"id_token\":\"x.y.z\","
+                "\"expires_in\":3600}",
+                store_jwt);
+    yyjson_doc *resp = jparse(j.data, j.len);
+    buf_free(&j);
+    ASSERT(resp);
+    ASSERT_EQ(0, tny_codex_store_save(yyjson_doc_get_root(resp)));
+    yyjson_doc_free(resp);
+    char *sp = tny_codex_store_path();
+    ASSERT(sp);
+    struct stat st;
+    ASSERT_EQ(0, stat(sp, &st));
+#if !defined(__CYGWIN__) && !defined(__MSYS__)
+    ASSERT_EQ(0, (int)(st.st_mode & 077));
+#endif
+    yyjson_doc *saved = jparse_file(sp);
+    ASSERT(saved);
+    yyjson_val *sroot = yyjson_doc_get_root(saved);
+    ASSERT_STR_EQ("chatgpt", jget_str(sroot, "auth_mode"));
+    ASSERT_STR_EQ("acct_tny", jget_str(jget(sroot, "tokens"), "account_id"));
+    ASSERT_STR_EQ("r2", jget_str(jget(sroot, "tokens"), "refresh_token"));
+    ASSERT(jget_str(sroot, "last_refresh"));
+    ASSERT(jget_str(sroot, "expires_at"));
+    ASSERT(iso8601_to_epoch(jget_str(sroot, "expires_at")) > now_ms() / 1000 + 3000);
+    yyjson_doc_free(saved);
+    free(sp);
+    ASSERT_EQ(0, tny_codex_credentials(NULL, &c));
+    ASSERT_EQ(TNY_CODEX_CRED_TNY_STORE, c.source);
+    ASSERT_STR_EQ("acct_tny", c.account_id);
+    tny_codex_creds_free(&c);
+
+    /* logout drops tny's store only */
+    ASSERT_EQ(0, tny_codex_logout());
+    ASSERT_FALSE(tny_codex_auth_present());
+
+    free(cli_jwt);
+    free(store_jwt);
+    free(env_jwt);
+    write_settings("{}");
+    PASS();
 }
 
 /* The claude builtin: Anthropic's OpenAI-compat endpoint on the chat wire.
@@ -1873,7 +2154,8 @@ TEST builtin_profile_detection_and_shadowing(void) {
 
     codex_auth_write(true);
     ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, NULL)); /* codex first */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL)); /* codex first */
+    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
     tny_ctx_free(ctx);
     codex_auth_write(false);
 
@@ -1898,7 +2180,8 @@ TEST builtin_profile_detection_and_shadowing(void) {
     write_settings("{\"last_provider\":\"gone\"}");
     codex_auth_write(true);
     ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, NULL));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
     tny_ctx_free(ctx);
     codex_auth_write(false);
     write_settings("{}");
@@ -1940,7 +2223,7 @@ TEST provider_names_joined_lists_detected(void) {
     tny_ctx *ctx = tny_ctx_load(g_ws);
     char *j = tny_provider_names_joined(ctx);
     ASSERT(j);
-    ASSERT_STR_EQ("openai|cursor|codex|acp|claude|grok|openrouter|xai|orwell", j);
+    ASSERT_STR_EQ("openai|cursor|acp|codex|claude|grok|openrouter|xai|orwell", j);
     free(j);
     tny_ctx_free(ctx);
     unsetenv("XAI_BASE_URL");
@@ -1951,13 +2234,13 @@ TEST provider_names_joined_lists_detected(void) {
 
 /* ---- fast tier capability (--fast / /fast) ---- */
 
-/* TNY_CAP_FAST names the providers with a paid fast tier: codex serviceTier,
- * openai service_tier, cursor's per-model "fast" param. ACP has no tier
- * field in session/new, so it must not carry the bit. */
+/* TNY_CAP_FAST names the providers with a paid fast tier: openai
+ * service_tier (the codex profile rides it), cursor's per-model "fast"
+ * param. ACP has no tier field in session/new, so it must not carry the
+ * bit. */
 TEST fast_capability_per_provider(void) {
     ASSERT(tny_backend_caps(TNY_BK_OPENAI) & TNY_CAP_FAST);
     ASSERT(tny_backend_caps(TNY_BK_CURSOR) & TNY_CAP_FAST);
-    ASSERT(tny_backend_caps(TNY_BK_CODEX) & TNY_CAP_FAST);
     ASSERT_FALSE(tny_backend_caps(TNY_BK_ACP) & TNY_CAP_FAST);
     ASSERT_EQ(0u, tny_backend_caps((tny_backend_id)TNY_BK_COUNT));
     PASS();
@@ -2068,107 +2351,12 @@ TEST backend_default_cursor_key_from_env(void) {
 
     codex_auth_write(true); /* codex login outranks a cursor env key */
     ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_CODEX, tny_resolve_backend(ctx, NULL));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
     tny_ctx_free(ctx);
 
     unsetenv("CURSOR_API_KEY");
     codex_auth_write(false);
-    PASS();
-}
-
-/* ---- codex host registry (shared app-server reuse) ---- */
-
-/* The registry is untrusted: only a bare ws:// loopback URL may pass. */
-TEST codex_registry_loopback_only(void) {
-    static const char *const ok[] = {
-        "ws://127.0.0.1:8080",
-        "ws://localhost:1234",
-        "ws://127.0.0.1:65535/",
-    };
-    static const char *const bad[] = {
-        "",
-        "wss://127.0.0.1:443",
-        "http://127.0.0.1:80",
-        "ws://127.0.0.1",
-        "ws://127.0.0.1:",
-        "ws://127.0.0.1:0",
-        "ws://127.0.0.1:65536",
-        "ws://127.0.0.2:80",
-        "ws://10.0.0.5:80",
-        "ws://localhost.evil.io:80",
-        "ws://evil:80",
-        "ws://127.0.0.1:80/path",
-        "ws://127.0.0.1:80x",
-        "ws://[::1]:80",
-        "ws://user@127.0.0.1:80",
-    };
-    ASSERT(!cx_ws_url_is_loopback(NULL));
-    for (size_t i = 0; i < sizeof ok / sizeof ok[0]; i++)
-        ASSERTm(ok[i], cx_ws_url_is_loopback(ok[i]));
-    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++)
-        ASSERT_FALSEm(bad[i], cx_ws_url_is_loopback(bad[i]));
-    PASS();
-}
-
-TEST codex_registry_roundtrip(void) {
-    ensure_env();
-    ASSERT_EQ(0, cx_registry_write("ws://127.0.0.1:4242", getpid()));
-    char *path = cx_registry_path();
-    struct stat st;
-    ASSERT_EQ(0, stat(path, &st));
-    /* 0600 on POSIX. Windows/MSYS keeps group/other bits on NTFS. */
-#if !defined(__CYGWIN__) && !defined(__MSYS__)
-    ASSERT_EQ(0, (int)(st.st_mode & 077)); /* private to the user */
-#endif
-    char *ws = NULL;
-    pid_t pid = 0;
-    ASSERT_EQ(0, cx_registry_load(&ws, &pid));
-    ASSERT_STR_EQ("ws://127.0.0.1:4242", ws);
-    ASSERT_EQ(getpid(), pid);
-    free(ws);
-    /* a mismatched pid means a newer writer owns the file: leave it */
-    ASSERT(cx_registry_remove(getpid() + 1) != 0);
-    ASSERT(file_exists(path));
-    ASSERT_EQ(0, cx_registry_remove(getpid()));
-    ASSERT_FALSE(file_exists(path));
-    ASSERT(cx_registry_load(&ws, &pid) != 0); /* missing file */
-    ASSERT_EQ(NULL, ws);
-    free(path);
-    PASS();
-}
-
-static void codex_registry_raw(const char *json) {
-    char *dir = path_tny_dir();
-    mkdir_p(dir);
-    free(dir);
-    char *path = cx_registry_path();
-    if (json) file_write_atomic(path, json, strlen(json));
-    else unlink(path);
-    free(path);
-}
-
-TEST codex_registry_rejects_bad_entries(void) {
-    ensure_env();
-    char *ws = NULL;
-    char json[128];
-
-    codex_registry_raw("this is not json");
-    ASSERT(cx_registry_load(&ws, NULL) != 0);
-
-    codex_registry_raw("{\"ws\":\"ws://127.0.0.1:4242\"}"); /* no pid */
-    ASSERT(cx_registry_load(&ws, NULL) != 0);
-
-    snprintf(json, sizeof json, "{\"ws\":\"ws://10.0.0.5:4242\",\"pid\":%ld}", (long)getpid());
-    codex_registry_raw(json); /* live pid but off-loopback: never attach */
-    ASSERT(cx_registry_load(&ws, NULL) != 0);
-
-    codex_registry_raw("{\"ws\":\"ws://127.0.0.1:4242\",\"pid\":99999999}");
-    ASSERT(cx_registry_load(&ws, NULL) != 0); /* dead pid is a stale host */
-
-    codex_registry_raw("{\"ws\":\"ws://127.0.0.1:4242\",\"pid\":-1}");
-    ASSERT(cx_registry_load(&ws, NULL) != 0);
-
-    codex_registry_raw(NULL);
     PASS();
 }
 
@@ -3109,7 +3297,7 @@ TEST provider_write_profile_rules(void) {
 
     /* host providers and reserved settings keys are refused */
     tny_provider_fields f0 = {"http://h/v1", NULL, NULL, NULL, NULL};
-    ASSERT_EQ(-1, tny_provider_write_profile(ctx, "codex", &f0, err, sizeof err));
+    ASSERT_EQ(-1, tny_provider_write_profile(ctx, "cursor", &f0, err, sizeof err));
     ASSERT_EQ(-1, tny_provider_write_profile(ctx, "models", &f0, err, sizeof err));
     ASSERT_EQ(-1, tny_provider_write_profile(ctx, "bad name", &f0, err, sizeof err));
 
@@ -3169,6 +3357,8 @@ TEST embedded_public_runtime_does_not_claim_library_linkage(void) {
 
 SUITE(core_suite) {
     RUN_TEST(backend_default_prefers_codex_login);
+    RUN_TEST(builtin_codex_profile);
+    RUN_TEST(codex_credential_precedence);
     RUN_TEST(backend_default_cursor_key_from_env);
     RUN_TEST(provider_last_used_and_scoped_models);
     RUN_TEST(custom_named_provider_profiles);
@@ -3215,9 +3405,6 @@ SUITE(core_suite) {
     RUN_TEST(perm_auto_mode_heuristics);
     RUN_TEST(perm_yolo_allows_everything);
     RUN_TEST(tool_prepare_validates_rewrites_and_complete_permission_subjects);
-    RUN_TEST(codex_registry_loopback_only);
-    RUN_TEST(codex_registry_roundtrip);
-    RUN_TEST(codex_registry_rejects_bad_entries);
     RUN_TEST(session_roundtrip);
     RUN_TEST(session_task_snapshot_roundtrip_and_resume_guards);
     RUN_TEST(session_task_snapshot_atomic_window_and_symlink_guards);

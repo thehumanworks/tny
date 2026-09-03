@@ -66,76 +66,6 @@ static char *grok_auth_json_path(void) {
     return p;
 }
 
-/* ---------- x-www-form-urlencoded ---------- */
-
-static void form_append(buf_t *b, const char *key, const char *val) {
-    if (b->len) buf_appends(b, "&");
-    buf_appends(b, key);
-    buf_appends(b, "=");
-    for (const unsigned char *p = (const unsigned char *)val; *p; p++) {
-        unsigned char c = *p;
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-            c == '-' || c == '.' || c == '_' || c == '~')
-            buf_appendf(b, "%c", c);
-        else buf_appendf(b, "%%%02X", c);
-    }
-}
-
-/* ---------- ISO-8601 <-> epoch (UTC, whole seconds) ---------- */
-
-static void iso8601_from_epoch(int64_t t, char out[32]) {
-    time_t tt = (time_t)t;
-    struct tm tm;
-    gmtime_r(&tt, &tm);
-    strftime(out, 32, "%Y-%m-%dT%H:%M:%SZ", &tm);
-}
-
-/* Fractional seconds and anything after them are ignored; auth.x.ai stamps
- * UTC ("…Z"), so no offset handling. -1 on parse failure. */
-static int64_t iso8601_to_epoch(const char *s) {
-    int y, mo, d, h, mi, sec;
-    if (!s || sscanf(s, "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &sec) != 6) return -1;
-    /* days-from-civil (public-domain calendar algorithm) */
-    int64_t yy = y - (mo < 2);
-    int64_t era = (yy >= 0 ? yy : yy - 399) / 400;
-    int64_t yoe = yy - era * 400;
-    int64_t doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-    int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    int64_t days = era * 146097 + doe - 719468;
-    return days * 86400 + h * 3600 + mi * 60 + sec;
-}
-
-/* ---------- JWT payload peek (display info only, no verification) ---------- */
-
-/* The id_token arrives over the direct HTTPS channel and only feeds the
- * store's user_id/email display fields, so its signature is not checked
- * (same stance as grok-build). */
-static yyjson_doc *jwt_payload(const char *jwt) {
-    if (!jwt) return NULL;
-    const char *dot1 = strchr(jwt, '.');
-    if (!dot1) return NULL;
-    const char *start = dot1 + 1;
-    const char *dot2 = strchr(start, '.');
-    size_t n = dot2 ? (size_t)(dot2 - start) : strlen(start);
-    /* base64url -> base64: b64_decode knows only the standard alphabet */
-    char *std = xstrndup(start, n);
-    if (!std) return NULL;
-    for (char *p = std; *p; p++) {
-        if (*p == '-') *p = '+';
-        else if (*p == '_') *p = '/';
-    }
-    uint8_t *raw = malloc(n + 4);
-    if (!raw) {
-        free(std);
-        return NULL;
-    }
-    size_t rn = b64_decode(std, raw, n + 4);
-    free(std);
-    yyjson_doc *doc = rn ? jparse((const char *)raw, rn) : NULL;
-    free(raw);
-    return doc;
-}
-
 /* ---------- HTTP: POST a form, slurp the JSON body ---------- */
 
 /* Returns the HTTP status, or -1 with err filled. Body bytes land in out. */
@@ -233,7 +163,7 @@ static int store_put_login(const char *issuer, const char *client_id, yyjson_val
     char ts[32];
     iso8601_from_epoch(now, ts);
     put_str(m, e, "create_time", ts);
-    yyjson_doc *claims = jwt_payload(jget_str(tokens, "id_token"));
+    yyjson_doc *claims = jwt_payload_doc(jget_str(tokens, "id_token"));
     yyjson_val *croot = claims ? yyjson_doc_get_root(claims) : NULL;
     const char *sub = jget_str(croot, "sub");
     const char *email = jget_str(croot, "email");
@@ -285,9 +215,9 @@ int tny_grok_login(void) {
     buf_t form, body;
     buf_init(&form);
     buf_init(&body);
-    form_append(&form, "client_id", client_id);
-    form_append(&form, "scope", GROK_OAUTH_SCOPES);
-    form_append(&form, "referrer", "grok-build");
+    url_form_append(&form, "client_id", client_id);
+    url_form_append(&form, "scope", GROK_OAUTH_SCOPES);
+    url_form_append(&form, "referrer", "grok-build");
     int status = oauth_post_form(issuer, "/oauth2/device/code", form.data, &body, err, sizeof err);
     buf_free(&form);
     if (status < 0) {
@@ -358,9 +288,9 @@ int tny_grok_login(void) {
         buf_t poll_form, poll_body;
         buf_init(&poll_form);
         buf_init(&poll_body);
-        form_append(&poll_form, "grant_type", GROK_DEVICE_GRANT);
-        form_append(&poll_form, "device_code", device_code);
-        form_append(&poll_form, "client_id", client_id);
+        url_form_append(&poll_form, "grant_type", GROK_DEVICE_GRANT);
+        url_form_append(&poll_form, "device_code", device_code);
+        url_form_append(&poll_form, "client_id", client_id);
         err[0] = 0;
         status =
             oauth_post_form(issuer, "/oauth2/token", poll_form.data, &poll_body, err, sizeof err);
@@ -460,9 +390,9 @@ void tny_grok_refresh_if_stale(void) {
     buf_t form, body;
     buf_init(&form);
     buf_init(&body);
-    form_append(&form, "grant_type", "refresh_token");
-    form_append(&form, "refresh_token", ref);
-    form_append(&form, "client_id", cid);
+    url_form_append(&form, "grant_type", "refresh_token");
+    url_form_append(&form, "refresh_token", ref);
+    url_form_append(&form, "client_id", cid);
     char err[256] = "";
     int status = oauth_post_form(iss, "/oauth2/token", form.data, &body, err, sizeof err);
     buf_free(&form);

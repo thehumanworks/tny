@@ -39,13 +39,14 @@ single `tny_poll` seam ([ADR 0033](adr/0033-libtny-multi-runtime-cancel.md)).
 
 **Gate:** scripted fake ACP agent (fixture) plus one real agent if installed.
 
-## Phase 4 — Codex WebSocket
+## Phase 4 — Codex
 
-- Attach and spawn `codex app-server --listen ws://127.0.0.1:4500`
-- initialize / thread/start / turn/start / deltas / interrupt
-- Token file auth
+- Originally a `codex app-server` WebSocket client; replaced by the builtin
+  `codex` profile on the native loop against the ChatGPT Responses backend
+  ([ADR 0065](adr/0065-codex-chatgpt-responses-backend.md))
+- `auth.json` credentials, account-id header, tny-run token refresh
 
-**Gate:** fixture WS server from a recorded JSON-RPC transcript.
+**Gate:** `tests/integration/test_codex_chatgpt.py` against the strict Responses mock.
 
 ## Phase 5 — Cursor SDK Bridge
 
@@ -71,9 +72,9 @@ single `tny_poll` seam ([ADR 0033](adr/0033-libtny-multi-runtime-cancel.md)).
 
 - `tny_poll` + per-platform source lists; `src/net/net_wasm.c` (fetch, WebSocket, pseudo-fd registry, Asyncify)
 - `make wasm` (node, NODERAWFS, CI) and `make wasm-web` (browser, MEMFS) from one object set
-- ACP `--agent ws://` remote transport, native and wasm; codex attach under wasm
+- ACP `--agent ws://` remote transport, native and wasm; codex over HTTPS under wasm
 - The landing page runs the artifact in xterm.js; the JS agent loop is deleted
-- CI: the same openai/acp/codex mock suites against `TNY=build/wasm/tny`, a size guard, and a headless-browser smoke
+- CI: the same openai/acp/codex-profile mock suites against `TNY=build/wasm/tny`, a size guard, and a headless-browser smoke
 
 ## Hard rules during implementation
 

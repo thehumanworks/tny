@@ -110,3 +110,29 @@ const yyjson_alc *jallocator(void) {
     static const yyjson_alc allocator = {json_malloc, json_realloc, json_free, NULL};
     return &allocator;
 }
+
+yyjson_doc *jwt_payload_doc(const char *jwt) {
+    if (!jwt) return NULL;
+    const char *dot1 = strchr(jwt, '.');
+    if (!dot1) return NULL;
+    const char *start = dot1 + 1;
+    const char *dot2 = strchr(start, '.');
+    size_t n = dot2 ? (size_t)(dot2 - start) : strlen(start);
+    /* base64url -> base64: b64_decode knows only the standard alphabet */
+    char *std = xstrndup(start, n);
+    if (!std) return NULL;
+    for (char *p = std; *p; p++) {
+        if (*p == '-') *p = '+';
+        else if (*p == '_') *p = '/';
+    }
+    uint8_t *raw = malloc(n + 4);
+    if (!raw) {
+        free(std);
+        return NULL;
+    }
+    size_t rn = b64_decode(std, raw, n + 4);
+    free(std);
+    yyjson_doc *doc = rn ? jparse((const char *)raw, rn) : NULL;
+    free(raw);
+    return doc;
+}

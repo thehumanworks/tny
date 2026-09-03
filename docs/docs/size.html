@@ -60,13 +60,12 @@
 </table>
 <p>Do not publish a 10 µs claim. That number is fx's <code>FX_BENCH=1</code> path (parse argv, exit before TTY). Beat measured exec and first paint.</p>
 <h2 id="ttft">Time to first token</h2>
-<p>Everything between Enter and the provider seeing the turn is pre-paid or overlapped. The TUI warms the host and creates the session in the background. <code>tny ask</code> connects while it reads a piped prompt. Codex one-shots attach to an already-running app-server.</p>
+<p>Everything between Enter and the provider seeing the turn is pre-paid or overlapped. The TUI warms the host and creates the session in the background. <code>tny ask</code> connects while it reads a piped prompt.</p>
 <table>
   <thead><tr><th>Path</th><th>before</th><th>after</th></tr></thead>
   <tbody>
     <tr><td>TUI: Enter → first output</td><td>411 ms</td><td>6 ms</td></tr>
     <tr><td><code>ask</code> with piped stdin</td><td>875 ms</td><td>449 ms</td></tr>
-    <tr><td>codex one-shot (attach vs spawn)</td><td>235 ms</td><td>11 ms</td></tr>
   </tbody>
 </table>
 <p>What remains is the model's own time to first token. Client-side, tny is not the bottleneck.</p>

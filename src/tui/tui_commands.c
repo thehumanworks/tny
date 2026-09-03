@@ -656,7 +656,7 @@ void tui_command(tui *t, const char *line) {
                          tny_custom_provider_exists(t->ctx, arg) || str_starts(arg, "acp@") ||
                          str_starts(arg, "acp:");
             if (!known)
-                tui_err(t, "unknown provider (openai|cursor|codex|acp|"
+                tui_err(t, "unknown provider (openai|cursor|acp|codex|"
                            "claude|grok|acp@NAME, a settings.json profile, or "
                            "NAME_BASE_URL) — /provider setup adds one");
             else {
@@ -691,10 +691,10 @@ void tui_command(tui *t, const char *line) {
     } else if (strcmp(c, "fast") == 0) {
         /* TNY_CAP_FAST speed tier: fast|priority select the paid fast tier,
          * default turns it off. No argument toggles. Each capable backend
-         * maps the tier to its own wire field (codex serviceTier, openai
-         * service_tier, cursor model param). */
+         * maps the tier to its own wire field (openai service_tier — the
+         * codex profile included — cursor model param). */
         if (!(tny_backend_caps((tny_backend_id)t->ctx->backend) & TNY_CAP_FAST)) {
-            tui_err(t, "/fast: no fast tier on this provider — try /provider codex");
+            tui_err(t, "/fast: no fast tier on this provider — try /provider openai");
         } else {
             const char *cur = t->ctx->service_tier;
             const char *next = NULL;
@@ -975,7 +975,7 @@ void tui_wizard_feed(tui *t, const char *line) {
             return;
         }
         if (tny_backend_from_name(line) >= 0 && strcmp(line, "openai") != 0) {
-            tui_err(t, "host providers (cursor|codex|acp) have no base_url; "
+            tui_err(t, "host providers (cursor|acp) have no base_url; "
                        "pick another name");
             wiz_prompt(t);
             return;

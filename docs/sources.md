@@ -81,7 +81,17 @@ release claims.
 - https://connectrpc.com/docs/protocol
 - https://cursor.com/docs/cli/acp (ACP path; not the required Cursor backend)
 
-## Codex app-server
+## Codex (ChatGPT Responses backend, docs/adr/0065)
+
+- Responses API reference (`input` is a string **or** an item array; `store`, `stream`, `instructions`): https://developers.openai.com/api/reference/resources/responses/methods/create
+- Codex CLI client to `chatgpt.com/backend-api/codex` (headers, body): https://github.com/openai/codex/blob/main/codex-rs/core/src/client.rs
+- `auth.json`, JWT account-id claim, refresh grant and client id: https://github.com/openai/codex/blob/main/codex-rs/login/src/token_data.rs and `codex-rs/login/src/auth/manager.rs`
+- Refresh contract tests (`/oauth/token`, `CODEX_REFRESH_TOKEN_URL_OVERRIDE`): https://github.com/openai/codex/blob/main/codex-rs/core/tests/suite/auth_refresh.rs
+- Browser PKCE login (authorize URL parameters, `localhost:1455` / 1457 callback, token exchange): https://github.com/openai/codex/blob/main/codex-rs/login/src/server.rs
+- Device-code login (`/api/accounts/deviceauth/usercode`, `…/token`, `/codex/device`, `/deviceauth/callback`): https://github.com/openai/codex/blob/main/codex-rs/login/src/device_code_auth.rs
+- Independent implementation of both flows plus refresh (pi): https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/utils/oauth/openai-codex.ts
+
+## Codex app-server (retired backend; kept for the hook-parity baseline)
 
 - https://developers.openai.com/codex/app-server
 - https://github.com/openai/codex/tree/main/codex-rs/app-server

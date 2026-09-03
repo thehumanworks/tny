@@ -3,6 +3,7 @@
 Date: 2026-08-26
 Status: accepted (relates to 0004 attach, 0011 steering, 0017 wasm parity,
 0020 ephemeral sessions)
+Codex references are historical: [ADR 0065](0065-codex-chatgpt-responses-backend.md) turned `codex` into a builtin profile of the native loop (no host process).
 
 ## Context
 

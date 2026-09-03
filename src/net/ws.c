@@ -71,7 +71,7 @@ static void on_msg_cb(wslay_event_context_ptr ctx, const struct wslay_event_on_m
     ws_conn *w = user_data;
     if (arg->opcode == WSLAY_TEXT_FRAME && w->cb)
         w->cb((const char *)arg->msg, arg->msg_length, w->ud);
-    /* ping/pong handled by wslay; binary frames ignored per codex doc */
+    /* ping/pong handled by wslay; binary frames ignored (text-only peers) */
 }
 
 ws_conn *ws_connect(const char *url, const char *bearer, int timeout_ms, char *err, size_t errlen) {
@@ -91,7 +91,7 @@ ws_conn *ws_connect(const char *url, const char *bearer, int timeout_ms, char *e
         }
         s = nstream_from_fd(fd);
         host_hdr = "localhost";
-        req_path = "/rpc"; /* dummy upgrade URL per codex-app-server.md */
+        req_path = "/rpc"; /* dummy upgrade URL for unix-socket peers */
     } else {
         bool tls = strcmp(u.scheme, "wss") == 0;
         if (!tls && strcmp(u.scheme, "ws") != 0) {
@@ -110,7 +110,7 @@ ws_conn *ws_connect(const char *url, const char *bearer, int timeout_ms, char *e
     w->s = s;
     buf_init(&w->pre);
 
-    /* handshake — no Origin header (codex 403s on it) */
+    /* handshake — no Origin header (local hosts 403 on it) */
     uint8_t keyraw[16];
     genmask_cb(NULL, keyraw, sizeof keyraw, NULL);
     buf_t key;

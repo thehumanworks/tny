@@ -7,7 +7,7 @@ Ship a **fast, tiny** coding-agent harness with a Unix-like TUI and a scriptable
 Required backends (all first-class):
 
 1. **Cursor Agent** via the [Cursor SDK Bridge](https://cursor.com/docs/sdk/bridge) (`sdk.v1`, Connect over HTTP/1.1).
-2. **Codex** via `codex app-server` using **WebSockets** (JSON-RPC text frames).
+2. **Codex** subscriptions via the Responses-compatible **ChatGPT backend** (`chatgpt.com/backend-api/codex`), a builtin profile of the native loop ([ADR 0065](adr/0065-codex-chatgpt-responses-backend.md)).
 3. **Other agents** via [ACP](https://agentclientprotocol.com/) (JSON-RPC over stdio).
 4. **OpenAI-compatible** HTTP providers (native tool loop owned by tny).
 
@@ -28,7 +28,7 @@ Keep the *user-visible harness*, not Vercel branding:
 
 ## What tny adds
 
-fx talks to Vercel AI Gateway and can *be* an ACP server. It does not ship Cursor SDK Bridge or Codex app-server WebSocket clients. tny's extra job is a **thin multiplexed frontend** over those host harnesses, plus a native OpenAI-compatible loop for BYOK providers (OpenRouter, Groq, local llama.cpp, Azure, etc.).
+fx talks to Vercel AI Gateway and can *be* an ACP server. It does not ship a Cursor SDK Bridge client or drive ChatGPT/Claude/Grok subscriptions. tny's extra job is a **thin multiplexed frontend** over host harnesses (Cursor, ACP agents), plus a native OpenAI-compatible loop for BYOK providers (OpenRouter, Groq, local llama.cpp, Azure, etc.) and subscription logins (Codex, Claude, Grok).
 
 ## Embedding
 
@@ -46,7 +46,7 @@ same ABI ([SDK contract](sdks.md)); they do not contain provider-wire logic.
   the native Node-API SDK is a separate shared-library artifact and does not
   imply browser support.
 - Reimplementing Cursor or Codex agent loops inside tny.
-- Bundling `cursor-sdk-bridge` or `codex` into the tny binary (spawn or attach).
+- Bundling `cursor-sdk-bridge` or ACP agents into the tny binary (spawn or attach).
 - Vercel OAuth, AI Gateway team picker, or `fx login` lock-in.
 - Completion sounds, terminal recordings, or `fx pr` / `fx issue` (optional later).
 - A heavy full-screen IDE TUI (ratatui/ncurses panels, mouse-first layouts).

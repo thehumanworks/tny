@@ -90,7 +90,7 @@ This prevents local project instructions from crossing into the remote workspace
 | `$` | skill picker (insert skill name, do not load until invoked) |
 | Up/Down at draft edge | prompt history |
 | Esc or Ctrl-C | interrupt current turn and drop queued messages (second Ctrl-C exits if idle) |
-| Enter during a turn | steer the running turn (codex `turn/steer`, native loop) or queue the message for when it ends (cursor, acp) — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md) |
+| Enter during a turn | steer the running turn (native loop — openai, codex, claude, grok, named profiles) or queue the message for when it ends (cursor, acp) — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md) |
 | Ctrl-J / Alt-J / Shift-Enter | insert a newline in the composer |
 | Ctrl-V | paste a clipboard image path (or text) |
 | Ctrl-O | full transcript / review |
@@ -121,12 +121,11 @@ without leaving the TUI.
 
 `/effort [off|light|medium|high|xhigh|max|default]` changes the reasoning
 effort at any point in the conversation and applies from the next turn with
-no backend rebind: it rides on codex `turn/start`, cursor
-`SendOptions.model.params`, and the openai request body ([ADR
+no backend rebind: it rides on cursor `SendOptions.model.params` and the
+openai request body (every builtin profile included) ([ADR
 0009](adr/0009-reasoning-effort.md)). `/models` lists the levels each model
 actually advertises. `/fast [fast|priority|default]` selects the provider's
-paid fast tier (`TNY_CAP_FAST`: openai, cursor, codex) and rebinds where the
-tier rides on session start (codex `thread/start`).
+paid fast tier (`TNY_CAP_FAST`: openai and its profiles, cursor).
 
 `/max-steps set N` caps the native loop at N model calls per turn;
 `/max-steps clear` removes the cap (the default is unlimited — [ADR
@@ -199,14 +198,14 @@ the pane when the on-screen keyboard opens. Pass `OPENAI_API_KEY` and
 optionally `OPENAI_BASE_URL` in the URL hash or paste them at the
 pre-launch prompt; both pass through `sanitizeApiKey` at intake and stay
 in the tab. The native openai loop, sessions, skills, and fs tools run on
-MEMFS (per-tab, not persisted); codex is attach-only, ACP is
+MEMFS (per-tab, not persisted); codex is plain HTTPS like openai, ACP is
 `--agent ws://` remote-only, cursor errors cleanly; `terminal`/`open_file`
 return the missing-host tool error. The provider must allow CORS —
 `api.openai.com` does not; use a CORS-open gateway or a loopback server.
 
 ## Startup
 
-First paint never waits on a backend, but the TUI **pre-warms** the selected provider's host right after the banner ([ADR 0002](adr/0002-tui-provider-prewarm.md)): `codex app-server`, the cursor bridge, or the ACP agent is spawned and initialized in the background so the first prompt adopts a live connection instead of paying seconds of startup. On native builds the pre-warm — and every turn — lives in a detached **session runner** process ([ADR 0053](adr/0053-forked-turn-isolation.md)): the shell is a renderer over the runner's socket, so a crashed or killed TUI leaves the in-flight turn finishing into the session (`tny resume` afterwards, `tny session attach` to watch). On wasm the pre-warm stays an in-process thread. Pre-warm failures stay silent and resurface on the ordinary lazy path. One-shot CLI commands do not pre-warm.
+First paint never waits on a backend, but the TUI **pre-warms** the selected provider's host right after the banner ([ADR 0002](adr/0002-tui-provider-prewarm.md)): the cursor bridge or the ACP agent is spawned and initialized in the background so the first prompt adopts a live connection instead of paying seconds of startup. On native builds the pre-warm — and every turn — lives in a detached **session runner** process ([ADR 0053](adr/0053-forked-turn-isolation.md)): the shell is a renderer over the runner's socket, so a crashed or killed TUI leaves the in-flight turn finishing into the session (`tny resume` afterwards, `tny session attach` to watch). On wasm the pre-warm stays an in-process thread. Pre-warm failures stay silent and resurface on the ordinary lazy path. One-shot CLI commands do not pre-warm.
 
 In ephemeral mode, pre-warm may still create process-local provider state.
 Codex receives `ephemeral:true` on `thread/start`; adapters without a portable

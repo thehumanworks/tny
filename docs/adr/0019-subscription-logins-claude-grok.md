@@ -3,6 +3,12 @@
 Status: accepted. Decision 4 is amended for grok by
 [ADR 0021](0021-native-grok-device-login.md): the device-code login,
 token refresh, and logout are now native — no grok CLI required.
+Decision 1 (the app-server login RPC) is superseded by
+[ADR 0065](0065-codex-chatgpt-responses-backend.md) and
+[ADR 0066](0066-native-chatgpt-login-and-credential-sources.md): `codex` is
+itself a builtin profile now with a native browser/device sign-in, its own
+`~/.tny/codex-auth.json`, and flag/env credentials; the Codex CLI's
+`auth.json` is still read and refreshed.
 
 ## Context
 
