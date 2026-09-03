@@ -74,8 +74,8 @@ static const tny_provider_extra EXTRAS[] = {
 
 static bool extras_enabled(void) {
     const char *v = getenv("TNY_PROVIDER_EXTRAS");
-    return !(v && (strcmp(v, "0") == 0 || strcasecmp(v, "off") == 0 ||
-                   strcasecmp(v, "false") == 0));
+    return !(v &&
+             (strcmp(v, "0") == 0 || strcasecmp(v, "off") == 0 || strcasecmp(v, "false") == 0));
 }
 
 const char *tny_provider_extras_match(const tny_request_scope *scope) {

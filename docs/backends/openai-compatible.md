@@ -183,6 +183,7 @@ token came from. tny stores env-var names otherwise.
 | Reasoning effort | `--effort` / `/effort` → `reasoning.effort` (responses) / `reasoning_effort` (chat); canonical levels map per [ADR 0009](../adr/0009-reasoning-effort.md) (`off`→`none`, `light`→`low`, `max`→`xhigh`); provider-specific tokens (`minimal`, …) pass through verbatim. Omitted when unset — providers without the field would 400 |
 | Extra `thinking`-style objects | pass-through JSON object in provider profile (later) |
 | Missing tools | disable tools, error clearly |
+| Vendor-mandated request header (OpenCode Go `x-opencode-session`) | automatic: a per-request add-on table in `src/core/provider_extras.c`, matched by host / profile name ([ADR 0067](../adr/0067-provider-request-extras.md)); `TNY_PROVIDER_EXTRAS=0` disables |
 | Parallel tool calls | honor `parallel_tool_calls` when present |
 
 Config entry — the builtin `"openai"` object, plus **any number of named
@@ -247,6 +248,22 @@ Named-provider rules:
   it, so `--help` / `--version` / first TUI paint stay fast.
 - `--base-url` / `--api-key-env` flags override the selected provider for
   one run.
+
+## Per-provider request extras (ADR 0067)
+
+Some gateways require one client-side extra on every request that is not
+a profile setting. Those live as rows in `src/core/provider_extras.c`,
+evaluated once per POST from a `tny_request_scope` (provider name, base
+URL, session id) and appended after the profile's `extra_headers`. They
+are matched automatically — nothing to configure — and removable by
+deleting the row. `TNY_PROVIDER_EXTRAS=0` turns all of them off.
+
+| Provider | Matched when | Sends |
+| --- | --- | --- |
+| OpenCode Go | host is `opencode.ai` (or a subdomain), or the profile name starts with `opencode` (`OPENCODEGO_BASE_URL` → `opencodego`) | `x-opencode-session: <tny session id>` — one stable id per conversation, unchanged across `--resume` |
+
+`GET /models` is not a conversation and carries no per-conversation extra.
+wasm: same source, same header; the gateway's CORS policy must allow it.
 
 ## Agent loop
 

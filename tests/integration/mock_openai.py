@@ -51,6 +51,11 @@ Env knobs:
                       must carry exactly (case-insensitive names) — the codex
                       profile's chatgpt-account-id / OpenAI-Beta / bearer
   MOCK_REJECT_HEADERS semicolon-separated header names that must be absent
+  MOCK_HEADER_LOG=PATH
+                      append one `name=value` line per POST for each header
+                      named in MOCK_LOG_HEADERS (semicolon-separated; a
+                      missing header logs `name=`) — for values the test
+                      only learns after the run, e.g. x-opencode-session
 
 The responses wire streams TWO parallel tool calls (list_files +
 glob_files). The second one's output_item.added carries only the item id;
@@ -114,6 +119,8 @@ EXPECT_HEADERS = [
     if pair
 ]
 REJECT_HEADERS = [h for h in os.environ.get("MOCK_REJECT_HEADERS", "").split(";") if h]
+HEADER_LOG = os.environ.get("MOCK_HEADER_LOG")
+LOG_HEADERS = [h for h in os.environ.get("MOCK_LOG_HEADERS", "").split(";") if h]
 
 
 # A trimmed chatgpt.com/backend-api/codex catalog: one hidden entry, one
@@ -338,6 +345,10 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get(name) is not None:
                 self._reject(f"header {name} must be absent")
                 return
+        if HEADER_LOG and LOG_HEADERS:
+            with open(HEADER_LOG, "a") as log:
+                for name in LOG_HEADERS:
+                    log.write(f"{name}={self.headers.get(name, '')}\n")
         if HTTP_STATUS:
             self._json(HTTP_STATUS, {"error": {"message": ERROR_SECRET}})
             return
