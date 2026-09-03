@@ -35,6 +35,7 @@ static void control_on_sigint(int sig) {
 static const char *control_kind_name(control_kind kind) {
     return kind == CONTROL_ASK_USER ? "ask_user" : "image_attach";
 }
+#endif /* !__EMSCRIPTEN__ */
 
 static void control_help_ask_user(void) {
     puts("Usage: tny ask-user [--json] QUESTION\n"
@@ -48,7 +49,6 @@ static void control_help_image(void) {
          "Attach an image to the next provider request in this tny session.\n\n"
          "Options: --json machine output; -h, --help show this help.");
 }
-#endif /* !__EMSCRIPTEN__ */
 
 static int control_no_socket(void) {
     fputs("tny: no session socket (set TNY_SESSION_SOCK or run inside tny)\n", stderr);
