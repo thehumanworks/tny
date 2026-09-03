@@ -348,12 +348,18 @@ bool help_for(const char *command) {
         text = "Usage: tny usage [--json]\n\nShow local token usage recorded from native-loop "
                "sessions.\n";
     else if (strcmp(command, "mcp") == 0)
-        text = "Usage: tny mcp [list | call SERVER/TOOL] [--json]\n"
+        text = "Usage: tny mcp [list | tools SERVER | describe SERVER/TOOL | call SERVER/TOOL] "
+               "[--json]\n"
                "\n"
                "List MCP servers from ~/.tny/mcp.json plus any sources named in\n"
                "settings.json mcp.import_from (codex, claude, grok, cursor-agent). Import is\n"
                "off by default. Native names win on collision. Remote/SSE entries are\n"
                "skipped with a notice. tny never writes foreign config files.\n"
+               "\n"
+               "`tools SERVER` lists a server's tools with their argument names; `describe\n"
+               "SERVER/TOOL` prints one tool's description and full input schema (--json:\n"
+               "one mcp_tools / mcp_tool object). Run describe before the first call to a\n"
+               "tool. A failed call prints the tool's input schema after the error.\n"
                "\n"
                "`call` runs one tools/call: the JSON arguments come from stdin (empty means\n"
                "{}), the result goes to stdout, and permissions are checked as\n"
@@ -364,6 +370,8 @@ bool help_for(const char *command) {
                "Examples:\n"
                "  tny mcp\n"
                "  tny mcp list --json\n"
+               "  tny mcp tools fs\n"
+               "  tny mcp describe fs/read_text_file --json\n"
                "  echo '{\"path\":\"README.md\"}' | tny mcp call fs/read_text_file\n"
                "  tny --json mcp call deploy/status < args.json\n";
     else if (strcmp(command, "login") == 0)

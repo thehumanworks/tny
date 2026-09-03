@@ -240,7 +240,10 @@ static void build_system_prompt(oa_impl *o, buf_t *sys) {
         buf_appends(sys,
                     "Read the `exit:` line before claiming success. Call MCP tools with `tny "
                     "mcp call SERVER/TOOL` and JSON on stdin; the MCP catalog above names the "
-                    "tools. Attach images with `tny image attach PATH` and ask questions with "
+                    "tools. Before the first call to a tool run `tny mcp describe SERVER/TOOL` "
+                    "and shape the JSON from its input schema (`tny mcp tools SERVER` lists a "
+                    "server's tools with their arguments); never guess argument names. Attach "
+                    "images with `tny image attach PATH` and ask questions with "
                     "`tny ask-user \"...\"`; if either prints `no session socket`, skip it or "
                     "state the assumption. Use subagents only with `tny ask -B --json ...` then "
                     "`tny session ID --wait --json`; never run a foreground `tny ask` inside a "

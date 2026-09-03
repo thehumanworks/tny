@@ -790,10 +790,20 @@ void mcp_catalog_collect(struct tny_ctx *ctx, buf_t *out) {
     }
     pthread_mutex_unlock(&g_mu);
     if (listed > 0) {
-        buf_appends(out, "\nMCP tools (call with mcp_select_tool(server, tool, arguments)):\n");
+        /* shell profiles reach MCP through the CLI verbs (docs/adr/0057,
+         * 0068): name the verb that shows a tool's arguments up front */
+        bool shell = tny_tool_profile_is_shell(ctx);
+        buf_appends(out, shell ? "\nMCP tools (call with `tny mcp call SERVER/TOOL`; run `tny mcp "
+                                 "describe SERVER/TOOL` first to see the input schema):\n"
+                               : "\nMCP tools (call with mcp_select_tool(server, tool, "
+                                 "arguments)):\n");
         buf_append(out, body.data, body.len);
         if (extra > 0)
-            buf_appendf(out, "(+%d more MCP tools — find them with mcp_search_tools)\n", extra);
+            buf_appendf(out,
+                        shell
+                            ? "(+%d more MCP tools — list a server's with `tny mcp tools SERVER`)\n"
+                            : "(+%d more MCP tools — find them with mcp_search_tools)\n",
+                        extra);
     }
     buf_free(&body);
 }
@@ -1034,7 +1044,8 @@ static char *spill_result(struct tny_ctx *ctx, const char *server, const char *t
 
 /* Emit the one JSON object the CLI contract promises. */
 static void call_json_out(FILE *out, const char *server, const char *tool, bool ok,
-                          const char *text, const char *file, size_t bytes, bool truncated) {
+                          const char *text, const char *file, size_t bytes, bool truncated,
+                          const char *schema) {
     buf_t b;
     buf_init(&b);
     buf_appends(&b, "{\"kind\":\"mcp_call\",\"server\":");
@@ -1048,15 +1059,19 @@ static void call_json_out(FILE *out, const char *server, const char *tool, bool 
         buf_appends(&b, ",\"result_file\":");
         jescape(&b, file);
     }
+    if (schema) buf_appendf(&b, ",\"input_schema\":%s", schema);
     buf_appends(&b, "}\n");
     if (b.data) fwrite(b.data, 1, b.len, out);
     buf_free(&b);
 }
 
+/* A failed call is usually wrong arguments: the tool's schema rides along
+ * so the retry is informed (docs/adr/0068). NULL schema = no hint. */
 static int call_fail(FILE *out, FILE *err, bool json, const char *server, const char *tool,
-                     const char *msg, int code) {
+                     const char *msg, const char *schema, int code) {
     fprintf(err, "tny: mcp call: %s\n", msg);
-    if (json) call_json_out(out, server, tool, false, msg, NULL, strlen(msg), false);
+    if (schema) fprintf(err, "tny: mcp call: input schema for %s/%s: %s\n", server, tool, schema);
+    if (json) call_json_out(out, server, tool, false, msg, NULL, strlen(msg), false, schema);
     return code;
 }
 
@@ -1113,7 +1128,8 @@ int mcp_call_cli(struct tny_ctx *ctx, const char *spec, const char *args_json, b
                           "~/.tny/settings.json (\"permission\": {\"%s\": \"allow\"}) or run with "
                           "--yolo",
                     identity.data, identity.data);
-        rc = call_fail(out, err, json, server, tool, msg.data ? msg.data : "permission denied", 2);
+        rc = call_fail(out, err, json, server, tool, msg.data ? msg.data : "permission denied",
+                       NULL, 2);
         buf_free(&msg);
         buf_free(&identity);
         perm_free(env.perm);
@@ -1134,7 +1150,10 @@ int mcp_call_cli(struct tny_ctx *ctx, const char *spec, const char *args_json, b
     if (status != MCP_CALL_OK) {
         while (len && (text[len - 1] == '\n' || text[len - 1] == '\r')) text[--len] = '\0';
         const char *msg = str_starts(text, "error: ") ? text + 7 : text;
-        rc = call_fail(out, err, json, server, tool, msg, status == MCP_CALL_CONFIG_ERROR ? 1 : 2);
+        char *schema = status == MCP_CALL_TOOL_ERROR ? mcp_tool_schema(server, tool) : NULL;
+        rc = call_fail(out, err, json, server, tool, msg, schema,
+                       status == MCP_CALL_CONFIG_ERROR ? 1 : 2);
+        free(schema);
         free(text);
         free(server);
         return rc;
@@ -1151,7 +1170,7 @@ int mcp_call_cli(struct tny_ctx *ctx, const char *spec, const char *args_json, b
     char *preview = truncated ? xstrndup(text, cut) : NULL;
     const char *shown = truncated ? preview : text;
     if (json) {
-        call_json_out(out, server, tool, true, shown ? shown : "", file, len, truncated);
+        call_json_out(out, server, tool, true, shown ? shown : "", file, len, truncated, NULL);
     } else {
         if (shown && *shown) {
             fwrite(shown, 1, strlen(shown), out);
@@ -1166,6 +1185,214 @@ int mcp_call_cli(struct tny_ctx *ctx, const char *spec, const char *args_json, b
     free(file);
     free(text);
     free(server);
+    return 0;
+}
+
+/* ---- `tny mcp tools SERVER` / `tny mcp describe SERVER/TOOL` (ADR 0068) ---- */
+
+static yyjson_val *find_tool(yyjson_val *tools, const char *name) {
+    if (!tools || !name) return NULL;
+    size_t idx, max;
+    yyjson_val *t;
+    yyjson_arr_foreach(tools, idx, max, t) {
+        const char *tn = jget_str(t, "name");
+        if (tn && strcmp(tn, name) == 0) return t;
+    }
+    return NULL;
+}
+
+static bool schema_requires(yyjson_val *schema, const char *key) {
+    yyjson_val *req = jget(schema, "required");
+    if (!req || !yyjson_is_arr(req)) return false;
+    size_t idx, max;
+    yyjson_val *r;
+    yyjson_arr_foreach(req, idx, max, r) {
+        const char *s = yyjson_get_str(r);
+        if (s && strcmp(s, key) == 0) return true;
+    }
+    return false;
+}
+
+/* "arguments: env* (string), dry_run (boolean)" — required keys starred.
+ * A schema without properties says so, so "none" is never a guess. */
+static void append_arg_summary(buf_t *out, yyjson_val *schema) {
+    yyjson_val *props = jget(schema, "properties");
+    buf_appends(out, "arguments: ");
+    if (!props || !yyjson_is_obj(props) || yyjson_obj_size(props) == 0) {
+        buf_appends(out, schema ? "none\n" : "unknown (no input schema published)\n");
+        return;
+    }
+    size_t idx, max;
+    yyjson_val *k, *v;
+    int n = 0;
+    yyjson_obj_foreach(props, idx, max, k, v) {
+        const char *key = yyjson_get_str(k);
+        if (!key) continue;
+        if (n++) buf_appends(out, ", ");
+        buf_appends(out, key);
+        if (schema_requires(schema, key)) buf_appends(out, "*");
+        const char *type = jget_str(v, "type");
+        if (type) buf_appendf(out, " (%s)", type);
+    }
+    buf_appends(out, n ? "  (* = required)\n" : "none\n");
+}
+
+static void append_tool_json(buf_t *b, yyjson_val *t) {
+    buf_appends(b, "{\"name\":");
+    jescape(b, jget_str(t, "name") ? jget_str(t, "name") : "");
+    buf_appends(b, ",\"description\":");
+    jescape(b, jget_str(t, "description") ? jget_str(t, "description") : "");
+    yyjson_val *schema = jget(t, "inputSchema");
+    char *raw = schema ? jwrite_val(schema) : NULL;
+    buf_appendf(b, ",\"input_schema\":%s}", raw ? raw : "null");
+    free(raw);
+}
+
+static void append_tool_text(buf_t *b, const char *server, yyjson_val *t, bool full) {
+    const char *desc = jget_str(t, "description");
+    buf_appendf(b, "%s/%s", server, jget_str(t, "name") ? jget_str(t, "name") : "");
+    if (desc && *desc) {
+        buf_appends(b, " — ");
+        buf_appends(b, desc);
+    }
+    buf_appends(b, "\n");
+    yyjson_val *schema = jget(t, "inputSchema");
+    buf_appends(b, full ? "" : "    ");
+    append_arg_summary(b, schema);
+    if (full) {
+        char *raw = schema ? jwrite_val(schema) : NULL;
+        if (raw) {
+            buf_appendf(b, "input schema: %s\n", raw);
+            free(raw);
+        }
+    }
+}
+
+char *mcp_describe(tools_env *env, const char *server, const char *tool, bool json,
+                   mcp_call_status *status) {
+    mcp_call_status ignored;
+    if (!status) status = &ignored;
+    *status = MCP_CALL_CONFIG_ERROR;
+    if (!server || !*server) return tool_err("mcp describe needs a server");
+    char *err = NULL;
+    mcp_server *s = get_server(env, server, &err);
+    if (!s) return err;
+    /* a cold connect defers tools/list; fetch it now (search does the same) */
+    yyjson_val *tools = tools_of(conn_tools(&s->conn));
+    if (!tools) return tool_err("MCP server %s did not answer tools/list", server);
+    buf_t b;
+    buf_init(&b);
+    if (tool) {
+        yyjson_val *t = find_tool(tools, tool);
+        if (!t) {
+            buf_free(&b);
+            *status = MCP_CALL_TOOL_ERROR;
+            return tool_err("MCP server %s has no tool named %s (`tny mcp tools %s` lists them)",
+                            server, tool, server);
+        }
+        *status = MCP_CALL_OK;
+        if (json) {
+            buf_appends(&b, "{\"kind\":\"mcp_tool\",\"server\":");
+            jescape(&b, server);
+            buf_appends(&b, ",\"tool\":");
+            jescape(&b, tool);
+            buf_appends(&b, ",\"description\":");
+            jescape(&b, jget_str(t, "description") ? jget_str(t, "description") : "");
+            yyjson_val *schema = jget(t, "inputSchema");
+            char *raw = schema ? jwrite_val(schema) : NULL;
+            buf_appendf(&b, ",\"input_schema\":%s}\n", raw ? raw : "null");
+            free(raw);
+        } else {
+            append_tool_text(&b, server, t, true);
+        }
+        return buf_detach(&b);
+    }
+    *status = MCP_CALL_OK;
+    if (json) {
+        buf_appends(&b, "{\"kind\":\"mcp_tools\",\"server\":");
+        jescape(&b, server);
+        buf_appends(&b, ",\"tools\":[");
+    }
+    int n = 0;
+    if (tools) {
+        size_t idx, max;
+        yyjson_val *t;
+        yyjson_arr_foreach(tools, idx, max, t) {
+            if (!jget_str(t, "name")) continue;
+            if (json) {
+                if (n) buf_appends(&b, ",");
+                append_tool_json(&b, t);
+            } else {
+                append_tool_text(&b, server, t, false);
+            }
+            n++;
+        }
+    }
+    if (json) buf_appends(&b, "]}\n");
+    else if (!n) buf_appendf(&b, "%s publishes no tools\n", server);
+    return buf_detach(&b);
+}
+
+char *mcp_tool_schema(const char *server, const char *tool) {
+    if (!server || !tool) return NULL;
+    pthread_mutex_lock(&g_mu);
+    mcp_server *s = slot_find(server);
+    bool ready = s && s->state == SRV_READY;
+    pthread_mutex_unlock(&g_mu);
+    if (!ready) return NULL;
+    /* slots are a static array: the pointer stays valid after unlock, and a
+     * ready connection is only ever used from the calling thread */
+    yyjson_val *t = find_tool(tools_of(conn_tools(&s->conn)), tool);
+    yyjson_val *schema = t ? jget(t, "inputSchema") : NULL;
+    return schema ? jwrite_val(schema) : NULL;
+}
+
+int mcp_describe_cli(struct tny_ctx *ctx, const char *spec, bool json, FILE *out, FILE *err) {
+    if (!ctx || !out || !err) return 1;
+    const char *slash = spec ? strchr(spec, '/') : NULL;
+    if (!spec || !*spec || slash == spec || (slash && (!slash[1] || strchr(slash + 1, '/')))) {
+        fprintf(err, "tny: mcp: expected SERVER (tools) or SERVER/TOOL (describe)\n");
+        return 1;
+    }
+    char *server = slash ? xstrndup(spec, (size_t)(slash - spec)) : xstrdup(spec);
+    if (!server) return 1;
+    const char *tool = slash ? slash + 1 : NULL;
+    const char *verb = tool ? "describe" : "tools";
+
+    tools_env env;
+    memset(&env, 0, sizeof env);
+    env.ctx = ctx;
+    env.perm = perm_new(ctx);
+    if (!env.perm) {
+        free(server);
+        return 1;
+    }
+    /* metadata only, but it starts the server cold: same identity as the
+     * native mcp_search_tools meta-tool, so an ask-mode rule can cover both */
+    perm_verdict verdict = perm_check(env.perm, "mcp_search_tools", NULL);
+    if (verdict != PERM_ALLOW) {
+        fprintf(err,
+                "tny: mcp %s: mcp_search_tools %s; allow it in ~/.tny/settings.json "
+                "(\"permission\": {\"mcp_search_tools\": \"allow\"}) or run with --yolo\n",
+                verb, verdict == PERM_DENY ? "is denied by a permission rule" : "needs approval");
+        perm_free(env.perm);
+        free(server);
+        return 2;
+    }
+    mcp_call_status status = MCP_CALL_CONFIG_ERROR;
+    char *text = mcp_describe(&env, server, tool, json, &status);
+    perm_free(env.perm);
+    free(server);
+    if (!text) return 1;
+    if (status != MCP_CALL_OK) {
+        size_t len = strlen(text);
+        while (len && (text[len - 1] == '\n' || text[len - 1] == '\r')) text[--len] = '\0';
+        fprintf(err, "tny: mcp %s: %s\n", verb, str_starts(text, "error: ") ? text + 7 : text);
+        free(text);
+        return status == MCP_CALL_CONFIG_ERROR ? 1 : 2;
+    }
+    fputs(text, out);
+    free(text);
     return 0;
 }
 

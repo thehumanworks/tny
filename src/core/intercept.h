@@ -15,6 +15,7 @@
 typedef enum {
     TNY_INTERCEPT_EDIT = 1,
     TNY_INTERCEPT_MCP_CALL,
+    TNY_INTERCEPT_MCP_DESCRIBE, /* `tny mcp tools SERVER` / `describe SERVER/TOOL` */
     TNY_INTERCEPT_MEMORY,
     TNY_INTERCEPT_SKILL,
     TNY_INTERCEPT_IMAGE_ATTACH,
@@ -28,7 +29,7 @@ typedef struct tny_intercept {
     char *permission_tool; /* identity of the equivalent typed tool */
     char *detail;          /* permission detail (resolved path) or NULL */
     char *target;          /* FILE / SERVER/TOOL / NAME / PATH, as typed */
-    char *action;          /* memory action */
+    char *action;          /* memory action; mcp "tools" | "describe" */
     char *value;           /* memory value, ask-user question */
     char *marker;          /* `tny edit --marker` */
     bool json;             /* `--json` was given */

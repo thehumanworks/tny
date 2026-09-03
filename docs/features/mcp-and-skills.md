@@ -67,6 +67,7 @@ warmed MCP client, and the `--ssh` route:
 | --- | --- | --- |
 | `tny edit [--json] [--marker M] FILE` | the shared exact-match editor with the `edit_file` undo hook; over `--ssh`, `cat` + local replace + atomic write-back on the remote host | `edit_file` + resolved path |
 | `tny mcp call SERVER/TOOL` | one `tools/call` on the session's already-warmed client — never a second server | `mcp:server/tool` |
+| `tny mcp tools SERVER`, `tny mcp describe SERVER/TOOL` | the warmed client's cached `tools/list`: argument names, or one tool's full input schema | `mcp_search_tools` |
 | `tny memory get\|set\|list …` | the `memory` tool | `memory` |
 | `tny skill show NAME` | the `skill` tool | `skill` |
 | `tny image attach PATH` | the same queue as `read_image`, allowed roots only | `read_image` |
@@ -208,6 +209,19 @@ immediately before `tools/call`: in the default `yolo` mode it passes, and in
 rule names that identity. Exit codes: 0 ok, 1 usage/config (bad spec, stdin
 that is not one JSON object, unknown server), 2 refused or failed
 (`isError: true`, a JSON-RPC error, a timeout), 130 interrupted.
+
+**Schema discovery** ([ADR 0068](../adr/0068-mcp-tool-schema-discovery.md)):
+`tny mcp tools SERVER` lists a server's tools with their argument names
+(`name* (type)`, `*` = required) and `tny mcp describe SERVER/TOOL` prints one
+tool's description and full `inputSchema` (`--json`: `mcp_tools` / `mcp_tool`
+objects carrying the schema verbatim). The shell-profile prompt tells the
+model to run `describe` before its first call to a tool and never to guess
+argument names; the MCP catalog header under shell profiles names both verbs.
+As a backstop, a `tny mcp call` that the server rejects (JSON-RPC error or
+`isError: true`) prints the tool's input schema after the error — on stderr
+and as `input_schema` in `--json` — so the retry is informed. Neither verb
+calls the tool; inside a session both are answered by the warmed client under
+the `mcp_search_tools` identity.
 
 Cross-harness rules are unchanged by the CLI: servers come from the
 user-global `~/.tny/mcp.json` plus any `mcp.import_from` source; a project

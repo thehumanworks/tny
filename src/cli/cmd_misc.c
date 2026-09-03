@@ -742,7 +742,13 @@ static char *mcp_call_read_stdin(void) {
     return s;
 }
 
-static const char MCP_USAGE[] = "Usage: tny [--json] mcp [list | call SERVER/TOOL]\n";
+static const char MCP_USAGE[] =
+    "Usage: tny [--json] mcp [list | tools SERVER | describe SERVER/TOOL | call SERVER/TOOL]\n";
+
+static bool mcp_sub_takes_spec(const char *sub) {
+    return sub &&
+           (strcmp(sub, "call") == 0 || strcmp(sub, "tools") == 0 || strcmp(sub, "describe") == 0);
+}
 
 int cmd_mcp(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = g->json;
@@ -750,7 +756,7 @@ int cmd_mcp(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     for (int i = 0; i < argc; i++) {
         if (strcmp(argv[i], "--json") == 0) json = true;
         else if (!sub) sub = argv[i];
-        else if (!spec && sub && strcmp(sub, "call") == 0) spec = argv[i];
+        else if (!spec && mcp_sub_takes_spec(sub)) spec = argv[i];
         else {
             fprintf(stderr, "tny: mcp: unexpected argument '%s'\n%s", argv[i], MCP_USAGE);
             return 1;
@@ -770,6 +776,17 @@ int cmd_mcp(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         int rc = mcp_call_cli(ctx, spec, args, json, stdout, stderr);
         free(args);
         mcp_shutdown_all(); /* the call cold-started the server; do not orphan it */
+        return rc;
+    }
+    if (sub && (strcmp(sub, "tools") == 0 || strcmp(sub, "describe") == 0)) {
+        bool describe = strcmp(sub, "describe") == 0;
+        if (!spec || (describe && !strchr(spec, '/')) || (!describe && strchr(spec, '/'))) {
+            fprintf(stderr, "tny: mcp %s: expected %s\n%s", sub,
+                    describe ? "SERVER/TOOL" : "SERVER", MCP_USAGE);
+            return 1;
+        }
+        int rc = mcp_describe_cli(ctx, spec, json, stdout, stderr);
+        mcp_shutdown_all(); /* cold-started for the catalog; do not orphan it */
         return rc;
     }
     if (sub && strcmp(sub, "list") != 0) {

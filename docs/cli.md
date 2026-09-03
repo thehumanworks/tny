@@ -32,6 +32,8 @@ tny login                   # provider-specific; see --provider
 tny logout
 tny setup                   # write provider config from flags/env
 tny mcp [list]              # list configured MCP servers (source attributed)
+tny mcp tools SERVER        # a server's tools with their argument names
+tny mcp describe SERVER/TOOL # one tool's description and input schema
 tny mcp call SERVER/TOOL    # one MCP tools/call; JSON arguments on stdin
 ```
 
@@ -544,6 +546,28 @@ Command lines and env values are omitted from the listing so secrets stay
 out of `--json`. wasm: the list still works; spawn stays the existing
 clean error.
 
+### `tny mcp tools SERVER` / `tny mcp describe SERVER/TOOL`
+
+```text
+tny mcp tools fs
+tny mcp describe fs/read_text_file
+tny --json mcp describe fs/read_text_file
+```
+
+The server's cached `tools/list`, so a caller can shape arguments from the
+contract instead of guessing ([ADR 0068](adr/0068-mcp-tool-schema-discovery.md)).
+`tools` prints one line per tool — `server/tool — description` — followed by
+an indented `arguments:` summary (`name* (type)`, `*` = required, `none`, or
+`unknown (no input schema published)`). `describe` prints the same for one
+tool plus the full `input schema:` JSON. `--json` emits
+`{"kind":"mcp_tools","server":…,"tools":[{"name","description","input_schema"}]}`
+or `{"kind":"mcp_tool","server":…,"tool":…,"description":…,"input_schema":…}`,
+the schema verbatim (`null` when the server publishes none). Neither verb
+calls the tool. Outside a session the server cold-starts and is shut down
+again; inside tny's `terminal` tool the warmed client answers in-process, and
+the permission identity is the native `mcp_search_tools` meta-tool. Exit
+codes: 0; 1 usage or unknown server; 2 a tool the server does not list.
+
 ### `tny mcp call SERVER/TOOL`
 
 ```text
@@ -585,6 +609,12 @@ another harness, or a script ([ADR 0057](adr/0057-shell-first-native-loop.md),
   `SERVER/TOOL`, stdin that is not one JSON object, unknown server, a server
   that will not start); 2 the call was refused or failed (permission denied,
   JSON-RPC error, `isError: true`, timeout); 130 interrupted.
+- **A failed call shows the contract.** When the server answers with an
+  error or `isError: true` and lists the tool, a second stderr line prints
+  `input schema for SERVER/TOOL: {…}` and the `--json` object gains
+  `"input_schema"`, so the retry is shaped by the schema rather than another
+  guess ([ADR 0068](adr/0068-mcp-tool-schema-discovery.md)). Success, a
+  permission refusal, and a tool the server never listed carry no hint.
 - **wasm:** HTTP MCP servers work (remote-only, subject to CORS); a stdio
   server keeps the existing clean spawn error.
 

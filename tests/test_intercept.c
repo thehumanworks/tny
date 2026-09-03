@@ -205,6 +205,10 @@ TEST decision_table_intercepts_only_documented_shapes(void) {
     ASSERT_EQ(TNY_INTERCEPT_EDIT, classify(&f, "./tny edit notes.txt"));
     ASSERT_EQ(TNY_INTERCEPT_EDIT, classify(&f, "/usr/local/bin/tny --json edit notes.txt"));
     ASSERT_EQ(TNY_INTERCEPT_MCP_CALL, classify(&f, "tny mcp call srv/deploy"));
+    ASSERT_EQ(TNY_INTERCEPT_MCP_DESCRIBE, classify(&f, "tny mcp tools srv"));
+    ASSERT_EQ(TNY_INTERCEPT_MCP_DESCRIBE, classify(&f, "tny mcp describe srv/deploy"));
+    ASSERT_EQ(TNY_INTERCEPT_MCP_DESCRIBE, classify(&f, "tny --json mcp describe srv/deploy"));
+    ASSERT_EQ(TNY_INTERCEPT_MCP_DESCRIBE, classify(&f, "tny mcp tools srv --json"));
     ASSERT_EQ(TNY_INTERCEPT_MEMORY, classify(&f, "tny memory list"));
     ASSERT_EQ(TNY_INTERCEPT_MEMORY, classify(&f, "tny memory get k"));
     ASSERT_EQ(TNY_INTERCEPT_MEMORY, classify(&f, "tny memory set k v"));
@@ -225,6 +229,12 @@ TEST decision_table_intercepts_only_documented_shapes(void) {
     ASSERT_EQ(0, classify(&f, "tny skill list"));
     ASSERT_EQ(0, classify(&f, "tny mcp call srv"));
     ASSERT_EQ(0, classify(&f, "tny mcp call a/b/c"));
+    ASSERT_EQ(0, classify(&f, "tny mcp tools"));
+    ASSERT_EQ(0, classify(&f, "tny mcp tools srv/deploy"));
+    ASSERT_EQ(0, classify(&f, "tny mcp tools a b"));
+    ASSERT_EQ(0, classify(&f, "tny mcp describe srv"));
+    ASSERT_EQ(0, classify(&f, "tny mcp describe a/b/c"));
+    ASSERT_EQ(0, classify(&f, "tny mcp describe /x"));
     ASSERT_EQ(0, classify(&f, "tny edit notes.txt && rm -rf /"));
     ASSERT_EQ(0, classify(&f, "tny edit notes.txt; echo done"));
     ASSERT_EQ(0, classify(&f, "tny edit notes.txt > out"));
@@ -280,6 +290,24 @@ TEST decision_table_accepts_the_two_payload_shapes(void) {
     tny_intercept_free(ic);
 
     write_workspace_file("args.json", "{\"b\":2}");
+    /* catalog reads stand for the mcp_search_tools meta-tool */
+    ic = tny_intercept_parse(&f.env, "tny mcp describe srv/deploy --json");
+    ASSERT(ic);
+    ASSERT_EQ(TNY_INTERCEPT_MCP_DESCRIBE, ic->kind);
+    ASSERT_STR_EQ("mcp_search_tools", ic->permission_tool);
+    ASSERT_STR_EQ("tny mcp describe srv/deploy", ic->label);
+    ASSERT_STR_EQ("describe", ic->action);
+    ASSERT_STR_EQ("srv/deploy", ic->target);
+    ASSERT(ic->json);
+    tny_intercept_free(ic);
+    ic = tny_intercept_parse(&f.env, "tny mcp tools srv");
+    ASSERT(ic);
+    ASSERT_STR_EQ("tools", ic->action);
+    ASSERT_STR_EQ("srv", ic->target);
+    ASSERT_STR_EQ("tny mcp tools srv", ic->label);
+    ASSERT_FALSE(ic->json);
+    tny_intercept_free(ic);
+
     ic = tny_intercept_parse(&f.env, "cat args.json | tny mcp call srv/deploy");
     ASSERT(ic && ic->kind == TNY_INTERCEPT_MCP_CALL);
     ASSERT_STR_EQ("{\"b\":2}", ic->stdin_data);

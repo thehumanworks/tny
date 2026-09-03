@@ -28,7 +28,7 @@ while IFS= read -r line; do
   *'"method":"initialize"'*) n=$((n+1));
     printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18"}}\n' "$n" ;;
   *'"method":"tools/list"'*) n=$((n+1));
-    printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"Echo"}]}}\n' "$n" ;;
+    printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"Echo","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"times":{"type":"integer"}},"required":["text"]}},{"name":"boom","description":"Refuses","inputSchema":{"type":"object","properties":{"why":{"type":"string"}}}}]}}\n' "$n" ;;
   *'"method":"tools/call"'*) n=$((n+1));
     case "$line" in
     *'"name":"boom"'*)
@@ -81,6 +81,73 @@ class McpCallCliTest(unittest.TestCase):
             check=False,
             timeout=60,
         )
+
+    def test_tools_lists_argument_names(self) -> None:
+        r = self.run_call("mcp", "tools", "srv")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("srv/echo — Echo\n", r.stdout)
+        self.assertIn(
+            "arguments: text* (string), times (integer)  (* = required)", r.stdout
+        )
+        self.assertIn("srv/boom — Refuses\n", r.stdout)
+        self.assertNotIn("input schema:", r.stdout)
+        r = self.run_call("--json", "mcp", "tools", "srv")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        doc = json.loads(r.stdout)
+        self.assertEqual(doc["kind"], "mcp_tools")
+        self.assertEqual(doc["server"], "srv")
+        self.assertEqual([t["name"] for t in doc["tools"]], ["echo", "boom"])
+        self.assertEqual(doc["tools"][0]["input_schema"]["required"], ["text"])
+
+    def test_describe_prints_the_input_schema(self) -> None:
+        r = self.run_call("mcp", "describe", "srv/echo")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("srv/echo — Echo\n", r.stdout)
+        self.assertIn("arguments: text* (string), times (integer)", r.stdout)
+        self.assertIn('input schema: {"type":"object","properties":{"text"', r.stdout)
+        r = self.run_call("mcp", "describe", "srv/echo", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        doc = json.loads(r.stdout)
+        self.assertEqual(doc["kind"], "mcp_tool")
+        self.assertEqual((doc["server"], doc["tool"]), ("srv", "echo"))
+        self.assertEqual(
+            doc["input_schema"]["properties"]["times"], {"type": "integer"}
+        )
+
+    def test_describe_usage_and_unknowns(self) -> None:
+        r = self.run_call("mcp", "describe", "srv/nosuch")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("no tool named nosuch", r.stderr)
+        self.assertIn("tny mcp tools srv", r.stderr)
+        r = self.run_call("mcp", "tools", "ghost")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("no MCP server named ghost", r.stderr)
+        r = self.run_call("mcp", "describe", "srv")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("SERVER/TOOL", r.stderr)
+        r = self.run_call("mcp", "tools", "srv/echo")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("expected SERVER", r.stderr)
+        r = self.run_call("mcp", "tools")
+        self.assertEqual(r.returncode, 1, r.stdout)
+
+    def test_failed_call_prints_the_input_schema(self) -> None:
+        r = self.run_call("mcp", "call", "srv/boom", stdin="{}")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("tny: mcp call: server said no\n", r.stderr)
+        self.assertIn(
+            'tny: mcp call: input schema for srv/boom: {"type":"object","properties":{"why":{"type":"string"}}}\n',
+            r.stderr,
+        )
+        r = self.run_call("--json", "mcp", "call", "srv/boom", stdin="{}")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        doc = json.loads(r.stdout)
+        self.assertFalse(doc["ok"])
+        self.assertEqual(doc["input_schema"]["properties"]["why"], {"type": "string"})
+        # success carries none
+        r = self.run_call("--json", "mcp", "call", "srv/echo", stdin='{"text":"hi"}')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("input_schema", json.loads(r.stdout))
 
     def test_arguments_ride_stdin_and_result_reaches_stdout(self) -> None:
         result = self.run_call("mcp", "call", "srv/echo", stdin='{"path":"a b/c"}')

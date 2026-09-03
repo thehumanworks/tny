@@ -215,9 +215,43 @@ static tny_intercept *parse_edit(tools_env *env, char **argv, int argc, int i, b
     return ic_label(ic, "tny edit %s", path);
 }
 
+/* `tny mcp tools SERVER` / `tny mcp describe SERVER/TOOL`: catalog reads
+ * answered by the warmed client (docs/adr/0068). Identity is the native
+ * mcp_search_tools meta-tool, which is what they stand for. */
+static tny_intercept *parse_mcp_describe(char **argv, int argc, int i, bool json) {
+    const char *sub = argv[i++];
+    bool describe = strcmp(sub, "describe") == 0;
+    const char *spec = NULL;
+    for (; i < argc; i++) {
+        if (strcmp(argv[i], "--json") == 0) json = true;
+        else if (spec) return NULL;
+        else spec = argv[i];
+    }
+    if (!spec || !*spec) return NULL;
+    const char *slash = strchr(spec, '/');
+    if (describe) {
+        if (!slash || slash == spec || !slash[1] || strchr(slash + 1, '/')) return NULL;
+    } else if (slash) {
+        return NULL;
+    }
+    tny_intercept *ic = ic_new(TNY_INTERCEPT_MCP_DESCRIBE, "mcp_search_tools");
+    if (!ic) return NULL;
+    ic->json = json;
+    ic->action = xstrdup(sub);
+    ic->target = xstrdup(spec);
+    if (!ic->action || !ic->target) {
+        tny_intercept_free(ic);
+        return NULL;
+    }
+    return ic_label(ic, "tny mcp %s %s", sub, spec);
+}
+
 static tny_intercept *parse_mcp(char **argv, int argc, int i, bool json) {
     const char *spec = NULL;
-    if (i >= argc || strcmp(argv[i], "call") != 0) return NULL;
+    if (i >= argc) return NULL;
+    if (strcmp(argv[i], "tools") == 0 || strcmp(argv[i], "describe") == 0)
+        return parse_mcp_describe(argv, argc, i, json);
+    if (strcmp(argv[i], "call") != 0) return NULL;
     for (i++; i < argc; i++) {
         if (strcmp(argv[i], "--json") == 0) json = true;
         else if (spec) return NULL;
@@ -504,8 +538,8 @@ static char *exec_mcp_call(tools_env *env, const tny_intercept *ic) {
     }
     mcp_call_status status = MCP_CALL_CONFIG_ERROR;
     char *text = mcp_call_tool_raw(env, server, strchr(ic->target, '/') + 1, arguments, &status);
-    free(server);
     if (!text) {
+        free(server);
         buf_free(&out);
         buf_free(&err);
         return NULL;
@@ -516,9 +550,51 @@ static char *exec_mcp_call(tools_env *env, const tny_intercept *ic) {
         while (len && (text[len - 1] == '\n' || text[len - 1] == '\r')) text[--len] = '\0';
         buf_appendf(&err, "tny: mcp call: %s\n", str_starts(text, "error: ") ? text + 7 : text);
         code = status == MCP_CALL_CONFIG_ERROR ? 1 : 2;
+        /* wrong arguments are the common failure: hand over the schema so
+         * the retry is informed (docs/adr/0068) */
+        char *schema = status == MCP_CALL_TOOL_ERROR
+                           ? mcp_tool_schema(server, strchr(ic->target, '/') + 1)
+                           : NULL;
+        if (schema)
+            buf_appendf(&err, "tny: mcp call: input schema for %s: %s\n", ic->target, schema);
+        free(schema);
     } else if (len) {
         buf_append(&out, text, len);
         if (text[len - 1] != '\n') buf_appends(&out, "\n");
+    }
+    free(server);
+    free(text);
+    return ic_result(env, code, &out, &err);
+}
+
+static char *exec_mcp_describe(tools_env *env, const tny_intercept *ic) {
+    buf_t out, err;
+    buf_init(&out);
+    buf_init(&err);
+    const char *slash = strchr(ic->target, '/');
+    char *server = slash ? xstrndup(ic->target, (size_t)(slash - ic->target)) : xstrdup(ic->target);
+    if (!server) {
+        buf_free(&out);
+        buf_free(&err);
+        return NULL;
+    }
+    mcp_call_status status = MCP_CALL_CONFIG_ERROR;
+    char *text = mcp_describe(env, server, slash ? slash + 1 : NULL, ic->json, &status);
+    free(server);
+    if (!text) {
+        buf_free(&out);
+        buf_free(&err);
+        return NULL;
+    }
+    size_t len = strlen(text);
+    int code = 0;
+    if (status != MCP_CALL_OK) {
+        while (len && (text[len - 1] == '\n' || text[len - 1] == '\r')) text[--len] = '\0';
+        buf_appendf(&err, "tny: mcp %s: %s\n", ic->action,
+                    str_starts(text, "error: ") ? text + 7 : text);
+        code = status == MCP_CALL_CONFIG_ERROR ? 1 : 2;
+    } else if (len) {
+        buf_append(&out, text, len);
     }
     free(text);
     return ic_result(env, code, &out, &err);
@@ -639,6 +715,7 @@ char *tny_intercept_execute(tools_env *env, const tny_intercept *ic) {
     switch (ic->kind) {
     case TNY_INTERCEPT_EDIT: return exec_edit(env, ic);
     case TNY_INTERCEPT_MCP_CALL: return exec_mcp_call(env, ic);
+    case TNY_INTERCEPT_MCP_DESCRIBE: return exec_mcp_describe(env, ic);
     case TNY_INTERCEPT_MEMORY: return exec_memory(env, ic);
     case TNY_INTERCEPT_SKILL: return exec_skill(env, ic);
     case TNY_INTERCEPT_IMAGE_ATTACH: return exec_image_attach(env, ic);

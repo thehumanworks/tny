@@ -50,6 +50,24 @@ char *mcp_call_tool_raw(tools_env *env, const char *server, const char *tool, co
 int mcp_call_cli(struct tny_ctx *ctx, const char *spec, const char *args_json, bool json, FILE *out,
                  FILE *err);
 
+/* `tny mcp tools SERVER` / `tny mcp describe SERVER/TOOL` (docs/adr/0068):
+ * the server's cached tools/list — name, description, and inputSchema —
+ * as text or one {"kind":"mcp_tools"|"mcp_tool",...} object, connecting
+ * cold when the server is not warm. tool == NULL lists every tool. Returns
+ * the malloc'd rendering; *status is MCP_CALL_CONFIG_ERROR for an unknown
+ * server (the text is the error), MCP_CALL_TOOL_ERROR for a tool the server
+ * does not list. Never calls the tool. */
+char *mcp_describe(tools_env *env, const char *server, const char *tool, bool json,
+                   mcp_call_status *status);
+/* CLI wrapper: spec is "SERVER" (tools) or "SERVER/TOOL" (describe). Exit
+ * codes as mcp_call_cli: 0 ok, 1 usage/config, 2 unknown tool. */
+int mcp_describe_cli(struct tny_ctx *ctx, const char *spec, bool json, FILE *out, FILE *err);
+/* Compact inputSchema JSON of a tool on an already-connected server, for the
+ * hint `tny mcp call` prints when a call fails (never connects). malloc'd,
+ * or NULL when the server is not ready, the tool is unknown, or it
+ * publishes no schema. */
+char *mcp_tool_schema(const char *server, const char *tool);
+
 /* Human or JSON listing of configured servers (source attributed). Does not
  * spawn. Notices from skipped/malformed imports are included. */
 char *mcp_list_text(struct tny_ctx *ctx);

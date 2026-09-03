@@ -36,7 +36,11 @@ static const char *FAKE_SERVER =
     "\"2025-06-18\"}}\\n' \"$n\" ;;\n"
     "  *'\"method\":\"tools/list\"'*) n=$((n+1));\n"
     "    printf '{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"tools\":["
-    "{\"name\":\"deploy_app\",\"description\":\"Deploy the application to production\"},"
+    "{\"name\":\"deploy_app\",\"description\":\"Deploy the application to production\","
+    "\"inputSchema\":{\"type\":\"object\",\"properties\":{\"env\":{\"type\":\"string\"},"
+    "\"dry_run\":{\"type\":\"boolean\"}},\"required\":[\"env\"]}},"
+    "{\"name\":\"boom\",\"description\":\"Always refuses\","
+    "\"inputSchema\":{\"type\":\"object\",\"properties\":{\"why\":{\"type\":\"string\"}}}},"
     "{\"name\":\"rollback\",\"description\":\"Roll back the most recent deploy\"}]}}\\n' "
     "\"$n\" ;;\n"
     "  *'\"method\":\"tools/call\"'*) n=$((n+1));\n"
@@ -1076,6 +1080,142 @@ static int run_cli_call(tny_ctx *ctx, const char *spec, const char *args, bool j
     return rc;
 }
 
+static int run_cli_describe(tny_ctx *ctx, const char *spec, bool json, char **out_s, char **err_s) {
+    size_t out_n = 0, err_n = 0;
+    char *ob = NULL, *eb = NULL;
+    FILE *out = open_memstream(&ob, &out_n);
+    FILE *err = open_memstream(&eb, &err_n);
+    if (!out || !err) abort();
+    int rc = mcp_describe_cli(ctx, spec, json, out, err);
+    fclose(out);
+    fclose(err);
+    *out_s = ob;
+    *err_s = eb;
+    return rc;
+}
+
+/* `tny mcp tools SERVER` lists every tool with its argument names (required
+ * starred); `tny mcp describe SERVER/TOOL` adds the full inputSchema. --json
+ * carries the schema verbatim (docs/adr/0068). */
+TEST cli_tools_and_describe_show_input_schema(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    write_settings("{}");
+    write_profile(fast_profile());
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+
+    char *out = NULL, *err = NULL;
+    ASSERT_EQ(0, run_cli_describe(ctx, "srv", false, &out, &err));
+    ASSERT(strstr(out, "srv/deploy_app — Deploy the application to production\n"));
+    ASSERT(strstr(out, "arguments: env* (string), dry_run (boolean)  (* = required)"));
+    ASSERT(strstr(out, "srv/rollback — Roll back"));
+    ASSERT(strstr(out, "arguments: unknown (no input schema published)"));
+    ASSERT(!strstr(out, "input schema:")); /* the listing stays one summary per tool */
+    ASSERT_EQ(0, (int)strlen(err));
+    free(out);
+    free(err);
+
+    ASSERT_EQ(0, run_cli_describe(ctx, "srv/deploy_app", false, &out, &err));
+    ASSERT(strstr(out, "srv/deploy_app — Deploy the application to production\n"));
+    ASSERT(strstr(out, "arguments: env* (string), dry_run (boolean)"));
+    ASSERT(strstr(out, "input schema: {\"type\":\"object\",\"properties\":{\"env\""));
+    ASSERT(strstr(out, "\"required\":[\"env\"]"));
+    free(out);
+    free(err);
+
+    ASSERT_EQ(0, run_cli_describe(ctx, "srv/deploy_app", true, &out, &err));
+    ASSERT(strstr(out, "{\"kind\":\"mcp_tool\",\"server\":\"srv\",\"tool\":\"deploy_app\""));
+    ASSERT(strstr(out, "\"input_schema\":{\"type\":\"object\""));
+    free(out);
+    free(err);
+
+    ASSERT_EQ(0, run_cli_describe(ctx, "srv", true, &out, &err));
+    ASSERT(strstr(
+        out, "{\"kind\":\"mcp_tools\",\"server\":\"srv\",\"tools\":[{\"name\":\"deploy_app\""));
+    ASSERT(strstr(out,
+                  "{\"name\":\"rollback\",\"description\":\"Roll back the most recent deploy\","
+                  "\"input_schema\":null}"));
+    free(out);
+    free(err);
+
+    /* unknown tool: exit 2 and a pointer at the listing verb */
+    ASSERT_EQ(2, run_cli_describe(ctx, "srv/nosuch", false, &out, &err));
+    ASSERT(strstr(err, "no tool named nosuch"));
+    ASSERT(strstr(err, "tny mcp tools srv"));
+    ASSERT_EQ(0, (int)strlen(out));
+    free(out);
+    free(err);
+
+    /* unknown server and a bad spec: exit 1, nothing spawned */
+    ASSERT_EQ(1, run_cli_describe(ctx, "ghost", false, &out, &err));
+    ASSERT(strstr(err, "no MCP server named ghost"));
+    free(out);
+    free(err);
+    ASSERT_EQ(1, run_cli_describe(ctx, "srv/a/b", false, &out, &err));
+    ASSERT(strstr(err, "SERVER/TOOL"));
+    free(out);
+    free(err);
+    ASSERT_EQ(1, run_cli_describe(ctx, "/tool", false, &out, &err));
+    free(out);
+    free(err);
+
+    mcp_shutdown_all();
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* A failed call prints the tool's input schema after the error (stderr and
+ * the --json object), so a retry is shaped by the contract, not a guess.
+ * Config failures and tools the server does not list carry no hint. */
+TEST cli_call_failure_carries_input_schema(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    write_settings("{}");
+    write_profile(fast_profile());
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+
+    char *out = NULL, *err = NULL;
+    ASSERT_EQ(2, run_cli_call(ctx, "srv/boom", "{}", false, &out, &err));
+    ASSERT(strstr(err, "tny: mcp call: deploy refused\n"));
+    ASSERT(strstr(err, "tny: mcp call: input schema for srv/boom: {\"type\":\"object\","
+                       "\"properties\":{\"why\":{\"type\":\"string\"}}}\n"));
+    free(out);
+    free(err);
+
+    ASSERT_EQ(2, run_cli_call(ctx, "srv/boom", "{}", true, &out, &err));
+    ASSERT(strstr(out, "\"ok\":false"));
+    ASSERT(strstr(out, ",\"input_schema\":{\"type\":\"object\",\"properties\":{\"why\""));
+    free(out);
+    free(err);
+
+    /* a tool the server never listed has no schema to show */
+    ASSERT_EQ(2, run_cli_call(ctx, "srv/nosuch", "{}", true, &out, &err));
+    ASSERT(!strstr(err, "input schema"));
+    ASSERT(!strstr(out, "input_schema"));
+    free(out);
+    free(err);
+
+    /* success never prints one */
+    ASSERT_EQ(0, run_cli_call(ctx, "srv/deploy_app", "{\"env\":\"prod\"}", true, &out, &err));
+    ASSERT(!strstr(out, "input_schema"));
+    ASSERT_EQ(0, (int)strlen(err));
+    free(out);
+    free(err);
+
+    /* an unknown server never connected: exit 1, no hint */
+    ASSERT_EQ(1, run_cli_call(ctx, "ghost/boom", "{}", false, &out, &err));
+    ASSERT(!strstr(err, "input schema"));
+    ASSERT_EQ(NULL, mcp_tool_schema("ghost", "boom"));
+    free(out);
+    free(err);
+
+    mcp_shutdown_all();
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 /* A successful call prints the tool text on stdout, and `--json` prints one
  * mcp_call object; the server cold-starts from ~/.tny/mcp.json. */
 TEST cli_call_prints_result_and_json_object(void) {
@@ -1123,7 +1263,12 @@ TEST cli_call_tool_failure_exits_2(void) {
     ASSERT(strstr(err, "deploy refused"));
     ASSERT(strstr(out, "\"ok\":false"));
     ASSERT(strstr(out, "\"kind\":\"mcp_call\""));
-    ASSERT(!strchr(err, '\n') || strchr(err, '\n') == err + strlen(err) - 1);
+    /* exactly two lines: the server's message, then the schema hint
+     * (docs/adr/0068) — never the raw JSON-RPC envelope */
+    ASSERT(str_starts(err, "tny: mcp call: deploy refused\n"));
+    const char *second = strchr(err, '\n') + 1;
+    ASSERT(str_starts(second, "tny: mcp call: input schema for srv/boom: "));
+    ASSERT(strchr(second, '\n') == err + strlen(err) - 1);
     free(out);
     free(err);
 
@@ -1344,6 +1489,8 @@ SUITE(mcp_suite) {
     RUN_TEST(toml_subset_survives_hostile_shapes);
 
     RUN_TEST(cli_call_prints_result_and_json_object);
+    RUN_TEST(cli_tools_and_describe_show_input_schema);
+    RUN_TEST(cli_call_failure_carries_input_schema);
     RUN_TEST(cli_call_tool_failure_exits_2);
     RUN_TEST(cli_call_usage_and_unknown_server_exit_1);
     RUN_TEST(cli_call_permission_identity_is_mcp_server_tool);
