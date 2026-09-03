@@ -44,7 +44,11 @@ def start_mock(repo, tmp, env_extra):
     port = free_port()
     out = open(os.path.join(tmp, "mock.out"), "w+")
     p = subprocess.Popen(
-        [sys.executable, os.path.join(repo, "tests/integration/mock_openai.py"), str(port)],
+        [
+            sys.executable,
+            os.path.join(repo, "tests/integration/mock_openai.py"),
+            str(port),
+        ],
         stdout=out,
         stderr=subprocess.DEVNULL,
         env=env,
