@@ -45,7 +45,7 @@ retention policy. See [ADR 0020](docs/adr/0020-ephemeral-sessions.md).
 | --- | --- | --- |
 | `openai` (default) | OpenAI-compatible `/v1/chat/completions`, SSE streaming, native tool loop | none — tny owns tools/MCP/skills/permissions |
 | `cursor` | [Cursor SDK Bridge](https://cursor.com/docs/sdk/bridge): Connect HTTP/1.1 (`sdk.v1`, JSON codec) | `cursor-sdk-bridge` (spawned, ready-line handshake) |
-| `codex` | WebSocket JSON-RPC (`codex app-server`) | `codex` (attach via `--codex-ws`, auto-attach to a registered live host, or spawned on an ephemeral port) |
+| `codex` | ChatGPT Responses backend (`chatgpt.com/backend-api/codex`), native tool loop, bearer from `codex login` | none — the Codex CLI is only the login helper ([ADR 0065](docs/adr/0065-codex-chatgpt-responses-backend.md)) |
 | `acp` | [ACP](https://agentclientprotocol.com/) over stdio JSONL | any ACP agent via `--agent CMD` |
 
 All four normalize onto one event set (text/thinking/tool/permission/plan/
@@ -75,10 +75,10 @@ Feature parity notes and deliberate deferrals:
 Everything between Enter and the provider seeing the turn is pre-paid or
 overlapped (`docs/adr/0002`, `docs/adr/0004`): the TUI warms the host **and**
 creates/resumes the provider session in the background at startup, `tny ask`
-connects while it reads a piped prompt, and codex one-shots attach to an
-already-running app-server instead of spawning one. Measured with
-`tests/bench/bench_ttft.py` (medians, scripted codex host, 400 ms injected
-RPC delay):
+connects while it reads a piped prompt. Measured with
+`tests/bench/bench_ttft.py` (medians, scripted host, 400 ms injected
+RPC delay; the codex row dates from the retired app-server backend, whose
+spawn-vs-attach path no longer exists — codex is plain HTTPS now):
 
 | Path | before | after |
 | --- | --- | --- |
@@ -138,8 +138,8 @@ make test       # unit tests (greatest, ASan/UBSan) + fixture-driven
                 # integration tests for every backend — no live keys needed
 make bench      # hyperfine startup benchmark
 python3 tests/bench/bench_ttft.py --tny build/tny --repo . --bench tui
-                # time-to-first-token benches (tui, ask-stdin, ask-spawn,
-                # ask-attach) against the scripted codex host
+                # time-to-first-token benches (tui, ask-stdin) against the
+                # scripted openai mock
 ```
 
 Requirements: a C11 compiler and make; python3 for the integration fixtures.

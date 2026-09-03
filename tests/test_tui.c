@@ -429,7 +429,7 @@ static void stub_destroy(tny_backend *b) {
 
 static tny_backend *stub_backend(stub_state *s) {
     tny_backend *b = calloc(1, sizeof *b);
-    b->id = TNY_BK_CODEX;
+    b->id = TNY_BK_ACP;
     b->impl = s;
     b->connect = stub_connect;
     b->disconnect = stub_disconnect;
@@ -447,11 +447,11 @@ TEST prewarm_take_returns_connected_backend(void) {
     memset(&ctx, 0, sizeof ctx);
     memset(&t, 0, sizeof t);
     t.ctx = &ctx;
-    ctx.backend = TNY_BK_CODEX;
+    ctx.backend = TNY_BK_ACP;
 
     stub_state s = {0};
     s.delay_ms = 30;
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX, NULL));
+    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_ACP, NULL));
     ASSERT(t.prewarm != NULL);
 
     tny_backend *bk = tui_prewarm_take(&t); /* blocks until connect() lands */
@@ -471,11 +471,11 @@ TEST prewarm_failed_connect_is_silent_and_discarded(void) {
     memset(&ctx, 0, sizeof ctx);
     memset(&t, 0, sizeof t);
     t.ctx = &ctx;
-    ctx.backend = TNY_BK_CODEX;
+    ctx.backend = TNY_BK_ACP;
 
     stub_state s = {0};
     s.connect_rc = -1;
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX, NULL));
+    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_ACP, NULL));
     ASSERT(tui_prewarm_take(&t) == NULL); /* caller falls back to lazy path */
     ASSERT_EQ(1, s.connects);
     ASSERT_EQ(1, s.destroys);
@@ -488,11 +488,11 @@ TEST prewarm_drop_mid_connect_cleans_up_on_the_thread(void) {
     memset(&ctx, 0, sizeof ctx);
     memset(&t, 0, sizeof t);
     t.ctx = &ctx;
-    ctx.backend = TNY_BK_CODEX;
+    ctx.backend = TNY_BK_ACP;
 
     stub_state s = {0};
     s.delay_ms = 60;
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX, NULL));
+    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_ACP, NULL));
     tui_prewarm_drop(&t); /* abandon while connect() is still sleeping */
     ASSERT(t.prewarm == NULL);
     wait_for(&s.destroys, 2000);
@@ -507,10 +507,10 @@ TEST prewarm_take_rejects_a_switched_provider(void) {
     memset(&ctx, 0, sizeof ctx);
     memset(&t, 0, sizeof t);
     t.ctx = &ctx;
-    ctx.backend = TNY_BK_CODEX;
+    ctx.backend = TNY_BK_ACP;
 
     stub_state s = {0};
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX, NULL));
+    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_ACP, NULL));
     ctx.backend = TNY_BK_OPENAI; /* /provider switch happened meanwhile */
     ASSERT(tui_prewarm_take(&t) == NULL);
     ASSERT(t.prewarm == NULL);
@@ -550,13 +550,13 @@ TEST prewarm_runs_create_or_resume_on_the_thread(void) {
     memset(&ctx, 0, sizeof ctx);
     memset(&t, 0, sizeof t);
     t.ctx = &ctx;
-    ctx.backend = TNY_BK_CODEX;
+    ctx.backend = TNY_BK_ACP;
 
     stub_state s = {0};
     s.delay_ms = 20;
     tny_backend *b = stub_backend(&s);
     b->create_or_resume = stub_resume;
-    ASSERT_EQ(0, tui_prewarm_launch(&t, b, TNY_BK_CODEX, "thread-42"));
+    ASSERT_EQ(0, tui_prewarm_launch(&t, b, TNY_BK_ACP, "thread-42"));
 
     tny_backend *bk = tui_prewarm_take(&t); /* blocks until the warm-up lands */
     ASSERT(bk != NULL);
@@ -576,13 +576,13 @@ TEST prewarm_failed_resume_is_silent_and_discarded(void) {
     memset(&ctx, 0, sizeof ctx);
     memset(&t, 0, sizeof t);
     t.ctx = &ctx;
-    ctx.backend = TNY_BK_CODEX;
+    ctx.backend = TNY_BK_ACP;
 
     stub_state s = {0};
     s.resume_rc = -1;
     tny_backend *b = stub_backend(&s);
     b->create_or_resume = stub_resume;
-    ASSERT_EQ(0, tui_prewarm_launch(&t, b, TNY_BK_CODEX, "thread-42"));
+    ASSERT_EQ(0, tui_prewarm_launch(&t, b, TNY_BK_ACP, "thread-42"));
     ASSERT(tui_prewarm_take(&t) == NULL); /* caller falls back to lazy path */
     ASSERT_EQ(1, s.connects);
     ASSERT_EQ(1, s.resumes);
@@ -594,15 +594,16 @@ TEST prewarm_failed_resume_is_silent_and_discarded(void) {
 TEST prewarm_start_restarts_on_a_stale_resume_pointer(void) {
     /* /new after a resumed session (or a session switch) leaves the pending
      * warm-up holding the wrong pointer: it must be dropped and re-kicked,
-     * never adopted stale. codex with an unspawnable binary keeps the
-     * restarted warm-up real but guarantees its connect() fails fast. */
+     * never adopted stale. An ACP agent with an unspawnable command keeps
+     * the restarted warm-up real but guarantees its connect() fails fast. */
     tui t;
     struct tny_ctx ctx;
     memset(&ctx, 0, sizeof ctx);
     memset(&t, 0, sizeof t);
     t.ctx = &ctx;
-    ctx.backend = TNY_BK_CODEX;
-    ctx.codex_bin = "/nonexistent/codex";
+    ctx.backend = TNY_BK_ACP;
+    char *agent_argv[] = {"/nonexistent/acp-agent", NULL};
+    ctx.agent_argv = agent_argv;
 
     /* this exercises the thread pre-warm (the wasm / TNY_ISOLATE=0 path);
      * with isolation on, prewarm_start maps to the serve runner instead
@@ -610,7 +611,7 @@ TEST prewarm_start_restarts_on_a_stale_resume_pointer(void) {
     setenv("TNY_ISOLATE", "0", 1);
 
     stub_state s = {0};
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CODEX, "thread-old"));
+    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_ACP, "thread-old"));
     tui_prewarm_start(&t); /* no session: the pending pointer is now stale */
     unsetenv("TNY_ISOLATE");
     ASSERT(t.prewarm != NULL);
@@ -624,9 +625,8 @@ TEST prewarm_start_restarts_on_a_stale_resume_pointer(void) {
 TEST prewarm_applicability(void) {
     struct tny_ctx ctx;
     memset(&ctx, 0, sizeof ctx);
-    ASSERT_FALSE(tui_prewarm_applicable(&ctx, TNY_BK_OPENAI));
-    ASSERT(tui_prewarm_applicable(&ctx, TNY_BK_CODEX));
-    ASSERT_FALSE(tui_prewarm_applicable(&ctx, TNY_BK_ACP)); /* no --agent argv */
+    ASSERT_FALSE(tui_prewarm_applicable(&ctx, TNY_BK_OPENAI)); /* codex profile too */
+    ASSERT_FALSE(tui_prewarm_applicable(&ctx, TNY_BK_ACP));    /* no --agent argv */
     char *argv[] = {"fake-agent", NULL};
     ctx.agent_argv = argv;
     ASSERT(tui_prewarm_applicable(&ctx, TNY_BK_ACP));

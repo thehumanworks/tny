@@ -93,12 +93,13 @@ stdenv.mkDerivation (finalAttrs: {
   meta = {
     description = "Tiny C11 TUI and CLI coding-agent harness";
     longDescription = ''
-      tny drives Cursor (SDK Bridge), Codex (app-server), any ACP agent, and
+      tny drives Cursor (SDK Bridge), Codex (ChatGPT subscription), any ACP agent, and
       OpenAI-compatible endpoints through one normalized event loop, from a
       stripped binary well under 1 MiB.
 
-      Host agents stay external processes: install `cursor-sdk-bridge`,
-      `codex`, or an ACP agent separately and put them on PATH.
+      Host agents stay external processes: install `cursor-sdk-bridge` or
+      an ACP agent separately and put them on PATH; the `codex` CLI is only
+      needed for `tny --provider codex login`.
     '';
     homepage = "https://github.com/thehumanworks/tny";
     # meta.license is deliberately unset. LICENSE-METADATA.json records

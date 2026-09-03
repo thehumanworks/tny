@@ -304,7 +304,7 @@ jobs:
             grep -Fq 'tny: cursor: sdk.v1 management is unavailable in WebAssembly'
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_openai.py
           tests/integration/test_acp_ws.sh "$PWD/build/wasm/tny"
-          tests/integration/test_codex_attach.sh "$PWD/build/wasm/tny"
+          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_codex_chatgpt.py
           tests/integration/test_provider_setup.sh "$PWD/build/wasm/tny"
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
             python3 tests/integration/test_extension_capabilities.py

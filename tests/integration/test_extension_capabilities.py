@@ -88,7 +88,7 @@ def main() -> int:
             "unavailable" if os.environ.get("TNY_TEST_EXPECT_WASM") else "available"
         )
         assert capabilities["extension_runtime"]["python"] == expected_python
-        assert set(capabilities["providers"]) == {"openai", "cursor", "codex", "acp"}
+        assert set(capabilities["providers"]) == {"openai", "cursor", "acp"}
         for provider in capabilities["providers"].values():
             assert len(provider["entries"]) == 29
         cursor = capabilities["providers"]["cursor"]["entries"]
@@ -101,7 +101,6 @@ def main() -> int:
         assert native["extensions.prompt.transform"]["state"] == "supported"
         providers = {item["name"]: item for item in result["providers"]}
         assert "probe skipped" in providers["cursor"]["detail"]
-        assert "probe skipped" in providers["codex"]["detail"]
 
     print("test_extension_capabilities: all assertions passed")
     return 0

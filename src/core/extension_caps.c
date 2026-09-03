@@ -49,10 +49,6 @@ static const tny_extension_capability_state OPENAI_CAPS[TNY_EXT_CAP_COUNT] = {
     S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, U, U,
 };
 
-static const tny_extension_capability_state CODEX_CAPS[TNY_EXT_CAP_COUNT] = {
-    S, S, S, S, S, S, U, S, S, S, S, U, U, X, X, S, U, U, U, S, X, X, U, U, U, S, S, U, U,
-};
-
 static const tny_extension_capability_state CURSOR_CAPS[TNY_EXT_CAP_COUNT] = {
     S, S, S, S, S, S, U, S, S, S, S, U, U, X, X, X, X, X, X, S, X, X, U, U, U, S, S, U, U,
 };
@@ -69,7 +65,6 @@ static const tny_extension_capability_state *provider_caps(tny_backend_id provid
     switch (provider) {
     case TNY_BK_OPENAI: return OPENAI_CAPS;
     case TNY_BK_CURSOR: return CURSOR_CAPS;
-    case TNY_BK_CODEX: return CODEX_CAPS;
     case TNY_BK_ACP: return ACP_CAPS;
     default: return NULL;
     }

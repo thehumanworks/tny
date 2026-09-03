@@ -1,7 +1,7 @@
 /* tui_prewarm.c — background host warm-up (docs/adr/0002).
  *
  * The TUI's first prompt used to pay the whole host startup bill: spawn
- * `codex app-server` / `cursor-sdk-bridge` / the ACP agent, wait for its
+ * `cursor-sdk-bridge` / the ACP agent, wait for its
  * ready signal, run the protocol handshake, then create or resume the host
  * session (for cursor a CreateAgent round trip to the cloud). Here that work
  * starts the moment the shell paints, on a detached pthread that runs
@@ -90,7 +90,6 @@ static void *prewarm_main(void *arg) {
  * the first prompt with today's error, not spawn doomed processes early. */
 bool tui_prewarm_applicable(const struct tny_ctx *ctx, int backend_id) {
     switch (backend_id) {
-    case TNY_BK_CODEX: return true; /* spawn or --codex-ws attach; auth errors surface later */
     case TNY_BK_CURSOR: {
         const char *key = getenv("CURSOR_API_KEY");
         return key && *key;

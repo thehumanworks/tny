@@ -14,7 +14,7 @@ workflow (`.github/workflows/ci.yml`).
 | `tny-linux-aarch64-musl` | `ubuntu-24.04-arm` + Alpine 3.21 | **static** musl; unit tests + smoke |
 | `tny-darwin-arm64` | `macos-15` | Apple Silicon only; deterministic sdk.v1 contract/unit tests run, while the spawned Python Cursor bridge fixture retains its documented Darwin-CI skip |
 | `tny-windows-x86_64.exe` | `windows-2025` + MSYS2 `MSYS` | POSIX via `msys-2.0.dll`; unit + smoke |
-| `tny-wasm` (`tny.js`+`tny.wasm`, `tny-web.mjs`+`.wasm`) | `ubuntu-24.04` + emsdk 6.0.8 | the SAME openai/acp-ws/codex-attach mock suites with `TNY=build/wasm/tny`, `wasm-size-check`, and a headless-Chromium page smoke ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
+| `tny-wasm` (`tny.js`+`tny.wasm`, `tny-web.mjs`+`.wasm`) | `ubuntu-24.04` + emsdk 6.0.8 | the SAME openai/acp-ws/codex-profile mock suites with `TNY=build/wasm/tny`, `wasm-size-check`, and a headless-Chromium page smoke ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
 
 The Pages workflow also builds `tny-web.mjs` with emsdk and publishes it
 under `assets/wasm/` — the landing terminal is the CI-tested artifact.
@@ -234,8 +234,8 @@ Benchmarks are never part of `make test` — shared runners are too noisy for a
 timing or pass-rate gate. They are run deliberately, and their numbers are
 recorded in the ADR that motivated them.
 
-`tests/bench/bench_ttft.py` measures time-to-first-token against the scripted
-codex mock ([ADR 0004](adr/0004-ttft.md)).
+`tests/bench/bench_ttft.py` measures time-to-first-token against the strict
+openai mock ([ADR 0004](adr/0004-ttft.md)).
 
 `tests/bench/bench_tools.py` is the three-arm A/B of the native tool profiles
 `all`, `terminal+edit` and `terminal` ([ADR 0062](adr/0062-tool-profiles.md)),

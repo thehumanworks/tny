@@ -83,10 +83,8 @@ typedef struct tny_ctx {
     /* cursor */
     char *bridge_bin;
     struct tny_cursor_config *cursor_config; /* user-level sdk.v1 options */
-    /* codex */
-    char *codex_ws;
+    /* codex: the CLI is only a login helper now (docs/adr/0065) */
     char *codex_bin;
-    char *ws_token_file;
     bool no_host_registry; /* background ask child: never publish a spawned
                             * host as an attach target (docs/adr/0031) */
     /* remote tool runtime (core/ssh.c, docs/adr/0022): when ssh_host is set
@@ -105,7 +103,7 @@ typedef struct tny_ctx {
 
     /* user system prompt (--system-prompt, all providers). The openai
      * backend carries it on its native system/instructions field; host
-     * backends with no such schema field (cursor, codex, acp) get it
+     * backends with no such schema field (cursor, acp) get it
      * prepended to the session's first user message instead (runtime.c). */
     char *system_prompt;
 
@@ -171,14 +169,29 @@ void tny_ctx_free(tny_ctx *ctx);
 
 /* Resolve backend per docs/cli.md when no --backend flag was given. */
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value);
-bool tny_codex_auth_present(void); /* codex login (auth.json) on this machine */
 
-/* ---- builtin subscription profiles (profiles.c, docs/adr/0019) ----
+/* ---- builtin subscription profiles (profiles.c, docs/adr/0019, 0065) ----
+ * "codex" (ChatGPT subscription against chatgpt.com/backend-api/codex),
  * "claude" (Anthropic OpenAI-compat + Claude Code OAuth token) and "grok"
  * (xAI CLI session token / XAI_API_KEY) run on the openai backend like
  * user-named profiles, but ship with tny. A settings.json object or
  * NAME_BASE_URL env var with the same name shadows the builtin. */
 bool tny_builtin_profile_exists(const char *name);
+/* ---- codex_auth.c: $CODEX_HOME/auth.json from `codex login` ---- */
+char *tny_codex_home(void);      /* $CODEX_HOME or ~/.codex, malloc'd */
+char *tny_codex_auth_path(void); /* …/auth.json, malloc'd */
+bool tny_codex_auth_present(void);
+typedef struct {
+    char *access_token; /* ChatGPT OAuth bearer (tokens.access_token) */
+    char *account_id;   /* tokens.account_id or the JWT claim */
+    char *api_key;      /* auth.json OPENAI_API_KEY (API-key mode) */
+} tny_codex_creds;
+int tny_codex_credentials(tny_codex_creds *out); /* 0 when either credential exists */
+void tny_codex_creds_free(tny_codex_creds *c);
+/* Refresh-token grant against auth.openai.com when the access token is
+ * expired or last_refresh is stale; rewrites auth.json in place. */
+void tny_codex_refresh_if_stale(void);
+int tny_codex_logout(void);         /* delete auth.json (what `codex logout` does) */
 bool tny_claude_auth_present(void); /* subscription login artifacts only */
 bool tny_grok_auth_present(void);   /* ~/.grok/auth.json session */
 /* Resolved Claude credential: CLAUDE_CODE_OAUTH_TOKEN, then
@@ -211,7 +224,7 @@ bool tny_tool_profile_is_shell(const tny_ctx *ctx);
 void tny_tool_profile_ignore(tny_ctx *ctx, const char *surface);
 /* True when `name` is a user-named OpenAI-compatible provider: a top-level
  * settings.json object with a base_url, or NAME_BASE_URL set in the
- * environment. Builtin names (openai|cursor|codex|acp) are never custom. */
+ * environment. Builtin names (openai|cursor|acp) are never custom. */
 bool tny_custom_provider_exists(tny_ctx *ctx, const char *name);
 /* True when provider is an `acp@NAME` (or legacy `acp:NAME`) selector whose
  * NAME is present under settings.json acp. The profile is validated when selected, so an

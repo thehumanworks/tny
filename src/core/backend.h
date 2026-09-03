@@ -9,22 +9,16 @@
 
 struct tny_ctx; /* core/config.h */
 
-typedef enum {
-    TNY_BK_OPENAI = 0,
-    TNY_BK_CURSOR,
-    TNY_BK_CODEX,
-    TNY_BK_ACP,
-    TNY_BK_COUNT
-} tny_backend_id;
+typedef enum { TNY_BK_OPENAI = 0, TNY_BK_CURSOR, TNY_BK_ACP, TNY_BK_COUNT } tny_backend_id;
 
 const char *tny_backend_name(tny_backend_id id);
 int tny_backend_from_name(const char *name); /* -1 if unknown */
 
 /* Provider capabilities, known without spawning a host. */
 enum {
-    /* Paid fast/priority tier: codex thread/start serviceTier, OpenAI-compat
-     * service_tier, cursor ModelSelection param {"id":"fast"}. ACP has no
-     * tier field in session/new, so it lacks the bit. */
+    /* Paid fast/priority tier: OpenAI-compat service_tier (the codex
+     * profile included), cursor ModelSelection param {"id":"fast"}. ACP has
+     * no tier field in session/new, so it lacks the bit. */
     TNY_CAP_FAST = 1u << 0
 };
 unsigned tny_backend_caps(tny_backend_id id);
@@ -112,7 +106,6 @@ struct tny_backend {
 /* Constructors (each backend dir provides one). */
 tny_backend *tny_backend_openai_new(struct tny_ctx *ctx);
 tny_backend *tny_backend_cursor_new(struct tny_ctx *ctx);
-tny_backend *tny_backend_codex_new(struct tny_ctx *ctx);
 tny_backend *tny_backend_acp_new(struct tny_ctx *ctx);
 
 tny_backend *tny_backend_create(tny_backend_id id, struct tny_ctx *ctx);

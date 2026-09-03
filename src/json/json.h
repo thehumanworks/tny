@@ -31,6 +31,11 @@ char *jwrite_pretty(yyjson_mut_doc *doc);
 char *jwrite_val(yyjson_val *val);
 char *jwrite_mut_val(yyjson_mut_val *val);
 
+/* Decode the payload segment of a JWT (base64url JSON) without verifying
+ * the signature: for display/claim lookups on tokens that arrived over a
+ * direct TLS channel only. Caller frees; NULL on malformed input. */
+yyjson_doc *jwt_payload_doc(const char *jwt);
+
 /* Append a JSON string escape of s into b (with surrounding quotes). */
 void jescape(buf_t *b, const char *s);
 

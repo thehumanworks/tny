@@ -64,7 +64,7 @@
 <div class="cmd"><div class="left"><span class="prompt">$</span><code>tny --provider acp --agent gemini -- --acp</code></div><button type="button" data-copy="tny --provider acp --agent gemini -- --acp" aria-label="Copy command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
 <p>See <a href="providers.html">Providers</a> for env vars and host binaries.</p>
 <h2 id="permissions">What tny asks before it acts</h2>
-<p>tny starts in <code>yolo</code> permission mode. Consenting to run an agent in a workspace is the approval. Host providers (Cursor, Codex, ACP) run their own loops; tny does not pretend to gate them.</p>
+<p>tny starts in <code>yolo</code> permission mode. Consenting to run an agent in a workspace is the approval. Host providers (Cursor, ACP) run their own loops; tny does not pretend to gate them.</p>
 <p><code>ask</code> and <code>auto</code> are explicit opt-ins on the native OpenAI-compatible loop. Listing, globbing, and reading files inside the workspace never need approval. Writes, shell, and paths outside the workspace do — when you opt in.</p>
 <p>Switch modes with <code>/permissions</code> or <code>--permission-mode</code>. Details in <a href="permissions.html">Permissions</a>.</p>
 <div class="note"><strong>Approve deliberately</strong><p>yolo disables tny permission checks and the command sandbox for that process. Use it in a workspace you are willing to lose. Host sandboxes, if any, still apply.</p></div>

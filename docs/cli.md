@@ -38,7 +38,7 @@ tny mcp call SERVER/TOOL    # one MCP tools/call; JSON arguments on stdin
 Global flags are **leading**:
 
 ```text
-tny --provider cursor|codex|acp|openai|NAME|acp@AGENT [command]
+tny --provider cursor|acp|openai|codex|claude|grok|NAME|acp@AGENT [command]
                             # --backend is an alias; NAME = an OpenAI-compatible
                             # profile; acp@AGENT = settings acp.AGENT
 tny --cwd DIR
@@ -133,7 +133,7 @@ The resolved instruction body travels with the request itself, so the model
 adopts the preset without spending tool calls to locate or read the file. The
 native openai-compatible loop carries it in the system prompt, after tny's
 runtime instructions and project context and before any explicit
-`--system-prompt` additions; host providers (cursor, codex, acp), whose pinned
+`--system-prompt` additions; host providers (cursor, acp), whose pinned
 protocols expose no system field, receive the same sections at the top of a
 fresh session's first user message
 ([ADR 0045](adr/0045-system-prompt-flag.md),
@@ -292,15 +292,15 @@ providers; the page URL hash additionally accepts
 2. the provider (and its saved model) last used, recorded in `last_provider` / `models.{provider}` — named OpenAI-compatible and `acp@NAME` providers included
 3. `openai` if `OPENAI_BASE_URL` or `OPENAI_API_KEY` is set
 4. the env-defined provider if **exactly one** `NAME_BASE_URL` + `NAME_API_KEY` pair is set (a lone `*_BASE_URL` from an unrelated tool never hijacks the default; keyless local gateways need an explicit `--provider NAME` once — `last_provider` remembers it)
-5. `codex` if a `codex login` exists (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`) — subscriptions need no API key
+5. `codex` if a `codex login` exists (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`) — the ChatGPT subscription drives the native loop, no API key ([backends/codex.md](backends/codex.md))
 6. `claude` if a Claude Code OAuth login exists (`CLAUDE_CODE_OAUTH_TOKEN`, or `~/.claude/.credentials.json` from `claude /login`; a bare `ANTHROPIC_API_KEY` never hijacks the default — use `--provider claude`)
 7. `grok` if an xAI session exists (`~/.grok/auth.json`, from `tny
    --provider grok login` or the grok CLI)
 8. `cursor` if `CURSOR_API_KEY` is set in the environment
 9. `openai` (its connect error explains how to configure a key)
 
-A settings.json object or `NAME_BASE_URL` env var named `claude` or `grok`
-shadows the builtin profile entirely: explicit config wins. See
+A settings.json object or `NAME_BASE_URL` env var named `codex`, `claude` or
+`grok` shadows the builtin profile entirely: explicit config wins. See
 [settings.md](settings.md) and the published JSON Schema for `model`, `effort`,
 `fast`, provider profiles, and named ACP-agent defaults.
 
@@ -311,14 +311,14 @@ tny never stores tokens itself:
 
 | Provider | What login does |
 | --- | --- |
-| codex | Connects to `codex app-server` and calls `account/login/start` — the browser flow prints (and tries to open) the `authUrl`; `--device` uses the device-code flow and prints `verificationUrl` + `userCode`. tny pumps the socket until `account/login/completed`; the host writes `$CODEX_HOME/auth.json`, which tny auto-detects afterwards. Hosts without the RPC fall back to `codex login`. |
+| codex | Runs the Codex CLI's sign-in (`codex login`, or `codex login --device-auth` with `--device` for headless machines; `--codex-bin` / `TNY_CODEX_BIN` name the binary). The CLI owns the OAuth ceremony and writes `$CODEX_HOME/auth.json`; tny reads that file directly for the ChatGPT Responses backend and refreshes the token itself when it expires ([ADR 0065](adr/0065-codex-chatgpt-responses-backend.md)). |
 | claude | Reports the credential tny resolved (`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `~/.claude/.credentials.json`), else runs `claude setup-token`; the user exports the printed token as `CLAUDE_CODE_OAUTH_TOKEN`. |
 | grok | Native RFC 8628 device-code sign-in against `auth.x.ai` — no grok CLI needed, works over SSH/containers ([ADR 0021](adr/0021-native-grok-device-login.md)). tny prints the verification URL + code, polls the token endpoint, and writes the session to `~/.grok/auth.json` in the grok CLI's own store format (both tools share the entry). `GROK_OAUTH2_ISSUER` / `GROK_OAUTH2_CLIENT_ID` override the endpoint (enterprise IdPs, tests). |
 | cursor | Reports whether `CURSOR_API_KEY` is set. |
 | openai / named | Reports whether an API key resolved (`tny setup` configures one). |
 
-`tny logout` mirrors this: `codex logout` where the host CLI owns the
-credential, native removal of the xAI entries from `~/.grok/auth.json` for
+`tny logout` mirrors this: native deletion of `$CODEX_HOME/auth.json` for
+codex (what `codex logout` does), native removal of the xAI entries from `~/.grok/auth.json` for
 grok (foreign-issuer entries are kept), an env-var hint otherwise.
 
 ## System prompt
@@ -329,8 +329,8 @@ Providers with a schema field for it use that field: the openai-compatible
 backend prepends the text to its system message (`instructions` on the
 responses wire, the `system` role message on chat), ahead of tny's
 operational preamble and the AGENTS.md chain. The host protocols expose no
-such field on their pinned surfaces (cursor sdk.v1 `CreateAgent`, codex
-`thread/start`, ACP `session/new`), so there the text is prepended to the
+such field on their pinned surfaces (cursor sdk.v1 `CreateAgent`, ACP
+`session/new`), so there the text is prepended to the
 **first user message** of a fresh session, separated by a blank line.
 Resumed sessions and later turns never get it again.
 
@@ -339,8 +339,8 @@ Resumed sessions and later turns never get it again.
 `--effort` (env `TNY_REASONING_EFFORT`, TUI `/effort`) takes the canonical
 levels `off | light | medium | high | xhigh | max` and maps them onto each
 provider's wire vocabulary ([ADR 0009](adr/0009-reasoning-effort.md)):
-codex `turn/start.effort`, cursor `ModelSelection.params`, openai
-`reasoning.effort` (`reasoning_effort` on the chat wire). ACP has no
+cursor `ModelSelection.params`, openai `reasoning.effort` (`reasoning_effort`
+on the chat wire; the codex/claude/grok profiles ride the same field). ACP has no
 portable knob at protocolVersion 1; the
 backend says so in one status line and the agent's default applies.
 
@@ -811,7 +811,7 @@ libtny exposes Cursor conversations through its normal runtime API.
 | Provider | Flags / env |
 | --- | --- |
 | cursor | `--bridge-bin PATH`, `CURSOR_SDK_BRIDGE_BIN`, `CURSOR_API_KEY` (also pass through to RPCs) |
-| codex | `--codex-ws URL` to attach (attach-or-fail); without it tny first tries `TNY_CODEX_WS`, then a live registered host from `~/.tny/codex-host.json` (loopback only, written by whichever tny spawned the server — a running TUI, typically), and only then spawns `codex app-server` on an ephemeral port (never a fixed port that could collide). Discovery failures fall back to spawning silently (`docs/adr/0004`). `--codex-bin`, `--ws-token-file`, `CODEX_REMOTE_TOKEN` |
+| codex (builtin profile) | bearer + account id from `$CODEX_HOME/auth.json` (`codex login`; expired tokens auto-refresh at resolve, written back to the file) → `https://chatgpt.com/backend-api/codex` on the Responses wire with `chatgpt-account-id` + `OpenAI-Beta: responses=v1`; an `OPENAI_API_KEY` auth.json → `api.openai.com`; default model `gpt-5.6-sol`; `TNY_CODEX_BASE_URL` redirects the ChatGPT-mode URL (mocks/gateways) without shadowing the profile; `--codex-bin` / `TNY_CODEX_BIN` name the CLI `login` runs ([backends/codex.md](backends/codex.md)) |
 | acp | `--agent CMD` plus extra args after `--`, e.g. `tny --provider acp --agent gemini -- acp`; `--agent ws://host:port` connects to a remote agent instead of spawning ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
 | openai | `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0016](adr/0016-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API` |
 | named provider | same flags; `NAME_BASE_URL` (beats the settings `base_url`), key from the profile's `api_key_env`, default `NAME_API_KEY` — never `OPENAI_API_KEY`; `NAME_WIRE_API` / profile `wire_api` |
@@ -863,7 +863,7 @@ own wire field:
 | Provider | Wire mapping |
 | --- | --- |
 | openai | `"service_tier":"priority"` on the chat-completions request (`fast` alias server-side) |
-| codex | `thread/start` `serviceTier:"priority"` (same tier; the value every app-server release accepts) |
+| codex | same as openai — the builtin profile rides the Responses request's `service_tier` |
 | cursor | `ModelSelection` param `{"id":"fast","value":"true"}` — fast is a per-model variant, not a request field |
 | acp | not supported — `--fast` exits 1 with the capable provider list |
 
@@ -871,8 +871,7 @@ The interactive TUI exposes the same capability as `/fast [fast|priority|default
 
 Provider caveat: `--provider cursor` runs Cursor's own headless loop. Its
 built-in tools have no per-call approval RPC, so tny permission rules apply
-only to explicitly registered custom-tool callbacks. `--provider codex`
-ignores `--image` with a status line (no documented image input item).
+only to explicitly registered custom-tool callbacks.
 
 ## `--max-steps` (agent loop cap)
 
@@ -883,7 +882,7 @@ calls per turn; a capped turn stops with "step limit reached" on stderr and
 (`0` means unlimited).
 `--max-steps unlimited` (or `0`) clears a cap a repo set through the
 `.tny.json` `"steps"` limit. The interactive TUI exposes the same knob as
-`/max-steps set N` / `/max-steps clear`. Host providers (cursor, codex, acp)
+`/max-steps set N` / `/max-steps clear`. Host providers (cursor, acp)
 run their own loops and are not affected.
 
 `--max-extension-iterations N` independently caps continuations requested by
@@ -901,7 +900,7 @@ Options:
   --resume last   Continue the latest workspace session
   --ephemeral     Keep conversation/session artifacts in memory only
   --no-save       Compatibility alias for --ephemeral
-  --provider NAME cursor | codex | acp | openai | settings profile (--backend also accepted)
+  --provider NAME cursor | acp | openai | codex | claude | grok | settings profile (--backend also accepted)
 
 Examples:
   tny ask "explain src/main.c"

@@ -13,23 +13,23 @@ tools are the narrow callback exception.
                     +------------------v------------------+
                     | private runtime + session + events  |
                     +------------------+------------------+
-           +---------------+-----------+----------+---------------+
-           v               v                      v               v
-     cursor-bridge    codex-app-server        acp-client     openai-native
-     spawn            ws:// or unix://        spawn stdio    HTTP SSE + tools
-     Connect sdk.v1   JSON-RPC (no jsonrpc)   JSON-RPC 2.0   tny owns tools
-     + callbacks
-           |               |                      |               |
-           v               v                      v               v
-     cursor-sdk-bridge  codex app-server    gemini/claude/...  provider API
+           +---------------+-----------+----------+
+           v               v                      v
+     cursor-bridge      acp-client          openai-native
+     spawn              spawn stdio         HTTP SSE + tools
+     Connect sdk.v1     JSON-RPC 2.0        tny owns tools
+     + callbacks                            (openai, codex, claude, grok,
+           |               |                 named profiles)
+           v               v                      v
+     cursor-sdk-bridge  gemini/claude/...   provider API / chatgpt.com
 ```
 
 ## Two kinds of backend
 
 | Kind | Backends | Who runs tools? | tny role |
 | --- | --- | --- | --- |
-| **Host** | Cursor bridge, Codex app-server, ACP client | The host process | Protocol client, approvals UI, session mapping; Cursor custom-tool/store callbacks are explicit exceptions |
-| **Native** | OpenAI-compatible | tny | Agent loop, MCP, skills, sandbox, ACP **server**, `read_image` |
+| **Host** | Cursor bridge, ACP client | The host process | Protocol client, approvals UI, session mapping; Cursor custom-tool/store callbacks are explicit exceptions |
+| **Native** | OpenAI-compatible, including the builtin codex / claude / grok subscription profiles | tny | Agent loop, MCP, skills, sandbox, ACP **server**, `read_image` |
 
 Never leak host-specific types into the TUI. Map every backend onto one event set: `text_delta`, `thinking`, `tool_start`, `tool_end`, `permission_request`, `plan`, `usage`, `turn_end`, `error`, `status`, `steer_rejected` (a mid-turn `steer()` the host refused after accepting it; the event carries the rejected text and the frontend re-queues it — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md), [ADR 0013](adr/0013-steer-rejection-owns-the-text.md)).
 
@@ -104,7 +104,6 @@ src/
   core/             # events, session store, permissions, AGENTS.md loader, images
   backends/
     cursor/         # v1.0.30 bridge/client, recovery, management, callbacks
-    codex/          # websocket JSON-RPC
     acp/            # client + server
     openai/         # HTTP + SSE + tool loop
   net/              # http1, connect framing, websocket, tls shim

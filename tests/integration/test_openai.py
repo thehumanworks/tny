@@ -822,7 +822,7 @@ def main():
                 [
                     TNY,
                     "--provider",
-                    "codex",
+                    "cursor",
                     "--cwd",
                     ws,
                     "ask",

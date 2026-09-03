@@ -1,4 +1,12 @@
-/* profiles.c — builtin subscription provider profiles (docs/adr/0019).
+/* profiles.c — builtin subscription provider profiles (docs/adr/0019, 0065).
+ *
+ * "codex": the user's ChatGPT subscription (`codex login` → auth.json,
+ * codex_auth.c) against the Responses-compatible ChatGPT backend
+ * `https://chatgpt.com/backend-api/codex`, which wants the OAuth access
+ * token as bearer plus `chatgpt-account-id` and `OpenAI-Beta: responses=v1`.
+ * tny's native loop owns tools, permissions, MCP, and sessions there — no
+ * `codex app-server` process anymore. An auth.json holding OPENAI_API_KEY
+ * instead (`codex login --with-api-key`) means api.openai.com.
  *
  * "claude": Anthropic's OpenAI-compatible endpoint driven by a Claude Code
  * OAuth token (`claude setup-token` / `claude /login`) or ANTHROPIC_API_KEY.
@@ -23,11 +31,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define CLAUDE_BASE_URL      "https://api.anthropic.com/v1"
-#define CLAUDE_OAUTH_HEADER  "anthropic-beta: oauth-2025-04-20"
-#define CLAUDE_DEFAULT_MODEL "claude-sonnet-4-6"
-#define GROK_PROXY_BASE_URL  "https://cli-chat-proxy.grok.com/v1"
-#define GROK_PROXY_HEADER    "X-XAI-Token-Auth: xai-grok-cli"
+#define CODEX_CHATGPT_BASE_URL "https://chatgpt.com/backend-api/codex"
+#define CODEX_API_BASE_URL     "https://api.openai.com/v1"
+#define CODEX_BETA_HEADER      "OpenAI-Beta: responses=v1"
+#define CODEX_DEFAULT_MODEL    "gpt-5.6-sol"
+#define CLAUDE_BASE_URL        "https://api.anthropic.com/v1"
+#define CLAUDE_OAUTH_HEADER    "anthropic-beta: oauth-2025-04-20"
+#define CLAUDE_DEFAULT_MODEL   "claude-sonnet-4-6"
+#define GROK_PROXY_BASE_URL    "https://cli-chat-proxy.grok.com/v1"
+#define GROK_PROXY_HEADER      "X-XAI-Token-Auth: xai-grok-cli"
 /* The proxy version-gates on x-grok-client-version and 426s requests that
  * claim less than its rolling minimum. Pinned to a known-accepted grok-build
  * release; TNY_GROK_CLIENT_VERSION overrides without a rebuild. */
@@ -38,7 +50,8 @@
 #define GROK_DEFAULT_MODEL "grok-4.6"
 
 bool tny_builtin_profile_exists(const char *name) {
-    return name && (strcmp(name, "claude") == 0 || strcmp(name, "grok") == 0);
+    return name &&
+           (strcmp(name, "codex") == 0 || strcmp(name, "claude") == 0 || strcmp(name, "grok") == 0);
 }
 
 /* ---------- extra request headers ---------- */
@@ -183,6 +196,37 @@ static void profile_default_model(tny_ctx *ctx, const char *model) {
     set_str(&ctx->model, model);
 }
 
+static void apply_codex(tny_ctx *ctx) {
+    profile_reset(ctx, "codex");
+    set_str(&ctx->wire_api, NULL); /* the ChatGPT backend is Responses-only */
+    /* Without the Codex CLI's background refresher, tny runs the
+     * refresh-token grant itself before reading (codex_auth.c). */
+    tny_codex_refresh_if_stale();
+    tny_codex_creds c;
+    tny_codex_credentials(&c);
+    if (c.access_token) {
+        /* TNY_CODEX_BASE_URL: test mocks / gateways; a plain CODEX_BASE_URL
+         * would instead shadow the whole builtin as a user profile */
+        const char *bu = getenv("TNY_CODEX_BASE_URL");
+        set_str(&ctx->base_url, bu && *bu ? bu : CODEX_CHATGPT_BASE_URL);
+        set_str(&ctx->api_key, c.access_token);
+        if (c.account_id) {
+            buf_t h;
+            buf_init(&h);
+            buf_appendf(&h, "chatgpt-account-id: %s", c.account_id);
+            tny_ctx_add_extra_header(ctx, h.data);
+            buf_free(&h);
+        }
+        tny_ctx_add_extra_header(ctx, CODEX_BETA_HEADER);
+    } else {
+        /* API-key mode, or no login at all: connect() explains the fix */
+        set_str(&ctx->base_url, c.api_key ? CODEX_API_BASE_URL : CODEX_CHATGPT_BASE_URL);
+        set_str(&ctx->api_key, c.api_key);
+    }
+    tny_codex_creds_free(&c);
+    profile_default_model(ctx, CODEX_DEFAULT_MODEL);
+}
+
 static void apply_claude(tny_ctx *ctx) {
     profile_reset(ctx, "claude");
     set_str(&ctx->base_url, CLAUDE_BASE_URL);
@@ -232,7 +276,8 @@ static void apply_grok(tny_ctx *ctx) {
 }
 
 void tny_apply_builtin_profile(tny_ctx *ctx, const char *name) {
-    if (strcmp(name, "claude") == 0) apply_claude(ctx);
+    if (strcmp(name, "codex") == 0) apply_codex(ctx);
+    else if (strcmp(name, "claude") == 0) apply_claude(ctx);
     else if (strcmp(name, "grok") == 0) apply_grok(ctx);
 }
 

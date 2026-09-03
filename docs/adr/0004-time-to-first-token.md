@@ -1,7 +1,7 @@
 # 0004 — Cut time-to-first-token: resume on the warm-up thread, overlap ask's connect with stdin, attach one-shots to a live codex host
 
 Date: 2026-08-20
-Status: accepted (amends 0002; adds two one-shot mechanisms)
+Status: accepted (amends 0002; adds two one-shot mechanisms). Mechanism 3 (the codex host registry) is retired by [ADR 0065](0065-codex-chatgpt-responses-backend.md): codex no longer spawns or attaches to anything.
 
 ## Context
 

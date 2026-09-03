@@ -69,8 +69,16 @@
   }
 }</code></pre>
 <h2 id="sandbox">Sandbox</h2>
-<p>Separate from permission. An allowed command still runs inside <code>os</code>, <code>none</code>, or <code>auto</code>. <code>yolo</code> forces effective <code>none</code> for the process. v1 may ship <code>none</code> until seatbelt lands; <code>doctor</code> says so.</p>
-<div class="note"><strong>Host mapping</strong><p>Cursor's built-in tools remain headless — there is no per-call approval RPC. Registered Cursor custom-tool callbacks are the narrow exception and retain tny validation/sensitivity policy. Codex and ACP requests map onto y / a / n.</p></div>
+<table>
+  <thead><tr><th>Mode</th><th>Terminal-child behavior</th></tr></thead>
+  <tbody>
+    <tr><td><code>os</code></td><td>macOS Seatbelt or Linux bubblewrap: reads allowed; writes limited to workspace, extra dirs, temp, and required devices</td></tr>
+    <tr><td><code>none</code></td><td>No tny OS wrapper</td></tr>
+    <tr><td><code>auto</code></td><td><code>os</code> when the platform wrapper is executable, otherwise <code>none</code></td></tr>
+  </tbody>
+</table>
+<p><code>yolo</code> forces effective <code>none</code>. Only local native-loop <code>terminal</code> children are wrapped, including background commands; tny itself, host-provider tools, built-in file tools, and <code>--ssh</code> commands stay outside. Network remains open for package managers, provider CLIs, tests, and local development servers. A denied write names the path and points to workspace extra dirs; widening is a separate user decision, not an automatic retry. <code>doctor</code> reports the effective mode. wasm treats <code>auto</code> as <code>none</code> and rejects explicit <code>os</code> cleanly.</p>
+<div class="note"><strong>Host mapping</strong><p>Cursor's built-in tools remain headless — there is no per-call approval RPC. Registered Cursor custom-tool callbacks are the narrow exception and retain tny validation/sensitivity policy. ACP requests map onto y / a / n; the codex profile is the native loop with real gates.</p></div>
 </article>
     <aside class="toc"><p>on this page</p><a href="#modes">Modes</a><a href="#what">What needs approval</a><a href="#rules">Rules</a><a href="#sandbox">Sandbox</a></aside>
   </main>

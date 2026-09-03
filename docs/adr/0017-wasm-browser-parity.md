@@ -4,6 +4,7 @@ Date: 2026-08-22
 Status: accepted (supersedes the "no wasm build" non-goal in
 [0005](0005-client-side-landing-terminal.md); 0005's key-handling rules —
 BYOK, sanitize at intake, never post to GitHub — carry forward unchanged)
+Codex references are historical: [ADR 0065](0065-codex-chatgpt-responses-backend.md) turned `codex` into a builtin profile of the native loop (no host process). The wasm codex row is now "works" (HTTPS), enforced by `test_codex_chatgpt.py`.
 
 ## Context
 

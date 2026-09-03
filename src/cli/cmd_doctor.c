@@ -147,7 +147,9 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         printf("ok  tools: %s\n", tny_tool_profile_name(ctx->tool_profile));
         printf("%s cursor-sdk-bridge: %s\n", bridge ? "ok " : "miss",
                bridge ? ctx->bridge_bin : "not on PATH (set CURSOR_SDK_BRIDGE_BIN)");
-        printf("%s codex: %s\n", codex ? "ok " : "miss", codex ? ctx->codex_bin : "not on PATH");
+        printf("%s codex CLI (login helper): %s\n", codex ? "ok " : "miss",
+               codex ? ctx->codex_bin
+                     : "not on PATH (needed only for `tny --provider codex login`)");
         printf("%s ACP agents: %s\n", acp_found.len ? "ok " : "miss",
                acp_found.len ? acp_found.data : "none detected");
         printf("\nproviders:\n");

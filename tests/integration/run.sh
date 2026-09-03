@@ -35,7 +35,7 @@ for t in tests/integration/test_*.sh; do
         echo "   skip: darwin CI (cursor mock ready-line vs macos python)"
         continue
     fi
-    # Honor each script's shebang (test_codex.sh is bash; dash rejects pipefail).
+    # Honor each script's shebang (bash scripts use pipefail; dash rejects it).
     run "$(basename "$t" .sh)" "$t" "$TNY"
 done
 

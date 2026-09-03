@@ -290,9 +290,8 @@ over global extensions.
 
 | Provider | Turn completion | Continue action | Stop confirmation | Important limit |
 | --- | --- | --- | --- | --- |
-| Native Responses/Chat | tny finishes its tool/model loop | another native model iteration with visible context | tny drains/synthesizes terminal | only backend where tny owns tools |
+| Native Responses/Chat (openai, codex, claude, grok profiles) | tny finishes its tool/model loop | another native model iteration with visible context | tny drains/synthesizes terminal | only backend where tny owns tools |
 | Cursor SDK Bridge | `result`, then `done` | new `Send` on the same agent | cancelled `result`, then `done` | host owns tools; no portable pre-tool veto |
-| Codex app-server | `turn/completed` | `turn/start` on the same thread | completed turn with `interrupted` | `turn/steer` is not portable and some turns reject it |
 | ACP v1 | original `session/prompt` response | another prompt on the same session | response stop reason `cancelled` after final updates | client must keep draining after cancel |
 | OpenRouter/generic compatible | terminal SSE/provider close | next HTTP model iteration | abort may not stop every upstream | mid-stream errors may still use HTTP 200 |
 

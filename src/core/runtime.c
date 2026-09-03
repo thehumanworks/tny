@@ -864,7 +864,7 @@ static extension_fold prepare_user_prompt(tny_engine *e, const char *prompt, con
 
 /* --system-prompt fallback (docs/adr/0045): the openai backend carries the
  * user system prompt on its native system/instructions field, but the host
- * protocols (cursor sdk.v1 CreateAgent, codex thread/start, ACP session/new)
+ * protocols (cursor sdk.v1 CreateAgent, ACP session/new)
  * expose no such schema field — there it is prepended to the session's first
  * user message instead. Anything that already has conversation history — a
  * later turn in this engine, a resumed or adopted host thread (host pointer

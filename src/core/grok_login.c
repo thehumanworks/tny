@@ -81,61 +81,6 @@ static void form_append(buf_t *b, const char *key, const char *val) {
     }
 }
 
-/* ---------- ISO-8601 <-> epoch (UTC, whole seconds) ---------- */
-
-static void iso8601_from_epoch(int64_t t, char out[32]) {
-    time_t tt = (time_t)t;
-    struct tm tm;
-    gmtime_r(&tt, &tm);
-    strftime(out, 32, "%Y-%m-%dT%H:%M:%SZ", &tm);
-}
-
-/* Fractional seconds and anything after them are ignored; auth.x.ai stamps
- * UTC ("…Z"), so no offset handling. -1 on parse failure. */
-static int64_t iso8601_to_epoch(const char *s) {
-    int y, mo, d, h, mi, sec;
-    if (!s || sscanf(s, "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &sec) != 6) return -1;
-    /* days-from-civil (public-domain calendar algorithm) */
-    int64_t yy = y - (mo < 2);
-    int64_t era = (yy >= 0 ? yy : yy - 399) / 400;
-    int64_t yoe = yy - era * 400;
-    int64_t doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-    int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    int64_t days = era * 146097 + doe - 719468;
-    return days * 86400 + h * 3600 + mi * 60 + sec;
-}
-
-/* ---------- JWT payload peek (display info only, no verification) ---------- */
-
-/* The id_token arrives over the direct HTTPS channel and only feeds the
- * store's user_id/email display fields, so its signature is not checked
- * (same stance as grok-build). */
-static yyjson_doc *jwt_payload(const char *jwt) {
-    if (!jwt) return NULL;
-    const char *dot1 = strchr(jwt, '.');
-    if (!dot1) return NULL;
-    const char *start = dot1 + 1;
-    const char *dot2 = strchr(start, '.');
-    size_t n = dot2 ? (size_t)(dot2 - start) : strlen(start);
-    /* base64url -> base64: b64_decode knows only the standard alphabet */
-    char *std = xstrndup(start, n);
-    if (!std) return NULL;
-    for (char *p = std; *p; p++) {
-        if (*p == '-') *p = '+';
-        else if (*p == '_') *p = '/';
-    }
-    uint8_t *raw = malloc(n + 4);
-    if (!raw) {
-        free(std);
-        return NULL;
-    }
-    size_t rn = b64_decode(std, raw, n + 4);
-    free(std);
-    yyjson_doc *doc = rn ? jparse((const char *)raw, rn) : NULL;
-    free(raw);
-    return doc;
-}
-
 /* ---------- HTTP: POST a form, slurp the JSON body ---------- */
 
 /* Returns the HTTP status, or -1 with err filled. Body bytes land in out. */
@@ -233,7 +178,7 @@ static int store_put_login(const char *issuer, const char *client_id, yyjson_val
     char ts[32];
     iso8601_from_epoch(now, ts);
     put_str(m, e, "create_time", ts);
-    yyjson_doc *claims = jwt_payload(jget_str(tokens, "id_token"));
+    yyjson_doc *claims = jwt_payload_doc(jget_str(tokens, "id_token"));
     yyjson_val *croot = claims ? yyjson_doc_get_root(claims) : NULL;
     const char *sub = jget_str(croot, "sub");
     const char *email = jget_str(croot, "email");

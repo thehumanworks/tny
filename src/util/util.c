@@ -494,6 +494,26 @@ bool tny_debug(void) {
     return on;
 }
 
+void iso8601_from_epoch(int64_t t, char out[32]) {
+    time_t tt = (time_t)t;
+    struct tm tm;
+    gmtime_r(&tt, &tm);
+    strftime(out, 32, "%Y-%m-%dT%H:%M:%SZ", &tm);
+}
+
+int64_t iso8601_to_epoch(const char *s) {
+    int y, mo, d, h, mi, sec;
+    if (!s || sscanf(s, "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &sec) != 6) return -1;
+    /* days-from-civil (public-domain calendar algorithm) */
+    int64_t yy = y - (mo < 2);
+    int64_t era = (yy >= 0 ? yy : yy - 399) / 400;
+    int64_t yoe = yy - era * 400;
+    int64_t doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    int64_t days = era * 146097 + doe - 719468;
+    return days * 86400 + h * 3600 + mi * 60 + sec;
+}
+
 char *now_iso8601(void) {
     time_t t = time(NULL);
     struct tm tm;

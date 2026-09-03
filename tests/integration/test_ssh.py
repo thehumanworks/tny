@@ -148,7 +148,7 @@ sys.exit(subprocess.call(["sh", "-c", av[-1]]))
             assert r.returncode == 1 and "--ssh requires a value" in r.stderr, r.stderr
             # host backends own their tool loop: refused, not silently local
             r = subprocess.run(
-                [TNY, "--provider", "codex", "--ssh", "box", "ask", "x"],
+                [TNY, "--provider", "cursor", "--ssh", "box", "ask", "x"],
                 env=env,
                 text=True,
                 capture_output=True,

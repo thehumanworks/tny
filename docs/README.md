@@ -4,7 +4,7 @@ Research and implementation contract for **tny**: a C11 TUI + CLI agent harness.
 
 The public static site (Geist Mono, same shape as [fx.sh](https://fx.sh)) is generated from `scripts/site_build.py` into [`site/`](../site/) and published by GitHub Pages. Rebuild with `make site`. The landing terminal is a client-side BYOK preview ([ADR 0005](adr/0005-client-side-landing-terminal.md)), not WASM tny. User-facing pages live there, including [tnytty](https://thehumanworks.github.io/tny/docs/tnytty.html); this tree remains the harness implementation contract. tnytty's contract is [`tnytty/docs/`](../tnytty/docs/README.md).
 
-Do not start product code until you have read this index and the files it names. The goal is to beat [fx](https://github.com/vercel-labs/fx) on size and speed, keep its user-facing functionality, and add Cursor SDK Bridge, Codex app-server (WebSocket), ACP, and OpenAI-compatible providers.
+Do not start product code until you have read this index and the files it names. The goal is to beat [fx](https://github.com/vercel-labs/fx) on size and speed, keep its user-facing functionality, and add Cursor SDK Bridge, Codex subscriptions (ChatGPT Responses backend), ACP, and OpenAI-compatible providers.
 
 ## Read first
 
@@ -36,7 +36,7 @@ Do not start product code until you have read this index and the files it names.
 | --- | --- |
 | [backends/README.md](backends/README.md) | Which loop owns tools and auth |
 | [backends/cursor-bridge.md](backends/cursor-bridge.md) | Spawn `cursor-sdk-bridge`, Connect `sdk.v1` |
-| [backends/codex-app-server.md](backends/codex-app-server.md) | WebSocket JSON-RPC to Codex |
+| [backends/codex.md](backends/codex.md) | Codex subscriptions on the ChatGPT Responses backend (native loop) |
 | [backends/acp.md](backends/acp.md) | ACP client (other agents) and ACP server (native loop) |
 | [backends/openai-compatible.md](backends/openai-compatible.md) | Chat Completions (+ optional Responses) |
 

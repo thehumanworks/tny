@@ -413,7 +413,6 @@ TARGETS = [
     ),
     # streamed tool_call assembly: parallel calls, gateway index reuse
     ("src/backends/openai/toolcalls.c", None, None, "tests/integration/test_openai.py"),
-    ("src/backends/codex/codex.c", ["cx_steer"], None),
     # --ssh remote tool runtime (docs/adr/0022): target parsing, the quoting
     # + stdin/timeout primitive, and every remote tool script
     ("src/core/ssh.c", ["ssh_target_set", "ssh_shell_quote", "ssh_run"], None),
@@ -430,13 +429,14 @@ TARGETS = [
     ("src/core/instructions.c", None, None),
     # native grok device-code login / refresh / logout (docs/adr/0021)
     ("src/core/grok_login.c", None, None),
-    # steer-text ownership + turn-end sweep (docs/adr/0013)
+    # codex ChatGPT credentials: auth.json parsing, account-id claim,
+    # staleness + refresh write-back (docs/adr/0065)
     (
-        "src/backends/codex/codex_rpc.c",
-        ["cx_end_turn", "cx_request"],
-        r"steer|STEER|registered|CXR_FREE",
+        "src/core/codex_auth.c",
+        None,
+        None,
+        "tests/integration/test_codex_chatgpt.py",
     ),
-    ("src/backends/codex/codex_msg.c", ["cx_response"], r"steer|STEER|CXR"),
     # --fast capability (TNY_CAP_FAST): new functions whole, only the
     # tier/fast lines inside the pre-existing ones.
     ("src/core/backend.c", ["tny_backend_caps"], None),
@@ -477,12 +477,6 @@ TARGETS = [
     ("src/core/config.c", ["tny_tier_is_fast"], None),
     ("src/cli/args.c", ["cli_parse_globals", "cli_make_ctx"], r"fast|tier|TNY_CAP"),
     ("src/tui/tui_commands.c", ["tui_command"], r"fast|tier"),
-    (
-        "src/backends/codex/codex.c",
-        ["cx_start_thread"],
-        r"tier|serviceTier",
-        "tests/integration/test_codex.sh",
-    ),
     (
         "src/backends/openai/openai.c",
         ["build_request_chat"],
@@ -665,20 +659,14 @@ TARGETS = [
         r"wire",
         "tests/integration/test_openai.py",
     ),
-    # builtin subscription profiles: claude/grok (docs/adr/0019). The login
-    # ceremonies (codex_login.c, cmd_login) are interactive/process-spawning
-    # and answer to tests/integration/test_codex.sh run 7 instead.
+    # builtin subscription profiles: codex/claude/grok (docs/adr/0019, 0065).
+    # The login ceremonies (cmd_login) are interactive/process-spawning and
+    # are not mutated.
     ("src/core/profiles.c", None, None),
     (
         "src/core/config.c",
         ["tny_resolve_backend", "tny_provider_names_joined"],
-        r"builtin|claude|grok",
-    ),
-    (
-        "src/backends/codex/codex_msg.c",
-        ["cx_notification"],
-        r"login",
-        "tests/integration/test_codex.sh",
+        r"builtin|codex|claude|grok",
     ),
     # color vs attribute split (docs/adr/0026): the resolver and the flag
     # parsing whole; the status row's two renderings answer to the unit

@@ -253,7 +253,7 @@ does. Several mentions inject each skill once, in order of first appearance.
 Bodies above `max_tool_result_bytes` are cut like a tool result (native: a
 `read_tool_result` handle; hosts: the file path). This applies wherever a
 prompt reaches a backend through the engine — `tny ask`, the TUI, `tny acp`
-server, and the host backends (cursor, codex, ACP client), which cannot see
+server, and the host backends (cursor, ACP client), which cannot see
 tny's `skill` tool. The system-prompt catalog is unchanged.
 
 The native transcript stores the text the model saw; a top-level

@@ -70,5 +70,9 @@ int64_t monotonic_ms(void);
 bool tny_debug(void); /* TNY_DEBUG=1: pass host/protocol diagnostics through */
 /* ISO-8601 UTC "YYYY-MM-DDTHH:MM:SSZ"; caller frees */
 char *now_iso8601(void);
+/* Whole-second UTC ISO-8601 <-> epoch seconds. The parser ignores fractional
+ * seconds and any zone suffix (callers only pass UTC stamps); -1 on error. */
+void iso8601_from_epoch(int64_t t, char out[32]);
+int64_t iso8601_to_epoch(const char *s);
 
 #endif

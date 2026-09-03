@@ -1,7 +1,7 @@
 # 0011 — Mid-turn input: steer where the host can, queue everywhere else
 
 Date: 2026-08-22
-Status: accepted — amended by [0013](0013-steer-rejection-owns-the-text.md)
+Status: accepted — amended by [0013](0013-steer-rejection-owns-the-text.md). Codex references are historical: [ADR 0065](0065-codex-chatgpt-responses-backend.md) turned `codex` into a builtin profile of the native loop (no host process). Steer for codex is now the native loop's.
 (steer-text ownership moved to the backend; `TNY_EV_STEER_REJECTED` carries
 the text)
 
