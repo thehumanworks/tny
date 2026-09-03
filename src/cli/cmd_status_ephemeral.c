@@ -3,6 +3,7 @@
  * byte stable while ephemeral mode gains an explicit machine-readable field. */
 #include "cli/cli.h"
 #include "core/backend.h"
+#include "core/sandbox.h"
 #include "core/session.h"
 #include "util/util.h"
 
@@ -38,9 +39,10 @@ int cmd_status_ephemeral(tny_ctx *ctx, const cli_globals *g, int argc, char **ar
         }
         buf_appendf(&b,
                     ",\"auth\":\"%s\",\"permission_mode\":\"%s\","
-                    "\"sandbox\":\"%s\",\"ephemeral\":true,\"workspace\":",
+                    "\"tools\":\"%s\",\"sandbox\":\"%s\",\"ephemeral\":true,\"workspace\":",
                     auth ? "ok" : "missing", tny_perm_mode_name(ctx->perm_mode),
-                    strcmp(ctx->sandbox_mode, "os") == 0 ? "os" : "none");
+                    tny_tool_profile_name(ctx->tool_profile),
+                    tny_sandbox_kind_name(tny_sandbox_effective(ctx)));
         jescape(&b, ctx->cwd);
         buf_appends(&b, ",\"task\":");
         if (ctx->task_name) {
@@ -69,8 +71,10 @@ int cmd_status_ephemeral(tny_ctx *ctx, const cli_globals *g, int argc, char **ar
         if (ctx->reasoning_effort) printf("effort:     %s\n", ctx->reasoning_effort);
         printf("auth:       %s\n", auth ? "ok" : "missing (set OPENAI_API_KEY or run tny setup)");
         printf("permission: %s\n", tny_perm_mode_name(ctx->perm_mode));
-        printf("sandbox:    %s\n",
-               strcmp(ctx->sandbox_mode, "os") == 0 ? "os (unsupported: effective none)" : "none");
+        printf("tools:      %s\n", tny_tool_profile_name(ctx->tool_profile));
+        tny_sandbox_kind sandbox = tny_sandbox_effective(ctx);
+        printf("sandbox:    %s (%s)\n", tny_sandbox_kind_name(sandbox),
+               tny_sandbox_kind_description(sandbox));
         printf("mode:       ephemeral (conversation artifacts stay in memory)\n");
         printf("workspace:  %s\n", ctx->cwd);
         if (ctx->task_name)

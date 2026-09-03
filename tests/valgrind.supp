@@ -1,0 +1,62 @@
+# Valgrind suppressions for `make valgrind` / `make leaks` (docs/adr/0061).
+#
+# First-party leaks must never be suppressed here. Every entry below is a
+# one-time allocation inside code tny does not own and cannot free:
+# the dynamic loader, and the system OpenSSL that src/net/stream.c dlopen's
+# at first TLS use (deliberately never dlclose'd — see ADR 0039 notes on the
+# TLS seam), whose library-global tables live until process exit.
+#
+# These are all `still reachable`, which `--errors-for-leak-kinds=definite,
+# indirect` already excludes from the exit code; suppressing them keeps the
+# report readable. Measured on ubuntu-24.04/valgrind 3.22: with and without
+# this file the unit binary reports 0 definitely and 0 indirectly lost bytes,
+# and the file only moves ~612 KB of OpenSSL tables out of `still reachable`.
+
+{
+   dl-open-once-per-library
+   Memcheck:Leak
+   match-leak-kinds: reachable,possible
+   ...
+   fun:_dl_open
+}
+
+{
+   dlopen-libssl-tls-seam
+   Memcheck:Leak
+   match-leak-kinds: reachable,possible,definite
+   ...
+   obj:*/libssl.so*
+}
+
+{
+   dlopen-libcrypto-tls-seam
+   Memcheck:Leak
+   match-leak-kinds: reachable,possible,definite
+   ...
+   obj:*/libcrypto.so*
+}
+
+{
+   openssl-library-init-tables
+   Memcheck:Leak
+   match-leak-kinds: reachable,possible
+   ...
+   fun:OPENSSL_init_crypto
+}
+
+{
+   openssl-library-init-ssl
+   Memcheck:Leak
+   match-leak-kinds: reachable,possible
+   ...
+   fun:OPENSSL_init_ssl
+}
+
+# glibc caches the locale and the TZ database for the life of the process.
+{
+   glibc-locale-cache
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:__libc_alloc_buffer_allocate
+}

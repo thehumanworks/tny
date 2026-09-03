@@ -21,10 +21,13 @@ if not TNY.is_absolute():
 COMMAND_PARSERS = {
     "acp": ("cmd_acp_server",),
     "ask": ("cmd_ask",),
+    "ask-user": ("cmd_ask_user",),
     "backends": ("cmd_backends",),
     "cursor": ("cmd_cursor",),
     "doctor": ("cmd_doctor",),
+    "edit": ("cmd_edit",),
     "login": ("cmd_login",),
+    "image": ("cmd_image",),
     "logout": ("cmd_logout",),
     "mcp": ("cmd_mcp",),
     "models": ("cmd_models",),

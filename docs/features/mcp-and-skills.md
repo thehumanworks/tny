@@ -20,9 +20,85 @@ Keep fx names so prompts and muscle memory transfer:
 
 Large results: bounded preview + session handle; `read_tool_result` reads a byte range or literal search. Background commands persist pid, cwd, log path, detected URL.
 
+### Native tool profiles
+
+The user setting `tools` and higher-precedence `TNY_TOOLS` select what the
+native OpenAI-compatible loop both advertises and accepts ([ADR
+0062](../adr/0062-native-tool-profiles-advertise-and-enforce.md)):
+
+| Profile | Advertised built-ins |
+| --- | --- |
+| `all` (default) | The complete table above |
+| `terminal+edit` | `terminal`, `edit_file`, `read_image`; also `ask_user_question` in an interactive session |
+| `terminal` | `terminal`, plus `read_image` because pixels cannot ride terminal stdout (ADR 0008) |
+
+libtny custom tools are appended in every profile. Shell profiles hide the MCP
+meta-tools and use `tny mcp call SERVER/TOOL`; replaying or directly requesting
+any hidden built-in, including `mcp_select_tool`, returns `unknown tool` before
+dispatch. libtny, wasm, and `tny acp` keep `all`. wasm retains the existing
+clean error for `terminal`; profiles do not add a browser shell.
+
+Foreground terminal results in either shell profile begin with `exit:`,
+`bytes:`, and `cwd:`. The preview is capped at the smaller of the configured
+tool-result limit and 8 KiB. A truncated result adds `full: PATH`; the `0600`
+file contains output from byte zero and lives under the session's `results/`
+directory, or `~/.tny/results/` without a session. Collection has a 64 MiB
+hard cap. The `all` profile keeps the existing result shape and
+`read_tool_result` handles.
+
+Which profile should be the default is a measured question, not a taste
+question: `tests/bench/bench_tools.py` runs all three arms over a frozen task
+set and the numbers are recorded in the Measurement section of [ADR
+0057](../adr/0057-shell-first-native-loop.md). See
+[ci.md](../ci.md#benchmarks) for how to run it.
+
 `memory` writes `~/.tny/memories.json` only when asked. Do not inject it into every prompt. In [ephemeral mode](../adr/0020-ephemeral-sessions.md), `memory set` is rejected so a conversation cannot create durable user memory; `get` and `list` may still read existing memories.
 
 No browser/CDP tools in v1.
+
+### First-party `tny` verbs inside `terminal` ([ADR 0063](../adr/0063-in-process-intercept-of-first-party-verbs.md))
+
+A single simple `tny …` command typed into `terminal` is **not** run as a
+nested process. tny recognises it while preparing the tool call and dispatches
+it in-process, so it keeps the permission engine, session grants, `/undo`, the
+warmed MCP client, and the `--ssh` route:
+
+| Command | Runs | Permission identity |
+| --- | --- | --- |
+| `tny edit [--json] [--marker M] FILE` | the shared exact-match editor with the `edit_file` undo hook; over `--ssh`, `cat` + local replace + atomic write-back on the remote host | `edit_file` + resolved path |
+| `tny mcp call SERVER/TOOL` | one `tools/call` on the session's already-warmed client — never a second server | `mcp:server/tool` |
+| `tny memory get\|set\|list …` | the `memory` tool | `memory` |
+| `tny skill show NAME` | the `skill` tool | `skill` |
+| `tny image attach PATH` | the same queue as `read_image`, allowed roots only | `read_image` |
+| `tny ask-user [--json] QUESTION` | the frontend ask hook, with no socket round trip | `ask_user_question` |
+| `tny ask …` (no `-B`) | refused: a foreground nested agent inside a turn | — |
+| `tny ask -B …`, and everything else | `/bin/sh`, unchanged | `terminal` + command |
+
+The result is the verb's own contract — an `exit: N` line then its stdout and
+stderr — not a shell transcript, and `tool_start` names the verb
+(`tny edit docs/x.md`) instead of the raw command.
+
+**Payloads still ride stdin.** Two shapes are understood: a here-doc
+(`tny edit FILE <<'EOF' … EOF`) and one left-hand producer piped in
+(`printf '…' | tny edit FILE`, `echo '{…}' | tny mcp call s/t`,
+`cat args.json | tny mcp call s/t`). `printf` must carry no `%` conversion and
+`echo` no backslash, because shells disagree about those.
+
+**Everything else runs in the shell exactly as before**: a second command
+(`;`, `&&`, `||`, `&`), any redirection other than that here-doc, a second
+pipe, a substitution or variable (`$(…)`, `` ` ` ``, `$VAR`), a glob, an
+env-assignment prefix (`FOO=bar tny …`), a global flag other than `--json`
+before the verb, `background: true`, or any verb not in the table. The
+standalone binary still works there — it just runs cold, without the session's
+permissions, undo, or warm MCP client.
+
+Every `terminal` child is started with `TNY_NESTED=1` and `TNY_NESTED_MODE`
+naming the turn's effective permission mode; a nested tny cannot widen it (see
+[permissions](permissions.md)).
+
+wasm: not applicable. `terminal` cannot start a child process in the browser
+and returns its existing clean tool error, so no command reaches the
+recogniser.
 
 ### Web search providers
 
@@ -67,7 +143,7 @@ Authoritative profile: `~/.tny/mcp.json`. A clone cannot opt itself into MCP
 authority: project files are considered only after the user's global settings
 explicitly enable their harness source.
 
-Opt-in import ([ADR 0051](../adr/0051-mcp-import-from-harnesses.md)): `mcp.import_from` in `~/.tny/settings.json` may list `"codex"`, `"claude"`, `"grok"`, and/or `"cursor-agent"` (`"cursor"` alias). Off by default — no foreign file is opened until named. Claude `.mcp.json`, Grok Build `.grok/config.toml`, and cursor-agent `.cursor/mcp.json` project files load only after their global source opt-in. Native names win on collision. Stdio servers run; the current tree lists remote HTTP/SSE/WS entries as `skipped: unsupported transport` behind the transport capability seam, ready for issue #87. `tny mcp list --json` attributes `source`, `scope`, and `transport`. tny never writes those files. wasm: parse works, spawn stays the existing clean error.
+Opt-in import ([ADR 0051](../adr/0052-mcp-import-from-harnesses.md)): `mcp.import_from` in `~/.tny/settings.json` may list `"codex"`, `"claude"`, `"grok"`, and/or `"cursor-agent"` (`"cursor"` alias). Off by default — no foreign file is opened until named. Claude `.mcp.json`, Grok Build `.grok/config.toml`, and cursor-agent `.cursor/mcp.json` project files load only after their global source opt-in. Native names win on collision. Stdio servers run; the current tree lists remote HTTP/SSE/WS entries as `skipped: unsupported transport` behind the transport capability seam, ready for issue #87. `tny mcp list --json` attributes `source`, `scope`, and `transport`. tny never writes those files. wasm: parse works, spawn stays the existing clean error.
 
 Transports: stdio JSONL and Streamable HTTP ([ADR
 0051](../adr/0051-mcp-streamable-http.md)). Existing entries keep their exact
@@ -120,6 +196,31 @@ fetch/ReadableStream transport, subject to browser CORS. Stdio entries retain
 the clean spawn-unavailable error. There is no extra wasm protocol
 implementation and every blocking body wait still goes through `tny_poll`.
 
+From a shell ([ADR 0057](../adr/0057-shell-first-native-loop.md), [ADR 0064](../adr/0064-cli-verb-conventions.md)): `tny mcp call SERVER/TOOL`
+runs one `tools/call` for any harness with a shell — tny's own `terminal`
+tool, Claude Code, Codex, CI. The JSON arguments ride stdin (empty stdin, or a
+terminal on stdin, means `{}`; argv would be a quoting footgun), the result
+content goes to stdout, diagnostics to stderr, and `--json` prints one
+`{"kind":"mcp_call",…}` object. The permission identity is the same
+`mcp:server/tool` the native loop uses, checked with the same engine
+immediately before `tools/call`: in the default `yolo` mode it passes, and in
+`ask` mode the command never prompts — it fails closed with exit 2 until a
+rule names that identity. Exit codes: 0 ok, 1 usage/config (bad spec, stdin
+that is not one JSON object, unknown server), 2 refused or failed
+(`isError: true`, a JSON-RPC error, a timeout), 130 interrupted.
+
+Cross-harness rules are unchanged by the CLI: servers come from the
+user-global `~/.tny/mcp.json` plus any `mcp.import_from` source; a project
+`.mcp.json` is never read on its own. A one-shot `tny mcp call` outside a
+session pays a cold start (spawn, `initialize`, `tools/list`) and shuts the
+server down again on exit; inside a running tny session the warmed client
+answers instead. Server output stays untrusted data and is bounded like a
+tool result: above `max_tool_result_bytes` the preview is capped and the full
+result is written to a `0600` file under `~/.tny/results/` whose path is
+printed (`result_file` in `--json`). wasm: HTTP servers work remote-only,
+stdio keeps the clean spawn error, so `tny mcp call` against a stdio server in
+the browser reports that error and exits 1.
+
 ACP sessions (`tny acp`): use only client-supplied `mcpServers`, not the user profile (fx rule).
 
 tny is not an MCP server.
@@ -163,7 +264,7 @@ it. In the TUI a builtin slash command always wins over a same-named skill.
 
 ## Subagents
 
-Child **native** sessions. One-off or persistent. Parent/child messages queued on disk so the child transcript is not dumped into the parent. Children cannot raise permission mode above the creator unless a human set it in the manager (Ctrl-X). Host backends: no tny-spawned subagents; show host task events if they exist (e.g. Cursor `cursor/task`).
+Child **native** sessions. One-off or persistent. Parent/child messages queued on disk so the child transcript is not dumped into the parent. Children cannot raise permission mode above the creator unless a human set it in the manager (Ctrl-X); a `tny ask -B` the model starts from `terminal` is held to the same rule by `TNY_NESTED` ([ADR 0063](../adr/0063-in-process-intercept-of-first-party-verbs.md)). Host backends: no tny-spawned subagents; show host task events if they exist (e.g. Cursor `cursor/task`).
 
 The child is a `tny ask` process and **runs the parent's resolved provider**: the parent forwards `--provider` (its effective profile name), `--base-url` and `--wire-api` on the native backend, plus `--model`, `--effort`, `--permission-mode`, and `--ephemeral` on the child command line. The child never re-resolves from settings, so a remembered `last_provider` from an earlier host-backend chat cannot re-route it. API keys are never placed on the command line; they travel through the inherited environment or the same settings the parent read. Model-supplied strings (`id`, `prompt`) are shell-quoted into single arguments. A child that dies before its turn reports its captured stderr in the tool result; a child turn that ends in an error (nonzero `exit_code` or an `error` in its `--json` payload) is a tool error, not a success.
 

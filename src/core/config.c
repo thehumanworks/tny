@@ -21,6 +21,36 @@ const char *tny_perm_mode_name(tny_perm_mode m) {
     }
 }
 
+/* TNY_MODE_ASK < TNY_MODE_AUTO < TNY_MODE_YOLO in authority. */
+static bool parse_perm_mode(const char *name, tny_perm_mode *out) {
+    if (!name) return false;
+    if (strcmp(name, "ask") == 0) *out = TNY_MODE_ASK;
+    else if (strcmp(name, "auto") == 0) *out = TNY_MODE_AUTO;
+    else if (strcmp(name, "yolo") == 0) *out = TNY_MODE_YOLO;
+    else return false;
+    return true;
+}
+
+bool tny_nested_perm_mode(tny_perm_mode *parent) {
+    const char *nested = getenv("TNY_NESTED");
+    if (!nested || strcmp(nested, "1") != 0) return false;
+    tny_perm_mode mode = TNY_MODE_ASK;
+    if (!parse_perm_mode(getenv("TNY_NESTED_MODE"), &mode)) mode = TNY_MODE_ASK;
+    if (parent) *parent = mode;
+    return true;
+}
+
+bool tny_perm_mode_allowed_nested(tny_perm_mode requested, char *err, size_t errlen) {
+    tny_perm_mode parent = TNY_MODE_ASK;
+    if (!tny_nested_perm_mode(&parent) || requested <= parent) return true;
+    if (err && errlen)
+        snprintf(err, errlen,
+                 "permission mode '%s' is wider than the '%s' mode of the tny turn this command "
+                 "runs inside; a nested run cannot widen it",
+                 tny_perm_mode_name(requested), tny_perm_mode_name(parent));
+    return false;
+}
+
 int tny_parse_max_steps(const char *s) {
     if (!s || !*s) return -1;
     if (strcmp(s, "unlimited") == 0 || strcmp(s, "none") == 0) return 0;
@@ -55,6 +85,32 @@ bool tny_tier_is_fast(const char *tier) {
 bool tny_wire_is_chat(const char *wire_api) { return wire_api && strcmp(wire_api, "chat") == 0; }
 
 static const char *bk_names[TNY_BK_COUNT] = {"openai", "cursor", "codex", "acp"};
+
+const char *tny_tool_profile_name(tny_tool_profile profile) {
+    if (profile == TNY_TOOLS_TERMINAL_EDIT) return "terminal+edit";
+    if (profile == TNY_TOOLS_TERMINAL) return "terminal";
+    return "all";
+}
+
+bool tny_tool_profile_is_shell(const tny_ctx *ctx) {
+    return ctx && !ctx->library_mode && ctx->tool_profile != TNY_TOOLS_ALL;
+}
+
+void tny_tool_profile_ignore(tny_ctx *ctx, const char *surface) {
+    if (!ctx || ctx->tool_profile == TNY_TOOLS_ALL) return;
+    fprintf(stderr, "tny: tool profile %s ignored in %s; using all\n",
+            tny_tool_profile_name(ctx->tool_profile), surface ? surface : "this mode");
+    ctx->tool_profile = TNY_TOOLS_ALL;
+}
+
+static bool tool_profile_parse(const char *value, tny_tool_profile *profile) {
+    if (!value || !profile) return false;
+    if (strcmp(value, "all") == 0) *profile = TNY_TOOLS_ALL;
+    else if (strcmp(value, "terminal+edit") == 0) *profile = TNY_TOOLS_TERMINAL_EDIT;
+    else if (strcmp(value, "terminal") == 0) *profile = TNY_TOOLS_TERMINAL;
+    else return false;
+    return true;
+}
 
 /* Canonical levels (TNY_EFFORT_LEVELS) and their per-provider wire words.
  * Providers advertise more values than they share ("minimal", "ultra", …);
@@ -542,6 +598,7 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
      * unless the user explicitly opts into ask/auto (docs/adr/0001). */
     ctx->backend = -1;
     ctx->perm_mode = TNY_MODE_YOLO;
+    ctx->tool_profile = TNY_TOOLS_ALL;
     ctx->max_steps = 0; /* unlimited; .tny.json "steps" or --max-steps cap it */
     ctx->extensions_enabled = true;
     ctx->max_extension_iterations = 0; /* unlimited by default */
@@ -554,17 +611,35 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     /* settings-level defaults. Provider/model/effort/fast are completed in
      * tny_resolve_backend because named providers need their effective name. */
     const char *s;
-    if ((s = jget_str(wso, "permission_mode")) || (s = jget_str(sroot, "permission_mode"))) {
-        if (strcmp(s, "auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
-        else if (strcmp(s, "yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
-        else if (strcmp(s, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;
-    }
+    tny_perm_mode mode = ctx->perm_mode;
+    if ((s = jget_str(wso, "permission_mode")) || (s = jget_str(sroot, "permission_mode")))
+        parse_perm_mode(s, &mode);
+    /* Settings are the machine's default, not a request: a nested run clamps
+     * them silently. An explicit environment override is refused instead, so
+     * the caller learns the mode it asked for is unavailable (ADR 0063). */
+    tny_perm_mode parent = TNY_MODE_ASK;
+    if (tny_nested_perm_mode(&parent) && mode > parent) mode = parent;
+    ctx->perm_mode = mode;
     const char *pm_env = getenv("TNY_PERMISSION_MODE");
-    if (pm_env) {
-        if (strcmp(pm_env, "auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
-        else if (strcmp(pm_env, "yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
-        else if (strcmp(pm_env, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;
+    if (pm_env && parse_perm_mode(pm_env, &mode)) {
+        char nested_error[256];
+        if (!tny_perm_mode_allowed_nested(mode, nested_error, sizeof nested_error)) {
+            fprintf(stderr, "tny: TNY_PERMISSION_MODE: %s\n", nested_error);
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        ctx->perm_mode = mode;
     }
+
+    const char *tools_setting = jget_str(sroot, "tools");
+    if (tools_setting && !tool_profile_parse(tools_setting, &ctx->tool_profile))
+        fprintf(stderr, "tny: warning: settings.json tools must be all|terminal+edit|terminal\n");
+    const char *tools_env = getenv("TNY_TOOLS");
+    if (tools_env && !tool_profile_parse(tools_env, &ctx->tool_profile))
+        fprintf(stderr, "tny: warning: TNY_TOOLS must be all|terminal+edit|terminal\n");
+#ifdef __EMSCRIPTEN__
+    tny_tool_profile_ignore(ctx, "wasm");
+#endif
 
     /* Extensions are global user code, never repo authority. Configuration
      * therefore comes only from settings/env/CLI, not .tny.json. */
@@ -691,6 +766,7 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
     ctx->backend = TNY_BK_OPENAI;
     ctx->provider_name = xstrdup("openai");
     ctx->perm_mode = TNY_MODE_ASK;
+    ctx->tool_profile = TNY_TOOLS_ALL;
     ctx->max_steps = 0;              /* unlimited unless the embedder sets a cap */
     ctx->extensions_enabled = false; /* explicit embedders opt into authority */
     ctx->max_extension_iterations = 0;

@@ -925,7 +925,11 @@ char *mcp_search_tools(tools_env *env, const char *query) {
     return buf_detach(&out);
 }
 
-char *mcp_call_tool(tools_env *env, const char *server, const char *tool, const char *args_json) {
+char *mcp_call_tool_raw(tools_env *env, const char *server, const char *tool, const char *args_json,
+                        mcp_call_status *status) {
+    mcp_call_status ignored;
+    if (!status) status = &ignored;
+    *status = MCP_CALL_CONFIG_ERROR;
     if (!server || !tool) return tool_err("mcp_select_tool needs server and tool");
     char *err = NULL;
     mcp_server *s = get_server(env, server, &err);
@@ -937,6 +941,7 @@ char *mcp_call_tool(tools_env *env, const char *server, const char *tool, const 
     buf_appendf(&params, ",\"arguments\":%s}", args_json ? args_json : "{}");
     yyjson_doc *resp = rpc(&s->conn, "tools/call", tool, params.data);
     buf_free(&params);
+    *status = MCP_CALL_TOOL_ERROR;
     if (!resp) {
         if (s->conn.transport == MCP_TRANSPORT_HTTP && s->conn.last_error[0])
             return tool_err("MCP call to %s/%s failed: %s", server, tool, s->conn.last_error);
@@ -950,7 +955,11 @@ char *mcp_call_tool(tools_env *env, const char *server, const char *tool, const 
         buf_appendf(&out, "error: MCP %s/%s: %s", server, tool,
                     jget_str(jerr, "message") ? jget_str(jerr, "message") : "unknown");
     } else {
-        yyjson_val *content = jget(jget(root, "result"), "content");
+        yyjson_val *result = jget(root, "result");
+        /* isError:true is a tool-level failure, not a transport one: the
+         * content is still the message the caller wants to read */
+        if (!jget_bool(result, "isError", false)) *status = MCP_CALL_OK;
+        yyjson_val *content = jget(result, "content");
         if (content && yyjson_is_arr(content)) {
             size_t idx, max;
             yyjson_val *c;
@@ -963,7 +972,7 @@ char *mcp_call_tool(tools_env *env, const char *server, const char *tool, const 
             }
         }
         if (!out.len) {
-            char *raw = jwrite_val(jget(root, "result"));
+            char *raw = jwrite_val(result);
             if (raw) {
                 buf_appends(&out, raw);
                 free(raw);
@@ -971,9 +980,193 @@ char *mcp_call_tool(tools_env *env, const char *server, const char *tool, const 
         }
     }
     yyjson_doc_free(resp);
-    char *bounded = tool_bound_result(env, out.data, out.len);
-    buf_free(&out);
+    return buf_detach(&out);
+}
+
+char *mcp_call_tool(tools_env *env, const char *server, const char *tool, const char *args_json) {
+    char *raw = mcp_call_tool_raw(env, server, tool, args_json, NULL);
+    if (!raw || !env || !env->ctx) return raw; /* the error text is the message */
+    char *bounded = tool_bound_result(env, raw, strlen(raw));
+    free(raw);
     return bounded;
+}
+
+/* ---- `tny mcp call SERVER/TOOL` (docs/cli.md, ADR 0057) ---- */
+
+/* One path component of the spill file name: MCP names are configuration,
+ * not paths, so anything but [A-Za-z0-9._-] becomes '_'. */
+static void append_slug(buf_t *b, const char *s) {
+    for (const char *p = s; p && *p; p++) {
+        unsigned char c = (unsigned char)*p;
+        bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                  c == '.' || c == '_' || c == '-';
+        buf_append(b, ok ? (const char *)&c : "_", 1);
+    }
+}
+
+/* Store an oversized result in ~/.tny/results/ (0600, like every other file
+ * tny writes) and return its path, or NULL if it could not be written. */
+static char *spill_result(struct tny_ctx *ctx, const char *server, const char *tool,
+                          const char *data, size_t len) {
+    char *dir = path_join(ctx->tny_dir, "results");
+    if (!dir) return NULL;
+    if (mkdir_p(dir) != 0) {
+        free(dir);
+        return NULL;
+    }
+    buf_t name;
+    buf_init(&name);
+    buf_appends(&name, "mcp-");
+    append_slug(&name, server);
+    buf_appends(&name, "-");
+    append_slug(&name, tool);
+    buf_appendf(&name, "-%lld-%d.txt", (long long)now_ms(), (int)getpid());
+    char *path = path_join(dir, name.data ? name.data : "mcp-result.txt");
+    free(dir);
+    buf_free(&name);
+    if (!path) return NULL;
+    if (file_write_atomic(path, data, len) != 0) { /* 0600 tmp + rename */
+        free(path);
+        return NULL;
+    }
+    return path;
+}
+
+/* Emit the one JSON object the CLI contract promises. */
+static void call_json_out(FILE *out, const char *server, const char *tool, bool ok,
+                          const char *text, const char *file, size_t bytes, bool truncated) {
+    buf_t b;
+    buf_init(&b);
+    buf_appends(&b, "{\"kind\":\"mcp_call\",\"server\":");
+    jescape(&b, server);
+    buf_appends(&b, ",\"tool\":");
+    jescape(&b, tool);
+    buf_appendf(&b, ",\"ok\":%s,\"result\":", ok ? "true" : "false");
+    jescape(&b, text ? text : "");
+    buf_appendf(&b, ",\"bytes\":%zu,\"truncated\":%s", bytes, truncated ? "true" : "false");
+    if (file) {
+        buf_appends(&b, ",\"result_file\":");
+        jescape(&b, file);
+    }
+    buf_appends(&b, "}\n");
+    if (b.data) fwrite(b.data, 1, b.len, out);
+    buf_free(&b);
+}
+
+static int call_fail(FILE *out, FILE *err, bool json, const char *server, const char *tool,
+                     const char *msg, int code) {
+    fprintf(err, "tny: mcp call: %s\n", msg);
+    if (json) call_json_out(out, server, tool, false, msg, NULL, strlen(msg), false);
+    return code;
+}
+
+int mcp_call_cli(struct tny_ctx *ctx, const char *spec, const char *args_json, bool json, FILE *out,
+                 FILE *err) {
+    if (!ctx || !out || !err) return 1;
+    const char *slash = spec ? strchr(spec, '/') : NULL;
+    if (!spec || !*spec || !slash || slash == spec || !slash[1] || strchr(slash + 1, '/')) {
+        fprintf(err, "tny: mcp call: expected SERVER/TOOL (e.g. `tny mcp call deploy/status`)\n");
+        return 1;
+    }
+    char *server = xstrndup(spec, (size_t)(slash - spec));
+    const char *tool = slash + 1;
+    if (!server) return 1;
+
+    /* arguments ride STDIN, never argv: they must be one JSON object */
+    const char *args = args_json && *args_json ? args_json : "{}";
+    yyjson_doc *adoc = jparse(args, strlen(args));
+    yyjson_val *aroot = adoc ? yyjson_doc_get_root(adoc) : NULL;
+    if (!aroot || !yyjson_is_obj(aroot)) {
+        yyjson_doc_free(adoc);
+        fprintf(err, "tny: mcp call: arguments on stdin must be one JSON object "
+                     "(empty stdin means {})\n");
+        free(server);
+        return 1;
+    }
+    yyjson_doc_free(adoc);
+
+    buf_t identity;
+    buf_init(&identity);
+    buf_appendf(&identity, "mcp:%s/%s", server, tool);
+
+    tools_env env;
+    memset(&env, 0, sizeof env);
+    env.ctx = ctx;
+    env.perm = perm_new(ctx);
+    if (!env.perm || !identity.data) {
+        buf_free(&identity);
+        perm_free(env.perm);
+        free(server);
+        return 1;
+    }
+    /* re-checked immediately before tools/call, with the same engine and the
+     * same identity the native loop uses (docs/features/permissions.md) */
+    perm_verdict verdict = perm_check(env.perm, identity.data, NULL);
+    int rc = 0;
+    if (verdict != PERM_ALLOW) {
+        buf_t msg;
+        buf_init(&msg);
+        buf_appendf(&msg,
+                    verdict == PERM_DENY
+                        ? "%s is denied by a permission rule"
+                        : "%s needs approval and `tny mcp call` never prompts; allow it in "
+                          "~/.tny/settings.json (\"permission\": {\"%s\": \"allow\"}) or run with "
+                          "--yolo",
+                    identity.data, identity.data);
+        rc = call_fail(out, err, json, server, tool, msg.data ? msg.data : "permission denied", 2);
+        buf_free(&msg);
+        buf_free(&identity);
+        perm_free(env.perm);
+        free(server);
+        return rc;
+    }
+
+    mcp_call_status status = MCP_CALL_CONFIG_ERROR;
+    char *text = mcp_call_tool_raw(&env, server, tool, args, &status);
+    perm_free(env.perm);
+    buf_free(&identity);
+    if (!text) {
+        free(server);
+        return 1;
+    }
+    size_t len = strlen(text);
+
+    if (status != MCP_CALL_OK) {
+        while (len && (text[len - 1] == '\n' || text[len - 1] == '\r')) text[--len] = '\0';
+        const char *msg = str_starts(text, "error: ") ? text + 7 : text;
+        rc = call_fail(out, err, json, server, tool, msg, status == MCP_CALL_CONFIG_ERROR ? 1 : 2);
+        free(text);
+        free(server);
+        return rc;
+    }
+
+    /* server output is untrusted data and bounded like a tool result: the
+     * preview is capped and the whole thing lands in a 0600 file */
+    size_t maxb = ctx->max_tool_result_bytes;
+    char *file = len > maxb ? spill_result(ctx, server, tool, text, len) : NULL;
+    bool truncated = len > maxb;
+    size_t cut = maxb;
+    /* never cut a UTF-8 scalar in half: the preview also travels as JSON */
+    while (truncated && cut > 0 && ((unsigned char)text[cut] & 0xC0) == 0x80) cut--;
+    char *preview = truncated ? xstrndup(text, cut) : NULL;
+    const char *shown = truncated ? preview : text;
+    if (json) {
+        call_json_out(out, server, tool, true, shown ? shown : "", file, len, truncated);
+    } else {
+        if (shown && *shown) {
+            fwrite(shown, 1, strlen(shown), out);
+            if (shown[strlen(shown) - 1] != '\n') fputc('\n', out);
+        }
+        if (truncated)
+            fprintf(err, "tny: mcp call: %zu of %zu bytes shown%s%s\n", cut, len,
+                    file ? "; full result: " : " (result file could not be written)",
+                    file ? file : "");
+    }
+    free(preview);
+    free(file);
+    free(text);
+    free(server);
+    return 0;
 }
 
 char *mcp_list_text(struct tny_ctx *ctx) {

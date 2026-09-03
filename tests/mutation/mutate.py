@@ -35,12 +35,136 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
+        "src/core/config.c",
+        ["tool_profile_parse", "tny_tool_profile_is_shell", "tny_tool_profile_ignore"],
+        None,
+        "tests/integration/test_openai.py",
+    ),
+    (
+        "src/core/tools.c",
+        [
+            "profile_allows_builtin",
+            "schema_tool_hidden",
+            "tools_schema_json",
+            "tools_call_prepare",
+        ],
+        r"profile|custom|unknown tool|schema_tool_hidden",
+        "tests/integration/test_openai.py",
+    ),
+    (
+        "src/core/tools_shell.c",
+        ["write_complete", "result_file_open", "tool_shell_execute"],
+        r"SHELL_PROFILE|result_|output_bytes|preview|full|tool_profile|write_complete",
+        "tests/integration/test_openai.py",
+    ),
+    (
+        "src/core/tools_ssh.c",
+        ["r_spill_result", "r_shell_profile_result", "r_terminal"],
+        r"PROFILE|profile|preview|full|bytes|exit:",
+        "tests/integration/test_ssh.py",
+    ),
+    (
+        "src/core/edit.c",
+        ["tny_edit_file_exact"],
+        None,
+        "tests/integration/test_edit.py",
+    ),
+    (
+        "src/core/runner.c",
+        [
+            "tny_runner_role_allows",
+            "rn_start_question",
+            "rn_handle_op",
+            "rn_control_pump",
+            "rn_ask_user",
+        ],
+        None,
+        "tests/integration/test_openai.py",
+    ),
+    (
+        "src/core/tools.c",
+        ["tools_queue_image"],
+        None,
+        "tests/integration/test_openai.py",
+    ),
+    (
+        # In-process intercept of first-party verbs (issue #99, ADR 0063):
+        # the recogniser decides whether a command runs in the shell at all,
+        # so every branch of it must be observable.
+        "src/core/shellwords.c",
+        ["tny_shellwords", "tny_shellword_meta", "scan_double", "tilde_expands"],
+        None,
+        "tests/integration/test_intercept.py",
+    ),
+    (
+        "src/core/intercept.c",
+        [
+            "tny_intercept_parse",
+            "parse_verb",
+            "parse_edit",
+            "parse_mcp",
+            "parse_memory",
+            "parse_ask",
+            "heredoc_body",
+            "producer_output",
+            "printf_expand",
+            "echo_expand",
+            "cat_expand",
+            "exec_edit",
+            "exec_mcp_call",
+        ],
+        None,
+        "tests/integration/test_intercept.py",
+    ),
+    (
+        "src/core/tools_ssh.c",
+        ["tool_ssh_edit_exact"],
+        None,
+        "tests/integration/test_intercept.py",
+    ),
+    (
+        "src/core/tools_shell.c",
+        ["shell_control_env", "tool_shell_execute"],
+        r"TNY_SESSION|TNY_NESTED|control_pump|slice|tny_poll",
+        "tests/integration/test_openai.py",
+    ),
+    (
         "src/core/tasks.c",
         ["tny_task_name_valid", "tny_task_set_explicit", "tny_task_apply"],
         None,
     ),
     ("src/net/stream.c", None, r"ossl|OSSL", "tests/integration/test_https.py"),
+    # permission tokeniser (docs/adr/0059): every fail-closed branch. The unit
+    # suite is the killer here — the tokeniser never leaves the process.
+    (
+        "src/core/shlex.c",
+        None,
+        None,
+        "tests/integration/test_tui.py",
+        "perm-tokeniser",
+    ),
+    (
+        "src/core/perm.c",
+        ["grant_key_bash", "grant_key", "multi_verb", "perm_check", "rule_category"],
+        None,
+        "tests/integration/test_tui.py",
+        "perm-tokeniser",
+    ),
     ("src/tui/tui_prewarm.c", None, None),
+    (
+        # `tny mcp call` (issue #97): the CLI seam the unit suite drives
+        # directly, plus the status the exit code is derived from.
+        "src/mcp/mcp.c",
+        [
+            "mcp_call_cli",
+            "mcp_call_tool_raw",
+            "spill_result",
+            "call_json_out",
+            "call_fail",
+        ],
+        None,
+        "tests/integration/test_mcp_call.py",
+    ),
     (
         "src/tui/tui_draw.c",
         [
@@ -339,6 +463,16 @@ TARGETS = [
         ["cmd_doctor"],
         r"NO_SPAWN|capabilit",
         "tests/integration/test_extension_capabilities.py",
+    ),
+    (
+        "src/core/sandbox.c",
+        [
+            "tny_sandbox_effective",
+            "tny_sandbox_command_build_kind",
+            "tny_sandbox_denied_path",
+        ],
+        r"SEATBELT|BWRAP|ro-bind|file-write|network|unshare-pid",
+        "tests/integration/test_sandbox.py",
     ),
     ("src/core/config.c", ["tny_tier_is_fast"], None),
     ("src/cli/args.c", ["cli_parse_globals", "cli_make_ctx"], r"fast|tier|TNY_CAP"),
@@ -685,6 +819,9 @@ EQUIVALENT = [
     "acp_client.c:if (!options || !yyjson_is_arr(options)) return false;",
     "acp_client.c:if (!configs || !yyjson_is_arr(configs)) return NULL;",
     "acp_client.c:if (configs && yyjson_is_arr(configs)) {",
+    # `index` is only ever compared against 0 (argv0 vs argument), so counting
+    # words down instead of up produces the identical classification.
+    "shlex.c:take_word(out, tok, index++, over);",
     # The config profile parser cannot deterministically inject calloc/strdup
     # failure; both branches leave the previously selected profile untouched.
     "config.c:if (!argv) return -1; /* OOM: no observable profile state changed */",

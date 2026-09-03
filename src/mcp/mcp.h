@@ -9,6 +9,8 @@
 #include "core/tools.h"
 #include "util/util.h"
 
+#include <stdio.h>
+
 /* Start every active merged-config server on detached threads: open its
  * transport, negotiate stateless v2 or legacy initialization, and cache
  * tools/list. Non-blocking; call once per process at native session
@@ -25,6 +27,28 @@ void mcp_catalog_collect(struct tny_ctx *ctx, buf_t *out);
 char *mcp_features(tools_env *env);
 char *mcp_search_tools(tools_env *env, const char *query);
 char *mcp_call_tool(tools_env *env, const char *server, const char *tool, const char *args_json);
+
+/* How one tools/call ended, so `tny mcp call` can pick an exit code. */
+typedef enum {
+    MCP_CALL_OK = 0,       /* the server answered without an error */
+    MCP_CALL_CONFIG_ERROR, /* no profile, unknown server, server would not start */
+    MCP_CALL_TOOL_ERROR    /* JSON-RPC error, timeout, or isError:true */
+} mcp_call_status;
+
+/* One tools/call, unbounded text plus how it ended. mcp_call_tool is this
+ * with the result bounded for a tool message. */
+char *mcp_call_tool_raw(tools_env *env, const char *server, const char *tool, const char *args_json,
+                        mcp_call_status *status);
+
+/* `tny mcp call SERVER/TOOL` (docs/cli.md, ADR 0057). spec is "server/tool";
+ * args_json is the STDIN payload ("{}" when empty). Checks permissions with
+ * the identity mcp:server/tool immediately before the call, spawning the
+ * server cold if the profile names it. Writes the result (or, with json, one
+ * {"kind":"mcp_call",...} object) to out and diagnostics to err. Returns the
+ * process exit code: 0 ok, 1 usage/config, 2 the call was refused or failed.
+ * The caller runs mcp_shutdown_all() afterwards. */
+int mcp_call_cli(struct tny_ctx *ctx, const char *spec, const char *args_json, bool json, FILE *out,
+                 FILE *err);
 
 /* Human or JSON listing of configured servers (source attributed). Does not
  * spawn. Notices from skipped/malformed imports are included. */

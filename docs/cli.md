@@ -9,6 +9,9 @@ Binary name: `tny`.
 ```text
 tny                         # interactive TUI, fresh session
 tny ask [prompt]            # one turn, then exit
+tny edit FILE               # exact-match replacement from stdin
+tny ask-user QUESTION       # ask the owning runner frontend (inside terminal)
+tny image attach PATH       # attach an image to the next request (inside terminal)
 tny resume [last|<id>]      # interactive resume
 tny acp                     # ACP server (native loop only)
 tny sessions
@@ -29,6 +32,7 @@ tny login                   # provider-specific; see --provider
 tny logout
 tny setup                   # write provider config from flags/env
 tny mcp [list]              # list configured MCP servers (source attributed)
+tny mcp call SERVER/TOOL    # one MCP tools/call; JSON arguments on stdin
 ```
 
 Global flags are **leading**:
@@ -58,6 +62,21 @@ tny -c                      # resume last for this workspace
 
 `--no-save` is a compatibility alias for `--ephemeral`. `tny ask` accepts
 both spellings after the subcommand as well as in the leading global position.
+
+`tny doctor` reports the effective local-terminal sandbox as `sandbox: os`
+or `sandbox: none` and explains the reason. Its JSON shape carries the same
+truth in `"sandbox"` plus a human-readable `"sandbox_note"`. `auto` therefore
+never claims `os` unless Seatbelt or bubblewrap is launchable, and the default
+`yolo` process reports `none` even when `.tny.json` requests `auto` or `os`.
+`tny status` uses the same effective-mode resolution.
+
+`TNY_TOOLS=all|terminal+edit|terminal` overrides the `tools` user setting for
+the native OpenAI-compatible loop. `all` is the unchanged default; the shell
+profiles reduce both advertised and accepted built-ins as documented in
+[Tools, MCP, skills, subagents](features/mcp-and-skills.md#native-tool-profiles).
+`tny status` and `tny doctor` print the effective `tools` profile and expose it
+as the JSON string field `"tools"`. libtny, wasm, and `tny acp` keep `all`; an
+explicit profile ignored by wasm or ACP server mode emits one status line.
 
 Color resolution ([ADR 0026](adr/0026-color-vs-attribute-sgr.md)): `NO_COLOR`
 (any value, even empty) disables SGR *colors* only — bold/dim/reverse are
@@ -345,6 +364,77 @@ Precedence: `--effort` / `/effort` (an explicit `default` included) beats
 tny never *writes* the effort back to settings — a scripted
 `tny ask --effort X` does not change what tomorrow's session does.
 
+## `tny edit` (stateless exact replacement)
+
+`tny edit FILE` replaces an exact string only when it occurs once. The search
+and replacement travel on stdin, never in argv. The default fence form is
+convenient from a shell or another coding harness:
+
+```sh
+cat <<'TNY_EDIT' | tny edit src/example.c
+*** SEARCH
+return old_value;
+*** REPLACE
+return new_value;
+*** END
+TNY_EDIT
+```
+
+The marker lines must match exactly. `--marker STR` changes their prefix when
+the payload itself contains a default marker line:
+
+```sh
+printf '@@ SEARCH\nold\n@@ REPLACE\nnew\n@@ END\n' |
+  tny edit --marker @@ notes.txt
+```
+
+One structural line ending before `REPLACE` and `END` is not part of the
+payload. Put a blank line before a marker when the exact search or replacement
+must end in a newline.
+
+`--json` selects both structured stdin and structured stdout. `old` and `new`
+are strings; `replace_all` is an optional boolean whose default is `false`:
+
+```sh
+printf '%s\n' '{"old":"draft","new":"final","replace_all":false}' |
+  tny edit --json README.md
+```
+
+Success writes one object on stdout:
+
+```json
+{"kind":"edit","path":"README.md","matches":1,"replaced":1}
+```
+
+Without `--json`, success prints one human-readable result line. Progress and
+all diagnostics go to stderr. The target is built completely and installed by
+atomic temp-file rename only after the match policy succeeds, so every failure
+leaves it untouched. Existing symlinks remain symlinks and their target is
+edited. On zero matches, stderr includes the single target line closest to the
+first non-empty SEARCH line when that closest line is unique; this gives the
+caller exact context for widening the search. Multiple matches report their
+count and require either a wider search or JSON `replace_all:true`.
+
+| Exit | Meaning |
+| ---: | --- |
+| 0 | One match replaced, or `replace_all:true` replaced one or more matches |
+| 1 | Usage, input parsing, allocation, or file I/O failure |
+| 2 | Zero matches, or multiple matches without `replace_all:true` |
+| 130 | Interrupted; no partial write |
+
+The verb is configuration-free: it does not load settings or require any
+`TNY_*` environment variable. Relative paths use the process current working
+directory; absolute paths work directly. `--ssh` is intentionally not part of
+this standalone verb. In wasm it works like the `edit_file` tool on the virtual
+filesystem (MEMFS in the browser and NODERAWFS in node).
+
+**Inside tny** ([ADR 0063](adr/0063-in-process-intercept-of-first-party-verbs.md)):
+typed into the `terminal` tool, `tny edit FILE` with a here-doc or a
+`printf … |` payload is dispatched in-process instead of forking. It is
+reviewed as `edit_file` on the resolved path, is undoable with `/undo`, and
+under `--ssh` edits the file on the remote host. The printed result and exit
+code are the ones above.
+
 ## `tny ask` (scripts and CI)
 
 ```text
@@ -387,6 +477,53 @@ JSON object (keep field names stable):
 
 `--json` is required on `ask`, `status`, `doctor`, `permissions`, `models`, `session`, `sessions`, `workspace`, `usage`. `tny mcp --json` is optional.
 
+**Inside tny**: a foreground `tny ask` typed into the `terminal` tool is
+refused — it would run a second agent loop under the current turn, invisible
+to the frontend, to cancellation, and to the step budget. Use `tny ask -B "…"`
+(which runs as a real detached child, inheriting the turn's permission mode
+and unable to widen it) and collect it with `tny session ID --wait --json`.
+See [ADR 0063](adr/0063-in-process-intercept-of-first-party-verbs.md).
+
+## Runner control verbs: `ask-user` and `image attach`
+
+Shell commands launched by the native `terminal` tool receive the runner's
+resolved socket path and session id as `TNY_SESSION_SOCK` and
+`TNY_SESSION_ID`. This includes the short per-user fallback socket used when a
+session directory is too deep for `sun_path`.
+
+```sh
+tny ask-user "Which deployment target should I use?"
+printf 'Describe the expected fallback behavior' | tny ask-user
+tny --json ask-user "Which branch?"
+tny image attach screenshots/failure.png
+tny --json image attach screenshots/failure.png
+```
+
+`ask-user` returns the owning interactive TUI's arbitrary text answer on
+stdout. `image attach` validates that the path is under an allowed workspace
+root and that its magic bytes identify png/jpeg/gif/webp, then queues it as
+user-role image content for the next native provider request (ADR 0008).
+`--json` emits `kind: "ask_user"` or `kind: "image_attach"` plus the request's
+string correlation id.
+
+Both commands are socket-bound and never read `/dev/tty`. Without
+`TNY_SESSION_SOCK` they print exactly
+`tny: no session socket (set TNY_SESSION_SOCK or run inside tny)` to stderr and
+exit 1. Exit codes are 0 success, 1 usage/configuration, 2 rejected or failed
+control operation, and 130 interrupted. wasm, `--ephemeral`,
+`TNY_ISOLATE=0`, and the macOS post-TLS in-process fallback have no runner
+socket and therefore take this clean-error path. A noninteractive `tny ask`
+owner does not wait for a human and preserves the existing
+`ask_user_question` fallback string. `tny acp` stays in-process and maps the
+question through its ACP client permission callback rather than creating a
+runner socket. See [ADR 0058](adr/0058-session-control-channel-roles-and-tool-ops.md).
+
+**Inside tny**: typed directly into the `terminal` tool, both verbs skip the
+socket entirely and reach the turn in memory
+([ADR 0063](adr/0063-in-process-intercept-of-first-party-verbs.md)); the
+output and exit codes are the same. The socket path stays for everything
+deeper — a script, a `make` recipe, or another process the command started.
+
 ## `tny mcp`
 
 ```text
@@ -401,11 +538,55 @@ whether it is connected, still starting, skipped, or not yet started.
 `--json` emits `{"kind":"mcp_servers","servers":[...],"notices":[...]}`;
 each server includes `source`, `scope`, `transport`, `status`, and `skipped`. Foreign
 harness configs are read only when `mcp.import_from` in
-`~/.tny/settings.json` names them ([ADR 0051](adr/0051-mcp-import-from-harnesses.md));
+`~/.tny/settings.json` names them ([ADR 0051](adr/0052-mcp-import-from-harnesses.md));
 the default is off. Native `~/.tny/mcp.json` wins on name collision.
 Command lines and env values are omitted from the listing so secrets stay
 out of `--json`. wasm: the list still works; spawn stays the existing
 clean error.
+
+### `tny mcp call SERVER/TOOL`
+
+```text
+echo '{"path":"src/main.c"}' | tny mcp call fs/read_text_file
+tny --json mcp call deploy/status < args.json
+```
+
+One MCP `tools/call`, reachable from any shell — tny's own `terminal` tool,
+another harness, or a script ([ADR 0057](adr/0057-shell-first-native-loop.md),
+[ADR 0064](adr/0064-cli-verb-conventions.md)).
+
+- **Arguments ride stdin**, never argv: one JSON object, or nothing at all
+  (empty stdin, or a terminal on stdin, means `{}`). Anything else — invalid
+  JSON, an array, a scalar — is a usage error. The payload is capped at 1 MiB.
+- **Permissions** are checked immediately before `tools/call` with the same
+  engine and the same identity the native loop uses,
+  `mcp:<server>/<tool>`. In the default `yolo` mode
+  ([ADR 0001](adr/0001-run-all-agents-in-yolo-mode.md)) the call proceeds. In `ask` mode the
+  command never prompts: it fails closed with exit 2 until a rule allows that
+  exact identity, e.g. `"permission": {"mcp:deploy/status": "allow"}` in
+  `~/.tny/settings.json`.
+- **Servers come from `~/.tny/mcp.json`** plus any source named in
+  `mcp.import_from`; a repo-local `.mcp.json` is never read on its own. The
+  command is a one-shot, so it pays a cold start (spawn + `initialize` +
+  `tools/list`) and shuts the server down again on exit.
+- **Inside tny** ([ADR 0063](adr/0063-in-process-intercept-of-first-party-verbs.md)):
+  typed into the `terminal` tool, `tny mcp call SERVER/TOOL` (optionally with
+  an `echo`/`cat` producer for the arguments) is answered by the session's
+  already-warmed client. There is no second server process and no cold start;
+  the identity, output, and exit codes are unchanged.
+- **Output.** The result content goes to stdout, diagnostics to stderr.
+  `--json` prints one object:
+  `{"kind":"mcp_call","server":…,"tool":…,"ok":true,"result":"…","bytes":N,"truncated":false}`,
+  plus `"result_file"` when the result was spilled. Server output is untrusted
+  data and is bounded like a tool result: above `max_tool_result_bytes`
+  (32 KiB by default) the preview is capped and the whole result is written to
+  a `0600` file under `~/.tny/results/` whose path is printed.
+- **Exit codes.** 0 the tool answered; 1 usage or configuration (bad
+  `SERVER/TOOL`, stdin that is not one JSON object, unknown server, a server
+  that will not start); 2 the call was refused or failed (permission denied,
+  JSON-RPC error, `isError: true`, timeout); 130 interrupted.
+- **wasm:** HTTP MCP servers work (remote-only, subject to CORS); a stdio
+  server keeps the existing clean spawn error.
 
 ## Multi-agent workflow scripts
 
@@ -444,6 +625,13 @@ killing it: the runner finishes, finalizes the session's
 `ask` still cancels the turn; a second `^C` detaches and leaves it running.
 In-process turns remain only on wasm, with `--ephemeral`, or with the
 `TNY_ISOLATE=0` debug escape hatch.
+
+Every socket client first handshakes as `owner`, `observer`, or `tool`. The
+unique owner may control turns and answer prompts; observers can only watch
+and detach; tool clients can only send correlated `ask_user` and
+`image_attach` requests. While `terminal` waits for a child, the runner pumps
+only these socket operations and owner replies—never backend dispatch—so a
+child blocked in `tny ask-user` cannot deadlock the active tool call.
 
 ### `tny session attach <id>`
 

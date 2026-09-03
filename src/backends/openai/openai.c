@@ -223,6 +223,28 @@ static void build_system_prompt(oa_impl *o, buf_t *sys) {
         buf_appends(sys, o->ctx->system_prompt);
         buf_appends(sys, "\n");
     }
+    if (tny_tool_profile_is_shell(o->ctx)) {
+        buf_appends(sys, "# Shell tool profile\n\n"
+                         "Commands start in the workspace cwd, and cwd resets on every terminal "
+                         "call; chain dependent commands with `&&`. Inspect narrowly with `rg -n` "
+                         "and `sed -n`; never dump whole files. ");
+        if (o->ctx->tool_profile == TNY_TOOLS_TERMINAL_EDIT)
+            buf_appends(sys, "Mutate files with the `edit_file` tool; never use `sed -i`. ");
+        else
+            buf_appends(sys, "Mutate files with `tny edit FILE`, exact match, payload on stdin as "
+                             "a fence: `printf '*** SEARCH\\nOLD\\n*** REPLACE\\nNEW\\n*** END\\n' "
+                             "| tny edit FILE` (or a quoted heredoc with the same three lines); "
+                             "no --old/--new flags, one FILE; exit 2 means zero or many matches, "
+                             "widen OLD and retry; never use `sed -i`. ");
+        buf_appends(sys,
+                    "Read the `exit:` line before claiming success. Call MCP tools with `tny "
+                    "mcp call SERVER/TOOL` and JSON on stdin; the MCP catalog above names the "
+                    "tools. Attach images with `tny image attach PATH` and ask questions with "
+                    "`tny ask-user \"...\"`; if either prints `no session socket`, skip it or "
+                    "state the assumption. Use subagents only with `tny ask -B --json ...` then "
+                    "`tny session ID --wait --json`; never run a foreground `tny ask` inside a "
+                    "turn.\n");
+    }
 }
 
 /* Build the legacy Chat Completions request body from the session view. */
@@ -770,7 +792,10 @@ static int execute_call(oa_impl *o, const char *cid, const char *original_args,
     start.kind = TNY_EV_TOOL_START;
     start.tool_name = call->name;
     start.tool_id = cid;
-    start.tool_detail = effective_args;
+    /* An intercepted first-party verb shows itself, not the shell blob it
+     * arrived as (docs/adr/0063). */
+    const char *label = tools_call_label(call);
+    start.tool_detail = label ? label : effective_args;
     emit(o, &start);
     subagent_control(o, TNY_OPENAI_CONTROL_SUBAGENT_START, cid, call, NULL, false);
     char *result = o->cancelled ? tool_err("interrupted before %s ran", call->name)
@@ -1519,6 +1544,7 @@ static void oa_destroy(tny_backend *b) {
     oa_calls_reset(&o->calls);
     pending_perm_clear(o);
     pending_custom_clear(o, true);
+    for (int i = 0; i < o->env.n_pending_images; i++) free(o->env.pending_images[i]);
     free(o->steer);
     buf_free(&o->text);
     buf_free(&o->toolcall_log);
@@ -1529,14 +1555,33 @@ static void oa_destroy(tny_backend *b) {
 
 void tny_backend_openai_bind(tny_backend *b, tny_session_state *session, perm_engine *perm,
                              tny_perm_decision (*prompt)(const char *, const char *, void *),
-                             void *prompt_ud, tny_openai_control_cb control, void *control_ud) {
+                             void *prompt_ud, char *(*ask_user)(const char *, void *),
+                             void *ask_user_ud, int (*control_pump)(void *, int),
+                             void *control_pump_ud, const char *session_sock,
+                             const char *session_id, tny_openai_control_cb control,
+                             void *control_ud) {
     oa_impl *o = b->impl;
     o->env.session = session;
     o->env.perm = perm;
     o->env.prompt = prompt;
     o->env.prompt_ud = prompt_ud;
+    o->env.ask_user = ask_user;
+    o->env.ask_user_ud = ask_user_ud;
+    o->env.control_pump = control_pump;
+    o->env.control_pump_ud = control_pump_ud;
+    o->env.session_sock = session_sock;
+    o->env.session_id = session_id;
     o->control = control;
     o->control_ud = control_ud;
+}
+
+int tny_backend_openai_queue_image(tny_backend *b, const char *path, char *err, size_t errlen) {
+    if (!b || b->id != TNY_BK_OPENAI) {
+        if (err && errlen) snprintf(err, errlen, "image attach requires the native openai loop");
+        return -1;
+    }
+    oa_impl *o = b->impl;
+    return tools_queue_image(&o->env, path, true, NULL, NULL, NULL, err, errlen);
 }
 
 int tny_backend_openai_steps(tny_backend *b) {

@@ -54,6 +54,8 @@ static const char *attach_backend(acp_srv *s, tny_session_state *sess, char *err
     s->session_id = xstrdup(sess->id);
     s->perm = perm_new(s->ctx);
     s->engine = tny_engine_new(s->ctx, s->session, s->perm, acp_srv_prompt, s);
+    tny_engine_set_frontend_control(s->engine, acp_srv_ask_user, s, NULL, NULL, NULL,
+                                    s->session_id);
     if (!s->engine) return "cannot create the native runtime";
     tny_engine_set_cancel_probe(s->engine, acp_srv_cancel_probe, s);
     tny_backend *bk = tny_backend_create(TNY_BK_OPENAI, s->ctx);
@@ -399,6 +401,7 @@ int acp_srv_pump(acp_srv *s, int timeout_ms) {
 
 int cmd_acp_server(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     (void)g;
+    tny_tool_profile_ignore(ctx, "ACP server mode");
     ctx->mcp_disabled = true; /* the ACP client owns MCP in server mode */
     for (int i = 0; i < argc; i++) {
         if (strcmp(argv[i], "--log-file") == 0 && i + 1 < argc) {

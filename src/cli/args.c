@@ -194,14 +194,22 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         ctx->extensions = NULL;
     }
     if (g->perm_mode) {
-        if (strcmp(g->perm_mode, "ask") == 0) ctx->perm_mode = TNY_MODE_ASK;
-        else if (strcmp(g->perm_mode, "auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
-        else if (strcmp(g->perm_mode, "yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
+        tny_perm_mode requested;
+        char nested_error[256];
+        if (strcmp(g->perm_mode, "ask") == 0) requested = TNY_MODE_ASK;
+        else if (strcmp(g->perm_mode, "auto") == 0) requested = TNY_MODE_AUTO;
+        else if (strcmp(g->perm_mode, "yolo") == 0) requested = TNY_MODE_YOLO;
         else {
             fprintf(stderr, "tny: --permission-mode must be ask|auto|yolo\n");
             tny_ctx_free(ctx);
             return NULL;
         }
+        if (!tny_perm_mode_allowed_nested(requested, nested_error, sizeof nested_error)) {
+            fprintf(stderr, "tny: --permission-mode: %s\n", nested_error);
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        ctx->perm_mode = requested;
     }
     ctx->json_out = g->json;
     ctx->no_save = g->ephemeral;

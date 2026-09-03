@@ -60,6 +60,26 @@ jobs:
           make warn-strict CC=gcc-14
           make warn-strict CC=clang
 
+  # Memory-leak gate (docs/adr/0061). valgrind has no arm64 Darwin port, so
+  # Linux is where the whole unit binary and the CLI smoke get checked; macOS
+  # developers run the /usr/bin/leaks flavour with `make leaks`.
+  valgrind:
+    name: valgrind
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install valgrind
+        run: |
+          set -eu
+          sudo apt-get update -q
+          sudo apt-get install -y -q valgrind
+          valgrind --version
+
+      - name: make valgrind
+        run: make valgrind
+
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}

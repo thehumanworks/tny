@@ -58,7 +58,7 @@ int tui_runner_ensure(tui *t, bool quiet) {
         return -1;
     }
     char *sock = tny_runner_sock_path(t->session->dir);
-    t->rc = sock ? tny_runner_client_connect(sock, 5000) : NULL;
+    t->rc = sock ? tny_runner_client_connect(sock, 5000, TNY_RUNNER_OWNER, true) : NULL;
     free(sock);
     if (!t->rc) {
         if (!quiet) tui_err(t, "cannot reach the session runner");
@@ -127,6 +127,12 @@ void tui_runner_dispatch(tui *t) {
              * screen, so surface them only under /trace */
             if (t->trace && m->text) tui_sys(t, m->text);
             break;
+        case TNY_RMSG_ASK_USER: {
+            char *answer = tui_ask_user(t, m->text ? m->text : "Question");
+            if (answer && t->rc) tny_runner_client_ask_user_reply(t->rc, m->id, answer);
+            free(answer);
+            break;
+        }
         case TNY_RMSG_HELLO: break;
         case TNY_RMSG_BYE: runner_gone(t); break;
         }

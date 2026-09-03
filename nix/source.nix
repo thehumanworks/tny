@@ -35,7 +35,11 @@ let
   # keep in lockstep.
   testFiles = unions [
     buildFiles
+    ../.github/workflows/ci.yml
     ../.github/workflows/nix.yml
+    # tests/integration/test_toolchain_pins.py keeps the mise pins and the CI
+    # quality job on the same tool versions (docs/adr/0061).
+    ../.mise.toml
     ../docs
     ../examples # tests/extensions/test_examples.py loads every shipped example
     ../flake.nix
@@ -44,6 +48,9 @@ let
     ../sdk/conformance
     ../sdk/schema
     ../site
+    # All of tests/, which includes the frozen tool-profile A/B fixtures
+    # under tests/bench/fixtures/tools/ that
+    # tests/integration/test_bench_tools.py copies and scores (issue #103).
     ../tests
     # Explicit contract for issue #88: every foreign MCP harness parser is
     # exercised from immutable fixture data inside the sandbox.

@@ -13,7 +13,10 @@ typedef enum {
 
 typedef struct {
     tny_ctx *ctx;
-    /* session grants: tool-name or "bash:<argv0> *" style keys */
+    /* session grants. Keys: a tool name, "<tool>:<path>", "bash:<program>"
+     * or "bash:<program> <subcommand>" for a single simple command, and
+     * "bash!<exact line>" for anything carrying shell machinery
+     * (docs/adr/0059). */
     char **grants;
     int n_grants;
 } perm_engine;

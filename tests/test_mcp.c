@@ -40,8 +40,17 @@ static const char *FAKE_SERVER =
     "{\"name\":\"rollback\",\"description\":\"Roll back the most recent deploy\"}]}}\\n' "
     "\"$n\" ;;\n"
     "  *'\"method\":\"tools/call\"'*) n=$((n+1));\n"
-    "    printf '{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"content\":["
+    "    case \"$line\" in\n"
+    "    *'\"name\":\"boom\"'*)\n"
+    "      printf '{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"isError\":true,\"content\":["
+    "{\"type\":\"text\",\"text\":\"deploy refused\"}]}}\\n' \"$n\" ;;\n"
+    "    *'\"name\":\"nosuch\"'*)\n"
+    "      printf '{\"jsonrpc\":\"2.0\",\"id\":%s,\"error\":{\"code\":-32602,"
+    "\"message\":\"Unknown tool: nosuch\"}}\\n' \"$n\" ;;\n"
+    "    *)\n"
+    "      printf '{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"content\":["
     "{\"type\":\"text\",\"text\":\"called ok\"}]}}\\n' \"$n\" ;;\n"
+    "    esac ;;\n"
     "  esac\n"
     "done\n";
 
@@ -1048,6 +1057,270 @@ TEST toml_subset_survives_hostile_shapes(void) {
     PASS();
 }
 
+/* ---- `tny mcp call SERVER/TOOL` (docs/cli.md, ADR 0057) ---- */
+
+/* Drive the CLI entry point with both streams captured, the way the process
+ * does with stdout/stderr. Returns the exit code. */
+static int run_cli_call(tny_ctx *ctx, const char *spec, const char *args, bool json, char **out_s,
+                        char **err_s) {
+    size_t out_n = 0, err_n = 0;
+    char *ob = NULL, *eb = NULL;
+    FILE *out = open_memstream(&ob, &out_n);
+    FILE *err = open_memstream(&eb, &err_n);
+    if (!out || !err) abort();
+    int rc = mcp_call_cli(ctx, spec, args, json, out, err);
+    fclose(out);
+    fclose(err);
+    *out_s = ob;
+    *err_s = eb;
+    return rc;
+}
+
+/* A successful call prints the tool text on stdout, and `--json` prints one
+ * mcp_call object; the server cold-starts from ~/.tny/mcp.json. */
+TEST cli_call_prints_result_and_json_object(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    write_settings("{}");
+    write_profile(fast_profile());
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+
+    char *out = NULL, *err = NULL;
+    ASSERT_EQ(0, run_cli_call(ctx, "srv/deploy_app", "{\"env\":\"prod\"}", false, &out, &err));
+    ASSERT(strstr(out, "called ok"));
+    ASSERT_EQ(0, (int)strlen(err));
+    free(out);
+    free(err);
+
+    ASSERT_EQ(0, run_cli_call(ctx, "srv/deploy_app", NULL, true, &out, &err));
+    ASSERT(strstr(out, "\"kind\":\"mcp_call\""));
+    ASSERT(strstr(out, "\"server\":\"srv\""));
+    ASSERT(strstr(out, "\"tool\":\"deploy_app\""));
+    ASSERT(strstr(out, "\"ok\":true"));
+    ASSERT(strstr(out, "called ok"));
+    ASSERT(strstr(out, "\"truncated\":false"));
+    free(out);
+    free(err);
+
+    mcp_shutdown_all();
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* isError:true and a JSON-RPC error are both "the call failed": exit 2, the
+ * message on stderr, and ok:false in the --json object. */
+TEST cli_call_tool_failure_exits_2(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    write_settings("{}");
+    write_profile(fast_profile());
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+
+    char *out = NULL, *err = NULL;
+    ASSERT_EQ(2, run_cli_call(ctx, "srv/boom", "{}", true, &out, &err));
+    ASSERT(strstr(err, "deploy refused"));
+    ASSERT(strstr(out, "\"ok\":false"));
+    ASSERT(strstr(out, "\"kind\":\"mcp_call\""));
+    ASSERT(!strchr(err, '\n') || strchr(err, '\n') == err + strlen(err) - 1);
+    free(out);
+    free(err);
+
+    ASSERT_EQ(2, run_cli_call(ctx, "srv/nosuch", "{}", false, &out, &err));
+    ASSERT(strstr(err, "Unknown tool: nosuch"));
+    ASSERT_EQ(0, (int)strlen(out));
+    free(out);
+    free(err);
+
+    mcp_shutdown_all();
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* Config and usage mistakes are exit 1 and never spawn anything: an unknown
+ * server, a spec without SERVER/TOOL, and stdin that is not one JSON object. */
+TEST cli_call_usage_and_unknown_server_exit_1(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    write_settings("{}");
+    write_profile(fast_profile());
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+
+    char *out = NULL, *err = NULL;
+    ASSERT_EQ(1, run_cli_call(ctx, "ghost/deploy_app", "{}", false, &out, &err));
+    ASSERT(strstr(err, "no MCP server named ghost"));
+    free(out);
+    free(err);
+
+    ASSERT_EQ(1, run_cli_call(ctx, "srv", "{}", false, &out, &err));
+    ASSERT(strstr(err, "SERVER/TOOL"));
+    free(out);
+    free(err);
+
+    ASSERT_EQ(1, run_cli_call(ctx, "/deploy_app", "{}", false, &out, &err));
+    ASSERT(strstr(err, "SERVER/TOOL"));
+    free(out);
+    free(err);
+
+    ASSERT_EQ(1, run_cli_call(ctx, "srv/deploy_app", "{not json", false, &out, &err));
+    ASSERT(strstr(err, "JSON object"));
+    free(out);
+    free(err);
+
+    ASSERT_EQ(1, run_cli_call(ctx, "srv/deploy_app", "[1,2]", true, &out, &err));
+    ASSERT(strstr(err, "JSON object"));
+    free(out);
+    free(err);
+
+    mcp_shutdown_all();
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* The permission identity stays mcp:server/tool: in ask mode the call fails
+ * closed (no prompt, no spawn, exit 2) until a rule on exactly that identity
+ * allows it. */
+TEST cli_call_permission_identity_is_mcp_server_tool(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    write_settings("{}");
+    write_profile(fast_profile());
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_ASK;
+
+    char *out = NULL, *err = NULL;
+    ASSERT_EQ(2, run_cli_call(ctx, "srv/deploy_app", "{}", true, &out, &err));
+    ASSERT(strstr(err, "mcp:srv/deploy_app"));
+    ASSERT(strstr(err, "never prompts"));
+    ASSERT(strstr(out, "\"ok\":false"));
+    free(out);
+    free(err);
+    tny_ctx_free(ctx);
+
+    write_settings("{\"permission\":{\"mcp:srv/deploy_app\":\"allow\","
+                   "\"mcp:srv/rollback\":\"deny\"}}");
+    ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_ASK;
+    ASSERT_EQ(0, run_cli_call(ctx, "srv/deploy_app", "{}", false, &out, &err));
+    ASSERT(strstr(out, "called ok"));
+    free(out);
+    free(err);
+
+    ASSERT_EQ(2, run_cli_call(ctx, "srv/rollback", "{}", false, &out, &err));
+    ASSERT(strstr(err, "denied by a permission rule"));
+    free(out);
+    free(err);
+
+    mcp_shutdown_all();
+    write_settings("{}");
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* Server output is untrusted data bounded like a tool result: the preview is
+ * capped and the whole result lands in a 0600 file whose path is reported. */
+TEST cli_call_large_result_spills_to_file(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    write_settings("{}");
+    write_profile(fast_profile());
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    ctx->max_tool_result_bytes = 4; /* "called ok\n" is 10 bytes */
+
+    char *out = NULL, *err = NULL;
+    ASSERT_EQ(0, run_cli_call(ctx, "srv/deploy_app", "{}", true, &out, &err));
+    ASSERT(strstr(out, "\"truncated\":true"));
+    ASSERT(strstr(out, "\"bytes\":10"));
+    ASSERT(strstr(out, "\"result\":\"call\""));
+    const char *fk = strstr(out, "\"result_file\":\"");
+    ASSERT(fk);
+    char path[1024];
+    const char *p = fk + strlen("\"result_file\":\"");
+    size_t n = 0;
+    while (p[n] && p[n] != '"' && n + 1 < sizeof path) {
+        path[n] = p[n];
+        n++;
+    }
+    path[n] = '\0';
+    struct stat st;
+    ASSERT_EQ(0, stat(path, &st));
+#if !defined(__CYGWIN__) && !defined(__MSYS__) /* NTFS ACLs do not map to mode bits */
+    ASSERT_EQ(0, (int)(st.st_mode & 0077));    /* nobody else may read it */
+#endif
+    char *full = file_slurp(path, NULL);
+    ASSERT(full);
+    ASSERT(strstr(full, "called ok"));
+    free(full);
+    free(out);
+    free(err);
+
+    mcp_shutdown_all();
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* The intercepted `tny mcp call` (docs/adr/0063) must use the warmed
+ * in-process client. A server that records every start proves the verb never
+ * spawns a second copy of itself the way the standalone CLI would. */
+TEST intercepted_mcp_call_reuses_the_warmed_server(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    char spawn_log[620], counted[620], profile[760];
+    snprintf(spawn_log, sizeof spawn_log, "%s/spawns.log", m_home);
+    snprintf(counted, sizeof counted, "%s/fake-mcp-counted.sh", m_home);
+    unlink(spawn_log);
+    buf_t script;
+    buf_init(&script);
+    buf_appendf(&script, "#!/bin/sh\necho spawn >> '%s'\n", spawn_log);
+    buf_appends(&script, FAKE_SERVER + strlen("#!/bin/sh\n"));
+    file_write_atomic(counted, script.data, script.len);
+    buf_free(&script);
+    chmod(counted, 0755);
+    snprintf(profile, sizeof profile, "{\"servers\":{\"srv\":{\"command\":[\"%s\"]}}}", counted);
+    write_profile(profile);
+
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    mcp_warm_start(ctx);
+    ASSERT(catalog_ready(ctx, 8000));
+    char *spawns = file_slurp(spawn_log, NULL);
+    ASSERT_STR_EQ("spawn\n", spawns);
+    free(spawns);
+
+    char *out = tools_execute(&env, "terminal",
+                              "{\"command\":\"echo '{}' | tny mcp call srv/deploy_app\"}");
+    ASSERT(out);
+    ASSERT(str_starts(out, "exit: 0\n"));
+    ASSERT(strstr(out, "called ok"));
+    free(out);
+    spawns = file_slurp(spawn_log, NULL);
+    ASSERT_STR_EQ("spawn\n", spawns); /* still one server process */
+    free(spawns);
+
+    /* a tool the server rejects keeps the CLI's exit code and diagnostic */
+    out = tools_execute(&env, "terminal", "{\"command\":\"tny mcp call srv/nosuch\"}");
+    ASSERT(out);
+    ASSERT(str_starts(out, "exit: 2\n"));
+    ASSERT(strstr(out, "tny: mcp call: "));
+    free(out);
+    spawns = file_slurp(spawn_log, NULL);
+    ASSERT_STR_EQ("spawn\n", spawns);
+    free(spawns);
+
+    mcp_shutdown_all();
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    write_profile(NULL);
+    PASS();
+}
+
 SUITE(mcp_suite) {
     RUN_TEST(warm_start_does_not_block_and_catalog_appears);
     RUN_TEST(select_waits_for_warming_server);
@@ -1069,4 +1342,11 @@ SUITE(mcp_suite) {
     RUN_TEST(imported_stdio_server_runs_through_existing_permission_path);
     RUN_TEST(toml_subset_parses_mcp_servers_tables);
     RUN_TEST(toml_subset_survives_hostile_shapes);
+
+    RUN_TEST(cli_call_prints_result_and_json_object);
+    RUN_TEST(cli_call_tool_failure_exits_2);
+    RUN_TEST(cli_call_usage_and_unknown_server_exit_1);
+    RUN_TEST(cli_call_permission_identity_is_mcp_server_tool);
+    RUN_TEST(cli_call_large_result_spills_to_file);
+    RUN_TEST(intercepted_mcp_call_reuses_the_warmed_server);
 }

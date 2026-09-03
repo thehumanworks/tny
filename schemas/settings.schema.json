@@ -35,6 +35,11 @@
       "enum": ["ask", "auto", "yolo"],
       "description": "Default permission mode."
     },
+    "tools": {
+      "enum": ["all", "terminal+edit", "terminal"],
+      "default": "all",
+      "description": "Built-in tool profile for the native OpenAI-compatible loop. Environment TNY_TOOLS wins. Ignored by libtny, wasm, and tny acp."
+    },
     "last_provider": {
       "type": "string",
       "minLength": 1,
@@ -96,7 +101,7 @@
     }
   },
   "patternProperties": {
-    "^(?!\\$schema$|provider$|model$|models$|effort$|fast$|permission_mode$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_command$|web_search_url$|mcp$)[A-Za-z0-9_-]+$": {
+    "^(?!\\$schema$|provider$|model$|models$|effort$|fast$|permission_mode$|tools$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_command$|web_search_url$|mcp$)[A-Za-z0-9_-]+$": {
       "$ref": "#/$defs/openAIProfile",
       "description": "Named OpenAI-compatible provider profile."
     }

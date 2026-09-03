@@ -15,6 +15,9 @@ void help_root(void) {
           "\n"
           "Commands:\n"
           "  ask <prompt>           Run one noninteractive request\n"
+          "  edit FILE              Exact-match replacement from stdin\n"
+          "  ask-user QUESTION      Ask the owning session frontend (socket-bound)\n"
+          "  image attach PATH      Attach an image to the next request (socket-bound)\n"
           "  resume [last|<id>]     Resume a session interactively\n"
           "  acp                    Start an ACP server over stdio (native loop)\n"
           "  sessions               List saved sessions for this workspace\n"
@@ -31,7 +34,7 @@ void help_root(void) {
           "  status                 Show configuration and runtime information\n"
           "  doctor                 Run local health and preflight checks\n"
           "  usage                  Show local token usage\n"
-          "  mcp [list]             List configured MCP servers (source attributed)\n"
+          "  mcp [list|call]        List MCP servers, or call one MCP tool\n"
           "  login | logout | setup Provider-specific auth and configuration\n"
           "  help                   Show this help\n"
           "\n"
@@ -154,6 +157,28 @@ static const char *ask_help =
     "  tny ask --output-schema schema.json \"extract the TODOs as JSON\"\n"
     "  tny --provider cursor --model composer-2 ask \"find the login bug\"\n";
 
+static const char *edit_help =
+    "Usage: tny edit [--json] [--marker STR] FILE\n"
+    "\n"
+    "Replace an exact string from stdin. Fence input replaces exactly one match;\n"
+    "--json reads {\"old\":...,\"new\":...,\"replace_all\":false} and writes one\n"
+    "kind:\"edit\" object. No edit occurs on zero or ambiguous matches.\n"
+    "\n"
+    "Options:\n"
+    "  --json          Read the JSON stdin form and write one JSON object\n"
+    "  --marker STR    Fence prefix (default: ***)\n"
+    "  -h, --help      Show this help\n"
+    "\n"
+    "Stdout carries the result. Stderr carries progress and errors.\n"
+    "Exit codes: 0 edited, 1 usage/I/O, 2 zero or multiple matches, 130 interrupted.\n"
+    "\n"
+    "Examples:\n"
+    "  printf '*** SEARCH\\nold\\n*** REPLACE\\nnew\\n*** END\\n' | tny edit FILE\n"
+    "  printf '%s\\n' '{\"old\":\"old\",\"new\":\"new\",\"replace_all\":false}' | \\\n"
+    "    tny edit --json FILE\n"
+    "  printf '@@ SEARCH\\nold\\n@@ REPLACE\\nnew\\n@@ END\\n' | \\\n"
+    "    tny edit --marker @@ FILE\n";
+
 static const char *sessions_help =
     "Usage: tny sessions [--json] [--all] [--limit N] [--cursor ID]\n"
     "\n"
@@ -266,6 +291,18 @@ static const char *cursor_help =
 bool help_for(const char *command) {
     const char *text = NULL;
     if (strcmp(command, "ask") == 0) text = ask_help;
+    else if (strcmp(command, "edit") == 0) text = edit_help;
+    else if (strcmp(command, "ask-user") == 0)
+        text = "Usage: tny ask-user [--json] QUESTION\n"
+               "       printf 'QUESTION' | tny ask-user [--json]\n\n"
+               "Ask the owning tny frontend a free-text question. Requires\n"
+               "TNY_SESSION_SOCK from a tny terminal tool child.\n\n"
+               "Options: --json machine output; -h, --help show this help.\n";
+    else if (strcmp(command, "image") == 0)
+        text = "Usage: tny image attach [--json] PATH\n\n"
+               "Queue a validated image for the next provider request. Requires\n"
+               "TNY_SESSION_SOCK from a tny terminal tool child.\n\n"
+               "Options: --json machine output; -h, --help show this help.\n";
     else if (strcmp(command, "sessions") == 0) text = sessions_help;
     else if (strcmp(command, "session") == 0) text = session_help;
     else if (strcmp(command, "tasks") == 0) text = tasks_help;
@@ -308,16 +345,24 @@ bool help_for(const char *command) {
         text = "Usage: tny usage [--json]\n\nShow local token usage recorded from native-loop "
                "sessions.\n";
     else if (strcmp(command, "mcp") == 0)
-        text = "Usage: tny mcp [list] [--json]\n"
+        text = "Usage: tny mcp [list | call SERVER/TOOL] [--json]\n"
                "\n"
                "List MCP servers from ~/.tny/mcp.json plus any sources named in\n"
                "settings.json mcp.import_from (codex, claude, grok, cursor-agent). Import is\n"
                "off by default. Native names win on collision. Remote/SSE entries are\n"
                "skipped with a notice. tny never writes foreign config files.\n"
                "\n"
+               "`call` runs one tools/call: the JSON arguments come from stdin (empty means\n"
+               "{}), the result goes to stdout, and permissions are checked as\n"
+               "mcp:SERVER/TOOL. Exit 1 for usage/config, 2 when the call is refused or\n"
+               "fails. A big result is capped and written to a 0600 file under\n"
+               "~/.tny/results/ whose path is printed.\n"
+               "\n"
                "Examples:\n"
                "  tny mcp\n"
-               "  tny mcp list --json\n";
+               "  tny mcp list --json\n"
+               "  echo '{\"path\":\"README.md\"}' | tny mcp call fs/read_text_file\n"
+               "  tny --json mcp call deploy/status < args.json\n";
     else if (strcmp(command, "login") == 0)
         text = "Usage: tny [--provider NAME] login [--device | --device-code]\n"
                "\n"

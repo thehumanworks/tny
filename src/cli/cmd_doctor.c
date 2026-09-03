@@ -3,6 +3,7 @@
 #include "core/backend.h"
 #include "core/extension_caps.h"
 #include "core/extensions.h"
+#include "core/sandbox.h"
 #include "core/session.h"
 #include "util/util.h"
 
@@ -72,6 +73,21 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     int n = 0;
     session_meta *m = session_list(ctx, false, 100, NULL, &n);
     session_meta_free(m, n);
+    tny_sandbox_kind sandbox = tny_sandbox_effective(ctx);
+    tny_sandbox_kind sandbox_available = tny_sandbox_available();
+    const char *sandbox_note;
+    if (ctx->perm_mode == TNY_MODE_YOLO)
+        sandbox_note = "permission mode yolo disables the terminal sandbox";
+    else if (sandbox != TNY_SANDBOX_NONE)
+        sandbox_note = sandbox == TNY_SANDBOX_SEATBELT
+                           ? "terminal children use macOS Seatbelt; outbound network remains open"
+                           : "terminal children use Linux bubblewrap; network namespace is shared";
+    else if (ctx->sandbox_mode && strcmp(ctx->sandbox_mode, "os") == 0)
+        sandbox_note = "os sandbox requested but no supported wrapper is available";
+    else if (ctx->sandbox_mode && strcmp(ctx->sandbox_mode, "auto") == 0 &&
+             sandbox_available == TNY_SANDBOX_NONE)
+        sandbox_note = "auto resolved to none; no supported wrapper is available";
+    else sandbox_note = "terminal commands run without a tny OS wrapper";
 
     buf_t acp_found;
     buf_init(&acp_found);
@@ -96,8 +112,10 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                     python ? "true" : "false");
         buf_appends(&b, capabilities ? capabilities : "{}");
         buf_appends(&b, "},");
-        buf_appendf(&b, "\"sandbox\":\"none\",\"sandbox_note\":\"os sandbox not "
-                        "implemented in this build; commands run unsandboxed\",");
+        buf_appendf(&b, "\"tools\":\"%s\",\"sandbox\":\"%s\",\"sandbox_note\":",
+                    tny_tool_profile_name(ctx->tool_profile), tny_sandbox_kind_name(sandbox));
+        jescape(&b, sandbox_note);
+        buf_appends(&b, ",");
         buf_appendf(&b, "\"hosts\":{\"cursor_sdk_bridge\":%s,\"codex\":%s,\"acp_agents\":",
                     bridge ? "true" : "false", codex ? "true" : "false");
         jescape(&b, acp_found.len ? acp_found.data : "");
@@ -124,8 +142,9 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         else
             printf("ok  python extensions: %zu found%s\n", extension_entries,
                    extension_entries ? ", python3 available" : "");
-        printf("note sandbox: os sandbox not implemented in this build; "
-               "approved commands run unsandboxed\n");
+        printf("%s sandbox: %s (%s)\n", sandbox == TNY_SANDBOX_NONE ? "note" : "ok ",
+               tny_sandbox_kind_name(sandbox), sandbox_note);
+        printf("ok  tools: %s\n", tny_tool_profile_name(ctx->tool_profile));
         printf("%s cursor-sdk-bridge: %s\n", bridge ? "ok " : "miss",
                bridge ? ctx->bridge_bin : "not on PATH (set CURSOR_SDK_BRIDGE_BIN)");
         printf("%s codex: %s\n", codex ? "ok " : "miss", codex ? ctx->codex_bin : "not on PATH");

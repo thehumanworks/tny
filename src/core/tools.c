@@ -1,6 +1,7 @@
 /* tools.c — registry, permission gate, dispatch, result bounding. */
 #include "core/tools.h"
 #include "core/image.h"
+#include "core/intercept.h"
 #include "lib/custom_tools.h"
 #include "util/alloc.h"
 #include "util/util.h"
@@ -198,11 +199,22 @@ static bool schema_tool_disabled(const tools_env *env, const char *name) {
            strcmp(name, "ask_user_question") == 0;
 }
 
+static bool profile_allows_builtin(const tools_env *env, const char *name) {
+    if (!env || !env->ctx || !name || env->ctx->library_mode ||
+        env->ctx->tool_profile == TNY_TOOLS_ALL)
+        return true;
+    if (strcmp(name, "terminal") == 0 || strcmp(name, "read_image") == 0) return true;
+    return env->ctx->tool_profile == TNY_TOOLS_TERMINAL_EDIT &&
+           (strcmp(name, "edit_file") == 0 ||
+            (strcmp(name, "ask_user_question") == 0 && env->prompt));
+}
+
 /* Hidden from the advertised schema but still callable directly: web_search
  * without a configured provider (docs/adr/0055) keeps its runtime error. */
 static bool schema_tool_hidden(const tools_env *env, const char *name) {
     if (schema_tool_disabled(env, name)) return true;
     if (!env || !env->ctx || !name) return false;
+    if (!profile_allows_builtin(env, name)) return true;
     return strcmp(name, "web_search") == 0 && !tool_web_search_configured(env->ctx);
 }
 
@@ -231,7 +243,7 @@ static char *append_custom_schema(char *base, custom_tool_registry *registry) {
 char *tools_schema_json(tools_env *env) {
     if (env && env->ctx &&
         (env->ctx->mcp_disabled || env->ctx->library_mode ||
-         !tool_web_search_configured(env->ctx))) {
+         env->ctx->tool_profile != TNY_TOOLS_ALL || !tool_web_search_configured(env->ctx))) {
         yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
         yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
         yyjson_mut_doc *mut = yyjson_mut_doc_new(jallocator());
@@ -349,9 +361,7 @@ static int validate_call_schema(const char *name, yyjson_val *args, char **error
     return status;
 }
 
-/* Extract one path-like human detail used for permission rules/prompts. */
-static char *path_detail(tools_env *env, yyjson_val *args, const char *field) {
-    const char *p = jget_str(args, field);
+char *tools_path_detail(tools_env *env, const char *p) {
     if (!p) return NULL;
     if (p[0] == '/') return xstrdup(p);
     if (env->ctx->ssh_host) {
@@ -364,6 +374,11 @@ static char *path_detail(tools_env *env, yyjson_val *args, const char *field) {
     char *abs = tool_resolve_path(env, p, &err);
     free(err);
     return abs;
+}
+
+/* Extract one path-like human detail used for permission rules/prompts. */
+static char *path_detail(tools_env *env, yyjson_val *args, const char *field) {
+    return tools_path_detail(env, jget_str(args, field));
 }
 
 /* Extract the primary human detail used for permission rules and prompts. */
@@ -391,10 +406,6 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
     call->name = xstrdup(canonical_name(name));
     call->permission_tool = call->name ? xstrdup(call->name) : NULL;
     if (!call->name || !call->permission_tool) return -1;
-    if (schema_tool_disabled(env, call->name)) {
-        call->error = tool_err("tool %s is unavailable in embedded runtimes", call->name);
-        return -1;
-    }
     call->doc = args_json ? jparse(args_json, strlen(args_json)) : NULL;
     call->args = call->doc ? yyjson_doc_get_root(call->doc) : NULL;
     call->custom = custom_tools_find(env->ctx->custom_tools, call->name);
@@ -409,8 +420,16 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         int valid = validate_parameters(call->name, call->args, parameters, &call->error);
         yyjson_doc_free(schema);
         if (valid != 0) return -1;
-    } else if (validate_call_schema(call->name, call->args, &call->error) != 0) {
-        return -1;
+    } else {
+        if (schema_tool_disabled(env, call->name)) {
+            call->error = tool_err("tool %s is unavailable in embedded runtimes", call->name);
+            return -1;
+        }
+        if (!profile_allows_builtin(env, call->name)) {
+            call->error = tool_err("unknown tool %s", call->name);
+            return -1;
+        }
+        if (validate_call_schema(call->name, call->args, &call->error) != 0) return -1;
     }
     if (strcmp(call->name, "mcp_select_tool") == 0) {
         const char *server = jget_str(call->args, "server");
@@ -424,6 +443,25 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
     call->detail = call_detail(env, call->name, call->args);
     if (strcmp(call->name, "rename_file") == 0 || strcmp(call->name, "copy_file") == 0)
         call->detail2 = path_detail(env, call->args, "new_path");
+    /* A first-party tny verb typed into `terminal` becomes the typed tool it
+     * stands for: same permission identity, same detail, same executor
+     * (docs/adr/0063). A background command keeps its detached contract and
+     * is never intercepted. */
+    if (!call->custom && strcmp(call->name, "terminal") == 0 &&
+        !jget_bool(call->args, "background", false)) {
+        call->intercept = tny_intercept_parse(env, call->detail);
+        if (call->intercept) {
+            if (call->intercept->kind == TNY_INTERCEPT_REFUSED) {
+                call->error = tool_err("%s", call->intercept->message);
+                return -1;
+            }
+            free(call->permission_tool);
+            call->permission_tool = xstrdup(call->intercept->permission_tool);
+            free(call->detail);
+            call->detail = call->intercept->detail ? xstrdup(call->intercept->detail) : NULL;
+            if (!call->permission_tool) return -1;
+        }
+    }
     call->verdict = call->custom && !custom_tool_sensitive(call->custom)
                         ? PERM_ALLOW
                         : perm_check(env->perm, call->permission_tool, call->detail);
@@ -435,6 +473,7 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
     if (call->verdict == PERM_PROMPT) {
         buf_t summary;
         buf_init(&summary);
+        if (call->intercept) buf_appendf(&summary, "%s -> ", call->intercept->label);
         buf_appendf(&summary, "%s %s", call->permission_tool, call->detail ? call->detail : "");
         if (call->detail2) buf_appendf(&summary, " -> %s", call->detail2);
         call->summary = buf_detach(&summary);
@@ -449,9 +488,15 @@ void tools_call_grant(tools_env *env, const tools_call *call) {
     if (call->detail2) perm_grant(env->perm, call->permission_tool, call->detail2);
 }
 
+const char *tools_call_label(const tools_call *call) {
+    return call && call->intercept ? call->intercept->label : NULL;
+}
+
 char *tools_call_execute(tools_env *env, tools_call *call) {
     const char *name = call->name;
     yyjson_val *args = call->args;
+
+    if (call->intercept) return tny_intercept_execute(env, call->intercept);
 
     if (call->custom) {
         char *result = NULL;
@@ -503,6 +548,7 @@ void tools_call_free(tools_call *call) {
     free(call->detail2);
     free(call->summary);
     free(call->error);
+    tny_intercept_free(call->intercept);
     yyjson_doc_free(call->doc);
     memset(call, 0, sizeof *call);
 }
@@ -518,6 +564,44 @@ int tools_flush_images(tools_env *env, char *err, size_t errlen) {
     }
     env->n_pending_images = 0;
     return rc;
+}
+
+int tools_queue_image(tools_env *env, const char *path, bool allowed_roots_only,
+                      const char **resolved_out, const char **mime_out, size_t *len_out, char *err,
+                      size_t errlen) {
+    if (resolved_out) *resolved_out = NULL;
+    if (mime_out) *mime_out = NULL;
+    if (len_out) *len_out = 0;
+    if (!env || !env->ctx || env->n_pending_images >= 8) {
+        if (err && errlen) snprintf(err, errlen, "too many images in this step (max 8)");
+        return -1;
+    }
+    char *resolve_err = NULL;
+    char *abs = tool_resolve_path(env, path, &resolve_err);
+    if (!abs) {
+        if (err && errlen)
+            snprintf(err, errlen, "%s", resolve_err ? resolve_err : "invalid image path");
+        free(resolve_err);
+        return -1;
+    }
+    if (allowed_roots_only && !perm_path_allowed(env->ctx, abs)) {
+        if (err && errlen) snprintf(err, errlen, "image path is outside the allowed roots");
+        free(abs);
+        return -1;
+    }
+    size_t len = 0;
+    const char *mime = NULL;
+    uint8_t *data = image_load(abs, &len, &mime, err, errlen);
+    if (!data) {
+        free(abs);
+        return -1;
+    }
+    free(data);
+    env->pending_images[env->n_pending_images++] = abs;
+    if (resolved_out) *resolved_out = abs;
+    if (mime_out) *mime_out = mime;
+    if (len_out) *len_out = len;
+    return 0;
 }
 
 char *tools_execute(tools_env *env, const char *name, const char *args_json) {

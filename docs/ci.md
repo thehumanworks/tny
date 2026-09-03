@@ -72,6 +72,86 @@ output into `docs/` on `main`. Generated HTML and assets in `docs/` are a
 published mirror of `site/` — edit `site/` and `scripts/site_build.py`,
 never the generated files in `docs/`.
 
+## Toolchain (`mise install`)
+
+Every tool the gates shell out to is pinned twice, in lockstep
+([ADR 0061](adr/0061-toolchain-and-leak-gates.md)): `.mise.toml` for
+developers and the `quality` job in `ci.yml` for CI. One command gets a
+machine to parity, and `make quality` then needs no flags:
+
+```sh
+mise install
+make quality
+make leaks
+```
+
+| Tool | Pin | mise backend |
+| --- | --- | --- |
+| clang-format | 21.1.2 | `pipx:` (the PyPI wheel CI installs; LLVM is not in the registry as a versioned pair) |
+| clang-tidy | 22.1.8 | `pipx:` |
+| ruff | 0.14.0 | `aqua:astral-sh/ruff` |
+| shellcheck | 0.11.0 | `aqua:koalaman/shellcheck` |
+| shfmt | 3.13.1 | `aqua:mvdan/sh` |
+| actionlint | 1.7.12 | `aqua:rhysd/actionlint` |
+| python | 3.12 | core |
+| node | 22 | core |
+
+The `pipx:` entries are driven through `uv`, which `.mise.toml` pins as
+their prerequisite; no `experimental` setting is required.
+`tests/integration/test_toolchain_pins.py` fails the suite if `.mise.toml`
+and `ci.yml` drift apart.
+
+Without mise, the per-invocation fallback still works:
+
+```sh
+make quality CLANG_FORMAT='uvx clang-format@21.1.2' \
+             CLANG_TIDY='uvx clang-tidy@22.1.8' RUFF='uvx ruff@0.14.0'
+```
+
+The Nix dev shell carries the same tools at the channel's versions
+([nix.md](nix.md)); `mise install` is the version-exact path.
+
+## Leak checks
+
+`make leaks` is the memory gate. ASan/UBSan is the default test build and no
+leak checker can see through it, so the target rebuilds the same sources with
+`SANITIZE=0` into `build/leakcheck/` and runs the unit binary plus the CLI
+smoke (`--version`, `--help`, `ask --help`, `doctor --json`) under the host's
+checker:
+
+| Host | Checker | Coverage |
+| --- | --- | --- |
+| Linux | `valgrind --leak-check=full --error-exitcode=1 --child-silent-after-fork=yes --errors-for-leak-kinds=definite,indirect --suppressions=tests/valgrind.supp` | whole unit binary in one run, then the smoke |
+| macOS | `/usr/bin/leaks --atExit` | suite by suite; valgrind has no arm64 Darwin port |
+| other | honest skip, exit 0 | Linux CI is the gate |
+
+`make valgrind` is the explicit Linux-only target (an error elsewhere);
+`make leaks-docker` runs the valgrind flavour from a non-Linux host in a
+throwaway `ubuntu:24.04` container (`LEAK_DOCKER_IMAGE=` overrides it). Note
+that the container mounts the working copy, so the tree has to be inside your
+Docker file-sharing roots — colima and Docker Desktop share `$HOME`, not
+`/tmp`, by default.
+
+macOS runs suite by suite and skips `cursor_suite`, `cursor_sdk_suite`,
+`mcp_suite`, `session_bg_suite`, `ssh_suite` and `runner_suite` (its control-channel
+tests fork a terminal child, ADR 0058): `leaks --atExit` installs an
+exit hook that stops the process for analysis and `fork(2)` copies it into
+every child, so a suite that spawns a helper deadlocks, and
+MallocStackLogging's banner corrupts the stdout those tests read back. The
+Linux `valgrind` job covers all six, which is why it is the gate.
+
+Two valgrind flags beyond the obvious ones earn their place. Several suites
+fork, and a child that exits mid-test reports the parent's still-live heap as
+lost — only the parent's report is the truth, so
+`--child-silent-after-fork=yes`. And `possibly lost` here is glibc's per-thread
+stack and DTV for threads alive at exit, never a first-party leak, so
+`--errors-for-leak-kinds=definite,indirect` decides the exit code.
+
+A `valgrind` job on `ubuntu-24.04` runs `make valgrind` on every PR.
+`tests/valgrind.supp` suppresses only the dynamic loader and the dlopen'd
+system OpenSSL that `src/net/stream.c` deliberately never closes; first-party
+leaks are never suppressed.
+
 ## Releases (mise / `github:` backend)
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`: the same matrix,
@@ -135,7 +215,9 @@ CI fails the job if the stripped binary exceeds the Must column in
 ## Local
 
 ```sh
+mise install           # the pinned toolchain (docs/adr/0061)
 make quality           # formatting, lint, tidy, strict warnings; GCC analyzer on Linux
+make leaks             # valgrind (Linux) / leaks (macOS) over the unit suite + smoke
 make test-shell-workflows # the workflow scheduler under both Bash and Zsh
 make test              # unit (ASan) + integration fixtures
 make test-abi          # ABI baseline, old consumers, exports, artifacts
@@ -145,3 +227,48 @@ make STATIC=1 release  # musl static, on Alpine or a musl toolchain
 make pack TRIPLE=linux-x86_64
 nix flake check        # the same suite, hermetically (docs/nix.md)
 ```
+
+## Benchmarks
+
+Benchmarks are never part of `make test` — shared runners are too noisy for a
+timing or pass-rate gate. They are run deliberately, and their numbers are
+recorded in the ADR that motivated them.
+
+`tests/bench/bench_ttft.py` measures time-to-first-token against the scripted
+codex mock ([ADR 0004](adr/0004-ttft.md)).
+
+`tests/bench/bench_tools.py` is the three-arm A/B of the native tool profiles
+`all`, `terminal+edit` and `terminal` ([ADR 0062](adr/0062-tool-profiles.md)),
+whose result is recorded in the Measurement section of
+[ADR 0057](adr/0057-shell-first-native-loop.md). Every run copies one frozen
+fixture from `tests/bench/fixtures/tools/<task>/` into a fresh scratch
+directory, feeds its `task.md` to `tny ask -B --json --stdin`, blocks on
+`tny session ID --wait --json`, and scores the scratch with the fixture's
+`check.sh` (exit 0 = pass). The session document supplies steps, tool calls,
+token usage, repair loops and edit-method drift, so no second provider call is
+needed. The harness shadows `PATH` with the binary under test, because the
+shell profiles tell the model to reach for `tny edit`.
+
+```sh
+python3 tests/bench/bench_tools.py --dry-run           # list the frozen task set
+python3 tests/bench/bench_tools.py --verify-fixtures   # red before, green after
+python3 tests/bench/bench_tools.py --mock --tasks fix-py-sum-range
+python3 tests/bench/bench_tools.py --provider aiproxy --effort high --runs 1 \
+    --max-steps 40 --timeout 600                       # the live pilot; needs a key
+```
+
+`--mock` needs no key: it scripts `tests/integration/mock_openai.py` to issue
+one `terminal` call that runs the fixture's own `solution.sh`, so the whole
+pipeline is exercised offline. That is what the CI smoke
+`tests/integration/test_bench_tools.py` runs — one task in each of the three
+arms, plus `--dry-run`, `--verify-fixtures`, and the unknown-task error — and
+it is picked up automatically by `tests/integration/run.sh`, so `make test` and
+`nix flake check` both cover it. Live arms need a provider key and are never
+run in CI.
+
+Each fixture directory holds the workspace files plus four pieces of
+bookkeeping that are never copied into the scratch a model sees: `task.md`
+(the prompt), `check.sh` (the programmatic check), `family`, and `solution.sh`
+(the reference solution, which both proves the check is satisfiable and drives
+the `--mock` trajectory). Checks are deterministic and offline; the C fixtures
+need only `cc`.

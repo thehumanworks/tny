@@ -35,7 +35,7 @@ Vendor by source file, not by package manager graphs.
 | Connect | Hand-rolled HTTP/1.1 framing plus bounded loopback callback server | Unary + server streams outbound; authenticated custom-tool/store RPCs inbound; classic gRPC will not work |
 | TUI | Raw ANSI + termios + UTF-8 width | No ncurses, notcurses, termbox |
 | Tests | [greatest.h](https://github.com/silentbicycle/greatest) | One header. Golden files in `testdata/` |
-| MCP TOML | `src/util/toml.c` (~400 LOC subset) | Codex/grok `[mcp_servers.*]` import only ([ADR 0051](adr/0051-mcp-import-from-harnesses.md)); not a general TOML library |
+| MCP TOML | `src/util/toml.c` (~400 LOC subset) | Codex/grok `[mcp_servers.*]` import only ([ADR 0051](adr/0052-mcp-import-from-harnesses.md)); not a general TOML library |
 
 Do **not** take: libcurl, OpenSSL, libuv, Boost, nlohmann/json, protobuf C++, grpc, libwebsockets, cJSON, ICU, gtest. Cross-compile C with `zig cc` if needed; do not write Zig. ("Take" means vendor or link; `dlopen`ing the platform's TLS library — Security.framework, system libssl — is the intended alternative, [adr/0007](adr/0007-linux-tls-system-openssl.md).)
 
