@@ -328,7 +328,7 @@ def read_until(fd_or_proc, needle: bytes, timeout: float, from_pty=None) -> byte
 
 def authorize_url_from(output: bytes) -> dict:
     line = next(
-        l for l in output.decode().splitlines() if "/oauth/authorize?" in l
+        ln for ln in output.decode().splitlines() if "/oauth/authorize?" in ln
     ).strip()
     parsed = urllib.parse.urlparse(line)
     return {

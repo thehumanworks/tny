@@ -399,9 +399,11 @@ static void http_reply(int fd, int status, const char *html) {
  * state hands back the code (malloc'd); anything else is answered and
  * ignored. The browser gets a tiny page either way. */
 static char *serve_callback(int lfd, const char *expect_state) {
+    if (lfd < 0) return NULL;
     int fd = accept(lfd, NULL, NULL);
     if (fd < 0) return NULL;
     char req[8192];
+    memset(req, 0, sizeof req);
     size_t got = 0;
     int64_t deadline = now_ms() + 5000;
     while (got < sizeof req - 1) {

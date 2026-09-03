@@ -329,11 +329,19 @@ static bool refresh_file(char *path) {
     yyjson_doc *old = m ? jparse_file(path) : NULL;
     yyjson_mut_val *root = old ? yyjson_val_mut_copy(m, yyjson_doc_get_root(old)) : NULL;
     yyjson_doc_free(old);
-    yyjson_mut_val *tokens = root ? yyjson_mut_obj_get(root, "tokens") : NULL;
-    const char *access = yyjson_mut_get_str(yyjson_mut_obj_get(tokens, "access_token"));
+    if (!yyjson_mut_is_obj(root)) {
+        yyjson_mut_doc_free(m);
+        free(path);
+        return false;
+    }
+    yyjson_mut_val *tokens = yyjson_mut_obj_get(root, "tokens");
     const char *key = yyjson_mut_get_str(yyjson_mut_obj_get(root, "OPENAI_API_KEY"));
+    const char *access = NULL, *ref = NULL;
+    if (yyjson_mut_is_obj(tokens)) {
+        access = yyjson_mut_get_str(yyjson_mut_obj_get(tokens, "access_token"));
+        ref = yyjson_mut_get_str(yyjson_mut_obj_get(tokens, "refresh_token"));
+    }
     bool usable = (access && *access) || (key && *key);
-    const char *ref = yyjson_mut_get_str(yyjson_mut_obj_get(tokens, "refresh_token"));
     if (!usable || !access || !*access || !ref || !*ref || !file_tokens_stale(root, tokens)) {
         yyjson_mut_doc_free(m);
         free(path);
