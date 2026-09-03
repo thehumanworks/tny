@@ -3355,7 +3355,50 @@ TEST embedded_public_runtime_does_not_claim_library_linkage(void) {
     PASS();
 }
 
+/* docs/backends/codex.md: the ChatGPT backend's catalog is a `models`
+ * array keyed by slug; hidden entries never reach the user. */
+TEST codex_models_normalize_keeps_listed_slugs(void) {
+    const char *body =
+        "{\"models\":["
+        "{\"slug\":\"gpt-reserve\",\"display_name\":\"Reserve\",\"visibility\":\"hide\","
+        "\"supported_reasoning_levels\":[{\"effort\":\"low\"}]},"
+        "{\"slug\":\"gpt-5.6-sol\",\"display_name\":\"GPT-5.6-Sol\",\"visibility\":\"list\","
+        "\"description\":\"Workhorse\",\"default_reasoning_level\":\"low\","
+        "\"context_window\":272000,"
+        "\"supported_reasoning_levels\":[{\"effort\":\"low\",\"description\":\"x\"},"
+        "{\"effort\":\"xhigh\",\"description\":\"y\"}]},"
+        "{\"slug\":\"\",\"visibility\":\"list\"},"
+        "{\"slug\":\"gpt-5.5\",\"display_name\":\"GPT-5.5\",\"visibility\":\"list\","
+        "\"supported_reasoning_levels\":[]}]}";
+    char *arr = tny_codex_models_normalize(body, strlen(body));
+    ASSERT(arr);
+    ASSERT_STR_EQ("[{\"id\":\"gpt-5.6-sol\",\"name\":\"GPT-5.6-Sol\",\"description\":\"Workhorse\","
+                  "\"efforts\":[\"low\",\"xhigh\"],\"default_effort\":\"low\","
+                  "\"context_window\":272000},"
+                  "{\"id\":\"gpt-5.5\",\"name\":\"GPT-5.5\"}]",
+                  arr);
+    free(arr);
+    /* the public {"data":[…]} shape is not a codex catalog */
+    ASSERT_EQ(NULL, tny_codex_models_normalize("{\"data\":[{\"id\":\"x\"}]}", 22));
+    ASSERT_EQ(NULL, tny_codex_models_normalize("{\"models\":", 10));
+    PASS();
+}
+
+TEST codex_client_version_env_override(void) {
+    unsetenv("TNY_CODEX_CLIENT_VERSION");
+    const char *pinned = tny_codex_client_version();
+    ASSERT(pinned && strchr(pinned, '.'));
+    setenv("TNY_CODEX_CLIENT_VERSION", "9.9.9", 1);
+    ASSERT_STR_EQ("9.9.9", tny_codex_client_version());
+    setenv("TNY_CODEX_CLIENT_VERSION", "", 1);
+    ASSERT_STR_EQ(pinned, tny_codex_client_version());
+    unsetenv("TNY_CODEX_CLIENT_VERSION");
+    PASS();
+}
+
 SUITE(core_suite) {
+    RUN_TEST(codex_models_normalize_keeps_listed_slugs);
+    RUN_TEST(codex_client_version_env_override);
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(builtin_codex_profile);
     RUN_TEST(codex_credential_precedence);

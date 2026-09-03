@@ -34,12 +34,18 @@
 #define CODEX_CHATGPT_BASE_URL "https://chatgpt.com/backend-api/codex"
 #define CODEX_API_BASE_URL     "https://api.openai.com/v1"
 #define CODEX_BETA_HEADER      "OpenAI-Beta: responses=v1"
-#define CODEX_DEFAULT_MODEL    "gpt-5.6-sol"
-#define CLAUDE_BASE_URL        "https://api.anthropic.com/v1"
-#define CLAUDE_OAUTH_HEADER    "anthropic-beta: oauth-2025-04-20"
-#define CLAUDE_DEFAULT_MODEL   "claude-sonnet-4-6"
-#define GROK_PROXY_BASE_URL    "https://cli-chat-proxy.grok.com/v1"
-#define GROK_PROXY_HEADER      "X-XAI-Token-Auth: xai-grok-cli"
+/* The ChatGPT backend's `/models` is gated on the caller's Codex CLI
+ * version (`?client_version=`): the catalog only lists models whose
+ * `minimal_client_version` the claimed client meets, and a missing query
+ * is a 400. Pinned to a known-current CLI release; TNY_CODEX_CLIENT_VERSION
+ * overrides without a rebuild. */
+#define CODEX_CLIENT_VERSION "0.154.0"
+#define CODEX_DEFAULT_MODEL  "gpt-5.6-sol"
+#define CLAUDE_BASE_URL      "https://api.anthropic.com/v1"
+#define CLAUDE_OAUTH_HEADER  "anthropic-beta: oauth-2025-04-20"
+#define CLAUDE_DEFAULT_MODEL "claude-sonnet-4-6"
+#define GROK_PROXY_BASE_URL  "https://cli-chat-proxy.grok.com/v1"
+#define GROK_PROXY_HEADER    "X-XAI-Token-Auth: xai-grok-cli"
 /* The proxy version-gates on x-grok-client-version and 426s requests that
  * claim less than its rolling minimum. Pinned to a known-accepted grok-build
  * release; TNY_GROK_CLIENT_VERSION overrides without a rebuild. */
@@ -274,6 +280,80 @@ static void apply_grok(tny_ctx *ctx) {
     const char *key = getenv("XAI_API_KEY");
     set_str(&ctx->api_key, key && *key ? key : NULL);
     profile_default_model(ctx, GROK_DEFAULT_MODEL);
+}
+
+/* ---------- ChatGPT-mode model catalog (docs/backends/codex.md) ---------- */
+
+bool tny_codex_chatgpt_mode(const tny_ctx *ctx) {
+    if (!ctx || !ctx->provider_name || strcmp(ctx->provider_name, "codex") != 0) return false;
+    for (char **h = ctx->extra_headers; h && *h; h++)
+        if (strcmp(*h, CODEX_BETA_HEADER) == 0) return true;
+    return false; /* API-key mode or no login: plain api.openai.com rules */
+}
+
+const char *tny_codex_client_version(void) {
+    const char *v = getenv("TNY_CODEX_CLIENT_VERSION");
+    return v && *v ? v : CODEX_CLIENT_VERSION;
+}
+
+char *tny_codex_models_normalize(const char *body, size_t len) {
+    yyjson_doc *doc = jparse(body, len);
+    if (!doc) return NULL;
+    yyjson_val *models = jget(yyjson_doc_get_root(doc), "models");
+    if (!models || !yyjson_is_arr(models)) {
+        yyjson_doc_free(doc);
+        return NULL;
+    }
+    buf_t out;
+    buf_init(&out);
+    buf_appends(&out, "[");
+    int n = 0;
+    size_t idx, max;
+    yyjson_val *m;
+    yyjson_arr_foreach(models, idx, max, m) {
+        const char *slug = jget_str(m, "slug");
+        if (!slug || !*slug) continue;
+        const char *vis = jget_str(m, "visibility");
+        if (vis && strcmp(vis, "list") != 0) continue; /* hide | none */
+        if (n++) buf_appends(&out, ",");
+        buf_appends(&out, "{\"id\":");
+        jescape(&out, slug);
+        const char *name = jget_str(m, "display_name");
+        if (name && *name) {
+            buf_appends(&out, ",\"name\":");
+            jescape(&out, name);
+        }
+        const char *desc = jget_str(m, "description");
+        if (desc && *desc) {
+            buf_appends(&out, ",\"description\":");
+            jescape(&out, desc);
+        }
+        yyjson_val *levels = jget(m, "supported_reasoning_levels");
+        if (levels && yyjson_is_arr(levels) && yyjson_arr_size(levels)) {
+            buf_appends(&out, ",\"efforts\":[");
+            size_t li, lmax;
+            yyjson_val *lv;
+            int ln = 0;
+            yyjson_arr_foreach(levels, li, lmax, lv) {
+                const char *effort = jget_str(lv, "effort");
+                if (!effort) continue;
+                if (ln++) buf_appends(&out, ",");
+                jescape(&out, effort);
+            }
+            buf_appends(&out, "]");
+        }
+        const char *dflt = jget_str(m, "default_reasoning_level");
+        if (dflt && *dflt) {
+            buf_appends(&out, ",\"default_effort\":");
+            jescape(&out, dflt);
+        }
+        int64_t ctxw = jget_int(m, "context_window", 0);
+        if (ctxw > 0) buf_appendf(&out, ",\"context_window\":%lld", (long long)ctxw);
+        buf_appends(&out, "}");
+    }
+    buf_appends(&out, "]");
+    yyjson_doc_free(doc);
+    return out.data;
 }
 
 void tny_apply_builtin_profile(tny_ctx *ctx, const char *name) {

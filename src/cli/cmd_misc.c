@@ -340,9 +340,14 @@ int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     for (char **e = ctx->extra_headers; e && *e && hn < 11; e++)
         hdrs[hn++] = *e; /* builtin-profile headers (docs/adr/0019) */
     hdrs[hn] = NULL;
+    /* The ChatGPT backend behind the codex profile gates its catalog on the
+     * caller's Codex CLI version and answers {"models":[…]} instead of
+     * {"data":[…]} (docs/backends/codex.md) */
+    bool codex_catalog = tny_codex_chatgpt_mode(ctx);
     buf_t path;
     buf_init(&path);
     buf_appendf(&path, "%s/models", http_prefix(c));
+    if (codex_catalog) buf_appendf(&path, "?client_version=%s", tny_codex_client_version());
     int status = -1;
     buf_t body;
     buf_init(&body);
@@ -380,6 +385,23 @@ int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                     status);
         buf_free(&body);
         return models_fallback(ctx, json);
+    }
+    if (codex_catalog) {
+        char *arr = tny_codex_models_normalize(body.data, body.len);
+        buf_free(&body);
+        if (!arr) {
+            fprintf(stderr, "tny: codex catalog: unexpected response shape; showing configured\n");
+            return models_fallback(ctx, json);
+        }
+        if (strcmp(arr, "[]") == 0)
+            fprintf(stderr,
+                    "tny: codex catalog is empty for client_version %s; the backend hides "
+                    "models newer than the claimed Codex CLI — set TNY_CODEX_CLIENT_VERSION "
+                    "to a current release\n",
+                    tny_codex_client_version());
+        models_print(ctx, arr, json);
+        free(arr);
+        return 0;
     }
     yyjson_doc *doc = jparse(body.data, body.len);
     buf_free(&body);

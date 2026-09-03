@@ -73,6 +73,7 @@ import ssl
 import stat
 import sys
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 EXPECT_WIRE = os.environ.get("MOCK_EXPECT_WIRE")
@@ -113,6 +114,39 @@ EXPECT_HEADERS = [
     if pair
 ]
 REJECT_HEADERS = [h for h in os.environ.get("MOCK_REJECT_HEADERS", "").split(";") if h]
+
+
+# A trimmed chatgpt.com/backend-api/codex catalog: one hidden entry, one
+# without efforts, so the client's filtering is observable.
+CODEX_CATALOG = {
+    "models": [
+        {
+            "slug": "gpt-reserve",
+            "display_name": "GPT-Reserve",
+            "visibility": "hide",
+            "supported_reasoning_levels": [{"effort": "medium", "description": ""}],
+        },
+        {
+            "slug": "gpt-5.6-sol",
+            "display_name": "GPT-5.6-Sol",
+            "description": "Reliable agentic workhorse for everyday tasks.",
+            "visibility": "list",
+            "default_reasoning_level": "low",
+            "context_window": 272000,
+            "supported_reasoning_levels": [
+                {"effort": "low", "description": "Fast"},
+                {"effort": "medium", "description": "Balanced"},
+                {"effort": "high", "description": "Deep"},
+            ],
+        },
+        {
+            "slug": "gpt-5.5",
+            "display_name": "GPT-5.5",
+            "visibility": "list",
+            "supported_reasoning_levels": [],
+        },
+    ]
+}
 
 
 def sse(obj):
@@ -262,7 +296,30 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if self.path.endswith("/models"):
+        url = urllib.parse.urlsplit(self.path)
+        if url.path.endswith("/models"):
+            for name, value in EXPECT_HEADERS:
+                got = self.headers.get(name)
+                if got != value:
+                    self._reject(f"header {name} is {got!r}, want {value!r}")
+                    return
+            if any(n.lower() == "chatgpt-account-id" for n, _ in EXPECT_HEADERS):
+                # chatgpt.com/backend-api/codex: the catalog is gated on the
+                # Codex CLI version and keyed by slug (docs/backends/codex.md)
+                query = urllib.parse.parse_qs(url.query)
+                if not query.get("client_version"):
+                    self._json(
+                        400,
+                        {
+                            "error": {
+                                "message": "[{'type': 'missing', 'loc': ('query', 'client_version'), 'msg': 'Field required', 'input': None}]",
+                                "type": "invalid_request_error",
+                            }
+                        },
+                    )
+                    return
+                self._json(200, CODEX_CATALOG)
+                return
             self._json(200, {"data": [{"id": "mock-model-1"}, {"id": "mock-model-2"}]})
         else:
             self.send_response(404)

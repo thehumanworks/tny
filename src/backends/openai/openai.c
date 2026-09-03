@@ -3,6 +3,7 @@
  * (docs/backends/openai-compatible.md, docs/adr/0016). */
 #include "backends/openai/openai.h"
 #include "core/tools.h"
+#include "core/provider_extras.h"
 #include "core/image.h"
 #include "core/instructions.h"
 #include "core/tasks.h"
@@ -423,7 +424,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     buf_init(&auth);
     buf_appendf(&auth, "%s: %s%s", o->ctx->auth_header_name, o->ctx->auth_header_prefix,
                 o->ctx->api_key ? o->ctx->api_key : "");
-    const char *hdrs[12];
+    const char *hdrs[16];
     int hn = 0;
     hdrs[hn++] = "Content-Type: application/json";
     hdrs[hn++] = "Accept: text/event-stream";
@@ -431,6 +432,13 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     /* builtin-profile headers (claude oauth beta, grok proxy auth/model
      * routing — docs/adr/0019) */
     for (char **e = o->ctx->extra_headers; e && *e && hn < 11; e++) hdrs[hn++] = *e;
+    /* per-provider add-ons (docs/adr/0067): the one seam where a hosted
+     * provider's request quirk enters; the table lives in provider_extras.c */
+    char *addons[4];
+    tny_request_scope scope = {o->ctx->provider_name, o->ctx->base_url,
+                               o->env.session ? o->env.session->id : NULL};
+    int an = tny_provider_extras_headers(&scope, addons, 4);
+    for (int i = 0; i < an && hn < 15; i++) hdrs[hn++] = addons[i];
     hdrs[hn] = NULL;
     buf_t path;
     buf_init(&path);
@@ -441,6 +449,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
         buf_free(&path);
         if (auth.data) secure_zero(auth.data, auth.len);
         buf_free(&auth);
+        tny_provider_extras_free(addons, an);
         free(body);
         return -1;
     }
@@ -452,6 +461,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
         buf_free(&path);
         if (auth.data) secure_zero(auth.data, auth.len);
         buf_free(&auth);
+        tny_provider_extras_free(addons, an);
         free(body);
         emit_turn_end(o, TNY_STOP_INTERRUPTED);
         return 0;
@@ -487,6 +497,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     buf_free(&path);
     if (auth.data) secure_zero(auth.data, auth.len);
     buf_free(&auth);
+    tny_provider_extras_free(addons, an);
     free(body);
     if (rc != 0) {
         snprintf(errbuf, errlen, "provider request failed");

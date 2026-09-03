@@ -122,6 +122,34 @@ Default model: `gpt-5.6-sol` (`--model`, `/model`, or a saved
 `models.codex` entry override it; `CODEX_DEFAULT_MODEL` applies only to a
 shadowing user profile, see below).
 
+## Model catalog (`tny models`, `/models`)
+
+The ChatGPT backend's catalog is not the public `GET /v1/models`:
+
+```text
+GET https://chatgpt.com/backend-api/codex/models?client_version=<codex cli version>
+Authorization: Bearer <access_token>
+chatgpt-account-id: <account_id>
+OpenAI-Beta: responses=v1
+→ {"models":[{"slug":"gpt-5.6-sol","display_name":"GPT-5.6-Sol","visibility":"list",
+              "default_reasoning_level":"low","context_window":272000,
+              "supported_reasoning_levels":[{"effort":"low","description":"…"},…],…},…]}
+```
+
+`client_version` is **required** (a bare `/models` is HTTP 400) and gates
+the listing: the backend only returns models whose `minimal_client_version`
+the claimed client meets, so an old version yields an empty catalog. tny
+claims a pinned Codex CLI release (`CODEX_CLIENT_VERSION` in
+`src/core/profiles.c`); `TNY_CODEX_CLIENT_VERSION` overrides it without a
+rebuild when the pin falls behind. In ChatGPT mode `tny models` sends that
+query and normalizes the answer into the shared catalog shape
+(`[{"id","name","description","efforts":[…],"default_effort","context_window"}]`),
+dropping entries whose `visibility` is not `list` (`hide`, `none`). `--json`
+reports `{"kind":"models","provider":"codex","models":[…]}`; the plain
+listing shows `[effort: …]` per model like cursor, and the `efforts` tokens
+are what `--effort` accepts verbatim. API-key mode (`codex login
+--with-api-key`) keeps the public `/v1/models` path and `data[].id` shape.
+
 ## Selection, shadowing, overrides
 
 | Knob | Effect |
@@ -129,6 +157,7 @@ shadowing user profile, see below).
 | `--provider codex` / `/provider codex` / `last_provider` | select the builtin profile |
 | `$CODEX_HOME/auth.json` present | auto-detected first among subscription logins |
 | `TNY_CODEX_BASE_URL` | redirect the ChatGPT-mode base URL (mocks, gateways) while keeping the profile's headers |
+| `TNY_CODEX_CLIENT_VERSION` | Codex CLI version claimed on `/models?client_version=` (catalog gating, above) |
 | `--base-url` | one-run override of any profile's URL (also API-key mode) |
 | settings `"codex": {"base_url": …}` or `CODEX_BASE_URL` | a **user profile named codex shadows the builtin** entirely (no ChatGPT headers, `CODEX_API_KEY` key) — explicit config wins, like `claude`/`grok` |
 | `--chatgpt-token` / `CHATGPT_ACCESS_TOKEN`, `--chatgpt-account-id` / `CHATGPT_ACCOUNT_ID` | file-less credential (precedence above) |

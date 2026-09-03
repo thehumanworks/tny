@@ -468,6 +468,37 @@ def main():
             expect_ok(ask(env, ws, "--provider", "codex"), "codex cli file")
             expect_ok(ask(env, ws), "codex cli file, auto-detected")
             assert "$CODEX_HOME/auth.json" in providers_json(env, ws)["hint"]
+            # /models: the ChatGPT catalog wants ?client_version= and the
+            # profile's headers, answers {"models":[…]} keyed by slug
+            r = subprocess.run(
+                [TNY, "--provider", "codex", "models", "--json"],
+                env=env,
+                capture_output=True,
+                timeout=30,
+            )
+            assert r.returncode == 0, r.stderr
+            assert b"showing configured" not in r.stderr, r.stderr
+            cat = json.loads(r.stdout)
+            assert cat["kind"] == "models" and cat["provider"] == "codex", cat
+            assert [m["id"] for m in cat["models"]] == ["gpt-5.6-sol", "gpt-5.5"], cat
+            assert cat["models"][0]["efforts"] == ["low", "medium", "high"], cat
+            assert cat["models"][0]["default_effort"] == "low", cat
+            assert "efforts" not in cat["models"][1], cat
+            r = subprocess.run(
+                [TNY, "--provider", "codex", "models"],
+                env=env,
+                capture_output=True,
+                timeout=30,
+            )
+            assert r.returncode == 0, r.stderr
+            assert (
+                b"gpt-5.6-sol  \xe2\x80\x94  GPT-5.6-Sol  (active)  [effort: low medium high]"
+                in r.stdout
+            ), r.stdout
+            assert b"gpt-reserve" not in r.stdout, r.stdout
+            print(
+                "ok  tny models reads the ChatGPT catalog (client_version, hidden slugs dropped)"
+            )
             print(
                 "ok  $CODEX_HOME/auth.json from `codex login` still works and auto-detects"
             )

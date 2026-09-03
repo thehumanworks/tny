@@ -29,6 +29,7 @@ SUITE_EXTERN(sandbox_suite);
 SUITE_EXTERN(edit_suite);
 SUITE_EXTERN(perm_suite);
 SUITE_EXTERN(intercept_suite);
+SUITE_EXTERN(provider_extras_suite);
 
 int main(int argc, char **argv) {
     GREATEST_MAIN_BEGIN();
@@ -58,5 +59,6 @@ int main(int argc, char **argv) {
     RUN_SUITE(edit_suite);
     RUN_SUITE(perm_suite);
     RUN_SUITE(intercept_suite);
+    RUN_SUITE(provider_extras_suite);
     GREATEST_MAIN_END();
 }

@@ -235,6 +235,19 @@ int tny_grok_login(void);
 int tny_grok_logout(void);
 void tny_grok_refresh_if_stale(void);
 void tny_apply_builtin_profile(tny_ctx *ctx, const char *name);
+/* True when the codex profile is bound to the ChatGPT backend (OAuth
+ * token + the responses beta header), as opposed to API-key mode on
+ * api.openai.com. Decides the `/models` dialect below. */
+bool tny_codex_chatgpt_mode(const tny_ctx *ctx);
+/* Codex CLI version tny claims on `GET /models?client_version=` —
+ * TNY_CODEX_CLIENT_VERSION or the pinned default. */
+const char *tny_codex_client_version(void);
+/* Normalize the ChatGPT backend's `{"models":[{slug,display_name,
+ * visibility,supported_reasoning_levels,…}]}` into the catalog shape
+ * `tny models` prints: [{"id","name","description","efforts":[…],
+ * "default_effort","context_window"},…]. Entries with visibility other
+ * than "list" are dropped. malloc'd; NULL on a malformed body. */
+char *tny_codex_models_normalize(const char *body, size_t len);
 /* Post-model-resolution fixups (grok proxy model-override header). */
 void tny_finish_builtin_profile(tny_ctx *ctx);
 void tny_ctx_clear_extra_headers(tny_ctx *ctx);

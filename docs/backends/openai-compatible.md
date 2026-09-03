@@ -119,7 +119,7 @@ wire flattens it onto `"text":{"format":{"type":"json_schema","name":…,"schema
 (`tny_openai_responses_text_format()`). Tool calls are unaffected; the
 schema constrains the final assistant text.
 
-Also implement `GET {base_url}/models` for `/models` when the provider has it; otherwise show configured ids only.
+Also implement `GET {base_url}/models` for `/models` when the provider has it; otherwise show configured ids only. The builtin codex profile in ChatGPT mode speaks a different catalog dialect (`?client_version=`, `models[].slug`); see [codex.md](codex.md#model-catalog-tny-models-models).
 
 ## Builtin subscription profiles: claude and grok
 

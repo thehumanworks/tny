@@ -8,6 +8,11 @@ Decision 4 (login via the Codex CLI) is amended by
 sign-in is native, tny keeps its own store, and a token can arrive by flag
 or environment with no file at all.
 
+Amended 2026-09-03: the ChatGPT backend's `/models` is not the public
+`/v1/models` — it requires `?client_version=` and returns `models[].slug`;
+`tny models` speaks that dialect in ChatGPT mode
+([docs/backends/codex.md](../backends/codex.md#model-catalog-tny-models-models)).
+
 ## Context
 
 Since the first release, `--provider codex` meant a **host backend**: tny
