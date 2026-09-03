@@ -346,7 +346,9 @@ TEST terminal_runs_remotely(void) {
     ASSERT_EQ('x', stored[8999]);
     struct stat st;
     ASSERT_EQ(0, stat(full, &st));
+#if !defined(__CYGWIN__) && !defined(__MSYS__) /* NTFS ACLs do not map to mode bits */
     ASSERT_EQ(0600, st.st_mode & 0777);
+#endif
     free(stored);
     free(r);
     r = tools_execute(&env, "terminal", "{\"command\":\"echo bg-done\",\"background\":true}");

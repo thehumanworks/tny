@@ -229,6 +229,15 @@ TEST runner_client_ops_reach_the_server(void) {
 TEST runner_client_reports_server_gone(void) {
     wire_env w;
     ASSERT_EQ(0, wire_begin(&w));
+    /* Drain the client's hello first, as a real runner would: Cygwin's
+     * AF_UNIX emulation resets the connection when a peer closes with unread
+     * input, which would discard the line written below. */
+    for (int i = 0; i < 20; i++) {
+        struct pollfd pf = {w.server_fd, POLLIN, 0};
+        if (tny_poll(&pf, 1, 50) <= 0) break;
+        char sink[512];
+        if (read(w.server_fd, sink, sizeof sink) <= 0) break;
+    }
     const char *line = "{\"ev\":\"status\",\"text\":\"one last word\"}\n";
     ASSERT_EQ((ssize_t)strlen(line), write(w.server_fd, line, strlen(line)));
     close(w.server_fd);
@@ -513,11 +522,14 @@ TEST runner_terminal_pumps_control_while_child_asks_user(void) {
     buf_init(&f.in);
     char cwd[4096];
     ASSERT(getcwd(cwd, sizeof cwd));
+    char cli[4200];
+    const char *tny_bin = getenv("TNY_BIN"); /* make leaks/valgrind build it elsewhere */
+    if (tny_bin && *tny_bin) snprintf(cli, sizeof cli, "%s", tny_bin);
+    else snprintf(cli, sizeof cli, "%s/build/tny", cwd);
     char command[4600];
     snprintf(command, sizeof command,
-             "test \"$TNY_SESSION_ID\" = \"%s\" && \"%s/build/tny\" ask-user "
-             "\"favorite color?\"",
-             x.session->id, cwd);
+             "test \"$TNY_SESSION_ID\" = \"%s\" && \"%s\" ask-user \"favorite color?\"",
+             x.session->id, cli);
     buf_t args;
     buf_init(&args);
     buf_appends(&args, "{\"command\":");

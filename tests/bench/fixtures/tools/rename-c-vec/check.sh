@@ -10,7 +10,7 @@ if [ "$n" -lt 3 ]; then
     echo "only $n uses of vec_push"
     exit 1
 fi
-out="$(mktemp -t tnybench)" || exit 1
+out="$(mktemp "${TMPDIR:-/tmp}/tnybench.XXXXXX")" || exit 1
 trap 'rm -f "$out"' EXIT
 cc -std=c11 -o "$out" mod.c main.c
 exec "$out"

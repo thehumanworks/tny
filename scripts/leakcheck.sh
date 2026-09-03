@@ -15,6 +15,9 @@ MODE=${1:-auto}
 
 TEST_BIN=${TEST_BIN:-build/leakcheck/tny-test}
 CLI_BIN=${CLI_BIN:-build/leakcheck/tny}
+# tests that spawn the CLI (runner_suite) must find the leak-check build, not build/tny
+TNY_BIN="$(pwd)/$CLI_BIN"
+export TNY_BIN
 VALGRIND=${VALGRIND:-valgrind}
 VALGRIND_SUPP=${VALGRIND_SUPP:-tests/valgrind.supp}
 VALGRIND_FLAGS=${VALGRIND_FLAGS:---leak-check=full --error-exitcode=1 --child-silent-after-fork=yes --errors-for-leak-kinds=definite,indirect --suppressions=$VALGRIND_SUPP}

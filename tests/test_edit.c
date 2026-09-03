@@ -173,6 +173,9 @@ TEST edit_missing_file_is_read_error(void) {
 }
 
 TEST edit_symlink_updates_target_without_replacing_link(void) {
+#if defined(__CYGWIN__) || defined(__MSYS__)
+    SKIP(); /* MSYS emulates symlink() with a copy unless winsymlinks is set */
+#endif
     char *dir = edit_temp_dir();
     char *target = edit_path(dir, "target.txt");
     char *link = edit_path(dir, "link.txt");

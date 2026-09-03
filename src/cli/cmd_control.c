@@ -24,6 +24,7 @@
 
 typedef enum { CONTROL_ASK_USER, CONTROL_IMAGE_ATTACH } control_kind;
 
+#ifndef __EMSCRIPTEN__ /* wasm has no session socket: the helpers below are unused there */
 static volatile sig_atomic_t g_control_interrupted;
 
 static void control_on_sigint(int sig) {
@@ -47,12 +48,14 @@ static void control_help_image(void) {
          "Attach an image to the next provider request in this tny session.\n\n"
          "Options: --json machine output; -h, --help show this help.");
 }
+#endif /* !__EMSCRIPTEN__ */
 
 static int control_no_socket(void) {
     fputs("tny: no session socket (set TNY_SESSION_SOCK or run inside tny)\n", stderr);
     return 1;
 }
 
+#ifndef __EMSCRIPTEN__ /* wasm has no session socket: the helpers below are unused there */
 static int control_connect(const char *path) {
     int64_t deadline = monotonic_ms() + CONTROL_CONNECT_MS;
     for (;;) {
@@ -200,6 +203,7 @@ static int control_wait_reply(int fd, control_kind kind, const char *id, bool js
     else fputs("tny: session control connection closed before a reply\n", stderr);
     return result;
 }
+#endif /* !__EMSCRIPTEN__ */
 
 static int control_exchange(control_kind kind, const char *payload, bool json) {
     const char *sock = getenv("TNY_SESSION_SOCK");

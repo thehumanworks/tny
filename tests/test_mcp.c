@@ -1249,7 +1249,9 @@ TEST cli_call_large_result_spills_to_file(void) {
     path[n] = '\0';
     struct stat st;
     ASSERT_EQ(0, stat(path, &st));
-    ASSERT_EQ(0, (int)(st.st_mode & 0077)); /* nobody else may read it */
+#if !defined(__CYGWIN__) && !defined(__MSYS__) /* NTFS ACLs do not map to mode bits */
+    ASSERT_EQ(0, (int)(st.st_mode & 0077));    /* nobody else may read it */
+#endif
     char *full = file_slurp(path, NULL);
     ASSERT(full);
     ASSERT(strstr(full, "called ok"));
