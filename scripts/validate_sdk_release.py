@@ -268,7 +268,7 @@ def validate_release_inputs(
     python_version: str,
     commit: str | None = None,
 ) -> set[str]:
-    provenance_files = sorted(root.rglob("*.provenance.json"))
+    provenance_files = sorted(root.rglob("*.build-metadata.json"))
     sbom_files = sorted(root.rglob("*.spdx.json"))
     targets: set[str] = set()
     provenance_by_target: dict[str, dict[str, Any]] = {}

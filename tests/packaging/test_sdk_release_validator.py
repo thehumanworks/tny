@@ -241,7 +241,7 @@ class ReleaseValidatorTests(unittest.TestCase):
                         "wheel": ["tny-1.2.3.dist-info/METADATA", "tny/__init__.py"],
                     },
                 }
-                (lane / f"{index}.provenance.json").write_text(
+                (lane / f"{index}.build-metadata.json").write_text(
                     json.dumps(provenance), encoding="utf-8"
                 )
                 spdx = {
@@ -332,7 +332,7 @@ class ReleaseValidatorTests(unittest.TestCase):
     def test_bad_provenance_and_sbom_fail(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "bad.provenance.json").write_text(
+            (root / "bad.build-metadata.json").write_text(
                 json.dumps(
                     {
                         "schemaVersion": 2,
@@ -350,7 +350,7 @@ class ReleaseValidatorTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(SystemExit, "commit SHA"):
                 validator.validate_release_inputs(root, "v1.2.3", "1.2.3", "1.2.3")
-            (root / "bad.provenance.json").unlink()
+            (root / "bad.build-metadata.json").unlink()
             (root / "bad.spdx.json").write_text(
                 json.dumps({"spdxVersion": "SPDX-2.2", "packages": []}),
                 encoding="utf-8",

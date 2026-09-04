@@ -411,6 +411,11 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      # Sigstore-signed build provenance for every release asset. mise (and
+      # `gh attestation verify`) check these; releases without them trip
+      # mise's provenance-downgrade guard once one attested release exists.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -418,9 +423,7 @@ jobs:
           path: assets
           merge-multiple: true
 
-      - name: Create GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Flatten and checksum release assets
         run: |
           set -eu
           cd assets
@@ -445,6 +448,21 @@ jobs:
           done
           sha256sum "${files[@]}" > SHA256SUMS
           ls -l
+
+      # Runs before gh release create so a signing failure stops the job
+      # before anything is published.
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: assets/*
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          cd assets
+          shopt -s nullglob
+          files=( tny-* libtny1-* libtny0-compat-* conformance-* thehumanworks-* )
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "tny $GITHUB_REF_NAME" \

@@ -228,7 +228,7 @@ try {
     contents: { meta: metaPack.files, native: nativePack.files, wheel: wheelContents },
   };
   const prefix = `tny-node-${target.triple}-${versions.npm}`;
-  writeFileSync(join(output, `${prefix}.provenance.json`),
+  writeFileSync(join(output, `${prefix}.build-metadata.json`),
     `${JSON.stringify(descriptor, null, 2)}\n`);
   writeFileSync(join(output, `${prefix}.spdx.json`),
     `${JSON.stringify(spdx(target.packageName, versions.npm, nativePack.path, artifacts.slice(2), commit), null, 2)}\n`);
