@@ -335,8 +335,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(204)
         self._cors()
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        # every request header tny sends must be allowed here, the per-provider
+        # add-ons included (x-opencode-session, docs/adr/0067): a header the
+        # preflight omits makes Chromium drop the POST before it is sent,
+        # which the browser smoke's named-provider page would time out on
         self.send_header(
-            "Access-Control-Allow-Headers", "authorization, content-type, accept"
+            "Access-Control-Allow-Headers",
+            "authorization, content-type, accept, x-opencode-session",
         )
         self.send_header("Access-Control-Max-Age", "600")
         self.send_header("Content-Length", "0")
