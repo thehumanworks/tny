@@ -45,6 +45,20 @@ void session_close(tny_session_state *s);
 void session_add_text(tny_session_state *s, const char *role, const char *content);
 /* assistant msg with tool_calls; tc_json is the serialized array or NULL */
 void session_add_assistant(tny_session_state *s, const char *content, const char *tc_json);
+/* Same, plus the members of extras_json (a JSON object, or NULL) merged
+ * into the message: provider reasoning payloads that must ride back with
+ * the tool calls they belong to (docs/adr/0069). */
+void session_add_assistant_ex(tny_session_state *s, const char *content, const char *tc_json,
+                              const char *extras_json);
+/* Provider view of messages[boundary..): a fresh document whose root array
+ * holds copies that satisfy the transcript invariants strict providers
+ * check (docs/adr/0069) — every assistant tool_call is answered by exactly
+ * one role:tool message before anything else follows it (a missing result
+ * is synthesized as an error), orphan or duplicate tool results are
+ * dropped, and assistant messages with neither text nor tool_calls are
+ * skipped. The stored transcript is never modified. *repairs counts the
+ * deviations found. Caller frees the document. */
+yyjson_mut_doc *session_provider_view(tny_session_state *s, int boundary, int *repairs);
 void session_add_tool_result(tny_session_state *s, const char *tool_call_id, const char *content);
 /* Borrowed array of messages in the working doc. */
 yyjson_mut_val *session_messages(tny_session_state *s);

@@ -85,6 +85,9 @@ void sse_parser_init(sse_parser *p);
 void sse_parser_free(sse_parser *p);
 /* Feed raw body bytes; cb fires once per complete event (data joined by \n). */
 void sse_feed(sse_parser *p, const char *bytes, size_t n, sse_event_cb cb, void *ud);
+/* End of body: dispatch a final event whose terminating blank line never
+ * arrived (a last `data:` line closed by EOF). */
+void sse_flush(sse_parser *p, sse_event_cb cb, void *ud);
 
 /* ---- WebSocket client (RFC 6455 text frames via wslay) ---- */
 typedef struct ws_conn ws_conn;
