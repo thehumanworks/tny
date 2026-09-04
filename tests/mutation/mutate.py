@@ -134,6 +134,36 @@ TARGETS = [
         None,
     ),
     ("src/net/stream.c", None, r"ossl|OSSL", "tests/integration/test_https.py"),
+    # Native-loop stream-error recovery (docs/adr/0069): failure
+    # classification, the retry budget, the provider view of the
+    # transcript, and reasoning passthrough. test_openai.py drives every
+    # branch through the mock's fault-injection knobs.
+    (
+        "src/backends/openai/openai.c",
+        [
+            "oa_error_token",
+            "oa_error_token_is_permanent",
+            "oa_status_is_retryable",
+            "classify_error",
+            "error_text",
+            "parse_retry_after",
+            "schedule_retry",
+            "fail_stream",
+            "capture_reasoning_item",
+            "oa_reasoning_details_merge",
+            "sniff_body",
+        ],
+        None,
+        "tests/integration/test_openai.py",
+        "stream-recovery",
+    ),
+    (
+        "src/core/session.c",
+        ["session_provider_view", "view_close_open", "view_has_text"],
+        None,
+        "tests/integration/test_openai.py",
+        "stream-recovery",
+    ),
     # permission tokeniser (docs/adr/0059): every fail-closed branch. The unit
     # suite is the killer here — the tokeniser never leaves the process.
     (

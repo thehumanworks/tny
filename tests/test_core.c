@@ -2572,6 +2572,207 @@ TEST output_schema_rejects_non_object(void) {
     PASS();
 }
 
+/* ---- provider view of the transcript (docs/adr/0069) ----
+ * Strict providers reject a transcript whose tool calls are unpaired or
+ * whose assistant messages are empty; the view is what rides the wire. */
+
+static int view_count(yyjson_mut_doc *v) {
+    return (int)yyjson_mut_arr_size(yyjson_mut_doc_get_root(v));
+}
+
+static yyjson_mut_val *view_at(yyjson_mut_doc *v, int i) {
+    return yyjson_mut_arr_get(yyjson_mut_doc_get_root(v), (size_t)i);
+}
+
+static const char *view_str(yyjson_mut_doc *v, int i, const char *key) {
+    return yyjson_mut_get_str(yyjson_mut_obj_get(view_at(v, i), key));
+}
+
+TEST provider_view_passes_a_sound_transcript_through(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session_state *s = session_new(ctx);
+    session_add_text(s, "user", "list files");
+    session_add_assistant(s, NULL,
+                          "[{\"id\":\"c1\",\"type\":\"function\",\"function\":"
+                          "{\"name\":\"list_files\",\"arguments\":\"{}\"}}]");
+    session_add_tool_result(s, "c1", "a.txt");
+    session_add_assistant(s, "one file", NULL);
+    int repairs = -1;
+    yyjson_mut_doc *v = session_provider_view(s, 0, &repairs);
+    ASSERT(v);
+    ASSERT_EQ_FMT(0, repairs, "%d");
+    ASSERT_EQ_FMT(4, view_count(v), "%d");
+    ASSERT_STR_EQ("tool", view_str(v, 2, "role"));
+    yyjson_mut_doc_free(v);
+    /* the boundary drops earlier messages without inventing repairs */
+    v = session_provider_view(s, 3, &repairs);
+    ASSERT_EQ_FMT(0, repairs, "%d");
+    ASSERT_EQ_FMT(1, view_count(v), "%d");
+    ASSERT_STR_EQ("one file", view_str(v, 0, "content"));
+    yyjson_mut_doc_free(v);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST provider_view_pairs_every_tool_call(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session_state *s = session_new(ctx);
+    session_add_text(s, "user", "do two things");
+    /* a batch whose second call never got its result (the runner died) */
+    session_add_assistant(s, "working",
+                          "[{\"id\":\"c1\",\"type\":\"function\",\"function\":"
+                          "{\"name\":\"read_file\",\"arguments\":\"{}\"}},"
+                          "{\"id\":\"c2\",\"type\":\"function\",\"function\":"
+                          "{\"name\":\"list_files\",\"arguments\":\"{}\"}}]");
+    session_add_tool_result(s, "c1", "aaa");
+    session_add_tool_result(s, "c1", "duplicate answer");
+    session_add_tool_result(s, "ghost", "orphan answer");
+    session_add_text(s, "user", "continue");
+    /* an open batch at the very end of the transcript */
+    session_add_assistant(s, NULL,
+                          "[{\"id\":\"c3\",\"type\":\"function\",\"function\":"
+                          "{\"name\":\"terminal\",\"arguments\":\"{}\"}}]");
+    int repairs = 0;
+    yyjson_mut_doc *v = session_provider_view(s, 0, &repairs);
+    ASSERT(v);
+    /* c2 synthesized, duplicate dropped, orphan dropped, c3 synthesized */
+    ASSERT_EQ_FMT(4, repairs, "%d");
+    ASSERT_EQ_FMT(7, view_count(v), "%d");
+    ASSERT_STR_EQ("user", view_str(v, 0, "role"));
+    ASSERT_STR_EQ("assistant", view_str(v, 1, "role"));
+    ASSERT_STR_EQ("c1", view_str(v, 2, "tool_call_id"));
+    ASSERT_STR_EQ("aaa", view_str(v, 2, "content"));
+    ASSERT_STR_EQ("c2", view_str(v, 3, "tool_call_id"));
+    ASSERT(strstr(view_str(v, 3, "content"), "error: tool result missing"));
+    ASSERT_STR_EQ("user", view_str(v, 4, "role"));
+    ASSERT_STR_EQ("continue", view_str(v, 4, "content"));
+    ASSERT_STR_EQ("assistant", view_str(v, 5, "role"));
+    ASSERT_STR_EQ("c3", view_str(v, 6, "tool_call_id"));
+    ASSERT(strstr(view_str(v, 6, "content"), "error: tool result missing"));
+    yyjson_mut_doc_free(v);
+    /* the stored transcript is untouched */
+    ASSERT_EQ_FMT(7, session_message_count(s), "%d");
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST provider_view_has_no_batch_size_cap(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session_state *s = session_new(ctx);
+    session_add_text(s, "user", "fan out");
+    buf_t tcj;
+    buf_init(&tcj);
+    buf_appends(&tcj, "[");
+    for (int i = 0; i < 70; i++)
+        buf_appendf(&tcj,
+                    "%s{\"id\":\"c%d\",\"type\":\"function\",\"function\":"
+                    "{\"name\":\"read_file\",\"arguments\":\"{}\"}}",
+                    i ? "," : "", i);
+    buf_appends(&tcj, "]");
+    session_add_assistant(s, NULL, tcj.data);
+    buf_free(&tcj);
+    for (int i = 0; i < 69; i++) { /* the last one never came back */
+        char id[16];
+        snprintf(id, sizeof id, "c%d", i);
+        session_add_tool_result(s, id, "x");
+    }
+    int repairs = 0;
+    yyjson_mut_doc *v = session_provider_view(s, 0, &repairs);
+    ASSERT(v);
+    ASSERT_EQ_FMT(1, repairs, "%d");
+    ASSERT_EQ_FMT(72, view_count(v), "%d");
+    ASSERT_STR_EQ("c69", view_str(v, 71, "tool_call_id"));
+    yyjson_mut_doc_free(v);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST provider_view_skips_empty_assistant_messages(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session_state *s = session_new(ctx);
+    session_add_text(s, "user", "hi");
+    session_add_assistant(s, "", NULL);   /* an empty answer */
+    session_add_assistant(s, NULL, NULL); /* null content, no calls */
+    session_add_assistant(s, NULL, "[]"); /* an empty batch */
+    session_add_text(s, "user", "again");
+    session_add_assistant(s, "hello", NULL);
+    int repairs = 0;
+    yyjson_mut_doc *v = session_provider_view(s, 0, &repairs);
+    ASSERT(v);
+    ASSERT_EQ_FMT(3, repairs, "%d");
+    ASSERT_EQ_FMT(3, view_count(v), "%d");
+    ASSERT_STR_EQ("hi", view_str(v, 0, "content"));
+    ASSERT_STR_EQ("again", view_str(v, 1, "content"));
+    ASSERT_STR_EQ("hello", view_str(v, 2, "content"));
+    yyjson_mut_doc_free(v);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* Reasoning payloads ride on the assistant message as extra members and
+ * come back out on the wire the provider used (docs/adr/0069). */
+TEST assistant_extras_ride_with_the_tool_calls(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session_state *s = session_new(ctx);
+    session_add_text(s, "user", "go");
+    session_add_assistant_ex(s, NULL,
+                             "[{\"id\":\"c1\",\"type\":\"function\",\"function\":"
+                             "{\"name\":\"list_files\",\"arguments\":\"{}\"}}]",
+                             "{\"reasoning_details\":[{\"type\":\"reasoning.text\",\"text\":\"t\","
+                             "\"signature\":\"sig\"}],\"reasoning_content\":\"plain\","
+                             "\"reasoning_items\":[{\"type\":\"reasoning\",\"id\":\"rs_1\","
+                             "\"encrypted_content\":\"enc\",\"summary\":[]}],"
+                             "\"role\":\"user\",\"content\":\"hijack\",\"tool_calls\":[]}");
+    session_add_tool_result(s, "c1", "a.txt");
+    yyjson_mut_val *m = yyjson_mut_arr_get(session_messages(s), 1);
+    /* shape members stay authoritative */
+    ASSERT_STR_EQ("assistant", yyjson_mut_get_str(yyjson_mut_obj_get(m, "role")));
+    ASSERT(yyjson_mut_is_null(yyjson_mut_obj_get(m, "content")));
+    ASSERT_EQ_FMT(1, (int)yyjson_mut_arr_size(yyjson_mut_obj_get(m, "tool_calls")), "%d");
+    ASSERT_STR_EQ("plain", yyjson_mut_get_str(yyjson_mut_obj_get(m, "reasoning_content")));
+    ASSERT(yyjson_mut_is_arr(yyjson_mut_obj_get(m, "reasoning_details")));
+    ASSERT(yyjson_mut_is_arr(yyjson_mut_obj_get(m, "reasoning_items")));
+    /* the view keeps them (the chat builder strips reasoning_items itself) */
+    int repairs = 0;
+    yyjson_mut_doc *v = session_provider_view(s, 0, &repairs);
+    ASSERT_EQ_FMT(0, repairs, "%d");
+    ASSERT(yyjson_mut_obj_get(view_at(v, 1), "reasoning_details"));
+    /* responses wire: the reasoning item precedes the function_call, and
+     * the chat-only members never become items */
+    char *in = tny_openai_responses_input(yyjson_mut_doc_get_root(v), 0, NULL);
+    ASSERT(in);
+    yyjson_doc *doc = jparse(in, strlen(in));
+    yyjson_val *arr = yyjson_doc_get_root(doc);
+    ASSERT_EQ_FMT(4, (int)yyjson_arr_size(arr), "%d");
+    ASSERT_STR_EQ("user", jget_str(yyjson_arr_get(arr, 0), "role"));
+    ASSERT_STR_EQ("reasoning", jget_str(yyjson_arr_get(arr, 1), "type"));
+    ASSERT_STR_EQ("enc", jget_str(yyjson_arr_get(arr, 1), "encrypted_content"));
+    ASSERT_STR_EQ("function_call", jget_str(yyjson_arr_get(arr, 2), "type"));
+    ASSERT_STR_EQ("function_call_output", jget_str(yyjson_arr_get(arr, 3), "type"));
+    ASSERT(!strstr(in, "reasoning_details"));
+    ASSERT(!strstr(in, "plain"));
+    yyjson_doc_free(doc);
+    free(in);
+    yyjson_mut_doc_free(v);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 /* ---- Responses API wire translation (docs/adr/0016) ----
  * Sessions persist chat-shaped messages; the responses wire translates
  * them at request time. These pin the translation invariants. */
@@ -2660,6 +2861,24 @@ TEST responses_input_honors_compact_boundary(void) {
     arr = yyjson_doc_get_root(doc);
     ASSERT_EQ_FMT(3, (int)yyjson_arr_size(arr), "%d");
     ASSERT_STR_EQ("user", jget_str(yyjson_arr_get(arr, 0), "role"));
+    yyjson_doc_free(doc);
+    free(in);
+
+    /* the provider view already starts at the boundary: the summary-aware
+     * form leads with it whenever one is given */
+    in = tny_openai_responses_input_with_summary(session_messages(s), "the summary");
+    ASSERT(in);
+    doc = jparse(in, strlen(in));
+    arr = yyjson_doc_get_root(doc);
+    ASSERT_EQ_FMT(4, (int)yyjson_arr_size(arr), "%d");
+    ASSERT_STR_EQ("system", jget_str(yyjson_arr_get(arr, 0), "role"));
+    ASSERT_STR_EQ("the summary", jget_str(yyjson_arr_get(arr, 0), "content"));
+    yyjson_doc_free(doc);
+    free(in);
+    in = tny_openai_responses_input_with_summary(session_messages(s), NULL);
+    ASSERT(in);
+    doc = jparse(in, strlen(in));
+    ASSERT_EQ_FMT(3, (int)yyjson_arr_size(yyjson_doc_get_root(doc)), "%d");
     yyjson_doc_free(doc);
     free(in);
 
@@ -3465,6 +3684,11 @@ SUITE(core_suite) {
     RUN_TEST(output_schema_names_anonymous_json_schema_object);
     RUN_TEST(output_schema_passes_full_wrapper_through);
     RUN_TEST(output_schema_rejects_non_object);
+    RUN_TEST(provider_view_passes_a_sound_transcript_through);
+    RUN_TEST(provider_view_pairs_every_tool_call);
+    RUN_TEST(provider_view_has_no_batch_size_cap);
+    RUN_TEST(provider_view_skips_empty_assistant_messages);
+    RUN_TEST(assistant_extras_ride_with_the_tool_calls);
     RUN_TEST(responses_input_translates_history);
     RUN_TEST(responses_input_honors_compact_boundary);
     RUN_TEST(responses_input_translates_image_parts);

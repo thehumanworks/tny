@@ -79,15 +79,15 @@ static void add_function_calls(yyjson_mut_doc *d, yyjson_mut_val *arr, yyjson_mu
     }
 }
 
-char *tny_openai_responses_input(yyjson_mut_val *msgs, int boundary, const char *summary) {
+static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *summary) {
     yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
     if (!d) return NULL;
     yyjson_mut_val *arr = yyjson_mut_arr(d);
     yyjson_mut_doc_set_root(d, arr);
-    if (summary && boundary > 0) add_text_message(d, arr, "system", summary);
+    if (summary) add_text_message(d, arr, "system", summary);
 
     size_t total = msgs ? yyjson_mut_arr_size(msgs) : 0;
-    for (size_t i = boundary > 0 ? (size_t)boundary : 0; i < total; i++) {
+    for (size_t i = start; i < total; i++) {
         yyjson_mut_val *m = yyjson_mut_arr_get(msgs, i);
         const char *role = mstr(m, "role");
         if (!role) continue;
@@ -103,6 +103,18 @@ char *tny_openai_responses_input(yyjson_mut_val *msgs, int boundary, const char 
             continue;
         }
         if (strcmp(role, "assistant") == 0) {
+            /* the provider's own reasoning items (encrypted, store:false)
+             * precede the message/function_call items they produced */
+            yyjson_mut_val *ritems = yyjson_mut_obj_get(m, "reasoning_items");
+            if (ritems && yyjson_mut_is_arr(ritems)) {
+                size_t ri, rmax;
+                yyjson_mut_val *r;
+                yyjson_mut_arr_foreach(ritems, ri, rmax, r) {
+                    if (!r) break;
+                    yyjson_mut_val *copy = yyjson_mut_val_mut_copy(d, r);
+                    if (copy) yyjson_mut_arr_add_val(arr, copy);
+                }
+            }
             const char *text = yyjson_mut_get_str(content);
             if (text && *text) add_text_message(d, arr, "assistant", text);
             yyjson_mut_val *tcs = yyjson_mut_obj_get(m, "tool_calls");
@@ -120,6 +132,15 @@ char *tny_openai_responses_input(yyjson_mut_val *msgs, int boundary, const char 
     char *out = jwrite(d);
     yyjson_mut_doc_free(d);
     return out;
+}
+
+char *tny_openai_responses_input(yyjson_mut_val *msgs, int boundary, const char *summary) {
+    return translate_input(msgs, boundary > 0 ? (size_t)boundary : 0,
+                           boundary > 0 ? summary : NULL);
+}
+
+char *tny_openai_responses_input_with_summary(yyjson_mut_val *msgs, const char *summary) {
+    return translate_input(msgs, 0, summary);
 }
 
 char *tny_openai_responses_tools(const char *chat_tools_json) {

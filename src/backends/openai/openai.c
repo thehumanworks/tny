@@ -12,6 +12,7 @@
 #include "lib/custom_tools.h"
 #include "net/net.h"
 #include "util/alloc.h"
+#include "util/tny_poll.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -22,7 +23,39 @@
 
 #define OPENAI_DEFAULT_MODEL "gpt-4.1-mini"
 
-typedef enum { ST_IDLE, ST_HEADERS, ST_BODY, ST_WAIT_PERMISSION, ST_WAIT_CUSTOM } oa_state;
+typedef enum {
+    ST_IDLE,
+    ST_HEADERS,
+    ST_BODY,
+    ST_WAIT_PERMISSION,
+    ST_WAIT_CUSTOM,
+    ST_RETRY_WAIT /* backoff before re-POSTing the same step (docs/adr/0069) */
+} oa_state;
+
+/* Retry budget per model call: the first attempt plus this many retries,
+ * with exponential backoff starting at OA_RETRY_BASE_MS (a provider's
+ * Retry-After wins when it is longer, capped at OA_RETRY_MAX_MS). */
+#define OA_MAX_RETRIES   3
+#define OA_RETRY_BASE_MS 1000
+#define OA_RETRY_MAX_MS  30000
+/* How long to wait for a provider's error body after an error status, and
+ * how much of it to read — enough for the JSON error object, never a page. */
+#define OA_ERROR_BODY_WAIT_MS 1500
+#define OA_ERROR_BODY_MAX     65536
+/* A non-SSE success body (a JSON completion, or a JSON error behind HTTP 200)
+ * is buffered whole and dispatched as one event; bounded like the error body. */
+#define OA_RAW_BODY_MAX 1048576
+
+/* One classified provider failure (docs/adr/0069): the HTTP status (0 for
+ * an in-stream error event), a bounded category token, whether a retry can
+ * reasonably succeed, and the provider's Retry-After when it sent one. */
+typedef struct {
+    int status; /* HTTP status; 0 for an in-stream error event */
+    int code;   /* numeric code inside the payload (gateways relay upstream statuses) */
+    char token[33];
+    bool retryable;
+    int retry_after_ms;
+} oa_error_info;
 
 typedef struct {
     char *id;
@@ -57,12 +90,36 @@ typedef struct {
 
     buf_t text;       /* assistant text this step */
     oa_callset calls; /* streamed tool_calls this step (toolcalls.c) */
+    /* provider reasoning payloads streamed this step, kept in the shape the
+     * provider used so they ride back with the tool calls they belong to
+     * (docs/adr/0069): chat `reasoning_details` items merged by index,
+     * chat `reasoning_content` text, responses `reasoning` output items */
+    yyjson_mut_doc *rdoc;
+    yyjson_mut_val *reasoning_details;
+    yyjson_mut_val *reasoning_items;
+    buf_t reasoning_content;
+    bool thinking_seen; /* any reasoning reached the frontend this step */
     int step;
     bool cancelled;
+    int retries;         /* retries spent on this step's model call */
+    int64_t retry_at_ms; /* ST_RETRY_WAIT: when to re-POST */
+    bool body_sniffed;   /* first body bytes seen: framing decided */
+    bool body_is_sse;    /* SSE framing (else one JSON document) */
+    buf_t rawbody;       /* non-SSE body, dispatched whole at end */
+    bool rawbody_overflow;
+    int error_status;          /* >= 400: the body being read is an error body */
+    int64_t error_deadline_ms; /* monotonic: stop waiting for that body */
+    bool debug_errors;         /* TNY_DEBUG_PROVIDER_ERRORS=1: append the provider's
+                                * own error message to diagnostics (opt-in; it may
+                                * echo request content) */
+    char error_detail[400];
     bool conn_reused;           /* this POST rode a kept-alive connection */
     bool wire_chat;             /* this POST rides the legacy chat wire */
     bool stream_done;           /* saw [DONE] / response.completed */
-    bool stream_failed;         /* responses wire signalled a terminal error */
+    bool stream_failed;         /* the stream carried a terminal error event */
+    oa_error_info stream_error; /* its classification (valid when stream_failed) */
+    int max_retries;            /* TNY_PROVIDER_RETRIES (default OA_MAX_RETRIES) */
+    bool repairs_noted;         /* transcript repair announced this turn */
     tny_stop_reason final_stop; /* provider terminal reason for this step */
     char finish_reason[32];
     int64_t usage_in, usage_out;
@@ -167,6 +224,360 @@ static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
     ev.kind = TNY_EV_TURN_END;
     ev.stop = stop;
     emit(o, &ev);
+}
+
+static void conn_drop(oa_impl *o) {
+    if (o->conn) {
+        http_close(o->conn);
+        o->conn = NULL;
+    }
+}
+
+/* ---------- reasoning capture (docs/adr/0069) ---------- */
+
+static void reasoning_reset(oa_impl *o) {
+    if (o->rdoc) yyjson_mut_doc_free(o->rdoc);
+    o->rdoc = NULL;
+    o->reasoning_details = NULL;
+    o->reasoning_items = NULL;
+    buf_clear(&o->reasoning_content);
+    o->thinking_seen = false;
+}
+
+static yyjson_mut_val *reasoning_array(oa_impl *o, yyjson_mut_val **slot) {
+    if (!o->rdoc) {
+        o->rdoc = yyjson_mut_doc_new(jallocator());
+        if (!o->rdoc) return NULL;
+        yyjson_mut_doc_set_root(o->rdoc, yyjson_mut_obj(o->rdoc));
+    }
+    if (!*slot) *slot = yyjson_mut_arr(o->rdoc);
+    return *slot;
+}
+
+/* OpenRouter-style chat streams carry `reasoning_details` as fragments: one
+ * item's text/summary/data arrives piecewise under a stable "index", and
+ * its signature (what the upstream model verifies on the way back) usually
+ * last. Fragments merge by index — textual members concatenate, every other
+ * member is kept from the first fragment that carried it — so the recorded
+ * item is what a non-streaming response would have returned. */
+void oa_reasoning_details_merge(yyjson_mut_doc *rdoc, yyjson_mut_val *arr, yyjson_val *details) {
+    if (!details || !yyjson_is_arr(details)) return;
+    size_t di, dmax;
+    yyjson_val *frag;
+    yyjson_arr_foreach(details, di, dmax, frag) {
+        if (!yyjson_is_obj(frag)) continue;
+        yyjson_val *iv = jget(frag, "index");
+        int64_t index = iv && yyjson_is_int(iv) ? yyjson_get_int(iv) : -1;
+        yyjson_mut_val *item = NULL;
+        if (index >= 0) {
+            size_t ai, amax;
+            yyjson_mut_val *cand;
+            yyjson_mut_arr_foreach(arr, ai, amax, cand) {
+                yyjson_mut_val *ci = yyjson_mut_obj_get(cand, "index");
+                if (ci && yyjson_mut_is_int(ci) && yyjson_mut_get_int(ci) == index) {
+                    item = cand;
+                    break;
+                }
+            }
+        }
+        if (!item) {
+            item = yyjson_val_mut_copy(rdoc, frag);
+            if (item) yyjson_mut_arr_add_val(arr, item);
+            continue;
+        }
+        yyjson_obj_iter it = yyjson_obj_iter_with(frag);
+        yyjson_val *k;
+        while ((k = yyjson_obj_iter_next(&it))) {
+            yyjson_val *v = yyjson_obj_iter_get_val(k);
+            const char *key = yyjson_get_str(k);
+            if (!key || !v || yyjson_is_null(v)) continue;
+            yyjson_mut_val *have = yyjson_mut_obj_get(item, key);
+            bool textual =
+                strcmp(key, "text") == 0 || strcmp(key, "summary") == 0 || strcmp(key, "data") == 0;
+            if (textual && yyjson_is_str(v) && have && yyjson_mut_is_str(have)) {
+                size_t hl = yyjson_mut_get_len(have), vl = yyjson_get_len(v);
+                char *joined = malloc(hl + vl + 1);
+                if (!joined) continue;
+                memcpy(joined, yyjson_mut_get_str(have), hl);
+                memcpy(joined + hl, yyjson_get_str(v), vl);
+                joined[hl + vl] = 0;
+                yyjson_mut_obj_put(item, yyjson_mut_strcpy(rdoc, key),
+                                   yyjson_mut_strncpy(rdoc, joined, hl + vl));
+                free(joined);
+            } else if (!have || yyjson_mut_is_null(have)) {
+                yyjson_mut_val *cv = yyjson_val_mut_copy(rdoc, v);
+                if (cv) yyjson_mut_obj_put(item, yyjson_mut_strcpy(rdoc, key), cv);
+            }
+        }
+    }
+}
+
+static void capture_reasoning_details(oa_impl *o, yyjson_val *details) {
+    yyjson_mut_val *arr = reasoning_array(o, &o->reasoning_details);
+    if (arr) oa_reasoning_details_merge(o->rdoc, arr, details);
+}
+
+/* Responses wire: a completed `reasoning` output item. Only one carrying
+ * encrypted_content is worth keeping — with store:false the provider cannot
+ * resolve a bare id, and echoing one 400s the next request. */
+static void capture_reasoning_item(oa_impl *o, yyjson_val *item) {
+    const char *enc = jget_str(item, "encrypted_content");
+    if (!enc || !*enc) return;
+    yyjson_mut_val *arr = reasoning_array(o, &o->reasoning_items);
+    if (!arr) return;
+    const char *id = jget_str(item, "id");
+    yyjson_mut_val *copy = NULL;
+    if (id) { /* added then done: the later, complete item wins */
+        size_t ai, amax;
+        yyjson_mut_val *cand;
+        yyjson_mut_arr_foreach(arr, ai, amax, cand) {
+            const char *cid = yyjson_mut_get_str(yyjson_mut_obj_get(cand, "id"));
+            if (cid && strcmp(cid, id) == 0) {
+                copy = cand;
+                break;
+            }
+        }
+    }
+    if (!copy) {
+        copy = yyjson_mut_obj(o->rdoc);
+        if (!copy) return;
+        yyjson_mut_arr_add_val(arr, copy);
+    }
+    static const char *const keep[] = {"type", "id", "summary", "content", "encrypted_content"};
+    for (size_t i = 0; i < sizeof keep / sizeof keep[0]; i++) {
+        yyjson_val *v = jget(item, keep[i]);
+        if (!v) continue;
+        yyjson_mut_val *cv = yyjson_val_mut_copy(o->rdoc, v);
+        if (cv) yyjson_mut_obj_put(copy, yyjson_mut_strcpy(o->rdoc, keep[i]), cv);
+    }
+}
+
+/* The extra assistant-message members for this step's tool-call batch, or
+ * NULL when the provider streamed no reasoning. Compact JSON object. */
+static char *reasoning_extras_json(oa_impl *o) {
+    bool details = o->reasoning_details && yyjson_mut_arr_size(o->reasoning_details) > 0;
+    bool items = o->reasoning_items && yyjson_mut_arr_size(o->reasoning_items) > 0;
+    if (!details && !items && !o->reasoning_content.len) return NULL;
+    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
+    if (!d) return NULL;
+    yyjson_mut_val *root = yyjson_mut_obj(d);
+    yyjson_mut_doc_set_root(d, root);
+    if (details)
+        yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, "reasoning_details"),
+                           yyjson_mut_val_mut_copy(d, o->reasoning_details));
+    if (o->reasoning_content.len)
+        yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, "reasoning_content"),
+                           yyjson_mut_strcpy(d, o->reasoning_content.data));
+    if (items)
+        yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, "reasoning_items"),
+                           yyjson_mut_val_mut_copy(d, o->reasoning_items));
+    char *out = jwrite(d);
+    yyjson_mut_doc_free(d);
+    return out;
+}
+
+/* ---------- provider failures (docs/adr/0069) ---------- */
+
+/* A provider error category reaches diagnostics as a bounded lowercase
+ * identifier (invalid_request_error, rate_limit_exceeded, …) and nothing
+ * else: message text may echo credentials or request content (ADR 0028), so
+ * anything that is not a short identifier is dropped whole. */
+void oa_error_token(char *out, size_t cap, const char *raw) {
+    out[0] = 0;
+    if (!raw || !*raw) return;
+    size_t n = 0;
+    for (const char *p = raw; *p; p++) {
+        unsigned char c = (unsigned char)*p;
+        char keep;
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') keep = (char)c;
+        else if (c >= 'A' && c <= 'Z') keep = (char)(c + ('a' - 'A'));
+        else if (c == '-' || c == '.' || c == ' ') keep = '_';
+        else {
+            out[0] = 0;
+            return;
+        }
+        if (n + 1 >= cap) { /* too long for a category name */
+            out[0] = 0;
+            return;
+        }
+        out[n++] = keep;
+    }
+    out[n] = 0;
+}
+
+/* Opt-in only (TNY_DEBUG_PROVIDER_ERRORS=1): the provider's own message,
+ * control characters blanked, bounded, cut on a UTF-8 boundary. */
+static void set_error_detail(oa_impl *o, const char *msg) {
+    o->error_detail[0] = 0;
+    if (!o->debug_errors || !msg) return;
+    size_t n = 0;
+    const unsigned char *p = (const unsigned char *)msg;
+    for (; *p && n + 1 < sizeof o->error_detail; p++)
+        o->error_detail[n++] = (*p < 0x20 || *p == 0x7f) ? ' ' : (char)*p;
+    if (*p) { /* truncated: never end inside a multi-byte sequence */
+        while (n > 0 && (o->error_detail[n - 1] & 0xC0) == 0x80) n--;
+        if (n > 0 && (o->error_detail[n - 1] & 0x80)) n--;
+    }
+    o->error_detail[n] = 0;
+}
+
+bool oa_error_token_is_permanent(const char *token) {
+    static const char *const permanent[] = {"invalid",         "context_length", "insufficient",
+                                            "model_not_found", "not_found",      "unsupported",
+                                            "unknown_model",   "billing"};
+    for (size_t i = 0; i < sizeof permanent / sizeof permanent[0]; i++)
+        if (str_starts(token, permanent[i])) return true;
+    return false;
+}
+
+bool oa_status_is_retryable(int status) {
+    return status == 408 || status == 409 || status == 425 || status == 429 || status >= 500;
+}
+
+/* Classify one error payload: the `error` member (object or string) of an
+ * HTTP error body or SSE event, or a Responses `error` event itself. */
+static void classify_error(oa_impl *o, yyjson_val *err, int http_status, oa_error_info *info) {
+    memset(info, 0, sizeof *info);
+    info->status = http_status;
+    if (err && yyjson_is_obj(err)) {
+        const char *type = jget_str(err, "type");
+        const char *code = jget_str(err, "code");
+        oa_error_token(info->token, sizeof info->token, type ? type : code);
+        if (!info->token[0] && type && code) oa_error_token(info->token, sizeof info->token, code);
+        yyjson_val *cv = jget(err, "code");
+        if (cv && yyjson_is_int(cv)) info->code = (int)yyjson_get_int(cv);
+        if (!info->code) info->code = (int)jget_int(err, "status", 0);
+        set_error_detail(o, jget_str(err, "message"));
+    } else if (err && yyjson_is_str(err)) {
+        set_error_detail(o, yyjson_get_str(err));
+    }
+    if (info->status >= 400) info->retryable = oa_status_is_retryable(info->status);
+    else if (info->code >= 400) info->retryable = oa_status_is_retryable(info->code);
+    else info->retryable = !oa_error_token_is_permanent(info->token);
+}
+
+/* The user-facing line for a failure; `final` appends the opt-in detail. */
+static void error_text(oa_impl *o, const oa_error_info *info, bool final, char *out, size_t cap) {
+    char cat[48];
+    snprintf(cat, sizeof cat, "%s%s", info->token[0] ? ", " : "", info->token);
+    if (info->status == 401)
+        snprintf(out, cap, "authentication failed (HTTP 401%s): check the API key", cat);
+    else if (info->status == 403)
+        snprintf(out, cap,
+                 "provider refused the request (HTTP 403%s): the key may lack access to "
+                 "this model, or a gateway blocked the request",
+                 cat);
+    else if (info->status == 429) snprintf(out, cap, "provider rate limit (HTTP 429%s)", cat);
+    else if (info->status >= 500)
+        snprintf(out, cap, "provider error (HTTP %d%s)", info->status, cat);
+    else if (info->status >= 400)
+        snprintf(out, cap, "provider rejected the request (HTTP %d%s)", info->status, cat);
+    else if (info->code >= 400)
+        snprintf(out, cap, "provider stream reported an error (code %d%s)", info->code, cat);
+    else snprintf(out, cap, "provider stream reported an error%s", cat);
+    if (final && o->error_detail[0]) {
+        size_t n = strlen(out);
+        if (n < cap) snprintf(out + n, cap - n, ": %s", o->error_detail);
+    }
+}
+
+static int parse_retry_after(const char *value) {
+    if (!value) return 0;
+    while (*value == ' ') value++;
+    if (*value < '0' || *value > '9') return 0; /* an HTTP-date: use the backoff */
+    long secs = strtol(value, NULL, 10);
+    if (secs <= 0) return 0;
+    if (secs > OA_RETRY_MAX_MS / 1000) secs = OA_RETRY_MAX_MS / 1000;
+    return (int)secs * 1000;
+}
+
+/* Park the step for a backoff, then re-POST the same request. Only while
+ * no answer text has been produced: retrying after text was shown would
+ * print the answer twice, so such failures stay terminal and the partial
+ * text stays recoverable. Reasoning already shown is not a bar — a
+ * gateway that dies after a long think is the common case, and repeating
+ * dim reasoning is a far smaller cost than losing the turn (ADR 0069).
+ * Returns false when a retry is not possible (budget spent, cancelled,
+ * text already emitted). */
+static bool schedule_retry(oa_impl *o, const char *what, int delay_hint_ms) {
+    if (o->cancelled || o->text.len || o->retries >= o->max_retries) return false;
+    int backoff = OA_RETRY_BASE_MS << o->retries;
+    if (delay_hint_ms > backoff) backoff = delay_hint_ms;
+    if (backoff > OA_RETRY_MAX_MS) backoff = OA_RETRY_MAX_MS;
+    o->retries++;
+    conn_drop(o);
+    oa_calls_reset(&o->calls);
+    buf_clear(&o->text);
+    buf_clear(&o->rawbody);
+    reasoning_reset(o);
+    sse_parser_free(&o->sse);
+    sse_parser_init(&o->sse);
+    char note[256];
+    snprintf(note, sizeof note, "%s: retrying in %d.%ds (attempt %d/%d)", what, backoff / 1000,
+             (backoff % 1000) / 100, o->retries + 1, o->max_retries + 1);
+    emit_text(o, TNY_EV_STATUS, note, strlen(note));
+    o->state = ST_RETRY_WAIT;
+    o->retry_at_ms = monotonic_ms() + backoff;
+    return true;
+}
+
+/* The error body (or as much of it as arrived before the deadline) is in:
+ * classify, drop the connection, then retry or end the turn. Returns 0
+ * while a retry is pending, -1 when the turn ended. */
+static int finish_error_response(oa_impl *o) {
+    int status = o->error_status;
+    o->error_status = 0;
+    int retry_after = parse_retry_after(http_header(o->conn, "Retry-After"));
+    conn_drop(o);
+    yyjson_doc *doc = o->rawbody.len ? jparse(o->rawbody.data, o->rawbody.len) : NULL;
+    yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+    yyjson_val *err = jget(root, "error");
+    if (!err && root && yyjson_is_obj(root) && (jget(root, "message") || jget(root, "type")))
+        err = root; /* {"message":…,"type":…} without the wrapper */
+    oa_error_info info;
+    classify_error(o, err, status, &info);
+    info.retry_after_ms = retry_after;
+    if (doc) yyjson_doc_free(doc);
+    buf_clear(&o->rawbody);
+    char msg[512];
+    if (status == 401 || status == 403) {
+        error_text(o, &info, true, msg, sizeof msg);
+        emit_error(o, TNY_EVENT_ERROR_AUTH, msg, strlen(msg));
+        emit_turn_end(o, TNY_STOP_ERROR);
+        return -1;
+    }
+    error_text(o, &info, false, msg, sizeof msg);
+    if (info.retryable && schedule_retry(o, msg, info.retry_after_ms)) return 0;
+    error_text(o, &info, true, msg, sizeof msg);
+    emit_error(o, TNY_EVENT_ERROR_PROTOCOL, msg, strlen(msg));
+    emit_turn_end(o, TNY_STOP_ERROR);
+    return -1;
+}
+
+/* A stream that carried a terminal error event: retry when the failure
+ * looks transient and nothing was shown, else surface it and end the turn.
+ * Returns 0 while a retry is pending, -1 when the turn ended. */
+static int fail_stream(oa_impl *o) {
+    conn_drop(o);
+    char msg[512];
+    error_text(o, &o->stream_error, false, msg, sizeof msg);
+    if (o->stream_error.retryable && schedule_retry(o, msg, 0)) return 0;
+    error_text(o, &o->stream_error, true, msg, sizeof msg);
+    if (o->text.len) session_recovery_write(o->env.session, o->text.data);
+    emit_error(o, TNY_EVENT_ERROR_PROTOCOL, msg, strlen(msg));
+    emit_turn_end(o, TNY_STOP_ERROR);
+    return -1;
+}
+
+static void note_repairs(oa_impl *o, int repairs) {
+    if (repairs <= 0 || o->repairs_noted) return;
+    o->repairs_noted = true;
+    char note[160];
+    snprintf(note, sizeof note,
+             "repaired the transcript for the provider: %d unpaired tool call(s) or empty "
+             "message(s)",
+             repairs);
+    emit_text(o, TNY_EV_STATUS, note, strlen(note));
 }
 
 static const char *model_of(oa_impl *o) {
@@ -287,10 +698,19 @@ static char *build_request_chat(oa_impl *o) {
         jescape(&b, summary);
         buf_appends(&b, "}");
     }
-    yyjson_mut_val *msgs = session_messages(s);
+    int repairs = 0;
+    yyjson_mut_doc *view = session_provider_view(s, boundary, &repairs);
+    if (!view) {
+        buf_free(&b);
+        return NULL;
+    }
+    note_repairs(o, repairs);
+    yyjson_mut_val *msgs = yyjson_mut_doc_get_root(view);
     size_t total = yyjson_mut_arr_size(msgs);
-    for (size_t i = (size_t)boundary; i < total; i++) {
+    for (size_t i = 0; i < total; i++) {
         yyjson_mut_val *m = yyjson_mut_arr_get(msgs, i);
+        /* responses-wire reasoning items are tny-private on this wire */
+        yyjson_mut_obj_remove_key(m, "reasoning_items");
         char *mj = jwrite_mut_val(m);
         if (mj) {
             buf_appends(&b, ",");
@@ -298,6 +718,7 @@ static char *build_request_chat(oa_impl *o) {
             free(mj);
         }
     }
+    yyjson_mut_doc_free(view);
     buf_appends(&b, "]");
 
     char *schema = tools_schema_json(&o->env);
@@ -323,6 +744,13 @@ static char *build_request_chat(oa_impl *o) {
  * output rides `text.format`, and reasoning effort rides
  * `reasoning.effort`. store:false — tny owns session state, never the
  * provider. */
+static bool rsp_include_encrypted_reasoning(const tny_ctx *ctx) {
+    if (ctx->provider_name && strcmp(ctx->provider_name, "codex") == 0) return true;
+    url_parts u;
+    if (!ctx->base_url || url_parse(ctx->base_url, &u) != 0) return false;
+    return strcmp(u.host, "api.openai.com") == 0 || strcmp(u.host, "chatgpt.com") == 0;
+}
+
 static char *build_request_rsp(oa_impl *o) {
     tny_session_state *s = o->env.session;
     buf_t b;
@@ -346,9 +774,24 @@ static char *build_request_rsp(oa_impl *o) {
 
     const char *summary = NULL;
     int boundary = session_compact_boundary(s, &summary);
-    char *input = tny_openai_responses_input(session_messages(s), boundary, summary);
+    int repairs = 0;
+    yyjson_mut_doc *view = session_provider_view(s, boundary, &repairs);
+    if (!view) {
+        buf_free(&b);
+        return NULL;
+    }
+    note_repairs(o, repairs);
+    char *input = tny_openai_responses_input_with_summary(yyjson_mut_doc_get_root(view),
+                                                          boundary > 0 ? summary : NULL);
+    yyjson_mut_doc_free(view);
     buf_appendf(&b, ",\"input\":%s", input ? input : "[]");
     free(input);
+    /* reasoning continuity across tool calls with store:false: OpenAI hands
+     * the reasoning back encrypted only when asked (docs/adr/0069). Sent
+     * where it is known to be accepted; other gateways may reject unknown
+     * include values. */
+    if (rsp_include_encrypted_reasoning(o->ctx))
+        buf_appends(&b, ",\"include\":[\"reasoning.encrypted_content\"]");
 
     char *schema = tools_schema_json(&o->env);
     if (!schema) {
@@ -406,6 +849,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     else {
         o->provider_request_sequence++;
         o->provider_attempt = 1;
+        o->retries = 0;
     }
     o->conn_reused = o->conn != NULL;
     if (!o->conn) {
@@ -509,9 +953,17 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     o->state = ST_HEADERS;
     o->stream_done = false;
     o->stream_failed = false;
+    memset(&o->stream_error, 0, sizeof o->stream_error);
+    o->error_detail[0] = 0;
+    o->body_sniffed = false;
+    o->body_is_sse = true;
+    o->rawbody_overflow = false;
+    o->error_status = 0;
     o->final_stop = TNY_STOP_DONE;
     o->finish_reason[0] = 0;
     buf_clear(&o->text);
+    buf_clear(&o->rawbody);
+    reasoning_reset(o);
     sse_parser_free(&o->sse);
     sse_parser_init(&o->sse);
     return 0;
@@ -534,14 +986,11 @@ static void on_sse_event_chat(const char *data, size_t len, void *ud) {
     if (!doc) return; /* never block the loop on a parse error */
     yyjson_val *root = yyjson_doc_get_root(doc);
     yyjson_val *root_error = jget(root, "error");
-    if (root_error) {
-        const char *message = jget_str(root_error, "message");
-        buf_t error;
-        buf_init(&error);
-        (void)message;
-        buf_appends(&error, "provider stream reported an error");
-        emit_error(o, TNY_EVENT_ERROR_PROTOCOL, error.data, error.len);
-        buf_free(&error);
+    /* `"error": null` rides in every chunk of some gateways: only an
+     * object or a non-empty string is a failure (docs/adr/0069) */
+    if (root_error && (yyjson_is_obj(root_error) ||
+                       (yyjson_is_str(root_error) && yyjson_get_len(root_error) > 0))) {
+        classify_error(o, root_error, 0, &o->stream_error);
         o->stream_done = true;
         o->stream_failed = true;
         yyjson_doc_free(doc);
@@ -562,8 +1011,9 @@ static void on_sse_event_chat(const char *data, size_t len, void *ud) {
         snprintf(o->finish_reason, sizeof o->finish_reason, "%s", fr);
         if (strcmp(fr, "length") == 0) o->final_stop = TNY_STOP_STEP_LIMIT;
         else if (strcmp(fr, "content_filter") == 0) o->final_stop = TNY_STOP_DENIED;
-        else if (strcmp(fr, "error") == 0) {
-            emit_error(o, TNY_EVENT_ERROR_PROTOCOL, "provider ended the stream with an error", 39);
+        else if (strcmp(fr, "error") == 0 && !o->stream_failed) {
+            classify_error(o, NULL, 0, &o->stream_error);
+            o->stream_done = true;
             o->stream_failed = true;
         }
     }
@@ -576,19 +1026,36 @@ static void on_sse_event_chat(const char *data, size_t len, void *ud) {
         emit_text(o, TNY_EV_TEXT_DELTA, content, content_len);
     }
     size_t reasoning_len = 0;
-    const char *reasoning = jget_strn(delta, "reasoning_content", &reasoning_len);
-    if (!reasoning) reasoning = jget_strn(delta, "reasoning", &reasoning_len);
-    if (reasoning && reasoning_len) emit_text(o, TNY_EV_THINKING, reasoning, reasoning_len);
-    else {
-        yyjson_val *details = jget(delta, "reasoning_details");
-        size_t idx, max;
-        yyjson_val *detail;
-        if (details && yyjson_is_arr(details)) {
+    const char *reasoning_content = jget_strn(delta, "reasoning_content", &reasoning_len);
+    if (reasoning_content && reasoning_len) {
+        /* DeepSeek/Kimi-style thinking: the text must ride back with the
+         * tool calls it produced, in the member the provider used */
+        buf_append(&o->reasoning_content, reasoning_content, reasoning_len);
+        o->thinking_seen = true;
+        emit_text(o, TNY_EV_THINKING, reasoning_content, reasoning_len);
+    } else {
+        const char *reasoning = jget_strn(delta, "reasoning", &reasoning_len);
+        if (reasoning && reasoning_len) {
+            o->thinking_seen = true;
+            emit_text(o, TNY_EV_THINKING, reasoning, reasoning_len);
+        }
+    }
+    yyjson_val *details = jget(delta, "reasoning_details");
+    if (details && yyjson_is_arr(details)) {
+        /* OpenRouter: signed/encrypted blocks the upstream model needs back
+         * (Anthropic thinking, Gemini thought signatures) — kept verbatim */
+        capture_reasoning_details(o, details);
+        if (!reasoning_content && !jget(delta, "reasoning")) {
+            size_t idx, max;
+            yyjson_val *detail;
             yyjson_arr_foreach(details, idx, max, detail) {
                 size_t text_len = 0;
                 const char *text = jget_strn(detail, "text", &text_len);
                 if (!text) text = jget_strn(detail, "summary", &text_len);
-                if (text && text_len) emit_text(o, TNY_EV_THINKING, text, text_len);
+                if (text && text_len) {
+                    o->thinking_seen = true;
+                    emit_text(o, TNY_EV_THINKING, text, text_len);
+                }
             }
         }
     }
@@ -606,6 +1073,62 @@ static oa_call *rsp_call_by_index(oa_impl *o, int64_t oindex) {
     return NULL;
 }
 
+/* A complete Response object (a gateway that answered stream:true with one
+ * JSON document): fold its output items as if they had streamed. */
+static void rsp_absorb_response(oa_impl *o, yyjson_val *response) {
+    size_t idx, max;
+    yyjson_val *item;
+    yyjson_arr_foreach(jget(response, "output"), idx, max, item) {
+        const char *itype = jget_str(item, "type");
+        if (!itype) continue;
+        if (strcmp(itype, "message") == 0) {
+            size_t pi, pmax;
+            yyjson_val *part;
+            yyjson_arr_foreach(jget(item, "content"), pi, pmax, part) {
+                const char *ptype = jget_str(part, "type");
+                size_t tlen = 0;
+                const char *text = jget_strn(part, "text", &tlen);
+                if (ptype && strcmp(ptype, "output_text") == 0 && text && tlen) {
+                    buf_append(&o->text, text, tlen);
+                    emit_text(o, TNY_EV_TEXT_DELTA, text, tlen);
+                }
+            }
+        } else if (strcmp(itype, "function_call") == 0) {
+            if (o->calls.n >= OA_MAX_TOOL_CALLS) continue;
+            oa_call *pc = &o->calls.calls[o->calls.n];
+            pc->id = NULL;
+            pc->name = NULL;
+            buf_init(&pc->args);
+            pc->wire_index = o->calls.n;
+            const char *id = jget_str(item, "call_id");
+            const char *name = jget_str(item, "name");
+            const char *args = jget_str(item, "arguments");
+            if (id) pc->id = xstrdup(id);
+            if (name) pc->name = xstrdup(name);
+            if (args) buf_appends(&pc->args, args);
+            o->calls.n++;
+        } else if (strcmp(itype, "reasoning") == 0) {
+            capture_reasoning_item(o, item);
+        }
+    }
+    yyjson_val *usage = jget(response, "usage");
+    if (usage) {
+        o->usage_in = jget_int(usage, "input_tokens", o->usage_in);
+        o->usage_out = jget_int(usage, "output_tokens", o->usage_out);
+    }
+    const char *status = jget_str(response, "status");
+    if (status && strcmp(status, "failed") == 0) {
+        yyjson_val *err = jget(response, "error");
+        classify_error(o, err ? err : response, 0, &o->stream_error);
+        o->stream_failed = true;
+    } else if (status && strcmp(status, "incomplete") == 0) {
+        const char *reason = jget_str(jget(response, "incomplete_details"), "reason");
+        o->final_stop =
+            reason && strstr(reason, "content_filter") ? TNY_STOP_DENIED : TNY_STOP_STEP_LIMIT;
+    }
+    o->stream_done = true;
+}
+
 /* Typed Responses API events (docs/adr/0016). The SSE parser drops the
  * `event:` line; every payload repeats the type in its "type" member, so
  * dispatch happens on the data alone. */
@@ -619,6 +1142,16 @@ static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
     yyjson_val *root = yyjson_doc_get_root(doc);
     const char *type = jget_str(root, "type");
     if (!type) {
+        /* a chat-shaped error wrapper behind HTTP 200 ({"error":{…}}), as
+         * gateways fronting the responses endpoint produce */
+        yyjson_val *err = jget(root, "error");
+        if (err && (yyjson_is_obj(err) || (yyjson_is_str(err) && yyjson_get_len(err) > 0))) {
+            classify_error(o, err, 0, &o->stream_error);
+            o->stream_done = true;
+            o->stream_failed = true;
+        } else if (yyjson_is_arr(jget(root, "output"))) {
+            rsp_absorb_response(o, root); /* a whole Response object: stream:true ignored */
+        }
         yyjson_doc_free(doc);
         return;
     }
@@ -634,11 +1167,15 @@ static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
                strcmp(type, "response.reasoning_text.delta") == 0) {
         size_t delta_len = 0;
         const char *d = jget_strn(root, "delta", &delta_len);
-        if (d && delta_len) emit_text(o, TNY_EV_THINKING, d, delta_len);
+        if (d && delta_len) {
+            o->thinking_seen = true;
+            emit_text(o, TNY_EV_THINKING, d, delta_len);
+        }
     } else if (strcmp(type, "response.output_item.added") == 0 ||
                strcmp(type, "response.output_item.done") == 0) {
         yyjson_val *item = jget(root, "item");
         const char *itype = jget_str(item, "type");
+        if (itype && strcmp(itype, "reasoning") == 0) capture_reasoning_item(o, item);
         if (itype && strcmp(itype, "function_call") == 0) {
             int64_t oindex = jget_int(root, "output_index", o->calls.n);
             oa_call *pc = rsp_call_by_index(o, oindex);
@@ -683,8 +1220,12 @@ static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
             reason && strstr(reason, "content_filter") ? TNY_STOP_DENIED : TNY_STOP_STEP_LIMIT;
         o->stream_done = true;
     } else if (strcmp(type, "response.failed") == 0 || strcmp(type, "error") == 0) {
-        const char *message = "provider stream reported an error";
-        emit_error(o, TNY_EVENT_ERROR_PROTOCOL, message, strlen(message));
+        /* response.failed nests the error under response.error; the bare
+         * error event carries code/message at its top level */
+        yyjson_val *err = jget(jget(root, "response"), "error");
+        if (!err) err = jget(root, "error");
+        if (!err) err = root;
+        classify_error(o, err, 0, &o->stream_error);
         o->stream_done = true;
         o->stream_failed = true;
     }
@@ -717,7 +1258,9 @@ static void log_toolcall(oa_impl *o, const char *name, bool original_ok, bool ef
 
 static void finish_turn_ok(oa_impl *o) {
     tny_session_state *s = o->env.session;
-    session_add_assistant(s, o->text.len ? o->text.data : "", NULL);
+    /* an empty answer is not recorded: strict providers reject assistant
+     * messages without content, and nothing in it helps the next turn */
+    if (o->text.len) session_add_assistant(s, o->text.data, NULL);
     session_bump_turns(s);
     if (session_save(s) != 0) {
         const char *message = "could not persist completed turn";
@@ -1196,7 +1739,7 @@ static int step_finished(oa_impl *o) {
             /* the model answered before the steer could ride along: record
              * that answer and run one more round on the steered message so
              * it is addressed within the turn it targeted (adr/0011) */
-            session_add_assistant(s, o->text.len ? o->text.data : "", NULL);
+            if (o->text.len) session_add_assistant(s, o->text.data, NULL);
             take_steer(o);
             session_save(s);
             if (o->ctx->max_steps <= 0 || o->step + 1 < o->ctx->max_steps) {
@@ -1230,7 +1773,9 @@ static int step_finished(oa_impl *o) {
             buf_appends(&tcj, "}}");
         }
         buf_appends(&tcj, "]");
-        session_add_assistant(s, o->text.len ? o->text.data : NULL, tcj.data);
+        char *extras = reasoning_extras_json(o);
+        session_add_assistant_ex(s, o->text.len ? o->text.data : NULL, tcj.data, extras);
+        free(extras);
         buf_free(&tcj);
         if (session_save(s) != 0) {
             emit_error(o, TNY_EVENT_ERROR_IO, "could not persist proposed tool batch", 37);
@@ -1273,13 +1818,7 @@ static int oa_connect(tny_backend *b, char *errbuf, size_t errlen) {
     return 0;
 }
 
-static void oa_disconnect(tny_backend *b) {
-    oa_impl *o = b->impl;
-    if (o->conn) {
-        http_close(o->conn);
-        o->conn = NULL;
-    }
-}
+static void oa_disconnect(tny_backend *b) { conn_drop((oa_impl *)b->impl); }
 
 static bool response_requests_close(oa_impl *o) {
     const char *value = o && o->conn ? http_header(o->conn, "Connection") : NULL;
@@ -1330,6 +1869,7 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images, tny_
     buf_clear(&o->toolcall_log);
     buf_appends(&o->toolcall_log, "[");
     oa_calls_reset(&o->calls);
+    o->repairs_noted = false;
 
     tny_session_state *s = o->env.session;
     session_set_meta(s, "openai", model_of(o));
@@ -1435,11 +1975,38 @@ static int oa_pollfds(tny_backend *b, struct pollfd *fds, int max) {
         fds[0].revents = 0;
         return 1;
     }
-    if (o->state == ST_IDLE || o->state == ST_WAIT_PERMISSION || !o->conn || max < 1) return 0;
+    if (o->state == ST_IDLE || o->state == ST_WAIT_PERMISSION || o->state == ST_RETRY_WAIT ||
+        !o->conn || max < 1)
+        return 0;
     fds[0].fd = http_fd(o->conn);
     fds[0].events = POLLIN;
     fds[0].revents = 0;
     return 1;
+}
+
+/* ST_RETRY_WAIT has no fd to watch: the loop sleeps until the backoff
+ * elapses, then dispatch() re-POSTs (cancel still wakes it, ADR 0053). */
+static int oa_poll_timeout(tny_backend *b) {
+    oa_impl *o = b->impl;
+    int64_t left;
+    if (o->state == ST_RETRY_WAIT) left = o->retry_at_ms - monotonic_ms();
+    else if (o->state == ST_BODY && o->error_status) left = o->error_deadline_ms - monotonic_ms();
+    else return -1;
+    return left > 0 ? (int)left : 0;
+}
+
+/* Framing is decided from the first body bytes, not Content-Type (gateways
+ * have streamed SSE under application/json): a body that opens with '{' is
+ * one JSON document — a non-streaming completion, or an error behind HTTP
+ * 200 — dispatched whole at the end; anything else is read as SSE. */
+static void sniff_body(oa_impl *o, const char *bytes, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)bytes[i];
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
+        o->body_is_sse = c != '{';
+        o->body_sniffed = true;
+        return;
+    }
 }
 
 static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
@@ -1447,6 +2014,17 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     if (o->state == ST_WAIT_CUSTOM) {
         if (n > 0 && fds[0].revents) custom_tools_wake_drain(o->ctx->custom_tools);
         return finish_custom_completion(o);
+    }
+    if (o->state == ST_RETRY_WAIT) {
+        if (o->cancelled) return 0;
+        if (monotonic_ms() < o->retry_at_ms) return 0;
+        char rerr[512];
+        if (start_post_mode(o, rerr, sizeof rerr, true) == 0) return 0;
+        /* the gateway itself may be restarting: that is what the budget is for */
+        if (!o->cancelled && schedule_retry(o, rerr, 0)) return 0;
+        emit_error(o, TNY_EVENT_ERROR_IO, rerr, strlen(rerr));
+        emit_turn_end(o, TNY_STOP_ERROR);
+        return -1;
     }
     if (o->state == ST_IDLE || o->state == ST_WAIT_PERMISSION || !o->conn) return 0;
 
@@ -1459,18 +2037,25 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                  * closed the idle connection after the previous response
                  * (SSE providers routinely do). No response byte arrived,
                  * so re-POST once on a fresh connection. */
-                http_close(o->conn);
-                o->conn = NULL;
+                conn_drop(o);
                 char rerr[512];
                 tny_openai_control_response failed =
                     provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
                 if (failed.stop) o->cancelled = true;
                 control_response_free(&failed);
                 if (start_post_mode(o, rerr, sizeof rerr, true) == 0) return 0;
+                if (!o->cancelled && schedule_retry(o, rerr, 0)) return 0;
                 emit_error(o, TNY_EVENT_ERROR_IO, rerr, strlen(rerr));
                 emit_turn_end(o, TNY_STOP_ERROR);
                 return -1;
             }
+            conn_drop(o);
+            /* every attempt gets its response event, a failed one included */
+            tny_openai_control_response lost =
+                provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
+            if (lost.stop) o->cancelled = true;
+            control_response_free(&lost);
+            if (schedule_retry(o, "connection lost before response", 0)) return 0;
             emit_error(o, TNY_EVENT_ERROR_IO, "connection lost before response", 31);
             emit_turn_end(o, TNY_STOP_ERROR);
             return -1;
@@ -1480,25 +2065,19 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         if (control.stop) {
             o->cancelled = true;
             control_response_free(&control);
-            oa_disconnect(b);
+            conn_drop(o);
             emit_turn_end(o, TNY_STOP_INTERRUPTED);
             return 0;
         }
         control_response_free(&control);
-        if (status == 401 || status == 403) {
-            emit_error(o, TNY_EVENT_ERROR_AUTH,
-                       "authentication failed (401/403): check the API key", 51);
-            emit_turn_end(o, TNY_STOP_ERROR);
-            return -1;
-        }
         if (status >= 400) {
-            buf_t msg;
-            buf_init(&msg);
-            buf_appendf(&msg, "provider returned HTTP %d", status);
-            emit_error(o, TNY_EVENT_ERROR_PROTOCOL, msg.data, msg.len);
-            buf_free(&msg);
-            emit_turn_end(o, TNY_STOP_ERROR);
-            return -1;
+            /* read the error body through the ordinary body path (never a
+             * synchronous wait in the loop), bounded in time and size; the
+             * connection is dropped once it is classified */
+            o->error_status = status;
+            o->error_deadline_ms = monotonic_ms() + OA_ERROR_BODY_WAIT_MS;
+            o->body_sniffed = true;
+            o->body_is_sse = false;
         }
         o->state = ST_BODY;
     }
@@ -1506,12 +2085,27 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     for (;;) {
         char tmp[16384];
         ssize_t bn = http_body_read(o->conn, tmp, sizeof tmp);
-        if (bn == -2) return 0;
+        if (bn == -2) {
+            if (o->error_status && monotonic_ms() >= o->error_deadline_ms)
+                return finish_error_response(o);
+            return 0;
+        }
         if (bn > 0) {
-            sse_feed(&o->sse, tmp, (size_t)bn, on_sse_event, o);
+            if (!o->body_sniffed) sniff_body(o, tmp, (size_t)bn);
+            if (o->body_is_sse) sse_feed(&o->sse, tmp, (size_t)bn, on_sse_event, o);
+            else {
+                size_t cap = o->error_status ? OA_ERROR_BODY_MAX : OA_RAW_BODY_MAX;
+                if (o->rawbody.len + (size_t)bn <= cap) buf_append(&o->rawbody, tmp, (size_t)bn);
+                else o->rawbody_overflow = true;
+            }
+            if (o->error_status) continue;
             if (o->cancelled) return 0;
+            /* a terminal error event settles the step now: whatever the
+             * provider sends after it is not worth waiting for */
+            if (o->stream_failed) return fail_stream(o);
             continue;
         }
+        if (o->error_status) return finish_error_response(o);
         /* 0 = body complete; -1 = transport error mid-stream */
         bool close_response = bn == 0 && response_requests_close(o);
         if (bn < 0 || close_response) {
@@ -1522,19 +2116,40 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
              * keep-alive read failure (tens of seconds on some macOS hosts).
              * A completed `Connection: close` response is equally unusable.
              * Discard either now; step_finished opens a fresh connection. */
-            oa_disconnect(b);
+            conn_drop(o);
+        }
+        if (bn == 0) {
+            if (o->rawbody_overflow) {
+                /* a whole-document body past the cap cannot be parsed, and
+                 * asking again would only fetch it again */
+                static const char big[] = "provider response too large (over 1 MiB, not streamed)";
+                buf_clear(&o->rawbody);
+                emit_error(o, TNY_EVENT_ERROR_PROTOCOL, big, sizeof big - 1);
+                emit_turn_end(o, TNY_STOP_ERROR);
+                return -1;
+            }
+            if (o->body_is_sse) sse_flush(&o->sse, on_sse_event, o);
+            else if (o->rawbody.len) {
+                on_sse_event(o->rawbody.data, o->rawbody.len, o);
+                buf_clear(&o->rawbody);
+            }
+            if (o->stream_failed) return fail_stream(o);
         }
         if (bn < 0 && !o->stream_done) {
+            if (schedule_retry(o, "stream aborted mid-response", 0)) return 0;
             /* keep partial text recoverable */
             if (o->text.len) session_recovery_write(o->env.session, o->text.data);
             emit_error(o, TNY_EVENT_ERROR_IO, "stream aborted mid-response", 27);
             emit_turn_end(o, TNY_STOP_ERROR);
             return -1;
         }
-        if (o->stream_failed) {
-            /* the provider ended the response with a terminal error event
-             * (already surfaced): keep partial text recoverable, stop */
-            if (o->text.len) session_recovery_write(o->env.session, o->text.data);
+        if (!o->stream_done && !o->text.len && !o->calls.n && !o->finish_reason[0] &&
+            !o->thinking_seen) {
+            /* nothing at all arrived before the body ended: a gateway
+             * closed an empty 200 (idle timeout, upstream died) */
+            static const char empty[] = "provider closed the stream without a response";
+            if (schedule_retry(o, empty, 0)) return 0;
+            emit_error(o, TNY_EVENT_ERROR_IO, empty, sizeof empty - 1);
             emit_turn_end(o, TNY_STOP_ERROR);
             return -1;
         }
@@ -1566,6 +2181,9 @@ static void oa_destroy(tny_backend *b) {
     free(o->steer);
     buf_free(&o->text);
     buf_free(&o->toolcall_log);
+    buf_free(&o->rawbody);
+    reasoning_reset(o);
+    buf_free(&o->reasoning_content);
     sse_parser_free(&o->sse);
     free(o);
     free(b);
@@ -1666,7 +2284,19 @@ tny_backend *tny_backend_openai_new(struct tny_ctx *ctx) {
     o->env.ctx = ctx;
     buf_init(&o->text);
     buf_init(&o->toolcall_log);
+    buf_init(&o->rawbody);
+    buf_init(&o->reasoning_content);
     sse_parser_init(&o->sse);
+    /* TNY_PROVIDER_RETRIES caps retries per model call (0 disables);
+     * TNY_DEBUG_PROVIDER_ERRORS=1 appends provider error text to diagnostics */
+    o->max_retries = OA_MAX_RETRIES;
+    const char *retries = getenv("TNY_PROVIDER_RETRIES");
+    if (retries && *retries) {
+        long v = strtol(retries, NULL, 10);
+        o->max_retries = v < 0 ? 0 : v > 10 ? 10 : (int)v;
+    }
+    const char *debug = getenv("TNY_DEBUG_PROVIDER_ERRORS");
+    o->debug_errors = debug && *debug && strcmp(debug, "0") != 0;
     b->id = TNY_BK_OPENAI;
     b->impl = o;
     b->connect = oa_connect;
@@ -1678,6 +2308,7 @@ tny_backend *tny_backend_openai_new(struct tny_ctx *ctx) {
     b->cancel = oa_cancel;
     b->respond_permission = oa_respond_permission;
     b->pollfds = oa_pollfds;
+    b->poll_timeout = oa_poll_timeout;
     b->dispatch = oa_dispatch;
     b->doctor = oa_doctor;
     b->destroy = oa_destroy;

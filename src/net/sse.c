@@ -46,3 +46,13 @@ void sse_feed(sse_parser *p, const char *bytes, size_t n, sse_event_cb cb, void 
         buf_consume(&p->acc, consumed);
     }
 }
+
+void sse_flush(sse_parser *p, sse_event_cb cb, void *ud) {
+    if (p->acc.len) { /* an unterminated last line */
+        size_t linelen = p->acc.len;
+        if (p->acc.data[linelen - 1] == '\r') linelen--;
+        handle_line(p, p->acc.data, linelen, cb, ud);
+        buf_clear(&p->acc);
+    }
+    handle_line(p, "", 0, cb, ud);
+}

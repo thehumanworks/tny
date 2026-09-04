@@ -51,6 +51,42 @@ Env knobs:
                       must carry exactly (case-insensitive names) — the codex
                       profile's chatgpt-account-id / OpenAI-Beta / bearer
   MOCK_REJECT_HEADERS semicolon-separated header names that must be absent
+  MOCK_FAIL_TOOL_POST_ONCE=STATUS
+                      the first POST carrying tool results answers STATUS
+                      with a JSON error body (Retry-After: 1 on 429), then
+                      the mock behaves normally — the bounded retry must
+                      make the turn succeed (docs/adr/0069)
+  MOCK_FAIL_TOOL_POST=STATUS
+                      every tool-result POST answers STATUS with a JSON
+                      error of type invalid_request_error (no retry expected)
+  MOCK_EMPTY_STREAM_ONCE=1
+                      the first tool-result POST answers HTTP 200 with an
+                      empty chunked body
+  MOCK_STREAM_ERROR_ONCE=1
+                      the first tool-result POST streams a terminal error
+                      event (chat: top-level error code 502; responses:
+                      response.failed server_error), then recovers
+  MOCK_JSON_BODY_ONCE=1
+                      the first tool-result POST answers HTTP 200 with an
+                      application/json error document (code 503)
+  MOCK_NONSTREAM_ONCE=1
+                      the first tool-result POST ignores stream:true and
+                      answers one application/json document (a chat
+                      completion / a Response object) — no retry expected
+  MOCK_ERROR_NULL=1   chat wire: every chunk carries "error": null
+  MOCK_REASONING=details|content|item
+                      chat wire (details/content): turn 1 streams
+                      OpenRouter reasoning_details fragments / DeepSeek
+                      reasoning_content with the tool call; the follow-up
+                      request must echo the merged payload on the assistant
+                      tool-call message (400 otherwise). responses wire
+                      (item): turn 1 streams a reasoning output item with
+                      encrypted_content ahead of the calls; the follow-up
+                      must carry it as an input item before the first
+                      function_call
+  MOCK_EXPECT_INCLUDE=1 / MOCK_REJECT_INCLUDE=1
+                      responses wire: `include` must / must not name
+                      reasoning.encrypted_content
   MOCK_HEADER_LOG=PATH
                       append one `name=value` line per POST for each header
                       named in MOCK_LOG_HEADERS (semicolon-separated; a
@@ -120,6 +156,26 @@ EXPECT_HEADERS = [
 ]
 REJECT_HEADERS = [h for h in os.environ.get("MOCK_REJECT_HEADERS", "").split(";") if h]
 HEADER_LOG = os.environ.get("MOCK_HEADER_LOG")
+FAIL_TOOL_POST_ONCE = int(os.environ.get("MOCK_FAIL_TOOL_POST_ONCE", "0"))
+FAIL_TOOL_POST = int(os.environ.get("MOCK_FAIL_TOOL_POST", "0"))
+EMPTY_STREAM_ONCE = os.environ.get("MOCK_EMPTY_STREAM_ONCE") == "1"
+STREAM_ERROR_ONCE = os.environ.get("MOCK_STREAM_ERROR_ONCE") == "1"
+JSON_BODY_ONCE = os.environ.get("MOCK_JSON_BODY_ONCE") == "1"
+ERROR_NULL = os.environ.get("MOCK_ERROR_NULL") == "1"
+NONSTREAM_ONCE = os.environ.get("MOCK_NONSTREAM_ONCE") == "1"
+REASONING = os.environ.get("MOCK_REASONING")
+EXPECT_INCLUDE = os.environ.get("MOCK_EXPECT_INCLUDE") == "1"
+REJECT_INCLUDE = os.environ.get("MOCK_REJECT_INCLUDE") == "1"
+_tool_post_faults = {
+    "status": False,
+    "empty": False,
+    "stream": False,
+    "json": False,
+    "nonstream": False,
+}
+REASONING_SIGNATURE = "sig-abc123"
+REASONING_TEXT = "I should list the files first."
+REASONING_ENCRYPTED = "gAAAA-encrypted-reasoning"
 LOG_HEADERS = [h for h in os.environ.get("MOCK_LOG_HEADERS", "").split(";") if h]
 
 
@@ -370,6 +426,118 @@ class Handler(BaseHTTPRequestHandler):
         except BadRequest as e:
             self._reject(str(e))
 
+    def _tool_post_fault(self, wire):
+        """Inject one configured failure on a tool-result POST. Returns True
+        when a response was written (the caller must return)."""
+        if FAIL_TOOL_POST:
+            self._json(
+                FAIL_TOOL_POST,
+                {"error": {"message": ERROR_SECRET, "type": "invalid_request_error"}},
+            )
+            return True
+        if FAIL_TOOL_POST_ONCE and not _tool_post_faults["status"]:
+            _tool_post_faults["status"] = True
+            body = json.dumps(
+                {"error": {"message": ERROR_SECRET, "type": "server_error"}}
+            ).encode()
+            self.send_response(FAIL_TOOL_POST_ONCE)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            if FAIL_TOOL_POST_ONCE == 429:
+                self.send_header("Retry-After", "3")  # longer than the 1s backoff
+            self.end_headers()
+            self.wfile.write(body)
+            self.wfile.flush()
+            return True
+        if EMPTY_STREAM_ONCE and not _tool_post_faults["empty"]:
+            _tool_post_faults["empty"] = True
+            self._start_stream()
+            self._chunk(b"")
+            return True
+        if JSON_BODY_ONCE and not _tool_post_faults["json"]:
+            _tool_post_faults["json"] = True
+            self._json(200, {"error": {"message": ERROR_SECRET, "code": 503}})
+            return True
+        if NONSTREAM_ONCE and not _tool_post_faults["nonstream"]:
+            _tool_post_faults["nonstream"] = True
+            text = "The workspace contains 3 entries. MOCK-OK. nonstream"
+            if wire == "chat":
+                self._json(
+                    200,
+                    {
+                        "id": "chatcmpl-1",
+                        "object": "chat.completion",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": text},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {"prompt_tokens": 5, "completion_tokens": 7},
+                    },
+                )
+            else:
+                self._json(
+                    200,
+                    {
+                        "id": "resp_1",
+                        "object": "response",
+                        "status": "completed",
+                        "output": [
+                            {
+                                "type": "message",
+                                "id": "msg_1",
+                                "role": "assistant",
+                                "content": [{"type": "output_text", "text": text}],
+                            }
+                        ],
+                        "usage": {"input_tokens": 5, "output_tokens": 7},
+                    },
+                )
+            return True
+        if STREAM_ERROR_ONCE and not _tool_post_faults["stream"]:
+            _tool_post_faults["stream"] = True
+            if wire == "chat":
+                pieces = [
+                    sse(
+                        {
+                            "error": {"code": 502, "message": ERROR_SECRET},
+                            "choices": [
+                                {"index": 0, "delta": {}, "finish_reason": "error"}
+                            ],
+                        }
+                    ),
+                    b"data: [DONE]\n\n",
+                ]
+            else:
+                pieces = [
+                    sse_typed(
+                        {
+                            "type": "response.created",
+                            "response": {"status": "in_progress"},
+                        }
+                    ),
+                    sse_typed(
+                        {
+                            "type": "response.failed",
+                            "response": {
+                                "status": "failed",
+                                "error": {
+                                    "code": "server_error",
+                                    "message": ERROR_SECRET,
+                                },
+                            },
+                        }
+                    ),
+                ]
+            self._start_stream()
+            for piece in pieces:
+                self._chunk(piece)
+            self._chunk(b"")
+            return True
+        return False
+
     # ---- legacy chat wire ----
 
     def _post_chat(self, req):
@@ -412,6 +580,52 @@ class Handler(BaseHTTPRequestHandler):
             validate_shell_result(
                 next(m for m in msgs if m.get("role") == "tool")["content"]
             )
+        if has_tool_result and REASONING in ("details", "content"):
+            # what OpenRouter (Anthropic/Gemini upstreams) and DeepSeek/Kimi
+            # enforce: the reasoning that produced a tool call rides back on
+            # that assistant message, merged and signed exactly as streamed
+            call_msg = next(
+                m for m in msgs if m.get("role") == "assistant" and m.get("tool_calls")
+            )
+            if REASONING == "details":
+                details = call_msg.get("reasoning_details")
+                need(
+                    isinstance(details, list) and len(details) == 1,
+                    f"reasoning_details not echoed: {call_msg!r}",
+                )
+                need(
+                    details[0].get("text") == REASONING_TEXT
+                    and details[0].get("signature") == REASONING_SIGNATURE
+                    and details[0].get("type") == "reasoning.text"
+                    and details[0].get("format") == "anthropic-claude-v1",
+                    f"reasoning_details mangled: {details!r}",
+                )
+            else:
+                need(
+                    call_msg.get("reasoning_content") == REASONING_TEXT,
+                    f"reasoning_content not echoed: {call_msg!r}",
+                )
+            for m in msgs:
+                if m.get("role") == "assistant" and not m.get("tool_calls"):
+                    need(
+                        "reasoning_details" not in m and "reasoning_content" not in m,
+                        f"reasoning leaked onto a text message: {m!r}",
+                    )
+            need(
+                "reasoning_items" not in call_msg,
+                "tny-private reasoning_items must never ride the chat wire",
+            )
+        for m in msgs:
+            need(
+                not (
+                    m.get("role") == "assistant"
+                    and m.get("content") == ""
+                    and not m.get("tool_calls")
+                ),
+                f"empty assistant message sent: {m!r}",
+            )
+        if has_tool_result and self._tool_post_fault("chat"):
+            return
 
         structured = req.get("response_format")
         if structured is not None:
@@ -584,7 +798,87 @@ class Handler(BaseHTTPRequestHandler):
                 },
             ]
         elif not has_tool_result:
-            frames = [
+            frames = []
+            if REASONING == "details":
+                # OpenRouter shape: text in fragments under one index, the
+                # signature in a final fragment with empty text
+                cut = len(REASONING_TEXT) // 2
+                frames += [
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "reasoning": REASONING_TEXT[:cut],
+                                    "reasoning_details": [
+                                        {
+                                            "type": "reasoning.text",
+                                            "index": 0,
+                                            "text": REASONING_TEXT[:cut],
+                                            "format": "anthropic-claude-v1",
+                                            "signature": None,
+                                        }
+                                    ],
+                                },
+                            }
+                        ]
+                    },
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "reasoning": REASONING_TEXT[cut:],
+                                    "reasoning_details": [
+                                        {
+                                            "type": "reasoning.text",
+                                            "index": 0,
+                                            "text": REASONING_TEXT[cut:],
+                                        }
+                                    ],
+                                },
+                            }
+                        ]
+                    },
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "reasoning_details": [
+                                        {
+                                            "type": "reasoning.text",
+                                            "index": 0,
+                                            "text": "",
+                                            "signature": REASONING_SIGNATURE,
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    },
+                ]
+            elif REASONING == "content":
+                cut = len(REASONING_TEXT) // 2
+                frames += [
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"reasoning_content": REASONING_TEXT[:cut]},
+                            }
+                        ]
+                    },
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"reasoning_content": REASONING_TEXT[cut:]},
+                            }
+                        ]
+                    },
+                ]
+            frames += [
                 {
                     "choices": [
                         {
@@ -651,6 +945,9 @@ class Handler(BaseHTTPRequestHandler):
                     "usage": {"prompt_tokens": 200, "completion_tokens": 20},
                 }
             )
+        if ERROR_NULL:
+            for f in frames:
+                f["error"] = None
         pieces = [*(sse(f) for f in frames), b"data: [DONE]\n\n"]
         if CONNECTION_CLOSE and not DROP_REUSED_ONCE:
             wire = b"".join(pieces)
@@ -720,7 +1017,46 @@ class Handler(BaseHTTPRequestHandler):
             need("json_schema" not in structured, f"not flattened: {structured}")
             need("schema" in structured and "name" in structured, f"bad {structured}")
 
+        include = req.get("include")
+        if EXPECT_INCLUDE:
+            need(
+                isinstance(include, list) and "reasoning.encrypted_content" in include,
+                f"include must request encrypted reasoning: {include!r}",
+            )
+        if REJECT_INCLUDE:
+            need(
+                include is None,
+                f"include must be absent for this provider: {include!r}",
+            )
+        for i in items:
+            need(
+                not (i.get("role") == "assistant" and i.get("content") == ""),
+                f"empty assistant message sent: {i!r}",
+            )
         outputs = [i for i in items if i.get("type") == "function_call_output"]
+        if outputs and REASONING == "item":
+            # OpenAI with store:false: the encrypted reasoning item must come
+            # back verbatim, and precede the function_call it produced
+            kinds = [i.get("type") for i in items]
+            need("reasoning" in kinds, f"reasoning item not echoed: {kinds!r}")
+            rs = items[kinds.index("reasoning")]
+            need(
+                rs.get("id") == "rs_1"
+                and rs.get("encrypted_content") == REASONING_ENCRYPTED
+                and rs.get("summary") == [{"type": "summary_text", "text": "plan"}]
+                and "status" not in rs,
+                f"reasoning item mangled: {rs!r}",
+            )
+            need(
+                kinds.index("reasoning") < kinds.index("function_call"),
+                f"reasoning must precede the function_call: {kinds!r}",
+            )
+            need(
+                kinds.count("reasoning") == 1,
+                f"a reasoning item without encrypted_content must not be echoed: {kinds!r}",
+            )
+        if outputs and self._tool_post_fault("responses"):
+            return
         if outputs and EXPECT_ATTACHED_IMAGE:
             images = [
                 part
@@ -878,8 +1214,51 @@ class Handler(BaseHTTPRequestHandler):
                     "arguments": "",
                     "status": "completed",
                 }
+                reasoning_events = []
+                if REASONING == "item":
+                    # added carries a provisional encrypted_content that done
+                    # must replace (one item, the final payload). A second
+                    # reasoning item without encrypted_content must be dropped.
+                    reasoning_events = [
+                        {
+                            "type": "response.output_item.added",
+                            "output_index": 0,
+                            "item": {
+                                "type": "reasoning",
+                                "id": "rs_1",
+                                "summary": [],
+                                "encrypted_content": "stale-provisional",
+                            },
+                        },
+                        {
+                            "type": "response.reasoning_summary_text.delta",
+                            "output_index": 0,
+                            "delta": "plan",
+                        },
+                        {
+                            "type": "response.output_item.done",
+                            "output_index": 0,
+                            "item": {
+                                "type": "reasoning",
+                                "id": "rs_1",
+                                "summary": [{"type": "summary_text", "text": "plan"}],
+                                "encrypted_content": REASONING_ENCRYPTED,
+                                "status": "completed",
+                            },
+                        },
+                        {
+                            "type": "response.output_item.done",
+                            "output_index": 0,
+                            "item": {
+                                "type": "reasoning",
+                                "id": "rs_bare",
+                                "summary": [],
+                            },
+                        },
+                    ]
                 events = [
                     {"type": "response.created", "response": {"status": "in_progress"}},
+                    *reasoning_events,
                     {
                         "type": "response.output_item.added",
                         "output_index": 0,

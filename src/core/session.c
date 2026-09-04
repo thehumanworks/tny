@@ -414,7 +414,8 @@ void session_add_text(tny_session_state *s, const char *role, const char *conten
     yyjson_mut_arr_add_val(session_messages(s), m);
 }
 
-void session_add_assistant(tny_session_state *s, const char *content, const char *tc_json) {
+void session_add_assistant_ex(tny_session_state *s, const char *content, const char *tc_json,
+                              const char *extras_json) {
     yyjson_mut_val *m = yyjson_mut_obj(s->doc);
     yyjson_mut_obj_put(m, yyjson_mut_strcpy(s->doc, "role"),
                        yyjson_mut_strcpy(s->doc, "assistant"));
@@ -428,7 +429,139 @@ void session_add_assistant(tny_session_state *s, const char *content, const char
             yyjson_doc_free(tc);
         }
     }
+    if (extras_json) {
+        yyjson_doc *ex = jparse(extras_json, strlen(extras_json));
+        yyjson_val *root = ex ? yyjson_doc_get_root(ex) : NULL;
+        if (root && yyjson_is_obj(root)) {
+            size_t idx, max;
+            yyjson_val *k, *v;
+            yyjson_obj_foreach(root, idx, max, k, v) {
+                const char *key = yyjson_get_str(k);
+                /* the shape members stay authoritative */
+                if (!key || strcmp(key, "role") == 0 || strcmp(key, "content") == 0 ||
+                    strcmp(key, "tool_calls") == 0)
+                    continue;
+                yyjson_mut_val *cv = yyjson_val_mut_copy(s->doc, v);
+                if (cv) yyjson_mut_obj_put(m, yyjson_mut_strcpy(s->doc, key), cv);
+            }
+        }
+        if (ex) yyjson_doc_free(ex);
+    }
     yyjson_mut_arr_add_val(session_messages(s), m);
+}
+
+void session_add_assistant(tny_session_state *s, const char *content, const char *tc_json) {
+    session_add_assistant_ex(s, content, tc_json, NULL);
+}
+
+/* ---- provider view (docs/adr/0069) ---- */
+
+static const char *mrole(yyjson_mut_val *m) {
+    return yyjson_mut_get_str(yyjson_mut_obj_get(m, "role"));
+}
+
+static void view_add_tool_error(yyjson_mut_doc *d, yyjson_mut_val *arr, const char *id) {
+    yyjson_mut_val *t = yyjson_mut_obj(d);
+    yyjson_mut_obj_put(t, yyjson_mut_strcpy(d, "role"), yyjson_mut_strcpy(d, "tool"));
+    yyjson_mut_obj_put(t, yyjson_mut_strcpy(d, "tool_call_id"), yyjson_mut_strcpy(d, id));
+    yyjson_mut_obj_put(t, yyjson_mut_strcpy(d, "content"),
+                       yyjson_mut_strcpy(d, "error: tool result missing (the turn was "
+                                            "interrupted before this call finished)"));
+    yyjson_mut_arr_add_val(arr, t);
+}
+
+/* Answer every still-open call of the last assistant batch, in order. */
+static int view_close_open(yyjson_mut_doc *d, yyjson_mut_val *arr, const char **open, int *n_open) {
+    int added = 0;
+    for (int i = 0; i < *n_open; i++)
+        if (open[i]) {
+            view_add_tool_error(d, arr, open[i]);
+            added++;
+        }
+    *n_open = 0;
+    return added;
+}
+
+static bool view_has_text(yyjson_mut_val *content) {
+    if (!content) return false;
+    if (yyjson_mut_is_str(content)) return yyjson_mut_get_len(content) > 0;
+    if (yyjson_mut_is_arr(content)) return yyjson_mut_arr_size(content) > 0;
+    return false;
+}
+
+yyjson_mut_doc *session_provider_view(tny_session_state *s, int boundary, int *repairs) {
+    int fixes = 0;
+    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
+    if (!d) {
+        if (repairs) *repairs = 0;
+        return NULL;
+    }
+    yyjson_mut_val *out = yyjson_mut_arr(d);
+    yyjson_mut_doc_set_root(d, out);
+    yyjson_mut_val *msgs = session_messages(s);
+    size_t total = msgs ? yyjson_mut_arr_size(msgs) : 0;
+    /* ids of the last assistant tool_calls batch not yet answered; pointers
+     * borrow the working doc, which outlives this call */
+    const char **open = NULL;
+    int n_open = 0, cap_open = 0;
+    for (size_t i = boundary > 0 ? (size_t)boundary : 0; i < total; i++) {
+        yyjson_mut_val *m = yyjson_mut_arr_get(msgs, i);
+        const char *role = mrole(m);
+        if (!role) {
+            fixes++;
+            continue;
+        }
+        if (strcmp(role, "tool") == 0) {
+            const char *id = yyjson_mut_get_str(yyjson_mut_obj_get(m, "tool_call_id"));
+            int slot = -1;
+            for (int k = 0; id && k < n_open; k++)
+                if (open[k] && strcmp(open[k], id) == 0) {
+                    slot = k;
+                    break;
+                }
+            if (slot < 0) { /* orphan (no call) or duplicate answer */
+                fixes++;
+                continue;
+            }
+            open[slot] = NULL;
+            yyjson_mut_val *copy = yyjson_mut_val_mut_copy(d, m);
+            if (copy) yyjson_mut_arr_add_val(out, copy);
+            continue;
+        }
+        /* anything else ends the current tool batch */
+        fixes += view_close_open(d, out, open, &n_open);
+        if (strcmp(role, "assistant") == 0) {
+            yyjson_mut_val *tcs = yyjson_mut_obj_get(m, "tool_calls");
+            bool has_calls = tcs && yyjson_mut_is_arr(tcs) && yyjson_mut_arr_size(tcs) > 0;
+            if (!has_calls && !view_has_text(yyjson_mut_obj_get(m, "content"))) {
+                fixes++; /* nothing a provider can accept: skip it */
+                continue;
+            }
+            if (has_calls) {
+                int want = (int)yyjson_mut_arr_size(tcs);
+                if (want > cap_open) {
+                    const char **grown = realloc(open, sizeof *open * (size_t)want);
+                    if (grown) {
+                        open = grown;
+                        cap_open = want;
+                    }
+                }
+                size_t idx, max;
+                yyjson_mut_val *tc;
+                yyjson_mut_arr_foreach(tcs, idx, max, tc) {
+                    if (!tc) break;
+                    const char *id = yyjson_mut_get_str(yyjson_mut_obj_get(tc, "id"));
+                    if (id && n_open < cap_open) open[n_open++] = id;
+                }
+            }
+        }
+        yyjson_mut_val *copy = yyjson_mut_val_mut_copy(d, m);
+        if (copy) yyjson_mut_arr_add_val(out, copy);
+    }
+    fixes += view_close_open(d, out, open, &n_open);
+    free(open);
+    if (repairs) *repairs = fixes;
+    return d;
 }
 
 void session_add_tool_result(tny_session_state *s, const char *tool_call_id, const char *content) {

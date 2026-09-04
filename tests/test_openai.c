@@ -184,6 +184,95 @@ TEST fallback_ids_are_slot_unique(void) {
     PASS();
 }
 
+/* ---- provider failure classification (docs/adr/0069) ---- */
+
+TEST error_token_keeps_only_identifiers(void) {
+    char t[33];
+    oa_error_token(t, sizeof t, "invalid_request_error");
+    ASSERT_STR_EQ("invalid_request_error", t);
+    oa_error_token(t, sizeof t, "Rate-Limit Exceeded");
+    ASSERT_STR_EQ("rate_limit_exceeded", t);
+    oa_error_token(t, sizeof t, "server_error.upstream");
+    ASSERT_STR_EQ("server_error_upstream", t);
+    /* free text, punctuation, or anything key-shaped is dropped whole */
+    oa_error_token(t, sizeof t, "no tool output found for call_1: {bad}");
+    ASSERT_STR_EQ("", t);
+    oa_error_token(t, sizeof t, "sk-proj-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+    ASSERT_STR_EQ("", t);
+    oa_error_token(t, sizeof t, "a_category_name_that_is_far_too_long_to_be_one");
+    ASSERT_STR_EQ("", t);
+    oa_error_token(t, sizeof t, "");
+    ASSERT_STR_EQ("", t);
+    oa_error_token(t, sizeof t, NULL);
+    ASSERT_STR_EQ("", t);
+    PASS();
+}
+
+TEST retryable_statuses_and_permanent_tokens(void) {
+    ASSERT(oa_status_is_retryable(429));
+    ASSERT(oa_status_is_retryable(408));
+    ASSERT(oa_status_is_retryable(500));
+    ASSERT(oa_status_is_retryable(502));
+    ASSERT(oa_status_is_retryable(529));
+    ASSERT_FALSE(oa_status_is_retryable(400));
+    ASSERT_FALSE(oa_status_is_retryable(401));
+    ASSERT_FALSE(oa_status_is_retryable(403));
+    ASSERT_FALSE(oa_status_is_retryable(404));
+    ASSERT_FALSE(oa_status_is_retryable(422));
+    ASSERT(oa_error_token_is_permanent("invalid_request_error"));
+    ASSERT(oa_error_token_is_permanent("context_length_exceeded"));
+    ASSERT(oa_error_token_is_permanent("insufficient_quota"));
+    ASSERT(oa_error_token_is_permanent("model_not_found"));
+    ASSERT_FALSE(oa_error_token_is_permanent("server_error"));
+    ASSERT_FALSE(oa_error_token_is_permanent("overloaded_error"));
+    ASSERT_FALSE(oa_error_token_is_permanent(""));
+    PASS();
+}
+
+/* ---- reasoning passthrough: OpenRouter reasoning_details fragments ---- */
+
+static yyjson_doc *frag(const char *json) { return jparse(json, strlen(json)); }
+
+TEST reasoning_details_merge_by_index(void) {
+    yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *arr = yyjson_mut_arr(d);
+    yyjson_mut_doc_set_root(d, arr);
+    yyjson_doc *f1 = frag("[{\"type\":\"reasoning.text\",\"index\":0,\"text\":\"think \","
+                          "\"format\":\"anthropic-claude-v1\",\"signature\":null}]");
+    yyjson_doc *f2 = frag("[{\"type\":\"reasoning.text\",\"index\":0,\"text\":\"hard\"}]");
+    yyjson_doc *f3 = frag("[{\"type\":\"reasoning.text\",\"index\":0,\"text\":\"\","
+                          "\"signature\":\"sig-1\"}]");
+    /* a second block, and a fragment without an index, stay separate */
+    yyjson_doc *f4 = frag("[{\"type\":\"reasoning.encrypted\",\"index\":1,\"data\":\"enc\"},"
+                          "{\"type\":\"reasoning.summary\",\"summary\":\"loose\"}]");
+    oa_reasoning_details_merge(d, arr, yyjson_doc_get_root(f1));
+    oa_reasoning_details_merge(d, arr, yyjson_doc_get_root(f2));
+    oa_reasoning_details_merge(d, arr, yyjson_doc_get_root(f3));
+    oa_reasoning_details_merge(d, arr, yyjson_doc_get_root(f4));
+    ASSERT_EQ_FMT(3, (int)yyjson_mut_arr_size(arr), "%d");
+    yyjson_mut_val *i0 = yyjson_mut_arr_get(arr, 0);
+    ASSERT_STR_EQ("think hard", yyjson_mut_get_str(yyjson_mut_obj_get(i0, "text")));
+    ASSERT_STR_EQ("sig-1", yyjson_mut_get_str(yyjson_mut_obj_get(i0, "signature")));
+    ASSERT_STR_EQ("anthropic-claude-v1", yyjson_mut_get_str(yyjson_mut_obj_get(i0, "format")));
+    ASSERT_STR_EQ("reasoning.text", yyjson_mut_get_str(yyjson_mut_obj_get(i0, "type")));
+    yyjson_mut_val *i1 = yyjson_mut_arr_get(arr, 1);
+    ASSERT_STR_EQ("enc", yyjson_mut_get_str(yyjson_mut_obj_get(i1, "data")));
+    yyjson_mut_val *i2 = yyjson_mut_arr_get(arr, 2);
+    ASSERT_STR_EQ("loose", yyjson_mut_get_str(yyjson_mut_obj_get(i2, "summary")));
+    /* garbage never merges */
+    yyjson_doc *f5 = frag("[7,\"x\",null]");
+    oa_reasoning_details_merge(d, arr, yyjson_doc_get_root(f5));
+    oa_reasoning_details_merge(d, arr, NULL);
+    ASSERT_EQ_FMT(3, (int)yyjson_mut_arr_size(arr), "%d");
+    yyjson_doc_free(f1);
+    yyjson_doc_free(f2);
+    yyjson_doc_free(f3);
+    yyjson_doc_free(f4);
+    yyjson_doc_free(f5);
+    yyjson_mut_doc_free(d);
+    PASS();
+}
+
 SUITE(openai_suite) {
     RUN_TEST(single_call_assembles_from_fragments);
     RUN_TEST(parallel_calls_keyed_by_index);
@@ -195,4 +284,7 @@ SUITE(openai_suite) {
     RUN_TEST(first_streamed_name_sticks);
     RUN_TEST(overflow_and_garbage_are_dropped_safely);
     RUN_TEST(fallback_ids_are_slot_unique);
+    RUN_TEST(error_token_keeps_only_identifiers);
+    RUN_TEST(retryable_statuses_and_permanent_tokens);
+    RUN_TEST(reasoning_details_merge_by_index);
 }

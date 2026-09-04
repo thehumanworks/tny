@@ -119,6 +119,24 @@ void oa_calls_reset(oa_callset *cs);
  * Writes into buf (>= 16 bytes) only when the fallback is needed. */
 const char *oa_call_id(const oa_call *pc, int slot, char *buf, size_t buflen);
 
+/* ---- provider failure classification and reasoning passthrough
+ * (docs/adr/0069); pure helpers exposed for tests/test_openai.c ---- */
+
+/* A provider error category as a bounded lowercase identifier
+ * ([a-z0-9_], at most cap-1 bytes; '-', '.', ' ' fold to '_'). Anything
+ * else — free text, over-long strings — yields "" so message text never
+ * reaches a diagnostic. */
+void oa_error_token(char *out, size_t cap, const char *raw);
+/* Categories that a retry cannot fix (invalid_*, context_length_*, …). */
+bool oa_error_token_is_permanent(const char *token);
+/* HTTP statuses worth a bounded retry: 408, 409, 425, 429, and 5xx. */
+bool oa_status_is_retryable(int status);
+/* Merge one streamed `reasoning_details` fragment array into arr (owned by
+ * rdoc): fragments sharing an "index" merge into one item — text/summary/
+ * data concatenate, other members are kept from the first fragment that
+ * carried them; fragments without an index append as their own items. */
+void oa_reasoning_details_merge(yyjson_mut_doc *rdoc, yyjson_mut_val *arr, yyjson_val *details);
+
 /* Normalize a user-supplied JSON Schema into a Chat Completions
  * `response_format` object (docs/backends/openai-compatible.md). Accepts a
  * bare schema, a `{"name":…,"schema":…}` json_schema object, or a full
@@ -136,6 +154,9 @@ char *tny_openai_response_format(const char *schema_json, size_t len);
  * become input_text/input_image, assistant tool_calls become function_call
  * items, and role:tool messages become function_call_output items. */
 char *tny_openai_responses_input(yyjson_mut_val *msgs, int boundary, const char *summary);
+/* The whole array, with the summary (when non-NULL) as the leading system
+ * item — for a provider view that already starts at the boundary. */
+char *tny_openai_responses_input_with_summary(yyjson_mut_val *msgs, const char *summary);
 /* Nested chat tools ({"type":"function","function":{…}}) → the flat
  * Responses shape ({"type":"function","name":…,"parameters":…}). */
 char *tny_openai_responses_tools(const char *chat_tools_json);

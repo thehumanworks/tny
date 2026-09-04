@@ -136,6 +136,232 @@ def check_shell_profile_result_file(base_env, ws):
         mock.wait(timeout=5)
 
 
+def start_mock(**extra):
+    port = free_port()
+    proc = subprocess.Popen(
+        [sys.executable, MOCK, str(port)],
+        env=dict(os.environ, **extra),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    line = proc.stdout.readline().decode()
+    assert "ready" in line, f"mock did not start ({extra!r}): {line!r}"
+    return proc, port
+
+
+def ask_json(env, ws, port, *args, wire="responses", timeout=60):
+    run_env = dict(env, OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1")
+    if wire == "chat":
+        run_env["OPENAI_WIRE_API"] = "chat"
+    return subprocess.run(
+        [TNY, "--cwd", ws, "ask", "--json", *args],
+        env=run_env,
+        capture_output=True,
+        timeout=timeout,
+    )
+
+
+def check_stream_recovery(env, ws, wire):
+    """Stream errors after a tool call recover instead of ending the turn
+    (docs/adr/0069): the tool-result POST is retried with backoff when the
+    provider answers a transient status, closes an empty 200, hands back a
+    JSON error document, or streams a terminal error event. Permanent
+    rejections end the turn at once with a category, never the message."""
+    transient = [
+        (dict(MOCK_FAIL_TOOL_POST_ONCE="502"), b"retrying in 1.0s"),
+        # Retry-After: 3 outranks the 1s backoff
+        (dict(MOCK_FAIL_TOOL_POST_ONCE="429"), b"retrying in 3.0s"),
+        (dict(MOCK_EMPTY_STREAM_ONCE="1"), b"retrying in 1.0s"),
+        (dict(MOCK_JSON_BODY_ONCE="1"), b"retrying in 1.0s"),
+        (dict(MOCK_STREAM_ERROR_ONCE="1"), b"retrying in 1.0s"),
+    ]
+    for extra, delay in transient:
+        mock, port = start_mock(MOCK_EXPECT_WIRE=wire, **extra)
+        try:
+            r = ask_json(env, ws, port, "--no-save", "list files in .", wire=wire)
+            assert r.returncode == 0, (
+                f"{wire} {extra}: exit {r.returncode}: {r.stderr.decode()}"
+            )
+            out = json.loads(r.stdout)
+            assert "MOCK-OK" in out["output"], (wire, extra, out)
+            assert out["steps"] == 2, (wire, extra, out)
+            assert delay in r.stderr, (wire, extra, r.stderr)
+            assert b"attempt 2/4" in r.stderr, (wire, extra, r.stderr)
+            assert b"attempt 3/4" not in r.stderr, (wire, extra, r.stderr)
+            assert b"mock status failure" not in r.stderr, (wire, extra, r.stderr)
+        finally:
+            mock.terminate()
+            mock.wait(timeout=5)
+
+    # a gateway that ignores stream:true: one JSON document is the answer,
+    # and it is never mistaken for an empty stream
+    mock, port = start_mock(MOCK_EXPECT_WIRE=wire, MOCK_NONSTREAM_ONCE="1")
+    try:
+        r = ask_json(env, ws, port, "--no-save", "list files in .", wire=wire)
+        assert r.returncode == 0, (
+            f"{wire} nonstream: exit {r.returncode}: {r.stderr.decode()}"
+        )
+        out = json.loads(r.stdout)
+        assert "MOCK-OK. nonstream" in out["output"], (wire, out)
+        assert b"retrying" not in r.stderr, r.stderr
+    finally:
+        mock.terminate()
+        mock.wait(timeout=5)
+
+    # a permanent rejection: no retry, exit 2, a category but never the
+    # provider's message; the opt-in debug switch appends the message
+    mock, port = start_mock(
+        MOCK_EXPECT_WIRE=wire,
+        MOCK_FAIL_TOOL_POST="400",
+        MOCK_ERROR_SECRET="SECRET-MSG-TEXT",
+    )
+    try:
+        r = ask_json(env, ws, port, "--no-save", "list files in .", wire=wire)
+        assert r.returncode == 2, f"{wire}: exit {r.returncode}: {r.stderr.decode()}"
+        assert (
+            b"provider rejected the request (HTTP 400, invalid_request_error)"
+            in r.stderr
+        ), r.stderr
+        assert b"retrying" not in r.stderr, r.stderr
+        assert b"SECRET-MSG-TEXT" not in r.stderr + r.stdout, r.stderr
+        r = ask_json(
+            dict(env, TNY_DEBUG_PROVIDER_ERRORS="1"),
+            ws,
+            port,
+            "--no-save",
+            "list files in .",
+            wire=wire,
+        )
+        assert r.returncode == 2, r.stderr.decode()
+        assert b"invalid_request_error): SECRET-MSG-TEXT" in r.stderr, r.stderr
+    finally:
+        mock.terminate()
+        mock.wait(timeout=5)
+
+    # the retry budget is bounded and TNY_PROVIDER_RETRIES=0 disables it
+    mock, port = start_mock(MOCK_EXPECT_WIRE=wire, MOCK_HTTP_STATUS="503")
+    try:
+        r = ask_json(
+            dict(env, TNY_PROVIDER_RETRIES="1"), ws, port, "--no-save", "hi", wire=wire
+        )
+        assert r.returncode == 2, r.stderr.decode()
+        assert b"attempt 2/2" in r.stderr, r.stderr
+        assert b"attempt 3" not in r.stderr, r.stderr
+        assert b"tny: provider error (HTTP 503)" in r.stderr, r.stderr
+        r = ask_json(
+            dict(env, TNY_PROVIDER_RETRIES="0"), ws, port, "--no-save", "hi", wire=wire
+        )
+        assert r.returncode == 2, r.stderr.decode()
+        assert b"retrying" not in r.stderr, r.stderr
+    finally:
+        mock.terminate()
+        mock.wait(timeout=5)
+
+
+def check_error_null_chunks(env, ws):
+    """`"error": null` in every chat chunk is not an error."""
+    mock, port = start_mock(MOCK_EXPECT_WIRE="chat", MOCK_ERROR_NULL="1")
+    try:
+        r = ask_json(env, ws, port, "--no-save", "list files in .", wire="chat")
+        assert r.returncode == 0, f"exit {r.returncode}: {r.stderr.decode()}"
+        assert "MOCK-OK" in json.loads(r.stdout)["output"], r.stdout
+        assert b"reported an error" not in r.stderr, r.stderr
+    finally:
+        mock.terminate()
+        mock.wait(timeout=5)
+
+
+def check_reasoning_passthrough(env, ws):
+    """Reasoning payloads ride back with the tool calls they produced, in
+    the member the provider used; the mock 400s the follow-up otherwise."""
+    for wire, mode in (("chat", "details"), ("chat", "content"), ("responses", "item")):
+        extra = dict(MOCK_EXPECT_WIRE=wire, MOCK_REASONING=mode)
+        if wire == "responses":
+            extra["MOCK_REJECT_INCLUDE"] = "1"  # a generic gateway: no include
+        mock, port = start_mock(**extra)
+        try:
+            r = ask_json(env, ws, port, "--no-save", "list files in .", wire=wire)
+            assert r.returncode == 0, (
+                f"{wire}/{mode}: exit {r.returncode}: {r.stderr.decode()}"
+            )
+            out = json.loads(r.stdout)
+            assert "MOCK-OK" in out["output"], (wire, mode, out)
+        finally:
+            mock.terminate()
+            mock.wait(timeout=5)
+    # OpenAI proper (and the codex profile) is asked for encrypted reasoning
+    mock, port = start_mock(MOCK_EXPECT_WIRE="responses", MOCK_EXPECT_INCLUDE="1")
+    try:
+        # a private HOME: the run must not become the remembered provider
+        chome = os.path.join(env["HOME"], "codex-include-home")
+        os.makedirs(os.path.join(chome, ".tny"), exist_ok=True)
+        run_env = dict(
+            env, HOME=chome, TNY_CODEX_BASE_URL=f"http://127.0.0.1:{port}/v1"
+        )
+        run_env["CHATGPT_ACCESS_TOKEN"] = "test-token-not-real"
+        r = subprocess.run(
+            [
+                TNY,
+                "--cwd",
+                ws,
+                "--provider",
+                "codex",
+                "ask",
+                "--json",
+                "--no-save",
+                "list files",
+            ],
+            env=run_env,
+            capture_output=True,
+            timeout=60,
+        )
+        assert r.returncode == 0, (
+            f"codex include: exit {r.returncode}: {r.stderr.decode()}"
+        )
+    finally:
+        mock.terminate()
+        mock.wait(timeout=5)
+
+
+def check_broken_session_repair(env, ws, wire):
+    """A saved transcript with an unanswered tool call (the runner was
+    killed mid-batch) is repaired on the way to the provider, so the next
+    turn works instead of failing forever with "no tool output found"."""
+    mock, port = start_mock(MOCK_EXPECT_WIRE=wire)
+    try:
+        home = os.path.join(env["HOME"], f"repair-{wire}")
+        os.makedirs(os.path.join(home, ".tny"), exist_ok=True)
+        renv = dict(env, HOME=home)
+        r = ask_json(renv, ws, port, "list files in .", wire=wire)
+        assert r.returncode == 0, (
+            f"{wire} seed: exit {r.returncode}: {r.stderr.decode()}"
+        )
+        files = glob.glob(
+            os.path.join(home, ".tny", "sessions", "*", "*", "session.json")
+        )
+        assert len(files) == 1, files
+        doc = json.load(open(files[0]))
+        msgs = doc["messages"]
+        tool_ids = [m["tool_call_id"] for m in msgs if m["role"] == "tool"]
+        assert tool_ids, msgs
+        # lose the last tool result, and leave an empty assistant reply behind
+        victim = next(
+            i for i in reversed(range(len(msgs))) if msgs[i]["role"] == "tool"
+        )
+        del msgs[victim]
+        msgs.append({"role": "assistant", "content": ""})
+        json.dump(doc, open(files[0], "w"))
+        r = ask_json(renv, ws, port, "--resume", "last", "and again", wire=wire)
+        assert r.returncode == 0, (
+            f"{wire} resume: exit {r.returncode}: {r.stderr.decode()}"
+        )
+        assert "MOCK-OK" in json.loads(r.stdout)["output"], r.stdout
+        assert b"repaired the transcript" in r.stderr, r.stderr
+    finally:
+        mock.terminate()
+        mock.wait(timeout=5)
+
+
 def main():
     port = free_port()
     # the default wire must be the Responses API: any request that falls
@@ -1225,6 +1451,12 @@ def main():
             finally:
                 pmock.terminate()
                 pmock.wait(timeout=5)
+            # ---- stream-error recovery and transcript invariants (adr/0069)
+            check_error_null_chunks(env, ws)
+            check_reasoning_passthrough(env, ws)
+            for wire in ("responses", "chat"):
+                check_stream_recovery(env, ws, wire)
+                check_broken_session_repair(env, ws, wire)
         print("test_openai: all assertions passed")
     finally:
         mock.terminate()

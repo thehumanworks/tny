@@ -91,8 +91,81 @@ Stream: `text/event-stream`, chunked, split anywhere.
 
 OpenRouter-compatible chat streams may carry textual `reasoning_details`
 items; tny normalizes their `text`/`summary` fields to `THINKING`. A top-level
-SSE `error` is terminal even when the HTTP status remains 200, and `[DONE]`
-is only framing—not evidence that the run succeeded.
+SSE `error` object (or non-empty string — `"error": null` is not an error)
+is terminal even when the HTTP status remains 200, and `[DONE]` is only
+framing—not evidence that the run succeeded.
+
+## Stream errors, retries, and diagnostics ([ADR 0069](../adr/0069-native-loop-stream-error-recovery.md))
+
+One model call (the first POST of a turn, or the POST that carries tool
+results) is **retried with backoff** when it fails before any text was
+streamed: HTTP 408/409/425/429/5xx, the connection lost before a response,
+a stream aborted or closed empty, or a terminal SSE error whose code or
+category is not permanent. Backoff 1s → 2s → 4s (a numeric `Retry-After`
+wins, capped at 30s), three retries by default; `TNY_PROVIDER_RETRIES=N`
+sets the budget, `0` disables it. Each retry prints a status line
+(`provider error (HTTP 502): retrying in 1.0s (attempt 2/4)`); the wait is
+non-blocking (the engine sleeps on the backend's `poll_timeout`), so cancel
+still works. After text has been shown a failure stays terminal and the
+partial text stays recoverable.
+
+Diagnostics name the class and the provider's **category**, never its
+message: `provider rate limit (HTTP 429)`, `provider error (HTTP 502,
+server_error)`, `provider rejected the request (HTTP 400,
+invalid_request_error)`, `provider stream reported an error (code 502)`,
+`authentication failed (HTTP 401)`, `provider refused the request (HTTP
+403)` (a key without access to the model, or a gateway/proxy block). The
+category is `error.type` (else a string `error.code`) reduced to a
+lowercase identifier of at most 32 bytes; anything else is dropped. Set
+`TNY_DEBUG_PROVIDER_ERRORS=1` to append the provider's own message
+(bounded, control characters blanked) when debugging a rejection — it may
+echo request content, so it is off by default. Error bodies are read for
+their category and the connection is then dropped, never reused.
+
+Framing is sniffed from the first body bytes, not `Content-Type`: a body
+opening with `{` is one JSON document and is handled as one event — a
+non-streaming chat completion or Response object works (`stream:true`
+ignored by the gateway), and a JSON error document behind HTTP 200 is a
+failure (retried when transient), not an empty answer; a document past
+1 MiB is "provider response too large" (no retry). A 200 that ends with no
+event, no text, no call, and no finish reason is "provider closed the
+stream without a response" (retried). Reasoning already shown before a
+retried failure is shown again; answer text never is (such failures are
+terminal, partial text recoverable).
+
+### The transcript the provider sees
+
+Both wires build the request from `session_provider_view()`, a repaired
+copy of `messages[]` (the stored transcript is never modified): every id in
+an assistant `tool_calls` batch is answered by exactly one `role:tool`
+message before anything else follows (a missing result — the runner died
+mid-batch — is synthesized as `error: tool result missing (the turn was
+interrupted before this call finished)`), orphan or duplicate tool results
+are dropped, and assistant messages with neither text nor calls are
+skipped. A repair is announced once per turn as a status line. An empty
+final answer is not recorded at all. This is what turns "the provider 400s
+every request since the crash" back into a working session.
+
+### Reasoning passthrough
+
+Thinking models need the reasoning that produced a tool call sent back with
+it. tny mirrors the member the provider streamed, on the assistant
+tool-call message only:
+
+| Wire | Streamed | Stored on the message | Sent back |
+| --- | --- | --- | --- |
+| chat | `delta.reasoning_details[]` (OpenRouter: Anthropic signed thinking, Gemini thought signatures); fragments merged by `index`, `text`/`summary`/`data` concatenated, `signature`/`format`/`id` kept | `reasoning_details` | verbatim |
+| chat | `delta.reasoning_content` (DeepSeek, Kimi, vLLM) | `reasoning_content` | verbatim |
+| responses | `reasoning` output items with `encrypted_content` | `reasoning_items` (tny-private, never on the chat wire) | as input items ahead of the `function_call` items |
+
+The Responses request carries `include: ["reasoning.encrypted_content"]`
+for `api.openai.com`, `chatgpt.com`, and the `codex` profile only; items
+without `encrypted_content` are never echoed (`store:false` cannot resolve
+them). Nothing is sent to a provider that did not stream it.
+
+`tests/integration/live_provider_check.py --provider NAME --model MODEL`
+runs a tool call, its follow-up, and a resumed turn against a real profile
+on both wires and reports the transcript shape and any diagnostics.
 
 Tool-call assembly (`src/backends/openai/toolcalls.c`, unit-tested in
 `tests/test_openai.c`) is **id-first**, not index-first: a fragment with an
@@ -284,4 +357,7 @@ error diagnostics do not echo raw provider bodies.
 
 - Honor `Last-Event-ID` only if we reconnect the same request (rare).
 - Read timeouts must be long (minutes) while still detecting a dead TCP.
-- Treat a 401/403 as startup-class errors (exit 1). Mid-stream 5xx as run errors (exit 2) after retry if `Retry-After` says so.
+- 401/403 end the turn without a retry (auth class). Transient statuses and
+  stream failures before any output are retried per ADR 0069, honoring a
+  numeric `Retry-After`; the turn is a run error (exit 2) once the budget is
+  spent.
