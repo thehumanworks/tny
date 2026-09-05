@@ -20,6 +20,7 @@ typedef enum {
     TNY_INTERCEPT_SKILL,
     TNY_INTERCEPT_IMAGE_ATTACH,
     TNY_INTERCEPT_ASK_USER,
+    TNY_INTERCEPT_SPEAK,
     TNY_INTERCEPT_REFUSED, /* recognised and rejected; `message` says why */
 } tny_intercept_kind;
 

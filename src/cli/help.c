@@ -15,6 +15,7 @@ void help_root(void) {
           "\n"
           "Commands:\n"
           "  ask <prompt>           Run one noninteractive request\n"
+          "  speak                  Speak stdin aloud using your ChatGPT login\n"
           "  edit FILE              Exact-match replacement from stdin\n"
           "  ask-user QUESTION      Ask the owning session frontend (socket-bound)\n"
           "  image attach PATH      Attach an image to the next request (socket-bound)\n"
@@ -294,6 +295,21 @@ static const char *cursor_help =
 bool help_for(const char *command) {
     const char *text = NULL;
     if (strcmp(command, "ask") == 0) text = ask_help;
+    else if (strcmp(command, "speak") == 0)
+        text = "Usage: printf 'Hello' | tny speak [OPTIONS]\n"
+               "       tny speak --check [--json]\n\n"
+               "Speak UTF-8 stdin (up to 16 KiB), default voice cove, language en-US.\n"
+               "Uses your Codex ChatGPT login regardless of the active chat provider.\n"
+               "Playback is automatic and audio is ephemeral. Requires a local player\n"
+               "(afplay on macOS; ffplay, mpv or mpg123). On wasm/Windows, export only.\n\n"
+               "Options:\n"
+               "  --voice NAME         Voice (default cove)\n"
+               "  --tts-provider NAME  Speech provider (default codex)\n"
+               "  --output-file PATH   Export MP3 instead of playing\n"
+               "  --check              Check local credentials/player without network\n"
+               "  --json               One result object; stdin remains plain text\n"
+               "  -h, --help           Show this help\n\n"
+               "Example: printf 'Build complete.' | tny speak --output-file message.mp3\n";
     else if (strcmp(command, "edit") == 0) text = edit_help;
     else if (strcmp(command, "ask-user") == 0)
         text = "Usage: tny ask-user [--json] QUESTION\n"

@@ -52,6 +52,8 @@ let
     # under tests/bench/fixtures/tools/ that
     # tests/integration/test_bench_tools.py copies and scores (issue #103).
     ../tests
+    # Speech fixtures (test_speech.py) generate their fake player in a temp
+    # directory; no MP3 asset or host audio package enters the fileset.
     # Explicit contract for issue #88: every foreign MCP harness parser is
     # exercised from immutable fixture data inside the sandbox.
     ../tests/fixtures/mcp-import

@@ -16,6 +16,7 @@ Keep fx names so prompts and muscle memory transfer:
 | Skills | `skill`, `install_skill` |
 | Subagents | `subagent` (`create`, `inspect`, `message`, `relationship`, `configure`, `lifecycle`) |
 | MCP | `mcp_search_tools`, `mcp_select_tool`, `mcp_features` only; namespaced `server/tool` names ride a system-prompt catalog, never the tools array ([ADR 0049](../adr/0049-mcp-background-warmup.md)) |
+| Speech | `speak` (text, optional voice): automatic ephemeral playback using the Codex login, independent of the chat provider; advertised only with credentials and a player. [Speech contract](../speech.md) |
 | Runtime | `ask_user_question`, `memory`, `read_tool_result` |
 
 Large results: bounded preview + session handle; `read_tool_result` reads a byte range or literal search. Background commands persist pid, cwd, log path, detected URL.
@@ -71,6 +72,7 @@ warmed MCP client, and the `--ssh` route:
 | `tny memory get\|set\|list …` | the `memory` tool | `memory` |
 | `tny skill show NAME` | the `skill` tool | `skill` |
 | `tny image attach PATH` | the same queue as `read_image`, allowed roots only | `read_image` |
+| `printf … \| tny speak [--voice NAME] [--json]` (or quoted heredoc) | the shared speech service, on the tny host | `speak` |
 | `tny ask-user [--json] QUESTION` | the frontend ask hook, with no socket round trip | `ask_user_question` |
 | `tny ask …` (no `-B`) | refused: a foreground nested agent inside a turn | — |
 | `tny ask -B …`, and everything else | `/bin/sh`, unchanged | `terminal` + command |

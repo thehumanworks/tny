@@ -3,6 +3,7 @@
  * (docs/backends/openai-compatible.md, docs/adr/0016). */
 #include "backends/openai/openai.h"
 #include "core/tools.h"
+#include "core/speech.h"
 #include "core/provider_extras.h"
 #include "core/image.h"
 #include "core/instructions.h"
@@ -101,6 +102,8 @@ typedef struct {
     bool thinking_seen; /* any reasoning reached the frontend this step */
     int step;
     bool cancelled;
+    bool (*tool_cancel_probe)(void *);
+    void *tool_cancel_ud;
     int retries;         /* retries spent on this step's model call */
     int64_t retry_at_ms; /* ST_RETRY_WAIT: when to re-POST */
     bool body_sniffed;   /* first body bytes seen: framing decided */
@@ -635,6 +638,12 @@ static void build_system_prompt(oa_impl *o, buf_t *sys) {
         buf_appends(sys, o->ctx->system_prompt);
         buf_appends(sys, "\n");
     }
+    if (!o->ctx->library_mode && tny_speech_available(o->ctx, NULL, true, NULL, 0))
+        buf_appends(sys,
+                    "Speech is available: use `speak` when advertised, or pipe text to "
+                    "`tny speak` through terminal to vocalise a message to the user. "
+                    "It plays automatically and keeps no audio file. Do not repeat spoken content "
+                    "in the final text response unless the user asks for both.\n");
     if (tny_tool_profile_is_shell(o->ctx)) {
         buf_appends(sys, "# Shell tool profile\n\n"
                          "Commands start in the workspace cwd, and cwd resets on every terminal "
@@ -2187,6 +2196,20 @@ static void oa_destroy(tny_backend *b) {
     sse_parser_free(&o->sse);
     free(o);
     free(b);
+}
+
+static bool tool_cancelled(void *ud) {
+    oa_impl *o = ud;
+    if (o->tool_cancel_probe && o->tool_cancel_probe(o->tool_cancel_ud)) o->cancelled = true;
+    return o->cancelled;
+}
+
+void tny_backend_openai_set_tool_cancel(tny_backend *b, bool (*probe)(void *), void *ud) {
+    oa_impl *o = b->impl;
+    o->tool_cancel_probe = probe;
+    o->tool_cancel_ud = ud;
+    o->env.cancelled = tool_cancelled;
+    o->env.cancelled_ud = o;
 }
 
 void tny_backend_openai_bind(tny_backend *b, tny_session_state *session, perm_engine *perm,

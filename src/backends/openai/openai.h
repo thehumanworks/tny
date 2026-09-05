@@ -78,6 +78,8 @@ void tny_backend_openai_bind(
     char *(*ask_user)(const char *question, void *ud), void *ask_user_ud,
     int (*control_pump)(void *ud, int timeout_ms), void *control_pump_ud, const char *session_sock,
     const char *session_id, tny_openai_control_cb control, void *control_ud);
+/* A flag-only probe; never re-enters the backend during blocking tools. */
+void tny_backend_openai_set_tool_cancel(tny_backend *b, bool (*probe)(void *), void *ud);
 /* Queue one validated local image for the next provider request through the
  * same ADR-0008 pending-image path used by read_image. */
 int tny_backend_openai_queue_image(tny_backend *b, const char *path, char *err, size_t errlen);
