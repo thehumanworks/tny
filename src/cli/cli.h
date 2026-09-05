@@ -69,6 +69,7 @@ void cli_print_still_running(tny_ctx *ctx, const char *id);
 /* Commands. Each returns the process exit code. */
 int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 /* Stateless and config-free; dispatched before cli_make_ctx. */
+int cmd_speak(const cli_globals *g, int argc, char **argv);
 int cmd_edit(const cli_globals *g, int argc, char **argv);
 int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

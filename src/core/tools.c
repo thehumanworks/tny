@@ -1,6 +1,7 @@
 /* tools.c — registry, permission gate, dispatch, result bounding. */
 #include "core/tools.h"
 #include "core/image.h"
+#include "core/speech.h"
 #include "core/intercept.h"
 #include "lib/custom_tools.h"
 #include "util/alloc.h"
@@ -183,6 +184,11 @@ static const char *SCHEMA_JSON =
     "{\"type\":\"function\",\"function\":{\"name\":\"mcp_features\",\"description\":\"List "
     "configured MCP servers and their advertised "
     "capabilities.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"speak\",\"description\":\"Speak a message "
+    "aloud to the user using their ChatGPT login. Waits for playback; no audio file is kept.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"},"
+    "\"voice\":{\"type\":\"string\",\"description\":\"Omit to use the default cove voice.\"}},"
+    "\"required\":[\"text\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"ask_user_question\",\"description\":\"Ask the "
     "user a clarifying question (interactive sessions "
     "only).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"question\":{\"type\":"
@@ -192,6 +198,8 @@ static const char *SCHEMA_JSON =
 static bool schema_tool_disabled(const tools_env *env, const char *name) {
     if (!env || !env->ctx || !name) return false;
     if (env->ctx->mcp_disabled && str_starts(name, "mcp_")) return true;
+    if (strcmp(name, "speak") == 0)
+        return env->ctx->library_mode || !tny_speech_available(env->ctx, NULL, true, NULL, 0);
     if (!env->ctx->library_mode) return false;
     return strcmp(name, "subagent") == 0 || strcmp(name, "terminal") == 0 ||
            strcmp(name, "open_file") == 0 || strcmp(name, "skill") == 0 ||
@@ -243,7 +251,8 @@ static char *append_custom_schema(char *base, custom_tool_registry *registry) {
 char *tools_schema_json(tools_env *env) {
     if (env && env->ctx &&
         (env->ctx->mcp_disabled || env->ctx->library_mode ||
-         env->ctx->tool_profile != TNY_TOOLS_ALL || !tool_web_search_configured(env->ctx))) {
+         env->ctx->tool_profile != TNY_TOOLS_ALL || !tool_web_search_configured(env->ctx) ||
+         !tny_speech_available(env->ctx, NULL, true, NULL, 0))) {
         yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
         yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
         yyjson_mut_doc *mut = yyjson_mut_doc_new(jallocator());
@@ -260,11 +269,11 @@ char *tools_schema_json(tools_env *env) {
             char *json = jwrite(mut);
             yyjson_mut_doc_free(mut);
             yyjson_doc_free(doc);
-            if (json) return append_custom_schema(json, env->ctx->custom_tools);
-        } else {
-            yyjson_mut_doc_free(mut);
-            yyjson_doc_free(doc);
+            return json ? append_custom_schema(json, env->ctx->custom_tools) : NULL;
         }
+        yyjson_mut_doc_free(mut);
+        yyjson_doc_free(doc);
+        return NULL; /* Never expose disabled tools on an allocation failure. */
     }
     return append_custom_schema(xstrdup(SCHEMA_JSON),
                                 env && env->ctx ? env->ctx->custom_tools : NULL);
@@ -422,7 +431,7 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         if (valid != 0) return -1;
     } else {
         if (schema_tool_disabled(env, call->name)) {
-            call->error = tool_err("tool %s is unavailable in embedded runtimes", call->name);
+            call->error = tool_err("tool %s is unavailable in this runtime", call->name);
             return -1;
         }
         if (!profile_allows_builtin(env, call->name)) {

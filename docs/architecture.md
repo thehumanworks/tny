@@ -121,3 +121,12 @@ POSIX `poll`/`kqueue` only, always through the `tny_poll` seam (`src/util/tny_po
 - `tny acp` is an **ACP server** exposing the **native** OpenAI-compatible loop (fx parity).
 
 Do not serve Cursor-bridge or Codex sessions through `tny acp`. Those hosts already have their own ACP or IDE surfaces.
+
+## Speech service
+
+The CLI and native `speak` tool share `core/speech.c`, a provider table whose
+adapters produce bounded MP3 bytes. ChatGPT speech reuses Codex credentials
+regardless of the conversation backend. `util/audio.c` owns external player
+startup and anonymous audio lifetime within the existing host OS seam.
+See [ADR 0070](adr/0070-provider-independent-speech.md) and
+[ADR 0071](adr/0071-ephemeral-host-audio-playback.md).

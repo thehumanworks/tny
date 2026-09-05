@@ -32,6 +32,9 @@ typedef struct tools_env {
      * only socket control traffic; it must never dispatch the backend. */
     int (*control_pump)(void *ud, int timeout_ms);
     void *control_pump_ud;
+    /* Cooperative cancellation for blocking host services such as speech. */
+    bool (*cancelled)(void *ud);
+    void *cancelled_ud;
     const char *session_sock;
     const char *session_id;
     /* Event sink for TOOL_START / TOOL_END / STATUS. */

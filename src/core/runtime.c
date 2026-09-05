@@ -1489,6 +1489,12 @@ static void drop_backend(tny_engine *e) {
     e->bk = NULL;
 }
 
+static bool native_tool_cancelled(void *ud) {
+    tny_engine *e = ud;
+    return atomic_load_explicit(&e->cancel_requested, memory_order_acquire) ||
+           (e->cancel_probe && e->cancel_probe(e->cancel_probe_ud));
+}
+
 int tny_engine_prepare(tny_engine *e, tny_backend *prepared, tny_engine_prepare_state state,
                        char *err, size_t errlen) {
     if (!e || e->bk || e->active) {
@@ -1510,6 +1516,7 @@ int tny_engine_prepare(tny_engine *e, tny_backend *prepared, tny_engine_prepare_
         tny_backend_openai_bind(bk, e->session, e->perm, e->prompt, e->prompt_ud, e->ask_user,
                                 e->ask_user_ud, e->control_pump, e->control_pump_ud,
                                 e->session_sock, e->session_id, native_openai_control, e);
+    if (bk->id == TNY_BK_OPENAI) tny_backend_openai_set_tool_cancel(bk, native_tool_cancelled, e);
     if (state != TNY_ENGINE_PREPARE_RESUMED && bk->create_or_resume) {
         const char *ptr = session_host_pointer(e->session);
         const char *owner = session_backend(e->session);

@@ -26,6 +26,7 @@ COMMAND_PARSERS = {
     "cursor": ("cmd_cursor",),
     "doctor": ("cmd_doctor",),
     "edit": ("cmd_edit",),
+    "speak": ("cmd_speak",),
     "login": ("cmd_login",),
     "image": ("cmd_image",),
     "logout": ("cmd_logout",),
