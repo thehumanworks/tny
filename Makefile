@@ -6,6 +6,7 @@ CC      ?= cc
 GIT     ?= git
 BASH    ?= bash
 ZSH     ?= zsh
+TMUX_BIN ?= tmux
 STD      = -std=c11
 WARN     = -Wall -Wextra -Werror -Wno-deprecated-declarations
 INC      = -Iinclude -Isrc -Ithird_party -Ithird_party/yyjson -Ithird_party/picohttpparser \
@@ -445,6 +446,11 @@ test-shell-workflows:
 	$(BASH) tests/shell/test_workflows.sh
 	$(ZSH) tests/shell/test_workflows.sh
 
+.PHONY: test-shell-quick-ask
+test-shell-quick-ask:
+	ZSH="$(ZSH)" python3 tests/shell/test_quick_ask.py
+	ZSH="$(ZSH)" TNY_TEST_TMUX_BIN="$(TMUX_BIN)" python3 tests/shell/test_quick_ask_screen.py
+
 test-install-prefix: release
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/packaging/test_make_install.py
 
@@ -566,7 +572,7 @@ test-libtny-tsan:
 	@exit 2
 endif
 
-test: test-unit test-event-schema test-conformance-contract test-cursor-sdk-contract test-extensions-python test-install-prefix test-help-flags release
+test: test-unit test-event-schema test-conformance-contract test-cursor-sdk-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
 	@if [ -x tests/integration/run.sh ]; then tests/integration/run.sh; fi
 
 size: release
@@ -607,6 +613,7 @@ install: release
 	cp python/tny_ext/*.py python/tny_ext/py.typed \
 		"$(DESTDIR)$(PREFIX)/lib/tny/tny_ext/"
 	cp shell/tny-workflows.sh "$(DESTDIR)$(PREFIX)/share/tny/"
+	cp shell/tny.zsh "$(DESTDIR)$(PREFIX)/share/tny/"
 	chmod 755 "$(DESTDIR)$(PREFIX)/share/tny/tny-workflows.sh"
 
 install-lib-active: lib-shared-active
@@ -718,6 +725,7 @@ lint-py:
 
 lint-sh:
 	$(SHELLCHECK) $(SH_SRC)
+	$(ZSH) -n shell/tny.zsh
 
 lint-workflows:
 	$(ACTIONLINT)
