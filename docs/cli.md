@@ -9,6 +9,7 @@ Binary name: `tny`.
 ```text
 tny                         # interactive TUI, fresh session
 tny ask [prompt]            # one turn, then exit
+tny speak                   # speak stdin aloud; --output-file exports MP3
 tny edit FILE               # exact-match replacement from stdin
 tny ask-user QUESTION       # ask the owning runner frontend (inside terminal)
 tny image attach PATH       # attach an image to the next request (inside terminal)
@@ -948,3 +949,9 @@ both directions. A parser flag without help text, help text without a parser,
 or a dispatched subcommand missing from top-level help fails the test
 ([ADR 0042](adr/0042-help-flag-alignment.md)). The small source allowlist is
 reserved for explicitly justified compatibility or passthrough syntax.
+
+## Speech
+
+`printf 'The tests passed.' | tny speak` plays ephemeral speech using your
+ChatGPT login, independently of the chat provider. See [Speech](speech.md)
+for voices, availability, export, agent tools and platform behavior.

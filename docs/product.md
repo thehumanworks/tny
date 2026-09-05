@@ -21,7 +21,7 @@ Keep the *user-visible harness*, not Vercel branding:
 - One-shot `ask` for scripts/CI with Markdown on stdout and JSON mode.
 - Sessions: list, inspect, resume `last` or id, compact, recover.
 - Permissions: `ask` / `auto` / `yolo`, persistent rules, session grants, command sandbox.
-- Built-in tools (files, grep/glob, shell, web fetch/search, vision fallback, memory).
+- Built-in tools (files, grep/glob, shell, web fetch/search, vision fallback, memory, speech).
 - Skills (`SKILL.md`), MCP client, session-backed subagents.
 - ACP **server** so editors can drive tny's native loop (`tny acp`), matching `fx acp`.
 - `status`, `doctor`, models, usage, workspace extra dirs, project `AGENTS.md` (over `--ssh`: remote cwd, not the launch directory).

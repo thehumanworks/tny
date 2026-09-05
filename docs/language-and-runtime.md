@@ -33,6 +33,7 @@ Vendor by source file, not by package manager graphs.
 | WebSocket | [wslay](https://github.com/tatsuhiro-t/wslay) | Framing only; tny owns TCP/TLS + the handshake |
 | Protobuf | No runtime for Cursor requests; pinned `.proto` files plus deterministic contract metadata. A minimal bounded decoder handles `SdkErrorDetails` Any payloads | JSON is the forward-compatible sdk.v1 interchange; no C++ protobuf runtime |
 | Connect | Hand-rolled HTTP/1.1 framing plus bounded loopback callback server | Unary + server streams outbound; authenticated custom-tool/store RPCs inbound; classic gRPC will not work |
+| Speech playback | Optional host `afplay`, `ffplay`, `mpv` or `mpg123` | External process only; no decoder library; [ADR 0071](adr/0071-ephemeral-host-audio-playback.md) |
 | TUI | Raw ANSI + termios + UTF-8 width | No ncurses, notcurses, termbox |
 | Tests | [greatest.h](https://github.com/silentbicycle/greatest) | One header. Golden files in `testdata/` |
 | MCP TOML | `src/util/toml.c` (~400 LOC subset) | Codex/grok `[mcp_servers.*]` import only ([ADR 0051](adr/0052-mcp-import-from-harnesses.md)); not a general TOML library |

@@ -48,6 +48,16 @@ int main(int argc, char **argv) {
         return rc;
     }
 
+    if (cmd && strcmp(cmd, "speak") == 0) {
+        int rc = cmd_speak(&g, cargc, cargv);
+        free(g.add_dirs);
+        free(g.agent_argv);
+#ifdef __EMSCRIPTEN__
+        exit(rc); /* Preserve the status after synthesis unwinds through Asyncify. */
+#endif
+        return rc;
+    }
+
     /* Socket-bound tool verbs are self-contained clients: do not load
      * provider config or create a runtime merely to contact the runner. */
     if (cmd && (strcmp(cmd, "ask-user") == 0 || strcmp(cmd, "image") == 0)) {

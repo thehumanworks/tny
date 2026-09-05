@@ -3,6 +3,7 @@
  * tools' own code paths so permissions, undo, MCP, and --ssh behave
  * identically to a structured tool call (docs/adr/0063). */
 #include "core/intercept.h"
+#include "core/speech.h"
 #include "core/edit.h"
 #include "core/shellwords.h"
 #include "mcp/mcp.h"
@@ -370,6 +371,22 @@ static tny_intercept *parse_ask_user(char **argv, int argc, int i, bool json,
     return ic_label(ic, "tny ask-user");
 }
 
+static tny_intercept *parse_speak(char **argv, int argc, int i, bool json, const buf_t *payload) {
+    const char *voice = NULL;
+    for (; i < argc; i++) {
+        if (strcmp(argv[i], "--json") == 0) json = true;
+        else if (strcmp(argv[i], "--voice") == 0 && i + 1 < argc) voice = argv[++i];
+        else return NULL; /* export and provider options retain shell semantics */
+    }
+    if (!payload) return NULL;
+    tny_intercept *ic = ic_new(TNY_INTERCEPT_SPEAK, "speak");
+    if (!ic) return NULL;
+    ic->json = json;
+    ic->target = voice ? xstrdup(voice) : NULL;
+    ic->detail = xstrdup("speak to the user");
+    return ic_label(ic, "tny speak");
+}
+
 /* A foreground nested agent has no place inside a turn: it would run its own
  * loop under this one, invisible to the frontend and to cancellation. */
 static tny_intercept *parse_ask(char **argv, int argc, int i) {
@@ -406,6 +423,7 @@ static tny_intercept *parse_verb(tools_env *env, const tny_words *w, const buf_t
     if (strcmp(verb, "skill") == 0) return parse_skill(argv, argc, i);
     if (strcmp(verb, "image") == 0) return parse_image(argv, argc, i, json);
     if (strcmp(verb, "ask-user") == 0) return parse_ask_user(argv, argc, i, json, payload);
+    if (strcmp(verb, "speak") == 0) return parse_speak(argv, argc, i, json, payload);
     if (strcmp(verb, "ask") == 0) return parse_ask(argv, argc, i);
     return NULL;
 }
@@ -710,9 +728,33 @@ static char *exec_ask_user(tools_env *env, const tny_intercept *ic) {
     return ic_result(env, 0, &out, &err);
 }
 
+static char *exec_speak(tools_env *env, const tny_intercept *ic) {
+    buf_t out, err;
+    buf_init(&out);
+    buf_init(&err);
+    if (!utf8_valid_bytes(ic->stdin_data, ic->stdin_len)) {
+        buf_appends(&err, "tny: speak: invalid UTF-8 text\n");
+        return ic_result(env, 1, &out, &err);
+    }
+    char diagnostic[256] = "";
+    tny_speech_request r = {.text = ic->stdin_data,
+                            .voice = ic->target,
+                            .cancelled = env->cancelled,
+                            .userdata = env->cancelled_ud};
+    int rc;
+    if (env->ctx->library_mode) {
+        rc = 1;
+        snprintf(diagnostic, sizeof diagnostic, "speech is unavailable in embedded runtimes");
+    } else rc = tny_speech_run(env->ctx, &r, diagnostic, sizeof diagnostic);
+    if (rc) buf_appendf(&err, "tny: speak: %s\n", diagnostic);
+    else if (ic->json) buf_appends(&out, "{\"kind\":\"speak\",\"ok\":true,\"played\":true}\n");
+    return ic_result(env, rc, &out, &err);
+}
+
 char *tny_intercept_execute(tools_env *env, const tny_intercept *ic) {
     if (!env || !ic) return NULL;
     switch (ic->kind) {
+    case TNY_INTERCEPT_SPEAK: return exec_speak(env, ic);
     case TNY_INTERCEPT_EDIT: return exec_edit(env, ic);
     case TNY_INTERCEPT_MCP_CALL: return exec_mcp_call(env, ic);
     case TNY_INTERCEPT_MCP_DESCRIBE: return exec_mcp_describe(env, ic);
