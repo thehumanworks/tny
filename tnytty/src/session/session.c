@@ -60,14 +60,15 @@ tt_session *tt_session_create_at(tt_registry *r, char *const argv[], int cols, i
     r->head = s;
     r->count++;
     return s;
-fail: {
-    int saved = errno;
-    vt_free(s->term);
-    free_argv(s->argv);
-    free(s);
-    errno = saved;
-    return NULL;
-}
+fail:
+    {
+        int saved = errno;
+        vt_free(s->term);
+        free_argv(s->argv);
+        free(s);
+        errno = saved;
+        return NULL;
+    }
 }
 
 tt_session *tt_session_create(tt_registry *r, char *const argv[], int cols, int rows) {

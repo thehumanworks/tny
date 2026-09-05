@@ -619,6 +619,45 @@ another harness, or a script ([ADR 0057](adr/0057-shell-first-native-loop.md),
 - **wasm:** HTTP MCP servers work (remote-only, subject to CORS); a stdio
   server keeps the existing clean spawn error.
 
+## Quick ephemeral questions from Zsh
+
+After `make install PREFIX="$HOME/.local"`, add this **after** your plugins
+and keymap setup in `~/.zshrc`:
+
+```zsh
+source "$HOME/.local/share/tny/tny.zsh"
+```
+
+Type your question directly at the shell prompt. Press **Ctrl-X**, release
+Ctrl, then press **`a`**. Do not press Enter to submit the question: Enter
+still executes ordinary shell commands. No quotes or prefix are needed. Punctuation and pasted multiline text are sent literally through
+`tny ask --ephemeral --stdin`.
+
+Answers stream in place. Success clears the input; failure or Ctrl-C keeps
+it for retry with the same binding. Press Ctrl-C at the shell prompt to clear
+it. Empty input does nothing; cancel an unfinished shell command before asking
+from a secondary prompt. The binding works in emacs and both vi keymaps.
+The prompt returns below the complete answer, including with multiline shell
+prompts and wrapped output ([ADR 0073](adr/0073-quick-ask-preserves-rendered-output.md)).
+
+The widget uses your configured provider/model and current directory. Optional
+Zsh settings (an executable path and an array, never an evaluated string):
+
+```zsh
+TNY_BIN="$HOME/.local/bin/tny"
+TNY_ASK_FLAGS=(--provider codex --model gpt-5.6-luna)
+# Optional alternative binding, after sourcing:
+bindkey -M viins '^Xq' tny-ask
+```
+
+Prompts do not enter normal Zsh history or tny's saved conversations. Terminal
+scrollback and provider retention still apply; tools retain normal tny
+permissions. The script installs Ctrl-X then a in the emacs, viins, and vicmd
+maps, replacing an existing binding for that sequence. It does not change
+Enter or select a different editing mode. It is native Zsh integration;
+Bash/Fish and browser wasm users can use the regular ephemeral CLI.
+[Decision and alternatives: ADR 0072](adr/0072-zsh-ephemeral-quick-ask.md).
+
 ## Multi-agent workflow scripts
 
 The installed `share/tny/tny-workflows.sh` library builds validated dependency

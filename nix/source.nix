@@ -20,7 +20,7 @@ let
     ../libtny.pc.in
     ../python
     ../scripts/check_abi_baseline.py
-    ../shell
+    ../shell # installed workflows and the Zsh quick-ask widget
     ../src
     ../third_party
   ];
@@ -51,7 +51,7 @@ let
     # All of tests/, which includes the frozen tool-profile A/B fixtures
     # under tests/bench/fixtures/tools/ that
     # tests/integration/test_bench_tools.py copies and scores (issue #103).
-    ../tests
+    ../tests # includes quick-ask PTY and tmux screen regression tests
     # Speech fixtures (test_speech.py) generate their fake player in a temp
     # directory; no MP3 asset or host audio package enters the fileset.
     # Explicit contract for issue #88: every foreign MCP harness parser is

@@ -38,12 +38,12 @@ jobs:
       - name: Install pinned linters
         run: |
           set -eu
-          pipx install clang-format==21.1.2
+          pipx install clang-format==23.1.0
           pipx install clang-tidy==22.1.8
-          pipx install ruff==0.14.0
+          pipx install ruff==0.16.6
           sudo apt-get update -q
-          sudo apt-get install -y -q gcc-14 zsh
-          go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
+          sudo apt-get install -y -q gcc-14 zsh tmux
+          go install mvdan.cc/sh/v3/cmd/shfmt@v3.14.0
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
           shellcheck --version
@@ -53,6 +53,9 @@ jobs:
 
       - name: Test Bash and Zsh workflow helpers
         run: make test-shell-workflows
+
+      - name: Test Zsh quick ask and final terminal screen
+        run: make test-shell-quick-ask
 
       - name: make warn-strict (gcc + clang)
         run: |
