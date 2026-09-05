@@ -90,4 +90,8 @@ The cancellation fixture synchronizes its second Ctrl-C with the restored
 edit buffer, not the earlier error diagnostic. Its fake child's signal
 handler uses unbuffered `os.write` and `os._exit` so an interrupt during the
 `WAITING` flush cannot re-enter Python's buffered stdout. The full fixture
-and screen suites, plus 20 repeated cancellation/recovery trials, pass.
+and screen suites, plus 30 repeated cancellation/recovery trials, pass.
+
+Recovery is proved by executing a fresh shell command after cancellation.
+The byte stream need not repeat an already-visible prompt when ZLE clears
+only the edit buffer; final-screen rendering is covered by the tmux suite.

@@ -207,7 +207,8 @@ class QuickAskTests(unittest.TestCase):
         # the edit buffer; wait for that buffer's redisplay before cancelling it.
         shell.expect(b"cancel this question")
         shell.send(b"\x03")
-        shell.expect(b"READY> ")
+        # ZLE may only clear the buffer: the existing prompt stays on screen
+        # without being emitted again. Actual command execution proves recovery.
         shell.send(b"print RECOVERED\r")
         shell.expect(b"\r\nRECOVERED\r\n")
 
