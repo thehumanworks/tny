@@ -32,8 +32,9 @@ with record.open("a") as f:
 mode = Path(os.environ["MODE"]).read_text()
 if mode == "wait":
     def stop(*args):
-        print("INTERRUPTED", flush=True)
-        sys.exit(130)
+        # Ctrl-C may arrive while WAITING's buffered writer still holds its lock.
+        os.write(1, b"INTERRUPTED\\n")
+        os._exit(130)
     signal.signal(signal.SIGINT, stop)
     print("WAITING", flush=True)
     time.sleep(60)
@@ -201,6 +202,10 @@ class QuickAskTests(unittest.TestCase):
         shell.send(b"\x03")
         shell.expect(b"INTERRUPTED")
         shell.expect(b"ask exited 130")
+        # The diagnostic precedes the widget's return to ZLE. Sending another
+        # Ctrl-C immediately can interrupt the widget again instead of clearing
+        # the edit buffer; wait for that buffer's redisplay before cancelling it.
+        shell.expect(b"cancel this question")
         shell.send(b"\x03")
         shell.expect(b"READY> ")
         shell.send(b"print RECOVERED\r")

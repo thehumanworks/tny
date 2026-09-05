@@ -85,3 +85,9 @@ Final validation on macOS / Zsh 5.9:
 
 - [Zsh 5.9 reset-prompt, redisplay, and trashzle implementation](https://github.com/zsh-users/zsh/blob/zsh-5.9/Src/Zle/zle_main.c)
 - [Zsh line editor display controls](https://zsh.sourceforge.io/Doc/Release/Zsh-Line-Editor.html)
+
+The cancellation fixture synchronizes its second Ctrl-C with the restored
+edit buffer, not the earlier error diagnostic. Its fake child's signal
+handler uses unbuffered `os.write` and `os._exit` so an interrupt during the
+`WAITING` flush cannot re-enter Python's buffered stdout. The full fixture
+and screen suites, plus 20 repeated cancellation/recovery trials, pass.
