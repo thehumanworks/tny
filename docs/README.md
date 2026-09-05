@@ -22,6 +22,7 @@ Do not start product code until you have read this index and the files it names.
 
 | Doc | Why |
 | --- | --- |
+| [images.md](images.md) | Image generation/editing, provider adapters, CLI and agent tools |
 | [speech.md](speech.md) | Ephemeral speech, Codex login, agents and optional MP3 export |
 | [cli.md](cli.md) | Command tree, flags, agent-friendly output |
 | [workflows.md](workflows.md) | Dependency DAGs and parallel agents from shell, Python, and TypeScript |

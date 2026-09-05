@@ -4,6 +4,8 @@
  * identically to a structured tool call (docs/adr/0063). */
 #include "core/intercept.h"
 #include "core/speech.h"
+#include "core/image_service.h"
+#include "core/tools_image.h"
 #include "core/edit.h"
 #include "core/shellwords.h"
 #include "mcp/mcp.h"
@@ -312,6 +314,52 @@ static tny_intercept *parse_skill(char **argv, int argc, int i) {
     return ic_label(ic, "tny skill show %s", argv[i + 1]);
 }
 
+static tny_intercept *parse_image_render(tools_env *env, char **argv, int argc, int i, bool json,
+                                         const buf_t *payload) {
+    tny_image_request r = {0};
+    bool check = false;
+    if (!payload || tny_image_options(argc - i, argv + i, &r, &json, &check) != 0 || check)
+        return NULL;
+    tny_intercept *ic =
+        ic_new(TNY_INTERCEPT_IMAGE_RENDER, r.edit ? "image_edit" : "image_generate");
+    if (!ic) return NULL;
+    ic->json = json;
+    ic->action = xstrdup(r.edit ? "edit" : "generate");
+    buf_t args;
+    buf_init(&args);
+    buf_appends(&args, "{\"prompt\":");
+    if (!utf8_valid_bytes(payload->data, payload->len)) {
+        ic->kind = TNY_INTERCEPT_REFUSED;
+        ic->message = xstrdup("image prompt must be UTF-8 without embedded NUL");
+        buf_free(&args);
+        return ic_label(ic, "tny image");
+    }
+    jescape(&args, payload->data);
+    const char *keys[] = {"output_file", "provider", "model", "quality", "size"};
+    const char *values[] = {r.output_file, r.provider, r.model, r.quality, r.size};
+    for (size_t j = 0; j < sizeof keys / sizeof keys[0]; j++) {
+        if (!values[j]) continue;
+        buf_appendf(&args, ",\"%s\":", keys[j]);
+        jescape(&args, values[j]);
+    }
+    buf_appends(&args, ",\"images\":[");
+    for (size_t j = 0; j < r.image_count; j++) {
+        if (j) buf_appends(&args, ",");
+        jescape(&args, r.images[j]);
+    }
+    buf_appends(&args, "]}");
+    ic->value = buf_detach(&args);
+    yyjson_doc *doc = ic->value ? jparse(ic->value, strlen(ic->value)) : NULL;
+    if (doc) ic->detail = tool_image_detail(env, yyjson_doc_get_root(doc), r.edit, &ic->message);
+    yyjson_doc_free(doc);
+    if (ic->message) ic->kind = TNY_INTERCEPT_REFUSED;
+    if (!ic->value || !ic->action || (!ic->detail && !ic->message)) {
+        tny_intercept_free(ic);
+        return NULL;
+    }
+    return ic_label(ic, "tny image %s", r.edit ? "edit" : "generate");
+}
+
 static tny_intercept *parse_image(char **argv, int argc, int i, bool json) {
     const char *path = NULL;
     if (i >= argc || strcmp(argv[i], "attach") != 0) return NULL;
@@ -421,7 +469,11 @@ static tny_intercept *parse_verb(tools_env *env, const tny_words *w, const buf_t
     if (strcmp(verb, "mcp") == 0) return parse_mcp(argv, argc, i, json);
     if (strcmp(verb, "memory") == 0) return parse_memory(argv, argc, i, payload != NULL);
     if (strcmp(verb, "skill") == 0) return parse_skill(argv, argc, i);
-    if (strcmp(verb, "image") == 0) return parse_image(argv, argc, i, json);
+    if (strcmp(verb, "image") == 0) {
+        if (i < argc && (strcmp(argv[i], "generate") == 0 || strcmp(argv[i], "edit") == 0))
+            return parse_image_render(env, argv, argc, i, json, payload);
+        return parse_image(argv, argc, i, json);
+    }
     if (strcmp(verb, "ask-user") == 0) return parse_ask_user(argv, argc, i, json, payload);
     if (strcmp(verb, "speak") == 0) return parse_speak(argv, argc, i, json, payload);
     if (strcmp(verb, "ask") == 0) return parse_ask(argv, argc, i);
@@ -751,10 +803,35 @@ static char *exec_speak(tools_env *env, const tny_intercept *ic) {
     return ic_result(env, rc, &out, &err);
 }
 
+static char *exec_image_render(tools_env *env, const tny_intercept *ic) {
+    buf_t out, err;
+    buf_init(&out);
+    buf_init(&err);
+    yyjson_doc *doc = jparse(ic->value, strlen(ic->value));
+    char diagnostic[256] = "invalid image arguments";
+    int rc = doc ? tool_image_run(env, yyjson_doc_get_root(doc), strcmp(ic->action, "edit") == 0,
+                                  &out, diagnostic, sizeof diagnostic)
+                 : 1;
+    if (rc) buf_appendf(&err, "tny: image: %s\n", diagnostic);
+    else if (!ic->json) {
+        yyjson_doc *result = jparse(out.data, out.len);
+        const char *path = result ? jget_str(yyjson_doc_get_root(result), "path") : NULL;
+        buf_t plain;
+        buf_init(&plain);
+        if (path) buf_appendf(&plain, "%s\n", path);
+        buf_free(&out);
+        out = plain;
+        yyjson_doc_free(result);
+    }
+    yyjson_doc_free(doc);
+    return ic_result(env, rc, &out, &err);
+}
+
 char *tny_intercept_execute(tools_env *env, const tny_intercept *ic) {
     if (!env || !ic) return NULL;
     switch (ic->kind) {
     case TNY_INTERCEPT_SPEAK: return exec_speak(env, ic);
+    case TNY_INTERCEPT_IMAGE_RENDER: return exec_image_render(env, ic);
     case TNY_INTERCEPT_EDIT: return exec_edit(env, ic);
     case TNY_INTERCEPT_MCP_CALL: return exec_mcp_call(env, ic);
     case TNY_INTERCEPT_MCP_DESCRIBE: return exec_mcp_describe(env, ic);

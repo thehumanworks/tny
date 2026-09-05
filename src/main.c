@@ -48,8 +48,9 @@ int main(int argc, char **argv) {
         return rc;
     }
 
-    if (cmd && strcmp(cmd, "speak") == 0) {
-        int rc = cmd_speak(&g, cargc, cargv);
+    if (cmd && (strcmp(cmd, "speak") == 0 || strcmp(cmd, "image") == 0)) {
+        int rc = strcmp(cmd, "image") == 0 ? cmd_image_service(&g, cargc, cargv)
+                                           : cmd_speak(&g, cargc, cargv);
         free(g.add_dirs);
         free(g.agent_argv);
 #ifdef __EMSCRIPTEN__
@@ -60,9 +61,8 @@ int main(int argc, char **argv) {
 
     /* Socket-bound tool verbs are self-contained clients: do not load
      * provider config or create a runtime merely to contact the runner. */
-    if (cmd && (strcmp(cmd, "ask-user") == 0 || strcmp(cmd, "image") == 0)) {
-        int rc = strcmp(cmd, "ask-user") == 0 ? cmd_ask_user(g.json, cargc, cargv)
-                                              : cmd_image(g.json, cargc, cargv);
+    if (cmd && strcmp(cmd, "ask-user") == 0) {
+        int rc = cmd_ask_user(g.json, cargc, cargv);
         free(g.add_dirs);
         free(g.agent_argv);
         return rc;

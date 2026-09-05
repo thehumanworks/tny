@@ -12,6 +12,8 @@ tny ask [prompt]            # one turn, then exit
 tny speak                   # speak stdin aloud; --output-file exports MP3
 tny edit FILE               # exact-match replacement from stdin
 tny ask-user QUESTION       # ask the owning runner frontend (inside terminal)
+tny image generate          # prompt on stdin; --output-file required
+tny image edit              # prompt on stdin; --image PATH and --output-file required
 tny image attach PATH       # attach an image to the next request (inside terminal)
 tny resume [last|<id>]      # interactive resume
 tny acp                     # ACP server (native loop only)
@@ -955,3 +957,14 @@ reserved for explicitly justified compatibility or passthrough syntax.
 `printf 'The tests passed.' | tny speak` plays ephemeral speech using your
 ChatGPT login, independently of the chat provider. See [Speech](speech.md)
 for voices, availability, export, agent tools and platform behavior.
+
+## Image generation and editing
+
+`printf 'An orange robot' | tny image generate --output-file robot.png --json`
+generates one image using the ChatGPT login.
+`printf 'Make it blue' | tny image edit --image robot.png --output-file blue.png`
+edits from local references. `--image-provider` selects independently of the
+chat provider; Codex defaults to `gpt-image-2`. `--check` checks local credentials
+without a request. Neither operation needs a runner socket. See
+[images.md](images.md) for flags, result schema, limits, permissions and platform
+behavior, and `tny image --help` for examples.

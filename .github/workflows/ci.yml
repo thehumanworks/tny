@@ -38,12 +38,12 @@ jobs:
       - name: Install pinned linters
         run: |
           set -eu
-          pipx install clang-format==21.1.2
+          pipx install clang-format==23.1.0
           pipx install clang-tidy==22.1.8
-          pipx install ruff==0.14.0
+          pipx install ruff==0.16.6
           sudo apt-get update -q
           sudo apt-get install -y -q gcc-14 zsh
-          go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
+          go install mvdan.cc/sh/v3/cmd/shfmt@v3.14.0
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
           shellcheck --version
@@ -306,6 +306,7 @@ jobs:
           tests/integration/test_acp_ws.sh "$PWD/build/wasm/tny"
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_codex_chatgpt.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_speech.py
+          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_service.py
           tests/integration/test_provider_setup.sh "$PWD/build/wasm/tny"
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
             python3 tests/integration/test_extension_capabilities.py

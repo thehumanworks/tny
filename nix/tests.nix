@@ -30,6 +30,7 @@ stdenv.mkDerivation {
     # Integration fixtures plus the optional stdlib-only
     # tnytty/tests/bench/bench_tnytty.py runner. The performance benchmark is
     # intentionally not part of buildPhase because shared CI timing is noisy.
+    # test_image_service.py uses stdlib HTTP fixtures and embedded image bytes.
     python3 # test_speech.py also generates a fake MP3 player with this interpreter
     zsh
     nodejs # tests/site/test_term.js, driven by test_site.py

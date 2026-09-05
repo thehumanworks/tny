@@ -4,6 +4,7 @@
 #include "backends/openai/openai.h"
 #include "core/tools.h"
 #include "core/speech.h"
+#include "core/image_service.h"
 #include "core/provider_extras.h"
 #include "core/image.h"
 #include "core/instructions.h"
@@ -637,6 +638,25 @@ static void build_system_prompt(oa_impl *o, buf_t *sys) {
         buf_appends(sys, "# Additional system instructions\n\n");
         buf_appends(sys, o->ctx->system_prompt);
         buf_appends(sys, "\n");
+    }
+    if (!o->ctx->library_mode && !o->ctx->ssh_host) {
+        buf_t image_providers;
+        buf_init(&image_providers);
+        if (tny_image_capabilities(o->ctx, false, &image_providers)) {
+            buf_appendf(sys, "Available image providers: %s. ", image_providers.data);
+            buf_appends(
+                sys,
+                "Image operations use the selected image provider; codex uses ChatGPT allowance. "
+                "Use "
+                "`image_generate` / `image_edit` when advertised. In shell profiles, pipe a UTF-8 "
+                "prompt into `tny image generate --output-file out.png` or "
+                "`tny image edit --image input.png --output-file out.png` (up to 5 --image paths). "
+                "Use --image-provider to select independently of the chat provider; default codex. "
+                "Output replaces the destination only on success; read the result before claiming "
+                "success and use read_image to inspect it. --json returns metadata, not pixels. "
+                "These are single-image operations, not agent turns.\n");
+        }
+        buf_free(&image_providers);
     }
     if (!o->ctx->library_mode && tny_speech_available(o->ctx, NULL, true, NULL, 0))
         buf_appends(sys,
