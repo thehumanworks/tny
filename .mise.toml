@@ -15,15 +15,15 @@
 # CI installs with pipx are, and they carry the same upstream binaries. mise
 # drives them through uv, so uv is pinned as their prerequisite.
 uv = "latest"
-"pipx:clang-format" = "21.1.2"
+"pipx:clang-format" = "23.1.0"
 "pipx:clang-tidy" = "22.1.8"
 
-ruff = "0.14.0"
+ruff = "0.16.6"
 shellcheck = "0.11.0"
-shfmt = "3.13.1"
+shfmt = "3.14.0"
 actionlint = "1.7.12"
 
 # Integration fixtures, the extension host, scripts/site_build.py.
-python = "3.12"
+python = "3.14"
 # tests/site/test_term.js and sdk/typescript.
-node = "22"
+node = "26"
