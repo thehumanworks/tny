@@ -1,4 +1,4 @@
-/* Internal adapter boundary. Providers perform no file I/O and return image
+/* Internal adapter boundary. Providers perform no artifact I/O and return image
  * bytes; shared code owns validation, cancellation and atomic persistence. */
 #ifndef TNY_IMAGE_PROVIDER_H
 #define TNY_IMAGE_PROVIDER_H

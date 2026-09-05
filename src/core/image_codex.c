@@ -1,4 +1,4 @@
-/* Codex Images API, pinned to rust-v0.154.0-alpha.3 (ADR 0072). */
+/* Codex Images API, pinned to rust-v0.154.0-alpha.3 (ADR 0074). */
 #include "core/image_provider.h"
 #include "core/image.h"
 #include "json/json.h"

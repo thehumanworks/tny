@@ -193,6 +193,10 @@ int tny_image_run(const tny_ctx *ctx, const tny_image_request *r, tny_image_resu
     }
     if (!tny_image_available(ctx, r->provider, r->edit, err, len)) return 1;
     const tny_image_provider *p = find_provider(r->provider);
+    if (!p) {
+        snprintf(err, len, "unknown image provider");
+        return 1;
+    }
     if (r->image_count > p->max_references) {
         snprintf(err, len, "too many references for image provider");
         return 1;

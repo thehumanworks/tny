@@ -138,5 +138,5 @@ A private provider table receives loaded reference bytes and returns image
 bytes; adapters own credentials and wire formats. The common service bounds
 inputs/results and atomically persists one artifact. The initial Codex adapter
 uses ChatGPT credentials independently of the chat provider. See
-[ADR 0072](adr/0072-extensible-image-service.md) and
-[ADR 0073](adr/0073-image-cli-and-agent-tools.md).
+[ADR 0074](adr/0074-extensible-image-service.md) and
+[ADR 0075](adr/0075-image-cli-and-agent-tools.md).

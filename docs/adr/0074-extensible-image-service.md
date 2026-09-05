@@ -1,4 +1,4 @@
-# 0072 — Extensible image service with a Codex adapter
+# 0074 — Extensible image service with a Codex adapter
 
 Date: 2026-09-05
 Status: accepted
@@ -90,3 +90,8 @@ the image fixtures explicitly test all supported tool profiles. The targeted
 mutation pass caught all ten compilable mutations (nine unit kills, one
 integration kill); seven were rejected by the compiler. The restored image
 unit/integration suites passed again. Stripped macOS arm64 size: 867,312 bytes.
+
+The provider lookup is explicitly checked before dereference. GCC 14's
+path-sensitive analyzer passes all nine changed runtime translation units.
+Quality, the full tests (including the newly merged Zsh quick-ask suites), and
+leak checks passed again after integration with main.

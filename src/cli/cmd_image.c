@@ -1,4 +1,4 @@
-/* Standalone image CLI: same service as native tools (ADR 0073). */
+/* Standalone image CLI: same service as native tools (ADR 0075). */
 #include "cli/cli.h"
 #include "core/image_service.h"
 #include "cli/cmd_control.h"

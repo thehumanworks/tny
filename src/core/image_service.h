@@ -1,4 +1,4 @@
-/* Provider-independent image operations (ADR 0072). */
+/* Provider-independent image operations (ADR 0074). */
 #ifndef TNY_IMAGE_SERVICE_H
 #define TNY_IMAGE_SERVICE_H
 #include "core/config.h"

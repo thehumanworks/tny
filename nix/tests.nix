@@ -12,6 +12,7 @@
   perl,
   procps,
   python3,
+  tmux,
   util-linux,
   zsh,
   version ? "0.0.0-unknown",
@@ -32,7 +33,8 @@ stdenv.mkDerivation {
     # intentionally not part of buildPhase because shared CI timing is noisy.
     # test_image_service.py uses stdlib HTTP fixtures and embedded image bytes.
     python3 # test_speech.py also generates a fake MP3 player with this interpreter
-    zsh
+    zsh # make test also runs the quick-ask widget in real Zsh PTYs
+    tmux # test-only terminal screen assertions; never used by the tny runner
     nodejs # tests/site/test_term.js, driven by test_site.py
     openssl.bin # tests/integration/test_https.py mints a throwaway cert
     # shell/tny-workflows.sh launches each task in its own process group so the
@@ -106,6 +108,7 @@ stdenv.mkDerivation {
     "TNY_SHELL_PATH=${stdenv.shell}"
     "BASH=${bash}/bin/bash"
     "ZSH=${zsh}/bin/zsh"
+    "TMUX_BIN=${tmux}/bin/tmux"
   ] ++ lib.optionals stdenv.hostPlatform.isDarwin [
     # Keep the displayed flake revision while supplying dyld's numeric field
     # to the active-library integration tests.

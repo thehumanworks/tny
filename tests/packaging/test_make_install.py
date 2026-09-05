@@ -30,6 +30,10 @@ class MakeInstallTests(unittest.TestCase):
             helper = prefix / "share/tny/tny-workflows.sh"
             self.assertTrue(helper.is_file())
             self.assertTrue(helper.stat().st_mode & 0o111)
+            self.assertEqual(
+                (prefix / "share/tny/tny.zsh").read_bytes(),
+                (ROOT / "shell/tny.zsh").read_bytes(),
+            )
 
 
 if __name__ == "__main__":

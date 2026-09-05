@@ -20,7 +20,7 @@ let
     ../libtny.pc.in
     ../python
     ../scripts/check_abi_baseline.py
-    ../shell
+    ../shell # installed workflows and the Zsh quick-ask widget
     ../src
     ../third_party
   ];
@@ -51,7 +51,7 @@ let
     # All of tests/, which includes the frozen tool-profile A/B fixtures
     # under tests/bench/fixtures/tools/ that
     # tests/integration/test_bench_tools.py copies and scores (issue #103).
-    ../tests
+    ../tests # includes quick-ask PTY and tmux screen regression tests
     # Image fixtures (test_image_service.py) embed their PNG in source and
     # create reference/output files in a temporary directory; no external assets.
     # Speech fixtures (test_speech.py) generate their fake player in a temp

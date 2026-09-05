@@ -77,5 +77,7 @@ these as `docs/adr/NNNN`.
 | [0069](0069-native-loop-stream-error-recovery.md) | The native loop retries one model call with bounded non-blocking backoff when it fails before any output (408/409/425/429/5xx, lost or empty streams, transient SSE error events), classifies failures into status + a bounded category token (never provider text; `TNY_DEBUG_PROVIDER_ERRORS=1` opts in), sends the provider a repaired view of the transcript (every tool call paired, empty assistant messages skipped), and echoes provider reasoning (`reasoning_details`, `reasoning_content`, encrypted Responses `reasoning` items) back with the tool calls it produced |
 | [0070](0070-provider-independent-speech.md) | Provider-independent speech service reuses Codex login and gates agent availability |
 | [0071](0071-ephemeral-host-audio-playback.md) | Automatic anonymous MP3 playback through an external host player; explicit atomic export |
-| [0072](0072-extensible-image-service.md) | Provider-independent image service, Codex Images adapter, bounded requests/results and atomic artifacts |
-| [0073](0073-image-cli-and-agent-tools.md) | Standalone generate/edit CLI, agent discovery, shared interception and image permission scope |
+| [0072](0072-zsh-ephemeral-quick-ask.md) | Opt-in Zsh Ctrl-X then a widget sends the literal edit buffer to ephemeral ask over stdin, preserving Enter and excluding prompts from shell history |
+| [0073](0073-quick-ask-preserves-rendered-output.md) | Quick ask uses normal ZLE refresh after external output; final-screen tests prevent multiline prompts from erasing answer rows |
+| [0074](0074-extensible-image-service.md) | Provider-independent image service, Codex Images adapter, bounded requests/results and atomic artifacts |
+| [0075](0075-image-cli-and-agent-tools.md) | Standalone generate/edit CLI, agent discovery, shared interception and image permission scope |

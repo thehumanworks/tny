@@ -1,4 +1,4 @@
-# 0073 — Image CLI and agent tools share one service
+# 0075 — Image CLI and agent tools share one service
 
 Date: 2026-09-05
 Status: accepted
@@ -60,4 +60,4 @@ request. Help-parser checks include the shared image option parser; wasm CI
 runs the image fixtures with only native-specific signal/filesystem skips.
 
 See [images.md](../images.md) for the user contract and
-[ADR 0072](0072-extensible-image-service.md) for provider and persistence choices.
+[ADR 0074](0074-extensible-image-service.md) for provider and persistence choices.

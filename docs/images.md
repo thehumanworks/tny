@@ -28,7 +28,7 @@ session-socket behavior; generate/edit are standalone and require no socket.
 | `--image-provider NAME` | Image adapter, default `codex`; unsupported names fail before network I/O |
 | `--model NAME` | Image model; Codex defaults to `gpt-image-2`, independently of global chat `--model` |
 | `--quality LEVEL` | `auto` (default), `low`, `medium`, `high` |
-| `--size SIZE` | Provider-specific size string, e.g. `1024x1024`; default `auto`; provider validates supported dimensions |
+| `--size SIZE` | Provider-specific size string, e.g. `1024x1024`; default `auto`; forwarded as a provider hint, without local resizing |
 | `--image PATH` | Repeatable edit reference, in priority order |
 | `--output-file PATH` | One explicit destination, replaced atomically after success |
 | `--check` | Local provider capability/credential check |
@@ -50,7 +50,8 @@ response failure, **2** HTTP rejection, **130** interruption. A file produced
 before a stdout error may still exist; check the exit status and filesystem.
 
 The image bytes determine `mime_type` (PNG/JPEG/WebP); filenames do not convert
-formats. Codex's current default produces PNG. Exactly one image is accepted;
+formats. Codex's current default produces PNG. Size is a provider hint: the live backend
+returned 1254x1254 pixels for a 1024x1024 request. Exactly one image is accepted;
 batch generation and URL-based outputs are deliberately absent. An adapter
 must return validated bytes rather than ask the caller to fetch an arbitrary URL.
 
@@ -130,6 +131,6 @@ These are Codex backend routes, not a stable public third-party API contract.
 Built-in image generation consumes Codex subscription allowance; it is not
 unlimited image generation. See [OpenAI's image documentation](https://learn.chatgpt.com/docs/image-generation).
 
-Architecture: [ADR 0072](adr/0072-extensible-image-service.md),
-[ADR 0073](adr/0073-image-cli-and-agent-tools.md). Fixture verification:
+Architecture: [ADR 0074](adr/0074-extensible-image-service.md),
+[ADR 0075](adr/0075-image-cli-and-agent-tools.md). Fixture verification:
 `tests/test_image_service.c`, `tests/integration/test_image_service.py`.

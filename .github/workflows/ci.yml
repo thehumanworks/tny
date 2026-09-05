@@ -42,7 +42,7 @@ jobs:
           pipx install clang-tidy==22.1.8
           pipx install ruff==0.16.6
           sudo apt-get update -q
-          sudo apt-get install -y -q gcc-14 zsh
+          sudo apt-get install -y -q gcc-14 zsh tmux
           go install mvdan.cc/sh/v3/cmd/shfmt@v3.14.0
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
@@ -53,6 +53,9 @@ jobs:
 
       - name: Test Bash and Zsh workflow helpers
         run: make test-shell-workflows
+
+      - name: Test Zsh quick ask and final terminal screen
+        run: make test-shell-quick-ask
 
       - name: make warn-strict (gcc + clang)
         run: |

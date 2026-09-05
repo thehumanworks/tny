@@ -142,7 +142,7 @@ release claims.
 - https://github.com/nanopb/nanopb
 - https://github.com/silentbicycle/greatest
 
-## Image generation (ADR 0072)
+## Image generation (ADR 0074)
 
 - Codex Images API release pin: **rust-v0.154.0-alpha.3**
 - Client routes: https://github.com/openai/codex/blob/rust-v0.154.0-alpha.3/codex-rs/codex-api/src/endpoint/images.rs
