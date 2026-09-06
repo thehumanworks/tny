@@ -18,7 +18,7 @@ void help_root(void) {
           "  speak                  Speak stdin aloud using your ChatGPT login\n"
           "  edit FILE              Exact-match replacement from stdin\n"
           "  ask-user QUESTION      Ask the owning session frontend (socket-bound)\n"
-          "  image attach PATH      Attach an image to the next request (socket-bound)\n"
+          "  image                  Generate, edit, or attach images\n"
           "  resume [last|<id>]     Resume a session interactively\n"
           "  acp                    Start an ACP server over stdio (native loop)\n"
           "  sessions               List saved sessions for this workspace\n"
@@ -318,10 +318,26 @@ bool help_for(const char *command) {
                "TNY_SESSION_SOCK from a tny terminal tool child.\n\n"
                "Options: --json machine output; -h, --help show this help.\n";
     else if (strcmp(command, "image") == 0)
-        text = "Usage: tny image attach [--json] PATH\n\n"
-               "Queue a validated image for the next provider request. Requires\n"
-               "TNY_SESSION_SOCK from a tny terminal tool child.\n\n"
-               "Options: --json machine output; -h, --help show this help.\n";
+        text =
+            "Usage: tny image generate [OPTIONS] < prompt.txt\n"
+            "       tny image edit --image INPUT [--image INPUT ...] [OPTIONS] < prompt.txt\n"
+            "       tny image attach [--json] PATH\n\n"
+            "  --output-file PATH      Required destination; atomically replaces an existing file\n"
+            "  --image PATH            Edit reference (1-5 PNG/JPEG/WebP files, each <=8 MiB)\n"
+            "  --image-provider NAME   Image provider, independent of chat (default: codex)\n"
+            "  --model NAME            Provider image model (codex default: gpt-image-2)\n"
+            "  --quality LEVEL         auto | low | medium | high (default: auto)\n"
+            "  --size SIZE             Provider size, e.g. 1024x1024 (default: auto)\n"
+            "  --check                 Check local credentials only; no generation or stdin\n"
+            "  --json                  Print result metadata as JSON, never image bytes\n"
+            "  -h, --help              Show help\n"
+            "  --                      End flags for attach\n\n"
+            "Generate/edit use a ChatGPT login and its usage allowance; prompt is UTF-8 stdin,\n"
+            "at most 16 KiB. They need no session socket. Output may be PNG/JPEG/WebP; JSON\n"
+            "reports the actual MIME type. Attach queues an existing image via TNY_SESSION_SOCK.\n"
+            "Example: printf 'An orange robot' | tny image generate --output-file robot.png\n"
+            "Example: printf 'Make it blue' | tny image edit --image robot.png --output-file "
+            "blue.png\n";
     else if (strcmp(command, "sessions") == 0) text = sessions_help;
     else if (strcmp(command, "session") == 0) text = session_help;
     else if (strcmp(command, "tasks") == 0) text = tasks_help;

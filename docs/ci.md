@@ -87,14 +87,14 @@ make leaks
 
 | Tool | Pin | mise backend |
 | --- | --- | --- |
-| clang-format | 21.1.2 | `pipx:` (the PyPI wheel CI installs; LLVM is not in the registry as a versioned pair) |
+| clang-format | 23.1.0 | `pipx:` (the PyPI wheel CI installs; LLVM is not in the registry as a versioned pair) |
 | clang-tidy | 22.1.8 | `pipx:` |
-| ruff | 0.14.0 | `aqua:astral-sh/ruff` |
+| ruff | 0.16.6 | `aqua:astral-sh/ruff` |
 | shellcheck | 0.11.0 | `aqua:koalaman/shellcheck` |
-| shfmt | 3.13.1 | `aqua:mvdan/sh` |
+| shfmt | 3.14.0 | `aqua:mvdan/sh` |
 | actionlint | 1.7.12 | `aqua:rhysd/actionlint` |
-| python | 3.12 | core |
-| node | 22 | core |
+| python | 3.14 | core |
+| node | 26 | core |
 
 The `pipx:` entries are driven through `uv`, which `.mise.toml` pins as
 their prerequisite; no `experimental` setting is required.
@@ -104,8 +104,8 @@ and `ci.yml` drift apart.
 Without mise, the per-invocation fallback still works:
 
 ```sh
-make quality CLANG_FORMAT='uvx clang-format@21.1.2' \
-             CLANG_TIDY='uvx clang-tidy@22.1.8' RUFF='uvx ruff@0.14.0'
+make quality CLANG_FORMAT='uvx clang-format@23.1.0' \
+             CLANG_TIDY='uvx clang-tidy@22.1.8' RUFF='uvx ruff@0.16.6'
 ```
 
 The Nix dev shell carries the same tools at the channel's versions

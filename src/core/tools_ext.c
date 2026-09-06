@@ -1,6 +1,7 @@
 /* tools_ext.c — memory, read_tool_result, skills, subagent, vision, MCP glue. */
 #include "core/tools.h"
 #include "core/speech.h"
+#include "core/tools_image.h"
 #include "core/image.h"
 #include "core/skills.h"
 #include "core/ssh.h"
@@ -354,6 +355,17 @@ char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool 
          strcmp(name, "install_skill") == 0 || strcmp(name, "memory") == 0 ||
          strcmp(name, "ask_user_question") == 0))
         return tool_err("%s is disabled for embedded runtimes", name);
+    if (strcmp(name, "image_generate") == 0 || strcmp(name, "image_edit") == 0) {
+        buf_t out;
+        buf_init(&out);
+        char err[256] = "";
+        int rc = tool_image_run(env, args, strcmp(name, "image_edit") == 0, &out, err, sizeof err);
+        if (rc) {
+            buf_free(&out);
+            return tool_err("%s", err);
+        }
+        return buf_detach(&out);
+    }
     if (strcmp(name, "speak") == 0) return t_speak(env, args);
     if (strcmp(name, "memory") == 0) return t_memory(env, args);
     if (strcmp(name, "read_tool_result") == 0) return t_read_tool_result(env, args);

@@ -28,7 +28,7 @@ COMMAND_PARSERS = {
     "edit": ("cmd_edit",),
     "speak": ("cmd_speak",),
     "login": ("cmd_login",),
-    "image": ("cmd_image",),
+    "image": ("cmd_image_service", "cmd_image", "tny_image_options"),
     "logout": ("cmd_logout",),
     "mcp": ("cmd_mcp",),
     "models": ("cmd_models",),
@@ -58,6 +58,7 @@ HELP_WITHOUT_PARSER = {"<global>": {"--acp"}}
 
 SOURCE_PATHS = [
     ROOT / "src/main.c",
+    ROOT / "src/core/image_service.c",
     ROOT / "src/cli/args.c",
     *sorted((ROOT / "src/cli").glob("cmd_*.c")),
     ROOT / "src/backends/acp/acp_server.c",

@@ -31,9 +31,11 @@ SUITE_EXTERN(perm_suite);
 SUITE_EXTERN(intercept_suite);
 SUITE_EXTERN(provider_extras_suite);
 SUITE_EXTERN(speech_suite);
+SUITE_EXTERN(image_service_suite);
 
 int main(int argc, char **argv) {
     GREATEST_MAIN_BEGIN();
+    RUN_SUITE(image_service_suite);
     RUN_SUITE(speech_suite);
     RUN_SUITE(util_suite);
     RUN_SUITE(net_suite);

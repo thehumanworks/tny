@@ -297,3 +297,12 @@ An ephemeral parent propagates `--ephemeral` to every child process. Those child
 Load `AGENTS.md` (and `CLAUDE.md` if `AGENTS.md` is absent) from `$HOME/.tny/`, launch ancestors, and the primary workspace. Narrower path wins on conflict; user text still wins over files. Tool calls can attach target-scoped `AGENTS.md` for that path. Extra dirs do not contribute instructions. `context: false` disables this.
 
 Over `--ssh` / `/ssh` ([ADR 0040](../adr/0040-ssh-agents-md.md)) the chain is `$HOME/.tny/` (labeled as local user policy — tools do not run there) then `AGENTS.md` from the **remote** cwd. Launch-dir and ancestor files are skipped: they describe the local tree, which is not the tool workspace. The remote file is prefixed with a banner that tny itself is local and attached over SSH.
+
+## Image tools
+
+`image_generate` and `image_edit` share the [image service](../images.md) with
+`tny image generate/edit`. The full profile advertises them when local ChatGPT
+credentials exist; shell profiles get command guidance and in-process
+interception. They have separate sensitive permission identities and include
+all uploaded reference paths in the grant scope. Use `read_image` to inspect
+the output. They are unavailable under `--ssh` and libtny.

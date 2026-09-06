@@ -2,6 +2,8 @@
 #include "core/tools.h"
 #include "core/image.h"
 #include "core/speech.h"
+#include "core/image_service.h"
+#include "core/tools_image.h"
 #include "core/intercept.h"
 #include "lib/custom_tools.h"
 #include "util/alloc.h"
@@ -184,6 +186,37 @@ static const char *SCHEMA_JSON =
     "{\"type\":\"function\",\"function\":{\"name\":\"mcp_features\",\"description\":\"List "
     "configured MCP servers and their advertised "
     "capabilities.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"image_generate\",\"description\":\"Generate "
+    "an image from a prompt. Uses the selected image provider (codex default: ChatGPT allowance). "
+    "Saves one image and returns metadata. "
+    "Use read_image to inspect the saved "
+    "result.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":\"string\"}"
+    ",\"output_file\":{\"type\":\"string\",\"description\":\"Required local output path; "
+    "atomically replaces an existing file. Result reports actual MIME "
+    "type.\"},\"provider\":{\"type\":\"string\",\"description\":\"Image provider independent of "
+    "conversation provider; default "
+    "codex.\"},\"model\":{\"type\":\"string\",\"description\":\"Optional image model; codex "
+    "default "
+    "gpt-image-2.\"},\"quality\":{\"type\":\"string\",\"enum\":[\"auto\",\"low\",\"medium\","
+    "\"high\"]},\"size\":{\"type\":\"string\",\"description\":\"Provider size, e.g. 1024x1024; "
+    "default auto.\"}},\"required\":[\"prompt\",\"output_file\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"image_edit\",\"description\":\"Edit images "
+    "using a prompt and reference images. Uses the selected image provider (codex default: ChatGPT "
+    "allowance). Saves one image and "
+    "returns metadata. Use read_image to inspect the saved "
+    "result.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":\"string\"}"
+    ",\"output_file\":{\"type\":\"string\",\"description\":\"Required local output path; "
+    "atomically replaces an existing file. Result reports actual MIME "
+    "type.\"},\"provider\":{\"type\":\"string\",\"description\":\"Image provider independent of "
+    "conversation provider; default "
+    "codex.\"},\"model\":{\"type\":\"string\",\"description\":\"Optional image model; codex "
+    "default "
+    "gpt-image-2.\"},\"quality\":{\"type\":\"string\",\"enum\":[\"auto\",\"low\",\"medium\","
+    "\"high\"]},\"size\":{\"type\":\"string\",\"description\":\"Provider size, e.g. 1024x1024; "
+    "default "
+    "auto.\"},\"images\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"minItems\":1,"
+    "\"maxItems\":5,\"description\":\"Local PNG/JPEG/WebP reference paths uploaded to the image "
+    "provider; each at most 8 MiB.\"}},\"required\":[\"prompt\",\"output_file\",\"images\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"speak\",\"description\":\"Speak a message "
     "aloud to the user using their ChatGPT login. Waits for playback; no audio file is kept.\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"},"
@@ -198,6 +231,9 @@ static const char *SCHEMA_JSON =
 static bool schema_tool_disabled(const tools_env *env, const char *name) {
     if (!env || !env->ctx || !name) return false;
     if (env->ctx->mcp_disabled && str_starts(name, "mcp_")) return true;
+    if (strcmp(name, "image_generate") == 0 || strcmp(name, "image_edit") == 0)
+        return env->ctx->library_mode || env->ctx->ssh_host ||
+               !tny_image_capabilities(env->ctx, strcmp(name, "image_edit") == 0, NULL);
     if (strcmp(name, "speak") == 0)
         return env->ctx->library_mode || !tny_speech_available(env->ctx, NULL, true, NULL, 0);
     if (!env->ctx->library_mode) return false;
@@ -252,7 +288,8 @@ char *tools_schema_json(tools_env *env) {
     if (env && env->ctx &&
         (env->ctx->mcp_disabled || env->ctx->library_mode ||
          env->ctx->tool_profile != TNY_TOOLS_ALL || !tool_web_search_configured(env->ctx) ||
-         !tny_speech_available(env->ctx, NULL, true, NULL, 0))) {
+         !tny_speech_available(env->ctx, NULL, true, NULL, 0) || env->ctx->ssh_host ||
+         !tny_image_capabilities(env->ctx, false, NULL))) {
         yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
         yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
         yyjson_mut_doc *mut = yyjson_mut_doc_new(jallocator());
@@ -449,7 +486,11 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         buf_appendf(&identity, "mcp:%s/%s", server, tool);
         call->permission_tool = buf_detach(&identity);
     }
-    call->detail = call_detail(env, call->name, call->args);
+    if (strcmp(call->name, "image_generate") == 0 || strcmp(call->name, "image_edit") == 0) {
+        call->detail =
+            tool_image_detail(env, call->args, strcmp(call->name, "image_edit") == 0, &call->error);
+        if (call->error || !call->detail) return -1;
+    } else call->detail = call_detail(env, call->name, call->args);
     if (strcmp(call->name, "rename_file") == 0 || strcmp(call->name, "copy_file") == 0)
         call->detail2 = path_detail(env, call->args, "new_path");
     /* A first-party tny verb typed into `terminal` becomes the typed tool it

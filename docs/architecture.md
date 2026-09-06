@@ -130,3 +130,13 @@ regardless of the conversation backend. `util/audio.c` owns external player
 startup and anonymous audio lifetime within the existing host OS seam.
 See [ADR 0070](adr/0070-provider-independent-speech.md) and
 [ADR 0071](adr/0071-ephemeral-host-audio-playback.md).
+
+## Image service
+
+The standalone image CLI and native image tools share `core/image_service.c`.
+A private provider table receives loaded reference bytes and returns image
+bytes; adapters own credentials and wire formats. The common service bounds
+inputs/results and atomically persists one artifact. The initial Codex adapter
+uses ChatGPT credentials independently of the chat provider. See
+[ADR 0074](adr/0074-extensible-image-service.md) and
+[ADR 0075](adr/0075-image-cli-and-agent-tools.md).

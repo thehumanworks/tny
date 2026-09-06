@@ -35,6 +35,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
+        "src/core/image_service.c",
+        ["tny_image_run", "tny_image_decode"],
+        r"image_count >|image_count > 0|n % 4|decoded >|got != decoded|tny_image_stopped",
+        "tests/integration/test_image_service.py",
+        "image_service",
+    ),
+    (
         "src/core/speech.c",
         ["codex_available", "tny_speech_run"],
         r"bool ok =|TNY_SPEECH_TEXT_MAX|str_ws_prefix",
