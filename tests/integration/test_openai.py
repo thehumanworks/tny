@@ -40,21 +40,47 @@ def check_tool_profile_wire(base_env, ws, wire):
     for profile in ("terminal", "terminal+edit", "all"):
         port = free_port()
         mock_env = dict(os.environ, MOCK_EXPECT_WIRE=wire)
+        effective_profile = "all" if IS_WASM else profile
+        instructions = [
+            "# Execution",
+            "# Instructions",
+            "# Verification",
+            "# Communication",
+            "- Use simple technical English and short sentences",
+            "Work completed | Checks and results | Blockers",
+            "create or update relevant tests/QA checks and run them",
+            "finish unblocked work",
+            "Ask for required user input at the end",
+            f"Tool profile: {effective_profile}",
+            "prompt-check: Test skill discovery.",
+        ]
+        rejected = [
+            "never dump whole files",
+            "When you are done, answer in Markdown",
+            "Load this body only when needed.",
+        ]
         if profile in ("terminal", "terminal+edit") and not IS_WASM:
             names = "terminal,read_image"
-            instructions = "Shell tool profile\ntny edit FILE"
+            instructions += ["Shell tool profile", "tny skill show NAME"]
+            rejected.append("load with the `skill` tool")
             if profile == "terminal+edit":
                 names += ",edit_file"
-                instructions = "Shell tool profile\nedit_file"
+                instructions.append("edit_file")
+            else:
+                instructions.append("tny edit FILE")
             mock_env.update(
                 MOCK_EXPECT_TOOL_NAMES=names,
-                MOCK_EXPECT_INSTRUCTIONS=instructions,
                 MOCK_CUSTOM_TOOL="read_file",
                 MOCK_CUSTOM_ARGUMENTS='{"path":"a.txt"}',
                 MOCK_EXPECT_TOOL_OUTPUT="error: unknown tool read_file",
             )
         else:
-            mock_env["MOCK_REJECT_INSTRUCTIONS"] = "Shell tool profile"
+            rejected += ["Shell tool profile", "tny skill show NAME"]
+            instructions.append("load with the `skill` tool")
+        mock_env.update(
+            MOCK_EXPECT_INSTRUCTIONS="\n".join(instructions),
+            MOCK_REJECT_INSTRUCTIONS="\n".join(rejected),
+        )
         mock = subprocess.Popen(
             [sys.executable, MOCK, str(port)],
             env=mock_env,
@@ -381,6 +407,13 @@ def main():
             os.makedirs(ws)
             for name in ("a.txt", "b.txt", "c.txt"):
                 open(os.path.join(ws, name), "w").write("x\n")
+            skill_dir = os.path.join(home, ".tny", "skills", "prompt-check")
+            os.makedirs(skill_dir)
+            with open(os.path.join(skill_dir, "SKILL.md"), "w") as skill:
+                skill.write(
+                    "---\nname: prompt-check\ndescription: Test skill discovery.\n---\n"
+                    "Load this body only when needed.\n"
+                )
 
             env = dict(
                 os.environ,

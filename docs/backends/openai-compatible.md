@@ -2,6 +2,27 @@
 
 This backend is the **native harness**. tny owns the tool loop, permissions, MCP, skills, sessions, and `tny acp`.
 
+## System prompt
+
+The native prompt uses short bullet directives for execution, instructions,
+verification, and communication ([ADR 0076](../adr/0076-structured-system-prompt.md)).
+It asks the agent to complete authorized work, resolve blockers where possible,
+and request necessary user input at the end with a recommendation. Code changes
+call for relevant tests/QA checks to be created or updated and run, with further
+checks proportionate to the change.
+
+Replies use simple technical English, lead with the outcome and impact, and
+prefer a compact **Work completed | Checks and results | Blockers** table.
+Partial or unverified work and checks that failed or could not run must be clear.
+Explicit output requests take precedence over this default format.
+
+Workspace location, SSH context, selected tool profile, and permission mode
+follow the behavioral core. Project instructions, lazy skill/MCP catalogs, task
+presets, and `--system-prompt` additions retain their existing composition order.
+The skill catalog names the usable route: `skill` in the full profile or
+`tny skill show NAME` in shell profiles. These instructions guide the model;
+they do not change tool permissions or guarantee model behavior.
+
 ## HTTP surface (v1)
 
 Two wires, one loop ([ADR 0016](../adr/0016-responses-api-default-wire.md)):
