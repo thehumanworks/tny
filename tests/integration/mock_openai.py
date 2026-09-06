@@ -230,6 +230,19 @@ def need(cond, msg):
         raise BadRequest(msg)
 
 
+def validate_instructions(instructions):
+    need(
+        isinstance(instructions, str) and "tny" in instructions,
+        "instructions must carry the system preamble",
+    )
+    for part in (EXPECT_INSTRUCTIONS or "").split("\n"):
+        if part:
+            need(part in instructions, f"instructions lack {part!r}")
+    for part in (REJECT_INSTRUCTIONS or "").split("\n"):
+        if part:
+            need(part not in instructions, f"instructions must not contain {part!r}")
+
+
 def validate_shell_result(text):
     need(
         text.startswith("exit: 7\nbytes: 9000\ncwd: "),
@@ -555,6 +568,7 @@ class Handler(BaseHTTPRequestHandler):
         msgs = req.get("messages")
         need(isinstance(msgs, list) and msgs, "messages missing")
         need(msgs[0].get("role") == "system", "no system preamble")
+        validate_instructions(msgs[0].get("content"))
         for t in req.get("tools", []):
             need("function" in t, "chat tools must nest under function")
         if EXPECT_TOOL_NAMES is not None:
@@ -982,25 +996,7 @@ class Handler(BaseHTTPRequestHandler):
             effort == EXPECT_EFFORT,
             f"reasoning.effort is {effort!r}, want {EXPECT_EFFORT!r}",
         )
-        instructions = req.get("instructions")
-        need(
-            isinstance(instructions, str) and "tny" in instructions,
-            "instructions must carry the system preamble",
-        )
-        if EXPECT_INSTRUCTIONS:
-            for part in EXPECT_INSTRUCTIONS.split("\n"):
-                if part:
-                    need(
-                        part in instructions,
-                        f"instructions lack {part!r}",
-                    )
-        if REJECT_INSTRUCTIONS:
-            for part in REJECT_INSTRUCTIONS.split("\n"):
-                if part:
-                    need(
-                        part not in instructions,
-                        f"instructions must not contain {part!r}",
-                    )
+        validate_instructions(req.get("instructions"))
         items = req.get("input")
         need(isinstance(items, list) and items, "input items missing")
         for t in req.get("tools", []):

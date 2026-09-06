@@ -81,3 +81,4 @@ these as `docs/adr/NNNN`.
 | [0073](0073-quick-ask-preserves-rendered-output.md) | Quick ask uses normal ZLE refresh after external output; final-screen tests prevent multiline prompts from erasing answer rows |
 | [0074](0074-extensible-image-service.md) | Provider-independent image service, Codex Images adapter, bounded requests/results and atomic artifacts |
 | [0075](0075-image-cli-and-agent-tools.md) | Standalone generate/edit CLI, agent discovery, shared interception and image permission scope |
+| [0076](0076-structured-system-prompt.md) | Short native prompt directives for autonomy, verification, and clear work/checks/blockers reporting; environment facts stay separate and skill discovery matches the tool profile |
