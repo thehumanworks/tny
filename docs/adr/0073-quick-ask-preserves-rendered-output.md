@@ -93,5 +93,7 @@ handler uses unbuffered `os.write` and `os._exit` so an interrupt during the
 and screen suites, plus 30 repeated cancellation/recovery trials, pass.
 
 Recovery is proved by executing a fresh shell command after cancellation.
-The byte stream need not repeat an already-visible prompt when ZLE clears
-only the edit buffer; final-screen rendering is covered by the tmux suite.
+The fixture requests a Ctrl-L redraw and waits for its prompt before typing,
+so command bytes cannot race the interrupt reset. It does not assume that
+Ctrl-C itself repeats an already-visible prompt. Final-screen rendering is
+covered by the tmux suite.

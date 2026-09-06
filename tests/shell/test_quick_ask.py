@@ -206,9 +206,11 @@ class QuickAskTests(unittest.TestCase):
         # Ctrl-C immediately can interrupt the widget again instead of clearing
         # the edit buffer; wait for that buffer's redisplay before cancelling it.
         shell.expect(b"cancel this question")
-        shell.send(b"\x03")
-        # ZLE may only clear the buffer: the existing prompt stays on screen
-        # without being emitted again. Actual command execution proves recovery.
+        shell.send(b"\x03\x0c")
+        # ZLE may only clear the buffer after Ctrl-C. Explicitly request a
+        # redraw with Ctrl-L and wait for it before typing the next command;
+        # otherwise that command can race the interrupt and lose its first byte.
+        shell.expect(b"READY> ")
         shell.send(b"print RECOVERED\r")
         shell.expect(b"\r\nRECOVERED\r\n")
 
