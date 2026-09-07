@@ -622,11 +622,26 @@ void session_add_usage(tny_session_state *s, int64_t in_tok, int64_t out_tok) {
         pin = yyjson_mut_get_int(yyjson_mut_obj_get(u, "in"));
         pout = yyjson_mut_get_int(yyjson_mut_obj_get(u, "out"));
     }
-    yyjson_mut_val *nu = yyjson_mut_obj(s->doc);
+    yyjson_mut_val *nu = u ? u : yyjson_mut_obj(s->doc);
     yyjson_mut_obj_put(nu, yyjson_mut_strcpy(s->doc, "in"), yyjson_mut_int(s->doc, pin + in_tok));
     yyjson_mut_obj_put(nu, yyjson_mut_strcpy(s->doc, "out"),
                        yyjson_mut_int(s->doc, pout + out_tok));
-    yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "usage"), nu);
+    if (!u) yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "usage"), nu);
+}
+
+void session_add_usage_details(tny_session_state *s, int64_t in_tok, int64_t out_tok,
+                               int64_t cached, int64_t cache_write) {
+    session_add_usage(s, in_tok, out_tok);
+    yyjson_mut_val *u = yyjson_mut_obj_get(root_of(s), "usage");
+    const char *keys[] = {"cached_in", "cache_write", "requests", "cache_read_requests",
+                          "cache_write_requests"};
+    int64_t values[] = {cached, cache_write, 1, cached >= 0 ? 1 : 0, cache_write >= 0 ? 1 : 0};
+    for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) {
+        if (values[i] < 0) continue;
+        int64_t old = yyjson_mut_get_int(yyjson_mut_obj_get(u, keys[i]));
+        yyjson_mut_obj_put(u, yyjson_mut_strcpy(s->doc, keys[i]),
+                           yyjson_mut_int(s->doc, old + values[i]));
+    }
 }
 
 void session_get_usage(tny_session_state *s, int64_t *in_tok, int64_t *out_tok) {

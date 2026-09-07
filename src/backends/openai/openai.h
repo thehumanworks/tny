@@ -88,6 +88,13 @@ int tny_backend_openai_queue_image(tny_backend *b, const char *path, char *err, 
  * text, borrowed until next send). */
 int tny_backend_openai_steps(tny_backend *b);
 const char *tny_backend_openai_toolcalls_json(tny_backend *b);
+/* Last turn, summed across every reported model response, including tool
+ * rounds and retries. Missing cache details are not measured zeroes. */
+typedef struct {
+    int64_t input_tokens, output_tokens, cached_input_tokens, cache_write_tokens;
+    int requests, cache_read_requests, cache_write_requests;
+} tny_openai_usage;
+char *tny_backend_openai_usage_json(tny_backend *b); /* caller frees */
 
 /* ---- streamed tool_call assembly (src/backends/openai/toolcalls.c) ----
  * Chat Completions streams tool calls as fragment deltas. Well-behaved

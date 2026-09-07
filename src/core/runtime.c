@@ -1889,6 +1889,11 @@ const char *tny_engine_openai_toolcalls_json(tny_engine *e) {
                                                      : "[]";
 }
 
+char *tny_engine_openai_usage_json(tny_engine *e) {
+    return tny_engine_backend_id(e) == TNY_BK_OPENAI ? tny_backend_openai_usage_json(e->bk)
+                                                     : xstrdup("null");
+}
+
 void tny_engine_preserve_session_on_free(tny_engine *e) {
     if (e) e->preserve_session_on_free = true;
 }

@@ -71,6 +71,8 @@ const char *session_backend(tny_session_state *s); /* provider that owns the tra
 void session_set_host_pointer(tny_session_state *s, const char *ptr);
 const char *session_host_pointer(tny_session_state *s);
 void session_add_usage(tny_session_state *s, int64_t in_tok, int64_t out_tok);
+void session_add_usage_details(tny_session_state *s, int64_t in_tok, int64_t out_tok,
+                               int64_t cached, int64_t cache_write);
 void session_get_usage(tny_session_state *s, int64_t *in_tok, int64_t *out_tok);
 
 /* Extension lifecycle/audit metadata is top-level and never serialized into

@@ -461,6 +461,22 @@ Token/context usage is silent by default. `--print-usage` (or
 `TNY_PRINT_USAGE=1`) reports it on stderr, always on its own line after the
 answer.
 
+Native `ask --json` results include `usage`: `input_tokens`, `output_tokens`,
+`requests`, `cached_input_tokens`, `uncached_input_tokens`, and
+`cache_write_tokens`, summed across the turn's tool rounds and retries that
+reported usage. `requests` counts those reported responses. A missing cache
+breakdown produces `null`, not a measured zero; `usage` itself is `null` when
+no native response reported usage. These fields also appear in background
+results. The existing usage event reports the turn totals and the latest
+request's input-token count; the public C event layout is unchanged.
+See [ADR 0077](adr/0077-openai-prompt-cache-routing.md).
+
+OpenAI cache routing groups related tasks by workspace and tool profile.
+`TNY_OPENAI_CACHE_SCOPE=session` restores per-conversation routing, useful
+when a busy workspace's requests compete for cache capacity. This affects
+cache affinity only; conversations and their saved transcripts remain
+independent. See [ADR 0078](adr/0078-workspace-shared-prompt-cache.md).
+
 JSON object (keep field names stable):
 
 ```json

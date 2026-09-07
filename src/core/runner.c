@@ -77,6 +77,10 @@ char *tny_turn_result_json(tny_ctx *ctx, tny_engine *engine, tny_session_state *
         if (host_tools_items) buf_appends(&out, host_tools_items);
         buf_appends(&out, "]");
     }
+    char *usage = tny_engine_openai_usage_json(engine);
+    buf_appends(&out, ",\"usage\":");
+    buf_appends(&out, usage ? usage : "null");
+    free(usage);
     if (errline && *errline) {
         buf_appends(&out, ",\"error\":");
         jescape(&out, errline);

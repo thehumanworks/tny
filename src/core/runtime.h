@@ -92,6 +92,7 @@ bool tny_engine_ready(const tny_engine *e);
 tny_backend_id tny_engine_backend_id(const tny_engine *e);
 int tny_engine_openai_steps(tny_engine *e);
 const char *tny_engine_openai_toolcalls_json(tny_engine *e);
+char *tny_engine_openai_usage_json(tny_engine *e); /* caller frees */
 
 /* Logical session lifecycle is distinct from a backend/engine rebind. TUI
  * provider/model switches preserve it; actual new/resume/exit boundaries end

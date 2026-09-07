@@ -127,6 +127,12 @@ typedef struct {
     tny_stop_reason final_stop; /* provider terminal reason for this step */
     char finish_reason[32];
     int64_t usage_in, usage_out;
+    int64_t usage_cached, usage_cache_write;
+    bool usage_seen, usage_recorded;
+    tny_openai_usage usage;
+    /* Opaque server affinity belongs to one user turn, including its tool
+     * rounds/retries. Never persist it or carry it into the next turn. */
+    char turn_state[512];
     uint64_t provider_request_sequence;
     int provider_attempt;
 
@@ -212,7 +218,36 @@ static void emit_error(oa_impl *o, tny_event_error_kind code, const char *text, 
     emit(o, &ev);
 }
 
+static void record_usage(oa_impl *o) {
+    if (!o->usage_seen || o->usage_recorded) return;
+    o->usage_recorded = true;
+    o->usage.input_tokens += o->usage_in;
+    o->usage.output_tokens += o->usage_out;
+    o->usage.requests++;
+    if (o->usage_cached >= 0) {
+        o->usage.cached_input_tokens += o->usage_cached;
+        o->usage.cache_read_requests++;
+    }
+    if (o->usage_cache_write >= 0) {
+        o->usage.cache_write_tokens += o->usage_cache_write;
+        o->usage.cache_write_requests++;
+    }
+    session_add_usage_details(o->env.session, o->usage_in, o->usage_out, o->usage_cached,
+                              o->usage_cache_write);
+}
+
 static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
+    record_usage(o);
+    if (o->usage.requests) {
+        tny_backend_event usage = {0};
+        usage.kind = TNY_EV_USAGE;
+        usage.in_tokens = o->usage.input_tokens;
+        usage.out_tokens = o->usage.output_tokens;
+        usage.context_used = o->usage_in;
+        emit(o, &usage);
+        session_save(o->env.session);
+    }
+    secure_zero(o->turn_state, sizeof o->turn_state);
     o->state = ST_IDLE;
     pending_perm_clear(o);
     o->tool_batch_active = false;
@@ -505,6 +540,7 @@ static int parse_retry_after(const char *value) {
  * text already emitted). */
 static bool schedule_retry(oa_impl *o, const char *what, int delay_hint_ms) {
     if (o->cancelled || o->text.len || o->retries >= o->max_retries) return false;
+    record_usage(o);
     int backoff = OA_RETRY_BASE_MS << o->retries;
     if (delay_hint_ms > backoff) backoff = delay_hint_ms;
     if (backoff > OA_RETRY_MAX_MS) backoff = OA_RETRY_MAX_MS;
@@ -811,6 +847,32 @@ static bool rsp_include_encrypted_reasoning(const tny_ctx *ctx) {
     return strcmp(u.host, "api.openai.com") == 0 || strcmp(u.host, "chatgpt.com") == 0;
 }
 
+static bool cache_routing_enabled(const oa_impl *o) {
+    const char *value = getenv("TNY_OPENAI_CACHE");
+    if (value && strcmp(value, "0") == 0) return false;
+    if (tny_codex_chatgpt_mode(o->ctx)) return true;
+    url_parts url;
+    if (!o->ctx->base_url || url_parse(o->ctx->base_url, &url) != 0) return false;
+    return strcasecmp(url.host, "api.openai.com") == 0 || strcasecmp(url.host, "chatgpt.com") == 0;
+}
+
+/* Independent tasks and ephemeral asks often share the same workspace
+ * instructions. Route that reusable prefix together while thread-id and
+ * turn affinity continue to identify each individual conversation/turn. */
+static const char *cache_routing_key(const oa_impl *o, char key[64]) {
+    const char *scope = getenv("TNY_OPENAI_CACHE_SCOPE");
+    if (scope && strcmp(scope, "workspace") != 0) return o->env.session->id;
+    const tny_ctx *ctx = o->ctx;
+    uint64_t hash = fnv1a(ctx->cwd, strlen(ctx->cwd));
+    const char *remote[] = {ctx->ssh_host, ctx->ssh_cwd};
+    for (size_t i = 0; i < sizeof remote / sizeof remote[0]; i++) {
+        const char *part = remote[i] ? remote[i] : "";
+        hash = (hash ^ fnv1a(part, strlen(part))) * UINT64_C(1099511628211);
+    }
+    snprintf(key, 64, "tny-ws-%016llx-%d", (unsigned long long)hash, (int)ctx->tool_profile);
+    return key;
+}
+
 static char *build_request_rsp(oa_impl *o) {
     tny_session_state *s = o->env.session;
     buf_t b;
@@ -819,6 +881,12 @@ static char *build_request_rsp(oa_impl *o) {
     jescape(&b, model_of(o));
     if (tny_tier_is_fast(o->ctx->service_tier)) buf_appends(&b, ",\"service_tier\":\"priority\"");
     buf_appends(&b, ",\"stream\":true,\"store\":false");
+    /* Compatible providers keep their existing wire. */
+    if (cache_routing_enabled(o) && s && s->id) {
+        char key[64];
+        buf_appends(&b, ",\"prompt_cache_key\":");
+        jescape(&b, cache_routing_key(o, key));
+    }
 
     buf_t sys;
     buf_init(&sys);
@@ -931,7 +999,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     buf_init(&auth);
     buf_appendf(&auth, "%s: %s%s", o->ctx->auth_header_name, o->ctx->auth_header_prefix,
                 o->ctx->api_key ? o->ctx->api_key : "");
-    const char *hdrs[16];
+    const char *hdrs[20];
     int hn = 0;
     hdrs[hn++] = "Content-Type: application/json";
     hdrs[hn++] = "Accept: text/event-stream";
@@ -946,6 +1014,20 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
                                o->env.session ? o->env.session->id : NULL};
     int an = tny_provider_extras_headers(&scope, addons, 4);
     for (int i = 0; i < an && hn < 15; i++) hdrs[hn++] = addons[i];
+    char session_header[128], thread_header[128], state_header[544];
+    if (!o->wire_chat && cache_routing_enabled(o) && tny_codex_chatgpt_mode(o->ctx) &&
+        o->env.session) {
+        char key[64];
+        snprintf(session_header, sizeof session_header, "session-id: %s",
+                 cache_routing_key(o, key));
+        snprintf(thread_header, sizeof thread_header, "thread-id: %s", o->env.session->id);
+        hdrs[hn++] = session_header;
+        hdrs[hn++] = thread_header;
+        if (o->turn_state[0]) {
+            snprintf(state_header, sizeof state_header, "x-codex-turn-state: %s", o->turn_state);
+            hdrs[hn++] = state_header;
+        }
+    }
     hdrs[hn] = NULL;
     buf_t path;
     buf_init(&path);
@@ -1021,6 +1103,9 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     o->error_status = 0;
     o->final_stop = TNY_STOP_DONE;
     o->finish_reason[0] = 0;
+    o->usage_in = o->usage_out = 0;
+    o->usage_cached = o->usage_cache_write = -1;
+    o->usage_seen = o->usage_recorded = false;
     buf_clear(&o->text);
     buf_clear(&o->rawbody);
     reasoning_reset(o);
@@ -1034,6 +1119,23 @@ static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
 }
 
 /* ---------- SSE event handling ---------- */
+
+static void capture_usage(oa_impl *o, yyjson_val *usage, bool chat) {
+    if (!yyjson_is_obj(usage) ||
+        (!yyjson_is_int(jget(usage, chat ? "prompt_tokens" : "input_tokens")) &&
+         !yyjson_is_int(jget(usage, chat ? "completion_tokens" : "output_tokens"))))
+        return;
+    o->usage_seen = true;
+    o->usage_in = jget_int(usage, chat ? "prompt_tokens" : "input_tokens", o->usage_in);
+    o->usage_out = jget_int(usage, chat ? "completion_tokens" : "output_tokens", o->usage_out);
+    if (o->usage_in < 0) o->usage_in = 0;
+    if (o->usage_out < 0) o->usage_out = 0;
+    yyjson_val *details = jget(usage, chat ? "prompt_tokens_details" : "input_tokens_details");
+    o->usage_cached = jget_int(details, "cached_tokens", o->usage_cached);
+    o->usage_cache_write = jget_int(details, "cache_write_tokens", o->usage_cache_write);
+    if (o->usage_cached > o->usage_in) o->usage_cached = o->usage_in;
+    if (o->usage_cache_write > o->usage_in) o->usage_cache_write = o->usage_in;
+}
 
 static void on_sse_event_chat(const char *data, size_t len, void *ud) {
     oa_impl *o = ud;
@@ -1057,10 +1159,7 @@ static void on_sse_event_chat(const char *data, size_t len, void *ud) {
         return;
     }
     yyjson_val *usage = jget(root, "usage");
-    if (usage) {
-        o->usage_in = jget_int(usage, "prompt_tokens", o->usage_in);
-        o->usage_out = jget_int(usage, "completion_tokens", o->usage_out);
-    }
+    capture_usage(o, usage, true);
     yyjson_val *choice = yyjson_arr_get_first(jget(root, "choices"));
     if (!choice) {
         yyjson_doc_free(doc);
@@ -1172,10 +1271,7 @@ static void rsp_absorb_response(oa_impl *o, yyjson_val *response) {
         }
     }
     yyjson_val *usage = jget(response, "usage");
-    if (usage) {
-        o->usage_in = jget_int(usage, "input_tokens", o->usage_in);
-        o->usage_out = jget_int(usage, "output_tokens", o->usage_out);
-    }
+    capture_usage(o, usage, false);
     const char *status = jget_str(response, "status");
     if (status && strcmp(status, "failed") == 0) {
         yyjson_val *err = jget(response, "error");
@@ -1266,20 +1362,19 @@ static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
         if (pc && d) buf_appends(&pc->args, d);
     } else if (strcmp(type, "response.completed") == 0) {
         yyjson_val *usage = jget(jget(root, "response"), "usage");
-        if (usage) {
-            o->usage_in = jget_int(usage, "input_tokens", o->usage_in);
-            o->usage_out = jget_int(usage, "output_tokens", o->usage_out);
-        }
+        capture_usage(o, usage, false);
         o->stream_done = true;
     } else if (strcmp(type, "response.incomplete") == 0) {
         /* token/limit cutoff: keep the partial text, end the step cleanly
          * (the chat wire treats finish_reason "length" the same way) */
         yyjson_val *response = jget(root, "response");
+        capture_usage(o, jget(response, "usage"), false);
         const char *reason = jget_str(jget(response, "incomplete_details"), "reason");
         o->final_stop =
             reason && strstr(reason, "content_filter") ? TNY_STOP_DENIED : TNY_STOP_STEP_LIMIT;
         o->stream_done = true;
     } else if (strcmp(type, "response.failed") == 0 || strcmp(type, "error") == 0) {
+        capture_usage(o, jget(jget(root, "response"), "usage"), false);
         /* response.failed nests the error under response.error; the bare
          * error event carries code/message at its top level */
         yyjson_val *err = jget(jget(root, "response"), "error");
@@ -1329,15 +1424,6 @@ static void finish_turn_ok(oa_impl *o) {
         return;
     }
     session_recovery_clear(s);
-    if (o->usage_in || o->usage_out) {
-        session_add_usage(s, o->usage_in, o->usage_out);
-        session_save(s);
-        tny_backend_event ev = {0};
-        ev.kind = TNY_EV_USAGE;
-        ev.in_tokens = o->usage_in;
-        ev.out_tokens = o->usage_out;
-        emit(o, &ev);
-    }
     emit_turn_end(o, o->final_stop);
 }
 
@@ -1793,6 +1879,7 @@ static int run_tools(oa_impl *o) {
 }
 
 static int step_finished(oa_impl *o) {
+    record_usage(o);
     tny_session_state *s = o->env.session;
     if (o->calls.n == 0) {
         if (o->steer && !o->cancelled) {
@@ -1918,6 +2005,9 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images, tny_
     o->step = 0;
     o->cancelled = false;
     o->usage_in = o->usage_out = 0;
+    memset(&o->usage, 0, sizeof o->usage);
+    o->usage_seen = o->usage_recorded = false;
+    secure_zero(o->turn_state, sizeof o->turn_state);
     o->env.perm_blocked = false;
     pending_perm_clear(o);
     pending_custom_clear(o, true);
@@ -2130,6 +2220,15 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             return 0;
         }
         control_response_free(&control);
+        if (status >= 200 && status < 300 && !o->wire_chat && cache_routing_enabled(o) &&
+            tny_codex_chatgpt_mode(o->ctx) && !o->turn_state[0]) {
+            const char *state = http_header(o->conn, "x-codex-turn-state");
+            /* The transport retains at most 511 bytes per header. Reject
+             * values at that limit, which might have been truncated. */
+            if (state && strlen(state) < sizeof o->turn_state - 1 && !strchr(state, '\r') &&
+                !strchr(state, '\n'))
+                snprintf(o->turn_state, sizeof o->turn_state, "%s", state);
+        }
         if (status >= 400) {
             /* read the error body through the ordinary body path (never a
              * synchronous wait in the loop), bounded in time and size; the
@@ -2297,6 +2396,28 @@ int tny_backend_openai_queue_image(tny_backend *b, const char *path, char *err, 
 int tny_backend_openai_steps(tny_backend *b) {
     oa_impl *o = b->impl;
     return o->step + 1;
+}
+
+char *tny_backend_openai_usage_json(tny_backend *b) {
+    oa_impl *o = b->impl;
+    const tny_openai_usage *u = &o->usage;
+    if (!u->requests) return xstrdup("null");
+    buf_t out;
+    buf_init(&out);
+    buf_appendf(&out,
+                "{\"input_tokens\":%lld,\"output_tokens\":%lld,\"requests\":%d,"
+                "\"cached_input_tokens\":",
+                (long long)u->input_tokens, (long long)u->output_tokens, u->requests);
+    if (u->cache_read_requests == u->requests)
+        buf_appendf(&out, "%lld,\"uncached_input_tokens\":%lld", (long long)u->cached_input_tokens,
+                    (long long)(u->input_tokens - u->cached_input_tokens));
+    else buf_appends(&out, "null,\"uncached_input_tokens\":null");
+    buf_appends(&out, ",\"cache_write_tokens\":");
+    if (u->cache_write_requests == u->requests)
+        buf_appendf(&out, "%lld", (long long)u->cache_write_tokens);
+    else buf_appends(&out, "null");
+    buf_appends(&out, "}");
+    return buf_detach(&out);
 }
 
 const char *tny_backend_openai_toolcalls_json(tny_backend *b) {

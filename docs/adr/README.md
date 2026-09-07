@@ -82,3 +82,5 @@ these as `docs/adr/NNNN`.
 | [0074](0074-extensible-image-service.md) | Provider-independent image service, Codex Images adapter, bounded requests/results and atomic artifacts |
 | [0075](0075-image-cli-and-agent-tools.md) | Standalone generate/edit CLI, agent discovery, shared interception and image permission scope |
 | [0076](0076-structured-system-prompt.md) | Short native prompt directives for autonomy, verification, and clear work/checks/blockers reporting; environment facts stay separate and skill discovery matches the tool profile |
+| [0077](0077-openai-prompt-cache-routing.md) | OpenAI session cache routing, turn-scoped ChatGPT affinity, and complete cache usage accounting |
+| [0078](0078-workspace-shared-prompt-cache.md) | Reuse cache affinity across independent tasks in the same workspace while keeping conversation and turn state separate |

@@ -1,0 +1,5942 @@
+{
+  "date": "2026-09-07",
+  "model": "gpt-5.6-luna",
+  "effort": "low",
+  "baseline": "previous session-routing implementation; its wire behavior can be selected with TNY_OPENAI_CACHE_SCOPE=session",
+  "workloads": {
+    "fresh": {
+      "schema_version": 1,
+      "started_at_utc": "2026-09-07T20:57:35Z",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "scenario": "fresh",
+      "records": 256,
+      "turns_per_round": 8,
+      "transport": "HTTP/SSE via loopback forwarding",
+      "tool_profile": "terminal",
+      "runs": [
+        {
+          "client": "baseline",
+          "round": 0,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1312.154,
+              "usage": {
+                "input_tokens": 6017,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6017,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1081.813,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1302.931,
+              "usage": {
+                "input_tokens": 6017,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 385,
+                "cache_hit_rate": 0.9360146252285192,
+                "median_first_event_ms": 1026.441,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1533.825,
+              "usage": {
+                "input_tokens": 6017,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6017,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1308.028,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2018.009,
+              "usage": {
+                "input_tokens": 6017,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6017,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1440.801,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1488.829,
+              "usage": {
+                "input_tokens": 6017,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6017,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1167.411,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1262.374,
+              "usage": {
+                "input_tokens": 6017,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6017,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1034.272,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 6,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1183.92,
+              "usage": {
+                "input_tokens": 6017,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6017,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1004.739,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 7,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1390.737,
+              "usage": {
+                "input_tokens": 6017,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6017,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1146.606,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 0,
+              "turn": 0,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6017,
+              "output_tokens": 5,
+              "first_event_ms": 1081.813,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1283.15
+            },
+            {
+              "round": 0,
+              "turn": 1,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6017,
+              "output_tokens": 5,
+              "first_event_ms": 1026.441,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1266.734
+            },
+            {
+              "round": 0,
+              "turn": 2,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6017,
+              "output_tokens": 5,
+              "first_event_ms": 1308.028,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1500.885
+            },
+            {
+              "round": 0,
+              "turn": 3,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6017,
+              "output_tokens": 5,
+              "first_event_ms": 1440.801,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1989.916
+            },
+            {
+              "round": 0,
+              "turn": 4,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6017,
+              "output_tokens": 5,
+              "first_event_ms": 1167.411,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1466.727
+            },
+            {
+              "round": 0,
+              "turn": 5,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6017,
+              "output_tokens": 5,
+              "first_event_ms": 1034.272,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1238.14
+            },
+            {
+              "round": 0,
+              "turn": 6,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6017,
+              "output_tokens": 5,
+              "first_event_ms": 1004.739,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1162.848
+            },
+            {
+              "round": 0,
+              "turn": 7,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6017,
+              "output_tokens": 5,
+              "first_event_ms": 1146.606,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1369.012
+            }
+          ]
+        },
+        {
+          "client": "tny",
+          "round": 0,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1430.137,
+              "usage": {
+                "input_tokens": 6009,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6009,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1160.134,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1893.476,
+              "usage": {
+                "input_tokens": 6009,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 377,
+                "cache_hit_rate": 0.9372607755034116,
+                "median_first_event_ms": 1524.127,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1746.987,
+              "usage": {
+                "input_tokens": 6009,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 377,
+                "cache_hit_rate": 0.9372607755034116,
+                "median_first_event_ms": 1445.742,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1428.307,
+              "usage": {
+                "input_tokens": 6009,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 377,
+                "cache_hit_rate": 0.9372607755034116,
+                "median_first_event_ms": 1147.994,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1781.764,
+              "usage": {
+                "input_tokens": 6009,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 377,
+                "cache_hit_rate": 0.9372607755034116,
+                "median_first_event_ms": 1566.031,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2190.751,
+              "usage": {
+                "input_tokens": 6009,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 377,
+                "cache_hit_rate": 0.9372607755034116,
+                "median_first_event_ms": 1999.488,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 6,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1338.926,
+              "usage": {
+                "input_tokens": 6009,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 377,
+                "cache_hit_rate": 0.9372607755034116,
+                "median_first_event_ms": 1073.074,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 7,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1714.606,
+              "usage": {
+                "input_tokens": 6009,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 377,
+                "cache_hit_rate": 0.9372607755034116,
+                "median_first_event_ms": 1525.886,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 0,
+              "turn": 0,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6009,
+              "output_tokens": 5,
+              "first_event_ms": 1160.134,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1403.43
+            },
+            {
+              "round": 0,
+              "turn": 1,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6009,
+              "output_tokens": 5,
+              "first_event_ms": 1524.127,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1868.797
+            },
+            {
+              "round": 0,
+              "turn": 2,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6009,
+              "output_tokens": 5,
+              "first_event_ms": 1445.742,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1721.299
+            },
+            {
+              "round": 0,
+              "turn": 3,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6009,
+              "output_tokens": 5,
+              "first_event_ms": 1147.994,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1405.315
+            },
+            {
+              "round": 0,
+              "turn": 4,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6009,
+              "output_tokens": 5,
+              "first_event_ms": 1566.031,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1757.776
+            },
+            {
+              "round": 0,
+              "turn": 5,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6009,
+              "output_tokens": 5,
+              "first_event_ms": 1999.488,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2168.968
+            },
+            {
+              "round": 0,
+              "turn": 6,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6009,
+              "output_tokens": 5,
+              "first_event_ms": 1073.074,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1316.547
+            },
+            {
+              "round": 0,
+              "turn": 7,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6009,
+              "output_tokens": 5,
+              "first_event_ms": 1525.886,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1690.272
+            }
+          ]
+        },
+        {
+          "client": "codex",
+          "round": 0,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5557.984,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13203,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 926.22,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5666.992,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13203,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1308.885,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5892.894,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13203,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1246.553,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5888.321,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6291,
+                "cache_hit_rate": 0.523517382413088,
+                "median_first_event_ms": 1195.217,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5931.881,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6291,
+                "cache_hit_rate": 0.523517382413088,
+                "median_first_event_ms": 1090.646,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5960.832,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6291,
+                "cache_hit_rate": 0.523517382413088,
+                "median_first_event_ms": 1190.88,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 6,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6126.008,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13203,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1167.155,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 7,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5663.808,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13203,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 972.858,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 0,
+              "turn": 0,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 926.22,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1103.205
+            },
+            {
+              "round": 0,
+              "turn": 1,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1308.885,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1546.09
+            },
+            {
+              "round": 0,
+              "turn": 2,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1246.553,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1470.713
+            },
+            {
+              "round": 0,
+              "turn": 3,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1195.217,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1391.902
+            },
+            {
+              "round": 0,
+              "turn": 4,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1090.646,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1355.173
+            },
+            {
+              "round": 0,
+              "turn": 5,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1190.88,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1450.31
+            },
+            {
+              "round": 0,
+              "turn": 6,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1167.155,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1451.495
+            },
+            {
+              "round": 0,
+              "turn": 7,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 972.858,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1230.149
+            }
+          ]
+        },
+        {
+          "client": "tny",
+          "round": 1,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1850.382,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1494.587,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1405.7,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1076.738,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1645.936,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1425.165,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1302.512,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1107.959,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1744.576,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1492.571,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1646.304,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1405.535,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 6,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1454.011,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1231.063,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 7,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1618.459,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1332.833,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 1,
+              "turn": 0,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1494.587,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1828.089
+            },
+            {
+              "round": 1,
+              "turn": 1,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1076.738,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1379.92
+            },
+            {
+              "round": 1,
+              "turn": 2,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1425.165,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1623.288
+            },
+            {
+              "round": 1,
+              "turn": 3,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1107.959,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1282.404
+            },
+            {
+              "round": 1,
+              "turn": 4,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1492.571,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1721.94
+            },
+            {
+              "round": 1,
+              "turn": 5,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1405.535,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1623.28
+            },
+            {
+              "round": 1,
+              "turn": 6,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1231.063,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1431.798
+            },
+            {
+              "round": 1,
+              "turn": 7,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1332.833,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1597.956
+            }
+          ]
+        },
+        {
+          "client": "codex",
+          "round": 1,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5738.531,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6291,
+                "cache_hit_rate": 0.523517382413088,
+                "median_first_event_ms": 961.234,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5365.269,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13203,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 851.259,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6353.982,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6291,
+                "cache_hit_rate": 0.523517382413088,
+                "median_first_event_ms": 1653.385,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5551.163,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13203,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 976.799,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6205.753,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6291,
+                "cache_hit_rate": 0.523517382413088,
+                "median_first_event_ms": 1329.006,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5900.973,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13203,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1315.108,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 6,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5609.305,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13203,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1082.322,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 7,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5451.818,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 13056,
+                "uncached_input_tokens": 147,
+                "cache_hit_rate": 0.9888661667802772,
+                "median_first_event_ms": 1093.044,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 1,
+              "turn": 0,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 961.234,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1221.228
+            },
+            {
+              "round": 1,
+              "turn": 1,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 851.259,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 994.018
+            },
+            {
+              "round": 1,
+              "turn": 2,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1653.385,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1907.29
+            },
+            {
+              "round": 1,
+              "turn": 3,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 976.799,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1176.347
+            },
+            {
+              "round": 1,
+              "turn": 4,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1329.006,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1529.555
+            },
+            {
+              "round": 1,
+              "turn": 5,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1315.108,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1583.305
+            },
+            {
+              "round": 1,
+              "turn": 6,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1082.322,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1335.898
+            },
+            {
+              "round": 1,
+              "turn": 7,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1093.044,
+              "http_status": 200,
+              "cached_input_tokens": 13056,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1201.623
+            }
+          ]
+        },
+        {
+          "client": "baseline",
+          "round": 1,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2205.224,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1903.316,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1324.317,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1024.141,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1644.567,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1382.446,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1472.697,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1252.46,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1355.74,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1122.509,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1257.971,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1028.106,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 6,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2973.914,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 2684.996,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 7,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1304.128,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1036.981,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 1,
+              "turn": 0,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1903.316,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2180.468
+            },
+            {
+              "round": 1,
+              "turn": 1,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1024.141,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1301.825
+            },
+            {
+              "round": 1,
+              "turn": 2,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1382.446,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1621.565
+            },
+            {
+              "round": 1,
+              "turn": 3,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1252.46,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1453.859
+            },
+            {
+              "round": 1,
+              "turn": 4,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1122.509,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1330.239
+            },
+            {
+              "round": 1,
+              "turn": 5,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1028.106,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1234.519
+            },
+            {
+              "round": 1,
+              "turn": 6,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 2684.996,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2949.205
+            },
+            {
+              "round": 1,
+              "turn": 7,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1036.981,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1281.014
+            }
+          ]
+        },
+        {
+          "client": "codex",
+          "round": 2,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5995.758,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6287,
+                "cache_hit_rate": 0.5236760360633381,
+                "median_first_event_ms": 1146.153,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5946.915,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6287,
+                "cache_hit_rate": 0.5236760360633381,
+                "median_first_event_ms": 1160.956,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 7129.391,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13199,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 2336.579,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6099.262,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13199,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1138.333,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6351.561,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6287,
+                "cache_hit_rate": 0.5236760360633381,
+                "median_first_event_ms": 1847.519,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5950.148,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6287,
+                "cache_hit_rate": 0.5236760360633381,
+                "median_first_event_ms": 1183.795,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 6,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6184.433,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6287,
+                "cache_hit_rate": 0.5236760360633381,
+                "median_first_event_ms": 1598.596,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 7,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 7110.662,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6287,
+                "cache_hit_rate": 0.5236760360633381,
+                "median_first_event_ms": 2408.968,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 2,
+              "turn": 0,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1146.153,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1343.043
+            },
+            {
+              "round": 2,
+              "turn": 1,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1160.956,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1436.416
+            },
+            {
+              "round": 2,
+              "turn": 2,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 2336.579,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2704.742
+            },
+            {
+              "round": 2,
+              "turn": 3,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1138.333,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1428.86
+            },
+            {
+              "round": 2,
+              "turn": 4,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1847.519,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2129.956
+            },
+            {
+              "round": 2,
+              "turn": 5,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1183.795,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1522.261
+            },
+            {
+              "round": 2,
+              "turn": 6,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1598.596,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1835.508
+            },
+            {
+              "round": 2,
+              "turn": 7,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 2408.968,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2833.215
+            }
+          ]
+        },
+        {
+          "client": "baseline",
+          "round": 2,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1370.38,
+              "usage": {
+                "input_tokens": 6011,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6011,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1137.808,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1683.811,
+              "usage": {
+                "input_tokens": 6011,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6011,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1087.126,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1391.691,
+              "usage": {
+                "input_tokens": 6011,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6011,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1125.601,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1634.906,
+              "usage": {
+                "input_tokens": 6011,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6011,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1451.066,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1261.874,
+              "usage": {
+                "input_tokens": 6011,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6011,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1081.338,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1780.231,
+              "usage": {
+                "input_tokens": 6011,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6011,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1525.194,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 6,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1514.922,
+              "usage": {
+                "input_tokens": 6011,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6011,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1302.208,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 7,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1515.808,
+              "usage": {
+                "input_tokens": 6011,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6011,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1280.621,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 2,
+              "turn": 0,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "first_event_ms": 1137.808,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1348.642
+            },
+            {
+              "round": 2,
+              "turn": 1,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "first_event_ms": 1087.126,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1657.127
+            },
+            {
+              "round": 2,
+              "turn": 2,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "first_event_ms": 1125.601,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1366.587
+            },
+            {
+              "round": 2,
+              "turn": 3,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "first_event_ms": 1451.066,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1613.787
+            },
+            {
+              "round": 2,
+              "turn": 4,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "first_event_ms": 1081.338,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1236.237
+            },
+            {
+              "round": 2,
+              "turn": 5,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "first_event_ms": 1525.194,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1754.597
+            },
+            {
+              "round": 2,
+              "turn": 6,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "first_event_ms": 1302.208,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1491.911
+            },
+            {
+              "round": 2,
+              "turn": 7,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "first_event_ms": 1280.621,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1494.2
+            }
+          ]
+        },
+        {
+          "client": "tny",
+          "round": 2,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1920.016,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1472.296,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 3492.214,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 3268.766,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1701.064,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1379.478,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1503.088,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1294.864,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1714.723,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1479.238,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2125.582,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1582.97,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 6,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2202.035,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1875.883,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 7,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5376.33,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 4307.526,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 2,
+              "turn": 0,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1472.296,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1898.895
+            },
+            {
+              "round": 2,
+              "turn": 1,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 3268.766,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 3468.104
+            },
+            {
+              "round": 2,
+              "turn": 2,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1379.478,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1677.689
+            },
+            {
+              "round": 2,
+              "turn": 3,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1294.864,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1476.469
+            },
+            {
+              "round": 2,
+              "turn": 4,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1479.238,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1691.373
+            },
+            {
+              "round": 2,
+              "turn": 5,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1582.97,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2099.694
+            },
+            {
+              "round": 2,
+              "turn": 6,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1875.883,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2177.523
+            },
+            {
+              "round": 2,
+              "turn": 7,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 4307.526,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 5351.984
+            }
+          ]
+        }
+      ],
+      "binaries": {
+        "baseline": {
+          "sha256": "b92b402a9f3a050835bad6b8c2fe7a1863bab7579235433d65ad7c43808d425c",
+          "version": "0.5.0-17-gea18e12-dirty"
+        },
+        "tny": {
+          "sha256": "88aa1c2dffbbfd9a77f9c8ea5da0bb18276b2e1dcdc01babe778bab25949f193",
+          "version": "0.5.0-17-gea18e12-dirty"
+        },
+        "codex": {
+          "sha256": "61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70",
+          "version": "codex-cli 0.154.0-alpha.3"
+        }
+      },
+      "summaries": {
+        "baseline": {
+          "all": {
+            "input_tokens": 144344,
+            "output_tokens": 120,
+            "request_bytes": 472248,
+            "cached_input_tokens": 5632,
+            "requests_with_cache_hits": 1,
+            "uncached_input_tokens": 138712,
+            "cache_hit_rate": 0.03901790167932162,
+            "median_first_event_ms": 1142.2069999999999,
+            "requests": 24
+          },
+          "after_first_task_or_turn": {
+            "input_tokens": 126301,
+            "output_tokens": 105,
+            "request_bytes": 413217,
+            "cached_input_tokens": 5632,
+            "requests_with_cache_hits": 1,
+            "uncached_input_tokens": 120669,
+            "cache_hit_rate": 0.04459188763351042,
+            "median_first_event_ms": 1146.606,
+            "requests": 21
+          }
+        },
+        "tny": {
+          "all": {
+            "input_tokens": 144312,
+            "output_tokens": 120,
+            "request_bytes": 472464,
+            "cached_input_tokens": 112640,
+            "requests_with_cache_hits": 20,
+            "uncached_input_tokens": 31672,
+            "cache_hit_rate": 0.7805310715671601,
+            "median_first_event_ms": 1459.019,
+            "requests": 24
+          },
+          "after_first_task_or_turn": {
+            "input_tokens": 126273,
+            "output_tokens": 105,
+            "request_bytes": 413406,
+            "cached_input_tokens": 112640,
+            "requests_with_cache_hits": 20,
+            "uncached_input_tokens": 13633,
+            "cache_hit_rate": 0.8920355103624686,
+            "median_first_event_ms": 1445.742,
+            "requests": 21
+          }
+        },
+        "codex": {
+          "all": {
+            "input_tokens": 316840,
+            "output_tokens": 120,
+            "request_bytes": 1339488,
+            "cached_input_tokens": 96000,
+            "requests_with_cache_hits": 13,
+            "uncached_input_tokens": 220840,
+            "cache_hit_rate": 0.3029920464587805,
+            "median_first_event_ms": 1175.475,
+            "requests": 24
+          },
+          "after_first_task_or_turn": {
+            "input_tokens": 277235,
+            "output_tokens": 105,
+            "request_bytes": 1172052,
+            "cached_input_tokens": 82176,
+            "requests_with_cache_hits": 11,
+            "uncached_input_tokens": 195059,
+            "cache_hit_rate": 0.2964127905928184,
+            "median_first_event_ms": 1190.88,
+            "requests": 21
+          }
+        }
+      }
+    },
+    "conversation": {
+      "schema_version": 1,
+      "started_at_utc": "2026-09-07T21:02:30Z",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "scenario": "conversation",
+      "records": 256,
+      "turns_per_round": 5,
+      "transport": "HTTP/SSE via loopback forwarding",
+      "tool_profile": "terminal",
+      "runs": [
+        {
+          "client": "baseline",
+          "round": 0,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1297.663,
+              "usage": {
+                "input_tokens": 6013,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "requests_with_cache_hits": 0,
+                "uncached_input_tokens": 6013,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1050.048,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 22381.811,
+              "usage": {
+                "input_tokens": 6041,
+                "output_tokens": 5,
+                "request_bytes": 19819,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 409,
+                "cache_hit_rate": 0.932295977487171,
+                "median_first_event_ms": 14929.15,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1401.27,
+              "usage": {
+                "input_tokens": 6069,
+                "output_tokens": 5,
+                "request_bytes": 19962,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 437,
+                "cache_hit_rate": 0.9279947273026857,
+                "median_first_event_ms": 1229.27,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1471.445,
+              "usage": {
+                "input_tokens": 6097,
+                "output_tokens": 5,
+                "request_bytes": 20103,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 465,
+                "cache_hit_rate": 0.923732983434476,
+                "median_first_event_ms": 1259.309,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1454.431,
+              "usage": {
+                "input_tokens": 6125,
+                "output_tokens": 5,
+                "request_bytes": 20245,
+                "cached_input_tokens": 0,
+                "requests_with_cache_hits": 0,
+                "uncached_input_tokens": 6125,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1207.816,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 0,
+              "turn": 0,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6013,
+              "output_tokens": 5,
+              "first_event_ms": 1050.048,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1271.806
+            },
+            {
+              "round": 0,
+              "turn": 1,
+              "request_bytes": 19819,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6041,
+              "output_tokens": 5,
+              "first_event_ms": 14929.15,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 22347.539
+            },
+            {
+              "round": 0,
+              "turn": 2,
+              "request_bytes": 19962,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6069,
+              "output_tokens": 5,
+              "first_event_ms": 1229.27,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1377.049
+            },
+            {
+              "round": 0,
+              "turn": 3,
+              "request_bytes": 20103,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6097,
+              "output_tokens": 5,
+              "first_event_ms": 1259.309,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1446.718
+            },
+            {
+              "round": 0,
+              "turn": 4,
+              "request_bytes": 20245,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6125,
+              "output_tokens": 5,
+              "first_event_ms": 1207.816,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1422.684
+            }
+          ]
+        },
+        {
+          "client": "tny",
+          "round": 0,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1288.977,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 0,
+                "requests_with_cache_hits": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1044.972,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1137.754,
+              "usage": {
+                "input_tokens": 6043,
+                "output_tokens": 5,
+                "request_bytes": 19828,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 411,
+                "cache_hit_rate": 0.9319874234651663,
+                "median_first_event_ms": 925.294,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1358.819,
+              "usage": {
+                "input_tokens": 6071,
+                "output_tokens": 5,
+                "request_bytes": 19971,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 439,
+                "cache_hit_rate": 0.9276890133421183,
+                "median_first_event_ms": 1041.698,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1156.604,
+              "usage": {
+                "input_tokens": 6099,
+                "output_tokens": 5,
+                "request_bytes": 20112,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 467,
+                "cache_hit_rate": 0.9234300705033612,
+                "median_first_event_ms": 981.511,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1511.163,
+              "usage": {
+                "input_tokens": 6127,
+                "output_tokens": 5,
+                "request_bytes": 20254,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 495,
+                "cache_hit_rate": 0.9192100538599641,
+                "median_first_event_ms": 1246.949,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 0,
+              "turn": 0,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1044.972,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1258.797
+            },
+            {
+              "round": 0,
+              "turn": 1,
+              "request_bytes": 19828,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6043,
+              "output_tokens": 5,
+              "first_event_ms": 925.294,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1113.941
+            },
+            {
+              "round": 0,
+              "turn": 2,
+              "request_bytes": 19971,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6071,
+              "output_tokens": 5,
+              "first_event_ms": 1041.698,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1333.566
+            },
+            {
+              "round": 0,
+              "turn": 3,
+              "request_bytes": 20112,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6099,
+              "output_tokens": 5,
+              "first_event_ms": 981.511,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1133.756
+            },
+            {
+              "round": 0,
+              "turn": 4,
+              "request_bytes": 20254,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6127,
+              "output_tokens": 5,
+              "first_event_ms": 1246.949,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1490.135
+            }
+          ]
+        },
+        {
+          "client": "codex",
+          "round": 0,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5627.902,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 6912,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 6287,
+                "cache_hit_rate": 0.5236760360633381,
+                "median_first_event_ms": 1033.94,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 8708.268,
+              "usage": {
+                "input_tokens": 13227,
+                "output_tokens": 5,
+                "request_bytes": 56184,
+                "cached_input_tokens": 13056,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 171,
+                "cache_hit_rate": 0.9870718983896575,
+                "median_first_event_ms": 986.198,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 10443.643,
+              "usage": {
+                "input_tokens": 13255,
+                "output_tokens": 5,
+                "request_bytes": 56557,
+                "cached_input_tokens": 13056,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 199,
+                "cache_hit_rate": 0.9849867974349302,
+                "median_first_event_ms": 2377.755,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 8289.461,
+              "usage": {
+                "input_tokens": 13283,
+                "output_tokens": 5,
+                "request_bytes": 56928,
+                "cached_input_tokens": 13056,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 227,
+                "cache_hit_rate": 0.98291048708876,
+                "median_first_event_ms": 988.934,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 8990.974,
+              "usage": {
+                "input_tokens": 13311,
+                "output_tokens": 5,
+                "request_bytes": 57300,
+                "cached_input_tokens": 13056,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 255,
+                "cache_hit_rate": 0.9808429118773946,
+                "median_first_event_ms": 1243.805,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 0,
+              "turn": 0,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1033.94,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1328.735
+            },
+            {
+              "round": 0,
+              "turn": 1,
+              "request_bytes": 56184,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13227,
+              "output_tokens": 5,
+              "first_event_ms": 986.198,
+              "http_status": 200,
+              "cached_input_tokens": 13056,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1273.741
+            },
+            {
+              "round": 0,
+              "turn": 2,
+              "request_bytes": 56557,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13255,
+              "output_tokens": 5,
+              "first_event_ms": 2377.755,
+              "http_status": 200,
+              "cached_input_tokens": 13056,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 3217.988
+            },
+            {
+              "round": 0,
+              "turn": 3,
+              "request_bytes": 56928,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13283,
+              "output_tokens": 5,
+              "first_event_ms": 988.934,
+              "http_status": 200,
+              "cached_input_tokens": 13056,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1222.946
+            },
+            {
+              "round": 0,
+              "turn": 4,
+              "request_bytes": 57300,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13311,
+              "output_tokens": 5,
+              "first_event_ms": 1243.805,
+              "http_status": 200,
+              "cached_input_tokens": 13056,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1393.848
+            }
+          ]
+        },
+        {
+          "client": "tny",
+          "round": 1,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1516.3,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19686,
+                "cached_input_tokens": 0,
+                "requests_with_cache_hits": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1244.921,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2617.298,
+              "usage": {
+                "input_tokens": 6043,
+                "output_tokens": 5,
+                "request_bytes": 19828,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 411,
+                "cache_hit_rate": 0.9319874234651663,
+                "median_first_event_ms": 2318.552,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2773.595,
+              "usage": {
+                "input_tokens": 6071,
+                "output_tokens": 5,
+                "request_bytes": 19971,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 439,
+                "cache_hit_rate": 0.9276890133421183,
+                "median_first_event_ms": 2561.078,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1713.594,
+              "usage": {
+                "input_tokens": 6099,
+                "output_tokens": 5,
+                "request_bytes": 20112,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 467,
+                "cache_hit_rate": 0.9234300705033612,
+                "median_first_event_ms": 1395.481,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1661.282,
+              "usage": {
+                "input_tokens": 6127,
+                "output_tokens": 5,
+                "request_bytes": 20254,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 495,
+                "cache_hit_rate": 0.9192100538599641,
+                "median_first_event_ms": 1369.8,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 1,
+              "turn": 0,
+              "request_bytes": 19686,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1244.921,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1493.594
+            },
+            {
+              "round": 1,
+              "turn": 1,
+              "request_bytes": 19828,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6043,
+              "output_tokens": 5,
+              "first_event_ms": 2318.552,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2596.423
+            },
+            {
+              "round": 1,
+              "turn": 2,
+              "request_bytes": 19971,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6071,
+              "output_tokens": 5,
+              "first_event_ms": 2561.078,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2751.655
+            },
+            {
+              "round": 1,
+              "turn": 3,
+              "request_bytes": 20112,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6099,
+              "output_tokens": 5,
+              "first_event_ms": 1395.481,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1674.544
+            },
+            {
+              "round": 1,
+              "turn": 4,
+              "request_bytes": 20254,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6127,
+              "output_tokens": 5,
+              "first_event_ms": 1369.8,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1626.308
+            }
+          ]
+        },
+        {
+          "client": "codex",
+          "round": 1,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5827.473,
+              "usage": {
+                "input_tokens": 13207,
+                "output_tokens": 5,
+                "request_bytes": 55812,
+                "cached_input_tokens": 6912,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 6295,
+                "cache_hit_rate": 0.5233588248656016,
+                "median_first_event_ms": 1066.681,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 8825.234,
+              "usage": {
+                "input_tokens": 13235,
+                "output_tokens": 5,
+                "request_bytes": 56184,
+                "cached_input_tokens": 13056,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 179,
+                "cache_hit_rate": 0.9864752550056668,
+                "median_first_event_ms": 1264.049,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 8887.871,
+              "usage": {
+                "input_tokens": 13263,
+                "output_tokens": 5,
+                "request_bytes": 56557,
+                "cached_input_tokens": 13056,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 207,
+                "cache_hit_rate": 0.9843926713413255,
+                "median_first_event_ms": 1194.924,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 8881.173,
+              "usage": {
+                "input_tokens": 13291,
+                "output_tokens": 5,
+                "request_bytes": 56928,
+                "cached_input_tokens": 13056,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 235,
+                "cache_hit_rate": 0.9823188623880822,
+                "median_first_event_ms": 1243.191,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 9754.993,
+              "usage": {
+                "input_tokens": 13319,
+                "output_tokens": 5,
+                "request_bytes": 57300,
+                "cached_input_tokens": 13056,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 263,
+                "cache_hit_rate": 0.9802537728057662,
+                "median_first_event_ms": 2037.602,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 1,
+              "turn": 0,
+              "request_bytes": 55812,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13207,
+              "output_tokens": 5,
+              "first_event_ms": 1066.681,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1290.77
+            },
+            {
+              "round": 1,
+              "turn": 1,
+              "request_bytes": 56184,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13235,
+              "output_tokens": 5,
+              "first_event_ms": 1264.049,
+              "http_status": 200,
+              "cached_input_tokens": 13056,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1443.66
+            },
+            {
+              "round": 1,
+              "turn": 2,
+              "request_bytes": 56557,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13263,
+              "output_tokens": 5,
+              "first_event_ms": 1194.924,
+              "http_status": 200,
+              "cached_input_tokens": 13056,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1435.899
+            },
+            {
+              "round": 1,
+              "turn": 3,
+              "request_bytes": 56928,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13291,
+              "output_tokens": 5,
+              "first_event_ms": 1243.191,
+              "http_status": 200,
+              "cached_input_tokens": 13056,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1501.282
+            },
+            {
+              "round": 1,
+              "turn": 4,
+              "request_bytes": 57300,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13319,
+              "output_tokens": 5,
+              "first_event_ms": 2037.602,
+              "http_status": 200,
+              "cached_input_tokens": 13056,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2299.262
+            }
+          ]
+        },
+        {
+          "client": "baseline",
+          "round": 1,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1665.283,
+              "usage": {
+                "input_tokens": 6011,
+                "output_tokens": 5,
+                "request_bytes": 19677,
+                "cached_input_tokens": 0,
+                "requests_with_cache_hits": 0,
+                "uncached_input_tokens": 6011,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1261.13,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1429.276,
+              "usage": {
+                "input_tokens": 6039,
+                "output_tokens": 5,
+                "request_bytes": 19819,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 407,
+                "cache_hit_rate": 0.9326047358834244,
+                "median_first_event_ms": 1206.484,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1415.847,
+              "usage": {
+                "input_tokens": 6067,
+                "output_tokens": 5,
+                "request_bytes": 19962,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 435,
+                "cache_hit_rate": 0.928300642821823,
+                "median_first_event_ms": 1193.617,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1599.138,
+              "usage": {
+                "input_tokens": 6095,
+                "output_tokens": 5,
+                "request_bytes": 20103,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 463,
+                "cache_hit_rate": 0.9240360951599672,
+                "median_first_event_ms": 1316.321,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1503.561,
+              "usage": {
+                "input_tokens": 6123,
+                "output_tokens": 5,
+                "request_bytes": 20245,
+                "cached_input_tokens": 5632,
+                "requests_with_cache_hits": 1,
+                "uncached_input_tokens": 491,
+                "cache_hit_rate": 0.9198105503837988,
+                "median_first_event_ms": 1192.75,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 1,
+              "turn": 0,
+              "request_bytes": 19677,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "first_event_ms": 1261.13,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1633.039
+            },
+            {
+              "round": 1,
+              "turn": 1,
+              "request_bytes": 19819,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6039,
+              "output_tokens": 5,
+              "first_event_ms": 1206.484,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1397.99
+            },
+            {
+              "round": 1,
+              "turn": 2,
+              "request_bytes": 19962,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6067,
+              "output_tokens": 5,
+              "first_event_ms": 1193.617,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1392.541
+            },
+            {
+              "round": 1,
+              "turn": 3,
+              "request_bytes": 20103,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6095,
+              "output_tokens": 5,
+              "first_event_ms": 1316.321,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1571.375
+            },
+            {
+              "round": 1,
+              "turn": 4,
+              "request_bytes": 20245,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6123,
+              "output_tokens": 5,
+              "first_event_ms": 1192.75,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1478.874
+            }
+          ]
+        }
+      ],
+      "binaries": {
+        "baseline": {
+          "sha256": "b92b402a9f3a050835bad6b8c2fe7a1863bab7579235433d65ad7c43808d425c",
+          "version": "0.5.0-17-gea18e12-dirty"
+        },
+        "tny": {
+          "sha256": "88aa1c2dffbbfd9a77f9c8ea5da0bb18276b2e1dcdc01babe778bab25949f193",
+          "version": "0.5.0-17-gea18e12-dirty"
+        },
+        "codex": {
+          "sha256": "61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70",
+          "version": "codex-cli 0.154.0-alpha.3"
+        }
+      },
+      "summaries": {
+        "baseline": {
+          "all": {
+            "input_tokens": 60680,
+            "output_tokens": 50,
+            "request_bytes": 199612,
+            "cached_input_tokens": 39424,
+            "requests_with_cache_hits": 7,
+            "uncached_input_tokens": 21256,
+            "cache_hit_rate": 0.6497033618984839,
+            "median_first_event_ms": 1218.5430000000001,
+            "requests": 10
+          },
+          "after_first_task_or_turn": {
+            "input_tokens": 48656,
+            "output_tokens": 40,
+            "request_bytes": 160258,
+            "cached_input_tokens": 39424,
+            "requests_with_cache_hits": 7,
+            "uncached_input_tokens": 9232,
+            "cache_hit_rate": 0.8102597829661295,
+            "median_first_event_ms": 1218.5430000000001,
+            "requests": 8
+          }
+        },
+        "tny": {
+          "all": {
+            "input_tokens": 60710,
+            "output_tokens": 50,
+            "request_bytes": 199702,
+            "cached_input_tokens": 45056,
+            "requests_with_cache_hits": 8,
+            "uncached_input_tokens": 15654,
+            "cache_hit_rate": 0.7421512106736946,
+            "median_first_event_ms": 1245.935,
+            "requests": 10
+          },
+          "after_first_task_or_turn": {
+            "input_tokens": 48680,
+            "output_tokens": 40,
+            "request_bytes": 160330,
+            "cached_input_tokens": 45056,
+            "requests_with_cache_hits": 8,
+            "uncached_input_tokens": 3624,
+            "cache_hit_rate": 0.9255546425636811,
+            "median_first_event_ms": 1308.3745,
+            "requests": 8
+          }
+        },
+        "codex": {
+          "all": {
+            "input_tokens": 132590,
+            "output_tokens": 50,
+            "request_bytes": 565562,
+            "cached_input_tokens": 118272,
+            "requests_with_cache_hits": 10,
+            "uncached_input_tokens": 14318,
+            "cache_hit_rate": 0.8920129723206879,
+            "median_first_event_ms": 1219.0575,
+            "requests": 10
+          },
+          "after_first_task_or_turn": {
+            "input_tokens": 106184,
+            "output_tokens": 40,
+            "request_bytes": 453938,
+            "cached_input_tokens": 104448,
+            "requests_with_cache_hits": 8,
+            "uncached_input_tokens": 1736,
+            "cache_hit_rate": 0.9836510208694342,
+            "median_first_event_ms": 1243.498,
+            "requests": 8
+          }
+        }
+      }
+    }
+  },
+  "experiments": {
+    "lite-replay": {
+      "schema_version": 1,
+      "strategy": "lite-replay",
+      "fresh_sessions": false,
+      "started_at_utc": "2026-09-07T20:34:40Z",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "scenario": "conversation",
+      "records": 256,
+      "turns_per_round": 5,
+      "transport": "HTTP/SSE via loopback forwarding",
+      "tool_profile": "terminal",
+      "runs": [
+        {
+          "client": "tny",
+          "round": 0,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1715.989,
+              "usage": {
+                "input_tokens": 6097,
+                "output_tokens": 5,
+                "request_bytes": 20121,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6097,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1441.704,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2067.396,
+              "usage": {
+                "input_tokens": 6125,
+                "output_tokens": 5,
+                "request_bytes": 20571,
+                "cached_input_tokens": 5888,
+                "uncached_input_tokens": 237,
+                "cache_hit_rate": 0.9613061224489796,
+                "median_first_event_ms": 1868.582,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2249.139,
+              "usage": {
+                "input_tokens": 6153,
+                "output_tokens": 5,
+                "request_bytes": 21022,
+                "cached_input_tokens": 5888,
+                "uncached_input_tokens": 265,
+                "cache_hit_rate": 0.9569315780919877,
+                "median_first_event_ms": 1818.289,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2162.758,
+              "usage": {
+                "input_tokens": 6181,
+                "output_tokens": 5,
+                "request_bytes": 21471,
+                "cached_input_tokens": 5888,
+                "uncached_input_tokens": 293,
+                "cache_hit_rate": 0.9525966672059537,
+                "median_first_event_ms": 1903.764,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2191.09,
+              "usage": {
+                "input_tokens": 6209,
+                "output_tokens": 5,
+                "request_bytes": 21921,
+                "cached_input_tokens": 5888,
+                "uncached_input_tokens": 321,
+                "cache_hit_rate": 0.9483008535996135,
+                "median_first_event_ms": 1975.937,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 0,
+              "turn": 0,
+              "request_bytes": 20121,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6097,
+              "output_tokens": 5,
+              "first_event_ms": 1441.704,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1684.251
+            },
+            {
+              "round": 0,
+              "turn": 1,
+              "request_bytes": 20571,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6125,
+              "output_tokens": 5,
+              "first_event_ms": 1868.582,
+              "http_status": 200,
+              "cached_input_tokens": 5888,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2036.802
+            },
+            {
+              "round": 0,
+              "turn": 2,
+              "request_bytes": 21022,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6153,
+              "output_tokens": 5,
+              "first_event_ms": 1818.289,
+              "http_status": 200,
+              "cached_input_tokens": 5888,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2229.266
+            },
+            {
+              "round": 0,
+              "turn": 3,
+              "request_bytes": 21471,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6181,
+              "output_tokens": 5,
+              "first_event_ms": 1903.764,
+              "http_status": 200,
+              "cached_input_tokens": 5888,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2142.294
+            },
+            {
+              "round": 0,
+              "turn": 4,
+              "request_bytes": 21921,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6209,
+              "output_tokens": 5,
+              "first_event_ms": 1975.937,
+              "http_status": 200,
+              "cached_input_tokens": 5888,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2169.848
+            }
+          ]
+        }
+      ],
+      "binaries": {
+        "tny": {
+          "sha256": "b92b402a9f3a050835bad6b8c2fe7a1863bab7579235433d65ad7c43808d425c",
+          "version": "0.5.0-17-gea18e12-dirty"
+        }
+      }
+    },
+    "workspace": {
+      "schema_version": 1,
+      "strategy": "workspace",
+      "fresh_sessions": true,
+      "started_at_utc": "2026-09-07T20:35:57Z",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "scenario": "conversation",
+      "records": 256,
+      "turns_per_round": 5,
+      "transport": "HTTP/SSE via loopback forwarding",
+      "tool_profile": "terminal",
+      "runs": [
+        {
+          "client": "tny",
+          "round": 0,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2208.175,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1919.334,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1345.808,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1082.202,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1522.117,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1246.789,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1374.144,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1146.703,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1470.531,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1260.195,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 0,
+              "turn": 0,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1919.334,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2182.88
+            },
+            {
+              "round": 0,
+              "turn": 1,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1082.202,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1311.147
+            },
+            {
+              "round": 0,
+              "turn": 2,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1246.789,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1484.535
+            },
+            {
+              "round": 0,
+              "turn": 3,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1146.703,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1337.417
+            },
+            {
+              "round": 0,
+              "turn": 4,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1260.195,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1438.616
+            }
+          ]
+        }
+      ],
+      "binaries": {
+        "tny": {
+          "sha256": "b92b402a9f3a050835bad6b8c2fe7a1863bab7579235433d65ad7c43808d425c",
+          "version": "0.5.0-17-gea18e12-dirty"
+        }
+      }
+    },
+    "workspace-key-v-codex": {
+      "schema_version": 1,
+      "strategy": "workspace-key",
+      "fresh_sessions": true,
+      "started_at_utc": "2026-09-07T20:47:09Z",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "scenario": "conversation",
+      "records": 256,
+      "turns_per_round": 6,
+      "transport": "HTTP/SSE via loopback forwarding",
+      "tool_profile": "terminal",
+      "runs": [
+        {
+          "client": "tny",
+          "round": 0,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1649.161,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1389.225,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1208.969,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 950.589,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1484.701,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1114.274,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1218.568,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 969.346,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1476.85,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1313.573,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2294.775,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 2013.299,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 0,
+              "turn": 0,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1389.225,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1626.627,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 1,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 950.589,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1179.658,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 2,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1114.274,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1455.615,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 3,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 969.346,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1189.057,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 4,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1313.573,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1450.744,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 5,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 2013.299,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2272.878,
+              "continuation_used": false
+            }
+          ]
+        },
+        {
+          "client": "codex",
+          "round": 0,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5790.999,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13199,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1131.781,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6162.921,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13199,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1370.71,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5852.89,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13199,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 940.109,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6316.893,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6287,
+                "cache_hit_rate": 0.5236760360633381,
+                "median_first_event_ms": 1550.687,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 9393.296,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 13056,
+                "uncached_input_tokens": 143,
+                "cache_hit_rate": 0.9891658458974165,
+                "median_first_event_ms": 4135.852,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6400.008,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13199,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1656.549,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 0,
+              "turn": 0,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1131.781,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1380.159,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 1,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1370.71,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1669.376,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 2,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 940.109,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1194.791,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 3,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1550.687,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1825.732,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 4,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 4135.852,
+              "http_status": 200,
+              "cached_input_tokens": 13056,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 4958.386,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 5,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1656.549,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2203.016,
+              "continuation_used": false
+            }
+          ]
+        }
+      ],
+      "binaries": {
+        "tny": {
+          "sha256": "b92b402a9f3a050835bad6b8c2fe7a1863bab7579235433d65ad7c43808d425c",
+          "version": "0.5.0-17-gea18e12-dirty"
+        },
+        "codex": {
+          "sha256": "61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70",
+          "version": "codex-cli 0.154.0-alpha.3"
+        }
+      }
+    },
+    "ws-lite-replay": {
+      "schema_version": 1,
+      "strategy": "ws-lite-replay",
+      "fresh_sessions": false,
+      "started_at_utc": "2026-09-07T20:41:19Z",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "scenario": "conversation",
+      "records": 256,
+      "turns_per_round": 5,
+      "transport": "HTTP/SSE via loopback forwarding",
+      "tool_profile": "terminal",
+      "runs": [
+        {
+          "client": "tny",
+          "round": 0,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 2388.187,
+              "usage": {
+                "input_tokens": 6095,
+                "output_tokens": 5,
+                "request_bytes": 20121,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6095,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 2269.315,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1633.649,
+              "usage": {
+                "input_tokens": 6123,
+                "output_tokens": 5,
+                "request_bytes": 20571,
+                "cached_input_tokens": 5888,
+                "uncached_input_tokens": 235,
+                "cache_hit_rate": 0.9616201208557896,
+                "median_first_event_ms": 1478.388,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1607.4,
+              "usage": {
+                "input_tokens": 6151,
+                "output_tokens": 5,
+                "request_bytes": 21022,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6151,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1477.434,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1460.926,
+              "usage": {
+                "input_tokens": 6179,
+                "output_tokens": 5,
+                "request_bytes": 21471,
+                "cached_input_tokens": 5888,
+                "uncached_input_tokens": 291,
+                "cache_hit_rate": 0.9529050008091924,
+                "median_first_event_ms": 1338.37,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1582.842,
+              "usage": {
+                "input_tokens": 6207,
+                "output_tokens": 5,
+                "request_bytes": 21921,
+                "cached_input_tokens": 5888,
+                "uncached_input_tokens": 319,
+                "cache_hit_rate": 0.9486064121153537,
+                "median_first_event_ms": 1437.297,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 0,
+              "turn": 0,
+              "request_bytes": 20121,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6095,
+              "output_tokens": 5,
+              "first_event_ms": 2269.315,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 2362.145,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 1,
+              "request_bytes": 20571,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6123,
+              "output_tokens": 5,
+              "first_event_ms": 1478.388,
+              "http_status": 200,
+              "cached_input_tokens": 5888,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1599.411,
+              "continuation_used": true
+            },
+            {
+              "round": 0,
+              "turn": 2,
+              "request_bytes": 21022,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6151,
+              "output_tokens": 5,
+              "first_event_ms": 1477.434,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1581.512,
+              "continuation_used": true
+            },
+            {
+              "round": 0,
+              "turn": 3,
+              "request_bytes": 21471,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6179,
+              "output_tokens": 5,
+              "first_event_ms": 1338.37,
+              "http_status": 200,
+              "cached_input_tokens": 5888,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1438.411,
+              "continuation_used": true
+            },
+            {
+              "round": 0,
+              "turn": 4,
+              "request_bytes": 21921,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6207,
+              "output_tokens": 5,
+              "first_event_ms": 1437.297,
+              "http_status": 200,
+              "cached_input_tokens": 5888,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1560.379,
+              "continuation_used": true
+            }
+          ]
+        }
+      ],
+      "binaries": {
+        "tny": {
+          "sha256": "b92b402a9f3a050835bad6b8c2fe7a1863bab7579235433d65ad7c43808d425c",
+          "version": "0.5.0-17-gea18e12-dirty"
+        }
+      }
+    },
+    "explicit-lite": {
+      "schema_version": 1,
+      "strategy": "lite-replay-breakpoint",
+      "fresh_sessions": false,
+      "started_at_utc": "2026-09-07T20:48:10Z",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "scenario": "conversation",
+      "records": 256,
+      "turns_per_round": 1,
+      "transport": "HTTP/SSE via loopback forwarding",
+      "tool_profile": "terminal",
+      "runs": [
+        {
+          "client": "tny",
+          "round": 0,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 2,
+              "correct": false,
+              "valid": false,
+              "elapsed_ms": 769.031,
+              "usage": null
+            }
+          ],
+          "requests": [
+            {
+              "round": 0,
+              "turn": 0,
+              "request_bytes": 20170,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": null,
+              "output_tokens": null,
+              "first_event_ms": null,
+              "http_status": 400,
+              "elapsed_ms": 745.35,
+              "continuation_used": false
+            }
+          ]
+        }
+      ],
+      "binaries": {
+        "tny": {
+          "sha256": "b92b402a9f3a050835bad6b8c2fe7a1863bab7579235433d65ad7c43808d425c",
+          "version": "0.5.0-17-gea18e12-dirty"
+        }
+      }
+    },
+    "astra-capability": {
+      "model": "gpt-6-astra",
+      "purpose": "cache capability check",
+      "effort": "low",
+      "status": 400,
+      "unsupported_prompt_cache_options": true
+    },
+    "workspace-v-codex": {
+      "schema_version": 1,
+      "strategy": "workspace",
+      "fresh_sessions": true,
+      "started_at_utc": "2026-09-07T20:49:55Z",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "scenario": "conversation",
+      "records": 256,
+      "turns_per_round": 6,
+      "transport": "HTTP/SSE via loopback forwarding",
+      "tool_profile": "terminal",
+      "runs": [
+        {
+          "client": "tny",
+          "round": 0,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1323.402,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1068.777,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1307.054,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1103.176,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1327.632,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1097.482,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1341.512,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1080.872,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 3606.564,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 2895.795,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1565.952,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1323.157,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 0,
+              "turn": 0,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1068.777,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1300.857,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 1,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1103.176,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1283.042,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 2,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1097.482,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1296.746,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 3,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1080.872,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1305.11,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 4,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 2895.795,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 3583.484,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 5,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1323.157,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1541.549,
+              "continuation_used": false
+            }
+          ]
+        },
+        {
+          "client": "codex",
+          "round": 0,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6104.812,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13203,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1469.63,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5656.067,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13203,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 994.264,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5798.53,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6291,
+                "cache_hit_rate": 0.523517382413088,
+                "median_first_event_ms": 1025.811,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5729.504,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13203,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 886.806,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6249.553,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 13056,
+                "uncached_input_tokens": 147,
+                "cache_hit_rate": 0.9888661667802772,
+                "median_first_event_ms": 1278.594,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5948.133,
+              "usage": {
+                "input_tokens": 13203,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13203,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1059.795,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 0,
+              "turn": 0,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1469.63,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1749.363,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 1,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 994.264,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1236.416,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 2,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1025.811,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1316.443,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 3,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 886.806,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1104.214,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 4,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1278.594,
+              "http_status": 200,
+              "cached_input_tokens": 13056,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1985.229,
+              "continuation_used": false
+            },
+            {
+              "round": 0,
+              "turn": 5,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13203,
+              "output_tokens": 5,
+              "first_event_ms": 1059.795,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1405.925,
+              "continuation_used": false
+            }
+          ]
+        },
+        {
+          "client": "codex",
+          "round": 1,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6134.662,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 6912,
+                "uncached_input_tokens": 6287,
+                "cache_hit_rate": 0.5236760360633381,
+                "median_first_event_ms": 1492.583,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5299.95,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13199,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 905.618,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6189.923,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 13056,
+                "uncached_input_tokens": 143,
+                "cache_hit_rate": 0.9891658458974165,
+                "median_first_event_ms": 1166.615,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 5905.015,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13199,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1265.689,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6122.89,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 2816,
+                "uncached_input_tokens": 10383,
+                "cache_hit_rate": 0.21334949617395257,
+                "median_first_event_ms": 1207.43,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 6113.055,
+              "usage": {
+                "input_tokens": 13199,
+                "output_tokens": 5,
+                "request_bytes": 56095,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 13199,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1138.978,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 1,
+              "turn": 0,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1492.583,
+              "http_status": 200,
+              "cached_input_tokens": 6912,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1749.773,
+              "continuation_used": false
+            },
+            {
+              "round": 1,
+              "turn": 1,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 905.618,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1092.441,
+              "continuation_used": false
+            },
+            {
+              "round": 1,
+              "turn": 2,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1166.615,
+              "http_status": 200,
+              "cached_input_tokens": 13056,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1447.967,
+              "continuation_used": false
+            },
+            {
+              "round": 1,
+              "turn": 3,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1265.689,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1475.095,
+              "continuation_used": false
+            },
+            {
+              "round": 1,
+              "turn": 4,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1207.43,
+              "http_status": 200,
+              "cached_input_tokens": 2816,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1477.359,
+              "continuation_used": false
+            },
+            {
+              "round": 1,
+              "turn": 5,
+              "request_bytes": 56095,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 13199,
+              "output_tokens": 5,
+              "first_event_ms": 1138.978,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1374.542,
+              "continuation_used": false
+            }
+          ]
+        },
+        {
+          "client": "tny",
+          "round": 1,
+          "turns": [
+            {
+              "turn": 0,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1657.058,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 0,
+                "uncached_input_tokens": 6015,
+                "cache_hit_rate": 0.0,
+                "median_first_event_ms": 1473.249,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 1,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1523.656,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1283.982,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 2,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1509.584,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1250.942,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 3,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1404.673,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1153.005,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 4,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1524.786,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1306.247,
+                "requests": 1
+              }
+            },
+            {
+              "turn": 5,
+              "exit_code": 0,
+              "correct": true,
+              "valid": true,
+              "elapsed_ms": 1853.074,
+              "usage": {
+                "input_tokens": 6015,
+                "output_tokens": 5,
+                "request_bytes": 19758,
+                "cached_input_tokens": 5632,
+                "uncached_input_tokens": 383,
+                "cache_hit_rate": 0.9363258520365753,
+                "median_first_event_ms": 1429.4,
+                "requests": 1
+              }
+            }
+          ],
+          "requests": [
+            {
+              "round": 1,
+              "turn": 0,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1473.249,
+              "http_status": 200,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1627.04,
+              "continuation_used": false
+            },
+            {
+              "round": 1,
+              "turn": 1,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1283.982,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1499.132,
+              "continuation_used": false
+            },
+            {
+              "round": 1,
+              "turn": 2,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1250.942,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1487.264,
+              "continuation_used": false
+            },
+            {
+              "round": 1,
+              "turn": 3,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1153.005,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1379.829,
+              "continuation_used": false
+            },
+            {
+              "round": 1,
+              "turn": 4,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1306.247,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1501.687,
+              "continuation_used": false
+            },
+            {
+              "round": 1,
+              "turn": 5,
+              "request_bytes": 19758,
+              "cache_key_present": true,
+              "affinity_sent": false,
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "first_event_ms": 1429.4,
+              "http_status": 200,
+              "cached_input_tokens": 5632,
+              "cache_write_tokens": 0,
+              "completion": "response.completed",
+              "elapsed_ms": 1830.057,
+              "continuation_used": false
+            }
+          ]
+        }
+      ],
+      "binaries": {
+        "tny": {
+          "sha256": "b92b402a9f3a050835bad6b8c2fe7a1863bab7579235433d65ad7c43808d425c",
+          "version": "0.5.0-17-gea18e12-dirty"
+        },
+        "codex": {
+          "sha256": "61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70",
+          "version": "codex-cli 0.154.0-alpha.3"
+        }
+      }
+    }
+  },
+  "direct_checks": {
+    "codex": {
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "transport": "Codex builtin default, not overridden",
+      "scenario": "fresh",
+      "rounds": [
+        [
+          {
+            "round": 0,
+            "task": 0,
+            "exit_code": 0,
+            "elapsed_ms": 5969.114,
+            "usage": {
+              "input_tokens": 15264,
+              "cached_input_tokens": 6912,
+              "cache_write_input_tokens": 0,
+              "output_tokens": 5,
+              "reasoning_output_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 0,
+            "task": 1,
+            "exit_code": 0,
+            "elapsed_ms": 5149.888,
+            "usage": {
+              "input_tokens": 15264,
+              "cached_input_tokens": 6912,
+              "cache_write_input_tokens": 0,
+              "output_tokens": 5,
+              "reasoning_output_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 0,
+            "task": 2,
+            "exit_code": 0,
+            "elapsed_ms": 4001.577,
+            "usage": {
+              "input_tokens": 15179,
+              "cached_input_tokens": 6912,
+              "cache_write_input_tokens": 0,
+              "output_tokens": 5,
+              "reasoning_output_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 0,
+            "task": 3,
+            "exit_code": 0,
+            "elapsed_ms": 6700.258,
+            "usage": {
+              "input_tokens": 15387,
+              "cached_input_tokens": 6912,
+              "cache_write_input_tokens": 0,
+              "output_tokens": 5,
+              "reasoning_output_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 0,
+            "task": 4,
+            "exit_code": 0,
+            "elapsed_ms": 6290.645,
+            "usage": {
+              "input_tokens": 15387,
+              "cached_input_tokens": 6912,
+              "cache_write_input_tokens": 0,
+              "output_tokens": 5,
+              "reasoning_output_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 0,
+            "task": 5,
+            "exit_code": 0,
+            "elapsed_ms": 6055.714,
+            "usage": {
+              "input_tokens": 15387,
+              "cached_input_tokens": 6912,
+              "cache_write_input_tokens": 0,
+              "output_tokens": 5,
+              "reasoning_output_tokens": 0
+            },
+            "correct": true
+          }
+        ],
+        [
+          {
+            "round": 1,
+            "task": 0,
+            "exit_code": 0,
+            "elapsed_ms": 6065.734,
+            "usage": {
+              "input_tokens": 15268,
+              "cached_input_tokens": 6912,
+              "cache_write_input_tokens": 0,
+              "output_tokens": 5,
+              "reasoning_output_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 1,
+            "task": 1,
+            "exit_code": 0,
+            "elapsed_ms": 5059.636,
+            "usage": {
+              "input_tokens": 15268,
+              "cached_input_tokens": 6912,
+              "cache_write_input_tokens": 0,
+              "output_tokens": 5,
+              "reasoning_output_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 1,
+            "task": 2,
+            "exit_code": 0,
+            "elapsed_ms": 4993.051,
+            "usage": {
+              "input_tokens": 15183,
+              "cached_input_tokens": 6912,
+              "cache_write_input_tokens": 0,
+              "output_tokens": 5,
+              "reasoning_output_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 1,
+            "task": 3,
+            "exit_code": 0,
+            "elapsed_ms": 5185.847,
+            "usage": {
+              "input_tokens": 15391,
+              "cached_input_tokens": 6912,
+              "cache_write_input_tokens": 0,
+              "output_tokens": 5,
+              "reasoning_output_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 1,
+            "task": 4,
+            "exit_code": 0,
+            "elapsed_ms": 5204.482,
+            "usage": {
+              "input_tokens": 15391,
+              "cached_input_tokens": 6912,
+              "cache_write_input_tokens": 0,
+              "output_tokens": 5,
+              "reasoning_output_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 1,
+            "task": 5,
+            "exit_code": 0,
+            "elapsed_ms": 5197.832,
+            "usage": {
+              "input_tokens": 15391,
+              "cached_input_tokens": 6912,
+              "cache_write_input_tokens": 0,
+              "output_tokens": 5,
+              "reasoning_output_tokens": 0
+            },
+            "correct": true
+          }
+        ]
+      ],
+      "summary": {
+        "tasks": 12,
+        "input_tokens": 183760,
+        "cached_input_tokens": 82944,
+        "cache_hit_rate": 0.4513713539399216,
+        "uncached_input_tokens": 100816
+      }
+    },
+    "tny": {
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "transport": "tny direct HTTPS, no proxy",
+      "scenario": "fresh",
+      "rounds": [
+        [
+          {
+            "round": 0,
+            "task": 0,
+            "exit_code": 0,
+            "elapsed_ms": 1366.026,
+            "usage": {
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "requests": 1,
+              "cached_input_tokens": 0,
+              "uncached_input_tokens": 6011,
+              "cache_write_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 0,
+            "task": 1,
+            "exit_code": 0,
+            "elapsed_ms": 1539.273,
+            "usage": {
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "requests": 1,
+              "cached_input_tokens": 5632,
+              "uncached_input_tokens": 379,
+              "cache_write_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 0,
+            "task": 2,
+            "exit_code": 0,
+            "elapsed_ms": 1814.031,
+            "usage": {
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "requests": 1,
+              "cached_input_tokens": 5632,
+              "uncached_input_tokens": 379,
+              "cache_write_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 0,
+            "task": 3,
+            "exit_code": 0,
+            "elapsed_ms": 1421.262,
+            "usage": {
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "requests": 1,
+              "cached_input_tokens": 0,
+              "uncached_input_tokens": 6011,
+              "cache_write_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 0,
+            "task": 4,
+            "exit_code": 0,
+            "elapsed_ms": 1277.332,
+            "usage": {
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "requests": 1,
+              "cached_input_tokens": 5632,
+              "uncached_input_tokens": 379,
+              "cache_write_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 0,
+            "task": 5,
+            "exit_code": 0,
+            "elapsed_ms": 1556.45,
+            "usage": {
+              "input_tokens": 6011,
+              "output_tokens": 5,
+              "requests": 1,
+              "cached_input_tokens": 5632,
+              "uncached_input_tokens": 379,
+              "cache_write_tokens": 0
+            },
+            "correct": true
+          }
+        ],
+        [
+          {
+            "round": 1,
+            "task": 0,
+            "exit_code": 0,
+            "elapsed_ms": 1330.589,
+            "usage": {
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "requests": 1,
+              "cached_input_tokens": 0,
+              "uncached_input_tokens": 6015,
+              "cache_write_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 1,
+            "task": 1,
+            "exit_code": 0,
+            "elapsed_ms": 1623.964,
+            "usage": {
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "requests": 1,
+              "cached_input_tokens": 5632,
+              "uncached_input_tokens": 383,
+              "cache_write_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 1,
+            "task": 2,
+            "exit_code": 0,
+            "elapsed_ms": 2019.586,
+            "usage": {
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "requests": 1,
+              "cached_input_tokens": 5632,
+              "uncached_input_tokens": 383,
+              "cache_write_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 1,
+            "task": 3,
+            "exit_code": 0,
+            "elapsed_ms": 1574.49,
+            "usage": {
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "requests": 1,
+              "cached_input_tokens": 0,
+              "uncached_input_tokens": 6015,
+              "cache_write_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 1,
+            "task": 4,
+            "exit_code": 0,
+            "elapsed_ms": 1149.211,
+            "usage": {
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "requests": 1,
+              "cached_input_tokens": 5632,
+              "uncached_input_tokens": 383,
+              "cache_write_tokens": 0
+            },
+            "correct": true
+          },
+          {
+            "round": 1,
+            "task": 5,
+            "exit_code": 0,
+            "elapsed_ms": 1414.397,
+            "usage": {
+              "input_tokens": 6015,
+              "output_tokens": 5,
+              "requests": 1,
+              "cached_input_tokens": 5632,
+              "uncached_input_tokens": 383,
+              "cache_write_tokens": 0
+            },
+            "correct": true
+          }
+        ]
+      ],
+      "summary": {
+        "tasks": 12,
+        "input_tokens": 72156,
+        "cached_input_tokens": 45056,
+        "cache_hit_rate": 0.624424857253728,
+        "uncached_input_tokens": 27100
+      }
+    }
+  },
+  "verification": {
+    "unit_tests": 451,
+    "integration_groups": 42,
+    "focused_tests": 17,
+    "make_test": "passed with TNY_TOOLS unset",
+    "quality": "passed, clang-tidy scoped to changed src/backends/openai/openai.c; full-tree other checks",
+    "leaks": "passed, zero leaks",
+    "local_wasm_nix": "unavailable; CI required"
+  },
+  "binary": {
+    "bytes": 883904,
+    "sha256": "88aa1c2dffbbfd9a77f9c8ea5da0bb18276b2e1dcdc01babe778bab25949f193"
+  }
+}

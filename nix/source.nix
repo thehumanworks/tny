@@ -51,7 +51,7 @@ let
     # All of tests/, which includes the frozen tool-profile A/B fixtures
     # under tests/bench/fixtures/tools/ that
     # tests/integration/test_bench_tools.py copies and scores (issue #103).
-    ../tests # includes quick-ask PTY and tmux screen regression tests
+    ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
     # Image fixtures (test_image_service.py) embed their PNG in source and
     # create reference/output files in a temporary directory; no external assets.
     # Speech fixtures (test_speech.py) generate their fake player in a temp

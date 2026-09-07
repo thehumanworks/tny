@@ -72,6 +72,30 @@ and steer work identically on both wires. Image messages become
 `input_text` / `input_image` parts; the compaction summary is a leading
 system input item.
 
+For the builtin `codex` profile and first-party OpenAI Responses endpoints,
+`prompt_cache_key` identifies the workspace and tool profile by default, so
+independent tasks and ephemeral asks can reuse their common instructions.
+SSH host/cwd also participate in the routing ID. ChatGPT's `session-id`
+header uses this routing group; `thread-id` always remains the individual
+conversation ID. `TNY_OPENAI_CACHE_SCOPE=session` restores conversation-only
+routing; unknown scope values conservatively use session scope.
+The first valid `x-codex-turn-state` response header is replayed
+for the remainder of that user turn, then cleared. It never enters the
+transcript, logs, or the next turn. Values at the HTTP transport's truncation
+limit are ignored. `TNY_OPENAI_CACHE=0` disables these routing hints for
+compatibility troubleshooting; it does not disable OpenAI's automatic cache.
+
+The existing instructions, tools, full-history replay, and `store:false`
+contract stay intact. Compatible third-party gateways and the Chat Completions
+request body receive no new cache fields. The shared C implementation works
+on wasm; browser CORS must permit the request headers and expose the affinity
+response header for sticky routing. If it is not exposed, session routing
+still applies. Public-API explicit breakpoints and retention options are not
+sent: the tested ChatGPT subscription endpoint rejected them on Luna.
+See [ADR 0077](../adr/0077-openai-prompt-cache-routing.md) for usage accounting
+and [ADR 0078](../adr/0078-workspace-shared-prompt-cache.md) for cross-task
+cache measurements and the opt-in benchmark.
+
 Chat request (minimum, `wire_api: "chat"`):
 
 ```json
@@ -102,6 +126,9 @@ Stream: `text/event-stream`, chunked, split anywhere.
   assemble tool calls (`response.output_item.done` carries the complete
   `arguments` string and is authoritative), `response.completed` carries
   `usage.input_tokens/output_tokens` and ends the stream.
+  Cache-read/write details are retained when reported. Usage accumulates
+  across every model response in the turn, including tool rounds; absent
+  details remain unknown in `ask --json` rather than becoming zero.
   `response.failed` / `error` → run error with the provider message;
   `response.incomplete` keeps the partial text and ends with a non-success
   limit/filter stop (as do chat's `length` / `content_filter` reasons).
