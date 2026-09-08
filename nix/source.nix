@@ -52,6 +52,8 @@ let
     # under tests/bench/fixtures/tools/ that
     # tests/integration/test_bench_tools.py copies and scores (issue #103).
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
+    # test_worktree.py generates temporary Git repositories and imports the
+    # shared test_tui.py PTY harness; both are included by ../tests above.
     # Image fixtures (test_image_service.py) embed their PNG in source and
     # create reference/output files in a temporary directory; no external assets.
     # Speech fixtures (test_speech.py) generate their fake player in a temp

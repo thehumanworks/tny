@@ -422,6 +422,23 @@ def main():
                 OPENAI_API_KEY="test-key-not-real",
             )
 
+            if IS_WASM:
+                for flags, text, code in (
+                    (["--worktree"], "", 1),
+                    ([], "/worktree fixture\n/quit\n", 0),
+                ):
+                    p = subprocess.run(
+                        [TNY, "--cwd", ws, *flags],
+                        env=env,
+                        input=text,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                    assert p.returncode == code, p.stderr + p.stdout
+                    assert "unavailable in wasm" in p.stderr + p.stdout
+                assert not os.path.exists(os.path.join(home, ".tny", "worktrees"))
+
             check_tool_profile_wire(env, ws, "responses")
             check_tool_profile_wire(env, ws, "chat")
             check_shell_profile_result_file(env, ws)

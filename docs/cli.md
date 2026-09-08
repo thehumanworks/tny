@@ -47,6 +47,7 @@ tny --provider cursor|acp|openai|codex|claude|grok|NAME|acp@AGENT [command]
                             # --backend is an alias; NAME = an OpenAI-compatible
                             # profile; acp@AGENT = settings acp.AGENT
 tny --cwd DIR
+tny --worktree [NAME]       # create/enter ~/.tny/worktrees/NAME; random by default
 tny --model ID
 tny --effort LEVEL          # reasoning effort (--reasoning-effort is an alias)
 tny --system-prompt TEXT    # custom system prompt (docs/adr/0045)

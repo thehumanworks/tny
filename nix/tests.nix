@@ -5,6 +5,7 @@
   lib,
   stdenv,
   darwin,
+  git,
   bash,
   bubblewrap,
   nodejs,
@@ -28,6 +29,7 @@ stdenv.mkDerivation {
   strictDeps = true;
   nativeBuildInputs = [
     bash
+    git # test_worktree.py uses temporary real repositories and linked worktrees
     # Integration fixtures plus the optional stdlib-only
     # tnytty/tests/bench/bench_tnytty.py runner. The performance benchmark is
     # intentionally not part of buildPhase because shared CI timing is noisy.

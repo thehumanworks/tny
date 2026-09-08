@@ -36,6 +36,8 @@ typedef struct tui_prewarm tui_prewarm; /* tui_prewarm.c */
 typedef struct tui {
     tny_ctx *ctx;
     const cli_globals *g;
+    bool owns_ctx;
+    tny_worktree *worktree, *worktrees;
 
     /* tty: the bottom block is drawn at all. color: SGR color sequences.
      * attr: non-color SGR (bold/dim/reverse/reset) — structural, survives
@@ -120,6 +122,11 @@ typedef struct tui {
     /* Transcript gap: one blank line before the next agent start. */
     int gap; /* 0 none, 1 before text or tools, 2 before text only */
 } tui;
+
+/* Workspace switches end the old session; exit actions run after shutdown. */
+void tui_worktree_enter(tui *t, const char *name);
+void tui_worktree_finish(tui *t, bool stopped);
+bool tui_worktree_wait_runner(pid_t pid);
 
 /* Key decoder (split-safe). Exposed for unit tests. */
 typedef enum {

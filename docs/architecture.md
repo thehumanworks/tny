@@ -88,6 +88,7 @@ remain CLI surfaces and do not expand the embedding ABI.
 | `~/.tny/skills/` | Managed skill installs |
 | `~/.tny/extensions/` | Trusted global Python event hooks (`*.py`, `*/index.py`) |
 | `~/.tny/tasks/` | User task-preset Markdown definitions (`NAME.md`) |
+| `~/.tny/worktrees/` | Managed Git checkouts; origin metadata and usage locks live in their private Git directories ([ADR 0080](adr/0080-managed-git-worktrees.md)) |
 | `<repo>/.tny.json` | Repo-safe limits only (steps, tool result bytes, sandbox, context on/off) |
 | `<repo>/.tny/tasks/` | Project task-preset Markdown definitions; project files cannot add authority or cost |
 | `<repo>/AGENTS.md` | Project instructions (also `CLAUDE.md` as alias if present). Over `--ssh`, the remote cwd's file is used instead of this local path ([ADR 0040](adr/0040-ssh-agents-md.md)) |

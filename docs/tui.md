@@ -136,6 +136,12 @@ run their own loops and ignore it.
 
 Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace` `/ssh`
 
+Workspace: `/worktree [NAME]` creates or enters a Git checkout in
+`~/.tny/worktrees`, starts a fresh session there, and offers merge/remove/keep
+when exiting. Enter or rejection keeps the worktree. See [Worktrees](worktrees.md)
+for branch naming, reuse and cleanup rules; `--worktree [NAME]` selects the
+same mode at startup.
+
 Input: `/dictate [PROVIDER]` records the local microphone and inserts the
 transcript at the caret. Codex/ChatGPT handles dictation by default even when
 the conversation uses Grok or another provider. Enter finishes recording;

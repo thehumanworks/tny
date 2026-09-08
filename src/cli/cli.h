@@ -4,14 +4,18 @@
 #define TNY_CLI_H
 
 #include "core/config.h"
+#include "util/worktree.h"
 
 #include <stdint.h>
 #include <stdio.h>
 
 /* Leading global flags, parsed before the subcommand. */
 typedef struct {
-    const char *backend;                  /* --backend */
-    const char *cwd;                      /* --cwd */
+    const char *backend; /* --backend */
+    const char *cwd;     /* --cwd */
+    bool worktree;       /* --worktree [NAME] */
+    const char *worktree_name;
+    tny_worktree *active_worktree;        /* borrowed from main; NULL outside worktree mode */
     const char *model;                    /* --model */
     const char *effort;                   /* --effort | --reasoning-effort */
     const char *system_prompt;            /* --system-prompt */
@@ -54,6 +58,7 @@ int cursor_cli_artifact_frame(uint8_t flags, const char *payload, size_t len, vo
 /* Parse leading globals; returns index of the subcommand in argv or -1 on
  * error (message already printed). */
 int cli_parse_globals(int argc, char **argv, cli_globals *g);
+bool cli_is_command(const char *name);
 
 /* --ssh TARGET: open the remote tool runtime on ctx (docs/adr/0022). Prints
  * its own error; 0 ok. Shared by cli_make_ctx and the TUI /ssh command. */

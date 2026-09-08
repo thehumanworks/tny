@@ -21,6 +21,7 @@ Keep the *user-visible harness*, not Vercel branding:
 - Dictation: microphone speech to an editable prompt, using an STT provider independently of the agent provider.
 - One-shot `ask` for scripts/CI with Markdown on stdout and JSON mode.
 - Sessions: list, inspect, resume `last` or id, compact, recover.
+- Git worktrees: optional isolated checkouts, named reuse, and explicit merge/remove/keep on TUI exit.
 - Permissions: `ask` / `auto` / `yolo`, persistent rules, session grants, command sandbox.
 - Built-in tools (files, grep/glob, shell, web fetch/search, vision fallback, memory, speech, image generation/editing).
 - Skills (`SKILL.md`), MCP client, session-backed subagents.

@@ -18,10 +18,25 @@ static const char *need_val(int argc, char **argv, int *i, const char *flag) {
     return argv[++*i];
 }
 
+bool cli_is_command(const char *name) {
+    static const char *const names[] = {
+        "ask",    "edit",     "speak",       "dictate",   "image",     "ask-user", "resume",
+        "acp",    "sessions", "session",     "provider",  "providers", "backends", "models",
+        "tasks",  "task",     "permissions", "workspace", "status",    "doctor",   "usage",
+        "cursor", "mcp",      "login",       "logout",    "setup",     "help",     NULL};
+    for (size_t i = 0; names[i]; i++)
+        if (strcmp(name, names[i]) == 0) return true;
+    return false;
+}
+
 int cli_parse_globals(int argc, char **argv, cli_globals *g) {
     int i = 1;
     for (; i < argc; i++) {
         const char *a = argv[i];
+        if (strcmp(a, "--") == 0) return i + 1;
+        if (strcmp(a, "--help") == 0 || strcmp(a, "-h") == 0 || strcmp(a, "--version") == 0 ||
+            strcmp(a, "-v") == 0)
+            break;
         if (a[0] != '-') break; /* subcommand */
         const char *v;
         if (strcmp(a, "--ssh") == 0) {
@@ -36,6 +51,14 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else if (strcmp(a, "--cwd") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->cwd = v;
+        } else if (strcmp(a, "--worktree") == 0) {
+            g->worktree = true;
+            g->worktree_name = NULL;
+            if (i + 1 < argc && argv[i + 1][0] != '-' && !cli_is_command(argv[i + 1]))
+                g->worktree_name = argv[++i];
+        } else if (str_starts(a, "--worktree=")) {
+            g->worktree = true;
+            g->worktree_name = a + strlen("--worktree=");
         } else if (strcmp(a, "--model") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->model = v;

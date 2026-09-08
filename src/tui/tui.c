@@ -756,6 +756,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     memset(&t, 0, sizeof t);
     t.ctx = ctx;
     t.g = g;
+    t.worktree = t.worktrees = g->active_worktree;
     buf_init(&t.out);
     buf_init(&t.partial);
     buf_init(&t.input);
@@ -903,11 +904,12 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     }
     tui_raw_begin(&t);
     fflush(stdout);
-    term_restore();
-
+    if (!t.worktree) term_restore();
     bool had_runner = t.rc != NULL;
-    tui_prewarm_drop(&t); /* runner mode: sends `end` — the runner cancels
-                           * any live turn, finalizes, saves, and exits */
+    pid_t runner_pid = t.rc_pid;
+    t.turn_active = false; /* cancellation requested above; now end the runner */
+    tui_prewarm_drop(&t);  /* runner mode: sends `end` — the runner cancels
+                            * any live turn, finalizes, saves, and exits */
     if (t.engine) tny_engine_end_session(t.engine, "exit");
     tui_drop_backend(&t);
     if (t.session) {
@@ -915,6 +917,9 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         session_close(t.session);
     }
     mcp_shutdown_all();
+    bool stopped = !t.worktree || tui_worktree_wait_runner(runner_pid);
+    tui_worktree_finish(&t, stopped);
+    term_restore();
     perm_free(t.perm);
     tui_items_clear(&t);
     tui_files_free(&t);
@@ -929,6 +934,12 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     buf_free(&t.note);
     buf_free(&t.last_reply);
     buf_free(&t.prompt_text);
+    if (t.owns_ctx) tny_ctx_free(t.ctx);
+    while (t.worktrees) {
+        tny_worktree *next = t.worktrees->next;
+        if (t.worktrees != g->active_worktree) worktree_close(t.worktrees);
+        t.worktrees = next;
+    }
     return t.exit_code;
 }
 

@@ -34,46 +34,63 @@ int main(int argc, char **argv) {
     if (cmd && cargc >= 1 && (strcmp(cargv[0], "--help") == 0 || strcmp(cargv[0], "-h") == 0)) {
         if (help_for(cmd)) return 0;
     }
-    if (cmd && strcmp(cmd, "--version") == 0) {
-        fputs(TNY_VERSION "\n", stdout);
-        return 0;
-    }
-    if (cmd && strcmp(cmd, "edit") == 0) {
-        int rc = cmd_edit(&g, cargc, cargv);
+    if (cmd && (strcmp(cmd, "help") == 0 || strcmp(cmd, "--help") == 0 || strcmp(cmd, "-h") == 0)) {
+        help_root();
         free(g.add_dirs);
         free(g.agent_argv);
-#ifdef __EMSCRIPTEN__
-        exit(rc);
-#endif
-        return rc;
+        return 0;
+    }
+    if (cmd && (strcmp(cmd, "--version") == 0 || strcmp(cmd, "-v") == 0)) {
+        fputs(TNY_VERSION "\n", stdout);
+        free(g.add_dirs);
+        free(g.agent_argv);
+        return 0;
+    }
+    int rc = 1;
+    tny_ctx *ctx = NULL;
+    if (cmd && !cli_is_command(cmd)) {
+        fprintf(stderr, "tny: unknown command '%s'\n", cmd);
+        goto done;
+    }
+    if (g.worktree) {
+        if (g.ssh) {
+            fputs("tny: --worktree is local and cannot be combined with --ssh\n", stderr);
+            goto done;
+        }
+        char err[1024];
+        g.active_worktree = worktree_enter(g.cwd, g.worktree_name, err, sizeof err);
+        if (!g.active_worktree) {
+            fprintf(stderr, "tny: %s\n", err);
+            goto done;
+        }
+        g.cwd = g.active_worktree->path;
+        fprintf(stderr, "tny: %s worktree %s (%s)\n",
+                g.active_worktree->created ? "created" : "entered", g.cwd,
+                g.active_worktree->branch);
+    }
+    if (cmd && strcmp(cmd, "edit") == 0) {
+        rc = cmd_edit(&g, cargc, cargv);
+        goto done;
     }
 
     if (cmd &&
         (strcmp(cmd, "speak") == 0 || strcmp(cmd, "image") == 0 || strcmp(cmd, "dictate") == 0)) {
-        int rc = strcmp(cmd, "image") == 0     ? cmd_image_service(&g, cargc, cargv)
-                 : strcmp(cmd, "dictate") == 0 ? cmd_dictate(&g, cargc, cargv)
-                                               : cmd_speak(&g, cargc, cargv);
-        free(g.add_dirs);
-        free(g.agent_argv);
-#ifdef __EMSCRIPTEN__
-        exit(rc); /* Preserve the status after synthesis unwinds through Asyncify. */
-#endif
-        return rc;
+        rc = strcmp(cmd, "image") == 0     ? cmd_image_service(&g, cargc, cargv)
+             : strcmp(cmd, "dictate") == 0 ? cmd_dictate(&g, cargc, cargv)
+                                           : cmd_speak(&g, cargc, cargv);
+        goto done;
     }
 
     /* Socket-bound tool verbs are self-contained clients: do not load
      * provider config or create a runtime merely to contact the runner. */
     if (cmd && strcmp(cmd, "ask-user") == 0) {
-        int rc = cmd_ask_user(g.json, cargc, cargv);
-        free(g.add_dirs);
-        free(g.agent_argv);
-        return rc;
+        rc = cmd_ask_user(g.json, cargc, cargv);
+        goto done;
     }
 
-    tny_ctx *ctx = cli_make_ctx(&g);
-    if (!ctx) return 1;
+    ctx = cli_make_ctx(&g);
+    if (!ctx) goto done;
 
-    int rc;
     if (!cmd) {
         if (g.resume_picker || g.resume_last || g.resume) rc = cmd_resume(ctx, &g, 0, NULL);
         else rc = cmd_tui(ctx, &g);
@@ -124,7 +141,9 @@ int main(int argc, char **argv) {
         rc = 1;
     }
 
+done:
     tny_ctx_free(ctx);
+    worktree_close(g.active_worktree);
     free(g.add_dirs);
     free(g.agent_argv);
 #ifdef __EMSCRIPTEN__
