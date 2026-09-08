@@ -16,6 +16,7 @@ void help_root(void) {
           "Commands:\n"
           "  ask <prompt>           Run one noninteractive request\n"
           "  speak                  Speak stdin aloud using your ChatGPT login\n"
+          "  dictate                Transcribe the microphone or a WAV to prompt text\n"
           "  edit FILE              Exact-match replacement from stdin\n"
           "  ask-user QUESTION      Ask the owning session frontend (socket-bound)\n"
           "  image                  Generate, edit, or attach images\n"
@@ -310,6 +311,27 @@ bool help_for(const char *command) {
                "  --json               One result object; stdin remains plain text\n"
                "  -h, --help           Show this help\n\n"
                "Example: printf 'Build complete.' | tny speak --output-file message.mp3\n";
+    else if (strcmp(command, "dictate") == 0)
+        text = "Usage: tny dictate [OPTIONS]\n"
+               "       tny dictate --input-file speech.wav [--json]\n\n"
+               "Record the local microphone; Enter transcribes, Ctrl-C cancels.\n"
+               "Prints editable prompt text on stdout, progress on stderr.\n"
+               "Uses your Codex ChatGPT login independently of the chat provider.\n"
+               "Requires ffmpeg (or arecord on Linux); wasm/Windows support files only.\n"
+               "Audio stays in memory. Limits: 1–300 seconds, 25 MiB.\n\n"
+               "Options:\n"
+               "  --stt-provider NAME  Dictation provider (TNY_STT_PROVIDER, default codex)\n"
+               "  --input-file PATH    Transcribe PCM16 WAV instead of recording\n"
+               "  --device NAME        Microphone (TNY_AUDIO_DEVICE, default default)\n"
+               "  --seconds N          Stop recording after N seconds (1–300)\n"
+               "  --check              Check local credentials/recorder without network\n"
+               "  --json               One result object with provider and text\n"
+               "  -h, --help           Show this help\n\n"
+               "Examples:\n"
+               "  tny dictate --seconds 10\n"
+               "  tny --provider grok dictate --seconds 10\n"
+               "  tny dictate --input-file speech.wav --json\n"
+               "In the TUI: Ctrl-R or /dictate records into the composer; Enter sends.\n";
     else if (strcmp(command, "edit") == 0) text = edit_help;
     else if (strcmp(command, "ask-user") == 0)
         text = "Usage: tny ask-user [--json] QUESTION\n"

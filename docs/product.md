@@ -18,6 +18,7 @@ fx is Zig 0.16, Apache-2.0, experimental: **6.44 MiB** macOS arm64 and **11.12 M
 Keep the *user-visible harness*, not Vercel branding:
 
 - Interactive shell: streaming transcript, `/` commands, `@` file picker, `$` skill picker, interrupt, resume.
+- Dictation: microphone speech to an editable prompt, using an STT provider independently of the agent provider.
 - One-shot `ask` for scripts/CI with Markdown on stdout and JSON mode.
 - Sessions: list, inspect, resume `last` or id, compact, recover.
 - Permissions: `ask` / `auto` / `yolo`, persistent rules, session grants, command sandbox.

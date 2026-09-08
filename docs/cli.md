@@ -1007,6 +1007,16 @@ or a dispatched subcommand missing from top-level help fails the test
 ([ADR 0042](adr/0042-help-flag-alignment.md)). The small source allowlist is
 reserved for explicitly justified compatibility or passthrough syntax.
 
+## Dictation
+
+`tny dictate` records the microphone and prints prompt text. Enter finishes
+recording; Ctrl-C cancels. `--seconds N` enables timed capture;
+`--input-file speech.wav` transcribes a PCM WAV without a microphone.
+`--stt-provider NAME` is independent of the agent's `--provider`.
+`--json` returns one object with `kind`, `provider`, and `text`.
+See [Dictation](dictation.md) for account credentials, devices, bounds,
+cancellation, and platform support.
+
 ## Speech
 
 `printf 'The tests passed.' | tny speak` plays ephemeral speech using your

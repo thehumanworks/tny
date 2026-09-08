@@ -84,3 +84,4 @@ these as `docs/adr/NNNN`.
 | [0076](0076-structured-system-prompt.md) | Short native prompt directives for autonomy, verification, and clear work/checks/blockers reporting; environment facts stay separate and skill discovery matches the tool profile |
 | [0077](0077-openai-prompt-cache-routing.md) | OpenAI session cache routing, turn-scoped ChatGPT affinity, and complete cache usage accounting |
 | [0078](0078-workspace-shared-prompt-cache.md) | Reuse cache affinity across independent tasks in the same workspace while keeping conversation and turn state separate |
+| [0079](0079-provider-independent-dictation.md) | Independent microphone/file dictation service and Codex account adapter; explicit composer review before submission, bounded ephemeral audio, lazy external recorders, and remote-only file transcription on wasm |

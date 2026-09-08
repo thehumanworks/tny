@@ -9,6 +9,7 @@
 
 #include "cli/cli.h"
 #include "core/backend.h"
+#include "core/dictation.h"
 #include "core/perm.h"
 #include "core/runner.h"
 #include "core/runtime.h"
@@ -47,9 +48,10 @@ typedef struct tui {
     buf_t partial; /* transcript line still being streamed */
     bool dirty;
 
-    buf_t input;   /* composer, '\n' separates continuation lines */
-    size_t cur;    /* byte offset of the caret in input */
-    bool in_paste; /* inside a bracketed paste: bytes are literal text */
+    buf_t input;              /* composer, '\n' separates continuation lines */
+    size_t cur;               /* byte offset of the caret in input */
+    bool in_paste;            /* inside a bracketed paste: bytes are literal text */
+    tny_dictation *dictation; /* independent of the conversation backend */
 
     char **hist;
     int n_hist, hist_pos;
@@ -145,6 +147,7 @@ typedef enum {
     TUI_K_CTRLL,
     TUI_K_CTRLO,
     TUI_K_CTRLX,
+    TUI_K_DICTATE,
     TUI_K_PASTE,
     TUI_K_PASTE_BEGIN,
     TUI_K_CPR /* cursor position report: the answer to tui_size_probe */
@@ -178,6 +181,9 @@ int tui_queue_image(tui *t, const char *path);
 /* tui.c */
 void tui_submit(tui *t, const char *text);
 void tui_cancel_turn(tui *t);
+void tui_dictation_start(tui *t, const char *provider);
+void tui_dictation_step(tui *t);
+bool tui_dictation_insert(tui *t, const char *text);
 /* Queue management (docs/adr/0011). */
 void tui_queue_push(tui *t, const char *text, bool front);
 void tui_queue_clear(tui *t);

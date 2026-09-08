@@ -64,3 +64,12 @@ system — if a make target changes, the flake follows it, never forks it.
 ## Layout (when code starts)
 
 See [architecture.md](architecture.md). Keep every translation unit under ~500 lines. One backend directory per protocol. Shared net code has no knowledge of agents.
+
+## Optional microphone capture
+
+Dictation launches an external recorder only when requested: FFmpeg with
+AVFoundation on macOS, arecord (ALSA) or FFmpeg (PulseAudio) on Linux. No
+recording/decoding library or platform framework is linked into tny; PCM16
+WAV framing is C11 in the shared service. Windows and wasm support remote
+file transcription and cleanly reject microphone capture. See
+[Dictation](dictation.md) and [ADR 0079](adr/0079-provider-independent-dictation.md).

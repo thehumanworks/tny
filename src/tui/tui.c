@@ -140,6 +140,10 @@ static void maybe_gap(tui *t, bool for_text) {
 
 tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
     if (t->ctx->perm_mode == TNY_MODE_YOLO) return TNY_PERM_DECISION_ALLOW;
+    if (t->dictation) {
+        tny_dictation_cancel(t->dictation);
+        tui_dictation_step(t);
+    }
 
     char line[512];
     oneline(line, sizeof line, summary && *summary ? summary : tool);
@@ -216,6 +220,10 @@ static tny_perm_decision perm_hook(const char *tool, const char *summary, void *
 
 char *tui_ask_user(tui *t, const char *question) {
     if (!t || !t->tty) return NULL;
+    if (t->dictation) {
+        tny_dictation_cancel(t->dictation);
+        tui_dictation_step(t);
+    }
     buf_t saved, answer;
     buf_init(&saved);
     buf_init(&answer);
@@ -814,7 +822,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     while (!t.quit) {
         tui_render(&t);
 
-        struct pollfd fds[TNY_BACKEND_POLLFD_MAX + 1];
+        struct pollfd fds[TNY_BACKEND_POLLFD_MAX + 2];
         fds[0].fd = STDIN_FILENO;
         fds[0].events = POLLIN;
         fds[0].revents = 0;
@@ -830,7 +838,8 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         }
         nfds_t nfds = 1;
         if (nb > 0) nfds += (nfds_t)nb;
-        int pr = tny_poll(fds, nfds, t.turn_active ? 40 : 400);
+        if (t.dictation) fds[nfds++] = (struct pollfd){tny_dictation_fd(t.dictation), POLLIN, 0};
+        int pr = tny_poll(fds, nfds, t.turn_active || t.dictation ? 40 : 400);
         if (pr < 0 && errno != EINTR) break;
 
         if (g_winch) {
@@ -839,7 +848,8 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         }
         if (g_sigint) {
             g_sigint = 0;
-            if (t.turn_active) tui_cancel_turn(&t);
+            if (t.dictation) tny_dictation_cancel(t.dictation);
+            else if (t.turn_active) tui_cancel_turn(&t);
             else {
                 t.quit = true;
                 t.exit_code = 130;
@@ -870,6 +880,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
             t.turn_done = false;
             after_turn(&t);
         }
+        tui_dictation_step(&t);
         /* a host that never confirms the cancel must not wedge the shell */
         if (t.turn_active && t.cancel_ms && now_ms() - t.cancel_ms > 5000) {
             if (t.rc) tny_runner_client_cancel(t.rc, true); /* force-finalize */
@@ -880,6 +891,8 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         }
     }
 
+    tny_dictation_free(t.dictation);
+    t.dictation = NULL;
     if (t.turn_active && t.engine) {
         tny_engine_cancel(t.engine);
         drain_engine_events(&t);
