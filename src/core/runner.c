@@ -398,6 +398,28 @@ static void rn_client_flush(rn_state *r, int i) {
     }
 }
 
+/* A final result can exceed the socket's send buffer. Let readers drain it
+ * before closing; a single nonblocking flush followed by close truncates
+ * turn_end and makes a successfully interrupted turn look like a crash. */
+static void rn_flush_before_exit(rn_state *r) {
+    int64_t deadline = monotonic_ms() + 2000;
+    while (monotonic_ms() < deadline) {
+        struct pollfd fds[RN_MAX_CLIENTS];
+        int clients[RN_MAX_CLIENTS];
+        nfds_t n = 0;
+        for (int i = 0; i < RN_MAX_CLIENTS; i++) {
+            if (r->cl[i].fd < 0 || !r->cl[i].out.len) continue;
+            clients[n] = i;
+            fds[n++] = (struct pollfd){r->cl[i].fd, POLLOUT, 0};
+        }
+        if (!n) break;
+        int pr = tny_poll(fds, n, 50);
+        if (pr < 0 && errno != EINTR) break;
+        for (nfds_t i = 0; i < n; i++)
+            if (fds[i].revents) rn_client_flush(r, clients[i]);
+    }
+}
+
 static void rn_send_line(rn_state *r, int i, const char *line, size_t len) {
     rn_client *c = &r->cl[i];
     if (c->fd < 0) return;
@@ -971,10 +993,27 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
 static void rn_client_read(rn_state *r, int i) {
     rn_client *c = &r->cl[i];
     char tmp[8192];
-    for (;;) {
+    for (size_t bytes = 0; c->fd >= 0 && bytes < 65536;) {
         ssize_t n = read(c->fd, tmp, sizeof tmp);
         if (n > 0) {
+            bytes += (size_t)n;
             buf_append(&c->in, tmp, (size_t)n);
+            /* Parse before reading again: EOF after `cancel`/`end` must
+             * not discard the owner's last commands. Limit each line,
+             * not the combined size of a burst of valid messages. */
+            char *nl;
+            while (c->fd >= 0 && c->in.len && (nl = memchr(c->in.data, '\n', c->in.len))) {
+                size_t linelen = (size_t)(nl - c->in.data);
+                if (linelen > RN_MAX_LINE) {
+                    rn_client_drop(r, i);
+                    return;
+                }
+                yyjson_doc *doc = jparse(c->in.data, linelen);
+                buf_consume(&c->in, linelen + 1);
+                if (!doc) continue;
+                rn_handle_op(r, i, yyjson_doc_get_root(doc));
+                yyjson_doc_free(doc);
+            }
             if (c->in.len > RN_MAX_LINE) {
                 rn_client_drop(r, i);
                 return;
@@ -985,16 +1024,6 @@ static void rn_client_read(rn_state *r, int i) {
         if (n < 0 && errno == EINTR) continue;
         rn_client_drop(r, i); /* EOF or error: the client detached */
         break;
-    }
-    if (r->cl[i].fd < 0) return;
-    char *nl;
-    while (c->fd >= 0 && (nl = memchr(c->in.data, '\n', c->in.len))) {
-        size_t linelen = (size_t)(nl - c->in.data);
-        yyjson_doc *doc = jparse(c->in.data, linelen);
-        buf_consume(&c->in, linelen + 1);
-        if (!doc) continue; /* garbage line: skip, keep the connection */
-        rn_handle_op(r, i, yyjson_doc_get_root(doc));
-        yyjson_doc_free(doc);
     }
 }
 
@@ -1230,6 +1259,7 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
         rn_broadcast(&r, &b);
         buf_free(&b);
     }
+    rn_flush_before_exit(&r);
     for (int i = 0; i < RN_MAX_CLIENTS; i++) {
         rn_client_flush(&r, i);
         rn_client_drop(&r, i);
@@ -1425,10 +1455,23 @@ static void rc_parse_line(tny_runner_client *c, const char *line, size_t len) {
 int tny_runner_client_pump(tny_runner_client *c) {
     if (!c || c->fd < 0) return -1;
     char tmp[8192];
-    for (;;) {
+    /* A hot runner must not monopolize the renderer's input loop. Parse
+     * each read so a burst of small lines cannot trip the per-line cap. */
+    for (size_t bytes = 0; !c->dead && bytes < 65536;) {
         ssize_t n = read(c->fd, tmp, sizeof tmp);
         if (n > 0) {
+            bytes += (size_t)n;
             buf_append(&c->in, tmp, (size_t)n);
+            char *nl;
+            while (c->in.len && (nl = memchr(c->in.data, '\n', c->in.len))) {
+                size_t linelen = (size_t)(nl - c->in.data);
+                if (linelen > RN_MAX_LINE) {
+                    c->dead = true;
+                    break;
+                }
+                rc_parse_line(c, c->in.data, linelen);
+                buf_consume(&c->in, linelen + 1);
+            }
             if (c->in.len > RN_MAX_LINE) {
                 c->dead = true;
                 break;
@@ -1439,12 +1482,6 @@ int tny_runner_client_pump(tny_runner_client *c) {
         if (n < 0 && errno == EINTR) continue;
         c->dead = true;
         break;
-    }
-    char *nl;
-    while (c->in.len && (nl = memchr(c->in.data, '\n', c->in.len))) {
-        size_t linelen = (size_t)(nl - c->in.data);
-        rc_parse_line(c, c->in.data, linelen);
-        buf_consume(&c->in, linelen + 1);
     }
     return c->dead ? -1 : 0;
 }

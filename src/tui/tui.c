@@ -24,7 +24,7 @@ EM_JS(int, js_tui_page, (void), { return Module.tnyOut ? 1 : 0; });
 
 static struct termios g_saved;
 static bool g_raw, g_restore_sgr;
-static volatile sig_atomic_t g_winch, g_sigint;
+static volatile sig_atomic_t g_winch, g_sigint, g_exit_signal;
 
 static void term_restore(void) {
     if (!g_raw) return;
@@ -42,14 +42,11 @@ static void on_sigint(int s) {
     (void)s;
     g_sigint = 1;
 }
-static void on_fatal(int s) {
-    term_restore();
-    _exit(128 + s);
-}
+static void on_exit_signal(int s) { g_exit_signal = s; }
 
 static bool tui_cancel_probe(void *ud) {
     tui *t = ud;
-    if (!g_sigint && !t->want_cancel) return false;
+    if (!g_sigint && !g_exit_signal && !t->want_cancel) return false;
     g_sigint = 0;
     t->want_cancel = false;
     return true;
@@ -159,7 +156,7 @@ tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
     t->dirty = true;
     tny_perm_decision d = TNY_PERM_DECISION_DENY;
     bool got = false;
-    while (!got && !t->quit) {
+    while (!got && !t->quit && !g_exit_signal) {
         tui_render(t);
         struct pollfd pf = {STDIN_FILENO, POLLIN, 0};
         int pr = tny_poll(&pf, 1, 200);
@@ -202,6 +199,10 @@ tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
                 t->want_cancel = true;
                 got = true;
                 break;
+            case 4:
+                t->quit = true;
+                got = true;
+                break;
             default: break;
             }
         }
@@ -231,7 +232,7 @@ char *tui_ask_user(tui *t, const char *question) {
     tui_pick_close(t);
     t->approval = true; /* the nested reader owns stdin */
     bool done = false, failed = false;
-    while (!done && !t->quit) {
+    while (!done && !t->quit && !g_exit_signal) {
         buf_clear(&t->overlay);
         tui_overlay_linef(t, "? %s", question ? question : "Question");
         tui_overlay_linef(t, "> %s", answer.data ? answer.data : "");
@@ -259,7 +260,8 @@ char *tui_ask_user(tui *t, const char *question) {
             unsigned char ch = (unsigned char)bytes[i];
             if (ch == '\r' || ch == '\n') {
                 done = true;
-            } else if (ch == 3 || ch == 27) {
+            } else if (ch == 3 || ch == 4 || ch == 27) {
+                if (ch == 4) t->quit = true;
                 failed = true;
                 done = true;
             } else if (ch == 0x7f || ch == 0x08) {
@@ -283,6 +285,7 @@ char *tui_ask_user(tui *t, const char *question) {
     t->dirty = true;
     buf_free(&saved);
     if (failed) {
+        t->want_cancel = true;
         buf_free(&answer);
         return NULL;
     }
@@ -591,7 +594,16 @@ static void after_turn(tui *t) {
 
 void tui_cancel_turn(tui *t) {
     if (!t->turn_active || (!t->engine && !t->rc)) return;
-    if (t->cancel_ms) return;
+    if (t->cancel_ms) {
+        if (t->rc) tui_runner_stop(t, true);
+        else {
+            tui_drop_backend(t);
+            t->turn_active = false;
+            t->turn_done = true;
+            t->stop = TNY_STOP_INTERRUPTED;
+        }
+        return;
+    }
     if (t->n_queue) {
         char m[80];
         snprintf(m, sizeof m, "dropped %d queued message%s", t->n_queue,
@@ -600,7 +612,7 @@ void tui_cancel_turn(tui *t) {
         tui_queue_clear(t);
     }
     t->cancel_ms = now_ms();
-    tui_note(t, "cancelling…");
+    tui_note(t, "cancelling… press ctrl-c again to force stop");
     if (t->rc) {
         tny_runner_client_cancel(t->rc, false);
         /* op + SIGTERM: the signal reaches the runner's cancel probe even
@@ -784,8 +796,8 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
 
     install(SIGWINCH, on_winch);
     install(SIGINT, on_sigint);
-    install(SIGTERM, on_fatal);
-    install(SIGHUP, on_fatal);
+    install(SIGTERM, on_exit_signal);
+    install(SIGHUP, on_exit_signal);
     signal(SIGPIPE, SIG_IGN);
 
     tui_hist_load(&t);
@@ -843,6 +855,11 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         int pr = tny_poll(fds, nfds, t.turn_active || t.dictation ? 40 : 400);
         if (pr < 0 && errno != EINTR) break;
 
+        if (g_exit_signal) {
+            t.quit = true;
+            t.exit_code = 128 + g_exit_signal;
+            break;
+        }
         if (g_winch) {
             g_winch = 0;
             tui_resize(&t);
@@ -867,6 +884,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         if (pr > 0 && (fds[0].revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL))) {
             if (tui_read_input(&t) < 0) t.quit = true;
         }
+        if (t.quit) break; /* stop before consuming more provider output */
         if (rn_fd >= 0) {
             tui_runner_dispatch(&t);
         } else if (t.turn_active && t.engine) {
@@ -884,11 +902,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         tui_dictation_step(&t);
         /* a host that never confirms the cancel must not wedge the shell */
         if (t.turn_active && t.cancel_ms && now_ms() - t.cancel_ms > 5000) {
-            if (t.rc) tny_runner_client_cancel(t.rc, true); /* force-finalize */
-            else tui_drop_backend(&t);
-            t.turn_active = false;
-            t.stop = TNY_STOP_INTERRUPTED;
-            after_turn(&t);
+            tui_cancel_turn(&t); /* real process kill; never assume IPC succeeded */
         }
     }
 
@@ -898,10 +912,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         tny_engine_cancel(t.engine);
         drain_engine_events(&t);
     }
-    if (t.turn_active && t.rc) { /* quit mid-turn keeps today's semantics: stop */
-        tny_runner_client_cancel(t.rc, false);
-        if (t.rc_pid > 0) kill(t.rc_pid, SIGTERM);
-    }
+    if (t.turn_active && t.rc && !tui_runner_stop(&t, false)) t.exit_code = 1;
     tui_raw_begin(&t);
     fflush(stdout);
     if (!t.worktree) term_restore();

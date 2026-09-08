@@ -386,6 +386,34 @@ static char *read_control_result(int fd, const char *id) {
     return NULL;
 }
 
+TEST runner_reads_end_before_owner_eof(void) {
+    live_runner x;
+    ASSERT_EQ(0, live_runner_begin(&x));
+    tny_runner_client *owner = tny_runner_client_connect(x.sock, 4000, TNY_RUNNER_OWNER, true);
+    tny_runner_client *observer =
+        tny_runner_client_connect(x.sock, 4000, TNY_RUNNER_OBSERVER, false);
+    ASSERT(owner && observer);
+    tny_runner_msg *hello = wait_runner_msg(owner, TNY_RMSG_HELLO);
+    ASSERT(hello);
+    tny_runner_msg_free(hello);
+    hello = wait_runner_msg(observer, TNY_RMSG_HELLO);
+    ASSERT(hello);
+    tny_runner_msg_free(hello);
+    /* Force end + EOF into the same read cycle. The observer keeps this
+     * idle runner alive unless the end operation is actually processed. */
+    kill(x.pid, SIGSTOP);
+    ASSERT_EQ(0, tny_runner_client_end(owner, "exit"));
+    tny_runner_client_close(owner);
+    kill(x.pid, SIGCONT);
+    tny_runner_msg *bye = wait_runner_msg(observer, TNY_RMSG_BYE);
+    bool ended = bye != NULL;
+    tny_runner_msg_free(bye);
+    tny_runner_client_close(observer);
+    live_runner_end(&x);
+    ASSERT(ended);
+    PASS();
+}
+
 TEST runner_correlates_question_and_fails_closed_on_owner_disconnect(void) {
     live_runner x;
     ASSERT_EQ(0, live_runner_begin(&x));
@@ -604,6 +632,7 @@ TEST runner_image_attach_validates_root_and_magic_before_queueing(void) {
 }
 
 SUITE(runner_suite) {
+    RUN_TEST(runner_reads_end_before_owner_eof);
     RUN_TEST(runner_wire_whole_buffer);
     RUN_TEST(runner_wire_survives_every_split_boundary);
     RUN_TEST(runner_client_ops_reach_the_server);

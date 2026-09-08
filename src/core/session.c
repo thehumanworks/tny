@@ -1,6 +1,7 @@
 #include "core/session.h"
 #include "core/tasks.h"
 #include "util/util.h"
+#include "util/process.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -775,7 +776,7 @@ int session_stop(tny_ctx *ctx, const char *id, bool force_kill, char *err, size_
     if (err && errsz) err[0] = 0;
     if (!session_is_running(ctx, id)) return 1; /* caller no-ops */
     pid_t pid = session_read_pid(ctx, id);
-    if (pid <= 0) {
+    if (pid <= 1 || pid == getpid() || pid == getpgrp()) {
         snprintf(err, errsz,
                  "session %s is running but has no pid file; "
                  "cannot signal it",
@@ -790,7 +791,23 @@ int session_stop(tny_ctx *ctx, const char *id, bool force_kill, char *err, size_
     if (session_is_running(ctx, id)) kill(-pid, SIGTERM);
     if (stop_wait(ctx, id, timeout_ms)) return 0; /* the child finalized "interrupted" itself */
     if (!force_kill) return 2;                    /* still running; caller suggests --kill */
-    if (session_is_running(ctx, id)) kill(-pid, SIGKILL);
+    return session_kill(ctx, id, pid, err, errsz);
+}
+
+int session_kill(tny_ctx *ctx, const char *id, pid_t expected_pid, char *err, size_t errsz) {
+    if (err && errsz) err[0] = 0;
+    if (!session_is_running(ctx, id)) return 1;
+    if (expected_pid <= 1) {
+        snprintf(err, errsz, "session %s: invalid runner pid", id);
+        return -1;
+    }
+    pid_t pid = session_read_pid(ctx, id);
+    if (pid != expected_pid) {
+        snprintf(err, errsz, "session %s: runner changed; refusing to kill another writer", id);
+        return -1;
+    }
+    if (!session_is_running(ctx, id)) return 1;
+    bool cleanup_failed = tny_process_kill_tree(pid) != 0;
     if (!stop_wait(ctx, id, 2000)) {
         snprintf(err, errsz,
                  "session %s did not release its lock after "
@@ -813,11 +830,20 @@ int session_stop(tny_ctx *ctx, const char *id, bool force_kill, char *err, size_
                  id);
         return -1;
     }
+    if (session_read_pid(ctx, id) != expected_pid) {
+        session_close(s);
+        snprintf(err, errsz, "session %s: runner changed before status repair", id);
+        return -1;
+    }
     session_set_status_finished(s, "interrupted", 137, NULL);
     int rc = session_save(s);
     session_close(s);
     if (rc != 0) {
         snprintf(err, errsz, "session %s: cannot write terminal status", id);
+        return -1;
+    }
+    if (cleanup_failed) {
+        snprintf(err, errsz, "session %s: runner killed but descendant cleanup failed", id);
         return -1;
     }
     return 0;

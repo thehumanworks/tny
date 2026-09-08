@@ -5,6 +5,7 @@
 #include "core/config.h"
 #include "core/session.h"
 #include "util/util.h"
+#include "util/process.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -665,7 +666,94 @@ TEST bg_stop_force_kill_writes_terminal_status(void) {
     PASS();
 }
 
+TEST bg_immediate_kill_refuses_changed_runner(void) {
+    bg_env e;
+    bg_env_begin(&e);
+    tny_ctx *ctx = tny_ctx_load(e.workspace);
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    ASSERT_EQ(0, session_save(s));
+    pid_t pid = spawn_lock_holder_opt(ctx, s->id, true, true);
+    ASSERT(pid > 0);
+    char err[256];
+    int refused = session_kill(ctx, s->id, pid + 1, err, sizeof err);
+    bool still_running = session_is_running(ctx, s->id);
+    int stopped = session_kill(ctx, s->id, pid, err, sizeof err);
+    kill(-pid, SIGKILL); /* clean up even when exercising a mutated refusal */
+    waitpid(pid, NULL, 0);
+    ASSERT_EQ(-1, refused);
+    ASSERT(still_running);
+    ASSERT_EQ(0, stopped);
+    ASSERT_FALSE(session_is_running(ctx, s->id));
+    ASSERT_EQ(1, session_kill(ctx, s->id, pid, err, sizeof err));
+    session_close(s);
+    tny_ctx_free(ctx);
+    bg_env_end(&e);
+    PASS();
+}
+
+TEST bg_force_kill_reaches_separate_child_group(void) {
+#if !defined(__APPLE__) && !defined(__linux__)
+    SKIP(); /* other native hosts keep their process-group fallback */
+#else
+    bg_env e;
+    bg_env_begin(&e);
+    tny_ctx *ctx = tny_ctx_load(e.workspace);
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    session_set_status_running(s);
+    ASSERT_EQ(0, session_save(s));
+    int ready[2];
+    ASSERT_EQ(0, pipe(ready));
+    pid_t pid = fork();
+    ASSERT(pid >= 0);
+    if (pid == 0) {
+        close(ready[0]);
+        setsid();
+        signal(SIGTERM, SIG_IGN);
+        if (session_lock_acquire(s) != 0 || session_write_pid(s, getpid()) != 0) _exit(2);
+        pid_t child = fork();
+        if (child < 0) _exit(2);
+        if (child == 0) {
+            setpgid(0, 0); /* like an ACP host or terminal tool */
+            pid_t me = getpid();
+            if (write(ready[1], &me, sizeof me) != sizeof me) _exit(2);
+        }
+        for (;;) pause(); /* both retain the flock until killed */
+    }
+    close(ready[1]);
+    pid_t child = 0;
+    ssize_t got = read(ready[0], &child, sizeof child);
+    close(ready[0]);
+    char err[256];
+    int rc = session_kill(ctx, s->id, pid, err, sizeof err);
+    bool released = !session_is_running(ctx, s->id);
+    /* Always clean up before assertions, including a mutated kill sweep. */
+    if (child > 1) kill(-child, SIGKILL);
+    kill(-pid, SIGKILL);
+    waitpid(pid, NULL, 0);
+    ASSERT_EQ((ssize_t)sizeof child, got);
+    ASSERT_EQ(0, rc);
+    ASSERT(released); /* the separate child group no longer owns the flock */
+    session_close(s);
+    tny_ctx_free(ctx);
+    bg_env_end(&e);
+    PASS();
+#endif
+}
+
+TEST bg_force_kill_refuses_own_process(void) {
+    ASSERT_EQ(-1, tny_process_kill_tree(0));
+    ASSERT_EQ(-1, tny_process_kill_tree(1));
+    ASSERT_EQ(-1, tny_process_kill_tree(getpid()));
+    ASSERT_EQ(-1, tny_process_kill_tree(getpgrp()));
+    PASS();
+}
+
 SUITE(session_bg_suite) {
+    RUN_TEST(bg_immediate_kill_refuses_changed_runner);
+    RUN_TEST(bg_force_kill_reaches_separate_child_group);
+    RUN_TEST(bg_force_kill_refuses_own_process);
     RUN_TEST(bg_status_running_then_done_roundtrip);
     RUN_TEST(bg_bad_result_json_stores_nothing);
     RUN_TEST(bg_legacy_session_has_no_status);

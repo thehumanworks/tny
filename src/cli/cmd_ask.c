@@ -25,9 +25,9 @@
 #include <unistd.h>
 #include <poll.h>
 
-static volatile sig_atomic_t g_interrupted = 0;
+static volatile sig_atomic_t g_interrupted = 0, g_terminate = 0;
 static void on_sigint(int sig) {
-    (void)sig;
+    if (sig == SIGHUP || sig == SIGTERM) g_terminate = sig;
     g_interrupted = 1;
 }
 static bool ask_cancel_probe(void *ud) {
@@ -329,14 +329,16 @@ static void ask_client_render(ask_client *a, const tny_runner_msg *m) {
 /* Stream until turn_end, then wait out the runner's bye/EOF so its session
  * writes are all on disk before this process returns — the same "teardown
  * precedes exit" contract the in-process turn kept. The runner outlives us
- * on purpose otherwise: a second ^C (or our death) detaches and the turn
- * finishes into the session. */
-static int ask_isolated_loop(ask_client *a, const char *session_id) {
+ * after a crash. Explicit interrupts and terminal hangup stop the runner;
+ * a second interrupt or expired grace period kills it out of band. */
+static int ask_isolated_loop(ask_client *a, tny_ctx *ctx, const char *session_id) {
     signal(SIGINT, on_sigint);
+    signal(SIGHUP, on_sigint);
+    signal(SIGTERM, on_sigint);
     signal(SIGPIPE, SIG_IGN);
     int exit_code = -1;
     bool done = false, cancelled = false, finishing = false;
-    int64_t finish_deadline = 0;
+    int64_t finish_deadline = 0, cancel_started = 0;
     while (!done) {
         struct pollfd pf = {tny_runner_client_fd(a->rc), POLLIN, 0};
         int pr = tny_poll(&pf, 1, 200);
@@ -345,7 +347,8 @@ static int ask_isolated_loop(ask_client *a, const char *session_id) {
             g_interrupted = 0;
             if (!cancelled) {
                 cancelled = true;
-                fprintf(stderr, "tny: cancelling…\n");
+                cancel_started = now_ms();
+                fprintf(stderr, "tny: cancelling… press ctrl-c again to force stop\n");
                 tny_runner_client_cancel(a->rc, false);
                 /* The op alone cannot reach an engine blocked inside a
                  * bounded extension hook or connect — the runner's loop is
@@ -354,12 +357,17 @@ static int ask_isolated_loop(ask_client *a, const char *session_id) {
                  * (docs/adr/0053). */
                 if (a->pid > 0) kill(a->pid, SIGTERM);
             } else {
-                fprintf(stderr,
-                        "tny: detached; the turn keeps running "
-                        "(tny session %s to read it, tny session stop %s to stop it)\n",
-                        session_id, session_id);
-                return 130;
+                cancel_started = now_ms() - 5000;
             }
+        }
+        if (cancelled && now_ms() - cancel_started >= 5000) {
+            char err[256];
+            if (session_kill(ctx, session_id, a->pid, err, sizeof err) < 0) {
+                fprintf(stderr, "tny: %s (tny session stop %s --kill)\n", err, session_id);
+                return 2;
+            }
+            fprintf(stderr, "tny: session %s stopped\n", session_id);
+            return g_terminate ? 128 + g_terminate : 130;
         }
         int alive = 0;
         if (pr > 0) alive = tny_runner_client_pump(a->rc);
@@ -408,7 +416,7 @@ static int ask_isolated_loop(ask_client *a, const char *session_id) {
             return 2;
         }
     }
-    return exit_code < 0 ? 2 : exit_code;
+    return g_terminate ? 128 + g_terminate : exit_code < 0 ? 2 : exit_code;
 }
 #endif
 
@@ -625,6 +633,10 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         signal(SIGPIPE, SIG_IGN); /* a dying runner must not SIGPIPE us mid-send */
         pid_t child = tny_runner_spawn(ctx, session, &opts, err, sizeof err);
         if (child > 0) {
+            /* The runner inherited the flock's open-file description.
+             * Keeping our copy would pin the writer lock after SIGKILL
+             * and prevent verified force-stop / status repair. */
+            session_lock_release(session);
             char *sock = tny_runner_sock_path(session->dir);
             tny_runner_client *rc =
                 sock ? tny_runner_client_connect(sock, 5000, TNY_RUNNER_OWNER, false) : NULL;
@@ -661,7 +673,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             a.pid = child;
             int rrc = tny_runner_client_turn(rc, prompt.data, n_images ? images : NULL,
                                              continue_recovery);
-            int code = rrc == 0 ? ask_isolated_loop(&a, session->id)
+            int code = rrc == 0 ? ask_isolated_loop(&a, ctx, session->id)
                                 : (fprintf(stderr, "tny: cannot reach the session runner\n"), 2);
             tny_runner_client_close(rc);
             session_close(session);

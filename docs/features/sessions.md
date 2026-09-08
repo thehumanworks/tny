@@ -30,14 +30,22 @@ lock — they always see a complete document.
 
 On native builds **every turn — foreground `ask`, TUI, and `-B` — runs in
 a detached session-runner process** (fork + `setsid`, no tmux). The
-calling process is a thin renderer over `<dir>/sock`; killing it, closing
-the terminal, or crashing mid-turn never kills the agent: the runner
-finishes the turn, finalizes `status`/`exit_code`/`result`, and exits.
+calling process is a thin renderer over `<dir>/sock`. A crash or SIGKILL
+leaves the runner finishing the turn into `status`/`exit_code`/`result`.
+Explicit Ctrl-C, TUI Ctrl-D/quit/EOF, and foreground SIGHUP/SIGTERM stop
+the run. A second Ctrl-C forces termination; cancellation also escalates
+after five seconds ([ADR 0081](../adr/0081-reliable-session-interruption.md)).
 `tny resume` then continues the conversation, and `tny session attach
 <id>` streams a live run (snapshot, then events; ^C detaches, `tny
 session stop` cancels). The TUI's serve runner also owns the provider
-host and MCP servers across turns — they are its children, so
-`session stop`'s group signal reaches everything and nothing orphans.
+host and MCP servers across turns. Forced termination on macOS/Linux also
+enumerates descendants to kill the separate groups created by tools and hosts.
+
+To stop a run from another terminal, use `tny sessions` to find its id,
+then `tny session stop <id> --kill`. The command first requests graceful
+cancellation, then kills an unresponsive runner, verifies writer-lock release,
+and records `interrupted`/137. Crash survival and explicit `ask -B` background
+runs remain available; an observer's `session attach` Ctrl-C still detaches.
 
 In-process turns remain deliberate outside the runner-owned CLI/TUI path:
 wasm (no `fork`), `--ephemeral` (nothing durable to survive for, [ADR

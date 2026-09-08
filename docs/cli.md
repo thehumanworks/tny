@@ -706,12 +706,15 @@ implement provider behavior itself. Full API and failure semantics:
 
 On native builds **every** turn — foreground `tny ask` and the TUI included
 — executes in a detached session-runner process; the invoking `tny` is only
-a renderer streaming the runner's events from `<session-dir>/sock`. Killing
-the caller (crash, closed terminal, SIGKILL) detaches the turn instead of
-killing it: the runner finishes, finalizes the session's
+a renderer streaming the runner's events from `<session-dir>/sock`. A caller
+crash or SIGKILL detaches the turn: the runner finishes, finalizes the session's
 `status`/`exit_code`/`result`, and exits, so `tny ask --resume <id>` (or
 `tny resume`) continues the conversation afterwards. `^C` in a foreground
-`ask` still cancels the turn; a second `^C` detaches and leaves it running.
+`ask` cancels the turn; a second `^C` forces termination. Cancellation also
+escalates automatically after five seconds. Foreground SIGHUP/SIGTERM and
+TUI Ctrl-D/quit/EOF stop the run using bounded shutdown. Explicit `ask -B`
+and observer detach still leave their runs active. See
+[ADR 0081](adr/0081-reliable-session-interruption.md).
 In-process turns remain only on wasm, with `--ephemeral`, or with the
 `TNY_ISOLATE=0` debug escape hatch.
 
@@ -805,13 +808,16 @@ for id in $ids; do tny session $id --wait --timeout 900 >/dev/null || echo "$id 
 
 ### `tny session stop <id>` (+ `--kill`)
 
-Stops a running background task by signaling its **process group**
+Stops any running session by signaling its **process group**
 (SIGTERM): the turn cancels cleanly, spawned backend hosts die with the
 group, and the session finalizes `status:"interrupted"` with partial output
 preserved. On a finished session `stop` is a clean no-op that reports the
 status. If the child ignores SIGTERM, `stop` reports a timeout and suggests
 `--kill`, which SIGKILLs the group and writes the terminal status on the
-child's behalf. `--json` emits `{"kind":"session_stop","status":…}`.
+child's behalf after verifying writer-lock release. On macOS/Linux the force
+step also kills descendants in separate process groups, including spawned
+hosts and tools. No successful stop is reported while the writer lock remains
+held. `--json` emits `{"kind":"session_stop","status":…}`.
 
 ```sh
 tny session stop $id

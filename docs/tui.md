@@ -89,7 +89,8 @@ This prevents local project instructions from crossing into the remote workspace
 | `@` | workspace file picker (gitignore-aware, insert path only) |
 | `$` | skill picker (insert skill name, do not load until invoked) |
 | Up/Down at draft edge | prompt history |
-| Esc or Ctrl-C | interrupt current turn and drop queued messages (second Ctrl-C exits if idle) |
+| Esc or Ctrl-C | interrupt current turn and drop queued messages; another Ctrl-C while cancelling forces termination (twice exits when idle) |
+| Ctrl-D | stop an active turn and exit, even with a draft; when idle, exit on an empty draft or delete the next character |
 | Enter during a turn | steer the running turn (native loop — openai, codex, claude, grok, named profiles) or queue the message for when it ends (cursor, acp) — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md) |
 | Ctrl-J / Alt-J / Shift-Enter | insert a newline in the composer |
 | Ctrl-V | paste a clipboard image path (or text) |
@@ -98,6 +99,15 @@ This prevents local project instructions from crossing into the remote workspace
 | Ctrl-X | subagent manager (native loop) |
 
 Disable `/` `@` `$` popovers while an approval or clarification is focused so paths like `/tmp/x` stay literal.
+
+Ctrl-C during a turn takes priority over palettes and overlays. Cancellation
+gets five seconds to finish before the TUI kills the runner and verifies
+writer-lock release; pressing Ctrl-C again skips that grace period. The shell
+reports interruption after confirmation, and the saved session remains resumable.
+Ctrl-D, `/quit`, EOF, SIGHUP and SIGTERM use the same bounded shutdown. A caller
+crash or SIGKILL still leaves a detached run; find it with `tny sessions` and
+stop it with `tny session stop <id> --kill`. See
+[ADR 0081](adr/0081-reliable-session-interruption.md).
 
 Typing while a turn runs never writes a note into the transcript: a steered message is echoed as `› text steer`, a queued one sits in a dim `queued (n): …` row above the status row until the turn ends and it is sent through the normal prompt path. Queued messages are dropped (with a one-line note) when the turn is interrupted or fails.
 

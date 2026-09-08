@@ -42,6 +42,13 @@ TARGETS = [
         "worktree",
     ),
     (
+        "src/core/session.c",
+        ["session_kill"],
+        r"pid != expected_pid",
+        "tests/integration/test_interrupt.py",
+        "session-interrupt",
+    ),
+    (
         "src/core/dictation.c",
         ["tny_dictation_text_valid"],
         r"n > TNY_DICTATION_TEXT_MAX",
@@ -981,6 +988,9 @@ def main():
     ap.add_argument("--fast", action="store_true")
     ap.add_argument("--only")
     ap.add_argument("--focus", help="run only targets carrying this focus tag")
+    ap.add_argument(
+        "--test", help="run a specific unit test before the integration fallback"
+    )
     args = ap.parse_args()
 
     # every integration fixture accepts the binary via $TNY (the .sh ones
@@ -1020,7 +1030,10 @@ def main():
                 invalid += 1
                 print("%3d/%d  invalid   %s" % (i + 1, len(mutants), tag))
                 continue
-            rc, out = run(["./build/tny-test"], 60)
+            unit_command = ["./build/tny-test"]
+            if args.test:
+                unit_command += ["-t", args.test]
+            rc, out = run(unit_command, 60)
             if rc != 0:
                 killed_unit += 1
                 print("%3d/%d  killed:u  %s" % (i + 1, len(mutants), tag))

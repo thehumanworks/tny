@@ -93,6 +93,29 @@ static void runner_gone(tui *t) {
     t->rc_pid = 0;
 }
 
+bool tui_runner_stop(tui *t, bool force) {
+    if (!t->rc || !t->session) return false;
+    char err[256];
+    pid_t pid = t->rc_pid;
+    /* Graceful exit requests end before waiting. Force bypasses the socket
+     * entirely: the runner may be stuck inside dispatch or a tool. */
+    if (!force) tny_runner_client_end(t->rc, "exit");
+    int rc = force ? session_kill(t->ctx, t->session->id, pid, err, sizeof err)
+                   : session_stop(t->ctx, t->session->id, true, err, sizeof err);
+    if (rc < 0 || rc == 2) {
+        tui_err(t, err);
+        tui_sysf(t, "stop from another terminal: tny session stop %s --kill", t->session->id);
+        return false;
+    }
+    runner_gone(t);
+    waitpid(pid, NULL, WNOHANG);
+    runner_refresh_session(t);
+    t->turn_active = false;
+    t->turn_done = true;
+    t->stop = TNY_STOP_INTERRUPTED;
+    return true;
+}
+
 void tui_runner_dispatch(tui *t) {
     if (!t->rc) return;
     int alive = tny_runner_client_pump(t->rc);

@@ -96,7 +96,7 @@ bool tny_runner_role_allows(tny_runner_role role, const char *op);
 tny_runner_client *tny_runner_client_connect(const char *sock_path, int timeout_ms,
                                              tny_runner_role role, bool can_answer_questions);
 int tny_runner_client_fd(const tny_runner_client *c);
-/* Drain readable bytes into parsed messages. 0 ok, -1 connection gone
+/* Read a bounded batch into parsed messages. 0 ok, -1 connection gone
  * (already-queued messages remain poppable). */
 int tny_runner_client_pump(tny_runner_client *c);
 tny_runner_msg *tny_runner_client_pop(tny_runner_client *c);
