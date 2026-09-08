@@ -14,6 +14,10 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # Fallback when a tag push does not start Actions (automation tokens
+  # and retags of the same SHA are silent). Run against the tag ref so
+  # GITHUB_REF_NAME stays v<version>: gh workflow run release.yml --ref v<version>
+  workflow_dispatch:
 
 permissions:
   contents: read

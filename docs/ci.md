@@ -176,7 +176,9 @@ While the repo is private, mise needs `GITHUB_TOKEN` (or
 
 Release flow: merge to `main`, then
 `git tag v<version> && git push origin v<version>`. No version bump commit
-is needed — the tag is the single source of truth.
+is needed — the tag is the single source of truth. If the tag push does not
+start the workflow, dispatch it on the tag ref:
+`gh workflow run release.yml --ref v<version>`.
 
 ## Darwin is Metal / Apple Silicon, not Intel
 
