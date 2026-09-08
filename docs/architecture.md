@@ -131,6 +131,17 @@ startup and anonymous audio lifetime within the existing host OS seam.
 See [ADR 0070](adr/0070-provider-independent-speech.md) and
 [ADR 0071](adr/0071-ephemeral-host-audio-playback.md).
 
+## Dictation service
+
+The CLI and composer share `core/dictation.c`, which owns capture, bounded
+WAV/transcript validation, cancellation, and result lifetime. Adapters behind
+`core/dictation_provider.h` own credentials and wire formats; the first uses
+Codex/ChatGPT authentication independently of the chat backend.
+`util/audio_capture.c` starts an optional local recorder only on demand.
+The existing event loop polls capture/response fds. TUI code inserts completed
+text into the draft and waits for the user's ordinary submit action.
+See [Dictation](dictation.md) and [ADR 0079](adr/0079-provider-independent-dictation.md).
+
 ## Image service
 
 The standalone image CLI and native image tools share `core/image_service.c`.

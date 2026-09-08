@@ -56,6 +56,8 @@ let
     # create reference/output files in a temporary directory; no external assets.
     # Speech fixtures (test_speech.py) generate their fake player in a temp
     # directory; no MP3 asset or host audio package enters the fileset.
+    # Dictation fixtures generate PCM WAV bytes and fake microphone recorders
+    # in temporary directories; no microphone or external media asset is needed.
     # Explicit contract for issue #88: every foreign MCP harness parser is
     # exercised from immutable fixture data inside the sandbox.
     ../tests/fixtures/mcp-import

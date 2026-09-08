@@ -93,6 +93,7 @@ This prevents local project instructions from crossing into the remote workspace
 | Enter during a turn | steer the running turn (native loop — openai, codex, claude, grok, named profiles) or queue the message for when it ends (cursor, acp) — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md) |
 | Ctrl-J / Alt-J / Shift-Enter | insert a newline in the composer |
 | Ctrl-V | paste a clipboard image path (or text) |
+| Ctrl-R | record dictation; Enter/Ctrl-R transcribes into the editable draft; Esc/Ctrl-C cancels |
 | Ctrl-O | full transcript / review |
 | Ctrl-X | subagent manager (native loop) |
 
@@ -134,6 +135,12 @@ boundaries, so it applies immediately with no backend rebind. Host providers
 run their own loops and ignore it.
 
 Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace` `/ssh`
+
+Input: `/dictate [PROVIDER]` records the local microphone and inserts the
+transcript at the caret. Codex/ChatGPT handles dictation by default even when
+the conversation uses Grok or another provider. Enter finishes recording;
+another Enter sends the editable draft. Cancel leaves the draft unchanged.
+See [Dictation](dictation.md) for recorder setup, limits, and file/CLI use.
 
 A `/name` line whose first token is not a builtin but names a discovered
 skill is a prompt, sent with that `SKILL.md` ahead of the text ([ADR

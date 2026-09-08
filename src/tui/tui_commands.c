@@ -47,6 +47,7 @@ static const struct {
     {"skills", "list discovered skills"},
     {"workspace", "/workspace [add|remove DIR]"},
     {"image", "/image PATH — attach to the next prompt"},
+    {"dictate", "/dictate [PROVIDER] — microphone to editable prompt (Ctrl-R)"},
     {"ssh", "/ssh user@host[:port] [dir] | /ssh off — run tools on a remote host"},
     {"undo", "undo the last file change"},
     {"copy", "copy the last reply to the clipboard"},
@@ -355,7 +356,7 @@ static void cmd_help(tui *t) {
                       "esc cancel turn%s",
                       d, r);
     tui_overlay_linef(t,
-                      "%s      ctrl-v paste image path · ctrl-o transcript · "
+                      "%s      ctrl-v paste · ctrl-r dictate · ctrl-o transcript · "
                       "ctrl-c interrupt (twice exits)%s",
                       d, r);
     for (int i = 0; i < N_CMDS; i++) {
@@ -529,6 +530,7 @@ void tui_command(tui *t, const char *line) {
     }
 
     if (!*c || strcmp(c, "help") == 0) cmd_help(t);
+    else if (strcmp(c, "dictate") == 0) tui_dictation_start(t, arg);
     else if (strcmp(c, "ssh") == 0) {
         if (!arg || !*arg) {
             if (t->ctx->ssh_host)

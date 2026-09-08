@@ -24,6 +24,7 @@ Do not start product code until you have read this index and the files it names.
 | --- | --- |
 | [images.md](images.md) | Image generation/editing, provider adapters, CLI and agent tools |
 | [speech.md](speech.md) | Ephemeral speech, Codex login, agents and optional MP3 export |
+| [dictation.md](dictation.md) | Microphone/file transcription into prompts, independent STT providers |
 | [cli.md](cli.md) | Command tree, flags, agent-friendly output |
 | [workflows.md](workflows.md) | Dependency DAGs and parallel agents from shell, Python, and TypeScript |
 | [settings.md](settings.md) | settings.json defaults, schema, named providers and ACP agents |

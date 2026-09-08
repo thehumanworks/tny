@@ -149,3 +149,10 @@ release claims.
 - Request/response types: https://github.com/openai/codex/blob/rust-v0.154.0-alpha.3/codex-rs/codex-api/src/images.rs
 - Built-in image defaults: https://github.com/openai/codex/blob/rust-v0.154.0-alpha.3/codex-rs/ext/image-generation/src/tool.rs
 - Subscription usage: https://learn.chatgpt.com/docs/image-generation
+
+## Dictation (ADR 0079)
+
+- Account transcription contract, release **rust-v0.105.0**: https://github.com/openai/codex/blob/rust-v0.105.0/codex-rs/tui/src/voice.rs#L751-L833
+- FFmpeg input devices (AVFoundation audio selection and PulseAudio): https://ffmpeg.org/ffmpeg-devices.html
+- ALSA recording CLI: https://github.com/alsa-project/alsa-utils/blob/v1.2.14/aplay/aplay.1
+- The account route is live-tested separately; it is not the API-key-only `/v1/audio/transcriptions` route.

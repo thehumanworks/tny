@@ -35,6 +35,8 @@ stdenv.mkDerivation {
     # test_prompt_cache.py uses only stdlib loopback providers. The optional
     # bench_prompt_cache.py requires --live and external Codex; never run it here.
     python3 # test_speech.py also generates a fake MP3 player with this interpreter
+    # test_dictation.py uses stdlib HTTP/WAV/PTY fixtures and generates fake
+    # ffmpeg/arecord executables; no host audio package or device is required.
     zsh # make test also runs the quick-ask widget in real Zsh PTYs
     tmux # test-only terminal screen assertions; never used by the tny runner
     nodejs # tests/site/test_term.js, driven by test_site.py

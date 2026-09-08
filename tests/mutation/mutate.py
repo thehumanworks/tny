@@ -35,6 +35,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
+        "src/core/dictation.c",
+        ["tny_dictation_text_valid"],
+        r"n > TNY_DICTATION_TEXT_MAX",
+        "tests/integration/test_dictation.py",
+        "dictation",
+    ),
+    (
         "src/core/image_service.c",
         ["tny_image_run", "tny_image_decode"],
         r"image_count >|image_count > 0|n % 4|decoded >|got != decoded|tny_image_stopped",
