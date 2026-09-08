@@ -357,7 +357,7 @@ static void cmd_help(tui *t) {
                       d, r);
     tui_overlay_linef(t,
                       "%s      ctrl-v paste · ctrl-r dictate · ctrl-o transcript · "
-                      "ctrl-c interrupt (twice exits)%s",
+                      "ctrl-c stop (again forces; twice exits when idle)%s",
                       d, r);
     for (int i = 0; i < N_CMDS; i++) {
         char *h = cmd_hint(t, i);

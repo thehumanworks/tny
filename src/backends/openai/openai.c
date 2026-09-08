@@ -2241,8 +2241,11 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         o->state = ST_BODY;
     }
 
-    for (;;) {
-        char tmp[16384];
+    /* Yield even when a provider can keep the socket permanently readable.
+     * The caller must drain events and service stdin/cancel between batches;
+     * waiting for EAGAIN starves both and can overflow the event queue. */
+    for (size_t bytes = 0; bytes < 8192;) {
+        char tmp[8192];
         ssize_t bn = http_body_read(o->conn, tmp, sizeof tmp);
         if (bn == -2) {
             if (o->error_status && monotonic_ms() >= o->error_deadline_ms)
@@ -2250,6 +2253,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             return 0;
         }
         if (bn > 0) {
+            bytes += (size_t)bn;
             if (!o->body_sniffed) sniff_body(o, tmp, (size_t)bn);
             if (o->body_is_sse) sse_feed(&o->sse, tmp, (size_t)bn, on_sse_event, o);
             else {
@@ -2314,6 +2318,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         }
         return step_finished(o);
     }
+    return 0;
 }
 
 static int oa_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {

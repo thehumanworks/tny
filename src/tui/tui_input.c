@@ -518,6 +518,10 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         }
         break;
     case TUI_K_CTRLC:
+        if (t->turn_active) {
+            tui_cancel_turn(t);
+            break;
+        }
         if (popover) {
             tui_pick_close(t);
             t->dirty = true;
@@ -525,10 +529,6 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         }
         if (t->overlay.len) {
             tui_overlay_clear(t);
-            break;
-        }
-        if (t->turn_active) {
-            tui_cancel_turn(t);
             break;
         }
         if (t->input.len) {
@@ -545,7 +545,7 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         }
         break;
     case TUI_K_CTRLD:
-        if (!t->input.len) t->quit = true;
+        if (t->turn_active || !t->input.len) t->quit = true;
         else {
             del_range(t, t->cur, next_ch(t, t->cur));
             t->dirty = true;

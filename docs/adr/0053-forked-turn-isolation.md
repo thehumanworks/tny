@@ -25,6 +25,10 @@ binary. tny's answer must fit the existing invariants — one event loop,
 
 ## Decision
 
+Amended by [ADR 0080](0080-reliable-session-interruption.md): crashes and
+SIGKILL retain the survival policy below; explicit foreground interrupts,
+terminal hangup, and TUI exit stop the runner with verified escalation.
+
 **Every turn — interactive and noninteractive — executes in a forked,
 `setsid()`-detached *session runner* process. The calling process is a thin
 client that renders events streamed over a per-session Unix-domain

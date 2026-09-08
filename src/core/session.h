@@ -161,6 +161,10 @@ pid_t session_read_pid(tny_ctx *ctx, const char *id); /* -1 absent/garbage */
  * no-ops), 2 timed out and still running (suggest --kill), -1 error with
  * err filled. */
 int session_stop(tny_ctx *ctx, const char *id, bool force_kill, char *err, size_t errsz);
+/* Immediate group-SIGKILL for a second interrupt / expired cancel deadline.
+ * Refuses a changed pid; verifies lock release and persists interrupted/137.
+ * Returns 0 stopped, 1 already stopped, -1 error. */
+int session_kill(tny_ctx *ctx, const char *id, pid_t expected_pid, char *err, size_t errsz);
 
 /* Recovery checkpoint. */
 void session_recovery_write(tny_session_state *s, const char *partial);

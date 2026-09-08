@@ -198,6 +198,7 @@ int tui_runner_ensure(tui *t, bool quiet);        /* spawn+connect if missing; 0
 void tui_runner_drop(tui *t, const char *reason); /* end + close (idempotent) */
 void tui_runner_dispatch(tui *t);                 /* pump the socket, translate messages */
 int tui_runner_fd(const tui *t);                  /* poll fd, -1 when no runner */
+bool tui_runner_stop(tui *t, bool force);         /* verify termination, refresh saved session */
 /* tui.c: render one normalized event (shared by engine and runner paths). */
 void tui_handle_backend_event(tui *t, const tny_backend_event *ev);
 
