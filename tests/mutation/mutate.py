@@ -35,6 +35,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
+        "src/util/worktree.c",
+        ["worktree_name_valid", "clean_checkout"],
+        r"strlen\(name\) > 80|b.len == 0",
+        "tests/integration/test_worktree.py",
+        "worktree",
+    ),
+    (
         "src/core/dictation.c",
         ["tny_dictation_text_valid"],
         r"n > TNY_DICTATION_TEXT_MAX",

@@ -65,6 +65,12 @@ system — if a make target changes, the flake follows it, never forks it.
 
 See [architecture.md](architecture.md). Keep every translation unit under ~500 lines. One backend directory per protocol. Shared net code has no knowledge of agents.
 
+## Optional Git worktrees
+
+Git worktree mode invokes the installed `git` executable only when requested.
+No Git library is linked or vendored. Native POSIX builds support local
+worktrees; wasm reports a clean error. See [Worktrees](worktrees.md).
+
 ## Optional microphone capture
 
 Dictation launches an external recorder only when requested: FFmpeg with

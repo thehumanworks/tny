@@ -46,6 +46,7 @@ static const struct {
     {"mcp", "list configured MCP servers"},
     {"skills", "list discovered skills"},
     {"workspace", "/workspace [add|remove DIR]"},
+    {"worktree", "/worktree [NAME] — create or enter a Git worktree"},
     {"image", "/image PATH — attach to the next prompt"},
     {"dictate", "/dictate [PROVIDER] — microphone to editable prompt (Ctrl-R)"},
     {"ssh", "/ssh user@host[:port] [dir] | /ssh off — run tools on a remote host"},
@@ -518,8 +519,9 @@ void tui_command(tui *t, const char *line) {
     const char *c = copy;
 
     /* commands that swap the session or backend must not race a live turn */
-    static const char *LOCKED[] = {"new",      "reset", "resume", "continue", "compact", "backend",
-                                   "provider", "model", "fast",   "ssh",      "undo",    NULL};
+    static const char *LOCKED[] = {"new",     "reset",    "resume", "continue", "compact",
+                                   "backend", "provider", "model",  "fast",     "ssh",
+                                   "undo",    "worktree", NULL};
     if (t->turn_active) {
         for (const char **l = LOCKED; *l; l++)
             if (strcmp(c, *l) == 0) {
@@ -531,8 +533,11 @@ void tui_command(tui *t, const char *line) {
 
     if (!*c || strcmp(c, "help") == 0) cmd_help(t);
     else if (strcmp(c, "dictate") == 0) tui_dictation_start(t, arg);
+    else if (strcmp(c, "worktree") == 0) tui_worktree_enter(t, arg);
     else if (strcmp(c, "ssh") == 0) {
-        if (!arg || !*arg) {
+        if (t->worktree && arg && *arg && strcmp(arg, "off") != 0) {
+            tui_err(t, "worktree mode is local; keep this worktree and start another TUI for SSH");
+        } else if (!arg || !*arg) {
             if (t->ctx->ssh_host)
                 tui_note(t, "tools run on %s in %s", t->ctx->ssh_host, t->ctx->ssh_cwd);
             else tui_sys(t, "usage: /ssh user@host[:port] [remote-dir] | /ssh off");
