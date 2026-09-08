@@ -317,13 +317,19 @@ class CacheTests(unittest.TestCase):
             )
         )
 
-    def test_workspaces_and_tool_profiles_have_distinct_routing(self):
+    def test_routing_tracks_workspace_and_effective_tool_profile(self):
         self.ask()
         first_key = self.server.requests[0][0]["prompt_cache_key"]
         self.server.requests.clear()
         self.env["TNY_TOOLS"] = "terminal"
         self.ask()
-        self.assertNotEqual(first_key, self.server.requests[0][0]["prompt_cache_key"])
+        profile_key = self.server.requests[0][0]["prompt_cache_key"]
+        if "/wasm/" in TNY:
+            # config.c deliberately ignores TNY_TOOLS on wasm (ADR 0062),
+            # so its effective profile and cache route both stay "all".
+            self.assertEqual(first_key, profile_key)
+        else:
+            self.assertNotEqual(first_key, profile_key)
         self.env.pop("TNY_TOOLS")
         self.server.requests.clear()
         self.ws = self.home / "another-workspace"
