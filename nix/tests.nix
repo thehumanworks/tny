@@ -39,6 +39,8 @@ stdenv.mkDerivation {
     python3 # test_speech.py also generates a fake MP3 player with this interpreter
     # test_dictation.py uses stdlib HTTP/WAV/PTY fixtures and generates fake
     # ffmpeg/arecord executables; no host audio package or device is required.
+    # test_optimise.py uses the same stdlib HTTP/PTY harness and temporary
+    # project files; it requires no OpenRouter login or live model access.
     zsh # make test also runs the quick-ask widget in real Zsh PTYs
     tmux # test-only terminal screen assertions; never used by the tny runner
     nodejs # tests/site/test_term.js, driven by test_site.py

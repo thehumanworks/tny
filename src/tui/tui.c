@@ -835,7 +835,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     while (!t.quit) {
         tui_render(&t);
 
-        struct pollfd fds[TNY_BACKEND_POLLFD_MAX + 2];
+        struct pollfd fds[2 * TNY_BACKEND_POLLFD_MAX + 2];
         fds[0].fd = STDIN_FILENO;
         fds[0].events = POLLIN;
         fds[0].revents = 0;
@@ -852,7 +852,9 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         nfds_t nfds = 1;
         if (nb > 0) nfds += (nfds_t)nb;
         if (t.dictation) fds[nfds++] = (struct pollfd){tny_dictation_fd(t.dictation), POLLIN, 0};
-        int pr = tny_poll(fds, nfds, t.turn_active || t.dictation ? 40 : 400);
+        int no = tny_optimise_pollfds(t.optimise, fds + nfds, TNY_BACKEND_POLLFD_MAX);
+        if (no > 0) nfds += (nfds_t)no;
+        int pr = tny_poll(fds, nfds, t.turn_active || t.dictation || t.optimise ? 40 : 400);
         if (pr < 0 && errno != EINTR) break;
 
         if (g_exit_signal) {
@@ -866,7 +868,8 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         }
         if (g_sigint) {
             g_sigint = 0;
-            if (t.dictation) tny_dictation_cancel(t.dictation);
+            if (t.optimise) tny_optimise_cancel(t.optimise);
+            else if (t.dictation) tny_dictation_cancel(t.dictation);
             else if (t.turn_active) tui_cancel_turn(&t);
             else {
                 t.quit = true;
@@ -900,12 +903,15 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
             after_turn(&t);
         }
         tui_dictation_step(&t);
+        tui_optimise_step(&t);
         /* a host that never confirms the cancel must not wedge the shell */
         if (t.turn_active && t.cancel_ms && now_ms() - t.cancel_ms > 5000) {
             tui_cancel_turn(&t); /* real process kill; never assume IPC succeeded */
         }
     }
 
+    tny_optimise_free(t.optimise);
+    t.optimise = NULL;
     tny_dictation_free(t.dictation);
     t.dictation = NULL;
     if (t.turn_active && t.engine) {

@@ -426,6 +426,7 @@ def main():
                 for flags, text, code in (
                     (["--worktree"], "", 1),
                     ([], "/worktree fixture\n/quit\n", 0),
+                    ([], "", 0),  # piped EOF must also wake the wasm shell
                 ):
                     p = subprocess.run(
                         [TNY, "--cwd", ws, *flags],
@@ -436,7 +437,8 @@ def main():
                         timeout=30,
                     )
                     assert p.returncode == code, p.stderr + p.stdout
-                    assert "unavailable in wasm" in p.stderr + p.stdout
+                    if flags or text:
+                        assert "unavailable in wasm" in p.stderr + p.stdout
                 assert not os.path.exists(os.path.join(home, ".tny", "worktrees"))
 
             check_tool_profile_wire(env, ws, "responses")

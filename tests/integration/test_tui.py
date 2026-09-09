@@ -346,7 +346,7 @@ def test_slash_palette(home, ws):
         t.expect("openai|cursor|acp|codex|claude|grok|openrouter|acp@claude-code|", 5.0)
         t.send("\x7f" * 4)  # back to a bare "/"
         t.send("help\r")
-        t.expect("ctrl-o transcript", 5.0)
+        t.expect("ctrl-o optimise", 5.0)
         t.send("/permissions auto\r")
         t.expect("permission mode: auto", 5.0)
         t.send("/quit\r")

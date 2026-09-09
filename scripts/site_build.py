@@ -359,7 +359,7 @@ def docs_quick() -> str:
 <p>Start tny from the project you want to work on. The launch directory becomes the primary workspace:</p>
 {cmd("cd path/to/project")}
 {cmd("tny")}
-<p>Type a request that names real files or commands, then press enter. The model's reply streams into the transcript. Tool calls appear as they run. Escape or ctrl-c interrupts the turn; ctrl-o opens the full transcript.</p>
+<p>Type a request that names real files or commands, then press enter. The model's reply streams into the transcript. Tool calls appear as they run. Escape or ctrl-c interrupts the turn; ctrl-o optimises the draft before you submit it. Use <code>/transcript</code> to display the full conversation.</p>
 <p>For scripts and CI, skip the shell:</p>
 {cmd('tny ask --json "list the public CLI"')}
 <h2 id="providers">Pick a provider</h2>
@@ -807,12 +807,13 @@ def docs_tui() -> str:
     <tr><td><code>$</code></td><td>skill picker</td></tr>
     <tr><td>Up / Down</td><td>prompt history at the draft edge</td></tr>
     <tr><td>Esc or Ctrl-C</td><td>interrupt; second Ctrl-C exits if idle</td></tr>
-    <tr><td>Ctrl-O</td><td>full transcript</td></tr>
+    <tr><td>Ctrl-O</td><td>optimise the draft; review it before Enter submits</td></tr>
     <tr><td>Ctrl-X</td><td>subagent manager (native loop)</td></tr>
   </tbody>
 </table>
 <p>Menus are transient overlays. They draw in the bottom block, Escape hides them, and the next submit clears them — they never enter the scrollback. <code>/</code> <code>@</code> <code>$</code> popovers disable while an approval is focused so paths like <code>/tmp/x</code> stay literal.</p>
 <h2 id="slash">Slash commands</h2>
+<p><code>/optimise PROMPT</code> rewrites a typed or dictated prompt using relevant project files. The default model is OpenRouter <code>inception/mercury-2.5</code>; <code>--model</code> and <code>--provider</code> override it. Ctrl-O uses the configured defaults. Escape cancels and preserves the draft. <code>/transcript</code> displays the conversation.</p>
 <p>Sessions: <code>/help</code> <code>/clear</code> <code>/new</code> <code>/reset</code> <code>/resume</code> <code>/continue</code> <code>/rename</code> <code>/compact</code> <code>/quit</code></p>
 <p>Runtime: <code>/models</code> <code>/model</code> <code>/permissions</code> <code>/sandbox</code> <code>/backend</code> <code>/task</code> <code>/status</code> <code>/usage</code></p>
 <p>Tools: <code>/mcp</code> <code>/skills</code> <code>/workspace</code> <code>/image</code> <code>/ssh</code> <code>/undo</code> <code>/copy</code> <code>/trace</code></p>

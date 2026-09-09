@@ -23,6 +23,15 @@
       "description": "Models last selected for individual providers. tny updates this map after successful use.",
       "additionalProperties": { "type": "string", "minLength": 1 }
     },
+    "optimise": {
+      "type": "object",
+      "description": "Independent prompt optimisation defaults. TNY_OPTIMISE_PROVIDER/MODEL override these; explicit optimisation options win.",
+      "properties": {
+        "provider": { "type": "string", "minLength": 1, "default": "openrouter" },
+        "model": { "type": "string", "minLength": 1, "default": "inception/mercury-2.5" }
+      },
+      "additionalProperties": false
+    },
     "effort": {
       "$ref": "#/$defs/providerStringDefault",
       "description": "Reasoning effort globally or by provider. Canonical values: off, light, medium, high, xhigh, max, default; provider-advertised values are also accepted."
@@ -101,7 +110,7 @@
     }
   },
   "patternProperties": {
-    "^(?!\\$schema$|provider$|model$|models$|effort$|fast$|permission_mode$|tools$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_command$|web_search_url$|mcp$)[A-Za-z0-9_-]+$": {
+    "^(?!\\$schema$|provider$|model$|models$|optimise$|effort$|fast$|permission_mode$|tools$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_command$|web_search_url$|mcp$)[A-Za-z0-9_-]+$": {
       "$ref": "#/$defs/openAIProfile",
       "description": "Named OpenAI-compatible provider profile."
     }

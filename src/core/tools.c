@@ -230,6 +230,10 @@ static const char *SCHEMA_JSON =
 
 static bool schema_tool_disabled(const tools_env *env, const char *name) {
     if (!env || !env->ctx || !name) return false;
+    if (env->ctx->prompt_optimisation)
+        return strcmp(name, "list_files") != 0 && strcmp(name, "glob_files") != 0 &&
+               strcmp(name, "grep_files") != 0 && strcmp(name, "read_file") != 0 &&
+               strcmp(name, "file_info") != 0 && strcmp(name, "read_tool_result") != 0;
     if (env->ctx->mcp_disabled && str_starts(name, "mcp_")) return true;
     if (strcmp(name, "image_generate") == 0 || strcmp(name, "image_edit") == 0)
         return env->ctx->library_mode || env->ctx->ssh_host ||
@@ -286,7 +290,7 @@ static char *append_custom_schema(char *base, custom_tool_registry *registry) {
 
 char *tools_schema_json(tools_env *env) {
     if (env && env->ctx &&
-        (env->ctx->mcp_disabled || env->ctx->library_mode ||
+        (env->ctx->prompt_optimisation || env->ctx->mcp_disabled || env->ctx->library_mode ||
          env->ctx->tool_profile != TNY_TOOLS_ALL || !tool_web_search_configured(env->ctx) ||
          !tny_speech_available(env->ctx, NULL, true, NULL, 0) || env->ctx->ssh_host ||
          !tny_image_capabilities(env->ctx, false, NULL))) {
@@ -454,6 +458,10 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
     if (!call->name || !call->permission_tool) return -1;
     call->doc = args_json ? jparse(args_json, strlen(args_json)) : NULL;
     call->args = call->doc ? yyjson_doc_get_root(call->doc) : NULL;
+    if (env->ctx->prompt_optimisation && schema_tool_disabled(env, call->name)) {
+        call->error = tool_err("tool %s is unavailable during prompt optimisation", call->name);
+        return -1;
+    }
     call->custom = custom_tools_find(env->ctx->custom_tools, call->name);
     if (call->custom) {
         if (!args_json || strlen(args_json) > custom_tool_argument_limit(call->custom)) {

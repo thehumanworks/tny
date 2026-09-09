@@ -143,6 +143,17 @@ The existing event loop polls capture/response fds. TUI code inserts completed
 text into the draft and waits for the user's ordinary submit action.
 See [Dictation](dictation.md) and [ADR 0079](adr/0079-provider-independent-dictation.md).
 
+## Prompt optimisation service
+
+`core/optimise.c` owns a separate explicit context, ephemeral session and native
+engine for rewriting drafts. It enforces file-reading/search tools and disables
+extensions, MCP, task presets and skill injection. `tui/tui_optimise.c` replaces
+the composer only after a successful result, without submitting it. Model and
+credentials resolve independently of the conversation. CLI and TUI share the
+same polling/cancellation lifecycle on native and wasm builds.
+See [Prompt optimisation](optimisation.md) and
+[ADR 0082](adr/0082-prompt-optimisation.md).
+
 ## Image service
 
 The standalone image CLI and native image tools share `core/image_service.c`.

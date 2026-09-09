@@ -77,6 +77,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_image_service(const cli_globals *g, int argc, char **argv);
 int cmd_speak(const cli_globals *g, int argc, char **argv);
 int cmd_dictate(const cli_globals *g, int argc, char **argv);
+int cmd_optimise(const cli_globals *g, int argc, char **argv);
 int cmd_edit(const cli_globals *g, int argc, char **argv);
 int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

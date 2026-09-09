@@ -60,6 +60,7 @@ EM_JS(void, js_net_free, (int fd), {
  * to report, or unconsumed response headers). Stdin (fd 0) is ready when
  * the page bootstrap queued keystrokes in Module.__tnyStdin. */
 EM_JS(int, js_fd_ready, (int fd), {
+  if (fd === 0 && Module['__tnyPollStdin']) return Module['__tnyPollStdin']();
   if (fd === 0) return (Module.__tnyStdin && Module.__tnyStdin.length) ? 1 : 0;
   const e = Module.__tny && Module.__tny.fds.get(fd);
   if (!e) return 0;

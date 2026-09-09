@@ -19,6 +19,7 @@ Keep the *user-visible harness*, not Vercel branding:
 
 - Interactive shell: streaming transcript, `/` commands, `@` file picker, `$` skill picker, interrupt, resume.
 - Dictation: microphone speech to an editable prompt, using an STT provider independently of the agent provider.
+- Prompt optimisation: `/optimise` or Ctrl-O rewrites a draft using relevant project files and an independently configured model, with review before submission.
 - One-shot `ask` for scripts/CI with Markdown on stdout and JSON mode.
 - Sessions: list, inspect, resume `last` or id, compact, recover.
 - Git worktrees: optional isolated checkouts, named reuse, and explicit merge/remove/keep on TUI exit.

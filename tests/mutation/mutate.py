@@ -35,6 +35,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
+        "src/core/tools.c",
+        ["schema_tool_disabled"],
+        r"strcmp\(name, \"write_file\"\)|strcmp\(name, \"read_file\"\)",
+        "tests/integration/test_optimise.py",
+        "optimisation",
+    ),
+    (
         "src/util/worktree.c",
         ["worktree_name_valid", "clean_checkout"],
         r"strlen\(name\) > 80|b.len == 0",

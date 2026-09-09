@@ -95,8 +95,14 @@ This prevents local project instructions from crossing into the remote workspace
 | Ctrl-J / Alt-J / Shift-Enter | insert a newline in the composer |
 | Ctrl-V | paste a clipboard image path (or text) |
 | Ctrl-R | record dictation; Enter/Ctrl-R transcribes into the editable draft; Esc/Ctrl-C cancels |
-| Ctrl-O | full transcript / review |
+| Ctrl-O | optimise the typed/dictated draft using an independent model; review before Enter submits |
 | Ctrl-X | subagent manager (native loop) |
+
+`/optimise PROMPT` also rewrites the draft; `--model MODEL` and
+`--provider NAME` before the prompt override its configured defaults.
+Esc/Ctrl-C cancels without changing the draft. The optimiser can explore
+relevant project files using read-only tools. `/transcript` shows the full
+conversation. See [Prompt optimisation](optimisation.md).
 
 Disable `/` `@` `$` popovers while an approval or clarification is focused so paths like `/tmp/x` stay literal.
 

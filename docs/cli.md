@@ -1024,6 +1024,16 @@ recording; Ctrl-C cancels. `--seconds N` enables timed capture;
 See [Dictation](dictation.md) for account credentials, devices, bounds,
 cancellation, and platform support.
 
+## Prompt optimisation
+
+`tny optimise PROMPT` rewrites a draft using relevant project files, and prints
+the result without executing it. `--stdin` accepts a piped draft, including
+`tny dictate --seconds 10 | tny optimise --stdin`. `--model` and `--provider`
+override the independent default: OpenRouter `inception/mercury-2.5`.
+`--json` prints `kind`, `provider`, `model`, and `text`.
+The TUI offers `/optimise PROMPT` and Ctrl-O, followed by draft review and
+explicit Enter to submit. See [Prompt optimisation](optimisation.md).
+
 ## Speech
 
 `printf 'The tests passed.' | tny speak` plays ephemeral speech using your

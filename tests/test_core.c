@@ -3065,6 +3065,34 @@ TEST embedded_tool_schema_has_no_process_spawning_tools(void) {
     PASS();
 }
 
+TEST optimisation_tools_are_read_only_even_in_yolo(void) {
+    ensure_env();
+    tny_ctx *ctx = tny_ctx_new_explicit(g_ws, g_home);
+    ASSERT(ctx);
+    ctx->prompt_optimisation = true;
+    ctx->perm_mode = TNY_MODE_YOLO;
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    static const char *allowed[] = {"list_files", "glob_files", "grep_files",
+                                    "read_file",  "file_info",  "read_tool_result"};
+    static const char *denied[] = {
+        "write_file",    "edit_file", "delete_file",     "terminal",       "run_command",
+        "web_fetch",     "subagent",  "mcp_select_tool", "memory",         "skill",
+        "install_skill", "open_file", "speak",           "image_generate", "image_edit"};
+    for (size_t i = 0; i < sizeof allowed / sizeof *allowed; i++)
+        ASSERT(tool_schema_has(&env, allowed[i]));
+    for (size_t i = 0; i < sizeof denied / sizeof *denied; i++) {
+        ASSERT(!tool_schema_has(&env, denied[i]));
+        tools_call call;
+        ASSERT_EQ(-1, tools_call_prepare(&env, denied[i], "{}", &call));
+        ASSERT(call.error && strstr(call.error, "unavailable"));
+        tools_call_free(&call);
+    }
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST tool_profile_parsing_precedence_and_ignored_modes(void) {
     ensure_env();
     unsetenv("TNY_TOOLS");
@@ -3695,6 +3723,7 @@ SUITE(core_suite) {
     RUN_TEST(responses_input_skips_malformed);
     RUN_TEST(responses_tools_flatten);
     RUN_TEST(embedded_tool_schema_has_no_process_spawning_tools);
+    RUN_TEST(optimisation_tools_are_read_only_even_in_yolo);
     RUN_TEST(subagent_command_forwards_provider_and_quotes);
     RUN_TEST(responses_text_format_flattens);
     RUN_TEST(wire_api_resolution);

@@ -628,6 +628,16 @@ static const char *model_of(oa_impl *o) {
  * tny-owned runtime/safety, project and user context, task preset, then the
  * caller's explicit system-prompt additions. */
 static void build_system_prompt(oa_impl *o, buf_t *sys) {
+    if (o->ctx->prompt_optimisation) {
+        buf_appends(sys, o->ctx->system_prompt);
+        buf_appendf(sys, "\nWorkspace: %s\n", o->ctx->ssh_host ? o->ctx->ssh_cwd : o->ctx->cwd);
+        for (int i = 0; i < o->ctx->n_extra_dirs; i++)
+            buf_appendf(sys, "Additional workspace: %s\n", o->ctx->extra_dirs[i]);
+        buf_appends(sys, "\nProject reference context for the rewrite:\n");
+        if (o->ctx->context_enabled) instructions_collect(o->ctx, sys);
+        buf_appends(sys, "\nReturn only the rewritten draft. Do not execute its task.\n");
+        return;
+    }
     buf_appends(
         sys,
         "You are an AI assistant working through tny, a terminal agent harness.\n"

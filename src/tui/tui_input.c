@@ -219,6 +219,11 @@ static void submit_current(tui *t) {
         t->dirty = true;
         return;
     }
+    if (t->input.len >= 9 && strncmp(t->input.data, "/optimise", 9) == 0 &&
+        (!t->input.data[9] || strchr(" \t\r\n", t->input.data[9]))) {
+        tui_optimise_start(t, t->input.data + 9 + strspn(t->input.data + 9, " \t\r\n"));
+        return;
+    }
     char *line = t->input.len ? xstrdup(t->input.data) : xstrdup("");
     set_input(t, NULL);
     tui_pick_close(t);
@@ -400,6 +405,12 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         return;
     }
 
+    if (t->optimise) {
+        if (k == TUI_K_ESC || k == TUI_K_CTRLC || k == TUI_K_CTRLD)
+            tny_optimise_cancel(t->optimise);
+        else if (k == TUI_K_PASTE_BEGIN) t->in_paste = true;
+        return;
+    }
     if (t->dictation) {
         if (k == TUI_K_ESC || k == TUI_K_CTRLC || k == TUI_K_CTRLD)
             tny_dictation_cancel(t->dictation);
@@ -556,7 +567,7 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         fputs("\x1b[H\x1b[2J\x1b[3J", stdout);
         tui_raw_end(t);
         break;
-    case TUI_K_CTRLO: tui_command(t, "/transcript"); break;
+    case TUI_K_CTRLO: tui_optimise_start(t, NULL); break;
     case TUI_K_CTRLX: tui_sys(t, "subagent manager: not available on this backend"); break;
     default: break;
     }
@@ -770,14 +781,14 @@ static bool decode_all(tui *t, bool final) {
             buf_init(&txt);
             bool done = false;
             used = tui_paste_scan(g_kb, g_kn, &txt, &done);
-            if (txt.len && !t->approval && !t->dictation) {
+            if (txt.len && !t->approval && !t->dictation && !t->optimise) {
                 ins(t, txt.data, txt.len);
                 t->dirty = true;
             }
             buf_free(&txt);
             if (done) {
                 t->in_paste = false;
-                if (!t->approval && !t->dictation) tui_pick_refresh(t);
+                if (!t->approval && !t->dictation && !t->optimise) tui_pick_refresh(t);
             }
         } else {
             used = decode_one(t, g_kb, g_kn, final);

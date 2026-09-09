@@ -1638,7 +1638,7 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images, cha
     char **skill_names = NULL;
     int n_skill_names = 0;
     int skill_message_index = session_message_count(e->session);
-    {
+    if (!e->ctx->prompt_optimisation) {
         char *with_skills = skills_inject(e->ctx, e->session, effective.data ? effective.data : "",
                                           e->bk->id == TNY_BK_OPENAI, &skill_names, &n_skill_names);
         if (with_skills) {

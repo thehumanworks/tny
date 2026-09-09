@@ -17,6 +17,7 @@ void help_root(void) {
           "  ask <prompt>           Run one noninteractive request\n"
           "  speak                  Speak stdin aloud using your ChatGPT login\n"
           "  dictate                Transcribe the microphone or a WAV to prompt text\n"
+          "  optimise               Rewrite a prompt using relevant project context\n"
           "  edit FILE              Exact-match replacement from stdin\n"
           "  ask-user QUESTION      Ask the owning session frontend (socket-bound)\n"
           "  image                  Generate, edit, or attach images\n"
@@ -314,6 +315,21 @@ bool help_for(const char *command) {
                "  --json               One result object; stdin remains plain text\n"
                "  -h, --help           Show this help\n\n"
                "Example: printf 'Build complete.' | tny speak --output-file message.mp3\n";
+    else if (strcmp(command, "optimise") == 0)
+        text = "Usage: tny optimise [OPTIONS] [PROMPT]\n\n"
+               "Read relevant project files and return an improved prompt without executing it.\n"
+               "Default: openrouter / inception/mercury-2.5 (OPENROUTER_API_KEY).\n"
+               "Settings: optimise.provider and optimise.model; TNY_OPTIMISE_PROVIDER /\n"
+               "TNY_OPTIMISE_MODEL override settings. Explicit options win.\n\n"
+               "  --provider NAME        Override the optimisation provider (native only)\n"
+               "  --model MODEL          Override the optimisation model\n"
+               "  --stdin                Read the draft from stdin (also automatic when piped)\n"
+               "  --json                 Print provider, model and text as JSON\n"
+               "  --                     Treat remaining arguments as prompt text\n"
+               "  -h, --help             Show this help\n\n"
+               "  tny optimise 'fix the parser error'\n"
+               "  tny dictate | tny optimise --stdin\n"
+               "In the TUI: /optimise PROMPT or Ctrl-O replaces the draft; Enter sends.\n";
     else if (strcmp(command, "dictate") == 0)
         text = "Usage: tny dictate [OPTIONS]\n"
                "       tny dictate --input-file speech.wav [--json]\n\n"

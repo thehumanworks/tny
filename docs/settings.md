@@ -20,6 +20,15 @@ Command-line flags have the highest precedence. Environment variables remain
 above settings where an environment override exists. Settings are defaults,
 not replacements for one-off flags.
 
+## Prompt optimisation defaults
+
+`optimise.provider` and `optimise.model` configure `/optimise`, Ctrl-O, and
+`tny optimise` independently of the conversation. Their defaults are
+`openrouter` and `inception/mercury-2.5`. Supply `OPENROUTER_API_KEY` or
+configure the named provider normally. `TNY_OPTIMISE_PROVIDER` and
+`TNY_OPTIMISE_MODEL` override these settings; explicit optimisation options
+have the highest precedence. See [Prompt optimisation](optimisation.md).
+
 ## Task presets
 
 Task presets are intentionally not settings keys: their instruction bodies are

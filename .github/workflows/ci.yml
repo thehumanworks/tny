@@ -311,6 +311,7 @@ jobs:
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_prompt_cache.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_speech.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_dictation.py
+          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_optimise.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_service.py
           tests/integration/test_provider_setup.sh "$PWD/build/wasm/tny"
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \

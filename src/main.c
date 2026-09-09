@@ -88,6 +88,11 @@ int main(int argc, char **argv) {
         goto done;
     }
 
+    if (cmd && strcmp(cmd, "optimise") == 0) {
+        rc = cmd_optimise(&g, cargc, cargv);
+        goto done;
+    }
+
     ctx = cli_make_ctx(&g);
     if (!ctx) goto done;
 

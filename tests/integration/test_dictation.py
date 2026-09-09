@@ -25,6 +25,7 @@ WASM = "wasm" in TNY
 MICROPHONE = not WASM and sys.platform not in ("win32", "cygwin", "msys")
 TOKEN, ACCOUNT = "fixture-dictation-token", "fixture-dictation-account"
 TEXT = "Check the changes, 世界."
+OPTIMISED = "Review the changes and report regressions, 世界."
 
 
 def wav_bytes():
@@ -57,13 +58,20 @@ class Handler(BaseHTTPRequestHandler):
         headers = {k.lower(): v for k, v in self.headers.items()}
         state["requests"].append((self.path, headers, body))
         if self.path == "/v1/chat/completions":
-            state["chat"].append(json.loads(body))
+            request = json.loads(body)
+            state["chat"].append(request)
+            optimising = any(
+                "You optimise a draft prompt" in str(m.get("content"))
+                for m in request["messages"]
+            )
             frames = [
                 {
                     "choices": [
                         {
                             "index": 0,
-                            "delta": {"content": "CHAT-OK"},
+                            "delta": {
+                                "content": OPTIMISED if optimising else "CHAT-OK"
+                            },
                             "finish_reason": None,
                         }
                     ]
@@ -529,6 +537,39 @@ while True: time.sleep(1)
                 )
                 if path.endswith("/chat/completions"):
                     self.assertNotIn("chatgpt-account-id", headers)
+            term.send("/quit\r")
+            self.assertEqual(term.wait(), 0)
+        finally:
+            term.close()
+            term.proc.wait(timeout=5)
+
+    @unittest.skipUnless(MICROPHONE, "native TUI")
+    def test_dictation_then_optimisation_then_explicit_chat_submission(self):
+        self.env.update(
+            OPENROUTER_BASE_URL=f"http://127.0.0.1:{self.server.server_port}/v1",
+            OPENROUTER_API_KEY="fixture-optimise-key",
+        )
+        term = self.start_tui()
+        try:
+            term.send("\x12")
+            term.expect_on_screen("Listening")
+            self.wait_recorded(term)
+            term.send("\r")
+            term.expect_on_screen("Dictation ready")
+            term.expect_on_screen(TEXT)
+            term.send("\x0f")
+            term.expect_on_screen("Prompt optimised")
+            term.expect_on_screen(OPTIMISED)
+            self.assertEqual(len(self.state["chat"]), 1)
+            rewritten = self.state["chat"][0]
+            self.assertEqual(rewritten["model"], "inception/mercury-2.5")
+            self.assertEqual(rewritten["messages"][-1]["content"], TEXT)
+            term.send("\r")
+            term.expect("CHAT-OK")
+            self.assertEqual(len(self.state["chat"]), 2)
+            chat = self.state["chat"][-1]
+            self.assertEqual(chat["model"], "grok-fixture")
+            self.assertEqual(chat["messages"][-1]["content"], OPTIMISED)
             term.send("/quit\r")
             self.assertEqual(term.wait(), 0)
         finally:
