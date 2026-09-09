@@ -1019,7 +1019,23 @@ reserved for explicitly justified compatibility or passthrough syntax.
 `tny dictate` records the microphone and prints prompt text. Enter finishes
 recording; Ctrl-C cancels. `--seconds N` enables timed capture;
 `--input-file speech.wav` transcribes a PCM WAV without a microphone.
-`--stt-provider NAME` is independent of the agent's `--provider`.
+`--stt-provider codex|xai` is independent of the agent's `--provider`.
+`TNY_STT_PROVIDER` sets the STT default; without it, `codex` remains the default.
+The leading global `--xai-api-key KEY` works for standalone and TUI dictation:
+
+```sh
+tny --xai-api-key "$XAI_API_KEY" dictate --stt-provider xai --input-file speech.wav
+TNY_STT_PROVIDER=xai tny --provider claude
+# Inside the TUI: /dictate xai, then Enter to transcribe, then Enter to send.
+```
+
+xAI credential precedence is flag, `XAI_API_KEY`, named `xai` settings
+(`api_key_env`, then stored `api_key` if unset), then Grok login. Empty or
+CR/LF-bearing values fail locally. Grok login credentials refresh only at
+transcription start. STT uses `https://api.x.ai/v1/stt` with its service-selected
+model; chat/profile base URLs and models are ignored. `--check` opens no audio,
+makes no request, and performs no refresh; success means local prerequisites,
+not verified entitlement. Windows/wasm remain file-only.
 `--json` returns one object with `kind`, `provider`, and `text`.
 See [Dictation](dictation.md) for account credentials, devices, bounds,
 cancellation, and platform support.

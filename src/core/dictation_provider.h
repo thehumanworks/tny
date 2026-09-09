@@ -15,4 +15,12 @@ typedef struct {
 } tny_dictation_provider;
 
 extern const tny_dictation_provider tny_dictation_codex;
+extern const tny_dictation_provider tny_dictation_xai;
+
+/* Private shared transport; caller validates credentials and owns their lifetime. */
+void *tny_dictation_http_start(const char *url, const char *token, const char *account_id,
+                               const buf_t *wav, char *err, size_t len);
+int tny_dictation_http_fd(const void *);
+int tny_dictation_http_step(void *, buf_t *, char *, size_t);
+void tny_dictation_http_destroy(void *);
 #endif

@@ -21,7 +21,7 @@ struct tny_dictation {
     char error[256];
 };
 
-static const tny_dictation_provider *const providers[] = {&tny_dictation_codex};
+static const tny_dictation_provider *const providers[] = {&tny_dictation_codex, &tny_dictation_xai};
 static const tny_dictation_provider *provider_find(const char *name) {
     if (!name || !*name) name = getenv("TNY_STT_PROVIDER");
     if (!name || !*name) name = "codex";

@@ -136,8 +136,9 @@ See [ADR 0070](adr/0070-provider-independent-speech.md) and
 
 The CLI and composer share `core/dictation.c`, which owns capture, bounded
 WAV/transcript validation, cancellation, and result lifetime. Adapters behind
-`core/dictation_provider.h` own credentials and wire formats; the first uses
-Codex/ChatGPT authentication independently of the chat backend.
+`core/dictation_provider.h` own credentials and endpoints for Codex/ChatGPT
+and xAI, independently of the chat backend. `dictation_http.c` shares their
+bounded WAV multipart upload and incremental JSON response handling.
 `util/audio_capture.c` starts an optional local recorder only on demand.
 The existing event loop polls capture/response fds. TUI code inserts completed
 text into the draft and waits for the user's ordinary submit action.
