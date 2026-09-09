@@ -154,6 +154,11 @@ leaks are never suppressed.
 
 ## Releases (mise / `github:` backend)
 
+The native macOS CI job has a 180-minute overall budget, matching the release
+build job. Hosted runners exceeded the former 90-minute budget while the
+fixture suite was still progressing. Individual test and interruption
+deadlines are unchanged; Linux native CI retains its 90-minute job budget.
+
 Pushing a `v*` tag runs `.github/workflows/release.yml`: the same matrix,
 packaged as `tny-<os>-<arch>[-musl].tar.gz` (Windows: `.zip` with
 `msys-2.0.dll`), plus `libtny1-*` / `libtny0-compat-*`, SDK wheels, npm

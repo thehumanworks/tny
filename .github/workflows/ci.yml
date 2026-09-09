@@ -86,7 +86,9 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # Hosted macOS completes the full fixture suite more slowly; its previous
+    # runs exhausted 90 minutes while still passing tests. Match release CI.
+    timeout-minutes: ${{ matrix.metal && 180 || 90 }}
     strategy:
       fail-fast: false
       matrix:
