@@ -142,12 +142,13 @@ release claims.
 - https://github.com/nanopb/nanopb
 - https://github.com/silentbicycle/greatest
 
-## Image generation (ADR 0074)
+## Image generation (ADR 0074, ADR 0084)
 
 - Codex Images API release pin: **rust-v0.154.0-alpha.3**
 - Client routes: https://github.com/openai/codex/blob/rust-v0.154.0-alpha.3/codex-rs/codex-api/src/endpoint/images.rs
 - Request/response types: https://github.com/openai/codex/blob/rust-v0.154.0-alpha.3/codex-rs/codex-api/src/images.rs
-- Built-in image defaults: https://github.com/openai/codex/blob/rust-v0.154.0-alpha.3/codex-rs/ext/image-generation/src/tool.rs
+- Original built-in image defaults: https://github.com/openai/codex/blob/rust-v0.154.0-alpha.3/codex-rs/ext/image-generation/src/tool.rs
+- GPT Image 2.5 model and quality settings (verified 2026-09-09): https://developers.openai.com/api/docs/guides/image-prompting
 - Subscription usage: https://learn.chatgpt.com/docs/image-generation
 
 ## Dictation (ADR 0079)

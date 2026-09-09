@@ -13,7 +13,7 @@ typedef struct {
     const char *prompt;
     const char *provider; /* NULL: codex, independent of conversation provider */
     const char *model;    /* NULL: adapter default */
-    const char *quality;  /* NULL: auto */
+    const char *quality;  /* NULL: provider default (codex: high) */
     const char *size;     /* NULL: auto */
     const char *output_file;
     const char *images[TNY_IMAGE_REFERENCES_MAX];

@@ -26,13 +26,30 @@ session-socket behavior; generate/edit are standalone and require no socket.
 | Option | Contract |
 | --- | --- |
 | `--image-provider NAME` | Image adapter, default `codex`; unsupported names fail before network I/O |
-| `--model NAME` | Image model; Codex defaults to `gpt-image-2`, independently of global chat `--model` |
-| `--quality LEVEL` | `auto` (default), `low`, `medium`, `high` |
+| `--model NAME` | Image model; Codex defaults to `gpt-image-2.5-sunburst`, independently of global chat `--model`; override with e.g. `gpt-image-2.5-flare` |
+| `--quality LEVEL` | `auto`, `low`, `medium`, `high` (default), `xhigh`, `max` |
 | `--size SIZE` | Provider-specific size string, e.g. `1024x1024`; default `auto`; forwarded as a provider hint, without local resizing |
 | `--image PATH` | Repeatable edit reference, in priority order |
 | `--output-file PATH` | One explicit destination, replaced atomically after success |
 | `--check` | Local provider capability/credential check |
 | `--json` | Structured result metadata, never base64 or raw image bytes |
+
+Generation and editing both default to Sunburst with `high` quality. Set model
+and quality separately; selecting Flare still defaults to `high` unless you
+also pass `--quality`. Explicit `auto` is forwarded unchanged. For example:
+
+```sh
+printf 'An orange robot reading under a tree' |
+  tny image generate --model gpt-image-2.5-flare --quality medium --output-file robot.png
+printf 'Make the robot blue; preserve the composition' |
+  tny image edit --image robot.png --quality xhigh --output-file blue.png
+```
+
+Both models support these six quality levels in the
+[OpenAI image prompting guide](https://developers.openai.com/api/docs/guides/image-prompting).
+Model names remain provider-defined strings; other explicit image models are
+forwarded for the provider to validate. A provider rejection never silently
+falls back to another model or quality.
 
 Global `--cwd DIR` sets the filesystem base. Chat `--provider`, `--base-url`
 and API keys do not select or redirect the image adapter. Global
@@ -41,7 +58,7 @@ and API keys do not select or redirect the image adapter. Global
 Plain output is the destination path followed by a newline. JSON success:
 
 ```json
-{"kind":"image","ok":true,"operation":"generate","provider":"codex","model":"gpt-image-2","path":"robot.png","mime_type":"image/png","bytes":123456}
+{"kind":"image","ok":true,"operation":"generate","provider":"codex","model":"gpt-image-2.5-sunburst","path":"robot.png","mime_type":"image/png","bytes":123456}
 ```
 
 Check output is `{"kind":"image","available":true}` (or false). Errors go to
@@ -50,8 +67,8 @@ response failure, **2** HTTP rejection, **130** interruption. A file produced
 before a stdout error may still exist; check the exit status and filesystem.
 
 The image bytes determine `mime_type` (PNG/JPEG/WebP); filenames do not convert
-formats. Codex's current default produces PNG. Size is a provider hint: the live backend
-returned 1254x1254 pixels for a 1024x1024 request. Exactly one image is accepted;
+formats. Size is a provider hint: the 2026-09-05 `gpt-image-2` smoke test
+returned a 1254x1254 PNG for a 1024x1024 request. Exactly one image is accepted;
 batch generation and URL-based outputs are deliberately absent. An adapter
 must return validated bytes rather than ask the caller to fetch an arbitrary URL.
 
@@ -81,6 +98,7 @@ use `read_image` or `tny image attach` explicitly to add them to model context.
 
 The `all` tool profile exposes `image_generate` and `image_edit` when a registered image adapter has local credentials (initially ChatGPT). They take `prompt`, `output_file`, optional
 `provider`, `model`, `quality`, `size`, and (edit only) an `images` string array.
+They share the CLI's Sunburst / `high` defaults and model/quality overrides.
 Shell profiles retain their existing schema and receive instructions for the
 CLI commands. Simple piped/quoted-heredoc `tny image generate/edit` commands
 are intercepted and run in process with the same provider, cancellation, and
@@ -132,5 +150,6 @@ Built-in image generation consumes Codex subscription allowance; it is not
 unlimited image generation. See [OpenAI's image documentation](https://learn.chatgpt.com/docs/image-generation).
 
 Architecture: [ADR 0074](adr/0074-extensible-image-service.md),
-[ADR 0075](adr/0075-image-cli-and-agent-tools.md). Fixture verification:
+[ADR 0075](adr/0075-image-cli-and-agent-tools.md),
+[ADR 0084](adr/0084-codex-image-defaults.md). Fixture verification:
 `tests/test_image_service.c`, `tests/integration/test_image_service.py`.
