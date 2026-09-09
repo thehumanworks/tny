@@ -62,6 +62,11 @@ TEST image_capability_and_validation(void) {
     r.image_count = 0;
     r.quality = "bogus";
     ASSERT_EQ(1, tny_image_run(&ctx, &r, &result, err, sizeof err));
+    const char *qualities[] = {"auto", "low", "medium", "high", "xhigh", "max"};
+    for (size_t i = 0; i < sizeof qualities / sizeof qualities[0]; i++) {
+        r.quality = qualities[i];
+        ASSERT_EQ(130, tny_image_run(&ctx, &r, &result, err, sizeof err));
+    }
     PASS();
 }
 

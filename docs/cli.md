@@ -1068,7 +1068,10 @@ for voices, availability, export, agent tools and platform behavior.
 generates one image using the ChatGPT login.
 `printf 'Make it blue' | tny image edit --image robot.png --output-file blue.png`
 edits from local references. `--image-provider` selects independently of the
-chat provider; Codex defaults to `gpt-image-2`. `--check` checks local credentials
+chat provider; Codex defaults to `gpt-image-2.5-sunburst` with `high` quality.
+Use `--model gpt-image-2.5-flare` to override the image model and `--quality`
+to select `auto`, `low`, `medium`, `high`, `xhigh`, or `max`.
+`--check` checks local credentials
 without a request. Neither operation needs a runner socket. See
 [images.md](images.md) for flags, result schema, limits, permissions and platform
 behavior, and `tny image --help` for examples.

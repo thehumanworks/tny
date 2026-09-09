@@ -136,11 +136,14 @@ class Handler(BaseHTTPRequestHandler):
             args = {"prompt": "A blue robot", "output_file": "agent.png"}
             if op == "edit":
                 args["images"] = ["input.png"]
+            options = s.get("image_options", {})
+            args.update(options)
             if s.get("tool") == "terminal":
                 name = "terminal"
                 ref = " --image input.png" if op == "edit" else ""
+                flags = "".join(f" --{key} {value}" for key, value in options.items())
                 args = {
-                    "command": f"printf 'A blue robot' | tny image {op}{ref} --output-file agent.png --json"
+                    "command": f"printf 'A blue robot' | tny image {op}{ref}{flags} --output-file agent.png --json"
                 }
             delta = {
                 "tool_calls": [
@@ -233,7 +236,7 @@ class ImageTests(unittest.TestCase):
                     "ok": True,
                     "operation": "generate",
                     "provider": "codex",
-                    "model": "gpt-image-2",
+                    "model": "gpt-image-2.5-sunburst",
                     "path": str(self.out),
                     "mime_type": "image/png",
                     "bytes": len(PNG),
@@ -245,9 +248,9 @@ class ImageTests(unittest.TestCase):
             self.assertEqual(
                 body,
                 {
-                    "model": "gpt-image-2",
+                    "model": "gpt-image-2.5-sunburst",
                     "prompt": "A blue robot, 世界\n",
-                    "quality": "auto",
+                    "quality": "high",
                     "size": "auto",
                     "background": "auto",
                 },
@@ -291,6 +294,38 @@ class ImageTests(unittest.TestCase):
         r = self.run_image("edit", *args, "--output-file", str(self.out))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(len(self.image_requests()[-1][2]["images"]), 5)
+        self.assertEqual(
+            self.image_requests()[-1][2]["model"], "gpt-image-2.5-sunburst"
+        )
+        self.assertEqual(self.image_requests()[-1][2]["quality"], "high")
+
+    def test_model_and_quality_overrides_for_both_operations(self):
+        for op in ("generate", "edit"):
+            refs = ("--image", "input.png") if op == "edit" else ()
+            for model in ("gpt-image-2.5-sunburst", "gpt-image-2.5-flare"):
+                for quality in (None, "auto", "low", "medium", "high", "xhigh", "max"):
+                    with self.subTest(operation=op, model=model, quality=quality):
+                        flags = ("--quality", quality) if quality is not None else ()
+                        r = self.run_image(
+                            op,
+                            *refs,
+                            "--model",
+                            model,
+                            *flags,
+                            "--output-file",
+                            str(self.out),
+                            "--json",
+                            globals_=("--model", "fixture-chat-model"),
+                        )
+                        self.assertEqual(r.returncode, 0, r.stderr)
+                        path, _, body = self.image_requests()[-1]
+                        self.assertTrue(
+                            path.endswith("/edits" if refs else "/generations")
+                        )
+                        self.assertEqual(body["model"], model)
+                        self.assertEqual(body["quality"], quality or "high")
+                        self.assertEqual(json.loads(r.stdout)["model"], model)
+                        self.assertEqual(self.out.read_bytes(), PNG)
 
     def test_invalid_requests_and_files_do_not_spend_quota(self):
         for data in (b"", b" \t\n", b"\xff", b"x\0y", b"x" * 16385):
@@ -430,9 +465,14 @@ class ImageTests(unittest.TestCase):
             ("--help",),
             ("generate", "--help"),
             ("edit", "--help"),
-            ("attach", "--help"),
         ):
-            self.assertEqual(self.run_image(*args).returncode, 0)
+            r = self.run_image(*args)
+            self.assertEqual(r.returncode, 0)
+            self.assertIn(b"gpt-image-2.5-sunburst", r.stdout)
+            self.assertIn(b"gpt-image-2.5-flare", r.stdout)
+            self.assertIn(b"auto | low | medium | high | xhigh | max", r.stdout)
+            self.assertIn(b"(default: high)", r.stdout)
+        self.assertEqual(self.run_image("attach", "--help").returncode, 0)
         self.assertEqual(self.image_requests(), [])
         self.env["CHATGPT_ACCESS_TOKEN"] = TOKEN
         sub = self.home / "subdir"
@@ -475,7 +515,7 @@ class ImageTests(unittest.TestCase):
             "fixture image",
         ]
 
-    def test_typed_and_shell_agents_discover_and_execute_both_operations(self):
+    def check_typed_and_shell_agents(self):
         profiles = ("all",) if WASM else ("all", "terminal", "terminal+edit")
         for profile in profiles:
             for op in ("generate", "edit"):
@@ -500,13 +540,33 @@ class ImageTests(unittest.TestCase):
                 self.assertEqual("image_generate" in names, profile == "all")
                 self.assertEqual("image_edit" in names, profile == "all")
                 self.assertIn("tny image generate", chats[0]["messages"][0]["content"])
+                for tool in chats[0]["tools"]:
+                    fn = tool["function"]
+                    if fn["name"] not in ("image_generate", "image_edit"):
+                        continue
+                    props = fn["parameters"]["properties"]
+                    self.assertIn(
+                        "gpt-image-2.5-sunburst", props["model"]["description"]
+                    )
+                    self.assertIn("gpt-image-2.5-flare", props["model"]["description"])
+                    self.assertEqual(
+                        props["quality"]["enum"],
+                        ["auto", "low", "medium", "high", "xhigh", "max"],
+                    )
+                    self.assertIn("default high", props["quality"]["description"])
                 self.assertEqual(len(self.image_requests()), 1)
+                options = self.state.get("image_options", {})
+                image_body = self.image_requests()[0][2]
+                model = options.get("model", "gpt-image-2.5-sunburst")
+                self.assertEqual(image_body["model"], model)
+                self.assertEqual(image_body["quality"], options.get("quality", "high"))
                 result = next(
                     m["content"]
                     for m in chats[1]["messages"]
                     if m.get("role") == "tool"
                 )
                 self.assertIn('"ok":true', result)
+                self.assertIn(f'"model":"{model}"', result)
                 self.assertNotIn(base64.b64encode(PNG).decode(), result)
                 for path, headers, _ in self.state["requests"]:
                     self.assertEqual(
@@ -515,6 +575,19 @@ class ImageTests(unittest.TestCase):
                         if "/images/" in path
                         else "Bearer fixture-chat-key",
                     )
+
+    def test_typed_and_shell_agents_discover_and_execute_both_operations(self):
+        self.check_typed_and_shell_agents()
+
+    def test_typed_and_shell_agent_image_overrides(self):
+        for model, quality in (
+            ("gpt-image-2.5-flare", "max"),
+            ("gpt-image-2.5-sunburst", "xhigh"),
+            ("gpt-image-2.5-flare", "auto"),
+        ):
+            with self.subTest(model=model, quality=quality):
+                self.state["image_options"] = {"model": model, "quality": quality}
+                self.check_typed_and_shell_agents()
 
     @unittest.skipIf(WASM or WINDOWS, "native signals")
     def test_cancellation_preserves_output_and_stops_agent_followup(self):

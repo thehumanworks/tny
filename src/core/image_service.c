@@ -183,7 +183,8 @@ int tny_image_run(const tny_ctx *ctx, const tny_image_request *r, tny_image_resu
         str_ws_prefix(r->prompt, strlen(r->prompt)) == strlen(r->prompt) ||
         !valid_string(r->output_file, 4096) || (r->model && !valid_string(r->model, 128)) ||
         (r->quality && strcmp(r->quality, "auto") != 0 && strcmp(r->quality, "low") != 0 &&
-         strcmp(r->quality, "medium") != 0 && strcmp(r->quality, "high") != 0) ||
+         strcmp(r->quality, "medium") != 0 && strcmp(r->quality, "high") != 0 &&
+         strcmp(r->quality, "xhigh") != 0 && strcmp(r->quality, "max") != 0) ||
         (r->size && !valid_string(r->size, 32)) || r->image_count > TNY_IMAGE_REFERENCES_MAX ||
         (r->edit != (r->image_count > 0))) {
         snprintf(err, len,

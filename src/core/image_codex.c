@@ -1,4 +1,5 @@
-/* Codex Images API, pinned to rust-v0.154.0-alpha.3 (ADR 0074). */
+/* Codex Images API, transport pinned to rust-v0.154.0-alpha.3 (ADR 0074).
+ * Model and quality defaults follow ADR 0084. */
 #include "core/image_provider.h"
 #include "core/image.h"
 #include "json/json.h"
@@ -55,7 +56,7 @@ static int render(const tny_ctx *ctx, const tny_image_request *r, const tny_imag
     buf_appends(&body, ",\"prompt\":");
     jescape(&body, r->prompt);
     buf_appends(&body, ",\"background\":\"auto\",\"quality\":");
-    jescape(&body, r->quality ? r->quality : "auto");
+    jescape(&body, r->quality ? r->quality : "high");
     buf_appends(&body, ",\"size\":");
     jescape(&body, r->size ? r->size : "auto");
     if (r->edit) {
@@ -154,5 +155,5 @@ done:
     return rc;
 }
 
-const tny_image_provider tny_image_codex = {"codex", "gpt-image-2", TNY_IMAGE_REFERENCES_MAX,
-                                            available, render};
+const tny_image_provider tny_image_codex = {"codex", "gpt-image-2.5-sunburst",
+                                            TNY_IMAGE_REFERENCES_MAX, available, render};
