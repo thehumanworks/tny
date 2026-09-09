@@ -86,3 +86,4 @@ these as `docs/adr/NNNN`.
 | [0078](0078-workspace-shared-prompt-cache.md) | Reuse cache affinity across independent tasks in the same workspace while keeping conversation and turn state separate |
 | [0079](0079-provider-independent-dictation.md) | Independent microphone/file dictation service and Codex account adapter; explicit composer review before submission, bounded ephemeral audio, lazy external recorders, and remote-only file transcription on wasm |
 | [0082](0082-prompt-optimisation.md) | Independent OpenRouter prompt optimiser; read-only project exploration, configurable model, and explicit draft review before submission |
+| [0083](0083-optimiser-timeout.md) | Remove the optimiser step cap; use a configurable 300-second default timeout with validated CLI, environment, project, and user overrides |

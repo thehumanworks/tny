@@ -13,6 +13,7 @@ typedef struct {
     const char *provider;
     const char *model;
     const char *text;
+    const char *timeout_seconds; /* Optional decimal seconds, 1..86400. */
 } tny_optimise_request;
 
 tny_optimise *tny_optimise_start(const tny_ctx *, const tny_optimise_request *, char *, size_t);

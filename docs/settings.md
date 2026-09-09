@@ -29,6 +29,15 @@ configure the named provider normally. `TNY_OPTIMISE_PROVIDER` and
 `TNY_OPTIMISE_MODEL` override these settings; explicit optimisation options
 have the highest precedence. See [Prompt optimisation](optimisation.md).
 
+The optimiser has no step cap and defaults to a 300-second timeout.
+Set `"optimise": { "timeout_seconds": 600 }` in project `.tny.json` or
+`~/.tny/settings.json` to change it. Timeout precedence is
+`tny optimise --optimise-timeout N`, then `TNY_OPTIMISE_TIMEOUT` (seconds),
+then project config, then user settings, then 300. The selected value must
+be a positive integer from 1 to 86400 (one day); invalid values report an
+error before contacting the provider. Environment and config overrides also
+apply to Ctrl-O and `/optimise`. Parent step limits are not inherited.
+
 ## Task presets
 
 Task presets are intentionally not settings keys: their instruction bodies are

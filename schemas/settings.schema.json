@@ -25,10 +25,11 @@
     },
     "optimise": {
       "type": "object",
-      "description": "Independent prompt optimisation defaults. TNY_OPTIMISE_PROVIDER/MODEL override these; explicit optimisation options win.",
+      "description": "Independent prompt optimisation defaults. TNY_OPTIMISE_PROVIDER, TNY_OPTIMISE_MODEL and TNY_OPTIMISE_TIMEOUT override these; explicit optimisation options win. Project optimise.timeout_seconds overrides the user timeout default.",
       "properties": {
         "provider": { "type": "string", "minLength": 1, "default": "openrouter" },
-        "model": { "type": "string", "minLength": 1, "default": "inception/mercury-2.5" }
+        "model": { "type": "string", "minLength": 1, "default": "inception/mercury-2.5" },
+        "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 86400, "default": 300 }
       },
       "additionalProperties": false
     },

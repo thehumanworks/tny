@@ -60,7 +60,7 @@ tny_optimise *tny_optimise_start(const tny_ctx *parent, const tny_optimise_reque
     tny_optimise *o = calloc(1, sizeof *o);
     if (!o) return NULL;
     o->result = -1;
-    o->deadline = monotonic_ms() + 120000;
+    o->deadline = monotonic_ms();
     o->ctx = tny_ctx_new_explicit(parent->cwd, parent->tny_dir);
     if (!o->ctx) goto failed;
     tny_ctx *ctx = o->ctx;
@@ -74,6 +74,26 @@ tny_optimise *tny_optimise_start(const tny_ctx *parent, const tny_optimise_reque
     }
     yyjson_val *root = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
     yyjson_val *config = jget(root, "optimise");
+    yyjson_val *repo = parent->repo_cfg ? yyjson_doc_get_root(parent->repo_cfg) : NULL;
+    yyjson_val *timeout_config = jget(repo, "optimise");
+    if (!jget(timeout_config, "timeout_seconds")) timeout_config = config;
+    const char *timeout =
+        option(r->timeout_seconds, "TNY_OPTIMISE_TIMEOUT", timeout_config, "timeout_seconds", NULL);
+    yyjson_val *configured_timeout = jget(timeout_config, "timeout_seconds");
+    unsigned seconds = 300;
+    if (timeout) {
+        seconds = 0;
+        for (const char *p = timeout; *p; p++) {
+            if (*p < '0' || *p > '9' || seconds > 86400) goto invalid_timeout;
+            seconds = seconds * 10 + (unsigned)(*p - '0');
+        }
+    } else if (configured_timeout) {
+        if (!yyjson_is_uint(configured_timeout) || yyjson_get_uint(configured_timeout) > 86400)
+            goto invalid_timeout;
+        seconds = (unsigned)yyjson_get_uint(configured_timeout);
+    }
+    if (seconds < 1 || seconds > 86400) goto invalid_timeout;
+    o->deadline += (int64_t)seconds * 1000;
     const char *provider =
         option(r->provider, "TNY_OPTIMISE_PROVIDER", config, "provider", "openrouter");
     ctx->model =
@@ -116,7 +136,7 @@ tny_optimise *tny_optimise_start(const tny_ctx *parent, const tny_optimise_reque
     ctx->no_save = true;
     ctx->prompt_optimisation = true;
     ctx->perm_mode = TNY_MODE_ASK;
-    ctx->max_steps = parent->max_steps > 0 && parent->max_steps < 12 ? parent->max_steps : 12;
+    ctx->max_steps = 0;
     ctx->max_tool_result_bytes =
         parent->max_tool_result_bytes < 16384 ? parent->max_tool_result_bytes : 16384;
     ctx->context_enabled = parent->context_enabled;
@@ -152,6 +172,10 @@ tny_optimise *tny_optimise_start(const tny_ctx *parent, const tny_optimise_reque
         tny_engine_start(o->engine, r->text, NULL, err, errlen) != 0)
         goto failed;
     return o;
+invalid_timeout:
+    snprintf(err, errlen,
+             "optimise timeout must be a positive integer from 1 to 86400 seconds "
+             "(--optimise-timeout, TNY_OPTIMISE_TIMEOUT, optimise.timeout_seconds)");
 failed:
     if (!*err) snprintf(err, errlen, "cannot start prompt optimisation");
     tny_optimise_free(o);

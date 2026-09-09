@@ -299,12 +299,118 @@ class OptimiseTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
 
     def test_failed_or_invalid_results_never_print_a_draft(self):
-        for mode in ("error", "empty", "invalid", "oversized", "loop"):
+        for mode in ("error", "empty", "invalid", "oversized"):
             with self.subTest(mode=mode):
                 self.mode = mode
                 result = self.run_cli("draft")
                 self.assertNotEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout, "")
+
+    def test_no_step_cap_even_with_parent_limit(self):
+        self.mode = "loop"
+        (self.ws / ".tny.json").write_text(json.dumps({"steps": 1}))
+        result = self.run_cli("draft", globals=("--max-steps", "1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), TEXT)
+        self.assertEqual(len(self.requests), 21)
+
+    def test_timeout_sources_expire(self):
+        self.mode = "stall"
+        for source in ("cli", "env", "repo", "settings"):
+            with self.subTest(source=source):
+                self.settings({})
+                (self.ws / ".tny.json").write_text("{}")
+                env = dict(self.env)
+                args = []
+                if source == "cli":
+                    args = ["--optimise-timeout", "1"]
+                elif source == "env":
+                    env["TNY_OPTIMISE_TIMEOUT"] = "1"
+                elif source == "repo":
+                    (self.ws / ".tny.json").write_text(
+                        json.dumps({"optimise": {"timeout_seconds": 1}})
+                    )
+                else:
+                    self.settings({"optimise": {"timeout_seconds": 1}})
+                result = self.run_cli(*args, "draft", env=env)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("optimisation timed out", result.stderr)
+                self.assertEqual(result.stdout, "")
+
+    def test_timeout_precedence_and_longer_overrides(self):
+        self.mode = "stall"
+        self.settings({"optimise": {"timeout_seconds": 1}})
+        repo = self.ws / ".tny.json"
+        for source in ("default", "settings", "repo", "env", "cli"):
+            with self.subTest(source=source):
+                self.release.clear()
+                self.settings({"optimise": {"timeout_seconds": 1}})
+                repo.write_text("{}")
+                env = dict(self.env)
+                args = []
+                if source == "default":
+                    self.settings({})
+                elif source == "settings":
+                    self.settings({"optimise": {"timeout_seconds": 600}})
+                elif source == "repo":
+                    repo.write_text(json.dumps({"optimise": {"timeout_seconds": 600}}))
+                elif source == "env":
+                    repo.write_text(json.dumps({"optimise": {"timeout_seconds": 1}}))
+                    env["TNY_OPTIMISE_TIMEOUT"] = "600"
+                else:
+                    env["TNY_OPTIMISE_TIMEOUT"] = "1"
+                    args = ["--optimise-timeout", "600"]
+                timer = threading.Timer(1.5, self.release.set)
+                timer.start()
+                try:
+                    result = self.run_cli(*args, "draft", env=env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                finally:
+                    timer.cancel()
+                    timer.join()
+
+    def test_invalid_timeouts_fail_before_requests(self):
+        for value in (-1, 0, 1.5, "bad", "1s", " 2", "+2", 86401, "9" * 100):
+            for source in ("cli", "env", "repo", "settings"):
+                with self.subTest(value=value, source=source):
+                    self.settings({})
+                    (self.ws / ".tny.json").write_text("{}")
+                    env = dict(self.env)
+                    args = []
+                    config = {"optimise": {"timeout_seconds": value}}
+                    if source == "cli":
+                        args = ["--optimise-timeout", str(value)]
+                    elif source == "env":
+                        env["TNY_OPTIMISE_TIMEOUT"] = str(value)
+                    elif source == "repo":
+                        (self.ws / ".tny.json").write_text(json.dumps(config))
+                    else:
+                        self.settings(config)
+                    result = self.run_cli(*args, "draft", env=env)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(
+                        "optimise timeout must be a positive integer", result.stderr
+                    )
+        self.assertEqual(self.requests, [])
+
+    def test_timeout_config_types_and_upper_boundary(self):
+        self.mode = "simple"
+        for value in (None, True, False, [], {}, "", 1.0):
+            with self.subTest(value=value):
+                self.settings({"optimise": {"timeout_seconds": value}})
+                result = self.run_cli("draft")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    "optimise timeout must be a positive integer", result.stderr
+                )
+        self.assertEqual(self.requests, [])
+        self.settings({"optimise": {"timeout_seconds": 86400}})
+        result = self.run_cli("draft")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # A valid higher-precedence value must hide an invalid lower one.
+        self.settings({"optimise": {"timeout_seconds": -1}})
+        result = self.run_cli("--optimise-timeout", "86400", "draft")
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_invalid_options_and_host_provider_fail_without_requests(self):
         for args in (

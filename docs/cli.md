@@ -1031,6 +1031,12 @@ the result without executing it. `--stdin` accepts a piped draft, including
 `tny dictate --seconds 10 | tny optimise --stdin`. `--model` and `--provider`
 override the independent default: OpenRouter `inception/mercury-2.5`.
 `--json` prints `kind`, `provider`, `model`, and `text`.
+`tny optimise --optimise-timeout 600 PROMPT` sets the timeout in seconds.
+The default is 300 seconds; valid values are integers from 1 to 86400.
+Precedence: this subcommand flag, `TNY_OPTIMISE_TIMEOUT`, project `.tny.json`
+`optimise.timeout_seconds`, user settings, then the default. Invalid selected
+values fail before a provider request. There is no step cap, even if the
+conversation or project sets one; cancellation and the timeout still apply.
 The TUI offers `/optimise PROMPT` and Ctrl-O, followed by draft review and
 explicit Enter to submit. See [Prompt optimisation](optimisation.md).
 

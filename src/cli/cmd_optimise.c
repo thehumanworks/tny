@@ -40,9 +40,10 @@ int cmd_optimise(const cli_globals *g, int argc, char **argv) {
             json = true;
             continue;
         }
-        const char **slot = !literal && strcmp(a, "--provider") == 0 ? &r.provider
-                            : !literal && strcmp(a, "--model") == 0  ? &r.model
-                                                                     : NULL;
+        const char **slot = !literal && strcmp(a, "--provider") == 0           ? &r.provider
+                            : !literal && strcmp(a, "--optimise-timeout") == 0 ? &r.timeout_seconds
+                            : !literal && strcmp(a, "--model") == 0            ? &r.model
+                                                                               : NULL;
         if (slot) {
             if (i + 1 >= argc || !*argv[i + 1]) goto invalid;
             *slot = argv[++i];

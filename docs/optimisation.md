@@ -66,9 +66,13 @@ The service uses a separate ephemeral native session and the existing event
 loop. It does not save an optimisation transcript or change the conversation's
 history, task, provider, model, or defaults. Drafts/results are UTF-8 text of
 at most 64 KiB; control sequences and whitespace-only results are rejected.
-Exploration has a 12-step cap (a smaller project/active limit wins), a
-120-second deadline checked between engine steps, and at most 16 KiB per
-tool result (a smaller project limit wins).
+Exploration has no step cap, a 300-second default deadline checked between
+engine steps, and at most 16 KiB per tool result (a smaller project limit wins).
+Set `tny optimise --optimise-timeout N`, `TNY_OPTIMISE_TIMEOUT`, or
+`optimise.timeout_seconds` in project `.tny.json` or user settings, in that
+precedence order. Values are integer seconds from 1 to 86400. Invalid selected
+values fail before provider contact. Config/environment overrides also apply
+in the TUI and wasm. Parent step limits do not apply (ADR 0083).
 
 ## CLI and wasm
 
