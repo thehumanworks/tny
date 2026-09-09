@@ -119,6 +119,13 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else if (strcmp(a, "--bridge-bin") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->bridge_bin = v;
+        } else if (strcmp(a, "--xai-api-key") == 0) {
+            if (!(v = need_val(argc, argv, &i, a))) return -1;
+            if (!*v || strpbrk(v, "\r\n")) {
+                fputs("tny: --xai-api-key must be nonempty and contain no CR/LF\n", stderr);
+                return -1;
+            }
+            g->xai_api_key = v;
         } else if (strcmp(a, "--chatgpt-token") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->chatgpt_token = v;
@@ -250,6 +257,7 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     }
     /* file-less ChatGPT credential (docs/adr/0066): must land before the
      * provider resolves, since the codex profile reads it there */
+    if (g->xai_api_key) ctx->xai_api_key = xstrdup(g->xai_api_key);
     if (g->chatgpt_token) {
         if (!*g->chatgpt_token) {
             fprintf(stderr,

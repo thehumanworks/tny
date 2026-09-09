@@ -1,12 +1,12 @@
 # Dictation
 
 Talk into the local microphone and turn speech into an editable prompt.
-Dictation selects its own provider: ChatGPT/Codex can transcribe while Grok,
+Dictation selects its own provider: ChatGPT/Codex or xAI can transcribe while Grok,
 Claude, Cursor, ACP, or any OpenAI-compatible provider runs the conversation.
 
 ## Interactive shell
 
-1. Press **Ctrl-R**, or run **`/dictate`** (`/dictate codex` selects explicitly).
+1. Press **Ctrl-R**, or run **`/dictate`** (`/dictate codex` or `/dictate xai` selects explicitly).
 2. Speak. The status row shows **Listening**.
 3. Press **Enter** or **Ctrl-R** to stop and transcribe.
 4. Review or edit the text inserted at the caret. Press **Enter** to send it
@@ -30,6 +30,9 @@ tny dictate --seconds 10              # timed microphone capture
 tny dictate --device 'MacBook Pro Microphone'
 tny dictate --input-file speech.wav   # file transcription, no recorder needed
 tny dictate --input-file speech.wav --json
+tny dictate --stt-provider xai --input-file speech.wav
+tny --xai-api-key "$XAI_API_KEY" dictate --stt-provider xai --seconds 10
+TNY_STT_PROVIDER=xai tny --provider claude  # Ctrl-R uses xAI; chat stays Claude
 tny dictate --check --json            # local credentials + recorder check only
 tny dictate --input-file speech.wav --check --json  # credentials check only
 ```
@@ -65,7 +68,7 @@ otherwise `TNY_STT_PROVIDER` selects it, defaulting to `codex`.
 This never changes `--provider`, model, conversation credentials, or chat URL.
 The standalone command does not initialize the conversation profile.
 
-The initial adapter uses the existing ChatGPT credential resolution and
+The `codex` adapter uses the existing ChatGPT credential resolution and
 refresh: explicit `--chatgpt-token` / `--chatgpt-account-id`, then
 `CHATGPT_ACCESS_TOKEN` / `CHATGPT_ACCOUNT_ID`, then `~/.tny/codex-auth.json`,
 then `$CODEX_HOME/auth.json` (normally `~/.codex/auth.json`). Sign in with
@@ -79,6 +82,50 @@ by that service, separately from the chat model. The trusted
 `TNY_CODEX_BASE_URL` gateway override is honored after removing a trailing
 `/codex`; the conversation's `base_url` and key are never used for dictation.
 HTTP errors show status only, not a response body or bearer token.
+
+### xAI credentials and endpoint
+
+`xai` resolves credentials in this order, independently of chat:
+
+1. The leading global flag `--xai-api-key KEY` (before `dictate`, or when starting the TUI).
+2. `XAI_API_KEY`.
+3. A named `xai` object in `~/.tny/settings.json`: the variable named by
+   `api_key_env`, then stored `api_key` if that variable is unset. The object
+   must have a nonempty `base_url`, following the generic named-provider
+   convention; see the [settings example](settings.md#named-openai-compatible-providers).
+4. The access/session token resolved by the existing Grok auth reader from
+   `~/.grok/auth.json`. Sign in with `tny --provider grok login`.
+
+An explicitly present empty, whitespace-only, CR/LF-bearing, or over-16-KiB
+credential is rejected; it does not silently select a lower-priority account.
+An unset settings `api_key_env` may fall back to stored `api_key`. No key is
+printed or persisted by dictation. Only the existing Grok refresh routine may
+update its own auth store, when that login is selected and an actual
+transcription starts. Higher-priority credentials never refresh the login.
+Standalone dictation reads only user settings and the needed auth store; it
+never resolves the conversation profile, creates a session, or contacts chat.
+
+xAI STT is pinned to **`https://api.x.ai/v1/stt`**, using `Authorization:
+Bearer <key>` and a single multipart `file` part named `audio.wav` with MIME
+`audio/wav`. No ChatGPT account header, Grok chat headers, or chat model is
+sent. The REST contract has **no model parameter or versioned model ID**;
+the service chooses its default model. The JSON response's `text` string
+passes through the shared 64 KiB UTF-8/control-character validation.
+
+The named profile's `base_url`, `XAI_BASE_URL`, `GROK_BASE_URL`, and global
+`--base-url` are **ignored for STT**, as are custom auth headers and models.
+In particular, a Grok token is never forwarded to an arbitrary configured
+STT endpoint. The Grok token fallback uses the requested Bearer format, but
+local availability does not establish remote STT entitlement: the official
+STT docs specify an xAI API key and do not promise that every Grok subscription
+token grants STT access. HTTP rejections report status only, never the body.
+
+`tny dictate --stt-provider xai --input-file speech.wav --check` checks for a
+locally usable credential source without opening that file. It makes no
+request, refreshes nothing, and opens no microphone. Without `--input-file`,
+the existing recorder availability check also applies. Windows and wasm keep
+the same file-only behavior; xAI file uploads use the existing HTTP/fetch
+transport, with browser CORS restrictions.
 
 ## Capture, limits, and platforms
 
@@ -123,5 +170,12 @@ start from WAV bytes, poll fd, incremental response step, and destroy. Register
 it in `core/dictation.c`. Adapters own their own authentication and wire
 formats; no display or conversation-provider changes are needed. There is no
 agent microphone tool and no expansion of the public libtny ABI.
+
+Run `make test-dictation` for the unit and local HTTP/recorder fixtures.
+`make wasm wasm-dictation-fixture` followed by
+`TNY="$PWD/build/wasm/tny" python3 tests/integration/test_dictation.py` exercises
+file transcription through wasm. The separate fixture executable accepts
+only a loopback test URL; production binaries have no xAI STT URL override.
+All fixture credentials and audio are synthetic.
 
 See [ADR 0079](adr/0079-provider-independent-dictation.md).

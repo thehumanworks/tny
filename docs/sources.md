@@ -156,3 +156,19 @@ release claims.
 - FFmpeg input devices (AVFoundation audio selection and PulseAudio): https://ffmpeg.org/ffmpeg-devices.html
 - ALSA recording CLI: https://github.com/alsa-project/alsa-utils/blob/v1.2.14/aplay/aplay.1
 - The account route is live-tested separately; it is not the API-key-only `/v1/audio/transcriptions` route.
+
+### xAI REST STT (verified 2026-09-09)
+
+- Primary guide: https://docs.x.ai/developers/model-capabilities/audio/speech-to-text
+- REST reference: https://docs.x.ai/developers/rest-api-reference/inference/speech-to-text
+- Model overview: https://docs.x.ai/developers/models/speech-to-text
+- Protocol pin: `POST https://api.x.ai/v1/stt`, Bearer xAI API key,
+  `multipart/form-data` with `file` last (tny sends only `file`, `audio.wav`,
+  `audio/wav`); JSON object with string `text`. Container WAV is auto-detected;
+  omit raw-audio fields. REST has no `model` field or published versioned model
+  selector; use the service default, not the realtime `grok-transcribe` option.
+- Profile/chat base URLs are ignored by STT. Grok token fallback uses the
+  existing auth reader/refresh and the same Bearer header, only at the official
+  API endpoint. The STT docs do not guarantee Grok subscription entitlement.
+- Local fixture builds replace only the xAI adapter URL; installed/release
+  binaries contain no STT endpoint override. No live credentials enter tests.

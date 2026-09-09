@@ -284,6 +284,23 @@ $(BIN): $(REL_OBJS)
 	strip $@ 2>/dev/null || strip -x $@
 	@wc -c $@
 
+# A separate, never-installed binary redirects only xAI STT to fake loopback
+# fixtures. The shipped adapter is always pinned to https://api.x.ai/v1/stt.
+DICTATION_FIXTURE = $(BUILD)/tny-dictation-fixture$(EXE)
+DICTATION_FIXTURE_OBJ = $(OBJ_REL)/dictation_xai_fixture.o
+$(DICTATION_FIXTURE_OBJ): src/core/dictation_xai.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(REL_CFLAGS) -DTNY_DICTATION_FIXTURE -MMD -MP -c -o $@ $<
+
+$(DICTATION_FIXTURE): $(filter-out $(OBJ_REL)/src/core/dictation_xai.o,$(REL_OBJS)) $(DICTATION_FIXTURE_OBJ)
+	$(CC) $(REL_CFLAGS) -o $@ $^ $(REL_LDFLAGS)
+
+.PHONY: dictation-fixture test-dictation wasm-dictation-fixture
+dictation-fixture: $(DICTATION_FIXTURE)
+test-dictation: $(TEST_BIN) $(BIN) $(DICTATION_FIXTURE)
+	./$(TEST_BIN) -s dictation
+	TNY=$(abspath $(BIN)) TNY_DICTATION_FIXTURE_BIN=$(abspath $(DICTATION_FIXTURE)) python3 tests/integration/test_dictation.py
+
 $(OBJ_REL)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(CC) $(REL_CFLAGS) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
@@ -572,7 +589,7 @@ test-libtny-tsan:
 	@exit 2
 endif
 
-test: test-unit test-event-schema test-conformance-contract test-cursor-sdk-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
+test: dictation-fixture test-unit test-event-schema test-conformance-contract test-cursor-sdk-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
 	@if [ -x tests/integration/run.sh ]; then tests/integration/run.sh; fi
 
 size: release
@@ -858,6 +875,20 @@ $(WASM_WEB): $(WASM_OBJS) src/wasm/pre_web.js
 		--pre-js src/wasm/pre_web.js -o $@ $(WASM_OBJS)
 	@wc -c $@ $(@:.mjs=.wasm)
 
+WASM_DICTATION_FIXTURE_OBJ = $(OBJ_WASM)/dictation_xai_fixture.o
+WASM_DICTATION_FIXTURE = $(BUILD)/wasm/tny-dictation-fixture.js
+$(WASM_DICTATION_FIXTURE_OBJ): src/core/dictation_xai.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(EMCC) $(WASM_CFLAGS) -DTNY_DICTATION_FIXTURE -MMD -MP -c -o $@ $<
+
+$(WASM_DICTATION_FIXTURE): $(filter-out $(OBJ_WASM)/src/core/dictation_xai.o,$(WASM_OBJS)) $(WASM_DICTATION_FIXTURE_OBJ) src/wasm/pre_node.js
+	$(EMCC) $(WASM_LDFLAGS) -sENVIRONMENT=node -sNODERAWFS \
+		--pre-js src/wasm/pre_node.js -o $@ $(filter %.o,$^)
+	@printf '#!/bin/sh\nexec node "%s" "$$@"\n' "$(abspath $(WASM_DICTATION_FIXTURE))" > $(@D)/tny-dictation-fixture
+	@chmod +x $(@D)/tny-dictation-fixture
+
+wasm-dictation-fixture: $(WASM_DICTATION_FIXTURE)
+
 wasm: $(WASM_NODE)
 wasm-web: $(WASM_WEB)
 
@@ -892,3 +923,5 @@ tnytty-clean:
          $(FAULT_PIC_OBJS:.o=.d) $(FAULT_SAN_PIC_OBJS:.o=.d) \
          $(TSAN_PIC_OBJS:.o=.d) $(FUZZ_OBJS:.o=.d) $(TEST_OBJS:.o=.d) \
          $(TEST_SRC:%.c=$(OBJ_DBG)/%.d)
+
+-include $(DICTATION_FIXTURE_OBJ:.o=.d) $(WASM_DICTATION_FIXTURE_OBJ:.o=.d)

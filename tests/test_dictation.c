@@ -105,6 +105,30 @@ TEST dictation_provider_does_not_select_or_rewrite_chat(void) {
     PASS();
 }
 
+TEST dictation_xai_credentials_preserve_chat_and_reject_invalid_flags(void) {
+    tny_ctx ctx = {.provider_name = "claude",
+                   .model = "chat-model",
+                   .base_url = "http://chat.invalid",
+                   .api_key = "chat-key",
+                   .xai_api_key = "fixture-xai-key"};
+    char err[256];
+    ASSERT(tny_dictation_available(&ctx, "xai", false, err, sizeof err));
+    const char *bad[] = {"", " ", "bad\rkey", "bad\nkey"};
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        ctx.xai_api_key = (char *)bad[i];
+        ASSERT(!tny_dictation_available(&ctx, "xai", false, err, sizeof err));
+        ASSERT(strstr(err, "--xai-api-key"));
+        ASSERT(strstr(err, "XAI_API_KEY"));
+        ASSERT(strstr(err, "xai settings profile"));
+        ASSERT(strstr(err, "tny --provider grok login"));
+    }
+    ASSERT_STR_EQ("claude", ctx.provider_name);
+    ASSERT_STR_EQ("chat-model", ctx.model);
+    ASSERT_STR_EQ("http://chat.invalid", ctx.base_url);
+    ASSERT_STR_EQ("chat-key", ctx.api_key);
+    PASS();
+}
+
 TEST dictation_inserts_at_caret_without_submitting(void) {
     tui t = {0};
     buf_appends(&t.input, "Please review");
@@ -156,6 +180,7 @@ SUITE(dictation_suite) {
     RUN_TEST(dictation_wav_rejects_truncated_chunks_and_overflow);
     RUN_TEST(dictation_text_is_bounded_utf8_without_terminal_controls);
     RUN_TEST(dictation_provider_does_not_select_or_rewrite_chat);
+    RUN_TEST(dictation_xai_credentials_preserve_chat_and_reject_invalid_flags);
     RUN_TEST(dictation_inserts_at_caret_without_submitting);
     RUN_TEST(dictation_composer_capacity_preserves_the_draft);
     RUN_TEST(dictation_shortcut_decodes_at_every_split);

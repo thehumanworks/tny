@@ -82,3 +82,59 @@ API key supporting that route. No new JS or platform seam is introduced.
   mute and volume settings.
 - Windows and wasm runtimes were not available locally. The wasm CI job
   runs the file fixtures and checks unavailable capture without a microphone.
+
+## Extension: xAI REST STT (2026-09-09)
+
+- Register `xai` beside `codex`; retain `codex` as the default. Existing CLI,
+  environment, and `/dictate NAME` selection routes use the same registry.
+- Share bounded WAV multipart upload and incremental JSON response handling
+  in `dictation_http.c`; providers own only credentials, endpoint, and headers.
+  Preserve the event loop, cancellation, 25 MiB audio / 64 KiB text limits,
+  synchronous bounded connect/upload, and status 1/2/130 semantics.
+- Pin xAI to `https://api.x.ai/v1/stt` using Bearer authentication and a sole
+  `file` part (`audio.wav`, `audio/wav`). The official REST API exposes no
+  model selector/version pin. Use the service default; never borrow chat's
+  model or infer a route from the OpenAI-compatible chat API.
+- Resolve leading `--xai-api-key`, then `XAI_API_KEY`, then user named `xai`
+  profile (`api_key_env`, falling back to stored `api_key` when unset), then
+  the existing Grok access/session token. Reject present invalid credentials
+  instead of falling through to another account; keep diagnostics bounded
+  and omit provider bodies. The explicit key is process-owned, never saved.
+- Standalone dictation lazily reads only the needed user settings/auth data,
+  without conversation profile resolution, backend initialization, or sessions.
+  A local check validates source presence/content without audio I/O, network,
+  or refresh. Only actual transcription with the login fallback invokes Grok
+  stale-token refresh. Local success does not promise remote entitlement.
+- Ignore profile `base_url` and all chat URL/header overrides for STT. The
+  official STT contract documents API-key Bearer auth but does not guarantee
+  subscription-token entitlement or forwarding to gateways; send a requested
+  Grok-derived key only to the official xAI API endpoint.
+- Test the full adapter using a separate, never-installed fixture executable
+  compiled with `TNY_DICTATION_FIXTURE`; only it can read a loopback fixture
+  URL. Production has no redirect knob. Native and wasm fixtures reuse all
+  remaining production objects and fake credentials, including Grok refresh.
+- Windows and wasm retain clean microphone-unavailable errors and file
+  transcription through the existing transport seam (browser CORS applies).
+
+### xAI extension verification
+
+Verified on macOS arm64, 2026-09-09, with fake credentials/local fixtures only:
+
+- `make test-dictation`: **8 unit tests**, **36 integration tests**, passed.
+  Coverage includes precedence, OIDC refresh/legacy Grok tokens, rejected
+  empty/CR/LF/NUL credentials, local-only checks, exact multipart/auth,
+  split headers/body at every byte boundary, cancellation, and TUI insertion.
+- `make test`: **466 unit tests**, **46 integration groups**, passed.
+  The host's inherited `TNY_TOOLS=terminal` initially invalidated unrelated
+  tool fixtures; the successful full rerun explicitly cleared that variable.
+- `make quality` passed; GCC `-fanalyzer` remains a Linux-only CI check.
+- `make leaks` with `TNY_TOOLS` cleared passed with **zero leaked bytes**.
+- Emscripten **6.0.8** native/fixture wasm builds succeeded. The Node wasm
+  dictation suite passed **25 applicable tests**, with **11 native-only tests
+  skipped**. This covers file STT and the clean microphone-unavailable error.
+- Size gates passed: stripped macOS arm64 **918,272 bytes**; Node wasm glue
+  plus binary **1,136,288 bytes**. No Linux/Windows runtime or physical
+  microphone verification was performed for this extension.
+- No live xAI/Grok request was made; remote subscription entitlement remains
+  unverified. Production native/wasm artifacts were checked to contain the
+  official endpoint and no fixture URL environment-variable name.

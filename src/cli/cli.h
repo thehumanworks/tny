@@ -37,6 +37,7 @@ typedef struct {
     const char *resume;  /* --resume value */
     /* backend-specific */
     const char *bridge_bin;
+    const char *xai_api_key;        /* --xai-api-key: dictation only */
     const char *chatgpt_token;      /* --chatgpt-token (docs/adr/0066) */
     const char *chatgpt_account_id; /* --chatgpt-account-id */
     const char **agent_argv;        /* --agent CMD -- args…, NULL-terminated */

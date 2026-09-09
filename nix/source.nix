@@ -58,6 +58,8 @@ let
     # create reference/output files in a temporary directory; no external assets.
     # Speech fixtures (test_speech.py) generate their fake player in a temp
     # directory; no MP3 asset or host audio package enters the fileset.
+    # make dictation-fixture/test-dictation reuse the same src/ and stdlib
+    # fixtures, with fake xAI/Grok credentials and a test-only loopback URL.
     # Dictation fixtures generate PCM WAV bytes and fake microphone recorders
     # in temporary directories; no microphone or external media asset is needed.
     # Prompt optimisation fixtures create a nested project and loopback HTTP

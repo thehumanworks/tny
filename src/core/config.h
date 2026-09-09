@@ -84,6 +84,7 @@ typedef struct tny_ctx {
     /* cursor */
     char *bridge_bin;
     struct tny_cursor_config *cursor_config; /* user-level sdk.v1 options */
+    char *xai_api_key;                       /* explicit STT credential only; never selects chat */
     /* codex (docs/adr/0065, 0066): a ChatGPT token + account id handed in
      * by flag (--chatgpt-token / --chatgpt-account-id) — the file-less
      * credential source; env and the stores are read in codex_auth.c */

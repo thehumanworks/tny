@@ -294,7 +294,7 @@ jobs:
           set -eu
           emcc --version | head -1
           node --version
-          make -j"$(getconf _NPROCESSORS_ONLN)" wasm wasm-web
+          make -j"$(getconf _NPROCESSORS_ONLN)" wasm wasm-web wasm-dictation-fixture
           if cursor_conversation="$("$PWD/build/wasm/tny" --provider cursor ask wasm 2>&1)"; then
             echo "Cursor conversation unexpectedly succeeded in wasm" >&2
             exit 1

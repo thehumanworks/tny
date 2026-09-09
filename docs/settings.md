@@ -179,6 +179,32 @@ provider:
 
 Select it with `--provider openrouter`.
 
+An `xai` profile uses the same generic named-provider schema (no STT-specific
+settings keys are needed):
+
+```json
+{
+  "xai": {
+    "base_url": "https://api.x.ai/v1",
+    "api_key_env": "XAI_API_KEY"
+  }
+}
+```
+
+`api_key_env` can name a different variable, or `api_key` can hold a stored
+key, following the existing provider credential convention. Prefer an
+environment variable. `tny dictate --stt-provider xai` and `/dictate xai`
+read this profile's credentials independently of the selected chat provider.
+Precedence: leading `--xai-api-key KEY`, then `XAI_API_KEY`, then the profile's
+`api_key_env` value (stored `api_key` if unset), then an existing Grok login.
+Present empty or CR/LF-bearing credentials fail rather than falling through.
+Grok credentials refresh only when an actual transcription starts; `--check`
+is local-only and does not confirm entitlement. STT always uses the official
+`https://api.x.ai/v1/stt` endpoint and its service-selected model, ignoring
+the profile's `base_url`, model, and custom auth headers. The `base_url`
+remains required to identify a named profile and still configures chat when
+explicitly selected with `--provider xai`. See [Dictation](dictation.md).
+
 ## Named ACP agents
 
 `acp` is a map of reusable agent definitions. Each entry has one `command`,

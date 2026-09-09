@@ -154,7 +154,8 @@ char *tny_grok_session_token(void) {
     free(path);
     if (!doc) return NULL;
     yyjson_val *root = yyjson_doc_get_root(doc);
-    const char *tok = jget_str(jget(root, "https://accounts.x.ai/sign-in"), "key");
+    yyjson_val *value = jget(jget(root, "https://accounts.x.ai/sign-in"), "key");
+    const char *tok = yyjson_get_str(value);
     if (!tok && yyjson_is_obj(root)) {
         /* OIDC / external-provider logins store the entry under the issuer
          * URL; take the first object value carrying a "key" string */
@@ -162,11 +163,13 @@ char *tny_grok_session_token(void) {
         yyjson_val *k, *v;
         yyjson_obj_foreach(root, idx, max, k, v) {
             (void)k;
-            tok = jget_str(v, "key");
+            value = jget(v, "key");
+            tok = yyjson_get_str(value);
             if (tok) break;
         }
     }
-    char *out = tok && *tok ? xstrdup(tok) : NULL;
+    /* Do not turn a JSON token with embedded NUL into a different credential. */
+    char *out = tok && *tok && strlen(tok) == yyjson_get_len(value) ? xstrdup(tok) : NULL;
     yyjson_doc_free(doc);
     return out;
 }

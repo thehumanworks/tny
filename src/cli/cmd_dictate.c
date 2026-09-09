@@ -59,7 +59,8 @@ int cmd_dictate(const cli_globals *g, int argc, char **argv) {
     }
     if (r.input_file && (r.seconds || r.device)) goto invalid;
     /* Do not load or refresh the conversation profile for a standalone service. */
-    tny_ctx ctx = {.chatgpt_token = (char *)g->chatgpt_token,
+    tny_ctx ctx = {.xai_api_key = (char *)g->xai_api_key,
+                   .chatgpt_token = (char *)g->chatgpt_token,
                    .chatgpt_account_id = (char *)g->chatgpt_account_id};
     char err[256] = "";
     if (check) {

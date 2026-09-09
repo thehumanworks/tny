@@ -18,9 +18,11 @@ from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs
 
 ROOT = Path(__file__).resolve().parents[2]
-TNY = str(Path(os.environ.get("TNY", ROOT / "build/tny")).resolve())
+EXE = ".exe" if sys.platform in ("win32", "cygwin", "msys") else ""
+TNY = str(Path(os.environ.get("TNY", ROOT / f"build/tny{EXE}")).resolve())
 WASM = "wasm" in TNY
 MICROPHONE = not WASM and sys.platform not in ("win32", "cygwin", "msys")
 TOKEN, ACCOUNT = "fixture-dictation-token", "fixture-dictation-account"
@@ -84,6 +86,19 @@ class Handler(BaseHTTPRequestHandler):
             )
             self.reply(200, data.encode(), "text/event-stream")
             return
+        if self.path == "/oauth2/token":
+            state["grok_refresh"] = parse_qs(body.decode())
+            self.reply(
+                200,
+                json.dumps(
+                    {
+                        "access_token": state.get("refreshed_key", TOKEN),
+                        "refresh_token": "rotated",
+                        "expires_in": 3600,
+                    }
+                ).encode(),
+            )
+            return
         if self.path == "/oauth/token":
             state["refresh"] = json.loads(body)
             self.reply(
@@ -97,12 +112,12 @@ class Handler(BaseHTTPRequestHandler):
                 ).encode(),
             )
             return
-        if self.path != "/backend-api/transcribe":
+        if self.path not in ("/backend-api/transcribe", "/v1/stt"):
             self.reply(404, b"{}")
             return
-        if (
-            headers.get("authorization") != f"Bearer {TOKEN}"
-            or headers.get("chatgpt-account-id") != ACCOUNT
+        if headers.get("authorization") != f"Bearer {state.get('key', TOKEN)}" or (
+            self.path.endswith("/transcribe")
+            and headers.get("chatgpt-account-id") != ACCOUNT
         ):
             self.reply(401, b"{}")
             return
@@ -133,6 +148,22 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, b"<html>sign in</html>", "text/html")
         elif mode == "oversize-wire":
             self.reply(200, b" " * (64 * 1024 * 6 + 1025))
+        elif mode == "invalid-utf8":
+            self.reply(200, b'{"text":"bad\xff"}')
+        elif mode == "split":
+            data = json.dumps({"text": state["text"]}, ensure_ascii=False).encode()
+            wire = (
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                + str(len(data)).encode()
+                + b"\r\nConnection: close\r\n\r\n"
+                + data
+            )
+            split = state["split"]
+            self.wfile.write(wire[:split])
+            self.wfile.flush()
+            time.sleep(0.002)
+            self.wfile.write(wire[split:])
+            self.close_connection = True
         elif mode == "malformed":
             self.reply(200, b'{"text":')
         elif mode == "chunked":
@@ -153,6 +184,7 @@ class Handler(BaseHTTPRequestHandler):
 
 class DictationTests(unittest.TestCase):
     def setUp(self):
+        self.tny = TNY
         self.tmp = tempfile.TemporaryDirectory(prefix="tny-dictation-test-")
         self.home = Path(self.tmp.name)
         self.bin = self.home / "bin"
@@ -165,6 +197,7 @@ class DictationTests(unittest.TestCase):
             f"#!{sys.executable}\n"
             + """import json, os, signal, sys, time
 from pathlib import Path
+from urllib.parse import parse_qs
 mode = os.environ.get("DICTATION_RECORDER_MODE", "normal")
 log = Path(os.environ["DICTATION_RECORDER_LOG"])
 temp = log.with_suffix(".tmp")
@@ -222,7 +255,7 @@ while True: time.sleep(1)
     def run_dictate(self, *args, env=None, audio=True, prefix=()):
         return subprocess.run(
             [
-                TNY,
+                self.tny,
                 *prefix,
                 "dictate",
                 *(["--input-file", str(self.wav)] if audio else []),
@@ -268,7 +301,16 @@ while True: time.sleep(1)
         self.assertEqual(p.stdout, TEXT + "\n")
 
     def test_rejections_are_bounded_and_secret_safe(self):
-        for mode in (401, 403, 429, "html", "truncated", "oversize-wire", "malformed"):
+        for mode in (
+            401,
+            403,
+            429,
+            "html",
+            "truncated",
+            "oversize-wire",
+            "malformed",
+            "invalid-utf8",
+        ):
             with self.subTest(mode=mode):
                 self.state["mode"] = mode
                 self.check_failure(
@@ -407,7 +449,7 @@ while True: time.sleep(1)
     @unittest.skipUnless(MICROPHONE, "native recording cancellation")
     def test_cli_cancel_while_recording_discards_audio(self):
         p = subprocess.Popen(
-            [TNY, "dictate", "--seconds", "300"],
+            [self.tny, "dictate", "--seconds", "300"],
             env=self.env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -451,7 +493,7 @@ while True: time.sleep(1)
     def test_cancel_during_transcription_has_no_partial_stdout(self):
         self.state["mode"] = "stall"
         p = subprocess.Popen(
-            [TNY, "dictate", "--input-file", str(self.wav)],
+            [self.tny, "dictate", "--input-file", str(self.wav)],
             env=self.env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -468,7 +510,7 @@ while True: time.sleep(1)
                 p.kill()
                 p.wait()
 
-    def start_tui(self):
+    def start_tui(self, prefix=()):
         from test_tui import Term
 
         settings = self.home / ".tny/settings.json"
@@ -486,7 +528,7 @@ while True: time.sleep(1)
             )
         )
         term = Term(
-            [TNY, "--provider", "grok", "--ephemeral", "--no-extensions"],
+            [self.tny, *prefix, "--provider", "grok", "--ephemeral", "--no-extensions"],
             self.env,
             str(self.home),
         )
@@ -609,6 +651,306 @@ while True: time.sleep(1)
             term.send("\x03")
             term.expect_on_screen("Dictation cancelled")
             self.assertFalse(self.state["chat"])
+            term.send("/quit\r")
+            self.assertEqual(term.wait(), 0)
+        finally:
+            term.close()
+            term.proc.wait(timeout=5)
+
+
+class XaiDictationTests(unittest.TestCase):
+    """Only the adapter URL differs in this never-installed fixture build."""
+
+    tearDown = DictationTests.tearDown
+    run_dictate = DictationTests.run_dictate
+    check_failure = DictationTests.check_failure
+    start_tui = DictationTests.start_tui
+    wait_recorded = DictationTests.wait_recorded
+    assert_recorder_stopped = DictationTests.assert_recorder_stopped
+    test_chunked_utf8_transcript_and_plain_stdout = (
+        DictationTests.test_chunked_utf8_transcript_and_plain_stdout
+    )
+    test_rejections_are_bounded_and_secret_safe = (
+        DictationTests.test_rejections_are_bounded_and_secret_safe
+    )
+    test_invalid_transcripts_never_become_prompts = (
+        DictationTests.test_invalid_transcripts_never_become_prompts
+    )
+    test_file_validation_happens_before_network = (
+        DictationTests.test_file_validation_happens_before_network
+    )
+    test_missing_recorder_is_actionable_and_file_mode_still_works = (
+        DictationTests.test_missing_recorder_is_actionable_and_file_mode_still_works
+    )
+    test_cancel_during_transcription_has_no_partial_stdout = (
+        DictationTests.test_cancel_during_transcription_has_no_partial_stdout
+    )
+
+    def setUp(self):
+        DictationTests.setUp(self)
+        self.tny = os.environ.get(
+            "TNY_DICTATION_FIXTURE_BIN",
+            str(Path(TNY).with_name("tny-dictation-fixture" + EXE)),
+        )
+        self.assertTrue(
+            Path(self.tny).is_file(),
+            "run make dictation-fixture (or wasm-dictation-fixture)",
+        )
+        self.env.update(
+            TNY_STT_PROVIDER="xai",
+            XAI_API_KEY=TOKEN,
+            TNY_DICTATION_FIXTURE_URL=self.url + "/v1/stt",
+        )
+
+    def settings(self, **fields):
+        path = self.home / ".tny/settings.json"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "provider": "nonexistent-chat-profile",
+                    "xai": {"base_url": "https://unused.invalid/v1", **fields},
+                }
+            )
+        )
+        return path
+
+    def login(self, key=TOKEN, stale=False):
+        path = self.home / ".grok/auth.json"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "fixture": {
+                        "key": key,
+                        "auth_mode": "oidc",
+                        "refresh_token": "old-refresh",
+                        "expires_at": "2020-01-01T00:00:00Z"
+                        if stale
+                        else "2099-01-01T00:00:00Z",
+                        "oidc_issuer": self.url,
+                        "oidc_client_id": "fixture-client",
+                    }
+                }
+            )
+        )
+        return path
+
+    def assert_upload(self, p, key=TOKEN):
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(
+            json.loads(p.stdout), {"kind": "dictate", "provider": "xai", "text": TEXT}
+        )
+        path, headers, _ = self.state["requests"][-1]
+        self.assertEqual(path, "/v1/stt")
+        self.assertEqual(headers["authorization"], f"Bearer {key}")
+        for name in ("chatgpt-account-id", "originator", "x-api-key", "x-grok-conv-id"):
+            self.assertNotIn(name, headers)
+        parts = self.state["uploads"][-1]
+        self.assertEqual(len(parts), 1)  # no guessed model or chat parameters
+        self.assertEqual(
+            parts[0].get_param("name", header="content-disposition"), "file"
+        )
+        self.assertEqual(parts[0].get_filename(), "audio.wav")
+        self.assertEqual(parts[0].get_content_type(), "audio/wav")
+        self.assertEqual(parts[0].get_payload(decode=True), wav_bytes())
+        self.assertNotIn(key, p.stdout + p.stderr)
+        self.assertFalse(self.state["chat"])
+        self.assertFalse((self.home / ".tny/sessions").exists())
+        self.assertFalse(self.log.exists())
+
+    def test_production_binary_has_no_fixture_endpoint_override(self):
+        artifact = Path(TNY).with_suffix(".wasm") if WASM else Path(TNY)
+        self.assertNotIn(b"TNY_DICTATION_FIXTURE_URL", artifact.read_bytes())
+        self.assertIn(b"https://api.x.ai/v1/stt", artifact.read_bytes())
+
+    def test_response_survives_every_header_and_body_split(self):
+        self.state["mode"] = "split"
+        data = json.dumps({"text": TEXT}, ensure_ascii=False).encode()
+        wire = (
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+            + str(len(data)).encode()
+            + b"\r\nConnection: close\r\n\r\n"
+            + data
+        )
+        for split in range(1, len(wire)):
+            with self.subTest(split=split):
+                self.state["split"] = split
+                p = self.run_dictate()
+                self.assertEqual(p.returncode, 0, p.stderr)
+                self.assertEqual(p.stdout, TEXT + "\n")
+
+    def test_legacy_grok_session_token_fallback(self):
+        del self.env["XAI_API_KEY"]
+        auth = self.login()
+        auth.write_text(json.dumps({"https://accounts.x.ai/sign-in": {"key": TOKEN}}))
+        self.assert_upload(self.run_dictate("--json"))
+        self.assertNotIn("grok_refresh", self.state)
+
+    def test_json_credentials_with_embedded_nul_are_rejected(self):
+        del self.env["XAI_API_KEY"]
+        self.settings(api_key="prefix\0\rsecret")
+        self.check_failure(self.run_dictate())
+        self.settings()
+        self.login("prefix\0\nsecret", stale=True)
+        self.check_failure(self.run_dictate())
+        self.assertFalse(self.state["requests"])
+
+    def test_explicit_selection_beats_stt_environment_and_ignores_chat(self):
+        self.env.update(
+            TNY_STT_PROVIDER="codex",
+            OPENAI_API_KEY="chat-key",
+            XAI_BASE_URL="https://ignored.invalid",
+            GROK_BASE_URL="https://ignored.invalid",
+        )
+        self.assert_upload(
+            self.run_dictate(
+                "--stt-provider",
+                "xai",
+                "--json",
+                prefix=(
+                    "--provider",
+                    "claude",
+                    "--model",
+                    "chat-model",
+                    "--base-url",
+                    self.url + "/chat-must-not-be-used",
+                ),
+            )
+        )
+        self.assertFalse((self.home / ".tny").exists())
+
+    def test_each_credential_source_and_precedence(self):
+        auth = self.login("login-key", stale=True)
+        original_auth = auth.read_bytes()
+        settings = self.settings(api_key_env="CUSTOM_XAI_KEY", api_key="stored-key")
+        original_settings = settings.read_bytes()
+        self.env["CUSTOM_XAI_KEY"] = "profile-env-key"
+        for key, prefix in (
+            ("flag-key", ("--xai-api-key", "flag-key")),
+            (TOKEN, ()),
+            ("profile-env-key", ()),
+            ("stored-key", ()),
+            ("login-key", ()),
+        ):
+            with self.subTest(source=key):
+                if key == "profile-env-key":
+                    del self.env["XAI_API_KEY"]
+                if key == "stored-key":
+                    del self.env["CUSTOM_XAI_KEY"]
+                if key == "login-key":
+                    self.assertEqual(settings.read_bytes(), original_settings)
+                    settings.unlink()
+                    self.login("login-key")
+                self.state["key"] = key
+                self.assert_upload(self.run_dictate("--json", prefix=prefix), key)
+                self.assertNotIn("grok_refresh", self.state)
+                if key != "login-key":
+                    self.assertEqual(auth.read_bytes(), original_auth)
+
+    def test_grok_refresh_only_when_transcription_starts(self):
+        del self.env["XAI_API_KEY"]
+        auth = self.login("stale-key", stale=True)
+        before = auth.read_bytes()
+        self.wav.unlink()
+        for audio in (True, False):
+            p = self.run_dictate("--check", "--json", audio=audio)
+            self.assertEqual(p.returncode, 0 if audio or MICROPHONE else 1, p.stderr)
+            self.assertEqual(json.loads(p.stdout)["available"], audio or MICROPHONE)
+        self.assertFalse(self.state["requests"])
+        self.assertFalse(self.log.exists())
+        self.assertEqual(auth.read_bytes(), before)
+        self.wav.write_bytes(wav_bytes())
+        self.assert_upload(self.run_dictate("--json"))
+        self.assertEqual(
+            self.state["grok_refresh"],
+            {
+                "grant_type": ["refresh_token"],
+                "refresh_token": ["old-refresh"],
+                "client_id": ["fixture-client"],
+            },
+        )
+        self.assertEqual(json.loads(auth.read_text())["fixture"]["key"], TOKEN)
+
+    def test_refreshed_invalid_key_is_rejected_before_upload(self):
+        del self.env["XAI_API_KEY"]
+        self.login("stale-key", stale=True)
+        self.state["refreshed_key"] = "bad\r\nkey"
+        self.check_failure(self.run_dictate())
+        self.assertEqual([r[0] for r in self.state["requests"]], ["/oauth2/token"])
+        self.assertFalse(self.state["uploads"])
+
+    def test_invalid_credentials_fail_closed_before_any_network(self):
+        for source in ("flag", "env", "profile-env", "stored", "login"):
+            for bad in ("", "bad\rkey", "bad\nkey"):
+                with self.subTest(source=source, bad=repr(bad)):
+                    env = {**self.env}
+                    env.pop("XAI_API_KEY", None)
+                    self.settings()
+                    auth = self.login(TOKEN, stale=True)
+                    prefix = ()
+                    if source == "flag":
+                        prefix = ("--xai-api-key", bad)
+                        env["XAI_API_KEY"] = TOKEN
+                    elif source == "env":
+                        env["XAI_API_KEY"] = bad
+                    elif source == "profile-env":
+                        self.settings(api_key_env="CUSTOM_XAI_KEY", api_key=TOKEN)
+                        env["CUSTOM_XAI_KEY"] = bad
+                    elif source == "stored":
+                        self.settings(api_key=bad)
+                    else:
+                        self.login(bad, stale=True)
+                    before = auth.read_bytes()
+                    self.check_failure(self.run_dictate(env=env, prefix=prefix))
+                    self.assertEqual(auth.read_bytes(), before)
+                    self.assertFalse(self.state["requests"])
+                    self.assertFalse(self.log.exists())
+
+    def test_missing_credentials_explain_all_sources_and_check_is_local(self):
+        del self.env["XAI_API_KEY"]
+        p = self.run_dictate()
+        self.check_failure(p)
+        for phrase in (
+            "--xai-api-key",
+            "XAI_API_KEY",
+            "xai settings profile",
+            "tny --provider grok login",
+        ):
+            self.assertIn(phrase, p.stderr)
+        self.env["XAI_API_KEY"] = TOKEN
+        self.wav.unlink()
+        p = self.run_dictate("--check", "--json")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertTrue(json.loads(p.stdout)["available"])
+        self.assertFalse(self.state["requests"])
+        self.assertFalse(self.log.exists())
+        self.assertFalse((self.home / ".tny").exists())
+
+    @unittest.skipUnless(MICROPHONE, "native TUI")
+    def test_tui_slash_xai_uses_leading_key_and_preserves_chat(self):
+        self.env["TNY_STT_PROVIDER"] = "codex"
+        self.env["XAI_API_KEY"] = "lower-priority-key"
+        term = self.start_tui(prefix=("--xai-api-key", TOKEN))
+        try:
+            term.send("/dictate xai\r")
+            term.expect_on_screen("Listening")
+            self.wait_recorded(term)
+            term.send("\r")
+            term.expect_on_screen("Dictation ready")
+            term.expect_on_screen(TEXT)
+            self.assertFalse(self.state["chat"])
+            self.assertEqual(self.state["requests"][-1][0], "/v1/stt")
+            self.assertEqual(
+                self.state["requests"][-1][1]["authorization"], f"Bearer {TOKEN}"
+            )
+            term.send("\r")
+            term.expect("CHAT-OK")
+            self.assertEqual(self.state["chat"][0]["model"], "grok-fixture")
+            self.assertEqual(
+                self.state["requests"][-1][1]["authorization"],
+                "Bearer fixture-chat-key",
+            )
             term.send("/quit\r")
             self.assertEqual(term.wait(), 0)
         finally:
