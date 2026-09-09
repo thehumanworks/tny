@@ -1,5 +1,9 @@
 # Publish stripped tny binaries as GitHub release assets on v* tags.
 #
+# Tags are normally created by auto-release.yml after every merge to main
+# (docs/adr/0085), which dispatches this workflow on the tag ref; a tag
+# pushed by hand starts it through the tag trigger below.
+#
 # This is what makes `mise x github:thehumanworks/tny -- tny --version`
 # work: mise's github backend resolves versions from GitHub *releases*
 # (not CI artifacts) and picks the asset whose name matches the host
