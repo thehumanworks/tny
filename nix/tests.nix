@@ -41,6 +41,8 @@ stdenv.mkDerivation {
     # ffmpeg/arecord executables; no host audio package or device is required.
     # test_optimise.py uses the same stdlib HTTP/PTY harness and temporary
     # project files; it requires no OpenRouter login or live model access.
+    # test_interrupt.py builds its Darwin slow-lock fixture with the stdenv
+    # compiler already on PATH; it does not require a system compiler path.
     zsh # make test also runs the quick-ask widget in real Zsh PTYs
     tmux # test-only terminal screen assertions; never used by the tny runner
     nodejs # tests/site/test_term.js, driven by test_site.py

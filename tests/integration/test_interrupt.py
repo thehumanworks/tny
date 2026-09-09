@@ -9,8 +9,10 @@ models a runner unable to process signals or socket cancellation requests.
 import fcntl
 import json
 import os
+import shlex
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -105,8 +107,18 @@ def wait_for(predicate, term, seconds, label):
 
 
 def run_case(
-    action, *, isolated=True, frozen=False, wire="chat", cli=False, draft=False
+    action,
+    *,
+    isolated=True,
+    frozen=False,
+    wire="chat",
+    cli=False,
+    draft=False,
+    slow_lock=False,
 ):
+    if slow_lock and sys.platform != "darwin":
+        print("skip: slow-lock deadline injection uses the Darwin loader")
+        return
     with tempfile.TemporaryDirectory(prefix="tny-interrupt-") as home:
         ws = Path(home) / "ws"
         ws.mkdir()
@@ -120,6 +132,24 @@ def run_case(
                 "TNY_ISOLATE": "1" if isolated else "0",
             },
         )
+        if slow_lock:
+            fixture = Path(__file__).resolve().parents[1] / "fixtures/slow_lock.c"
+            library = Path(home) / "slow-lock.dylib"
+            subprocess.run(
+                [
+                    *shlex.split(os.environ.get("CC", "cc")),
+                    "-std=c11",
+                    "-D_DARWIN_C_SOURCE",
+                    "-dynamiclib",
+                    str(fixture),
+                    "-o",
+                    str(library),
+                ],
+                check=True,
+                capture_output=True,
+                timeout=30,
+            )
+            env["DYLD_INSERT_LIBRARIES"] = str(library)
         term = None
         terminal_closed = False
         pid = None
@@ -254,6 +284,7 @@ def main():
         ("frozen-double-ctrl-c", "double-ctrl-c", {"frozen": True}),
         ("frozen-timeout", "ctrl-c", {"frozen": True}),
         ("frozen-ctrl-d", "ctrl-d", {"frozen": True}),
+        ("frozen-slow-lock", "ctrl-d", {"frozen": True, "slow_lock": True}),
         ("frozen-hangup", "hangup", {"frozen": True}),
         ("frozen-terminal-close", "terminal-close", {"frozen": True}),
         ("cli-double-ctrl-c", "double-ctrl-c", {"frozen": True, "cli": True}),

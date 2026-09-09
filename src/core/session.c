@@ -762,13 +762,15 @@ pid_t session_read_pid(tny_ctx *ctx, const char *id) {
  * watch, so this stays a nanosleep loop rather than tny_poll (which needs
  * a pollable fd; docs/adr/0017's rule targets fd waits). */
 static bool stop_wait(tny_ctx *ctx, const char *id, int total_ms) {
-    int waited = 0;
+    int64_t deadline = monotonic_ms() + total_ms;
     for (;;) {
         if (!session_is_running(ctx, id)) return true;
-        if (waited >= total_ms) return false;
-        struct timespec ts = {0, 100L * 1000000L};
+        int64_t left = deadline - monotonic_ms();
+        if (left <= 0) return false;
+        /* Lock probes and scheduler delays count toward the grace period. */
+        long sleep_ms = left < 100 ? (long)left : 100;
+        struct timespec ts = {0, sleep_ms * 1000000L};
         nanosleep(&ts, NULL);
-        waited += 100;
     }
 }
 

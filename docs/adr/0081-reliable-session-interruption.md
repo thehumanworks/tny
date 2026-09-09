@@ -45,6 +45,10 @@ the detached run.
 - The foreground `ask` parent releases its inherited flock descriptor after
   a successful fork. Only the runner may retain it, so killing the runner
   actually releases the lock.
+- Session-stop grace periods use a monotonic deadline, including time spent
+  probing the writer lock and scheduler delays. Counting only sleep intervals
+  allowed slow filesystem probes to extend a nominal five-second wait past
+  the eight-second interruption gate on Nix/macOS.
 - On macOS/Linux, force cleanup enumerates descendants through the existing
   host OS seam (`util/process.c`), using libproc or `/proc`. It stops parents
   before enumerating children, then kills children before parents, including
@@ -86,6 +90,11 @@ Unit coverage checks split IPC boundaries, end-before-EOF, changed-pid refusal,
 own-process refusal, terminal status repair, and force-killing a separate child
 group that still owns the writer lock. Live OpenRouter billing/generation
 behavior is outside these local protocol and process tests.
+
+The Darwin `frozen-slow-lock` case adds 80 ms to each read-only lock-file open
+through a test-only loader fixture. The previous sleep-counted wait fails the
+unchanged eight-second gate; the monotonic wait completes under that same
+delay. This reproduces the timeout seen in the macOS Nix release checks.
 
 ### Recorded local results (macOS arm64)
 
