@@ -3,6 +3,7 @@ import { Buffer } from "node:buffer";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveNativeAddon } from "../scripts/native-loader.mjs";
+import { createToolkitClass } from "./toolkit.mjs";
 
 const require = createRequire(import.meta.url);
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -121,6 +122,8 @@ async function invoke(promise) {
     throw error;
   }
 }
+
+export const Toolkit = createToolkitClass(native, invoke, TnyError);
 
 function permissionMode(value) {
   if (value === undefined) return PermissionMode.ask;

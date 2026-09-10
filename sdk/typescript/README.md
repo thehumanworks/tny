@@ -210,3 +210,23 @@ writes exactly one JSON response to stdout; child diagnostics go to stderr.
 Executable Node, strict-mock, C split-boundary, and ctypes runs are referenced
 by exit-code ID. Results that lack the canonical fixture are reported
 `not_run` rather than promoted to self-attested passes.
+## Standalone toolkit
+
+`Toolkit` exposes image generation/editing, speech export/playback,
+WAV/microphone transcription, and prompt optimisation through libtny ABI 1.2+.
+It needs no agent runtime, session, or `tny` executable.
+
+```typescript
+import { Toolkit } from "@thehumanworks/tny";
+
+const kit = new Toolkit({ workspace: "/path/to/project" });
+const image = await kit.generateImage("A small tree", { outputFile: "tree.png" });
+await kit.speak("Hello", { outputFile: "hello.mp3" });
+const { text } = await kit.transcribe("recording.wav");
+const draft = await kit.optimise(text);
+```
+
+Every call accepts an `AbortSignal` and joins native work on cancellation.
+Relative paths resolve against the captured workspace. See the
+[toolkit contract](../../docs/sdk-toolkit.md) for options, providers, limits,
+and explicit credentials. This feature does not change the agent runtime API.

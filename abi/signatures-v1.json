@@ -52,13 +52,18 @@
     "tny_session_respond_permission": "int32_t tny_session_respond_permission(tny_session*session,tny_bytes request_id,uint32_t decision,tny_error**out_error)",
     "tny_session_send": "int32_t tny_session_send(tny_session*session,tny_bytes prompt,tny_error**out_error)",
     "tny_session_steer": "int32_t tny_session_steer(tny_session*session,tny_bytes text,tny_error**out_error)",
+    "tny_task_options_v1_init": "int32_t tny_task_options_v1_init(tny_task_options_v1*options,uint64_t capacity)",
     "tny_tool_call_complete": "int32_t tny_tool_call_complete(tny_tool_call*call,uint64_t generation,const tny_tool_result_v1*result,tny_error**out_error)",
     "tny_tool_call_generation": "uint64_t tny_tool_call_generation(const tny_tool_call*call)",
     "tny_tool_call_release": "void tny_tool_call_release(tny_tool_call*call)",
     "tny_tool_registration_unregister": "int32_t tny_tool_registration_unregister(tny_tool_registration*registration,tny_error**out_error)",
     "tny_tool_result_v1_init": "int32_t tny_tool_result_v1_init(tny_tool_result_v1*result,uint64_t capacity)",
-    "tny_task_options_v1_init": "int32_t tny_task_options_v1_init(tny_task_options_v1*options,uint64_t capacity)",
-    "tny_tool_spec_v1_init": "int32_t tny_tool_spec_v1_init(tny_tool_spec_v1*spec,uint64_t capacity)"
+    "tny_tool_spec_v1_init": "int32_t tny_tool_spec_v1_init(tny_tool_spec_v1*spec,uint64_t capacity)",
+    "tny_toolkit_job_cancel": "int32_t tny_toolkit_job_cancel(tny_toolkit_job*job)",
+    "tny_toolkit_job_create": "int32_t tny_toolkit_job_create(tny_bytes request_json,tny_toolkit_job**out_job,tny_error**out_error)",
+    "tny_toolkit_job_destroy": "int32_t tny_toolkit_job_destroy(tny_toolkit_job**job)",
+    "tny_toolkit_job_result": "tny_bytes tny_toolkit_job_result(const tny_toolkit_job*job)",
+    "tny_toolkit_job_run": "int32_t tny_toolkit_job_run(tny_toolkit_job*job,tny_error**out_error)"
   },
   "callbacks": {
     "tny_host_diagnostic_fn": "int32_t(TNY_CALL*)(void*,uint32_t,tny_bytes,tny_bytes)",

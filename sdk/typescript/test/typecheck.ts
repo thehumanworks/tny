@@ -96,3 +96,15 @@ async function useWorkflow(): Promise<void> {
 }
 
 void useWorkflow;
+import { Toolkit, type ImageResult, type SpeechResult, type TranscriptionResult, type OptimisationResult } from "@thehumanworks/tny";
+
+async function toolkitMethods(kit: Toolkit, signal: AbortSignal): Promise<string> {
+  const image: ImageResult = await kit.generateImage("tree", { outputFile: "tree.png", signal });
+  await kit.editImage("blue", { images: [image.path], outputFile: "blue.png" });
+  const speech: SpeechResult = await kit.speak("Hello", { outputFile: "hello.mp3" });
+  const transcript: TranscriptionResult = await kit.transcribe("input.wav");
+  await kit.dictate({ seconds: 2 });
+  const prompt: OptimisationResult = await kit.optimize(transcript.text);
+  return speech.mimeType + prompt.text;
+}
+void toolkitMethods;

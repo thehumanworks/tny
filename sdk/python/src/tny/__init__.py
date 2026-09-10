@@ -61,6 +61,14 @@ from .runtime import Runtime as Runtime
 from .runtime import RuntimeConfig as RuntimeConfig
 from .runtime import Session as Session
 from .runtime import TaskPreset as TaskPreset
+from .toolkit import AsyncToolkit as AsyncToolkit
+from .toolkit import ImageQuality as ImageQuality
+from .toolkit import ImageResult as ImageResult
+from .toolkit import OptimisationResult as OptimisationResult
+from .toolkit import SpeechResult as SpeechResult
+from .toolkit import Toolkit as Toolkit
+from .toolkit import ToolkitConfig as ToolkitConfig
+from .toolkit import TranscriptionResult as TranscriptionResult
 from .workflow import EventHandler as EventHandler
 from .workflow import PermissionHandler as PermissionHandler
 from .workflow import Workflow as Workflow
@@ -88,6 +96,7 @@ __all__ = (
     "AsyncRuntime",
     "AsyncSession",
     "AsyncToolRegistration",
+    "AsyncToolkit",
     "AuthenticationError",
     "BackpressureError",
     "BadStateError",
@@ -100,9 +109,12 @@ __all__ = (
     "EventHandler",
     "HostServices",
     "InternalError",
+    "ImageQuality",
+    "ImageResult",
     "InvalidArgumentError",
     "Library",
     "OutOfMemoryError",
+    "OptimisationResult",
     "PermissionDecision",
     "PermissionHandler",
     "PermissionMode",
@@ -112,12 +124,16 @@ __all__ = (
     "RuntimeConfig",
     "TaskPreset",
     "Session",
+    "SpeechResult",
     "TnyError",
     "TnyIOError",
     "TnyTimeoutError",
     "ToolRegistration",
     "ToolResult",
     "ToolSensitivity",
+    "Toolkit",
+    "ToolkitConfig",
+    "TranscriptionResult",
     "UnsupportedError",
     "Workflow",
     "WorkflowContextError",

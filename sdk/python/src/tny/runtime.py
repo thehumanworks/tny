@@ -136,9 +136,28 @@ class CancellationToken:
 
     def __init__(self) -> None:
         self._requested = threading.Event()
+        self._lock = threading.Lock()
+        self._callbacks: list[Callable[[], None]] = []
 
     def cancel(self) -> None:
-        self._requested.set()
+        with self._lock:
+            self._requested.set()
+            for callback in self._callbacks:
+                callback()
+
+    def _subscribe(self, callback: Callable[[], None]) -> Callable[[], None]:
+        # Native toolkit cancellation is an atomic store. Keeping it under
+        # this lock lets unsubscribe join any in-flight callback before free.
+        with self._lock:
+            self._callbacks.append(callback)
+            if self.requested:
+                callback()
+
+        def unsubscribe() -> None:
+            with self._lock:
+                self._callbacks.remove(callback)
+
+        return unsubscribe
 
     @property
     def requested(self) -> bool:

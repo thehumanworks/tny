@@ -9,6 +9,7 @@
 #include "core/session.h"
 #include "core/tasks.h"
 #include "lib/custom_tools.h"
+#include "lib/error.h"
 #include "lib/host_services.h"
 #include "util/alloc.h"
 #include "util/util.h"
@@ -153,6 +154,10 @@ static int32_t scoped_status(int32_t status, tny_error **error) {
         (void)failf(error, TNY_STATUS_OOM, "out of memory");
     }
     return TNY_STATUS_OOM;
+}
+
+int32_t tny_lib_error(tny_error **out, int32_t status, const char *message) {
+    return failf(out, status, "%s", message);
 }
 
 static int32_t copy_bytes(tny_bytes value, bool required, const char *field, char **out,

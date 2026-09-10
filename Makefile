@@ -692,7 +692,7 @@ JS_SRC  := docs/assets/site.js docs/assets/term-core.js docs/assets/term-wasm.js
            $(wildcard site/assets/*.js src/wasm/*.js tests/site/*.js \
            sdk/typescript/examples/*.mjs sdk/typescript/scripts/*.mjs \
            sdk/typescript/test/*.mjs) \
-           sdk/typescript/dist/index.mjs
+           $(wildcard sdk/typescript/dist/*.mjs)
 
 # clang-tidy analyzes the native translation units with the release flag
 # set (minus -Werror; WarningsAsErrors in .clang-tidy is the gate).

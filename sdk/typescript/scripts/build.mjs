@@ -37,7 +37,7 @@ if (!supported) {
 
 const sourceFiles = [
   "native/addon.c", "native/addon_internal.h", "native/copy.c", "native/events.c",
-  "native/options.c", "native/owner.c", "native/probe.c", "scripts/build.mjs",
+  "native/options.c", "native/owner.c", "native/probe.c", "native/toolkit.c", "scripts/build.mjs",
 ];
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const fileHash = (path) => digest(readFileSync(path));

@@ -56,6 +56,8 @@ let
     # shared test_tui.py PTY harness; both are included by ../tests above.
     # Image fixtures (test_image_service.py) embed their PNG in source and
     # create reference/output files in a temporary directory; no external assets.
+    # tests/fixtures/toolkit_provider.py supplies stdlib-only HTTP/media data
+    # to native ABI and SDK toolkit tests; ../tests already includes it.
     # Speech fixtures (test_speech.py) generate their fake player in a temp
     # directory; no MP3 asset or host audio package enters the fileset.
     # make dictation-fixture/test-dictation reuse the same src/ and stdlib

@@ -1,5 +1,9 @@
 # libtny embedding API
 
+ABI 1.2 also exposes [standalone toolkit jobs](sdk-toolkit.md) for images,
+speech, transcription, and prompt optimisation, independent of runtime/session
+handles. Existing ABI 1.0/1.1 records, symbols, and defaults remain compatible.
+
 `libtny` contains the ABI-1 headless C candidate for the same runtime
 used by `tny ask`, the TUI, and `tny acp`. It is not a second agent loop and it
 does not expose tny's backend, yyjson, session-store, or pollfd layouts.

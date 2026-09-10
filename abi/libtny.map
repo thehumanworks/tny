@@ -66,3 +66,12 @@ LIBTNY_1.1 {
     tny_runtime_options_v2_init;
     tny_runtime_create_v2;
 } LIBTNY_1.0;
+
+LIBTNY_1.2 {
+  global:
+    tny_toolkit_job_create;
+    tny_toolkit_job_run;
+    tny_toolkit_job_cancel;
+    tny_toolkit_job_result;
+    tny_toolkit_job_destroy;
+} LIBTNY_1.1;

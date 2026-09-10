@@ -251,3 +251,24 @@ the canonical runner, and requires all ten v1 scenarios to pass:
 TNY_TEST_BUNDLED_WHEEL=/absolute/path/to/tny-*.whl \
   python3 -m unittest sdk/python/tests/test_bundled_conformance.py -v
 ```
+## Standalone toolkit
+
+`Toolkit` and `AsyncToolkit` expose image generation/editing, speech
+export/playback, WAV/microphone transcription, and prompt optimisation through
+libtny ABI 1.2+. They need no agent runtime, session, or `tny` executable.
+
+```python
+from tny import Toolkit, ToolkitConfig
+
+kit = Toolkit(ToolkitConfig(workspace="/path/to/project"))
+image = kit.generate_image("A small tree", output_file="tree.png")
+kit.speak("Hello", output_file="hello.mp3")
+text = kit.transcribe("recording.wav").text
+draft = kit.optimise(text).text.decode("utf-8")
+```
+
+Use the same methods on `AsyncToolkit` with `await`. Every call accepts a
+`CancellationToken`; cancelling an asyncio task also cancels and joins native
+work. Relative paths resolve against the captured workspace. See the
+[toolkit contract](../../docs/sdk-toolkit.md) for options, providers, limits,
+and explicit credentials. This feature does not change the agent runtime API.

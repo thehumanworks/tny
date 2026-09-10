@@ -90,6 +90,7 @@ typedef struct tny_ctx {
      * credential source; env and the stores are read in codex_auth.c */
     char *chatgpt_token;
     char *chatgpt_account_id;
+    char *codex_base_url;  /* explicit standalone SDK gateway; never a chat-provider URL */
     bool no_host_registry; /* background ask child: never publish a spawned
                             * host as an attach target (docs/adr/0031) */
     /* remote tool runtime (core/ssh.c, docs/adr/0022): when ssh_host is set
@@ -207,6 +208,8 @@ bool tny_codex_auth_present(void);
 /* 0 when a credential resolved; ctx may be NULL (no flag source). */
 int tny_codex_credentials(const tny_ctx *ctx, tny_codex_creds *out);
 void tny_codex_creds_free(tny_codex_creds *c);
+/* Standalone media services: explicit trusted gateway, then environment/default. */
+const char *tny_codex_service_base_url(const tny_ctx *ctx);
 const char *tny_codex_cred_source_name(tny_codex_cred_source s);
 /* Refresh-token grant (auth.openai.com/oauth/token) on the store that will
  * be read — tny's first, else the Codex CLI's — when its access token is

@@ -3,6 +3,11 @@
 tny ships two language adapters over the same native `libtny` runtime. Neither
 adapter reimplements provider wire protocols or the agent/tool loop.
 
+Both also expose a standalone [`Toolkit`](sdk-toolkit.md) for image generation
+and editing, speech export/playback, file/microphone transcription, and prompt
+optimisation. Python includes `AsyncToolkit`. These methods require ABI 1.2+
+and do not create an agent runtime or session.
+
 | SDK | Package | Binding | Scheduler model |
 | --- | --- | --- | --- |
 | Python | `sdk/python` (`tny`) | cffi ABI mode | sync owner thread or one dedicated asyncio executor |

@@ -462,6 +462,7 @@ static napi_value module_init(napi_env env, napi_value exports) {
     (void)napi_define_properties(env, exports, sizeof(properties) / sizeof(properties[0]),
                                  properties);
     sdk_define_probe(env, exports);
+    sdk_define_toolkit(env, exports);
     return exports;
 }
 
