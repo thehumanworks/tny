@@ -2,7 +2,7 @@
   "name": "@thehumanworks/tny",
   "version": "0.0.0-development",
   "private": true,
-  "description": "Native Node.js SDK for stable libtny ABI 1",
+  "description": "Native Node.js SDK for the tny agent runtime and toolkit",
   "type": "module",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.ts",

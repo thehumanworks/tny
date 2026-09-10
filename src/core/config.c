@@ -1295,6 +1295,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     secure_free(ctx->xai_api_key);
     if (ctx->chatgpt_token) secure_free(ctx->chatgpt_token);
     free(ctx->chatgpt_account_id);
+    free(ctx->codex_base_url);
     free(ctx->ssh_host);
     free(ctx->ssh_cwd);
     free(ctx->ssh_control);

@@ -341,7 +341,7 @@ def run_ctypes(
     assert prefix_caps.schema_version == 1 and prefix_caps.provider_selected == 1
 
     caps = capabilities()
-    assert caps.schema_version == 1 and caps.abi_version == ((1 << 16) | 1)
+    assert caps.schema_version == 1 and caps.abi_version == ((1 << 16) | 2)
     assert caps.provider_selected == 1 and caps.provider_initialized == 0
     assert caps.endpoint_reachability == 0
     assert caps.threading_model == 1 and caps.cancel_model == 2

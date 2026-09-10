@@ -44,6 +44,7 @@ typedef struct tny_event tny_event;
 typedef struct tny_error tny_error;
 typedef struct tny_tool_registration tny_tool_registration;
 typedef struct tny_tool_call tny_tool_call;
+typedef struct tny_toolkit_job tny_toolkit_job;
 typedef struct { const char *ptr; uint64_t len; } tny_bytes;
 typedef struct {
     uint32_t struct_size; uint32_t permission_mode; uint32_t persistence;
@@ -173,6 +174,11 @@ void tny_event_free(tny_event *);
 int32_t tny_error_code(const tny_error *);
 tny_bytes tny_error_message(const tny_error *);
 void tny_error_free(tny_error *);
+int32_t tny_toolkit_job_create(tny_bytes, tny_toolkit_job **, tny_error **);
+int32_t tny_toolkit_job_run(tny_toolkit_job *, tny_error **);
+int32_t tny_toolkit_job_cancel(tny_toolkit_job *);
+tny_bytes tny_toolkit_job_result(const tny_toolkit_job *);
+int32_t tny_toolkit_job_destroy(tny_toolkit_job **);
 """
 
 

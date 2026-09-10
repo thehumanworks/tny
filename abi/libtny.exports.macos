@@ -57,3 +57,8 @@ _tny_event_free
 _tny_error_code
 _tny_error_message
 _tny_error_free
+_tny_toolkit_job_create
+_tny_toolkit_job_run
+_tny_toolkit_job_cancel
+_tny_toolkit_job_result
+_tny_toolkit_job_destroy

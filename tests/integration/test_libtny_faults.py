@@ -10,6 +10,7 @@ fails the parent.
 """
 
 import ctypes
+import json
 import os
 import socket
 import subprocess
@@ -58,6 +59,19 @@ def instrument(lib):
     lib.tny_session_steer.restype = ctypes.c_int32
     lib.tny_session_id.argtypes = [ctypes.c_void_p]
     lib.tny_session_id.restype = byte_type
+    lib.tny_toolkit_job_create.argtypes = [
+        byte_type,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    lib.tny_toolkit_job_create.restype = ctypes.c_int32
+    lib.tny_toolkit_job_run.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    lib.tny_toolkit_job_run.restype = ctypes.c_int32
+    lib.tny_toolkit_job_destroy.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+    lib.tny_toolkit_job_destroy.restype = ctypes.c_int32
 
 
 def observe(lib, stats):
@@ -195,7 +209,47 @@ def child_case(libpath, scenario, base_url, report_path):
     instrument(lib)
     stats = [0, False]
     with tempfile.TemporaryDirectory() as root:
-        if scenario == "tools_fs_walk":
+        if scenario in ("toolkit_create", "toolkit_run"):
+            # Unknown provider stops before credentials/network/audio; every
+            # context/JSON allocation still belongs to the public OOM scope.
+            settings = os.path.join(root, "settings.json")
+            with open(settings, "w", encoding="ascii") as value:
+                value.write("{}")
+            raw, request = as_bytes(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "operation": "speak",
+                        "config": {"workspace": root, "settings_path": settings},
+                        "request": {
+                            "text": "fixture text",
+                            "provider": "fixture-unsupported",
+                            "output_file": "speech.mp3",
+                        },
+                    }
+                )
+            )
+            job = ctypes.c_void_p()
+            error = ctypes.c_void_p()
+            rc = lib.tny_toolkit_job_create(
+                request, ctypes.byref(job), ctypes.byref(error)
+            )
+            if scenario == "toolkit_run":
+                if rc or not job.value:
+                    die(54)
+                rc = lib.tny_toolkit_job_run(job, ctypes.byref(error))
+            injected = observe(lib, stats)
+            expected = OOM if injected else (0 if scenario == "toolkit_create" else -9)
+            if rc != expected or (
+                scenario == "toolkit_create" and injected and job.value
+            ):
+                die(55)
+            free_error(lib, error)
+            if lib.tny_toolkit_job_destroy(ctypes.byref(job)) != 0 or job.value:
+                die(56)
+            del raw
+
+        elif scenario == "tools_fs_walk":
             seed_walk_workspace(root)
             workspace = os.path.join(root, "workspace").encode()
             rc = lib.tny_tools_test_walk(workspace)
@@ -592,6 +646,8 @@ def main():
     results["tools_fs_walk"] = sweep(
         script, libpath, "tools_fs_walk", "tools_fs_walk", "unused"
     )
+    for scope in ("toolkit_create", "toolkit_run"):
+        results[scope] = sweep(script, libpath, scope, scope, "unused")
 
     mock, base_url = start_mock(MOCK_SLOW_MS="150")
     try:

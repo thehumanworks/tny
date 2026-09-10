@@ -3,6 +3,11 @@
 tny ships two language adapters over the same native `libtny` runtime. Neither
 adapter reimplements provider wire protocols or the agent/tool loop.
 
+Both also expose a standalone [`Toolkit`](sdk-toolkit.md) for image generation
+and editing, speech export/playback, file/microphone transcription, and prompt
+optimisation. Python includes `AsyncToolkit`. These methods require ABI 1.2+
+and do not create an agent runtime or session.
+
 | SDK | Package | Binding | Scheduler model |
 | --- | --- | --- | --- |
 | Python | `sdk/python` (`tny`) | cffi ABI mode | sync owner thread or one dedicated asyncio executor |
@@ -98,7 +103,8 @@ Cursor requires explicit state directory, API key, and model values plus an
 external `cursor-sdk-bridge`; management RPCs and image attachments remain
 CLI-only. The Python and TypeScript SDKs expose ABI-1 custom tools when the
 capability snapshot advertises them. MCP, Codex, ACP, and unadvertised optional
-features remain disabled.
+features remain disabled in the agent runtime. Toolkit media providers are
+independent of that runtime capability snapshot.
 
 The SDK default permission mode is `ask`, not the CLI's yolo default.
 Credentials are copied into the native runtime, excluded from repr/error/report

@@ -53,6 +53,12 @@
 #define CODEX_REFRESH_EARLY_S 60              /* before expiry, never mid-turn */
 #define CODEX_HTTP_TIMEOUT_MS 30000
 
+const char *tny_codex_service_base_url(const tny_ctx *ctx) {
+    if (ctx && ctx->codex_base_url) return ctx->codex_base_url;
+    const char *base = getenv("TNY_CODEX_BASE_URL");
+    return base && *base ? base : "https://chatgpt.com/backend-api/codex";
+}
+
 /* ---------- paths ---------- */
 
 char *tny_codex_home(void) {

@@ -14,6 +14,9 @@ typedef struct {
     const char *model;
     const char *text;
     const char *timeout_seconds; /* Optional decimal seconds, 1..86400. */
+    const char *base_url;        /* Explicit SDK overrides after profile resolution. */
+    const char *api_key;
+    const char *wire_api;
 } tny_optimise_request;
 
 tny_optimise *tny_optimise_start(const tny_ctx *, const tny_optimise_request *, char *, size_t);

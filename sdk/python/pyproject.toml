@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tny"
 dynamic = ["version"]
-description = "Safe Python bindings for the stable libtny ABI 1 headless runtime"
+description = "Native Python SDK for the tny agent runtime and toolkit"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["cffi>=1.16"]

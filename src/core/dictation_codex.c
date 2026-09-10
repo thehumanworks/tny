@@ -22,8 +22,7 @@ static void *start(const tny_ctx *ctx, const buf_t *wav, char *err, size_t len) 
     tny_codex_credentials(ctx, &creds);
     buf_t url = {0};
     /* Only the trusted Codex gateway override can redirect this bearer. */
-    const char *base = getenv("TNY_CODEX_BASE_URL");
-    if (!base || !*base) base = "https://chatgpt.com/backend-api/codex";
+    const char *base = tny_codex_service_base_url(ctx);
     size_t n = strlen(base);
     while (n && base[n - 1] == '/') n--;
     if (n >= 6 && !memcmp(base + n - 6, "/codex", 6)) n -= 6;

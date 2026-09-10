@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 #define TNY_ABI_MAJOR   1u
-#define TNY_ABI_MINOR   1u
+#define TNY_ABI_MINOR   2u
 #define TNY_ABI_VERSION ((TNY_ABI_MAJOR << 16) | TNY_ABI_MINOR)
 
 /* Non-error outcomes. */
@@ -88,11 +88,29 @@ typedef struct tny_event tny_event;
 typedef struct tny_error tny_error;
 typedef struct tny_tool_registration tny_tool_registration;
 typedef struct tny_tool_call tny_tool_call;
+typedef struct tny_toolkit_job tny_toolkit_job;
 
 typedef struct {
     const char *ptr;
     uint64_t len;
 } tny_bytes;
+
+/* Standalone toolkit, added in ABI 1.2 (docs/sdk-toolkit.md, ADR 0086).
+ * The version-1 JSON envelope is bounded to 256 KiB and copied/validated by
+ * create, which performs no I/O. Unknown/duplicate fields are rejected.
+ * run is blocking and single-use; it may execute on a different thread from
+ * create. cancel is sticky and thread-safe, including before run. No runtime,
+ * agent session, process-wide chdir, or CLI executable is needed.
+ * result is borrowed UTF-8 JSON, available after a successful run until destroy.
+ * Except cancel, calls on one job must not overlap. destroy refuses a running
+ * job; callers must join run and stop cancellation callers before destroying.
+ * Handles must never be used in a process forked from their creator. */
+TNY_API int32_t TNY_CALL tny_toolkit_job_create(tny_bytes request_json, tny_toolkit_job **out_job,
+                                                tny_error **out_error);
+TNY_API int32_t TNY_CALL tny_toolkit_job_run(tny_toolkit_job *job, tny_error **out_error);
+TNY_API int32_t TNY_CALL tny_toolkit_job_cancel(tny_toolkit_job *job);
+TNY_API tny_bytes TNY_CALL tny_toolkit_job_result(const tny_toolkit_job *job);
+TNY_API int32_t TNY_CALL tny_toolkit_job_destroy(tny_toolkit_job **job);
 
 #ifdef __cplusplus
 #define TNY_CALLBACK_NOEXCEPT noexcept

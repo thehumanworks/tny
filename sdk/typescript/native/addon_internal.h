@@ -143,6 +143,7 @@ void sdk_unregister_env_cleanup(napi_env env);
 int sdk_queue_push(runtime_state *state, command *cmd);
 void *sdk_owner_main(void *opaque);
 void sdk_define_probe(napi_env env, napi_value exports);
+void sdk_define_toolkit(napi_env env, napi_value exports);
 napi_value sdk_event_to_js(napi_env env, const event_copy *event);
 int sdk_parse_create_options(napi_env env, napi_value object, create_options *options);
 int sdk_arg_uint32(napi_env env, napi_value value, uint32_t *out);

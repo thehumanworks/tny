@@ -16,6 +16,7 @@ const { addonPath } = resolveNativeAddon({ packageRoot });
 export const {
   PermissionDecision,
   Runtime,
+  Toolkit,
   TnyError,
   UnsupportedFeatureError,
   Workflow,

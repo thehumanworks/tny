@@ -36,8 +36,7 @@ static int codex_synthesize(const tny_ctx *ctx, const tny_speech_request *r, buf
     }
     /* Independent of ctx->base_url: another chat provider must never receive
      * the Codex bearer. The same trusted override supports Codex gateways. */
-    const char *base = getenv("TNY_CODEX_BASE_URL");
-    if (!base || !*base) base = "https://chatgpt.com/backend-api/codex";
+    const char *base = tny_codex_service_base_url(ctx);
     buf_t url, headers, body;
     buf_init(&url);
     buf_init(&headers);

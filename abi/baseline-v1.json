@@ -3,9 +3,9 @@
   "state": "active",
   "abi": {
     "major": 1,
-    "minor": 1,
-    "encoded": 65537,
-    "elf_version_node": "LIBTNY_1.1"
+    "minor": 2,
+    "encoded": 65538,
+    "elf_version_node": "LIBTNY_1.2"
   },
   "data_model": {
     "name": "LP64-little-endian",
@@ -22,8 +22,8 @@
   },
   "constants": {
     "TNY_ABI_MAJOR": 1,
-    "TNY_ABI_MINOR": 1,
-    "TNY_ABI_VERSION": 65537,
+    "TNY_ABI_MINOR": 2,
+    "TNY_ABI_VERSION": 65538,
     "TNY_CANCEL_CROSS_THREAD_ASYNC_WAKE": 2,
     "TNY_CANCEL_OWNER_THREAD_ASYNC": 1,
     "TNY_CAPABILITY_SCHEMA_VERSION": 1,
@@ -396,7 +396,12 @@
     "tny_tool_call_release": "LIBTNY_1.0",
     "tny_tool_registration_unregister": "LIBTNY_1.0",
     "tny_tool_result_v1_init": "LIBTNY_1.0",
-    "tny_tool_spec_v1_init": "LIBTNY_1.0"
+    "tny_tool_spec_v1_init": "LIBTNY_1.0",
+    "tny_toolkit_job_cancel": "LIBTNY_1.2",
+    "tny_toolkit_job_create": "LIBTNY_1.2",
+    "tny_toolkit_job_destroy": "LIBTNY_1.2",
+    "tny_toolkit_job_result": "LIBTNY_1.2",
+    "tny_toolkit_job_run": "LIBTNY_1.2"
   },
   "capacity_signatures": {
     "tny_capabilities_init": "int32_t(tny_capabilities_v0*,uint64_t)",
@@ -418,14 +423,14 @@
   },
   "signature_manifest": {
     "path": "abi/signatures-v1.json",
-    "sha256": "08faabfc612fb7944be704e6216e44a8418989e0051b7ae9e2a4ceebf8fb34c0"
+    "sha256": "db8eec29a93f7c67b39dbbdbea3af10c3a676699781e449c658ebfdb881f385e"
   },
   "artifacts": {
     "linux-glibc": {
       "architectures": ["aarch64", "x86_64"],
       "soname": "libtny.so.1",
       "linker_name": "libtny.so",
-      "elf_version_nodes": ["LIBTNY_1.0", "LIBTNY_1.1"]
+      "elf_version_nodes": ["LIBTNY_1.0", "LIBTNY_1.1", "LIBTNY_1.2"]
     },
     "macos": {
       "architectures": ["arm64"],

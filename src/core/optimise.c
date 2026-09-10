@@ -126,6 +126,18 @@ tny_optimise *tny_optimise_start(const tny_ctx *parent, const tny_optimise_reque
         }
         if (strcmp(provider, "openrouter") == 0 && !ctx->wire_api) ctx->wire_api = xstrdup("chat");
     }
+    if (r->base_url) {
+        free(ctx->base_url);
+        ctx->base_url = xstrdup(r->base_url);
+    }
+    if (r->api_key) {
+        secure_free(ctx->api_key);
+        ctx->api_key = xstrdup(r->api_key);
+    }
+    if (r->wire_api) {
+        free(ctx->wire_api);
+        ctx->wire_api = xstrdup(r->wire_api);
+    }
     if (strcmp(provider, "openrouter") == 0 && !ctx->api_key &&
         !str_starts(ctx->base_url, "http://")) {
         snprintf(

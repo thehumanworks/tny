@@ -502,9 +502,14 @@ def compare(baseline: dict[str, Any], candidate: dict[str, Any]) -> list[str]:
             )
     added_exports = sorted(set(candidate["exports"]) - set(baseline["exports"]))
     for name in added_exports:
+        node = candidate["exports"][name]
+        match = re.fullmatch(r"LIBTNY_1\.(\d+)", node)
+        # Comparing 1.0 directly with 1.2 must retain symbols first added in
+        # 1.1 at that original node, alongside the new 1.2 exports.
         if (
-            candidate["abi"]["minor"] <= baseline["abi"]["minor"]
-            or candidate["exports"][name] != required_node
+            not match
+            or not baseline["abi"]["minor"] < int(match[1]) <= candidate["abi"]["minor"]
+            or node not in actual_nodes
         ):
             errors.append(
                 f"new export {name} must enter a later minor node, got {candidate['exports'][name]!r}"

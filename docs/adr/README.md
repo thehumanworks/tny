@@ -89,3 +89,4 @@ these as `docs/adr/NNNN`.
 | [0083](0083-optimiser-timeout.md) | Remove the optimiser step cap; use a configurable 300-second default timeout with validated CLI, environment, project, and user overrides |
 | [0084](0084-codex-image-defaults.md) | Codex generation and editing default to GPT Image 2.5 Sunburst with high quality; preserve model overrides and all six quality settings |
 | [0085](0085-automatic-release-on-merge.md) | Every green merge to `main` is tagged and published automatically; the bump comes from Conventional Commits prefixes and `release.yml` is dispatched on the tag ref |
+| [0086](0086-standalone-sdk-toolkit.md) | Standalone Python and TypeScript toolkit methods reuse native media and optimisation services through cancellable ABI 1.2 jobs |

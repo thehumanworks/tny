@@ -56,6 +56,11 @@ polls its fds in the main event loop.
 
 ## Embedding boundary
 
+Standalone SDK toolkit jobs ([ADR 0086](adr/0086-standalone-sdk-toolkit.md))
+call the shared image, speech, dictation, and optimisation services directly.
+Each has a private context and atomic cancellation flag; language adapters own
+scheduling and release. They never enter the agent session API or spawn `tny`.
+
 [`libtny`](adr/0023-libtny-embedding-abi.md) exposes opaque
 runtime/session/event/error handles through a pull-driven C ABI. It does
 not expose `tny_ctx`, `tny_backend`, `tny_backend_event`, yyjson, or `pollfd`

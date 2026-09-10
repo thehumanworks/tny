@@ -34,6 +34,8 @@ stdenv.mkDerivation {
     # tnytty/tests/bench/bench_tnytty.py runner. The performance benchmark is
     # intentionally not part of buildPhase because shared CI timing is noisy.
     # test_image_service.py uses stdlib HTTP fixtures and embedded image bytes.
+    # The shared toolkit_provider.py fixture likewise needs only stdlib Python;
+    # native ABI tests add no audio devices, provider keys, or new dependencies.
     # test_prompt_cache.py uses only stdlib loopback providers. The optional
     # bench_prompt_cache.py requires --live and external Codex; never run it here.
     python3 # test_speech.py also generates a fake MP3 player with this interpreter

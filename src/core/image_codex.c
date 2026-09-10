@@ -43,8 +43,7 @@ static int render(const tny_ctx *ctx, const tny_image_request *r, const tny_imag
         goto done;
     }
     /* Never inherit ctx->base_url/api_key from the conversation provider. */
-    const char *base = getenv("TNY_CODEX_BASE_URL");
-    if (!base || !*base) base = "https://chatgpt.com/backend-api/codex";
+    const char *base = tny_codex_service_base_url(ctx);
     size_t n = strlen(base);
     while (n && base[n - 1] == '/') n--;
     buf_append(&url, base, n);
