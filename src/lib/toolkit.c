@@ -324,13 +324,13 @@ static int32_t run(tny_toolkit_job *job) {
 }
 
 int32_t tny_toolkit_job_create(tny_bytes json, tny_toolkit_job **out, tny_error **error) {
+    tny_alloc_scope_begin("toolkit_create");
     if (error) *error = NULL;
     if (out) *out = NULL;
     if (!out || !json.ptr || !json.len || json.len > REQUEST_MAX ||
         !utf8_valid_bytes(json.ptr, (size_t)json.len))
         return tny_lib_error(error, TNY_STATUS_INVALID_ARGUMENT,
                              "toolkit needs UTF-8 JSON of at most 256 KiB");
-    tny_alloc_scope_begin("toolkit_create");
     tny_toolkit_job *job = calloc(1, sizeof *job);
     if (!job) return tny_lib_error(error, TNY_STATUS_OOM, "out of memory");
     job->pid = getpid();
@@ -350,20 +350,21 @@ int32_t tny_toolkit_job_create(tny_bytes json, tny_toolkit_job **out, tny_error 
 }
 
 int32_t tny_toolkit_job_run(tny_toolkit_job *job, tny_error **error) {
+    tny_alloc_scope_begin("toolkit_run");
     if (error) *error = NULL;
     if (!job) return tny_lib_error(error, TNY_STATUS_INVALID_ARGUMENT, "toolkit job is required");
     if (job->pid != getpid()) return TNY_STATUS_BAD_STATE;
     int ready = JOB_READY;
     if (!atomic_compare_exchange_strong(&job->state, &ready, JOB_RUNNING))
         return tny_lib_error(error, TNY_STATUS_BAD_STATE, "toolkit job is single-use");
-    tny_alloc_scope_begin("toolkit_run");
     int32_t status = run(job);
+    if (tny_alloc_scope_failed()) status = TNY_STATUS_OOM;
     if (status != TNY_STATUS_OK) {
         if (job->result.data) secure_zero(job->result.data, job->result.len);
         buf_clear(&job->result);
         /* Provider errors can contain prompts and credentials. Expose only a
          * stable category through SDK exceptions, never their response body. */
-        tny_lib_error(
+        status = tny_lib_error(
             error, status,
             status == TNY_STATUS_CANCELLED ? "toolkit operation cancelled"
             : status == TNY_STATUS_AUTH    ? "toolkit provider credentials are missing or rejected"

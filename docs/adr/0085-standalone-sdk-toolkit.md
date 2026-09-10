@@ -44,7 +44,9 @@ release. Language-owned immutable strings cannot promise wiping.
 ## Verification and limits
 
 Native tests cover copied inputs, strict schema, single use, pre-cancellation,
-cross-thread cancellation, busy destroy, and fork rejection. Both SDKs use a
+cross-thread cancellation, busy destroy, and fork rejection. Exhaustive
+allocation-failure sweeps cover toolkit request creation and context setup,
+including allocation failures while constructing errors. Both SDKs use a
 shared loopback fixture for actual image/MP3/WAV/project-exploration flows,
 output preservation, concurrency, and cancellation. Fake recorders/players
 test host boundaries without physical devices. ABI inventories/signatures cover

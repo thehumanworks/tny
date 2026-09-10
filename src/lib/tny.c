@@ -157,7 +157,7 @@ static int32_t scoped_status(int32_t status, tny_error **error) {
 }
 
 int32_t tny_lib_error(tny_error **out, int32_t status, const char *message) {
-    return failf(out, status, "%s", message);
+    return scoped_status(failf(out, status, "%s", message), out);
 }
 
 static int32_t copy_bytes(tny_bytes value, bool required, const char *field, char **out,
