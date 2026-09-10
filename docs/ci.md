@@ -179,10 +179,40 @@ asset from the os/arch/libc words in its name, so keep the triple naming.
 While the repo is private, mise needs `GITHUB_TOKEN` (or
 `MISE_GITHUB_TOKEN`) set to list and download releases.
 
-Release flow: merge to `main`, then
-`git tag v<version> && git push origin v<version>`. No version bump commit
-is needed — the tag is the single source of truth. If the tag push does not
-start the workflow, dispatch it on the tag ref:
+Release flow: merge to `main`. Nothing else — the `auto-release` workflow
+(`.github/workflows/auto-release.yml`, docs/adr/0085) tags and publishes
+every merge once the `ci`, `nix`, and `sdk` workflows are all green on that
+commit. Whichever of the three completes last does the work: it checks the
+other two through the Actions API, runs `scripts/next_release_version.py`,
+pushes the annotated tag as `github-actions[bot]`, and dispatches
+`release.yml` on the tag ref (a tag pushed with `GITHUB_TOKEN` never fires
+`on: push: tags`, so the dispatch is the trigger, not a fallback). The
+`release` run then builds, tests, and publishes exactly as for a hand-pushed
+tag, and the auto-release job fails loudly if that run does not start.
+
+The version comes from the commit messages since the newest stable
+`vX.Y.Z` tag reachable from the commit (Conventional Commits prefixes,
+scanned on every commit in the range, so a PR's branch commits count):
+
+| Since the last tag                                | Bump                         |
+| ------------------------------------------------- | ---------------------------- |
+| `feat:` / `feat(scope):`                          | minor                        |
+| `type!:` or a `BREAKING CHANGE:` footer           | minor before 1.0, then major |
+| anything else (`fix:`, `ci:`, `docs:`, no prefix) | patch                        |
+
+Opt out of releasing one merge with `[skip release]` (or `[no release]`) in
+the squashed commit or in any commit the merge introduces; the next merge
+releases both. A commit whose gates finish after a newer commit has already
+been released is skipped, so tags never move backwards. Pre-release tags
+(`v1.2.3-rc.1`) are ignored as bases and are still cut by hand.
+Merges that touch `src/` are followed by the Pages bot's `[skip ci]` mirror
+commit, so the release tag normally sits one commit below the tip of `main`.
+
+Manual paths still work: `git tag v<version> && git push origin v<version>`
+starts `release.yml` directly (a tag on a `[skip ci]` commit will not — pick
+the merge commit), and "Run workflow" on `auto-release` cuts a release from
+the newest commit with green gates, optionally forcing the bump kind. If a
+tag exists without a release, dispatch it on the tag ref:
 `gh workflow run release.yml --ref v<version>`.
 
 ## Darwin is Metal / Apple Silicon, not Intel

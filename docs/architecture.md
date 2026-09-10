@@ -56,7 +56,7 @@ polls its fds in the main event loop.
 
 ## Embedding boundary
 
-Standalone SDK toolkit jobs ([ADR 0085](adr/0085-standalone-sdk-toolkit.md))
+Standalone SDK toolkit jobs ([ADR 0086](adr/0086-standalone-sdk-toolkit.md))
 call the shared image, speech, dictation, and optimisation services directly.
 Each has a private context and atomic cancellation flag; language adapters own
 scheduling and release. They never enter the agent session API or spawn `tny`.

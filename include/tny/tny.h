@@ -95,7 +95,7 @@ typedef struct {
     uint64_t len;
 } tny_bytes;
 
-/* Standalone toolkit, added in ABI 1.2 (docs/sdk-toolkit.md, ADR 0085).
+/* Standalone toolkit, added in ABI 1.2 (docs/sdk-toolkit.md, ADR 0086).
  * The version-1 JSON envelope is bounded to 256 KiB and copied/validated by
  * create, which performs no I/O. Unknown/duplicate fields are rejected.
  * run is blocking and single-use; it may execute on a different thread from

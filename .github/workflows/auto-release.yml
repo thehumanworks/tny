@@ -1,0 +1,162 @@
+# Tag and publish a release automatically after every merge to main
+# (docs/adr/0085, docs/ci.md "Releases").
+#
+# Runs when one of the main-branch gates (ci, nix, sdk) completes on a
+# push to main. It releases only once all three are green on the same
+# commit: whichever gate finishes last does the work, the earlier ones
+# see something still in progress and stop. The version is not stored
+# anywhere (docs/adr/0014): scripts/next_release_version.py bumps the
+# newest reachable v* tag from the Conventional Commits prefixes since
+# it (feat -> minor, ! / BREAKING CHANGE -> major, else patch) and
+# skips commits that already carry a tag or opt out with [skip release].
+#
+# A tag pushed with GITHUB_TOKEN never starts `on: push: tags`
+# workflows, so this dispatches release.yml on the new tag ref instead
+# (the fallback release.yml already documents). The release workflow
+# then builds, tests, and publishes exactly as for a hand-pushed tag.
+#
+# Manual use: "Run workflow" on main cuts a release from the newest
+# commit whose gates are green, with an optional forced bump kind.
+
+name: auto-release
+
+on:
+  workflow_run:
+    workflows: [ci, nix, sdk]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Bump kind (auto reads the commit messages)"
+        type: choice
+        default: auto
+        options: [auto, patch, minor, major]
+
+permissions:
+  contents: read
+
+# One tagging run at a time; the queued run re-checks everything, so
+# never cancel (two gates finishing together must not lose the release).
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: tag and dispatch release
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # push the tag
+      actions: write # dispatch release.yml on the tag ref
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Resolve the commit to release
+        id: target
+        run: |
+          set -eu
+          # A manual run starts from the tip of main, which is often the
+          # Pages bot's "[skip ci]" mirror commit that no gate ever ran
+          # on; walk back to the newest commit that did go through CI.
+          sha="$(git rev-parse HEAD)"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            while git log -1 --format=%B "$sha" \
+              | grep -Eqi '\[(skip ci|ci skip|no ci|skip actions|actions skip)\]'; do
+              sha="$(git rev-parse "$sha^1")"
+            done
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "releasing from $sha: $(git log -1 --format=%s "$sha")"
+
+      - name: Require every main-branch gate green on this commit
+        id: gates
+        env:
+          SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          set -eu
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$SHA&per_page=100" \
+            --jq '.workflow_runs[] | [.path, .status, (.conclusion // "-"), .id] | @tsv')"
+          printf '%s\n' "$runs"
+          ready=true
+          for path in .github/workflows/ci.yml .github/workflows/nix.yml .github/workflows/sdk.yml; do
+            # newest run per workflow comes first; a re-run replaces a failure
+            line="$(printf '%s\n' "$runs" | awk -F'\t' -v p="$path" '$1 == p { print; exit }')"
+            if [ -z "$line" ]; then
+              echo "$path: no run for $SHA yet"
+              ready=false
+              continue
+            fi
+            status="$(printf '%s' "$line" | cut -f2)"
+            conclusion="$(printf '%s' "$line" | cut -f3)"
+            if [ "$status" != completed ] || [ "$conclusion" != success ]; then
+              echo "$path: $status/$conclusion"
+              ready=false
+            fi
+          done
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          if [ "$ready" != true ]; then
+            echo "not every gate is green on $SHA; the next gate completion re-checks"
+          fi
+
+      - name: Compute the next version
+        id: next
+        if: steps.gates.outputs.ready == 'true'
+        env:
+          SHA: ${{ steps.target.outputs.sha }}
+          BUMP: ${{ inputs.bump || 'auto' }}
+        run: |
+          set -eu
+          set -- --commit "$SHA" --github-output "$GITHUB_OUTPUT"
+          if [ "$BUMP" != auto ]; then set -- "$@" --bump "$BUMP"; fi
+          python3 scripts/next_release_version.py "$@"
+
+      - name: Create and push the tag
+        if: steps.next.outputs.tag != ''
+        env:
+          SHA: ${{ steps.target.outputs.sha }}
+          tag: ${{ steps.next.outputs.tag }}
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" "$SHA" -m "tny $tag"
+          git push origin "refs/tags/$tag"
+          echo "tagged $SHA as $tag" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dispatch the release workflow on the tag
+        if: steps.next.outputs.tag != ''
+        env:
+          tag: ${{ steps.next.outputs.tag }}
+        run: |
+          set -eu
+          gh workflow run release.yml --ref "$tag"
+          # Dispatches are asynchronous; wait until the run exists so a
+          # silent no-start fails here instead of leaving a bare tag.
+          for _ in $(seq 1 18); do
+            sleep 10
+            url="$(gh run list --workflow release.yml --branch "$tag" \
+              --json url --jq '.[0].url // empty')"
+            if [ -n "$url" ]; then
+              echo "release workflow: $url"
+              echo "release workflow: $url" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          done
+          echo "error: release.yml did not start for $tag; dispatch it by hand:" >&2
+          echo "  gh workflow run release.yml --ref $tag" >&2
+          exit 1

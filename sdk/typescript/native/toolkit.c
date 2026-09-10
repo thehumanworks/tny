@@ -1,7 +1,7 @@
 /* Each call owns a native thread and a single-use libtny job. No JavaScript
  * callbacks or borrowed JS buffers cross into native provider code. Node's
  * async-work pool drains before environment cleanup, so it cannot host these
- * cancellable operations (ADR 0085). */
+ * cancellable operations (ADR 0086). */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif

@@ -1,4 +1,4 @@
-# ADR 0085: Standalone toolkit in the native SDKs
+# ADR 0086: Standalone toolkit in the native SDKs
 
 Status: accepted. Date: 2026-09-10.
 
