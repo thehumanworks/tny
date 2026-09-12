@@ -604,6 +604,7 @@ TEST prewarm_start_restarts_on_a_stale_resume_pointer(void) {
     ctx.backend = TNY_BK_ACP;
     char *agent_argv[] = {"/nonexistent/acp-agent", NULL};
     ctx.agent_argv = agent_argv;
+    ctx.cwd = (char *)".";
 
     /* this exercises the thread pre-warm (the wasm / TNY_ISOLATE=0 path);
      * with isolation on, prewarm_start maps to the serve runner instead
