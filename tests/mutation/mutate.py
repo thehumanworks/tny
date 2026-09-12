@@ -206,6 +206,22 @@ TARGETS = [
         "tests/integration/test_openai.py",
         "stream-recovery",
     ),
+    # Stream completion contract (docs/adr/0087, docs/verification/
+    # stream-interruption.md): the terminal-event predicate, the stall
+    # window, the continuation pair, and the interruption path itself.
+    (
+        "src/backends/openai/openai.c",
+        [
+            "oa_stream_complete",
+            "oa_stall_secs",
+            "oa_view_append_continuation",
+            "stream_interrupted",
+            "stream_stalled",
+        ],
+        None,
+        "tests/integration/test_openai.py",
+        "stream-interruption",
+    ),
     # permission tokeniser (docs/adr/0059): every fail-closed branch. The unit
     # suite is the killer here — the tokeniser never leaves the process.
     (

@@ -33,6 +33,18 @@ Env knobs:
   MOCK_TRUNCATED_TERMINAL
                       responses wire: omit the final chunk and close after the
                       terminal event, proving the dead socket is discarded
+  MOCK_CUT_ANSWER_ONCE=clean|abort|stall
+                      both wires: the first final-answer stream is interrupted
+                      after two text deltas — the chunked body ends cleanly
+                      with no terminal event, the socket is reset, or it stays
+                      open and silent until the client hangs up. The follow-up
+                      POST must carry the shown partial as a trailing assistant
+                      message plus one user continuation turn (docs/adr/0087);
+                      it is answered with the rest of the text.
+  MOCK_CUT_CALL_ONCE=clean|abort|stall
+                      both wires: the first tool-call stream is interrupted
+                      after a partial arguments delta, before the terminal
+                      event; the retried POST gets the ordinary stream
   MOCK_DROP_REUSED_ONCE
                       responses wire: close the first tool-output POST before
                       headers, exercising the reused-connection read retry
@@ -109,9 +121,11 @@ With certfile/keyfile the mock serves HTTPS (used by test_https.py).
 
 import json
 import os
+import select
 import socket
 import ssl
 import stat
+import struct
 import sys
 import time
 import urllib.parse
@@ -161,6 +175,14 @@ FAIL_TOOL_POST = int(os.environ.get("MOCK_FAIL_TOOL_POST", "0"))
 EMPTY_STREAM_ONCE = os.environ.get("MOCK_EMPTY_STREAM_ONCE") == "1"
 STREAM_ERROR_ONCE = os.environ.get("MOCK_STREAM_ERROR_ONCE") == "1"
 JSON_BODY_ONCE = os.environ.get("MOCK_JSON_BODY_ONCE") == "1"
+CUT_ANSWER_ONCE = os.environ.get("MOCK_CUT_ANSWER_ONCE")
+CUT_CALL_ONCE = os.environ.get("MOCK_CUT_CALL_ONCE")
+for _cut in (CUT_ANSWER_ONCE, CUT_CALL_ONCE):
+    if _cut not in (None, "clean", "abort", "stall"):
+        raise ValueError(f"unknown cut mode {_cut!r}")
+CUT_PARTIAL = 14  # two 7-character deltas of the answer reach the client
+CONTINUE_MARK = "Continue from precisely where it stopped"
+_cut_state = {"answer": False, "call": False}
 ERROR_NULL = os.environ.get("MOCK_ERROR_NULL") == "1"
 NONSTREAM_ONCE = os.environ.get("MOCK_NONSTREAM_ONCE") == "1"
 REASONING = os.environ.get("MOCK_REASONING")
@@ -329,6 +351,57 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 pass
             self.connection.close()
+
+    def _cut(self, wire: bytes, mode: str):
+        """Stream `wire`, then interrupt the response instead of ending it
+        (docs/adr/0087): a chunked body that ends cleanly without its
+        terminal event, a reset socket, or a silent open socket."""
+        self._start_stream()
+        for i in range(0, len(wire), CHUNK_WIDTH):
+            self._chunk(wire[i : i + CHUNK_WIDTH])
+        if mode == "clean":
+            self._chunk(b"")  # complete transport, incomplete response
+        elif mode == "abort":
+            self.connection.setsockopt(
+                socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
+            )
+            self.connection.close()
+            self.close_connection = True
+        else:  # stall: hold the socket open and silent until the client gives up
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                readable, _, _ = select.select([self.connection], [], [], 0.1)
+                if readable:
+                    break  # EOF: the client hung up on the stalled stream
+            self.close_connection = True
+
+    def _take_cut(self, which: str):
+        """The interruption mode for this stream, once per fixture run."""
+        mode = CUT_ANSWER_ONCE if which == "answer" else CUT_CALL_ONCE
+        if not mode or _cut_state[which]:
+            return None
+        _cut_state[which] = True
+        return mode
+
+    def _continuation(self, msgs, text: str):
+        """After a cut answer, the follow-up request must carry the partial
+        the user saw as a trailing assistant message followed by one user
+        continuation turn; the reply is the remainder of the text."""
+        if not (CUT_ANSWER_ONCE and _cut_state["answer"]):
+            return text
+        tail = msgs[-2:]
+        need(
+            len(tail) == 2
+            and tail[0].get("role") == "assistant"
+            and tail[0].get("content") == text[:CUT_PARTIAL],
+            f"continuation must trail the shown partial: {tail!r}",
+        )
+        need(
+            tail[1].get("role") == "user"
+            and CONTINUE_MARK in str(tail[1].get("content")),
+            f"continuation must end with the user nudge: {tail!r}",
+        )
+        return text[CUT_PARTIAL:]
 
     def _json(self, code, obj):
         body = json.dumps(obj).encode()
@@ -953,11 +1026,19 @@ class Handler(BaseHTTPRequestHandler):
         else:
             tool_msg = next(m for m in msgs if m.get("role") == "tool")
             text = self._answer_text(req, tool_msg["content"], structured is not None)
+            cut_answer = self._take_cut("answer")
+            if cut_answer:
+                text = text[:CUT_PARTIAL]
+            else:
+                text = self._continuation(msgs, text)
             frames = []
             for i in range(0, len(text), 7):
                 frames.append(
                     {"choices": [{"index": 0, "delta": {"content": text[i : i + 7]}}]}
                 )
+            if cut_answer:
+                self._cut(b"".join(sse(f) for f in frames), cut_answer)
+                return
             frames.append(
                 {
                     "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
@@ -967,6 +1048,11 @@ class Handler(BaseHTTPRequestHandler):
         if ERROR_NULL:
             for f in frames:
                 f["error"] = None
+        cut_call = None if has_tool_result else self._take_cut("call")
+        if cut_call:
+            wire = b"".join(sse(f) for f in frames)
+            self._cut(wire[: wire.find(b"\n\n", wire.find(b'{\\"pa')) + 2], cut_call)
+            return
         pieces = [*(sse(f) for f in frames), b"data: [DONE]\n\n"]
         if CONNECTION_CLOSE and not DROP_REUSED_ONCE:
             wire = b"".join(pieces)
@@ -1370,6 +1456,11 @@ class Handler(BaseHTTPRequestHandler):
             text = self._answer_text(
                 req, outputs[0].get("output", ""), structured is not None
             )
+            cut_answer = self._take_cut("answer")
+            if cut_answer:
+                text = text[:CUT_PARTIAL]
+            else:
+                text = self._continuation(items, text)
             events = [
                 {"type": "response.created", "response": {"status": "in_progress"}},
                 {
@@ -1398,6 +1489,9 @@ class Handler(BaseHTTPRequestHandler):
                         "delta": text[i : i + 7],
                     }
                 )
+            if cut_answer:
+                self._cut(b"".join(sse_typed(e) for e in events), cut_answer)
+                return
             events.append(
                 {
                     "type": "response.output_text.done",
@@ -1433,6 +1527,12 @@ class Handler(BaseHTTPRequestHandler):
         # pays the platform's stale-socket retry deadline. One explicit fixture
         # mode retains the abrupt, unterminated close regression.
         wire = b"".join(sse_typed(e) for e in events)
+        cut_call = None if outputs else self._take_cut("call")
+        if cut_call:
+            # up to and including the first partial arguments delta
+            first = wire.find(b'"response.function_call_arguments.delta"')
+            self._cut(wire[: wire.find(b"\n\n", first) + 2], cut_call)
+            return
         # The deterministic reused-read retry requires a clean first response;
         # it takes precedence when a broader CI lane requests truncated
         # terminal fixtures for other scenarios.

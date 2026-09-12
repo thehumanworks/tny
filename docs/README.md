@@ -33,6 +33,7 @@ Do not start product code until you have read this index and the files it names.
 | [worktrees.md](worktrees.md) | Isolated Git checkouts, named reuse, merge/remove/keep on exit |
 | [libtny.md](libtny.md) | Experimental headless C embedding ABI |
 | [sdks.md](sdks.md) | Python/cffi and TypeScript/Node-API SDK contracts |
+| [verification/stream-interruption.md](verification/stream-interruption.md) | Verification contract for interrupted provider streams (ADR 0087): requirement ids and the tests that prove them |
 | [sdk-toolkit.md](sdk-toolkit.md) | Standalone SDK image, audio, and prompt optimisation APIs |
 | [extensions.md](extensions.md) | Trusted Python event hooks, actions, ordering, provider limits |
 

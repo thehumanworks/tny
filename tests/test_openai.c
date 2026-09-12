@@ -273,6 +273,86 @@ TEST reasoning_details_merge_by_index(void) {
     PASS();
 }
 
+/* ---- stream completion contract (docs/verification/stream-interruption.md) ---- */
+
+/* SI-1: only a terminal event completes a stream; on the chat wire a
+ * finish_reason stands in for gateways that never send [DONE]. */
+TEST stream_complete_needs_a_terminal_event(void) {
+    ASSERT(oa_stream_complete(true, false, ""));
+    ASSERT(oa_stream_complete(true, true, ""));
+    ASSERT_FALSE(oa_stream_complete(false, false, ""));
+    ASSERT_FALSE(oa_stream_complete(false, false, NULL));
+    /* responses wire: a finish_reason is never set, and would not count */
+    ASSERT_FALSE(oa_stream_complete(false, false, "stop"));
+    ASSERT(oa_stream_complete(false, true, "stop"));
+    ASSERT(oa_stream_complete(false, true, "tool_calls"));
+    ASSERT_FALSE(oa_stream_complete(false, true, ""));
+    ASSERT_FALSE(oa_stream_complete(false, true, NULL));
+    PASS();
+}
+
+/* SI-5: the stall window defaults to 300s, 0 or negative disables it, and
+ * nothing larger than an hour is accepted. */
+TEST stall_window_parses_and_clamps(void) {
+    ASSERT_EQ(300, oa_stall_secs(NULL));
+    ASSERT_EQ(300, oa_stall_secs(""));
+    ASSERT_EQ(1, oa_stall_secs("1"));
+    ASSERT_EQ(45, oa_stall_secs("45"));
+    ASSERT_EQ(0, oa_stall_secs("0"));
+    ASSERT_EQ(0, oa_stall_secs("-5"));
+    ASSERT_EQ(0, oa_stall_secs("junk"));
+    ASSERT_EQ(3600, oa_stall_secs("3600"));
+    ASSERT_EQ(3600, oa_stall_secs("99999"));
+    PASS();
+}
+
+/* SI-3/SI-4: the continuation request trails the shown partial as an
+ * assistant message and one user turn, on both wires, verbatim. */
+TEST continuation_trails_partial_then_user_turn(void) {
+    yyjson_mut_doc *view = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *msgs = yyjson_mut_arr(view);
+    yyjson_mut_doc_set_root(view, msgs);
+    yyjson_mut_val *user = yyjson_mut_obj(view);
+    yyjson_mut_obj_put(user, yyjson_mut_str(view, "role"), yyjson_mut_str(view, "user"));
+    yyjson_mut_obj_put(user, yyjson_mut_str(view, "content"), yyjson_mut_str(view, "hello"));
+    yyjson_mut_arr_add_val(msgs, user);
+
+    const char *partial = "The workspace contains 3 entries; the first is cal";
+    oa_view_append_continuation(view, partial);
+    ASSERT_EQ(3, (int)yyjson_mut_arr_size(msgs));
+    yyjson_mut_val *a = yyjson_mut_arr_get(msgs, 1);
+    yyjson_mut_val *u = yyjson_mut_arr_get(msgs, 2);
+    ASSERT_STR_EQ("assistant", yyjson_mut_get_str(yyjson_mut_obj_get(a, "role")));
+    ASSERT_STR_EQ(partial, yyjson_mut_get_str(yyjson_mut_obj_get(a, "content")));
+    ASSERT_STR_EQ("user", yyjson_mut_get_str(yyjson_mut_obj_get(u, "role")));
+    const char *nudge = yyjson_mut_get_str(yyjson_mut_obj_get(u, "content"));
+    ASSERT(nudge && strstr(nudge, "Continue from precisely where it stopped"));
+    ASSERT(strstr(nudge, "do not repeat"));
+
+    /* the responses wire translates the pair into two message items in order */
+    char *input = tny_openai_responses_input_with_summary(msgs, NULL);
+    ASSERT(input);
+    yyjson_doc *doc = jparse(input, strlen(input));
+    ASSERT(doc);
+    yyjson_val *items = yyjson_doc_get_root(doc);
+    ASSERT_EQ(3, (int)yyjson_arr_size(items));
+    yyjson_val *ia = yyjson_arr_get(items, 1), *iu = yyjson_arr_get(items, 2);
+    ASSERT_STR_EQ("assistant", jget_str(ia, "role"));
+    ASSERT_STR_EQ(partial, jget_str(ia, "content"));
+    ASSERT_STR_EQ("user", jget_str(iu, "role"));
+    ASSERT_STR_EQ(nudge, jget_str(iu, "content"));
+    yyjson_doc_free(doc);
+    free(input);
+
+    /* nothing shown: nothing appended (a plain retry carries no pair) */
+    oa_view_append_continuation(view, "");
+    oa_view_append_continuation(view, NULL);
+    oa_view_append_continuation(NULL, partial);
+    ASSERT_EQ(3, (int)yyjson_mut_arr_size(msgs));
+    yyjson_mut_doc_free(view);
+    PASS();
+}
+
 SUITE(openai_suite) {
     RUN_TEST(single_call_assembles_from_fragments);
     RUN_TEST(parallel_calls_keyed_by_index);
@@ -287,4 +367,7 @@ SUITE(openai_suite) {
     RUN_TEST(error_token_keeps_only_identifiers);
     RUN_TEST(retryable_statuses_and_permanent_tokens);
     RUN_TEST(reasoning_details_merge_by_index);
+    RUN_TEST(stream_complete_needs_a_terminal_event);
+    RUN_TEST(stall_window_parses_and_clamps);
+    RUN_TEST(continuation_trails_partial_then_user_turn);
 }

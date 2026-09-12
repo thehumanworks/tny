@@ -4,6 +4,11 @@ Date: 2026-09-04
 Status: accepted (extends [ADR 0016](0016-responses-api-default-wire.md) and
 [ADR 0028](0028-extension-parity-contract.md))
 
+Amended by [ADR 0087](0087-stream-completion-and-continuation.md): a body that
+ends without its terminal event is an interruption, a failure after shown text
+continues the answer instead of staying terminal, and a stall clock bounds
+silence on an open stream.
+
 ## Context
 
 Users of hosted gateways (OpenRouter, AIProxy, the ChatGPT `codex` backend)

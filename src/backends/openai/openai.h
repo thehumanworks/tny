@@ -140,6 +140,18 @@ void oa_error_token(char *out, size_t cap, const char *raw);
 bool oa_error_token_is_permanent(const char *token);
 /* HTTP statuses worth a bounded retry: 408, 409, 425, 429, and 5xx. */
 bool oa_status_is_retryable(int status);
+
+/* Stream completion contract (docs/adr/0087): a response is complete only
+ * once its terminal event arrived — on the chat wire a finish_reason also
+ * counts, for gateways that never send [DONE]. */
+bool oa_stream_complete(bool stream_done, bool wire_chat, const char *finish_reason);
+/* TNY_PROVIDER_STALL_SECS parsing: NULL/empty is the 300s default, a
+ * non-positive value disables the stall clock, values cap at one hour. */
+int oa_stall_secs(const char *value);
+/* Append the continuation pair to a provider view: the partial the user
+ * already saw as a trailing assistant message, then the ephemeral user
+ * turn asking the model to carry on from it. */
+void oa_view_append_continuation(yyjson_mut_doc *view, const char *partial);
 /* Merge one streamed `reasoning_details` fragment array into arr (owned by
  * rdoc): fragments sharing an "index" merge into one item — text/summary/
  * data concatenate, other members are kept from the first fragment that
