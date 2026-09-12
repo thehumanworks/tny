@@ -23,6 +23,7 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <sys/stat.h>
 
 /* Every runner→client message shape on one wire, in order. */
 static const char *WIRE =
@@ -318,7 +319,7 @@ typedef struct {
     pid_t pid;
 } live_runner;
 
-static int live_runner_begin(live_runner *x) {
+static int live_runner_prepare(live_runner *x) {
     memset(x, 0, sizeof *x);
     const char *tmp = getenv("TMPDIR");
     if (!tmp || !*tmp) tmp = "/tmp";
@@ -330,7 +331,12 @@ static int live_runner_begin(live_runner *x) {
     x->ctx = tny_ctx_new_explicit(x->workspace, x->state);
     if (!x->ctx) return -1;
     x->session = session_new(x->ctx);
-    if (!x->session) return -1;
+    if (!x->session || session_save(x->session) != 0) return -1;
+    return 0;
+}
+
+static int live_runner_begin(live_runner *x) {
+    if (live_runner_prepare(x) != 0) return -1;
     tny_runner_opts opts = {0};
     opts.serve = true;
     char err[256];
@@ -416,10 +422,172 @@ TEST runner_reads_end_before_owner_eof(void) {
     kill(x.pid, SIGCONT);
     tny_runner_msg *bye = wait_runner_msg(observer, TNY_RMSG_BYE);
     bool ended = bye != NULL;
+    bool writer_free = !session_is_running(x.ctx, x.session->id);
+    bool socket_removed = access(x.sock, F_OK) != 0;
     tny_runner_msg_free(bye);
     tny_runner_client_close(observer);
     live_runner_end(&x);
     ASSERT(ended);
+    ASSERT(writer_free);
+    ASSERT(socket_removed);
+    PASS();
+}
+
+TEST runner_refuses_competing_spawn_without_touching_listener(void) {
+    live_runner x;
+    ASSERT_EQ(0, live_runner_begin(&x));
+    tny_runner_client *owner = tny_runner_client_connect(x.sock, 4000, TNY_RUNNER_OWNER, true);
+    ASSERT(owner);
+    tny_runner_msg *hello = wait_runner_msg(owner, TNY_RMSG_HELLO);
+    ASSERT(hello);
+    tny_runner_msg_free(hello);
+    tny_session_state *other = session_open(x.ctx, x.session->id);
+    ASSERT(other);
+    struct stat before, after;
+    ASSERT_EQ(0, lstat(x.sock, &before));
+    tny_runner_opts opts = {.serve = true};
+    char err[256];
+    pid_t contender = tny_runner_spawn(x.ctx, other, &opts, err, sizeof err);
+    int stat_rc = lstat(x.sock, &after);
+    if (contender > 0) {
+        kill(contender, SIGTERM);
+        waitpid(contender, NULL, 0);
+    }
+    bool retained = session_is_running(x.ctx, x.session->id);
+    session_close(other);
+    tny_runner_client_close(owner);
+    live_runner_end(&x);
+    ASSERT_EQ(-1, contender);
+    ASSERT_EQ(0, stat_rc);
+    ASSERT_EQ(before.st_dev, after.st_dev);
+    ASSERT_EQ(before.st_ino, after.st_ino);
+    ASSERT(retained);
+    PASS();
+}
+
+TEST runner_refreshes_persisted_snapshot_before_bind(void) {
+    live_runner x;
+    ASSERT_EQ(0, live_runner_prepare(&x));
+    tny_session_state *writer = session_open(x.ctx, x.session->id);
+    ASSERT(writer);
+    ASSERT_EQ(0, session_lock_acquire(writer));
+    session_set_title(writer, "previous runner final save");
+    session_bump_turns(writer);
+    ASSERT_EQ(0, session_save(writer));
+    session_close(writer);
+    tny_runner_opts opts = {.serve = true};
+    char err[256];
+    x.pid = tny_runner_spawn(x.ctx, x.session, &opts, err, sizeof err);
+    ASSERT(x.pid > 0);
+    x.sock = tny_runner_sock_path(x.session->dir);
+    tny_runner_client *owner = tny_runner_client_connect(x.sock, 4000, TNY_RUNNER_OWNER, true);
+    ASSERT(owner);
+    tny_runner_msg *hello = wait_runner_msg(owner, TNY_RMSG_HELLO);
+    ASSERT(hello);
+    tny_runner_msg_free(hello);
+    ASSERT_EQ(0, tny_runner_client_end(owner, "done"));
+    tny_runner_msg *bye = wait_runner_msg(owner, TNY_RMSG_BYE);
+    ASSERT(bye);
+    tny_runner_msg_free(bye);
+    tny_session_state *saved = session_open(x.ctx, x.session->id);
+    ASSERT(saved);
+    bool fresh = session_turns(saved) == 1 &&
+                 strcmp(session_title(saved), "previous runner final save") == 0;
+    session_close(saved);
+    tny_runner_client_close(owner);
+    live_runner_end(&x);
+    ASSERT(fresh);
+    PASS();
+}
+
+TEST runner_missing_persisted_snapshot_fails_before_bind(void) {
+    live_runner x;
+    ASSERT_EQ(0, live_runner_prepare(&x));
+    char *file = path_join(x.session->dir, "session.json");
+    ASSERT(file);
+    ASSERT_EQ(0, unlink(file));
+    free(file);
+    tny_runner_opts opts = {.serve = true};
+    char err[256];
+    x.pid = tny_runner_spawn(x.ctx, x.session, &opts, err, sizeof err);
+    x.sock = tny_runner_sock_path(x.session->dir);
+    bool refused = x.pid < 0;
+    bool no_socket = access(x.sock, F_OK) != 0;
+    bool released = x.session->lock_fd < 0 && !session_is_running(x.ctx, x.session->id);
+    live_runner_end(&x);
+    ASSERT(refused);
+    ASSERT(no_socket);
+    ASSERT(released);
+    PASS();
+}
+
+TEST runner_new_unsaved_session_can_spawn(void) {
+    live_runner x;
+    ASSERT_EQ(0, live_runner_prepare(&x));
+    session_close(x.session);
+    x.session = session_new(x.ctx);
+    ASSERT(x.session && !x.session->persisted);
+    tny_runner_opts opts = {.serve = true};
+    char err[256];
+    x.pid = tny_runner_spawn(x.ctx, x.session, &opts, err, sizeof err);
+    ASSERT(x.pid > 0);
+    x.sock = tny_runner_sock_path(x.session->dir);
+    tny_runner_client *owner = tny_runner_client_connect(x.sock, 4000, TNY_RUNNER_OWNER, true);
+    ASSERT(owner);
+    tny_runner_msg *hello = wait_runner_msg(owner, TNY_RMSG_HELLO);
+    ASSERT(hello);
+    tny_runner_msg_free(hello);
+    ASSERT_EQ(0, tny_runner_client_end(owner, "done"));
+    tny_runner_msg *bye = wait_runner_msg(owner, TNY_RMSG_BYE);
+    ASSERT(bye);
+    tny_runner_msg_free(bye);
+    tny_session_state *saved = session_open(x.ctx, x.session->id);
+    bool created = saved && saved->persisted && x.session->persisted;
+    ASSERT(saved);
+    ASSERT_EQ(0, session_lock_acquire(saved));
+    session_set_title(saved, "durable before same-parent respawn");
+    ASSERT_EQ(0, session_save(saved));
+    session_close(saved);
+    tny_runner_client_close(owner);
+    ASSERT_EQ(x.pid, waitpid(x.pid, NULL, 0));
+    x.pid = tny_runner_spawn(x.ctx, x.session, &opts, err, sizeof err);
+    ASSERT(x.pid > 0);
+    owner = tny_runner_client_connect(x.sock, 4000, TNY_RUNNER_OWNER, true);
+    ASSERT(owner);
+    hello = wait_runner_msg(owner, TNY_RMSG_HELLO);
+    ASSERT(hello);
+    tny_runner_msg_free(hello);
+    ASSERT_EQ(0, tny_runner_client_end(owner, "done"));
+    bye = wait_runner_msg(owner, TNY_RMSG_BYE);
+    ASSERT(bye);
+    tny_runner_msg_free(bye);
+    saved = session_open(x.ctx, x.session->id);
+    bool fresh = saved && strcmp(session_title(saved), "durable before same-parent respawn") == 0;
+    session_close(saved);
+    tny_runner_client_close(owner);
+    live_runner_end(&x);
+    ASSERT(created);
+    ASSERT(fresh);
+    PASS();
+}
+
+TEST runner_serve_turn_error_keeps_writer(void) {
+    live_runner x;
+    ASSERT_EQ(0, live_runner_begin(&x));
+    tny_runner_client *owner = tny_runner_client_connect(x.sock, 4000, TNY_RUNNER_OWNER, true);
+    ASSERT(owner);
+    tny_runner_msg *hello = wait_runner_msg(owner, TNY_RMSG_HELLO);
+    ASSERT(hello);
+    tny_runner_msg_free(hello);
+    ASSERT_EQ(0, tny_runner_client_turn(owner, "", NULL, false));
+    tny_runner_msg *error = wait_runner_msg(owner, TNY_RMSG_TURN_ERR);
+    bool rejected = error != NULL;
+    bool retained = session_is_running(x.ctx, x.session->id);
+    tny_runner_msg_free(error);
+    tny_runner_client_close(owner);
+    live_runner_end(&x);
+    ASSERT(rejected);
+    ASSERT(retained);
     PASS();
 }
 
@@ -807,6 +975,11 @@ TEST runner_control_primitive_returns_preview_status_and_keeps_manual_replies(vo
 
 SUITE(runner_suite) {
     RUN_TEST(runner_reads_end_before_owner_eof);
+    RUN_TEST(runner_refuses_competing_spawn_without_touching_listener);
+    RUN_TEST(runner_serve_turn_error_keeps_writer);
+    RUN_TEST(runner_refreshes_persisted_snapshot_before_bind);
+    RUN_TEST(runner_missing_persisted_snapshot_fails_before_bind);
+    RUN_TEST(runner_new_unsaved_session_can_spawn);
     RUN_TEST(runner_wire_whole_buffer);
     RUN_TEST(runner_wire_survives_every_split_boundary);
     RUN_TEST(runner_client_ops_reach_the_server);

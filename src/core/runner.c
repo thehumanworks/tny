@@ -594,7 +594,7 @@ static void rn_accept(rn_state *r) {
     }
 }
 
-/* Finalize the turn that just ended (or failed): status + result + lock,
+/* Finalize the turn that just ended (or failed): status + result,
  * then tell everyone. Safe with engine == NULL (early failures). */
 static void rn_finalize(rn_state *r, tny_stop_reason stop, int exit_code) {
     if (r->question_pending) rn_question_fail(r, "turn ended before the question was answered");
@@ -608,10 +608,8 @@ static void rn_finalize(rn_state *r, tny_stop_reason stop, int exit_code) {
         r->errline.len ? r->errline.data : NULL, exit_code);
     session_set_status_finished(r->session, stname, exit_code, result);
     session_save(r->session);
-    /* serve mode keeps the writer lock across turns — the runner is the
-     * session's sole writer for its whole lifetime (docs/adr/0053); it
-     * self-releases on exit. once mode releases like the 0031 child. */
-    if (!r->serve) session_lock_release(r->session);
+    /* The runner still owns teardown writes and its socket. Both modes keep
+     * the writer until final quiescence, immediately before bye (ADR0104). */
     if (stop == TNY_STOP_DONE) tny_settings_remember_use(r->ctx);
 
     buf_t b;
@@ -653,8 +651,6 @@ static void rn_turn_err(rn_state *r, const char *msg, int exit_code) {
         buf_clear(&r->errline);
         buf_appends(&r->errline, msg);
         rn_finalize(r, TNY_STOP_ERROR, exit_code);
-    } else {
-        session_lock_release(r->session);
     }
 }
 
@@ -790,10 +786,6 @@ static void rn_turn_begin(rn_state *r, const char *prompt, const char **images,
     char err[512];
     if (r->turn_active) {
         rn_broadcast_status(r, "a turn is already running");
-        return;
-    }
-    if (session_lock_acquire(r->session) != 0) {
-        rn_turn_err(r, "session is locked by another process", 1);
         return;
     }
     if (rn_ensure_engine(r, err, sizeof err) != 0) {
@@ -1254,8 +1246,7 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
     r.perm = perm_new(ctx);
     r.quit_code = 0;
 
-    if (r.serve) /* hold the writer lock for the runner's lifetime */
-        session_lock_acquire(r.session);
+    /* spawn acquired the writer before binding; this child inherited it. */
     if (r.serve || !opts->initial_prompt) {
         /* the pre-warm, as a process: connect before any turn arrives (for
          * foreground once-mode this overlaps the caller reading stdin,
@@ -1348,11 +1339,13 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
         tny_engine_free(r.engine);
         r.engine = NULL;
     }
+    mcp_shutdown_all();
     session_save(r.session);
     rn_drain_errpipe(&r);
     fflush(NULL); /* task.log is complete before anyone hears bye */
     close(r.lfd);
     unlink(r.sock_path); /* last session-dir mutation: bye promises quiescence */
+    session_lock_release(r.session);
     {
         buf_t b;
         buf_init(&b);
@@ -1365,7 +1358,6 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
         rn_client_flush(&r, i);
         rn_client_drop(&r, i);
     }
-    mcp_shutdown_all();
     perm_free(r.perm);
     buf_free(&r.output);
     buf_free(&r.host_tools);
@@ -1382,19 +1374,33 @@ pid_t tny_runner_spawn(tny_ctx *ctx, tny_session_state *session, const tny_runne
         snprintf(err, errlen, "isolation needs a saved session");
         return -1;
     }
-    if (mkdir_p(session->dir) != 0) {
-        snprintf(err, errlen, "cannot create %s", session->dir);
+    bool acquired_here = session->lock_fd < 0;
+    if (session_lock_acquire(session) != 0) {
+        snprintf(err, errlen, "session is locked by another process");
+        return -1;
+    }
+    if (acquired_here && session->persisted && session_reload_locked(session, err, errlen) != 0) {
+        session_lock_release(session);
+        return -1;
+    }
+    /* Publish a genuinely new snapshot before fork, so the parent also knows
+     * that later runners must reload it, even if this child ends before a turn. */
+    if (!session->persisted && session_save(session) != 0) {
+        snprintf(err, errlen, "cannot write new session");
+        if (acquired_here) session_lock_release(session);
         return -1;
     }
     char *sock = tny_runner_sock_path(session->dir);
     if (!sock) {
         snprintf(err, errlen, "session path too long for a unix socket");
+        if (acquired_here) session_lock_release(session);
         return -1;
     }
     int lfd = unix_listen(sock);
     if (lfd < 0) {
         snprintf(err, errlen, "cannot listen on %s", sock);
         free(sock);
+        if (acquired_here) session_lock_release(session);
         return -1;
     }
     fflush(NULL); /* buffered stdio must not replay into task.log */
@@ -1404,11 +1410,13 @@ pid_t tny_runner_spawn(tny_ctx *ctx, tny_session_state *session, const tny_runne
         unlink(sock);
         free(sock);
         snprintf(err, errlen, "fork failed");
+        if (acquired_here) session_lock_release(session);
         return -1;
     }
     if (pid > 0) {
         close(lfd);
         free(sock);
+        if (acquired_here) session_lock_release(session);
         return pid;
     }
     rn_child_main(ctx, session, opts, lfd, sock);

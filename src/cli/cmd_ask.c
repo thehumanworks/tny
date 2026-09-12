@@ -759,6 +759,19 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         }
     }
 
+    if (resume) {
+        char task_err[192];
+        if (session_reload_locked(session, task_err, sizeof task_err) != 0) {
+            char message[384];
+            snprintf(message, sizeof message, "cannot resume session %s: %s", session->id,
+                     task_err);
+            ask_diag(events, "session", message, NULL);
+            session_close(session);
+            buf_free(&prompt);
+            return 1;
+        }
+    }
+
 #ifndef __EMSCRIPTEN__
     if (isolate && !background) {
         /* Foreground isolation (docs/adr/0053): fork the runner before

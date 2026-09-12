@@ -43,8 +43,9 @@ typedef struct {
 /* Fork the runner. The listener is bound in the parent before the fork so
  * a client connect never races runner startup. Parent: returns the child
  * pid (>0), listener closed. Child: never returns (_exit). -1 on error.
- * once mode requires the caller to hold the session writer flock — it is
- * inherited across the fork (docs/adr/0031 decision 4). */
+ * Acquire the writer before binding; the child inherits it through final
+ * quiescence (ADR0104). A caller-owned lock remains caller-owned in the parent;
+ * otherwise spawn closes its newly acquired parent copy on return. */
 pid_t tny_runner_spawn(tny_ctx *ctx, tny_session_state *session, const tny_runner_opts *opts,
                        char *err, size_t errlen);
 

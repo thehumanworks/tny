@@ -1,0 +1,42 @@
+{
+  "files": [
+    {
+      "path": "src/util/private_fs.c",
+      "before_sha256": null,
+      "after_sha256": "1438d8e5a6df5c14fa6f0c85516bd32939e38a8404def4d96e8e121d4d2ff015"
+    },
+    {
+      "path": "src/util/private_fs.h",
+      "before_sha256": null,
+      "after_sha256": "a352f6d2a9770d614add955439a24acd68dfec69ccbe85310e014f752f1389ce"
+    },
+    {
+      "path": "tests/fixtures/private_fs_primitive.c",
+      "before_sha256": null,
+      "after_sha256": "0cddc63e4f0f343f9adb51f67cd693ad0ee1e09af5a88a42a797e0660a5bb14e"
+    },
+    {
+      "path": "Makefile",
+      "before_sha256": "16702803fedba6d203a448fc5a40c25cc3dbbffcb0177cac1f759ff87b693e40",
+      "after_sha256": "977f74dd6dd4af4a731d652f35377915c1c15d85a863cc224c6c41be222fb3ca"
+    },
+    {
+      "path": "nix/source.nix",
+      "before_sha256": "cf60578b8ef73fb7d5d24141ac362c3ef2711b729aab4a217c1dd5c3c6d6586e",
+      "after_sha256": "3ea75feceba3478e7caf62ccd5dea5815b4838d581f7f728711aca2a48c40ae5"
+    }
+  ],
+  "patch_sha256": "e1aa9bc22b1816aa8056cc7bb093d2c86630581f930c3869a705ccbcfc3399a1",
+  "base": "f968265",
+  "review_scope": "first private creation/descriptor/abort primitive only; no sixcaller rollout",
+  "native_guest_checks": 132,
+  "mac_checks": 78,
+  "runtime_limits": "Windows ARM64 guest x64 MSYS emulation; native x64 CI not run",
+  "pending": [
+    "existing-private-role reuse policy",
+    "mount-aware confined traversal and complete alias observation",
+    "native publication state machine",
+    "opaque stage context and proven pathname pin",
+    "full failure matrix/caller integration"
+  ]
+}

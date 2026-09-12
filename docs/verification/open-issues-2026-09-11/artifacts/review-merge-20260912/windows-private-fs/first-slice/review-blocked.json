@@ -1,0 +1,11 @@
+{
+  "utc": "2026-09-12T21:16:22.826191+00:00",
+  "status": "REQUIRED_INDEPENDENT_REVIEW_UNMET",
+  "reviewer": "/root/job_artifacts",
+  "reported_error": "This content was flagged for possible cybersecurity risk.",
+  "action": "read-only independent first-slice Windows private filesystem source review",
+  "frozen_patch_sha256": "e1aa9bc22b1816aa8056cc7bb093d2c86630581f930c3869a705ccbcfc3399a1",
+  "response": "No retry/rephrasing/alternate reviewer route; author stopped before caller rollout. Existing independent checks collected.",
+  "user_input": "Asked for access indicated by automated filter or independent review; no response received.",
+  "scope": "Original39R49I active; no waiver or native goal pause/completion."
+}

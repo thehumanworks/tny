@@ -833,3 +833,51 @@ with test-only declared dependencies. Darwin and libtny retain their current pol
 The instrumented original installed1052896B failure remains evidence; measured
 candidates986088B with real HTTPS pass are design proof only. Final integrated
 sandboxed packages/flakes and platform matrix remain required. No budget waiver.
+
+
+## Amendment A26 — Runner ownership through quiescence — 2026-09-12T20:47Z
+
+Hosted Nix x86 at f968265 exposes an early-release runner race. The independent
+static review in artifacts/review-merge-20260912/runner-quiescence-design/review.md
+approves ADR0104 before product writes: ownership before bind and all child
+storage work; retain through final save, engine/MCP shutdown, log flush and
+socket unlink; release before bye. Preserve caller-owned parent descriptor
+handoff. Failed acquisition cannot mutate another owner's state. Reload resumed
+state under already-acquired ownership and reconcile again before provider work.
+
+Existing isolation/background/steer/task/runner gates remain required. Add
+behavioral assertions for startup refusal without mutation, serve-error retained
+ownership, refreshed resume state, and writer freedom at bye. The orphan resume
+fixture must observe flock freedom in addition to durable terminal status; no
+sleep-only workaround or lost scope. Native/WASM and final integrated quality,
+size and hosted platform gates remain required; earlier failures remain evidence.
+
+
+## Amendment A27 — Native MSYS private filesystem — 2026-09-12T20:54Z
+
+ADR0105 and the independently approved Windows DESIGN.v2 (SHA256
+2e10a81a4eb4edad11517f1e81a97cca853940f76abbc9795eed0d5f6db69233)
+precede this correction's product writes. The six caller privacy, confinement,
+retained-parent and atomic publication guarantees remain unchanged. Implement
+native atomic private ACL creation and retained object operations, exact alias
+and name handling, explicit committed cleanup state and an owned transform stage.
+Pathname-consuming stages require proven pinning or refusal before spawn.
+
+First primitive slice receives independent review before caller rollout. Existing
+POSIX mode/behavior and WASM boundaries remain; native MSYS tests verify effective
+access rights independently instead of trusting noacl stat modes. All original
+feature checks, failure/alias/parent replacement cases, actual Windows guest flows,
+hosted native x64 unit/jobs and unchanged size/quality gates remain mandatory.
+No global remount, automatic ACL migration, test skip or scope waiver is authorized.
+
+
+## Continuation A28 — External merge observed — 2026-09-12T21:19Z
+
+GitHub records thehumanworks merged PR130 at21:02:59Z, headf968265, merge1bf59d1.
+This agent did not perform that merge. Main4b859f8 adds only generated Pages
+WASM artifacts afterward. The original39R/49I and quality requirements remain;
+no waiver is inferred from the external repository action. The reviewed runner
+correction and Windows review/implementation gaps remain outstanding. Preserve
+the user's merge and proceed on fix/durable-workflow-verification based on current
+main. A follow-up review PR is within the already-authorized correction/delivery
+work; its eventual merge remains conditional on the full active gates.

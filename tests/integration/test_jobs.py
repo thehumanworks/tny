@@ -1072,6 +1072,16 @@ class JobsRetryContention(JobsFixture):
         self.assertEqual(
             codes.count(0), 1, f"not exactly one winner: {codes} {outputs}"
         )
+        self.assertEqual(
+            sorted(codes),
+            [0, 1],
+            f"a losing retry was accepted before ownership refusal: {codes} {outputs}",
+        )
+        self.assertEqual(
+            outputs[codes.index(1)][0],
+            b"",
+            "a refused retry returned an accepted attempt",
+        )
 
         # A losing contender must never write immutable history for an attempt
         # that is still in flight.

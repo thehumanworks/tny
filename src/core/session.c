@@ -328,6 +328,7 @@ tny_session_state *session_open(tny_ctx *ctx, const char *id_or_last) {
     s->lock_fd = -1;
     s->ctx = ctx;
     s->extension_start_reason = xstrdup("resume");
+    s->persisted = true;
     s->id = id;
     s->dir = dir;
     s->doc = yyjson_doc_mut_copy(doc, jallocator());
@@ -337,6 +338,32 @@ tny_session_state *session_open(tny_ctx *ctx, const char *id_or_last) {
         return NULL;
     }
     return s;
+}
+
+int session_reload_locked(tny_session_state *s, char *err, size_t errsz) {
+    if (!s || s->lock_fd < 0) {
+        snprintf(err, errsz, "session reload requires writer ownership");
+        return -1;
+    }
+    tny_session_state *fresh = session_open(s->ctx, s->id);
+    if (!fresh) {
+        snprintf(err, errsz, "cannot reload saved session");
+        return -1;
+    }
+    if (session_task_reconcile(fresh, err, errsz) != 0) {
+        session_close(fresh);
+        return -1;
+    }
+    /* Keep the owned descriptor and process-local lifecycle identity. Nothing
+     * closes/reacquires the lock while replacing the durable working copy. */
+    yyjson_mut_doc_free(s->doc);
+    free(s->task_body);
+    s->doc = fresh->doc;
+    s->task_body = fresh->task_body;
+    fresh->doc = NULL;
+    fresh->task_body = NULL;
+    session_close(fresh);
+    return 0;
 }
 
 int session_save(tny_session_state *s) {
@@ -370,6 +397,7 @@ int session_save(tny_session_state *s) {
         return -1;
     }
     int rc = file_write_atomic(file, out, strlen(out));
+    if (rc == 0) s->persisted = true;
     if (rc != 0) {
         if (has_task) unlink(pending_task_file);
     } else if (has_task) {
