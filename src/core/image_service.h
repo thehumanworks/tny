@@ -27,17 +27,31 @@ typedef struct {
     const char *quality;  /* NULL: provider default (codex: high) */
     const char *size;     /* NULL: auto */
     const char *output_file;
+    bool preview;              /* explicit conversation upload request; adapters only */
     bool strict_size;          /* require a concrete WxH request the bytes actually match */
     bool no_manifest;          /* --no-manifest / persist_manifest:false */
+    bool no_replace;           /* private jobs prefix; atomic create, never overwrite */
     const char *from_manifest; /* replay/rerun source record */
     const char *images[TNY_IMAGE_REFERENCES_MAX];
     /* Parallel to images: true when that entry is a manifest whose verified
      * successful output becomes the reference, false for a plain file path. */
     bool image_is_artifact[TNY_IMAGE_REFERENCES_MAX];
     size_t image_count;
+    const char *job; /* one additional reference, after the explicit ordered list */
+    int job_item;
+    bool job_item_set;
     bool (*cancelled)(void *);
     void *userdata;
 } tny_image_request;
+
+/* Optional stored job provenance. An empty id means absent, preserving old
+ * records and ordinary permission identities. All numeric fields are bounded. */
+typedef struct {
+    char id[33];
+    int item_index, projection_attempt, item_attempt, carried_from_attempt;
+    uint64_t bytes; /* producer length paired with the reference hash */
+} tny_image_job;
+void tny_image_job_json(const tny_image_job *, buf_t *);
 
 /* One uploaded reference: the path read, the hash of the exact bytes sent to
  * the provider, and — when it came from an earlier record — that record's
@@ -48,6 +62,7 @@ typedef struct {
     char *source_manifest; /* NULL for a plain --image path */
     char source_operation[TNY_IMAGE_OPERATION_ID_MAX];
     char expected[TNY_IMAGE_SHA256_HEX]; /* empty when nothing was pinned */
+    tny_image_job job;
 } tny_image_reference;
 
 typedef struct tny_image_manifest tny_image_manifest;
@@ -85,7 +100,9 @@ typedef struct {
     char request_id[TNY_IMAGE_REQUEST_ID_MAX]; /* provider supplied only */
     bool have_seed;
     int64_t seed;
-    bool committed; /* the destination now holds this operation's bytes */
+    bool committed;                    /* the destination now holds this operation's bytes */
+    char sha256[TNY_IMAGE_SHA256_HEX]; /* exact validated bytes, hashed before commit */
+    bool cleanup_warning; /* committed, but the private temporary name could not be removed */
 } tny_image_result;
 
 /* Stable machine-readable failure codes (docs/images.md). */
@@ -107,7 +124,8 @@ bool tny_image_capabilities(const tny_ctx *, bool edit, buf_t *names);
  * would upload. Reads manifests only: no referenced image is opened, no hash
  * is computed and no provider is contacted. 0 on success, 1 with a safe
  * reason in err. Always leaves the plan safe to free. */
-int tny_image_plan_resolve(const tny_image_request *, tny_image_plan *, char *err, size_t errlen);
+int tny_image_plan_resolve(const tny_ctx *, const tny_image_request *, tny_image_plan *, char *err,
+                           size_t errlen);
 void tny_image_plan_free(tny_image_plan *);
 /* 0 success, 1 local/config/protocol error, 2 HTTP rejection, 130 cancelled.
  * Output is replaced only after a complete, validated image. */

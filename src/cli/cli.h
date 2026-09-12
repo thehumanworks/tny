@@ -61,6 +61,8 @@ int cursor_cli_artifact_frame(uint8_t flags, const char *payload, size_t len, vo
  * error (message already printed). */
 int cli_parse_globals(int argc, char **argv, cli_globals *g);
 bool cli_is_command(const char *name);
+/* Quiet grammar-only command lookup; frees all temporary parser allocations. */
+int cli_command_index(int argc, char **argv);
 
 /* --ssh TARGET: open the remote tool runtime on ctx (docs/adr/0022). Prints
  * its own error; 0 ok. Shared by cli_make_ctx and the TUI /ssh command. */
@@ -88,6 +90,9 @@ int cmd_speak(const cli_globals *g, int argc, char **argv);
 int cmd_dictate(const cli_globals *g, int argc, char **argv);
 int cmd_optimise(const cli_globals *g, int argc, char **argv);
 int cmd_edit(const cli_globals *g, int argc, char **argv);
+/* Durable ask/image jobs (docs/jobs.md, docs/adr/0093). `jobs _worker ID` is
+ * the hidden supervisor entry point, never a documented verb. */
+int cmd_jobs(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

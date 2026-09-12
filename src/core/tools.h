@@ -73,6 +73,8 @@ typedef struct tools_env {
     struct mcp_client *mcp;
     /* set true when a PROMPT could not be resolved (ask-mode CLI) */
     bool perm_blocked;
+    tny_image_preview_admit preview_admit;
+    void *preview_ud;
     /* ONE pending-image queue, flushed as a user-role image_url message after
      * the role:tool results (docs/adr/0008, docs/adr/0096). Entry i is the
      * pair (pending_images[i], pending_capture[i]) for i < n_pending_images;
@@ -107,6 +109,7 @@ typedef struct {
      * here until the call finishes (ADR 0095). An intercepted image command
      * keeps its plan in `intercept` instead, so exactly one owner frees it. */
     struct tny_image_plan *image_plan;
+    tny_image_preview_selection *image_selection;
 } tools_call;
 
 /* Human label of an intercepted call ("tny edit docs/x.md"), or NULL for an
@@ -205,7 +208,10 @@ int tools_queue_image(tools_env *env, const char *path, bool allowed_roots_only,
  * must be inside the allowed roots, and expected_sha256 must match the hash of
  * the bytes just captured — never a second read of the path. *code_out gets a
  * static TNY_IMAGE_PREVIEW_CODE_* string on refusal. */
+/* expected_bytes == 0 preserves ordinary previews; positive values must
+ * match the same captured snapshot as expected_sha256. */
 int tools_queue_image_preview(tools_env *env, const char *path, const char *expected_sha256,
-                              const char **code_out, char *err, size_t errlen);
+                              uint64_t expected_bytes, const char **code_out, char *err,
+                              size_t errlen);
 
 #endif

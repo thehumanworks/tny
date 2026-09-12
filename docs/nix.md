@@ -121,10 +121,14 @@ pkgs.tny.override { version = "0.2.1"; }
 
 Linux tny `dlopen`s the system OpenSSL at first TLS use and links nothing
 ([ADR 0007](adr/0007-linux-tls-system-openssl.md)). Nothing is on a default
-library search path under Nix, so the package writes OpenSSL's store path into
-the binary's RUNPATH, which is what glibc consults for a `dlopen` made by the
-executable itself. macOS needs nothing — the SecureTransport shim uses an
-absolute framework path.
+library search path under Nix, so the CLI package supplies OpenSSL's store path
+in RUNPATH at link time, which is what glibc consults for a `dlopen` made by the
+executable itself. It disables the pinned shrink-only patchelf hook to preserve
+that intentional path and avoid growing the installed ELF with another aligned
+segment ([ADR 0103](adr/0103-nix-link-time-runtime-path.md)). This also retains the
+linker's package-local and GCC store search paths; no identical closure is
+promised. The separate libtny package retains its existing fixup. macOS needs
+nothing — the SecureTransport shim uses an absolute framework path.
 
 Two consequences worth knowing:
 
@@ -147,6 +151,14 @@ Linux x86_64, that costs about 0.3 ms of the 5 ms `--version` budget
 the binary to inherit your environment untouched, use
 `packages.<system>.tny-unwrapped`.
 
+Both variants retain `make size-check` before fixup and check the actual installed
+tny payload against the Makefile's platform budget afterward. For a wrapped
+package, the latter measures `.tny-wrapped`, not the small launcher. Linux package
+install checks also run the maintained HTTPS fixture against the installed binary
+without `LD_LIBRARY_PATH`: trusted streaming/tool turns must work and untrusted
+certificates must fail. Python, OpenSSL's CLI and an adopting `tini` are test-only
+inputs for that check; the unwrapped runtime gains no test-runner dependency.
+
 ## Developing
 
 ```sh
@@ -160,6 +172,9 @@ direnv allow               # .envrc enters the dev shell on cd
 
 `nix flake check` is the hermetic way to run the suite: it runs the same
 `make test` CI runs, in a sandbox, with `LD_LIBRARY_PATH` pointed at OpenSSL.
+On Linux, its existing test and shell-workflow commands run under the declared
+test-only `tini -s` reaper, so orphan cleanup does not depend on the host init.
+Darwin keeps the ordinary command invocation.
 
 Two things the suite normally borrows from the host are spelled out for the
 builder, whose PATH holds only its own inputs. `tests/integration/test_tui.py`

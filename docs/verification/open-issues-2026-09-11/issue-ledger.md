@@ -1,35 +1,55 @@
-# Issue ledger — delivery reconciliation 2026-09-12
+# Issue ledger — review and merge continuation 2026-09-12
 
-The original snapshot remains the complete scope. All six issues are INCOMPLETE.
-No issue closure, merge, release or deployment is authorized. A16 authorizes a
-feature commit/push and review PR; unresolved gates require a draft PR.
+The frozen six-issue snapshot remains the full scope. Overall INCOMPLETE.
+A19 records the user's authorization to merge remote main after the whole scope
+and quality/tests are verified. PR130 remains draft; no issue closure or release
+is requested. Historical ledgers and raw failed runs remain preserved.
 
-| Issue | Canonical implementation | Worker/review state | Required remaining proof |
-| --- | --- | --- | --- |
-| [#122](https://github.com/thehumanworks/tny/issues/122) | Dimensions, strict preservation and local failure parity | A13 caller corrections are isolated; delivery review found replay metadata/validation and typed-detail gaps. Corrections and fresh review are in progress. | Combined caller/late-cancel/native-versus-derived checks, full mutation/platform/live matrix |
-| [#123](https://github.com/thehumanworks/tny/issues/123) | Private resolved launch, durable lifecycle, permission ceilings and redacted actionable diagnostics | Preserved. The parent-environment regression now tests present and absent values without assuming this harness is top-level. | D002 full Mac tests and D008 eight compiled controlled faults pass on recorded preintegration inputs; repeat affected combined/platform checks |
-| [#124](https://github.com/thehumanworks/tny/issues/124) | Canonical foreground events, not yet jobs | Substantial isolated jobs code exists. New review found ownership, failure/removal races, credential environment, reservation, handshake, history and cleanup gaps; correction worker active. | Reviewed merge, help inventory, real manifest retry lineage, complete concurrent/lifecycle/platform/fault checks |
-| [#125](https://github.com/thehumanworks/tny/issues/125) | Shared manifest/IO prerequisites; export service not yet integrated | Substantial isolated exports/sheets code exists. New review found drainage bounds, approved-byte ownership, source-dimension and postcommit metadata gaps; corrections active. | Reviewed merge, real ImageMagick pixel/original/timeout checks, caller/lineage/platform proof; historical mutation survivor remains visible |
-| [#126](https://github.com/thehumanworks/tny/issues/126) | Capability policy and shared admission prerequisites | Captured queue is isolated. New review found terminal transcript/queue cleanup, bounded-read, control-string and SSH capture gaps. ADR 0097 records full preview design, not implementation. | Corrected prerequisite review, generated-result/selected artifact/job integration, next-request parity and fallback, terminal recovery, faults/browser/live proof |
-| [#127](https://github.com/thehumanworks/tny/issues/127) | Versioned private manifests/replay, hashes, intent/finalization and references | A13 owned-plan/retained-detail implementation exists separately; corrections and fresh review are in progress. | Reviewed shared-boundary merge; actual permission matrix, derived/job/preview lineage, all final gates |
+| Issue | Current canonical implementation | Remaining delivery gate |
+| --- | --- | --- |
+| #122 | Requested/effective/actual dimensions, strict preservation, local failure detail through tools/interception/ABI/SDK, and producer digest before publication | Final combined tests, native-versus-derived/job checks and complete platform/fault evidence |
+| #123 | Private resolved child launch, durable lifecycle, permission ceilings and safe actionable diagnostics | Revalidate with jobs process seam and final platform/runtime matrix |
+| #124 | Canonical events, durable jobs, private bounded handshake, strict Linux ancestry correction, cancellable wait, operation-specific interception, real manifest retries and owned job references are integrated | Native MSYS scheduler/cleanup and persistent uncertainty holds are integrated and independently reviewed; final combined platform/fault/CI gates remain |
+| #125 | Reviewed exports/contact sheets, real decoder checks, exact approved bytes, bounded converter cleanup, no-clobber transaction, original preservation and derived lineage are integrated | Final combined pixel/original/caller tests and platform/fault matrix |
+| #126 | Capability policy, captured-byte queue, full preview and owned job selection are integrated; hash and byte count are checked against the same captured bytes | D084 job-artifact14 and D086 full-preview20 pass/1 Linux-only skip in the combined tree; final platform/fault/live/CI proof remains |
+| #127 | Private manifests, owned execution plans, retained paid-artifact detail, job selection and producing-attempt provenance through preview/edit/replay are integrated | D084 actual permission, lineage, retry and no-manifest cases pass; final combined platform/fault checks remain |
 
-## Global gates
+## Current checks and unresolved decisions
 
-- **BLOCKED I-G6/C-G6:** baseline ADR prefixes 0030 and 0045 collide. All 88
-  finalized baseline ADR-directory filenames/bytes match. No exception is authorized.
-- Candidate `make format` and full Darwin `make quality` pass. Canonical quality
-  D003 fails on frozen archival C probes, not product source; archives remain
-  untouched. No quality rule was weakened. Final staged-source equality is required.
-- D002 `env -u TNY_TOOLS make -j4 test`, D004 ABI/SDKs, D007 Mac leaks and D008
-  eight subagent faults pass on their exact recorded preintegration inputs.
-- Linux, Nix, browser-WASM and task Windows environments are reachable, not
-  final-state passes. Windows ARM64/x64 emulation is not native x86_64 CI proof.
-- Final combined checks, all planned fault families, live providers, final Linux
-  stripped size and pushed-commit CI remain required. No old worker pass closes them.
-- The same native goal remains ACTIVE with all 49 invariant IDs. A16 delivery
-  authorization was read/set/read on that goal; no new or completed goal was created.
+Current source includes every reviewed feature and platform correction. Linux
+GCC986144B/Clang986840B and538units pass; sandboxed Nix installed986088B
+wrapped/unwrapped payloads and actual HTTPS pass. Final full Mac image96,
+exports42, ABI43 and PythonSDK85 cases pass; its jobs group exposed the second
+exec-time use of a shared auto-reap fixture, now being restored explicitly.
+Final native live generate/edit/preview/vision passes exactly4requests with
+independently verified captured pixels. Detailed current evidence is in DELIVERY.md.
 
-Current source-bound evidence and fresh review findings:
-[delivery records](artifacts/delivery-20260912/README.md).
-Historical entries in evidence.md and review-dispositions.md are retained and
-must be read with this current ledger, not treated as current completion claims.
+All28image/capability,8portable subagent,9manifest and13preview controlled faults
+pass original/compiled intended failure/restored checks. Export8variants are
+behaviorally caught, with one named-assertion runner classification explicitly
+reconciled. Jobs and events final source-dependency reconciliation/affected
+reruns remain active. Full sandbox flake, final curated-source quality and
+pushed-head hosted matrix remain required before conditional merge.
+
+- Remote main was b80c04b; draft PR130 head was266bcf8 on current GitHub read.
+  Local checkpoint6cafa1a fixes CI-observed HTTP/fixture sanitizer defects.
+- Fresh independent review of that correction found no defects. D032 net15 and
+  D033 TUI suites pass in a clean SANITIZE=1 build. A compiled inverted HTTP
+  guard fails the new response assertion; restored net suite D034 passes.
+- D035 complete unit gate passed with unchanged captured inputs and no sanitizer
+  diagnostics. Earlier D002/D010/D020 etc remain historical
+  source-bound passes, not proof of the later full combination.
+- Hosted CI on266bcf8 contains Linux/wasm closed-stdin errors, Windows LTO
+  annotation errors and a Darwin Nix RSS failure, with corrections integrated and pending
+  pushed-state verification. Darwin native was cancelled immediately after the
+  final integration test passed; that is not evidence of a test hang or CI pass.
+- I-G6: baseline ADR0030/0045 collisions conflict with immutable names and global
+  uniqueness. User disposition is pending; no waiver inferred.
+- I-G9: prior out-of-scope Homebrew install remains recorded; user disposition is
+  pending. No package removal or new global installation has been attempted.
+- Final complete Mac/Linux/Windows/browser-WASM/Nix, ABI/SDK, leaks/Valgrind,
+  mutation, live-provider and Linux<1MiB gates remain open until integrated
+  source-bound evidence exists. Reachable test environments do not count as passes.
+
+Current continuation: [evidence](evidence.md),
+[contract](contract.md), and [raw records](artifacts/review-merge-20260912/).

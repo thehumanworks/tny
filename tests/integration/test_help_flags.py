@@ -31,6 +31,7 @@ COMMAND_PARSERS = {
     "optimise": ("cmd_optimise",),
     "login": ("cmd_login",),
     "image": ("cmd_image_service", "cmd_image", "tny_image_options"),
+    "jobs": ("cmd_jobs", "tny_jobs_parse_argv"),
     "logout": ("cmd_logout",),
     "mcp": ("cmd_mcp",),
     "models": ("cmd_models",),
@@ -48,10 +49,17 @@ COMMAND_PARSERS = {
     "workspace": ("cmd_workspace",),
 }
 
+# The public global parser and quiet interception lookup share this grammar.
+GLOBAL_PARSERS = ("main", "cli_parse_globals", "parse_globals")
+
 # Parsed but intentionally not printed as a concrete flag. cli_parse_globals
 # accepts --resume-<id> as an open-ended compatibility spelling, so there is no
 # finite token that help could enumerate; --resume <last|id> is canonical.
-PARSED_WITHOUT_HELP = {"<global>": {"--resume-*"}}
+# Private jobs prefix is intentionally not a public image option.
+PARSED_WITHOUT_HELP = {
+    "<global>": {"--resume-*"},
+    "image": {"--job-no-replace"},
+}
 
 # Help-only token from the ACP passthrough example
 # `tny --provider acp --agent gemini -- --acp`; it belongs to the child agent,
@@ -61,7 +69,9 @@ HELP_WITHOUT_PARSER = {"<global>": {"--acp"}}
 SOURCE_PATHS = [
     ROOT / "src/main.c",
     ROOT / "src/core/image_service.c",
+    ROOT / "src/core/jobs.c",
     ROOT / "src/cli/args.c",
+    ROOT / "src/cli/globals.c",
     *sorted((ROOT / "src/cli").glob("cmd_*.c")),
     ROOT / "src/backends/acp/acp_server.c",
 ]
@@ -212,7 +222,7 @@ class HelpFlagAlignmentTest(unittest.TestCase):
         self.assertEqual(dispatched_commands() - {"help"}, set(COMMAND_PARSERS))
 
     def test_global_flags_match_root_help(self) -> None:
-        parsed = flags_in_functions(("main", "cli_parse_globals"), follow_calls=False)
+        parsed = flags_in_functions(GLOBAL_PARSERS, follow_calls=False)
         documented = help_flags(run_help())
         missing = parsed - documented - PARSED_WITHOUT_HELP.get("<global>", set())
         unparsed = documented - parsed - HELP_WITHOUT_PARSER.get("<global>", set())
@@ -224,9 +234,7 @@ class HelpFlagAlignmentTest(unittest.TestCase):
         )
 
     def test_subcommand_flags_match_help(self) -> None:
-        global_flags = flags_in_functions(
-            ("main", "cli_parse_globals"), follow_calls=False
-        )
+        global_flags = flags_in_functions(GLOBAL_PARSERS, follow_calls=False)
         for command, entrypoints in sorted(COMMAND_PARSERS.items()):
             with self.subTest(command=command):
                 parsed = flags_in_functions(entrypoints)

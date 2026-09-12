@@ -281,6 +281,8 @@ class ImageTests(unittest.TestCase):
                     "size_status": "auto",
                     "native": True,
                     "transform": None,
+                    "sha256": hashlib.sha256(PNG).hexdigest(),
+                    "cleanup_warning": False,
                 },
             )
             path, headers, body = self.image_requests()[-1]

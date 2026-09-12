@@ -582,6 +582,11 @@ def case_slow_reader(ws):
     stop = threading.Event()
 
     def sample():
+        # A rebuilt Darwin ps can report zero RSS without Apple's task-port
+        # entitlement, including inside Nix. The owning parent obtains the
+        # exact child's lifetime high-water mark with wait4 below instead.
+        if sys.platform == "darwin":
+            return
         while not stop.is_set():
             try:
                 out = subprocess.run(
@@ -616,6 +621,24 @@ def case_slow_reader(ws):
         os.close(read_fd)
         stop.set()
         sampler.join(timeout=5)
+    if sys.platform == "darwin":
+        deadline = time.monotonic() + RUN_TIMEOUT
+        while True:
+            child, status, usage = os.wait4(proc.pid, os.WNOHANG)
+            if child:
+                proc.returncode = os.waitstatus_to_exitcode(status)
+                # Darwin reports bytes. Lifetime peak includes the entire
+                # backpressured interval, so this is at least as strict as
+                # sampling that interval. Never substitute a zero/guessed RSS.
+                peak_rss[0] = usage.ru_maxrss // 1024
+                break
+            if time.monotonic() >= deadline:
+                proc.kill()
+                _, status, _ = os.wait4(proc.pid, 0)
+                proc.returncode = os.waitstatus_to_exitcode(status)
+                proc.stderr.close()
+                raise Fail("slow reader did not exit before resource collection")
+            time.sleep(0.05)
     _, stderr = proc.communicate(timeout=RUN_TIMEOUT)
     check(proc.returncode == 0, f"slow reader exit {proc.returncode}: {stderr!r}")
     events = parse_stream(b"".join(chunks))

@@ -729,7 +729,7 @@ TEST runner_control_primitive_returns_preview_status_and_keeps_manual_replies(vo
     /* this runner serves no turn: the receiver decides, and says so */
     tny_control_reply reply = {0};
     ASSERT_EQ(TNY_CONTROL_EXCHANGE_OK,
-              tny_control_request(TNY_CONTROL_OP_IMAGE_PREVIEW, png, hash, &reply));
+              tny_control_request(TNY_CONTROL_OP_IMAGE_PREVIEW, png, hash, 0, &reply));
     ASSERT_FALSE(reply.ok);
     ASSERT(reply.status); /* the optional fields must be present for this op */
     ASSERT(reply.error_code);
@@ -742,16 +742,38 @@ TEST runner_control_primitive_returns_preview_status_and_keeps_manual_replies(vo
     /* a malformed expected hash is refused by the receiver's validation, which
      * keeps the established error-only reply shape */
     ASSERT_EQ(TNY_CONTROL_EXCHANGE_OK,
-              tny_control_request(TNY_CONTROL_OP_IMAGE_PREVIEW, png, "not-a-hash", &reply));
+              tny_control_request(TNY_CONTROL_OP_IMAGE_PREVIEW, png, "not-a-hash", 0, &reply));
     ASSERT_FALSE(reply.ok);
     ASSERT(reply.error && strstr(reply.error, "expected_sha256"));
     ASSERT_EQ(NULL, reply.status);
     ASSERT_EQ(NULL, reply.error_code);
     tny_control_reply_free(&reply);
 
+    const char *bad_lengths[] = {"null", "false", "0", "-1", "1.0", "\"12\"", "33554433"};
+    for (size_t i = 0; i < sizeof bad_lengths / sizeof bad_lengths[0]; i++) {
+        int client = unix_connect(x.sock);
+        ASSERT(client >= 0);
+        buf_t request;
+        buf_init(&request);
+        buf_appends(&request, "{\"op\":\"hello\",\"role\":\"tool\"}\n"
+                              "{\"op\":\"image_preview\",\"id\":\"bad-length\",\"path\":");
+        jescape(&request, png);
+        buf_appends(&request, ",\"expected_sha256\":");
+        jescape(&request, hash);
+        buf_appendf(&request, ",\"expected_bytes\":%s}\n", bad_lengths[i]);
+        ASSERT_EQ((ssize_t)request.len, write(client, request.data, request.len));
+        char *answer = read_control_result(client, "bad-length");
+        ASSERT(answer);
+        ASSERT(strstr(answer, "expected_bytes"));
+        ASSERT(!strstr(answer, "unavailable_session"));
+        free(answer);
+        buf_free(&request);
+        close(client);
+    }
+
     /* the manual verbs keep their exact wire answers */
     ASSERT_EQ(TNY_CONTROL_EXCHANGE_OK,
-              tny_control_request(TNY_CONTROL_OP_IMAGE_ATTACH, png, NULL, &reply));
+              tny_control_request(TNY_CONTROL_OP_IMAGE_ATTACH, png, NULL, 0, &reply));
     ASSERT_FALSE(reply.ok);
     ASSERT(reply.error);
     ASSERT_STR_EQ("no active turn", reply.error);
@@ -760,7 +782,7 @@ TEST runner_control_primitive_returns_preview_status_and_keeps_manual_replies(vo
     tny_control_reply_free(&reply);
 
     ASSERT_EQ(TNY_CONTROL_EXCHANGE_OK,
-              tny_control_request(TNY_CONTROL_OP_ASK_USER, "which branch?", NULL, &reply));
+              tny_control_request(TNY_CONTROL_OP_ASK_USER, "which branch?", NULL, 0, &reply));
     ASSERT_FALSE(reply.ok);
     ASSERT(reply.error);
     ASSERT_STR_EQ("no interactive owner is attached", reply.error);
@@ -771,7 +793,7 @@ TEST runner_control_primitive_returns_preview_status_and_keeps_manual_replies(vo
     /* no socket is a distinct state, not a printed message or an exit */
     unsetenv("TNY_SESSION_SOCK");
     ASSERT_EQ(TNY_CONTROL_EXCHANGE_NO_SOCKET,
-              tny_control_request(TNY_CONTROL_OP_IMAGE_PREVIEW, png, hash, &reply));
+              tny_control_request(TNY_CONTROL_OP_IMAGE_PREVIEW, png, hash, 0, &reply));
     ASSERT_FALSE(reply.ok);
     ASSERT_EQ(NULL, reply.status);
     tny_control_reply_free(&reply);

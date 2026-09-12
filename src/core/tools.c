@@ -5,6 +5,7 @@
 #include "core/speech.h"
 #include "core/image_service.h"
 #include "core/tools_image.h"
+#include "core/tools_jobs.h"
 #include "core/intercept.h"
 #include "core/subagent.h"
 #include "lib/custom_tools.h"
@@ -178,6 +179,41 @@ static const char *SCHEMA_JSON =
     "\"action\":{\"type\":\"string\",\"enum\":[\"create\",\"message\",\"inspect\",\"lifecycle\"]},"
     "\"id\":{\"type\":\"string\",\"description\":\"Child id returned by create; never set on "
     "create.\"},\"prompt\":{\"type\":\"string\"}},\"required\":[\"action\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"job_submit\",\"description\":\"Submit durable "
+    "ask or image work that keeps running after this turn. One item, or a bounded batch of 1-64 "
+    "items of the same kind with concurrency 1-16. Returns the job id, its metadata path and the "
+    "per-item log paths immediately; read it back with "
+    "job_status.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":"
+    "\"string\",\"enum\":[\"ask\",\"image\"]},\"concurrency\":{\"type\":\"integer\",\"description\""
+    ":\"Items running at once (1-16, default 2).\"},\"items\":{\"type\":\"array\",\"minItems\":1,"
+    "\"maxItems\":64,\"items\":{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":"
+    "\"string\"},\"model\":{\"type\":\"string\"},\"effort\":{\"type\":\"string\"},\"task\":{"
+    "\"type\":\"string\"},\"operation\":{\"type\":\"string\",\"enum\":[\"generate\",\"edit\"]},"
+    "\"output_file\":{\"type\":\"string\",\"description\":\"Image destination; must not exist "
+    "unless overwrite is true.\"},\"quality\":{\"type\":\"string\"},\"size\":{\"type\":\"string\"},"
+    "\"persist_manifest\":{\"type\":\"boolean\",\"description\":\"Image items: false omits the "
+    "generation manifest; default true.\"},"
+    "\"strict_size\":{\"type\":\"boolean\"},\"overwrite\":{\"type\":\"boolean\"},\"images\":{"
+    "\"type\":\"array\",\"items\":{\"type\":\"string\"},\"maxItems\":5},\"persist_request\":{"
+    "\"type\":\"boolean\",\"description\":\"false keeps the prompt and references out of the job "
+    "record; retrying then needs a new submission.\"}},\"required\":[\"prompt\"]}}},\"required\":["
+    "\"kind\",\"items\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"job_control\",\"description\":\"Change a "
+    "durable job: cancel selected or all items, retry failed items (successful items are never "
+    "re-executed), or remove a finished job's "
+    "record.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\","
+    "\"enum\":[\"cancel\",\"retry\",\"rm\"]},\"id\":{\"type\":\"string\",\"description\":\"The "
+    "32-character job id.\"},\"items\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"},"
+    "\"description\":\"Item indexes; omit for every applicable item.\"},\"failed\":{\"type\":"
+    "\"boolean\",\"description\":\"retry: select every failed, cancelled or interrupted "
+    "item.\"}},\"required\":[\"action\",\"id\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"job_status\",\"description\":\"Read durable "
+    "jobs: status of one job, wait for it with a timeout, read an item's bounded log tail, or list "
+    "jobs. Read-only: it can never submit, cancel or "
+    "retry.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\","
+    "\"enum\":[\"status\",\"wait\",\"logs\",\"list\"]},\"id\":{\"type\":\"string\"},\"item\":{"
+    "\"type\":\"integer\"},\"max_bytes\":{\"type\":\"integer\"},\"timeout_s\":{\"type\":"
+    "\"integer\"}},\"required\":[\"action\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"mcp_search_tools\",\"description\":\"Search "
     "configured MCP servers for tools. Space-separated keywords must all match a tool's name or "
     "description; an empty query lists the cached "
@@ -191,6 +227,13 @@ static const char *SCHEMA_JSON =
     "{\"type\":\"function\",\"function\":{\"name\":\"mcp_features\",\"description\":\"List "
     "configured MCP servers and their advertised "
     "capabilities.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"image_preview\",\"description\":\"Preview one "
+    "successful manifest or job/item artifact without generating or "
+    "converting.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"manifest\":{\"type\":"
+    "\"string\"},\"job\":{\"type\":\"string\",\"pattern\":\"^[0-9a-f]{32}$\"},\"item\":{\"type\":"
+    "\"integer\",\"minimum\":0,\"maximum\":63}},\"oneOf\":[{\"required\":[\"manifest\"],\"not\":{"
+    "\"anyOf\":[{\"required\":[\"job\"]},{\"required\":[\"item\"]}]}},{\"required\":[\"job\","
+    "\"item\"],\"not\":{\"required\":[\"manifest\"]}}],\"additionalProperties\":false}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"image_generate\",\"description\":\"Generate "
     "an image from a prompt. Uses the selected image provider (codex default: ChatGPT allowance). "
     "Saves one image and returns metadata. "
@@ -213,6 +256,8 @@ static const char *SCHEMA_JSON =
     "\"strict_size\":{\"type\":\"boolean\",\"description\":\"Fail instead of saving when the "
     "returned image is not exactly the requested WIDTHxHEIGHT; needs an exact size, never "
     "auto.\"},"
+    "\"preview\":{\"type\":\"boolean\",\"description\":\"Explicitly request original-byte "
+    "conversation preview; default false.\"},"
     "\"persist_manifest\":{\"type\":\"boolean\",\"description\":\"Write the private per-operation "
     "manifest beside the output recording prompt, references and settings; default true. False "
     "records nothing and leaves no rerunnable history.\"},"
@@ -242,6 +287,8 @@ static const char *SCHEMA_JSON =
     "\"strict_size\":{\"type\":\"boolean\",\"description\":\"Fail instead of saving when the "
     "returned image is not exactly the requested WIDTHxHEIGHT; needs an exact size, never "
     "auto.\"},"
+    "\"preview\":{\"type\":\"boolean\",\"description\":\"Explicitly request original-byte "
+    "conversation preview; default false.\"},"
     "\"persist_manifest\":{\"type\":\"boolean\",\"description\":\"Write the private per-operation "
     "manifest beside the output recording prompt, references and settings; default true. False "
     "records nothing and leaves no rerunnable history.\"},"
@@ -250,10 +297,75 @@ static const char *SCHEMA_JSON =
     "edit and excludes artifact and images.\"},"
     "\"artifact\":{\"type\":\"string\",\"description\":\"Path of an earlier manifest whose "
     "verified output becomes the first reference, ahead of any images.\"},"
+    "\"job\":{\"type\":\"string\",\"pattern\":\"^[0-9a-f]{32}$\",\"description\":\"Succeeded image "
+    "job; item required. Adds one final reference after artifact and "
+    "images.\"},\"item\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":63},"
     "\"images\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"minItems\":1,"
     "\"maxItems\":5,\"description\":\"Local PNG/JPEG/WebP reference paths uploaded to the image "
     "provider; each at most 8 MiB. Required unless artifact or from_manifest supplies "
     "them.\"}},\"required\":[\"output_file\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"image_export\",\"description\":\"Resize, "
+    "crop, pad or re-encode one local image into a new file, using the optional ImageMagick 7 "
+    "`magick` executable. No provider is called and nothing is generated: the output is derived "
+    "from bytes that already exist, its canvas is exactly the requested size, and the source file "
+    "is never modified.\",\"parameters\":{\"type\":\"object\",\"properties\":{"
+    "\"sources\":{\"type\":\"array\",\"minItems\":1,\"maxItems\":1,\"description\":\"Exactly one "
+    "entry: {\\\"image\\\": PATH} for a local PNG/JPEG/WebP file (at most 8 MiB), or "
+    "{\\\"artifact\\\": RECORD} for an earlier manifest's verified output.\"},"
+    "\"output_file\":{\"type\":\"string\",\"description\":\"Required local destination; fails if "
+    "it already exists unless overwrite is true.\"},"
+    "\"size\":{\"type\":\"string\",\"description\":\"Required exact canvas WIDTHxHEIGHT, each "
+    "edge 1-16384 and at most 64M pixels.\"},"
+    "\"fit\":{\"type\":\"string\",\"description\":\"fit contains then pads, crop covers then "
+    "crops at the gravity, pad never enlarges; default fit.\",\"enum\":[\"fit\",\"crop\",\"pad\"]},"
+    "\"gravity\":{\"type\":\"string\",\"description\":\"Where content sits in the canvas, and "
+    "which part a crop keeps; default center.\",\"enum\":[\"center\",\"north\",\"south\",\"east\","
+    "\"west\",\"northeast\",\"northwest\",\"southeast\",\"southwest\"]},"
+    "\"background\":{\"type\":\"string\",\"description\":\"transparent, #RRGGBB or #RRGGBBAA for "
+    "padding; default transparent, and black for JPEG, which has no alpha.\"},"
+    "\"format\":{\"type\":\"string\",\"description\":\"Output encoding; default png. Never "
+    "guessed from the destination's extension.\",\"enum\":[\"png\",\"jpeg\",\"webp\"]},"
+    "\"overwrite\":{\"type\":\"boolean\",\"description\":\"Replace an existing regular "
+    "destination file; default false.\"},"
+    "\"preview\":{\"type\":\"boolean\",\"description\":\"Explicitly request original-byte "
+    "conversation preview; default false.\"},"
+    "\"persist_manifest\":{\"type\":\"boolean\",\"description\":\"Write the private manifest "
+    "beside the output recording the transform and its source hashes; default true.\"}},"
+    "\"required\":[\"sources\",\"output_file\",\"size\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"image_contact_sheet\",\"description\":"
+    "\"Compose 1-64 local images into one ordered grid image, using the optional ImageMagick 7 "
+    "`magick` executable. No provider is called: the sheet is derived from bytes that already "
+    "exist, the canvas is exactly the requested size, and no source file is "
+    "modified.\",\"parameters\":{\"type\":\"object\",\"properties\":{"
+    "\"sources\":{\"type\":\"array\",\"minItems\":1,\"maxItems\":64,\"description\":\"Ordered "
+    "entries, each {\\\"image\\\": PATH} or {\\\"artifact\\\": RECORD}. Cell order is this "
+    "order.\"},"
+    "\"output_file\":{\"type\":\"string\",\"description\":\"Required local destination; fails if "
+    "it already exists unless overwrite is true.\"},"
+    "\"size\":{\"type\":\"string\",\"description\":\"Required exact canvas WIDTHxHEIGHT, each "
+    "edge 1-16384 and at most 64M pixels.\"},"
+    "\"columns\":{\"type\":\"integer\",\"description\":\"Grid columns, 1..the number of sources; "
+    "default ceil(sqrt(sources)). Rows follow, cells are floor(width/columns) by "
+    "floor(height/rows), and the unused remainder stays background.\"},"
+    "\"labels\":{\"type\":\"string\",\"description\":\"Cell labels: none, or fixed numeric "
+    "bitmaps numbering the sources 1..N in order; default none. No font and no free "
+    "text.\",\"enum\":[\"none\",\"numbers\"]},"
+    "\"fit\":{\"type\":\"string\",\"description\":\"How each source fills its cell; default "
+    "fit.\",\"enum\":[\"fit\",\"crop\",\"pad\"]},"
+    "\"gravity\":{\"type\":\"string\",\"description\":\"Placement inside each cell; default "
+    "center.\",\"enum\":[\"center\",\"north\",\"south\",\"east\",\"west\",\"northeast\","
+    "\"northwest\",\"southeast\",\"southwest\"]},"
+    "\"background\":{\"type\":\"string\",\"description\":\"transparent, #RRGGBB or #RRGGBBAA for "
+    "padding and the unused remainder; default transparent, and black for JPEG.\"},"
+    "\"format\":{\"type\":\"string\",\"description\":\"Output encoding; default "
+    "png.\",\"enum\":[\"png\",\"jpeg\",\"webp\"]},"
+    "\"overwrite\":{\"type\":\"boolean\",\"description\":\"Replace an existing regular "
+    "destination file; default false.\"},"
+    "\"preview\":{\"type\":\"boolean\",\"description\":\"Explicitly request original-byte "
+    "conversation preview; default false.\"},"
+    "\"persist_manifest\":{\"type\":\"boolean\",\"description\":\"Write the private manifest "
+    "beside the output recording the grid and its source hashes; default true.\"}},"
+    "\"required\":[\"sources\",\"output_file\",\"size\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"speak\",\"description\":\"Speak a message "
     "aloud to the user using their ChatGPT login. Waits for playback; no audio file is kept.\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"},"
@@ -280,10 +392,20 @@ static bool schema_tool_disabled(const tools_env *env, const char *name) {
     if (strcmp(name, "image_generate") == 0 || strcmp(name, "image_edit") == 0)
         return env->ctx->library_mode || env->ctx->ssh_host ||
                !tny_image_capabilities(env->ctx, strcmp(name, "image_edit") == 0, NULL);
+    /* Local exports depend on a host that can run the optional converter, not
+     * on an image provider. Whether the executable is installed is answered at
+     * call time with actionable guidance, never by probing at schema time
+     * (docs/adr/0094). */
+    if (strcmp(name, "image_preview") == 0) return env->ctx->library_mode || env->ctx->ssh_host;
+    if (strcmp(name, "image_export") == 0 || strcmp(name, "image_contact_sheet") == 0)
+        return env->ctx->library_mode || env->ctx->ssh_host || !tny_image_export_supported();
     if (strcmp(name, "speak") == 0)
         return env->ctx->library_mode || !tny_speech_available(env->ctx, NULL, true, NULL, 0);
     /* a child would run its tools locally, not on the --ssh host */
     if (strcmp(name, "subagent") == 0) return env->ctx->library_mode || env->ctx->ssh_host;
+    /* Jobs own real child processes: the execution tools disappear where none
+     * can exist, while bounded record reads remain (docs/adr/0093). */
+    if (tool_jobs_is_tool(name)) return !tool_jobs_available(env->ctx, name);
     if (!env->ctx->library_mode) return false;
     return strcmp(name, "terminal") == 0 || strcmp(name, "open_file") == 0 ||
            strcmp(name, "skill") == 0 || strcmp(name, "install_skill") == 0 ||
@@ -336,7 +458,8 @@ char *tools_schema_json(tools_env *env) {
         (env->ctx->prompt_optimisation || env->ctx->mcp_disabled || env->ctx->library_mode ||
          env->ctx->tool_profile != TNY_TOOLS_ALL || !tool_web_search_configured(env->ctx) ||
          !tny_speech_available(env->ctx, NULL, true, NULL, 0) || env->ctx->ssh_host ||
-         !tny_image_capabilities(env->ctx, false, NULL) || tny_image_input_refused(env->ctx))) {
+         !tny_image_capabilities(env->ctx, false, NULL) || !tny_image_export_supported() ||
+         tny_image_input_refused(env->ctx))) {
         yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
         yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
         yyjson_mut_doc *mut = yyjson_mut_doc_new(jallocator());
@@ -549,6 +672,35 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         call->detail = tool_image_detail(env, call->args, strcmp(call->name, "image_edit") == 0,
                                          &call->image_plan, &call->error);
         if (call->error || !call->detail) return -1;
+    } else if (strcmp(call->name, "image_preview") == 0) {
+        call->detail =
+            tool_image_preview_detail(env, call->args, &call->image_selection, &call->error);
+        if (call->error || !call->detail) return -1;
+    } else if (strcmp(call->name, "image_export") == 0 ||
+               strcmp(call->name, "image_contact_sheet") == 0) {
+        /* The grant scope is the whole operation: ordered sources with the
+         * hash of their exact bytes, the destination and every setting that
+         * changes what is written (docs/adr/0094). */
+        call->detail = tool_image_export_detail(
+            env, call->args, strcmp(call->name, "image_contact_sheet") == 0, &call->error);
+        if (call->error || !call->detail) return -1;
+    } else if (tool_jobs_is_tool(call->name)) {
+        /* Every job operation carries its own exact permission identity, and
+         * the detail names the job, items, outputs and request digest. */
+        tny_jobs_op op = tool_jobs_op(call->name, call->args);
+        if (op == TNY_JOBS_OP_NONE) {
+            call->error = tool_err("%s does not support that action", call->name);
+            return -1;
+        }
+        free(call->permission_tool);
+        call->permission_tool = xstrdup(tny_jobs_permission_tool(op));
+        char *why = NULL;
+        call->detail = tny_jobs_detail(env->ctx, op, call->args, &why);
+        if (!call->permission_tool || why || !call->detail) {
+            call->error = why ? tool_err("%s", why) : tool_err("invalid %s request", call->name);
+            free(why);
+            return -1;
+        }
     } else call->detail = call_detail(env, call->name, call->args);
     if (strcmp(call->name, "rename_file") == 0 || strcmp(call->name, "copy_file") == 0)
         call->detail2 = path_detail(env, call->args, "new_path");
@@ -631,8 +783,16 @@ char *tools_call_execute(tools_env *env, tools_call *call) {
 
     /* Image tools run the plan prepared above, so they are dispatched with
      * that plan rather than through the name-only executor chain. */
+    if (strcmp(name, "image_preview") == 0)
+        return tool_image_preview_execute(env, call->image_selection);
     if (strcmp(name, "image_generate") == 0 || strcmp(name, "image_edit") == 0)
         return tool_image_execute(env, args, strcmp(name, "image_edit") == 0, call->image_plan);
+
+    /* Execution authorizes this prepared identity, including ALLOW_ONCE.
+     * Pass it directly, without promoting it to a lasting session grant. */
+    if (strcmp(name, "image_export") == 0 || strcmp(name, "image_contact_sheet") == 0)
+        return tool_image_export_execute(env, args, strcmp(name, "image_contact_sheet") == 0,
+                                         call->detail);
 
     bool handled;
     char *out = tool_ssh_execute(env, name, args, &handled);
@@ -663,6 +823,7 @@ void tools_call_free(tools_call *call) {
     free(call->summary);
     free(call->error);
     tool_image_plan_free(call->image_plan);
+    tny_image_preview_selection_free(call->image_selection);
     tny_intercept_free(call->intercept);
     yyjson_doc_free(call->doc);
     memset(call, 0, sizeof *call);
@@ -760,8 +921,8 @@ int tools_flush_images_ex(tools_env *env, tools_image_flush_outcome *outcome, ch
  * here and never reloaded. */
 static int queue_capture(tools_env *env, const char *path, bool allowed_roots_only,
                          tny_image_queue_origin origin, const char *expected_sha256,
-                         const char **resolved_out, const char **mime_out, size_t *len_out,
-                         const char **code_out, char *err, size_t errlen) {
+                         uint64_t expected_bytes, const char **resolved_out, const char **mime_out,
+                         size_t *len_out, const char **code_out, char *err, size_t errlen) {
     if (resolved_out) *resolved_out = NULL;
     if (mime_out) *mime_out = NULL;
     if (len_out) *len_out = 0;
@@ -842,6 +1003,15 @@ static int queue_capture(tools_env *env, const char *path, bool allowed_roots_on
         free(abs);
         return -1;
     }
+    if (origin == TNY_IMAGE_QUEUE_PREVIEW && expected_bytes && expected_bytes != len) {
+        if (code_out) *code_out = TNY_IMAGE_PREVIEW_CODE_BYTES;
+        if (err && errlen)
+            snprintf(err, errlen,
+                     "image preview captured byte count does not match producer identity");
+        free(data);
+        free(abs);
+        return -1;
+    }
     int slot = env->n_pending_images++;
     env->pending_images[slot] = abs;
     env->pending_capture[slot] = cap;
@@ -855,14 +1025,15 @@ static int queue_capture(tools_env *env, const char *path, bool allowed_roots_on
 int tools_queue_image(tools_env *env, const char *path, bool allowed_roots_only,
                       const char **resolved_out, const char **mime_out, size_t *len_out, char *err,
                       size_t errlen) {
-    return queue_capture(env, path, allowed_roots_only, TNY_IMAGE_QUEUE_MANUAL, NULL, resolved_out,
-                         mime_out, len_out, NULL, err, errlen);
+    return queue_capture(env, path, allowed_roots_only, TNY_IMAGE_QUEUE_MANUAL, NULL, 0,
+                         resolved_out, mime_out, len_out, NULL, err, errlen);
 }
 
 int tools_queue_image_preview(tools_env *env, const char *path, const char *expected_sha256,
-                              const char **code_out, char *err, size_t errlen) {
-    return queue_capture(env, path, true, TNY_IMAGE_QUEUE_PREVIEW, expected_sha256, NULL, NULL,
-                         NULL, code_out, err, errlen);
+                              uint64_t expected_bytes, const char **code_out, char *err,
+                              size_t errlen) {
+    return queue_capture(env, path, true, TNY_IMAGE_QUEUE_PREVIEW, expected_sha256, expected_bytes,
+                         NULL, NULL, NULL, code_out, err, errlen);
 }
 
 char *tools_execute(tools_env *env, const char *name, const char *args_json) {

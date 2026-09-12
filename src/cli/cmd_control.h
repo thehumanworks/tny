@@ -4,6 +4,7 @@
 #define TNY_CMD_CONTROL_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 /* `json` carries the already-parsed leading global --json flag. Both
  * commands also accept --json after the subcommand. */
@@ -47,10 +48,13 @@ typedef struct {
 } tny_control_reply;
 
 /* `payload` is the question or path. `expected_sha256` is required by
- * TNY_CONTROL_OP_IMAGE_PREVIEW and ignored otherwise. *reply is always
+ * TNY_CONTROL_OP_IMAGE_PREVIEW and ignored otherwise. expected_bytes == 0
+ * omits the optional length; a positive length pins the exact captured bytes.
+ * *reply is always
  * initialized; free it with tny_control_reply_free. */
 tny_control_exchange tny_control_request(tny_control_op op, const char *payload,
-                                         const char *expected_sha256, tny_control_reply *reply);
+                                         const char *expected_sha256, uint64_t expected_bytes,
+                                         tny_control_reply *reply);
 void tny_control_reply_free(tny_control_reply *reply);
 
 #endif

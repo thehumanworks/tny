@@ -1,5 +1,20 @@
 # CLI
 
+### Explicit image preview
+
+Image producers accept opt-in `--preview`; without it stdout and permission
+identities remain metadata-only. `tny image preview --manifest RECORD --json`
+selects a successful artifact without regenerating it. Native typed tools use
+boolean `preview` and the `image_preview` selector; terminal interception has
+the same semantics. Generation/export success stays exit 0 when preview fails,
+with a separate JSON `preview` status and stderr guidance. Preview-only failure
+exits 1. A queued receipt is not proof of delivery or inspection. No implicit
+conversion, retry or manual attachment fallback is performed. Use
+`image preview --job ID --item N` to select a succeeded image item, or add the
+pair to `image edit` as its final reference within the existing five-reference
+limit. The producer identity and attempts are pinned before permission; later
+job/manifest changes cannot substitute another input. See [images](images.md).
+
 Design the CLI so humans and coding agents can run it without menus. Every input is a flag or stdin. Interactive prompts are a fallback, never the only path. Each subcommand has `--help` with copy-paste examples.
 
 Binary name: `tny`.
@@ -14,7 +29,12 @@ tny edit FILE               # exact-match replacement from stdin
 tny ask-user QUESTION       # ask the owning runner frontend (inside terminal)
 tny image generate          # prompt on stdin; --output-file required
 tny image edit              # prompt on stdin; --image PATH and --output-file required
+tny image export            # local resize/crop/re-encode; --image and --size required
+tny image contact-sheet     # local ordered grid; repeat --image, --size required
 tny image attach PATH       # attach an image to the next request (inside terminal)
+tny jobs submit ask|image|batch   # durable work; prints a job id immediately
+tny jobs status|wait|cancel|retry|logs|rm <id>
+tny jobs list               # durable jobs in this workspace's state directory
 tny resume [last|<id>]      # interactive resume
 tny acp                     # ACP server (native loop only)
 tny sessions
@@ -1172,7 +1192,22 @@ explicit Enter to submit. See [Prompt optimisation](optimisation.md).
 ChatGPT login, independently of the chat provider. See [Speech](speech.md)
 for voices, availability, export, agent tools and platform behavior.
 
-## Image generation and editing
+## Durable jobs (`tny jobs`)
+
+`tny jobs submit ask --prompt "…"` (or a piped prompt) returns a 32-hex job id,
+its private metadata path and the per-item log paths immediately, then a
+detached supervisor runs the work as real `tny ask --events=jsonl` /
+`tny image … --json` children. `tny jobs submit batch --request FILE` takes a
+bounded JSON document: one kind, 1–64 items, concurrency 1–16.
+`status`/`wait`/`logs`/`list` read; `cancel`/`retry`/`rm` change state, each
+with its own permission identity. `wait --timeout S` exits 124 without
+cancelling. A job whose supervisor is gone reads as `interrupted` with
+`cleanup:"unknown"`, never as succeeded, and `retry --failed` verifies every
+carried successful session, log and artifact hash before spending anything.
+Not available in the browser build, where the execution operations refuse
+before any side effect. See [jobs.md](jobs.md) and `tny jobs --help`.
+
+## Image generation, editing and local exports
 
 `printf 'An orange robot' | tny image generate --output-file robot.png --json`
 generates one image using the ChatGPT login.
@@ -1182,6 +1217,16 @@ chat provider; Codex defaults to `gpt-image-2.5-sunburst` with `high` quality.
 Use `--model gpt-image-2.5-flare` to override the image model and `--quality`
 to select `auto`, `low`, `medium`, `high`, `xhigh`, or `max`.
 `--check` checks local credentials
-without a request. Neither operation needs a runner socket. See
+without a request. Neither operation needs a runner socket.
+
+`tny image export --image photo.jpg --output-file thumb.png --size 256x256`
+resizes, crops, pads or re-encodes one local image, and
+`tny image contact-sheet --image a.png --image b.png --output-file sheet.png
+--size 512x256 --columns 2 --labels numbers` composes an ordered grid. Both are
+local and explicit: they need the optional ImageMagick 7 `magick` executable on
+`PATH`, while generation, editing and replay never invoke it. The canvas is
+always exactly `--size`, an existing destination needs `--overwrite`, sources
+are never modified, and the result is a derived artifact recorded as such. Run
+`tny image export --help` for the full option set. See
 [images.md](images.md) for flags, result schema, limits, permissions and platform
 behavior, and `tny image --help` for examples.

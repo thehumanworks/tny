@@ -19,10 +19,13 @@ typedef enum {
     TNY_INTERCEPT_MEMORY,
     TNY_INTERCEPT_SKILL,
     TNY_INTERCEPT_IMAGE_ATTACH,
+    TNY_INTERCEPT_IMAGE_PREVIEW,
     TNY_INTERCEPT_ASK_USER,
     TNY_INTERCEPT_SPEAK,
     TNY_INTERCEPT_IMAGE_RENDER,
-    TNY_INTERCEPT_REFUSED, /* recognised and rejected; `message` says why */
+    TNY_INTERCEPT_IMAGE_EXPORT, /* `tny image export` / `contact-sheet` */
+    TNY_INTERCEPT_JOBS,         /* `tny jobs`: durable job service */
+    TNY_INTERCEPT_REFUSED,      /* recognised and rejected; `message` says why */
 } tny_intercept_kind;
 
 typedef struct tny_intercept {
@@ -43,6 +46,7 @@ typedef struct tny_intercept {
      * document is gone by the time the command runs. `execute` takes a const
      * intercept and still runs this mutable plan, no cast involved. */
     struct tny_image_plan *image_plan;
+    tny_image_preview_selection *image_selection;
 } tny_intercept;
 
 /* Classify one `terminal` command. Returns NULL — the common case — when the

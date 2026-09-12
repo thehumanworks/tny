@@ -1041,11 +1041,17 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
         const char *id = rn_string(root, "id", sizeof r->question_id - 1);
         const char *path = rn_string(root, "path", 4095);
         const char *expected = rn_string(root, "expected_sha256", 64);
-        if (!id || !path || !expected || yyjson_get_len(jget(root, "expected_sha256")) != 64 ||
+        yyjson_val *length = jget(root, "expected_bytes");
+        bool valid_length = !length || (yyjson_is_uint(length) && yyjson_get_uint(length) > 0 &&
+                                        yyjson_get_uint(length) <= TNY_IMAGE_OUTPUT_MAX);
+        uint64_t expected_bytes = length && valid_length ? yyjson_get_uint(length) : 0;
+        if (!valid_length || !id || !path || !expected ||
+            yyjson_get_len(jget(root, "expected_sha256")) != 64 ||
             !tny_image_preview_hash_valid(expected)) {
             rn_op_error(r, ci, root,
                         "image_preview needs a bounded string id, a path and a 64-character "
-                        "lowercase hex expected_sha256");
+                        "lowercase hex expected_sha256; supplied expected_bytes must be a positive "
+                        "bounded integer");
             return;
         }
         char err[512] = "";
@@ -1058,8 +1064,8 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
             code = TNY_IMAGE_PREVIEW_CODE_NOT_READY;
             snprintf(err, sizeof err, "the turn is cancelling");
         } else
-            status =
-                tny_engine_queue_image_preview(r->engine, path, expected, &code, err, sizeof err);
+            status = tny_engine_queue_image_preview(r->engine, path, expected, expected_bytes,
+                                                    &code, err, sizeof err);
         bool queued = status == TNY_IMAGE_PREVIEW_QUEUED;
         rn_send_control_result_ex(r, ci, id, NULL, queued ? NULL : err,
                                   tny_image_preview_status_name(status), queued ? NULL : code);

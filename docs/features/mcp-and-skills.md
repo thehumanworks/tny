@@ -1,5 +1,24 @@
 # Tools, MCP, skills, subagents
 
+### Explicit image preview tools
+
+`image_generate`, `image_edit`, `image_export`, and `image_contact_sheet` accept
+optional boolean `preview` (default false). Recorded replay through
+`from_manifest` supports it too. `image_preview` accepts exactly `manifest`
+or a complete `job`/integer `item` pair and selects the successful artifact
+once before permission, without generating or converting. The owning backend applies configured-true image input, real
+continuable-batch readiness, roots, capacity and exact captured-byte digest.
+Terminal interception shares the coordinator and prepared identity. Status is
+nested separately from producer success; `queued` is not visual approval.
+`image_edit` also accepts `job`/`item` as its final reference after artifact and
+images, within the same five-reference total. Its producer hash/bytes, optional
+manifest and precise producing/projection attempts are retained through
+permission and stored in reference provenance. Replay never queries the job.
+Native job selectors are unsupported on wasm; stored-provenance replay is shared.
+SDK toolkit remains metadata-only. Wasm native-loop tools use shared admission;
+socket CLI controls and external transforms return clean unsupported behavior.
+See [image preview](../images.md#explicit-conversation-preview-adr-0097).
+
 Native loop only, unless noted.
 
 ## Built-in tools
@@ -15,6 +34,7 @@ Keep fx names so prompts and muscle memory transfer:
 | Images | `read_image` (png/jpeg/gif/webp via magic bytes; `vision` is an alias). A configured-false `image_input` policy hides and refuses this tool and image attachment; image generation remains independent. Tool result is a short text; the pixels are **captured when the tool runs** and go out as a follow-up user `image_url` message ([ADR 0008](../adr/0008-native-loop-images.md), [ADR 0096](../adr/0096-captured-image-queue-and-preview-lifecycle.md)), so rewriting the file later in the same batch cannot change what is sent. `tny ask --image PATH` attaches the same shape on the first user message (max 16 flags; a 17th is exit 1) |
 | Skills | `skill`, `install_skill` |
 | Subagents | `subagent` (`create`, `message`, `inspect`, `lifecycle`; see [Subagents](#subagents)) |
+| Jobs | `job_submit`, `job_control` (`cancel`/`retry`/`rm`), `job_status` (`status`/`wait`/`logs`/`list`): durable ask/image work that outlives the turn ([jobs.md](../jobs.md), [ADR 0093](../adr/0093-durable-native-jobs-and-verified-retry.md)). Native only; hidden in embedded runtimes, under `--ssh`, and — for the execution tools — wherever no child process can be owned |
 | MCP | `mcp_search_tools`, `mcp_select_tool`, `mcp_features` only; namespaced `server/tool` names ride a system-prompt catalog, never the tools array ([ADR 0049](../adr/0049-mcp-background-warmup.md)) |
 | Speech | `speak` (text, optional voice): automatic ephemeral playback using the Codex login, independent of the chat provider; advertised only with credentials and a player. [Speech contract](../speech.md) |
 | Runtime | `ask_user_question`, `memory`, `read_tool_result` |
@@ -76,6 +96,10 @@ warmed MCP client, and the `--ssh` route:
 | `tny image attach PATH` | the same queue as `read_image`, allowed roots only | `read_image` |
 | `printf … \| tny speak [--voice NAME] [--json]` (or quoted heredoc) | the shared speech service, on the tny host | `speak` |
 | `tny ask-user [--json] QUESTION` | the frontend ask hook, with no socket round trip | `ask_user_question` |
+| `tny jobs submit ask\|image\|batch …` | the durable job service, with the prompt from `--prompt` or a piped producer | `job_submit` + job/items/outputs/request digest |
+| `tny jobs status\|wait\|logs\|list …` | the same service, read-only | `job_status` + job id |
+| `tny jobs cancel\|retry\|rm …` | the same service | `job_cancel` / `job_retry` / `job_rm` + job id |
+| `tny jobs …` that does not parse | refused with the reason: never handed to the shell, so the classifier cannot bypass the job identities | — |
 | `tny ask …` (no `-B`) | refused: a foreground nested agent inside a turn | — |
 | `tny ask -B …`, and everything else | `/bin/sh`, unchanged | `terminal` + command |
 
@@ -352,3 +376,21 @@ When an image is written but its manifest cannot be finalized, the tool result
 keeps the usual `error: ` marker and the object after it reports the retained
 artifact (`committed: true` with its path), so the model is told the file
 exists instead of assuming nothing happened.
+
+`image_export` and `image_contact_sheet` share the same service with `tny image
+export` / `tny image contact-sheet`. They are local transforms, not generation:
+no provider is called, nothing is invented, and the output is recorded as a
+derived artifact with the hashes of the bytes it consumed. They take an ordered
+`sources` array of `{"image": PATH}` and `{"artifact": RECORD}` entries,
+`output_file`, an exact `size` (`WIDTHxHEIGHT`), and optional `fit`
+(`fit`/`crop`/`pad`), `gravity`, `background`, `format`, `overwrite`,
+`persist_manifest`, plus `columns` and `labels` for a sheet. Because they
+depend on the host rather than on a provider, they are advertised without image
+credentials and hidden only where tny cannot run a local process — libtny,
+`--ssh` and wasm — while the optional ImageMagick 7 `magick` executable is
+reported as missing at call time with actionable guidance. Each has its own
+sensitive permission identity covering the operation, the ordered sources with
+the hash of their exact bytes, the destination and every setting that changes
+the output; that identity is rechecked at execution, so a source or record
+edited after approval needs a new grant. `tny image export` and `tny image
+contact-sheet` typed into `terminal` are intercepted into these same tools.

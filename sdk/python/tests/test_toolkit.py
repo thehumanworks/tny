@@ -78,6 +78,17 @@ class ToolkitTests(unittest.TestCase):
             for p in sorted(self.path.glob(stem + ".tny-image-*.json"))
         ]
 
+    def test_preview_misuse_is_rejected_without_provider_io(self):
+        toolkit = self.toolkit
+        for preview in (True, False, "true"):
+            with self.subTest(preview=preview), self.assertRaises(TypeError):
+                toolkit.generate_image("tree", output_file="out.png", preview=preview)
+            with self.subTest(edit=preview), self.assertRaises(TypeError):
+                toolkit.edit_image(
+                    "tree", output_file="out.png", images=["in.png"], preview=preview
+                )
+        self.assertEqual(self.provider.requests, [])
+
     def test_images_export_edit_and_options(self):
         cwd = Path.cwd()
         result = self.toolkit.generate_image(

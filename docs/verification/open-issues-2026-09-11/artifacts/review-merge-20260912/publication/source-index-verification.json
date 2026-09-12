@@ -1,0 +1,8 @@
+{
+  "input_files": 1143,
+  "all_indexed": true,
+  "no_unstaged_product_changes": true,
+  "quality_result": "D110-final-curated-quality",
+  "quality_inputs_match_manifest": true,
+  "note": "Git index comparison respects symlink representation; naive git-show blob hash versus dereferenced filesystem hash was rejected"
+}

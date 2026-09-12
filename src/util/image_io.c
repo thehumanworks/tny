@@ -143,8 +143,7 @@ int tny_image_io_replace(const char *path, const void *data, size_t len) {
     return rc;
 }
 
-int tny_image_io_read_bounded(const char *path, size_t max, buf_t *out) {
-    int fd = path ? open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK) : -1;
+static int read_acquired_bounded(int fd, size_t max, buf_t *out) {
     struct stat st;
     int rc = -1;
     if (fd < 0) return -1;
@@ -170,9 +169,296 @@ done:
     return rc;
 }
 
+int tny_image_io_read_bounded(const char *path, size_t max, buf_t *out) {
+    int fd = path ? open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK) : -1;
+    return read_acquired_bounded(fd, max, out);
+}
+
+/* Walk beneath an acquired directory, rejecting every symlink and traversal
+ * component. A renamed directory remains the same authority through its fd. */
+static int open_beneath(int directory, const char *relative, bool leaf_directory) {
+    if (!relative || !*relative || strlen(relative) > TNY_IMAGE_IO_PATH_MAX) return -1;
+    char *components = xstrdup(relative);
+    if (!components) return -1;
+    int current = dup(directory);
+    char *part = components;
+    while (current >= 0) {
+        char *slash = strchr(part, '/');
+        if (slash) *slash = 0;
+        if (!*part || strcmp(part, ".") == 0 || strcmp(part, "..") == 0) {
+            close(current);
+            current = -1;
+            break;
+        }
+        int flags = O_RDONLY | O_CLOEXEC | O_NONBLOCK | O_NOFOLLOW;
+        if (slash || leaf_directory) flags |= O_DIRECTORY;
+        int next = openat(current, part, flags);
+        close(current);
+        current = next;
+        if (!slash) break;
+        part = slash + 1;
+    }
+    free(components);
+    return current;
+}
+
+int tny_image_io_read_confined(const char *root, const char *path, size_t max, buf_t *out) {
+    if (!root || *root != '/' || !path || *path != '/' || !path_is_within(root, path)) return -1;
+    size_t root_len = strlen(root);
+    while (root_len > 1 && root[root_len - 1] == '/') root_len--;
+    const char *relative = path + root_len;
+    if (*relative == '/') relative++;
+    if (!*relative) return -1;
+    int slash = open("/", O_RDONLY | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW);
+    if (slash < 0) return -1;
+    char *name = root_len > 1 ? xstrndup(root + 1, root_len - 1) : NULL;
+    int authority = root_len == 1 ? dup(slash) : name ? open_beneath(slash, name, true) : -1;
+    free(name);
+    close(slash);
+    if (authority < 0) return -1;
+    int fd = open_beneath(authority, relative, false);
+    close(authority);
+    return read_acquired_bounded(fd, max, out);
+}
+
+/* ---- inputs and the destination commit protocol (ADR 0094) ---- */
+
+int tny_image_io_read_input(const char *path, size_t max, buf_t *out, tny_image_io_id *id,
+                            char *err, size_t errlen) {
+    if (id) *id = (tny_image_io_id){0};
+    /* O_NONBLOCK so a FIFO left in place of a picture cannot hang the export
+     * before fstat rejects it. */
+    int fd = path ? open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK) : -1;
+    struct stat st;
+    int rc = -1;
+    if (fd < 0) {
+        reason(err, errlen, "cannot open the image to export");
+        return -1;
+    }
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0 ||
+        (uint64_t)st.st_size > (uint64_t)max) {
+        reason(err, errlen, "image sources must be regular files within the size limit");
+        goto done;
+    }
+    for (;;) {
+        char chunk[8192];
+        ssize_t n = read(fd, chunk, sizeof chunk);
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0 || (n > 0 && (size_t)n > max - out->len)) {
+            reason(err, errlen, "cannot read the image to export");
+            goto done;
+        }
+        if (!n) break;
+        buf_append(out, chunk, (size_t)n);
+        if (out->oom) {
+            reason(err, errlen, "cannot read the image to export");
+            goto done;
+        }
+    }
+    /* The identity of the descriptor the bytes came from, not of the name. */
+    if (id)
+        *id = (tny_image_io_id){
+            .present = true, .dev = (uint64_t)st.st_dev, .ino = (uint64_t)st.st_ino};
+    rc = 0;
+done:
+    close(fd);
+    if (rc) {
+        buf_free(out);
+        buf_init(out);
+    }
+    return rc;
+}
+
+struct tny_image_commit {
+    int parent_fd;
+    char *name;  /* final basename, relative to parent_fd */
+    char *stage; /* staged basename while it exists */
+    bool overwrite;
+    tny_image_io_id target;
+};
+
+static bool commit_observe(int parent_fd, const char *name, bool overwrite, tny_image_io_id *out,
+                           char *err, size_t errlen) {
+    struct stat st;
+    *out = (tny_image_io_id){0};
+    if (fstatat(parent_fd, name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
+        if (errno == ENOENT) return true;
+        reason(err, errlen, "cannot inspect the export destination");
+        return false;
+    }
+    if (!overwrite) {
+        reason(err, errlen,
+               "the export destination already exists; pass --overwrite to replace it");
+        return false;
+    }
+    if (S_ISLNK(st.st_mode)) {
+        reason(err, errlen, "the export destination is a symlink; tny will not write through it");
+        return false;
+    }
+    if (!S_ISREG(st.st_mode)) {
+        reason(err, errlen, "the export destination is not a regular file");
+        return false;
+    }
+    if (st.st_nlink > 1) {
+        reason(err, errlen,
+               "the export destination has more than one hard link; tny will not replace an "
+               "ambiguous name");
+        return false;
+    }
+    *out =
+        (tny_image_io_id){.present = true, .dev = (uint64_t)st.st_dev, .ino = (uint64_t)st.st_ino};
+    return true;
+}
+
+tny_image_commit *tny_image_io_commit_open(const char *canonical, bool overwrite, char *err,
+                                           size_t errlen) {
+    const char *slash = canonical ? strrchr(canonical, '/') : NULL;
+    if (!canonical || *canonical != '/' || !slash || !slash[1]) {
+        reason(err, errlen, "invalid export destination");
+        return NULL;
+    }
+    char *dir =
+        slash == canonical ? xstrdup("/") : xstrndup(canonical, (size_t)(slash - canonical));
+    /* One resolution of the parent, then a retained descriptor: every later
+     * step names the leaf relative to it, so a directory component swapped
+     * afterwards cannot redirect the stage or the install. */
+    int fd = dir ? open(dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC) : -1;
+    free(dir);
+    if (fd < 0) {
+        reason(err, errlen, "cannot open the export destination directory");
+        return NULL;
+    }
+    tny_image_commit *c = calloc(1, sizeof *c);
+    if (c) {
+        c->parent_fd = fd;
+        c->overwrite = overwrite;
+        c->name = xstrdup(slash + 1);
+    }
+    if (!c || !c->name || !commit_observe(fd, slash + 1, overwrite, &c->target, err, errlen)) {
+        if (c) free(c->name);
+        free(c);
+        close(fd);
+        if (!c) reason(err, errlen, "cannot prepare the export destination");
+        return NULL;
+    }
+    return c;
+}
+
+tny_image_io_id tny_image_io_commit_target(const tny_image_commit *c) {
+    return c ? c->target : (tny_image_io_id){0};
+}
+
+int tny_image_io_commit_stage(tny_image_commit *c, const void *data, size_t len, char *err,
+                              size_t errlen) {
+    if (!c || c->stage) {
+        reason(err, errlen, "the export destination is not ready");
+        return -1;
+    }
+    char *id = gen_id();
+    buf_t name;
+    buf_init(&name);
+    if (id) buf_appendf(&name, ".tny-image-export-%s", id);
+    free(id);
+    c->stage = name.oom || !name.len ? NULL : buf_detach(&name);
+    buf_free(&name);
+    int fd = c->stage ? openat(c->parent_fd, c->stage,
+                               O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600)
+                      : -1;
+    if (fd < 0) {
+        free(c->stage);
+        c->stage = NULL;
+        reason(err, errlen, "cannot create the export staging file");
+        return -1;
+    }
+    int rc = write_all(fd, data, len);
+    if (!rc && fsync(fd) != 0) rc = -1;
+    if (close(fd) != 0) rc = -1;
+    if (rc) {
+        (void)unlinkat(c->parent_fd, c->stage, 0);
+        free(c->stage);
+        c->stage = NULL;
+        reason(err, errlen, "cannot write the export staging file");
+    }
+    return rc;
+}
+
+int tny_image_io_commit_finish(tny_image_commit *c, char *err, size_t errlen) {
+    if (!c || !c->stage) {
+        reason(err, errlen, "nothing was staged for this export");
+        return -1;
+    }
+    tny_image_io_id now;
+    struct stat st;
+    /* The destination as it is right now, without following a symlink that
+     * may have appeared since it was opened. */
+    if (fstatat(c->parent_fd, c->name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
+        if (errno != ENOENT) {
+            reason(err, errlen, "cannot inspect the export destination");
+            return -1;
+        }
+        now = (tny_image_io_id){0};
+    } else
+        now = (tny_image_io_id){
+            .present = true, .dev = (uint64_t)st.st_dev, .ino = (uint64_t)st.st_ino};
+    if (now.present != c->target.present ||
+        (now.present && (now.dev != c->target.dev || now.ino != c->target.ino)) ||
+        (now.present && (!S_ISREG(st.st_mode) || st.st_nlink > 1))) {
+        reason(err, errlen,
+               "the export destination changed while this export was running; nothing was "
+               "replaced");
+        return -1;
+    }
+    int rc;
+    if (c->overwrite) {
+        /* renameat replaces the directory entry. It does not open, truncate or
+         * follow the old target, so bytes behind a substituted link stay
+         * untouched. */
+        rc = renameat(c->parent_fd, c->stage, c->parent_fd, c->name);
+        if (rc != 0) reason(err, errlen, "cannot install the exported image");
+    } else {
+        /* A fresh destination is created by link, so two creators racing for
+         * the same new name cannot both win: the loser gets EEXIST. */
+        rc = linkat(c->parent_fd, c->stage, c->parent_fd, c->name, 0);
+        if (rc != 0)
+            reason(err, errlen,
+                   errno == EEXIST
+                       ? "another writer created the export destination first; nothing was replaced"
+                       : "cannot install the exported image");
+        (void)unlinkat(c->parent_fd, c->stage, 0);
+    }
+    if (rc == 0) {
+        free(c->stage);
+        c->stage = NULL;
+        (void)fsync(c->parent_fd);
+    }
+    return rc == 0 ? 0 : -1;
+}
+
+void tny_image_io_commit_close(tny_image_commit *c) {
+    if (!c) return;
+    if (c->stage) (void)unlinkat(c->parent_fd, c->stage, 0);
+    free(c->stage);
+    free(c->name);
+    close(c->parent_fd);
+    free(c);
+}
+
 /* ---- per-destination writer guard ---- */
 
+int tny_image_io_publish(const char *tmp, const char *canonical, bool no_replace) {
+    if (!no_replace) return rename(tmp, canonical) == 0 ? 0 : -1;
+    if (link(tmp, canonical) != 0) return -1;
+    /* Link is the commit point. A cleanup failure cannot undo it. */
+    return unlink(tmp) == 0 ? 0 : 1;
+}
+
 #ifdef __EMSCRIPTEN__
+
+int tny_image_io_no_replace_preflight(const char *canonical, char *err, size_t errlen) {
+    (void)canonical;
+    reason(err, errlen, "atomic no-replace image publication is unsupported on wasm");
+    return -1;
+}
 /* wasm has no advisory file locking: emscripten's filesystems are per-instance
  * and a flock() stub would answer "acquired" for every contender. The honest
  * guard is therefore a table inside this instance, which is exactly the scope
@@ -236,6 +522,45 @@ bool tny_image_io_guard_owner(const char *canonical, char out[TNY_IMAGE_IO_ID_MA
     return true;
 }
 #else
+
+int tny_image_io_no_replace_preflight(const char *canonical, char *err, size_t errlen) {
+    struct stat st;
+    if (lstat(canonical, &st) == 0 || errno != ENOENT) {
+        reason(err, errlen, "image no-replace destination exists or cannot be inspected");
+        return -1;
+    }
+    /* Probe actual filesystem capability, not merely whether link() exists.
+     * Two exclusively reserved names in the final directory avoid clobbering
+     * anything while checking. No provider has been contacted yet. */
+    buf_t source, target;
+    buf_init(&source);
+    buf_init(&target);
+    buf_appendf(&source, "%s.XXXXXX", canonical);
+    buf_appendf(&target, "%s.XXXXXX", canonical);
+    int a = source.oom ? -1 : mkstemp(source.data);
+    int b = target.oom ? -1 : mkstemp(target.data);
+    int rc = -1;
+    bool target_owned = b >= 0;
+    if (a >= 0 && b >= 0 && unlink(target.data) == 0) {
+        target_owned = false;
+        if (link(source.data, target.data) == 0) {
+            target_owned = true;
+            rc = 0;
+        }
+    }
+    if (a >= 0) {
+        close(a);
+        if (unlink(source.data) != 0) rc = -1;
+    }
+    if (b >= 0) {
+        close(b);
+        if (target_owned && unlink(target.data) != 0) rc = -1;
+    }
+    buf_free(&source);
+    buf_free(&target);
+    if (rc) reason(err, errlen, "cannot prepare atomic no-replace image publication");
+    return rc;
+}
 #include <sys/file.h>
 
 struct tny_image_guard {

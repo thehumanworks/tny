@@ -1,5 +1,6 @@
 #include "core/image_provider.h"
 #include "core/image.h"
+#include "core/jobs.h"
 #include "core/image_manifest.h"
 #include "json/json.h"
 #include "util/image_io.h"
@@ -82,17 +83,35 @@ int tny_image_options(int argc, char **argv, tny_image_request *r, bool *json, b
             r->strict_size = true;
             continue;
         }
+        if (strcmp(a, "--preview") == 0) {
+            r->preview = true;
+            continue;
+        }
         if (strcmp(a, "--no-manifest") == 0) {
             r->no_manifest = true;
             continue;
         }
-        const char **slot = strcmp(a, "--image-provider") == 0 ? &r->provider
-                            : strcmp(a, "--model") == 0        ? &r->model
-                            : strcmp(a, "--quality") == 0      ? &r->quality
-                            : strcmp(a, "--size") == 0         ? &r->size
-                            : strcmp(a, "--output-file") == 0  ? &r->output_file
-                            : strcmp(a, "--manifest") == 0     ? &r->from_manifest
-                                                               : NULL;
+        if (strcmp(a, "--item") == 0) {
+            if (r->job_item_set || i + 1 >= argc || !*argv[i + 1]) return 1;
+            const char *value = argv[++i];
+            unsigned int item = 0;
+            for (const char *p = value; *p; p++) {
+                if (*p < '0' || *p > '9' || item >= TNY_JOBS_MAX_ITEMS) return 1;
+                item = item * 10 + (unsigned int)(*p - '0');
+            }
+            if (item >= TNY_JOBS_MAX_ITEMS) return 1;
+            r->job_item = (int)item;
+            r->job_item_set = true;
+            continue;
+        }
+        const char **slot = strcmp(a, "--job") == 0              ? &r->job
+                            : strcmp(a, "--image-provider") == 0 ? &r->provider
+                            : strcmp(a, "--model") == 0          ? &r->model
+                            : strcmp(a, "--quality") == 0        ? &r->quality
+                            : strcmp(a, "--size") == 0           ? &r->size
+                            : strcmp(a, "--output-file") == 0    ? &r->output_file
+                            : strcmp(a, "--manifest") == 0       ? &r->from_manifest
+                                                                 : NULL;
         /* --image and --artifact share one ordered reference list, so a mixed
          * command keeps the order the caller wrote and the same maximum. */
         if ((strcmp(a, "--image") == 0 || strcmp(a, "--artifact") == 0) &&
@@ -107,6 +126,10 @@ int tny_image_options(int argc, char **argv, tny_image_request *r, bool *json, b
      * replay source, and a replay never takes new references. */
     if (r->replay != (r->from_manifest != NULL)) return 1;
     if (r->replay && r->image_count) return 1;
+    if (!!r->job != r->job_item_set ||
+        (r->job && (!r->edit || *check || !tny_jobs_valid_id(r->job))) ||
+        r->image_count + (r->job ? 1u : 0u) > TNY_IMAGE_REFERENCES_MAX)
+        return 1;
     return 0;
 }
 
@@ -199,10 +222,18 @@ static int reference_from_record(tny_image_manifest *m, tny_image_reference *ref
     return 0;
 }
 
-int tny_image_plan_resolve(const tny_image_request *r, tny_image_plan *plan, char *err,
-                           size_t errlen) {
+int tny_image_plan_resolve(const tny_ctx *ctx, const tny_image_request *r, tny_image_plan *plan,
+                           char *err, size_t errlen) {
     memset(plan, 0, sizeof *plan);
     plan->edit = r->edit;
+    if (!!r->job != r->job_item_set ||
+        (r->job &&
+         (!r->edit || r->replay || r->from_manifest || !ctx || !tny_jobs_valid_id(r->job) ||
+          r->job_item < 0 || r->job_item >= TNY_JOBS_MAX_ITEMS))) {
+        snprintf(err, errlen,
+                 "job selection requires a context and complete job/item pair on edit");
+        return 1;
+    }
     if (!plan_setting(&plan->prompt, r->prompt) || !plan_setting(&plan->provider, r->provider) ||
         !plan_setting(&plan->model, r->model) || !plan_setting(&plan->quality, r->quality) ||
         !plan_setting(&plan->size, r->size)) {
@@ -246,6 +277,7 @@ int tny_image_plan_resolve(const tny_image_request *r, tny_image_plan *plan, cha
             snprintf(ref->source_operation, sizeof ref->source_operation, "%s",
                      m->references[i].source_operation);
             memcpy(ref->expected, m->references[i].sha256, sizeof ref->expected);
+            ref->job = m->references[i].job;
             if (!ref->path || (m->references[i].source_manifest && !ref->source_manifest)) {
                 snprintf(err, errlen, "out of memory resolving an image reference");
                 return 1;
@@ -253,7 +285,7 @@ int tny_image_plan_resolve(const tny_image_request *r, tny_image_plan *plan, cha
         }
         return 0;
     }
-    if (r->image_count > TNY_IMAGE_REFERENCES_MAX) {
+    if (r->image_count + (r->job ? 1u : 0u) > TNY_IMAGE_REFERENCES_MAX) {
         snprintf(err, errlen, "too many image references");
         return 1;
     }
@@ -276,6 +308,26 @@ int tny_image_plan_resolve(const tny_image_request *r, tny_image_plan *plan, cha
         int rc = reference_from_record(m, ref, err, errlen);
         tny_image_manifest_free(m);
         if (rc) return rc;
+    }
+    if (r->job) {
+        tny_job_artifact *selected =
+            tny_jobs_select_artifact(ctx, r->job, r->job_item, err, errlen);
+        if (!selected) return 1;
+        tny_image_reference *ref = &plan->references[plan->reference_count++];
+        ref->path = selected->path;
+        selected->path = NULL;
+        if (selected->manifest) ref->source_manifest = xstrdup(selected->manifest->path);
+        snprintf(ref->source_operation, sizeof ref->source_operation, "%s", selected->operation_id);
+        memcpy(ref->expected, selected->sha256, sizeof ref->expected);
+        snprintf(ref->job.id, sizeof ref->job.id, "%s", selected->job_id);
+        ref->job.bytes = selected->bytes;
+        ref->job.item_index = selected->item_index;
+        ref->job.projection_attempt = selected->projection_attempt;
+        ref->job.item_attempt = selected->item_attempt;
+        ref->job.carried_from_attempt = selected->carried_from_attempt;
+        bool copied = !selected->manifest || ref->source_manifest;
+        tny_jobs_artifact_free(selected);
+        if (!copied) goto oom;
     }
     return 0;
 oom:
@@ -331,7 +383,8 @@ static int load_references(const tny_image_request *r, tny_image_plan *plan,
             snprintf(err, len, "cannot hash reference image");
             return 1;
         }
-        if (*ref->expected && strcmp(ref->expected, ref->sha256) != 0) {
+        if ((*ref->expected && strcmp(ref->expected, ref->sha256) != 0) ||
+            (*ref->job.id && ref->job.bytes != inputs[i].data.len)) {
             snprintf(err, len,
                      "recorded reference no longer matches its hash; supply the reference "
                      "explicitly if this replacement is intended");
@@ -398,7 +451,7 @@ static void safe_failure(int rc, const tny_image_result *result, const char *err
 /* ---- run ----------------------------------------------------------------- */
 
 static int export_image(const tny_image_request *r, int fd, const char *tmp, const buf_t *data,
-                        const char *destination) {
+                        const char *destination, tny_image_result *result) {
     int rc = 0;
     size_t offset = 0;
     while (offset < data->len) {
@@ -416,7 +469,14 @@ static int export_image(const tny_image_request *r, int fd, const char *tmp, con
     }
     if (close(fd) != 0 && !rc) rc = 1;
     if (!rc && tny_image_stopped(r)) rc = 130;
-    if (!rc && rename(tmp, destination) != 0) rc = 1;
+    if (!rc) {
+        int published = tny_image_io_publish(tmp, destination, r->no_replace);
+        if (published < 0) rc = 1;
+        else {
+            result->committed = true;
+            result->cleanup_warning = published > 0;
+        }
+    }
     return rc;
 }
 
@@ -515,7 +575,7 @@ static int image_run(const tny_ctx *ctx, const tny_image_request *r, tny_image_r
     buf_t image, tmp;
     buf_init(&image);
     buf_init(&tmp);
-    char output_hash[TNY_IMAGE_SHA256_HEX] = "";
+
     int rc = 1, fd = -1;
     bool reserved = false, terminal = false;
     /* Literal option shapes are settled before any file is opened. */
@@ -524,7 +584,8 @@ static int image_run(const tny_ctx *ctx, const tny_image_request *r, tny_image_r
         (r->size && !valid_string(r->size, 32)) ||
         (r->provider && !valid_string(r->provider, 128)) ||
         r->image_count > TNY_IMAGE_REFERENCES_MAX ||
-        (!r->from_manifest && (!valid_prompt(r->prompt) || r->edit != (r->image_count > 0)))) {
+        (!r->from_manifest &&
+         (!valid_prompt(r->prompt) || r->edit != (r->image_count > 0 || r->job)))) {
         snprintf(err, len,
                  "images need UTF-8 prompt (1-16384 bytes), output file, valid options; edit needs "
                  "1-5 references, generate none");
@@ -538,7 +599,7 @@ static int image_run(const tny_ctx *ctx, const tny_image_request *r, tny_image_r
         rc = 130;
         goto done;
     }
-    if (!prepared && tny_image_plan_resolve(r, &local, err, len)) goto done;
+    if (!prepared && tny_image_plan_resolve(ctx, r, &local, err, len)) goto done;
     result->edit = plan->edit;
     snprintf(result->requested_size, sizeof result->requested_size, "%s",
              plan->size ? plan->size : "auto");
@@ -578,6 +639,7 @@ static int image_run(const tny_ctx *ctx, const tny_image_request *r, tny_image_r
      * same normalized path fails here rather than racing a paid request. */
     op.guard = tny_image_io_guard_acquire(op.canonical, result->operation_id, err, len);
     if (!op.guard) goto done;
+    if (r->no_replace && tny_image_io_no_replace_preflight(op.canonical, err, len) != 0) goto done;
     rc = load_references(r, plan, inputs, err, len);
     if (rc) goto done;
     rc = 1;
@@ -662,8 +724,15 @@ static int image_run(const tny_ctx *ctx, const tny_image_request *r, tny_image_r
         record.size_status = tny_image_size_status_name(result->size_status);
         rc = strict_rejection(r, result, err, len);
     }
+    /* The producer identity is mandatory even without provenance. Hash the
+     * exact validated buffer before any irreversible filesystem operation;
+     * allocation/digest failure must never leave an unidentified artifact. */
+    if (!rc && !tny_image_io_sha256_hex(image.data, image.len, result->sha256)) {
+        snprintf(err, len, "cannot hash image output before publication");
+        rc = 1;
+    }
     if (!rc) {
-        rc = export_image(r, fd, tmp.data, &image, op.canonical);
+        rc = export_image(r, fd, tmp.data, &image, op.canonical, result);
         fd = -1;
         reserved = rc != 0;
         if (!rc) {
@@ -674,12 +743,11 @@ static int image_run(const tny_ctx *ctx, const tny_image_request *r, tny_image_r
         } else if (rc != 130) snprintf(err, len, "cannot write image output file");
     }
     if (op.manifest) {
-        if (!rc) (void)tny_image_io_sha256_hex(image.data, image.len, output_hash);
         op.finished = now_iso8601();
-        record.output_sha256 = *output_hash ? output_hash : NULL;
+        record.output_sha256 = result->committed ? result->sha256 : NULL;
         if (rc) safe_failure(rc, result, err, &record);
         const char *status = !rc ? "succeeded" : rc == 130 ? "cancelled" : "failed";
-        bool wrote = op.finished && (!record.committed || *output_hash) &&
+        bool wrote = op.finished && (!record.committed || *result->sha256) &&
                      persist(&op, &record, status, false) == 0;
         terminal = wrote;
         if (!wrote && !rc) {
@@ -755,6 +823,10 @@ static void local_provenance_metadata(const tny_image_result *result, buf_t *out
     buf_appends(out, ",\"manifest_path\":");
     if (*result->manifest_path) jescape(out, result->manifest_path);
     else buf_appends(out, "null");
+    buf_appends(out, ",\"sha256\":");
+    if (result->committed && *result->sha256) jescape(out, result->sha256);
+    else buf_appends(out, "null");
+    buf_appendf(out, ",\"cleanup_warning\":%s", result->cleanup_warning ? "true" : "false");
 }
 
 static void provenance_metadata(const tny_image_result *result, buf_t *out) {

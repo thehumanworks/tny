@@ -1,5 +1,65 @@
 # Image generation and editing
 
+## Explicit conversation preview (ADR 0097)
+
+Generation, editing, replay, export and contact-sheet remain **metadata-only by
+default**. Add `--preview` to the CLI command, or boolean `preview: true` to its
+native tool. `preview: false` preserves the ordinary permission identity. A
+preview permission adds the conversation profile and model to that identity;
+the already-approved image plan runs once. ALLOW_ONCE is not remembered.
+
+To preview an existing artifact without producing anything:
+
+```sh
+tny image preview --manifest result.png.tny-image-ID.json --json
+```
+
+The equivalent native tool is `image_preview({"manifest":"RECORD"})`.
+Terminal interception uses the same prepared selection. The selector owns the
+successful record before permission. Capture must match its artifact digest,
+not the hash of a later replacement at the same path. Derived selections retain
+their transform/source lineage and are never relabelled native. To select an image
+job, use `tny image preview --job ID --item N --json` or
+`image_preview({"job":"ID","item":N})`. Exactly one manifest or complete job/item
+pair is required. Only the selected item must have succeeded; siblings may still
+run or fail. Selection reads bounded confined metadata without projecting job
+state, opening image bytes or initializing a provider (ADR 0098).
+
+One shared coordinator uses the actual owning native backend's admission, or
+one non-printing correlated CLI control exchange. Preview requires configured
+`image_input: true`, a continuable active tool batch, allowed roots, supported
+image bytes, at most 8 MiB per image and eight queued images. Unknown is not
+support. Producer SHA-256 comes from the validated bytes before commit, even
+with `--no-manifest`. Accepted bytes are immutable until flush or cleanup.
+
+Explicit requests add a separate `preview` object: `status` is `queued`,
+`unsupported`, `unavailable_session`, `turn_not_ready`, `failed`, or
+`not_attempted`. It reports the selected path, digest, operation/record identity,
+`original_bytes` representation and an actionable fallback. A CLI queued
+receipt is correlated to its control request. A tool result is correlated by
+its ordinary tool-call id. Neither receipt proves delivery, inspection or
+visual approval. Missing or uncorrelated acknowledgment is never `queued`.
+
+Successful generation/export keeps its artifact and exit 0 if preview fails;
+JSON reports both outcomes, and CLI stderr reports the separate preview
+failure. Preview-only failures exit 1. Generation failure queues nothing. A
+committed manifest-finalization failure keeps its retained-artifact failure and
+reports preview `not_attempted`. On oversize, explicitly export a smaller,
+separate artifact and select that record. There is no implicit conversion,
+regeneration, retry, or manual attachment fallback.
+
+Cancellation, denial, extension stops, persistence errors, policy changes and
+step exhaustion report `IMAGE_PREVIEW_NOT_DELIVERED` before clearing pending
+bytes and constructed-but-unsent image messages. A later turn cannot inherit
+them. Existing manual attachment semantics are unchanged.
+
+Wasm's native tools use the same backend admission and queue. Socket-only CLI
+preview has a clean `unsupported` fallback. External transforms and job controls
+remain unavailable there. Native standalone SDK toolkit calls remain
+metadata-only and reject `preview` (including false); no public send ABI or
+ambient socket lookup is added. Browser-WASM and final job/platform gates are
+still required after this independent implementation slice.
+
 Generate images with your ChatGPT login independently of the conversation
 provider. Sign in with `tny --provider codex login`, then:
 
@@ -180,6 +240,40 @@ model. If it substitutes a size instead, that shows up as `mismatch` with the
 actual dimensions — the observed behavior behind issue #122, where 3440x1440
 requests returned roughly 1935x811 images. Verify a size by requesting it once
 and reading `width`/`height`, or enforce it with `--strict-size`.
+
+## Private job publication and producer identity
+
+The private jobs CLI prefix `image --job-no-replace generate ...` selects
+atomic creation inside the normal image-service transaction. It is not a
+public image option, tool schema field, or SDK ABI addition. Ordinary calls
+still replace an existing output only after complete validation.
+
+While holding the canonical output guard, the private mode requires an absent
+destination (dangling symlinks also count as existing) and probes hard-link
+publication capability in that directory **before contacting the provider**.
+Publication links the validated temporary file to the real final name, without
+replacement. A destination created during the response wins; tny fails without
+changing those bytes. There is no CLI staging destination or manifest rewrite.
+This is not protection against arbitrary parent-directory namespace replacement.
+
+Every generation/edit hashes the exact validated output buffer before commit,
+including `--no-manifest`. Digest allocation failure publishes nothing. The
+private result retains that producer SHA-256; success and retained-artifact JSON
+add `sha256` and `cleanup_warning` fields. Existing fields and stdout path-only
+behavior are unchanged. JSON readers must tolerate these additive fields.
+Manifests and returned identity describe the real final artifact and operation.
+
+A successful link is committed even if removing its private temporary name
+fails. The output is kept, provenance is finalized normally, and the result
+reports `cleanup_warning:true` (with CLI guidance on stderr). This is success
+with cleanup debt, not `IMAGE_MANIFEST_FINALIZE_FAILED`. If manifest finalization
+also fails, the existing retained-artifact error includes the producer hash and
+cleanup warning. Neither case deletes the final output; late cancellation does
+not undo a committed result or replace its retained IO failure.
+
+Private no-replace publication refuses before spend on wasm and on filesystems
+without atomic hard-link support. Ordinary wasm generation/editing and manifests
+remain supported; no provider or public grammar behavior changes there.
 
 ## Persistence and cancellation
 
@@ -423,9 +517,36 @@ with the provider it actually inherited from its record rather than the default
 written against the previously described provider no longer authorizes such a
 replay, and must be granted again. Nothing else about the detail shape changed.
 
-Export and job lineage (`role: "derived"`, `--job`) are **not** implemented
-yet; they arrive with the export (#125) and job (#124) slices. `artifacts`
-therefore currently holds exactly one `native` entry per successful operation.
+Edits accept `--job ID --item N` as one final reference, after the explicit
+`--image`/`--artifact` list, whose existing order is preserved. The total limit
+remains five. The typed `image_edit` has matching `job` and integer `item`
+selectors; its order is artifact, images, job. Generate/replay reject job
+selectors and incomplete pairs fail before upload.
+
+The owned selection pins the producer SHA-256, byte count, canonical path,
+optional manifest/operation, job ID, item index, current projection attempt,
+producing item attempt and carried origin. A carried item from attempt 1 under
+projection 3 reports both truthfully. A declared manifest must exist and match;
+explicit no-manifest jobs remain usable without fabricating a record. The same
+prepared selection survives ALLOW_ONCE, job/manifest deletion or replacement;
+changed image bytes fail before upload. Job previews check both hash and positive
+producer byte count against the same captured bytes; the existing control message
+carries optional `expected_bytes` for this purpose. Omitted length preserves
+ordinary preview behavior; malformed supplied lengths are rejected. Later actions ask again.
+
+Reference and derived-source records support optional `job` provenance:
+`{id,item_index,projection_attempt,item_attempt,carried_from_attempt,bytes}`.
+IDs are 32 lowercase hex; indices 0-63; positive attempts are bounded signed
+integers; an ordinary producing attempt equals the projection with carried
+origin 0, or producing equals carried origin below projection. Bytes are a
+positive integer at most 32 MiB, paired with the reference hash. Present malformed
+provenance fails closed; absence keeps older records valid. Replay copies this
+identity and uses stored paths/hashes without reopening a mutable job.
+
+Job selectors are native-only and return a clean unsupported result on wasm;
+replay of already recorded provenance remains shared. SDK toolkit direct job
+and preview selectors are rejected; ordinary artifact/manifest operations remain
+available. Local exports record a `derived` artifact and retain their sources.
 
 ## Conversation image input (`image_input`)
 
@@ -487,6 +608,146 @@ Image **generation** and editing are never gated by this map: they use their
 own image provider and credentials and stay available when the conversation
 provider cannot take pixels.
 
+## Local exports and contact sheets
+
+Resizing, cropping, re-encoding and grids are a separate explicit operation.
+Generation and editing never invoke a converter, never re-encode provider bytes
+and never depend on anything below being installed.
+
+```sh
+tny image export --image photo.jpg --output-file thumb.png --size 256x256
+tny image contact-sheet --image a.png --image b.png --image c.png \
+  --output-file sheet.png --size 512x512 --columns 2 --labels numbers
+```
+
+| Option | Contract |
+| --- | --- |
+| `--image PATH` | Source image; repeatable for a contact sheet, which keeps the given order |
+| `--artifact RECORD` | Source taken from an earlier manifest's verified output, in the same ordered list |
+| `--output-file PATH` | Required destination; an existing file fails without `--overwrite` |
+| `--size WIDTHxHEIGHT` | Required exact canvas; each edge 1–16384 and at most 64M pixels |
+| `--fit fit\|crop\|pad` | Default `fit` |
+| `--gravity DIRECTION` | `center` (default), `north`, `south`, `east`, `west`, `northeast`, `northwest`, `southeast`, `southwest` |
+| `--background COLOR` | `transparent` (default), `#RRGGBB` or `#RRGGBBAA`; JPEG has no alpha, so its default is `#000000` |
+| `--format png\|jpeg\|webp` | Default `png`, forced on the encoder and never guessed from the destination's name |
+| `--columns N` | Contact sheet only: 1..sources, default `ceil(sqrt(sources))` |
+| `--labels none\|numbers` | Contact sheet only, default `none` |
+| `--overwrite` | Replace an existing regular single-link destination file |
+| `--no-manifest` | Write no record for this run |
+| `--json` | Structured result metadata, never image bytes |
+
+`fit` scales proportionally to contain the whole source, then pads to the exact
+canvas. `crop` scales proportionally to cover the canvas, then crops at the
+gravity. `pad` never enlarges: it shrinks only as much as needed, then pads.
+The output is always exactly `--size`; tny does not round it to an aspect ratio.
+PNG output is written as 8-bit RGBA so a padded or transparent canvas is
+unambiguous. There is no implicit EXIF orientation correction, no provider
+request and no retry.
+
+A contact sheet takes 1–64 ordered sources. Rows are `ceil(sources/columns)`,
+each cell is `floor(width/columns)` by `floor(height/rows)`, and the pixels a
+floored grid leaves over stay background. Each source is placed in its own cell
+with the same policy, gravity and background. `--labels numbers` draws the
+1..N index of each source from a fixed bitmap glyph table that tny generates
+itself as a private PBM: no font is installed, looked up or required, and no
+caller text is ever rendered. Labels are scaled by `min(cell_width,
+cell_height) / 64`, clamped to 1..4, giving a box of `scale * (6 * digits + 1)`
+by `scale * 9` pixels at the cell's top-left corner. Cells too small for that
+box are a validation error rather than a silently unlabelled sheet. The same
+inputs, settings and tool version produce identical pixels; that is not a
+promise across arbitrary future ImageMagick versions.
+
+### The optional converter
+
+Exports need [ImageMagick 7](https://imagemagick.org)'s `magick` executable on
+`PATH`. It is optional, is never installed by tny, and is only ever started by
+an explicit export or contact sheet. ImageMagick 6 is not a fallback: tny
+resolves the first `magick` on `PATH` (skipping empty and relative entries),
+requires a regular executable, pins its canonical absolute path and its
+device/inode/size/mtime, and uses that same executable for the version probe,
+the conversion and the verification — rechecking the identity before each
+start. A missing, too old, or unrecognised executable is an actionable error
+that converts nothing and writes nothing.
+
+The converter never receives a user-controlled path. Approved source bytes are
+read once, hashed once and copied into a private 0700 staging directory under
+generated ASCII names; every input and output is named with a forced coder
+(`png:`, `jpeg:`, `webp:`, `pbm:`, `png32:`), and every other argument is a
+fixed token or a validated number or enumeration. No shell is involved, so
+`@file`, bracket selectors, percent patterns and coder-looking file names are
+data, not syntax. The child gets a sanitized environment — no credentials, no
+`MAGICK_*` configuration, `HOME` and `TMPDIR` inside the private stage — its
+own process group, no stdin and a discarded stderr, and untrusted image
+metadata never becomes part of a command.
+
+Limits are the tool's own documented ceilings (`-limit memory 128MiB`, `map
+256MiB`, `disk 512MiB`, `thread 1`, `time 60`, `area 64MP`) plus tny's own
+75-second wall deadline, the 8 MiB input bound, the 64M pixel canvas bound and
+a bounded read of the produced bytes. These are cache and resource limits, not
+an OS memory sandbox, and they assume a trusted ImageMagick install: a
+maliciously replaced executable is not contained by them. Cancelling stops the
+child's whole process group and reaps it before returning. The version probe
+also observes cancellation. Every stdout drain iteration checks cancellation
+and the wall deadline, even after the direct child exits; reads are bounded and
+nonblocking, so continuous output or an inherited writer cannot extend the limit.
+
+### What is committed, and when
+
+Exit status is never the evidence. After the producing invocation succeeds, the
+same executable decodes the produced file completely a second time with
+`-regard-warnings` into `null:`, and the bytes themselves must report exactly
+the requested MIME type and canvas. The validated output is hashed before the
+irreversible install. A hash allocation failure therefore preserves the old
+destination, including with `--overwrite` and `--no-manifest`. Any failure that
+remains possible after installation reports the retained artifact truthfully.
+
+The destination is held by the same canonical writer guard as generation, its
+parent directory is opened once and kept, and the leaf is named relative to
+that descriptor from then on. The destination may not alias any source by
+canonical path, symlink or device/inode — even with `--overwrite` — and a
+destination that is a symlink, a directory, a device or a multiply linked name
+is refused. The identity observed when the destination was opened is rechecked
+with `fstatat(AT_SYMLINK_NOFOLLOW)` immediately before the install, and an
+unexpected change is refused. The install itself creates the staged file with
+`openat(parent, generated-name, O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,
+0600)`, fsyncs it, and then links it into place (`linkat`, so a competing
+creator loses atomically with `EEXIST`) or renames over the destination for an
+explicit `--overwrite`. Neither step opens, truncates or follows the
+destination for writing, so a link substituted after the check is never written
+through and the bytes of a source inode cannot be modified by an export.
+
+That guard serializes cooperating tny operations; it is not exclusion against
+an arbitrary external writer, and tny does not claim an atomic inode
+compare-and-rename against one. What it does guarantee is that originals are
+preserved: sources keep their bytes and inode, and a failed, refused or
+cancelled export leaves the previous destination byte-identical and no
+staging debris behind.
+
+### Derived records
+
+An export writes the same version-1 manifest beside its output, with
+`operation` `export` or `contact_sheet`, no prompt, `requested.provider`
+`local` — never a network provider — an empty `references` list, and one
+artifact whose `role` is `derived` and whose `native` flag is `false`. The
+record's `transform` object carries the policy, gravity, background, format,
+exact canvas, grid and cell geometry, label mode, the tool and its version, and
+the ordered sources with the SHA-256 and `width`/`height` of the exact bytes each
+one contributed, plus the manifest path and operation id of any `--artifact`
+source. Returned results also include an ordered `transform.source_dimensions`
+array. These input dimensions are distinct from the target canvas and native
+generation dimensions. The manifest reader preserves them; older version-1
+records without them retain unknown dimensions rather than inventing values. Provider
+fields that do not exist locally — seed and request id — are null, not invented.
+
+The source record of an `--artifact` export is never edited. A derived record
+documents local work, so rerunning it as a provider request is refused with an
+actionable message at the CLI, the typed tools and terminal interception; its
+artifact is still real, so `tny image edit --artifact RECORD` verifies its hash
+and uploads exactly those bytes with the derived record as the reference's
+lineage. As with generation, a metadata failure after the artifact is in place
+is reported as `IMAGE_MANIFEST_FINALIZE_FAILED` with the committed path and
+hash, at every surface, instead of deleting real work to keep the error tidy.
+
 ## Agents and platforms
 
 The `all` tool profile exposes `image_generate` and `image_edit` when a registered image adapter has local credentials (initially ChatGPT). They take `prompt`, `output_file`, optional
@@ -502,7 +763,20 @@ are intercepted and run in process with the same provider, cancellation, and
 permission engine as typed tools; unsupported shell grammar stays with the
 terminal executor under its normal shell permissions.
 
-Both operations are sensitive tools, with distinct `image_generate` and
+The same profile also exposes `image_export` and `image_contact_sheet`, which
+depend on the host rather than on an image provider: they are advertised
+without any image credentials and hidden only where tny cannot run a local
+process — libtny, `--ssh` and wasm — with the same direct error on a direct
+call. They take an ordered `sources` array of `{"image": PATH}` and
+`{"artifact": RECORD}` entries, `output_file`, `size`, and the optional `fit`,
+`gravity`, `background`, `format`, `overwrite`, `persist_manifest` and (sheet
+only) integer `columns` and `labels`. Whether the optional `magick` executable
+is installed is answered when the tool is called, with actionable guidance —
+never by probing while building the schema. `tny image export` and `tny image
+contact-sheet` typed into the terminal tool are intercepted into exactly these
+tools, with the same identity and service.
+
+Both generation operations are sensitive tools, with distinct `image_generate` and
 `image_edit` permission identities. Grants include the image provider actually
 resolved for the call, the canonical output path, any record being rerun, and
 every uploaded reference path — resolved from records before the grant, not the
@@ -513,6 +787,22 @@ would actually run, so replaying an edit needs an `image_edit` grant. `strict_si
 so it is deliberately not part of the grant identity and never widens a grant. These identities are not read-only or the
 ordinary `edit` permission category: authorizing text writes alone does not
 authorize image requests. Yolo mode continues to allow them.
+
+`image_export` and `image_contact_sheet` are sensitive under their own two
+identities. An export's grant covers the whole operation: the operation name,
+the ordered canonical sources with the SHA-256 of their exact current bytes
+(plus the manifest path and source operation id of every `--artifact` input),
+the canonical destination, the canvas, policy, gravity, background, format,
+`overwrite`, `persist_manifest`, columns and label mode. That identity is
+rebuilt and rechecked when the call executes, so a source whose bytes changed,
+a record edited after approval, or a different destination or setting needs a
+new grant rather than inheriting the old one. Execution resolves one owned plan,
+checks the artifact paths against allowed roots, captures the source bytes, and
+revalidates that plan's identity. The converter stages those same buffers and
+resolved lineage; it never reopens records or sources after this check. A
+one-call approval (`ALLOW_ONCE`) covers only that prepared identity and does not
+create a session grant. Typed tools and terminal interception share this scope.
+Reading a record or a status never authorizes a write.
 
 Native CLI, TUI and ACP-server native turns can use the tools with any chat
 provider. Host-owned Cursor/ACP client agents can discover the standalone CLI
@@ -535,6 +825,13 @@ shell interception, cross-process concurrency and FIFO/symlink tests are not
 applicable there.
 Browser calls additionally depend on provider CORS and an available ChatGPT
 credential; there is no CORS bypass or browser download UI in this feature.
+
+Local exports are the one image capability wasm does not have: there is no
+process seam to run an external converter through, so `image_export` and
+`image_contact_sheet` are hidden from the schema and the CLI and shared service
+reject the operation before opening an input, staging a file or touching a
+destination. Generation, editing, dimensions, records and replay are unchanged
+there and are never gated on the optional executable.
 
 ## Provider extension point
 
@@ -572,3 +869,11 @@ queue, its preview admission and the control receiver are covered by
 `tests/test_core.c`, `tests/test_openai.c` (a loopback provider asserting the
 actual next request's pixel bytes), `tests/test_runner.c` and
 `tests/integration/test_image_preview_queue.py`.
+The explicit transforms follow
+[ADR 0094](adr/0094-explicit-safe-image-exports-and-contact-sheets.md). Exports have
+their own file, `tests/integration/test_image_exports.py` (`-k Export`,
+`-k ContactSheet`, also selectable from the workflow file), which runs the real
+optional ImageMagick 7 and decodes the resulting pixels in Python; set
+`TNY_TEST_MAGICK` to point at an executable that is not on `PATH`. Its
+converter-independent cases — validation, aliases, permissions and the
+missing-dependency path — run everywhere.

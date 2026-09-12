@@ -8,6 +8,12 @@
 #include "core/tasks.h"
 #include "core/tools.h"
 #include "core/subagent.h"
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+#include "core/jobs.h"
+#include "util/jobs_host.h"
+#include "util/process.h"
 #include "core/image.h"
 #include "core/image_service.h"
 #include "core/speech.h"
@@ -2641,7 +2647,7 @@ TEST image_queue_preview_needs_true_policy_and_matching_hash(void) {
     ASSERT_EQ(TNY_IMAGE_INPUT_UNKNOWN, tny_image_input_configured(f.ctx));
     ASSERT_EQ(0, tools_queue_image(&f.env, path, false, NULL, NULL, NULL, err, sizeof err));
     ASSERT_EQ(1, f.env.n_pending_images);
-    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, path, expected, &code, err, sizeof err));
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, path, expected, 0, &code, err, sizeof err));
     ASSERT(code);
     ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_CAPABILITY, code);
     ASSERT_EQ(1, f.env.n_pending_images);
@@ -2649,28 +2655,29 @@ TEST image_queue_preview_needs_true_policy_and_matching_hash(void) {
     f.ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED;
     char other[65];
     hash_hex(PNG2, sizeof PNG2, other);
-    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, path, other, &code, err, sizeof err));
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, path, other, 0, &code, err, sizeof err));
     ASSERT(code);
     ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_HASH, code);
-    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, path, NULL, &code, err, sizeof err));
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, path, NULL, 0, &code, err, sizeof err));
     ASSERT(code);
     ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_HASH, code);
     char malformed[65];
     snprintf(malformed, sizeof malformed, "%s", expected);
     malformed[63] = '\0'; /* 63 hex digits */
-    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, path, malformed, &code, err, sizeof err));
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, path, malformed, 0, &code, err, sizeof err));
     ASSERT(code);
     ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_HASH, code);
     snprintf(malformed, sizeof malformed, "%s", expected);
     malformed[0] = (char)toupper((unsigned char)malformed[0]);
     if (malformed[0] != expected[0]) {
-        ASSERT_EQ(-1, tools_queue_image_preview(&f.env, path, malformed, &code, err, sizeof err));
+        ASSERT_EQ(-1,
+                  tools_queue_image_preview(&f.env, path, malformed, 0, &code, err, sizeof err));
         ASSERT(code);
         ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_HASH, code);
     }
     ASSERT_EQ(1, f.env.n_pending_images); /* nothing queued by a refusal */
 
-    ASSERT_EQ(0, tools_queue_image_preview(&f.env, path, expected, &code, err, sizeof err));
+    ASSERT_EQ(0, tools_queue_image_preview(&f.env, path, expected, 0, &code, err, sizeof err));
     ASSERT_EQ(NULL, code);
     ASSERT_EQ(2, f.env.n_pending_images);
     ASSERT(tools_pending_images_have_preview(&f.env));
@@ -2691,7 +2698,7 @@ TEST image_queue_preview_needs_true_policy_and_matching_hash(void) {
 
     /* an all-preview batch says so */
     ASSERT_EQ(0, file_write_atomic(path, PNG1, sizeof PNG1));
-    ASSERT_EQ(0, tools_queue_image_preview(&f.env, path, expected, &code, err, sizeof err));
+    ASSERT_EQ(0, tools_queue_image_preview(&f.env, path, expected, 0, &code, err, sizeof err));
     ASSERT_EQ(0, tools_flush_images(&f.env, err, sizeof err));
     ASSERT_STR_EQ("Images queued by explicitly requested generation/edit preview.",
                   part_text(f.session));
@@ -2718,12 +2725,12 @@ TEST image_queue_preview_refuses_roots_size_and_capacity(void) {
     char err[256];
     const char *code = NULL;
 
-    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, outside, expected, &code, err, sizeof err));
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, outside, expected, 0, &code, err, sizeof err));
     ASSERT(code);
     ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_ROOTS, code);
     ASSERT_EQ(0, f.env.n_pending_images); /* refused before the file was read */
 
-    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, text, expected, &code, err, sizeof err));
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, text, expected, 0, &code, err, sizeof err));
     ASSERT(code);
     ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_FORMAT, code);
 
@@ -2735,7 +2742,7 @@ TEST image_queue_preview_refuses_roots_size_and_capacity(void) {
     ASSERT_EQ(0, file_write_atomic(big, blob, huge));
     free(blob);
     char oversized[65];
-    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, big, expected, &code, err, sizeof err));
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, big, expected, 0, &code, err, sizeof err));
     ASSERT(code);
     ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_TOO_LARGE, code);
     (void)oversized;
@@ -2744,7 +2751,7 @@ TEST image_queue_preview_refuses_roots_size_and_capacity(void) {
     for (int i = 0; i < 8; i++)
         ASSERT_EQ(0, tools_queue_image(&f.env, inside, false, NULL, NULL, NULL, err, sizeof err));
     ASSERT_EQ(8, f.env.n_pending_images);
-    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, inside, expected, &code, err, sizeof err));
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, inside, expected, 0, &code, err, sizeof err));
     ASSERT(code);
     ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_CAPACITY, code);
     ASSERT_EQ(8, f.env.n_pending_images);
@@ -2769,7 +2776,7 @@ TEST image_flush_preview_fatal_preserves_the_batch(void) {
     const char *code = NULL;
 
     ASSERT_EQ(0, tools_queue_image(&f.env, path, false, NULL, NULL, NULL, err, sizeof err));
-    ASSERT_EQ(0, tools_queue_image_preview(&f.env, path, expected, &code, err, sizeof err));
+    ASSERT_EQ(0, tools_queue_image_preview(&f.env, path, expected, 0, &code, err, sizeof err));
     size_t before = yyjson_mut_arr_size(session_messages(f.session));
     char *manual_path = xstrdup(f.env.pending_images[0]);
 
@@ -3724,6 +3731,61 @@ TEST embedded_tool_schema_has_no_process_spawning_tools(void) {
     PASS();
 }
 
+/* Local exports depend on the host, not on an image provider: they stay
+ * advertised without any credentials, and a denied grant converts nothing and
+ * writes nothing (docs/adr/0094). */
+TEST image_export_tools_are_local_and_gated(void) {
+    ensure_env();
+    write_settings("{\"permission\":{\"image_export\":\"deny\"}}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_ASK;
+    ctx->tool_profile = TNY_TOOLS_ALL;
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char source[600], destination[600];
+    snprintf(source, sizeof source, "%s/gate-src.png", g_ws);
+    snprintf(destination, sizeof destination, "%s/gate-out.png", g_ws);
+    unlink(destination);
+    static const unsigned char png[] = {
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49,
+        0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02,
+        0x00, 0x00, 0x00, 0xfd, 0xd4, 0x9a, 0x73, 0x00, 0x00, 0x00, 0x13, 0x49, 0x44,
+        0x41, 0x54, 0x08, 0x1d, 0x63, 0x60, 0x60, 0xf8, 0xcf, 0xc0, 0xc0, 0xf0, 0x9f,
+        0x01, 0x09, 0x0c, 0x00, 0x29, 0x0d, 0x03, 0xf9, 0x1f, 0x9d, 0x7e, 0xdf, 0x00,
+        0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
+    ASSERT_EQ(0, file_write_atomic(source, (const char *)png, sizeof png));
+    /* No ChatGPT credentials here, so generation is unavailable while the
+     * local transforms remain offered. */
+    ASSERT(!tny_image_capabilities(ctx, false, NULL));
+    ASSERT(!tool_schema_has(&env, "image_generate"));
+    ASSERT(tool_schema_has(&env, "image_export"));
+    ASSERT(tool_schema_has(&env, "image_contact_sheet"));
+    tools_call call;
+    ASSERT_EQ(0, tools_call_prepare(&env, "image_export",
+                                    "{\"sources\":[{\"image\":\"gate-src.png\"}],\"output_file\":"
+                                    "\"gate-out.png\",\"size\":\"8x8\"}",
+                                    &call));
+    ASSERT_EQ(PERM_DENY, call.verdict);
+    tools_call_free(&call);
+    ASSERT_EQ(-1, access(destination, F_OK));
+    /* The sheet keeps its own identity, so denying one does not deny both. */
+    ASSERT_EQ(0, tools_call_prepare(&env, "image_contact_sheet",
+                                    "{\"sources\":[{\"image\":\"gate-src.png\"}],\"output_file\":"
+                                    "\"gate-out.png\",\"size\":\"8x8\"}",
+                                    &call));
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+    tools_call_free(&call);
+    ctx->tool_profile = TNY_TOOLS_TERMINAL;
+    ASSERT(!tool_schema_has(&env, "image_export"));
+    ASSERT(!tool_schema_has(&env, "image_contact_sheet"));
+    unlink(source);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    write_settings("{}");
+    PASS();
+}
+
 TEST optimisation_tools_are_read_only_even_in_yolo(void) {
     ensure_env();
     tny_ctx *ctx = tny_ctx_new_explicit(g_ws, g_home);
@@ -3735,9 +3797,10 @@ TEST optimisation_tools_are_read_only_even_in_yolo(void) {
     static const char *allowed[] = {"list_files", "glob_files", "grep_files",
                                     "read_file",  "file_info",  "read_tool_result"};
     static const char *denied[] = {
-        "write_file",    "edit_file", "delete_file",     "terminal",       "run_command",
-        "web_fetch",     "subagent",  "mcp_select_tool", "memory",         "skill",
-        "install_skill", "open_file", "speak",           "image_generate", "image_edit"};
+        "write_file",    "edit_file",          "delete_file",     "terminal",       "run_command",
+        "web_fetch",     "subagent",           "mcp_select_tool", "memory",         "skill",
+        "install_skill", "open_file",          "speak",           "image_generate", "image_edit",
+        "image_export",  "image_contact_sheet"};
     for (size_t i = 0; i < sizeof allowed / sizeof *allowed; i++)
         ASSERT(tool_schema_has(&env, allowed[i]));
     for (size_t i = 0; i < sizeof denied / sizeof *denied; i++) {
@@ -4987,7 +5050,406 @@ TEST codex_client_version_env_override(void) {
     PASS();
 }
 
+/* ---- durable jobs (docs/adr/0093) ---- */
+
+/* Descriptor handover: a source that already sits on another mapping's target
+ * must still arrive intact, whatever the caller's descriptor allocation is. */
+TEST job_spawn_maps_colliding_descriptors_without_clobbering(void) {
+    ensure_env();
+    /* The child copies its fd 3 to stdout so the test can read what arrived. */
+    char script[] = "IFS= read -r owner <&3 || :; IFS= read -r payload || :; "
+                    "printf '%s%s' \"$owner\" \"$payload\"";
+    char *argv[] = {(char *)TNY_SHELL_PATH, (char *)"-c", script, NULL};
+    char *envp[] = {NULL};
+
+    int payload[2], extra[2], out[2];
+    ASSERT_EQ(0, pipe(payload));
+    ASSERT_EQ(0, pipe(extra));
+    ASSERT_EQ(0, pipe(out));
+    /* Only the mapped descriptors may reach the child, exactly as the job
+     * launcher arranges it: an inherited write end would hide every EOF. */
+    int all[] = {payload[0], payload[1], extra[0], extra[1], out[0], out[1]};
+    for (size_t i = 0; i < sizeof all / sizeof all[0]; i++)
+        ASSERT_EQ(0, fcntl(all[i], F_SETFD, FD_CLOEXEC));
+    /* Force the sources onto the low numbers the mappings target. */
+    int stdin_copy = dup(0), stdout_copy = dup(1);
+    ASSERT(stdin_copy > 2 && stdout_copy > 2);
+    ASSERT_EQ(0, dup2(payload[0], 0));
+    ASSERT_EQ(1, dup2(out[1], 1));
+    int fd3 = dup2(extra[0], 3);
+    ASSERT_EQ(3, fd3);
+    const tny_fd_mapping maps[] = {{0, 0}, {1, 1}, {3, 3}};
+    pid_t pid = -1;
+    int rc = tny_process_spawn_mapped(argv, envp, maps, 3, &pid);
+    ASSERT_EQ(0, dup2(stdin_copy, 0));
+    ASSERT_EQ(1, dup2(stdout_copy, 1));
+    close(stdin_copy);
+    close(stdout_copy);
+    close(payload[0]);
+    close(extra[0]);
+    close(out[1]);
+    ASSERT_EQ(0, rc);
+    ASSERT(write(extra[1], "OWNER", 5) == 5);
+    close(extra[1]);
+    ASSERT(write(payload[1], "PAYLOAD", 7) == 7);
+    close(payload[1]);
+    char got[64] = {0};
+    size_t total = 0;
+    for (;;) {
+        ssize_t n = read(out[0], got + total, sizeof got - 1 - total);
+        if (n <= 0) break;
+        total += (size_t)n;
+    }
+    close(out[0]);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    ASSERT_STR_EQ("OWNERPAYLOAD", got);
+
+    /* Malformed mapping sets are refused before any process exists. */
+    const tny_fd_mapping duplicate[] = {{0, 1}, {1, 1}};
+    ASSERT_EQ(EINVAL, tny_process_spawn_mapped(argv, envp, duplicate, 2, &pid));
+    const tny_fd_mapping too_high[] = {{0, 10}};
+    ASSERT_EQ(EINVAL, tny_process_spawn_mapped(argv, envp, too_high, 1, &pid));
+    ASSERT_EQ(EINVAL, tny_process_spawn_mapped(argv, envp, NULL, 0, &pid));
+    PASS();
+}
+
+/* The parent watch is private to job children and is answered by the kernel's
+ * parent relationship, never by a stored pid. */
+TEST job_parent_watch_is_off_for_ordinary_commands(void) {
+    unsetenv(TNY_JOB_PARENT_ENV);
+    tny_process_expect_parent(0);
+    ASSERT(!tny_process_parent_lost());
+    tny_process_expect_parent(getppid());
+    ASSERT(!tny_process_parent_lost());
+    /* A pid that is not this process's parent is "lost", and no signal is
+     * ever sent to it. */
+    tny_process_expect_parent(1);
+    ASSERT(tny_process_parent_lost());
+    tny_process_expect_parent(0);
+    ASSERT(!tny_process_parent_lost());
+    PASS();
+}
+
+TEST job_ids_and_operations_map_to_exact_identities(void) {
+    ASSERT(tny_jobs_valid_id("0123456789abcdef0123456789abcdef"));
+    ASSERT(!tny_jobs_valid_id("0123456789ABCDEF0123456789abcdef"));
+    ASSERT(!tny_jobs_valid_id("0123456789abcdef0123456789abcde"));
+    ASSERT(!tny_jobs_valid_id("../../etc/passwd"));
+    ASSERT(!tny_jobs_valid_id(""));
+    ASSERT(!tny_jobs_valid_id(NULL));
+
+    ASSERT_EQ(TNY_JOBS_OP_SUBMIT, tny_jobs_op_parse("submit"));
+    ASSERT_EQ(TNY_JOBS_OP_NONE, tny_jobs_op_parse("Submit"));
+    ASSERT_EQ(TNY_JOBS_OP_NONE, tny_jobs_op_parse("_worker"));
+    ASSERT_STR_EQ("job_submit", tny_jobs_permission_tool(TNY_JOBS_OP_SUBMIT));
+    ASSERT_STR_EQ("job_cancel", tny_jobs_permission_tool(TNY_JOBS_OP_CANCEL));
+    ASSERT_STR_EQ("job_retry", tny_jobs_permission_tool(TNY_JOBS_OP_RETRY));
+    ASSERT_STR_EQ("job_rm", tny_jobs_permission_tool(TNY_JOBS_OP_RM));
+    /* Every read-only operation shares one identity that can never mutate. */
+    ASSERT_STR_EQ("job_status", tny_jobs_permission_tool(TNY_JOBS_OP_STATUS));
+    ASSERT_STR_EQ("job_status", tny_jobs_permission_tool(TNY_JOBS_OP_WAIT));
+    ASSERT_STR_EQ("job_status", tny_jobs_permission_tool(TNY_JOBS_OP_LOGS));
+    ASSERT_STR_EQ("job_status", tny_jobs_permission_tool(TNY_JOBS_OP_LIST));
+    ASSERT(tny_jobs_op_is_sensitive(TNY_JOBS_OP_SUBMIT));
+    ASSERT(!tny_jobs_op_is_sensitive(TNY_JOBS_OP_STATUS));
+    ASSERT(!tny_jobs_op_is_sensitive(TNY_JOBS_OP_LOGS));
+    PASS();
+}
+
+TEST job_argv_grammar_is_bounded_and_shared(void) {
+    char *request = NULL;
+    const char *error = NULL;
+    bool json = false;
+    char *submit[] = {(char *)"submit", (char *)"ask", (char *)"--prompt", (char *)"hello",
+                      (char *)"--json"};
+    ASSERT_EQ(TNY_JOBS_OP_SUBMIT, tny_jobs_parse_argv(5, submit, NULL, 0, &request, &json, &error));
+    ASSERT(json);
+    ASSERT(request && strstr(request, "\"kind\":\"ask\""));
+    ASSERT(strstr(request, "\"prompt\":\"hello\""));
+    free(request);
+
+    /* The piped prompt is used only when the arguments carry none. */
+    char *piped[] = {(char *)"submit", (char *)"ask"};
+    ASSERT_EQ(TNY_JOBS_OP_SUBMIT,
+              tny_jobs_parse_argv(2, piped, "from stdin\n", 11, &request, &json, &error));
+    ASSERT(strstr(request, "\"prompt\":\"from stdin\""));
+    free(request);
+
+    static const struct {
+        int argc;
+        const char *argv[6];
+    } refused[] = {
+        {1, {"submit"}},
+        {2, {"submit", "sideways"}},
+        {2, {"status", "nope"}},
+        {2, {"submit", "ask"}}, /* no prompt at all */
+        {4, {"cancel", "0123456789abcdef0123456789abcdef", "--items", "x"}},
+        {4, {"logs", "0123456789abcdef0123456789abcdef", "--item", "99"}},
+        {4, {"wait", "0123456789abcdef0123456789abcdef", "--timeout", "999999"}},
+        {3, {"submit", "ask", "--prompt"}},
+        {5, {"submit", "ask", "--prompt", "hi", "--nope"}},
+        {2, {"teleport", "0123456789abcdef0123456789abcdef"}},
+    };
+    for (size_t i = 0; i < sizeof refused / sizeof refused[0]; i++) {
+        request = NULL;
+        error = NULL;
+        ASSERT_EQ(TNY_JOBS_OP_NONE,
+                  tny_jobs_parse_argv(refused[i].argc, (char **)(uintptr_t)refused[i].argv, NULL, 0,
+                                      &request, &json, &error));
+        ASSERT_EQ(NULL, request);
+        ASSERT(error && *error);
+    }
+    PASS();
+}
+
+/* Output reservations key on a canonical path, and an aliased destination is
+ * rejected before anything can be spent on it. */
+TEST job_output_paths_reject_aliases(void) {
+    ensure_env();
+    char target[700], linkpath[700], hard[700], missing[700];
+    snprintf(target, sizeof target, "%s/jobs-alias.png", g_ws);
+    snprintf(linkpath, sizeof linkpath, "%s/jobs-alias-link.png", g_ws);
+    snprintf(hard, sizeof hard, "%s/jobs-alias-hard.png", g_ws);
+    snprintf(missing, sizeof missing, "%s/jobs-not-there.png", g_ws);
+    unlink(target);
+    unlink(linkpath);
+    unlink(hard);
+    ASSERT_EQ(0, file_write_atomic(target, "bytes", 5));
+
+    bool alias = false;
+    const char *why = NULL;
+    char *canonical = tny_jobs_host_canonical_output(missing, &alias, &why);
+    ASSERT(canonical); /* an absent destination is the normal case */
+    ASSERT(!alias);
+    ASSERT(canonical[0] == '/');
+    free(canonical);
+
+    canonical = tny_jobs_host_canonical_output(target, &alias, &why);
+    ASSERT(canonical);
+    ASSERT(!alias);
+    free(canonical);
+
+    if (symlinks_supported()) {
+        ASSERT_EQ(0, symlink(target, linkpath));
+        ASSERT_EQ(NULL, tny_jobs_host_canonical_output(linkpath, &alias, &why));
+        ASSERT(alias && why);
+        unlink(linkpath);
+    }
+    if (link(target, hard) == 0) {
+        alias = false;
+        ASSERT_EQ(NULL, tny_jobs_host_canonical_output(hard, &alias, &why));
+        ASSERT(alias && why);
+        unlink(hard);
+    }
+    ASSERT_EQ(NULL, tny_jobs_host_canonical_output("", &alias, &why));
+    ASSERT_EQ(NULL, tny_jobs_host_canonical_output(g_ws, &alias, &why)); /* a directory */
+    unlink(target);
+    PASS();
+}
+
+/* Chat and image jobs are two credential allowances (contract A14). The
+ * supervisor applies this exact predicate to every entry it inherits, so a
+ * carrier of the wrong kind cannot reach an item child even when nothing
+ * explicit replaces it. Every value here is a fixture string. */
+TEST job_child_environment_drops_the_other_credential_kind(void) {
+    /* an ask item on an ordinary chat provider: the ChatGPT allowance is the
+     * image side and must not follow it */
+    ASSERT(tny_jobs_env_entry_is_foreign("CHATGPT_ACCESS_TOKEN=fixture", false, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("CHATGPT_ACCOUNT_ID=fixture", false, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("TNY_CODEX_BASE_URL=http://127.0.0.1:1/x", false, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("OPENAI_API_KEY=fixture", false, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("OPENAI_BASE_URL=http://127.0.0.1:1/v1", false, false));
+
+    /* the selected conversation provider IS that account: keeping it is the
+     * ask item's own chat credential, not a borrowed image allowance */
+    ASSERT(tny_jobs_env_entry_is_foreign("CHATGPT_ACCESS_TOKEN=fixture", false, true));
+    ASSERT(tny_jobs_env_entry_is_foreign("CHATGPT_ACCOUNT_ID=fixture", false, true));
+    ASSERT(tny_jobs_env_entry_is_foreign("TNY_CODEX_BASE_URL=http://127.0.0.1:1/x", false, true));
+
+    /* an image item authenticates no conversation */
+    ASSERT(tny_jobs_env_entry_is_foreign("OPENAI_API_KEY=fixture", true, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("OPENAI_BASE_URL=http://127.0.0.1:1/v1", true, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("OPENAI_WIRE_API=chat", true, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("CHATGPT_ACCESS_TOKEN=fixture", true, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("OPENAI_API_KEY=fixture", true, true));
+
+    /* this process's own private carriers and ceilings never leak through */
+    static const char *const private_names[] = {
+        "TNY_JOB_API_KEY", "TNY_JOB_BASE_URL", "TNY_JOB_PARENT_PID", "TNY_NESTED",
+        "TNY_NESTED_MODE", "TNY_TOOLS",        "TNY_PERMISSION_MODE"};
+    for (size_t i = 0; i < sizeof private_names / sizeof private_names[0]; i++) {
+        char entry[64];
+        snprintf(entry, sizeof entry, "%s=x", private_names[i]);
+        ASSERT(tny_jobs_env_entry_is_foreign(entry, false, false));
+        ASSERT(tny_jobs_env_entry_is_foreign(entry, true, false));
+    }
+
+    /* a prefix is not a name: only an exact NAME= match is a carrier */
+    ASSERT(tny_jobs_env_entry_is_foreign("OPENAI_API_KEY_FILE=/tmp/x", true, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("CHATGPT_ACCESS_TOKEN_CMD=/bin/true", false, false));
+    ASSERT(!tny_jobs_env_entry_is_foreign("PATH=/usr/bin", false, false));
+    ASSERT(!tny_jobs_env_entry_is_foreign("PATH=/usr/bin", true, false));
+    ASSERT(!tny_jobs_env_entry_is_foreign(NULL, false, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("CURSOR_API_KEY=fixture", true, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("CUSTOM_SECRET=fixture", true, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("NAMED_BASE_URL=http://127.0.0.1", true, false));
+    PASS();
+}
+
+/* The manifest half of the carried-success check (#127 integration). The
+ * bytes below are an image generation manifest exactly as ADR 0088 defines
+ * it; this exercises the reader in `jobs.c`, not the image service, and makes
+ * no claim that the end-to-end wiring is in place — this build's image CLI
+ * reports no manifest yet, so the recorded pointer is null and the check is
+ * inert. That end-to-end row is recorded as pending, not as passing. */
+TEST job_carried_manifest_must_still_describe_the_artifact(void) {
+    ensure_env();
+    char manifest[700], artifact[700];
+    snprintf(manifest, sizeof manifest, "%s/out.png.tny-image-op1.json", g_ws);
+    snprintf(artifact, sizeof artifact, "%s/out.png", g_ws);
+    const char *sha = "11112222333344445555666677778888"
+                      "9999aaaabbbbccccddddeeeeffff0000";
+    char body[2048];
+    char err[256] = "";
+
+    /* nothing claimed: every pre-manifest item stays verifiable */
+    ASSERT(tny_jobs_manifest_describes(NULL, artifact, sha, err, sizeof err));
+    ASSERT(tny_jobs_manifest_describes("", artifact, sha, err, sizeof err));
+
+    snprintf(body, sizeof body,
+             "{\"version\":1,\"kind\":\"image_manifest\",\"operation_id\":\"op1\","
+             "\"committed\":true,\"artifacts\":[{\"role\":\"native\",\"path\":\"%s\","
+             "\"sha256\":\"%s\",\"bytes\":9,\"transform\":null}]}",
+             artifact, sha);
+    ASSERT_EQ(0, file_write_atomic(manifest, body, strlen(body)));
+    ASSERT(tny_jobs_manifest_describes(manifest, artifact, sha, err, sizeof err));
+
+    /* a different artifact, a different hash, or an uncommitted intent are
+     * all "changed since", and none of them may carry forward */
+    err[0] = 0;
+    ASSERT(!tny_jobs_manifest_describes(manifest, artifact, "0000000000000000", err, sizeof err));
+    ASSERT(err[0]);
+    ASSERT(!tny_jobs_manifest_describes(manifest, "/nowhere/else.png", sha, err, sizeof err));
+
+    snprintf(body, sizeof body,
+             "{\"version\":1,\"kind\":\"image_manifest\",\"operation_id\":\"op1\","
+             "\"committed\":false,\"artifacts\":[]}");
+    ASSERT_EQ(0, file_write_atomic(manifest, body, strlen(body)));
+    ASSERT(!tny_jobs_manifest_describes(manifest, artifact, sha, err, sizeof err));
+
+    /* a foreign or unreadable document is refused, never assumed good */
+    snprintf(body, sizeof body, "{\"kind\":\"something_else\",\"committed\":true}");
+    ASSERT_EQ(0, file_write_atomic(manifest, body, strlen(body)));
+    ASSERT(!tny_jobs_manifest_describes(manifest, artifact, sha, err, sizeof err));
+    ASSERT_EQ(0, file_write_atomic(manifest, "not json", 8));
+    ASSERT(!tny_jobs_manifest_describes(manifest, artifact, sha, err, sizeof err));
+    unlink(manifest);
+    ASSERT(!tny_jobs_manifest_describes(manifest, artifact, sha, err, sizeof err));
+    PASS();
+}
+
+/* An owner lock is an actual advisory lock: a second open file description
+ * conflicts with it, which is exactly how the worker proves it holds one and
+ * how a reader decides a supervisor is gone. */
+TEST job_owner_locks_answer_liveness_without_waiting(void) {
+    ensure_env();
+    char lock[700];
+    snprintf(lock, sizeof lock, "%s/jobs-owner.lock", g_ws);
+    unlink(lock);
+    ASSERT_EQ(TNY_JOBS_OWNER_FREE, tny_jobs_host_owner_state(lock)); /* absent */
+    int fd = tny_jobs_host_lock_open(lock);
+    ASSERT(fd >= 0);
+    ASSERT_EQ(TNY_JOBS_OWNER_FREE, tny_jobs_host_owner_state(lock)); /* created, unheld */
+    ASSERT_EQ(TNY_JOBS_LOCK_ACQUIRED, tny_jobs_host_lock_try(fd));
+    ASSERT_EQ(TNY_JOBS_OWNER_HELD, tny_jobs_host_owner_state(lock));
+    int reopened = tny_jobs_host_lock_open(lock);
+    ASSERT(reopened >= 0);
+    ASSERT(tny_jobs_host_fd_is_file(reopened, lock));
+    ASSERT_EQ(TNY_JOBS_LOCK_BUSY, tny_jobs_host_lock_try(reopened));
+    ASSERT_EQ(TNY_JOBS_LOCK_ACQUIRED, tny_jobs_host_lock_try(fd));
+    tny_jobs_host_lock_close(reopened);
+    ASSERT(tny_jobs_host_fd_is_file(fd, lock));
+    char other[700];
+    snprintf(other, sizeof other, "%s/jobs-other.lock", g_ws);
+    int other_fd = tny_jobs_host_lock_open(other);
+    ASSERT(other_fd >= 0);
+    ASSERT(!tny_jobs_host_fd_is_file(fd, other));
+    tny_jobs_host_lock_close(other_fd);
+    unlink(other);
+    tny_jobs_host_lock_close(fd); /* the description goes, the lock with it */
+    ASSERT_EQ(TNY_JOBS_OWNER_FREE, tny_jobs_host_owner_state(lock));
+    int freed = tny_jobs_host_lock_open(lock);
+    ASSERT(freed >= 0);
+    ASSERT_EQ(TNY_JOBS_LOCK_ACQUIRED, tny_jobs_host_lock_try(freed));
+    tny_jobs_host_lock_close(freed);
+    unlink(lock);
+    PASS();
+}
+
+static bool job_wait_cancel_after_poll(void *ud) {
+    int *calls = ud;
+    return ++*calls >= 2;
+}
+
+TEST job_wait_cancellation_leaves_live_job_untouched(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    const char *id = "a123456789abcdef0123456789abcdef";
+    char *root = path_join(ctx->tny_dir, "jobs");
+    char *dir = path_join(root, id);
+    ASSERT_EQ(0, mkdir_p(dir));
+    char *metadata = path_join(dir, "job.json");
+    const char *record = "{\"version\":1,\"kind\":\"job\",\"id\":"
+                         "\"a123456789abcdef0123456789abcdef\",\"state\":\"running\","
+                         "\"job_kind\":\"ask\",\"attempt\":1,\"items\":[]}\n";
+    ASSERT_EQ(0, file_write_atomic(metadata, record, strlen(record)));
+    char *owner = path_join(dir, "owner.lock");
+    int fd = tny_jobs_host_lock_open(owner);
+    ASSERT(fd >= 0);
+    ASSERT_EQ(TNY_JOBS_LOCK_ACQUIRED, tny_jobs_host_lock_try(fd));
+    const char *request = "{\"id\":\"a123456789abcdef0123456789abcdef\",\"timeout_s\":1}";
+    yyjson_doc *doc = jparse(request, strlen(request));
+    buf_t out;
+    buf_init(&out);
+    char err[256];
+    int calls = 0;
+    int rc = tny_jobs_run_cancel(ctx, TNY_JOBS_OP_WAIT, yyjson_doc_get_root(doc), &out, err,
+                                 sizeof err, job_wait_cancel_after_poll, &calls);
+    char *after = file_slurp(metadata, NULL);
+    bool unchanged = after && strcmp(after, record) == 0;
+    bool live = tny_jobs_host_owner_state(owner) == TNY_JOBS_OWNER_HELD;
+    free(after);
+    buf_free(&out);
+    yyjson_doc_free(doc);
+    tny_jobs_host_lock_close(fd);
+    unlink(owner);
+    unlink(metadata);
+    rmdir(dir);
+    free(owner);
+    free(metadata);
+    free(dir);
+    free(root);
+    tny_ctx_free(ctx);
+    ASSERT_EQ(130, rc);
+    ASSERT_EQ(2, calls);
+    ASSERT(strstr(err, "wait interrupted"));
+    ASSERT(unchanged);
+    ASSERT(live);
+    PASS();
+}
+
 SUITE(core_suite) {
+    RUN_TEST(job_wait_cancellation_leaves_live_job_untouched);
+    RUN_TEST(job_spawn_maps_colliding_descriptors_without_clobbering);
+    RUN_TEST(job_parent_watch_is_off_for_ordinary_commands);
+    RUN_TEST(job_ids_and_operations_map_to_exact_identities);
+    RUN_TEST(job_argv_grammar_is_bounded_and_shared);
+    RUN_TEST(job_output_paths_reject_aliases);
+    RUN_TEST(job_child_environment_drops_the_other_credential_kind);
+    RUN_TEST(job_carried_manifest_must_still_describe_the_artifact);
+    RUN_TEST(job_owner_locks_answer_liveness_without_waiting);
     RUN_TEST(codex_models_normalize_keeps_listed_slugs);
     RUN_TEST(codex_client_version_env_override);
     RUN_TEST(backend_default_prefers_codex_login);
@@ -5078,6 +5540,7 @@ SUITE(core_suite) {
     RUN_TEST(responses_input_skips_malformed);
     RUN_TEST(responses_tools_flatten);
     RUN_TEST(embedded_tool_schema_has_no_process_spawning_tools);
+    RUN_TEST(image_export_tools_are_local_and_gated);
     RUN_TEST(optimisation_tools_are_read_only_even_in_yolo);
     RUN_TEST(subagent_plan_carries_resolved_config_privately);
     RUN_TEST(subagent_prepare_rejects_with_exact_codes);

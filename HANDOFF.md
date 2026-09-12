@@ -1,5 +1,9 @@
-# Handoff: complete issues #122–#127 and deliver a review PR
+# Handoff: complete issues #122–#127, verify and merge
 
+> Current authorization: A19 supersedes historical no-merge instructions below.
+> The user requests remote-main merge after full scope and quality/tests pass.
+> Read the current issue ledger first; historical implementation tables lag.
+>
 > Delivery is in progress on `feat/durable-image-workflows`. The recovery plan
 > below is historical. Read
 > `docs/verification/open-issues-2026-09-11/DELIVERY.md` and the current issue
@@ -12,7 +16,11 @@ Finish and verify all six snapshotted issues in:
 
 `/Users/tomas/projects/tny-open-issues-2026-09-11`
 
-Then **commit the task changes, push a feature branch to `origin`, and create a PR for review**. The user's latest request explicitly authorizes this delivery. It supersedes the earlier contract's prohibition on commit/push for this task, but does not authorize merging, direct-main pushes, releases, deployment, issue closure, weaker acceptance gates, or discarding existing work.
+Then **commit the task changes, push the existing feature branch, update PR130,
+and merge to remote main after the full scope and required checks pass**. A19
+records the latest explicit authorization and supersedes the earlier no-merge
+restriction. Direct-main pushes, releases, deployment, issue administration,
+weaker acceptance gates, and discarding existing work are not part of this task.
 
 All six issues remain incomplete. This file is a recovery guide, not a replacement verification contract or evidence of completion. Continue unblocked work independently. Do not manufacture an all-green verdict to meet the delivery objective.
 

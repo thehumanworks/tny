@@ -1,4 +1,6 @@
 #include "greatest.h"
+#include "core/image_export.h"
+#include "core/jobs.h"
 #include "core/image_provider.h"
 #include "core/image_manifest.h"
 #include "core/intercept.h"
@@ -640,6 +642,577 @@ static char *under_root(const char *name) {
     return path;
 }
 
+/* ---- explicit local exports and contact sheets (#125) ---- */
+
+/* A complete 2x2 PNG, so an export's own bounds and hashes have real bytes to
+ * read. No converter runs in these unit tests. */
+static const unsigned char TINY_PNG[] = {
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02, 0x00, 0x00, 0x00, 0xfd, 0xd4, 0x9a,
+    0x73, 0x00, 0x00, 0x00, 0x13, 0x49, 0x44, 0x41, 0x54, 0x08, 0x1d, 0x63, 0x60, 0x60, 0xf8, 0xcf,
+    0xc0, 0xc0, 0xf0, 0x9f, 0x01, 0x09, 0x0c, 0x00, 0x29, 0x0d, 0x03, 0xf9, 0x1f, 0x9d, 0x7e, 0xdf,
+    0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
+
+static int export_options(const char *line, tny_image_export_request *r, bool *json) {
+    static char storage[16][128];
+    static char *argv[16];
+    int argc = 0;
+    const char *p = line;
+    while (*p && argc < 16) {
+        const char *end = strchr(p, ' ');
+        size_t n = end ? (size_t)(end - p) : strlen(p);
+        if (n >= sizeof storage[0]) abort();
+        memcpy(storage[argc], p, n);
+        storage[argc][n] = 0;
+        argv[argc] = storage[argc];
+        argc++;
+        p = end ? end + 1 : p + n;
+    }
+    return tny_image_export_options(argc, argv, r, json);
+}
+
+TEST image_export_grammar_and_settings(void) {
+    tny_image_export_request r = {0};
+    tny_image_export_settings s;
+    char err[256];
+    bool json = false;
+    /* Defaults: fit, center, transparent, png, exact canvas, no grid. */
+    ASSERT_EQ(0,
+              export_options("export --image a.png --output-file out.png --size 64x48", &r, &json));
+    ASSERT(!json);
+    ASSERT_EQ(0, tny_image_export_settings_resolve(&r, &s, err, sizeof err));
+    ASSERT_EQ(TNY_IMAGE_POLICY_FIT, s.policy);
+    ASSERT_EQ(TNY_IMAGE_GRAVITY_CENTER, s.gravity);
+    ASSERT_EQ(TNY_IMAGE_FORMAT_PNG, s.format);
+    ASSERT_STR_EQ("transparent", s.background);
+    ASSERT_EQ(64u, s.width);
+    ASSERT_EQ(48u, s.height);
+    ASSERT_EQ(0u, s.columns);
+    ASSERT_STR_EQ("export", tny_image_export_operation(&r));
+
+    /* JPEG cannot carry alpha, so its documented default is black. */
+    r = (tny_image_export_request){0};
+    ASSERT_EQ(0, export_options("export --image a.png --output-file o.jpg --size 8x8 --format jpeg",
+                                &r, &json));
+    ASSERT_EQ(0, tny_image_export_settings_resolve(&r, &s, err, sizeof err));
+    ASSERT_STR_EQ("#000000", s.background);
+    r = (tny_image_export_request){0};
+    ASSERT_EQ(0, export_options("export --image a.png --output-file o.jpg --size 8x8 --format jpeg "
+                                "--background #AABBCC",
+                                &r, &json));
+    ASSERT_EQ(0, tny_image_export_settings_resolve(&r, &s, err, sizeof err));
+    ASSERT_STR_EQ("#aabbcc", s.background);
+
+    /* A sheet keeps the order given and derives its grid; the remainder of a
+     * canvas that does not divide evenly stays background. */
+    r = (tny_image_export_request){0};
+    ASSERT_EQ(0, export_options("contact-sheet --image a.png --artifact rec.json --image c.png "
+                                "--output-file s.png --size 101x61 --labels numbers",
+                                &r, &json));
+    ASSERT_EQ(3u, r.source_count);
+    ASSERT(!r.source_is_artifact[0] && r.source_is_artifact[1] && !r.source_is_artifact[2]);
+    ASSERT_STR_EQ("contact_sheet", tny_image_export_operation(&r));
+    ASSERT_EQ(0, tny_image_export_settings_resolve(&r, &s, err, sizeof err));
+    ASSERT_EQ(2u, s.columns); /* ceil(sqrt(3)) */
+    ASSERT_EQ(2u, s.rows);
+    ASSERT_EQ(50u, s.cell_width);
+    ASSERT_EQ(30u, s.cell_height);
+    ASSERT_EQ(1u, s.label_scale);
+    ASSERT_EQ(7u, s.label_width); /* one digit: scale * (6 * digits + 1) */
+    ASSERT_EQ(9u, s.label_height);
+
+    /* Cells too small for the fixed label are a validation error, not a
+     * silently dropped label. */
+    r = (tny_image_export_request){0};
+    ASSERT_EQ(0, export_options("contact-sheet --image a.png --image b.png --output-file s.png "
+                                "--size 10x8 --labels numbers",
+                                &r, &json));
+    ASSERT_EQ(1, tny_image_export_settings_resolve(&r, &s, err, sizeof err));
+    ASSERT(strstr(err, "too small"));
+
+    const char *invalid[] = {
+        "export --image a.png --output-file out.png",                       /* no size */
+        "export --image a.png --output-file out.png --size 64",             /* not WxH */
+        "export --image a.png --output-file out.png --size 0x10",           /* zero edge */
+        "export --image a.png --output-file out.png --size 20000x10",       /* past the edge max */
+        "export --image a.png --output-file out.png --size 16384x16384",    /* past 64M pixels */
+        "export --image a.png --output-file out.png --size 8x8 --fit fill", /* unknown policy */
+        "export --image a.png --output-file out.png --size 8x8 --gravity up",
+        "export --image a.png --output-file out.png --size 8x8 --format gif",
+        "export --image a.png --output-file out.png --size 8x8 --background red",
+        "export --image a.png --output-file out.png --size 8x8 --background #ABC",
+        "contact-sheet --image a.png --output-file s.png --size 8x8 --labels loud",
+        "contact-sheet --image a.png --image b.png --output-file s.png --size 8x8 --columns 3",
+    };
+    for (size_t i = 0; i < sizeof invalid / sizeof invalid[0]; i++) {
+        r = (tny_image_export_request){0};
+        int parsed = export_options(invalid[i], &r, &json);
+        if (!parsed) parsed = tny_image_export_settings_resolve(&r, &s, err, sizeof err);
+        ASSERT_EQ(1, parsed);
+    }
+    /* Grid options belong to a sheet, and every option needs its value. */
+    const char *rejected[] = {
+        "export --image a.png --output-file out.png --size 8x8 --columns 2",
+        "export --image a.png --output-file out.png --size 8x8 --labels numbers",
+        "export --image a.png --image b.png --output-file out.png --size 8x8",
+        "export --output-file out.png --size 8x8",
+        "export --image a.png --size 8x8",
+        "export --image a.png --output-file out.png --size",
+        "resize --image a.png --output-file out.png --size 8x8",
+    };
+    for (size_t i = 0; i < sizeof rejected / sizeof rejected[0]; i++) {
+        r = (tny_image_export_request){0};
+        ASSERT_EQ(1, export_options(rejected[i], &r, &json));
+    }
+    r = (tny_image_export_request){0};
+    ASSERT_EQ(-1, export_options("export --help", &r, &json));
+    r = (tny_image_export_request){0};
+    ASSERT_EQ(0, export_options("export --image a.png --output-file out.png --size 8x8 --json", &r,
+                                &json));
+    ASSERT(json);
+    PASS();
+}
+
+TEST image_export_tools_carry_the_whole_operation(void) {
+    tools_env env = {.ctx = &ctx};
+    env.perm = perm_new(&ctx);
+    ASSERT(env.perm);
+    char *source = under_root("export-src.png");
+    ASSERT_EQ(0, file_write_atomic(source, (const char *)TINY_PNG, sizeof TINY_PNG));
+    const char *args =
+        "{\"sources\":[{\"image\":\"export-src.png\"}],\"output_file\":\"export-out.png\","
+        "\"size\":\"32x32\",\"fit\":\"crop\",\"gravity\":\"north\"}";
+    char *schema = tools_schema_json(&env);
+    ASSERT(schema);
+    ASSERT(strstr(schema, "image_export"));
+    ASSERT(strstr(schema, "image_contact_sheet"));
+    free(schema);
+    tools_call call;
+    ASSERT_EQ(0, tools_call_prepare(&env, "image_export", args, &call));
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+    /* The grant names the operation, the exact bytes and every setting. */
+    ASSERT(strstr(call.detail, "\"operation\":\"export\""));
+    ASSERT(strstr(call.detail, "export-src.png"));
+    ASSERT(strstr(call.detail, "export-out.png"));
+    ASSERT(strstr(call.detail, "\"policy\":\"crop\""));
+    ASSERT(strstr(call.detail, "\"gravity\":\"north\""));
+    ASSERT(strstr(call.detail, "\"width\":32,\"height\":32"));
+    ASSERT(strstr(call.detail, "\"overwrite\":false"));
+    ASSERT(strstr(call.detail, "\"persist_manifest\":true"));
+    char *hashed = strstr(call.detail, "\"sha256\":\"");
+    ASSERT(hashed);
+    tools_call_grant(&env, &call);
+    tools_call_free(&call);
+    ASSERT_EQ(0, tools_call_prepare(&env, "image_export", args, &call));
+    ASSERT_EQ(PERM_ALLOW, call.verdict);
+    tools_call_free(&call);
+    /* A changed source is a different operation: the old grant does not
+     * cover the new bytes. */
+    unsigned char changed[sizeof TINY_PNG];
+    memcpy(changed, TINY_PNG, sizeof TINY_PNG);
+    changed[sizeof TINY_PNG - 12] ^= 0x01;
+    ASSERT_EQ(0, file_write_atomic(source, (const char *)changed, sizeof changed));
+    ASSERT_EQ(0, tools_call_prepare(&env, "image_export", args, &call));
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+    tools_call_free(&call);
+    ASSERT_EQ(0, file_write_atomic(source, (const char *)TINY_PNG, sizeof TINY_PNG));
+    /* A different setting is a different operation too. */
+    ASSERT_EQ(0, tools_call_prepare(
+                     &env, "image_export",
+                     "{\"sources\":[{\"image\":\"export-src.png\"}],\"output_file\":\"export-out."
+                     "png\",\"size\":\"32x32\",\"fit\":\"crop\",\"gravity\":\"south\"}",
+                     &call));
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+    tools_call_free(&call);
+    const char *bad[] = {
+        "{\"sources\":[],\"output_file\":\"o.png\",\"size\":\"8x8\"}",
+        "{\"sources\":[{\"image\":\"export-src.png\",\"artifact\":\"r.json\"}],\"output_file\":\"o."
+        "png\",\"size\":\"8x8\"}",
+        "{\"sources\":[\"export-src.png\"],\"output_file\":\"o.png\",\"size\":\"8x8\"}",
+        "{\"sources\":[{\"image\":\"missing.png\"}],\"output_file\":\"o.png\",\"size\":\"8x8\"}",
+        "{\"sources\":[{\"image\":\"export-src.png\"}],\"output_file\":\"o.png\",\"size\":\"8\"}",
+        "{\"sources\":[{\"image\":\"export-src.png\"}],\"output_file\":\"o.png\",\"size\":\"8x8\","
+        "\"columns\":2}", /* grid option on a single export */
+    };
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        ASSERT_EQ(-1, tools_call_prepare(&env, "image_export", bad[i], &call));
+        tools_call_free(&call);
+    }
+    /* The same command typed into the terminal tool is the same operation,
+     * under the same grant. */
+    ASSERT_EQ(0, tools_call_prepare(&env, "terminal",
+                                    "{\"command\":\"tny image export --image export-src.png "
+                                    "--output-file export-out.png --size 32x32 --fit crop "
+                                    "--gravity north\"}",
+                                    &call));
+    ASSERT(call.intercept);
+    ASSERT_EQ(TNY_INTERCEPT_IMAGE_EXPORT, call.intercept->kind);
+    ASSERT_STR_EQ("image_export", call.permission_tool);
+    ASSERT_EQ(PERM_ALLOW, call.verdict);
+    tools_call_free(&call);
+    ASSERT_EQ(0, tools_call_prepare(&env, "terminal",
+                                    "{\"command\":\"tny image contact-sheet --image export-src.png "
+                                    "--output-file sheet.png --size 32x32 --labels numbers\"}",
+                                    &call));
+    ASSERT(call.intercept);
+    ASSERT_EQ(TNY_INTERCEPT_IMAGE_EXPORT, call.intercept->kind);
+    ASSERT_STR_EQ("image_contact_sheet", call.permission_tool);
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+    tools_call_free(&call);
+    /* Runtimes without a local process seam hide and refuse both tools. */
+    ctx.library_mode = true;
+    schema = tools_schema_json(&env);
+    ASSERT(schema);
+    ASSERT(!strstr(schema, "image_export"));
+    ASSERT(!strstr(schema, "image_contact_sheet"));
+    free(schema);
+    ASSERT_EQ(-1, tools_call_prepare(&env, "image_export", args, &call));
+    tools_call_free(&call);
+    ctx.library_mode = false;
+    ctx.ssh_host = "fixture";
+    ASSERT_EQ(-1, tools_call_prepare(&env, "image_export", args, &call));
+    tools_call_free(&call);
+    ctx.ssh_host = NULL;
+    unlink(source);
+    free(source);
+    perm_free(env.perm);
+    PASS();
+}
+
+TEST image_export_records_are_derived_and_never_replayed(void) {
+    char *output = under_root("derived.png");
+    char *artifact_source = under_root("sheet-src.png");
+    tny_image_reference sources[2] = {{.path = artifact_source}, {.path = artifact_source}};
+    snprintf(sources[0].sha256, sizeof sources[0].sha256, "%s",
+             "aa11bb22cc33dd44ee55ff6677889900aabbccddeeff00112233445566778899");
+    snprintf(sources[1].sha256, sizeof sources[1].sha256, "%s",
+             "0011223344556677889900aabbccddeeff00112233445566778899aabbccddee");
+    sources[0].job = (tny_image_job){.id = "0123456789abcdef0123456789abcdef",
+                                     .item_index = 2,
+                                     .projection_attempt = 3,
+                                     .item_attempt = 1,
+                                     .carried_from_attempt = 1,
+                                     .bytes = 42};
+    tny_image_source_dimensions dimensions[2] = {{19, 7}, {3, 25}};
+    tny_image_transform transform = {.operation = "contact_sheet",
+                                     .source_dimensions = dimensions,
+                                     .policy = "crop",
+                                     .gravity = "northwest",
+                                     .background = "#112233",
+                                     .format = "webp",
+                                     .labels = "numbers",
+                                     .width = 64,
+                                     .height = 32,
+                                     .columns = 2,
+                                     .rows = 1,
+                                     .cell_width = 32,
+                                     .cell_height = 32,
+                                     .tool = "imagemagick",
+                                     .tool_version = "7.1.2-31",
+                                     .sources = sources,
+                                     .source_count = 2};
+    tny_image_record record = {.operation_id = "00112233445566aa",
+                               .status = "succeeded",
+                               .workspace = root,
+                               .started = "2026-09-12T00:00:00Z",
+                               .finished = "2026-09-12T00:00:01Z",
+                               .output = output,
+                               .committed = true,
+                               .requested_provider = "local",
+                               .requested_size = "64x32",
+                               .effective_provider = "local",
+                               .effective_size = "64x32",
+                               .output_sha256 =
+                                   "ffeeddccbbaa99887766554433221100ffeeddccbbaa998877665544332211",
+                               .mime = "image/webp",
+                               .width = 64,
+                               .height = 32,
+                               .bytes = 512,
+                               .size_status = "match",
+                               .transform = &transform};
+    /* A real 64-hex digest for the artifact, so the record is loadable. */
+    record.output_sha256 = "ffeeddccbbaa99887766554433221100ffeeddccbbaa9988776655443322110f";
+    buf_t out;
+    buf_init(&out);
+    tny_image_manifest_serialize(&record, &out);
+    ASSERT(!out.oom);
+    ASSERT(strstr(out.data, "\"operation\":\"contact_sheet\""));
+    ASSERT(strstr(out.data, "\"prompt\":null"));
+    ASSERT(strstr(out.data, "\"provider\":\"local\""));
+    ASSERT(strstr(out.data, "\"role\":\"derived\",\"native\":false"));
+    ASSERT(strstr(out.data, "\"references\":[]"));
+    ASSERT(strstr(out.data, "\"cell_width\":32"));
+    ASSERT(strstr(out.data, "\"tool_version\":\"7.1.2-31\""));
+    char *path = tny_image_manifest_path(output, record.operation_id);
+    ASSERT(path);
+    ASSERT_EQ(0, file_write_atomic(path, out.data, out.len));
+    buf_free(&out);
+    char err[256];
+    tny_image_manifest *loaded = tny_image_manifest_load(path, err, sizeof err);
+    ASSERT(loaded);
+    ASSERT(tny_image_manifest_derived(loaded));
+    ASSERT_STR_EQ("contact_sheet", loaded->operation);
+    ASSERT_STR_EQ("crop", loaded->transform_policy);
+    ASSERT_STR_EQ("numbers", loaded->transform_labels);
+    ASSERT_EQ(2u, loaded->source_count);
+    ASSERT_STR_EQ(sources[0].job.id, loaded->sources[0].job.id);
+    ASSERT_EQ(3, loaded->sources[0].job.projection_attempt);
+    ASSERT_EQ(1, loaded->sources[0].job.item_attempt);
+    ASSERT_EQ(1, loaded->sources[0].job.carried_from_attempt);
+    ASSERT_EQ(42u, loaded->sources[0].job.bytes);
+    ASSERT(!*loaded->sources[1].job.id);
+    ASSERT_EQ(19u, loaded->source_dimensions[0].width);
+    ASSERT_EQ(7u, loaded->source_dimensions[0].height);
+    ASSERT_EQ(3u, loaded->source_dimensions[1].width);
+    ASSERT_EQ(25u, loaded->source_dimensions[1].height);
+    /* Reader-to-writer roundtrip retains input dimensions independently of
+     * the target and artifact dimensions. */
+    transform.sources = loaded->sources;
+    transform.source_dimensions = loaded->source_dimensions;
+    buf_init(&out);
+    tny_image_manifest_serialize(&record, &out);
+    ASSERT(strstr(out.data, "\"width\":19,\"height\":7"));
+    ASSERT(strstr(out.data, "\"width\":3,\"height\":25"));
+    buf_free(&out);
+    ASSERT_EQ(2u, loaded->grid_columns);
+    ASSERT_EQ(32u, loaded->cell_height);
+    ASSERT_EQ(0u, loaded->reference_count);
+    /* The derived artifact is real and may be edited from; it is simply not a
+     * provider operation that can be rerun. */
+    ASSERT_STR_EQ("derived", loaded->artifact_role);
+    ASSERT_STR_EQ(output, loaded->artifact_path);
+    tny_image_manifest_free(loaded);
+
+    tools_env env = {.ctx = &ctx};
+    env.perm = perm_new(&ctx);
+    ASSERT(env.perm);
+    ctx.chatgpt_token = "fixture-image-token";
+    ctx.chatgpt_account_id = "fixture-account";
+    buf_t args;
+    buf_init(&args);
+    buf_appendf(&args, "{\"prompt\":\"again\",\"output_file\":\"copy.png\",\"from_manifest\":");
+    jescape(&args, path);
+    buf_appends(&args, "}");
+    tools_call call;
+    ASSERT_EQ(-1, tools_call_prepare(&env, "image_export", args.data, &call));
+    tools_call_free(&call);
+    ASSERT_EQ(-1, tools_call_prepare(&env, "image_generate", args.data, &call));
+    ASSERT(call.error);
+    ASSERT(strstr(call.error, "local image export"));
+    tools_call_free(&call);
+    buf_free(&args);
+    /* An edit reference, by contrast, resolves to the derived artifact. */
+    tny_image_request r = {.edit = true, .prompt = "edit", .output_file = "copy.png"};
+    r.images[0] = path;
+    r.image_is_artifact[0] = true;
+    r.image_count = 1;
+    tny_image_plan plan = {0};
+    ASSERT_EQ(0, tny_image_plan_resolve(&ctx, &r, &plan, err, sizeof err));
+    ASSERT_EQ(1u, plan.reference_count);
+    ASSERT_STR_EQ(output, plan.references[0].path);
+    ASSERT_STR_EQ(record.output_sha256, plan.references[0].expected);
+    tny_image_plan_free(&plan);
+    ctx.chatgpt_token = NULL;
+    ctx.chatgpt_account_id = NULL;
+    perm_free(env.perm);
+    unlink(path);
+    free(path);
+    free(output);
+    free(artifact_source);
+    PASS();
+}
+
+typedef struct {
+    int calls;
+    const char *change_source;
+} export_approval_fixture;
+
+static tny_perm_decision export_allow_once(const char *tool, const char *summary, void *ud) {
+    (void)tool;
+    (void)summary;
+    export_approval_fixture *f = ud;
+    f->calls++;
+    if (f->change_source) {
+        unsigned char changed[sizeof TINY_PNG];
+        memcpy(changed, TINY_PNG, sizeof changed);
+        changed[sizeof changed - 1] ^= 1;
+        if (file_write_atomic(f->change_source, (const char *)changed, sizeof changed)) abort();
+    }
+    return TNY_PERM_DECISION_ALLOW;
+}
+
+TEST image_export_allow_once_is_exact_and_scoped(void) {
+    char *source = under_root("once.png");
+    char *tool = under_root("magick");
+    char *marker = under_root("once-probed");
+    char *saved_path = xstrdup(getenv("PATH"));
+    buf_t script;
+    buf_init(&script);
+    buf_appendf(&script,
+                "#!/bin/sh\nif [ \"$1\" = -version ]; then\n"
+                "echo 'Version: ImageMagick 7.1.2-31 Q16'\n: > '%s'\nexit 0\nfi\nexit 1\n",
+                marker);
+    ASSERT_EQ(0, file_write_atomic(tool, script.data, script.len));
+    buf_free(&script);
+    ASSERT_EQ(0, chmod(tool, 0700));
+    ASSERT_EQ(0, setenv("PATH", root, 1));
+    export_approval_fixture fixture = {0};
+    tools_env env = {.ctx = &ctx, .prompt = export_allow_once, .prompt_ud = &fixture};
+    env.perm = perm_new(&ctx);
+    ASSERT(env.perm);
+    const char *args[] = {
+        "{\"sources\":[{\"image\":\"once.png\"}],\"output_file\":\"once-out.png\","
+        "\"size\":\"2x2\",\"persist_manifest\":false}",
+        "{\"command\":\"tny image export --image once.png --output-file once-out.png "
+        "--size 2x2 --no-manifest --json\"}",
+        "{\"sources\":[{\"image\":\"once.png\"}],\"output_file\":\"once-out.png\","
+        "\"size\":\"2x2\",\"persist_manifest\":false,\"preview\":true}",
+        "{\"command\":\"tny image export --image once.png --output-file once-out.png "
+        "--size 2x2 --no-manifest --preview --json\"}"};
+    for (size_t i = 0; i < 4; i++) {
+        for (int changed = 0; changed < 2; changed++) {
+            ASSERT_EQ(0, file_write_atomic(source, (const char *)TINY_PNG, sizeof TINY_PNG));
+            fixture.change_source = changed ? source : NULL;
+            char *out = tools_execute(&env, i % 2 ? "terminal" : "image_export", args[i]);
+            ASSERT(out);
+            /* The controlled converter fails AFTER the permission boundary.
+             * Exact ALLOW_ONCE must reach it; a changed snapshot must not. */
+            if (!changed) {
+                ASSERT_EQ(0, access(marker, F_OK));
+                ASSERT_EQ(0, unlink(marker));
+            } else ASSERT_EQ(-1, access(marker, F_OK));
+            ASSERT_EQ(0, perm_grant_count(env.perm));
+            free(out);
+        }
+    }
+    ASSERT_EQ(8, fixture.calls);
+    perm_free(env.perm);
+    if (saved_path) ASSERT_EQ(0, setenv("PATH", saved_path, 1));
+    else ASSERT_EQ(0, unsetenv("PATH"));
+    free(saved_path);
+    unlink(source);
+    unlink(tool);
+    free(source);
+    free(tool);
+    free(marker);
+    PASS();
+}
+
+TEST image_export_snapshot_and_retained_result(void) {
+    char *source = under_root("snapshot.png");
+    char *output = under_root("snapshot-out.png");
+    ASSERT_EQ(0, file_write_atomic(source, (const char *)TINY_PNG, sizeof TINY_PNG));
+    tny_image_export_request r = {
+        .sources = {source}, .source_count = 1, .output_file = output, .size = "1x1"};
+    char err[256];
+    tny_image_export_plan *plan = tny_image_export_plan_new(&r, err, sizeof err);
+    ASSERT(plan);
+    ASSERT_EQ(0, tny_image_export_plan_capture(plan, err, sizeof err));
+    buf_t before, after;
+    buf_init(&before);
+    buf_init(&after);
+    ASSERT_EQ(0, tny_image_export_plan_detail(plan, &before));
+    /* No path read or borrowed request string is needed after capture. */
+    ASSERT_EQ(0, unlink(source));
+    free(source);
+    free(output);
+    ASSERT_EQ(0, tny_image_export_plan_capture(plan, err, sizeof err));
+    ASSERT_EQ(0, tny_image_export_plan_detail(plan, &after));
+    ASSERT_STR_EQ(before.data, after.data);
+    tny_image_export_plan_free(plan);
+    buf_free(&before);
+    buf_free(&after);
+
+    tny_image_export_result result = {.committed = true, .code = TNY_IMAGE_CODE_EXPORT_FAILED};
+    snprintf(result.output, sizeof result.output, "%s", "/retained.png");
+    ASSERT(tny_image_export_retained(&result));
+    r = (tny_image_export_request){0};
+    buf_init(&after);
+    tny_image_export_error_json(&r, &result, "postcommit failure", &after);
+    ASSERT(strstr(after.data, "\"committed\":true"));
+    ASSERT(strstr(after.data, "\"path\":\"/retained.png\""));
+    ASSERT(strstr(after.data, TNY_IMAGE_CODE_EXPORT_FAILED));
+    buf_free(&after);
+    result.committed = false;
+    ASSERT(!tny_image_export_retained(&result));
+    PASS();
+}
+
+TEST image_export_commit_never_follows_its_target(void) {
+    char err[256];
+    char *target = under_root("commit.png");
+    char *other = under_root("commit-other.png");
+    ASSERT_EQ(0, file_write_atomic(other, "original", 8));
+    /* A fresh destination: the stage is created under the parent fd and
+     * installed by link, so a competing creator loses atomically. */
+    tny_image_commit *commit = tny_image_io_commit_open(target, false, err, sizeof err);
+    ASSERT(commit);
+    ASSERT(!tny_image_io_commit_target(commit).present);
+    ASSERT_EQ(0, tny_image_io_commit_stage(commit, "exported", 8, err, sizeof err));
+    ASSERT_EQ(0, file_write_atomic(target, "raced", 5));
+    ASSERT_EQ(-1, tny_image_io_commit_finish(commit, err, sizeof err));
+    ASSERT(strstr(err, "changed"));
+    tny_image_io_commit_close(commit);
+    buf_t contents;
+    buf_init(&contents);
+    ASSERT_EQ(0, tny_image_io_read_bounded(target, 64, &contents));
+    ASSERT_EQ(5u, contents.len); /* the racing creator's file is untouched */
+    buf_free(&contents);
+    /* An existing destination needs the explicit flag. */
+    ASSERT(!tny_image_io_commit_open(target, false, err, sizeof err));
+    ASSERT(strstr(err, "already exists"));
+    commit = tny_image_io_commit_open(target, true, err, sizeof err);
+    ASSERT(commit);
+    ASSERT(tny_image_io_commit_target(commit).present);
+    ASSERT_EQ(0, tny_image_io_commit_stage(commit, "replaced", 8, err, sizeof err));
+    ASSERT_EQ(0, tny_image_io_commit_finish(commit, err, sizeof err));
+    tny_image_io_commit_close(commit);
+    buf_init(&contents);
+    ASSERT_EQ(0, tny_image_io_read_bounded(target, 64, &contents));
+    ASSERT_EQ(8u, contents.len);
+    ASSERT_EQ(0, memcmp(contents.data, "replaced", 8));
+    buf_free(&contents);
+    /* A symlink target is refused rather than written through, so the file it
+     * points at keeps its bytes. */
+    char *link = under_root("commit-link.png");
+    unlink(link);
+    ASSERT_EQ(0, symlink(other, link));
+    ASSERT(!tny_image_io_commit_open(link, true, err, sizeof err));
+    ASSERT(strstr(err, "symlink"));
+    buf_init(&contents);
+    ASSERT_EQ(0, tny_image_io_read_bounded(other, 64, &contents));
+    ASSERT_EQ(8u, contents.len);
+    ASSERT_EQ(0, memcmp(contents.data, "original", 8));
+    buf_free(&contents);
+    /* An abandoned stage leaves no debris and no partial artifact. */
+    unlink(target);
+    commit = tny_image_io_commit_open(target, false, err, sizeof err);
+    ASSERT(commit);
+    ASSERT_EQ(0, tny_image_io_commit_stage(commit, "abandoned", 9, err, sizeof err));
+    tny_image_io_commit_close(commit);
+    buf_init(&contents);
+    ASSERT_EQ(-1, tny_image_io_read_bounded(target, 64, &contents));
+    buf_free(&contents);
+    /* Inputs are read once, with the identity of the descriptor they came
+     * from, so an alias check cannot be defeated by a later rename. */
+    tny_image_io_id id = {0};
+    buf_init(&contents);
+    ASSERT_EQ(0, tny_image_io_read_input(other, 64, &contents, &id, err, sizeof err));
+    ASSERT(id.present);
+    ASSERT_EQ(8u, contents.len);
+    buf_free(&contents);
+    buf_init(&contents);
+    ASSERT_EQ(-1, tny_image_io_read_input(other, 4, &contents, &id, err, sizeof err));
+    ASSERT(!id.present);
+    buf_free(&contents);
+    unlink(link);
+    unlink(other);
+    free(link);
+    free(other);
+    free(target);
+    PASS();
+}
+
 static tny_image_reference fixture_reference(const char *path, const char *hash) {
     tny_image_reference ref = {.path = (char *)path};
     snprintf(ref.sha256, sizeof ref.sha256, "%s", hash);
@@ -1003,6 +1576,37 @@ static tny_perm_decision allow_once(const char *tool, const char *summary, void 
 
 /* An approved call runs the plan it was approved for: no second permission
  * question (which would break a one-time approval) and no second record read. */
+TEST image_preview_permission_detail_is_explicit_and_false_is_unchanged(void) {
+    tools_env env = {.ctx = &ctx};
+    const char *inputs[] = {
+        "{\"prompt\":\"blue\",\"output_file\":\"preview-detail.png\"}",
+        "{\"prompt\":\"blue\",\"output_file\":\"preview-detail.png\",\"preview\":false}",
+        "{\"prompt\":\"blue\",\"output_file\":\"preview-detail.png\",\"preview\":true}",
+        "{\"prompt\":\"blue\",\"output_file\":\"preview-detail.png\",\"preview\":\"true\"}"};
+    char *details[4] = {0};
+    for (int i = 0; i < 4; i++) {
+        yyjson_doc *doc = jparse(inputs[i], strlen(inputs[i]));
+        tny_image_plan *plan = NULL;
+        char *error = NULL;
+        details[i] = tool_image_detail(&env, yyjson_doc_get_root(doc), false, &plan, &error);
+        if (i < 3) {
+            ASSERT(plan);
+            ASSERT_FALSE(error);
+        } else {
+            ASSERT(error);
+            ASSERT_FALSE(plan);
+        }
+        free(error);
+        tool_image_plan_free(plan);
+        yyjson_doc_free(doc);
+    }
+    ASSERT_STR_EQ(details[0], details[1]);
+    ASSERT(strstr(details[2], details[0]) == details[2]);
+    ASSERT(strstr(details[2], "conversation_preview:"));
+    for (int i = 0; i < 4; i++) free(details[i]);
+    PASS();
+}
+
 TEST image_prepared_plan_runs_under_a_one_time_approval(void) {
     ctx.chatgpt_token = "fixture-image-token";
     ctx.chatgpt_account_id = "fixture-account";
@@ -1347,6 +1951,152 @@ TEST image_private_writes_are_atomic_and_bounded(void) {
     PASS();
 }
 
+TEST image_publication_never_replaces_a_competing_entry(void) {
+    char err[256];
+    char *output = under_root("publish.png");
+    char *stage = under_root("publish-stage");
+    ASSERT_EQ(0, tny_image_io_no_replace_preflight(output, err, sizeof err));
+    ASSERT_EQ(0, tny_image_io_write_new(stage, "validated", 9));
+    ASSERT_EQ(0, tny_image_io_write_new(output, "winner", 6));
+    ASSERT_EQ(-1, tny_image_io_no_replace_preflight(output, err, sizeof err));
+    ASSERT_EQ(-1, tny_image_io_publish(stage, output, true));
+    buf_t bytes;
+    buf_init(&bytes);
+    ASSERT_EQ(0, tny_image_io_read_bounded(output, 32, &bytes));
+    ASSERT_STR_EQ("winner", bytes.data);
+    ASSERT_EQ(0, unlink(output));
+    ASSERT_EQ(0, symlink("absent", output));
+    ASSERT_EQ(-1, tny_image_io_no_replace_preflight(output, err, sizeof err));
+    ASSERT_EQ(-1, tny_image_io_publish(stage, output, true));
+    ASSERT_EQ(0, unlink(output));
+    ASSERT_EQ(0, tny_image_io_publish(stage, output, true));
+    ASSERT_EQ(-1, access(stage, F_OK));
+    ASSERT_EQ(0, tny_image_io_write_new(stage, "replacement", 11));
+    ASSERT_EQ(0, tny_image_io_publish(stage, output, false));
+    buf_free(&bytes);
+    buf_init(&bytes);
+    ASSERT_EQ(0, tny_image_io_read_bounded(output, 32, &bytes));
+    ASSERT_STR_EQ("replacement", bytes.data);
+    buf_free(&bytes);
+    unlink(output);
+    free(output);
+    free(stage);
+    PASS();
+}
+
+/* Select the actual internal job record. No artifact exists: selection must
+ * be metadata-only and must not project a running job to interrupted. */
+TEST image_job_selection_is_owned_strict_and_metadata_only(void) {
+    char err[256] = "";
+    const char *id = "0123456789abcdef0123456789abcdef";
+    char *workspace = path_abs(ctx.cwd);
+    char *tny = path_join(workspace, "job-selection-state");
+    char *jobs = path_join(tny, "jobs");
+    char *dir = path_join(jobs, id);
+    char *record_path = path_join(dir, "job.json");
+    char *output = path_join(workspace, "not-created-selection.png");
+    char *manifest = path_join(workspace, "selection-manifest.json");
+    ASSERT_EQ(0, mkdir_p(dir));
+    tny_ctx local = ctx;
+    local.tny_dir = tny;
+    local.cwd = workspace;
+    const char *hash = "111122223333444455556666777788889999aaaabbbbccccddddeeeeffff0000";
+    const char *tuples[][3] = {{"1", "1", "0"},    {"3", "1", "1"},          {"3", "3", "0"},
+                               {"3", "1", "0"},    {"3", "3", "3"},          {"1", "3", "3"},
+                               {"0", "0", "0"},    {"1.0", "1", "0"},        {"1", "true", "0"},
+                               {"1", "1", "null"}, {"2147483648", "1", "1"}, {"1", "1", "-1"}};
+    for (size_t i = 0; i < sizeof tuples / sizeof tuples[0]; i++) {
+        buf_t json;
+        buf_init(&json);
+        buf_appendf(&json,
+                    "{\"version\":1,\"kind\":\"job\",\"job_kind\":\"image\",\"id\":\"%s\","
+                    "\"state\":\"running\",\"attempt\":%s,\"items\":[{\"index\":0,"
+                    "\"state\":\"succeeded\",\"attempt\":%s,\"carried_from_attempt\":%s,"
+                    "\"output_path\":\"%s\",\"output_sha256\":\"%s\",\"output_bytes\":9,"
+                    "\"manifest_path\":null,\"operation_id\":\"a123\"}]}",
+                    id, tuples[i][0], tuples[i][1], tuples[i][2], output, hash);
+        ASSERT_EQ(0, file_write_atomic(record_path, json.data, json.len));
+        tny_job_artifact *a = tny_jobs_select_artifact(&local, id, 0, err, sizeof err);
+        if (i < 3) {
+            ASSERT(a);
+            ASSERT_EQ(atoi(tuples[i][0]), a->projection_attempt);
+            ASSERT_EQ(atoi(tuples[i][1]), a->item_attempt);
+            ASSERT_EQ(atoi(tuples[i][2]), a->carried_from_attempt);
+            ASSERT_STR_EQ(hash, a->sha256);
+            ASSERT_STR_EQ(output, a->path);
+            ASSERT_EQ(9, a->bytes);
+            ASSERT(!a->manifest);
+            ASSERT_EQ(-1, access(output, F_OK));
+            char *after = file_slurp(record_path, NULL);
+            ASSERT_STR_EQ(json.data, after);
+            free(after);
+            ASSERT_EQ(0, unlink(record_path));
+            ASSERT_STR_EQ(hash, a->sha256);
+            ASSERT_STR_EQ(id, a->job_id);
+        } else ASSERT(!a);
+        tny_jobs_artifact_free(a);
+        buf_free(&json);
+    }
+    ASSERT(!tny_jobs_select_artifact(&local, "../foreign", 0, err, sizeof err));
+    ASSERT(!tny_jobs_select_artifact(&local, id, -1, err, sizeof err));
+    ASSERT(!tny_jobs_select_artifact(&local, id, 64, err, sizeof err));
+
+    tny_image_record m = {.operation_id = "a123",
+                          .status = "succeeded",
+                          .workspace = workspace,
+                          .started = "2026-09-12T00:00:00Z",
+                          .finished = "2026-09-12T00:00:01Z",
+                          .prompt = "fixture",
+                          .output = output,
+                          .committed = true,
+                          .requested_provider = "codex",
+                          .output_sha256 = hash,
+                          .mime = "image/png",
+                          .bytes = 9};
+    buf_t metadata;
+    buf_init(&metadata);
+    tny_image_manifest_serialize(&m, &metadata);
+    ASSERT_EQ(0, file_write_atomic(manifest, metadata.data, metadata.len));
+    buf_t json;
+    buf_init(&json);
+    buf_appendf(&json,
+                "{\"version\":1,\"kind\":\"job\",\"job_kind\":\"image\",\"id\":\"%s\","
+                "\"state\":\"running\",\"attempt\":3,\"items\":[{\"index\":0,"
+                "\"state\":\"succeeded\",\"attempt\":1,\"carried_from_attempt\":1,"
+                "\"output_path\":\"%s\",\"output_sha256\":\"%s\",\"output_bytes\":9,"
+                "\"manifest_path\":\"%s\",\"operation_id\":\"a123\"}]}",
+                id, output, hash, manifest);
+    ASSERT_EQ(0, file_write_atomic(record_path, json.data, json.len));
+    tny_job_artifact *a = tny_jobs_select_artifact(&local, id, 0, err, sizeof err);
+    ASSERTm(err, a);
+    ASSERT(a->manifest);
+    ASSERT_EQ(0, unlink(manifest));
+    ASSERT_STR_EQ(output, a->manifest->artifact_path);
+    ASSERT(!tny_jobs_select_artifact(&local, id, 0, err, sizeof err));
+    tny_jobs_artifact_free(a);
+    m.bytes = 10;
+    buf_free(&metadata);
+    buf_init(&metadata);
+    tny_image_manifest_serialize(&m, &metadata);
+    ASSERT_EQ(0, file_write_atomic(manifest, metadata.data, metadata.len));
+    ASSERT(!tny_jobs_select_artifact(&local, id, 0, err, sizeof err));
+    unlink(manifest);
+    unlink(record_path);
+    rmdir(dir);
+    rmdir(jobs);
+    rmdir(tny);
+    buf_free(&json);
+    buf_free(&metadata);
+    free(workspace);
+    free(tny);
+    free(jobs);
+    free(dir);
+    free(record_path);
+    free(output);
+    free(manifest);
+    PASS();
+}
+
 SUITE(image_service_suite) {
     const char *vars[] = {"HOME", "CODEX_HOME", "CHATGPT_ACCESS_TOKEN", "CHATGPT_ACCOUNT_ID"};
     char *saved[4];
@@ -1360,6 +2110,8 @@ SUITE(image_service_suite) {
     setenv("HOME", root, 1);
     setenv("CODEX_HOME", root, 1);
     ctx = (tny_ctx){.cwd = root, .perm_mode = TNY_MODE_ASK, .tool_profile = TNY_TOOLS_ALL};
+    RUN_TEST(image_publication_never_replaces_a_competing_entry);
+    RUN_TEST(image_job_selection_is_owned_strict_and_metadata_only);
     RUN_TEST(image_capability_and_validation);
     RUN_TEST(image_dimensions_from_real_headers);
     RUN_TEST(image_dimensions_reject_impossible_headers);
@@ -1373,6 +2125,7 @@ SUITE(image_service_suite) {
     RUN_TEST(image_manifest_round_trip_and_strict_parsing);
     RUN_TEST(image_reserved_names_anchor_on_the_final_suffix);
     RUN_TEST(image_manifest_rejects_unusable_records);
+    RUN_TEST(image_preview_permission_detail_is_explicit_and_false_is_unchanged);
     RUN_TEST(image_prepared_plan_runs_under_a_one_time_approval);
     RUN_TEST(image_prepared_plan_ignores_a_record_edited_after_approval);
     RUN_TEST(image_prepared_plan_refuses_changed_reference_bytes);
@@ -1382,6 +2135,12 @@ SUITE(image_service_suite) {
     RUN_TEST(image_writer_guard_is_exclusive_and_identified);
     RUN_TEST(image_running_record_without_a_live_owner_is_interrupted);
     RUN_TEST(image_private_writes_are_atomic_and_bounded);
+    RUN_TEST(image_export_grammar_and_settings);
+    RUN_TEST(image_export_tools_carry_the_whole_operation);
+    RUN_TEST(image_export_records_are_derived_and_never_replayed);
+    RUN_TEST(image_export_allow_once_is_exact_and_scoped);
+    RUN_TEST(image_export_snapshot_and_retained_result);
+    RUN_TEST(image_export_commit_never_follows_its_target);
     rmdir(root);
     for (size_t i = 0; i < 4; i++) {
         if (saved[i]) setenv(vars[i], saved[i], 1);

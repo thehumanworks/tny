@@ -66,6 +66,7 @@ int tny_engine_queue_image(tny_engine *e, const char *path, char *err, size_t er
  * `tny ask --image` semantics are untouched. */
 tny_image_preview_status tny_engine_queue_image_preview(tny_engine *e, const char *path,
                                                         const char *expected_sha256,
+                                                        uint64_t expected_bytes,
                                                         const char **code_out, char *err,
                                                         size_t errlen);
 /* Optional signal-safe frontend flag probe. Native control hooks re-check it

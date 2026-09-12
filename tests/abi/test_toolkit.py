@@ -154,6 +154,12 @@ class ToolkitABI(unittest.TestCase):
             lambda p: p["request"].update(prompt="bad\0text"),
             lambda p: p["request"].update(prompt="x" * 16385),
             lambda p: p["request"].update(quality="impossible"),
+            lambda p: p["request"].update(job="0" * 32, item=0),
+            lambda p: p["request"].update(job="0" * 32),
+            lambda p: p["request"].update(item=0),
+            lambda p: p["request"].update(preview=True),
+            lambda p: p["request"].update(preview=False),
+            lambda p: p["request"].update(preview="true"),
             lambda p: p["request"].update(images=["reference.png"]),
             # strict_size is an allowed boolean, not a string or a new spelling.
             lambda p: p["request"].update(strict_size="yes"),
@@ -163,6 +169,16 @@ class ToolkitABI(unittest.TestCase):
             payload = self.payload()
             mutate(payload)
             self.create(payload, -1)
+        # An otherwise valid edit cannot obtain ambient job/session authority.
+        payload = self.payload()
+        payload["operation"] = "edit_image"
+        payload["request"].update(images=["reference.png"])
+        self.create(payload)
+        payload["request"].update(job="0" * 32, item=0)
+        self.create(payload, -1)
+        payload = self.payload()
+        payload["operation"] = "image_preview"
+        self.create(payload, -1)
         raw = (
             json.dumps(self.payload())
             .encode()

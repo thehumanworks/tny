@@ -1558,6 +1558,7 @@ int tny_engine_queue_image(tny_engine *e, const char *path, char *err, size_t er
 
 tny_image_preview_status tny_engine_queue_image_preview(tny_engine *e, const char *path,
                                                         const char *expected_sha256,
+                                                        uint64_t expected_bytes,
                                                         const char **code_out, char *err,
                                                         size_t errlen) {
     if (code_out) *code_out = TNY_IMAGE_PREVIEW_CODE_NO_SESSION;
@@ -1574,8 +1575,8 @@ tny_image_preview_status tny_engine_queue_image_preview(tny_engine *e, const cha
         if (err && errlen) snprintf(err, errlen, "no active native turn can take an image preview");
         return TNY_IMAGE_PREVIEW_UNAVAILABLE_SESSION;
     }
-    return tny_backend_openai_queue_image_preview(e->bk, path, expected_sha256, code_out, err,
-                                                  errlen);
+    return tny_backend_openai_queue_image_preview(e->bk, path, expected_sha256, expected_bytes,
+                                                  code_out, err, errlen);
 }
 
 void tny_engine_set_cancel_probe(tny_engine *e, tny_engine_cancel_probe probe, void *ud) {

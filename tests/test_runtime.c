@@ -1081,7 +1081,7 @@ TEST runtime_preview_needs_a_native_owning_turn(void) {
 
     /* idle: no turn at all */
     ASSERT_EQ(TNY_IMAGE_PREVIEW_UNAVAILABLE_SESSION,
-              tny_engine_queue_image_preview(x.engine, "shot.png", hex, &code, err, sizeof err));
+              tny_engine_queue_image_preview(x.engine, "shot.png", hex, 0, &code, err, sizeof err));
     ASSERT(code);
     ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_NO_SESSION, code);
     ASSERT_EQ(0, x.fake->sends);
@@ -1089,7 +1089,7 @@ TEST runtime_preview_needs_a_native_owning_turn(void) {
     /* an active turn on a backend with no native pending-image queue */
     ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
     ASSERT_EQ(TNY_IMAGE_PREVIEW_UNAVAILABLE_SESSION,
-              tny_engine_queue_image_preview(x.engine, "shot.png", hex, &code, err, sizeof err));
+              tny_engine_queue_image_preview(x.engine, "shot.png", hex, 0, &code, err, sizeof err));
     ASSERT(code);
     ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_NO_SESSION, code);
 
@@ -1097,7 +1097,7 @@ TEST runtime_preview_needs_a_native_owning_turn(void) {
     x.ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED;
     err[0] = '\0';
     ASSERT_EQ(TNY_IMAGE_PREVIEW_UNSUPPORTED,
-              tny_engine_queue_image_preview(x.engine, "shot.png", hex, &code, err, sizeof err));
+              tny_engine_queue_image_preview(x.engine, "shot.png", hex, 0, &code, err, sizeof err));
     ASSERT_STR_EQ(TNY_IMAGE_INPUT_REFUSAL, err);
     ASSERT(code);
     ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_CAPABILITY, code);

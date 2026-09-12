@@ -34,6 +34,12 @@ static void on_sigint(int sig) {
 }
 static bool ask_cancel_probe(void *ud) {
     (void)ud;
+    /* A job item's supervisor is its actual parent process: if this turn was
+     * started by one and getppid() no longer reports it, the work is orphaned
+     * and must stop at the same bounded points a ^C would (docs/adr/0093).
+     * Ordinary runs have no expected parent and never consult the kernel for
+     * one; no pid is ever signalled from a record. */
+    if (tny_process_parent_lost()) return true;
     if (!g_interrupted) return false;
     g_interrupted = 0;
     return true;
@@ -978,6 +984,19 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
 
     st.engine = engine;
     tny_engine_set_cancel_probe(engine, ask_cancel_probe, NULL);
+    /* A supervisor that died before this child was ready gets no request at
+     * all: the turn is refused before it starts. */
+    if (tny_process_parent_lost()) {
+        ask_diag(events, "parent_lost", "the job supervisor that started this turn is gone", NULL);
+        tny_engine_free(engine);
+        perm_free(perm);
+        session_close(session);
+        buf_free(&prompt);
+        buf_free(&st.output);
+        buf_free(&st.errline);
+        buf_free(&st.extension_messages);
+        return 2;
+    }
 
     signal(SIGINT, on_sigint);
     signal(SIGPIPE, SIG_IGN);
@@ -1002,9 +1021,23 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         fflush(stdout); /* stdout is the stream's from here: no stdio behind it */
         tny_event_writer_init(&writer, fileno(stdout), ask_interrupt_peek, NULL);
     }
+    bool parent_gone = false;
     while (!st.turn_ended) {
+        /* The engine's cancel probe is consulted at tool and control
+         * boundaries; a turn blocked on a provider response would not see a
+         * lost job supervisor until those bytes arrived. This bounded pump is
+         * the seam that already turns ^C into a cancellation, so the
+         * parent-loss watch rides it too — once (docs/adr/0093). */
+        bool cancel_now = false;
+        if (!parent_gone && tny_process_parent_lost()) {
+            parent_gone = true;
+            cancel_now = true;
+        }
         if (g_interrupted) {
             g_interrupted = 0;
+            cancel_now = true;
+        }
+        if (cancel_now) {
             tny_engine_cancel(engine);
             continue;
         }

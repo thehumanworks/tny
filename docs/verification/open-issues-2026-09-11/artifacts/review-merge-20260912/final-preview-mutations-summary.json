@@ -1,0 +1,25 @@
+{
+  "verdict": "PASS_THIS_FAULT_SET",
+  "count": 13,
+  "ids": [
+    "F003",
+    "F004",
+    "F005",
+    "F006",
+    "F007",
+    "F008",
+    "F009",
+    "F010",
+    "F001",
+    "F002",
+    "P001",
+    "P002",
+    "P003"
+  ],
+  "records": [
+    "final-preview-mutations-v2/results.json",
+    "final-preview-mutations-v3/results.json"
+  ],
+  "excluded_attempts": "First overbroad runner interrupted; initial F010 compile failure rejected, corrected unused-variable-only mutation then compiled and killed",
+  "source_dependencies": "Frozen mutation input native preview/queue/backend guards equal finalV3; later changes are Nix/docs/export metadata and jobs fixture"
+}

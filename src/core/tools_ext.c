@@ -3,6 +3,7 @@
 #include "core/tools.h"
 #include "core/speech.h"
 #include "core/tools_image.h"
+#include "core/tools_jobs.h"
 #include "core/image.h"
 #include "core/skills.h"
 #include "core/subagent.h"
@@ -170,6 +171,27 @@ char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool 
      * chain. Reaching here means no plan was prepared: refuse (ADR 0095). */
     if (strcmp(name, "image_generate") == 0 || strcmp(name, "image_edit") == 0)
         return tool_err("this image call was not prepared; request it again");
+    if (strcmp(name, "image_export") == 0 || strcmp(name, "image_contact_sheet") == 0)
+        return tool_image_export_execute(env, args, strcmp(name, "image_contact_sheet") == 0, NULL);
+    if (tool_jobs_is_tool(name)) {
+        tny_jobs_op op = tool_jobs_op(name, args);
+        if (op == TNY_JOBS_OP_NONE) return tool_err("%s does not support that action", name);
+        if (!tool_jobs_available(env->ctx, name))
+            return tool_err("%s is unavailable in this runtime; durable jobs need a native tny "
+                            "build that owns local child processes",
+                            name);
+        buf_t out;
+        buf_init(&out);
+        char err[320] = "";
+        int rc = tool_jobs_run(env, op, args, &out, err, sizeof err);
+        if (rc && !out.len) {
+            buf_free(&out);
+            return tool_err("%s", err[0] ? err : "the job operation failed");
+        }
+        char *result = out.data ? tool_bound_result(env, out.data, out.len) : NULL;
+        buf_free(&out);
+        return result ? result : tool_err("the job result could not be returned");
+    }
     if (strcmp(name, "speak") == 0) return t_speak(env, args);
     if (strcmp(name, "memory") == 0) return t_memory(env, args);
     if (strcmp(name, "read_tool_result") == 0) return t_read_tool_result(env, args);

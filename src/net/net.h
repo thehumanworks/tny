@@ -22,6 +22,9 @@ int url_parse(const char *url, url_parts *out); /* 0 ok */
 /* ---- TCP ---- */
 int tcp_connect(const char *host, int port, int timeout_ms); /* fd or -1 */
 int unix_connect(const char *path);                          /* fd or -1 */
+/* One socket write, with send(2) byte-count/errno semantics and no SIGPIPE.
+ * Descriptor-local protection is retained; process signal handlers are untouched. */
+ssize_t socket_write(int fd, const void *data, size_t len);
 /* Bind + listen on an AF_UNIX stream socket (0600, nonblocking). Unlinks a
  * stale path first — callers hold the session writer flock, so a live
  * listener is never unlinked (docs/adr/0053). fd or -1. */

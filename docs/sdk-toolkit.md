@@ -1,5 +1,14 @@
 # Standalone SDK toolkit
 
+## Preview remains outside the toolkit
+
+Standalone SDK toolkit image operations are metadata-only. `preview` is not a
+request option: native C toolkit JSON, Python keyword calls and TypeScript
+options reject it, including `preview: false`. This is deliberate misuse
+rejection, not a silently ignored upload request. No image-send ABI or ambient
+session socket lookup is added. Conversation-native tools and CLI preview are
+separate owning-turn operations described in [images](images.md).
+
 Python's `Toolkit` / `AsyncToolkit` and TypeScript's `Toolkit` expose the native
 image, speech, transcription, and prompt optimisation services directly. They
 require **libtny ABI 1.2+** on the existing native SDK platforms: macOS arm64 and

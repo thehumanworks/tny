@@ -819,7 +819,7 @@ class ControlPreviewTests(PreviewBase):
 class ControlPrimitiveTests(unittest.TestCase):
     def test_wasm_helper_branch_returns_data_without_stdio(self):
         # Compile the actual no-socket branch on the native ABI. This checks
-        # preview specifically, but is NOT a wasm-runtime parity claim.
+        # preview and legacy precedence, but is NOT a wasm-runtime parity claim.
         if WASM:
             self.skipTest(
                 "native compiler seam; wasm runtime refusal is checked separately"
@@ -831,16 +831,24 @@ class ControlPrimitiveTests(unittest.TestCase):
 #include "cli/cmd_control.h"
 #include <stdlib.h>
 int main(void) {
-    tny_control_reply reply = {0};
-    unsetenv("TNY_SESSION_SOCK");
-    if (tny_control_request(TNY_CONTROL_OP_IMAGE_PREVIEW, "unused.png", "unused", &reply)
-        != TNY_CONTROL_EXCHANGE_NO_SOCKET) return 1;
-    setenv("TNY_SESSION_SOCK", "/unused.sock", 1);
-    if (tny_control_request(TNY_CONTROL_OP_IMAGE_PREVIEW, "unused.png", "unused", &reply)
-        != TNY_CONTROL_EXCHANGE_UNSUPPORTED) return 2;
-    if (reply.ok || reply.id || reply.answer || reply.error || reply.status || reply.error_code)
-        return 3;
-    tny_control_reply_free(&reply);
+    const tny_control_op ops[] = {TNY_CONTROL_OP_ASK_USER, TNY_CONTROL_OP_IMAGE_ATTACH,
+                                  TNY_CONTROL_OP_IMAGE_PREVIEW};
+    for (int session = 0; session < 3; session++) {
+        if (session == 0) unsetenv("TNY_SESSION_SOCK");
+        else setenv("TNY_SESSION_SOCK", session == 1 ? "" : "/unused.sock", 1);
+        for (unsigned int i = 0; i < sizeof ops / sizeof ops[0]; i++) {
+            tny_control_reply reply = {0};
+            tny_control_exchange expected = session == 2 || ops[i] == TNY_CONTROL_OP_IMAGE_PREVIEW
+                ? TNY_CONTROL_EXCHANGE_UNSUPPORTED : TNY_CONTROL_EXCHANGE_NO_SOCKET;
+            if (tny_control_request(ops[i], "unused.png", "unused", 0, &reply) != expected)
+                return 1;
+            if (reply.ok || reply.id || reply.answer || reply.error || reply.status || reply.error_code)
+                return 2;
+            tny_control_reply_free(&reply);
+            if (tny_control_request(ops[i], "unused.png", "unused", 0, NULL) != expected)
+                return 3;
+        }
+    }
     return 0;
 }
 """)

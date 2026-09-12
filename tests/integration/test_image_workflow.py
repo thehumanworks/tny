@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import stat
 import struct
 import subprocess
@@ -418,6 +419,312 @@ class ImageFixture(unittest.TestCase):
             codex_base_url=self.url + "/backend-api/codex",
         )
         return tny, tny.Toolkit(config, library=str(library))
+
+
+class Publication(ImageFixture):
+    def private(self, *args, output=None):
+        return self.cli(
+            "--job-no-replace",
+            "--json",
+            "generate",
+            "--output-file",
+            str(output or self.out),
+            *args,
+            prompt=b"An orange robot",
+        )
+
+    def test_existing_and_dangling_destination_spend_nothing(self):
+        for dangling in (False, True):
+            with self.subTest(dangling=dangling):
+                if dangling:
+                    self.out.symlink_to(self.home / "missing.png")
+                else:
+                    self.out.write_bytes(b"competing bytes")
+                normalized = str(self.home) + "/./result.png"
+                run = self.private(output=normalized)
+                self.assertEqual(run.returncode, 1, run.stderr)
+                self.assertEqual(self.image_requests(), [])
+                self.assertEqual(self.manifests(), [])
+                if dangling:
+                    self.assertTrue(self.out.is_symlink())
+                else:
+                    self.assertEqual(self.out.read_bytes(), b"competing bytes")
+                self.out.unlink()
+
+    def test_private_publication_and_exact_identity(self):
+        if WASM:
+            run = self.private()
+            self.assertEqual(run.returncode, 1, run.stderr)
+            self.assertEqual(self.image_requests(), [])
+            self.assertFalse(self.out.exists())
+            return
+        for no_manifest in (False, True):
+            with self.subTest(no_manifest=no_manifest):
+                result = self.result(
+                    self.private(*(["--no-manifest"] if no_manifest else []))
+                )
+                self.assertEqual(result["sha256"], sha(self.state["image"]))
+                self.assertEqual(self.out.read_bytes(), self.state["image"])
+                self.assertEqual(result["path"], str(self.out))
+                self.assertFalse(result["cleanup_warning"])
+                if no_manifest:
+                    self.assertIsNone(result["manifest_path"])
+                    self.assertEqual(self.manifests(), [])
+                else:
+                    record = self.record()
+                    self.assertEqual(record["status"], "succeeded")
+                    self.assertEqual(record["output"], self.canonical(self.out))
+                    self.assertEqual(record["operation_id"], result["operation_id"])
+                    self.assertEqual(
+                        record["artifacts"][0]["path"], self.canonical(self.out)
+                    )
+                    self.assertEqual(record["artifacts"][0]["sha256"], result["sha256"])
+                    self.assertEqual(
+                        result["manifest_path"], self.canonical(self.manifests()[0])
+                    )
+                    self.manifests()[0].unlink()
+                self.assertEqual(self.leftovers(), [])
+                self.out.unlink()
+        self.assertEqual(len(self.image_requests()), 2)
+
+    @unittest.skipIf(WASM, "private atomic publication refuses on wasm")
+    def test_destination_created_during_response_is_never_replaced(self):
+        for no_manifest in (False, True):
+            with self.subTest(no_manifest=no_manifest):
+                self.state["on_image"] = lambda _: self.out.write_bytes(
+                    b"external winner"
+                )
+                run = self.private(*(["--no-manifest"] if no_manifest else []))
+                self.assertEqual(run.returncode, 1, run.stderr)
+                self.assertEqual(self.out.read_bytes(), b"external winner")
+                self.assertEqual(run.stdout, b"")
+                self.assertEqual(self.leftovers(), [])
+                if no_manifest:
+                    self.assertEqual(self.manifests(), [])
+                else:
+                    record = self.record()
+                    self.assertFalse(record["committed"])
+                    self.assertEqual(record["status"], "failed")
+                    self.assertEqual(record["artifacts"], [])
+                    self.manifests()[0].unlink()
+                self.out.unlink()
+        self.assertEqual(len(self.image_requests()), 2)
+
+    def test_ordinary_overwrite_still_hashes_without_manifest(self):
+        self.out.write_bytes(b"old bytes")
+        result = self.result(self.generate("--json", "--no-manifest"))
+        self.assertEqual(self.out.read_bytes(), self.state["image"])
+        self.assertEqual(result["sha256"], sha(self.out.read_bytes()))
+        self.assertEqual(len(self.image_requests()), 1)
+        self.assertEqual(self.manifests(), [])
+        self.assertEqual(self.leftovers(), [])
+
+    @unittest.skipIf(WASM, "private atomic publication refuses on wasm")
+    def test_private_finalization_failure_retains_identity(self):
+        def obstruct(_):
+            record = self.manifests()[0]
+            record.unlink()
+            record.mkdir()
+
+        self.state["on_image"] = obstruct
+        result = self.failure(self.private())
+        self.assertEqual(result["code"], "IMAGE_MANIFEST_FINALIZE_FAILED")
+        self.assertTrue(result["committed"])
+        self.assertEqual(result["path"], str(self.out))
+        self.assertEqual(result["sha256"], sha(self.out.read_bytes()))
+        self.assertEqual(self.out.read_bytes(), self.state["image"])
+        self.assertIn(result["operation_id"], result["manifest_path"])
+        self.assertEqual(self.leftovers(), [])
+        self.assertEqual(len(self.image_requests()), 1)
+
+    def test_private_prefix_does_not_enter_shared_grammar_or_help(self):
+        run = self.generate("--job-no-replace", "--json")
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertEqual(self.image_requests(), [])
+        self.assertNotIn(b"--job-no-replace", self.cli("--help").stdout)
+
+
+@unittest.skipIf(WASM or WINDOWS, "native POSIX publication fault fixture")
+class PublicationFaults(ImageFixture):
+    @classmethod
+    def setUpClass(cls):
+        cls.build = tempfile.TemporaryDirectory(prefix="tny-publication-faults-")
+        cls.addClassCleanup(cls.build.cleanup)
+        directory = Path(cls.build.name)
+        build_root = Path(TNY).parent
+        objects_root = build_root / "rel"
+        # Use the actual executable inventory. A recursive glob also collects
+        # dictation and other fixture objects, causing duplicate definitions
+        # after a full make test even though an isolated build can link.
+        variables = subprocess.check_output(
+            [
+                "make",
+                "-s",
+                "-f",
+                "Makefile",
+                "-f",
+                "-",
+                "publication-variables",
+                f"BUILD={build_root}",
+            ],
+            cwd=ROOT,
+            text=True,
+            input=".PHONY: publication-variables\npublication-variables:\n"
+            "\t@printf '%s\\n' '$(CC)' '$(REL_CFLAGS) $(REL_INLINE) $(REL_SIZE_OPT)' '$(REL_LTO)' "
+            "'$(REL_LDFLAGS)' '$(REL_OBJS)'\n",
+        ).splitlines()
+        compiler, flags, lto, linker, names = map(shlex.split, variables)
+        objects = [Path(name) for name in names]
+        if not objects or not all(path.is_file() for path in objects):
+            raise AssertionError(
+                "publication fault checks need the native release objects"
+            )
+        for source, name, extra in (
+            ("tests/fixtures/image_publication_faults.c", "io.o", []),
+            ("src/util/util.c", "util.o", ["-Dcalloc=tny_image_fault_calloc"]),
+        ):
+            subprocess.run(
+                [*compiler, *flags, *extra, "-c", source, "-o", str(directory / name)],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+            )
+        original = {
+            objects_root / "src/util/image_io.o",
+            objects_root / "src/util/util.o",
+        }
+        cls.binary = str(directory / "tny")
+        subprocess.run(
+            [
+                *compiler,
+                *flags,
+                *lto,
+                "-o",
+                cls.binary,
+                *(str(p) for p in objects if p not in original),
+                str(directory / "io.o"),
+                str(directory / "util.o"),
+                *linker,
+            ],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+        )
+
+    def run_fault(self, mode, no_manifest=False, private=True):
+        env = {**self.env, "TNY_IMAGE_PUBLICATION_FAULT": mode}
+        return subprocess.run(
+            [
+                self.binary,
+                "image",
+                *(["--job-no-replace"] if private else []),
+                "generate",
+                "--json",
+                "--output-file",
+                str(self.out),
+                *(["--no-manifest"] if no_manifest else []),
+            ],
+            input=b"An orange robot",
+            cwd=self.home,
+            env=env,
+            capture_output=True,
+            timeout=60,
+        )
+
+    def clear_outputs(self):
+        for path in self.home.glob("result.png*"):
+            if path.is_dir():
+                path.rmdir()
+            else:
+                path.unlink()
+
+    def test_hash_allocation_fails_before_commit_and_restores(self):
+        for no_manifest in (False, True):
+            for private in (False, True):
+                with self.subTest(no_manifest=no_manifest, private=private):
+                    if not private:
+                        self.out.write_bytes(b"original")
+                    run = self.run_fault("hash", no_manifest, private)
+                    self.assertEqual(run.returncode, 1, run.stderr)
+                    self.assertIn(b"fixture: digest allocation failed", run.stderr)
+                    self.assertIn(b"before publication", run.stderr)
+                    if private:
+                        self.assertFalse(self.out.exists())
+                    else:
+                        self.assertEqual(self.out.read_bytes(), b"original")
+                    self.assertEqual(self.leftovers(), [])
+                    if not no_manifest:
+                        record = self.record()
+                        self.assertEqual(record["status"], "failed")
+                        self.assertFalse(record["committed"])
+                    self.clear_outputs()
+                    restored = self.result(self.run_fault("", no_manifest, private))
+                    self.assertEqual(restored["sha256"], sha(self.out.read_bytes()))
+                    self.clear_outputs()
+        self.assertEqual(len(self.image_requests()), 8)
+
+    def test_cleanup_warning_is_committed_not_manifest_failure(self):
+        for no_manifest in (False, True):
+            for mode in ("cleanup", "cleanup-late-cancel"):
+                with self.subTest(no_manifest=no_manifest, mode=mode):
+                    run = self.run_fault(mode, no_manifest)
+                    result = self.result(run)
+                    self.assertTrue(result["cleanup_warning"])
+                    self.assertNotIn("code", result)
+                    self.assertIn(b"private temporary", run.stderr)
+                    self.assertEqual(result["sha256"], sha(self.out.read_bytes()))
+                    self.assertEqual(self.out.read_bytes(), self.state["image"])
+                    leftovers = self.leftovers()
+                    self.assertEqual(len(leftovers), 1, leftovers)
+                    self.assertEqual(
+                        (self.home / leftovers[0]).stat().st_ino, self.out.stat().st_ino
+                    )
+                    if not no_manifest:
+                        record = self.record()
+                        self.assertTrue(record["committed"])
+                        self.assertEqual(record["status"], "succeeded")
+                        self.assertEqual(
+                            record["artifacts"][0]["sha256"], result["sha256"]
+                        )
+                    self.clear_outputs()
+        restored = self.result(self.run_fault(""))
+        self.assertFalse(restored["cleanup_warning"])
+        self.assertEqual(self.leftovers(), [])
+
+    def test_unsupported_filesystem_refuses_before_http(self):
+        run = self.run_fault("unsupported")
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertEqual(self.image_requests(), [])
+        self.assertEqual(self.manifests(), [])
+        self.assertEqual(self.leftovers(), [])
+        self.assertFalse(self.out.exists())
+        # Ordinary replacement does not depend on hard links.
+        self.result(self.run_fault("unsupported", private=False))
+        self.assertEqual(len(self.image_requests()), 1)
+
+    def test_cancel_before_commit_and_late_retained_failure(self):
+        run = self.run_fault("precommit-cancel")
+        self.assertEqual(run.returncode, 130, run.stderr)
+        self.assertFalse(self.out.exists())
+        self.assertEqual(self.leftovers(), [])
+        self.assertEqual(self.record()["status"], "cancelled")
+        self.clear_outputs()
+
+        def obstruct(_):
+            path = self.manifests()[0]
+            path.unlink()
+            path.mkdir()
+
+        self.state["on_image"] = obstruct
+        run = self.run_fault("cleanup-late-cancel")
+        result = self.failure(run)
+        self.assertTrue(result["cleanup_warning"])
+        self.assertTrue(result["committed"])
+        self.assertEqual(result["code"], "IMAGE_MANIFEST_FINALIZE_FAILED")
+        self.assertEqual(result["sha256"], sha(self.out.read_bytes()))
+        self.assertIn(b"kept", run.stderr)
+        self.assertNotIn(b"interrupted", run.stderr)
+        self.assertEqual(len(self.image_requests()), 2)
 
 
 class Dimensions(ImageFixture):
@@ -1463,15 +1770,28 @@ class Manifest(ImageFixture):
             )
             for name in ("a.png", "b.png")
         ]
-        for run in runs:
-            run.stdin.write(b"independent")
-            run.stdin.close()
-        # Both requests are in flight at once before either is answered.
-        started.wait()
-        for run in runs:
-            output, problem = run.communicate(timeout=60)
-            self.assertEqual(run.returncode, 0, problem)
-            self.assertTrue(output)
+        try:
+            for run in runs:
+                run.stdin.write(b"independent")
+                run.stdin.close()
+                # Python 3.10-3.12 communicate() otherwise flushes the closed
+                # object. The pipe has already delivered EOF to the child.
+                run.stdin = None
+            # Both requests are in flight at once before either is answered.
+            started.wait()
+            for run in runs:
+                output, problem = run.communicate(timeout=60)
+                self.assertEqual(run.returncode, 0, problem)
+                self.assertTrue(output)
+        finally:
+            started.abort()
+            for run in runs:
+                if run.poll() is None:
+                    run.kill()
+                    run.wait(timeout=10)
+                for stream in (run.stdin, run.stdout, run.stderr):
+                    if stream is not None:
+                        stream.close()
         self.assertEqual(len(self.image_requests()), 2)
         ids = {self.record(name)["operation_id"] for name in ("a.png", "b.png")}
         self.assertEqual(len(ids), 2)
@@ -1716,6 +2036,13 @@ class Manifest(ImageFixture):
         hostile = self.handwritten(
             "hostile.json",
             committed=True,
+            result={
+                "width": 2,
+                "height": 2,
+                "mime_type": "image/png",
+                "bytes": stolen.stat().st_size,
+                "size_status": "auto",
+            },
             artifacts=[
                 {
                     "role": "native",
@@ -1831,6 +2158,33 @@ class Manifest(ImageFixture):
         self.assertIsNotNone(rerun.manifest_path)
 
 
+def load_jobs_adapter():
+    """C124 names `test_image_workflow.py -k Jobs`, while the durable-job cases
+    live in tests/integration/test_jobs.py (#124, ADR 0093). Bind them into
+    this module for exactly that filter, so an unfiltered run of this file does
+    not execute the same suite twice."""
+    arguments = sys.argv[1:]
+    filters = []
+    for index, argument in enumerate(arguments):
+        if argument == "-k" and index + 1 < len(arguments):
+            filters.append(arguments[index + 1])
+        elif argument.startswith("-k") and len(argument) > 2:
+            filters.append(argument[2:])
+    if not any("Jobs" in value for value in filters):
+        return
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import test_jobs
+
+    for name in dir(test_jobs):
+        candidate = getattr(test_jobs, name)
+        if (
+            isinstance(candidate, type)
+            and issubclass(candidate, unittest.TestCase)
+            and name.startswith("Jobs")
+        ):
+            globals()[name] = candidate
+
+
 def argv_without_runner_binary():
     """run.sh appends $TNY; unittest must not read it as a test name."""
     kept = [sys.argv[0]]
@@ -1845,5 +2199,26 @@ def argv_without_runner_binary():
     return kept
 
 
+def load_export_cases():
+    """`-k Export` / `-k ContactSheet` here select the #125 export cases.
+
+    They live in test_image_exports.py, which builds on this fixture, so the
+    original workflow acceptance command keeps selecting them without either
+    file duplicating the other. Importing is deliberate and one-way: this
+    module never imports at load time, so the export file can keep importing
+    the fixture from here.
+    """
+    import importlib  # noqa: PLC0415
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    module = importlib.import_module("test_image_exports")
+    for name in ("Export", "ContactSheet", "Platform"):
+        case = getattr(module, name, None)
+        if isinstance(case, type):
+            globals()[name] = case
+
+
 if __name__ == "__main__":
+    load_export_cases()
+    load_jobs_adapter()
     unittest.main(argv=argv_without_runner_binary())

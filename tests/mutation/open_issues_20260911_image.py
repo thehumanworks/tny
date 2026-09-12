@@ -228,6 +228,7 @@ CASES = (
         "path": TOOLS,
         "intent": "delete the tools_queue_image direct-call refusal",
         "before": "    if (env && tny_image_input_refused(env->ctx)) {\n"
+        "        if (code_out) *code_out = TNY_IMAGE_PREVIEW_CODE_CAPABILITY;\n"
         '        if (err && errlen) snprintf(err, errlen, "%s", '
         "TNY_IMAGE_INPUT_REFUSAL);\n        return -1;\n    }\n",
         "after": "",
@@ -239,6 +240,7 @@ CASES = (
         "path": TOOLS,
         "intent": "let tools_flush_images flush instead of refusing",
         "before": "    if (tny_image_input_refused(env->ctx)) {\n"
+        "        if (outcome) *outcome = failure;\n"
         '        if (err && errlen) snprintf(err, errlen, "%s", '
         "TNY_IMAGE_INPUT_REFUSAL);\n        return -1;\n    }\n",
         "after": "",
@@ -393,8 +395,10 @@ CASES = (
         "path": TOOLS,
         "intent": "remove the capability predicate from the all-features raw-schema guard",
         "before": "         !tny_image_capabilities(env->ctx, false, NULL) || "
-        "tny_image_input_refused(env->ctx))) {",
-        "after": "         !tny_image_capabilities(env->ctx, false, NULL))) {",
+        "!tny_image_export_supported() ||\n"
+        "         tny_image_input_refused(env->ctx))) {",
+        "after": "         !tny_image_capabilities(env->ctx, false, NULL) || "
+        "!tny_image_export_supported())) {",
         "oracle": unit(SCHEMA_TEST),
         "assertion": 'ASSERTm("fully configured schema must hide the refused read_image '
         'tool", hidden)',

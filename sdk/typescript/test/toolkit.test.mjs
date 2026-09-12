@@ -192,6 +192,9 @@ test("toolkit rejects invalid requests before provider I/O", async t => {
     () => f.toolkit.generateImage("bad\0text", { outputFile: "out.png" }),
     () => f.toolkit.generateImage("\ud800", { outputFile: "out.png" }),
     () => f.toolkit.generateImage("tree", { outputFile: "out.png", quality: "impossible" }),
+    () => f.toolkit.generateImage("tree", { outputFile: "out.png", preview: true }),
+    () => f.toolkit.generateImage("tree", { outputFile: "out.png", preview: false }),
+    () => f.toolkit.editImage("tree", { outputFile: "out.png", images: ["in.png"], preview: true }),
     () => f.toolkit.generateImage("tree", { outputFile: "out.png", strictSize: "yes" }),
     () => f.toolkit.generateImage("tree", { outputFile: "out.png", strict_size: true }),
     // Strict size without an exact WIDTHxHEIGHT never reaches the provider.

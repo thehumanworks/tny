@@ -2494,6 +2494,7 @@ int tny_backend_openai_queue_image(tny_backend *b, const char *path, char *err, 
 
 tny_image_preview_status tny_backend_openai_queue_image_preview(tny_backend *b, const char *path,
                                                                 const char *expected_sha256,
+                                                                uint64_t expected_bytes,
                                                                 const char **code_out, char *err,
                                                                 size_t errlen) {
     if (code_out) *code_out = TNY_IMAGE_PREVIEW_CODE_NO_SESSION;
@@ -2520,7 +2521,8 @@ tny_image_preview_status tny_backend_openai_queue_image_preview(tny_backend *b, 
                      "provider request");
         return TNY_IMAGE_PREVIEW_TURN_NOT_READY;
     }
-    if (tools_queue_image_preview(&o->env, path, expected_sha256, code_out, err, errlen) != 0)
+    if (tools_queue_image_preview(&o->env, path, expected_sha256, expected_bytes, code_out, err,
+                                  errlen) != 0)
         return TNY_IMAGE_PREVIEW_FAILED;
     if (code_out) *code_out = NULL;
     return TNY_IMAGE_PREVIEW_QUEUED;
@@ -2600,6 +2602,15 @@ char *tny_openai_response_format(const char *schema_json, size_t len) {
     return out;
 }
 
+static tny_image_preview_status preview_admit(void *ud, const tny_image_preview_identity *id,
+                                              tny_image_preview_result *result) {
+    const char *code = NULL;
+    tny_image_preview_status status = tny_backend_openai_queue_image_preview(
+        ud, id->path, id->sha256, id->job ? id->job->bytes : 0, &code, NULL, 0);
+    if (code) snprintf(result->code, sizeof result->code, "%s", code);
+    return status;
+}
+
 tny_backend *tny_backend_openai_new(struct tny_ctx *ctx) {
     tny_backend *b = calloc(1, sizeof *b);
     oa_impl *o = calloc(1, sizeof *o);
@@ -2610,6 +2621,8 @@ tny_backend *tny_backend_openai_new(struct tny_ctx *ctx) {
     }
     o->ctx = ctx;
     o->env.ctx = ctx;
+    o->env.preview_admit = preview_admit;
+    o->env.preview_ud = b;
     buf_init(&o->text);
     buf_init(&o->toolcall_log);
     buf_init(&o->rawbody);

@@ -51,6 +51,11 @@ endif
 
 ifeq ($(WINDOWS),1)
   EXE := .exe
+  # MSYS2/Cygwin build a static yyjson dependency into the executable, not a
+  # yyjson DLL. Their POSIX compiler does not define _WIN32; use yyjson's
+  # supported API-annotation override rather than ELF visibility attributes,
+  # which GCC LTO diagnoses again at link time under our unchanged -Werror.
+  DEFS += -Dyyjson_api=
 else
   EXE :=
 endif
@@ -70,6 +75,17 @@ endif
 REL_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -Os -ffunction-sections -fdata-sections
 # Native executable objects only (ADR0092); never inherited by PIC/debug/wasm.
 REL_LTO = -flto
+# Let -Os/LTO choose JSON helper inlining for native releases (ADR0100).
+# Kept out of REL_CFLAGS, which also feeds PIC/library and analysis builds.
+REL_INLINE = -Dyyjson_inline=inline
+# Linux Clang needs -Oz for the native executable budget (ADR0102).
+# Probe the selected command, including wrappers; leave other build lanes alone.
+REL_SIZE_OPT =
+ifeq ($(UNAME_S),Linux)
+  ifneq ($(findstring clang,$(shell $(CC) --version 2>/dev/null)),)
+    REL_SIZE_OPT = -Oz
+  endif
+endif
 DBG_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -O0 -g
 
 # TLS is dlopen'd at first use (src/net/stream.c): SecureTransport on macOS,
@@ -141,7 +157,7 @@ REL_OBJS := $(SRC:%.c=$(OBJ_REL)/%.o) $(TP:%.c=$(OBJ_REL)/%.o)
 
 # libtny ABI 1: headless runtime only. ACP server/turn are application
 # adapters; the ACP client wire remains a library backend.
-LIB_APP_EXCLUDE := src/main.c $(wildcard src/cli/*.c src/tui/*.c) \
+LIB_APP_EXCLUDE := src/main.c $(filter-out src/cli/globals.c,$(wildcard src/cli/*.c src/tui/*.c)) \
                    src/backends/acp/acp_server.c src/backends/acp/acp_turn.c
 LIB_SRC := $(SRC_PUBLIC_API) \
            $(filter-out $(LIB_APP_EXCLUDE) $(SRC_PUBLIC_API),$(SRC_SHARED)) \
@@ -282,7 +298,7 @@ release: $(BIN)
 
 $(BIN): $(REL_OBJS)
 	@mkdir -p $(@D)
-	$(CC) $(REL_CFLAGS) $(REL_LTO) -o $@ $^ $(REL_LDFLAGS)
+	$(CC) $(REL_CFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(REL_LDFLAGS)
 	strip $@ 2>/dev/null || strip -x $@
 	@wc -c $@
 
@@ -292,10 +308,10 @@ DICTATION_FIXTURE = $(BUILD)/tny-dictation-fixture$(EXE)
 DICTATION_FIXTURE_OBJ = $(OBJ_REL)/dictation_xai_fixture.o
 $(DICTATION_FIXTURE_OBJ): src/core/dictation_xai.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CC) $(REL_CFLAGS) $(REL_LTO) -DTNY_DICTATION_FIXTURE -MMD -MP -c -o $@ $<
+	$(CC) $(REL_CFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -DTNY_DICTATION_FIXTURE -MMD -MP -c -o $@ $<
 
 $(DICTATION_FIXTURE): $(filter-out $(OBJ_REL)/src/core/dictation_xai.o,$(REL_OBJS)) $(DICTATION_FIXTURE_OBJ)
-	$(CC) $(REL_CFLAGS) $(REL_LTO) -o $@ $^ $(REL_LDFLAGS)
+	$(CC) $(REL_CFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(REL_LDFLAGS)
 
 .PHONY: dictation-fixture test-dictation wasm-dictation-fixture
 dictation-fixture: $(DICTATION_FIXTURE)
@@ -305,7 +321,7 @@ test-dictation: $(TEST_BIN) $(BIN) $(DICTATION_FIXTURE)
 
 $(OBJ_REL)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CC) $(REL_CFLAGS) $(REL_LTO) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
+	$(CC) $(REL_CFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
 
 $(OBJ_DBG)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)

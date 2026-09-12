@@ -71,7 +71,7 @@ static int control_write_all(int fd, const char *data, size_t len) {
     size_t off = 0;
     while (off < len) {
         if (g_control_interrupted) return -2;
-        ssize_t n = write(fd, data + off, len - off);
+        ssize_t n = socket_write(fd, data + off, len - off);
         if (n > 0) {
             off += (size_t)n;
             continue;
@@ -90,7 +90,8 @@ static int control_write_all(int fd, const char *data, size_t len) {
 
 /* Serialize one request. Each op names its own fields explicitly. */
 static int control_build_request(tny_control_op op, const char *payload,
-                                 const char *expected_sha256, const char *id, buf_t *wire) {
+                                 const char *expected_sha256, uint64_t expected_bytes,
+                                 const char *id, buf_t *wire) {
     buf_appends(wire, "{\"op\":\"hello\",\"role\":\"tool\"}\n{\"op\":");
     jescape(wire, control_op_name(op));
     buf_appends(wire, ",\"id\":");
@@ -112,6 +113,8 @@ static int control_build_request(tny_control_op op, const char *payload,
         jescape(wire, payload ? payload : "");
         buf_appends(wire, ",\"expected_sha256\":");
         jescape(wire, expected_sha256 ? expected_sha256 : "");
+        if (expected_bytes)
+            buf_appendf(wire, ",\"expected_bytes\":%llu", (unsigned long long)expected_bytes);
         known = true;
         break;
     }
@@ -196,19 +199,26 @@ static tny_control_exchange control_wait_reply(int fd, tny_control_op op, const 
 #endif /* !__EMSCRIPTEN__ */
 
 tny_control_exchange tny_control_request(tny_control_op op, const char *payload,
-                                         const char *expected_sha256, tny_control_reply *reply) {
+                                         const char *expected_sha256, uint64_t expected_bytes,
+                                         tny_control_reply *reply) {
     tny_control_reply local = {0};
     if (!reply) reply = &local;
     memset(reply, 0, sizeof *reply);
     const char *sock = getenv("TNY_SESSION_SOCK");
     if (!sock || !*sock) {
         if (reply == &local) tny_control_reply_free(reply);
+#ifdef __EMSCRIPTEN__
+        /* Preview reports runtime support independently of session discovery;
+         * legacy ask-user/attach retain their missing-socket precedence. */
+        if (op == TNY_CONTROL_OP_IMAGE_PREVIEW) return TNY_CONTROL_EXCHANGE_UNSUPPORTED;
+#endif
         return TNY_CONTROL_EXCHANGE_NO_SOCKET;
     }
 #ifdef __EMSCRIPTEN__
     (void)op;
     (void)payload;
     (void)expected_sha256;
+    (void)expected_bytes;
     if (reply == &local) tny_control_reply_free(reply);
     return TNY_CONTROL_EXCHANGE_UNSUPPORTED;
 #else
@@ -220,7 +230,7 @@ tny_control_exchange tny_control_request(tny_control_op op, const char *payload,
     reply->id = id;
     buf_t wire;
     buf_init(&wire);
-    if (control_build_request(op, payload, expected_sha256, id, &wire) != 0) {
+    if (control_build_request(op, payload, expected_sha256, expected_bytes, id, &wire) != 0) {
         buf_free(&wire);
         if (reply == &local) tny_control_reply_free(reply);
         return TNY_CONTROL_EXCHANGE_OOM;
@@ -370,7 +380,7 @@ static int control_report(tny_control_op op, bool json, tny_control_exchange exc
 
 static int control_exchange(tny_control_op op, const char *payload, bool json) {
     tny_control_reply reply = {0};
-    tny_control_exchange exchange = tny_control_request(op, payload, NULL, &reply);
+    tny_control_exchange exchange = tny_control_request(op, payload, NULL, 0, &reply);
     int rc = control_report(op, json, exchange, &reply);
     tny_control_reply_free(&reply);
     return rc;

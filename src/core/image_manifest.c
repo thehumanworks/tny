@@ -1,4 +1,5 @@
 #include "core/image_manifest.h"
+#include <limits.h>
 #include "json/json.h"
 #include "util/image_io.h"
 #include <stdio.h>
@@ -57,12 +58,92 @@ static void dimension_fields(buf_t *b, uint32_t width, uint32_t height) {
     else buf_appends(b, "\"width\":null,\"height\":null");
 }
 
+void tny_image_job_json(const tny_image_job *job, buf_t *out) {
+    if (!job || !*job->id) {
+        buf_appends(out, "null");
+        return;
+    }
+    buf_appends(out, "{\"id\":");
+    jescape(out, job->id);
+    buf_appendf(out,
+                ",\"item_index\":%d,\"projection_attempt\":%d,\"item_attempt\":%d,"
+                "\"carried_from_attempt\":%d,\"bytes\":%llu}",
+                job->item_index, job->projection_attempt, job->item_attempt,
+                job->carried_from_attempt, (unsigned long long)job->bytes);
+}
+
+static void reference_fields(buf_t *b, const tny_image_reference *ref,
+                             const tny_image_source_dimensions *dimensions) {
+    buf_appends(b, "{\"path\":");
+    jescape(b, ref->path);
+    buf_appends(b, ",\"sha256\":");
+    jescape(b, ref->sha256);
+    text_field(b, "source_manifest", ref->source_manifest);
+    text_field(b, "source_operation", *ref->source_operation ? ref->source_operation : NULL);
+    if (*ref->job.id) {
+        buf_appends(b, ",\"job\":");
+        tny_image_job_json(&ref->job, b);
+    }
+    if (dimensions) {
+        buf_appends(b, ",");
+        dimension_fields(b, dimensions->width, dimensions->height);
+    }
+    buf_appends(b, "}");
+}
+
+/* The settings a derived artifact was produced with, plus the exact ordered
+ * bytes it consumed. Grid fields are present only for a contact sheet, so a
+ * reader never has to tell a single-cell sheet from an export by guessing. */
+static void transform_object(buf_t *b, const tny_image_transform *t) {
+    buf_appends(b, "{\"operation\":");
+    jescape(b, t->operation);
+    text_field(b, "policy", t->policy);
+    text_field(b, "gravity", t->gravity);
+    text_field(b, "background", t->background);
+    text_field(b, "format", t->format);
+    buf_appends(b, ",");
+    dimension_fields(b, t->width, t->height);
+    if (t->columns) {
+        buf_appendf(b,
+                    ",\"grid\":{\"columns\":%u,\"rows\":%u,\"cell_width\":%u,\"cell_height\":%u}",
+                    t->columns, t->rows, t->cell_width, t->cell_height);
+        text_field(b, "labels", t->labels);
+    } else buf_appends(b, ",\"grid\":null,\"labels\":null");
+    buf_appends(b, ",\"tool\":");
+    jescape(b, t->tool);
+    text_field(b, "tool_version", t->tool_version);
+    buf_appends(b, ",\"sources\":[");
+    for (size_t i = 0; i < t->source_count; i++) {
+        if (i) buf_appends(b, ",");
+        reference_fields(b, &t->sources[i], t->source_dimensions ? &t->source_dimensions[i] : NULL);
+    }
+    buf_appends(b, "]}");
+}
+
+/* What produced these particular bytes, for a consumer reading the artifact
+ * list alone. The full lineage stays in the top-level transform object. */
+static void artifact_transform(buf_t *b, const tny_image_transform *t) {
+    buf_appends(b, ",\"transform\":");
+    if (!t) {
+        buf_appends(b, "null");
+        return;
+    }
+    buf_appends(b, "{\"operation\":");
+    jescape(b, t->operation);
+    text_field(b, "policy", t->policy);
+    text_field(b, "format", t->format);
+    buf_appends(b, ",");
+    dimension_fields(b, t->width, t->height);
+    buf_appends(b, "}");
+}
+
 void tny_image_manifest_serialize(const tny_image_record *r, buf_t *out) {
+    const tny_image_transform *t = r->transform;
     buf_appendf(out, "{\"version\":%d,\"kind\":\"image_manifest\",\"operation_id\":",
                 TNY_IMAGE_MANIFEST_VERSION);
     jescape(out, r->operation_id);
     buf_appends(out, ",\"operation\":");
-    jescape(out, r->edit ? "edit" : "generate");
+    jescape(out, t ? t->operation : r->edit ? "edit" : "generate");
     text_field(out, "status", r->status);
     text_field(out, "workspace", r->workspace);
     text_field(out, "started", r->started);
@@ -71,15 +152,8 @@ void tny_image_manifest_serialize(const tny_image_record *r, buf_t *out) {
     text_field(out, "output", r->output);
     buf_appendf(out, ",\"committed\":%s,\"references\":[", r->committed ? "true" : "false");
     for (size_t i = 0; i < r->reference_count; i++) {
-        const tny_image_reference *ref = &r->references[i];
         if (i) buf_appends(out, ",");
-        buf_appends(out, "{\"path\":");
-        jescape(out, ref->path);
-        buf_appends(out, ",\"sha256\":");
-        jescape(out, ref->sha256);
-        text_field(out, "source_manifest", ref->source_manifest);
-        text_field(out, "source_operation", *ref->source_operation ? ref->source_operation : NULL);
-        buf_appends(out, "}");
+        reference_fields(out, &r->references[i], NULL);
     }
     buf_appends(out, "],\"requested\":{\"provider\":");
     jescape(out, r->requested_provider);
@@ -117,19 +191,27 @@ void tny_image_manifest_serialize(const tny_image_record *r, buf_t *out) {
         text_field(out, "operation_id", r->source_operation);
         buf_appends(out, "}");
     } else buf_appends(out, "null");
-    /* A successful operation has exactly one artifact, and this service never
-     * resizes or re-encodes, so it is always the provider's own native bytes.
-     * Derived export copies arrive with the separate export slice (#125). */
+    /* The settings and ordered inputs of a local transform, or null for a
+     * provider operation. A failed or cancelled export still records what it
+     * was asked to do. */
+    buf_appends(out, ",\"transform\":");
+    if (t) transform_object(out, t);
+    else buf_appends(out, "null");
+    /* A successful operation has exactly one artifact: the provider's own
+     * native bytes for a generate or edit, and the locally derived bytes of
+     * an export or contact sheet, which are never relabelled native. */
     buf_appends(out, ",\"artifacts\":[");
     if (r->committed && r->output_sha256) {
-        buf_appends(out, "{\"role\":\"native\",\"path\":");
+        buf_appendf(out, "{\"role\":\"%s\",\"native\":%s,\"path\":", t ? "derived" : "native",
+                    t ? "false" : "true");
         jescape(out, r->output);
         buf_appends(out, ",\"sha256\":");
         jescape(out, r->output_sha256);
         buf_appends(out, ",");
         dimension_fields(out, r->width, r->height);
         text_field(out, "mime_type", r->mime);
-        buf_appendf(out, ",\"bytes\":%llu,\"transform\":null", (unsigned long long)r->bytes);
+        buf_appendf(out, ",\"bytes\":%llu", (unsigned long long)r->bytes);
+        artifact_transform(out, t);
         text_field(out, "source_operation", r->source_operation);
         buf_appends(out, "}");
     }
@@ -204,6 +286,38 @@ static bool one_of(const char *value, const char *const *names, size_t count) {
     return false;
 }
 
+static bool parse_job(yyjson_val *reference, tny_image_job *job) {
+    yyjson_val *v = jget(reference, "job");
+    if (!v) return true;
+    if (!yyjson_is_obj(v)) return false;
+    yyjson_val *id = jget(v, "id");
+    const char *text = yyjson_get_str(id);
+    if (!text || yyjson_get_len(id) != 32 || !hex_run(text, 32)) return false;
+    const char *keys[] = {"item_index", "projection_attempt", "item_attempt",
+                          "carried_from_attempt"};
+    int *values[] = {&job->item_index, &job->projection_attempt, &job->item_attempt,
+                     &job->carried_from_attempt};
+    for (size_t i = 0; i < 4; i++) {
+        yyjson_val *number = jget(v, keys[i]);
+        if (!yyjson_is_uint(number) || yyjson_get_uint(number) > (i == 0 ? 63u : INT_MAX))
+            return false;
+        *values[i] = (int)yyjson_get_uint(number);
+    }
+    if (!job->projection_attempt || !job->item_attempt ||
+        !((!job->carried_from_attempt && job->item_attempt == job->projection_attempt) ||
+          (job->carried_from_attempt == job->item_attempt &&
+           job->item_attempt < job->projection_attempt)))
+        return false;
+    yyjson_val *bytes = jget(v, "bytes");
+    if (!yyjson_is_uint(bytes) || !yyjson_get_uint(bytes) ||
+        yyjson_get_uint(bytes) > TNY_IMAGE_OUTPUT_MAX)
+        return false;
+    job->bytes = yyjson_get_uint(bytes);
+    memcpy(job->id, text, 32);
+    job->id[32] = 0;
+    return true;
+}
+
 static bool parse_references(tny_image_manifest *m, yyjson_val *root) {
     yyjson_val *list = jget(root, "references");
     if (!list || yyjson_is_null(list)) return true;
@@ -218,6 +332,7 @@ static bool parse_references(tny_image_manifest *m, yyjson_val *root) {
         hash_field(v, "sha256", ref->sha256, &ok);
         ref->source_manifest = field(v, "source_manifest", TNY_IMAGE_IO_PATH_MAX, false, &ok);
         id_field(v, "source_operation", ref->source_operation, false, &ok);
+        if (!parse_job(v, &ref->job)) ok = false;
         memcpy(ref->expected, ref->sha256, sizeof ref->expected);
         m->reference_count++;
         if (!ok) return false;
@@ -225,11 +340,79 @@ static bool parse_references(tny_image_manifest *m, yyjson_val *root) {
     return ok;
 }
 
+/* The ordered inputs a derived transform consumed, with the hash of the exact
+ * bytes it read. They are kept apart from references[], which belongs to
+ * provider uploads and stays bounded by TNY_IMAGE_REFERENCES_MAX. */
+static bool parse_sources(tny_image_manifest *m, yyjson_val *transform) {
+    yyjson_val *list = jget(transform, "sources");
+    size_t count = yyjson_arr_size(list);
+    if (!yyjson_is_arr(list) || !count || count > TNY_IMAGE_SOURCES_MAX) return false;
+    m->sources = calloc(count, sizeof *m->sources);
+    if (!m->sources) return false;
+    size_t i, n;
+    yyjson_val *v;
+    bool ok = true;
+    yyjson_arr_foreach(list, i, n, v) {
+        tny_image_source_dimensions *dims = &m->source_dimensions[m->source_count];
+        tny_image_reference *ref = &m->sources[m->source_count++];
+        if (!yyjson_is_obj(v)) return false;
+        dims->width = dimension(v, "width", &ok);
+        dims->height = dimension(v, "height", &ok);
+        if (!!dims->width != !!dims->height) return false;
+        ref->path = field(v, "path", TNY_IMAGE_IO_PATH_MAX, true, &ok);
+        hash_field(v, "sha256", ref->sha256, &ok);
+        ref->source_manifest = field(v, "source_manifest", TNY_IMAGE_IO_PATH_MAX, false, &ok);
+        id_field(v, "source_operation", ref->source_operation, false, &ok);
+        if (!parse_job(v, &ref->job)) ok = false;
+        memcpy(ref->expected, ref->sha256, sizeof ref->expected);
+        if (!ok) return false;
+    }
+    return ok;
+}
+
+/* An export or contact sheet must describe itself completely: the policy,
+ * canvas and tool that produced the bytes, and for a sheet its exact grid. A
+ * record that claims a derived operation without them is invalid, so a
+ * hand-written file cannot pass as verified lineage. */
+static bool parse_transform(tny_image_manifest *m, yyjson_val *root) {
+    yyjson_val *t = jget(root, "transform");
+    if (!m->derived) return !t || yyjson_is_null(t);
+    if (!yyjson_is_obj(t)) return false;
+    bool ok = true;
+    static const char *const policies[] = {"fit", "crop", "pad"};
+    static const char *const formats[] = {"png", "jpeg", "webp"};
+    m->transform_operation = field(t, "operation", 32, true, &ok);
+    m->transform_policy = field(t, "policy", 16, true, &ok);
+    m->transform_gravity = field(t, "gravity", 16, true, &ok);
+    m->transform_background = field(t, "background", 32, true, &ok);
+    m->transform_format = field(t, "format", 8, true, &ok);
+    m->transform_labels = field(t, "labels", 16, false, &ok);
+    m->transform_tool = field(t, "tool", 32, true, &ok);
+    m->transform_tool_version = field(t, "tool_version", 64, false, &ok);
+    m->canvas_width = dimension(t, "width", &ok);
+    m->canvas_height = dimension(t, "height", &ok);
+    if (!ok || !m->transform_operation || strcmp(m->transform_operation, m->operation) != 0 ||
+        !one_of(m->transform_policy, policies, 3) || !one_of(m->transform_format, formats, 3) ||
+        !m->canvas_width || !m->canvas_height)
+        return false;
+    yyjson_val *grid = jget(t, "grid");
+    if (grid && !yyjson_is_null(grid)) {
+        if (!yyjson_is_obj(grid)) return false;
+        m->grid_columns = dimension(grid, "columns", &ok);
+        m->grid_rows = dimension(grid, "rows", &ok);
+        m->cell_width = dimension(grid, "cell_width", &ok);
+        m->cell_height = dimension(grid, "cell_height", &ok);
+        if (!ok || !m->grid_columns || !m->grid_rows) return false;
+    }
+    return parse_sources(m, t);
+}
+
 static bool parse_artifacts(tny_image_manifest *m, yyjson_val *root) {
     yyjson_val *list = jget(root, "artifacts");
     if (!list || yyjson_is_null(list)) return true;
     if (!yyjson_is_arr(list) || yyjson_arr_size(list) > TNY_IMAGE_REFERENCES_MAX) return false;
     static const char *const roles[] = {"native", "derived"};
+    const char *expected = m->derived ? "derived" : "native";
     size_t i, n;
     yyjson_val *v;
     bool ok = true;
@@ -240,29 +423,33 @@ static bool parse_artifacts(tny_image_manifest *m, yyjson_val *root) {
             free(role);
             return false;
         }
-        /* Only the first native artifact is the replayable output; a derived
-         * export copy is recorded but never offered as the native source. */
-        if (m->artifact_path || strcmp(role, "native") != 0) {
+        /* Exactly one artifact is this record's own output: the provider's
+         * native bytes, or the derived bytes of a local transform. An
+         * artifact of the other kind is recorded but never offered as this
+         * record's output. */
+        if (m->artifact_path || strcmp(role, expected) != 0) {
             free(role);
             continue;
         }
         m->artifact_role = role;
         m->artifact_path = field(v, "path", TNY_IMAGE_IO_PATH_MAX, true, &ok);
         hash_field(v, "sha256", m->artifact_sha256, &ok);
+        /* Older records omit artifact bytes; when claimed, both identities
+         * must agree rather than allowing consumers to pick different sizes. */
+        yyjson_val *bytes = jget(v, "bytes");
+        if (bytes && (!yyjson_is_uint(bytes) || yyjson_get_uint(bytes) != m->bytes)) ok = false;
         if (!ok) return false;
     }
     return ok;
 }
 
-tny_image_manifest *tny_image_manifest_load(const char *path, char *err, size_t errlen) {
-    buf_t raw;
-    buf_init(&raw);
-    if (!path || !*path || tny_image_io_read_bounded(path, TNY_IMAGE_MANIFEST_MAX, &raw) != 0) {
-        snprintf(err, errlen, "cannot read image manifest (regular JSON file up to 256 KiB)");
-        buf_free(&raw);
+tny_image_manifest *tny_image_manifest_parse(const char *path, const void *data, size_t size,
+                                             char *err, size_t errlen) {
+    if (!path || !*path || !data || size > TNY_IMAGE_MANIFEST_MAX) {
+        snprintf(err, errlen, "invalid bounded image manifest");
         return NULL;
     }
-    yyjson_doc *doc = jparse(raw.data, raw.len);
+    yyjson_doc *doc = jparse(data, size);
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
     tny_image_manifest *m = NULL;
     const char *kind = jget_str(root, "kind");
@@ -283,24 +470,27 @@ tny_image_manifest *tny_image_manifest_load(const char *path, char *err, size_t 
         snprintf(err, errlen, "out of memory reading image manifest");
         goto done;
     }
-    static const char *const operations[] = {"generate", "edit"};
+    static const char *const operations[] = {"generate", "edit", "export", "contact_sheet"};
+    static const char *const derived_operations[] = {"export", "contact_sheet"};
     static const char *const states[] = {"running", "succeeded", "failed", "cancelled"};
     bool ok = true;
-    m->path = path_abs(path);
+    m->path = xstrdup(path);
     id_field(root, "operation_id", m->operation_id, true, &ok);
     m->operation = field(root, "operation", 16, true, &ok);
+    m->derived = one_of(m->operation, derived_operations, 2);
     m->status = field(root, "status", 16, true, &ok);
     m->workspace = field(root, "workspace", TNY_IMAGE_IO_PATH_MAX, true, &ok);
     m->started = field(root, "started", 64, true, &ok);
     m->finished = field(root, "finished", 64, false, &ok);
-    m->prompt = field(root, "prompt", TNY_IMAGE_PROMPT_MAX, true, &ok);
+    /* A local transform has no prompt to record, and must not acquire one. */
+    m->prompt = field(root, "prompt", TNY_IMAGE_PROMPT_MAX, !m->derived, &ok);
     m->output = field(root, "output", TNY_IMAGE_IO_PATH_MAX, true, &ok);
     m->committed = jget_bool(root, "committed", false);
     yyjson_val *requested = jget(root, "requested"), *effective = jget(root, "effective");
     yyjson_val *result = jget(root, "result");
     if (!ok || !m->path || !yyjson_is_obj(requested) || !yyjson_is_obj(effective) ||
-        (result && !yyjson_is_obj(result)) || !one_of(m->operation, operations, 2) ||
-        !one_of(m->status, states, 4) || *m->workspace != '/') {
+        (result && !yyjson_is_obj(result)) || !one_of(m->operation, operations, 4) ||
+        !one_of(m->status, states, 4) || *m->workspace != '/' || (m->derived && m->prompt)) {
         snprintf(err, errlen, "image manifest is missing or misdeclares a required field");
         goto invalid;
     }
@@ -322,8 +512,17 @@ tny_image_manifest *tny_image_manifest_load(const char *path, char *err, size_t 
             else m->bytes = yyjson_get_uint(bytes);
         }
     }
-    if (!ok || !parse_references(m, root) || !parse_artifacts(m, root)) {
+    if (!ok || !parse_references(m, root) || !parse_transform(m, root) ||
+        !parse_artifacts(m, root)) {
         snprintf(err, errlen, "image manifest has an invalid reference, artifact or setting");
+        goto invalid;
+    }
+    /* A derived record names the local transform, never a network provider:
+     * a caller that resolves a provider from it fails closed instead of
+     * turning recorded local work into a paid request. */
+    if (m->derived && (m->reference_count || !m->requested_provider ||
+                       strcmp(m->requested_provider, "local") != 0)) {
+        snprintf(err, errlen, "image manifest misdeclares a local transform");
         goto invalid;
     }
     /* A record that claims a committed output must actually name and hash it. */
@@ -332,13 +531,26 @@ tny_image_manifest *tny_image_manifest_load(const char *path, char *err, size_t 
         goto invalid;
     }
     yyjson_doc_free(doc);
-    buf_free(&raw);
     return m;
 invalid:
     tny_image_manifest_free(m);
     m = NULL;
 done:
     yyjson_doc_free(doc);
+    return m;
+}
+
+tny_image_manifest *tny_image_manifest_load(const char *path, char *err, size_t errlen) {
+    buf_t raw;
+    buf_init(&raw);
+    if (!path || !*path || tny_image_io_read_bounded(path, TNY_IMAGE_MANIFEST_MAX, &raw) != 0) {
+        snprintf(err, errlen, "cannot read image manifest (regular JSON file up to 256 KiB)");
+        buf_free(&raw);
+        return NULL;
+    }
+    char *absolute = path_abs(path);
+    tny_image_manifest *m = tny_image_manifest_parse(absolute, raw.data, raw.len, err, errlen);
+    free(absolute);
     buf_free(&raw);
     return m;
 }
@@ -368,8 +580,23 @@ void tny_image_manifest_free(tny_image_manifest *m) {
     free(m->artifact_role);
     free(m->mime);
     free(m->size_status);
+    free(m->transform_operation);
+    free(m->transform_policy);
+    free(m->transform_gravity);
+    free(m->transform_background);
+    free(m->transform_format);
+    free(m->transform_labels);
+    free(m->transform_tool);
+    free(m->transform_tool_version);
+    for (size_t i = 0; i < m->source_count; i++) {
+        free(m->sources[i].path);
+        free(m->sources[i].source_manifest);
+    }
+    free(m->sources);
     free(m);
 }
+
+bool tny_image_manifest_derived(const tny_image_manifest *m) { return m && m->derived; }
 
 const char *tny_image_manifest_observed_status(const tny_image_manifest *m) {
     if (!m || !m->status) return "unknown";

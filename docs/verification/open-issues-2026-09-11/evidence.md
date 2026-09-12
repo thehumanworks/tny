@@ -175,3 +175,309 @@ The corrected event slice is now merged into the canonical integration tree with
 ### Job component paused and resumed at independent review checkpoint
 
 Review b3784906-e36c-4a0d-b2a1-724583a1a6ee found a stale retry transaction and wrong-kind credential carriers. The original worker PID was verified by command/cwd, its content manifest saved at artifacts/finish-20260912/jobs-review-checkpoint-before.json, and only that task-owned worker received SIGINT. It exited; no completion or passing unfinished run is inferred. A fresh bounded implementer resumes the preserved code under A14; all original before-images remain available for integration.
+
+
+## Review and merge continuation — 2026-09-12T16:39Z
+
+Active delivery goal: `01a09677-b72d-7e51-9c8d-1c917d0a6286`, status active.
+A19 records the user's conditional merge authorization. PR130 is OPEN/DRAFT at
+266bcf8522c614540c94cb3591ff513817b12d29; remote main remains b80c04b.
+The prior work made concrete implementation and test progress; current scope is
+still incomplete. The jobs session f20beb266cffed22 is verified live at PID79884
+and its own workspace, with current source edits; it was not restarted.
+
+Fresh independent review `/root/ci_triage` inspected current source plus raw CI
+logs. The Darwin job's final test passed immediately before cancellation, so no
+hang is inferred. CI contains pre-existing-source sanitizer findings: a TUI
+fixture calls real ACP with a null cwd, and HTTP parses an empty unallocated
+buffer. These contradict C-G2's sanitizer-clean requirement. Before correction,
+local existing net14/TUI1 tests passed without diagnostics; that does not erase
+CI findings. Proposed smallest fixes are a valid cwd in the fixture and deferring
+HTTP parsing until at least one byte is buffered, preserving timeout/EOF behavior.
+A socketpair regression will exercise empty, partial, complete and EOF boundaries;
+no vendored code or sanitizer setting will be changed. The independent reviewer
+approved that bounded correction approach; primary performs the changes and
+source-bound checks. Raw local observations and preview integration preflight are
+under `artifacts/review-merge-20260912/`.
+
+
+### Sanitizer gate repairs — current bounded proof
+
+D029/D031 built the regression and a clean separate SANITIZE=1 tree; D032 net
+(15 tests) and D033 TUI passed against unchanged recorded inputs. Local original
+code linked into the clean binary still did not reproduce the hosted null+0
+sanitizer diagnostic; this compiler/runtime difference remains explicit, and
+neither local original pass erases the CI failure. A compiled inversion of the
+new nonempty-buffer guard fails the expected204 response assertion in the new
+socketpair regression (not a compiler or unrelated error). The canonical source
+was never mutated. Raw original/mutant compile/link/run records are in
+`artifacts/review-merge-20260912/http-empty-*.json` and logs. clang-format check
+and git diff --check pass for these changes.
+
+Fresh first-code reviewer `/root/preview_review`, distinct from design reviewer
+`/root/ci_triage`, found no issues in empty/partial/complete/EOF behavior or the
+valid-cwd fixture repair. Inspected hashes: http1.c
+479cab80eb151cfbbaff9a3c36830c51c385118312d1c9343e332bfece14fbc9;
+test_net.c 7bcccaa20616506d64abc9b0cdfadd5905c0a5df6bca63195d2f621361a68011;
+test_tui.c a6a97f589ed8e8a9e4f1826c1e3d82c6629dd43cc0ccd7562ce0c1d370cdeb79.
+These are bounded repairs, not final six-issue completion or cross-platform proof.
+
+The same reviewer rejected the isolated generated-preview slice for three
+concrete issues: Linux control socket SIGPIPE can suppress a successful image
+result; producer-relative output paths are misresolved by the owning session;
+and tool_err's1024-byte buffer truncates selected-preview failure JSON. Worker
+`/root/preview_corrections` owns corrections in the existing isolated preview
+worktree. Shared no-SIGPIPE writes must stay in the existing net transport seam.
+No preview integration or approval is claimed yet.
+
+
+### Reviewed preview integrated — 2026-09-12T16:52Z
+
+Initial reviewer /root/preview_review identified three defects. Corrections have
+recorded before-fail/after-pass observations on Mac/Linux; fresh reviewer
+/root/ci_triage inspected six final correction files and approved with no blockers.
+The primary verified all31 final hashes and matching canonical before-images,
+then integrated exactly those files. Both snapshots are retained under
+artifacts/review-merge-20260912/preview-integration. D037 combined build passes
+with unchanged inputs. D038/D039/D040 preview/workflow/permission checks are
+running; no test success is inferred yet. D036 quality passed on its recorded
+prepreview candidate; it is invalidated as final quality by preview integration.
+Job selection is still unimplemented; the proposed metadata-only ownership
+boundary is recorded in job-selection-design.md, awaiting jobs prerequisite
+review and concrete design challenge. Overall remains INCOMPLETE.
+
+
+D038 integrated preview21 discovered (20 pass, Linux-only skip), D039 integrated
+image workflow96 discovered (95 pass, platform skip), and D040 all7 permission
+cases pass with unchanged captured inputs. D041 full make test now runs on the
+combined preview tree. The earlier complete unit D035 passed524 tests and13009
+assertions with no skips or sanitizer diagnostics before preview integration.
+Current jobs worker focused8 regression cases passed in its isolated tree;
+/root/jobs_process_review checks its current process/handshake boundary and native
+platform support independently. No jobs source is integrated or called complete.
+
+
+### Combined full preview gate and reviewed jobs integration — 2026-09-12T17:17Z
+
+D041 full make test passes in805.6s, unchanged sources. This is the complete
+preview/export/manifest combination before jobs integration, not final scope.
+D042 builds the integrated jobs tree after32 source/document/test merges with
+all starting hashes verified. Scratch merge retained both feature branches in
+8 conflicted files and uses tool_jobs_run for intercepted cancellation parity;
+no old name-only image execution or temporary job image staging was restored.
+D043 reproduces missing jobs parser inventory, D044 passes all4 help checks after
+registering cmd_jobs/tny_jobs_parse_argv and its source. D045 passes536 unit tests,
+13369 assertions, zero skipped with sanitizer halt-on-error and unchanged inputs.
+D046 real Jobs adapter integration and D047 ABI/SDK checks are running.
+
+The old jobs writer was deliberately stopped at the failed ownership review
+checkpoint: real session readback interrupted/130 and PID79884 absent. Before
+copies remain in jobs-checkpoint. The Linux correction has original failing and
+corrected passing compiled ownership oracle plus4 actual Linux cleanup tests.
+Independent /root/ci_triage approved its exact three-file state before the jobs
+merge. MSYS2 unsupported and producer digest/selection remain required, unfinished
+work; A20 records independent scheduling without waiving them. ADR0098 was
+exclusively allocated under the shared lock before job-artifact implementation.
+All88 baseline finalized ADR hashes and initial contract hash still match.
+
+
+### Caller parity correction plan before source edits — 2026-09-12T17:37Z
+
+Fresh reviewer /root/jobs_process_review found wait cancellation dropped at
+jobs_wait and valid leading globals bypassing job interception. It approved
+reusing the actual pure global parser through a quiet command-index helper,
+freeing temporary arrays without context/worktree/provider initialization, and
+passing cancellation into the waiter with exit130 while leaving the job alive.
+D051 reproduces the global-prefix refusal failure; D053 reproduces ignored wait
+cancellation. D049's first regression build failed on a nonexistent test enum;
+D050 corrected the fixture constant and compiled before the actual D051 failure.
+Existing ADR0063/0093 command/permission and interruption rules govern these
+repairs; no new permission mode or generic shell restriction is introduced.
+The parser will move unchanged in semantics into a shared pure CLI translation
+unit, avoiding a duplicated prefix grammar. Unsupported jobs globals are refused
+inside interception with actionable syntax; ordinary CLI parsing stays supported.
+Original before-images remain in caller-corrections/before. Full tests, ABI and
+fresh corrected-source review follow; no passing final gate is inferred.
+
+
+### Caller corrections verified — 2026-09-12T17:46Z
+
+D054/D059 build the extracted shared CLI grammar and cancellable waiter.
+D057/D058 pass both reproduced regressions. D055/D056 invoked the wrong binary
+path and did not run tests; D057/D058 use the actual build/tny-test. D060 passes
+537 tests/13390 assertions/no skips under sanitizer halt-on-error. Its only
+concurrent input change was the help-inventory Python test, which has no unit
+binary dependency. D061 exposed the parser wrapper inventory gap; D063 passes
+all4 help checks after including the shared grammar entrypoint.
+
+D062 ABI43 and TypeScript43 tests passed, but the Python SDK workflow test
+failed result.ok. The standalone same-source D064 case passed; D065 complete
+Python SDK and conformance rerun passed. No cause is inferred from that retry.
+Final combined SDK validation remains required after integration. Independent
+/root/jobs_process_review approved the actual corrected caller source; exact
+file hashes and conclusions are in caller-corrections/review-approved.json.
+D067 Linux build/size and D068 Mac candidate quality run against1131 matching
+product inputs with an explicit build version. D066 failed before compiling
+because docker cp retained an unreadable host uid; ownership was corrected only
+for the task archive, then extraction succeeded. No platform pass is inferred.
+
+
+### Linux size and release policy — 2026-09-12T17:59Z
+
+D067 compiled GCC13.3/aarch64 successfully but failed unchanged1MiB gate at
+1117160B. D069 -Oz remained1117160B; D071 unwind omission1051624B and D072
+general inlining suppression1248200B also failed. D075 Clang -Oz1052368B failed.
+D074 the pinned yyjson macro override, retaining static inline while removing
+always_inline, passed at986088B without removing unwind metadata. Independent
+/root/jobs_process_review approved the design, then A22 and exclusively created
+ADR0100 preceded Makefile changes. Actual-source review approved four native
+recipe sites and isolated flags. Its small custom-BUILD test finding was fixed.
+D079/D081 flags pass; D080 forced Mac release and dictation fixture build pass.
+D082 checks the portable recipe-test correction. Five deliberate valid Makefile
+faults (each native recipe omission, or PIC leakage) fail their intended flag
+assertion, with original/restored pass; these are configuration checks, not C
+runtime mutation claims.
+
+D070 Linux sanitized unit suite passes. D073 Linux jobs72 cases passes with only
+2WASM-only skips. D078 candidate release dimension18 cases passes with one
+platform skip. D077 paired nine-iteration same-source release latency medians:
+TUI2.9ms forced/2.6ms compiler-selected; ask-stdin16.2ms/16.0ms. These small
+fixture measurements show no observed regression, not a performance guarantee.
+The remote1131-input snapshot is unchanged after all runs (caller-linux/after.json).
+Host-only concurrent edits caused the generic runner's source_unchanged=false
+for some remote commands; they did not mutate the tested remote source.
+
+D068 candidate quality failed only the integrated jobs enum-comment alignment;
+its remaining analyzers/lints completed without additional errors. D076 format
+passes after that whitespace-only correction. Final quality remains pending
+later integrations. Actual WASM build exposed a set-but-unused native PID watch;
+minimal wasm no-op storage correction has independent approval and is overlaid
+into the job-artifact worker's isolated WASM verification copy.
+
+
+### Job artifacts integrated and caller fault confirmation — 2026-09-12T18:17Z
+
+Final independent job-artifact approval covers42 files, final patch b4076722...
+and manifest7ccf5384...; integration verified all initial and final hashes and
+preserved five root caller changes through clean three-way merges. D083 forced
+combined build passed. D084 real job-artifact14, D085 full unit538/13504
+assertions/no skips, D086 full-preview20pass/1Linux-onlyskip and D088 help4 pass
+with unchanged source inputs. R/job-artifacts-integration retains exact before,
+merged, preflight and applied snapshots. Final MSYS source remains isolated.
+
+Both caller safeguards now have distinct compiled fault binaries and intended
+failures plus original/restored passing behavior in caller-corrections/compiled-
+faults-v3. The first two attempts are invalid due to make3.81 second-resolution
+rebuild timestamps (first stale executable, then stale restored object); their
+logs and diagnoses are retained. V3 deletes only the two disposable mutable
+objects and test executable before each build and records binary SHA256.
+The final portable flag regression kills all five valid Makefile configuration
+faults in release-inline-policy/faults-v2, original/restored pass. A different
+actual-source reviewer /root/msys_jobs_design also approved the native inlining
+slice, independent of its design reviewer.
+
+D087 quality passed formatting/lints/strict warnings but failed one analyzer path
+in parse_sources: repeated yyjson count/type calls lost their constraint in the
+analyzer model. Existing code already rejected zero before allocation; no runtime
+zero-allocation failure is claimed. The source now captures count once and uses
+the same checked value for allocation. D089 rebuild and D090 focused analyzer
+check run; fresh source review is requested. No rule is suppressed.
+
+D089 forced rebuild and D090 focused clang-tidy pass with unchanged sources.
+Independent reviewer approved the exact count-capture correction. D091 image
+unit and D092 real task-local ImageMagick export regressions run; full final
+quality still follows the last MSYS integration.
+
+D091 image-service31 tests and D092 real task-local ImageMagick42 cases
+(40pass/2explicitplatformskips) pass with unchanged inputs after count capture.
+Remote state rechecked18:24Z: main remainsb80c04b, draftPR130 remainsopen
+at266bcf8; no new push/merge has occurred. Final reconciliation maps all39R/49I
+and34originalcheckboxtexts, with no finalPASS assigned. Operational zero-test
+Export/Preview routing is explicitly corrected in the append-only contract.
+
+### Frozen final-platform pass and corrective checks — 2026-09-12T19:19Z
+
+R/final-inputs freezes1141 inputs (archive174efb5f...) at6cafa1a plus reviewed
+integrations; later corrections are recorded separately. D097 Mac full quality
+passes190.1s with unchanged frozen inputs; D098 leaks passes116.9s unchanged.
+Linux final quality passes253.7s; Clang strict warnings and full Valgrind538 unit
+cases pass; unprivileged musl538 cases pass with no skips. GCC release986144B
+and musl static1051520B meet their respective budgets. Default Clang1117912B
+fails its native budget; measured -Oz986840B motivates approved A24/ADR0102.
+The actual policy now has D099 five passing configuration tests covering compiler
+wrappers, four expanded native recipes and exclusion from other platform/build
+flags. Actual-source review and final affected-lane execution remain pending.
+
+D096 full Mac test/ABI/SDK command fails1142.5s, with source changes recorded;
+Linux full integration also fails. Both expose an invalid hand-written artifact
+fixture and stale wait-loss injection. Mac additionally catches PNG date metadata
+breaking repeated contact-sheet byte determinism. Failures remain evidence and
+are not waived. The approved artifact/wasm control correction is integrated from
+R/wasm-parity-correction with preserved fixture-policy edits through a clean
+three-way merge; its focused native/actual-wasm and legacy precedence checks pass.
+Wait-loss and export determinism corrections remain under investigation.
+
+Real sandboxed Nix initially fails one descriptor unit because its intentionally
+empty environment cannot resolve external cat; /bin/sh exists. Corrected fixture
+uses configured TNY_SHELL_PATH and POSIX shell builtins, independently reviewed.
+Nix packaged ELF exceeds budget after RPATH mutation despite passing pre-fixup
+size; this remains a failed gate pending a measured packaging correction. A11
+Linux-only tini adoption first slice has independent approval. No merge/push or
+scope reduction has occurred.
+
+
+### Native corrections and live proof — 2026-09-12T19:29Z
+
+Clang fixture-link review found missing release flags at two Python link sites;
+both now match the native compile/link policy. D103 six configuration checks pass,
+and independent actual-source reviewer approved corrected four-file hashes.
+Export timestamp correction and post-initialization real wait-loss fixture each
+have independent actual-source approval and are integrated with before/after
+hash checks. D100/D104 rebuilds and D101 descriptor/D102 artifact-lineage checks
+pass. D105 full Mac test/ABI/SDK runs on the corrected native code.
+
+R/live-final/evidence.json records the successful real provider probe using
+frozen Mac executable c81872fd2ae8ec978934f9be22fe4ad1c42a66d0b642c586c6dee40a27d54ad8.
+Exactly four outbound requests cover generate, edit, initial Responses tool call
+and next Responses with the exact captured edited pixels; provider vision agrees
+with independently decoded dominant color. Private credentials were read only,
+never refreshed or copied; retained evidence is bounded structural data. This
+proves native typed preview/vision, not a live socket or job-selection path.
+
+Current frozen-input mutation reruns kill all28 dimensions/capability and8
+subagent faults, with original/restored checks passing and frozen inputs unchanged.
+The A13 manifest rerun finds9 intended kills but its first restored F8 binary
+stays stale under make3.81; that first run is not accepted. Corrected disposable
+object/executable invalidation reruns all9: original, compiled intended failure,
+restored oracle and source-hash checks now pass. R/mutation-current-progress.json
+tracks the remaining families; no full C-G7 PASS is assigned yet.
+
+### Publication checkpoint — 2026-09-12T20:03Z
+
+Final V4 freezes1143 product/test/configuration/dependency inputs, archive
+265f305d515de232430144fa686cb29459357bed3a13bb275e1aae78d2b23fec.
+D110 full quality passes176.2s with unchanged inputs in the exact curated
+publication tree; its manifest equals V4 and the staged product index. D106's
+root formatting failure was untracked archived C probes, which remain unchanged
+and are not publication inputs. D109 also passes the last test-only Python checks.
+
+D105 completed the full Mac test/ABI/SDK sweep with only the second auto-reap
+fixture caller failing. The explicit two-mode correction has independent source
+approval, both modes pass on Mac/Linux, and D108 full Mac jobs72 passes297.6s
+with unchanged inputs. All other D105 groups and ABI/SDK gates pass. Final Linux
+jobs72, cleanup-hold13, image workflow96/exports42/preview17/policy6 and538units
+pass. Final GCC986144B, Clang986840B and musl1051520B meet their unchanged limits.
+Full final musl538 cases pass unprivileged without skips. Clang paired nine-run
+fixture latency shows no observed regression; no speed improvement is claimed.
+
+Final M123.7 actual Valgrind fault is caught with original/restored passes. All14
+canonical event faults are accounted for:7 affected final-source reruns and7
+unchanged-guard dependency reconciliations; actual browser readiness is separate.
+Final jobs31 historical mutation rows are still being reconciled/executed.
+
+Actual V4 sandbox exports42 now pass (40pass/2existing skips), including both
+real75-second deadline paths. The correction only resolves quoted absolute test
+utility paths, leaving production converter environment and assertions unchanged.
+V4 workflow/jobs/shell checks and final default flake remain pending. Earlier V3
+fixture failures are retained. Commit/push is the next authorized delivery step;
+merge remains conditional on all original gates and explicit user dispositions.

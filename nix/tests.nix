@@ -8,11 +8,13 @@
   git,
   bash,
   bubblewrap,
+  imagemagick,
   nodejs,
   openssl,
   perl,
   procps,
   python3,
+  tini,
   tmux,
   util-linux,
   zsh,
@@ -21,11 +23,20 @@
 
 let
   src = (import ./source.nix { inherit lib; }).tests;
+  # Linux fixture descendants can outlive their direct parent. Adopt and reap
+  # them inside the builder even when the host/container init does not reap.
+  testRunner = lib.optionalString stdenv.hostPlatform.isLinux "${tini}/bin/tini -s -- ";
 in
 stdenv.mkDerivation {
   name = "tny-tests-${version}";
   inherit src;
 
+  # test_jobs.py compiles tests/fixtures/jobs_launch_barrier.c with stdenv's cc
+  # (-dynamiclib on Darwin, -shared on Linux; -ldl for snapshot crash faults).
+  # The host C runtime supplies dl; no extra runtime package is used.
+  # test_jobs_cleanup_hold.py needs only existing Python/fcntl dependencies.
+  # test_jobs_msys.py skips on Nix hosts; its native Windows CI fixtures use
+  # the existing gcc/make/python toolchain and the Makefile object inventory.
   strictDeps = true;
   nativeBuildInputs = [
     bash
@@ -40,6 +51,13 @@ stdenv.mkDerivation {
     # credentials, the stdlib loopback provider and the existing fake ACP
     # agent; test_settings_schema.py needs stdlib json/re and skips its
     # optional jsonschema case, so neither adds a dependency here.
+    # test_job_artifacts.py (ADR 0098) uses the same stdlib loopback providers
+    # and actual detached jobs. Its two fixtures in tests/fixtures compile the
+    # real core with the existing make/compiler/debug objects; no added package.
+    # test_image_preview_workflow.py (ADR 0097) imports test_image_workflow.py,
+    # already in the integration inventory. All artifacts/HTTP fixtures are
+    # generated in a private HOME with Python stdlib. Real optional ImageMagick
+    # uses the existing export dependency; no new executable or input directory.
     # The #127 manifest/replay cases need no new tool: records are JSON, hashes
     # come from stdlib hashlib, and the concurrency, killed-writer and
     # read-only-directory faults use only os/subprocess/threading.
@@ -61,6 +79,14 @@ stdenv.mkDerivation {
     # project files; it requires no OpenRouter login or live model access.
     # test_interrupt.py builds its Darwin slow-lock fixture with the stdenv
     # compiler already on PATH; it does not require a system compiler path.
+    # tests/integration/test_image_exports.py (#125) drives the real optional
+    # ImageMagick 7 `magick` executable: the export contract is what an actual
+    # decoder and encoder produce, so it is not mocked. This is a test-only
+    # dependency — nothing tny builds, installs or links needs it, and its
+    # absence is a clean runtime error rather than a broken build.
+    imagemagick
+    # test_windows_lto_flags.py uses stdenv's make to inspect both platform
+    # flag branches; no cross compiler or additional runtime input is needed.
     zsh # make test also runs the quick-ask widget in real Zsh PTYs
     tmux # test-only terminal screen assertions; never used by the tny runner
     nodejs # tests/site/test_term.js, driven by test_site.py
@@ -79,9 +105,16 @@ stdenv.mkDerivation {
   # tests/integration/test_tui.py reads `ps` to prove the TUI pre-warm spawned
   # exactly one host, and test_ask_events.py reads it for the resident size of
   # a backpressured writer and for the owned MCP child a SIGINT must reap
-  # (ADR 0090). A builder's PATH holds only its inputs, so macOS needs an
-  # explicit ps too — /bin/ps is on the disk but never on the PATH.
-  ++ lib.optionals stdenv.hostPlatform.isLinux [ bubblewrap procps util-linux ]
+  # (ADR 0090). tests/integration/test_jobs.py reads it to find a durable job's
+  # actual supervisor and item children before killing or sparing them
+  # (ADR 0093); its credential-isolation cases additionally have the item child
+  # itself run `env | grep -E …` through the ordinary terminal tool, which is
+  # stdenv's own coreutils/gnugrep — the same PATH test_subagent.py's `env` tool
+  # call already relies on, so no new input is declared. A builder's PATH holds
+  # only its inputs,
+  # so macOS needs an explicit ps too — /bin/ps is on the disk but never on the
+  # PATH.
+  ++ lib.optionals stdenv.hostPlatform.isLinux [ bubblewrap procps tini util-linux ]
   ++ lib.optionals stdenv.hostPlatform.isDarwin [ darwin.ps ];
 
   # The debug/test binary is -O0, and glibc's features.h emits a #warning when
@@ -121,8 +154,8 @@ stdenv.mkDerivation {
         exit 1
       }
     done
-    make -j''${NIX_BUILD_CORES} $makeFlags test
-    make $makeFlags test-shell-workflows
+    ${testRunner}make -j''${NIX_BUILD_CORES} $makeFlags test
+    ${testRunner}make $makeFlags test-shell-workflows
     runHook postBuild
   '';
 

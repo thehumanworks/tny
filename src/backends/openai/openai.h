@@ -92,6 +92,7 @@ int tny_backend_openai_queue_image(tny_backend *b, const char *path, char *err, 
  * TNY_IMAGE_PREVIEW_CODE_* string unless the status is queued. */
 tny_image_preview_status tny_backend_openai_queue_image_preview(tny_backend *b, const char *path,
                                                                 const char *expected_sha256,
+                                                                uint64_t expected_bytes,
                                                                 const char **code_out, char *err,
                                                                 size_t errlen);
 

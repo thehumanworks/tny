@@ -601,3 +601,235 @@ product sources. D003's canonical format failure on archival probes remains a
 failed run; no format rule is suppressed or weakened. Candidate checks must bind
 to exact file hashes and publication must verify those hashes against staged
 inputs. This is not permission to omit any delivered source from quality gates.
+
+## Amendment A18 — parallel independent preview implementation — 2026-09-12
+
+A13 owned plans, A15 captured queue, A12 exports, and the image-service
+producer-identity/no-replace boundary now have corrected-source approvals.
+The coordinator may implement and test generation/export/manifest-selected
+preview against those approved boundaries while jobs cancellation/retry
+corrections finish separately. This is independent component scheduling, as
+in A12, not permission to reuse rejected job code. Job-selected preview and
+I127.8 remain blocked on the corrected real jobs resolver and integrated
+lineage tests. No stub, fabricated successful selection or missing-case skip
+may count as delivery. The full C126/ADR0097 design, all 49 invariants and all
+original platform/mutation/review gates remain active. A fresh actual-code
+review is required after this preview slice and after job selection integration.
+
+## Amendment A19 — full verification and merge authorization — 2026-09-12
+
+The current user goal explicitly requests review of the complete intended
+delivery, completion of its scope, passing quality/tests, and merge to remote
+main once verified. This supersedes A16 and historical handoff prohibitions on
+merging; it does not waive acceptance requirements, authorize issue closure or
+release/deployment, or permit discarding preserved work. PR #130 remains draft
+and incomplete until the full current-state gate passes.
+
+The active delivery thread goal is `01a09677-b72d-7e51-9c8d-1c917d0a6286`, read
+through `get_goal` on this continuation with status `active`. It incorporates
+the full original six-issue scope and all 49 active invariants by this backlink
+to this canonical contract and `evidence.md`. Available goal tools cannot edit
+an active objective to add the paths; the existing goal is retained. The
+historical implementation-goal records remain preserved and are not rewritten.
+
+The historical ADR conflict and host-package incident have been presented for
+explicit user disposition. No answer is inferred from time elapsed. Independent
+review, implementation integration and verification continue while those
+decisions remain pending.
+
+
+## Amendment A20 — owned job artifact integration — 2026-09-12T17:03Z
+
+R127.8 and all I126/I124 invariants remain required. Source design by
+/root/preview_review and independent challenge by /root/ci_triage conditionally
+approve one owned metadata-only selection into the existing image plan/preview
+selection. The proposal and its six mandatory precision corrections are frozen
+here before implementation; they do not approve the rejected jobs process code.
+
+Selection reads one bounded, strictly typed internal job snapshot without
+jobs_project, retry, provider initialization or artifact hashing. Require image
+job kind and succeeded selected item, but not whole-job completion. Validate
+positive integer attempts: ordinary item_attempt == projection_attempt with
+carried_from_attempt ==0; carried item_attempt == carried_from_attempt <
+projection_attempt. Copy job ID/index, both attempts, carried origin, canonical
+absolute path, producer SHA256/bytes and optional manifest/operation identity.
+Validate job location and confine record-derived paths before opening a referenced
+manifest. A declared manifest must pass the shared strict loader and agree on
+successful committed path, hash, operation and applicable bytes. Missing declared
+manifest fails; only explicitly absent persistence is optional.
+
+Job success must adopt correctly typed producer result SHA256/bytes and verify
+actual disk bytes against them. Missing producer identity or replacement cannot
+be converted to success by computing a new digest. No-manifest output keeps a
+null manifest; do not fabricate one. Existing stricter paid-retry checks remain.
+
+One prepared selection binds permission details to all identities and the edit
+provider or preview conversation upload target. Execute that same owned plan
+under ALLOW_ONCE; never reload mutable job/manifest records after approval or
+create a remembered grant. Existing loaded-reference expected hashes and captured
+preview bytes remain authoritative. Add a bounded optional job provenance object
+to reference serialization, strict parsing, replay copying and derived-source
+records. Absence preserves old records and ordinary permission identities;
+malformed present provenance fails. Replay uses stored paths/hashes/provenance
+without job lookup. Preview results expose pinned job identity even without a
+manifest. These are private structs/additive metadata, not public ABI changes.
+
+Preview grammar chooses exactly --manifest RECORD or --job ID --item N. Edit
+accepts the complete job/item pair as a reference within the existing total limit,
+alongside explicit file/artifact references with preserved documented order.
+Reject incomplete pairs and selectors on generate/replay. CLI, typed tools and
+interception use the same context-aware preparation and validation. CLI initializes
+only paths/allowed roots needed for metadata lookup, never an unrelated chat
+provider or credentials. Wasm job selection explicitly refuses through the
+existing platform seam; ordinary replay of stored provenance remains shared.
+SDK direct job/preview selectors remain rejected while existing manifest
+operations keep working without ambient session authority.
+
+C127/C126 adds actual next-request selected bytes on both wires with zero image
+requests, actual edit upload and manifest/replay provenance, one-time permission
+and later re-prompt, post-grant job/manifest mutation without substitution,
+post-grant artifact change refusing before upload, capture stability, carried
+attempt1 under projection3, malformed attempt tuples/types/IDs/indices, foreign
+roots and mismatched manifest path/hash/bytes, no-manifest producer mismatch,
+optional-provenance round trips, CLI/tool/intercept parity and wasm/SDK refusal.
+Controlled faults must challenge producer-digest adoption, ownership reload,
+expected-hash retention, attempt/provenance preservation and selector rejection.
+Earlier fault families and all final platform requirements remain active.
+
+Corrected native jobs ownership must receive source review before integration.
+MSYS2 is a mandatory pending native implementation, not an allowed unsupported
+fallback. Once Linux/macOS ownership is corrected and reviewed, shared job/image
+integration may proceed independently of isolated MSYS2 host-seam work; the final
+all-platform gate remains incomplete until both are integrated and verified.
+This is dependency scheduling, not reduced scope. A new immutable ADR will record
+this decision before the integration code is written; baseline ADRs are preserved.
+
+
+## Amendment A21 — native MSYS2 ownership and admission — 2026-09-12T17:30Z
+
+All native Windows/MSYS2 R124 and global platform guarantees remain mandatory.
+Independent /root/jobs_process_review approved DESIGN-v2.md, SHA256
+ df8061b1a6e94b9b6bc28f8399c88c2d1bb7fabca45e3b049724ad65fc8070ce,
+after v1's stopped-bootstrap and transaction gaps were corrected. Source design
+and real guest probes remain in artifacts/review-merge-20260912/msys-jobs-design.
+The guest runs real x64 MSYS under Windows ARM emulation; it is not native x64 CI.
+
+Implement one noninheritable supervisor-owned lifetime Windows Job, containing
+bootstraps from creation, and nested per-item Jobs retained by opaque scopes.
+Keep lifetime handle until process teardown, so supervisor death also contains
+pre-admission bootstraps holding temporary inner handles. Item self-admission
+happens before config/provider work and releases only after exact private ACK
+and explicit GO. Await admission outside job state locks. Count pending admission
+against concurrency; re-read attempt/cancel under the state transaction before
+nonblocking GO, then permit normal prompt writes. Failure after GO is started
+execution with explicit cleanup, not a fictitious never-started item.
+
+Only an explicitly unreaped direct child under SIGCHLD default/single reaper may
+be signalled by POSIX PID before GO. After GO use retained Job authority, never
+persisted or enumerated PID authority. Preserve root exit, forced-stop reason,
+log drain and scope cleanup independently. Normal root exit must clean residual
+descendants before terminal publication, reservation release or slot reuse;
+Windows force-termination status0 never independently establishes success.
+Strip/validate all private admission fields (including ask_env); stage CLOEXEC
+pipe mappings and close child fd3 before ordinary execution. Bounded membership
+queries, retained observational handles, direct-child reaping, ActiveProcesses0
+and strict ESRCH for captured POSIX identities establish cleanup; query/mapping
+uncertainty remains unknown and never grants signalling authority.
+
+C124 adds actual integrated admission pauses before open/after open/after assign/
+before close, individual cancellation and real supervisor loss, bootstrap exec,
+normal-root-exit descendants, nested outer Jobs, unrelated siblings/sentinels,
+fd collisions/closed endpoints, cancellation/commit failure around GO, environment
+stripping and native x64 hosted CI. Existing macOS/Linux tests and all strict
+cleanup/fault oracles remain. The Windows implementation is isolated; corrected
+shared job/image work may proceed independently under A20. No platform is waived.
+
+
+## Amendment A22 — native release JSON inlining — 2026-09-12T17:54Z
+
+I-G1/I-G4 and the unchanged Linux1MiB gate require a smaller final native
+executable. Frozen current GCC13.3 aarch64 build is1117160B (D067). The pinned
+yyjson0.12 header explicitly permits overriding yyjson_inline; removing its
+always_inline annotation while retaining static inline and existing -Os/LTO
+yields986088B (D074), with unwind metadata preserved. Independent reviewer
+/root/jobs_process_review approved this source-backed design before changes.
+
+Use a dedicated REL_INLINE=-Dyyjson_inline=inline only at the same four native
+CLI/fixture compile/link recipe sites as REL_LTO. Do not change vendored files,
+DEFS, common release flags, PIC/library, debug/sanitizer, strict-analysis or wasm
+flags. Header and implementation helpers remain static inline; optimizer choices
+may affect latency, so record paired release behavior/benchmarks, compiler/target
+checks, actual final size and effective flag separation. The override is no
+permission to drop features, diagnostics, platform coverage or the size limit.
+A small recipe-flag regression must fail if the override leaks into library/debug/
+wasm builds or is absent from real native release/fixture commands. Actual final
+GCC/Clang/MSYS/musl release tests and full combined acceptance remain required.
+
+
+## Amendment A23 — observed cleanup uncertainty retains output claims — 2026-09-12T18:10Z
+
+Clarify A11/A21 without removing either guarantee: owner-loss projection can be
+reclaimed after actual owner freedom and a nonblocking held state transaction;
+a supervisor's observed cleanup failure cannot be treated as that projection.
+Root wait failure itself can yield interrupted, so state+cleanup alone is not
+a sufficient discriminator. Independent /root/jobs_process_review approved an
+explicit cleanup_hold latch with conservative legacy fallback before writes.
+
+A supervisor finalization atomically sets cleanup_hold=(cleanup != complete)
+with terminal state/cleanup. A true or malformed latch denies reclaim, retry
+and rm; projections preserve a true latch. A false/missing latch alone never
+authorizes unknown cleanup: only exact canonical owner-loss projection
+(state interrupted, cleanup unknown, error_code JOB_INTERRUPTED), actual free
+owner and held nonblocking state locks retain A11 reclaim. Other unknown
+cleanup, including supervisor-published interrupted/IO, remains held. Read/lock
+uncertainty denies. Retry rechecks under its final state transaction; rm checks
+before tombstoning. Complete cleanup retains ordinary release behavior.
+
+C124 adds actual post-exit contender denial, same-job retry/rm denial and
+unchanged claim/record assertions for observed unknown cleanup, including root
+wait loss; canonical abandoned-owner projection remains reclaimable and its
+existing tests must pass. This adds no automatic recovery or new authority to
+kill a process. Existing process cleanup and original scope remain required.
+
+
+## Check routing clarification — 2026-09-12T18:32Z
+
+The final reconciliation confirms C125/C126 implementation checks moved to
+dedicated maintained modules. The original test_image_workflow.py -k Export
+and -k Preview commands currently discover zero tests and do not count as
+acceptance. C125 uses test_image_exports.py (including Export/ContactSheet and
+real ImageMagick positives). C126 uses test_image_preview_workflow.py,
+test_image_preview_queue.py and test_job_artifacts.py plus the actual browser
+checks. Existing dimensions/manifests workflow filters remain as mapped. This
+changes command routing only, preserving every original outcome and fault row.
+Each final filtered check must discover its intended nonzero cases; a zero-case
+exit0 or required positive skipped for a missing tool is not a pass.
+
+
+## Amendment A24 — Linux Clang native release size — 2026-09-12T19:06Z
+
+The final Linux Clang -Os release is1117912B and fails the unchanged1MiB gate.
+The same frozen1141-input Clang release with trailing -Oz is986840B. Independent
+/root/jobs_process_review approved the narrow policy before implementation:
+compute the actual full CC command's --version once; only Linux Clang native
+CLI/fixture compilation and linking receive a dedicated REL_SIZE_OPT=-Oz after
+common -Os. GCC, macOS, MSYS, PIC/library, debug, analysis and wasm remain as
+before. All four native recipe sites and native fixture flag captures agree.
+
+Keep compiler detection explicit (including multiword wrappers), no toolchain
+switch/fallback/vendor edit/size waiver. Final effective-flag tests cover Linux
+Clang versus GCC and Darwin/MSYS, real release behavior and paired latency.
+The previous Clang failure remains visible; exact final-policy size is required.
+
+
+## Amendment A25 — Installed Nix payload size and runtime path — 2026-09-12T19:22Z
+
+ADR0103 records the independently reviewed package correction before implementation.
+For Linux CLI packaging only, set the lazy OpenSSL RUNPATH at link time and disable
+the pinned shrink-only ELF hook; preserve alignment, unwind, hardening and no
+SSL/crypto DT_NEEDED. Keep wrappers and pre-fixup size; also check actual installed
+payload against the unchanged Makefile-owned limit and run installed TLS fixtures
+with test-only declared dependencies. Darwin and libtny retain their current policy.
+The instrumented original installed1052896B failure remains evidence; measured
+candidates986088B with real HTTPS pass are design proof only. Final integrated
+sandboxed packages/flakes and platform matrix remain required. No budget waiver.
