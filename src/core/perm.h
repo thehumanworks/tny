@@ -38,6 +38,6 @@ int perm_grant_count(perm_engine *p);
 bool perm_tool_is_safe(const char *tool);
 
 /* Is the path inside the workspace or an extra dir? */
-bool perm_path_allowed(tny_ctx *ctx, const char *abs_path);
+bool perm_path_allowed(const tny_ctx *ctx, const char *abs_path);
 
 #endif

@@ -8,6 +8,7 @@
   makeBinaryWrapper,
   openssl,
   python3,
+  tini,
 
   # ADR 0014 makes the git tag the only source of truth for the version and
   # `TNY_VERSION` the documented override for builds without git — which is
@@ -23,7 +24,8 @@
 }:
 
 let
-  src = (import ./source.nix { inherit lib; }).build;
+  sources = import ./source.nix { inherit lib; };
+  src = sources.build;
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "tny";
@@ -31,10 +33,21 @@ stdenv.mkDerivation (finalAttrs: {
 
   strictDeps = true;
   nativeBuildInputs = lib.optionals wrapRuntime [ makeBinaryWrapper ];
+  nativeInstallCheckInputs = lib.optionals stdenv.hostPlatform.isLinux [
+    python3
+    openssl.bin
+    tini
+  ];
 
   # No buildInputs: tny links nothing beyond libc/libdl/libpthread. TLS is
-  # dlopen'd at first use (docs/size-and-speed.md forbids linking OpenSSL), so
-  # OpenSSL reaches the binary through RUNPATH in postFixup instead.
+  # dlopen'd at first use (docs/size-and-speed.md forbids linking OpenSSL).
+  # Preserve the linker-created layout: adding RUNPATH after stripping can
+  # create another 64 KiB-aligned LOAD segment (ADR 0103).
+  NIX_LDFLAGS = lib.optionalString stdenv.hostPlatform.isLinux "-rpath ${lib.getLib openssl}/lib";
+  # The pinned patchelf hook only shrinks RUNPATH. It would remove the
+  # deliberate dlopen-only path, so retain that path and the linker's other
+  # store search paths. Recheck this hook when updating nixpkgs.
+  dontPatchELF = stdenv.hostPlatform.isLinux;
 
   enableParallelBuilding = true;
   dontConfigure = true;
@@ -46,22 +59,11 @@ stdenv.mkDerivation (finalAttrs: {
     "TNY_SHELL_PATH=${stdenv.shell}"
   ];
 
-  postFixup =
-    # src/net/stream.c dlopen()s "libssl.so.3" (then .so.1.1, then .so) at
-    # first TLS use. Under Nix nothing is on a default library path, so glibc
-    # resolves that dlopen through the calling object's RUNPATH. This has to
-    # run in postFixup: the fixup hooks already ran `patchelf --shrink-rpath`,
-    # which drops any entry no DT_NEEDED justifies.
-    lib.optionalString stdenv.hostPlatform.isLinux ''
-      patchelf --add-rpath ${lib.getLib openssl}/lib $out/bin/tny
-    ''
-    # macOS needs nothing here: the SecureTransport shim dlopen()s
-    # /System/Library/Frameworks by absolute path.
-    + lib.optionalString wrapRuntime ''
-      wrapProgram $out/bin/tny \
-        --suffix PATH : ${lib.makeBinPath [ python3 ]} \
-        --set-default SSL_CERT_FILE ${cacert}/etc/ssl/certs/ca-bundle.crt
-    '';
+  postFixup = lib.optionalString wrapRuntime ''
+    wrapProgram $out/bin/tny \
+      --suffix PATH : ${lib.makeBinPath [ python3 ]} \
+      --set-default SSL_CERT_FILE ${cacert}/etc/ssl/certs/ca-bundle.crt
+  '';
 
   # docs/size-and-speed.md is a product invariant, not a preference: the
   # stripped binary has a per-platform byte budget and the Makefile owns the
@@ -77,15 +79,34 @@ stdenv.mkDerivation (finalAttrs: {
     test "$($out/bin/tny --version)" = "${finalAttrs.version}"
     $out/bin/tny --help > /dev/null
     $out/bin/tny ask --help > /dev/null
+    $out/bin/tny doctor --json > /dev/null
     test -f $out/lib/tny/tny_extension_host.py
     test -f $out/share/tny/tny-workflows.sh
     payload=$out/bin/tny
     if test -x $out/bin/.tny-wrapped; then payload=$out/bin/.tny-wrapped; fi
+    # Query the owning Makefile instead of duplicating platform budgets.
+    size_limit=$(make --no-print-directory --silent $makeFlags \
+      --eval='tny-installed-size-limit:;@echo $(SIZE_MAX)' tny-installed-size-limit)
+    case "$size_limit" in
+      ""|*[!0-9]*) echo "error: invalid Makefile size limit" >&2; exit 1 ;;
+    esac
+    payload_bytes=$(wc -c < "$payload")
+    echo "$payload_bytes $payload (installed payload limit $size_limit)"
+    if test "$payload_bytes" -ge "$size_limit"; then
+      echo "error: installed tny payload exceeds the strict Makefile budget" >&2
+      exit 1
+    fi
     grep -aF '${stdenv.shell}' "$payload" > /dev/null
     if grep -aF '/bin/sh' "$payload" > /dev/null; then
       echo "error: Nix package retained a host /bin/sh dependency" >&2
       exit 1
     fi
+
+    ${lib.optionalString stdenv.hostPlatform.isLinux ''
+      env -u LD_LIBRARY_PATH ${tini}/bin/tini -s -- \
+        ${python3}/bin/python3 ${sources.packageChecks}/tests/integration/test_https.py \
+        "$out/bin/tny"
+    ''}
 
     runHook postInstallCheck
   '';

@@ -1,0 +1,198 @@
+[
+  {
+    "id": "I122.1",
+    "guarantee": "Structured results include requested and actual dimensions, effective provider size when available, MIME type, and any resize/crop operation."
+  },
+  {
+    "id": "I122.2",
+    "guarantee": "A mismatch yields an actionable warning in human output and a machine-readable status in JSON."
+  },
+  {
+    "id": "I122.3",
+    "guarantee": "Document provider-specific size support and behavior for unsupported requests; an optional strict mode fails rather than silently accepting a mismatch."
+  },
+  {
+    "id": "I122.4",
+    "guarantee": "Tests cover exact matches, mismatches, auto size, unsupported requests, and separation of native versus exported dimensions."
+  },
+  {
+    "id": "I123.1",
+    "guarantee": "Reproduce child creation from an active agent session under the all-tools profile; test named and automatically assigned IDs against the documented schema."
+  },
+  {
+    "id": "I123.2",
+    "guarantee": "Determine whether failure comes from invocation validation, session creation, environment inheritance, provider startup, or unsupported execution mode."
+  },
+  {
+    "id": "I123.3",
+    "guarantee": "Supported creation returns a durable child ID and working inspect/message/lifecycle operations."
+  },
+  {
+    "id": "I123.4",
+    "guarantee": "Invalid or unsupported calls return a stable error code and actionable explanation, including the valid invocation or supported fallback."
+  },
+  {
+    "id": "I123.5",
+    "guarantee": "Add regression tests for the identified failure and negative-path diagnostics; ensure errors do not expose credentials."
+  },
+  {
+    "id": "I124.1",
+    "guarantee": "Submission returns a job ID and persisted metadata/log locations immediately."
+  },
+  {
+    "id": "I124.2",
+    "guarantee": "Status and wait expose queued/running/succeeded/failed/cancelled states, exit/error information, and artifact paths in structured output."
+  },
+  {
+    "id": "I124.3",
+    "guarantee": "Jobs remain inspectable after the submitting CLI exits; interrupted jobs receive an explicit state rather than appearing to run forever."
+  },
+  {
+    "id": "I124.4",
+    "guarantee": "Cancellation cleans up owned child processes without affecting unrelated work."
+  },
+  {
+    "id": "I124.5",
+    "guarantee": "Batch execution supports bounded concurrency, per-item results, and retrying selected failures without regenerating successes."
+  },
+  {
+    "id": "I124.6",
+    "guarantee": "Tests cover mixed outcomes, cancellation, interrupted submitters, concurrency limits, and output-path collisions."
+  },
+  {
+    "id": "I125.1",
+    "guarantee": "Exact output dimensions can be requested with an explicit aspect-ratio policy and crop alignment."
+  },
+  {
+    "id": "I125.2",
+    "guarantee": "Native generated originals are retained separately; overwrite behavior is explicit and safe."
+  },
+  {
+    "id": "I125.3",
+    "guarantee": "Metadata records source dimensions, target dimensions, scaling/cropping, and source artifact linkage."
+  },
+  {
+    "id": "I125.4",
+    "guarantee": "Exported/upscaled files are never presented as native-resolution generations."
+  },
+  {
+    "id": "I125.5",
+    "guarantee": "Contact sheets support multiple artifacts with optional labels and deterministic ordering."
+  },
+  {
+    "id": "I125.6",
+    "guarantee": "Tests verify dimensions, aspect-ratio handling, preservation of originals, missing dependencies, and partial export failures."
+  },
+  {
+    "id": "I126.1",
+    "guarantee": "A successful generation can explicitly attach a preview for the agent's next visual review, using the shared attachment mechanism."
+  },
+  {
+    "id": "I126.2",
+    "guarantee": "Metadata-only behavior remains available for scripts and non-vision backends."
+  },
+  {
+    "id": "I126.3",
+    "guarantee": "Results identify the full-resolution artifact and any downsampled preview separately."
+  },
+  {
+    "id": "I126.4",
+    "guarantee": "Unsupported vision/transport modes give clear fallback instructions without losing a successfully generated artifact."
+  },
+  {
+    "id": "I126.5",
+    "guarantee": "Preview failures are distinguishable from generation failures; neither is silently interpreted as visual approval."
+  },
+  {
+    "id": "I126.6",
+    "guarantee": "Tests cover attachment timing, capability gating, bounded payloads, and CLI/tool parity."
+  },
+  {
+    "id": "I127.1",
+    "guarantee": "Record prompt, reference paths and content hashes, provider/model, quality, requested/effective/actual dimensions, timestamps, result status, and artifact paths."
+  },
+  {
+    "id": "I127.2",
+    "guarantee": "Record seed or provider request ID only when actually supplied by the provider; do not fabricate unavailable metadata."
+  },
+  {
+    "id": "I127.3",
+    "guarantee": "Edits and exports link to their source artifacts; manifests distinguish native outputs from derived copies."
+  },
+  {
+    "id": "I127.4",
+    "guarantee": "Manifest writes are atomic, schema-versioned, and safe under parallel runs; failed operations retain useful diagnostic state."
+  },
+  {
+    "id": "I127.5",
+    "guarantee": "A documented rerun/edit flow can consume recorded settings, with explicit overrides and clear warnings for missing references."
+  },
+  {
+    "id": "I127.6",
+    "guarantee": "Do not persist credentials; document prompt/reference privacy and provide control over manifest persistence."
+  },
+  {
+    "id": "I127.7",
+    "guarantee": "Tests cover round trips, lineage, moved/missing inputs, concurrent writes, and failed generation."
+  },
+  {
+    "id": "I-G1",
+    "guarantee": "All introduced first-party C/Python/shell/JS/config changes pass existing effective formatting, type/static/warning gates; full-suite failures stay visible and no new violation is introduced."
+  },
+  {
+    "id": "I-G2",
+    "guarantee": "Each consequential design has a documented simpler alternative and focused independent inspection of abstractions, ownership, interfaces and error paths; no duplicate provider loop or image attachment transport."
+  },
+  {
+    "id": "I-G3",
+    "guarantee": "Every original issue acceptance criterion maps to concrete delivered code/docs and passing observable checks, including callers, configuration, SDK compatibility and requested integrations."
+  },
+  {
+    "id": "I-G4",
+    "guarantee": "Integrated final-state unit, integration and relevant runtime checks pass across every claimed platform; fixtures and live provider checks are labeled separately, no mock replaces a claimed live boundary."
+  },
+  {
+    "id": "I-G5",
+    "guarantee": "All planned critical faults are accounted for; original behavior passes and a compilable fault fails its mapped behavioral oracle; meaningful survivors are resolved and final state restored/rechecked."
+  },
+  {
+    "id": "I-G6",
+    "guarantee": "Every finalized baseline ADR retains its exact filename and bytes, every substantive new decision is recorded, and every numeric ADR prefix is globally unique. Baseline conflict is BLOCKED, not waived."
+  },
+  {
+    "id": "I-G7",
+    "guarantee": "A fresh read-only contract review precedes all implementation; a different fresh reviewer inspects the first meaningful slice before its pattern is repeated; further consequential boundaries are independently reviewed with dispositions."
+  },
+  {
+    "id": "I-G8",
+    "guarantee": "Immutable initial contract and separate hash, baseline manifests and sequenced execution proof precede code; real native goal read/set/get links every active invariant plus exact contract/evidence paths before implementation."
+  },
+  {
+    "id": "I-G9",
+    "guarantee": "Every run is bound to exact source/test/config/dependency inputs and environment, failed/superseded runs remain visible, evidence is invalidated on relevant change, unrelated state and secrets remain preserved."
+  },
+  {
+    "id": "I-G10",
+    "guarantee": "Issue-by-issue handoff distinguishes local checks, live integrations, CI, deployment and administration; only all-scope current proof can yield PASS and native-goal completion."
+  },
+  {
+    "id": "I124.7",
+    "guarantee": "Jobs are usable through shell CLI and native agent tools with equivalent permission, state and cancellation semantics."
+  },
+  {
+    "id": "I124.8",
+    "guarantee": "Ask and image job lifecycles remain distinct, and existing ask --events=jsonl retains the #66 canonical event contract rather than being replaced by a job envelope."
+  },
+  {
+    "id": "I125.7",
+    "guarantee": "Export and contact sheets are explicit operations; ordinary generation/editing never silently invokes post-processing."
+  },
+  {
+    "id": "I126.7",
+    "guarantee": "The missing image-input capability prerequisite is implemented and tested: per-profile capability override, advertised/executable tool gating and pre-turn image refusal, without duplicating the existing attachment transport."
+  },
+  {
+    "id": "I127.8",
+    "guarantee": "Subsequent image edits can reference an earlier artifact or job, with explicit file paths retained, source-hash validation and actionable missing-reference behavior."
+  }
+]

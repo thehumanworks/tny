@@ -128,6 +128,19 @@ jobs:
         if: matrix.metal
         run: python3 -c 'print("python3 ok")'
 
+      # tests/integration/test_image_exports.py runs the real optional
+      # ImageMagick 7 `magick` for #125 exports. Homebrew ships 7; Ubuntu
+      # 24.04 ships ImageMagick 6, which tny refuses on purpose, so the Linux
+      # coverage for this dependency comes from the Nix check job (nix/tests.nix
+      # declares it) and the converter-independent cases run everywhere. tny
+      # itself never links or requires it.
+      - name: Install optional ImageMagick 7 (image export tests)
+        if: matrix.metal
+        run: |
+          set -eu
+          brew install imagemagick
+          magick -version | head -1
+
       - name: Build, test, size
         run: |
           set -eu
@@ -259,11 +272,17 @@ jobs:
           ./dist/tny-windows-x86_64.exe --version
           ./dist/tny-windows-x86_64.exe --help >/dev/null
           ./dist/tny-windows-x86_64.exe ask --help >/dev/null
-          # Unit tests without ASan. Integration (pty/TUI) stays on POSIX CI.
+          # Unit tests without ASan. PTY/TUI integration stays on Unix CI.
           make test-unit SANITIZE=0
           # Runtime DLL for a usable artifact outside this runner.
           cp /usr/bin/msys-2.0.dll dist/
           ldd dist/tny-windows-x86_64.exe || true
+
+      - name: Native durable jobs and cleanup reservations
+        run: |
+          set -eu
+          env -u TNY_TOOLS TNY="$PWD/build/tny.exe" python3 tests/integration/test_jobs_msys.py "$PWD/build/tny.exe"
+          env -u TNY_TOOLS TNY="$PWD/build/tny.exe" python3 tests/integration/test_jobs_cleanup_hold.py "$PWD/build/tny.exe"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -314,13 +333,33 @@ jobs:
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_speech.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_dictation.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_optimise.py
+          # Both image suites run whole: dimensions, strict size, manifests and
+          # replay are shared C. Cross-process guard, hard-link and host
+          # permission cases skip themselves with wasm's documented semantics.
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_service.py
+          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_workflow.py
+          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_input.py
+          # The captured pending-image queue is shared C: wasm runs the byte
+          # oracle that a file rewritten inside one tool batch cannot change
+          # the pixels that batch already captured. The control-socket preview
+          # group reports itself pending there (no fork, no AF_UNIX runner).
+          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_preview_queue.py
+          # Actual producer/manifest-selected next requests use shared C;
+          # socket-only controls assert a clean unsupported result on wasm.
+          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_preview_workflow.py
+          # Job selection refuses before metadata/provider work; stored job
+          # provenance replay uses the shared manifest and reference pipeline.
+          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_job_artifacts.py
+          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
+            python3 tests/integration/test_ask_events.py "$PWD/build/wasm/tny"
           tests/integration/test_provider_setup.sh "$PWD/build/wasm/tny"
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
             python3 tests/integration/test_extension_capabilities.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_extension_contract.py
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
             python3 tests/integration/test_background.py
+          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
+            python3 tests/integration/test_jobs.py "$PWD/build/wasm/tny"
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
             python3 tests/integration/test_mcp_http.py
           make wasm-size-check

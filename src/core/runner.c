@@ -298,6 +298,8 @@ typedef struct {
     bool turn_active;
     bool turn_ended;
     bool turn_ran;
+    bool control_pumping;
+    bool hard_cancel_pending;
     tny_stop_reason stop;
     int64_t started_ms;
     int64_t last_ckpt;
@@ -432,8 +434,12 @@ static void rn_send_line(rn_state *r, int i, const char *line, size_t len) {
     rn_client_flush(r, i);
 }
 
-static void rn_send_control_result(rn_state *r, int i, const char *id, const char *answer,
-                                   const char *error) {
+/* `status` and `error_code` are OPTIONAL additions for the image_preview op
+ * (docs/adr/0096); existing replies pass NULL for both and keep their exact
+ * ok/answer/error shape. */
+static void rn_send_control_result_ex(rn_state *r, int i, const char *id, const char *answer,
+                                      const char *error, const char *status,
+                                      const char *error_code) {
     buf_t b;
     buf_init(&b);
     buf_appends(&b, "{\"ev\":\"control_result\",\"id\":");
@@ -447,9 +453,22 @@ static void rn_send_control_result(rn_state *r, int i, const char *id, const cha
         buf_appends(&b, ",\"error\":");
         jescape(&b, error);
     }
+    if (status) {
+        buf_appends(&b, ",\"status\":");
+        jescape(&b, status);
+    }
+    if (error_code) {
+        buf_appends(&b, ",\"error_code\":");
+        jescape(&b, error_code);
+    }
     buf_appends(&b, "}");
     rn_send_line(r, i, b.data, b.len);
     buf_free(&b);
+}
+
+static void rn_send_control_result(rn_state *r, int i, const char *id, const char *answer,
+                                   const char *error) {
+    rn_send_control_result_ex(r, i, id, answer, error, NULL, NULL);
 }
 
 static void rn_question_fail(rn_state *r, const char *error) {
@@ -560,10 +579,18 @@ static void rn_accept(rn_state *r) {
             return;
         }
         set_nonblock(fd, true);
-        r->cl[slot].fd = fd;
-        buf_init(&r->cl[slot].in);
-        buf_init(&r->cl[slot].out);
-        r->cl[slot].accepted_ms = now_ms();
+        rn_client *c = &r->cl[slot];
+        /* A reused slot must not inherit the previous connection's handshake
+         * or role: every client handshakes for itself, and a tool client that
+         * lands where an owner sat is still only a tool client. Sequential
+         * tool-role control requests within one turn reuse slots routinely. */
+        c->handshaken = false;
+        c->role = 0;
+        c->can_answer_questions = false;
+        c->fd = fd;
+        buf_init(&c->in);
+        buf_init(&c->out);
+        c->accepted_ms = now_ms();
     }
 }
 
@@ -814,11 +841,15 @@ static void rn_turn_begin(rn_state *r, const char *prompt, const char **images,
 static void rn_hard_cancel(rn_state *r) {
     if (!r->turn_active) return;
     if (r->engine) {
+        /* Native cancel records preview non-delivery synchronously. Drain it
+         * before freeing the engine, which otherwise discards those events. */
+        tny_engine_cancel(r->engine);
+        rn_drain_engine(r);
         tny_engine_preserve_session_on_free(r->engine);
         tny_engine_free(r->engine);
         r->engine = NULL;
     }
-    rn_finalize(r, TNY_STOP_INTERRUPTED, 130);
+    if (r->turn_active) rn_finalize(r, TNY_STOP_INTERRUPTED, 130);
 }
 
 bool tny_runner_role_allows(tny_runner_role role, const char *op) {
@@ -828,12 +859,24 @@ bool tny_runner_role_allows(tny_runner_role role, const char *op) {
                strcmp(op, "perm") == 0 || strcmp(op, "end") == 0 ||
                strcmp(op, "ask_user_reply") == 0;
     if (role == TNY_RUNNER_TOOL)
-        return strcmp(op, "ask_user") == 0 || strcmp(op, "image_attach") == 0;
+        return strcmp(op, "ask_user") == 0 || strcmp(op, "image_attach") == 0 ||
+               /* exactly one narrow addition (docs/adr/0096); owner control
+                * (turn/cancel/perm/end) stays out of reach */
+               strcmp(op, "image_preview") == 0;
     return false;
 }
 
+/* JSON strings can contain decoded NUL. Never interpret just their C prefix. */
+static const char *rn_string(yyjson_val *root, const char *key, size_t max) {
+    yyjson_val *value = jget(root, key);
+    if (!yyjson_is_str(value)) return NULL;
+    size_t len = yyjson_get_len(value);
+    const char *str = yyjson_get_str(value);
+    return len && len <= max && !memchr(str, '\0', len) ? str : NULL;
+}
+
 static void rn_op_error(rn_state *r, int ci, yyjson_val *root, const char *error) {
-    const char *id = jget_str(root, "id");
+    const char *id = rn_string(root, "id", sizeof r->question_id - 1);
     if (id) {
         rn_send_control_result(r, ci, id, NULL, error);
         return;
@@ -870,15 +913,18 @@ static int rn_start_question(rn_state *r, int tool_client, const char *id, const
 }
 
 static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
-    const char *op = jget_str(root, "op");
-    if (!op) return;
+    const char *op = rn_string(root, "op", 32);
+    if (!op) {
+        rn_op_error(r, ci, root, "invalid control operation");
+        return;
+    }
     rn_client *client = &r->cl[ci];
     if (!client->handshaken) {
         if (strcmp(op, "hello") != 0) {
             rn_client_drop(r, ci);
             return;
         }
-        const char *role = jget_str(root, "role");
+        const char *role = rn_string(root, "role", 16);
         tny_runner_role parsed = !role                           ? 0
                                  : strcmp(role, "owner") == 0    ? TNY_RUNNER_OWNER
                                  : strcmp(role, "observer") == 0 ? TNY_RUNNER_OBSERVER
@@ -898,6 +944,11 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
     }
     if (strcmp(op, "hello") == 0 || !tny_runner_role_allows(client->role, op)) {
         rn_op_error(r, ci, root, "operation is not allowed for this client role");
+        return;
+    }
+    if ((jget(root, "id") && !rn_string(root, "id", sizeof r->question_id - 1)) ||
+        (jget(root, "path") && !rn_string(root, "path", 4095))) {
+        rn_op_error(r, ci, root, "control id/path must be bounded strings without NUL");
         return;
     }
     if (strcmp(op, "turn") == 0) {
@@ -931,7 +982,13 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
             rn_broadcast_event(r, &ev);
         }
     } else if (strcmp(op, "cancel") == 0) {
-        if (jget_bool(root, "hard", false)) rn_hard_cancel(r);
+        bool hard = jget_bool(root, "hard", false);
+        if (r->control_pumping) {
+            /* The blocking tool still owns the engine stack. Let its probe
+             * unwind first; never cancel/free that stack from the nested pump. */
+            g_rn_stop = 1;
+            r->hard_cancel_pending |= hard;
+        } else if (hard) rn_hard_cancel(r);
         else if (r->turn_active && r->engine) tny_engine_cancel(r->engine);
     } else if (strcmp(op, "perm") == 0) {
         const char *id = jget_str(root, "id");
@@ -977,10 +1034,46 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
             tny_engine_queue_image(r->engine, path, err, sizeof err) != 0)
             rn_send_control_result(r, ci, id, NULL, !r->turn_active ? "no active turn" : err);
         else rn_send_control_result(r, ci, id, NULL, NULL);
+    } else if (strcmp(op, "image_preview") == 0) {
+        /* The explicitly requested generated-image preview (docs/adr/0096).
+         * This is its own operation: it never falls back to image_attach, and
+         * the receiver — not the caller — decides the status. */
+        const char *id = rn_string(root, "id", sizeof r->question_id - 1);
+        const char *path = rn_string(root, "path", 4095);
+        const char *expected = rn_string(root, "expected_sha256", 64);
+        yyjson_val *length = jget(root, "expected_bytes");
+        bool valid_length = !length || (yyjson_is_uint(length) && yyjson_get_uint(length) > 0 &&
+                                        yyjson_get_uint(length) <= TNY_IMAGE_OUTPUT_MAX);
+        uint64_t expected_bytes = length && valid_length ? yyjson_get_uint(length) : 0;
+        if (!valid_length || !id || !path || !expected ||
+            yyjson_get_len(jget(root, "expected_sha256")) != 64 ||
+            !tny_image_preview_hash_valid(expected)) {
+            rn_op_error(r, ci, root,
+                        "image_preview needs a bounded string id, a path and a 64-character "
+                        "lowercase hex expected_sha256; supplied expected_bytes must be a positive "
+                        "bounded integer");
+            return;
+        }
+        char err[512] = "";
+        const char *code = TNY_IMAGE_PREVIEW_CODE_NO_SESSION;
+        tny_image_preview_status status = TNY_IMAGE_PREVIEW_UNAVAILABLE_SESSION;
+        if (!r->turn_active || !r->engine)
+            snprintf(err, sizeof err, "no active turn can take an image preview");
+        else if (g_rn_stop || r->hard_cancel_pending) {
+            status = TNY_IMAGE_PREVIEW_TURN_NOT_READY;
+            code = TNY_IMAGE_PREVIEW_CODE_NOT_READY;
+            snprintf(err, sizeof err, "the turn is cancelling");
+        } else
+            status = tny_engine_queue_image_preview(r->engine, path, expected, expected_bytes,
+                                                    &code, err, sizeof err);
+        bool queued = status == TNY_IMAGE_PREVIEW_QUEUED;
+        rn_send_control_result_ex(r, ci, id, NULL, queued ? NULL : err,
+                                  tny_image_preview_status_name(status), queued ? NULL : code);
     } else if (strcmp(op, "end") == 0) {
         if (r->turn_active) {
             r->end_after_turn = true;
-            if (r->engine) tny_engine_cancel(r->engine);
+            if (r->control_pumping) g_rn_stop = 1;
+            else if (r->engine) tny_engine_cancel(r->engine);
         } else {
             r->quit = true;
         }
@@ -1054,7 +1147,11 @@ static int rn_control_pump(void *ud, int timeout_ms) {
         if (cmap[i] < 0 || r->cl[i].fd < 0) continue;
         short re = fds[cmap[i]].revents;
         if (re & POLLOUT) rn_client_flush(r, i);
-        if (r->cl[i].fd >= 0 && (re & (POLLIN | POLLHUP | POLLERR))) rn_client_read(r, i);
+        if (r->cl[i].fd >= 0 && (re & (POLLIN | POLLHUP | POLLERR))) {
+            r->control_pumping = true;
+            rn_client_read(r, i);
+            r->control_pumping = false;
+        }
         if (r->cl[i].fd >= 0 && !r->cl[i].handshaken && now_ms() - r->cl[i].accepted_ms > 5000)
             rn_client_drop(r, i);
     }
@@ -1226,6 +1323,10 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
             tny_engine_dispatch(r.engine, fds + ei, ne);
             rn_drain_engine(&r);
             rn_drain_errpipe(&r); /* forward what the dispatch just printed */
+        }
+        if (r.hard_cancel_pending) {
+            r.hard_cancel_pending = false;
+            rn_hard_cancel(&r);
         }
         if (r.turn_ended) {
             int code = r.stop == TNY_STOP_DONE ? 0 : r.stop == TNY_STOP_INTERRUPTED ? 130 : 2;

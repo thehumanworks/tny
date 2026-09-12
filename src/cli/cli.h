@@ -42,6 +42,7 @@ typedef struct {
     const char *chatgpt_account_id; /* --chatgpt-account-id */
     const char **agent_argv;        /* --agent CMD -- args…, NULL-terminated */
     const char *base_url;
+    const char *base_url_env; /* --base-url-env NAME: URL kept off argv */
     const char *api_key_env;
     const char *wire_api; /* --wire-api responses|chat */
 } cli_globals;
@@ -60,6 +61,8 @@ int cursor_cli_artifact_frame(uint8_t flags, const char *payload, size_t len, vo
  * error (message already printed). */
 int cli_parse_globals(int argc, char **argv, cli_globals *g);
 bool cli_is_command(const char *name);
+/* Quiet grammar-only command lookup; frees all temporary parser allocations. */
+int cli_command_index(int argc, char **argv);
 
 /* --ssh TARGET: open the remote tool runtime on ctx (docs/adr/0022). Prints
  * its own error; 0 ok. Shared by cli_make_ctx and the TUI /ssh command. */
@@ -72,6 +75,13 @@ tny_ctx *cli_make_ctx(const cli_globals *g);
  * stderr. Shared by every lock-refusal path (docs/adr/0031 decision 7). */
 void cli_print_still_running(tny_ctx *ctx, const char *id);
 
+/* Exit status of one `ask` turn, from what actually happened (ADR 0090):
+ * `stream` is a tny_event_write_rc (0 delivered, -1 stdout failed, -2
+ * interrupted while stalled), `terminal` says a real TNY_EV_TURN_END was
+ * observed and delivered, and `stop` is that event's tny_stop_reason. A
+ * failed stream or an absent terminal is never 0, whatever `stop` holds. */
+int cli_ask_exit_status(int stream, bool terminal, int stop);
+
 /* Commands. Each returns the process exit code. */
 int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 /* Stateless and config-free; dispatched before cli_make_ctx. */
@@ -80,6 +90,9 @@ int cmd_speak(const cli_globals *g, int argc, char **argv);
 int cmd_dictate(const cli_globals *g, int argc, char **argv);
 int cmd_optimise(const cli_globals *g, int argc, char **argv);
 int cmd_edit(const cli_globals *g, int argc, char **argv);
+/* Durable ask/image jobs (docs/jobs.md, docs/adr/0093). `jobs _worker ID` is
+ * the hidden supervisor entry point, never a documented verb. */
+int cmd_jobs(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

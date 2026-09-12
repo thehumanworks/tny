@@ -1,0 +1,31 @@
+{
+  "verdict": "PASS_BEHAVIORAL_RECONCILIATION",
+  "seven_families": 7,
+  "compiled_variants": 8,
+  "automatic_kills": 7,
+  "reconciled_mapped_assertion_kills": 1,
+  "original_runner_verdict": "INCOMPLETE",
+  "X125.5": {
+    "exact_assertion": "FAIL image_export_tools_carry_the_whole_operation: PERM_PROMPT != call.verdict (tests/test_image_service.c:816)",
+    "test_log_sha256": "7cb6d883291d971e4727f16ba44db9ba4ce3fd91978c65f6271052b46489db65",
+    "test_exit_code": 1,
+    "timed_out": false,
+    "mapped_assertion_precedes_leak_diagnostic": true,
+    "classifier_limitation": "run_oracle requires 'Pass:' to establish a unit ran, but -e stops after the mapped failure before a successful summary; assertion early return leaves fixture allocations for LSan",
+    "no_sanitizer_options_changed": true
+  },
+  "baseline_binary_hashes": {
+    "build/tny": "3a5938e5c8912d274aa411e46e61195bcbe1bbf1d7c839b53063c8a41df46537",
+    "build/tny-test": "66550c0accc03f440dc82c96a78400324a73605716ab967c2cbfc635ffcfb12b"
+  },
+  "restored_binary_hashes": {
+    "build/tny": "3a5938e5c8912d274aa411e46e61195bcbe1bbf1d7c839b53063c8a41df46537",
+    "build/tny-test": "66550c0accc03f440dc82c96a78400324a73605716ab967c2cbfc635ffcfb12b"
+  },
+  "restored_binaries_match": true,
+  "baseline_and_restored_oracles_pass": true,
+  "sources_restored": true,
+  "frozen_source_unchanged": true,
+  "frozen_file_count": 1142,
+  "historical_X125.7a": "previous survivor closure preserved; exact two-line staging mutant now killed again by permanent actual-argv oracle"
+}

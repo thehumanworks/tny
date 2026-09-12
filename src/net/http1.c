@@ -191,7 +191,9 @@ int http_read_response(http_conn *c, int timeout_ms) {
         size_t msg_len;
         struct phr_header hdrs[MAX_HEADERS];
         size_t n_hdrs = MAX_HEADERS;
-        int pret = phr_parse_response(c->in.data, c->in.len, &minor, &status, &msg, &msg_len, hdrs,
+        int pret = -2;
+        if (c->in.len)
+            pret = phr_parse_response(c->in.data, c->in.len, &minor, &status, &msg, &msg_len, hdrs,
                                       &n_hdrs, 0);
         if (pret > 0) {
             c->n_hdrs = (int)n_hdrs;

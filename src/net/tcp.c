@@ -25,6 +25,15 @@ static int set_socket_no_sigpipe(int fd) {
 #endif
 }
 
+ssize_t socket_write(int fd, const void *data, size_t len) {
+#ifdef MSG_NOSIGNAL
+    return send(fd, data, len, MSG_NOSIGNAL);
+#else
+    if (set_socket_no_sigpipe(fd) != 0) return -1;
+    return send(fd, data, len, 0);
+#endif
+}
+
 int set_nonblock(int fd, bool nb) {
     int fl = fcntl(fd, F_GETFL, 0);
     if (fl < 0) return -1;

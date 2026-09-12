@@ -1,0 +1,175 @@
+{
+  "utc": "2026-09-12T13:33:18.020751+00:00",
+  "status": "PREINTEGRATION_PREPARATION_ONLY; not a final gate or platform completion",
+  "owned_evidence": "docs/verification/open-issues-2026-09-11/artifacts/delivery-20260912/platform-preparation",
+  "canonical_source_changes": [],
+  "worker_changes": [],
+  "source_manifest": "frozen-preintegration/manifest.json",
+  "source_manifest_sha256": "68cf3c1755c9be883c3ee7aa16390d3bbce8c31b872acff64590ba0bb1c0ce56",
+  "source_inventory_sha256": "8b4b365d964018d9b9136ac78ed86ded40bfbe23cbab428efe74f307a3af7677",
+  "historical_dictation_disposition": "P03 is a 300-second outer full-suite timeout; cited raw log shows 36 dictation cases passed. Correct attribution and use a sufficient in-container full-suite deadline. No product correction justified.",
+  "current_dictation": {
+    "tests": 36,
+    "pass": 36,
+    "seconds": 26.949,
+    "source_unchanged": true
+  },
+  "current_full_linux": {
+    "exit": 0,
+    "seconds": 524.276,
+    "unit_tests": 491,
+    "unit_assertions": 12267,
+    "dictation_tests": 36,
+    "source_unchanged": true,
+    "ordinary_skips": "See README and original log; do not count them as acceptance"
+  },
+  "actual_browser": {
+    "version": "151.0.7922.34",
+    "backpressure": "pass",
+    "subagent_native_only_refusal": "pass; actual tool call, no child request",
+    "unknown_image_adapter": "pass; no image request"
+  },
+  "wasm_node": {
+    "image_service": {
+      "run": 13,
+      "skipped": 2
+    },
+    "image_workflow": {
+      "run": 44,
+      "skipped": 9
+    },
+    "image_input": {
+      "run": 8,
+      "skipped": 1
+    }
+  },
+  "mislabelled_historical_coverage": "P12 and current wasm-unsupported-subagent only run doctor capability reporting. Actual current browser tool refusal adds independent subagent coverage.",
+  "reusable_commands": [
+    "freeze.py",
+    "prepare.py",
+    "final_lane.sh",
+    "browser_unsupported.py",
+    "README.md"
+  ],
+  "run_py_warning": "Preintegration-only fixed source binding; do not use it for final evidence.",
+  "nix": "2.35.2 located; local store reachable; sandbox=false observed; no Nix build/check executed",
+  "remaining": [
+    "Primary-supplied final frozen integrated tree",
+    "Integrated export/jobs/preview unsupported WASM cases absent from executed tree",
+    "Final ABI/SDK/quality/leaks/Valgrind/Nix gates not run by this assignment",
+    "Full site browser suite not run",
+    "Windows/macOS/x86_64/live acceptance not established"
+  ],
+  "canonical_drift": "Only new docs/adr/0097-explicit-generated-artifact-preview.md observed later; not in tested frozen source.",
+  "scratch_roots": [
+    "/work/platform-preparation-20260912-1318",
+    "/work/platform-preparation-20260912-recipe-check",
+    "/work/platform-preparation-20260912-recipe-corrected"
+  ],
+  "failures_preserved": {
+    "native-dictation": "unsupported -v invocation; corrected command passed",
+    "tools-nix": "missing /bin/bash; resolved installed shell",
+    "browser-unsupported-actual": "0600 helper transfer unreadable; fixed task helper mode",
+    "browser-unsupported-readable": "new probe guessed diagnostic wording/channel; exact clean error now asserted",
+    "prepare-recipe-check": "cmp absent in Nix profile; hash comparison retry passed",
+    "qa-ruff": "import ordering and lambda binding corrected; final QA passed"
+  },
+  "records": [
+    {
+      "record": "browser-reusable-recipe-qa.json",
+      "exit": 0,
+      "seconds": 3.302
+    },
+    {
+      "record": "browser-reusable-recipe.json",
+      "exit": 0,
+      "seconds": 3.744
+    },
+    {
+      "record": "browser-unsupported-actual.json",
+      "exit": 2,
+      "seconds": 0.052
+    },
+    {
+      "record": "browser-unsupported-exact-contract.json",
+      "exit": 0,
+      "seconds": 1.078
+    },
+    {
+      "record": "browser-unsupported-readable.json",
+      "exit": 1,
+      "seconds": 1.114
+    },
+    {
+      "record": "native-dictation-correct-invocation.json",
+      "exit": 0,
+      "seconds": 27.187
+    },
+    {
+      "record": "native-dictation.json",
+      "exit": 1,
+      "seconds": 31.895
+    },
+    {
+      "record": "native-full-test.json",
+      "exit": 0,
+      "seconds": 524.276
+    },
+    {
+      "record": "native-real-git-inventory.json",
+      "exit": 0,
+      "seconds": 0.222
+    },
+    {
+      "record": "recipe-shellcheck.json",
+      "exit": 0,
+      "seconds": 0.131
+    },
+    {
+      "record": "tools-linux-exact-paths.json",
+      "exit": 0,
+      "seconds": 0.264
+    },
+    {
+      "record": "tools-linux.json",
+      "exit": 0,
+      "seconds": 0.721
+    },
+    {
+      "record": "tools-nix-correct-shell.json",
+      "exit": 0,
+      "seconds": 0.155
+    },
+    {
+      "record": "tools-nix.json",
+      "exit": 127,
+      "seconds": 0.04
+    },
+    {
+      "record": "wasm-build-browser.json",
+      "exit": 0,
+      "seconds": 14.93
+    },
+    {
+      "record": "wasm-image-input.json",
+      "exit": 0,
+      "seconds": 4.931
+    },
+    {
+      "record": "wasm-image-service.json",
+      "exit": 0,
+      "seconds": 10.818
+    },
+    {
+      "record": "wasm-image-workflow.json",
+      "exit": 0,
+      "seconds": 22.88
+    },
+    {
+      "record": "wasm-unsupported-subagent.json",
+      "exit": 0,
+      "seconds": 0.323
+    }
+  ],
+  "all_record_log_and_manifest_hashes_verified": true
+}

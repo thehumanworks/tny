@@ -49,7 +49,10 @@ configuration/capability query and never starts a provider or Python.
 
 Packaged builds pay the budget too. The Nix package
 ([ADR 0035](adr/0035-nix-flake-packaging.md)) runs `make size-check` in its
-`checkPhase` and adds a `makeBinaryWrapper` — a compiled wrapper, not a shell
+`checkPhase` and checks the installed payload against the same Makefile-owned
+budget in `installCheckPhase` ([ADR 0103](adr/0103-nix-link-time-runtime-path.md)).
+The wrapped variant measures the real `.tny-wrapped` payload. It adds a
+`makeBinaryWrapper` — a compiled wrapper, not a shell
 script — for `python3` and the CA bundle, measured at ~0.3 ms on Linux x86_64
 (0.73 ms wrapped vs 0.42 ms unwrapped). A shell wrapper would cost several
 times that; `packages.tny-unwrapped` skips it entirely.

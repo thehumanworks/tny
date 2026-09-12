@@ -1,0 +1,98 @@
+{
+  "rerun_faults": [
+    {
+      "id": "ME2-omitted-terminal",
+      "outcome": "killed",
+      "binary_hashes": {
+        "build/tny": "f5b8a8b78c020592125549ddef59b042d724fd7fcf8e3ca1021eff10796502e5",
+        "build/tny-test": "a6e07e1c07b91f4992d6a5075a774ad7fb4b5624110d0fd54440932c69a04c4f"
+      },
+      "relevant_binary_distinct": true,
+      "matched": [
+        "expected exactly one turn_end, got 0"
+      ]
+    },
+    {
+      "id": "ME3-duplicated-terminal",
+      "outcome": "killed",
+      "binary_hashes": {
+        "build/tny": "8d72af24f3dad03e032b27af94c15c7f9a6ac9b34cc474a72f85a27e534065a0",
+        "build/tny-test": "8aaeda5da2805fffeda2bfa723037838411c8fa01259d3ecf14a70008a779ec0"
+      },
+      "relevant_binary_distinct": true,
+      "matched": [
+        "sequence not monotonic"
+      ]
+    },
+    {
+      "id": "ME4-default-done",
+      "outcome": "killed",
+      "binary_hashes": {
+        "build/tny": "e5282ab48b57a41a641c34dca746b8cb820615e0889f9507875a384a68cde5f5",
+        "build/tny-test": "dbcd1943c7f896e3eeb824418a95f28ded6aa59a7f2a9df320898c0654860ece"
+      },
+      "relevant_binary_distinct": true,
+      "matched": [
+        "ask_exit_status_never_defaults_to_done"
+      ]
+    },
+    {
+      "id": "ME5-ignored-write-failure",
+      "outcome": "killed",
+      "binary_hashes": {
+        "build/tny": "9b538f31b32406b5edf7c9ac88613fd694ddf56b3ae4585f949852bb04ca0507",
+        "build/tny-test": "973dd63ba7f8ab2060163722dfb5743ef3a0281287b0439c2690e552473b0f54"
+      },
+      "relevant_binary_distinct": true,
+      "matched": [
+        "closed consumer"
+      ]
+    },
+    {
+      "id": "ME7-human-text-on-stdout",
+      "outcome": "killed",
+      "binary_hashes": {
+        "build/tny": "8b2c276a50b0cf9b1e77b3c9d2f48279a37677b2e0f0c96e59c390648b4fb01b",
+        "build/tny-test": "54d04d1dc6573ab19933e67c125e9e653c16da7bd96cd353858f0f4261b6f0ae"
+      },
+      "relevant_binary_distinct": true,
+      "matched": [
+        "not JSON"
+      ]
+    },
+    {
+      "id": "ME8-progress-none-noise",
+      "outcome": "killed",
+      "binary_hashes": {
+        "build/tny": "3d9a9681e8ebb6db905cc767cb019dad566cc37c5474444c0bb92fd6e56111b8",
+        "build/tny-test": "f3995c427d6c1b4aa942fa5a402199c981233f04d141cefe44e7e71c4c7b3dcf"
+      },
+      "relevant_binary_distinct": true,
+      "matched": [
+        "progress=none wrote stderr"
+      ]
+    },
+    {
+      "id": "ME13-direct-child-only",
+      "outcome": "killed",
+      "binary_hashes": {
+        "build/tny": "00225211d794f9f6f98994509632c235530439251824857ba38168ea9c47a75e",
+        "build/tny-test": "523703ff5bc7173a067b4ab531d756a4de75f06c495609af0c963720cf6750e7"
+      },
+      "relevant_binary_distinct": true,
+      "matched": [
+        "survived the interrupt"
+      ]
+    }
+  ],
+  "all_seven_killed": true,
+  "original_binaries": {
+    "build/tny": "3a5938e5c8912d274aa411e46e61195bcbe1bbf1d7c839b53063c8a41df46537",
+    "build/tny-test": "165c5feabb1ebf5717a4276860af30776d8174f937ab22a5dd7651564027a153"
+  },
+  "restored_binaries": {
+    "build/tny": "3a5938e5c8912d274aa411e46e61195bcbe1bbf1d7c839b53063c8a41df46537",
+    "build/tny-test": "165c5feabb1ebf5717a4276860af30776d8174f937ab22a5dd7651564027a153"
+  },
+  "all1143_frozen_and_restored_sources_match": true
+}

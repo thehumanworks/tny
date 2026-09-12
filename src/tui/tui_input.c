@@ -761,7 +761,7 @@ size_t tui_paste_scan(const char *p, size_t n, buf_t *out, bool *done) {
 }
 
 static size_t decode_one(tui *t, const char *p, size_t n, bool final) {
-    tui_decoded d;
+    tui_decoded d = {0};
     size_t used = tui_decode_one(p, n, final, &d);
     if (!used) return 0;
     if (d.key == TUI_K_CPR) tui_size_report(t, d.cpr_row, d.cpr_col);

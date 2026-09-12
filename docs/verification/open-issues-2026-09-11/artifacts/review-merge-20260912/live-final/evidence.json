@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "mode": "live",
+  "utc": "2026-09-12T19:26:50Z",
+  "binary": "/private/tmp/tny-live-final-20260912-bin/tny",
+  "binary_sha256": "c81872fd2ae8ec978934f9be22fe4ad1c42a66d0b642c586c6dee40a27d54ad8",
+  "harness_sha256": "ed6392435a104d3fb2287d04e0f3bca99987e5bcaa2a6bba180bccbd93afe8ee",
+  "pixel_decoder": "/Users/tomas/.cache/tny-verification/open-issues-20260911/imagemagick-macos/prefix/bin/magick",
+  "pixel_decoder_sha256": "34e78362c1199f75667d8ae063ec151af4855faf75b14c769d329bc563a32124",
+  "private_cwd": "/private/tmp/tny-live-final-20260912-1926/home/work",
+  "image_input": {
+    "codex": true
+  },
+  "runs": [
+    {
+      "operation": "generate",
+      "exit_code": 0,
+      "stderr_present": true,
+      "result": {
+        "kind": "image",
+        "ok": true,
+        "operation": "generate",
+        "provider": "codex",
+        "model": "gpt-image-2.5-sunburst",
+        "mime_type": "image/png",
+        "bytes": 863676,
+        "requested_size": "auto",
+        "effective_size": "auto",
+        "width": 1254,
+        "height": 1254,
+        "size_status": "auto",
+        "native": true,
+        "transform": null,
+        "operation_id": "a54ebe99524d7039"
+      },
+      "artifact": "/private/tmp/tny-live-final-20260912-1926/home/work/generate.png",
+      "artifact_identity": {
+        "bytes": 863676,
+        "sha256": "bf6db8402ef9a148eba2db75871e74dace311eb1c7a60558bd912e166d8f5710"
+      },
+      "manifest": "/private/tmp/tny-live-final-20260912-1926/home/work/generate.png.tny-image-a54ebe99524d7039.json",
+      "manifest_sha256": "995d3a10c6640fe2c353fda7b66e30758676c422abdcbdfa2e1987fb4a701581",
+      "decoded_pixels": {
+        "mean_rgb": [
+          0.00160848,
+          0.0131203,
+          0.991242
+        ],
+        "dominant_color": "blue"
+      }
+    },
+    {
+      "operation": "edit",
+      "exit_code": 0,
+      "stderr_present": true,
+      "result": {
+        "kind": "image",
+        "ok": true,
+        "operation": "edit",
+        "provider": "codex",
+        "model": "gpt-image-2.5-sunburst",
+        "mime_type": "image/png",
+        "bytes": 887762,
+        "requested_size": "auto",
+        "effective_size": "auto",
+        "width": 1254,
+        "height": 1254,
+        "size_status": "auto",
+        "native": true,
+        "transform": null,
+        "operation_id": "90fff59679d2692f"
+      },
+      "artifact": "/private/tmp/tny-live-final-20260912-1926/home/work/edit.png",
+      "artifact_identity": {
+        "bytes": 887762,
+        "sha256": "88c338de091fb5954878e86c9dfaca8e70792686d7ab91ab7a48629c104dffee"
+      },
+      "manifest": "/private/tmp/tny-live-final-20260912-1926/home/work/edit.png.tny-image-90fff59679d2692f.json",
+      "manifest_sha256": "4c27ef5e9a034e4fcca12eb33390742ceca7956b25706eedcf0db8fdb0f0592e",
+      "decoded_pixels": {
+        "mean_rgb": [
+          0.984665,
+          0.00841183,
+          0.0103569
+        ],
+        "dominant_color": "red"
+      }
+    },
+    {
+      "operation": "native_preview_then_vision",
+      "exit_code": 0,
+      "stderr_present": false,
+      "native_tool_ends": [
+        {
+          "tool_name": "image_preview",
+          "tool_ok": true
+        }
+      ],
+      "turn_end_count": 1,
+      "error_event_count": 0,
+      "reported_dominant_color": "red",
+      "answer_matches_decoded_pixels": true
+    }
+  ],
+  "complete": true,
+  "scope": "Two image operations and one native ephemeral preview/vision turn; no job-selected or socket-CLI live claim.",
+  "credential_source": "codex_auth_file_read_only",
+  "requests": [
+    {
+      "ordinal": 1,
+      "route": "/backend-api/codex/images/generations",
+      "model": "gpt-image-2.5-sunburst",
+      "images": [],
+      "tool_calls": [],
+      "tool_results": [],
+      "forwarded": true,
+      "http_status": 200,
+      "response_bytes": 1152069
+    },
+    {
+      "ordinal": 2,
+      "route": "/backend-api/codex/images/edits",
+      "model": "gpt-image-2.5-sunburst",
+      "images": [
+        {
+          "bytes": 863676,
+          "sha256": "bf6db8402ef9a148eba2db75871e74dace311eb1c7a60558bd912e166d8f5710"
+        }
+      ],
+      "tool_calls": [],
+      "tool_results": [],
+      "forwarded": true,
+      "http_status": 200,
+      "response_bytes": 1184191
+    },
+    {
+      "ordinal": 3,
+      "route": "/backend-api/codex/responses",
+      "model": "gpt-5.6-sol",
+      "images": [],
+      "tool_calls": [],
+      "tool_results": [],
+      "forwarded": true,
+      "http_status": 200,
+      "response_bytes": 84969
+    },
+    {
+      "ordinal": 4,
+      "route": "/backend-api/codex/responses",
+      "model": "gpt-5.6-sol",
+      "images": [
+        {
+          "bytes": 887762,
+          "sha256": "88c338de091fb5954878e86c9dfaca8e70792686d7ab91ab7a48629c104dffee"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "image_preview",
+          "call_id": "call_9CAsbVXf4LY0NcnNBBUfdquX",
+          "arguments": {
+            "manifest": "/private/tmp/tny-live-final-20260912-1926/home/work/edit.png.tny-image-90fff59679d2692f.json"
+          }
+        }
+      ],
+      "tool_results": [
+        {
+          "call_id": "call_9CAsbVXf4LY0NcnNBBUfdquX",
+          "status": "queued",
+          "error_code": null,
+          "representation": "original_bytes",
+          "selected": {
+            "path": "/private/tmp/tny-live-final-20260912-1926/home/work/edit.png",
+            "sha256": "88c338de091fb5954878e86c9dfaca8e70792686d7ab91ab7a48629c104dffee",
+            "manifest_path": "/private/tmp/tny-live-final-20260912-1926/home/work/edit.png.tny-image-90fff59679d2692f.json",
+            "operation_id": "90fff59679d2692f"
+          }
+        }
+      ],
+      "forwarded": true,
+      "http_status": 200,
+      "response_bytes": 78389
+    }
+  ],
+  "errors": [],
+  "forwarded_requests": 4
+}

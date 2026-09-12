@@ -9,11 +9,40 @@
 #include "core/perm.h"
 #include "core/events.h"
 #include "core/backend.h"
+#include "core/image_preview.h"
 
 struct mcp_client;    /* mcp/mcp.h */
 struct tny_intercept; /* core/intercept.h */
+struct tny_image_plan;
 struct tny_tool_registration;
 struct tny_tool_call;
+
+/* Why an entry was admitted to the pending-image queue. It decides the
+ * truthful transcript wording and, for a preview, the stricter
+ * configured-true policy gate (docs/adr/0096). */
+typedef enum {
+    TNY_IMAGE_QUEUE_MANUAL = 0, /* read_image, `tny image attach`, interception */
+    TNY_IMAGE_QUEUE_PREVIEW     /* explicitly requested generated-image preview */
+} tny_image_queue_origin;
+
+/* The bytes of one queued image, captured when it was admitted. Re-reading the
+ * path at flush would attach a later generation written to the same output
+ * name inside the same tool batch, so nothing here is ever reloaded. */
+typedef struct {
+    uint8_t *data; /* owned; NULL only for a staged path (see below) */
+    size_t len;
+    const char *mime; /* static */
+    char sha256[65];  /* lowercase hex of data; "" when data is NULL */
+    tny_image_queue_origin origin;
+} tools_pending_capture;
+
+/* Distinguishes a preview-bearing batch from the ordinary manual failure the
+ * existing callers already warn about and continue past (A15 D3). */
+typedef enum {
+    TNY_IMAGE_FLUSH_OK = 0,
+    TNY_IMAGE_FLUSH_FAILED,       /* manual-only batch: existing behavior */
+    TNY_IMAGE_FLUSH_PREVIEW_FATAL /* an accepted preview cannot be delivered */
+} tools_image_flush_outcome;
 
 typedef struct tools_env {
     tny_ctx *ctx;
@@ -44,9 +73,17 @@ typedef struct tools_env {
     struct mcp_client *mcp;
     /* set true when a PROMPT could not be resolved (ask-mode CLI) */
     bool perm_blocked;
-    /* Paths queued by read_image. Flushed as a user-role image_url
-     * message after the role:tool results (docs/adr/0008). */
+    tny_image_preview_admit preview_admit;
+    void *preview_ud;
+    /* ONE pending-image queue, flushed as a user-role image_url message after
+     * the role:tool results (docs/adr/0008, docs/adr/0096). Entry i is the
+     * pair (pending_images[i], pending_capture[i]) for i < n_pending_images;
+     * the single count owns both halves.
+     *
+     * Every admission, including --ssh read_image, retains exact bytes. Paths
+     * are provenance only and are never reopened by flush. */
     char *pending_images[9];
+    tools_pending_capture pending_capture[9];
     int n_pending_images;
 } tools_env;
 
@@ -68,6 +105,11 @@ typedef struct {
     /* Set when a `terminal` command was recognised as a first-party tny verb
      * and runs in-process instead (docs/adr/0063). */
     struct tny_intercept *intercept;
+    /* The image plan this call's permission decision was made about, owned
+     * here until the call finishes (ADR 0095). An intercepted image command
+     * keeps its plan in `intercept` instead, so exactly one owner frees it. */
+    struct tny_image_plan *image_plan;
+    tny_image_preview_selection *image_selection;
 } tools_call;
 
 /* Human label of an intercepted call ("tny edit docs/x.md"), or NULL for an
@@ -106,14 +148,6 @@ void tools_undo_record(tools_env *env, const char *abs);
  * locally, ssh_cwd-relative under --ssh. malloc'd, NULL on failure. */
 char *tools_path_detail(tools_env *env, const char *path);
 
-/* Shell command for one subagent turn (`tny ask` child). The parent's
- * resolved provider travels with the child (docs/features/mcp-and-skills.md)
- * and every interpolated value — including the model-supplied id and prompt —
- * is shell-quoted. stderr_path, when non-NULL, becomes a `2>` redirect so
- * startup failures stay diagnosable. malloc'd. Exposed for unit tests. */
-char *tools_subagent_command(tools_env *env, const char *id, const char *prompt,
-                             const char *stderr_path);
-
 /* Individual tool groups (internal wiring) */
 char *tool_fs_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
 char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
@@ -144,14 +178,40 @@ char *tool_resolve_path(tools_env *env, const char *path, char **err_out);
 /* Bound a result: if len > ctx->max_tool_result_bytes, store blob and return
  * preview + handle notice; else return a copy. */
 char *tool_bound_result(tools_env *env, const char *data, size_t len);
-/* Inject queued read_image files as one user message. 0 ok, -1 on error. */
+/* Inject the queued images as one user message, in queue order, exactly once.
+ * 0 ok, -1 on error. The whole batch is checked before anything is mutated:
+ * on a policy refusal every entry, byte and the count are preserved, and the
+ * transcript is untouched (A4). */
 int tools_flush_images(tools_env *env, char *err, size_t errlen);
-/* Validate a local png/jpeg/gif/webp and queue it through the same
- * next-request path as read_image. allowed_roots_only is true for the socket
- * operation; read_image already passed its permission gate. resolved_out
- * borrows the queued path; mime_out is static. */
+/* Same, plus the outcome a preview-bearing batch needs. *outcome is
+ * TNY_IMAGE_FLUSH_PREVIEW_FATAL only when the batch held at least one preview
+ * entry; the owning backend then reports non-delivery, makes no further
+ * request, ends the turn and finally calls tools_discard_pending_images. */
+int tools_flush_images_ex(tools_env *env, tools_image_flush_outcome *outcome, char *err,
+                          size_t errlen);
+/* True when at least one queued entry is an explicit preview. */
+bool tools_pending_images_have_preview(const tools_env *env);
+/* Release every queued path and captured byte exactly once and reset the
+ * count. Used by terminal non-delivery cleanup and environment teardown, so
+ * the queue can never poison a later turn or retain its bytes indefinitely. */
+void tools_discard_pending_images(tools_env *env);
+
+/* Validate a local png/jpeg/gif/webp, capture its exact bytes and queue them
+ * through the same next-request path as read_image. allowed_roots_only is true
+ * for the socket operation; read_image already passed its permission gate.
+ * resolved_out borrows the queued path; mime_out is static. */
 int tools_queue_image(tools_env *env, const char *path, bool allowed_roots_only,
                       const char **resolved_out, const char **mime_out, size_t *len_out, char *err,
                       size_t errlen);
+/* The explicit-preview admission on the same queue. Stricter than manual
+ * attachment: the provider must be configured-true for image input, the path
+ * must be inside the allowed roots, and expected_sha256 must match the hash of
+ * the bytes just captured — never a second read of the path. *code_out gets a
+ * static TNY_IMAGE_PREVIEW_CODE_* string on refusal. */
+/* expected_bytes == 0 preserves ordinary previews; positive values must
+ * match the same captured snapshot as expected_sha256. */
+int tools_queue_image_preview(tools_env *env, const char *path, const char *expected_sha256,
+                              uint64_t expected_bytes, const char **code_out, char *err,
+                              size_t errlen);
 
 #endif

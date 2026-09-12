@@ -1,0 +1,28 @@
+{
+  "utc": "2026-09-11T19:50:43.292804+00:00",
+  "revision": "b80c04b9df740c8388da03991cf4808c07e9cb50",
+  "initial_contract_sha256": "832e97ffd3ba8b5e21a60a356e13b8759e89efae348cac5f9fa41682fb31c6b1",
+  "all_baseline_tracked_inputs_reverified": 1068,
+  "review_identity": "a0cbdcbc-29b1-493e-b793-95e607ba0b3d",
+  "review_input_manifest_verified": true,
+  "review_result_sha256": "9e0a8529bfa1344ee4fdf5d5947b47899073434b855d3faa599d8ab73d1ca654",
+  "review_verdict": "Approved for first #123 implementation only; new different reviewer required after slice",
+  "native_goal_response": {
+    "goal": {
+      "threadId": "01a091ec-193f-7a91-b8e3-b28e757eff19",
+      "objective": "Implement AND verify tny open issues #122-127 at /Users/tomas/projects/tny using /Users/tomas/projects/tny-open-issues-2026-09-11. Contract: /Users/tomas/projects/tny-open-issues-2026-09-11/docs/verification/open-issues-2026-09-11/contract.md. Evidence: /Users/tomas/projects/tny-open-issues-2026-09-11/docs/verification/open-issues-2026-09-11/evidence.md. Active invariants: I122.1: requested/effective/actual size and transform metadata; I122.2: actionable human/JSON mismatch; I122.3: unsupported sizes documented; strict mismatch fails; I122.4: exact/mismatch/auto/unsupported/native-export tests; I123.1: active-session named/auto creation reproduced; I123.2: failure stage diagnosed with evidence; I123.3: durable ID and inspect/message/lifecycle; I123.4: stable actionable invalid/unsupported errors; I123.5: regression and credential-safe diagnostics; I124.1: immediate durable ID and metadata/log paths; I124.2: structured states/errors/artifacts; I124.3: submitter exit and interrupted-job recovery; I124.4: cancel only owned processes; I124.5: bounded batches and selective failed-item retries; I124.6: mixed/cancel/crash/concurrency/collision tests; I125.1: exact canvas with fit/crop/pad/alignment; I125.2: retain originals; explicit safe overwrite; I125.3: source/target/transform/lineage metadata; I125.4: derived outputs never called native; I125.5: deterministic labeled contact sheets; I125.6: dimension/aspect/original/dependency/failure tests; I126.1: explicit next-review shared attachment; I126.2: metadata-only remains available; I126.3: full-resolution and preview distinguished; I126.4: unsupported fallback retains artifact; I126.5: preview failure distinct; no false visual approval; I126.6: timing/capability/payload/CLI-tool tests; I127.1: record inputs/hashes/settings/dimensions/time/results; I127.2: provider seed/request ID never fabricated; I127.3: native/derived source lineage; I127.4: atomic versioned concurrent/failure manifests; I127.5: rerun/edit settings overrides; missing-input warnings; I127.6: no credentials; privacy and persistence control; I127.7: roundtrip/lineage/missing/concurrency/failure tests; I-G1: C11/effective quality gates; no introduced violations; I-G2: minimal design reviewed with simpler alternatives; I-G3: every original criterion delivered and verified; I-G4: all claimed runtimes and live boundaries verified; I-G5: planned critical mutants behaviorally killed/accounted; I-G6: finalized ADR names/bytes immutable AND prefixes globally unique; I-G7: fresh design/first-slice/consequential reviews resolved; I-G8: pre-code immutable contract/hash/native goal/order proof; I-G9: current input-bound evidence; preserve unrelated state/secrets; I-G10: truthful handoff; completion only after integrated gate. I124.7: shell/tool parity and permission checks; I124.8: distinct ask/image jobs, canonical JSONL preserved; I125.7: no implicit image postprocessing; I126.7: explicit input capabilities and pre-request gating; I127.8: safe prior artifact/job references plus explicit paths. Complete ONLY when all original requirements and active gates pass together on the delivered state with current proof. Existing ADR collisions remain blockers until user resolves the conflicting guarantees. Do not reduce scope, bypass blocked checkpoints, expose secrets, or alter unrelated work/goals. No commits, pushes, merges, releases, deployments or issue closure. No token budget. Otherwise report INCOMPLETE; native completion requires separate read-back verification.",
+      "status": "active",
+      "tokenBudget": null,
+      "tokensUsed": 0,
+      "timeUsedSeconds": 0,
+      "createdAt": 1789154566,
+      "updatedAt": 1789155983
+    }
+  },
+  "baseline_normalized_pass": true,
+  "unwaived_final_blockers": [
+    "existing ADR 0030/0045 prefix collisions",
+    "unverified non-Darwin runtimes and integrations"
+  ],
+  "implementation_started": false
+}

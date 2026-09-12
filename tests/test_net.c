@@ -212,6 +212,31 @@ TEST url_parse_forms(void) {
 
 /* ---- chunked transfer decoding (http1.c) ---- */
 
+TEST response_headers_empty_partial_complete_and_eof(void) {
+    int sv[2];
+    ASSERT_EQ(0, socketpair(AF_UNIX, SOCK_STREAM, 0, sv));
+    set_nonblock(sv[0], true);
+    http_conn *c = http_from_fd(sv[0]);
+    ASSERT(c != NULL);
+    ASSERT_EQ(-2, http_read_response(c, 0));
+    const char *partial = "HTTP/1.1 204 No Content\r\n";
+    ASSERT_EQ((ssize_t)strlen(partial), write(sv[1], partial, strlen(partial)));
+    ASSERT_EQ(-2, http_read_response(c, 0));
+    ASSERT_EQ(2, write(sv[1], "\r\n", 2));
+    ASSERT_EQ(204, http_read_response(c, 0));
+    http_close(c);
+    close(sv[1]);
+
+    ASSERT_EQ(0, socketpair(AF_UNIX, SOCK_STREAM, 0, sv));
+    set_nonblock(sv[0], true);
+    c = http_from_fd(sv[0]);
+    ASSERT(c != NULL);
+    close(sv[1]);
+    ASSERT_EQ(-1, http_read_response(c, 0));
+    http_close(c);
+    PASS();
+}
+
 /* Feed a canned HTTP response through a socketpair in `slice`-byte writes,
  * draining the parser between writes so every possible read boundary is
  * exercised — including the CRLF-after-chunk-data split that once made the
@@ -428,6 +453,7 @@ SUITE(net_suite) {
     RUN_TEST(connect_keepalives_skipped);
     RUN_TEST(connect_oversized_rejected);
     RUN_TEST(url_parse_forms);
+    RUN_TEST(response_headers_empty_partial_complete_and_eof);
     RUN_TEST(chunked_survives_every_split_boundary);
     RUN_TEST(mcp_chunked_json_survives_each_exact_split);
     RUN_TEST(chunked_garbage_size_line_is_an_error);

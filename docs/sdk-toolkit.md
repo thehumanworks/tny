@@ -1,5 +1,14 @@
 # Standalone SDK toolkit
 
+## Preview remains outside the toolkit
+
+Standalone SDK toolkit image operations are metadata-only. `preview` is not a
+request option: native C toolkit JSON, Python keyword calls and TypeScript
+options reject it, including `preview: false`. This is deliberate misuse
+rejection, not a silently ignored upload request. No image-send ABI or ambient
+session socket lookup is added. Conversation-native tools and CLI preview are
+separate owning-turn operations described in [images](images.md).
+
 Python's `Toolkit` / `AsyncToolkit` and TypeScript's `Toolkit` expose the native
 image, speech, transcription, and prompt optimisation services directly. They
 require **libtny ABI 1.2+** on the existing native SDK platforms: macOS arm64 and
@@ -9,8 +18,8 @@ returning or raising.
 
 | Operation | Python | TypeScript | Result |
 | --- | --- | --- | --- |
-| Generate image | `generate_image(prompt, output_file=...)` | `generateImage(prompt, {outputFile})` | Path, MIME type, byte count, provider, model |
-| Edit image | `edit_image(prompt, images=[...], output_file=...)` | `editImage(prompt, {images, outputFile})` | Same image result; one to five references |
+| Generate image | `generate_image(prompt, output_file=...)` | `generateImage(prompt, {outputFile})` | Path, MIME type, byte count, provider, model, requested/effective size, actual width/height, size status, operation id, manifest path, provider seed/request id |
+| Edit image | `edit_image(prompt, images=[...], output_file=...)` | `editImage(prompt, {images, outputFile})` | Same image result; one to five references from paths and/or an earlier record |
 | Text to speech | `speak(text, output_file=...)` | `speak(text, {outputFile})` | MP3 path or `None`/`null`, played flag, provider, voice, MIME type |
 | File to text | `transcribe(input_file)` | `transcribe(inputFile)` | Transcript and provider |
 | Microphone to text | `dictate(seconds=...)` | `dictate({seconds})` | Transcript and provider |
@@ -59,8 +68,60 @@ Callers must coordinate writes to the same output path.
 Images and speech use `codex`. Transcription/capture support `codex` and `xai`;
 omission follows `TNY_STT_PROVIDER`, then `codex`. Every call accepts a `provider`
 override. Image calls also accept `model`, `quality` (`auto`, `low`, `medium`,
-`high`, `xhigh`, `max`), and `size`. Speech accepts `voice`; capture accepts
-`device`. Defaults are those of the shared CLI services.
+`high`, `xhigh`, `max`), `size`, the boolean `strict_size` / `strictSize`, the
+boolean `persist_manifest` / `persistManifest`, and `from_manifest` /
+`fromManifest`. Editing also accepts `artifact`. Speech accepts `voice`;
+capture accepts `device`. Defaults are those of the shared CLI services.
+
+Every successful image call writes a private per-operation manifest beside its
+output and returns `operation_id` / `operationId` and `manifest_path` /
+`manifestPath`, plus `seed` and `request_id` / `requestId` when — and only
+when — the provider actually returned them. `persist_manifest=False` records
+nothing at all, not even the prompt, and returns a `None`/`null` manifest path;
+the operation still has an id. `from_manifest` reruns a recorded operation with
+its stored prompt, references and settings, so the prompt argument may be
+omitted (`None`/`undefined`) and any option you do pass overrides the recorded
+one; the output must be a new path and the record must name the same operation.
+`artifact` takes an earlier record's verified output as the first reference,
+ahead of any `images`. Missing, changed, malformed, future-version or
+non-succeeded records fail before any provider request. The schema, guarantees
+and privacy rules are [docs/images.md](images.md)'s; the SDKs add no second
+implementation.
+
+Image results carry `requested_size` / `requestedSize`, `effective_size` /
+`effectiveSize` (the literal actually sent), `width`, `height` read from the
+returned bytes, and `size_status` / `sizeStatus` — `match`, `mismatch`, `auto`,
+`unverifiable` or `unsupported`, exactly as [docs/images.md](images.md) defines
+them. Unknown dimensions are `None` / `null`, never zero. `strict_size` needs an
+exact `WIDTHxHEIGHT`: an omitted, `auto`, opaque or invalid size raises an
+invalid-argument error **before** any provider request, and returned bytes that
+miss the requested size raise a protocol error while leaving any existing
+destination file untouched. As everywhere in this ABI, failures expose a stable
+error category rather than message text.
+
+Those strict-size rejections carry the same safe object
+[docs/images.md](images.md) documents, so you can read the exact code without
+parsing a message: Python attaches a read-only `image_detail` to the raised
+`TnyError`, and TypeScript attaches a non-enumerable read-only `imageDetail` to
+the rejected `TnyError`. It is a failure type, not an image result: `path` is
+`None`/`null` and `committed` is false, and it holds no credential, endpoint,
+prompt, or provider text.
+
+Exactly one other failure sets it: `IMAGE_MANIFEST_FINALIZE_FAILED`, where the
+image was written and kept and only its record could not be finalized. That is
+a distinct type — Python `RetainedImageDetail`, TypeScript
+`RetainedImageDetail`, together with the strict shape as `ImageDetail` — and it
+is the one detail with `committed` true, a real `path`, `byte_count` /
+`byteCount`, and the operation's `operation_id` / `manifest_path`
+(`operationId` / `manifestPath`). Discriminate on `committed`; the strict
+reader never accepts the retained shape and vice versa. It arrives as the I/O
+error category, including when the job is cancelled after the file was
+committed — a paid artifact is never dropped to make the outcome look tidy.
+
+Both are `None`/`undefined` for every other failure, including provider,
+cancellation and out-of-memory ones, and neither enters `str`, `repr`,
+tracebacks, `message`, `stack`, `JSON.stringify` or default inspection — you
+have to ask for it.
 
 `ToolkitConfig` accepts `chatgpt_token`, `chatgpt_account_id`, `codex_base_url`,
 and `xai_api_key`. TypeScript uses `chatgptToken`, `chatgptAccountId`,
@@ -132,8 +193,8 @@ the Python names above. Request fields are:
 
 | Operation | Required | Optional |
 | --- | --- | --- |
-| `generate_image` | `prompt`, `output_file` | `provider`, `model`, `quality`, `size` |
-| `edit_image` | `prompt`, `output_file`, `images` | `provider`, `model`, `quality`, `size` |
+| `generate_image` | `output_file`, and `prompt` unless `from_manifest` | `provider`, `model`, `quality`, `size`, `strict_size`, `persist_manifest`, `from_manifest` |
+| `edit_image` | `output_file`, `prompt` unless `from_manifest`, and references from `images`, `artifact` or `from_manifest` | `provider`, `model`, `quality`, `size`, `strict_size`, `persist_manifest`, `from_manifest`, `artifact` |
 | `speak` | `text` | `provider`, `voice`, `output_file` |
 | `transcribe` | `input_file` | `provider` |
 | `dictate` | `seconds` | `provider`, `device` |
@@ -142,12 +203,22 @@ the Python names above. Request fields are:
 `tny_toolkit_job_create` copies/validates without I/O; `tny_toolkit_job_run`
 executes once on a caller-selected thread. `tny_toolkit_job_cancel` is a sticky
 atomic request, including before run. `tny_toolkit_job_result` borrows JSON
-after success until `tny_toolkit_job_destroy`; errors have no result. Destroy
+after success until `tny_toolkit_job_destroy`. Errors have no result, with two
+deliberate exceptions: after a completed `--strict-size` image rejection, and
+after a retained artifact whose record could not be finalized, the accessor
+returns the locally built failure object described in
+[docs/images.md](images.md) — the run status and error message are unchanged.
+A cancelled or out-of-memory outcome still leaves the result empty; a retained
+artifact is classified as `TNY_STATUS_IO` before cancellation is consulted, so
+cancelling after the file was committed cannot erase it. Destroy
 refuses running work with `TNY_STATUS_BUSY`. Join run and stop cancellation
 callers before destroying. Calls except cancellation must be serialized on
 each job. Handles reject use after fork.
 
 Image JSON retains native fields `kind`, `ok`, `operation`, `provider`, `model`,
-`path`, `mime_type`, and `bytes`. Speech returns `provider`, `voice`, `mime_type`,
+`path`, `mime_type`, and `bytes`, and adds `requested_size`, `effective_size`,
+`width`, `height`, `size_status`, `native`, `transform`, `operation_id`,
+`manifest_path`, `seed` and `request_id`. The last four are `null` when
+persistence was declined or the provider returned no such identifier. Speech returns `provider`, `voice`, `mime_type`,
 `path` (null for playback), and `played`. Transcription returns `provider` and
 `text`; optimisation adds `model`. SDKs copy results before destroying the job.

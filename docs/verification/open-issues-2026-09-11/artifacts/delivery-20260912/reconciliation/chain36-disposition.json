@@ -1,0 +1,8 @@
+{
+  "note": "Ordinary chain hash check fails at 36; retained preimage exactly reproduces existing special-case hash. Preserve constructor defect and disposition, not silent backdating or repair.",
+  "preimage_embedded_hash_matches_resume_json": true,
+  "reconstructed_hash_matches_chain": true,
+  "reconstruction_payload_equals_record_without_self_hash": true,
+  "record36_kind": "resume_20260912_finish_readonly_reconciled",
+  "utc": "2026-09-12T13:14:04.536686+00:00"
+}

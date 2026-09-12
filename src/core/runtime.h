@@ -6,6 +6,7 @@
 
 #include "core/backend.h"
 #include "core/config.h"
+#include "core/image_preview.h"
 #include "core/perm.h"
 #include "core/session.h"
 
@@ -58,6 +59,16 @@ void tny_engine_set_frontend_control(tny_engine *e, tny_engine_ask_user_cb ask_u
                                      void *control_pump_ud, const char *session_sock,
                                      const char *session_id);
 int tny_engine_queue_image(tny_engine *e, const char *path, char *err, size_t errlen);
+/* Explicitly requested generated-image preview on that same queue
+ * (docs/adr/0096). The owning native backend decides whether its current tool
+ * batch can still carry the image into another request; this wrapper only maps
+ * "no such session" and the configuration policy. Manual image_attach and
+ * `tny ask --image` semantics are untouched. */
+tny_image_preview_status tny_engine_queue_image_preview(tny_engine *e, const char *path,
+                                                        const char *expected_sha256,
+                                                        uint64_t expected_bytes,
+                                                        const char **code_out, char *err,
+                                                        size_t errlen);
 /* Optional signal-safe frontend flag probe. Native control hooks re-check it
  * after every bounded Python invocation and before side effects/POSTs. */
 void tny_engine_set_cancel_probe(tny_engine *e, tny_engine_cancel_probe probe, void *ud);

@@ -62,9 +62,12 @@ from .runtime import RuntimeConfig as RuntimeConfig
 from .runtime import Session as Session
 from .runtime import TaskPreset as TaskPreset
 from .toolkit import AsyncToolkit as AsyncToolkit
+from .toolkit import ImageDetail as ImageDetail
+from .toolkit import ImageFailureDetail as ImageFailureDetail
 from .toolkit import ImageQuality as ImageQuality
 from .toolkit import ImageResult as ImageResult
 from .toolkit import OptimisationResult as OptimisationResult
+from .toolkit import RetainedImageDetail as RetainedImageDetail
 from .toolkit import SpeechResult as SpeechResult
 from .toolkit import Toolkit as Toolkit
 from .toolkit import ToolkitConfig as ToolkitConfig
@@ -109,6 +112,8 @@ __all__ = (
     "EventHandler",
     "HostServices",
     "InternalError",
+    "ImageDetail",
+    "ImageFailureDetail",
     "ImageQuality",
     "ImageResult",
     "InvalidArgumentError",
@@ -120,6 +125,7 @@ __all__ = (
     "PermissionMode",
     "ProtocolError",
     "ProviderName",
+    "RetainedImageDetail",
     "Runtime",
     "RuntimeConfig",
     "TaskPreset",

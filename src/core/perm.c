@@ -19,7 +19,7 @@ bool perm_tool_is_safe(const char *tool) {
     return false;
 }
 
-bool perm_path_allowed(tny_ctx *ctx, const char *abs_path) {
+bool perm_path_allowed(const tny_ctx *ctx, const char *abs_path) {
     if (path_is_within(ctx->cwd, abs_path)) return true;
     for (int i = 0; i < ctx->n_extra_dirs; i++)
         if (path_is_within(ctx->extra_dirs[i], abs_path)) return true;

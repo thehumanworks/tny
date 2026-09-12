@@ -1,0 +1,26 @@
+{
+  "utc": "2026-09-12T19:48:24.700181+00:00",
+  "full_run": "D105-final-corrected-mac-test",
+  "exit_code": 2,
+  "source_changes": [
+    "nix/tests.nix",
+    "tests/integration/test_jobs.py",
+    "tests/fixtures/jobs_launch_barrier.c",
+    "nix/package.nix",
+    "docs/size-and-speed.md",
+    "docs/nix.md",
+    "nix/source.nix"
+  ],
+  "failure_lines": [
+    "ERROR: test_cancellation_terminates_descendants_of_auto_reaping_parent (__main__.JobsReviewedRaces.test_cancellation_terminates_descendants_of_auto_reaping_parent)",
+    "   FAIL: test_jobs"
+  ],
+  "diagnosis": "The only failed D105 group now passes in full as D108 with the independently reviewed two-mode fixture. All other D105 integrated groups and ABI/SDK gates completed without reported failure. Nix-only test-helper path correction is separately verified.",
+  "full_log_sha256": "b52c763be1173373425a7e661ad9c45b93c65bf0dcd1546241df00208dc2936b",
+  "corrected_group": {
+    "check": "D108-final-mac-jobs",
+    "exit_code": 0,
+    "cases": 72,
+    "source_unchanged": true
+  }
+}

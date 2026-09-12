@@ -1,0 +1,275 @@
+[
+  {
+    "id": "R122.1",
+    "issue": 122,
+    "text": "Structured results include requested and actual dimensions, effective provider size when available, MIME type, and any resize/crop operation.",
+    "invariant": "I122.1",
+    "check": "C122"
+  },
+  {
+    "id": "R122.2",
+    "issue": 122,
+    "text": "A mismatch yields an actionable warning in human output and a machine-readable status in JSON.",
+    "invariant": "I122.2",
+    "check": "C122"
+  },
+  {
+    "id": "R122.3",
+    "issue": 122,
+    "text": "Document provider-specific size support and behavior for unsupported requests; an optional strict mode fails rather than silently accepting a mismatch.",
+    "invariant": "I122.3",
+    "check": "C122"
+  },
+  {
+    "id": "R122.4",
+    "issue": 122,
+    "text": "Tests cover exact matches, mismatches, auto size, unsupported requests, and separation of native versus exported dimensions.",
+    "invariant": "I122.4",
+    "check": "C122"
+  },
+  {
+    "id": "R123.1",
+    "issue": 123,
+    "text": "Reproduce child creation from an active agent session under the all-tools profile; test named and automatically assigned IDs against the documented schema.",
+    "invariant": "I123.1",
+    "check": "C123"
+  },
+  {
+    "id": "R123.2",
+    "issue": 123,
+    "text": "Determine whether failure comes from invocation validation, session creation, environment inheritance, provider startup, or unsupported execution mode.",
+    "invariant": "I123.2",
+    "check": "C123"
+  },
+  {
+    "id": "R123.3",
+    "issue": 123,
+    "text": "Supported creation returns a durable child ID and working inspect/message/lifecycle operations.",
+    "invariant": "I123.3",
+    "check": "C123"
+  },
+  {
+    "id": "R123.4",
+    "issue": 123,
+    "text": "Invalid or unsupported calls return a stable error code and actionable explanation, including the valid invocation or supported fallback.",
+    "invariant": "I123.4",
+    "check": "C123"
+  },
+  {
+    "id": "R123.5",
+    "issue": 123,
+    "text": "Add regression tests for the identified failure and negative-path diagnostics; ensure errors do not expose credentials.",
+    "invariant": "I123.5",
+    "check": "C123"
+  },
+  {
+    "id": "R124.1",
+    "issue": 124,
+    "text": "Submission returns a job ID and persisted metadata/log locations immediately.",
+    "invariant": "I124.1",
+    "check": "C124"
+  },
+  {
+    "id": "R124.2",
+    "issue": 124,
+    "text": "Status and wait expose queued/running/succeeded/failed/cancelled states, exit/error information, and artifact paths in structured output.",
+    "invariant": "I124.2",
+    "check": "C124"
+  },
+  {
+    "id": "R124.3",
+    "issue": 124,
+    "text": "Jobs remain inspectable after the submitting CLI exits; interrupted jobs receive an explicit state rather than appearing to run forever.",
+    "invariant": "I124.3",
+    "check": "C124"
+  },
+  {
+    "id": "R124.4",
+    "issue": 124,
+    "text": "Cancellation cleans up owned child processes without affecting unrelated work.",
+    "invariant": "I124.4",
+    "check": "C124"
+  },
+  {
+    "id": "R124.5",
+    "issue": 124,
+    "text": "Batch execution supports bounded concurrency, per-item results, and retrying selected failures without regenerating successes.",
+    "invariant": "I124.5",
+    "check": "C124"
+  },
+  {
+    "id": "R124.6",
+    "issue": 124,
+    "text": "Tests cover mixed outcomes, cancellation, interrupted submitters, concurrency limits, and output-path collisions.",
+    "invariant": "I124.6",
+    "check": "C124"
+  },
+  {
+    "id": "R125.1",
+    "issue": 125,
+    "text": "Exact output dimensions can be requested with an explicit aspect-ratio policy and crop alignment.",
+    "invariant": "I125.1",
+    "check": "C125"
+  },
+  {
+    "id": "R125.2",
+    "issue": 125,
+    "text": "Native generated originals are retained separately; overwrite behavior is explicit and safe.",
+    "invariant": "I125.2",
+    "check": "C125"
+  },
+  {
+    "id": "R125.3",
+    "issue": 125,
+    "text": "Metadata records source dimensions, target dimensions, scaling/cropping, and source artifact linkage.",
+    "invariant": "I125.3",
+    "check": "C125"
+  },
+  {
+    "id": "R125.4",
+    "issue": 125,
+    "text": "Exported/upscaled files are never presented as native-resolution generations.",
+    "invariant": "I125.4",
+    "check": "C125"
+  },
+  {
+    "id": "R125.5",
+    "issue": 125,
+    "text": "Contact sheets support multiple artifacts with optional labels and deterministic ordering.",
+    "invariant": "I125.5",
+    "check": "C125"
+  },
+  {
+    "id": "R125.6",
+    "issue": 125,
+    "text": "Tests verify dimensions, aspect-ratio handling, preservation of originals, missing dependencies, and partial export failures.",
+    "invariant": "I125.6",
+    "check": "C125"
+  },
+  {
+    "id": "R126.1",
+    "issue": 126,
+    "text": "A successful generation can explicitly attach a preview for the agent's next visual review, using the shared attachment mechanism.",
+    "invariant": "I126.1",
+    "check": "C126"
+  },
+  {
+    "id": "R126.2",
+    "issue": 126,
+    "text": "Metadata-only behavior remains available for scripts and non-vision backends.",
+    "invariant": "I126.2",
+    "check": "C126"
+  },
+  {
+    "id": "R126.3",
+    "issue": 126,
+    "text": "Results identify the full-resolution artifact and any downsampled preview separately.",
+    "invariant": "I126.3",
+    "check": "C126"
+  },
+  {
+    "id": "R126.4",
+    "issue": 126,
+    "text": "Unsupported vision/transport modes give clear fallback instructions without losing a successfully generated artifact.",
+    "invariant": "I126.4",
+    "check": "C126"
+  },
+  {
+    "id": "R126.5",
+    "issue": 126,
+    "text": "Preview failures are distinguishable from generation failures; neither is silently interpreted as visual approval.",
+    "invariant": "I126.5",
+    "check": "C126"
+  },
+  {
+    "id": "R126.6",
+    "issue": 126,
+    "text": "Tests cover attachment timing, capability gating, bounded payloads, and CLI/tool parity.",
+    "invariant": "I126.6",
+    "check": "C126"
+  },
+  {
+    "id": "R127.1",
+    "issue": 127,
+    "text": "Record prompt, reference paths and content hashes, provider/model, quality, requested/effective/actual dimensions, timestamps, result status, and artifact paths.",
+    "invariant": "I127.1",
+    "check": "C127"
+  },
+  {
+    "id": "R127.2",
+    "issue": 127,
+    "text": "Record seed or provider request ID only when actually supplied by the provider; do not fabricate unavailable metadata.",
+    "invariant": "I127.2",
+    "check": "C127"
+  },
+  {
+    "id": "R127.3",
+    "issue": 127,
+    "text": "Edits and exports link to their source artifacts; manifests distinguish native outputs from derived copies.",
+    "invariant": "I127.3",
+    "check": "C127"
+  },
+  {
+    "id": "R127.4",
+    "issue": 127,
+    "text": "Manifest writes are atomic, schema-versioned, and safe under parallel runs; failed operations retain useful diagnostic state.",
+    "invariant": "I127.4",
+    "check": "C127"
+  },
+  {
+    "id": "R127.5",
+    "issue": 127,
+    "text": "A documented rerun/edit flow can consume recorded settings, with explicit overrides and clear warnings for missing references.",
+    "invariant": "I127.5",
+    "check": "C127"
+  },
+  {
+    "id": "R127.6",
+    "issue": 127,
+    "text": "Do not persist credentials; document prompt/reference privacy and provide control over manifest persistence.",
+    "invariant": "I127.6",
+    "check": "C127"
+  },
+  {
+    "id": "R127.7",
+    "issue": 127,
+    "text": "Tests cover round trips, lineage, moved/missing inputs, concurrent writes, and failed generation.",
+    "invariant": "I127.7",
+    "check": "C127"
+  },
+  {
+    "id": "R124.7",
+    "issue": 124,
+    "text": "Jobs are usable through shell CLI and native agent tools with equivalent permission, state and cancellation semantics.",
+    "invariant": "I124.7",
+    "check": "C124"
+  },
+  {
+    "id": "R124.8",
+    "issue": 124,
+    "text": "Ask and image job lifecycles remain distinct, and existing ask --events=jsonl retains the #66 canonical event contract rather than being replaced by a job envelope.",
+    "invariant": "I124.8",
+    "check": "C124"
+  },
+  {
+    "id": "R125.7",
+    "issue": 125,
+    "text": "Export and contact sheets are explicit operations; ordinary generation/editing never silently invokes post-processing.",
+    "invariant": "I125.7",
+    "check": "C125"
+  },
+  {
+    "id": "R126.7",
+    "issue": 126,
+    "text": "The missing image-input capability prerequisite is implemented and tested: per-profile capability override, advertised/executable tool gating and pre-turn image refusal, without duplicating the existing attachment transport.",
+    "invariant": "I126.7",
+    "check": "C126"
+  },
+  {
+    "id": "R127.8",
+    "issue": 127,
+    "text": "Subsequent image edits can reference an earlier artifact or job, with explicit file paths retained, source-hash validation and actionable missing-reference behavior.",
+    "invariant": "I127.8",
+    "check": "C127"
+  }
+]

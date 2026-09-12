@@ -1,5 +1,20 @@
 # CLI
 
+### Explicit image preview
+
+Image producers accept opt-in `--preview`; without it stdout and permission
+identities remain metadata-only. `tny image preview --manifest RECORD --json`
+selects a successful artifact without regenerating it. Native typed tools use
+boolean `preview` and the `image_preview` selector; terminal interception has
+the same semantics. Generation/export success stays exit 0 when preview fails,
+with a separate JSON `preview` status and stderr guidance. Preview-only failure
+exits 1. A queued receipt is not proof of delivery or inspection. No implicit
+conversion, retry or manual attachment fallback is performed. Use
+`image preview --job ID --item N` to select a succeeded image item, or add the
+pair to `image edit` as its final reference within the existing five-reference
+limit. The producer identity and attempts are pinned before permission; later
+job/manifest changes cannot substitute another input. See [images](images.md).
+
 Design the CLI so humans and coding agents can run it without menus. Every input is a flag or stdin. Interactive prompts are a fallback, never the only path. Each subcommand has `--help` with copy-paste examples.
 
 Binary name: `tny`.
@@ -14,7 +29,12 @@ tny edit FILE               # exact-match replacement from stdin
 tny ask-user QUESTION       # ask the owning runner frontend (inside terminal)
 tny image generate          # prompt on stdin; --output-file required
 tny image edit              # prompt on stdin; --image PATH and --output-file required
+tny image export            # local resize/crop/re-encode; --image and --size required
+tny image contact-sheet     # local ordered grid; repeat --image, --size required
 tny image attach PATH       # attach an image to the next request (inside terminal)
+tny jobs submit ask|image|batch   # durable work; prints a job id immediately
+tny jobs status|wait|cancel|retry|logs|rm <id>
+tny jobs list               # durable jobs in this workspace's state directory
 tny resume [last|<id>]      # interactive resume
 tny acp                     # ACP server (native loop only)
 tny sessions
@@ -201,8 +221,10 @@ tny --ssh '[2001:db8::1]:22' ask "df -h"
 - Works with the native loop providers (`openai`, `claude`, `grok`, any
   openai-compatible profile). Cursor, Codex and ACP hosts execute their own
   tools and are refused with an explanatory error.
-- `memory`, `skill`, `subagent`, MCP and web tools stay local; `open_file`
+- `memory`, `skill`, MCP and web tools stay local; `open_file`
   and `install_skill` report that they are unavailable over `--ssh`.
+  `subagent` is hidden and refused with `SUBAGENT_UNSUPPORTED_CONTEXT`: a
+  child would run its tools on this machine, not the remote host.
 - `/undo` does not cover remote edits.
 - The system prompt tells the model it is in a remote environment on the
   target host and states the remote working directory (instead of the local
@@ -454,7 +476,8 @@ tny --provider codex --effort xhigh ask "prove this queue is lock-free"
 tny --yolo --cwd /tmp/ws ask "run the test suite"
 ```
 
-Stdout: assistant Markdown (or one JSON object with `--json`).
+Stdout: assistant Markdown (or one JSON object with `--json`, or one canonical
+event per line with `--events=jsonl`).
 Stderr: progress, tool lines, diagnostics.
 Exit 0 finished, 1 startup/config, 2 run failed, 130 interrupted.
 
@@ -499,6 +522,82 @@ JSON object (keep field names stable):
 
 `--json` is required on `ask`, `status`, `doctor`, `permissions`, `models`, `session`, `sessions`, `workspace`, `usage`. `tny mcp --json` is optional.
 
+### `--events=jsonl` (canonical event stream, [ADR 0090](adr/0090-canonical-foreground-ask-events.md))
+
+```sh
+tny ask --events=jsonl "summarize this repository" | jq -c 'select(.type=="tool_end")'
+tny ask --events=jsonl --progress=none --ephemeral "list the public CLI"
+```
+
+Stdout becomes the turn's event stream: one JSON object per line, in engine
+order, and nothing else — no Markdown, no recovery replay, no final blob. The
+objects are the public event schema of
+[ADR 0030](adr/0030-public-event-schema.md) (`sdk/schema/events.json`), the
+same events `libtny` hands to the Python and TypeScript SDKs:
+
+```json
+{"schema_version":1,"sequence":7,"timestamp_ms":1234,"provider":"openai",
+ "session_id":"…","turn_id":"…:1:0","type":"turn_end","kind":7,"stop_reason":0}
+```
+
+- Envelope on every line: `schema_version`, `sequence` (monotonic, session
+  local — it does not start at 1), `timestamp_ms` (monotonic), `provider`,
+  `session_id`, `turn_id`, `type`, and the numeric `kind`.
+- Payload keys are the registry's fields for that `type`, always present.
+  An unavailable string is `""`; an unreported `cost` is `null` with
+  `has_cost:false`. `kind`, `stop_reason`, `permission_options` and
+  `error_code` are the frozen ABI's numbers (`include/tny/tny.h`), never
+  re-spelled names.
+- `--ephemeral` streams the same way; its `session_id` is an in-memory id
+  that is never persisted (the `--json` blob reports `""` for the same run).
+- The turn runs in this process (like `TNY_ISOLATE=0`), because the detached
+  runner speaks its own private wire; `-B`/`--background` and `--json` are
+  therefore refused rather than silently reinterpreted.
+
+Exit codes follow the delivered stream, not optimism: `0` only after an
+actual `turn_end` with stop reason `done` was written; `2` when the stream
+could not be written, when the backend drained without a terminal event, or
+for any non-success stop reason; `130` when an interrupt reached the turn —
+including an interrupt while a stalled consumer was blocking the writer. A
+missing `turn_end` is never invented, and success is never reported after a
+write failure. The turn's real output still reaches the saved session
+`result`, with the honest status and exit code.
+
+Failures before the turn is accepted (option conflicts, unreadable schema,
+missing session, no prompt) print one stable object on **stderr** and no
+events at all:
+
+```json
+{"schema_version":1,"kind":"ask_error","code":"option_conflict","message":"…"}
+```
+
+`code` is one of `invalid_option`, `option_conflict`, `no_prompt`, `session`,
+`session_busy`, `provider`, `internal`, `start_failed`, plus the post-start
+stream outcomes `stream_io`, `no_terminal` and `cancelled`. The object is a
+CLI diagnostic (`kind`), never an event (`type`), so the two cannot be
+confused.
+
+`--progress=none` is independent of `--events`: it drops the successful human
+status, plan, tool and extension lines from stderr. Errors, permission
+refusals and the machine diagnostics above still print. It works with the
+default Markdown output and with `--json` too.
+
+A slow consumer only slows delivery: the writer waits in bounded slices,
+keeps event order, retains no more than the engine's bounded event queue, and
+never changes the file-status flags of the stdout description it inherited.
+Every chunk goes out only after the poll seam reports stdout writable, so an
+interrupt is never waiting behind a blocking write — including on a stdout
+that was *already* full before the first event. wasm: the browser build's
+seam answers for its own stdout (`Module.__tnyPollStdout`, ready by default
+because the page's print hooks and node's `writeSync` do not defer), so the
+writer asks there too instead of guessing.
+
+An interrupt also reaches a `terminal` tool that is still running: the
+command and the processes it started are stopped, the tool result reports
+`exit code: 130` with a cancellation line, and the turn ends `interrupted`
+(exit `130`). A `background: true` terminal command is deliberately detached
+and keeps running, as it does for any other turn outcome.
+
 **Inside tny**: a foreground `tny ask` typed into the `terminal` tool is
 refused — it would run a second agent loop under the current turn, invisible
 to the frontend, to cancellation, and to the step budget. Use `tny ask -B "…"`
@@ -523,10 +622,26 @@ tny --json image attach screenshots/failure.png
 
 `ask-user` returns the owning interactive TUI's arbitrary text answer on
 stdout. `image attach` validates that the path is under an allowed workspace
-root and that its magic bytes identify png/jpeg/gif/webp, then queues it as
-user-role image content for the next native provider request (ADR 0008).
-`--json` emits `kind: "ask_user"` or `kind: "image_attach"` plus the request's
-string correlation id.
+root and that its magic bytes identify png/jpeg/gif/webp, then queues its
+**loaded bytes** as user-role image content for the next native provider
+request (ADR 0008, ADR 0096). `--json` emits `kind: "ask_user"` or
+`kind: "image_attach"` plus the request's string correlation id.
+
+The channel also carries a third tool-role operation, `image_preview`, for an
+explicitly requested generated-image preview
+([ADR 0096](adr/0096-captured-image-queue-and-preview-lifecycle.md)). It takes
+`id`, `path` and a 64-character lowercase hex `expected_sha256`, and it is a
+distinct operation: it never falls back to `image_attach`. The receiving runner
+decides the outcome — allowed roots, the owning turn's readiness, the
+configured-true `image_input` policy and the hash of the bytes it just captured
+— and answers the existing `ok`/`error` fields plus two **optional** additions,
+`status` (`queued`, `unsupported`, `unavailable_session`, `turn_not_ready`,
+`failed`) and a safe `error_code`. Existing clients and the `ask_user` /
+`image_attach` replies are byte-for-byte unchanged. There is no acknowledgment
+retry: a socket that dies after the request was written is unknown delivery,
+never success and never a second enqueue. No shipped command sends
+`image_preview` yet; `tny image generate --preview` arrives with the preview
+integration slice.
 
 Both commands are socket-bound and never read `/dev/tty`. Without
 `TNY_SESSION_SOCK` they print exactly
@@ -539,6 +654,11 @@ owner does not wait for a human and preserves the existing
 `ask_user_question` fallback string. `tny acp` stays in-process and maps the
 question through its ACP client permission callback rather than creating a
 runner socket. See [ADR 0058](adr/0058-session-control-channel-roles-and-tool-ops.md).
+Internally both verbs now sit on one private exchange helper that returns the
+status, safe error code and message instead of printing them, so a caller that
+needs the outcome inside its own result does not have to parse command output;
+that helper has no stdio on any platform, including its WebAssembly branch,
+and the commands keep their messages and exit codes.
 
 **Inside tny**: typed directly into the `terminal` tool, both verbs skip the
 socket entirely and reach the turn in memory
@@ -908,7 +1028,7 @@ libtny exposes Cursor conversations through its normal runtime API.
 | cursor | `--bridge-bin PATH`, `CURSOR_SDK_BRIDGE_BIN`, `CURSOR_API_KEY` (also pass through to RPCs) |
 | codex (builtin profile) | credential precedence `--chatgpt-token` (+ `--chatgpt-account-id`) > `CHATGPT_ACCESS_TOKEN` (+ `CHATGPT_ACCOUNT_ID`) > `~/.tny/codex-auth.json` (`tny --provider codex login`) > `$CODEX_HOME/auth.json` (`codex login`); the winning file auto-refreshes in place, flag/env tokens need no filesystem; account id explicit or from the JWT claim → `https://chatgpt.com/backend-api/codex` on the Responses wire with `chatgpt-account-id` + `OpenAI-Beta: responses=v1`; an `OPENAI_API_KEY` auth.json → `api.openai.com`; default model `gpt-5.6-sol`; `TNY_CODEX_BASE_URL` redirects the ChatGPT-mode URL (mocks/gateways) without shadowing the profile ([backends/codex.md](backends/codex.md)) |
 | acp | `--agent CMD` plus extra args after `--`, e.g. `tny --provider acp --agent gemini -- acp`; `--agent ws://host:port` connects to a remote agent instead of spawning ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
-| openai | `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0016](adr/0016-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API` |
+| openai | `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0016](adr/0016-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API`. `--base-url-env NAME` reads the base URL from environment variable `NAME` with `--base-url` precedence, keeping a secret-bearing gateway URL off argv (native subagent children use it, [ADR 0087](adr/0087-explicit-subagent-contract-and-private-launch.md)); an empty `NAME` or combining it with `--base-url` is a startup error (exit 1) |
 | named provider | same flags; `NAME_BASE_URL` (beats the settings `base_url`), key from the profile's `api_key_env`, default `NAME_API_KEY` — never `OPENAI_API_KEY`; `NAME_WIRE_API` / profile `wire_api` |
 | claude (builtin profile) | credential from `CLAUDE_CODE_OAUTH_TOKEN` > `ANTHROPIC_API_KEY` > `~/.claude/.credentials.json` (`$CLAUDE_CONFIG_DIR` honored); OAuth tokens add `anthropic-beta: oauth-2025-04-20`; chat wire; default model `claude-sonnet-4-6`; `TNY_CLAUDE_BIN` for login |
 | grok (builtin profile) | session token from `~/.grok/auth.json` (minted by tny's native device login or the grok CLI; expired OIDC tokens auto-refresh at resolve) → CLI chat proxy (chat wire, `X-XAI-Token-Auth` + `x-grok-model-override` + `x-grok-client-version` headers — the proxy 426s unversioned clients, `TNY_GROK_CLIENT_VERSION` overrides the pin — default model `grok-4.6`); else `XAI_API_KEY` → `api.x.ai` (responses wire, same default model); `GROK_OAUTH2_ISSUER` / `GROK_OAUTH2_CLIENT_ID` override the login endpoint |
@@ -929,6 +1049,16 @@ exits 1 before any image file is opened or a backend is connected. That
 startup path frees the prompt buffer it may already have allocated, matching
 the `--output-schema` and unknown-flag error returns
 ([ADR 0008](adr/0008-native-loop-images.md)).
+
+Settings may declare per-provider image input. When
+`"image_input": {"NAME": false}` covers the effective provider, `--image`
+fails with exit 1 and `tny: image input is disabled for this provider by
+settings.json image_input` before a session is created or the provider is
+contacted, `read_image` is neither advertised nor executable, and queued
+images are never flushed. `true` means *configured, unverified* — tny checks
+no live entitlement — and absent means unknown, which keeps the existing
+explicit behavior. See [images.md](images.md#conversation-image-input-image_input)
+and [ADR 0089](adr/0089-image-input-policy-and-shared-gates.md).
 
 ## Structured output (`--output-schema`)
 
@@ -1062,7 +1192,22 @@ explicit Enter to submit. See [Prompt optimisation](optimisation.md).
 ChatGPT login, independently of the chat provider. See [Speech](speech.md)
 for voices, availability, export, agent tools and platform behavior.
 
-## Image generation and editing
+## Durable jobs (`tny jobs`)
+
+`tny jobs submit ask --prompt "…"` (or a piped prompt) returns a 32-hex job id,
+its private metadata path and the per-item log paths immediately, then a
+detached supervisor runs the work as real `tny ask --events=jsonl` /
+`tny image … --json` children. `tny jobs submit batch --request FILE` takes a
+bounded JSON document: one kind, 1–64 items, concurrency 1–16.
+`status`/`wait`/`logs`/`list` read; `cancel`/`retry`/`rm` change state, each
+with its own permission identity. `wait --timeout S` exits 124 without
+cancelling. A job whose supervisor is gone reads as `interrupted` with
+`cleanup:"unknown"`, never as succeeded, and `retry --failed` verifies every
+carried successful session, log and artifact hash before spending anything.
+Not available in the browser build, where the execution operations refuse
+before any side effect. See [jobs.md](jobs.md) and `tny jobs --help`.
+
+## Image generation, editing and local exports
 
 `printf 'An orange robot' | tny image generate --output-file robot.png --json`
 generates one image using the ChatGPT login.
@@ -1072,6 +1217,16 @@ chat provider; Codex defaults to `gpt-image-2.5-sunburst` with `high` quality.
 Use `--model gpt-image-2.5-flare` to override the image model and `--quality`
 to select `auto`, `low`, `medium`, `high`, `xhigh`, or `max`.
 `--check` checks local credentials
-without a request. Neither operation needs a runner socket. See
+without a request. Neither operation needs a runner socket.
+
+`tny image export --image photo.jpg --output-file thumb.png --size 256x256`
+resizes, crops, pads or re-encodes one local image, and
+`tny image contact-sheet --image a.png --image b.png --output-file sheet.png
+--size 512x256 --columns 2 --labels numbers` composes an ordered grid. Both are
+local and explicit: they need the optional ImageMagick 7 `magick` executable on
+`PATH`, while generation, editing and replay never invoke it. The canvas is
+always exactly `--size`, an existing destination needs `--overwrite`, sources
+are never modified, and the result is a derived artifact recorded as such. Run
+`tny image export --help` for the full option set. See
 [images.md](images.md) for flags, result schema, limits, permissions and platform
 behavior, and `tny image --help` for examples.

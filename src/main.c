@@ -7,8 +7,10 @@
 #include "cli/cli.h"
 #include "cli/cmd_control.h"
 #include "core/backend.h"
+#include "util/process.h"
 
 int main(int argc, char **argv) {
+    if (tny_process_scope_admit() != 0) return 1;
     /* fast paths: no allocation, no config */
     if (argc >= 2) {
         const char *a = argv[1];
@@ -101,6 +103,8 @@ int main(int argc, char **argv) {
         else rc = cmd_tui(ctx, &g);
     } else if (strcmp(cmd, "ask") == 0) {
         rc = cmd_ask(ctx, &g, cargc, cargv);
+    } else if (strcmp(cmd, "jobs") == 0) {
+        rc = cmd_jobs(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "resume") == 0) {
         rc = cmd_resume(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "acp") == 0) {

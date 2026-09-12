@@ -1,0 +1,35 @@
+{
+  "utc": "2026-09-12T19:29:17.258857+00:00",
+  "image": {
+    "verdict": "PASS_THIS_FAULT_SET",
+    "result": "final-image-mutations/result.json"
+  },
+  "subagent": {
+    "verdict": "PASS_THIS_FAULT_SET",
+    "result": "final-subagent-mutations/result.json"
+  },
+  "manifest": {
+    "evidence": "/Users/tomas/projects/tny-open-issues-2026-09-11/docs/verification/open-issues-2026-09-11/artifacts/review-merge-20260912/final-manifest-mutations-v2/faults/1789241233",
+    "planned": 9,
+    "killed": 9,
+    "survivors": [],
+    "unrestored": [],
+    "final_oracle_failures": []
+  },
+  "remaining": "Jobs31 historical rows and separate M123.7 dependency reconciliation or rerun; no complete C-G7 claim",
+  "preview": {
+    "verdict": "PASS_THIS_FAULT_SET",
+    "count": 13,
+    "record": "final-preview-mutations-summary.json"
+  },
+  "export": {
+    "verdict": "PASS_WITH_EXPLICIT_RUNNER_CLASSIFICATION_RECONCILIATION",
+    "variants": 8,
+    "record": "final-export-mutations/reconciliation.json"
+  },
+  "events": {
+    "verdict": "PASS_RERUN_AND_UNCHANGED_GUARD_RECONCILIATION",
+    "variants": 14,
+    "record": "final-event-mutations/event14-reconciliation.json"
+  }
+}

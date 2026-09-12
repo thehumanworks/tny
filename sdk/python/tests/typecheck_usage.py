@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import tny
+
+
+def image_detail_narrowing(detail: tny.ImageDetail) -> None:
+    if detail.committed:
+        _retained: tny.RetainedImageDetail = detail
+        _path: Path = detail.path
+        _bytes: int = detail.byte_count
+    else:
+        _strict: tny.ImageFailureDetail = detail
+        _no_path: None = detail.path
 
 
 def toolkit_sync(toolkit: tny.Toolkit) -> bytes:

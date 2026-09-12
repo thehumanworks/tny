@@ -1,0 +1,19 @@
+{
+  "utc": "2026-09-12T19:43:28.558497+00:00",
+  "baseline_adrs": 88,
+  "changed_baseline_adrs": [],
+  "contract_initial_sha256": "832e97ffd3ba8b5e21a60a356e13b8759e89efae348cac5f9fa41682fb31c6b1",
+  "contract_initial_unchanged": true,
+  "duplicate_prefixes": {
+    "0030": [
+      "docs/adr/0030-public-event-schema.md",
+      "docs/adr/0030-settings-schema-and-acp-map.md"
+    ],
+    "0045": [
+      "docs/adr/0045-monorepo-and-tnytty.md",
+      "docs/adr/0045-system-prompt-flag.md"
+    ]
+  },
+  "new_collisions": {},
+  "disposition": "Existing0030/0045 conflict remains pending user decision; no exception inferred"
+}

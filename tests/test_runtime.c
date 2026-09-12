@@ -1,6 +1,8 @@
 /* test_runtime.c — private engine ownership and terminal normalization. */
 #include "greatest.h"
 #include "core/runtime.h"
+#include "cli/cli.h"
+#include "core/event_jsonl.h"
 #include "core/instructions.h"
 #include "core/extensions.h"
 #include "core/tasks.h"
@@ -11,6 +13,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <poll.h>
+#include <sys/wait.h>
 
 typedef struct {
     tny_backend_event_cb cb;
@@ -1015,6 +1022,309 @@ TEST runtime_permission_fold_is_correlated_suppressed_and_deny_sticky(void) {
     PASS();
 }
 
+/* docs/adr/0089: the shared image gate sits at the top of tny_engine_start,
+ * so every caller — TUI, one-shot CLI, detached runner, library and native
+ * subagents — refuses a configured-false image turn before prompt, event or
+ * session state changes. The queue entry point refuses with the same
+ * configuration reason, ahead of its transport check. */
+TEST runtime_refuses_image_turns_when_image_input_is_configured_off(void) {
+    fixture x = fixture_new(0);
+    char err[192];
+    const char *images[] = {"unread.png", NULL};
+
+    x.ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED;
+    int messages = session_message_count(x.session);
+    uint64_t sequence = x.session->extension_agent_sequence;
+    err[0] = '\0';
+    ASSERT_EQ(-1, tny_engine_start(x.engine, "look at this", images, err, sizeof err));
+    ASSERT_STR_EQ(TNY_IMAGE_INPUT_REFUSAL, err);
+    ASSERT_EQ(0, x.fake->sends);
+    ASSERT_EQ(messages, session_message_count(x.session));
+    ASSERT_EQ(sequence, x.session->extension_agent_sequence);
+
+    err[0] = '\0';
+    ASSERT_EQ(-1, tny_engine_queue_image(x.engine, "unread.png", err, sizeof err));
+    ASSERT_STR_EQ(TNY_IMAGE_INPUT_REFUSAL, err);
+
+    /* a text turn on the same refused provider is untouched, and the refused
+     * call left no event of its own behind (this turn's two events only) */
+    ASSERT_EQ(0, tny_engine_start(x.engine, "no images here", NULL, err, sizeof err));
+    ASSERT_EQ(2, drain_engine(x.engine, NULL));
+    ASSERT_EQ(1, x.fake->sends);
+    ASSERT_STR_EQ("no images here", x.fake->prompts[0]);
+
+    /* unknown and configured-supported keep the existing explicit path; the
+     * unsupported ACP transport still refuses on its own terms */
+    x.ctx->image_input = TNY_IMAGE_INPUT_UNKNOWN;
+    ASSERT_EQ(0, tny_engine_start(x.engine, "look again", images, err, sizeof err));
+    ASSERT(drain_engine(x.engine, NULL) >= 0);
+    ASSERT_EQ(2, x.fake->sends);
+    x.ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED;
+    err[0] = '\0';
+    ASSERT_EQ(-1, tny_engine_queue_image(x.engine, "unread.png", err, sizeof err));
+    ASSERT_STR_EQ("image attach is unavailable on this backend", err);
+    fixture_free(&x);
+    PASS();
+}
+
+/* docs/adr/0096: the engine entry point for an explicit preview answers with a
+ * status, never a bare failure. A non-native backend or an idle session is
+ * unavailable_session, a provider configured off is unsupported, and neither
+ * touches the queue. `tny ask --image` and manual attach are unchanged. */
+TEST runtime_preview_needs_a_native_owning_turn(void) {
+    fixture x = fixture_new(0);
+    char err[192];
+    const char *code = NULL;
+    char hex[65];
+    memset(hex, 'a', 64);
+    hex[64] = '\0';
+
+    /* idle: no turn at all */
+    ASSERT_EQ(TNY_IMAGE_PREVIEW_UNAVAILABLE_SESSION,
+              tny_engine_queue_image_preview(x.engine, "shot.png", hex, 0, &code, err, sizeof err));
+    ASSERT(code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_NO_SESSION, code);
+    ASSERT_EQ(0, x.fake->sends);
+
+    /* an active turn on a backend with no native pending-image queue */
+    ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
+    ASSERT_EQ(TNY_IMAGE_PREVIEW_UNAVAILABLE_SESSION,
+              tny_engine_queue_image_preview(x.engine, "shot.png", hex, 0, &code, err, sizeof err));
+    ASSERT(code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_NO_SESSION, code);
+
+    /* the configuration refusal precedes the transport answer */
+    x.ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED;
+    err[0] = '\0';
+    ASSERT_EQ(TNY_IMAGE_PREVIEW_UNSUPPORTED,
+              tny_engine_queue_image_preview(x.engine, "shot.png", hex, 0, &code, err, sizeof err));
+    ASSERT_STR_EQ(TNY_IMAGE_INPUT_REFUSAL, err);
+    ASSERT(code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_CAPABILITY, code);
+
+    /* the manual queue keeps its own established answer */
+    x.ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED;
+    err[0] = '\0';
+    ASSERT_EQ(-1, tny_engine_queue_image(x.engine, "shot.png", err, sizeof err));
+    ASSERT_STR_EQ("image attach is unavailable on this backend", err);
+    ASSERT(drain_engine(x.engine, NULL) >= 0);
+    fixture_free(&x);
+    PASS();
+}
+
+/* ---- canonical JSONL lines and the checked stdout seam (ADR 0090) ---- */
+
+#define CALLER_FL (O_NONBLOCK | O_APPEND)
+
+static tny_owned_event jsonl_event(tny_event_kind kind) {
+    tny_owned_event ev = {0};
+    ev.ev.kind = kind;
+    ev.sequence = 7;
+    ev.timestamp_ms = 1234;
+    ev.provider = (char *)"openai";
+    ev.session_id = (char *)"abc123";
+    ev.turn_id = (char *)"abc123:1:0";
+    return ev;
+}
+
+TEST event_jsonl_writes_the_public_envelope_and_payload(void) {
+    buf_t out;
+    buf_init(&out);
+    tny_owned_event ev = jsonl_event(TNY_EV_TEXT_DELTA);
+    ev.ev.text = "he said \"hi\"\n\x01";
+    ev.ev.text_len = strlen(ev.ev.text);
+    tny_event_jsonl_append(&out, &ev);
+    ASSERT_STR_EQ("{\"schema_version\":1,\"sequence\":7,\"timestamp_ms\":1234,"
+                  "\"provider\":\"openai\",\"session_id\":\"abc123\","
+                  "\"turn_id\":\"abc123:1:0\",\"type\":\"text_delta\",\"kind\":0,"
+                  "\"text\":\"he said \\\"hi\\\"\\n\\u0001\",\"message_id\":\"\"}\n",
+                  out.data);
+
+    /* An empty ephemeral envelope value keeps its key. */
+    buf_clear(&out);
+    ev = jsonl_event(TNY_EV_TURN_END);
+    ev.session_id = (char *)"";
+    ev.turn_id = (char *)"";
+    ev.ev.stop = TNY_STOP_INTERRUPTED;
+    tny_event_jsonl_append(&out, &ev);
+    ASSERT_STR_EQ("{\"schema_version\":1,\"sequence\":7,\"timestamp_ms\":1234,"
+                  "\"provider\":\"openai\",\"session_id\":\"\",\"turn_id\":\"\","
+                  "\"type\":\"turn_end\",\"kind\":7,\"stop_reason\":1}\n",
+                  out.data);
+
+    buf_clear(&out);
+    ev = jsonl_event(TNY_EV_USAGE);
+    ev.ev.in_tokens = 11;
+    ev.ev.out_tokens = 2;
+    ev.ev.context_used = 11;
+    tny_event_jsonl_append(&out, &ev);
+    ASSERT(strstr(out.data, "\"cost\":null,\"has_cost\":false") != NULL);
+    ASSERT(strstr(out.data, "\"input_tokens\":11,\"output_tokens\":2") != NULL);
+
+    buf_clear(&out);
+    ev = jsonl_event(TNY_EV_TOOL_END);
+    ev.ev.tool_name = "list_files";
+    ev.ev.tool_id = "call_1";
+    ev.ev.tool_ok = true;
+    tny_event_jsonl_append(&out, &ev);
+    ASSERT(strstr(out.data, "\"tool_name\":\"list_files\",\"tool_id\":\"call_1\","
+                            "\"tool_detail\":\"\",\"tool_ok\":true}") != NULL);
+
+    /* The public error code, not the private category number. */
+    buf_clear(&out);
+    ev = jsonl_event(TNY_EV_ERROR);
+    ev.ev.text = "provider said no";
+    ev.ev.text_len = strlen(ev.ev.text);
+    ev.ev.error_code = TNY_EVENT_ERROR_AUTH;
+    tny_event_jsonl_append(&out, &ev);
+    ASSERT(strstr(out.data, "\"error_code\":-6}") != NULL);
+    buf_free(&out);
+    PASS();
+}
+
+TEST ask_exit_status_never_defaults_to_done(void) {
+    /* A delivered terminal decides the ordinary outcomes. */
+    ASSERT_EQ(0, cli_ask_exit_status(TNY_EVENT_WRITE_OK, true, TNY_STOP_DONE));
+    ASSERT_EQ(130, cli_ask_exit_status(TNY_EVENT_WRITE_OK, true, TNY_STOP_INTERRUPTED));
+    ASSERT_EQ(2, cli_ask_exit_status(TNY_EVENT_WRITE_OK, true, TNY_STOP_DENIED));
+    ASSERT_EQ(2, cli_ask_exit_status(TNY_EVENT_WRITE_OK, true, TNY_STOP_STEP_LIMIT));
+    ASSERT_EQ(2, cli_ask_exit_status(TNY_EVENT_WRITE_OK, true, TNY_STOP_ERROR));
+    /* No terminal was observed: the zeroed stop reason must not read as DONE. */
+    ASSERT_EQ(2, cli_ask_exit_status(TNY_EVENT_WRITE_OK, false, TNY_STOP_DONE));
+    /* A stdout failure outranks a turn that really finished. */
+    ASSERT_EQ(2, cli_ask_exit_status(TNY_EVENT_WRITE_IO, true, TNY_STOP_DONE));
+    ASSERT_EQ(130, cli_ask_exit_status(TNY_EVENT_WRITE_CANCELLED, true, TNY_STOP_DONE));
+    PASS();
+}
+
+static int jsonl_probe_calls = 0;
+static int jsonl_probe_flips_at = -1;
+static bool jsonl_probe(void *ud) {
+    (void)ud;
+    jsonl_probe_calls++;
+    return jsonl_probe_flips_at >= 0 && jsonl_probe_calls > jsonl_probe_flips_at;
+}
+
+TEST event_jsonl_writer_checks_every_write(void) {
+    int fds[2];
+    ASSERT_EQ(0, pipe(fds));
+    int before = fcntl(fds[1], F_GETFL);
+    tny_event_writer w;
+    tny_event_writer_init(&w, fds[1], NULL, NULL);
+    tny_owned_event ev = jsonl_event(TNY_EV_TEXT_DELTA);
+    ev.ev.text = "delivered";
+    ev.ev.text_len = strlen(ev.ev.text);
+    ASSERT_EQ(TNY_EVENT_WRITE_OK, tny_event_writer_emit(&w, &ev));
+    char seen[512] = {0};
+    ssize_t n = read(fds[0], seen, sizeof seen - 1);
+    ASSERT(n > 0);
+    ASSERT(strstr(seen, "\"text\":\"delivered\"") != NULL);
+    /* The caller's open file description keeps the flags it came with. Only
+     * the flags a caller can set are compared: Darwin reports a private
+     * kernel bit in F_GETFL after the first write to a pipe. */
+    ASSERT_EQ(before & CALLER_FL, fcntl(fds[1], F_GETFL) & CALLER_FL);
+
+    /* A consumer that hung up is an I/O failure, never a silent success. */
+    close(fds[0]);
+    signal(SIGPIPE, SIG_IGN);
+    tny_event_write_rc rc = TNY_EVENT_WRITE_OK;
+    for (int i = 0; i < 64 && rc == TNY_EVENT_WRITE_OK; i++) rc = tny_event_writer_emit(&w, &ev);
+    ASSERT_EQ(TNY_EVENT_WRITE_IO, rc);
+    ASSERT_EQ(EPIPE, w.last_errno);
+    tny_event_writer_free(&w);
+    close(fds[1]);
+    PASS();
+}
+
+TEST event_jsonl_writer_yields_to_cancellation_when_the_pipe_is_full(void) {
+    int fds[2];
+    ASSERT_EQ(0, pipe(fds));
+    int before = fcntl(fds[1], F_GETFL);
+    /* Fill the pipe so the next write cannot proceed. */
+    if (fcntl(fds[1], F_SETFL, before | O_NONBLOCK) != 0) FAILm("cannot arm the pipe");
+    char block[4096];
+    memset(block, 'x', sizeof block);
+    while (write(fds[1], block, sizeof block) > 0) {}
+    ASSERT_EQ(0, fcntl(fds[1], F_SETFL, before));
+
+    jsonl_probe_calls = 0;
+    jsonl_probe_flips_at = 2; /* stall twice, then the user interrupts */
+    tny_event_writer w;
+    tny_event_writer_init(&w, fds[1], jsonl_probe, NULL);
+    tny_owned_event ev = jsonl_event(TNY_EV_TEXT_DELTA);
+    ev.ev.text = "blocked";
+    ev.ev.text_len = strlen(ev.ev.text);
+    int64_t started = now_ms();
+    ASSERT_EQ(TNY_EVENT_WRITE_CANCELLED, tny_event_writer_emit(&w, &ev));
+    ASSERT(now_ms() - started < 5000); /* prompt, not on the reader's schedule */
+    ASSERT(jsonl_probe_calls > 1);     /* the stall keeps re-checking */
+    ASSERT_EQ(before & CALLER_FL, fcntl(fds[1], F_GETFL) & CALLER_FL);
+    tny_event_writer_free(&w);
+    jsonl_probe_flips_at = -1;
+    close(fds[0]);
+    close(fds[1]);
+    PASS();
+}
+
+static int64_t jsonl_probe_flips_after_ms = 0;
+static bool jsonl_late_probe(void *ud) {
+    (void)ud;
+    return now_ms() >= jsonl_probe_flips_after_ms;
+}
+
+/* Fill the pipe before the writer ever sees it, then interrupt long after
+ * any grace period a writer might keep: the seam reports "not writable" for
+ * the whole time, which is backpressure — never a licence to fall back to a
+ * blocking write(2) that no signal can reach (signal() restarts it). The emit
+ * runs in a child, so a writer that ignores the interrupt is a failed
+ * assertion here instead of a hung suite; the child reports through a pipe
+ * and is killed rather than exiting, because a leak-checked run instruments
+ * every exit it can see. */
+TEST event_jsonl_writer_yields_to_a_late_interrupt_on_an_initially_full_pipe(void) {
+    int fds[2], answer[2];
+    ASSERT_EQ(0, pipe(fds));
+    ASSERT_EQ(0, pipe(answer));
+    int before = fcntl(fds[1], F_GETFL);
+    if (fcntl(fds[1], F_SETFL, before | O_NONBLOCK) != 0) FAILm("cannot arm the pipe");
+    char block[4096];
+    memset(block, 'x', sizeof block);
+    while (write(fds[1], block, sizeof block) > 0) {}
+    ASSERT_EQ(0, fcntl(fds[1], F_SETFL, before));
+
+    pid_t pid = fork();
+    ASSERT(pid >= 0);
+    if (pid == 0) {
+        close(fds[0]); /* nobody drains this pipe, in this process or any other */
+        close(answer[0]);
+        jsonl_probe_flips_after_ms = now_ms() + 1200;
+        tny_event_writer w;
+        tny_event_writer_init(&w, fds[1], jsonl_late_probe, NULL);
+        tny_owned_event ev = jsonl_event(TNY_EV_TEXT_DELTA);
+        ev.ev.text = "blocked";
+        ev.ev.text_len = strlen(ev.ev.text);
+        char rc = tny_event_writer_emit(&w, &ev) == TNY_EVENT_WRITE_CANCELLED ? 'c' : 'x';
+        tny_event_writer_free(&w);
+        while (write(answer[1], &rc, 1) < 0 && errno == EINTR) {}
+        for (;;) pause(); /* the parent ends this child */
+    }
+    close(answer[1]);
+    struct pollfd waiting = {answer[0], POLLIN, 0};
+    char rc = 0;
+    if (poll(&waiting, 1, 10000) == 1) {
+        while (read(answer[0], &rc, 1) < 0 && errno == EINTR) {}
+    }
+    kill(pid, SIGKILL);
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+    close(answer[0]);
+    ASSERT_EQ(before & CALLER_FL, fcntl(fds[1], F_GETFL) & CALLER_FL);
+    close(fds[0]);
+    close(fds[1]);
+    if (rc == 'x') FAILm("the stalled writer returned something other than cancelled");
+    if (rc != 'c') FAILm("the interrupt never reached a writer stalled on an already-full pipe");
+    PASS();
+}
+
 SUITE(runtime_suite) {
     RUN_TEST(runtime_copies_events_and_suppresses_duplicate_terminal);
     RUN_TEST(runtime_system_prompt_prefixes_only_the_first_user_message);
@@ -1040,4 +1350,11 @@ SUITE(runtime_suite) {
     RUN_TEST(runtime_transformed_steer_requeues_without_replaying_hook);
     RUN_TEST(runtime_compaction_selection_instructions_and_workspace_events);
     RUN_TEST(runtime_permission_fold_is_correlated_suppressed_and_deny_sticky);
+    RUN_TEST(runtime_refuses_image_turns_when_image_input_is_configured_off);
+    RUN_TEST(runtime_preview_needs_a_native_owning_turn);
+    RUN_TEST(event_jsonl_writes_the_public_envelope_and_payload);
+    RUN_TEST(ask_exit_status_never_defaults_to_done);
+    RUN_TEST(event_jsonl_writer_checks_every_write);
+    RUN_TEST(event_jsonl_writer_yields_to_cancellation_when_the_pipe_is_full);
+    RUN_TEST(event_jsonl_writer_yields_to_a_late_interrupt_on_an_initially_full_pipe);
 }

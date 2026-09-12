@@ -7,6 +7,7 @@
 #include "core/intercept.h"
 #include "core/shellwords.h"
 #include "core/tools.h"
+#include "core/tools_image.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -34,6 +35,21 @@ static void ensure_env(void) {
 static void write_workspace_file(const char *name, const char *body) {
     char *path = path_join(g_ws, name);
     if (!path || file_write_atomic(path, body, strlen(body)) != 0) abort();
+    free(path);
+}
+
+/* A complete 2x2 PNG, so an intercepted export has real bytes to hash and
+ * bound before any converter would be involved. */
+static void write_workspace_png(const char *name) {
+    static const unsigned char png[] = {
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49,
+        0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02,
+        0x00, 0x00, 0x00, 0xfd, 0xd4, 0x9a, 0x73, 0x00, 0x00, 0x00, 0x13, 0x49, 0x44,
+        0x41, 0x54, 0x08, 0x1d, 0x63, 0x60, 0x60, 0xf8, 0xcf, 0xc0, 0xc0, 0xf0, 0x9f,
+        0x01, 0x09, 0x0c, 0x00, 0x29, 0x0d, 0x03, 0xf9, 0x1f, 0x9d, 0x7e, 0xdf, 0x00,
+        0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
+    char *path = path_join(g_ws, name);
+    if (!path || file_write_atomic(path, (const char *)png, sizeof png) != 0) abort();
     free(path);
 }
 
@@ -214,6 +230,27 @@ TEST decision_table_intercepts_only_documented_shapes(void) {
     ASSERT_EQ(TNY_INTERCEPT_MEMORY, classify(&f, "tny memory set k v"));
     ASSERT_EQ(TNY_INTERCEPT_SKILL, classify(&f, "tny skill show demo"));
     ASSERT_EQ(TNY_INTERCEPT_IMAGE_ATTACH, classify(&f, "tny image attach shot.png"));
+    write_workspace_png("cell.png");
+    ASSERT_EQ(TNY_INTERCEPT_IMAGE_EXPORT,
+              classify(&f, "tny image export --image cell.png --output-file small.png --size 8x8"));
+    ASSERT_EQ(TNY_INTERCEPT_IMAGE_EXPORT,
+              classify(&f, "tny --json image contact-sheet --image cell.png --image cell.png "
+                           "--output-file sheet.png --size 64x32 --labels numbers"));
+    /* Cells too small for the fixed numeric label are a refusal with a
+     * reason, not a silently unlabelled sheet. */
+    ASSERT_EQ(TNY_INTERCEPT_REFUSED,
+              classify(&f, "tny image contact-sheet --image cell.png --image cell.png "
+                           "--output-file sheet.png --size 16x8 --labels numbers"));
+    /* A recognised export with an unusable option set answers directly
+     * instead of starting a nested tny that would fail the same way. */
+    ASSERT_EQ(TNY_INTERCEPT_REFUSED,
+              classify(&f, "tny image export --image cell.png --output-file small.png"));
+    /* An export whose grammar does not parse at all keeps ordinary shell
+     * semantics rather than becoming a half-understood typed call. */
+    ASSERT_EQ(0, classify(&f, "tny image export --image cell.png --size 8x8"));
+    ASSERT_EQ(0, classify(&f, "tny image export --image a.png --image b.png --output-file o.png "
+                              "--size 8x8"));
+    ASSERT_EQ(0, classify(&f, "tny image export --help"));
     ASSERT_EQ(TNY_INTERCEPT_ASK_USER, classify(&f, "tny ask-user 'which branch?'"));
     ASSERT_EQ(TNY_INTERCEPT_REFUSED, classify(&f, "tny ask 'do the thing'"));
 
@@ -577,6 +614,82 @@ TEST intercepted_control_verbs_bypass_the_socket(void) {
     PASS();
 }
 
+/* ---- an intercepted image command owns the plan it was approved for ---- */
+
+/* A minimal succeeded record of an earlier generate, written by hand so this
+ * test depends on the documented schema rather than the writer. */
+static void write_record(const char *name, const char *provider, const char *prompt) {
+    buf_t record;
+    buf_init(&record);
+    buf_appends(&record,
+                "{\"version\":1,\"kind\":\"image_manifest\",\"operation_id\":\"1234abcd1234abcd\","
+                "\"operation\":\"generate\",\"status\":\"succeeded\",\"workspace\":");
+    jescape(&record, g_ws);
+    buf_appends(&record, ",\"started\":\"2026-09-12T00:00:00Z\",\"finished\":"
+                         "\"2026-09-12T00:00:05Z\",\"prompt\":");
+    jescape(&record, prompt);
+    buf_appends(&record, ",\"output\":\"old.png\",\"references\":[],\"requested\":{\"provider\":");
+    jescape(&record, provider);
+    buf_appends(&record, ",\"size\":\"auto\"},\"effective\":{\"provider\":");
+    jescape(&record, provider);
+    buf_appends(&record, "}}");
+    write_workspace_file(name, record.data);
+    buf_free(&record);
+}
+
+TEST intercepted_image_runs_the_plan_it_was_approved_for(void) {
+    fixture f;
+    fixture_open(&f, TNY_MODE_ASK);
+    f.ctx->chatgpt_token = xstrdup("fixture-image-token");
+    f.ctx->chatgpt_account_id = xstrdup("fixture-account");
+    write_record("source.json", "codex", "a recorded prompt");
+    /* A directory destination fails inside the service, after the plan has
+     * been honoured, so nothing here needs a provider. */
+    char *destination = path_join(g_ws, "out-dir");
+    ASSERT(destination);
+    mkdir_p(destination);
+    buf_t command;
+    buf_init(&command);
+    buf_appendf(&command, "tny image replay --manifest %s/source.json --output-file %s --json",
+                g_ws, destination);
+    buf_t args;
+    buf_init(&args);
+    buf_appends(&args, "{\"command\":");
+    jescape(&args, command.data);
+    buf_appends(&args, "}");
+
+    tools_call call;
+    ASSERT_EQ(0, tools_call_prepare(&f.env, "terminal", args.data, &call));
+    ASSERT(call.intercept);
+    ASSERT_EQ(TNY_INTERCEPT_IMAGE_RENDER, call.intercept->kind);
+    /* The parser's JSON document is gone; the plan is this intercept's own. */
+    ASSERT(call.intercept->image_plan);
+    ASSERT_STR_EQ("a recorded prompt", call.intercept->image_plan->prompt);
+    ASSERT_STR_EQ("codex", call.intercept->image_plan->provider);
+    ASSERT(strstr(call.detail, "\"provider\":\"codex\""));
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+
+    /* Rewriting the record afterwards cannot redirect this approved command. */
+    write_record("source.json", "nonesuch", "a hijacked prompt");
+    char *result = tools_call_execute(&f.env, &call);
+    ASSERT(result);
+    ASSERT(strstr(result, "image output"));
+    ASSERT(!strstr(result, "unknown image provider"));
+    free(result);
+    tools_call_free(&call);
+
+    /* A parsed command that is never executed frees its plan exactly once. */
+    tny_intercept *parsed = tny_intercept_parse(&f.env, command.data);
+    ASSERT(parsed && parsed->image_plan);
+    tny_intercept_free(parsed);
+
+    buf_free(&args);
+    buf_free(&command);
+    free(destination);
+    fixture_close(&f);
+    PASS();
+}
+
 /* ---- nested runs cannot widen the parent's mode ---- */
 
 TEST nested_runs_cannot_widen_the_permission_mode(void) {
@@ -622,7 +735,144 @@ TEST nested_runs_cannot_widen_the_permission_mode(void) {
     PASS();
 }
 
+/* A typed export and the same command typed into the terminal are one
+ * operation with one identity; a refused one converts nothing and writes
+ * nothing (docs/adr/0094). */
+TEST intercepted_export_shares_the_typed_identity_and_refusals(void) {
+    ensure_env();
+    write_settings("{\"permission\":{\"image_contact_sheet\":\"deny\"}}");
+    fixture f;
+    fixture_open(&f, TNY_MODE_ASK);
+    write_workspace_png("shot.png");
+    char *destination = path_join(g_ws, "thumb.png");
+    ASSERT(destination);
+    unlink(destination);
+    tools_call call, typed;
+    ASSERT_EQ(0, tools_call_prepare(
+                     &f.env, "terminal",
+                     "{\"command\":\"tny image export --image shot.png --output-file thumb.png "
+                     "--size 16x16 --fit pad --background #102030\"}",
+                     &call));
+    ASSERT_EQ(0, tools_call_prepare(&f.env, "image_export",
+                                    "{\"sources\":[{\"image\":\"shot.png\"}],\"output_file\":"
+                                    "\"thumb.png\",\"size\":\"16x16\",\"fit\":\"pad\","
+                                    "\"background\":\"#102030\"}",
+                                    &typed));
+    ASSERT_STR_EQ("image_export", call.permission_tool);
+    ASSERT_STR_EQ(typed.detail, call.detail);
+    ASSERT_EQ(typed.verdict, call.verdict);
+    ASSERT_STR_EQ("tny image export", tools_call_label(&call));
+    tools_call_free(&typed);
+    tools_call_free(&call);
+
+    /* A denied sheet never reaches the converter or the destination. */
+    char *refused = run_terminal(&f, "tny image contact-sheet --image shot.png --image shot.png "
+                                     "--output-file thumb.png --size 32x16");
+    ASSERT(str_starts(refused, "error:"));
+    free(refused);
+    ASSERT_EQ(-1, access(destination, F_OK));
+    /* The source is untouched by a refusal. */
+    char *bytes = read_workspace_file("shot.png");
+    ASSERT(bytes);
+    free(bytes);
+    free(destination);
+    fixture_close(&f);
+    write_settings("{}");
+    PASS();
+}
+
+/* `tny jobs …` in the terminal is the typed job tool it stands for, with the
+ * operation's own permission identity — and an unclassifiable jobs command is
+ * refused rather than handed to the shell, so the classifier can never become
+ * a way around that identity (docs/adr/0093). */
+TEST intercepted_jobs_carry_each_operations_identity(void) {
+    ensure_env();
+    write_settings("{}");
+    fixture f;
+    fixture_open(&f, TNY_MODE_ASK);
+    tools_call call;
+
+    static const struct {
+        const char *command;
+        const char *identity;
+        const char *detail_has;
+    } cases[] = {
+        {"tny jobs submit ask --prompt hello", "job_submit", "submit kind=ask items=1"},
+        {"tny jobs submit image --output-file out.png --prompt draw", "job_submit", "kind=image"},
+        {"tny jobs status 0123456789abcdef0123456789abcdef", "job_status",
+         "status id=0123456789abcdef0123456789abcdef"},
+        {"tny jobs wait 0123456789abcdef0123456789abcdef --timeout 5", "job_status", "wait id="},
+        {"tny jobs logs 0123456789abcdef0123456789abcdef --item 1", "job_status", "item=1"},
+        {"tny jobs list", "job_status", "list"},
+        {"tny jobs cancel 0123456789abcdef0123456789abcdef --items 0,2", "job_cancel",
+         "item=0 item=2"},
+        {"tny jobs retry 0123456789abcdef0123456789abcdef --failed", "job_retry", "failed"},
+        {"tny jobs rm 0123456789abcdef0123456789abcdef", "job_rm", "rm id="},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        buf_t args;
+        buf_init(&args);
+        buf_appends(&args, "{\"command\":");
+        jescape(&args, cases[i].command);
+        buf_appends(&args, "}");
+        ASSERT_EQ(0, tools_call_prepare(&f.env, "terminal", args.data, &call));
+        buf_free(&args);
+        ASSERT_STR_EQ(cases[i].identity, call.permission_tool);
+        /* Every job operation is sensitive: none is silently free. */
+        ASSERT_EQ(PERM_PROMPT, call.verdict);
+        ASSERT(call.detail);
+        ASSERT(strstr(call.detail, cases[i].detail_has));
+        /* A prompt never becomes part of a permission identity. */
+        ASSERT_EQ(NULL, strstr(call.detail, "hello"));
+        tools_call_free(&call);
+    }
+
+    /* A read grant never carries over to an execution identity. */
+    write_settings("{\"permission\":{\"job_status\":\"allow\",\"bash\":\"allow\"}}");
+    fixture_close(&f);
+    fixture_open(&f, TNY_MODE_ASK);
+    ASSERT_EQ(0, tools_call_prepare(&f.env, "terminal", "{\"command\":\"tny jobs list\"}", &call));
+    ASSERT_EQ(PERM_ALLOW, call.verdict);
+    tools_call_free(&call);
+    ASSERT_EQ(0, tools_call_prepare(&f.env, "terminal",
+                                    "{\"command\":\"tny jobs submit ask --prompt hi\"}", &call));
+    ASSERT_STR_EQ("job_submit", call.permission_tool);
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+    tools_call_free(&call);
+    write_settings("{}");
+
+    /* Unclassifiable jobs commands are refused, never shelled out. */
+    static const char *const refused[] = {
+        "tny jobs submit",
+        "tny jobs submit sideways --prompt hi",
+        "tny jobs status not-a-job-id",
+        "tny jobs cancel 0123456789abcdef0123456789abcdef --unknown-flag",
+        "tny jobs teleport 0123456789abcdef0123456789abcdef",
+        "tny --provider openai jobs submit ask --prompt hi",
+        "tny --cwd /tmp jobs list",
+        "tny --json --model test jobs list",
+        "tny --worktree branch jobs list",
+        "tny --worktree jobs list",
+        "tny --agent helper -- agent-arg -- jobs list",
+        "tny --agent first --agent second jobs list",
+        "tny --add-dir /tmp --add-dir /var/tmp jobs list",
+        "tny -- jobs list",
+        "tny.exe --provider openai jobs list",
+    };
+    fixture_close(&f);
+    fixture_open(&f, TNY_MODE_YOLO);
+    for (size_t i = 0; i < sizeof refused / sizeof refused[0]; i++)
+        ASSERT_EQ(TNY_INTERCEPT_REFUSED, classify(&f, refused[i]));
+    ASSERT_EQ(TNY_INTERCEPT_JOBS, classify(&f, "tny jobs list"));
+    ASSERT_EQ(TNY_INTERCEPT_JOBS, classify(&f, "printf 'a prompt' | tny jobs submit ask"));
+    ASSERT_EQ(0, classify(&f, "tny --model jobs ask -B hello"));
+    ASSERT_EQ(0, classify(&f, "tny --agent helper -- jobs list"));
+    fixture_close(&f);
+    PASS();
+}
+
 SUITE(intercept_suite) {
+    RUN_TEST(intercepted_jobs_carry_each_operations_identity);
     RUN_TEST(shellwords_splits_quoting_like_sh);
     RUN_TEST(shellwords_stops_at_every_shell_operator);
     RUN_TEST(shellwords_refuses_what_it_cannot_reproduce);
@@ -634,5 +884,8 @@ SUITE(intercept_suite) {
     RUN_TEST(intercepted_edit_matches_the_cli_and_records_undo);
     RUN_TEST(intercepted_memory_and_skill_run_the_builtin_tools);
     RUN_TEST(intercepted_control_verbs_bypass_the_socket);
+    RUN_TEST(intercepted_image_runs_the_plan_it_was_approved_for);
+
+    RUN_TEST(intercepted_export_shares_the_typed_identity_and_refusals);
     RUN_TEST(nested_runs_cannot_widen_the_permission_mode);
 }

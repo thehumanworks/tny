@@ -820,6 +820,122 @@ static void apply_provider_model(tny_ctx *ctx, int id) {
     }
 }
 
+/* ---- conversation image input (docs/adr/0089) ---- */
+
+tny_image_input_policy tny_image_input_configured(const tny_ctx *ctx) {
+    return ctx ? ctx->image_input : TNY_IMAGE_INPUT_UNKNOWN;
+}
+
+bool tny_image_input_refused(const tny_ctx *ctx) {
+    return tny_image_input_configured(ctx) == TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED;
+}
+
+bool tny_image_input_auto_preview_allowed(const tny_ctx *ctx) {
+    return tny_image_input_configured(ctx) == TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED;
+}
+
+const char *tny_image_input_label(const tny_ctx *ctx) {
+    switch (tny_image_input_configured(ctx)) {
+    case TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED: return "configured, unverified";
+    case TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED: return "configured off";
+    default: return "unknown";
+    }
+}
+
+/* Map keys are canonical provider selectors: 1..256 ASCII bytes of the
+ * existing provider-name grammar, optionally behind the canonical `acp@`
+ * prefix. `len` is yyjson's byte length, so an embedded NUL is rejected
+ * instead of silently truncating the key. */
+static bool image_input_key_valid(const char *key, size_t len) {
+    if (!key || len == 0 || len > TNY_IMAGE_INPUT_KEY_MAX || strlen(key) != len) return false;
+    const char *name = str_starts(key, "acp@") ? key + 4 : key;
+    if (!*name) return false;
+    for (const char *p = name; *p; p++) {
+        char c = *p;
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+              c == '-' || c == '_'))
+            return false;
+    }
+    return true;
+}
+
+/* The effective provider's map key. Both ACP selector spellings share the
+ * canonical `acp@NAME` key, so the legacy alias cannot bypass a false. */
+static const char *image_input_key(const tny_ctx *ctx, char *out, size_t outlen) {
+    const char *provider = tny_provider_name(ctx);
+    const char *agent = acp_provider_name(provider);
+    if (!agent) return provider;
+    snprintf(out, outlen, "acp@%s", agent);
+    return out;
+}
+
+static bool image_input_same_key(yyjson_val *a, yyjson_val *b) {
+    size_t la = yyjson_get_len(a), lb = yyjson_get_len(b);
+    return la == lb && memcmp(yyjson_get_str(a), yyjson_get_str(b), la) == 0;
+}
+
+/* Resolve settings.json `image_input` for the provider that just resolved.
+ * The whole map is validated, not only the selected entry: a malformed root,
+ * key, value or a repeated key fails configuration rather than resolving to
+ * an ambiguous first/last match. Diagnostics quote nothing but a key that
+ * already passed the grammar above. Returns -1 on invalid configuration. */
+static int apply_provider_image_input(tny_ctx *ctx) {
+    ctx->image_input = TNY_IMAGE_INPUT_UNKNOWN; /* recomputed per resolution */
+    if (!ctx->settings) return 0;
+    yyjson_val *map = jget(yyjson_doc_get_root(ctx->settings), "image_input");
+    if (!map) return 0;
+    if (!yyjson_is_obj(map)) {
+        fprintf(stderr, "tny: settings.json image_input must be an object mapping provider "
+                        "names to true or false\n");
+        return -1;
+    }
+    /* Bounded input: duplicate detection below compares every key against
+     * every other, so a pathological settings file must not buy quadratic
+     * work on a startup path. */
+    if (yyjson_obj_size(map) > TNY_IMAGE_INPUT_MAX_ENTRIES) {
+        fprintf(stderr, "tny: settings.json image_input has more than %u providers\n",
+                (unsigned)TNY_IMAGE_INPUT_MAX_ENTRIES);
+        return -1;
+    }
+    char keybuf[TNY_IMAGE_INPUT_KEY_MAX + 8];
+    const char *wanted = image_input_key(ctx, keybuf, sizeof keybuf);
+    bool found = false, allowed = false;
+    yyjson_obj_iter it;
+    yyjson_obj_iter_init(map, &it);
+    for (yyjson_val *key; (key = yyjson_obj_iter_next(&it)) != NULL;) {
+        const char *name = yyjson_get_str(key);
+        if (!image_input_key_valid(name, yyjson_get_len(key))) {
+            fprintf(stderr,
+                    "tny: settings.json image_input keys must be provider names (letters, "
+                    "digits, - and _, or acp@NAME) of at most %u bytes\n",
+                    (unsigned)TNY_IMAGE_INPUT_KEY_MAX);
+            return -1;
+        }
+        yyjson_val *value = yyjson_obj_iter_get_val(key);
+        if (!yyjson_is_bool(value)) {
+            fprintf(stderr, "tny: settings.json image_input.%s must be true or false\n", name);
+            return -1;
+        }
+        yyjson_obj_iter dup;
+        yyjson_obj_iter_init(map, &dup);
+        int seen = 0;
+        for (yyjson_val *other; (other = yyjson_obj_iter_next(&dup)) != NULL;)
+            if (image_input_same_key(key, other)) seen++;
+        if (seen != 1) {
+            fprintf(stderr, "tny: settings.json image_input.%s is defined more than once\n", name);
+            return -1;
+        }
+        if (strcmp(name, wanted) == 0) {
+            found = true;
+            allowed = yyjson_get_bool(value);
+        }
+    }
+    if (found)
+        ctx->image_input =
+            allowed ? TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED : TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED;
+    return 0;
+}
+
 /* settings `fast`: boolean true selects the paid tier, false selects the
  * standard tier; string fast|priority|default is also accepted. It is applied
  * after provider resolution so unsupported providers can fail clearly. */
@@ -997,6 +1113,12 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
         free(env_pick);
         return -1;
     }
+    /* Image input is a property of the effective provider, so it resolves
+     * here — after the selector is final — and resets on every switch. */
+    if (apply_provider_image_input(ctx) != 0) {
+        free(env_pick);
+        return -1;
+    }
     tny_finish_builtin_profile(ctx);
     tny_extensions_set_provider(ctx->extensions, (tny_backend_id)ctx->backend);
     free(env_pick);
@@ -1116,6 +1238,7 @@ int tny_provider_write_profile(tny_ctx *ctx, const char *name, const tny_provide
                                            "permission",
                                            "permission_mode",
                                            "effort",
+                                           "image_input",
                                            "extensions",
                                            "acp",
                                            "last_provider",

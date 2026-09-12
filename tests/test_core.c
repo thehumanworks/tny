@@ -7,7 +7,16 @@
 #include "core/session.h"
 #include "core/tasks.h"
 #include "core/tools.h"
+#include "core/subagent.h"
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+#include "core/jobs.h"
+#include "util/jobs_host.h"
+#include "util/process.h"
 #include "core/image.h"
+#include "core/image_service.h"
+#include "core/speech.h"
 #include "lib/custom_tools.h"
 #include "backends/openai/openai.h"
 #include "backends/cursor/cursor.h"
@@ -16,8 +25,10 @@
 #include "tny/tny.h"
 
 #include <arpa/inet.h>
+#include <ctype.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2458,8 +2469,663 @@ TEST read_image_queues_user_message(void) {
     PASS();
 }
 
+/* A file grows after opening and after the old metadata check. The bounded
+ * reader must inspect actual bytes, including an over-limit sentinel. */
+TEST image_opened_read_bounds_actual_growth(void) {
+    FILE *file = tmpfile();
+    ASSERT(file);
+    ASSERT_EQ_FMT(sizeof PNG1, fwrite(PNG1, 1, sizeof PNG1, file), "%zu");
+    ASSERT_EQ(0, fflush(file));
+    struct stat before;
+    ASSERT_EQ(0, fstat(fileno(file), &before));
+    ASSERT(before.st_size < IMAGE_MAX_BYTES);
+    ASSERT_EQ(0, ftruncate(fileno(file), IMAGE_MAX_BYTES + 1));
+    rewind(file);
+    size_t len = 99;
+    bool large = false;
+    uint8_t *data = image_read_bounded(file, &len, &large);
+    ASSERT_EQ(NULL, data);
+    ASSERT(large);
+    ASSERT_EQ_FMT((size_t)0, len, "%zu");
+    /* Exactly the limit is allowed, not silently truncated or rejected. */
+    ASSERT_EQ(0, ftruncate(fileno(file), IMAGE_MAX_BYTES));
+    rewind(file);
+    data = image_read_bounded(file, &len, &large);
+    ASSERT(data);
+    ASSERT_FALSE(large);
+    ASSERT_EQ_FMT((size_t)IMAGE_MAX_BYTES, len, "%zu");
+    ASSERT_MEM_EQ(PNG1, data, sizeof PNG1);
+    free(data);
+    fclose(file);
+    PASS();
+}
+
 TEST perm_read_image_is_safe(void) {
     ASSERT(perm_tool_is_safe("read_image"));
+    PASS();
+}
+
+/* ---- captured pending-image queue and explicit preview (docs/adr/0096) ----
+ *
+ * A second valid image whose bytes differ from PNG1. Only the 8-byte signature
+ * decides the MIME, so the payload is deliberately distinct. */
+static const uint8_t PNG2[] = {0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+                               'S',  'E',  'C',  'O',  'N',  'D',  '!',  '!'};
+
+typedef struct {
+    tny_ctx *ctx;
+    tny_session_state *session;
+    perm_engine *perm;
+    tools_env env;
+} queue_fixture;
+
+static void queue_fixture_open(queue_fixture *f) {
+    ensure_env();
+    write_settings("{}");
+    f->ctx = tny_ctx_load(g_ws);
+    f->ctx->perm_mode = TNY_MODE_YOLO;
+    f->session = session_new(f->ctx);
+    f->perm = perm_new(f->ctx);
+    memset(&f->env, 0, sizeof f->env);
+    f->env.ctx = f->ctx;
+    f->env.session = f->session;
+    f->env.perm = f->perm;
+}
+
+static void queue_fixture_close(queue_fixture *f) {
+    tools_discard_pending_images(&f->env);
+    perm_free(f->perm);
+    session_close(f->session);
+    tny_ctx_free(f->ctx);
+}
+
+/* The image_url part at `index` of the session's last message, decoded back to
+ * bytes. The expectation compared against it is a literal byte array in this
+ * file, never something the queue produced. */
+static size_t part_bytes(tny_session_state *s, size_t index, uint8_t *out, size_t cap) {
+    yyjson_mut_val *msgs = session_messages(s);
+    yyjson_mut_val *last = yyjson_mut_arr_get(msgs, yyjson_mut_arr_size(msgs) - 1);
+    yyjson_mut_val *content = yyjson_mut_obj_get(last, "content");
+    yyjson_mut_val *part = yyjson_mut_arr_get(content, index);
+    if (!part) return 0;
+    const char *url =
+        yyjson_mut_get_str(yyjson_mut_obj_get(yyjson_mut_obj_get(part, "image_url"), "url"));
+    const char *prefix = "data:image/png;base64,";
+    if (!url || strncmp(url, prefix, strlen(prefix)) != 0) return 0;
+    return b64_decode(url + strlen(prefix), out, cap);
+}
+
+static const char *part_text(tny_session_state *s) {
+    yyjson_mut_val *msgs = session_messages(s);
+    yyjson_mut_val *last = yyjson_mut_arr_get(msgs, yyjson_mut_arr_size(msgs) - 1);
+    yyjson_mut_val *content = yyjson_mut_obj_get(last, "content");
+    return yyjson_mut_get_str(yyjson_mut_obj_get(yyjson_mut_arr_get(content, 0), "text"));
+}
+
+static size_t part_count(tny_session_state *s) {
+    yyjson_mut_val *msgs = session_messages(s);
+    yyjson_mut_val *last = yyjson_mut_arr_get(msgs, yyjson_mut_arr_size(msgs) - 1);
+    return yyjson_mut_arr_size(yyjson_mut_obj_get(last, "content"));
+}
+
+static void hash_hex(const uint8_t *data, size_t len, char out[65]) {
+    uint8_t digest[32];
+    static const char *hex = "0123456789abcdef";
+    sha256(data, len, digest);
+    for (int i = 0; i < 32; i++) {
+        out[i * 2] = hex[digest[i] >> 4];
+        out[i * 2 + 1] = hex[digest[i] & 0xf];
+    }
+    out[64] = '\0';
+}
+
+/* Two generations write the SAME output path inside one tool batch. Because the
+ * bytes are captured at admission, the flush carries each version once, in
+ * queue order — re-reading the path would send the later file twice. */
+TEST image_queue_captures_each_version_of_one_path(void) {
+    queue_fixture f;
+    queue_fixture_open(&f);
+    char path[600];
+    snprintf(path, sizeof path, "%s/generated.png", g_ws);
+    char err[256];
+
+    ASSERT_EQ(0, file_write_atomic(path, PNG1, sizeof PNG1));
+    ASSERT_EQ(0, tools_queue_image(&f.env, path, false, NULL, NULL, NULL, err, sizeof err));
+    ASSERT_EQ(0, file_write_atomic(path, PNG2, sizeof PNG2)); /* the second generation */
+    ASSERT_EQ(0, tools_queue_image(&f.env, path, false, NULL, NULL, NULL, err, sizeof err));
+    ASSERT_EQ(2, f.env.n_pending_images);
+    ASSERT_STR_EQ(f.env.pending_images[0], f.env.pending_images[1]); /* one pathname */
+    ASSERT_EQ_FMT(sizeof PNG1, f.env.pending_capture[0].len, "%zu");
+    ASSERT_EQ_FMT(sizeof PNG2, f.env.pending_capture[1].len, "%zu");
+
+    ASSERT_EQ(0, tools_flush_images(&f.env, err, sizeof err));
+    ASSERT_EQ(0, f.env.n_pending_images);
+    ASSERT_EQ_FMT((size_t)3, part_count(f.session), "%zu");
+    uint8_t first[128], second[128];
+    ASSERT_EQ_FMT(sizeof PNG1, part_bytes(f.session, 1, first, sizeof first), "%zu");
+    ASSERT_EQ_FMT(sizeof PNG2, part_bytes(f.session, 2, second, sizeof second), "%zu");
+    ASSERT_MEM_EQ(PNG1, first, sizeof PNG1);
+    ASSERT_MEM_EQ(PNG2, second, sizeof PNG2);
+    /* all-manual keeps its existing wording */
+    ASSERT_STR_EQ("Image attached by read_image.", part_text(f.session));
+    queue_fixture_close(&f);
+    PASS();
+}
+
+/* Preview admission is stricter than manual attachment: configured-true only,
+ * and the supplied hash is compared against the bytes just captured. A file
+ * replaced afterwards cannot change what is sent. */
+TEST image_loaded_builder_refuses_bounds_without_transcript_mutation(void) {
+    queue_fixture f;
+    queue_fixture_open(&f);
+    tny_image_part part = {PNG1, IMAGE_MAX_BYTES + 1, "image/png"};
+    char err[256];
+    size_t before = yyjson_mut_arr_size(session_messages(f.session));
+    ASSERT_EQ(-1, session_add_user_loaded_images(f.session, "bad", &part, 1, err, sizeof err));
+    part.len = sizeof PNG1;
+    ASSERT_EQ(-1, session_add_user_loaded_images(f.session, "bad", &part, 9, err, sizeof err));
+    part.len = 0;
+    ASSERT_EQ(-1, session_add_user_loaded_images(f.session, "bad", &part, 1, err, sizeof err));
+    ASSERT_EQ_FMT(before, yyjson_mut_arr_size(session_messages(f.session)), "%zu");
+    ASSERT_EQ(0, f.env.n_pending_images);
+    queue_fixture_close(&f);
+    PASS();
+}
+
+TEST image_queue_preview_needs_true_policy_and_matching_hash(void) {
+    queue_fixture f;
+    queue_fixture_open(&f);
+    char path[600];
+    snprintf(path, sizeof path, "%s/preview.png", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, PNG1, sizeof PNG1));
+    char expected[65];
+    hash_hex(PNG1, sizeof PNG1, expected);
+    char err[256];
+    const char *code = NULL;
+
+    /* unknown: the manual path still works, an automatic preview does not */
+    ASSERT_EQ(TNY_IMAGE_INPUT_UNKNOWN, tny_image_input_configured(f.ctx));
+    ASSERT_EQ(0, tools_queue_image(&f.env, path, false, NULL, NULL, NULL, err, sizeof err));
+    ASSERT_EQ(1, f.env.n_pending_images);
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, path, expected, 0, &code, err, sizeof err));
+    ASSERT(code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_CAPABILITY, code);
+    ASSERT_EQ(1, f.env.n_pending_images);
+
+    f.ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED;
+    char other[65];
+    hash_hex(PNG2, sizeof PNG2, other);
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, path, other, 0, &code, err, sizeof err));
+    ASSERT(code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_HASH, code);
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, path, NULL, 0, &code, err, sizeof err));
+    ASSERT(code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_HASH, code);
+    char malformed[65];
+    snprintf(malformed, sizeof malformed, "%s", expected);
+    malformed[63] = '\0'; /* 63 hex digits */
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, path, malformed, 0, &code, err, sizeof err));
+    ASSERT(code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_HASH, code);
+    snprintf(malformed, sizeof malformed, "%s", expected);
+    malformed[0] = (char)toupper((unsigned char)malformed[0]);
+    if (malformed[0] != expected[0]) {
+        ASSERT_EQ(-1,
+                  tools_queue_image_preview(&f.env, path, malformed, 0, &code, err, sizeof err));
+        ASSERT(code);
+        ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_HASH, code);
+    }
+    ASSERT_EQ(1, f.env.n_pending_images); /* nothing queued by a refusal */
+
+    ASSERT_EQ(0, tools_queue_image_preview(&f.env, path, expected, 0, &code, err, sizeof err));
+    ASSERT_EQ(NULL, code);
+    ASSERT_EQ(2, f.env.n_pending_images);
+    ASSERT(tools_pending_images_have_preview(&f.env));
+    ASSERT_STR_EQ(expected, f.env.pending_capture[1].sha256);
+
+    /* the source is replaced after admission; both captured versions still ride */
+    ASSERT_EQ(0, file_write_atomic(path, PNG2, sizeof PNG2));
+    ASSERT_EQ(0, tools_flush_images(&f.env, err, sizeof err));
+    ASSERT_EQ_FMT((size_t)3, part_count(f.session), "%zu");
+    uint8_t manual[128], preview[128];
+    ASSERT_EQ_FMT(sizeof PNG1, part_bytes(f.session, 1, manual, sizeof manual), "%zu");
+    ASSERT_EQ_FMT(sizeof PNG1, part_bytes(f.session, 2, preview, sizeof preview), "%zu");
+    ASSERT_MEM_EQ(PNG1, manual, sizeof PNG1);
+    ASSERT_MEM_EQ(PNG1, preview, sizeof PNG1);
+    /* mixed batch: neutral, truthful, and never a claim about perception */
+    ASSERT_STR_EQ("Images attached by explicit tool requests.", part_text(f.session));
+    ASSERT_EQ(0, f.env.n_pending_images);
+
+    /* an all-preview batch says so */
+    ASSERT_EQ(0, file_write_atomic(path, PNG1, sizeof PNG1));
+    ASSERT_EQ(0, tools_queue_image_preview(&f.env, path, expected, 0, &code, err, sizeof err));
+    ASSERT_EQ(0, tools_flush_images(&f.env, err, sizeof err));
+    ASSERT_STR_EQ("Images queued by explicitly requested generation/edit preview.",
+                  part_text(f.session));
+    queue_fixture_close(&f);
+    PASS();
+}
+
+/* Roots, format, per-image size and the existing eight-entry capacity are
+ * checked before anything is queued, with a stable machine-readable code. */
+TEST image_queue_preview_refuses_roots_size_and_capacity(void) {
+    queue_fixture f;
+    queue_fixture_open(&f);
+    f.ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED;
+    char inside[600], outside[600], text[600], big[600];
+    snprintf(inside, sizeof inside, "%s/inside.png", g_ws);
+    snprintf(outside, sizeof outside, "%s/outside.png", g_home);
+    snprintf(text, sizeof text, "%s/notes.png", g_ws);
+    snprintf(big, sizeof big, "%s/huge.png", g_ws);
+    ASSERT_EQ(0, file_write_atomic(inside, PNG1, sizeof PNG1));
+    ASSERT_EQ(0, file_write_atomic(outside, PNG1, sizeof PNG1));
+    ASSERT_EQ(0, file_write_atomic(text, "not an image", 12));
+    char expected[65];
+    hash_hex(PNG1, sizeof PNG1, expected);
+    char err[256];
+    const char *code = NULL;
+
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, outside, expected, 0, &code, err, sizeof err));
+    ASSERT(code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_ROOTS, code);
+    ASSERT_EQ(0, f.env.n_pending_images); /* refused before the file was read */
+
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, text, expected, 0, &code, err, sizeof err));
+    ASSERT(code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_FORMAT, code);
+
+    /* one byte over the existing per-image bound */
+    size_t huge = (size_t)IMAGE_MAX_BYTES + 1;
+    uint8_t *blob = calloc(1, huge);
+    ASSERT(blob);
+    memcpy(blob, PNG1, sizeof PNG1);
+    ASSERT_EQ(0, file_write_atomic(big, blob, huge));
+    free(blob);
+    char oversized[65];
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, big, expected, 0, &code, err, sizeof err));
+    ASSERT(code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_TOO_LARGE, code);
+    (void)oversized;
+    unlink(big);
+
+    for (int i = 0; i < 8; i++)
+        ASSERT_EQ(0, tools_queue_image(&f.env, inside, false, NULL, NULL, NULL, err, sizeof err));
+    ASSERT_EQ(8, f.env.n_pending_images);
+    ASSERT_EQ(-1, tools_queue_image_preview(&f.env, inside, expected, 0, &code, err, sizeof err));
+    ASSERT(code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_CAPACITY, code);
+    ASSERT_EQ(8, f.env.n_pending_images);
+    queue_fixture_close(&f);
+    PASS();
+}
+
+/* A preview that can no longer be delivered fails the whole batch atomically:
+ * nothing is sent, nothing is dropped, and the distinct outcome tells the
+ * owning backend to end the turn instead of warning and continuing. A
+ * manual-only batch keeps exactly its old behavior. */
+TEST image_flush_preview_fatal_preserves_the_batch(void) {
+    queue_fixture f;
+    queue_fixture_open(&f);
+    f.ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED;
+    char path[600];
+    snprintf(path, sizeof path, "%s/fatal.png", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, PNG1, sizeof PNG1));
+    char expected[65];
+    hash_hex(PNG1, sizeof PNG1, expected);
+    char err[256];
+    const char *code = NULL;
+
+    ASSERT_EQ(0, tools_queue_image(&f.env, path, false, NULL, NULL, NULL, err, sizeof err));
+    ASSERT_EQ(0, tools_queue_image_preview(&f.env, path, expected, 0, &code, err, sizeof err));
+    size_t before = yyjson_mut_arr_size(session_messages(f.session));
+    char *manual_path = xstrdup(f.env.pending_images[0]);
+
+    /* the provider this turn would post to is no longer configured-true */
+    for (int pass = 0; pass < 2; pass++) {
+        f.ctx->image_input =
+            pass == 0 ? TNY_IMAGE_INPUT_UNKNOWN : TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED;
+        tools_image_flush_outcome outcome = TNY_IMAGE_FLUSH_OK;
+        err[0] = '\0';
+        ASSERT_EQ(-1, tools_flush_images_ex(&f.env, &outcome, err, sizeof err));
+        ASSERT_EQ(TNY_IMAGE_FLUSH_PREVIEW_FATAL, outcome);
+        ASSERT(err[0]);
+        /* every entry, byte and the count survive until the owner clears them */
+        ASSERT_EQ(2, f.env.n_pending_images);
+        ASSERT_STR_EQ(manual_path, f.env.pending_images[0]);
+        ASSERT_EQ_FMT(sizeof PNG1, f.env.pending_capture[1].len, "%zu");
+        ASSERT_MEM_EQ(PNG1, f.env.pending_capture[1].data, sizeof PNG1);
+        ASSERT_STR_EQ(expected, f.env.pending_capture[1].sha256);
+        ASSERT_EQ_FMT(before, yyjson_mut_arr_size(session_messages(f.session)), "%zu");
+    }
+
+    /* the owner's explicit cleanup: nothing retained for a later turn */
+    tools_discard_pending_images(&f.env);
+    ASSERT_EQ(0, f.env.n_pending_images);
+    ASSERT_EQ(NULL, f.env.pending_images[0]);
+    ASSERT_EQ(NULL, f.env.pending_capture[1].data);
+
+    /* a manual-only refusal stays the ordinary failure that preserves its
+     * entries (A4) and does not take the preview lifecycle */
+    f.ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED;
+    ASSERT_EQ(0, tools_queue_image(&f.env, path, false, NULL, NULL, NULL, err, sizeof err));
+    f.ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED;
+    tools_image_flush_outcome outcome = TNY_IMAGE_FLUSH_OK;
+    ASSERT_EQ(-1, tools_flush_images_ex(&f.env, &outcome, err, sizeof err));
+    ASSERT_EQ(TNY_IMAGE_FLUSH_FAILED, outcome);
+    ASSERT_STR_EQ(TNY_IMAGE_INPUT_REFUSAL, err);
+    ASSERT_EQ(1, f.env.n_pending_images);
+    ASSERT_FALSE(tools_pending_images_have_preview(&f.env));
+
+    /* an allowed provider flushes that preserved manual entry unchanged */
+    f.ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED;
+    ASSERT_EQ(0, tools_flush_images_ex(&f.env, &outcome, err, sizeof err));
+    ASSERT_EQ(TNY_IMAGE_FLUSH_OK, outcome);
+    ASSERT_EQ(0, f.env.n_pending_images);
+    ASSERT_EQ_FMT(before + 1, yyjson_mut_arr_size(session_messages(f.session)), "%zu");
+    free(manual_path);
+    queue_fixture_close(&f);
+    PASS();
+}
+
+/* The status vocabulary and hash validator are shared with the control
+ * receiver, so their exact shapes are pinned here. */
+TEST image_preview_status_names_and_hash_validation(void) {
+    ASSERT_STR_EQ("queued", tny_image_preview_status_name(TNY_IMAGE_PREVIEW_QUEUED));
+    ASSERT_STR_EQ("unsupported", tny_image_preview_status_name(TNY_IMAGE_PREVIEW_UNSUPPORTED));
+    ASSERT_STR_EQ("unavailable_session",
+                  tny_image_preview_status_name(TNY_IMAGE_PREVIEW_UNAVAILABLE_SESSION));
+    ASSERT_STR_EQ("turn_not_ready",
+                  tny_image_preview_status_name(TNY_IMAGE_PREVIEW_TURN_NOT_READY));
+    ASSERT_STR_EQ("failed", tny_image_preview_status_name(TNY_IMAGE_PREVIEW_FAILED));
+
+    char hex[65];
+    hash_hex(PNG1, sizeof PNG1, hex);
+    ASSERT(tny_image_preview_hash_valid(hex));
+    ASSERT(tny_image_preview_hash_matches(PNG1, sizeof PNG1, hex));
+    ASSERT_FALSE(tny_image_preview_hash_matches(PNG2, sizeof PNG2, hex));
+    ASSERT_FALSE(tny_image_preview_hash_valid(NULL));
+    ASSERT_FALSE(tny_image_preview_hash_valid(""));
+    ASSERT_FALSE(tny_image_preview_hash_valid("abc"));
+    char padded[67];
+    snprintf(padded, sizeof padded, "%s0", hex);
+    ASSERT_FALSE(tny_image_preview_hash_valid(padded));
+    char upper[65];
+    snprintf(upper, sizeof upper, "%s", hex);
+    for (int i = 0; i < 64; i++) upper[i] = (char)toupper((unsigned char)upper[i]);
+    ASSERT_FALSE(tny_image_preview_hash_valid(upper));
+    PASS();
+}
+
+/* ---- conversation image input (docs/adr/0089) ---- */
+
+/* The settings map is read for the provider that actually resolved, and it
+ * is recomputed — never inherited — on every switch. True is the user's
+ * assertion ("configured, unverified"), not a verified entitlement. */
+TEST image_input_map_resolves_per_provider_and_resets(void) {
+    ensure_env();
+    write_settings("{\"openai\":{\"base_url\":\"http://x/v1\"},"
+                   "\"gateway\":{\"base_url\":\"http://y/v1\"},"
+                   "\"image_input\":{\"openai\":false,\"gateway\":true}}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_IMAGE_INPUT_UNKNOWN, tny_image_input_configured(ctx)); /* before resolution */
+
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_EQ(TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED, tny_image_input_configured(ctx));
+    ASSERT(tny_image_input_refused(ctx));
+    ASSERT_FALSE(tny_image_input_auto_preview_allowed(ctx));
+    ASSERT_STR_EQ("configured off", tny_image_input_label(ctx));
+
+    /* switching providers recomputes the value instead of carrying it */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "gateway"));
+    ASSERT_EQ(TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED, tny_image_input_configured(ctx));
+    ASSERT_FALSE(tny_image_input_refused(ctx));
+    ASSERT(tny_image_input_auto_preview_allowed(ctx));
+    ASSERT_STR_EQ("configured, unverified", tny_image_input_label(ctx));
+
+    /* a provider with no entry stays unknown: existing explicit image flows
+     * keep working, but unknown never authorizes an automatic preview */
+    ASSERT_EQ(TNY_BK_CURSOR, tny_resolve_backend(ctx, "cursor"));
+    ASSERT_EQ(TNY_IMAGE_INPUT_UNKNOWN, tny_image_input_configured(ctx));
+    ASSERT_FALSE(tny_image_input_refused(ctx));
+    ASSERT_FALSE(tny_image_input_auto_preview_allowed(ctx));
+    ASSERT_STR_EQ("unknown", tny_image_input_label(ctx));
+    tny_ctx_free(ctx);
+
+    /* builtin subscription profiles are configured through the separate map,
+     * so their auth wiring is untouched (no shadowing object is created) */
+    write_settings("{\"image_input\":{\"codex\":false}}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
+    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
+    ASSERT(tny_image_input_refused(ctx));
+    ASSERT(strstr(ctx->base_url, "chatgpt.com") != NULL);
+    ASSERT_FALSE(tny_custom_provider_exists(ctx, "codex"));
+    tny_ctx_free(ctx);
+
+    /* the legacy acp:NAME selector shares the canonical acp@NAME key */
+    write_settings("{\"acp\":{\"claude\":{\"command\":\"claude-agent-acp\"}},"
+                   "\"image_input\":{\"acp@claude\":false}}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:claude"));
+    ASSERT_STR_EQ("acp:claude", tny_provider_name(ctx));
+    ASSERT(tny_image_input_refused(ctx));
+    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp@claude"));
+    ASSERT(tny_image_input_refused(ctx));
+    tny_ctx_free(ctx);
+
+    write_settings("{}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(tny_resolve_backend(ctx, "openai") >= 0);
+    ASSERT_EQ(TNY_IMAGE_INPUT_UNKNOWN, tny_image_input_configured(ctx));
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* Actual runtime parsing, independent of the editor schema: a malformed
+ * root, a non-boolean value, a repeated key, a NUL or an invalid selector
+ * fails configuration instead of resolving to an ambiguous value. */
+TEST image_input_map_rejects_malformed_settings(void) {
+    ensure_env();
+    static const char *const bad[] = {
+        "{\"image_input\":[]}",
+        "{\"image_input\":true}",
+        "{\"image_input\":\"openai\"}",
+        "{\"image_input\":{\"openai\":\"yes\"}}",
+        "{\"image_input\":{\"openai\":1}}",
+        "{\"image_input\":{\"openai\":null}}",
+        "{\"image_input\":{\"openai\":{}}}",
+        "{\"image_input\":{\"\":true}}",
+        "{\"image_input\":{\"open ai\":true}}",
+        "{\"image_input\":{\"acp:claude\":true}}", /* alias is not a map key */
+        "{\"image_input\":{\"acp@\":true}}",
+        "{\"image_input\":{\"open\\u0000ai\":true}}",
+        "{\"image_input\":{\"openai\":true,\"openai\":false}}",
+        NULL,
+    };
+    for (int i = 0; bad[i]; i++) {
+        write_settings(bad[i]);
+        tny_ctx *ctx = tny_ctx_load(g_ws);
+        ASSERT_EQm(bad[i], -1, tny_resolve_backend(ctx, "openai"));
+        /* a rejected map never leaves a configured value behind */
+        ASSERT_EQ(TNY_IMAGE_INPUT_UNKNOWN, tny_image_input_configured(ctx));
+        tny_ctx_free(ctx);
+    }
+    /* an over-long key is rejected; the 256-byte maximum itself is accepted */
+    buf_t key;
+    buf_init(&key);
+    buf_appends(&key, "{\"image_input\":{\"");
+    for (int i = 0; i < 257; i++) buf_appends(&key, "a");
+    buf_appends(&key, "\":true}}");
+    write_settings(key.data);
+    buf_free(&key);
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, "openai"));
+    tny_ctx_free(ctx);
+
+    buf_init(&key);
+    buf_appends(&key, "{\"image_input\":{\"");
+    for (int i = 0; i < 256; i++) buf_appends(&key, "a");
+    buf_appends(&key, "\":true}}");
+    write_settings(key.data);
+    buf_free(&key);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_EQ(TNY_IMAGE_INPUT_UNKNOWN, tny_image_input_configured(ctx));
+    tny_ctx_free(ctx);
+
+    /* bounded input: an oversized map fails instead of buying quadratic
+     * duplicate-detection work on a startup path */
+    for (int count = 1024; count <= 1025; count++) {
+        buf_init(&key);
+        buf_appends(&key, "{\"image_input\":{");
+        for (int i = 0; i < count; i++) buf_appendf(&key, "%s\"p%d\":true", i ? "," : "", i);
+        buf_appends(&key, "}}");
+        write_settings(key.data);
+        buf_free(&key);
+        ctx = tny_ctx_load(g_ws);
+        ASSERT_EQ(count == 1024 ? TNY_BK_OPENAI : -1, tny_resolve_backend(ctx, "openai"));
+        tny_ctx_free(ctx);
+    }
+
+    /* the root key is reserved: it must never become a provider profile */
+    ctx = tny_ctx_load(g_ws);
+    char err[160];
+    tny_provider_fields f = {.base_url = "http://example/v1"};
+    ASSERT_EQ(-1, tny_provider_write_profile(ctx, "image_input", &f, err, sizeof err));
+    ASSERT(strstr(err, "reserved settings key"));
+    tny_ctx_free(ctx);
+
+    write_settings("{}");
+    PASS();
+}
+
+/* Schema advertisement and direct execution agree, the queue refuses before
+ * reading or appending anything, and a refused flush preserves the bytes a
+ * previously allowed provider queued. Image generation is independent. */
+TEST image_input_false_gates_read_image_queue_and_flush(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    tny_session_state *s = session_new(ctx);
+    perm_engine *p = perm_new(ctx);
+    tools_env env;
+    memset(&env, 0, sizeof env);
+    env.ctx = ctx;
+    env.session = s;
+    env.perm = p;
+
+    char pngpath[600];
+    snprintf(pngpath, sizeof pngpath, "%s/gate.png", g_ws);
+    file_write_atomic(pngpath, PNG1, sizeof PNG1);
+    char args[700];
+    snprintf(args, sizeof args, "{\"path\":\"%s\"}", pngpath);
+
+    /* unknown keeps the existing explicit behavior */
+    ASSERT(tool_schema_has(&env, "read_image"));
+    char *res = tools_execute(&env, "read_image", args);
+    ASSERT(res && !str_starts(res, "error:"));
+    free(res);
+    ASSERT_EQ(1, env.n_pending_images);
+    char *queued = xstrdup(env.pending_images[0]);
+    size_t advertised = tool_schema_count(&env);
+
+    /* the provider switched to one configured without image input */
+    ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED;
+    ASSERT_FALSE(tool_schema_has(&env, "read_image"));
+    ASSERT_EQ(advertised - 1, tool_schema_count(&env));
+    res = tools_execute(&env, "read_image", args);
+    ASSERT(res && str_starts(res, "error:"));
+    ASSERT(strstr(res, "read_image"));
+    free(res);
+    res = tools_execute(&env, "vision", args); /* the fx alias agrees */
+    ASSERT(res && str_starts(res, "error:"));
+    free(res);
+
+    char err[256];
+    err[0] = '\0';
+    ASSERT_EQ(-1, tools_queue_image(&env, pngpath, false, NULL, NULL, NULL, err, sizeof err));
+    ASSERT_STR_EQ(TNY_IMAGE_INPUT_REFUSAL, err);
+    ASSERT_EQ(1, env.n_pending_images); /* nothing queued, nothing dropped */
+    ASSERT_STR_EQ(queued, env.pending_images[0]);
+
+    /* the refused flush keeps the pending entries and count intact */
+    int before = (int)yyjson_mut_arr_size(session_messages(s));
+    err[0] = '\0';
+    ASSERT_EQ(-1, tools_flush_images(&env, err, sizeof err));
+    ASSERT_STR_EQ(TNY_IMAGE_INPUT_REFUSAL, err);
+    ASSERT_EQ(1, env.n_pending_images);
+    ASSERT_STR_EQ(queued, env.pending_images[0]);
+    ASSERT_EQ(before, (int)yyjson_mut_arr_size(session_messages(s)));
+
+    /* generation never depends on the conversation provider's pixel input */
+    setenv("CHATGPT_ACCESS_TOKEN", "fixture-token", 1);
+    setenv("CHATGPT_ACCOUNT_ID", "fixture-account", 1);
+    ASSERT(tny_image_capabilities(ctx, false, NULL));
+    ASSERT(tool_schema_has(&env, "image_generate"));
+    ASSERT(tool_schema_has(&env, "image_edit"));
+    unsetenv("CHATGPT_ACCESS_TOKEN");
+    unsetenv("CHATGPT_ACCOUNT_ID");
+
+    /* back to a provider that allows images: the queue flushes unchanged */
+    ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED;
+    ASSERT(tool_schema_has(&env, "read_image"));
+    ASSERT_EQ(0, tools_flush_images(&env, err, sizeof err));
+    ASSERT_EQ(0, env.n_pending_images);
+    ASSERT_EQ(before + 1, (int)yyjson_mut_arr_size(session_messages(s)));
+
+    free(queued);
+    perm_free(p);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* Every other optional feature can be enabled while conversation image
+ * input is forbidden. The raw-schema shortcut must not advertise read_image. */
+TEST image_input_false_gates_fully_configured_schema(void) {
+    ensure_env();
+    write_settings("{\"web_search_url\":\"http://127.0.0.1:1/search?q={query}\"}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->prompt_optimisation = false;
+    ctx->mcp_disabled = false;
+    ctx->tool_profile = TNY_TOOLS_ALL;
+    ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED;
+    ctx->chatgpt_token = xstrdup("fixture-schema-token");
+    ctx->chatgpt_account_id = xstrdup("fixture-schema-account");
+    char player[600];
+    snprintf(player, sizeof player, "%s/ffplay", g_ws);
+    const char script[] = "#!/bin/sh\nexit 99\n"; /* never executed */
+    ASSERT_EQ(0, file_write_atomic(player, script, strlen(script)));
+    ASSERT_EQ(0, chmod(player, 0700));
+    const char *path = getenv("PATH");
+    char *old_path = path ? xstrdup(path) : NULL;
+    setenv("PATH", g_ws, 1);
+    tools_env env = {.ctx = ctx};
+    bool has_image = tny_image_capabilities(ctx, false, NULL);
+    bool has_speech = tny_speech_available(ctx, NULL, true, NULL, 0);
+    bool hidden = !tool_schema_has(&env, "read_image");
+    bool generator_retained = tool_schema_has(&env, "image_generate");
+    bool search_retained = tool_schema_has(&env, "web_search");
+    char *result = tools_execute(&env, "read_image", "{\"path\":\"absent.png\"}");
+    bool refused = result && str_starts(result, "error:");
+    free(result);
+    if (old_path) setenv("PATH", old_path, 1);
+    else unsetenv("PATH");
+    free(old_path);
+    unlink(player);
+    tny_ctx_free(ctx);
+    write_settings("{}");
+    ASSERT(has_image);
+#if !defined(__EMSCRIPTEN__) && !defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
+    ASSERTm("fixture must exercise the fully configured raw-schema branch", has_speech);
+#else
+    (void)has_speech; /* playback cannot enable the raw fast path on these hosts */
+#endif
+    ASSERT(search_retained && generator_retained);
+    ASSERT(refused);
+    ASSERTm("fully configured schema must hide the refused read_image tool", hidden);
     PASS();
 }
 
@@ -3065,6 +3731,61 @@ TEST embedded_tool_schema_has_no_process_spawning_tools(void) {
     PASS();
 }
 
+/* Local exports depend on the host, not on an image provider: they stay
+ * advertised without any credentials, and a denied grant converts nothing and
+ * writes nothing (docs/adr/0094). */
+TEST image_export_tools_are_local_and_gated(void) {
+    ensure_env();
+    write_settings("{\"permission\":{\"image_export\":\"deny\"}}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_ASK;
+    ctx->tool_profile = TNY_TOOLS_ALL;
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char source[600], destination[600];
+    snprintf(source, sizeof source, "%s/gate-src.png", g_ws);
+    snprintf(destination, sizeof destination, "%s/gate-out.png", g_ws);
+    unlink(destination);
+    static const unsigned char png[] = {
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49,
+        0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02,
+        0x00, 0x00, 0x00, 0xfd, 0xd4, 0x9a, 0x73, 0x00, 0x00, 0x00, 0x13, 0x49, 0x44,
+        0x41, 0x54, 0x08, 0x1d, 0x63, 0x60, 0x60, 0xf8, 0xcf, 0xc0, 0xc0, 0xf0, 0x9f,
+        0x01, 0x09, 0x0c, 0x00, 0x29, 0x0d, 0x03, 0xf9, 0x1f, 0x9d, 0x7e, 0xdf, 0x00,
+        0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
+    ASSERT_EQ(0, file_write_atomic(source, (const char *)png, sizeof png));
+    /* No ChatGPT credentials here, so generation is unavailable while the
+     * local transforms remain offered. */
+    ASSERT(!tny_image_capabilities(ctx, false, NULL));
+    ASSERT(!tool_schema_has(&env, "image_generate"));
+    ASSERT(tool_schema_has(&env, "image_export"));
+    ASSERT(tool_schema_has(&env, "image_contact_sheet"));
+    tools_call call;
+    ASSERT_EQ(0, tools_call_prepare(&env, "image_export",
+                                    "{\"sources\":[{\"image\":\"gate-src.png\"}],\"output_file\":"
+                                    "\"gate-out.png\",\"size\":\"8x8\"}",
+                                    &call));
+    ASSERT_EQ(PERM_DENY, call.verdict);
+    tools_call_free(&call);
+    ASSERT_EQ(-1, access(destination, F_OK));
+    /* The sheet keeps its own identity, so denying one does not deny both. */
+    ASSERT_EQ(0, tools_call_prepare(&env, "image_contact_sheet",
+                                    "{\"sources\":[{\"image\":\"gate-src.png\"}],\"output_file\":"
+                                    "\"gate-out.png\",\"size\":\"8x8\"}",
+                                    &call));
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+    tools_call_free(&call);
+    ctx->tool_profile = TNY_TOOLS_TERMINAL;
+    ASSERT(!tool_schema_has(&env, "image_export"));
+    ASSERT(!tool_schema_has(&env, "image_contact_sheet"));
+    unlink(source);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    write_settings("{}");
+    PASS();
+}
+
 TEST optimisation_tools_are_read_only_even_in_yolo(void) {
     ensure_env();
     tny_ctx *ctx = tny_ctx_new_explicit(g_ws, g_home);
@@ -3076,9 +3797,10 @@ TEST optimisation_tools_are_read_only_even_in_yolo(void) {
     static const char *allowed[] = {"list_files", "glob_files", "grep_files",
                                     "read_file",  "file_info",  "read_tool_result"};
     static const char *denied[] = {
-        "write_file",    "edit_file", "delete_file",     "terminal",       "run_command",
-        "web_fetch",     "subagent",  "mcp_select_tool", "memory",         "skill",
-        "install_skill", "open_file", "speak",           "image_generate", "image_edit"};
+        "write_file",    "edit_file",          "delete_file",     "terminal",       "run_command",
+        "web_fetch",     "subagent",           "mcp_select_tool", "memory",         "skill",
+        "install_skill", "open_file",          "speak",           "image_generate", "image_edit",
+        "image_export",  "image_contact_sheet"};
     for (size_t i = 0; i < sizeof allowed / sizeof *allowed; i++)
         ASSERT(tool_schema_has(&env, allowed[i]));
     for (size_t i = 0; i < sizeof denied / sizeof *denied; i++) {
@@ -3190,53 +3912,738 @@ TEST tool_profile_filters_schema_enforces_and_keeps_custom_tools(void) {
     PASS();
 }
 
-/* The subagent child command must forward the parent's resolved provider —
- * without it the child re-resolves from settings, where a remembered
- * last_provider (e.g. codex) beats environment detection and the child
- * fails at startup. Every model-supplied value must also be shell-quoted:
- * id and prompt reach a popen(3) shell. */
-TEST subagent_command_forwards_provider_and_quotes(void) {
+/* ---- subagent (docs/features/mcp-and-skills.md#subagents, ADR 0087) ---- */
+
+#define SA_CREATE_EXAMPLE "{\"action\":\"create\",\"prompt\":\"...\"}"
+#define SA_ID_EXAMPLE(a)  "{\"action\":\"" a "\",\"id\":\"<id from create>\"}"
+
+/* A resolved native ctx whose sessions live under the throwaway HOME. */
+static tny_ctx *subagent_ctx(void) {
     ensure_env();
-    tny_ctx *ctx = tny_ctx_new_explicit(g_ws, g_home);
+    unsetenv("TNY_TOOLS");
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    if (ctx && tny_resolve_backend(ctx, "openai") < 0) {
+        tny_ctx_free(ctx);
+        return NULL;
+    }
+    return ctx;
+}
+
+static char *subagent_prepare(tools_env *env, const char *args) {
+    tools_call call;
+    char *error = NULL;
+    if (tools_call_prepare(env, "subagent", args, &call) != 0)
+        error = call.error ? xstrdup(call.error) : xstrdup("prepare failed without a message");
+    tools_call_free(&call);
+    return error;
+}
+
+static const char *envp_get(char **envp, const char *name) {
+    size_t n = strlen(name);
+    for (char **e = envp; e && *e; e++)
+        if (strncmp(*e, name, n) == 0 && (*e)[n] == '=') return *e + n + 1;
+    return NULL;
+}
+
+/* The child runs the parent's resolved provider — argv names only
+ * selectors, while the resolved key, secret-bearing base URL and a
+ * flag-selected ChatGPT credential ride the child's private environment.
+ * Building the plan never touches this process's environment. */
+TEST subagent_plan_carries_resolved_config_privately(void) {
+    tny_ctx *ctx = subagent_ctx();
     ASSERT(ctx);
     free(ctx->provider_name);
     ctx->provider_name = xstrdup("openrouter");
     free(ctx->base_url);
-    ctx->base_url = xstrdup("https://example.test/v1");
+    ctx->base_url = xstrdup("https://gw.example/SENTINEL-URL-TOKEN/v1");
+    free(ctx->api_key);
+    ctx->api_key = xstrdup("sk-dummy-SENTINEL-KEY");
+    ctx->chatgpt_token = xstrdup("dummy-chatgpt-SENTINEL-TOKEN");
     free(ctx->wire_api);
     ctx->wire_api = xstrdup("chat");
     free(ctx->model);
     ctx->model = xstrdup("mock-model");
+    ctx->reasoning_effort = xstrdup("high");
     ctx->perm_mode = TNY_MODE_ASK;
+    setenv("TNY_PERMISSION_MODE", "yolo", 1);
+    setenv("CHATGPT_ACCOUNT_ID", "ambient-account", 1);
+    setenv(TNY_SUBAGENT_KEY_ENV, "stale-inherited", 1);
+    const char *nested = getenv("TNY_NESTED");
+    char *saved_nested = nested ? xstrdup(nested) : NULL;
+    setenv("TNY_NESTED", "parent-sentinel", 1);
     tools_env env = {.ctx = ctx};
 
-    char *cmd =
-        tools_subagent_command(&env, "x'; touch pwned; '", "say 'hi' $(date)", "/tmp/err file");
-    ASSERT(cmd);
-    ASSERT(strstr(cmd, " --provider 'openrouter'"));
-    ASSERT(strstr(cmd, " --base-url 'https://example.test/v1'"));
-    ASSERT(strstr(cmd, " --wire-api chat"));
-    ASSERT(strstr(cmd, " --model 'mock-model'"));
-    ASSERT(strstr(cmd, " --permission-mode ask"));
-    ASSERT(strstr(cmd, " ask --json"));
-    ASSERT_EQ(NULL, strstr(cmd, "--ephemeral"));
-    /* an embedded single quote must be broken out of the quoted span, so
-     * the injection attempt stays one argv string for the child */
-    ASSERT(strstr(cmd, " --resume-id 'x'\\''; touch pwned; '\\'''"));
-    ASSERT(strstr(cmd, " -- 'say '\\''hi'\\'' $(date)'"));
-    ASSERT(strstr(cmd, " 2>'/tmp/err file'"));
-    free(cmd);
+    tny_subagent_plan plan;
+    ASSERT_EQ(0, tny_subagent_plan_build(&env, "0123456789abcdef", &plan));
+    ASSERT(plan.argv[0] && plan.argv[0][0] == '/' && access(plan.argv[0], X_OK) == 0);
+    const char *want[] = {"--cwd",
+                          ctx->cwd,
+                          "--provider",
+                          "openrouter",
+                          "--api-key-env",
+                          TNY_SUBAGENT_KEY_ENV,
+                          "--base-url-env",
+                          TNY_SUBAGENT_URL_ENV,
+                          "--wire-api",
+                          "chat",
+                          "--model",
+                          "mock-model",
+                          "--effort",
+                          "high",
+                          "--permission-mode",
+                          "ask",
+                          "ask",
+                          "--json",
+                          "--stdin",
+                          "--resume-id",
+                          "0123456789abcdef",
+                          NULL};
+    for (int i = 0; want[i]; i++) ASSERT_STR_EQ(want[i], plan.argv[i + 1]);
+    ASSERT_EQ(NULL, plan.argv[sizeof want / sizeof *want]);
+    for (int i = 0; plan.argv[i]; i++) ASSERT_EQ(NULL, strstr(plan.argv[i], "SENTINEL"));
 
-    /* ephemeral parents pass the mode through; no stderr redirect when the
-     * temp file could not be created */
+    ASSERT_STR_EQ("sk-dummy-SENTINEL-KEY", envp_get(plan.envp, TNY_SUBAGENT_KEY_ENV));
+    ASSERT_STR_EQ("https://gw.example/SENTINEL-URL-TOKEN/v1",
+                  envp_get(plan.envp, TNY_SUBAGENT_URL_ENV));
+    ASSERT_STR_EQ("dummy-chatgpt-SENTINEL-TOKEN", envp_get(plan.envp, "CHATGPT_ACCESS_TOKEN"));
+    /* the flag token had no account flag: the ambient account must not pair with it */
+    ASSERT_EQ(NULL, envp_get(plan.envp, "CHATGPT_ACCOUNT_ID"));
+    ASSERT_STR_EQ("1", envp_get(plan.envp, "TNY_NESTED"));
+    ASSERT_STR_EQ("ask", envp_get(plan.envp, "TNY_NESTED_MODE"));
+    ASSERT_STR_EQ("all", envp_get(plan.envp, "TNY_TOOLS"));
+    ASSERT_EQ(NULL, envp_get(plan.envp, "TNY_PERMISSION_MODE"));
+    ASSERT_STR_EQ(g_home, envp_get(plan.envp, "HOME")); /* the rest is inherited */
+    int keys = 0;
+    for (char **e = plan.envp; *e; e++) keys += strncmp(*e, TNY_SUBAGENT_KEY_ENV "=", 21) == 0;
+    ASSERT_EQ(1, keys);
+    /* no global environment mutation */
+    ASSERT_STR_EQ("stale-inherited", getenv(TNY_SUBAGENT_KEY_ENV));
+    ASSERT_EQ(NULL, getenv(TNY_SUBAGENT_URL_ENV));
+    ASSERT_STR_EQ("yolo", getenv("TNY_PERMISSION_MODE"));
+    ASSERT_STR_EQ("parent-sentinel", getenv("TNY_NESTED"));
+    ASSERT_EQ(NULL, getenv("CHATGPT_ACCESS_TOKEN"));
+    tny_subagent_plan_free(&plan);
+    unsetenv("TNY_NESTED");
+
+    /* explicit account flag travels; ephemeral parents stay one-shot; a
+     * keyless local gateway sends no key carrier */
+    ctx->chatgpt_account_id = xstrdup("acct-flag");
     ctx->no_save = true;
-    cmd = tools_subagent_command(&env, NULL, "hi", NULL);
-    ASSERT(cmd);
-    ASSERT(strstr(cmd, " --ephemeral ask --json -- 'hi'"));
-    ASSERT_EQ(NULL, strstr(cmd, "--resume-id"));
-    ASSERT_EQ(NULL, strstr(cmd, "2>"));
-    free(cmd);
+    free(ctx->api_key);
+    ctx->api_key = NULL;
+    ASSERT_EQ(0, tny_subagent_plan_build(&env, NULL, &plan));
+    ASSERT_STR_EQ("acct-flag", envp_get(plan.envp, "CHATGPT_ACCOUNT_ID"));
+    ASSERT_EQ(NULL, envp_get(plan.envp, TNY_SUBAGENT_KEY_ENV));
+    bool ephemeral = false, resume = false, key_flag = false;
+    for (int i = 0; plan.argv[i]; i++) {
+        ephemeral |= strcmp(plan.argv[i], "--ephemeral") == 0;
+        resume |= strcmp(plan.argv[i], "--resume-id") == 0;
+        key_flag |= strcmp(plan.argv[i], "--api-key-env") == 0;
+    }
+    ASSERT(ephemeral && !resume && !key_flag);
+    ASSERT_EQ(NULL, getenv("TNY_NESTED"));
+    tny_subagent_plan_free(&plan);
+    if (saved_nested) setenv("TNY_NESTED", saved_nested, 1);
+    free(saved_nested);
+
+    unsetenv("TNY_PERMISSION_MODE");
+    unsetenv("CHATGPT_ACCOUNT_ID");
+    unsetenv(TNY_SUBAGENT_KEY_ENV);
     tny_ctx_free(ctx);
+    PASS();
+}
+
+/* Validation and runtime rejections are exact stable strings produced
+ * before the permission gate, extension events or any process; none echoes
+ * a supplied value. */
+TEST subagent_prepare_rejects_with_exact_codes(void) {
+    tny_ctx *ctx = subagent_ctx();
+    ASSERT(ctx);
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    ASSERT(tool_schema_has(&env, "subagent"));
+    static const struct {
+        const char *args, *want;
+    } cases[] = {
+        {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":\"wallpaper-SENTINEL\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
+         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
+         "inspect or lifecycle"},
+        {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":\"0123456789abcdef\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
+         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
+         "inspect or lifecycle"},
+        {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":7}",
+         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
+         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
+         "inspect or lifecycle"},
+        {"{\"prompt\":\"SENTINEL\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: action must be create, message, inspect or "
+         "lifecycle. Example: " SA_CREATE_EXAMPLE},
+        {"{\"action\":7}", "error: SUBAGENT_INVALID_ARGUMENT: action must be create, message, "
+                           "inspect or lifecycle. Example: " SA_CREATE_EXAMPLE},
+        {"{\"action\":\"\"}", "error: SUBAGENT_INVALID_ARGUMENT: action must be create, message, "
+                              "inspect or lifecycle. Example: " SA_CREATE_EXAMPLE},
+        {"[1]", "error: SUBAGENT_INVALID_ARGUMENT: action must be create, message, inspect or "
+                "lifecycle. Example: " SA_CREATE_EXAMPLE},
+        {"{\"action\":\"relationship\",\"id\":\"SENTINEL\"}",
+         "error: SUBAGENT_UNSUPPORTED_ACTION: supported actions are create, message, inspect and "
+         "lifecycle; relationship, configure and queued messages are not supported. "
+         "Example: " SA_CREATE_EXAMPLE},
+        {"{\"action\":\"configure\"}",
+         "error: SUBAGENT_UNSUPPORTED_ACTION: supported actions are create, message, inspect and "
+         "lifecycle; relationship, configure and queued messages are not supported. "
+         "Example: " SA_CREATE_EXAMPLE},
+        {"{\"action\":\"create\",\"prompt\":\"p\",\"SENTINEL\":1}",
+         "error: SUBAGENT_INVALID_ARGUMENT: only action, id and prompt are accepted. "
+         "Example: " SA_CREATE_EXAMPLE},
+        {"{\"action\":\"create\",\"prompt\":\"\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: create needs a nonempty UTF-8 prompt. "
+         "Example: " SA_CREATE_EXAMPLE},
+        {"{\"action\":\"create\",\"prompt\":[\"SENTINEL\"]}",
+         "error: SUBAGENT_INVALID_ARGUMENT: create needs a nonempty UTF-8 prompt. "
+         "Example: " SA_CREATE_EXAMPLE},
+        {"{\"action\":\"create\",\"prompt\":\"a\\u0000b\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: create needs a nonempty UTF-8 prompt. "
+         "Example: " SA_CREATE_EXAMPLE},
+        {"{\"action\":\"message\",\"id\":\"x; touch SENTINEL; true\",\"prompt\":\"p\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: message needs the 16-character lowercase hex id "
+         "returned by create. Example: "
+         "{\"action\":\"message\",\"id\":\"<id from create>\",\"prompt\":\"...\"}"},
+        {"{\"action\":\"message\",\"id\":\"last\",\"prompt\":\"p\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: message needs the 16-character lowercase hex id "
+         "returned by create. Example: "
+         "{\"action\":\"message\",\"id\":\"<id from create>\",\"prompt\":\"...\"}"},
+        {"{\"action\":\"message\",\"id\":\"0123456789ABCDEF\",\"prompt\":\"p\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: message needs the 16-character lowercase hex id "
+         "returned by create. Example: "
+         "{\"action\":\"message\",\"id\":\"<id from create>\",\"prompt\":\"...\"}"},
+        {"{\"action\":\"message\",\"id\":\"0123456789abcdef\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: message needs a nonempty UTF-8 prompt. Example: "
+         "{\"action\":\"message\",\"id\":\"<id from create>\",\"prompt\":\"...\"}"},
+        {"{\"action\":\"inspect\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: inspect needs the 16-character lowercase hex id "
+         "returned by create. Example: " SA_ID_EXAMPLE("inspect")},
+        {"{\"action\":\"lifecycle\",\"id\":\"0123456789abcdef\",\"prompt\":\"SENTINEL\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: lifecycle takes no prompt. "
+         "Example: " SA_ID_EXAMPLE("lifecycle")},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
+        char *error = subagent_prepare(&env, cases[i].args);
+        ASSERT(error);
+        ASSERT_STR_EQ(cases[i].want, error);
+        ASSERT_EQ(NULL, strstr(error, "SENTINEL"));
+        free(error);
+    }
+    static const char *valid[] = {
+        "{\"action\":\"create\",\"prompt\":\"do x\"}",
+        "{\"action\":\"message\",\"id\":\"0123456789abcdef\",\"prompt\":\"more\"}",
+        "{\"action\":\"inspect\",\"id\":\"0123456789abcdef\"}",
+        "{\"action\":\"lifecycle\",\"id\":\"0123456789abcdef\"}"};
+    for (size_t i = 0; i < sizeof valid / sizeof *valid; i++)
+        ASSERT_EQ(NULL, subagent_prepare(&env, valid[i]));
+
+    /* ephemeral parents: one-shot create only */
+    ctx->no_save = true;
+    ASSERT_EQ(NULL, subagent_prepare(&env, valid[0]));
+    char *error = subagent_prepare(&env, valid[2]);
+    ASSERT_STR_EQ("error: SUBAGENT_UNSUPPORTED_CONTEXT: ephemeral children are one-shot and store "
+                  "no session, so inspect has nothing to address; use " SA_CREATE_EXAMPLE
+                  " with the complete task, or run tny without --ephemeral",
+                  error);
+    free(error);
+    ctx->no_save = false;
+
+    /* tool-profile ceilings: hidden, and a replayed call names the fallback */
+    ctx->tool_profile = TNY_TOOLS_TERMINAL;
+    ASSERT_FALSE(tool_schema_has(&env, "subagent"));
+    error = subagent_prepare(&env, valid[0]);
+    ASSERT_STR_EQ("error: SUBAGENT_UNSUPPORTED_CONTEXT: subagent is unavailable in the terminal "
+                  "tool profile; run tny ask -B --json \"...\" through terminal and read it with "
+                  "tny session <id> --wait, or use TNY_TOOLS=all",
+                  error);
+    free(error);
+    ctx->tool_profile = TNY_TOOLS_TERMINAL_EDIT;
+    error = tools_execute(&env, "subagent", valid[0]);
+    ASSERT(strstr(error, "SUBAGENT_UNSUPPORTED_CONTEXT: subagent is unavailable in the "
+                         "terminal+edit tool profile"));
+    free(error);
+    ctx->tool_profile = TNY_TOOLS_ALL;
+
+    /* --ssh: a child would run tools on this machine — hidden and refused */
+    ctx->ssh_host = xstrdup("user@example.invalid");
+    ASSERT_FALSE(tool_schema_has(&env, "subagent"));
+    error = subagent_prepare(&env, valid[0]);
+    ASSERT_STR_EQ("error: SUBAGENT_UNSUPPORTED_CONTEXT: subagent is unavailable with --ssh "
+                  "because a child would run its tools on this machine, not the remote host; do "
+                  "the work in this session",
+                  error);
+    free(error);
+    free(ctx->ssh_host);
+    ctx->ssh_host = NULL;
+
+    /* host providers own their loops */
+    ctx->backend = TNY_BK_CURSOR;
+    error = tools_execute(&env, "subagent", valid[0]);
+    ASSERT_STR_EQ("error: SUBAGENT_UNSUPPORTED_CONTEXT: subagent needs tny's native "
+                  "OpenAI-compatible loop; host providers run their own agents",
+                  error);
+    free(error);
+    ctx->backend = TNY_BK_OPENAI;
+
+    /* prompt optimisation */
+    ctx->prompt_optimisation = true;
+    error = subagent_prepare(&env, valid[0]);
+    ASSERT_STR_EQ("error: SUBAGENT_UNSUPPORTED_CONTEXT: subagent is unavailable during prompt "
+                  "optimisation",
+                  error);
+    free(error);
+    ctx->prompt_optimisation = false;
+
+    /* missing resolved native credential (unreachable from a live turn:
+     * the parent itself could not have connected) */
+    free(ctx->api_key);
+    ctx->api_key = NULL;
+    free(ctx->base_url);
+    ctx->base_url = xstrdup("https://api.example.invalid/v1");
+    error = tools_execute(&env, "subagent", valid[0]);
+    ASSERT_STR_EQ("error: SUBAGENT_AUTH_UNAVAILABLE: the parent provider has no resolved "
+                  "credential to hand a child; configure its key (for example --api-key-env "
+                  "NAME, tny login or tny provider setup) and retry",
+                  error);
+    free(error);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+
+    /* embedded runtimes: hidden and refused with the stable code */
+    ctx = tny_ctx_new_explicit(g_ws, g_home);
+    ASSERT(ctx);
+    perm = perm_new(ctx);
+    tools_env lib = {.ctx = ctx, .perm = perm};
+    error = subagent_prepare(&lib, valid[0]);
+    ASSERT_STR_EQ("error: SUBAGENT_UNSUPPORTED_CONTEXT: subagent is unavailable in embedded "
+                  "runtimes; do the work in this turn",
+                  error);
+    free(error);
+    bool handled = false;
+    yyjson_doc *doc = jparse(valid[0], strlen(valid[0]));
+    error = tool_ext_execute(&lib, "subagent", yyjson_doc_get_root(doc), &handled);
+    ASSERT(handled);
+    ASSERT(str_starts(error, "error: SUBAGENT_UNSUPPORTED_CONTEXT: subagent is unavailable in "
+                             "embedded runtimes"));
+    free(error);
+    yyjson_doc_free(doc);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* Cancel once the child script has written its ready file, so the signal
+ * cannot race the script's own trap setup. */
+static bool subagent_cancel_when_ready(void *ud) {
+    size_t len = 0;
+    char *ready = file_slurp((const char *)ud, &len);
+    free(ready);
+    return ready && len > 0;
+}
+
+extern char **environ;
+
+static char *subagent_sh(tools_env *env, const char *action, const char *id, const char *script) {
+    char *argv[] = {"/bin/sh", "-c", (char *)script, NULL};
+    return tny_subagent_run(env, action, id, argv, environ, "hello from parent");
+}
+
+static char *subagent_stored_session(tny_ctx *ctx) {
+    tny_session_state *s = session_new(ctx);
+    if (!s || session_save(s) != 0) {
+        session_close(s);
+        return NULL;
+    }
+    char *id = xstrdup(s->id);
+    session_close(s);
+    return id;
+}
+
+/* The process seam with real children: the prompt arrives on stdin, the
+ * real wait status and the child's --json decide the class, output is
+ * bounded, cancellation stops the owned tree, and no child stderr, partial
+ * stdout or reported error text reaches the result. */
+TEST subagent_process_outcomes_are_classified(void) {
+    tny_ctx *ctx = subagent_ctx();
+    ASSERT(ctx);
+    tools_env env = {.ctx = ctx};
+    char *id = subagent_stored_session(ctx);
+    ASSERT(id);
+    char script[1024], want[1024];
+
+    snprintf(script, sizeof script,
+             "IFS= read -r line; [ \"$line\" = 'hello from parent' ] || exit 9; "
+             "printf '{\"output\":\"CHILD-OK\",\"exit_code\":0,\"session_id\":\"%s\"}'",
+             id);
+    char *r = subagent_sh(&env, "create", NULL, script);
+    snprintf(want, sizeof want,
+             "subagent %s finished.\nid: %s (use action=message id=%s to continue)\n"
+             "result:\nCHILD-OK",
+             id, id, id);
+    ASSERT_STR_EQ(want, r);
+    free(r);
+    r = subagent_sh(&env, "message", id, script);
+    ASSERT_STR_EQ(want, r);
+    free(r);
+
+    /* A valid, stored success-shaped reply cannot override the real process
+     * exit code. This catches success fabrication, not only bad JSON. */
+    char failed_script[1024];
+    snprintf(failed_script, sizeof failed_script,
+             "printf '{\"output\":\"CHILD-OK\",\"exit_code\":0,\"session_id\":\"%s\"}'; exit 7",
+             id);
+    r = subagent_sh(&env, "create", NULL, failed_script);
+    ASSERT(strstr(r, "SUBAGENT_CHILD_FAILED: child ") && strstr(r, "(exit 7)"));
+    free(r);
+
+    static const char *invalid[] = {
+        "printf 'not json SENTINEL'",
+        "printf '{\"output\":\"x\",\"session_id\":\"0123456789abcdef\"}'",
+        /* success JSON naming a session that was never stored */
+        "printf '{\"output\":\"x\",\"exit_code\":0,\"session_id\":\"0123456789abcdef\"}'",
+        "head -c 9000000 /dev/zero",
+        "printf '{\"output\":\"SENTINEL'",
+    };
+    for (size_t i = 0; i < sizeof invalid / sizeof *invalid; i++) {
+        r = subagent_sh(&env, "create", NULL, invalid[i]);
+        ASSERT_STR_EQ("error: SUBAGENT_INVALID_RESPONSE: the child exited without a complete turn "
+                      "result; check tny sessions for its state before retrying",
+                      r);
+        free(r);
+    }
+    /* a message reply for another session is not success either */
+    r = subagent_sh(&env, "message", "0123456789abcdef", script);
+    ASSERT(str_starts(r, "error: SUBAGENT_INVALID_RESPONSE: "));
+    free(r);
+
+    r = subagent_sh(&env, "create", NULL,
+                    "echo 'provider said SENTINEL-STDERR' >&2; printf 'partial SENTINEL'; exit 3");
+    ASSERT_STR_EQ("error: SUBAGENT_CHILD_FAILED: the child failed (exit 3) before storing a "
+                  "session; check the provider setup with tny doctor, then retry create",
+                  r);
+    free(r);
+    snprintf(script, sizeof script,
+             "printf '{\"output\":\"partial SENTINEL\",\"exit_code\":2,"
+             "\"error\":\"HTTP 401 Bearer SENTINEL-KEY\",\"session_id\":\"%s\"}'; exit 2",
+             id);
+    r = subagent_sh(&env, "create", NULL, script);
+    snprintf(want, sizeof want,
+             "error: SUBAGENT_CHILD_FAILED: child %s failed (exit 2); its session keeps the "
+             "details. Check {\"action\":\"lifecycle\",\"id\":\"%s\"} and retry with "
+             "action=message",
+             id, id);
+    ASSERT_STR_EQ(want, r);
+    ASSERT_EQ(NULL, strstr(r, "SENTINEL"));
+    free(r);
+    snprintf(script, sizeof script,
+             "printf '{\"output\":\"\",\"exit_code\":0,\"error\":\"SENTINEL\",\"session_id\":"
+             "\"%s\"}'",
+             id);
+    r = subagent_sh(&env, "create", NULL, script);
+    ASSERT(strstr(r, "SUBAGENT_CHILD_FAILED: child ") && strstr(r, "(reported an error)"));
+    free(r);
+    r = subagent_sh(&env, "create", NULL, "kill -TERM $$");
+    ASSERT_STR_EQ("error: SUBAGENT_CHILD_FAILED: the child failed (signal 15) before storing a "
+                  "session; check the provider setup with tny doctor, then retry create",
+                  r);
+    free(r);
+
+    char *missing[] = {"/nonexistent/tny-subagent", "ask", NULL};
+    char *relative[] = {"tny", "ask", NULL};
+    static const char *launch = "error: SUBAGENT_LAUNCH_FAILED: could not start a child tny "
+                                "process; retry, or run tny ask --json through terminal";
+    r = tny_subagent_run(&env, "create", NULL, missing, environ, "p");
+    ASSERT_STR_EQ(launch, r);
+    free(r);
+    r = tny_subagent_run(&env, "create", NULL, relative, environ, "p");
+    ASSERT_STR_EQ(launch, r);
+    free(r);
+    char *directory[] = {"/", "ask", NULL};
+    r = tny_subagent_run(&env, "create", NULL, directory, environ, "p");
+    ASSERT_STR_EQ(launch, r);
+    free(r);
+
+    /* a child that loses the lock race to a live writer changes nothing */
+    tny_session_state *held = session_open(ctx, id);
+    ASSERT(held && session_lock_acquire(held) == 0);
+    r = subagent_sh(&env, "message", id, "exit 1");
+    snprintf(want, sizeof want,
+             "error: SUBAGENT_SESSION_BUSY: that child is running a turn; check "
+             "{\"action\":\"lifecycle\",\"id\":\"%s\"} and retry after it finishes",
+             id);
+    ASSERT_STR_EQ(want, r);
+    free(r);
+    session_close(held);
+
+    /* cancellation: a cooperative child stops on its interrupt; a child
+     * ignoring it is killed with its descendants after the grace period */
+    char pidfile[600], readyfile[600];
+    snprintf(pidfile, sizeof pidfile, "%s/subagent-grandchild.pid", g_home);
+    snprintf(readyfile, sizeof readyfile, "%s/subagent-ready", g_home);
+    unlink(pidfile);
+    unlink(readyfile);
+    env.cancelled = subagent_cancel_when_ready;
+    env.cancelled_ud = readyfile;
+    snprintf(script, sizeof script,
+             "trap 'kill $s; exit 130' INT; sleep 30 & s=$!; echo ready > '%s'; wait $s",
+             readyfile);
+    int64_t t0 = monotonic_ms();
+    r = subagent_sh(&env, "create", NULL, script);
+    ASSERT_STR_EQ("error: SUBAGENT_CANCELLED: the turn was cancelled and the child process was "
+                  "stopped before it reported a session",
+                  r);
+    ASSERT(monotonic_ms() - t0 < 2500);
+    free(r);
+    env.cancelled_ud = pidfile;
+    snprintf(script, sizeof script, "trap '' INT; sleep 30 & echo $! > '%s'; wait", pidfile);
+    t0 = monotonic_ms();
+    r = subagent_sh(&env, "message", id, script);
+    snprintf(want, sizeof want,
+             "error: SUBAGENT_CANCELLED: the turn was cancelled and child %s was stopped; check "
+             "{\"action\":\"lifecycle\",\"id\":\"%s\"} before continuing",
+             id, id);
+    ASSERT_STR_EQ(want, r);
+    free(r);
+    int64_t took = monotonic_ms() - t0;
+    ASSERT(took >= 2500 && took < 10000);
+    size_t len = 0;
+    char *pidtext = file_slurp(pidfile, &len);
+    ASSERT(pidtext);
+    pid_t grandchild = (pid_t)strtol(pidtext, NULL, 10);
+    free(pidtext);
+    ASSERT(grandchild > 1);
+    /* the owned tree is gone (allow init a moment to reap the orphan) */
+    for (int i = 0; i < 100 && kill(grandchild, 0) == 0; i++) usleep(20000);
+    ASSERT_EQ(-1, kill(grandchild, 0));
+    env.cancelled = NULL;
+
+    /* ephemeral parents get a one-shot result */
+    ctx->no_save = true;
+    r = subagent_sh(&env, "create", NULL,
+                    "printf '{\"output\":\"E\",\"exit_code\":0,\"session_id\":\"\","
+                    "\"ephemeral\":true}'");
+    ASSERT_STR_EQ("ephemeral subagent finished; no resumable id was stored.\nresult:\nE", r);
+    free(r);
+    free(id);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* A real child may need time to finalize after its interrupt. The launcher
+ * must not kill it ahead of the child CLI's own five-second fallback. */
+TEST subagent_child_wind_down_completes_before_forced_kill(void) {
+    tny_ctx *ctx = subagent_ctx();
+    ASSERT(ctx);
+    char ready[600], finished[600], script[1600];
+    snprintf(ready, sizeof ready, "%s/subagent-wind-down-ready", g_home);
+    snprintf(finished, sizeof finished, "%s/subagent-wind-down-finished", g_home);
+    unlink(ready);
+    unlink(finished);
+    tools_env env = {.ctx = ctx, .cancelled = subagent_cancel_when_ready, .cancelled_ud = ready};
+    snprintf(script, sizeof script,
+             "trap 'kill $s; wait $s; sleep 4; echo finished > \"%s\"; exit 130' INT; "
+             "sleep 30 & s=$!; echo ready > '%s'; wait $s",
+             finished, ready);
+    char *result = subagent_sh(&env, "create", NULL, script);
+    bool cancelled = result && str_starts(result, "error: SUBAGENT_CANCELLED:");
+    free(result);
+    size_t len = 0;
+    char *record = file_slurp(finished, &len);
+    bool finalized = record && strcmp(record, "finished\n") == 0;
+    free(record);
+    tny_ctx_free(ctx);
+    ASSERT(cancelled);
+    ASSERTm("child wind-down was killed before writing its completion marker", finalized);
+    PASS();
+}
+
+static char *subagent_call(tools_env *env, const char *action, const char *id) {
+    char args[160];
+    if (strcmp(action, "message") == 0)
+        snprintf(args, sizeof args, "{\"action\":\"message\",\"id\":\"%s\",\"prompt\":\"more\"}",
+                 id);
+    else snprintf(args, sizeof args, "{\"action\":\"%s\",\"id\":\"%s\"}", action, id);
+    return tools_execute(env, "subagent", args);
+}
+
+/* inspect/lifecycle report stored state and the live writer lock, not a
+ * fixed sentence; missing and busy ids fail without touching any session. */
+TEST subagent_stored_state_and_session_guards(void) {
+    tny_ctx *ctx = subagent_ctx();
+    ASSERT(ctx);
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char *id = subagent_stored_session(ctx);
+    ASSERT(id);
+    char want[1024];
+
+    char *r = subagent_call(&env, "lifecycle", id);
+    snprintf(want, sizeof want,
+             "subagent %s\nstatus: unknown\nexit_code: null\nrunning: false\nresumable: true", id);
+    ASSERT_STR_EQ(want, r);
+    free(r);
+
+    tny_session_state *s = session_open(ctx, id);
+    ASSERT(s);
+    session_set_title(s, "wallpaper\nideas");
+    session_set_meta(s, "openai", "mock-model");
+    session_bump_turns(s);
+    session_set_status_finished(s, "done", 0, "{\"output\":\"CHILD-OUT\",\"exit_code\":0}");
+    ASSERT_EQ(0, session_save(s));
+    session_close(s);
+    s = session_open(ctx, id);
+    ASSERT(s);
+    const char *created =
+        yyjson_mut_get_str(yyjson_mut_obj_get(yyjson_mut_doc_get_root(s->doc), "created"));
+    const char *updated =
+        yyjson_mut_get_str(yyjson_mut_obj_get(yyjson_mut_doc_get_root(s->doc), "updated"));
+    snprintf(want, sizeof want,
+             "subagent %s\ntitle: wallpaper ideas\nturns: 1\nprovider: openai\nmodel: mock-model\n"
+             "created: %s\nupdated: %s\nstatus: done\nexit_code: 0\nrunning: false\n"
+             "resumable: true\nresult:\nCHILD-OUT",
+             id, created, updated);
+    session_close(s);
+    r = subagent_call(&env, "inspect", id);
+    ASSERT_STR_EQ(want, r);
+    free(r);
+
+    s = session_open(ctx, id);
+    session_set_status_finished(s, "error", 2, NULL);
+    ASSERT_EQ(0, session_save(s));
+    session_close(s);
+    r = subagent_call(&env, "lifecycle", id);
+    snprintf(want, sizeof want,
+             "subagent %s\nstatus: error\nexit_code: 2\nrunning: false\nresumable: true", id);
+    ASSERT_STR_EQ(want, r);
+    free(r);
+
+    /* stored running with no live writer is stale, never success */
+    s = session_open(ctx, id);
+    session_set_status_running(s);
+    ASSERT_EQ(0, session_save(s));
+    session_close(s);
+    r = subagent_call(&env, "lifecycle", id);
+    snprintf(want, sizeof want,
+             "subagent %s\nstatus: stale\nexit_code: null\nrunning: false\nresumable: true", id);
+    ASSERT_STR_EQ(want, r);
+    free(r);
+
+    /* a live writer lock means running and busy; message changes nothing */
+    char path[700];
+    snprintf(path, sizeof path, "%s/.tny/sessions/%s/%s/session.json", g_home, ctx->ws_hash, id);
+    size_t before_len = 0, after_len = 0;
+    char *before = file_slurp(path, &before_len);
+    ASSERT(before);
+    tny_session_state *held = session_open(ctx, id);
+    ASSERT(held && session_lock_acquire(held) == 0);
+    r = subagent_call(&env, "lifecycle", id);
+    snprintf(want, sizeof want,
+             "subagent %s\nstatus: running\nexit_code: null\nrunning: true\nresumable: false", id);
+    ASSERT_STR_EQ(want, r);
+    free(r);
+    r = subagent_call(&env, "message", id);
+    snprintf(want, sizeof want,
+             "error: SUBAGENT_SESSION_BUSY: that child is running a turn; check "
+             "{\"action\":\"lifecycle\",\"id\":\"%s\"} and retry after it finishes",
+             id);
+    ASSERT_STR_EQ(want, r);
+    free(r);
+    session_close(held);
+    char *after = file_slurp(path, &after_len);
+    ASSERT(after && before_len == after_len && memcmp(before, after, before_len) == 0);
+    free(before);
+    free(after);
+
+    /* unknown ids: nothing is created */
+    static const char *missing =
+        "error: SUBAGENT_SESSION_NOT_FOUND: no stored child session has that id in this "
+        "workspace; create one with " SA_CREATE_EXAMPLE " and use the id it returns";
+    static const char *actions[] = {"message", "inspect", "lifecycle"};
+    for (size_t i = 0; i < 3; i++) {
+        r = subagent_call(&env, actions[i], "0123456789abcdef");
+        ASSERT_STR_EQ(missing, r);
+        free(r);
+    }
+    snprintf(path, sizeof path, "%s/.tny/sessions/%s/0123456789abcdef", g_home, ctx->ws_hash);
+    ASSERT_FALSE(dir_exists(path));
+
+    /* the parent's own session is busy running this very turn */
+    tny_session_state *parent = session_new(ctx);
+    ASSERT(parent);
+    env.session = parent;
+    r = subagent_call(&env, "message", parent->id);
+    ASSERT_STR_EQ("error: SUBAGENT_SESSION_BUSY: that id is this parent session, which is "
+                  "running this turn; message only ids returned by create",
+                  r);
+    free(r);
+    env.session = NULL;
+    session_close(parent);
+
+    /* host-owned transcripts are not converted into native children */
+    s = session_open(ctx, id);
+    session_set_host_pointer(s, "thread-SENTINEL");
+    session_set_status_finished(s, "done", 0, NULL);
+    ASSERT_EQ(0, session_save(s));
+    session_close(s);
+    r = subagent_call(&env, "message", id);
+    ASSERT_STR_EQ("error: SUBAGENT_UNSUPPORTED_CONTEXT: that session belongs to a host provider; "
+                  "message continues only native subagent sessions",
+                  r);
+    free(r);
+    r = subagent_call(&env, "lifecycle", id);
+    snprintf(want, sizeof want,
+             "subagent %s\nstatus: done\nexit_code: 0\nrunning: false\nresumable: false", id);
+    ASSERT_STR_EQ(want, r);
+    free(r);
+    free(id);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* --base-url-env NAME reads the base URL privately, beats the provider's
+ * environment and settings like --base-url, and fails closed when empty or
+ * combined with --base-url. */
+TEST base_url_env_flag(void) {
+    ensure_env();
+    write_settings("{\"openai\":{\"base_url\":\"http://settings.invalid/v1\"}}");
+    setenv("OPENAI_BASE_URL", "http://env.invalid/v1", 1);
+    setenv("TNY_TEST_PRIVATE_URL", "http://127.0.0.1:9/gw-SENTINEL/v1", 1);
+    char *argv[] = {"tny", "--provider", "openai", "--base-url-env", "TNY_TEST_PRIVATE_URL",
+                    "ask", "hi",         NULL};
+    cli_globals g = {0};
+    ASSERT_EQ(5, cli_parse_globals(7, argv, &g));
+    ASSERT_STR_EQ("TNY_TEST_PRIVATE_URL", g.base_url_env);
+    g.cwd = g_ws;
+    tny_ctx *ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    ASSERT_STR_EQ("http://127.0.0.1:9/gw-SENTINEL/v1", ctx->base_url);
+    tny_ctx_free(ctx);
+
+    char *bare[] = {"tny", "--base-url-env", NULL};
+    cli_globals g2 = {0};
+    ASSERT_EQ(-1, cli_parse_globals(2, bare, &g2));
+
+    cli_globals g3 = {0};
+    g3.backend = "openai";
+    g3.cwd = g_ws;
+    g3.base_url_env = "TNY_TEST_UNSET_URL";
+    unsetenv("TNY_TEST_UNSET_URL");
+    ASSERT_EQ(NULL, cli_make_ctx(&g3));
+    g3.base_url_env = "TNY_TEST_PRIVATE_URL";
+    g3.base_url = "http://flag.invalid/v1";
+    ASSERT_EQ(NULL, cli_make_ctx(&g3));
+
+    unsetenv("OPENAI_BASE_URL");
+    unsetenv("TNY_TEST_PRIVATE_URL");
+    write_settings("{}");
     PASS();
 }
 
@@ -3643,7 +5050,406 @@ TEST codex_client_version_env_override(void) {
     PASS();
 }
 
+/* ---- durable jobs (docs/adr/0093) ---- */
+
+/* Descriptor handover: a source that already sits on another mapping's target
+ * must still arrive intact, whatever the caller's descriptor allocation is. */
+TEST job_spawn_maps_colliding_descriptors_without_clobbering(void) {
+    ensure_env();
+    /* The child copies its fd 3 to stdout so the test can read what arrived. */
+    char script[] = "IFS= read -r owner <&3 || :; IFS= read -r payload || :; "
+                    "printf '%s%s' \"$owner\" \"$payload\"";
+    char *argv[] = {(char *)TNY_SHELL_PATH, (char *)"-c", script, NULL};
+    char *envp[] = {NULL};
+
+    int payload[2], extra[2], out[2];
+    ASSERT_EQ(0, pipe(payload));
+    ASSERT_EQ(0, pipe(extra));
+    ASSERT_EQ(0, pipe(out));
+    /* Only the mapped descriptors may reach the child, exactly as the job
+     * launcher arranges it: an inherited write end would hide every EOF. */
+    int all[] = {payload[0], payload[1], extra[0], extra[1], out[0], out[1]};
+    for (size_t i = 0; i < sizeof all / sizeof all[0]; i++)
+        ASSERT_EQ(0, fcntl(all[i], F_SETFD, FD_CLOEXEC));
+    /* Force the sources onto the low numbers the mappings target. */
+    int stdin_copy = dup(0), stdout_copy = dup(1);
+    ASSERT(stdin_copy > 2 && stdout_copy > 2);
+    ASSERT_EQ(0, dup2(payload[0], 0));
+    ASSERT_EQ(1, dup2(out[1], 1));
+    int fd3 = dup2(extra[0], 3);
+    ASSERT_EQ(3, fd3);
+    const tny_fd_mapping maps[] = {{0, 0}, {1, 1}, {3, 3}};
+    pid_t pid = -1;
+    int rc = tny_process_spawn_mapped(argv, envp, maps, 3, &pid);
+    ASSERT_EQ(0, dup2(stdin_copy, 0));
+    ASSERT_EQ(1, dup2(stdout_copy, 1));
+    close(stdin_copy);
+    close(stdout_copy);
+    close(payload[0]);
+    close(extra[0]);
+    close(out[1]);
+    ASSERT_EQ(0, rc);
+    ASSERT(write(extra[1], "OWNER", 5) == 5);
+    close(extra[1]);
+    ASSERT(write(payload[1], "PAYLOAD", 7) == 7);
+    close(payload[1]);
+    char got[64] = {0};
+    size_t total = 0;
+    for (;;) {
+        ssize_t n = read(out[0], got + total, sizeof got - 1 - total);
+        if (n <= 0) break;
+        total += (size_t)n;
+    }
+    close(out[0]);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    ASSERT_STR_EQ("OWNERPAYLOAD", got);
+
+    /* Malformed mapping sets are refused before any process exists. */
+    const tny_fd_mapping duplicate[] = {{0, 1}, {1, 1}};
+    ASSERT_EQ(EINVAL, tny_process_spawn_mapped(argv, envp, duplicate, 2, &pid));
+    const tny_fd_mapping too_high[] = {{0, 10}};
+    ASSERT_EQ(EINVAL, tny_process_spawn_mapped(argv, envp, too_high, 1, &pid));
+    ASSERT_EQ(EINVAL, tny_process_spawn_mapped(argv, envp, NULL, 0, &pid));
+    PASS();
+}
+
+/* The parent watch is private to job children and is answered by the kernel's
+ * parent relationship, never by a stored pid. */
+TEST job_parent_watch_is_off_for_ordinary_commands(void) {
+    unsetenv(TNY_JOB_PARENT_ENV);
+    tny_process_expect_parent(0);
+    ASSERT(!tny_process_parent_lost());
+    tny_process_expect_parent(getppid());
+    ASSERT(!tny_process_parent_lost());
+    /* A pid that is not this process's parent is "lost", and no signal is
+     * ever sent to it. */
+    tny_process_expect_parent(1);
+    ASSERT(tny_process_parent_lost());
+    tny_process_expect_parent(0);
+    ASSERT(!tny_process_parent_lost());
+    PASS();
+}
+
+TEST job_ids_and_operations_map_to_exact_identities(void) {
+    ASSERT(tny_jobs_valid_id("0123456789abcdef0123456789abcdef"));
+    ASSERT(!tny_jobs_valid_id("0123456789ABCDEF0123456789abcdef"));
+    ASSERT(!tny_jobs_valid_id("0123456789abcdef0123456789abcde"));
+    ASSERT(!tny_jobs_valid_id("../../etc/passwd"));
+    ASSERT(!tny_jobs_valid_id(""));
+    ASSERT(!tny_jobs_valid_id(NULL));
+
+    ASSERT_EQ(TNY_JOBS_OP_SUBMIT, tny_jobs_op_parse("submit"));
+    ASSERT_EQ(TNY_JOBS_OP_NONE, tny_jobs_op_parse("Submit"));
+    ASSERT_EQ(TNY_JOBS_OP_NONE, tny_jobs_op_parse("_worker"));
+    ASSERT_STR_EQ("job_submit", tny_jobs_permission_tool(TNY_JOBS_OP_SUBMIT));
+    ASSERT_STR_EQ("job_cancel", tny_jobs_permission_tool(TNY_JOBS_OP_CANCEL));
+    ASSERT_STR_EQ("job_retry", tny_jobs_permission_tool(TNY_JOBS_OP_RETRY));
+    ASSERT_STR_EQ("job_rm", tny_jobs_permission_tool(TNY_JOBS_OP_RM));
+    /* Every read-only operation shares one identity that can never mutate. */
+    ASSERT_STR_EQ("job_status", tny_jobs_permission_tool(TNY_JOBS_OP_STATUS));
+    ASSERT_STR_EQ("job_status", tny_jobs_permission_tool(TNY_JOBS_OP_WAIT));
+    ASSERT_STR_EQ("job_status", tny_jobs_permission_tool(TNY_JOBS_OP_LOGS));
+    ASSERT_STR_EQ("job_status", tny_jobs_permission_tool(TNY_JOBS_OP_LIST));
+    ASSERT(tny_jobs_op_is_sensitive(TNY_JOBS_OP_SUBMIT));
+    ASSERT(!tny_jobs_op_is_sensitive(TNY_JOBS_OP_STATUS));
+    ASSERT(!tny_jobs_op_is_sensitive(TNY_JOBS_OP_LOGS));
+    PASS();
+}
+
+TEST job_argv_grammar_is_bounded_and_shared(void) {
+    char *request = NULL;
+    const char *error = NULL;
+    bool json = false;
+    char *submit[] = {(char *)"submit", (char *)"ask", (char *)"--prompt", (char *)"hello",
+                      (char *)"--json"};
+    ASSERT_EQ(TNY_JOBS_OP_SUBMIT, tny_jobs_parse_argv(5, submit, NULL, 0, &request, &json, &error));
+    ASSERT(json);
+    ASSERT(request && strstr(request, "\"kind\":\"ask\""));
+    ASSERT(strstr(request, "\"prompt\":\"hello\""));
+    free(request);
+
+    /* The piped prompt is used only when the arguments carry none. */
+    char *piped[] = {(char *)"submit", (char *)"ask"};
+    ASSERT_EQ(TNY_JOBS_OP_SUBMIT,
+              tny_jobs_parse_argv(2, piped, "from stdin\n", 11, &request, &json, &error));
+    ASSERT(strstr(request, "\"prompt\":\"from stdin\""));
+    free(request);
+
+    static const struct {
+        int argc;
+        const char *argv[6];
+    } refused[] = {
+        {1, {"submit"}},
+        {2, {"submit", "sideways"}},
+        {2, {"status", "nope"}},
+        {2, {"submit", "ask"}}, /* no prompt at all */
+        {4, {"cancel", "0123456789abcdef0123456789abcdef", "--items", "x"}},
+        {4, {"logs", "0123456789abcdef0123456789abcdef", "--item", "99"}},
+        {4, {"wait", "0123456789abcdef0123456789abcdef", "--timeout", "999999"}},
+        {3, {"submit", "ask", "--prompt"}},
+        {5, {"submit", "ask", "--prompt", "hi", "--nope"}},
+        {2, {"teleport", "0123456789abcdef0123456789abcdef"}},
+    };
+    for (size_t i = 0; i < sizeof refused / sizeof refused[0]; i++) {
+        request = NULL;
+        error = NULL;
+        ASSERT_EQ(TNY_JOBS_OP_NONE,
+                  tny_jobs_parse_argv(refused[i].argc, (char **)(uintptr_t)refused[i].argv, NULL, 0,
+                                      &request, &json, &error));
+        ASSERT_EQ(NULL, request);
+        ASSERT(error && *error);
+    }
+    PASS();
+}
+
+/* Output reservations key on a canonical path, and an aliased destination is
+ * rejected before anything can be spent on it. */
+TEST job_output_paths_reject_aliases(void) {
+    ensure_env();
+    char target[700], linkpath[700], hard[700], missing[700];
+    snprintf(target, sizeof target, "%s/jobs-alias.png", g_ws);
+    snprintf(linkpath, sizeof linkpath, "%s/jobs-alias-link.png", g_ws);
+    snprintf(hard, sizeof hard, "%s/jobs-alias-hard.png", g_ws);
+    snprintf(missing, sizeof missing, "%s/jobs-not-there.png", g_ws);
+    unlink(target);
+    unlink(linkpath);
+    unlink(hard);
+    ASSERT_EQ(0, file_write_atomic(target, "bytes", 5));
+
+    bool alias = false;
+    const char *why = NULL;
+    char *canonical = tny_jobs_host_canonical_output(missing, &alias, &why);
+    ASSERT(canonical); /* an absent destination is the normal case */
+    ASSERT(!alias);
+    ASSERT(canonical[0] == '/');
+    free(canonical);
+
+    canonical = tny_jobs_host_canonical_output(target, &alias, &why);
+    ASSERT(canonical);
+    ASSERT(!alias);
+    free(canonical);
+
+    if (symlinks_supported()) {
+        ASSERT_EQ(0, symlink(target, linkpath));
+        ASSERT_EQ(NULL, tny_jobs_host_canonical_output(linkpath, &alias, &why));
+        ASSERT(alias && why);
+        unlink(linkpath);
+    }
+    if (link(target, hard) == 0) {
+        alias = false;
+        ASSERT_EQ(NULL, tny_jobs_host_canonical_output(hard, &alias, &why));
+        ASSERT(alias && why);
+        unlink(hard);
+    }
+    ASSERT_EQ(NULL, tny_jobs_host_canonical_output("", &alias, &why));
+    ASSERT_EQ(NULL, tny_jobs_host_canonical_output(g_ws, &alias, &why)); /* a directory */
+    unlink(target);
+    PASS();
+}
+
+/* Chat and image jobs are two credential allowances (contract A14). The
+ * supervisor applies this exact predicate to every entry it inherits, so a
+ * carrier of the wrong kind cannot reach an item child even when nothing
+ * explicit replaces it. Every value here is a fixture string. */
+TEST job_child_environment_drops_the_other_credential_kind(void) {
+    /* an ask item on an ordinary chat provider: the ChatGPT allowance is the
+     * image side and must not follow it */
+    ASSERT(tny_jobs_env_entry_is_foreign("CHATGPT_ACCESS_TOKEN=fixture", false, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("CHATGPT_ACCOUNT_ID=fixture", false, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("TNY_CODEX_BASE_URL=http://127.0.0.1:1/x", false, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("OPENAI_API_KEY=fixture", false, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("OPENAI_BASE_URL=http://127.0.0.1:1/v1", false, false));
+
+    /* the selected conversation provider IS that account: keeping it is the
+     * ask item's own chat credential, not a borrowed image allowance */
+    ASSERT(tny_jobs_env_entry_is_foreign("CHATGPT_ACCESS_TOKEN=fixture", false, true));
+    ASSERT(tny_jobs_env_entry_is_foreign("CHATGPT_ACCOUNT_ID=fixture", false, true));
+    ASSERT(tny_jobs_env_entry_is_foreign("TNY_CODEX_BASE_URL=http://127.0.0.1:1/x", false, true));
+
+    /* an image item authenticates no conversation */
+    ASSERT(tny_jobs_env_entry_is_foreign("OPENAI_API_KEY=fixture", true, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("OPENAI_BASE_URL=http://127.0.0.1:1/v1", true, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("OPENAI_WIRE_API=chat", true, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("CHATGPT_ACCESS_TOKEN=fixture", true, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("OPENAI_API_KEY=fixture", true, true));
+
+    /* this process's own private carriers and ceilings never leak through */
+    static const char *const private_names[] = {
+        "TNY_JOB_API_KEY", "TNY_JOB_BASE_URL", "TNY_JOB_PARENT_PID", "TNY_NESTED",
+        "TNY_NESTED_MODE", "TNY_TOOLS",        "TNY_PERMISSION_MODE"};
+    for (size_t i = 0; i < sizeof private_names / sizeof private_names[0]; i++) {
+        char entry[64];
+        snprintf(entry, sizeof entry, "%s=x", private_names[i]);
+        ASSERT(tny_jobs_env_entry_is_foreign(entry, false, false));
+        ASSERT(tny_jobs_env_entry_is_foreign(entry, true, false));
+    }
+
+    /* a prefix is not a name: only an exact NAME= match is a carrier */
+    ASSERT(tny_jobs_env_entry_is_foreign("OPENAI_API_KEY_FILE=/tmp/x", true, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("CHATGPT_ACCESS_TOKEN_CMD=/bin/true", false, false));
+    ASSERT(!tny_jobs_env_entry_is_foreign("PATH=/usr/bin", false, false));
+    ASSERT(!tny_jobs_env_entry_is_foreign("PATH=/usr/bin", true, false));
+    ASSERT(!tny_jobs_env_entry_is_foreign(NULL, false, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("CURSOR_API_KEY=fixture", true, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("CUSTOM_SECRET=fixture", true, false));
+    ASSERT(tny_jobs_env_entry_is_foreign("NAMED_BASE_URL=http://127.0.0.1", true, false));
+    PASS();
+}
+
+/* The manifest half of the carried-success check (#127 integration). The
+ * bytes below are an image generation manifest exactly as ADR 0088 defines
+ * it; this exercises the reader in `jobs.c`, not the image service, and makes
+ * no claim that the end-to-end wiring is in place — this build's image CLI
+ * reports no manifest yet, so the recorded pointer is null and the check is
+ * inert. That end-to-end row is recorded as pending, not as passing. */
+TEST job_carried_manifest_must_still_describe_the_artifact(void) {
+    ensure_env();
+    char manifest[700], artifact[700];
+    snprintf(manifest, sizeof manifest, "%s/out.png.tny-image-op1.json", g_ws);
+    snprintf(artifact, sizeof artifact, "%s/out.png", g_ws);
+    const char *sha = "11112222333344445555666677778888"
+                      "9999aaaabbbbccccddddeeeeffff0000";
+    char body[2048];
+    char err[256] = "";
+
+    /* nothing claimed: every pre-manifest item stays verifiable */
+    ASSERT(tny_jobs_manifest_describes(NULL, artifact, sha, err, sizeof err));
+    ASSERT(tny_jobs_manifest_describes("", artifact, sha, err, sizeof err));
+
+    snprintf(body, sizeof body,
+             "{\"version\":1,\"kind\":\"image_manifest\",\"operation_id\":\"op1\","
+             "\"committed\":true,\"artifacts\":[{\"role\":\"native\",\"path\":\"%s\","
+             "\"sha256\":\"%s\",\"bytes\":9,\"transform\":null}]}",
+             artifact, sha);
+    ASSERT_EQ(0, file_write_atomic(manifest, body, strlen(body)));
+    ASSERT(tny_jobs_manifest_describes(manifest, artifact, sha, err, sizeof err));
+
+    /* a different artifact, a different hash, or an uncommitted intent are
+     * all "changed since", and none of them may carry forward */
+    err[0] = 0;
+    ASSERT(!tny_jobs_manifest_describes(manifest, artifact, "0000000000000000", err, sizeof err));
+    ASSERT(err[0]);
+    ASSERT(!tny_jobs_manifest_describes(manifest, "/nowhere/else.png", sha, err, sizeof err));
+
+    snprintf(body, sizeof body,
+             "{\"version\":1,\"kind\":\"image_manifest\",\"operation_id\":\"op1\","
+             "\"committed\":false,\"artifacts\":[]}");
+    ASSERT_EQ(0, file_write_atomic(manifest, body, strlen(body)));
+    ASSERT(!tny_jobs_manifest_describes(manifest, artifact, sha, err, sizeof err));
+
+    /* a foreign or unreadable document is refused, never assumed good */
+    snprintf(body, sizeof body, "{\"kind\":\"something_else\",\"committed\":true}");
+    ASSERT_EQ(0, file_write_atomic(manifest, body, strlen(body)));
+    ASSERT(!tny_jobs_manifest_describes(manifest, artifact, sha, err, sizeof err));
+    ASSERT_EQ(0, file_write_atomic(manifest, "not json", 8));
+    ASSERT(!tny_jobs_manifest_describes(manifest, artifact, sha, err, sizeof err));
+    unlink(manifest);
+    ASSERT(!tny_jobs_manifest_describes(manifest, artifact, sha, err, sizeof err));
+    PASS();
+}
+
+/* An owner lock is an actual advisory lock: a second open file description
+ * conflicts with it, which is exactly how the worker proves it holds one and
+ * how a reader decides a supervisor is gone. */
+TEST job_owner_locks_answer_liveness_without_waiting(void) {
+    ensure_env();
+    char lock[700];
+    snprintf(lock, sizeof lock, "%s/jobs-owner.lock", g_ws);
+    unlink(lock);
+    ASSERT_EQ(TNY_JOBS_OWNER_FREE, tny_jobs_host_owner_state(lock)); /* absent */
+    int fd = tny_jobs_host_lock_open(lock);
+    ASSERT(fd >= 0);
+    ASSERT_EQ(TNY_JOBS_OWNER_FREE, tny_jobs_host_owner_state(lock)); /* created, unheld */
+    ASSERT_EQ(TNY_JOBS_LOCK_ACQUIRED, tny_jobs_host_lock_try(fd));
+    ASSERT_EQ(TNY_JOBS_OWNER_HELD, tny_jobs_host_owner_state(lock));
+    int reopened = tny_jobs_host_lock_open(lock);
+    ASSERT(reopened >= 0);
+    ASSERT(tny_jobs_host_fd_is_file(reopened, lock));
+    ASSERT_EQ(TNY_JOBS_LOCK_BUSY, tny_jobs_host_lock_try(reopened));
+    ASSERT_EQ(TNY_JOBS_LOCK_ACQUIRED, tny_jobs_host_lock_try(fd));
+    tny_jobs_host_lock_close(reopened);
+    ASSERT(tny_jobs_host_fd_is_file(fd, lock));
+    char other[700];
+    snprintf(other, sizeof other, "%s/jobs-other.lock", g_ws);
+    int other_fd = tny_jobs_host_lock_open(other);
+    ASSERT(other_fd >= 0);
+    ASSERT(!tny_jobs_host_fd_is_file(fd, other));
+    tny_jobs_host_lock_close(other_fd);
+    unlink(other);
+    tny_jobs_host_lock_close(fd); /* the description goes, the lock with it */
+    ASSERT_EQ(TNY_JOBS_OWNER_FREE, tny_jobs_host_owner_state(lock));
+    int freed = tny_jobs_host_lock_open(lock);
+    ASSERT(freed >= 0);
+    ASSERT_EQ(TNY_JOBS_LOCK_ACQUIRED, tny_jobs_host_lock_try(freed));
+    tny_jobs_host_lock_close(freed);
+    unlink(lock);
+    PASS();
+}
+
+static bool job_wait_cancel_after_poll(void *ud) {
+    int *calls = ud;
+    return ++*calls >= 2;
+}
+
+TEST job_wait_cancellation_leaves_live_job_untouched(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    const char *id = "a123456789abcdef0123456789abcdef";
+    char *root = path_join(ctx->tny_dir, "jobs");
+    char *dir = path_join(root, id);
+    ASSERT_EQ(0, mkdir_p(dir));
+    char *metadata = path_join(dir, "job.json");
+    const char *record = "{\"version\":1,\"kind\":\"job\",\"id\":"
+                         "\"a123456789abcdef0123456789abcdef\",\"state\":\"running\","
+                         "\"job_kind\":\"ask\",\"attempt\":1,\"items\":[]}\n";
+    ASSERT_EQ(0, file_write_atomic(metadata, record, strlen(record)));
+    char *owner = path_join(dir, "owner.lock");
+    int fd = tny_jobs_host_lock_open(owner);
+    ASSERT(fd >= 0);
+    ASSERT_EQ(TNY_JOBS_LOCK_ACQUIRED, tny_jobs_host_lock_try(fd));
+    const char *request = "{\"id\":\"a123456789abcdef0123456789abcdef\",\"timeout_s\":1}";
+    yyjson_doc *doc = jparse(request, strlen(request));
+    buf_t out;
+    buf_init(&out);
+    char err[256];
+    int calls = 0;
+    int rc = tny_jobs_run_cancel(ctx, TNY_JOBS_OP_WAIT, yyjson_doc_get_root(doc), &out, err,
+                                 sizeof err, job_wait_cancel_after_poll, &calls);
+    char *after = file_slurp(metadata, NULL);
+    bool unchanged = after && strcmp(after, record) == 0;
+    bool live = tny_jobs_host_owner_state(owner) == TNY_JOBS_OWNER_HELD;
+    free(after);
+    buf_free(&out);
+    yyjson_doc_free(doc);
+    tny_jobs_host_lock_close(fd);
+    unlink(owner);
+    unlink(metadata);
+    rmdir(dir);
+    free(owner);
+    free(metadata);
+    free(dir);
+    free(root);
+    tny_ctx_free(ctx);
+    ASSERT_EQ(130, rc);
+    ASSERT_EQ(2, calls);
+    ASSERT(strstr(err, "wait interrupted"));
+    ASSERT(unchanged);
+    ASSERT(live);
+    PASS();
+}
+
 SUITE(core_suite) {
+    RUN_TEST(job_wait_cancellation_leaves_live_job_untouched);
+    RUN_TEST(job_spawn_maps_colliding_descriptors_without_clobbering);
+    RUN_TEST(job_parent_watch_is_off_for_ordinary_commands);
+    RUN_TEST(job_ids_and_operations_map_to_exact_identities);
+    RUN_TEST(job_argv_grammar_is_bounded_and_shared);
+    RUN_TEST(job_output_paths_reject_aliases);
+    RUN_TEST(job_child_environment_drops_the_other_credential_kind);
+    RUN_TEST(job_carried_manifest_must_still_describe_the_artifact);
+    RUN_TEST(job_owner_locks_answer_liveness_without_waiting);
     RUN_TEST(codex_models_normalize_keeps_listed_slugs);
     RUN_TEST(codex_client_version_env_override);
     RUN_TEST(backend_default_prefers_codex_login);
@@ -3706,6 +5512,17 @@ SUITE(core_suite) {
     RUN_TEST(image_data_url_roundtrip);
     RUN_TEST(read_image_queues_user_message);
     RUN_TEST(perm_read_image_is_safe);
+    RUN_TEST(image_opened_read_bounds_actual_growth);
+    RUN_TEST(image_loaded_builder_refuses_bounds_without_transcript_mutation);
+    RUN_TEST(image_queue_captures_each_version_of_one_path);
+    RUN_TEST(image_queue_preview_needs_true_policy_and_matching_hash);
+    RUN_TEST(image_queue_preview_refuses_roots_size_and_capacity);
+    RUN_TEST(image_flush_preview_fatal_preserves_the_batch);
+    RUN_TEST(image_preview_status_names_and_hash_validation);
+    RUN_TEST(image_input_map_resolves_per_provider_and_resets);
+    RUN_TEST(image_input_map_rejects_malformed_settings);
+    RUN_TEST(image_input_false_gates_read_image_queue_and_flush);
+    RUN_TEST(image_input_false_gates_fully_configured_schema);
     RUN_TEST(cmd_ask_image_overflow_frees_prompt);
     RUN_TEST(output_schema_wraps_bare_schema);
     RUN_TEST(output_schema_accepts_json_schema_object);
@@ -3723,8 +5540,14 @@ SUITE(core_suite) {
     RUN_TEST(responses_input_skips_malformed);
     RUN_TEST(responses_tools_flatten);
     RUN_TEST(embedded_tool_schema_has_no_process_spawning_tools);
+    RUN_TEST(image_export_tools_are_local_and_gated);
     RUN_TEST(optimisation_tools_are_read_only_even_in_yolo);
-    RUN_TEST(subagent_command_forwards_provider_and_quotes);
+    RUN_TEST(subagent_plan_carries_resolved_config_privately);
+    RUN_TEST(subagent_prepare_rejects_with_exact_codes);
+    RUN_TEST(subagent_process_outcomes_are_classified);
+    RUN_TEST(subagent_child_wind_down_completes_before_forced_kill);
+    RUN_TEST(subagent_stored_state_and_session_guards);
+    RUN_TEST(base_url_env_flag);
     RUN_TEST(responses_text_format_flattens);
     RUN_TEST(wire_api_resolution);
     RUN_TEST(wire_api_flag);

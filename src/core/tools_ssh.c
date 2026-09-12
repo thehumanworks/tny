@@ -9,6 +9,7 @@
 #include "core/ssh.h"
 #include "core/image.h"
 #include "util/util.h"
+#include "util/image_io.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -615,8 +616,18 @@ static char *r_read_image(tools_env *env, yyjson_val *args) {
         free(path);
         return tool_err("too many images in this step (max 8)");
     }
-    /* Pixels have to be local for the provider upload: stage a copy under
-     * the session dir (or $TMPDIR) and queue that path like the local tool. */
+    /* Retain the fetched bytes. The staged file is for local provenance only;
+     * rewriting it cannot substitute different bytes at flush. */
+    tools_pending_capture capture = {0};
+    if (data.len > IMAGE_MAX_BYTES ||
+        !tny_image_io_sha256_hex(data.data, data.len, capture.sha256)) {
+        buf_free(&data);
+        free(path);
+        return tool_err("cannot capture remote image within the image byte limit");
+    }
+    capture.len = data.len;
+    capture.mime = mime;
+    capture.origin = TNY_IMAGE_QUEUE_MANUAL;
     char *dir = env->session ? path_join(env->session->dir, "ssh-images")
                              : xstrdup(getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp");
     mkdir_p(dir);
@@ -632,14 +643,17 @@ static char *r_read_image(tools_env *env, yyjson_val *args) {
     free(id);
     int rc = file_write_atomic(local.data, data.data, data.len);
     size_t len = data.len;
-    buf_free(&data);
     if (rc != 0) {
+        buf_free(&data);
         e = tool_err("cannot stage %s locally at %s", path, local.data);
         buf_free(&local);
         free(path);
         return e;
     }
-    env->pending_images[env->n_pending_images++] = buf_detach(&local);
+    capture.data = (uint8_t *)buf_detach(&data);
+    int slot = env->n_pending_images++;
+    env->pending_images[slot] = buf_detach(&local);
+    env->pending_capture[slot] = capture;
     buf_t b;
     buf_init(&b);
     buf_appendf(&b,

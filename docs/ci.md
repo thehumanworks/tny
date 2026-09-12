@@ -13,8 +13,14 @@ workflow (`.github/workflows/ci.yml`).
 | `tny-linux-x86_64-musl` | `ubuntu-24.04` + Alpine 3.21 | **static** musl; unit tests + smoke |
 | `tny-linux-aarch64-musl` | `ubuntu-24.04-arm` + Alpine 3.21 | **static** musl; unit tests + smoke |
 | `tny-darwin-arm64` | `macos-15` | Apple Silicon only; deterministic sdk.v1 contract/unit tests run, while the spawned Python Cursor bridge fixture retains its documented Darwin-CI skip |
-| `tny-windows-x86_64.exe` | `windows-2025` + MSYS2 `MSYS` | POSIX via `msys-2.0.dll`; unit + smoke |
+| `tny-windows-x86_64.exe` | `windows-2025` + MSYS2 `MSYS` | POSIX via `msys-2.0.dll`; unit, smoke, durable jobs |
 | `tny-wasm` (`tny.js`+`tny.wasm`, `tny-web.mjs`+`.wasm`) | `ubuntu-24.04` + emsdk 6.0.8 | the SAME openai/acp-ws/codex-profile mock suites with `TNY=build/wasm/tny`, `wasm-size-check`, and a headless-Chromium page smoke ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
+
+The MSYS2 executable uses yyjson's supported `yyjson_api` override with an empty
+annotation. Its POSIX compiler does not define `_WIN32`, and ELF visibility
+attributes are not supported at the Windows LTO link. This configures the
+static dependency; it does not suppress warnings, disable LTO or advertise a
+Windows libtny shared library. `test_windows_lto_flags.py` checks both branches.
 
 The Pages workflow also builds `tny-web.mjs` with emsdk and publishes it
 under `assets/wasm/` — the landing terminal is the CI-tested artifact.
@@ -235,6 +241,12 @@ Win32 (MSVC / MinGW without a POSIX runtime) is still later.
 Windows CI uses the MSYS2 **MSYS** environment so those APIs exist. The
 artifact is `tny-windows-x86_64.exe` plus `msys-2.0.dll`. It is a real
 Windows binary, not a cross-compiled stub; it is not a native Win32 port.
+The native x64 job also runs `test_jobs_msys.py` and
+`test_jobs_cleanup_hold.py`: detached submission, cancellation, supervisor
+loss, separate-session descendants, stopped admission, and uncertain-cleanup
+reservation retention. Compiled fault fixtures use the same source and native
+object inventory in temporary executables. Windows ARM guest checks under x64
+emulation supplement this gate; they do not replace native x64 CI.
 
 ## Size gates
 

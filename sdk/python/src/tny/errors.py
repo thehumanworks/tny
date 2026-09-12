@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import cycle
+    from .toolkit import ImageDetail
+
 STATUS_NAMES = {
     -1: "invalid_argument",
     -2: "bad_state",
@@ -30,11 +35,26 @@ class TnyError(RuntimeError):
     def __init__(self, code: int, message: bytes = b"") -> None:
         self.code = int(code)
         self.message = bytes(message)
+        self._image_detail: ImageDetail | None = None
         super().__init__(self.code)
 
     @property
     def category(self) -> str:
         return STATUS_NAMES.get(self.code, "unknown")
+
+    @property
+    def image_detail(self) -> ImageDetail | None:
+        """Locally decided image-failure metadata, or ``None``.
+
+        Two shapes can appear, discriminated by ``committed``: an
+        ``ImageFailureDetail`` for one of the four ``--strict-size`` codes in
+        docs/images.md, which wrote nothing, and a ``RetainedImageDetail`` for
+        the image that was written and kept when only its manifest could not be
+        finalized. Provider, configuration, cancellation and memory failures
+        leave it ``None``. It is read-only and stays out of ``str``/``repr``,
+        so a caller must ask for it deliberately.
+        """
+        return self._image_detail
 
     def message_text(self, *, errors: str = "strict") -> str:
         """Decode native UTF-8 explicitly; strict decoding is the default."""

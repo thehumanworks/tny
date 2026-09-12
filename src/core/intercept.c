@@ -3,9 +3,12 @@
  * tools' own code paths so permissions, undo, MCP, and --ssh behave
  * identically to a structured tool call (docs/adr/0063). */
 #include "core/intercept.h"
+#include "cli/cli.h"
 #include "core/speech.h"
 #include "core/image_service.h"
+#include "core/image_manifest.h"
 #include "core/tools_image.h"
+#include "core/tools_jobs.h"
 #include "core/edit.h"
 #include "core/shellwords.h"
 #include "mcp/mcp.h"
@@ -20,7 +23,8 @@
 
 static bool is_tny_argv0(const char *word) {
     const char *slash = strrchr(word, '/');
-    return strcmp(slash ? slash + 1 : word, "tny") == 0;
+    const char *name = slash ? slash + 1 : word;
+    return strcmp(name, "tny") == 0 || strcmp(name, "tny.exe") == 0;
 }
 
 /* `printf FORMAT` with no conversion specifications: the documented way to
@@ -314,50 +318,203 @@ static tny_intercept *parse_skill(char **argv, int argc, int i) {
     return ic_label(ic, "tny skill show %s", argv[i + 1]);
 }
 
+/* A replay adopts the operation its record names, so the permission identity
+ * is read from that record rather than guessed from the command line. -1 when
+ * the record cannot be read. Parsing it opens no referenced file. */
+static int replayed_operation(tools_env *env, const char *manifest) {
+    char *problem = NULL, *path = tool_resolve_path(env, manifest, &problem);
+    free(problem);
+    char why[256];
+    tny_image_manifest *record = path ? tny_image_manifest_load(path, why, sizeof why) : NULL;
+    free(path);
+    if (!record) return -1;
+    /* A local export's record is not a provider operation and may not be
+     * rerun as one (docs/adr/0094); -2 keeps that distinct from unreadable. */
+    int edit = tny_image_manifest_derived(record) ? -2 : strcmp(record->operation, "edit") == 0;
+    tny_image_manifest_free(record);
+    return edit;
+}
+
 static tny_intercept *parse_image_render(tools_env *env, char **argv, int argc, int i, bool json,
                                          const buf_t *payload) {
     tny_image_request r = {0};
     bool check = false;
-    if (!payload || tny_image_options(argc - i, argv + i, &r, &json, &check) != 0 || check)
-        return NULL;
-    tny_intercept *ic =
-        ic_new(TNY_INTERCEPT_IMAGE_RENDER, r.edit ? "image_edit" : "image_generate");
+    if (tny_image_options(argc - i, argv + i, &r, &json, &check) != 0 || check) return NULL;
+    /* Pure replay needs no stdin; every other form still does. At most one
+     * leading --artifact is representable as the typed `artifact` input, so a
+     * richer reference ordering stays with the ordinary shell executor. */
+    if (!payload && !r.replay) return NULL;
+    for (size_t j = 1; j < r.image_count; j++)
+        if (r.image_is_artifact[j]) return NULL;
+    bool edit = r.edit;
+    if (r.replay) {
+        int recorded = replayed_operation(env, r.from_manifest);
+        if (recorded < 0) {
+            tny_intercept *refused = ic_new(TNY_INTERCEPT_IMAGE_RENDER, "image_generate");
+            if (!refused) return NULL;
+            refused->kind = TNY_INTERCEPT_REFUSED;
+            refused->message =
+                xstrdup(recorded == -2
+                            ? "this record documents a local image export, not a provider "
+                              "operation; export again from its source, or pass the derived image "
+                              "as an edit reference"
+                            : "cannot read the image manifest to rerun");
+            return ic_label(refused, "tny image replay");
+        }
+        edit = recorded != 0;
+    }
+    tny_intercept *ic = ic_new(TNY_INTERCEPT_IMAGE_RENDER, edit ? "image_edit" : "image_generate");
     if (!ic) return NULL;
     ic->json = json;
-    ic->action = xstrdup(r.edit ? "edit" : "generate");
+    ic->action = xstrdup(edit ? "edit" : "generate");
     buf_t args;
     buf_init(&args);
-    buf_appends(&args, "{\"prompt\":");
-    if (!utf8_valid_bytes(payload->data, payload->len)) {
-        ic->kind = TNY_INTERCEPT_REFUSED;
-        ic->message = xstrdup("image prompt must be UTF-8 without embedded NUL");
-        buf_free(&args);
-        return ic_label(ic, "tny image");
+    buf_appends(&args, "{");
+    if (payload && payload->len) {
+        if (!utf8_valid_bytes(payload->data, payload->len)) {
+            ic->kind = TNY_INTERCEPT_REFUSED;
+            ic->message = xstrdup("image prompt must be UTF-8 without embedded NUL");
+            buf_free(&args);
+            return ic_label(ic, "tny image");
+        }
+        buf_appends(&args, "\"prompt\":");
+        jescape(&args, payload->data);
+        buf_appends(&args, ",");
     }
-    jescape(&args, payload->data);
-    const char *keys[] = {"output_file", "provider", "model", "quality", "size"};
-    const char *values[] = {r.output_file, r.provider, r.model, r.quality, r.size};
+    const char *keys[] = {"output_file", "provider", "model", "quality", "size", "from_manifest"};
+    const char *values[] = {r.output_file, r.provider, r.model, r.quality, r.size, r.from_manifest};
     for (size_t j = 0; j < sizeof keys / sizeof keys[0]; j++) {
         if (!values[j]) continue;
-        buf_appendf(&args, ",\"%s\":", keys[j]);
+        buf_appendf(&args, "\"%s\":", keys[j]);
         jescape(&args, values[j]);
+        buf_appends(&args, ",");
     }
-    buf_appends(&args, ",\"images\":[");
-    for (size_t j = 0; j < r.image_count; j++) {
-        if (j) buf_appends(&args, ",");
-        jescape(&args, r.images[j]);
+    if (r.preview) buf_appends(&args, "\"preview\":true,");
+    if (r.strict_size) buf_appends(&args, "\"strict_size\":true,");
+    if (r.no_manifest) buf_appends(&args, "\"persist_manifest\":false,");
+    size_t first = 0;
+    if (r.image_count && r.image_is_artifact[0]) {
+        buf_appends(&args, "\"artifact\":");
+        jescape(&args, r.images[0]);
+        buf_appends(&args, ",");
+        first = 1;
     }
-    buf_appends(&args, "]}");
+    if (first < r.image_count) {
+        buf_appends(&args, "\"images\":[");
+        for (size_t j = first; j < r.image_count; j++) {
+            if (j > first) buf_appends(&args, ",");
+            jescape(&args, r.images[j]);
+        }
+        buf_appends(&args, "],");
+    }
+    if (r.job) {
+        buf_appends(&args, "\"job\":");
+        jescape(&args, r.job);
+        buf_appendf(&args, ",\"item\":%d,", r.job_item);
+    }
+    if (args.len && args.data[args.len - 1] == ',') args.len--;
+    buf_appends(&args, "}");
     ic->value = buf_detach(&args);
     yyjson_doc *doc = ic->value ? jparse(ic->value, strlen(ic->value)) : NULL;
-    if (doc) ic->detail = tool_image_detail(env, yyjson_doc_get_root(doc), r.edit, &ic->message);
+    /* The plan outlives this document: everything it needs is copied into it,
+     * so the command can run later without reopening the record. */
+    if (doc)
+        ic->detail =
+            tool_image_detail(env, yyjson_doc_get_root(doc), edit, &ic->image_plan, &ic->message);
     yyjson_doc_free(doc);
     if (ic->message) ic->kind = TNY_INTERCEPT_REFUSED;
     if (!ic->value || !ic->action || (!ic->detail && !ic->message)) {
         tny_intercept_free(ic);
         return NULL;
     }
-    return ic_label(ic, "tny image %s", r.edit ? "edit" : "generate");
+    return ic_label(ic, "tny image %s", r.replay ? "replay" : edit ? "edit" : "generate");
+}
+
+/* `tny image export` / `tny image contact-sheet` typed into the terminal tool
+ * become the typed tools they stand for: one grammar, one permission identity
+ * and one service (docs/adr/0094). */
+static tny_intercept *parse_image_preview(tools_env *env, char **argv, int argc, int i, bool json) {
+    const char *manifest = NULL, *job = NULL;
+    int item = -1;
+    if (tny_image_preview_options(argc - i, argv + i, &manifest, &job, &item, &json) != 0)
+        return NULL;
+    tny_intercept *ic = ic_new(TNY_INTERCEPT_IMAGE_PREVIEW, "image_preview");
+    if (!ic) return NULL;
+    ic->json = json;
+    buf_t args;
+    buf_init(&args);
+    buf_appends(&args, manifest ? "{\"manifest\":" : "{\"job\":");
+    jescape(&args, manifest ? manifest : job);
+    if (job) buf_appendf(&args, ",\"item\":%d", item);
+    buf_appends(&args, "}");
+    yyjson_doc *doc = args.oom ? NULL : jparse(args.data, args.len);
+    if (doc)
+        ic->detail = tool_image_preview_detail(env, yyjson_doc_get_root(doc), &ic->image_selection,
+                                               &ic->message);
+    yyjson_doc_free(doc);
+    buf_free(&args);
+    if (!ic->detail || ic->message) {
+        ic->kind = TNY_INTERCEPT_REFUSED;
+        if (!ic->message) ic->message = xstrdup("cannot prepare image preview");
+    }
+    return ic_label(ic, "tny image preview");
+}
+
+static tny_intercept *parse_image_export(tools_env *env, char **argv, int argc, int i, bool json) {
+    tny_image_export_request r = {0};
+    if (tny_image_export_options(argc - i, argv + i, &r, &json) != 0) return NULL;
+    tny_intercept *ic =
+        ic_new(TNY_INTERCEPT_IMAGE_EXPORT, r.sheet ? "image_contact_sheet" : "image_export");
+    if (!ic) return NULL;
+    ic->json = json;
+    ic->action = xstrdup(r.sheet ? "contact_sheet" : "export");
+    buf_t args;
+    buf_init(&args);
+    buf_appends(&args, "{\"output_file\":");
+    jescape(&args, r.output_file);
+    const char *keys[] = {"size", "fit", "gravity", "background", "format", "labels"};
+    const char *values[] = {r.size, r.policy, r.gravity, r.background, r.format, r.labels};
+    for (size_t j = 0; j < sizeof keys / sizeof keys[0]; j++) {
+        if (!values[j]) continue;
+        buf_appendf(&args, ",\"%s\":", keys[j]);
+        jescape(&args, values[j]);
+    }
+    if (r.columns) {
+        size_t digits = strlen(r.columns);
+        bool numeric = digits && digits < 10 && r.columns[0] != '0';
+        for (size_t j = 0; numeric && j < digits; j++)
+            numeric = r.columns[j] >= '0' && r.columns[j] <= '9';
+        if (!numeric) {
+            ic->kind = TNY_INTERCEPT_REFUSED;
+            ic->message = xstrdup("--columns must be a positive decimal number");
+            buf_free(&args);
+            return ic_label(ic, "tny image %s", r.sheet ? "contact-sheet" : "export");
+        }
+        buf_appendf(&args, ",\"columns\":%s", r.columns);
+    }
+    if (r.preview) buf_appends(&args, ",\"preview\":true");
+    if (r.overwrite) buf_appends(&args, ",\"overwrite\":true");
+    if (r.no_manifest) buf_appends(&args, ",\"persist_manifest\":false");
+    buf_appends(&args, ",\"sources\":[");
+    for (size_t j = 0; j < r.source_count; j++) {
+        buf_appendf(&args, "%s{\"%s\":", j ? "," : "",
+                    r.source_is_artifact[j] ? "artifact" : "image");
+        jescape(&args, r.sources[j]);
+        buf_appends(&args, "}");
+    }
+    buf_appends(&args, "]}");
+    ic->value = args.oom ? NULL : buf_detach(&args);
+    buf_free(&args);
+    yyjson_doc *doc = ic->value ? jparse(ic->value, strlen(ic->value)) : NULL;
+    if (doc)
+        ic->detail = tool_image_export_detail(env, yyjson_doc_get_root(doc), r.sheet, &ic->message);
+    yyjson_doc_free(doc);
+    if (ic->message) ic->kind = TNY_INTERCEPT_REFUSED;
+    if (!ic->value || !ic->action || (!ic->detail && !ic->message)) {
+        tny_intercept_free(ic);
+        return NULL;
+    }
+    return ic_label(ic, "tny image %s", r.sheet ? "contact-sheet" : "export");
 }
 
 static tny_intercept *parse_image(char **argv, int argc, int i, bool json) {
@@ -435,6 +592,59 @@ static tny_intercept *parse_speak(char **argv, int argc, int i, bool json, const
     return ic_label(ic, "tny speak");
 }
 
+/* `tny jobs …` typed into the terminal becomes the typed job tool it stands
+ * for: the same argv grammar, the same request object, the same exact
+ * permission identity. A command this parser cannot classify is refused
+ * rather than handed to the shell, so the classifier can never become a way
+ * around the job permission gate (docs/adr/0093). */
+static tny_intercept *parse_jobs(tools_env *env, char **argv, int argc, int i, bool json,
+                                 const buf_t *payload) {
+    char *request = NULL;
+    bool request_json = false;
+    const char *why = NULL;
+    tny_jobs_op op = tny_jobs_parse_argv(argc - i, argv + i, payload ? payload->data : NULL,
+                                         payload ? payload->len : 0, &request, &request_json, &why);
+    if (op == TNY_JOBS_OP_NONE) {
+        tny_intercept *refused = ic_new(TNY_INTERCEPT_REFUSED, "job_status");
+        if (!refused) {
+            free(request);
+            return NULL;
+        }
+        buf_t message;
+        buf_init(&message);
+        buf_appendf(&message,
+                    "that `tny jobs` command was not understood (%s); see tny jobs --help",
+                    why ? why : "invalid arguments");
+        refused->message = buf_detach(&message);
+        free(request);
+        return ic_label(refused, "tny jobs");
+    }
+    const char *identity = tny_jobs_permission_tool(op);
+    tny_intercept *ic = ic_new(TNY_INTERCEPT_JOBS, identity);
+    if (!ic) {
+        free(request);
+        return NULL;
+    }
+    ic->json = json || request_json;
+    ic->action = xstrdup(tny_jobs_op_name(op));
+    ic->value = request; /* owned: the validated request object */
+    char *detail_error = NULL;
+    yyjson_doc *doc = jparse(request, strlen(request));
+    ic->detail =
+        doc ? tny_jobs_detail(env->ctx, op, yyjson_doc_get_root(doc), &detail_error) : NULL;
+    yyjson_doc_free(doc);
+    if (detail_error) {
+        ic->kind = TNY_INTERCEPT_REFUSED;
+        ic->message = detail_error;
+        return ic_label(ic, "tny jobs %s", tny_jobs_op_name(op));
+    }
+    if (!ic->action || !ic->detail) {
+        tny_intercept_free(ic);
+        return NULL;
+    }
+    return ic_label(ic, "tny jobs %s", tny_jobs_op_name(op));
+}
+
 /* A foreground nested agent has no place inside a turn: it would run its own
  * loop under this one, invisible to the frontend and to cancellation. */
 static tny_intercept *parse_ask(char **argv, int argc, int i) {
@@ -464,16 +674,37 @@ static tny_intercept *parse_verb(tools_env *env, const tny_words *w, const buf_t
         i++;
     }
     if (i >= argc) return NULL;
+    if (argv[i][0] == '-') {
+        int command = cli_command_index(argc, argv);
+        if (command > 0 && command < argc && strcmp(argv[command], "jobs") == 0) {
+            tny_intercept *refused = ic_new(TNY_INTERCEPT_REFUSED, "terminal");
+            if (!refused) return NULL;
+            refused->message = xstrdup("leading global options are unsupported for jobs inside "
+                                       "a tool call; use the job tools or `tny jobs ...` with "
+                                       "job-specific options (see `tny jobs --help`)");
+            if (!refused->message) {
+                tny_intercept_free(refused);
+                return NULL;
+            }
+            return ic_label(refused, "tny jobs");
+        }
+    }
     const char *verb = argv[i++];
     if (strcmp(verb, "edit") == 0) return parse_edit(env, argv, argc, i, json);
     if (strcmp(verb, "mcp") == 0) return parse_mcp(argv, argc, i, json);
     if (strcmp(verb, "memory") == 0) return parse_memory(argv, argc, i, payload != NULL);
     if (strcmp(verb, "skill") == 0) return parse_skill(argv, argc, i);
     if (strcmp(verb, "image") == 0) {
-        if (i < argc && (strcmp(argv[i], "generate") == 0 || strcmp(argv[i], "edit") == 0))
+        if (i < argc && (strcmp(argv[i], "generate") == 0 || strcmp(argv[i], "edit") == 0 ||
+                         strcmp(argv[i], "replay") == 0))
             return parse_image_render(env, argv, argc, i, json, payload);
+        if (i < argc && (strcmp(argv[i], "export") == 0 || strcmp(argv[i], "contact-sheet") == 0))
+            return parse_image_export(env, argv, argc, i, json);
+        if (i < argc && strcmp(argv[i], "preview") == 0)
+            return parse_image_preview(env, argv, argc, i, json);
         return parse_image(argv, argc, i, json);
     }
+    if (strcmp(verb, "jobs") == 0) return parse_jobs(env, argv, argc, i, json, payload);
     if (strcmp(verb, "ask-user") == 0) return parse_ask_user(argv, argc, i, json, payload);
     if (strcmp(verb, "speak") == 0) return parse_speak(argv, argc, i, json, payload);
     if (strcmp(verb, "ask") == 0) return parse_ask(argv, argc, i);
@@ -529,6 +760,8 @@ void tny_intercept_free(tny_intercept *ic) {
     free(ic->marker);
     free(ic->stdin_data);
     free(ic->message);
+    tool_image_plan_free(ic->image_plan);
+    tny_image_preview_selection_free(ic->image_selection);
     free(ic);
 }
 
@@ -803,35 +1036,138 @@ static char *exec_speak(tools_env *env, const tny_intercept *ic) {
     return ic_result(env, rc, &out, &err);
 }
 
+static void preview_diagnostic(yyjson_val *root, buf_t *err) {
+    yyjson_val *preview = jget(root, "preview");
+    const char *status = jget_str(preview, "status");
+    if (status && strcmp(status, "queued") != 0)
+        buf_appendf(err, "tny: image: preview %s: %s\n", status,
+                    jget_str(preview, "fallback") ? jget_str(preview, "fallback") : "not queued");
+}
+
 static char *exec_image_render(tools_env *env, const tny_intercept *ic) {
     buf_t out, err;
     buf_init(&out);
     buf_init(&err);
     yyjson_doc *doc = jparse(ic->value, strlen(ic->value));
     char diagnostic[256] = "invalid image arguments";
+    /* ic->image_plan is the plan this command's permission decision was made
+     * about; a const handle to a mutable plan needs no cast. */
     int rc = doc ? tool_image_run(env, yyjson_doc_get_root(doc), strcmp(ic->action, "edit") == 0,
-                                  &out, diagnostic, sizeof diagnostic)
+                                  ic->image_plan, &out, diagnostic, sizeof diagnostic)
                  : 1;
-    if (rc) buf_appendf(&err, "tny: image: %s\n", diagnostic);
-    else if (!ic->json) {
+    if (rc) {
+        /* Only an explicitly requested --json run may carry the structured
+         * failure object; plain-text stdout stays empty exactly as before. */
+        if (!ic->json) buf_clear(&out);
+        buf_appendf(&err, "tny: image: %s\n", diagnostic);
+    } else {
+        /* Same shared wording as the CLI, from the one shared result. */
         yyjson_doc *result = jparse(out.data, out.len);
-        const char *path = result ? jget_str(yyjson_doc_get_root(result), "path") : NULL;
-        buf_t plain;
-        buf_init(&plain);
-        if (path) buf_appendf(&plain, "%s\n", path);
-        buf_free(&out);
-        out = plain;
+        yyjson_val *root = result ? yyjson_doc_get_root(result) : NULL;
+        preview_diagnostic(root, &err);
+        char warning[320];
+        if (tny_image_size_warning(jget_str(root, "requested_size"), jget_str(root, "size_status"),
+                                   (uint32_t)yyjson_get_uint(jget(root, "width")),
+                                   (uint32_t)yyjson_get_uint(jget(root, "height")), warning,
+                                   sizeof warning))
+            buf_appendf(&err, "tny: image: warning: %s\n", warning);
+        const char *manifest = jget_str(root, "manifest_path");
+        if (manifest) buf_appendf(&err, "tny: image: manifest: %s\n", manifest);
+        if (!ic->json) {
+            const char *path = jget_str(root, "path");
+            buf_t plain;
+            buf_init(&plain);
+            if (path) buf_appendf(&plain, "%s\n", path);
+            buf_free(&out);
+            out = plain;
+        }
         yyjson_doc_free(result);
     }
     yyjson_doc_free(doc);
     return ic_result(env, rc, &out, &err);
 }
 
+/* The same service and the same result shaping as the CLI: stdout is the
+ * destination path, or the result object under --json; provenance and
+ * diagnostics go to stderr. A committed artifact whose record could not be
+ * finalized reports that path here too, still as a failure. */
+static char *exec_image_export(tools_env *env, const tny_intercept *ic) {
+    buf_t out, err;
+    buf_init(&out);
+    buf_init(&err);
+    yyjson_doc *doc = jparse(ic->value, strlen(ic->value));
+    char diagnostic[256] = "invalid export arguments";
+    int rc = doc ? tool_image_export_run(env, yyjson_doc_get_root(doc),
+                                         strcmp(ic->action, "contact_sheet") == 0, &out, diagnostic,
+                                         sizeof diagnostic, ic->detail)
+                 : 1;
+    yyjson_doc *result = out.len ? jparse(out.data, out.len) : NULL;
+    yyjson_val *root = result ? yyjson_doc_get_root(result) : NULL;
+    preview_diagnostic(root, &err);
+    const char *manifest = jget_str(root, "manifest_path");
+    if (manifest) buf_appendf(&err, "tny: image: manifest: %s\n", manifest);
+    if (rc) {
+        if (!ic->json) buf_clear(&out);
+        buf_appendf(&err, "tny: image: %s\n", diagnostic);
+    } else if (!ic->json) {
+        const char *path = jget_str(root, "path");
+        buf_t plain;
+        buf_init(&plain);
+        if (path) buf_appendf(&plain, "%s\n", path);
+        buf_free(&out);
+        out = plain;
+    }
+    yyjson_doc_free(result);
+    yyjson_doc_free(doc);
+    return ic_result(env, rc, &out, &err);
+}
+
+static char *exec_jobs(tools_env *env, const tny_intercept *ic) {
+    buf_t out, err;
+    buf_init(&out);
+    buf_init(&err);
+    tny_jobs_op op = tny_jobs_op_parse(ic->action);
+    yyjson_doc *doc = jparse(ic->value, strlen(ic->value));
+    yyjson_val *args = doc ? yyjson_doc_get_root(doc) : NULL;
+    char diagnostic[320] = "invalid jobs request";
+    int rc = 1;
+    if (!tool_jobs_available(env->ctx, op == TNY_JOBS_OP_SUBMIT       ? "job_submit"
+                                       : tny_jobs_op_is_sensitive(op) ? "job_control"
+                                                                      : "job_status"))
+        snprintf(diagnostic, sizeof diagnostic,
+                 "durable jobs are unavailable in this runtime; they need a native tny build that "
+                 "owns local child processes");
+    else if (args) rc = tool_jobs_run(env, op, args, &out, diagnostic, sizeof diagnostic);
+    yyjson_doc_free(doc);
+    if (rc && diagnostic[0]) buf_appendf(&err, "tny: jobs: %s\n", diagnostic);
+    if (out.len && !ic->json) {
+        buf_t human;
+        buf_init(&human);
+        tny_jobs_render_human(op, out.data, &human);
+        buf_free(&out);
+        out = human;
+    }
+    return ic_result(env, rc, &out, &err);
+}
+
 char *tny_intercept_execute(tools_env *env, const tny_intercept *ic) {
     if (!env || !ic) return NULL;
     switch (ic->kind) {
+    case TNY_INTERCEPT_JOBS: return exec_jobs(env, ic);
     case TNY_INTERCEPT_SPEAK: return exec_speak(env, ic);
     case TNY_INTERCEPT_IMAGE_RENDER: return exec_image_render(env, ic);
+    case TNY_INTERCEPT_IMAGE_EXPORT: return exec_image_export(env, ic);
+    case TNY_INTERCEPT_IMAGE_PREVIEW: {
+        char *result = tool_image_preview_execute(env, ic->image_selection);
+        bool failed = strncmp(result, "error: ", 7) == 0;
+        buf_t out, err;
+        buf_init(&out);
+        buf_init(&err);
+        if (ic->json) buf_appends(&out, result + (failed ? 7 : 0));
+        else buf_appends(failed ? &err : &out, result);
+        free(result);
+        return ic_result(env, failed ? 1 : 0, &out, &err);
+    }
     case TNY_INTERCEPT_EDIT: return exec_edit(env, ic);
     case TNY_INTERCEPT_MCP_CALL: return exec_mcp_call(env, ic);
     case TNY_INTERCEPT_MCP_DESCRIBE: return exec_mcp_describe(env, ic);

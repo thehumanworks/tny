@@ -489,14 +489,92 @@ TARGETS = [
     # + stdin/timeout primitive, and every remote tool script
     ("src/core/ssh.c", ["ssh_target_set", "ssh_shell_quote", "ssh_run"], None),
     ("src/core/tools_ssh.c", None, None),
-    # subagent child command: the parent's resolved provider must be
-    # forwarded and every model-supplied value shell-quoted; startup
-    # failures must surface the child's stderr
+    # Private native child plans and stable outcomes replace the old shell
+    # command/stderr-tail helpers (ADR 0087). Never relay raw child errors.
     (
-        "src/core/tools_ext.c",
-        ["tools_subagent_command", "subagent_stderr_tail"],
+        "src/core/subagent.c",
+        [
+            "tny_subagent_prepare_error",
+            "tny_subagent_plan_build",
+            "sa_outcome",
+            "sa_state",
+        ],
+        r"action == SA_CREATE && id|bool key =|bool exited0 =|reported_ok|strcmp\(st, \"running\"\)",
+        "tests/integration/test_subagent_diagnostics.py",
+        "open-issues-2026-09-11",
+    ),
+    # Truthful image dimensions (ADR 0088): the whole bounded PNG/JPEG/WebP
+    # header reader is decision logic — an accepted corrupt header or a
+    # guessed edge is the defect class, so no line here is incidental.
+    (
+        "src/core/image_dimensions.c",
         None,
-        "tests/integration/test_subagent.py",
+        None,
+        "tests/integration/test_image_workflow.py",
+        "open-issues-2026-09-11",
+    ),
+    # Requested versus actual size in the shared result: strict rejection
+    # happens before the destination is replaced, and the reported dimensions
+    # come from the returned bytes.
+    (
+        "src/core/image_service.c",
+        [
+            "strict_rejection",
+            "tny_image_run",
+            "size_metadata",
+            "tny_image_size_warning",
+        ],
+        r"strict_size|size_status|tny_image_dimensions|tny_image_size_|effective_size|result->width|result->height",
+        "tests/integration/test_image_workflow.py",
+        "open-issues-2026-09-11",
+    ),
+    # Per-provider conversation image input (ADR 0089): the whole map is
+    # validated, the effective value is recomputed at every resolution, and
+    # configured-true is never relabelled as verified support.
+    (
+        "src/core/config.c",
+        [
+            "image_input_key_valid",
+            "image_input_key",
+            "image_input_same_key",
+            "apply_provider_image_input",
+            "tny_image_input_configured",
+            "tny_image_input_refused",
+            "tny_image_input_auto_preview_allowed",
+            "tny_image_input_label",
+        ],
+        None,
+        "tests/integration/test_image_input.py",
+        "open-issues-2026-09-11",
+    ),
+    # The schema/execution and queue/flush gates of the same capability; a
+    # refused flush must keep its pending entries, and generation is never
+    # gated by conversation image input.
+    (
+        "src/core/tools.c",
+        [
+            "schema_tool_disabled",
+            "tools_queue_image",
+            "tools_flush_images",
+            "tools_schema_json",
+        ],
+        r"image_input|read_image|image_generate|image_edit|n_pending_images|tny_image_capabilities",
+        "tests/integration/test_image_input.py",
+        "open-issues-2026-09-11",
+    ),
+    (
+        "src/core/runtime.c",
+        ["tny_engine_start", "tny_engine_queue_image"],
+        r"image",
+        "tests/integration/test_image_input.py",
+        "open-issues-2026-09-11",
+    ),
+    (
+        "src/cli/cmd_ask.c",
+        ["cmd_ask"],
+        r"n_images|image_input",
+        "tests/integration/test_image_input.py",
+        "open-issues-2026-09-11",
     ),
     ("src/core/instructions.c", None, None),
     # native grok device-code login / refresh / logout (docs/adr/0021)

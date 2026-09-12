@@ -1,0 +1,257 @@
+{
+  "verdict": "PASS_EVENT14_DEPENDENCY_RECONCILIATION",
+  "historical_records": 23,
+  "historical_faults": 14,
+  "fresh_v3_reruns": 7,
+  "unchanged_guard_reconciliations": 7,
+  "rows": [
+    {
+      "id": "ME1-mapping",
+      "historical_compiled_kill": true,
+      "historical_build_log_sha256": "5383895e35d15b689e3b60a60cbcf39a4d9ccde9a4a48261b9b1213a98c7140f",
+      "historical_oracles": [
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME1-mapping-events.log",
+          "sha256": "e8d2257aab022d5dbb5ebd480895947b98541ba34880aa5a04c484c5f254bd96",
+          "matched": [
+            "'type': 'tool_end', 'kind': 2"
+          ]
+        }
+      ],
+      "basis": "unchanged guard/oracle dependency reconciliation + fresh V3 positive oracles",
+      "fresh_rerun": false,
+      "reason": "Whole event_jsonl.c and backend enum unchanged; exact shape assertions unchanged."
+    },
+    {
+      "id": "ME2-omitted-terminal",
+      "historical_compiled_kill": true,
+      "historical_build_log_sha256": "b14dbba9b9c7ee7ef18cc9beeba9eeeca3480fb6f29277108fc4879b45871c42",
+      "historical_oracles": [
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME2-omitted-terminal-events.log",
+          "sha256": "36cf2549cdf7f1adc2e756e00d42672cca4929144783072f8a7a23aaa473a9b3",
+          "matched": [
+            "expected exactly one turn_end, got 0"
+          ]
+        }
+      ],
+      "basis": "fresh V3 compiled rerun",
+      "fresh_rerun": true,
+      "fresh_outcome": "killed"
+    },
+    {
+      "id": "ME3-duplicated-terminal",
+      "historical_compiled_kill": true,
+      "historical_build_log_sha256": "5383895e35d15b689e3b60a60cbcf39a4d9ccde9a4a48261b9b1213a98c7140f",
+      "historical_oracles": [
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME3-duplicated-terminal-events.log",
+          "sha256": "a570715cfa14fa49f54c1fa1da8c12c0c811c484a73f23c0d997bc258a108bee",
+          "matched": [
+            "sequence not monotonic"
+          ]
+        }
+      ],
+      "basis": "fresh V3 compiled rerun",
+      "fresh_rerun": true,
+      "fresh_outcome": "killed"
+    },
+    {
+      "id": "ME4-default-done",
+      "historical_compiled_kill": true,
+      "historical_build_log_sha256": "b14dbba9b9c7ee7ef18cc9beeba9eeeca3480fb6f29277108fc4879b45871c42",
+      "historical_oracles": [
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME4-default-done-unit.log",
+          "sha256": "b153c2f741bb389fe5a61da575924115b43787b6e4cde0a90b6e711ee40b58f4",
+          "matched": [
+            "ask_exit_status_never_defaults_to_done"
+          ]
+        }
+      ],
+      "basis": "fresh V3 compiled rerun",
+      "fresh_rerun": true,
+      "fresh_outcome": "killed"
+    },
+    {
+      "id": "ME5-ignored-write-failure",
+      "historical_compiled_kill": true,
+      "historical_build_log_sha256": "b14dbba9b9c7ee7ef18cc9beeba9eeeca3480fb6f29277108fc4879b45871c42",
+      "historical_oracles": [
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME5-ignored-write-failure-events.log",
+          "sha256": "bfbb5f76c96df043f83510e3836d632983f0d4bf75c00a21891c61c727523c39",
+          "matched": [
+            "closed consumer"
+          ]
+        }
+      ],
+      "basis": "fresh V3 compiled rerun",
+      "fresh_rerun": true,
+      "fresh_outcome": "killed"
+    },
+    {
+      "id": "ME6-cancel-bypass",
+      "historical_compiled_kill": true,
+      "historical_build_log_sha256": "b14dbba9b9c7ee7ef18cc9beeba9eeeca3480fb6f29277108fc4879b45871c42",
+      "historical_oracles": [
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME6-cancel-bypass-events.log",
+          "sha256": "af54632e20d13176cd1d8c6aefbdf21c0d28e4aa0e70e9baf62fab65b6eb7c77",
+          "matched": [
+            "interrupt never reached"
+          ]
+        }
+      ],
+      "basis": "unchanged guard/oracle dependency reconciliation + fresh V3 positive oracles",
+      "fresh_rerun": false,
+      "reason": "Whole writer/poll seam unchanged; interrupt-peek callback and blocked-writer oracle unchanged. New job parent watch is separate; current event positive covers cancellation."
+    },
+    {
+      "id": "ME7-human-text-on-stdout",
+      "historical_compiled_kill": true,
+      "historical_build_log_sha256": "5383895e35d15b689e3b60a60cbcf39a4d9ccde9a4a48261b9b1213a98c7140f",
+      "historical_oracles": [
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME7-human-text-on-stdout-events.log",
+          "sha256": "1083e4088330654d42afa1315540fa1ad5f284cc293bd2c3cc83151bb1863a52",
+          "matched": [
+            "not JSON"
+          ]
+        }
+      ],
+      "basis": "fresh V3 compiled rerun",
+      "fresh_rerun": true,
+      "fresh_outcome": "killed"
+    },
+    {
+      "id": "ME8-progress-none-noise",
+      "historical_compiled_kill": true,
+      "historical_build_log_sha256": "5383895e35d15b689e3b60a60cbcf39a4d9ccde9a4a48261b9b1213a98c7140f",
+      "historical_oracles": [
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME8-progress-none-noise-events.log",
+          "sha256": "be2493d4ef7251d1559032654633f729d80c7f9f1d89f0b094714ae0b3ae4a32",
+          "matched": [
+            "progress=none wrote stderr"
+          ]
+        }
+      ],
+      "basis": "fresh V3 compiled rerun",
+      "fresh_rerun": true,
+      "fresh_outcome": "killed"
+    },
+    {
+      "id": "ME9-conformance-drift",
+      "historical_compiled_kill": true,
+      "historical_build_log_sha256": "5383895e35d15b689e3b60a60cbcf39a4d9ccde9a4a48261b9b1213a98c7140f",
+      "historical_oracles": [
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME9-conformance-drift-conformance.log",
+          "sha256": "f128e391446b56f1066e5c151962cd5a44f170ef64af063406245410f2fd9155",
+          "matched": [
+            "stop_reason"
+          ]
+        }
+      ],
+      "basis": "unchanged guard/oracle dependency reconciliation + fresh V3 positive oracles",
+      "fresh_rerun": false,
+      "reason": "Whole event serializer and conformance script unchanged; final CLI/library positive matches before and restored."
+    },
+    {
+      "id": "ME10-blind-write-fallback",
+      "historical_compiled_kill": true,
+      "historical_build_log_sha256": "02e5a1fee86ef3bdb51b0d2913a35ed4919ab0c79a30a8cde4784f7d26f826a3",
+      "historical_oracles": [
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME10-blind-write-fallback-events.log",
+          "sha256": "25fbc159b83ab05aebb798bf541c99eea649af46417d8509099ee535500fa0b0",
+          "matched": [
+            "already-full pipe"
+          ]
+        },
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME10-blind-write-fallback-unit.log",
+          "sha256": "1ecc241fa477c1496c42877da95dc56718fcf330c2fcf781787911d6c13c236d",
+          "matched": [
+            "already-full pipe"
+          ]
+        }
+      ],
+      "basis": "unchanged guard/oracle dependency reconciliation + fresh V3 positive oracles",
+      "fresh_rerun": false,
+      "reason": "Whole writer/header/poll seam, exact initial-full-pipe C test and Python oracle unchanged; restored positive verifies no blind write."
+    },
+    {
+      "id": "ME11-shell-cancel-bypass",
+      "historical_compiled_kill": true,
+      "historical_build_log_sha256": "02e5a1fee86ef3bdb51b0d2913a35ed4919ab0c79a30a8cde4784f7d26f826a3",
+      "historical_oracles": [
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME11-shell-cancel-bypass-terminal.log",
+          "sha256": "9415c2b0f380ce060e5b02260130e2951277a942905d29949a7968f9646aea4f",
+          "matched": [
+            "the interrupt never reached the running terminal tool (streaming"
+          ]
+        }
+      ],
+      "basis": "unchanged guard/oracle dependency reconciliation + fresh V3 positive oracles",
+      "fresh_rerun": false,
+      "reason": "Whole tools_shell.c and terminal-cancel oracle unchanged; guard controls whether cancellation is observed, separate from process-tree implementation; current terminal positive passes."
+    },
+    {
+      "id": "ME12-blocking-wait-after-eof",
+      "historical_compiled_kill": true,
+      "historical_build_log_sha256": "5383895e35d15b689e3b60a60cbcf39a4d9ccde9a4a48261b9b1213a98c7140f",
+      "historical_oracles": [
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME12-blocking-wait-after-eof-terminal.log",
+          "sha256": "8cbb547c11b5ca8d609dd885cc94f11aa54e7ebcf5897195925e3b6b61f40823",
+          "matched": [
+            "the interrupt never reached the running terminal tool (quiet"
+          ]
+        }
+      ],
+      "basis": "unchanged guard/oracle dependency reconciliation + fresh V3 positive oracles",
+      "fresh_rerun": false,
+      "reason": "Whole tools_shell.c and quiet-child oracle unchanged; waitpid mode guard identical and current quiet cancellation positive passes."
+    },
+    {
+      "id": "ME13-direct-child-only",
+      "historical_compiled_kill": true,
+      "historical_build_log_sha256": "5383895e35d15b689e3b60a60cbcf39a4d9ccde9a4a48261b9b1213a98c7140f",
+      "historical_oracles": [
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME13-direct-child-only-terminal.log",
+          "sha256": "0997dfb3df75b1ef09ce9dfb74026dd55397db01c120636f6538f5f8a8e5f840",
+          "matched": [
+            "survived the interrupt"
+          ]
+        }
+      ],
+      "basis": "fresh V3 compiled rerun",
+      "fresh_rerun": true,
+      "fresh_outcome": "killed"
+    },
+    {
+      "id": "ME14-hidden-interrupt-status",
+      "historical_compiled_kill": true,
+      "historical_build_log_sha256": "5383895e35d15b689e3b60a60cbcf39a4d9ccde9a4a48261b9b1213a98c7140f",
+      "historical_oracles": [
+        {
+          "path": "docs/verification/open-issues-2026-09-11/artifacts/resume-20260912/worker-event-corrections/mutations/ME14-hidden-interrupt-status-terminal.log",
+          "sha256": "3e0b121e2830ef5250b848d4d941e97549dcc5f59bbaa4ae32a6b6c1be1d9c71",
+          "matched": [
+            "the result hid the interrupted status"
+          ]
+        }
+      ],
+      "basis": "unchanged guard/oracle dependency reconciliation + fresh V3 positive oracles",
+      "fresh_rerun": false,
+      "reason": "Whole tools_shell.c and interrupted-status oracle unchanged; status override is identical and current terminal positive passes."
+    }
+  ],
+  "all1143_sources_restored_and_unchanged": true,
+  "baseline_restored_binaries_identical": true,
+  "scope": "canonical events ME1-ME14 only; no JOB mutation rows included"
+}
