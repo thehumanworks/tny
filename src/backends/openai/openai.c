@@ -40,6 +40,10 @@ typedef enum {
 #define OA_MAX_RETRIES   3
 #define OA_RETRY_BASE_MS 1000
 #define OA_RETRY_MAX_MS  30000
+/* silence on an open stream that counts as a dead connection (ADR 0087);
+ * TNY_PROVIDER_STALL_SECS overrides, 0 disables */
+#define OA_STALL_SECS     300
+#define OA_STALL_SECS_MAX 3600
 /* How long to wait for a provider's error body after an error status, and
  * how much of it to read — enough for the JSON error object, never a page. */
 #define OA_ERROR_BODY_WAIT_MS 1500
@@ -123,6 +127,10 @@ typedef struct {
     bool stream_failed;         /* the stream carried a terminal error event */
     oa_error_info stream_error; /* its classification (valid when stream_failed) */
     int max_retries;            /* TNY_PROVIDER_RETRIES (default OA_MAX_RETRIES) */
+    int stall_ms;               /* silence that ends a stream (docs/adr/0087); 0 = never */
+    int64_t last_byte_ms;       /* monotonic: the POST went out, or the last byte arrived */
+    bool continuing;            /* this attempt continues answer text an interrupted
+                                 * attempt already showed (docs/adr/0087) */
     bool repairs_noted;         /* transcript repair announced this turn */
     tny_stop_reason final_stop; /* provider terminal reason for this step */
     char finish_reason[32];
@@ -479,6 +487,52 @@ bool oa_status_is_retryable(int status) {
     return status == 408 || status == 409 || status == 425 || status == 429 || status >= 500;
 }
 
+/* ---------- stream completion contract (docs/adr/0087) ---------- */
+
+/* A response is complete only once its terminal event arrived: on the
+ * Responses wire response.completed / .incomplete / .failed (or a whole
+ * Response document); on the chat wire `[DONE]`, or a finish_reason for
+ * gateways that never send the sentinel. A body that ends any other way —
+ * EOF, a chunked terminator, Content-Length reached — was interrupted,
+ * whatever it carried so far. */
+bool oa_stream_complete(bool stream_done, bool wire_chat, const char *finish_reason) {
+    if (stream_done) return true;
+    return wire_chat && finish_reason && finish_reason[0];
+}
+
+/* TNY_PROVIDER_STALL_SECS: NULL/empty keeps the default, negative disables. */
+int oa_stall_secs(const char *value) {
+    if (!value || !*value) return OA_STALL_SECS;
+    long v = strtol(value, NULL, 10);
+    if (v < 1) return 0;
+    return v > OA_STALL_SECS_MAX ? OA_STALL_SECS_MAX : (int)v;
+}
+
+/* The continuation request: the partial the user already saw rides as the
+ * trailing assistant message, followed by one ephemeral user turn asking
+ * the model to pick up where it stopped. Neither is persisted — the turn
+ * records one assistant message, partial plus continuation, exactly what
+ * was shown. */
+static const char oa_continue_prompt[] =
+    "The connection dropped while you were writing your previous message. The user has "
+    "already seen it exactly as written above, ending mid-way. Continue from precisely "
+    "where it stopped: do not repeat or rephrase anything already written, do not "
+    "apologise, and do not mention the interruption.";
+
+void oa_view_append_continuation(yyjson_mut_doc *view, const char *partial) {
+    yyjson_mut_val *msgs = view ? yyjson_mut_doc_get_root(view) : NULL;
+    if (!msgs || !yyjson_mut_is_arr(msgs) || !partial || !*partial) return;
+    yyjson_mut_val *a = yyjson_mut_obj(view);
+    yyjson_mut_obj_put(a, yyjson_mut_strcpy(view, "role"), yyjson_mut_strcpy(view, "assistant"));
+    yyjson_mut_obj_put(a, yyjson_mut_strcpy(view, "content"), yyjson_mut_strcpy(view, partial));
+    yyjson_mut_arr_add_val(msgs, a);
+    yyjson_mut_val *u = yyjson_mut_obj(view);
+    yyjson_mut_obj_put(u, yyjson_mut_strcpy(view, "role"), yyjson_mut_strcpy(view, "user"));
+    yyjson_mut_obj_put(u, yyjson_mut_strcpy(view, "content"),
+                       yyjson_mut_strcpy(view, oa_continue_prompt));
+    yyjson_mut_arr_add_val(msgs, u);
+}
+
 /* Classify one error payload: the `error` member (object or string) of an
  * HTTP error body or SSE event, or a Responses `error` event itself. */
 static void classify_error(oa_impl *o, yyjson_val *err, int http_status, oa_error_info *info) {
@@ -536,16 +590,18 @@ static int parse_retry_after(const char *value) {
     return (int)secs * 1000;
 }
 
-/* Park the step for a backoff, then re-POST the same request. Only while
- * no answer text has been produced: retrying after text was shown would
- * print the answer twice, so such failures stay terminal and the partial
- * text stays recoverable. Reasoning already shown is not a bar — a
- * gateway that dies after a long think is the common case, and repeating
- * dim reasoning is a far smaller cost than losing the turn (ADR 0069).
- * Returns false when a retry is not possible (budget spent, cancelled,
- * text already emitted). */
+/* Park the step for a backoff, then re-POST. Before any answer text was
+ * shown the same request is repeated; reasoning already shown is not a
+ * bar — a gateway that dies after a long think is the common case, and
+ * repeating dim reasoning is a far smaller cost than losing the turn (ADR
+ * 0069). Once answer text has been shown the request is a continuation
+ * instead (ADR 0087): the partial stays on screen and in `text`, the next
+ * attempt asks the model to carry on from it, and the step ends with one
+ * assistant message — never the answer twice, never a lost turn. Returns
+ * false when neither is possible (budget spent, cancelled). */
 static bool schedule_retry(oa_impl *o, const char *what, int delay_hint_ms) {
-    if (o->cancelled || o->text.len || o->retries >= o->max_retries) return false;
+    if (o->cancelled || o->retries >= o->max_retries) return false;
+    bool cont = o->text.len > 0;
     record_usage(o);
     int backoff = OA_RETRY_BASE_MS << o->retries;
     if (delay_hint_ms > backoff) backoff = delay_hint_ms;
@@ -553,14 +609,16 @@ static bool schedule_retry(oa_impl *o, const char *what, int delay_hint_ms) {
     o->retries++;
     conn_drop(o);
     oa_calls_reset(&o->calls);
-    buf_clear(&o->text);
+    if (!cont) buf_clear(&o->text);
+    o->continuing = cont;
     buf_clear(&o->rawbody);
     reasoning_reset(o);
     sse_parser_free(&o->sse);
     sse_parser_init(&o->sse);
     char note[256];
-    snprintf(note, sizeof note, "%s: retrying in %d.%ds (attempt %d/%d)", what, backoff / 1000,
-             (backoff % 1000) / 100, o->retries + 1, o->max_retries + 1);
+    snprintf(note, sizeof note, "%s: %s in %d.%ds (attempt %d/%d)", what,
+             cont ? "continuing the answer" : "retrying", backoff / 1000, (backoff % 1000) / 100,
+             o->retries + 1, o->max_retries + 1);
     emit_text(o, TNY_EV_STATUS, note, strlen(note));
     o->state = ST_RETRY_WAIT;
     o->retry_at_ms = monotonic_ms() + backoff;
@@ -613,6 +671,24 @@ static int fail_stream(oa_impl *o) {
     emit_error(o, TNY_EVENT_ERROR_PROTOCOL, msg, strlen(msg));
     emit_turn_end(o, TNY_STOP_ERROR);
     return -1;
+}
+
+/* The body ended, broke, or fell silent before the terminal event (ADR
+ * 0087): retry or continue when the budget allows, else surface it with
+ * the partial kept recoverable. Returns 0 while a retry is pending, -1
+ * when the turn ended. */
+static int stream_interrupted(oa_impl *o, const char *what) {
+    conn_drop(o);
+    if (schedule_retry(o, what, 0)) return 0;
+    if (o->text.len) session_recovery_write(o->env.session, o->text.data);
+    emit_error(o, TNY_EVENT_ERROR_IO, what, strlen(what));
+    emit_turn_end(o, TNY_STOP_ERROR);
+    return -1; /* moot: the turn already ended */
+}
+
+static bool stream_stalled(oa_impl *o) {
+    if (o->stall_ms <= 0) return false; /* clock disabled */
+    return monotonic_ms() - o->last_byte_ms >= o->stall_ms;
 }
 
 static void note_repairs(oa_impl *o, int repairs) {
@@ -825,6 +901,7 @@ static char *build_request_chat(oa_impl *o) {
         return NULL;
     }
     note_repairs(o, repairs);
+    if (o->continuing && o->text.len) oa_view_append_continuation(view, o->text.data);
     yyjson_mut_val *msgs = yyjson_mut_doc_get_root(view);
     size_t total = yyjson_mut_arr_size(msgs);
     for (size_t i = 0; i < total; i++) {
@@ -933,6 +1010,7 @@ static char *build_request_rsp(oa_impl *o) {
         return NULL;
     }
     note_repairs(o, repairs);
+    if (o->continuing && o->text.len) oa_view_append_continuation(view, o->text.data);
     char *input = tny_openai_responses_input_with_summary(yyjson_mut_doc_get_root(view),
                                                           boundary > 0 ? summary : NULL);
     yyjson_mut_doc_free(view);
@@ -1002,6 +1080,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
         o->provider_request_sequence++;
         o->provider_attempt = 1;
         o->retries = 0;
+        o->continuing = false;
     }
     o->conn_reused = o->conn != NULL;
     if (!o->conn) {
@@ -1120,6 +1199,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
      * retries/history must retain these exact bytes. */
     o->unsent_preview = NULL;
     o->state = ST_HEADERS;
+    o->last_byte_ms = monotonic_ms();
     o->stream_done = false;
     o->stream_failed = false;
     memset(&o->stream_error, 0, sizeof o->stream_error);
@@ -1133,7 +1213,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     o->usage_in = o->usage_out = 0;
     o->usage_cached = o->usage_cache_write = -1;
     o->usage_seen = o->usage_recorded = false;
-    buf_clear(&o->text);
+    if (!o->continuing) buf_clear(&o->text); /* a continuation keeps the shown partial */
     buf_clear(&o->rawbody);
     reasoning_reset(o);
     sse_parser_free(&o->sse);
@@ -2235,6 +2315,8 @@ static int oa_poll_timeout(tny_backend *b) {
     int64_t left;
     if (o->state == ST_RETRY_WAIT) left = o->retry_at_ms - monotonic_ms();
     else if (o->state == ST_BODY && o->error_status) left = o->error_deadline_ms - monotonic_ms();
+    else if ((o->state == ST_HEADERS || o->state == ST_BODY) && o->conn && o->stall_ms > 0)
+        left = o->last_byte_ms + o->stall_ms - monotonic_ms(); /* the stall clock */
     else return -1;
     return left > 0 ? (int)left : 0;
 }
@@ -2274,7 +2356,20 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
 
     if (o->state == ST_HEADERS) {
         int status = http_read_response(o->conn, 0);
-        if (status == -2) return 0;
+        if (status == -2) {
+            if (!stream_stalled(o)) return 0;
+            /* the POST went out and nothing came back within the stall
+             * window: the connection is as good as dead */
+            char stalled[96];
+            snprintf(stalled, sizeof stalled, "provider sent no response for %ds",
+                     o->stall_ms / 1000);
+            tny_openai_control_response silent =
+                provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
+            if (silent.stop) o->cancelled = true;
+            control_response_free(&silent);
+            return stream_interrupted(o, stalled);
+        }
+        o->last_byte_ms = monotonic_ms();
         if (status < 0) {
             if (o->conn_reused) {
                 /* stale keep-alive caught at read time: the provider
@@ -2344,10 +2439,20 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         if (bn == -2) {
             if (o->error_status && monotonic_ms() >= o->error_deadline_ms)
                 return finish_error_response(o);
+            if (!o->error_status && stream_stalled(o)) {
+                /* an open socket with nothing on it for the whole stall
+                 * window: a half-open connection or a hung upstream (ADR
+                 * 0087). Waiting longer only delays the recovery. */
+                char stalled[96];
+                snprintf(stalled, sizeof stalled, "stream stalled (no data for %ds)",
+                         o->stall_ms / 1000);
+                return stream_interrupted(o, stalled);
+            }
             return 0;
         }
         if (bn > 0) {
             bytes += (size_t)bn;
+            o->last_byte_ms = monotonic_ms();
             if (!o->body_sniffed) sniff_body(o, tmp, (size_t)bn);
             if (o->body_is_sse) sse_feed(&o->sse, tmp, (size_t)bn, on_sse_event, o);
             else {
@@ -2389,26 +2494,22 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             else if (o->rawbody.len) {
                 on_sse_event(o->rawbody.data, o->rawbody.len, o);
                 buf_clear(&o->rawbody);
+                /* one JSON document is complete by construction: the framing
+                 * that delivered it whole is its terminal event */
+                o->stream_done = true;
             }
             if (o->stream_failed) return fail_stream(o);
         }
-        if (bn < 0 && !o->stream_done) {
-            if (schedule_retry(o, "stream aborted mid-response", 0)) return 0;
-            /* keep partial text recoverable */
-            if (o->text.len) session_recovery_write(o->env.session, o->text.data);
-            emit_error(o, TNY_EVENT_ERROR_IO, "stream aborted mid-response", 27);
-            emit_turn_end(o, TNY_STOP_ERROR);
-            return -1;
-        }
-        if (!o->stream_done && !o->text.len && !o->calls.n && !o->finish_reason[0] &&
-            !o->thinking_seen) {
-            /* nothing at all arrived before the body ended: a gateway
-             * closed an empty 200 (idle timeout, upstream died) */
-            static const char empty[] = "provider closed the stream without a response";
-            if (schedule_retry(o, empty, 0)) return 0;
-            emit_error(o, TNY_EVENT_ERROR_IO, empty, sizeof empty - 1);
-            emit_turn_end(o, TNY_STOP_ERROR);
-            return -1;
+        if (!oa_stream_complete(o->stream_done, o->wire_chat, o->finish_reason)) {
+            /* The body ended without its terminal event (ADR 0087). What
+             * arrived is a fragment — text cut mid-sentence, a tool call
+             * with half its arguments — never a finished step. */
+            if (bn < 0) return stream_interrupted(o, "stream aborted mid-response");
+            if (!o->text.len && !o->calls.n && !o->thinking_seen)
+                /* nothing at all arrived before the body ended: a gateway
+                 * closed an empty 200 (idle timeout, upstream died) */
+                return stream_interrupted(o, "provider closed the stream without a response");
+            return stream_interrupted(o, "stream closed before completion");
         }
         return step_finished(o);
     }
@@ -2638,6 +2739,9 @@ tny_backend *tny_backend_openai_new(struct tny_ctx *ctx) {
     }
     const char *debug = getenv("TNY_DEBUG_PROVIDER_ERRORS");
     o->debug_errors = debug && *debug && strcmp(debug, "0") != 0;
+    /* TNY_PROVIDER_STALL_SECS: silence on an open stream that ends the
+     * attempt (docs/adr/0087); 0 disables the clock */
+    o->stall_ms = oa_stall_secs(getenv("TNY_PROVIDER_STALL_SECS")) * 1000;
     b->id = TNY_BK_OPENAI;
     b->impl = o;
     b->connect = oa_connect;

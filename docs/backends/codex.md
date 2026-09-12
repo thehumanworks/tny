@@ -207,6 +207,15 @@ in-process, sessions are tny transcripts (resume, compact, recover), Enter
 during a turn steers the native loop, `--ssh` moves tools to a remote host,
 and extensions get the full native capability matrix.
 
+Streams from `chatgpt.com` are interrupted more often than from
+`api.openai.com` — a clean close without `response.completed`, a reset
+mid-body, or a socket that goes silent. Each is an interruption, never a
+truncated answer: before any text the request is retried, after text the
+answer is continued from the shown partial, and a stream silent for
+`TNY_PROVIDER_STALL_SECS` (default 300 s, the Codex CLI's own idle timeout)
+is given up on ([ADR 0087](../adr/0087-stream-completion-and-continuation.md),
+[openai-compatible.md](openai-compatible.md#stream-errors-retries-and-diagnostics-adr-0069)).
+
 ## wasm ([ADR 0017](../adr/0017-wasm-browser-parity.md))
 
 **Works**: turns are plain HTTPS over `fetch()`. Credentials: the flag/env

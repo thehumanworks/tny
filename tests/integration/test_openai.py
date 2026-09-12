@@ -284,6 +284,132 @@ def check_stream_recovery(env, ws, wire):
         mock.wait(timeout=5)
 
 
+def check_stream_interruption(env, ws, wire):
+    """Verification contract docs/verification/stream-interruption.md
+    (docs/adr/0087). A stream that ends without its terminal event is an
+    interruption, never a finished step: after answer text was shown the
+    step continues from the partial (SI-1, SI-3, SI-4, SI-6); before any
+    text it is retried whole, so a tool call with half its arguments never
+    runs (SI-1, SI-2); a silent open socket counts as dead after the stall
+    window (SI-5); and with no budget left the fragment is reported, never
+    passed off as the answer (SI-7)."""
+    for mode, note in (
+        ("clean", b"stream closed before completion"),
+        ("abort", b"stream aborted mid-response"),
+        ("stall", b"stream stalled (no data for 1s)"),
+    ):
+        mock, port = start_mock(MOCK_EXPECT_WIRE=wire, MOCK_CUT_ANSWER_ONCE=mode)
+        try:
+            started = time.monotonic()
+            r = ask_json(
+                dict(env, TNY_PROVIDER_STALL_SECS="1"),
+                ws,
+                port,
+                "--no-save",
+                "list files in .",
+                wire=wire,
+            )
+            elapsed = time.monotonic() - started
+            assert r.returncode == 0, (
+                f"{wire} {mode}: exit {r.returncode}: {r.stderr.decode()}"
+            )
+            out = json.loads(r.stdout)
+            # the answer arrives exactly once: partial plus continuation, no replay
+            assert out["output"].count("MOCK-OK") == 1, (wire, mode, out)
+            assert out["output"].startswith(
+                "The workspace contains 3 entries. MOCK-OK"
+            ), (
+                wire,
+                mode,
+                out,
+            )
+            assert out["steps"] == 2, (wire, mode, out)
+            assert (
+                note + b": continuing the answer in 1.0s (attempt 2/4)" in r.stderr
+            ), (
+                wire,
+                mode,
+                r.stderr,
+            )
+            assert b"attempt 3/4" not in r.stderr, (wire, mode, r.stderr)
+            if mode == "stall":
+                assert elapsed < 10, (wire, mode, elapsed)
+        finally:
+            mock.terminate()
+            mock.wait(timeout=5)
+
+    # a tool call cut mid-arguments is retried whole, never run truncated
+    # (the mock rejects any echoed call whose arguments differ)
+    for mode in ("clean", "abort", "stall"):
+        mock, port = start_mock(MOCK_EXPECT_WIRE=wire, MOCK_CUT_CALL_ONCE=mode)
+        try:
+            r = ask_json(
+                dict(env, TNY_PROVIDER_STALL_SECS="1"),
+                ws,
+                port,
+                "--no-save",
+                "list files in .",
+                wire=wire,
+            )
+            assert r.returncode == 0, (
+                f"{wire} call {mode}: exit {r.returncode}: {r.stderr.decode()}"
+            )
+            out = json.loads(r.stdout)
+            assert "MOCK-OK" in out["output"], (wire, mode, out)
+            assert out["steps"] == 2, (wire, mode, out)
+            assert b": retrying in 1.0s (attempt 2/4)" in r.stderr, (
+                wire,
+                mode,
+                r.stderr,
+            )
+            assert b"continuing" not in r.stderr, (wire, mode, r.stderr)
+        finally:
+            mock.terminate()
+            mock.wait(timeout=5)
+
+    # a disabled stall clock (0) never fires: an ordinary paced stream completes
+    mock, port = start_mock(MOCK_EXPECT_WIRE=wire, MOCK_SLOW_MS="300")
+    try:
+        r = ask_json(
+            dict(env, TNY_PROVIDER_STALL_SECS="0"),
+            ws,
+            port,
+            "--no-save",
+            "list files in .",
+            wire=wire,
+        )
+        assert r.returncode == 0, (
+            f"{wire} clock off: exit {r.returncode}: {r.stderr.decode()}"
+        )
+        assert "MOCK-OK" in json.loads(r.stdout)["output"], (wire, r.stdout)
+        assert b"stalled" not in r.stderr and b"no response for" not in r.stderr, (
+            r.stderr
+        )
+    finally:
+        mock.terminate()
+        mock.wait(timeout=5)
+
+    # no budget: the fragment is an error with the partial kept, not an answer
+    mock, port = start_mock(MOCK_EXPECT_WIRE=wire, MOCK_CUT_ANSWER_ONCE="clean")
+    try:
+        r = ask_json(
+            dict(env, TNY_PROVIDER_RETRIES="0"),
+            ws,
+            port,
+            "--no-save",
+            "list files in .",
+            wire=wire,
+        )
+        assert r.returncode != 0, (wire, r.stdout, r.stderr)
+        out = json.loads(r.stdout)
+        assert out["error"] == "stream closed before completion", (wire, out)
+        assert out["output"] == "The workspace ", (wire, out)
+        assert b"tny: stream closed before completion" in r.stderr, (wire, r.stderr)
+    finally:
+        mock.terminate()
+        mock.wait(timeout=5)
+
+
 def check_error_null_chunks(env, ws):
     """`"error": null` in every chat chunk is not an error."""
     mock, port = start_mock(MOCK_EXPECT_WIRE="chat", MOCK_ERROR_NULL="1")
@@ -1508,6 +1634,7 @@ def main():
             check_reasoning_passthrough(env, ws)
             for wire in ("responses", "chat"):
                 check_stream_recovery(env, ws, wire)
+                check_stream_interruption(env, ws, wire)
                 check_broken_session_repair(env, ws, wire)
         print("test_openai: all assertions passed")
     finally:

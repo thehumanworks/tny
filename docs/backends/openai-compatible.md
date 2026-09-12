@@ -154,8 +154,27 @@ wins, capped at 30s), three retries by default; `TNY_PROVIDER_RETRIES=N`
 sets the budget, `0` disables it. Each retry prints a status line
 (`provider error (HTTP 502): retrying in 1.0s (attempt 2/4)`); the wait is
 non-blocking (the engine sleeps on the backend's `poll_timeout`), so cancel
-still works. After text has been shown a failure stays terminal and the
-partial text stays recoverable.
+still works.
+
+**Completion and interruption ([ADR 0087](../adr/0087-stream-completion-and-continuation.md)).**
+A step's stream is complete only when its terminal event arrived:
+`response.completed` / `.incomplete` / `.failed` or a whole Response
+document on the Responses wire; `[DONE]` or a `finish_reason` on the chat
+wire. A body that ends any other way — a transport error (`stream aborted
+mid-response`), a clean close without the terminal event (`stream closed
+before completion`), or silence for `TNY_PROVIDER_STALL_SECS` seconds
+(`stream stalled (no data for Ns)`; default 300, `0` disables) — is an
+interruption: a fragment is never recorded as the answer and a half-received
+tool call never runs. Before any answer text the request is retried whole.
+**After answer text was shown, the next attempt continues the answer**: the
+partial stays on screen, the request trails it as an assistant message plus
+one user turn asking the model to carry on without repeating, and the step
+ends with a single assistant message — what the user saw, once. The status
+line reads `stream closed before completion: continuing the answer in 1.0s
+(attempt 2/4)`. When the budget is spent (or the failure is permanent) the
+diagnostic is reported, the turn ends in error, and the partial is kept in
+`recovery.json` for `--continue-recovery`. The requirement-by-requirement
+contract is [docs/verification/stream-interruption.md](../verification/stream-interruption.md).
 
 Diagnostics name the class and the provider's **category**, never its
 message: `provider rate limit (HTTP 429)`, `provider error (HTTP 502,

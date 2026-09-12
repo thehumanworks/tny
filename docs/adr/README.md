@@ -90,3 +90,4 @@ these as `docs/adr/NNNN`.
 | [0084](0084-codex-image-defaults.md) | Codex generation and editing default to GPT Image 2.5 Sunburst with high quality; preserve model overrides and all six quality settings |
 | [0085](0085-automatic-release-on-merge.md) | Every green merge to `main` is tagged and published automatically; the bump comes from Conventional Commits prefixes and `release.yml` is dispatched on the tag ref |
 | [0086](0086-standalone-sdk-toolkit.md) | Standalone Python and TypeScript toolkit methods reuse native media and optimisation services through cancellable ABI 1.2 jobs |
+| [0087](0087-stream-completion-and-continuation.md) | A stream without its terminal event is an interruption, never a finished step; after shown text the next attempt continues the answer instead of repeating it; a 300 s stall clock ends silent streams |
