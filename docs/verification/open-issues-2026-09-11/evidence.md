@@ -481,3 +481,102 @@ utility paths, leaving production converter environment and assertions unchanged
 V4 workflow/jobs/shell checks and final default flake remain pending. Earlier V3
 fixture failures are retained. Commit/push is the next authorized delivery step;
 merge remains conditional on all original gates and explicit user dispositions.
+
+
+### Hosted failures and final corrections — 2026-09-12T21:02Z
+
+Feature commit f9682656395ef7e024f6ba5abcd3759f588ac31a is pushed to PR130,
+which remains draft/unmerged. V4 default sandboxed Nix passed1062s with538 C
+units,63 integration groups, Bash/Zsh and all4 check outputs; exact1143 inputs
+unchanged. All31 historical jobs mutation intents and14 event intents are now
+reconciled in R/final-linux-v2 and R/final-event-mutations. The reviewed R1 test
+oracle correction9cc4d099 is integrated locally but not yet committed. Earlier
+failures, invalid attempts and survivors remain visible with their resolutions.
+
+Hosted f968265 SDK run34715978027 passes all jobs. CI passes Linux x86/ARM,
+quality, wasm, Valgrind, fuzz, TSAN, both musl lanes and all tnytty lanes. Mac CI
+is still running. Nix Darwin/ARM Linux pass; x86 Nix exposes a once-runner
+shutdown race. Windows unit CI exposes actual private-file ACL gaps on default
+MSYS noacl and symlink-fixture semantics; native jobs step did not run.
+
+A26/ADR0104 precedes the runner correction. Independent design, first-slice and
+final save/reload reviews are at R/runner-quiescence-design. The frozen runner
+worktree holds ownership before bind through last save/log/socket cleanup,
+releases before bye, retains serve-error ownership, and reloads persisted state
+under the acquired lock. New sessions publish before fork so parent/child agree
+that subsequent runners must reload. D111/D123 respectively pass541/544 units;
+D114/D115 isolation/background and D116/D117/D118 OpenAI/TUI/extensions pass;
+D119 full quality passes185.9s on that earlier slice. D112/D113 failed because
+Mise restored TNY_TOOLS; corrected checks explicitly unset it after Mise.
+D121/D122 run ordinary regression tests against original f968265 and fail exactly
+competing-spawn refusal and serve-error writer-retention assertions. Final
+ordinary session_end-extension regression passes in D125; final whole-source
+quality/units and Linux/Nix proofs remain underway. No native interposer result
+is accepted or reused. The interrupted worker content-filter incident remains
+separate from these ordinary regression results.
+
+A27/ADR0105 precedes native MSYS private filesystem implementation. Independent
+Windows DESIGN.v2 review closes six design findings at exact2e10a81a4; the77-check
+ARM guest probe proves feasibility, not product or native x64 CI. Primitive
+implementation is isolated and will receive independent review before caller
+rollout. Privacy, aliases, retained-parent operations, transform-stage lifetime
+and committed-output cleanup remain required; no mount-only waiver or automatic
+ACL migration is authorized. These new corrections are not yet integrated into
+root product files, so f968265 is not a verified final delivery.
+
+Overall remains INCOMPLETE for all original39R/49I. Two user dispositions remain
+unanswered (baseline duplicate ADR prefixes and prior out-of-scope Homebrew
+installation). A pre-existing /rename,/compact TUI writer overlap was separately
+flagged during review and is outside the six-issue/spawn-resume correction.
+
+### Runner integration checkpoint — 2026-09-12T21:07Z
+
+Nine reviewed runner/session/CLI/test/doc files are now integrated in root,
+preserving the separate R1 job oracle. R/runner-quiescence-integration/applied.json
+records exact before/after hashes; correction.patch SHA256
+8283834249b8701382f7c5204159835af1d8fca825bc70c28dbe268d13095ab6.
+Final candidate D124544units, D125isolation, D126quality186.7s and
+D129background/D130TUI/D131OpenAI/D132extensions all pass with unchanged inputs.
+D128 same ordinary session_end test on originalf968265 fails exactly writer
+release before the extension finishes, complementing D121/D122 ownership
+regressions. Independent final implementation and test reviews approve the frozen
+bytes. Integrated D133 ABI/SDK/unit/leak checks and Linux/Nix remain running.
+Windows private_fs implementation is still isolated; no final gate/merge claim.
+
+### Windows independent-review blocker — 2026-09-12T21:15Z
+
+The automatic content filter stopped /root/job_artifacts during the required
+read-only independent review of Windows private_fs's frozen first slice. This
+is not a completed review and not missing user authorization. The rejected
+review was not retried, rephrased or routed through another agent. Author stopped
+before caller rollout; existing independent checks were collected. Frozen patch
+e1aa9bc22b1816aa8056cc7bb093d2c86630581f930c3869a705ccbcfc3399a1 and
+manifest05fc6bab1699aa4067b1dfe78df3d1827a0a717f55f730624b9f55be0bced816
+remain in R/windows-private-fs/first-slice. Mac/Linux78 sanitizer checks and
+Windows ARM guest132 checks pass; a bounded compiled permission fault failed
+the independent permission assertion and the unchanged original passed again.
+These are primitive checks, not six-caller product/native-x64 proof or review.
+
+The verification-contract skill requires an independent first-slice checkpoint
+before repeating the pattern. User was informed, shown the exact skill clause,
+and asked for the access indicated by the filter or an independent review of the
+concrete patch. No response/waiver is inferred. Windows implementation and full
+merge remain blocked; Linux/Nix/WASM verification of the reviewed runner proceeds.
+Root D133 integrated544unit/43ABI/85PythonSDK(1 existing bundled-wheel-only skip)/
+43TypeScriptSDK and leak gate pass123.9s, with unchanged source inputs.
+
+### External merge and follow-up — 2026-09-12T21:19Z
+
+A fresh GitHub read shows user thehumanworks merged PR130 at21:02:59Z, head
+f968265, merge1bf59d1f2a75dc6ad49cb47a5763fc5795e7ddb9. This agent did not
+merge. Currentmain4b859f87fe0f44809b9ca8af74ebbf355352ef91 differs from tested
+f968265 only in two generated Pages WASM artifacts; new MJS syntax passes.
+R/external-merge-observation.json records exact hosted facts. Local source changes
+are preserved on new follow-up branch fix/durable-workflow-verification, fast
+forwarded to currentmain. No external change was reverted and no quality/scope
+waiver is inferred. Earlier draft/unmerged statements describe earlier observations.
+
+D134 exact curated runner+retry publication-source quality passes187.8s with
+unchanged inputs. The two later main-owned generated assets are the sole base
+source delta; native source and current correction match the reviewed/tested bytes.
+The full corrected Nix/WASM lane continues. Windows source-review blocker remains.

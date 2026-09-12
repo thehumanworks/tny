@@ -1,0 +1,14 @@
+{
+  "disposition": "APPROVED_DESIGN",
+  "design_sha256": "2e10a81a4eb4edad11517f1e81a97cca853940f76abbc9795eed0d5f6db69233",
+  "design_manifest_sha256": "b02444f9926c34feff05fded972b48cd0202fb072349d03cfa2e4762fe360b48",
+  "prior_review_sha256": "d305045ebe84604dd461023a54bde98570acde77d4634290dd638226907cabb6",
+  "probe_source_sha256": "3884e5b792be831c5fd4b608aef932048cf835aa65a8486a1be402ef362c121e",
+  "probe_v5_log_sha256": "8fee18f5dc23ed42ea57ed9113307110f03c924f6e853c21b73a593ef26cc9a1",
+  "six_prior_findings": "CLOSED_IN_DESIGN",
+  "unresolved_design_blockers": [],
+  "stage_path_stability": "Mandatory implementation proof; normative pinning requirement overrides general FILE_SHARE_DELETE where necessary",
+  "product_writes": false,
+  "tests_or_new_probes": false,
+  "implementation_runtime_approval": false
+}

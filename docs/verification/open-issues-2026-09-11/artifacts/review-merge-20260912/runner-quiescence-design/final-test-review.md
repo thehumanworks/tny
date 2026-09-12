@@ -1,0 +1,15 @@
+# Final ordinary shutdown regression — source review
+
+**APPROVE. No false-success path found in the inspected regression.** Test source SHA256: `f8d7b50bcceb6a6e8a5164f3999962be0f162700f538c82cc32c09af4ba66383`. Read-only review; no execution, interposers, injected hooks, fault scripts, new test code or child agents were used.
+
+The fixture installs a normal user-configured Python extension in a fresh private HOME. Its ready marker carries both session_end type and session ID; the driver selects that exact session and requires an already-completed successful result. While the handler is waiting, the driver probes the actual existing writer flock. The assertion rejects the original early-unlock state directly; it does not infer ownership from durable status, pid presence or elapsed time. Ready-file partial JSON writes are retried safely.
+
+The release marker is written in finally even when the ownership assertion fails. An assertion raised in the try is not swallowed by the following communicate. The handler has its own 10-second monotonic bound; the normal extension timeout is set to20 seconds; foreground collection is bounded to20 seconds, then the frontend is killed/reaped and timeout is re-raised. Completion requires the handler's exact completed marker, so an ignored extension timeout/error cannot masquerade as a successful CLI turn. Remaining pathological detached-runner cleanup after an outer timeout is not proved by this fixture, but that path fails the test and cannot produce PASS.
+
+Success additionally requires exit0, expected stdout, free writer, absent socket, final done status and exact equality of the completed result before/after teardown. The CLI normally waits after TURN_END for bye/EOF (and has its existing finish deadline); this test's explicit lock/socket/result checks remain necessary and correctly prevent an early frontend return being mistaken for quiescence. It does not claim to parse bye as a separate event.
+
+The supported lifecycle ordering is suitable: runtime synchronously invokes session_end during runner engine shutdown, after rn_finalize but before final session save/socket cleanup. Therefore this assertion distinguishes the original release point from the corrected retained-ownership point. The new flock wait in the separate orphan-resume case retains all prior transcript/resume assertions and uses a bounded condition rather than a fixed delay.
+
+Primary reports D125 full current isolation PASS, D128 same maintained test on original f968265 failing the exact ownership assertion, and D124 unit PASS. Those are parent-owned runtime results; this review did not rerun or independently certify them. Earlier source approvals remain scoped to their recorded hashes. No global/runtime PASS is assigned here.
+
+Supporting source inspected: runner.c `55e5957b4ce746fdea44d52d8a74aa95bd13437f7feec2bfaed2bb8ab39dc65e`; runtime.c `c8dd152056cce1e1513088576e0e9f32a4e655f30789dcaec746f2ee43bed92c`; extensions.c `e8edc4c19e1eb43ed1d7022b70a48abbd5c507746a48d3addc17ef2793545d15`; cmd_ask.c `479ecae3aba82e2d84671037633ca9432f39201bf0f09b54cd475aa812ce9ee5`.

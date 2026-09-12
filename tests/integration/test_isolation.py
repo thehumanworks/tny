@@ -21,6 +21,7 @@ ask still works in-process there — and other suites already cover that —
 so it exits trivially.
 """
 
+import fcntl
 import json
 import os
 import socket
@@ -143,6 +144,103 @@ def test_foreground_json_shape(ctx, port):
     print("ok: --json bytes unchanged and mirrored into the session")
 
 
+def writer_is_free(sdir):
+    """Probe the existing writer lock; terminal JSON alone is not quiescence."""
+    with open(os.path.join(sdir, "lock"), "rb") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        return True
+
+
+SHUTDOWN_EXTENSION = r"""
+import json
+import os
+import time
+
+def setup(api):
+    @api.on("session_end")
+    def end(event):
+        with open(os.environ["TNY_TEST_SHUTDOWN_READY"], "w") as stream:
+            json.dump({"session_id": event.session_id, "type": event.type}, stream)
+        deadline = time.monotonic() + 10
+        while not os.path.exists(os.environ["TNY_TEST_SHUTDOWN_RELEASE"]):
+            if time.monotonic() >= deadline:
+                raise RuntimeError("shutdown test did not release handler")
+            time.sleep(0.01)
+        with open(os.environ["TNY_TEST_SHUTDOWN_FINISHED"], "w") as stream:
+            stream.write("completed")
+"""
+
+
+def test_writer_held_until_session_end_extension_finishes(port):
+    with tempfile.TemporaryDirectory() as home:
+        ctx = Ctx(home)
+        extensions = os.path.join(home, ".tny", "extensions")
+        os.makedirs(extensions)
+        with open(os.path.join(extensions, "shutdown.py"), "w") as stream:
+            stream.write(SHUTDOWN_EXTENSION)
+        with open(os.path.join(home, ".tny", "settings.json"), "w") as stream:
+            json.dump({"extensions": {"enabled": True, "timeout_ms": 20000}}, stream)
+        ready = os.path.join(home, "ready.json")
+        release = os.path.join(home, "release")
+        finished = os.path.join(home, "finished")
+        proc = subprocess.Popen(
+            [TNY, "--cwd", ctx.ws, "ask", "list files in ."],
+            env=ctx.env(
+                port,
+                TNY_TEST_SHUTDOWN_READY=ready,
+                TNY_TEST_SHUTDOWN_RELEASE=release,
+                TNY_TEST_SHUTDOWN_FINISHED=finished,
+            ),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+
+            def handler_ready():
+                try:
+                    with open(ready) as stream:
+                        return json.load(stream)
+                except (FileNotFoundError, json.JSONDecodeError):
+                    return None
+
+            event = poll(handler_ready, 10, "normal session_end extension")
+            assert event["type"] == "session_end", event
+            sdir = next(
+                d for d in ctx.sdirs() if os.path.basename(d) == event["session_id"]
+            )
+            with open(os.path.join(sdir, "session.json")) as stream:
+                doc = json.load(stream)
+            assert doc["status"] == "done", doc
+            assert "MOCK-OK" in doc["result"]["output"], doc
+            assert not writer_is_free(sdir), (
+                "writer released before session_end finished"
+            )
+        finally:
+            with open(release, "w") as stream:
+                stream.write("release")
+            try:
+                stdout, stderr = proc.communicate(timeout=20)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate(timeout=5)
+                raise
+        assert proc.returncode == 0, stderr.decode()
+        assert b"MOCK-OK" in stdout, stdout
+        with open(finished) as stream:
+            assert stream.read() == "completed"
+        assert writer_is_free(sdir), "foreground returned before writer release"
+        assert not os.path.exists(os.path.join(sdir, "sock")), (
+            "old socket remains after bye"
+        )
+        with open(os.path.join(sdir, "session.json")) as stream:
+            final = json.load(stream)
+        assert final["status"] == "done" and final["result"] == doc["result"], final
+    print("ok: writer covers normal session_end extension and final quiescence")
+
+
 def test_client_sigkill_mid_turn_survives(ctx, slow_port, fast_port):
     before = set(ctx.sdirs())
     p = subprocess.Popen(
@@ -168,7 +266,9 @@ def test_client_sigkill_mid_turn_survives(ctx, slow_port, fast_port):
     assert doc["status"] == "done", doc
     assert "MOCK-OK" in doc["result"]["output"], doc["result"]
     sid = os.path.basename(sdir)
-    # and the surviving session resumes normally
+    # The final turn is durable before runner teardown completes. Observe the
+    # ownership boundary before resuming; never guess it with a fixed delay.
+    poll(lambda: writer_is_free(sdir), 10, "runner writer release")
     r = subprocess.run(
         [TNY, "--cwd", ctx.ws, "ask", "--resume", sid, "list files in ."],
         env=ctx.env(fast_port),
@@ -305,6 +405,7 @@ def main():
             ctx = Ctx(home)
             test_foreground_streams_and_finishes(ctx, fport)
             test_foreground_json_shape(ctx, fport)
+            test_writer_held_until_session_end_extension_finishes(fport)
             # one slow mock per hanging scenario: its HTTPServer is
             # single-threaded and a sleeping handler blocks later requests
             slow_a, aport = start_mock(MOCK_SLOW_MS="4000")

@@ -1,0 +1,59 @@
+{
+  "utc": "2026-09-12T21:06:47.166023+00:00",
+  "base": "f9682656395ef7e024f6ba5abcd3759f588ac31a",
+  "source_worktree": "/Users/tomas/projects/tny-open-issues-runner-final-2026-09-12",
+  "files": [
+    {
+      "path": "src/core/runner.c",
+      "before": "c136a7ceb0311d2ee9c091c93fa6b6af5c4843604d180e23bfb852c721acff94",
+      "after": "55e5957b4ce746fdea44d52d8a74aa95bd13437f7feec2bfaed2bb8ab39dc65e"
+    },
+    {
+      "path": "src/core/runner.h",
+      "before": "398e5e7a428b9cc5342d8ccaec21a6f0ed4a27dbf96a1ec84824234a1126d31f",
+      "after": "0bba4db2abb89e0afaef84f451602502b252f3997ac88e5461f203e1d415b015"
+    },
+    {
+      "path": "src/core/session.c",
+      "before": "b7db23d2589f554dc33ba993ebf257a3c13a34b3b69dfb54eb1ccf9523b980eb",
+      "after": "d50cef6ae9effbcc873b5f69e583327428c9276d568d31adbe098dd4dcfc1815"
+    },
+    {
+      "path": "src/core/session.h",
+      "before": "3b2ce5dc8eae0f14ef5f8bccc74ef9f61d8d41b6b492cd4774b26f346c00fa04",
+      "after": "2a34be3dbc6a9964af56ff577c619d329caed0b5b6a801bd2de20031f33e6b26"
+    },
+    {
+      "path": "src/cli/cmd_ask.c",
+      "before": "f5614c0a6460e05586fdca2926bb9e16b82df7e436fb095c530b5e655e596746",
+      "after": "479ecae3aba82e2d84671037633ca9432f39201bf0f09b54cd475aa812ce9ee5"
+    },
+    {
+      "path": "tests/test_runner.c",
+      "before": "3e6a84a7313c929c34351c07fd70fb657e1cc05bde09e0bea7373bda0cabba7a",
+      "after": "d3ce1b384da98470bcf3e29802e8b81bf1ab97a26278a16ec635685a1fcd4234"
+    },
+    {
+      "path": "tests/test_core.c",
+      "before": "96385cd67ec9b664b4d87e51ae2adee1b99cbb3f435f14b1a868955f97ac510a",
+      "after": "c392f37675253839fca5a5aa8bc5f13e7a68208cc8333fbec4e235d3881447a3"
+    },
+    {
+      "path": "tests/integration/test_isolation.py",
+      "before": "dfeed6708caadd4cccfc233d87e7fb75a4c04c8d50ad83299eef53cca82f4073",
+      "after": "f8d7b50bcceb6a6e8a5164f3999962be0f162700f538c82cc32c09af4ba66383"
+    },
+    {
+      "path": "docs/features/sessions.md",
+      "before": "2b171ed4b70c8e4b9628b2df2874c4bb3e4c1ce0a6888d57d732ba117a1523bd",
+      "after": "d63e3dfb5f0d32e8a2c6b1fad657127541e9ec8fd354e21ebe9f96ff6ed694c7"
+    }
+  ],
+  "preserved_root_jobs_test": "9cc4d0994b0545c409c16a578b8f27b97af6c1328363e4d1865aa58682539af4",
+  "review": "../runner-quiescence-design/final-slice-review.md",
+  "test_review": "../runner-quiescence-design/final-test-review.md",
+  "quality": "D126",
+  "units": "D124",
+  "isolation": "D125",
+  "baseline_shutdown_failure": "D128"
+}

@@ -1,0 +1,17 @@
+{
+  "observed_utc": "2026-09-12T21:20:08.331417+00:00",
+  "pr": 130,
+  "merged_at": "2026-09-12T21:02:59Z",
+  "merged_by": "thehumanworks",
+  "merged_head": "f9682656395ef7e024f6ba5abcd3759f588ac31a",
+  "merge_commit": "1bf59d1f2a75dc6ad49cb47a5763fc5795e7ddb9",
+  "observed_main": "4b859f87fe0f44809b9ca8af74ebbf355352ef91",
+  "performed_by_this_agent": false,
+  "followup_branch": "fix/durable-workflow-verification",
+  "base_delta": [
+    "docs/assets/wasm/tny-web.mjs",
+    "docs/assets/wasm/tny-web.wasm"
+  ],
+  "base_delta_js_syntax": "node --check PASS",
+  "scope_disposition": "No requirement/quality waiver inferred; runner correction remains local, Windows review unmet."
+}

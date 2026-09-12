@@ -1,5 +1,10 @@
 # Handoff: complete issues #122–#127, verify and merge
 
+> Current hosted state: user merged PR130 at2026-09-12T21:02:59Z; this agent did not.
+> Follow-up branch fix/durable-workflow-verification carries reviewed runner fixes.
+> Windows primitive review is blocked by the automated content filter; full scope
+> remains incomplete. A28 records the external merge without inferring any waiver.
+>
 > Current authorization: A19 supersedes historical no-merge instructions below.
 > The user requests remote-main merge after full scope and quality/tests pass.
 > Read the current issue ledger first; historical implementation tables lag.

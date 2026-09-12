@@ -1,72 +1,80 @@
 # Delivery checkpoint — incomplete
 
-Branch: `feat/durable-image-workflows`; draft PR [#130](https://github.com/thehumanworks/tny/pull/130).
-A19 authorizes merge to remote main once the entire original scope and quality
-gates pass. No merge, issue closure, release or deployment has been performed.
-The original six issues,39 requirements and49 invariants remain active.
+PR [#130](https://github.com/thehumanworks/tny/pull/130) was merged by
+`thehumanworks` at2026-09-12T21:02:59Z, head`f968265`; this agent did not merge it.
+Current main is`4b859f8` after generated Pages publication. Follow-up branch
+`fix/durable-workflow-verification` preserves that merge and contains the reviewed
+runner correction plus retry-test strengthening. Follow-up publication is pending.
+All six issues,39 requirements and49 invariants remain the active verification
+scope. The external merge does not establish passing quality or waive open gates.
 
 ## Integrated behavior
 
 - #122: requested/effective/actual dimensions, strict destination preservation,
   local failure detail and SDK parity.
 - #123: private resolved subagents, durable lifecycle, permission ceilings and
-  safe actionable diagnostics.
-- #124: canonical events, durable jobs and bounded batches, reviewed Linux
-  ancestry/handshake fixes, cancellable waits, job-specific permissions and
-  real producer/manifest-backed retry integration.
+  actionable diagnostics.
+- #124: canonical events, durable jobs/batches, bounded cancellation and waits,
+  native process ownership and verified producer-backed retry.
 - #125: exports/contact sheets, exact approved bytes, original preservation,
-  no-clobber publication, verified dimensions and derived lineage.
-- #126: capability policy, captured-byte preview queue, generated/artifact/job
-  preview, same-capture hash/byte-count validation and clear failure outcomes.
-- #127: private manifests, immutable approved plans, retained paid-artifact
-  detail, job/producing-attempt provenance, replay and persistence opt-out.
+  no-clobber publication, dimensions and derived lineage.
+- #126: capability policy, captured-byte preview queue and generated/artifact/job
+  preview with same-capture hash/byte-count validation.
+- #127: private immutable manifests and approved plans, retained paid-artifact
+  detail, producing-attempt provenance, replay and persistence opt-out.
 
-## Current evidence and remaining work
+## Verified checkpoint and remaining corrections
 
-All six feature implementations and the native MSYS lifetime/admission/cleanup
-reservations are integrated and independently reviewed. The final native source
-also includes corrected wasm preview status, deterministic export metadata,
-Linux Clang release sizing, and Nix installed-payload sizing/lazy TLS paths.
-The1,143-file V4 snapshot is recorded in `artifacts/review-merge-20260912/final-inputs-v4/`.
-The shared auto-reap fixture now explicitly supports both exec-time tree helpers
-and post-initialization supervisor faults; both modes pass on Mac and Linux.
-Nix export fault scripts now resolve quoted absolute utility paths; their final
-sandbox checks are running, with production converter environment unchanged.
+The1143-input V4 publication tree passes full quality D110. Linux GCC986144B,
+Clang986840B and musl1051520B meet unchanged budgets;538 unit cases pass.
+The final sandboxed V4 Nix flake passes538 C cases,63 integration groups,
+Bash/Zsh and all4 check outputs. Installed wrapped/unwrapped986088B payloads
+pass actual HTTPS and negative size/RUNPATH checks. Mac full integration's only
+remaining fixture failure was corrected and the full72-job rerun passed; ABI43,
+PythonSDK85 and TypeScriptSDK43 passed. Actual wasm/browser/backpressure checks
+passed. Evidence binds each check to its own source, not later corrections.
 
-Current Linux GCC986144B and Clang986840B meet the unchanged1MiB budget;538 unit
-cases pass. Actual wasm/browser transport and output-backpressure checks pass.
-Native Windows guest ownership/descendant cases pass; full native x64 hosted CI
-remains required. Sandboxed Nix wrapped/unwrapped986088B installed payloads and
-actual installed HTTPS checks pass, including negative size/RUNPATH tests.
-The final full Nix flake is running. Mac image workflow96, exports42, ABI43 and
-Python SDK85 cases pass; the final full jobs72 rerun also passes. The earlier full
-Mac run has no other failing group.
+All original mutation families are reconciled:28 dimensions/capability,8 portable
+subagents plus separate M123.7 Valgrind,9 manifest,13 preview,8 export variants,
+31 historical jobs intents and14 event intents. Earlier compile errors, timeouts,
+survivors and stale-restoration attempts remain visible. The approved retry oracle
+change9cc4d099 is locally integrated but not yet committed.
 
-Real provider verification on the corrected frozen native binary completes
-exactly four requests: generation, edit, preview tool request and the next vision
-request with the exact captured edited bytes. Independent pixel decoding agrees
-with the provider's color answer. This is typed native preview proof, not a live
-job-selector or socket-CLI claim. Credentials remain runtime-only/read-only.
+Hosted f968265 SDK matrix passes. Main CI Linux x86/ARM, quality, wasm, Valgrind,
+fuzz, TSAN, musl and tnytty lanes pass; Mac remains running at this checkpoint.
+Two real failures prevent merge:
 
-Final controlled mutations cover28 dimensions/capability,8 portable subagent,
-9 manifest-plan and13 preview/queue cases, with original/restored checks. All8
-export variants trigger their intended assertions; one runner classification is
-explicitly reconciled against its named assertion and preserved LSan output.
-Jobs/event/M123.7 source-dependency reconciliation or affected reruns continue.
-Earlier invalid/stale-build attempts are retained and are not counted as passes.
+1. Windows MSYS default noacl does not enforce requested private modes, and
+   pathname-based retained-directory operations can use a replacement parent.
+   The independent native filesystem design is approved under ADR0105/A27;
+   first primitive is frozen in an isolated worktree. Its Mac/Linux78 checks
+   and ARM Windows guest132 checks pass, but an automatic content filter stopped
+   the required independent source reviewer. No caller rollout has occurred;
+   the required review checkpoint is unmet. Actual corrected product flows and
+   native x64 hosted units/jobs remain required; the failed hosted unit step
+   prevented the jobs step from running.
+2. Nix x86 exposes an early-release runner shutdown race. ADR0104/A26's reviewed
+   correction holds the writer through final save/log/socket cleanup and refreshes
+   resumed CLI/TUI state under ownership. New sessions publish before fork so
+   the parent retains correct saved-state knowledge. Ordinary regressions fail
+   on original code and pass on the candidate. The correction is integrated
+   locally: Mac/Linux544 units, affected integrations and quality pass; integrated
+   ABI/SDK/leaks pass. Full corrected Nix/WASM checks and publication are pending.
 
-Final full quality passes in D110 on the exact curated1143-input V4 publication
-tree, and its product bytes match the staged index. The root's historical D106
-failure is formatting of untracked archived C probes, which are retained unchanged
-outside publication inputs. Remaining gates are final Nix fixture/default-flake
-checks, jobs mutation/preservation/39R49I reconciliation, pushed-head hosted CI
-and conditional merge. No prior isolated pass substitutes for a remaining gate.
+Exactly four real provider requests verified generation, edit and a native typed
+preview whose next vision request used the captured edited bytes. Independent
+pixel decoding agreed with the provider answer. This does not claim live socket
+or job-selector coverage. Credentials were read only and remained runtime-only.
 
-Two explicit user dispositions remain pending: baseline duplicate ADR prefixes
-0030/0045 versus immutable historical filenames, and the previously recorded
-out-of-scope Homebrew installation. No waiver, uninstall or consent is inferred.
+Final integration, source/ADR preservation, affected mutation binding and the
+complete pushed-head platform matrix remain mandatory. Two user dispositions
+remain unanswered: baseline duplicate ADR0030/0045 versus immutable filenames,
+and the previously recorded out-of-scope Homebrew installation. No waiver,
+uninstall or consent is inferred. One terminated task mutant remains a zombie
+under the shared verification container's PID1, with no live descendants;
+container teardown must respect other active verification work.
 
-Use [issue ledger](issue-ledger.md), [contract](contract.md) and
-[evidence](evidence.md) for the active state. Historical failures/checkpoints and
-all raw before/fault/restored records remain under
-[artifacts](artifacts/review-merge-20260912/). Overall gate: **INCOMPLETE**.
+Use the [issue ledger](issue-ledger.md), [contract](contract.md),
+[evidence](evidence.md) and current
+[remaining gates](artifacts/review-merge-20260912/reconciliation/remaining-gates.json).
+Historical successful checks do not establish the final corrected state.

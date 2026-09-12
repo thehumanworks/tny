@@ -1,0 +1,27 @@
+{
+  "status": "INCOMPLETE_REVIEW_TOOLING_BLOCKER",
+  "first_slice_files_unchanged": true,
+  "required_independent_source_review": "UNMET: automatic content filter stopped assigned reviewer; no retry or alternate-agent request",
+  "checks": {
+    "mac": "78 checks PASS, ASan/UBSan",
+    "linux": "78 checks PASS, ASan/UBSan",
+    "windows_guest": "132 checks PASS, actual Windows ARM64 guest/x64 MSYS emulation",
+    "format": "clang-format23.1.0 dry-run PASS",
+    "mutation": "owner-executable private-file fault compiled to distinct binary and failed independent AccessCheck FILE_EXECUTE assertion; unchanged original binary then132checks PASS",
+    "native_imports": "production primitive object has kernel32/MSYS imports; advapi32/NT APIs remain resolved lazily. Fixture-only access oracle links advapi32."
+  },
+  "logs_sha256": {
+    "mac-final.log": "a776f91cc57c5aedbf14a35a1388043eb4b36dbf84d0c66c1b344d2643b6498e",
+    "linux-final.log": "044f8fb004e130a37493b81c859f57db68f8f44440135335cc893dcf4f35d62a",
+    "native-final.log": "3513e83fff4e6a8b3b614db485edf510ae5e26d609bc0c867b84507e3df6dde3",
+    "native-owner-execute-mutant.log": "8470c0b91acd65476b30f30b6e4669da176cf4308e8a2b609275145cad350dd7",
+    "native-restored-imports.log": "9de43711128ede2959c55729e0e419877425f54cbf92f6a8c60b1fe1dd92c496",
+    "native-first.log": "884ef57fd22a4df6a59c0ae0c3b9e4ed80edbf7ec25e8ca26a99206c5c4a8d37",
+    "linux-archive-permission.log": "b7f0f716a62b331dd071f48c73124aeebabab4dd488176b4391378a58dd167e6"
+  },
+  "native_original_binary_sha256": "c31c1e1b7f6ca489f779e346cd655c3002e91e343918d965b75a7c3fefa6b38e",
+  "native_mutant_binary_sha256": "dde6ce5021dc54565a7182174245de19ab47ecebbc17de9a11262010eea4015c",
+  "root_product_edits": false,
+  "caller_rollout": false,
+  "new_goals_children_installs_commits": false
+}

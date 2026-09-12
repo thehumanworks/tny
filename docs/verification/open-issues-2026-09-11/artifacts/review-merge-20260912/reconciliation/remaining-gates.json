@@ -1,0 +1,71 @@
+{
+  "utc": "2026-09-12T21:03:18.381637+00:00",
+  "status": "INCOMPLETE_NO_SCOPE_REDUCTION",
+  "scope_counts": {
+    "requirements": 39,
+    "invariants": 49
+  },
+  "source_manifest": "../final-inputs-v4/manifest.json",
+  "remaining": [
+    {
+      "check_id": "C124/C125/C126/C127/A27",
+      "remaining": "Implement and verify approved native MSYS private filesystem correction; actual noacl privacy and retained-parent defects remain in pushed f968265. Native x64 hosted Windows unit/jobs must pass."
+    },
+    {
+      "check_id": "C-G2/A26",
+      "remaining": "Integrate final reviewed runner ownership/resume fix and complete exact-input native/Nix/WASM affected checks; Mac final runs underway, Linux lane starting."
+    },
+    {
+      "check_id": "C-G4",
+      "remaining": "Reconcile all39R/49I with final corrected source; no global PASS until native filesystem and runner gaps close."
+    },
+    {
+      "check_id": "C-G5",
+      "remaining": "V4 default sandbox flake passed; pushed f968265 Nix x86 failed real runner race. Final corrected head must pass complete hosted matrix including Windows; prior head is baseline only."
+    },
+    {
+      "check_id": "C-G6",
+      "remaining": "Explicit disposition of baseline duplicate ADR0030/0045; baseline immutability passes, no waiver inferred."
+    },
+    {
+      "check_id": "C-G7",
+      "remaining": "All original jobs31/events14 and other feature fault families reconciled; bind unchanged guard evidence and verify new critical correction guards on final source."
+    },
+    {
+      "check_id": "C-G10",
+      "remaining": "Final staged redaction/source/worktree/process preservation; explicit prior Homebrew incident disposition. One terminated task mutant remains a zombie owned by shared container PID1; no live descendants."
+    },
+    {
+      "check_id": "C-G11",
+      "remaining": "f968265 pushed to feature PR130; integrate/review/test/push corrections, observe exact-head CI, then conditional merge/readback and goal completion."
+    }
+  ],
+  "completed_facts": {
+    "live_forwarded_requests": 4,
+    "live_binary_sha256": "c81872fd2ae8ec978934f9be22fe4ad1c42a66d0b642c586c6dee40a27d54ad8",
+    "image_capability_mutants": 28,
+    "subagent_mutants": 8,
+    "manifest_mutants": 9,
+    "preview_mutants": 13,
+    "export_families": 7,
+    "export_variants": 8,
+    "baseline_adrs_unchanged": 88,
+    "initial_contract_unchanged": true,
+    "new_adr_collisions": 0,
+    "exact_local_quality": "D110 V4 PASS",
+    "v4_affected_nix": "exports42/workflow96/jobs72 plus Bash/Zsh PASS; skips2/3/2",
+    "v4_default_nix": "PASS sandbox=true,538 C units,63 integration groups,Bash/Zsh,4 check outputs;1062s",
+    "jobs_historical_mutation_intents": 31,
+    "event_historical_mutation_intents": 14,
+    "M123_7": "final Linux Valgrind intended failure with original/restored pass",
+    "pushed_head": "f9682656395ef7e024f6ba5abcd3759f588ac31a",
+    "hosted_sdk": "34715978027 all jobs PASS",
+    "runner_first_slice": "15 unit cases PASS; original competing-spawn and serve-error regressions both fail intended assertions",
+    "runner_final_review": "approved final-slice-review.md; final product checks in progress",
+    "windows_design": "v2 approved2e10a81a4; ADR0105/A27 allocated before implementation"
+  },
+  "user_dispositions": [
+    "legacy ADR0030/0045",
+    "prior host-package incident"
+  ]
+}

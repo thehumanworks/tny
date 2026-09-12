@@ -2,8 +2,9 @@
 
 The frozen six-issue snapshot remains the full scope. Overall INCOMPLETE.
 A19 records the user's authorization to merge remote main after the whole scope
-and quality/tests are verified. PR130 remains draft; no issue closure or release
-is requested. Historical ledgers and raw failed runs remain preserved.
+and quality/tests are verified. User merged PR130 at21:02:59Z; follow-up
+fix/durable-workflow-verification carries remaining corrections. No quality waiver
+or issue closure is inferred. Historical ledgers and raw failed runs remain preserved.
 
 | Issue | Current canonical implementation | Remaining delivery gate |
 | --- | --- | --- |
@@ -14,42 +15,42 @@ is requested. Historical ledgers and raw failed runs remain preserved.
 | #126 | Capability policy, captured-byte queue, full preview and owned job selection are integrated; hash and byte count are checked against the same captured bytes | D084 job-artifact14 and D086 full-preview20 pass/1 Linux-only skip in the combined tree; final platform/fault/live/CI proof remains |
 | #127 | Private manifests, owned execution plans, retained paid-artifact detail, job selection and producing-attempt provenance through preview/edit/replay are integrated | D084 actual permission, lineage, retry and no-manifest cases pass; final combined platform/fault checks remain |
 
-## Current checks and unresolved decisions
+## Current checks and unresolved decisions — 2026-09-12T21:09Z
 
-Current source includes every reviewed feature and platform correction. Linux
-GCC986144B/Clang986840B and538units pass; sandboxed Nix installed986088B
-wrapped/unwrapped payloads and actual HTTPS pass. Final full Mac image96,
-exports42, ABI43 and PythonSDK85 cases pass; its jobs group exposed the second
-exec-time use of a shared auto-reap fixture, now being restored explicitly.
-Final native live generate/edit/preview/vision passes exactly4requests with
-independently verified captured pixels. Detailed current evidence is in DELIVERY.md.
+The six feature implementations at f968265 were externally merged in PR130. Root now
+also contains the independently reviewed runner shutdown/resume correction and
+the stronger retry-concurrency test; those changes are not yet pushed. The native
+Windows private filesystem correction is still in its isolated implementation
+worktree. It is required for Windows image/job privacy and retained-parent reads,
+publication and cleanup. No final feature/platform PASS is inferred from design.
 
-All28image/capability,8portable subagent,9manifest and13preview controlled faults
-pass original/compiled intended failure/restored checks. Export8variants are
-behaviorally caught, with one named-assertion runner classification explicitly
-reconciled. Jobs and events final source-dependency reconciliation/affected
-reruns remain active. Full sandbox flake, final curated-source quality and
-pushed-head hosted matrix remain required before conditional merge.
+V4 default sandbox Nix passed538 C tests,63 integration groups, Bash/Zsh and all4
+checks. Final original feature mutation families are reconciled, including jobs31,
+events14 and the separate M123.7 Valgrind case. Exactly4 live provider requests
+proved generate/edit and native typed preview-to-vision with captured pixels.
+Original failures and invalid attempts remain preserved in evidence.md.
 
-- Remote main was b80c04b; draft PR130 head was266bcf8 on current GitHub read.
-  Local checkpoint6cafa1a fixes CI-observed HTTP/fixture sanitizer defects.
-- Fresh independent review of that correction found no defects. D032 net15 and
-  D033 TUI suites pass in a clean SANITIZE=1 build. A compiled inverted HTTP
-  guard fails the new response assertion; restored net suite D034 passes.
-- D035 complete unit gate passed with unchanged captured inputs and no sanitizer
-  diagnostics. Earlier D002/D010/D020 etc remain historical
-  source-bound passes, not proof of the later full combination.
-- Hosted CI on266bcf8 contains Linux/wasm closed-stdin errors, Windows LTO
-  annotation errors and a Darwin Nix RSS failure, with corrections integrated and pending
-  pushed-state verification. Darwin native was cancelled immediately after the
-  final integration test passed; that is not evidence of a test hang or CI pass.
-- I-G6: baseline ADR0030/0045 collisions conflict with immutable names and global
-  uniqueness. User disposition is pending; no waiver inferred.
-- I-G9: prior out-of-scope Homebrew install remains recorded; user disposition is
-  pending. No package removal or new global installation has been attempted.
-- Final complete Mac/Linux/Windows/browser-WASM/Nix, ABI/SDK, leaks/Valgrind,
-  mutation, live-provider and Linux<1MiB gates remain open until integrated
-  source-bound evidence exists. Reachable test environments do not count as passes.
+The current runner correction passes544 units and affected isolation/background,
+OpenAI/TUI/extensions on both Mac and Linux. Full Mac quality D126 and Linux
+quality/analyzer pass on frozen corrected inputs; Linux GCC986144B and
+Clang986840B retain the unchanged budget. Integrated ABI/SDK/leaks and corrected
+Nix checks remain in progress. Windows ARM guest primitive feasibility is separate
+from corrected product tests and required hosted native x64 CI.
 
-Current continuation: [evidence](evidence.md),
-[contract](contract.md), and [raw records](artifacts/review-merge-20260912/).
+Hosted f968265 SDK passes every job. Main CI Linux, quality, wasm, Valgrind, fuzz,
+TSAN, musl and tnytty pass; Darwin remains running. Nix Darwin/LinuxARM pass;
+Nix x86 failed the runner race now corrected locally. Windows failed actual
+private-file mode/ACL and symlink-fixture assertions; its jobs step was skipped.
+The final corrected pushed head must pass the complete matrix before merge.
+
+- I-G6: baseline duplicate ADR0030/0045 conflicts with immutable filenames;
+  user disposition remains pending. All88 baseline ADRs and initial contract
+  remain unchanged, and new ADR identifiers remain unique.
+- I-G9: prior out-of-scope Homebrew installation remains recorded and requires
+  user disposition. No waiver, uninstall or new global install is inferred.
+- I-G11: A19 authorizes merge only after full39R/49I and required checks pass.
+  There has been no merge, release, deployment or issue closure.
+
+Current detail: [delivery](DELIVERY.md), [evidence](evidence.md),
+[contract](contract.md) and
+[remaining gates](artifacts/review-merge-20260912/reconciliation/remaining-gates.json).

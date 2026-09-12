@@ -629,6 +629,51 @@ TEST session_roundtrip(void) {
     PASS();
 }
 
+TEST session_reload_keeps_ownership_and_latest_durable_state(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    session_set_title(s, "before");
+    ASSERT_EQ(0, session_save(s));
+    tny_session_state *stale = session_open(ctx, s->id);
+    ASSERT(stale);
+    ASSERT_EQ(0, session_lock_acquire(s));
+    session_set_title(s, "final save");
+    session_add_text(s, "assistant", "retained final transcript");
+    session_bump_turns(s);
+    ASSERT_EQ(0, session_save(s));
+    session_close(s);
+    char err[192];
+    ASSERT_EQ(-1, session_reload_locked(stale, err, sizeof err));
+    ASSERT_STR_EQ("before", session_title(stale));
+    ASSERT_EQ(0, session_lock_acquire(stale));
+    int owned_fd = stale->lock_fd;
+    ASSERT_EQ(0, session_reload_locked(stale, err, sizeof err));
+    ASSERT_EQ(owned_fd, stale->lock_fd);
+    ASSERT(session_is_running(ctx, stale->id));
+    ASSERT_STR_EQ("final save", session_title(stale));
+    ASSERT_EQ(1, session_turns(stale));
+    ASSERT_EQ(1, session_message_count(stale));
+    tny_session_state *contender = session_open(ctx, stale->id);
+    ASSERT(contender);
+    ASSERT_EQ(-1, session_lock_acquire(contender));
+    char *file = path_join(stale->dir, "session.json");
+    ASSERT(file);
+    ASSERT_EQ(0, unlink(file));
+    ASSERT_EQ(-1, session_reload_locked(stale, err, sizeof err));
+    ASSERT_EQ(owned_fd, stale->lock_fd);
+    ASSERT_STR_EQ("final save", session_title(stale));
+    ASSERT_EQ(-1, session_lock_acquire(contender));
+    free(file);
+    session_close(stale);
+    ASSERT_EQ(0, session_lock_acquire(contender));
+    session_close(contender);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST session_task_snapshot_roundtrip_and_resume_guards(void) {
     ensure_env();
     write_settings("{}");
@@ -5502,6 +5547,7 @@ SUITE(core_suite) {
     RUN_TEST(perm_yolo_allows_everything);
     RUN_TEST(tool_prepare_validates_rewrites_and_complete_permission_subjects);
     RUN_TEST(session_roundtrip);
+    RUN_TEST(session_reload_keeps_ownership_and_latest_durable_state);
     RUN_TEST(session_task_snapshot_roundtrip_and_resume_guards);
     RUN_TEST(session_task_snapshot_atomic_window_and_symlink_guards);
     RUN_TEST(session_tool_argument_rewrite_is_targeted_and_no_match_terminates);

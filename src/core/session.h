@@ -28,7 +28,8 @@ typedef struct {
     char *extension_previous_session_id;
     session_mem_result *mem_results; /* large results in ephemeral mode */
     int n_mem_results;
-    int lock_fd; /* <dir>/lock flock fd, -1 when not held */
+    int lock_fd;    /* <dir>/lock flock fd, -1 when not held */
+    bool persisted; /* opened or successfully published; missing storage is an error */
     /* Exact resolved task instructions are persisted in the private
      * <session>/task.md sidecar. Public session JSON carries metadata only. */
     char *task_body;
@@ -38,6 +39,9 @@ typedef struct {
 tny_session_state *session_new(tny_ctx *ctx);
 /* Open by id or "last". NULL if not found / corrupt / ephemeral. */
 tny_session_state *session_open(tny_ctx *ctx, const char *id_or_last);
+/* Reload the resolved durable state and reconcile its task while retaining an
+ * already-held writer lock. Failure leaves the working document unchanged. */
+int session_reload_locked(tny_session_state *s, char *err, size_t errsz);
 int session_save(tny_session_state *s);
 void session_close(tny_session_state *s);
 
