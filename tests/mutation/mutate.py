@@ -823,6 +823,15 @@ EQUIVALENT = [
     "runtime.c:e->forcing_error = true;",
     "runtime.c:e->terminal = true;",
     "runtime.c:e->terminal_popped = false;",
+    # stream_interrupted has already emitted the terminal turn_end; the engine
+    # ignores the dispatch code once a terminal is queued (after_backend).
+    "openai.c:return -1; /* moot: the turn already ended */",
+    # oa_stall_secs clamps at exactly OA_STALL_SECS_MAX: the capped and the
+    # direct-cast results are the same value there.
+    "openai.c:return v > OA_STALL_SECS_MAX ? OA_STALL_SECS_MAX : (int)v;",
+    # Equality on the stall clock waits one more monotonic millisecond; the
+    # engine re-polls on the published deadline either way.
+    "openai.c:return monotonic_ms() - o->last_byte_ms >= o->stall_ms;",
     # yyjson_arr_foreach is a zero-iteration no-op on NULL/non-arrays
     # (yyjson_arr_size returns 0), so the early-return guard is redundant
     # defense and flipping its ||/&& is unobservable.

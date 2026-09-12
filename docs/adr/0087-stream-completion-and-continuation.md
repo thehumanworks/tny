@@ -131,4 +131,8 @@ release binary at `b80c04b` versus this change:
 | TCP reset mid-body | `stream aborted mid-response`, exit 2, no retry | `stream aborted mid-response: continuing the answer …`, answer completed once, exit 0 |
 | socket open and silent | waits indefinitely (killed by a 12 s timeout) | `stream stalled (no data for 2s): continuing the answer …` with `TNY_PROVIDER_STALL_SECS=2` |
 
-The recorded local results are in the verification contract.
+Recorded gate results (unit, integration, leaks, quality, mutation, size) are
+in the verification contract's *Recorded results* table. The focused mutation
+run over the new predicate, parser, continuation pair, and interruption path
+killed every valid mutant; the stripped Linux release grew by 4 KiB to
+953,512 bytes.

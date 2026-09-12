@@ -367,6 +367,28 @@ def check_stream_interruption(env, ws, wire):
             mock.terminate()
             mock.wait(timeout=5)
 
+    # a disabled stall clock (0) never fires: an ordinary paced stream completes
+    mock, port = start_mock(MOCK_EXPECT_WIRE=wire, MOCK_SLOW_MS="300")
+    try:
+        r = ask_json(
+            dict(env, TNY_PROVIDER_STALL_SECS="0"),
+            ws,
+            port,
+            "--no-save",
+            "list files in .",
+            wire=wire,
+        )
+        assert r.returncode == 0, (
+            f"{wire} clock off: exit {r.returncode}: {r.stderr.decode()}"
+        )
+        assert "MOCK-OK" in json.loads(r.stdout)["output"], (wire, r.stdout)
+        assert b"stalled" not in r.stderr and b"no response for" not in r.stderr, (
+            r.stderr
+        )
+    finally:
+        mock.terminate()
+        mock.wait(timeout=5)
+
     # no budget: the fragment is an error with the partial kept, not an answer
     mock, port = start_mock(MOCK_EXPECT_WIRE=wire, MOCK_CUT_ANSWER_ONCE="clean")
     try:

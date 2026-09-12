@@ -498,7 +498,7 @@ bool oa_stream_complete(bool stream_done, bool wire_chat, const char *finish_rea
 int oa_stall_secs(const char *value) {
     if (!value || !*value) return OA_STALL_SECS;
     long v = strtol(value, NULL, 10);
-    if (v <= 0) return 0;
+    if (v < 1) return 0;
     return v > OA_STALL_SECS_MAX ? OA_STALL_SECS_MAX : (int)v;
 }
 
@@ -677,11 +677,12 @@ static int stream_interrupted(oa_impl *o, const char *what) {
     if (o->text.len) session_recovery_write(o->env.session, o->text.data);
     emit_error(o, TNY_EVENT_ERROR_IO, what, strlen(what));
     emit_turn_end(o, TNY_STOP_ERROR);
-    return -1;
+    return -1; /* moot: the turn already ended */
 }
 
 static bool stream_stalled(oa_impl *o) {
-    return o->stall_ms > 0 && monotonic_ms() - o->last_byte_ms >= o->stall_ms;
+    if (o->stall_ms <= 0) return false; /* clock disabled */
+    return monotonic_ms() - o->last_byte_ms >= o->stall_ms;
 }
 
 static void note_repairs(oa_impl *o, int repairs) {

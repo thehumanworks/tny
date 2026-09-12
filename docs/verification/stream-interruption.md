@@ -25,6 +25,14 @@ python3 tests/integration/test_openai.py         # SI-1 … SI-9 integration row
 python3 tests/integration/test_libtny.py         # SI-9
 ```
 
-## Recorded results
+## Recorded results (Linux x86_64, 2026-09-12, the change that introduced the contract)
 
-Filled in by the change that introduced the contract; update when a row changes.
+| Check | Result |
+| --- | --- |
+| `make test-unit` | 469 tests, 467 passed, 2 skipped (platform), 11,539 assertions; `openai_suite` 16/16 |
+| `tests/integration/test_openai.py` | all assertions passed on both wires, including `check_stream_interruption` (SI-1 … SI-7) and `check_stream_recovery` (SI-8, SI-9) |
+| `make test` (full unit + integration) | 46 integration groups passed; the one failure was `test_version_fast_path` comparing a binary built before an interim commit, and it passed on a rebuild at HEAD |
+| `make leaks` | clean under valgrind |
+| `make warn-strict`, clang-tidy and GCC `-fanalyzer` on `openai.c`, pinned clang-format/ruff checks | clean (`shfmt`/`actionlint` not run locally: no shell or workflow files changed) |
+| `tests/mutation/mutate.py --focus stream-interruption` | 7 valid mutants, 7 killed (4 unit, 3 integration), 0 survived; two boundary-equivalent sites annotated |
+| stripped release size | 953,512 bytes (baseline 949,416; gate 1.0 MiB) |
