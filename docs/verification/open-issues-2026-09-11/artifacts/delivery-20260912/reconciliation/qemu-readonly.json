@@ -1,0 +1,97 @@
+{
+  "architecture_caveat": "Windows ARM64 with x86_64 MSYS2 under Windows x64 emulation; not native x86_64 CI substrate.",
+  "guest_source_build_tests_not_run": true,
+  "host_known_hosts_write_disabled": true,
+  "listeners": [
+    {
+      "exit": 0,
+      "output": "COMMAND     PID  USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nqemu-syst 65737 tomas   18u  IPv4  0x7f8e98064b3f17d      0t0  TCP 127.0.0.1:2222 (LISTEN)\nqemu-syst 65737 tomas   25u  IPv4 0xcf448a55c8b7855d      0t0  TCP 127.0.0.1:5901 (LISTEN)\n",
+      "pid": 65737
+    }
+  ],
+  "ownership_record": {
+    "sha256": "c8f381e06997d99825199823ac2b14c92e2c503f9afdb8b9e1fe620608b3a297",
+    "size": 832
+  },
+  "private_key_content_never_read": true,
+  "processes": [
+    {
+      "cwd": [
+        "/Users/tomas/.cache/tny-verification/open-issues-20260912/windows-runtime"
+      ],
+      "elapsed": "01:42:03",
+      "executable": "/Users/tomas/.cache/tny-verification/open-issues-20260912/windows-runtime/prefix/bin/qemu-system-aarch64",
+      "ownership_note": "Path association is not permission to signal; preserve.",
+      "pid": 65737,
+      "ppid": 1,
+      "task_attributed_by_path": true,
+      "uid": "501"
+    }
+  ],
+  "qmp_read_only_query": {
+    "capabilities": {
+      "return": {}
+    },
+    "greeting": {
+      "QMP": {
+        "capabilities": [
+          "oob"
+        ],
+        "version": {
+          "package": "",
+          "qemu": {
+            "major": 11,
+            "micro": 1,
+            "minor": 1
+          }
+        }
+      }
+    },
+    "query_status": {
+      "return": {
+        "running": true,
+        "status": "running"
+      }
+    }
+  },
+  "ssh": {
+    "argv": [
+      "ssh",
+      "-F",
+      "/dev/null",
+      "-o",
+      "BatchMode=yes",
+      "-o",
+      "StrictHostKeyChecking=yes",
+      "-o",
+      "UpdateHostKeys=no",
+      "-o",
+      "UserKnownHostsFile=/Users/tomas/.cache/tny-verification/open-issues-20260912/windows-runtime/secrets/known_hosts",
+      "-o",
+      "IdentitiesOnly=yes",
+      "-o",
+      "IdentityAgent=none",
+      "-o",
+      "ConnectTimeout=8",
+      "-i",
+      "/Users/tomas/.cache/tny-verification/open-issues-20260912/windows-runtime/secrets/id_ed25519_tnywin",
+      "-p",
+      "2222",
+      "tny@127.0.0.1",
+      "cmd /c ver"
+    ],
+    "exit": 1,
+    "stdout": ""
+  },
+  "task_root": "/Users/tomas/.cache/tny-verification/open-issues-20260912/windows-runtime",
+  "tcp": {
+    "2222": {
+      "connected": true,
+      "ssh_banner_present": true
+    },
+    "5901": {
+      "connected": true
+    }
+  },
+  "utc": "2026-09-12T13:10:05.976048+00:00"
+}

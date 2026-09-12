@@ -38,6 +38,11 @@ typedef struct tny_intercept {
     char *stdin_data;      /* here-doc body or pipe producer output */
     size_t stdin_len;
     char *message; /* refusal text for TNY_INTERCEPT_REFUSED */
+    /* The image plan described to the permission engine, owned here until the
+     * intercept is freed (ADR 0095). It is the only copy: the parser's JSON
+     * document is gone by the time the command runs. `execute` takes a const
+     * intercept and still runs this mutable plan, no cast involved. */
+    struct tny_image_plan *image_plan;
 } tny_intercept;
 
 /* Classify one `terminal` command. Returns NULL — the common case — when the

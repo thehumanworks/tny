@@ -135,6 +135,9 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g) {
         } else if (strcmp(a, "--base-url") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->base_url = v;
+        } else if (strcmp(a, "--base-url-env") == 0) {
+            if (!(v = need_val(argc, argv, &i, a))) return -1;
+            g->base_url_env = v;
         } else if (strcmp(a, "--api-key-env") == 0) {
             if (!(v = need_val(argc, argv, &i, a))) return -1;
             g->api_key_env = v;
@@ -322,9 +325,26 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         }
     }
     /* after resolve: flags beat whatever provider profile was applied */
+    if (g->base_url && g->base_url_env) {
+        fprintf(stderr, "tny: --base-url and --base-url-env are alternatives; pass one\n");
+        tny_ctx_free(ctx);
+        return NULL;
+    }
     if (g->base_url) {
         free(ctx->base_url);
         ctx->base_url = xstrdup(g->base_url);
+    }
+    /* Same precedence as --base-url, for gateway URLs that embed a secret
+     * and so must stay off argv (subagent children use it). */
+    if (g->base_url_env) {
+        const char *u = getenv(g->base_url_env);
+        if (!u || !*u) {
+            fprintf(stderr, "tny: --base-url-env %s: variable is empty\n", g->base_url_env);
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        free(ctx->base_url);
+        ctx->base_url = xstrdup(u);
     }
     if (g->wire_api) {
         if (strcmp(g->wire_api, "responses") != 0 && strcmp(g->wire_api, "chat") != 0) {

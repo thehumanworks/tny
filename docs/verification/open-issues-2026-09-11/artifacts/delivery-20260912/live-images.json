@@ -1,0 +1,58 @@
+{
+  "utc": "2026-09-12T14:14:04.226889+00:00",
+  "binary_sha256": "dd77d64b0cd71e1711cbdfd7886e685c9265103636ecafd04fccb902944bc92a",
+  "scope": "Pre-final service live generation/edit only. No chat vision/preview claim. Generic fixture prompts; no source/customer data uploaded.",
+  "source_sha256": {
+    "src/core/image_service.c": "d8e54dfb646393295b38dd12dd7703bb54ef65c27404097373abc8915a4ef4d0",
+    "src/core/image_codex.c": "3d6bc1d96443e159d3b57e207c1e89fb6cbed8baa2590b5934d73495c34ccf59",
+    "src/cli/cmd_image.c": "cb1b9235afd773e34ac0abdca7c81aba0b11ebce8d6826c03b84b50bf8920773"
+  },
+  "runs": [
+    {
+      "operation": "generate",
+      "exit_code": 0,
+      "result": {
+        "kind": "image",
+        "ok": true,
+        "operation": "generate",
+        "provider": "codex",
+        "model": "gpt-image-2.5-sunburst",
+        "mime_type": "image/png",
+        "bytes": 733474,
+        "requested_size": "auto",
+        "effective_size": "auto",
+        "width": 1254,
+        "height": 1254,
+        "size_status": "auto",
+        "native": true,
+        "transform": null,
+        "operation_id": "3847356dfaf725a4"
+      },
+      "artifact_sha256": "b000dca071314196f027d0235dac91299573a32490ef4d11b190fcaa5e91a73b",
+      "stderr_present": true
+    },
+    {
+      "operation": "edit",
+      "exit_code": 0,
+      "result": {
+        "kind": "image",
+        "ok": true,
+        "operation": "edit",
+        "provider": "codex",
+        "model": "gpt-image-2.5-sunburst",
+        "mime_type": "image/png",
+        "bytes": 1059359,
+        "requested_size": "auto",
+        "effective_size": "auto",
+        "width": 1254,
+        "height": 1254,
+        "size_status": "auto",
+        "native": true,
+        "transform": null,
+        "operation_id": "c1a6a0f190473873"
+      },
+      "artifact_sha256": "1ae8b9779a41a3838cf1ad873279f1cb8f5132f361f85a906bd10eafd69fc1bd",
+      "stderr_present": true
+    }
+  ]
+}

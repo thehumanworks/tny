@@ -2,6 +2,7 @@
  * OS sandbox wrapper; the tny runner and host-provider tools stay outside. */
 #include "core/tools.h"
 #include "core/sandbox.h"
+#include "util/process.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
 
@@ -22,6 +23,14 @@
 #define SHELL_MAX_OUT             (512u * 1024u)
 #define SHELL_PROFILE_PREVIEW_MAX (8u * 1024u)
 #define SHELL_PROFILE_OUTPUT_MAX  (64u * 1024u * 1024u)
+#define SHELL_EXIT_CANCELLED      130 /* the shell's own "interrupted" status */
+
+/* The turn's cooperative cancellation signal (tools.h), read without
+ * consuming it and without re-entering the backend that is waiting on this
+ * call: a frontend pump would recurse into the tool frame it is inside. */
+static bool shell_cancelled(const tools_env *env) {
+    return env->cancelled && env->cancelled(env->cancelled_ud);
+}
 
 static int write_complete(int fd, const char *data, size_t len) {
     while (len) {
@@ -182,6 +191,9 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
         execv(sandbox.argv[0], sandbox.argv);
         _exit(127);
     }
+    /* Also set from here: a cancellation that arrives before the child's own
+     * setpgid(2) must still find the group this process kills. */
+    setpgid(pid, pid);
     tny_sandbox_kind sandbox_kind = sandbox.kind;
     tny_sandbox_command_free(&sandbox);
     close(pipefd[1]);
@@ -194,18 +206,28 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     char *result_path = shell_profile ? result_file_open(env, &result_fd) : NULL;
     size_t output_bytes = 0;
     int64_t deadline = now_ms() + timeout_s * 1000;
-    bool truncated = false, timed_out = false, output_limited = false;
+    bool truncated = false, timed_out = false, output_limited = false, cancelled = false;
     for (;;) {
         if (env->control_pump) env->control_pump(env->control_pump_ud, 0);
+        if (shell_cancelled(env)) {
+            cancelled = true;
+            break;
+        }
         struct pollfd pf = {pipefd[0], POLLIN, 0};
         int left = (int)(deadline - now_ms());
         if (left <= 0) {
             timed_out = true;
             break;
         }
-        int slice = env->control_pump ? 50 : 500;
+        /* The slice bounds how long a cancelled turn keeps a live child. */
+        int slice = env->control_pump || env->cancelled ? 50 : 500;
         int pr = tny_poll(&pf, 1, left > slice ? slice : left);
-        if (pr < 0) break;
+        if (pr < 0) {
+            /* A delivered signal is not a broken pipe: keep the output and
+             * let the probe above decide whether this turn is cancelled. */
+            if (errno == EINTR) continue;
+            break;
+        }
         if (pr == 0) {
             if (env->control_pump) env->control_pump(env->control_pump_ud, 0);
             continue;
@@ -242,18 +264,39 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     }
     close(pipefd[0]);
     int status = 0;
-    if (timed_out || output_limited) {
-        kill(-pid, SIGKILL);
-        kill(pid, SIGKILL);
+    bool reaped = false;
+    /* A child that closed its stdout can still be running, so the wait after
+     * EOF keeps the deadline and the cancellation signal live instead of
+     * blocking in waitpid(2) until the command decides to exit. */
+    while (!cancelled && !timed_out && !output_limited) {
+        pid_t done = waitpid(pid, &status, WNOHANG);
+        if (done == pid) {
+            reaped = true;
+            break;
+        }
+        if (done < 0) {
+            if (errno == EINTR) continue;
+            break; /* nothing left to reap */
+        }
+        if (shell_cancelled(env)) cancelled = true;
+        else if (now_ms() >= deadline) timed_out = true;
+        else tny_poll(NULL, 0, 20);
     }
-    waitpid(pid, &status, 0);
+    /* The unreaped child pins its pid, so the sweep below owns exactly this
+     * command and its descendants — never an unrelated process. */
+    if (!reaped && (cancelled || timed_out || output_limited)) tny_process_kill_tree(pid);
+    while (!reaped && waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
     if (result_fd >= 0) close(result_fd);
     buf_t res;
     buf_init(&res);
     int code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    /* The user interrupted the turn: report that, not the signal this
+     * process chose to stop the command with. */
+    if (cancelled) code = SHELL_EXIT_CANCELLED;
     char *denied_path = sandbox_kind != TNY_SANDBOX_NONE ? tny_sandbox_denied_path(out.data) : NULL;
     if (shell_profile) {
         buf_appendf(&res, "exit: %d\nbytes: %zu\ncwd: %s\n", code, output_bytes, env->ctx->cwd);
+        if (cancelled) buf_appends(&res, "cancelled: interrupted and the command was killed\n");
         if (denied_path)
             buf_appendf(&res,
                         "error: os sandbox denied a write to %s; add its parent directory to "
@@ -285,6 +328,7 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     }
     if (timed_out)
         buf_appendf(&res, "(timed out after %llds and was killed)\n", (long long)timeout_s);
+    if (cancelled) buf_appends(&res, "(cancelled: interrupted and the command was killed)\n");
     buf_appendf(&res, "exit code: %d\n", code);
     if (out.len) {
         buf_appends(&res, "output:\n");

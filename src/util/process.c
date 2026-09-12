@@ -1,13 +1,21 @@
 #include "util/process.h"
 
+#include "util/util.h"
+
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 #include <unistd.h>
+#ifndef __EMSCRIPTEN__
+#include <spawn.h>
+#endif
 
 #if defined(__APPLE__)
 #include <libproc.h>
+#include <mach-o/dyld.h>
 #elif defined(__linux__)
 #include <dirent.h>
 #include <stdio.h>
@@ -99,5 +107,81 @@ int tny_process_kill_tree(pid_t root) {
     if (kill(-root, SIGKILL) != 0 && errno != ESRCH) rc = -1;
     if (kill(root, SIGKILL) != 0 && errno != ESRCH) rc = -1;
     return rc;
+#endif
+}
+
+char *tny_process_self_path(void) {
+#ifdef __EMSCRIPTEN__
+    errno = ENOTSUP;
+    return NULL;
+#else
+    char buf[4096];
+#if defined(__APPLE__)
+    uint32_t sz = sizeof buf;
+    if (_NSGetExecutablePath(buf, &sz) != 0) return NULL;
+#else
+    ssize_t n = readlink("/proc/self/exe", buf, sizeof buf - 1);
+    if (n <= 0) return NULL;
+    if ((size_t)n == sizeof buf - 1) {
+        errno = ENAMETOOLONG;
+        return NULL;
+    }
+    buf[n] = 0;
+#endif
+    char *abs = path_abs(buf);
+    if (abs && abs[0] == '/') return abs;
+    free(abs);
+    errno = ENOENT;
+    return NULL;
+#endif
+}
+
+int tny_process_spawn(char *const argv[], char *const envp[], int in_fd, int out_fd, pid_t *pid) {
+#ifdef __EMSCRIPTEN__
+    (void)argv;
+    (void)envp;
+    (void)in_fd;
+    (void)out_fd;
+    (void)pid;
+    return ENOTSUP;
+#else
+    if (!argv || !argv[0] || argv[0][0] != '/' || !envp || in_fd < 0 || out_fd < 0 || !pid)
+        return EINVAL;
+    /* Some spawn implementations defer exec errors to child exit 127.
+     * Diagnose facts already known here; this is not an atomic exec check.
+     * A later failure still belongs to the actual child outcome. */
+    struct stat executable;
+    if (stat(argv[0], &executable) != 0) return errno;
+    if (!S_ISREG(executable.st_mode) || !(executable.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
+        return EACCES;
+    posix_spawn_file_actions_t actions;
+    posix_spawnattr_t attr;
+    int e = posix_spawn_file_actions_init(&actions);
+    if (e) return e;
+    bool attr_ready = false;
+    e = posix_spawn_file_actions_adddup2(&actions, in_fd, STDIN_FILENO);
+    if (!e) e = posix_spawn_file_actions_adddup2(&actions, out_fd, STDOUT_FILENO);
+    if (!e) e = posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+    if (!e) {
+        e = posix_spawnattr_init(&attr);
+        attr_ready = e == 0;
+    }
+    sigset_t defaults, empty;
+    sigemptyset(&defaults);
+    sigemptyset(&empty);
+    sigaddset(&defaults, SIGINT);
+    sigaddset(&defaults, SIGTERM);
+    sigaddset(&defaults, SIGHUP);
+    sigaddset(&defaults, SIGPIPE);
+    if (!e) e = posix_spawnattr_setsigdefault(&attr, &defaults);
+    if (!e) e = posix_spawnattr_setsigmask(&attr, &empty);
+    if (!e) e = posix_spawnattr_setpgroup(&attr, 0);
+    if (!e)
+        e = posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF |
+                                                POSIX_SPAWN_SETSIGMASK);
+    if (!e) e = posix_spawn(pid, argv[0], &actions, &attr, argv, envp);
+    if (attr_ready) posix_spawnattr_destroy(&attr);
+    posix_spawn_file_actions_destroy(&actions);
+    return e;
 #endif
 }

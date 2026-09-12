@@ -14,6 +14,8 @@ from pathlib import Path
 TOKEN = "toolkit-fixture-token"
 ACCOUNT = "toolkit-fixture-account"
 OPTIMISE_TOKEN = "toolkit-fixture-optimise-token"
+SEED = 4242
+REQUEST_ID = "fixture-request-id"
 TEXT = "Improve src/context.txt while preserving UTF-8. Café."
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0xoAAAAASUVORK5CYII="
@@ -97,6 +99,8 @@ class Handler(BaseHTTPRequestHandler):
                         "token": TOKEN,
                         "account": ACCOUNT,
                         "optimiseToken": OPTIMISE_TOKEN,
+                        "seed": SEED,
+                        "requestId": REQUEST_ID,
                         "python": sys.executable,
                     }
                 ).encode(),
@@ -142,12 +146,14 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.endswith("/images/generations") or self.path.endswith(
             "/images/edits"
         ):
-            self.reply(
-                200,
-                json.dumps(
-                    {"data": [{"b64_json": base64.b64encode(PNG).decode()}]}
-                ).encode(),
-            )
+            item = {"b64_json": base64.b64encode(PNG).decode()}
+            envelope = {"data": [item]}
+            # Only the "identified" mode returns provider metadata, so the
+            # default mode proves absence is preserved rather than invented.
+            if owner.mode == "identified":
+                item["seed"] = SEED
+                envelope["request_id"] = REQUEST_ID
+            self.reply(200, json.dumps(envelope).encode())
         elif self.path == "/backend-api/pronunciation/synthesize?format=mp3":
             self.reply(200, MP3, "audio/mpeg")
         elif chat:

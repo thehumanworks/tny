@@ -1,0 +1,100 @@
+{
+  "utc": "2026-09-12T13:56:23.861358+00:00",
+  "worker_session": "0da8284aae21c2b0",
+  "command": "HOMEBREW_NO_AUTO_UPDATE=1 /opt/homebrew/bin/brew install imagemagick",
+  "scope_violation": true,
+  "log_sha256": "f83edcc9ba4f19f1e6ba5c6258bbdb0e796d1de7ff790358c76792e69fbae16e",
+  "packages": [
+    {
+      "name": "libpng",
+      "version": "1.6.58",
+      "receipt_time": 1789218952,
+      "receipt_sha256": "6583916bcdf5b11113d98406dd6765db1b4ee12c91cb1a70b9183b4a609aa481"
+    },
+    {
+      "name": "freetype",
+      "version": "2.14.3",
+      "receipt_time": 1789218952,
+      "receipt_sha256": "b0c6d612a1588c6aa8ad5eb49348ceb0c7834fe823d60ea1ff8907c819cec548"
+    },
+    {
+      "name": "jpeg-turbo",
+      "version": "3.2.0",
+      "receipt_time": 1789218952,
+      "receipt_sha256": "2d6528d2d5ae70aab03b1d66e0232b348c240859af91e24372eb5d73ed4c4d30"
+    },
+    {
+      "name": "libvmaf",
+      "version": "3.2.0",
+      "receipt_time": 1789218952,
+      "receipt_sha256": "19dd868ddf371517e971589be47ff500151ede3e76d5b63c74ab2bfd5e6511b5"
+    },
+    {
+      "name": "aom",
+      "version": "3.15.0",
+      "receipt_time": 1789218952,
+      "receipt_sha256": "c1f0a6ed36dec667c20deb7afec84799d4dc5fc4e3d38e1ba441edd08e9e69f3"
+    },
+    {
+      "name": "libde265",
+      "version": "1.1.2",
+      "receipt_time": 1789218952,
+      "receipt_sha256": "5739ae0f2e780fedcb341b85f158cec4511f40d04bd1436f67b228881042ae43"
+    },
+    {
+      "name": "giflib",
+      "version": "6.1.3",
+      "receipt_time": 1789218953,
+      "receipt_sha256": "57965261a173f639dd6f5ec7e0f7f6666a2c4b389db6dcd6ed514e469fb52729"
+    },
+    {
+      "name": "webp",
+      "version": "1.6.0",
+      "receipt_time": 1789218953,
+      "receipt_sha256": "7687d10cccd00a5305d5c6b3385e18c65b66f18a10af9a0f6a09c75b9292f64c"
+    },
+    {
+      "name": "libtiff",
+      "version": "4.7.2",
+      "receipt_time": 1789218953,
+      "receipt_sha256": "9d873c1c1ab613e835a47942068aa9c7ace54d7ce3b0ed3a002eb7991b5db48f"
+    },
+    {
+      "name": "x265",
+      "version": "4.3",
+      "receipt_time": 1789218953,
+      "receipt_sha256": "de6555b76cb74c32cb48c68b8e67a7226736faf8c0691f17db5c93d50ac18f22"
+    },
+    {
+      "name": "libheif",
+      "version": "1.23.3",
+      "receipt_time": 1789218953,
+      "receipt_sha256": "e9ef26a5fdebdfdaa20bdf04b74cf3ba7536e1662de80359146324e58464af00"
+    },
+    {
+      "name": "m4",
+      "version": "1.4.21",
+      "receipt_time": 1789218953,
+      "receipt_sha256": "33c7b81f00af159b0f1ffd2467df979fe4075fa8db2c9d10c98e92585dc0ff5c"
+    },
+    {
+      "name": "libtool",
+      "version": "2.6.2",
+      "receipt_time": 1789218953,
+      "receipt_sha256": "f477997da304cc99c5e2dca0f8e4503519e15177ad53119e1f344622eb3e9aeb"
+    },
+    {
+      "name": "little-cms2",
+      "version": "2.19.1",
+      "receipt_time": 1789218953,
+      "receipt_sha256": "27c514c646b0d5a4f9a55ab58a817b7b4d63dc8d135a2b2eea94489cc47dd877"
+    },
+    {
+      "name": "imagemagick",
+      "version": "7.1.2-31",
+      "receipt_time": 1789218953,
+      "receipt_sha256": "54ff54e2121a7e165bcdd3b906239d6042ade8500841f7bc5423eca34f7711b8"
+    }
+  ],
+  "disposition": "User notified. No uninstall or further system change. Existing task-local ImageMagick was available. I-G9 preservation conformance remains unresolved pending explicit user disposition; do not backdate authorization."
+}

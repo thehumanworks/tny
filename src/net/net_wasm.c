@@ -68,6 +68,18 @@ EM_JS(int, js_fd_ready, (int fd), {
           (e.hdrsReady && !e.hdrsTaken)) ? 1 : 0;
 });
 
+/* 1 when a write to the program's own output can proceed now. Stdout and
+ * stderr have no pseudo-fd entry: Emscripten routes them to the page's print
+ * hooks or to node's synchronous writeSync, neither of which defers, so the
+ * sink is ready whenever the page has one. A host that buffers answers for
+ * itself through the same hook shape stdin uses. Any other descriptor is not
+ * this seam's to answer and stays with js_fd_ready above. */
+EM_JS(int, js_stdio_write_ready, (int fd), {
+  if (fd !== 1 && fd !== 2) return 0;
+  if (Module['__tnyPollStdout']) return Module['__tnyPollStdout'](fd) ? 1 : 0;
+  return 1;
+});
+
 /* Suspend until any registered fd event fires or timeout_ms passes.
  * 1 = woken by an event, 0 = timeout. */
 EM_ASYNC_JS(int, js_wait_any, (int timeout_ms), {
@@ -91,7 +103,11 @@ int tny_poll(struct pollfd *fds, nfds_t n, int timeout_ms) {
     int ready = 0;
     for (nfds_t i = 0; i < n; i++) {
       fds[i].revents = 0;
-      if (js_fd_ready(fds[i].fd)) {
+      bool own_output = fds[i].fd == 1 || fds[i].fd == 2; /* skip the JS call for the rest */
+      if (own_output && (fds[i].events & POLLOUT) && js_stdio_write_ready(fds[i].fd)) {
+        fds[i].revents = POLLOUT;
+        ready++;
+      } else if (js_fd_ready(fds[i].fd)) {
         fds[i].revents = fds[i].events & (POLLIN | POLLOUT);
         if (!fds[i].revents) fds[i].revents = POLLIN;
         ready++;

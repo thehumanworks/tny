@@ -4,6 +4,8 @@
  * deep home directories, and the isolation switch. The full fork lifecycle
  * is covered end to end by tests/integration/test_isolation.py. */
 #include "greatest.h"
+#include "cli/cmd_control.h"
+#include "core/image_preview.h"
 #include "core/runner.h"
 #include "core/config.h"
 #include "core/session.h"
@@ -296,6 +298,13 @@ TEST runner_roles_enforce_operation_allowlists(void) {
     ASSERT(tny_runner_role_allows(TNY_RUNNER_TOOL, "ask_user"));
     ASSERT(tny_runner_role_allows(TNY_RUNNER_TOOL, "image_attach"));
     ASSERT_FALSE(tny_runner_role_allows(TNY_RUNNER_TOOL, "turn"));
+    /* exactly one narrow addition for the tool role (docs/adr/0096) */
+    ASSERT(tny_runner_role_allows(TNY_RUNNER_TOOL, "image_preview"));
+    ASSERT_FALSE(tny_runner_role_allows(TNY_RUNNER_TOOL, "cancel"));
+    ASSERT_FALSE(tny_runner_role_allows(TNY_RUNNER_TOOL, "perm"));
+    ASSERT_FALSE(tny_runner_role_allows(TNY_RUNNER_TOOL, "end"));
+    ASSERT_FALSE(tny_runner_role_allows(TNY_RUNNER_OWNER, "image_preview"));
+    ASSERT_FALSE(tny_runner_role_allows(TNY_RUNNER_OBSERVER, "image_preview"));
     PASS();
 }
 
@@ -631,6 +640,149 @@ TEST runner_image_attach_validates_root_and_magic_before_queueing(void) {
     PASS();
 }
 
+/* Sequential tool-role control requests — what a generated-image preview does
+ * repeatedly — reuse client slots. A reused slot must demand its own handshake
+ * and must never lend the previous connection's role to the new client. */
+TEST runner_reused_client_slot_handshakes_again_without_inheriting_a_role(void) {
+    live_runner x;
+    ASSERT_EQ(0, live_runner_begin(&x));
+    tny_runner_client *observer =
+        tny_runner_client_connect(x.sock, 4000, TNY_RUNNER_OBSERVER, false);
+    ASSERT(observer);
+
+    for (int attempt = 0; attempt < 4; attempt++) {
+        int tool = unix_connect(x.sock);
+        ASSERT(tool >= 0);
+        char id[32];
+        snprintf(id, sizeof id, "reuse-%d", attempt);
+        buf_t wire;
+        buf_init(&wire);
+        buf_appends(&wire, "{\"op\":\"hello\",\"role\":\"tool\"}\n{\"op\":\"ask_user\",\"id\":");
+        jescape(&wire, id);
+        buf_appends(&wire, ",\"question\":\"still there?\"}\n");
+        ASSERT_EQ((ssize_t)wire.len, write(tool, wire.data, wire.len));
+        buf_free(&wire);
+        char *reply = read_control_result(tool, id);
+        ASSERT(reply);
+        ASSERT(strstr(reply, "no interactive owner is attached"));
+        ASSERT_FALSE(strstr(reply, "not allowed for this client role") != NULL);
+        free(reply);
+        close(tool);
+        /* let the runner reap the closed slot so the next connection reuses it */
+        struct pollfd idle = {-1, 0, 0};
+        tny_poll(&idle, 1, 80);
+    }
+
+    /* an owner really did sit in one of those slots; a later tool client must
+     * still be refused owner-only operations */
+    tny_runner_client *owner = tny_runner_client_connect(x.sock, 4000, TNY_RUNNER_OWNER, true);
+    ASSERT(owner);
+    tny_runner_msg *hello = wait_runner_msg(owner, TNY_RMSG_HELLO);
+    ASSERT(hello);
+    tny_runner_msg_free(hello);
+    tny_runner_client_close(owner);
+    struct pollfd idle = {-1, 0, 0};
+    tny_poll(&idle, 1, 120);
+    int tool = unix_connect(x.sock);
+    ASSERT(tool >= 0);
+    const char *owner_op = "{\"op\":\"hello\",\"role\":\"tool\"}\n"
+                           "{\"op\":\"ask_user_reply\",\"id\":\"reuse-owner\","
+                           "\"answer\":\"blue\"}\n";
+    ASSERT_EQ((ssize_t)strlen(owner_op), write(tool, owner_op, strlen(owner_op)));
+    char *reply = read_control_result(tool, "reuse-owner");
+    ASSERT(reply);
+    ASSERT(strstr(reply, "not allowed for this client role"));
+    free(reply);
+    close(tool);
+    tny_runner_client_close(observer);
+    live_runner_end(&x);
+    PASS();
+}
+
+/* The private control primitive (docs/adr/0096) against a real runner: it
+ * returns data with no stdio, the new image_preview op carries the receiver's
+ * status and safe code, and the existing manual replies are unchanged. */
+TEST runner_control_primitive_returns_preview_status_and_keeps_manual_replies(void) {
+    live_runner x;
+    ASSERT_EQ(0, live_runner_begin(&x));
+    char png[700];
+    snprintf(png, sizeof png, "%s/shot.png", x.workspace);
+    const unsigned char bytes[] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 'p', 'v', '1', '!'};
+    ASSERT_EQ(0, file_write_atomic(png, bytes, sizeof bytes));
+    uint8_t digest[32];
+    char hash[65];
+    static const char *hex = "0123456789abcdef";
+    ASSERT(sha256(bytes, sizeof bytes, digest));
+    for (int i = 0; i < 32; i++) {
+        hash[i * 2] = hex[digest[i] >> 4];
+        hash[i * 2 + 1] = hex[digest[i] & 0xf];
+    }
+    hash[64] = '\0';
+    const char *previous = getenv("TNY_SESSION_SOCK");
+    char *saved = previous ? xstrdup(previous) : NULL;
+    setenv("TNY_SESSION_SOCK", x.sock, 1);
+    /* an observer keeps this idle runner alive across the exchanges below */
+    tny_runner_client *observer =
+        tny_runner_client_connect(x.sock, 4000, TNY_RUNNER_OBSERVER, false);
+    ASSERT(observer);
+
+    /* this runner serves no turn: the receiver decides, and says so */
+    tny_control_reply reply = {0};
+    ASSERT_EQ(TNY_CONTROL_EXCHANGE_OK,
+              tny_control_request(TNY_CONTROL_OP_IMAGE_PREVIEW, png, hash, &reply));
+    ASSERT_FALSE(reply.ok);
+    ASSERT(reply.status); /* the optional fields must be present for this op */
+    ASSERT(reply.error_code);
+    ASSERT_STR_EQ("unavailable_session", reply.status);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_NO_SESSION, reply.error_code);
+    ASSERT(reply.error && *reply.error);
+    ASSERT(reply.id && *reply.id);
+    tny_control_reply_free(&reply);
+
+    /* a malformed expected hash is refused by the receiver's validation, which
+     * keeps the established error-only reply shape */
+    ASSERT_EQ(TNY_CONTROL_EXCHANGE_OK,
+              tny_control_request(TNY_CONTROL_OP_IMAGE_PREVIEW, png, "not-a-hash", &reply));
+    ASSERT_FALSE(reply.ok);
+    ASSERT(reply.error && strstr(reply.error, "expected_sha256"));
+    ASSERT_EQ(NULL, reply.status);
+    ASSERT_EQ(NULL, reply.error_code);
+    tny_control_reply_free(&reply);
+
+    /* the manual verbs keep their exact wire answers */
+    ASSERT_EQ(TNY_CONTROL_EXCHANGE_OK,
+              tny_control_request(TNY_CONTROL_OP_IMAGE_ATTACH, png, NULL, &reply));
+    ASSERT_FALSE(reply.ok);
+    ASSERT(reply.error);
+    ASSERT_STR_EQ("no active turn", reply.error);
+    ASSERT_EQ(NULL, reply.status);
+    ASSERT_EQ(NULL, reply.error_code);
+    tny_control_reply_free(&reply);
+
+    ASSERT_EQ(TNY_CONTROL_EXCHANGE_OK,
+              tny_control_request(TNY_CONTROL_OP_ASK_USER, "which branch?", NULL, &reply));
+    ASSERT_FALSE(reply.ok);
+    ASSERT(reply.error);
+    ASSERT_STR_EQ("no interactive owner is attached", reply.error);
+    ASSERT_EQ(NULL, reply.answer);
+    ASSERT_EQ(NULL, reply.status);
+    tny_control_reply_free(&reply);
+
+    /* no socket is a distinct state, not a printed message or an exit */
+    unsetenv("TNY_SESSION_SOCK");
+    ASSERT_EQ(TNY_CONTROL_EXCHANGE_NO_SOCKET,
+              tny_control_request(TNY_CONTROL_OP_IMAGE_PREVIEW, png, hash, &reply));
+    ASSERT_FALSE(reply.ok);
+    ASSERT_EQ(NULL, reply.status);
+    tny_control_reply_free(&reply);
+
+    if (saved) setenv("TNY_SESSION_SOCK", saved, 1);
+    free(saved);
+    tny_runner_client_close(observer);
+    live_runner_end(&x);
+    PASS();
+}
+
 SUITE(runner_suite) {
     RUN_TEST(runner_reads_end_before_owner_eof);
     RUN_TEST(runner_wire_whole_buffer);
@@ -643,4 +795,6 @@ SUITE(runner_suite) {
     RUN_TEST(runner_correlates_question_and_fails_closed_on_owner_disconnect);
     RUN_TEST(runner_terminal_pumps_control_while_child_asks_user);
     RUN_TEST(runner_image_attach_validates_root_and_magic_before_queueing);
+    RUN_TEST(runner_reused_client_slot_handshakes_again_without_inheriting_a_role);
+    RUN_TEST(runner_control_primitive_returns_preview_status_and_keeps_manual_replies);
 }

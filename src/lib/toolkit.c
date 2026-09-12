@@ -27,6 +27,13 @@ struct tny_toolkit_job {
     yyjson_doc *doc;
     int operation;
     buf_t result;
+    /* Private: the buffer holds a complete, locally constructed strict-image
+     * failure object rather than a success result. Never part of the ABI. */
+    bool image_detail;
+    int32_t image_failure_status; /* exact local strict-size status, never diagnostic text */
+    /* Private: the paid artifact is on disk and only its manifest failed, so
+     * this failure outranks a late cancellation (ADR 0095). */
+    bool image_committed;
 };
 
 static const char *const operations[] = {"generate_image", "edit_image", "speak",
@@ -82,8 +89,12 @@ static bool request_valid(tny_toolkit_job *job) {
     static const char *const envelope[] = {"version", "operation", "config", "request"};
     static const char *const config[] = {"workspace",          "settings_path",  "chatgpt_token",
                                          "chatgpt_account_id", "codex_base_url", "xai_api_key"};
-    static const char *const image[] = {"prompt",  "output_file", "provider", "model",
-                                        "quality", "size",        "images"};
+    /* Generate accepts the first nine names; edit adds the two reference
+     * forms. Adding a name here is the deliberate act that lets an SDK option
+     * through, so nothing new is silently discarded or silently accepted. */
+    static const char *const image[] = {
+        "prompt",      "output_file",      "provider",      "model",    "quality", "size",
+        "strict_size", "persist_manifest", "from_manifest", "artifact", "images"};
     static const char *const speech[] = {"text", "output_file", "provider", "voice"};
     static const char *const transcribe[] = {"input_file", "provider"};
     static const char *const dictate[] = {"seconds", "device", "provider"};
@@ -110,20 +121,32 @@ static bool request_valid(tny_toolkit_job *job) {
     switch (job->operation) {
     case GENERATE:
     case EDIT: {
-        if (!fields(r, image, job->operation == EDIT ? 7 : 6) ||
-            !string_field(r, "prompt", TNY_IMAGE_PROMPT_MAX, true) ||
+        yyjson_val *strict = jget(r, "strict_size"), *persist = jget(r, "persist_manifest");
+        const char *source = jget_str(r, "from_manifest");
+        const char *artifact = jget_str(r, "artifact");
+        if (!fields(r, image, job->operation == EDIT ? 11 : 9) ||
+            /* A rerun supplies the recorded prompt; anything else needs one. */
+            !string_field(r, "prompt", TNY_IMAGE_PROMPT_MAX, !source) ||
             !string_field(r, "output_file", 4096, true) || !string_field(r, "model", 128, false) ||
-            !string_field(r, "quality", 16, false) || !string_field(r, "size", 32, false))
+            !string_field(r, "quality", 16, false) || !string_field(r, "size", 32, false) ||
+            !string_field(r, "from_manifest", 4096, false) ||
+            !string_field(r, "artifact", 4096, false) || (strict && !yyjson_is_bool(strict)) ||
+            (persist && !yyjson_is_bool(persist)))
             return false;
         const char *quality = jget_str(r, "quality");
         if (quality && strcmp(quality, "auto") != 0 && strcmp(quality, "low") != 0 &&
             strcmp(quality, "medium") != 0 && strcmp(quality, "high") != 0 &&
             strcmp(quality, "xhigh") != 0 && strcmp(quality, "max") != 0)
             return false;
-        if (job->operation == GENERATE) return true;
         yyjson_val *images = jget(r, "images");
-        if (!yyjson_is_arr(images) || !yyjson_arr_size(images) || yyjson_arr_size(images) > 5)
-            return false;
+        /* A rerun carries its own references; mixing in new ones or a second
+         * record would leave the operation ambiguous. */
+        if (source && (artifact || images)) return false;
+        if (job->operation == GENERATE) return !artifact;
+        if (source) return true;
+        size_t count = yyjson_arr_size(images) + (artifact ? 1u : 0u);
+        if (images && !yyjson_is_arr(images)) return false;
+        if (!count || count > 5) return false;
         size_t i, n;
         yyjson_val *v;
         yyjson_arr_foreach(images, i, n, v) if (!string_value(v, 4096, true, false)) return false;
@@ -175,6 +198,8 @@ static void text_result(tny_toolkit_job *job, const char *provider, const char *
 
 static int run_image(tny_toolkit_job *job, tny_ctx *ctx, yyjson_val *r, char *err, size_t len) {
     char *output = workspace_path(ctx, jget_str(r, "output_file"));
+    char *source = workspace_path(ctx, jget_str(r, "from_manifest"));
+    yyjson_val *persist = jget(r, "persist_manifest");
     tny_image_request req = {.edit = job->operation == EDIT,
                              .prompt = jget_str(r, "prompt"),
                              .provider = jget_str(r, "provider"),
@@ -182,16 +207,52 @@ static int run_image(tny_toolkit_job *job, tny_ctx *ctx, yyjson_val *r, char *er
                              .quality = jget_str(r, "quality"),
                              .size = jget_str(r, "size"),
                              .output_file = output,
+                             .strict_size = yyjson_get_bool(jget(r, "strict_size")),
+                             .no_manifest = persist && !yyjson_get_bool(persist),
+                             .from_manifest = source,
                              .cancelled = stopped,
                              .userdata = job};
+    const char *artifact = jget_str(r, "artifact");
+    if (artifact) {
+        /* Declared first, ahead of any explicit reference paths. */
+        req.image_is_artifact[req.image_count] = true;
+        req.images[req.image_count++] = workspace_path(ctx, artifact);
+    }
     yyjson_val *images = jget(r, "images");
-    req.image_count = yyjson_arr_size(images);
-    for (size_t i = 0; i < req.image_count; i++)
-        req.images[i] = workspace_path(ctx, yyjson_get_str(yyjson_arr_get(images, i)));
-    tny_image_result result;
+    for (size_t i = 0; i < yyjson_arr_size(images); i++)
+        req.images[req.image_count++] =
+            workspace_path(ctx, yyjson_get_str(yyjson_arr_get(images, i)));
+    tny_image_result result = {0}; /* readable even if the run never starts */
     int rc = tny_alloc_scope_failed() ? 1 : tny_image_run(ctx, &req, &result, err, len);
     if (!rc) tny_image_result_json(&req, &result, &job->result);
+    /* The artifact is committed and exactly tny's manifest finalization
+     * failed: an I/O outcome that still names the file that was kept. */
+    else if (tny_image_retained_failure(&result)) {
+        job->image_committed = true;
+        job->image_failure_status = TNY_STATUS_IO;
+        tny_image_retained_json(&req, &result, err, &job->result);
+        if (job->result.oom) {
+            if (job->result.data) secure_zero(job->result.data, job->result.len);
+            buf_clear(&job->result);
+        } else job->image_detail = true;
+    }
+    /* The code is what selects this path, so name that precondition here
+     * rather than leaving it implied by the predicate in another unit. */
+    else if (result.code && tny_image_strict_failure(&result)) {
+        job->image_failure_status = strcmp(result.code, TNY_IMAGE_CODE_STRICT_INVALID) == 0
+                                        ? TNY_STATUS_INVALID_ARGUMENT
+                                        : TNY_STATUS_PROTOCOL;
+        /* Only tny's own strict-size decision may leave a failure result, and
+         * only once it is complete: a truncated object is dropped, and run()
+         * turns the same exhaustion into a plain out-of-memory failure. */
+        tny_image_error_json(&req, &result, err, &job->result);
+        if (job->result.oom) {
+            if (job->result.data) secure_zero(job->result.data, job->result.len);
+            buf_clear(&job->result);
+        } else job->image_detail = true;
+    }
     for (size_t i = 0; i < req.image_count; i++) free((void *)req.images[i]);
+    free(source);
     free(output);
     return rc;
 }
@@ -308,10 +369,18 @@ static int32_t run(tny_toolkit_job *job) {
     }
     tny_ctx_free(ctx);
     if (tny_alloc_scope_failed() || job->result.oom) return TNY_STATUS_OOM;
+    /* A committed artifact whose record failed is an I/O failure, decided
+     * before cancellation is even consulted: the file exists, so reporting
+     * "cancelled" and dropping its detail would hide paid work (ADR 0095). */
+    if (job->image_committed && job->image_failure_status) return job->image_failure_status;
     /* A completed artifact wins a late cancellation: never report cancellation
      * after a successful atomic rename. All services check before committing. */
     if (!rc) return TNY_STATUS_OK;
     if (rc == 130 || stopped(job)) return TNY_STATUS_CANCELLED;
+    /* Strict-size outcomes are tny's own decision, never provider text: an
+     * unusable size request is an argument error, and returned bytes that miss
+     * the required dimensions are a protocol-level rejection. */
+    if (job->image_failure_status) return job->image_failure_status;
     if (strstr(err, "timed out") || strstr(err, "timeout")) return TNY_STATUS_TIMEOUT_ERROR;
     if (strstr(err, "login") || strstr(err, "credential") || strstr(err, "API key"))
         return TNY_STATUS_AUTH;
@@ -349,6 +418,19 @@ int32_t tny_toolkit_job_create(tny_bytes json, tny_toolkit_job **out, tny_error 
     return TNY_STATUS_OK;
 }
 
+/* Wipe and drop a staged result unless a complete local image-failure object —
+ * a strict-size rejection or a retained artifact — is allowed to survive this
+ * outcome. Successful results never reach this. */
+static void clear_result(tny_toolkit_job *job, bool final_override) {
+    if (job->image_detail && !final_override) return;
+    job->image_detail = false;
+    /* Clearing the detail also clears the claim that one was committed; the
+     * artifact itself is never touched. */
+    job->image_committed = false;
+    if (job->result.data) secure_zero(job->result.data, job->result.len);
+    buf_clear(&job->result);
+}
+
 int32_t tny_toolkit_job_run(tny_toolkit_job *job, tny_error **error) {
     tny_alloc_scope_begin("toolkit_run");
     if (error) *error = NULL;
@@ -360,8 +442,11 @@ int32_t tny_toolkit_job_run(tny_toolkit_job *job, tny_error **error) {
     int32_t status = run(job);
     if (tny_alloc_scope_failed()) status = TNY_STATUS_OOM;
     if (status != TNY_STATUS_OK) {
-        if (job->result.data) secure_zero(job->result.data, job->result.len);
-        buf_clear(&job->result);
+        /* A complete strict-size or retained-artifact object is tny's own safe
+         * decision and stays readable through the existing accessor. A status
+         * of cancelled or exhausted always wins: those outcomes leave no
+         * result at all — and a committed artifact never becomes either. */
+        clear_result(job, status == TNY_STATUS_CANCELLED || status == TNY_STATUS_OOM);
         /* Provider errors can contain prompts and credentials. Expose only a
          * stable category through SDK exceptions, never their response body. */
         status = tny_lib_error(
@@ -374,6 +459,9 @@ int32_t tny_toolkit_job_run(tny_toolkit_job *job, tny_error **error) {
             : status == TNY_STATUS_TIMEOUT_ERROR ? "toolkit operation timed out"
             : status == TNY_STATUS_OOM           ? "out of memory"
                                                  : "toolkit operation failed");
+        /* Building that error can itself exhaust the scope and rewrite the
+         * status; the same rule then applies to the staged detail. */
+        clear_result(job, status == TNY_STATUS_CANCELLED || status == TNY_STATUS_OOM);
     }
     atomic_store(&job->state, JOB_DONE);
     return status;

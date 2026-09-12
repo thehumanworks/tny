@@ -41,6 +41,13 @@
       "$ref": "#/$defs/providerFastDefault",
       "description": "Paid fast tier globally or by provider. Unsupported providers fail clearly."
     },
+    "image_input": {
+      "type": "object",
+      "description": "Conversation image input per provider: true means configured, unverified (tny never checks a live entitlement); false refuses --image, read_image and attachments for that provider. Absent providers stay unknown and keep their existing explicit image behavior. Keys are canonical provider selectors; named ACP agents use acp@NAME. Image generation is independent and never gated by this map.",
+      "propertyNames": { "pattern": "^(acp@)?[A-Za-z0-9_-]+$", "maxLength": 256 },
+      "maxProperties": 1024,
+      "additionalProperties": { "type": "boolean" }
+    },
     "permission_mode": {
       "enum": ["ask", "auto", "yolo"],
       "description": "Default permission mode."
@@ -111,7 +118,7 @@
     }
   },
   "patternProperties": {
-    "^(?!\\$schema$|provider$|model$|models$|optimise$|effort$|fast$|permission_mode$|tools$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_command$|web_search_url$|mcp$)[A-Za-z0-9_-]+$": {
+    "^(?!\\$schema$|provider$|model$|models$|optimise$|effort$|fast$|image_input$|permission_mode$|tools$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_command$|web_search_url$|mcp$)[A-Za-z0-9_-]+$": {
       "$ref": "#/$defs/openAIProfile",
       "description": "Named OpenAI-compatible provider profile."
     }

@@ -24,8 +24,31 @@ static bool available(const tny_ctx *ctx, char *err, size_t len) {
     return ok;
 }
 
+/* Copy only the two scalar identifiers this endpoint is known to return, and
+ * only when they are actually present with the right JSON type and within
+ * bounds. Absence stays absence: no timestamp, local id or requested value is
+ * promoted into one, and no raw provider object is retained. */
+static void capture_metadata(tny_image_wire *wire, yyjson_val *root, yyjson_val *item) {
+    if (!wire) return;
+    yyjson_val *seed = jget(item, "seed");
+    if (!seed) seed = jget(root, "seed");
+    if (yyjson_is_int(seed)) {
+        wire->seed = yyjson_get_sint(seed);
+        wire->have_seed = true;
+    }
+    yyjson_val *id = jget(root, "request_id");
+    if (!id) id = jget(root, "id");
+    size_t n = yyjson_get_len(id);
+    const char *s = yyjson_get_str(id);
+    if (!s || !n || n >= sizeof wire->request_id) return;
+    for (size_t i = 0; i < n; i++)
+        if ((unsigned char)s[i] < 0x20 || (unsigned char)s[i] > 0x7e) return;
+    memcpy(wire->request_id, s, n);
+    wire->request_id[n] = 0;
+}
+
 static int render(const tny_ctx *ctx, const tny_image_request *r, const tny_image_input *inputs,
-                  buf_t *image, char *err, size_t len) {
+                  buf_t *image, tny_image_wire *wire, char *err, size_t len) {
     if (!(ctx && ctx->chatgpt_token && *ctx->chatgpt_token)) tny_codex_refresh_if_stale();
     tny_codex_creds creds;
     tny_codex_credentials(ctx, &creds);
@@ -56,8 +79,10 @@ static int render(const tny_ctx *ctx, const tny_image_request *r, const tny_imag
     jescape(&body, r->prompt);
     buf_appends(&body, ",\"background\":\"auto\",\"quality\":");
     jescape(&body, r->quality ? r->quality : "high");
+    /* One expression decides both the wire value and the reported one. */
+    const char *size = r->size ? r->size : "auto";
     buf_appends(&body, ",\"size\":");
-    jescape(&body, r->size ? r->size : "auto");
+    jescape(&body, size);
     if (r->edit) {
         buf_appends(&body, ",\"images\":[");
         for (size_t i = 0; i < r->image_count; i++) {
@@ -86,6 +111,7 @@ static int render(const tny_ctx *ctx, const tny_image_request *r, const tny_imag
                              NULL};
     if (!conn || http_request(conn, "POST", http_prefix(conn), headers, body.data, body.len))
         goto done;
+    if (wire) wire->size = size; /* recorded only once the body is actually sent */
     int status;
     int64_t deadline = monotonic_ms() + IMAGE_TIMEOUT_MS;
     do {
@@ -135,12 +161,13 @@ static int render(const tny_ctx *ctx, const tny_image_request *r, const tny_imag
         if (response.oom) goto done;
     }
     yyjson_doc *doc = jparse(response.data, response.len);
-    yyjson_val *data = doc ? jget(yyjson_doc_get_root(doc), "data") : NULL;
+    yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+    yyjson_val *data = jget(root, "data");
+    yyjson_val *item = yyjson_arr_size(data) == 1 ? yyjson_arr_get_first(data) : NULL;
     size_t encoded_len = 0;
-    const char *encoded = yyjson_arr_size(data) == 1
-                              ? jget_strn(yyjson_arr_get_first(data), "b64_json", &encoded_len)
-                              : NULL;
+    const char *encoded = item ? jget_strn(item, "b64_json", &encoded_len) : NULL;
     rc = tny_image_decode(encoded, encoded_len, image, err, len);
+    if (!rc) capture_metadata(wire, root, item);
     yyjson_doc_free(doc);
 done:
     http_close(conn);

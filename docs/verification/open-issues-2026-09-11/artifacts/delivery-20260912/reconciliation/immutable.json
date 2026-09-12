@@ -1,0 +1,1034 @@
+{
+  "adrs": {
+    "docs/adr/0001-run-all-agents-in-yolo-mode.md": {
+      "baseline": {
+        "sha256": "d2ad36fa645a46ffcf99a0fbe3394f42fc1704a23c040c1ea6d6a9d38b3458fc",
+        "size": 2377
+      },
+      "current": {
+        "sha256": "d2ad36fa645a46ffcf99a0fbe3394f42fc1704a23c040c1ea6d6a9d38b3458fc",
+        "size": 2377
+      },
+      "matches": true
+    },
+    "docs/adr/0002-tui-provider-prewarm.md": {
+      "baseline": {
+        "sha256": "8b825f152fce93726d4c38bbcce465911f957fb1d5de2c64776e5d95b9733e8c",
+        "size": 3867
+      },
+      "current": {
+        "sha256": "8b825f152fce93726d4c38bbcce465911f957fb1d5de2c64776e5d95b9733e8c",
+        "size": 3867
+      },
+      "matches": true
+    },
+    "docs/adr/0003-transient-menu-overlay.md": {
+      "baseline": {
+        "sha256": "b4cf6b3026e91a525fd77704aa176f385134a804e1ebffed3096a9d4683f446c",
+        "size": 2043
+      },
+      "current": {
+        "sha256": "b4cf6b3026e91a525fd77704aa176f385134a804e1ebffed3096a9d4683f446c",
+        "size": 2043
+      },
+      "matches": true
+    },
+    "docs/adr/0004-time-to-first-token.md": {
+      "baseline": {
+        "sha256": "32cbe8c492fa6765e04715b34b93c4d8e0145acc5800d2894a53fb9ba1808b4c",
+        "size": 3377
+      },
+      "current": {
+        "sha256": "32cbe8c492fa6765e04715b34b93c4d8e0145acc5800d2894a53fb9ba1808b4c",
+        "size": 3377
+      },
+      "matches": true
+    },
+    "docs/adr/0005-client-side-landing-terminal.md": {
+      "baseline": {
+        "sha256": "6d7eea19b83484f8939abefc142d52a5577e82ec4cda73d014a2ad33c4b645e0",
+        "size": 2899
+      },
+      "current": {
+        "sha256": "6d7eea19b83484f8939abefc142d52a5577e82ec4cda73d014a2ad33c4b645e0",
+        "size": 2899
+      },
+      "matches": true
+    },
+    "docs/adr/0006-ci-build-targets.md": {
+      "baseline": {
+        "sha256": "d0a46ba7920d740fddc82088bddabe33f78a54827d95c5bfbe7a190e7fc1d4c1",
+        "size": 1687
+      },
+      "current": {
+        "sha256": "d0a46ba7920d740fddc82088bddabe33f78a54827d95c5bfbe7a190e7fc1d4c1",
+        "size": 1687
+      },
+      "matches": true
+    },
+    "docs/adr/0007-linux-tls-system-openssl.md": {
+      "baseline": {
+        "sha256": "9d5dc4d8515d93472065e21384b602d453dda4652903e73470a8da4d00866b7c",
+        "size": 4675
+      },
+      "current": {
+        "sha256": "9d5dc4d8515d93472065e21384b602d453dda4652903e73470a8da4d00866b7c",
+        "size": 4675
+      },
+      "matches": true
+    },
+    "docs/adr/0008-native-loop-images.md": {
+      "baseline": {
+        "sha256": "70ed39b94a9526d1d73670b833c994633de29715d0aaa7fb692966621f6c8cb7",
+        "size": 2061
+      },
+      "current": {
+        "sha256": "70ed39b94a9526d1d73670b833c994633de29715d0aaa7fb692966621f6c8cb7",
+        "size": 2061
+      },
+      "matches": true
+    },
+    "docs/adr/0009-reasoning-effort.md": {
+      "baseline": {
+        "sha256": "fdaa4af55472c05a85b8cd12e7f2f099a31f2008aa53cbefa560f35e2b2b6323",
+        "size": 3913
+      },
+      "current": {
+        "sha256": "fdaa4af55472c05a85b8cd12e7f2f099a31f2008aa53cbefa560f35e2b2b6323",
+        "size": 3913
+      },
+      "matches": true
+    },
+    "docs/adr/0010-fast-tier-capability.md": {
+      "baseline": {
+        "sha256": "782c274b44af4487446d87d0abe45efa7f02566dcce3508a3b6bf9147c276fab",
+        "size": 2976
+      },
+      "current": {
+        "sha256": "782c274b44af4487446d87d0abe45efa7f02566dcce3508a3b6bf9147c276fab",
+        "size": 2976
+      },
+      "matches": true
+    },
+    "docs/adr/0011-mid-turn-input-steer-or-queue.md": {
+      "baseline": {
+        "sha256": "3c3ac47296450d214d3a980d798d559a61995bc2fb4b02b3824ba8e58fe60c5c",
+        "size": 4824
+      },
+      "current": {
+        "sha256": "3c3ac47296450d214d3a980d798d559a61995bc2fb4b02b3824ba8e58fe60c5c",
+        "size": 4824
+      },
+      "matches": true
+    },
+    "docs/adr/0012-self-contained-sgr-lines.md": {
+      "baseline": {
+        "sha256": "29e8494e8bc1868bcbc39b8be094490862288aa3da66c9dd37916749229b2eb4",
+        "size": 2738
+      },
+      "current": {
+        "sha256": "29e8494e8bc1868bcbc39b8be094490862288aa3da66c9dd37916749229b2eb4",
+        "size": 2738
+      },
+      "matches": true
+    },
+    "docs/adr/0013-steer-rejection-owns-the-text.md": {
+      "baseline": {
+        "sha256": "25bb790fdf588291894e89d9a2286ded02a2dc781194032319bbfe36ba7a82b5",
+        "size": 4593
+      },
+      "current": {
+        "sha256": "25bb790fdf588291894e89d9a2286ded02a2dc781194032319bbfe36ba7a82b5",
+        "size": 4593
+      },
+      "matches": true
+    },
+    "docs/adr/0014-build-time-version-from-git.md": {
+      "baseline": {
+        "sha256": "3cbab1614114543668d3f01edc8b4a3f21f4fd7561e1667b036d29e9eb3d9557",
+        "size": 3049
+      },
+      "current": {
+        "sha256": "3cbab1614114543668d3f01edc8b4a3f21f4fd7561e1667b036d29e9eb3d9557",
+        "size": 3049
+      },
+      "matches": true
+    },
+    "docs/adr/0015-settings-default-effort.md": {
+      "baseline": {
+        "sha256": "b708c9aefe86faae529f10ee87341ca6288b22407a985d26fdd304d331c51e5d",
+        "size": 2899
+      },
+      "current": {
+        "sha256": "b708c9aefe86faae529f10ee87341ca6288b22407a985d26fdd304d331c51e5d",
+        "size": 2899
+      },
+      "matches": true
+    },
+    "docs/adr/0016-responses-api-default-wire.md": {
+      "baseline": {
+        "sha256": "a9df6a74ed83a16d50f09d3122b637f68232d28676b34c09c748dea4393c368e",
+        "size": 5281
+      },
+      "current": {
+        "sha256": "a9df6a74ed83a16d50f09d3122b637f68232d28676b34c09c748dea4393c368e",
+        "size": 5281
+      },
+      "matches": true
+    },
+    "docs/adr/0017-wasm-browser-parity.md": {
+      "baseline": {
+        "sha256": "9e9f146e9018b1a8acadb0c91202ffbbc2b18bf9027b3deaf4f40a4cf1a333ef",
+        "size": 8049
+      },
+      "current": {
+        "sha256": "9e9f146e9018b1a8acadb0c91202ffbbc2b18bf9027b3deaf4f40a4cf1a333ef",
+        "size": 8049
+      },
+      "matches": true
+    },
+    "docs/adr/0018-provider-setup-stored-keys.md": {
+      "baseline": {
+        "sha256": "586f52d353d6c794a70cf24db878c82d4d407049959162ace7a16f9cf98a5dea",
+        "size": 3621
+      },
+      "current": {
+        "sha256": "586f52d353d6c794a70cf24db878c82d4d407049959162ace7a16f9cf98a5dea",
+        "size": 3621
+      },
+      "matches": true
+    },
+    "docs/adr/0019-subscription-logins-claude-grok.md": {
+      "baseline": {
+        "sha256": "f33c519027124c566f9dc6cb94ed3262010e594a8552725b4179b9461f8a0bd6",
+        "size": 5736
+      },
+      "current": {
+        "sha256": "f33c519027124c566f9dc6cb94ed3262010e594a8552725b4179b9461f8a0bd6",
+        "size": 5736
+      },
+      "matches": true
+    },
+    "docs/adr/0020-ephemeral-sessions.md": {
+      "baseline": {
+        "sha256": "dffe58070a9e336e19215086fddf74f2ba0a72c2fd59aa883584a35462cef0ba",
+        "size": 3661
+      },
+      "current": {
+        "sha256": "dffe58070a9e336e19215086fddf74f2ba0a72c2fd59aa883584a35462cef0ba",
+        "size": 3661
+      },
+      "matches": true
+    },
+    "docs/adr/0021-native-grok-device-login.md": {
+      "baseline": {
+        "sha256": "a37edddf38f19d8ac3e5b51949c57a1ccc21d51b18ad09e8632dbf87c7906739",
+        "size": 4762
+      },
+      "current": {
+        "sha256": "a37edddf38f19d8ac3e5b51949c57a1ccc21d51b18ad09e8632dbf87c7906739",
+        "size": 4762
+      },
+      "matches": true
+    },
+    "docs/adr/0022-ssh-execution-boundary.md": {
+      "baseline": {
+        "sha256": "41f4dc24a4fd5edba055bb2f1947a474a86eb497990b6cd05c79d65a5ef3ba7a",
+        "size": 4646
+      },
+      "current": {
+        "sha256": "41f4dc24a4fd5edba055bb2f1947a474a86eb497990b6cd05c79d65a5ef3ba7a",
+        "size": 4646
+      },
+      "matches": true
+    },
+    "docs/adr/0023-libtny-embedding-abi.md": {
+      "baseline": {
+        "sha256": "bfead2f519950a3f6d61c421f49372ecd9944b3e82543161f12dbef4d33a04c4",
+        "size": 17687
+      },
+      "current": {
+        "sha256": "bfead2f519950a3f6d61c421f49372ecd9944b3e82543161f12dbef4d33a04c4",
+        "size": 17687
+      },
+      "matches": true
+    },
+    "docs/adr/0024-unlimited-steps-default.md": {
+      "baseline": {
+        "sha256": "9ff8f521d99a6217ba119b773d3bc0d1878664d718d7725497262892bc4086e0",
+        "size": 2593
+      },
+      "current": {
+        "sha256": "9ff8f521d99a6217ba119b773d3bc0d1878664d718d7725497262892bc4086e0",
+        "size": 2593
+      },
+      "matches": true
+    },
+    "docs/adr/0025-clipboard-images-paste-as-paths.md": {
+      "baseline": {
+        "sha256": "21c1085d3c69b2708cd57ac217036baf5b9b54d4f94ce9e2c2843250593082c1",
+        "size": 1757
+      },
+      "current": {
+        "sha256": "21c1085d3c69b2708cd57ac217036baf5b9b54d4f94ce9e2c2843250593082c1",
+        "size": 1757
+      },
+      "matches": true
+    },
+    "docs/adr/0026-color-vs-attribute-sgr.md": {
+      "baseline": {
+        "sha256": "b6187ef5d2223c18eb5d34130a89a04a99e11c7ea59eb3817860e75ce6650f02",
+        "size": 3456
+      },
+      "current": {
+        "sha256": "b6187ef5d2223c18eb5d34130a89a04a99e11c7ea59eb3817860e75ce6650f02",
+        "size": 3456
+      },
+      "matches": true
+    },
+    "docs/adr/0027-python-event-hooks.md": {
+      "baseline": {
+        "sha256": "c20161925429f95a4fff3af07c68da5650616c7385b1aaf7779d242872234aab",
+        "size": 13573
+      },
+      "current": {
+        "sha256": "c20161925429f95a4fff3af07c68da5650616c7385b1aaf7779d242872234aab",
+        "size": 13573
+      },
+      "matches": true
+    },
+    "docs/adr/0028-extension-parity-contract.md": {
+      "baseline": {
+        "sha256": "00a49c05ef26fa7c2e7f0d9f4c6b9a40656c52370065459affcd5cd65103f69b",
+        "size": 16766
+      },
+      "current": {
+        "sha256": "00a49c05ef26fa7c2e7f0d9f4c6b9a40656c52370065459affcd5cd65103f69b",
+        "size": 16766
+      },
+      "matches": true
+    },
+    "docs/adr/0029-named-acp-agent-profiles.md": {
+      "baseline": {
+        "sha256": "b58b8aa03f9bbcd5456c3b565b5bf8d595cfe995e620a3fce7b78a6f4aad6d91",
+        "size": 3090
+      },
+      "current": {
+        "sha256": "b58b8aa03f9bbcd5456c3b565b5bf8d595cfe995e620a3fce7b78a6f4aad6d91",
+        "size": 3090
+      },
+      "matches": true
+    },
+    "docs/adr/0030-public-event-schema.md": {
+      "baseline": {
+        "sha256": "44d840a8c31b3891862d0e23b859630ba749d20abe4167a4824f41e4cecd9a9b",
+        "size": 3571
+      },
+      "current": {
+        "sha256": "44d840a8c31b3891862d0e23b859630ba749d20abe4167a4824f41e4cecd9a9b",
+        "size": 3571
+      },
+      "matches": true
+    },
+    "docs/adr/0030-settings-schema-and-acp-map.md": {
+      "baseline": {
+        "sha256": "00c3b5cbb73e2cf6d3881053145f56d51345e593f7f47ca2e979e5be2853f916",
+        "size": 2588
+      },
+      "current": {
+        "sha256": "00c3b5cbb73e2cf6d3881053145f56d51345e593f7f47ca2e979e5be2853f916",
+        "size": 2588
+      },
+      "matches": true
+    },
+    "docs/adr/0031-background-ask.md": {
+      "baseline": {
+        "sha256": "5715854ba8b00f73470971e6f73f4ed21392bdf8b2f2414edc3cb2d5c158e2e8",
+        "size": 7658
+      },
+      "current": {
+        "sha256": "5715854ba8b00f73470971e6f73f4ed21392bdf8b2f2414edc3cb2d5c158e2e8",
+        "size": 7658
+      },
+      "matches": true
+    },
+    "docs/adr/0032-libtny-capability-discovery.md": {
+      "baseline": {
+        "sha256": "a97585a27c775202c4c0a30d58efb85dae6d562721e4255af3bfa963877557e5",
+        "size": 2862
+      },
+      "current": {
+        "sha256": "a97585a27c775202c4c0a30d58efb85dae6d562721e4255af3bfa963877557e5",
+        "size": 2862
+      },
+      "matches": true
+    },
+    "docs/adr/0033-libtny-multi-runtime-cancel.md": {
+      "baseline": {
+        "sha256": "9a5e4bc1c40a9edb9fac23bc8e23a1e1aa2facfd5b09c0b31e905b58eb99a199",
+        "size": 6290
+      },
+      "current": {
+        "sha256": "9a5e4bc1c40a9edb9fac23bc8e23a1e1aa2facfd5b09c0b31e905b58eb99a199",
+        "size": 6290
+      },
+      "matches": true
+    },
+    "docs/adr/0034-native-python-and-node-sdks.md": {
+      "baseline": {
+        "sha256": "c96de55d36c213921126bc653f6b853b17c26b9a57219a4187bb436dd66ca93b",
+        "size": 3508
+      },
+      "current": {
+        "sha256": "c96de55d36c213921126bc653f6b853b17c26b9a57219a4187bb436dd66ca93b",
+        "size": 3508
+      },
+      "matches": true
+    },
+    "docs/adr/0035-nix-flake-packaging.md": {
+      "baseline": {
+        "sha256": "3e226a4da98cdc8854f9f6579fd49b963f825b2f64f5b66cf9f59233e8eba0df",
+        "size": 6034
+      },
+      "current": {
+        "sha256": "3e226a4da98cdc8854f9f6579fd49b963f825b2f64f5b66cf9f59233e8eba0df",
+        "size": 6034
+      },
+      "matches": true
+    },
+    "docs/adr/0036-libtny-host-services.md": {
+      "baseline": {
+        "sha256": "dc488c2ed119cf4d349b7940b6f3dc852da8d063f23bb11cd810ec7b665389fc",
+        "size": 4509
+      },
+      "current": {
+        "sha256": "dc488c2ed119cf4d349b7940b6f3dc852da8d063f23bb11cd810ec7b665389fc",
+        "size": 4509
+      },
+      "matches": true
+    },
+    "docs/adr/0037-libtny-abi-1.md": {
+      "baseline": {
+        "sha256": "23dfd71d43ef96e646b1915066d2e4316b3c8998f25924088e78284fd8eed693",
+        "size": 11153
+      },
+      "current": {
+        "sha256": "23dfd71d43ef96e646b1915066d2e4316b3c8998f25924088e78284fd8eed693",
+        "size": 11153
+      },
+      "matches": true
+    },
+    "docs/adr/0038-libtny-custom-tools.md": {
+      "baseline": {
+        "sha256": "c4ab987d8bcab94d5d33e0e753d20646951b517b8d810e16fc6d0679db85a326",
+        "size": 4618
+      },
+      "current": {
+        "sha256": "c4ab987d8bcab94d5d33e0e753d20646951b517b8d810e16fc6d0679db85a326",
+        "size": 4618
+      },
+      "matches": true
+    },
+    "docs/adr/0039-quality-gates.md": {
+      "baseline": {
+        "sha256": "b039b3b4a41ca2741556f3565f287e4dba9c5b4205cd0624d11d1d8e0a8bd732",
+        "size": 4416
+      },
+      "current": {
+        "sha256": "b039b3b4a41ca2741556f3565f287e4dba9c5b4205cd0624d11d1d8e0a8bd732",
+        "size": 4416
+      },
+      "matches": true
+    },
+    "docs/adr/0040-ssh-agents-md.md": {
+      "baseline": {
+        "sha256": "2981d0d238df3746227b2986817405a4ef5a314f4098e6c8959b1159d611784f",
+        "size": 2894
+      },
+      "current": {
+        "sha256": "2981d0d238df3746227b2986817405a4ef5a314f4098e6c8959b1159d611784f",
+        "size": 2894
+      },
+      "matches": true
+    },
+    "docs/adr/0041-session-wait.md": {
+      "baseline": {
+        "sha256": "f766e75b5fd7fcc772236c90d473ca74aeca9ce3fc2060f9491b5ede9872d5d7",
+        "size": 1920
+      },
+      "current": {
+        "sha256": "f766e75b5fd7fcc772236c90d473ca74aeca9ce3fc2060f9491b5ede9872d5d7",
+        "size": 1920
+      },
+      "matches": true
+    },
+    "docs/adr/0042-help-flag-alignment.md": {
+      "baseline": {
+        "sha256": "767d00f90b7c587b9a7ca88aa9e3dd72d997e0e554f81af68a0624b5c8ea5c9b",
+        "size": 1645
+      },
+      "current": {
+        "sha256": "767d00f90b7c587b9a7ca88aa9e3dd72d997e0e554f81af68a0624b5c8ea5c9b",
+        "size": 1645
+      },
+      "matches": true
+    },
+    "docs/adr/0043-macho-version-floor.md": {
+      "baseline": {
+        "sha256": "7beda2ce71021c813e147aee352ff162903a54a25cc8fabe5100167c17133d39",
+        "size": 1369
+      },
+      "current": {
+        "sha256": "7beda2ce71021c813e147aee352ff162903a54a25cc8fabe5100167c17133d39",
+        "size": 1369
+      },
+      "matches": true
+    },
+    "docs/adr/0044-cursor-stays-on-sdk-bridge.md": {
+      "baseline": {
+        "sha256": "0158960700dd058b957cb4c0f97da03d565649deb22f766cce3bb5675336f16d",
+        "size": 3756
+      },
+      "current": {
+        "sha256": "0158960700dd058b957cb4c0f97da03d565649deb22f766cce3bb5675336f16d",
+        "size": 3756
+      },
+      "matches": true
+    },
+    "docs/adr/0045-monorepo-and-tnytty.md": {
+      "baseline": {
+        "sha256": "795998b35e0950530417920d937c245d4520d40feddc22e07e074b38c03d8d0c",
+        "size": 3304
+      },
+      "current": {
+        "sha256": "795998b35e0950530417920d937c245d4520d40feddc22e07e074b38c03d8d0c",
+        "size": 3304
+      },
+      "matches": true
+    },
+    "docs/adr/0045-system-prompt-flag.md": {
+      "baseline": {
+        "sha256": "8ca7076660c369c544190afe173b68ce8fbdd20d62627912be5719c653f7303f",
+        "size": 3103
+      },
+      "current": {
+        "sha256": "8ca7076660c369c544190afe173b68ce8fbdd20d62627912be5719c653f7303f",
+        "size": 3103
+      },
+      "matches": true
+    },
+    "docs/adr/0047-scriptable-workflow-dags.md": {
+      "baseline": {
+        "sha256": "485063e39388d46eea0d460ed9ba3f42d93c79448eaff0108bc0cac7e275d35f",
+        "size": 3501
+      },
+      "current": {
+        "sha256": "485063e39388d46eea0d460ed9ba3f42d93c79448eaff0108bc0cac7e275d35f",
+        "size": 3501
+      },
+      "matches": true
+    },
+    "docs/adr/0048-runtime-task-presets.md": {
+      "baseline": {
+        "sha256": "7999ea0b6a56634040ad367bdb4012ff499958924613224e0838ac54200eb547",
+        "size": 2820
+      },
+      "current": {
+        "sha256": "7999ea0b6a56634040ad367bdb4012ff499958924613224e0838ac54200eb547",
+        "size": 2820
+      },
+      "matches": true
+    },
+    "docs/adr/0049-mcp-background-warmup.md": {
+      "baseline": {
+        "sha256": "917c2a23fc0040310808bf82db8205e607dc6a5a14a788c2d97b79c38bff69aa",
+        "size": 3702
+      },
+      "current": {
+        "sha256": "917c2a23fc0040310808bf82db8205e607dc6a5a14a788c2d97b79c38bff69aa",
+        "size": 3702
+      },
+      "matches": true
+    },
+    "docs/adr/0050-complete-cursor-sdk-v1.md": {
+      "baseline": {
+        "sha256": "65c2fa152fc34d3a47a01131fce9b1a4af54a3b83b6851da5f802b7168092859",
+        "size": 4158
+      },
+      "current": {
+        "sha256": "65c2fa152fc34d3a47a01131fce9b1a4af54a3b83b6851da5f802b7168092859",
+        "size": 4158
+      },
+      "matches": true
+    },
+    "docs/adr/0051-mcp-streamable-http.md": {
+      "baseline": {
+        "sha256": "8e1059683612f50a9ad4d1fd47b3af2bed826bab67004583265da3a0bd8195bd",
+        "size": 4612
+      },
+      "current": {
+        "sha256": "8e1059683612f50a9ad4d1fd47b3af2bed826bab67004583265da3a0bd8195bd",
+        "size": 4612
+      },
+      "matches": true
+    },
+    "docs/adr/0052-mcp-import-from-harnesses.md": {
+      "baseline": {
+        "sha256": "5177b4baf07d87c4eb5f953c1ea2d49a7651e4afdf34c7c4027eb6d18385492a",
+        "size": 4267
+      },
+      "current": {
+        "sha256": "5177b4baf07d87c4eb5f953c1ea2d49a7651e4afdf34c7c4027eb6d18385492a",
+        "size": 4267
+      },
+      "matches": true
+    },
+    "docs/adr/0053-forked-turn-isolation.md": {
+      "baseline": {
+        "sha256": "e2bb2db3859b622582a661a1f6e71db2cd9596ae2296df5bc638c879df985941",
+        "size": 11599
+      },
+      "current": {
+        "sha256": "e2bb2db3859b622582a661a1f6e71db2cd9596ae2296df5bc638c879df985941",
+        "size": 11599
+      },
+      "matches": true
+    },
+    "docs/adr/0054-terminal-size-probe-and-no-autowrap-block.md": {
+      "baseline": {
+        "sha256": "2483fba6406f8956401ae4af19bfa721d8a99e59885f3d681039a016efa6f08a",
+        "size": 3049
+      },
+      "current": {
+        "sha256": "2483fba6406f8956401ae4af19bfa721d8a99e59885f3d681039a016efa6f08a",
+        "size": 3049
+      },
+      "matches": true
+    },
+    "docs/adr/0055-web-search-gating-and-command-provider.md": {
+      "baseline": {
+        "sha256": "57a7563ed6357d486fe45ffc97f91856d3e69f4f0635672f6cb6ae45ac1a27e2",
+        "size": 3045
+      },
+      "current": {
+        "sha256": "57a7563ed6357d486fe45ffc97f91856d3e69f4f0635672f6cb6ae45ac1a27e2",
+        "size": 3045
+      },
+      "matches": true
+    },
+    "docs/adr/0056-skill-mention-injection.md": {
+      "baseline": {
+        "sha256": "f4f7ef55a1744079a8ac4e7b095fb6edbecb6df1536a6e0b7cea6ad5f659d397",
+        "size": 5371
+      },
+      "current": {
+        "sha256": "f4f7ef55a1744079a8ac4e7b095fb6edbecb6df1536a6e0b7cea6ad5f659d397",
+        "size": 5371
+      },
+      "matches": true
+    },
+    "docs/adr/0057-shell-first-native-loop.md": {
+      "baseline": {
+        "sha256": "e54b9a4cf548402e74b35ffb2909f87d72fa940e8a166f88b77419ebfe432e93",
+        "size": 10983
+      },
+      "current": {
+        "sha256": "e54b9a4cf548402e74b35ffb2909f87d72fa940e8a166f88b77419ebfe432e93",
+        "size": 10983
+      },
+      "matches": true
+    },
+    "docs/adr/0058-session-control-channel-roles-and-tool-ops.md": {
+      "baseline": {
+        "sha256": "fea937d4a5673984c989c02bbc8c0dc77cf5f759730c78ec1a4a8a07d95799b5",
+        "size": 8196
+      },
+      "current": {
+        "sha256": "fea937d4a5673984c989c02bbc8c0dc77cf5f759730c78ec1a4a8a07d95799b5",
+        "size": 8196
+      },
+      "matches": true
+    },
+    "docs/adr/0059-permission-tokeniser-metacharacters-fail-closed.md": {
+      "baseline": {
+        "sha256": "4033cce032cbd7f6ef8f9fb3548ec92d78a5c84a718212592e04f355ca924160",
+        "size": 6140
+      },
+      "current": {
+        "sha256": "4033cce032cbd7f6ef8f9fb3548ec92d78a5c84a718212592e04f355ca924160",
+        "size": 6140
+      },
+      "matches": true
+    },
+    "docs/adr/0060-os-sandbox-seatbelt-and-bubblewrap.md": {
+      "baseline": {
+        "sha256": "c21f490b130892fd99c63dd954b0a210fd3b275d5a8e16923346d2c67cb6f84a",
+        "size": 4555
+      },
+      "current": {
+        "sha256": "c21f490b130892fd99c63dd954b0a210fd3b275d5a8e16923346d2c67cb6f84a",
+        "size": 4555
+      },
+      "matches": true
+    },
+    "docs/adr/0061-toolchain-and-leak-gates.md": {
+      "baseline": {
+        "sha256": "99656cc078ef234324a34f3da8333424dcb0ec2f946313fd262a15fcf54f9709",
+        "size": 8132
+      },
+      "current": {
+        "sha256": "99656cc078ef234324a34f3da8333424dcb0ec2f946313fd262a15fcf54f9709",
+        "size": 8132
+      },
+      "matches": true
+    },
+    "docs/adr/0062-native-tool-profiles-advertise-and-enforce.md": {
+      "baseline": {
+        "sha256": "3b05add4a84e63d3a054d2a4ba065e011c4a4251e322dbb0426b37c958a23ecc",
+        "size": 4889
+      },
+      "current": {
+        "sha256": "3b05add4a84e63d3a054d2a4ba065e011c4a4251e322dbb0426b37c958a23ecc",
+        "size": 4889
+      },
+      "matches": true
+    },
+    "docs/adr/0063-in-process-intercept-of-first-party-verbs.md": {
+      "baseline": {
+        "sha256": "2e2ab8a024c4437a7aaf84f293d9effb6b3f0373783e53c63827d1dd891115fb",
+        "size": 7654
+      },
+      "current": {
+        "sha256": "2e2ab8a024c4437a7aaf84f293d9effb6b3f0373783e53c63827d1dd891115fb",
+        "size": 7654
+      },
+      "matches": true
+    },
+    "docs/adr/0064-cli-verb-conventions.md": {
+      "baseline": {
+        "sha256": "a4a64995e78e820ea8ca58d4bc865dcdce7aa75b144083108b7acf5acb300b9b",
+        "size": 3820
+      },
+      "current": {
+        "sha256": "a4a64995e78e820ea8ca58d4bc865dcdce7aa75b144083108b7acf5acb300b9b",
+        "size": 3820
+      },
+      "matches": true
+    },
+    "docs/adr/0065-codex-chatgpt-responses-backend.md": {
+      "baseline": {
+        "sha256": "22edbe20f5988d1a8cb70c40152b181c88bff6c52502cbd0980c2da82bb09668",
+        "size": 7180
+      },
+      "current": {
+        "sha256": "22edbe20f5988d1a8cb70c40152b181c88bff6c52502cbd0980c2da82bb09668",
+        "size": 7180
+      },
+      "matches": true
+    },
+    "docs/adr/0066-native-chatgpt-login-and-credential-sources.md": {
+      "baseline": {
+        "sha256": "03668212a71b2882799b8fa9605463826f0ba11c2203c461df984aa193c5fbde",
+        "size": 7817
+      },
+      "current": {
+        "sha256": "03668212a71b2882799b8fa9605463826f0ba11c2203c461df984aa193c5fbde",
+        "size": 7817
+      },
+      "matches": true
+    },
+    "docs/adr/0067-provider-request-extras.md": {
+      "baseline": {
+        "sha256": "f4c205a76f6a5d871b3549505198895e186c8e262ef8c3091fb8f4f9ff2c69d5",
+        "size": 3872
+      },
+      "current": {
+        "sha256": "f4c205a76f6a5d871b3549505198895e186c8e262ef8c3091fb8f4f9ff2c69d5",
+        "size": 3872
+      },
+      "matches": true
+    },
+    "docs/adr/0068-mcp-tool-schema-discovery.md": {
+      "baseline": {
+        "sha256": "423a0d89da29e628bacd0a90dab4110bc3cda714c219e685450f54edc9d4750d",
+        "size": 4970
+      },
+      "current": {
+        "sha256": "423a0d89da29e628bacd0a90dab4110bc3cda714c219e685450f54edc9d4750d",
+        "size": 4970
+      },
+      "matches": true
+    },
+    "docs/adr/0069-native-loop-stream-error-recovery.md": {
+      "baseline": {
+        "sha256": "5baa67cdf2e00954fce67cd46a0d633fff465c213e3caf12fe446b589bae1d13",
+        "size": 9374
+      },
+      "current": {
+        "sha256": "5baa67cdf2e00954fce67cd46a0d633fff465c213e3caf12fe446b589bae1d13",
+        "size": 9374
+      },
+      "matches": true
+    },
+    "docs/adr/0070-provider-independent-speech.md": {
+      "baseline": {
+        "sha256": "b0a165e994fb012c584623636ee9e0618735f4840c500da4cdfdca25d2e86fc8",
+        "size": 3384
+      },
+      "current": {
+        "sha256": "b0a165e994fb012c584623636ee9e0618735f4840c500da4cdfdca25d2e86fc8",
+        "size": 3384
+      },
+      "matches": true
+    },
+    "docs/adr/0071-ephemeral-host-audio-playback.md": {
+      "baseline": {
+        "sha256": "b4932dd7947096c6158248768d4835aa46c924a0d153318aaf5fad01d7c0910a",
+        "size": 4605
+      },
+      "current": {
+        "sha256": "b4932dd7947096c6158248768d4835aa46c924a0d153318aaf5fad01d7c0910a",
+        "size": 4605
+      },
+      "matches": true
+    },
+    "docs/adr/0072-zsh-ephemeral-quick-ask.md": {
+      "baseline": {
+        "sha256": "af95801481da41caec5d10694cc37ca760026faf54a87caa9b9d19b3d991534b",
+        "size": 5813
+      },
+      "current": {
+        "sha256": "af95801481da41caec5d10694cc37ca760026faf54a87caa9b9d19b3d991534b",
+        "size": 5813
+      },
+      "matches": true
+    },
+    "docs/adr/0073-quick-ask-preserves-rendered-output.md": {
+      "baseline": {
+        "sha256": "98d7641112137de6d7ed1cbde8cd192cf759d7411182e3f7ed5dba00511c5c3d",
+        "size": 4939
+      },
+      "current": {
+        "sha256": "98d7641112137de6d7ed1cbde8cd192cf759d7411182e3f7ed5dba00511c5c3d",
+        "size": 4939
+      },
+      "matches": true
+    },
+    "docs/adr/0074-extensible-image-service.md": {
+      "baseline": {
+        "sha256": "8779b64074f1caec48d11426dd7899300892705c2f80e8cdb4008df5931cebbb",
+        "size": 6031
+      },
+      "current": {
+        "sha256": "8779b64074f1caec48d11426dd7899300892705c2f80e8cdb4008df5931cebbb",
+        "size": 6031
+      },
+      "matches": true
+    },
+    "docs/adr/0075-image-cli-and-agent-tools.md": {
+      "baseline": {
+        "sha256": "af9a8c70ab603bc1cc07cc3979de81c20bb5af002a72131e54c7cb6739e79b1e",
+        "size": 3705
+      },
+      "current": {
+        "sha256": "af9a8c70ab603bc1cc07cc3979de81c20bb5af002a72131e54c7cb6739e79b1e",
+        "size": 3705
+      },
+      "matches": true
+    },
+    "docs/adr/0076-structured-system-prompt.md": {
+      "baseline": {
+        "sha256": "0e52ac8ba71cbeb69d8fdb2cb18a6dbb37de85b4355a82f419b063a2c3b407da",
+        "size": 2748
+      },
+      "current": {
+        "sha256": "0e52ac8ba71cbeb69d8fdb2cb18a6dbb37de85b4355a82f419b063a2c3b407da",
+        "size": 2748
+      },
+      "matches": true
+    },
+    "docs/adr/0077-openai-prompt-cache-routing.md": {
+      "baseline": {
+        "sha256": "d753cfaba196d9bb6e26d0fac904782b79140425378ef44d393b88d2c1a106b2",
+        "size": 9966
+      },
+      "current": {
+        "sha256": "d753cfaba196d9bb6e26d0fac904782b79140425378ef44d393b88d2c1a106b2",
+        "size": 9966
+      },
+      "matches": true
+    },
+    "docs/adr/0078-workspace-shared-prompt-cache.md": {
+      "baseline": {
+        "sha256": "24f9ec11a2853a25a2526bfb13533e20c9cb5e846ad8db3087f74d25def25eb4",
+        "size": 7410
+      },
+      "current": {
+        "sha256": "24f9ec11a2853a25a2526bfb13533e20c9cb5e846ad8db3087f74d25def25eb4",
+        "size": 7410
+      },
+      "matches": true
+    },
+    "docs/adr/0079-provider-independent-dictation.md": {
+      "baseline": {
+        "sha256": "751fc84f4c8665cd43953bbc0c622d0a9a8cc4dfdea4c4f3026df8c6d2f56b0e",
+        "size": 8802
+      },
+      "current": {
+        "sha256": "751fc84f4c8665cd43953bbc0c622d0a9a8cc4dfdea4c4f3026df8c6d2f56b0e",
+        "size": 8802
+      },
+      "matches": true
+    },
+    "docs/adr/0080-managed-git-worktrees.md": {
+      "baseline": {
+        "sha256": "9f9a4db6c203b808d274c0504fea51c6f08bf345e76614fc68c636ba3feed1cd",
+        "size": 3713
+      },
+      "current": {
+        "sha256": "9f9a4db6c203b808d274c0504fea51c6f08bf345e76614fc68c636ba3feed1cd",
+        "size": 3713
+      },
+      "matches": true
+    },
+    "docs/adr/0081-reliable-session-interruption.md": {
+      "baseline": {
+        "sha256": "703fe7b246719ca926425a8dfd957035168d71ebc2563b5fc3ca0d12fc11d645",
+        "size": 6888
+      },
+      "current": {
+        "sha256": "703fe7b246719ca926425a8dfd957035168d71ebc2563b5fc3ca0d12fc11d645",
+        "size": 6888
+      },
+      "matches": true
+    },
+    "docs/adr/0082-prompt-optimisation.md": {
+      "baseline": {
+        "sha256": "6a221d6db820b7446c24d4e570e334e4594d7b45fac62e0d93eeaeab6b5de5fa",
+        "size": 2706
+      },
+      "current": {
+        "sha256": "6a221d6db820b7446c24d4e570e334e4594d7b45fac62e0d93eeaeab6b5de5fa",
+        "size": 2706
+      },
+      "matches": true
+    },
+    "docs/adr/0083-optimiser-timeout.md": {
+      "baseline": {
+        "sha256": "1a24b7dd30e5a260065d2306ba3a1bccb224a05c0c1889f4cd6338d62789de3a",
+        "size": 1077
+      },
+      "current": {
+        "sha256": "1a24b7dd30e5a260065d2306ba3a1bccb224a05c0c1889f4cd6338d62789de3a",
+        "size": 1077
+      },
+      "matches": true
+    },
+    "docs/adr/0084-codex-image-defaults.md": {
+      "baseline": {
+        "sha256": "a7ac514fe118baa8feb806f863fb2b83834669df5e6b0fe5afab8d4a7c02f878",
+        "size": 2721
+      },
+      "current": {
+        "sha256": "a7ac514fe118baa8feb806f863fb2b83834669df5e6b0fe5afab8d4a7c02f878",
+        "size": 2721
+      },
+      "matches": true
+    },
+    "docs/adr/0085-automatic-release-on-merge.md": {
+      "baseline": {
+        "sha256": "40e89a0d9bd848f799a0d550865bf270fc221781b3064cec71e983dd4d4d0add",
+        "size": 4725
+      },
+      "current": {
+        "sha256": "40e89a0d9bd848f799a0d550865bf270fc221781b3064cec71e983dd4d4d0add",
+        "size": 4725
+      },
+      "matches": true
+    },
+    "docs/adr/0086-standalone-sdk-toolkit.md": {
+      "baseline": {
+        "sha256": "3096a6ba2cbda28499271b9dffc6958f0fdd2ba295bd695828d8c21b119c3c5c",
+        "size": 3213
+      },
+      "current": {
+        "sha256": "3096a6ba2cbda28499271b9dffc6958f0fdd2ba295bd695828d8c21b119c3c5c",
+        "size": 3213
+      },
+      "matches": true
+    },
+    "docs/adr/README.md": {
+      "baseline": {
+        "sha256": "0da326563e26aa9833eff5a17b3a0bffc2765cd56629ecc5ac7ad598b45cdaea",
+        "size": 19397
+      },
+      "current": {
+        "sha256": "0da326563e26aa9833eff5a17b3a0bffc2765cd56629ecc5ac7ad598b45cdaea",
+        "size": 19397
+      },
+      "matches": true
+    }
+  },
+  "baseline_adr_count": 88,
+  "baseline_adr_matching": 88,
+  "baseline_manifest": {
+    "sha256": "9d2110fb7a024d10cb9caeb1751a31cf94d02259d36368e85696dad9c6227bc4",
+    "size": 180691
+  },
+  "duplicate_prefixes": {
+    "0030": [
+      "docs/adr/0030-public-event-schema.md",
+      "docs/adr/0030-settings-schema-and-acp-map.md"
+    ],
+    "0045": [
+      "docs/adr/0045-monorepo-and-tnytty.md",
+      "docs/adr/0045-system-prompt-flag.md"
+    ]
+  },
+  "initial_actual": "832e97ffd3ba8b5e21a60a356e13b8759e89efae348cac5f9fa41682fb31c6b1",
+  "initial_expected": "832e97ffd3ba8b5e21a60a356e13b8759e89efae348cac5f9fa41682fb31c6b1",
+  "initial_matches": true,
+  "new_adrs": {
+    "docs/adr/0087-explicit-subagent-contract-and-private-launch.md": {
+      "sha256": "266d7aa4fa0a77c441b0be5b4895cdcc3083c44ea80186ae92eb9cbde9013900",
+      "size": 4820
+    },
+    "docs/adr/0088-image-dimensions-and-generation-manifests.md": {
+      "sha256": "53d05f9d0fa5f1edd834dedddaa4e029f2d792d9152769443e23434f0530726c",
+      "size": 4160
+    },
+    "docs/adr/0089-image-input-policy-and-shared-gates.md": {
+      "sha256": "cbec7b9495f58f0cf17fef5e29b8e3f0847b55772cf188fb09577a60d21c0cd7",
+      "size": 2867
+    },
+    "docs/adr/0090-canonical-foreground-ask-events.md": {
+      "sha256": "1559d99eb20a8864a19fb3b1bc10a70a59b92dd0b34833194a18025a1cd33eaf",
+      "size": 2737
+    },
+    "docs/adr/0091-local-image-failure-detail.md": {
+      "sha256": "ebb91bff3808ec942572ee8cc0d60d4f27abc914c0e4d6103274bb737c23bd00",
+      "size": 2608
+    },
+    "docs/adr/0092-cli-release-link-time-optimization.md": {
+      "sha256": "1cc0d1aa4999f1d1db9616c2a96d015cc27ea68d5c050608c90344c43637c67a",
+      "size": 1889
+    },
+    "docs/adr/0093-durable-native-jobs-and-verified-retry.md": {
+      "sha256": "3b07fe2410c376f93c943011ae098c55a8662cfaeb00849a1c8ed07f271faa9d",
+      "size": 3161
+    },
+    "docs/adr/0094-explicit-safe-image-exports-and-contact-sheets.md": {
+      "sha256": "75de53cec938f85d6f00a304ee59eb164d74858bb1c67a61841fdfc527269069",
+      "size": 2983
+    },
+    "docs/adr/0095-owned-image-plans-and-retained-failure-detail.md": {
+      "sha256": "06a140d1251ea96227c2e241df84d6158bed08eb05c3d5462070648e2aa99d73",
+      "size": 2506
+    },
+    "docs/adr/0096-captured-image-queue-and-preview-lifecycle.md": {
+      "sha256": "2aa803ef8b4f1d4a6dafee6f407d4ece0356bb98bad3c620bf44b4d8f56d87b5",
+      "size": 2610
+    }
+  },
+  "utc": "2026-09-12T13:08:06.071664+00:00"
+}

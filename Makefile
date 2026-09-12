@@ -68,6 +68,8 @@ else
 endif
 
 REL_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -Os -ffunction-sections -fdata-sections
+# Native executable objects only (ADR0092); never inherited by PIC/debug/wasm.
+REL_LTO = -flto
 DBG_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -O0 -g
 
 # TLS is dlopen'd at first use (src/net/stream.c): SecureTransport on macOS,
@@ -280,7 +282,7 @@ release: $(BIN)
 
 $(BIN): $(REL_OBJS)
 	@mkdir -p $(@D)
-	$(CC) $(REL_CFLAGS) -o $@ $^ $(REL_LDFLAGS)
+	$(CC) $(REL_CFLAGS) $(REL_LTO) -o $@ $^ $(REL_LDFLAGS)
 	strip $@ 2>/dev/null || strip -x $@
 	@wc -c $@
 
@@ -290,10 +292,10 @@ DICTATION_FIXTURE = $(BUILD)/tny-dictation-fixture$(EXE)
 DICTATION_FIXTURE_OBJ = $(OBJ_REL)/dictation_xai_fixture.o
 $(DICTATION_FIXTURE_OBJ): src/core/dictation_xai.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CC) $(REL_CFLAGS) -DTNY_DICTATION_FIXTURE -MMD -MP -c -o $@ $<
+	$(CC) $(REL_CFLAGS) $(REL_LTO) -DTNY_DICTATION_FIXTURE -MMD -MP -c -o $@ $<
 
 $(DICTATION_FIXTURE): $(filter-out $(OBJ_REL)/src/core/dictation_xai.o,$(REL_OBJS)) $(DICTATION_FIXTURE_OBJ)
-	$(CC) $(REL_CFLAGS) -o $@ $^ $(REL_LDFLAGS)
+	$(CC) $(REL_CFLAGS) $(REL_LTO) -o $@ $^ $(REL_LDFLAGS)
 
 .PHONY: dictation-fixture test-dictation wasm-dictation-fixture
 dictation-fixture: $(DICTATION_FIXTURE)
@@ -303,7 +305,7 @@ test-dictation: $(TEST_BIN) $(BIN) $(DICTATION_FIXTURE)
 
 $(OBJ_REL)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CC) $(REL_CFLAGS) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
+	$(CC) $(REL_CFLAGS) $(REL_LTO) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
 
 $(OBJ_DBG)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)

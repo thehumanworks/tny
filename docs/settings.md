@@ -20,6 +20,18 @@ Command-line flags have the highest precedence. Environment variables remain
 above settings where an environment override exists. Settings are defaults,
 not replacements for one-off flags.
 
+## Conversation image input
+
+`"image_input": { "codex": true, "openai": false, "acp@agent": false }` configures
+conversation image input per provider without replacing builtin authentication.
+`true` means **configured, unverified**; `false` refuses image input before a turn
+or pending-image mutation. An absent entry is **unknown** and preserves existing
+explicit manual image use, but does not authorize automatic preview. Malformed
+maps or more than 1,024 entries fail runtime configuration validation; provider switches recompute the
+policy. This does not disable the independent image-generation provider or
+make an unsupported transport capable of receiving images. See
+[conversation image input](images.md#conversation-image-input-image_input).
+
 ## Prompt optimisation defaults
 
 `optimise.provider` and `optimise.model` configure `/optimise`, Ctrl-O, and

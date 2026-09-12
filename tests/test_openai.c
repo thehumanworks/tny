@@ -8,9 +8,19 @@
  * HTTP 400 "no tool output found for function call …". */
 #include "greatest.h"
 #include "backends/openai/openai.h"
+#include "core/config.h"
+#include "core/image.h"
+#include "core/perm.h"
+#include "core/session.h"
+#include "core/tools.h"
+#include "net/http_server.h"
+#include "util/tny_poll.h"
+#include "util/util.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /* Feed one delta's tool_calls array (JSON text) into the set. */
 static void feed(oa_callset *cs, const char *tool_calls_json) {
@@ -273,6 +283,445 @@ TEST reasoning_details_merge_by_index(void) {
     PASS();
 }
 
+/* ---- explicit image preview on a real tool batch (docs/adr/0096) ----
+ *
+ * A loopback HTTP provider records every request body, so the assertions are
+ * made on the ACTUAL next outbound request rather than on internal state. The
+ * model asks one safe `ask_user_question`; the frontend hook runs while that
+ * tool call is executing, which is exactly when a generated-image preview
+ * arrives over the control socket in production. */
+
+#define PV_TOKEN "preview-fixture-token"
+
+static const uint8_t PV_PNG_A[] = {0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 'f',
+                                   'i',  'r',  's',  't',  '-',  'g',  'e',  'n'};
+static const uint8_t PV_PNG_B[] = {0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 's',
+                                   'e',  'c',  'o',  'n',  'd',  '-',  'g',  'e',  'n'};
+
+static const char PV_TOOL_BODY[] =
+    "{\"choices\":[{\"index\":0,\"finish_reason\":\"tool_calls\",\"message\":{\"role\":"
+    "\"assistant\",\"tool_calls\":[{\"index\":0,\"id\":\"call_preview\",\"type\":\"function\","
+    "\"function\":{\"name\":\"ask_user_question\",\"arguments\":\"{\\\"question\\\":\\\"ready to "
+    "look?\\\"}\"}}]}}]}";
+static const char PV_DONE_BODY[] =
+    "{\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"message\":{\"role\":\"assistant\","
+    "\"content\":\"looks good\"}}]}";
+
+/* What the frontend hook does once it has queued (or tried to queue) a
+ * preview, so the disposition tests can drive one real seam each. */
+typedef enum {
+    PV_HOOK_NOTHING = 0,
+    PV_HOOK_TWO_GENERATIONS,  /* same output path, two different versions */
+    PV_HOOK_DROP_CAPABILITY,  /* the provider is no longer configured-true */
+    PV_HOOK_REFUSALS_THEN_OK, /* wrong hash and a path outside the roots first */
+} pv_hook;
+
+typedef struct {
+    http_server *server;
+    tny_backend *backend;
+    tny_ctx *ctx;
+    tny_session_state *session;
+    perm_engine *perm;
+    char root[600], workspace[640], state[640], png[700], outside[700];
+    char hash_a[65], hash_b[65];
+    int requests;
+    int turn_requests; /* reset per turn: only its first POST asks for a tool */
+    buf_t bodies[6];
+    int hook_calls;
+    pv_hook hook;
+    bool stop_batch;   /* an extension stops the batch after the tools ran */
+    int terminal_case; /* defensive terminal-path matrix, below */
+    char *saved_session_dir;
+    tny_image_preview_status status, status_second, status_refused;
+    const char *code, *code_refused;
+    int errors;
+    buf_t error_text;
+    int turn_ends;
+    tny_stop_reason stop;
+    bool ended;
+} pv_fixture;
+
+static void pv_hash(const uint8_t *data, size_t len, char out[65]) {
+    static const char *hex = "0123456789abcdef";
+    uint8_t digest[32];
+    sha256(data, len, digest);
+    for (int i = 0; i < 32; i++) {
+        out[i * 2] = hex[digest[i] >> 4];
+        out[i * 2 + 1] = hex[digest[i] & 0xf];
+    }
+    out[64] = '\0';
+}
+
+static int pv_post(const http_server_request *request, http_server_response *response, void *ud) {
+    pv_fixture *f = ud;
+    int index = f->requests++;
+    if (index < (int)(sizeof f->bodies / sizeof f->bodies[0]))
+        buf_append(&f->bodies[index], request->body, request->body_len);
+    /* the first POST of each turn asks for the tool; anything after it ends the
+     * turn, so the script cannot be confused by transcript history */
+    bool first_of_turn = f->turn_requests++ == 0;
+    const char *body = first_of_turn ? PV_TOOL_BODY : PV_DONE_BODY;
+    static const char two_tools[] =
+        "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"message\":{\"role\":\"assistant\","
+        "\"tool_calls\":[{\"id\":\"call_preview\",\"type\":\"function\",\"function\":{"
+        "\"name\":\"ask_user_question\",\"arguments\":\"{\\\"question\\\":\\\"ready?\\\"}\"}},"
+        "{\"id\":\"call_later\",\"type\":\"function\",\"function\":{\"name\":\"terminal\","
+        "\"arguments\":\"{\\\"command\\\":\\\"printf harmless\\\"}\"}}]}}]}";
+    if (first_of_turn && f->terminal_case >= 3) body = two_tools;
+    response->status = 200;
+    response->content_type = "application/json";
+    response->body = body;
+    response->body_len = strlen(body);
+    return HTTP_SERVER_POST_HANDLED;
+}
+
+static void pv_event(const tny_backend_event *ev, void *ud) {
+    pv_fixture *f = ud;
+    if (ev->kind == TNY_EV_ERROR) {
+        f->errors++;
+        buf_append(&f->error_text, ev->text, ev->text_len);
+        buf_appends(&f->error_text, "\n");
+    }
+    if (ev->kind == TNY_EV_TURN_END) {
+        f->turn_ends++;
+        f->stop = ev->stop;
+        f->ended = true;
+    }
+}
+
+/* Runs inside the tool call, with the batch live. */
+static char *pv_ask_user(const char *question, void *ud) {
+    (void)question;
+    pv_fixture *f = ud;
+    f->hook_calls++;
+    char err[256];
+    f->code = NULL;
+    if (f->hook == PV_HOOK_REFUSALS_THEN_OK) {
+        f->status_refused = tny_backend_openai_queue_image_preview(
+            f->backend, f->png, f->hash_b, &f->code_refused, err, sizeof err);
+        if (f->status_refused != TNY_IMAGE_PREVIEW_QUEUED) {
+            const char *roots_code = NULL;
+            tny_image_preview_status outside = tny_backend_openai_queue_image_preview(
+                f->backend, f->outside, f->hash_a, &roots_code, err, sizeof err);
+            if (outside != TNY_IMAGE_PREVIEW_FAILED ||
+                strcmp(roots_code, TNY_IMAGE_PREVIEW_CODE_ROOTS) != 0)
+                f->status_refused = TNY_IMAGE_PREVIEW_QUEUED; /* fails the assertion below */
+        }
+    }
+    f->status = tny_backend_openai_queue_image_preview(f->backend, f->png, f->hash_a, &f->code, err,
+                                                       sizeof err);
+    if (f->hook == PV_HOOK_TWO_GENERATIONS) {
+        /* the same output pathname is regenerated before the batch flushes */
+        file_write_atomic(f->png, PV_PNG_B, sizeof PV_PNG_B);
+        const char *code = NULL;
+        f->status_second = tny_backend_openai_queue_image_preview(f->backend, f->png, f->hash_b,
+                                                                  &code, err, sizeof err);
+    }
+    if (f->hook == PV_HOOK_DROP_CAPABILITY)
+        f->ctx->image_input = TNY_IMAGE_INPUT_UNKNOWN; /* a provider switch, as resolved */
+    if (f->terminal_case == 1) f->ctx->max_steps = 1;
+    if (f->terminal_case == 3) {
+        f->saved_session_dir = f->session->dir;
+        f->session->dir = xstrdup(f->png); /* a regular file cannot hold session.json */
+    }
+    if (f->terminal_case >= 4) f->ctx->perm_mode = TNY_MODE_ASK;
+    return xstrdup("yes");
+}
+
+static void pv_control(const tny_openai_control_request *request,
+                       tny_openai_control_response *response, void *ud) {
+    pv_fixture *f = ud;
+    if (f->stop_batch && request->kind == TNY_OPENAI_CONTROL_TOOL_BATCH) response->stop = true;
+    if (f->terminal_case == 2 && f->hook_calls &&
+        request->kind == TNY_OPENAI_CONTROL_PROVIDER_REQUEST)
+        response->stop = true;
+    if (f->terminal_case == 4 && request->kind == TNY_OPENAI_CONTROL_PERMISSION)
+        response->permission = TNY_OPENAI_PERMISSION_DENY;
+}
+
+static void pv_open(pv_fixture *f) {
+    memset(f, 0, sizeof *f);
+    const char *tmp = getenv("TMPDIR");
+    if (!tmp || !*tmp) tmp = "/tmp";
+    snprintf(f->root, sizeof f->root, "%s/tny-preview-XXXXXX", tmp);
+    if (!mkdtemp(f->root)) abort();
+    snprintf(f->workspace, sizeof f->workspace, "%s/ws", f->root);
+    snprintf(f->state, sizeof f->state, "%s/state", f->root);
+    mkdir_p(f->workspace);
+    mkdir_p(f->state);
+    snprintf(f->png, sizeof f->png, "%s/generated.png", f->workspace);
+    snprintf(f->outside, sizeof f->outside, "%s/elsewhere.png", f->state);
+    file_write_atomic(f->png, PV_PNG_A, sizeof PV_PNG_A);
+    file_write_atomic(f->outside, PV_PNG_A, sizeof PV_PNG_A);
+    pv_hash(PV_PNG_A, sizeof PV_PNG_A, f->hash_a);
+    pv_hash(PV_PNG_B, sizeof PV_PNG_B, f->hash_b);
+    buf_init(&f->error_text);
+    for (size_t i = 0; i < sizeof f->bodies / sizeof f->bodies[0]; i++) buf_init(&f->bodies[i]);
+
+    char error[256];
+    f->server = http_server_start(PV_TOKEN, pv_post, f, error, sizeof error);
+    if (!f->server) abort();
+    f->ctx = tny_ctx_new_explicit(f->workspace, f->state);
+    if (!f->ctx) abort();
+    char url[256];
+    snprintf(url, sizeof url, "%s/v1", http_server_url(f->server));
+    free(f->ctx->base_url);
+    f->ctx->base_url = xstrdup(url);
+    free(f->ctx->api_key);
+    f->ctx->api_key = xstrdup(PV_TOKEN);
+    free(f->ctx->wire_api);
+    f->ctx->wire_api = xstrdup("chat");
+    f->ctx->perm_mode = TNY_MODE_YOLO;
+    /* the native loop, not an embedder: the runtime tools this fixture drives
+     * are the ones a real CLI turn has */
+    f->ctx->library_mode = false;
+    f->ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED;
+    f->session = session_new(f->ctx);
+    f->perm = perm_new(f->ctx);
+    f->backend = tny_backend_openai_new(f->ctx);
+    if (!f->session || !f->perm || !f->backend) abort();
+    tny_backend_openai_bind(f->backend, f->session, f->perm, NULL, NULL, pv_ask_user, f, NULL, NULL,
+                            NULL, NULL, pv_control, f);
+    if (f->backend->connect(f->backend, error, sizeof error) != 0) abort();
+    if (f->backend->create_or_resume(f->backend, NULL, error, sizeof error) != 0) abort();
+}
+
+static void pv_close(pv_fixture *f) {
+    f->backend->destroy(f->backend);
+    perm_free(f->perm);
+    session_close(f->session);
+    tny_ctx_free(f->ctx);
+    http_server_destroy(&f->server);
+    buf_free(&f->error_text);
+    for (size_t i = 0; i < sizeof f->bodies / sizeof f->bodies[0]; i++) buf_free(&f->bodies[i]);
+}
+
+/* One turn, driven with the fixture server in the same poll set. */
+static int pv_turn(pv_fixture *f, const char *prompt) {
+    char error[512];
+    f->ended = false;
+    f->turn_requests = 0;
+    if (f->backend->send(f->backend, prompt, NULL, pv_event, f, error, sizeof error) != 0)
+        return -1;
+    int64_t deadline = monotonic_ms() + 10000;
+    while (!f->ended && monotonic_ms() < deadline) {
+        struct pollfd fds[HTTP_SERVER_POLLFD_CAPACITY + TNY_BACKEND_POLLFD_MAX];
+        int sn = http_server_pollfds(f->server, fds, HTTP_SERVER_POLLFD_CAPACITY);
+        int bn = f->backend->pollfds(f->backend, fds + sn, TNY_BACKEND_POLLFD_MAX);
+        tny_poll(fds, (nfds_t)(sn + bn), 10);
+        http_server_dispatch(f->server, fds, sn);
+        if (f->backend->dispatch(f->backend, fds + sn, bn) < 0) break;
+        if (f->terminal_case == 5 && f->hook_calls && !f->ended)
+            f->backend->cancel(f->backend); /* parked permission, not re-entrant */
+    }
+    return f->ended ? 0 : -1;
+}
+
+/* Every image_url payload in one recorded request body, decoded. */
+static int pv_request_images(const buf_t *body, uint8_t out[4][64], size_t len_out[4]) {
+    int found = 0;
+    yyjson_doc *doc = body->len ? jparse(body->data, body->len) : NULL;
+    if (!doc) return 0;
+    yyjson_val *messages = jget(yyjson_doc_get_root(doc), "messages");
+    size_t mi, mmax;
+    yyjson_val *message;
+    yyjson_arr_foreach(messages, mi, mmax, message) {
+        yyjson_val *content = jget(message, "content");
+        if (!yyjson_is_arr(content)) continue;
+        size_t pi, pmax;
+        yyjson_val *part;
+        yyjson_arr_foreach(content, pi, pmax, part) {
+            const char *type = jget_str(part, "type");
+            if (!type || strcmp(type, "image_url") != 0 || found >= 4) continue;
+            const char *url = jget_str(jget(part, "image_url"), "url");
+            const char *prefix = "data:image/png;base64,";
+            if (!url || strncmp(url, prefix, strlen(prefix)) != 0) continue;
+            len_out[found] = b64_decode(url + strlen(prefix), out[found], 64);
+            found++;
+        }
+    }
+    yyjson_doc_free(doc);
+    return found;
+}
+
+/* The accepted preview reaches the ACTUAL next request, exactly once, with the
+ * bytes each generation had when it was queued — two generations of one output
+ * pathname stay distinct — and refusals never enter the queue. */
+TEST openai_preview_rides_the_next_request_with_captured_bytes(void) {
+    pv_fixture f;
+    pv_open(&f);
+    f.hook = PV_HOOK_TWO_GENERATIONS;
+    ASSERT_EQ(0, pv_turn(&f, "generate and review"));
+    ASSERT_EQ(1, f.hook_calls);
+    ASSERT_EQ(TNY_IMAGE_PREVIEW_QUEUED, f.status);
+    ASSERT_EQ(TNY_IMAGE_PREVIEW_QUEUED, f.status_second);
+    ASSERT_EQ(NULL, f.code);
+    ASSERT_EQ(2, f.requests); /* the tool round, then the review request */
+    ASSERT_EQ(TNY_STOP_DONE, f.stop);
+
+    uint8_t decoded[4][64];
+    size_t lengths[4] = {0};
+    ASSERT_EQ(0, pv_request_images(&f.bodies[0], decoded, lengths)); /* no pixels before */
+    ASSERT_EQ(2, pv_request_images(&f.bodies[1], decoded, lengths));
+    ASSERT_EQ_FMT(sizeof PV_PNG_A, lengths[0], "%zu");
+    ASSERT_EQ_FMT(sizeof PV_PNG_B, lengths[1], "%zu");
+    ASSERT_MEM_EQ(PV_PNG_A, decoded[0], sizeof PV_PNG_A);
+    ASSERT_MEM_EQ(PV_PNG_B, decoded[1], sizeof PV_PNG_B);
+    ASSERT(
+        strstr(f.bodies[1].data, "Images queued by explicitly requested generation/edit preview."));
+
+    /* a second turn carries no new pixels: nothing stale was retained */
+    f.hook = PV_HOOK_NOTHING;
+    f.ctx->image_input = TNY_IMAGE_INPUT_UNKNOWN; /* and no new preview may queue */
+    ASSERT_EQ(0, pv_turn(&f, "anything else"));
+    ASSERT_EQ(TNY_IMAGE_PREVIEW_UNSUPPORTED, f.status);
+    ASSERT(f.code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_CAPABILITY, f.code);
+    ASSERT_EQ(4, f.requests);
+    ASSERT_EQ(2, pv_request_images(&f.bodies[3], decoded, lengths)); /* only the history */
+    pv_close(&f);
+    PASS();
+}
+
+/* Hash and root refusals answer with a status and a safe code, and the
+ * following valid admission still works. */
+TEST openai_preview_refuses_wrong_hash_and_foreign_roots(void) {
+    pv_fixture f;
+    pv_open(&f);
+    f.hook = PV_HOOK_REFUSALS_THEN_OK;
+    ASSERT_EQ(0, pv_turn(&f, "review it"));
+    ASSERT_EQ(TNY_IMAGE_PREVIEW_FAILED, f.status_refused);
+    ASSERT(f.code_refused);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_HASH, f.code_refused);
+    ASSERT_EQ(TNY_IMAGE_PREVIEW_QUEUED, f.status);
+    uint8_t decoded[4][64];
+    size_t lengths[4] = {0};
+    ASSERT_EQ(1, pv_request_images(&f.bodies[1], decoded, lengths));
+    ASSERT_MEM_EQ(PV_PNG_A, decoded[0], sizeof PV_PNG_A);
+    pv_close(&f);
+    PASS();
+}
+
+/* The provider this turn would post to stops being configured-true between
+ * admission and flush: the batch is preserved, then the owner reports
+ * IMAGE_PREVIEW_NOT_DELIVERED, makes NO further request, ends the turn failed
+ * and releases the bytes — a later allowed turn starts clean. */
+TEST openai_preview_fatal_flush_stops_the_next_request(void) {
+    pv_fixture f;
+    pv_open(&f);
+    f.hook = PV_HOOK_DROP_CAPABILITY;
+    ASSERT_EQ(0, pv_turn(&f, "generate and review"));
+    ASSERT_EQ(TNY_IMAGE_PREVIEW_QUEUED, f.status);
+    ASSERT_EQ(1, f.requests); /* the tool round only: no POST after the failure */
+    ASSERT_EQ(TNY_STOP_ERROR, f.stop);
+    ASSERT(f.error_text.len);
+    ASSERT(strstr(f.error_text.data, TNY_IMAGE_PREVIEW_NOT_DELIVERED));
+    uint8_t decoded[4][64];
+    size_t lengths[4] = {0};
+    ASSERT_EQ(0, pv_request_images(&f.bodies[0], decoded, lengths));
+
+    /* the same session, allowed again: no stale preview bytes reappear */
+    f.hook = PV_HOOK_NOTHING;
+    f.ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED;
+    buf_clear(&f.error_text);
+    ASSERT_EQ(0, pv_turn(&f, "try again"));
+    ASSERT_EQ(3, f.requests);
+    ASSERT_EQ(TNY_IMAGE_PREVIEW_QUEUED, f.status);
+    ASSERT_EQ(1, pv_request_images(&f.bodies[2], decoded, lengths)); /* this turn's preview only */
+    ASSERT_EQ_FMT(sizeof PV_PNG_A, lengths[0], "%zu");
+    pv_close(&f);
+    PASS();
+}
+
+/* A turn that ends without another request still tells the truth about the
+ * preview it accepted, and keeps nothing pending. */
+TEST openai_preview_reports_non_delivery_when_the_turn_ends_early(void) {
+    const tny_stop_reason stops[] = {TNY_STOP_INTERRUPTED, TNY_STOP_STEP_LIMIT,
+                                     TNY_STOP_INTERRUPTED, TNY_STOP_ERROR,
+                                     TNY_STOP_DENIED,      TNY_STOP_INTERRUPTED};
+    for (int scenario = 0; scenario < 6; scenario++) {
+        pv_fixture f;
+        pv_open(&f);
+        f.terminal_case = scenario;
+        f.stop_batch = scenario == 0;
+        ASSERT_EQ(0, pv_turn(&f, "generate and review"));
+        ASSERT_EQ(TNY_IMAGE_PREVIEW_QUEUED, f.status);
+        ASSERT_EQ(1, f.requests);
+        ASSERT_EQ(stops[scenario], f.stop);
+        ASSERT(f.error_text.len);
+        ASSERT(strstr(f.error_text.data, TNY_IMAGE_PREVIEW_NOT_DELIVERED));
+        if (f.saved_session_dir) {
+            free(f.session->dir);
+            f.session->dir = f.saved_session_dir;
+        }
+        /* Recover in the SAME session, with a different image. Both outbound
+         * requests must be free of A, not just free of pending queue entries. */
+        f.terminal_case = 0;
+        f.stop_batch = false;
+        f.ctx->max_steps = 0;
+        f.ctx->perm_mode = TNY_MODE_YOLO;
+        f.hook = PV_HOOK_NOTHING;
+        ASSERT_EQ(0, file_write_atomic(f.png, PV_PNG_B, sizeof PV_PNG_B));
+        memcpy(f.hash_a, f.hash_b, sizeof f.hash_a);
+        ASSERT_EQ(0, pv_turn(&f, "fresh review"));
+        ASSERT_EQ(3, f.requests);
+        uint8_t decoded[4][64];
+        size_t lengths[4] = {0};
+        ASSERT_EQ(0, pv_request_images(&f.bodies[1], decoded, lengths));
+        ASSERT_EQ(1, pv_request_images(&f.bodies[2], decoded, lengths));
+        ASSERT_EQ_FMT(sizeof PV_PNG_B, lengths[0], "%zu");
+        ASSERT_MEM_EQ(PV_PNG_B, decoded[0], sizeof PV_PNG_B);
+        pv_close(&f);
+    }
+    PASS();
+}
+
+/* Readiness, not mere activity: an idle or completed session refuses, and so
+ * does a live batch with no request left in its step budget. */
+TEST openai_preview_needs_a_continuable_tool_batch(void) {
+    pv_fixture f;
+    pv_open(&f);
+    char err[256];
+    const char *code = NULL;
+    ASSERT_EQ(
+        TNY_IMAGE_PREVIEW_TURN_NOT_READY,
+        tny_backend_openai_queue_image_preview(f.backend, f.png, f.hash_a, &code, err, sizeof err));
+    ASSERT(code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_NOT_READY, code);
+
+    /* one step only: the batch that would carry it has no next request */
+    f.ctx->max_steps = 1;
+    ASSERT_EQ(0, pv_turn(&f, "review it"));
+    ASSERT_EQ(1, f.hook_calls);
+    ASSERT_EQ(TNY_IMAGE_PREVIEW_TURN_NOT_READY, f.status);
+    ASSERT(f.code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_NOT_READY, f.code);
+    ASSERT_EQ(1, f.requests);
+    ASSERT_EQ(TNY_STOP_STEP_LIMIT, f.stop);
+    uint8_t decoded[4][64];
+    size_t lengths[4] = {0};
+    ASSERT_EQ(0, pv_request_images(&f.bodies[0], decoded, lengths));
+
+    /* the completed session is idle again */
+    code = NULL;
+    ASSERT_EQ(
+        TNY_IMAGE_PREVIEW_TURN_NOT_READY,
+        tny_backend_openai_queue_image_preview(f.backend, f.png, f.hash_a, &code, err, sizeof err));
+    ASSERT(code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_NOT_READY, code);
+
+    /* and a non-native backend handle is never a session for this */
+    tny_backend other = {0};
+    other.id = TNY_BK_ACP;
+    ASSERT_EQ(
+        TNY_IMAGE_PREVIEW_UNAVAILABLE_SESSION,
+        tny_backend_openai_queue_image_preview(&other, f.png, f.hash_a, &code, err, sizeof err));
+    ASSERT(code);
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_NO_SESSION, code);
+    pv_close(&f);
+    PASS();
+}
+
 SUITE(openai_suite) {
     RUN_TEST(single_call_assembles_from_fragments);
     RUN_TEST(parallel_calls_keyed_by_index);
@@ -287,4 +736,9 @@ SUITE(openai_suite) {
     RUN_TEST(error_token_keeps_only_identifiers);
     RUN_TEST(retryable_statuses_and_permanent_tokens);
     RUN_TEST(reasoning_details_merge_by_index);
+    RUN_TEST(openai_preview_rides_the_next_request_with_captured_bytes);
+    RUN_TEST(openai_preview_refuses_wrong_hash_and_foreign_roots);
+    RUN_TEST(openai_preview_fatal_flush_stops_the_next_request);
+    RUN_TEST(openai_preview_reports_non_delivery_when_the_turn_ends_early);
+    RUN_TEST(openai_preview_needs_a_continuable_tool_batch);
 }

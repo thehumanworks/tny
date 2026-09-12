@@ -11,12 +11,47 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ._binding import Library, borrowed, copy_bytes
-from .errors import InvalidArgumentError, ProtocolError, UnsupportedError
+from .errors import InvalidArgumentError, ProtocolError, TnyError, UnsupportedError
 from .runtime import CancellationToken
 
 ImageQuality = Literal["auto", "low", "medium", "high", "xhigh", "max"]
+ImageSizeStatus = Literal["auto", "match", "mismatch", "unverifiable", "unsupported"]
+ImageOperation = Literal["generate", "edit"]
 PathLike = str | os.PathLike[str]
 Text = str | bytes
+
+# The exact codes libtny assigns locally for --strict-size; a provider string
+# can never select this path (docs/images.md).
+STRICT_IMAGE_CODES = frozenset(
+    {
+        "IMAGE_STRICT_SIZE_INVALID",
+        "IMAGE_SIZE_MISMATCH",
+        "IMAGE_SIZE_UNVERIFIABLE",
+        "IMAGE_SIZE_UNSUPPORTED",
+    }
+)
+# The one failure that keeps a written file: the image was committed and only
+# its manifest could not be finalized (docs/images.md, ADR 0095).
+RETAINED_IMAGE_CODE = "IMAGE_MANIFEST_FINALIZE_FAILED"
+_SIZE_STATUSES = frozenset({"auto", "match", "mismatch", "unverifiable", "unsupported"})
+_DETAIL_FIELDS = frozenset(
+    {
+        "kind",
+        "ok",
+        "operation",
+        "code",
+        "error",
+        "mime_type",
+        "requested_size",
+        "effective_size",
+        "width",
+        "height",
+        "size_status",
+        "path",
+        "committed",
+    }
+)
+_RETAINED_FIELDS = _DETAIL_FIELDS | {"bytes", "operation_id", "manifest_path"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,11 +73,183 @@ class ToolkitConfig:
 
 @dataclass(frozen=True, slots=True)
 class ImageResult:
+    """Dimensions are read from the returned bytes, never from the request.
+
+    ``width``/``height`` are ``None`` when the header could not be read, and
+    ``size_status`` says why. ``manifest_path`` is ``None`` when persistence
+    was declined, and ``seed``/``request_id`` are ``None`` unless the provider
+    actually supplied them. A libtny older than this metadata leaves the new
+    fields ``None`` rather than inventing a value.
+    """
+
     path: Path
     mime_type: str
     byte_count: int
     provider: str
     model: str
+    requested_size: str | None = None
+    effective_size: str | None = None
+    width: int | None = None
+    height: int | None = None
+    size_status: ImageSizeStatus | None = None
+    operation_id: str | None = None
+    manifest_path: Path | None = None
+    seed: int | None = None
+    request_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ImageFailureDetail:
+    """Why a ``strict_size`` request was rejected, and what was not written.
+
+    This is a failure type, never an :class:`ImageResult`: no file exists, so
+    ``path`` is always ``None`` and ``committed`` always ``False``. Every value
+    is decided locally — the requested size, the literal actually sent (``None``
+    when nothing was), and dimensions/MIME read from returned bytes. It carries
+    no credential, endpoint, prompt, reference path or provider response text.
+    """
+
+    code: str
+    operation: ImageOperation
+    message: str
+    requested_size: str
+    effective_size: str | None
+    width: int | None
+    height: int | None
+    size_status: ImageSizeStatus
+    mime_type: str | None
+    path: None = None
+    committed: Literal[False] = field(default=False, init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class RetainedImageDetail:
+    """The generated image was written and kept; only its record failed.
+
+    This is the one failure that names a file, so ``committed`` is always
+    ``True`` and ``path`` is the artifact tny deliberately did not delete. The
+    values are the same locally decided metadata as a successful result minus
+    anything the provider said: no credential, endpoint, prompt, reference path
+    or provider response text. It is never an :class:`ImageResult`, and never
+    parsed as an :class:`ImageFailureDetail`.
+    """
+
+    code: str
+    operation: ImageOperation
+    message: str
+    path: Path
+    byte_count: int
+    requested_size: str
+    effective_size: str | None
+    width: int | None
+    height: int | None
+    size_status: ImageSizeStatus
+    mime_type: str | None
+    operation_id: str | None
+    manifest_path: Path | None
+    committed: Literal[True] = field(default=True, init=False)
+
+
+# What ``TnyError.image_detail`` may hold: the two shapes are discriminated by
+# ``committed`` and by the code, never merged into one permissive reader.
+ImageDetail = ImageFailureDetail | RetainedImageDetail
+
+
+def _text(value: object, *, optional: bool = False) -> bool:
+    if value is None:
+        return optional
+    return isinstance(value, str) and bool(value)
+
+
+def _dimension(value: object) -> bool:
+    return value is None or (
+        isinstance(value, int) and not isinstance(value, bool) and value > 0
+    )
+
+
+def _shared_detail_fields(value: dict[str, Any]) -> bool:
+    """The metadata both shapes carry, all of it locally decided."""
+    return (
+        value["kind"] == "image"
+        and value["ok"] is False
+        and value["operation"] in ("generate", "edit")
+        and value["size_status"] in _SIZE_STATUSES
+        and _text(value["error"])
+        and _text(value["requested_size"])
+        and _text(value["effective_size"], optional=True)
+        and _text(value["mime_type"], optional=True)
+        and _dimension(value["width"])
+        and _dimension(value["height"])
+    )
+
+
+def _retained_image_detail(value: dict[str, Any]) -> RetainedImageDetail | None:
+    """Accept only a complete retained-artifact object: committed, with a path."""
+    if not _RETAINED_FIELDS <= value.keys():
+        return None
+    manifest = value["manifest_path"]
+    if (
+        value["code"] != RETAINED_IMAGE_CODE
+        or value["committed"] is not True
+        or not _text(value["path"])
+        or not isinstance(value["bytes"], int)
+        or isinstance(value["bytes"], bool)
+        or value["bytes"] < 0
+        or not _text(value["operation_id"], optional=True)
+        or not _text(manifest, optional=True)
+        or not _shared_detail_fields(value)
+    ):
+        return None
+    return RetainedImageDetail(
+        value["code"],
+        value["operation"],
+        value["error"],
+        Path(value["path"]),
+        value["bytes"],
+        value["requested_size"],
+        value["effective_size"],
+        value["width"],
+        value["height"],
+        value["size_status"],
+        value["mime_type"],
+        value["operation_id"],
+        Path(manifest) if manifest is not None else None,
+    )
+
+
+def _image_failure_detail(raw: bytes) -> ImageDetail | None:
+    """Accept only a complete, locally shaped image-failure object.
+
+    The two shapes are discriminated first: a retained artifact reports
+    ``committed`` true with its path, a strict-size rejection reports neither.
+    """
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(value, dict) or not _DETAIL_FIELDS <= value.keys():
+        return None
+    if value["code"] == RETAINED_IMAGE_CODE or value["committed"] is not False:
+        return _retained_image_detail(value)
+    if (
+        value["path"] is not None
+        or value["code"] not in STRICT_IMAGE_CODES
+        or not _shared_detail_fields(value)
+    ):
+        return None
+    return ImageFailureDetail(
+        value["code"],
+        value["operation"],
+        value["error"],
+        value["requested_size"],
+        value["effective_size"],
+        value["width"],
+        value["height"],
+        value["size_status"],
+        value["mime_type"],
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,12 +285,22 @@ def _value(value: object) -> object:
 
 
 def _image(result: dict[str, Any]) -> ImageResult:
+    manifest = result.get("manifest_path")
     return ImageResult(
         Path(result["path"]),
         result["mime_type"],
         result["bytes"],
         result["provider"],
         result["model"],
+        result.get("requested_size"),
+        result.get("effective_size"),
+        result.get("width"),
+        result.get("height"),
+        result.get("size_status"),
+        result.get("operation_id"),
+        Path(manifest) if manifest is not None else None,
+        result.get("seed"),
+        result.get("request_id"),
     )
 
 
@@ -189,7 +406,17 @@ class Toolkit:
                 )
             status = lib.tny_toolkit_job_run(job[0], error)
             if status:
-                self._library.raise_status(status, error[0])
+                # Copy the completed result before raise_status frees the
+                # native error, and long before the job is destroyed below.
+                detail = _image_failure_detail(
+                    copy_bytes(ffi, lib.tny_toolkit_job_result(job[0]))
+                )
+                try:
+                    self._library.raise_status(status, error[0])
+                except TnyError as failure:
+                    failure._image_detail = detail
+                    raise
+                raise ProtocolError(-10)  # raise_status never returns
             data = json.loads(copy_bytes(ffi, lib.tny_toolkit_job_result(job[0])))
             if not isinstance(data, dict):
                 raise ProtocolError(-10)
@@ -201,13 +428,16 @@ class Toolkit:
 
     def generate_image(
         self,
-        prompt: Text,
+        prompt: Text | None = None,
         *,
         output_file: PathLike,
         provider: str | None = None,
         model: str | None = None,
         quality: ImageQuality | None = None,
         size: str | None = None,
+        strict_size: bool | None = None,
+        persist_manifest: bool | None = None,
+        from_manifest: PathLike | None = None,
         cancellation: CancellationToken | None = None,
     ) -> ImageResult:
         return _image(
@@ -220,6 +450,9 @@ class Toolkit:
                     "model": model,
                     "quality": quality,
                     "size": size,
+                    "strict_size": strict_size,
+                    "persist_manifest": persist_manifest,
+                    "from_manifest": from_manifest,
                 },
                 cancellation,
             )
@@ -227,14 +460,18 @@ class Toolkit:
 
     def edit_image(
         self,
-        prompt: Text,
+        prompt: Text | None = None,
         *,
-        images: Sequence[PathLike],
+        images: Sequence[PathLike] = (),
+        artifact: PathLike | None = None,
         output_file: PathLike,
         provider: str | None = None,
         model: str | None = None,
         quality: ImageQuality | None = None,
         size: str | None = None,
+        strict_size: bool | None = None,
+        persist_manifest: bool | None = None,
+        from_manifest: PathLike | None = None,
         cancellation: CancellationToken | None = None,
     ) -> ImageResult:
         return _image(
@@ -242,12 +479,16 @@ class Toolkit:
                 "edit_image",
                 {
                     "prompt": prompt,
-                    "images": list(images),
+                    "images": list(images) or None,
+                    "artifact": artifact,
                     "output_file": output_file,
                     "provider": provider,
                     "model": model,
                     "quality": quality,
                     "size": size,
+                    "strict_size": strict_size,
+                    "persist_manifest": persist_manifest,
+                    "from_manifest": from_manifest,
                 },
                 cancellation,
             )
@@ -394,13 +635,16 @@ class AsyncToolkit:
 
     async def generate_image(
         self,
-        prompt: Text,
+        prompt: Text | None = None,
         *,
         output_file: PathLike,
         provider: str | None = None,
         model: str | None = None,
         quality: ImageQuality | None = None,
         size: str | None = None,
+        strict_size: bool | None = None,
+        persist_manifest: bool | None = None,
+        from_manifest: PathLike | None = None,
         cancellation: CancellationToken | None = None,
     ) -> ImageResult:
         return _image(
@@ -413,6 +657,9 @@ class AsyncToolkit:
                     "model": model,
                     "quality": quality,
                     "size": size,
+                    "strict_size": strict_size,
+                    "persist_manifest": persist_manifest,
+                    "from_manifest": from_manifest,
                 },
                 cancellation,
             )
@@ -420,14 +667,18 @@ class AsyncToolkit:
 
     async def edit_image(
         self,
-        prompt: Text,
+        prompt: Text | None = None,
         *,
-        images: Sequence[PathLike],
+        images: Sequence[PathLike] = (),
+        artifact: PathLike | None = None,
         output_file: PathLike,
         provider: str | None = None,
         model: str | None = None,
         quality: ImageQuality | None = None,
         size: str | None = None,
+        strict_size: bool | None = None,
+        persist_manifest: bool | None = None,
+        from_manifest: PathLike | None = None,
         cancellation: CancellationToken | None = None,
     ) -> ImageResult:
         return _image(
@@ -435,12 +686,16 @@ class AsyncToolkit:
                 "edit_image",
                 {
                     "prompt": prompt,
-                    "images": list(images),
+                    "images": list(images) or None,
+                    "artifact": artifact,
                     "output_file": output_file,
                     "provider": provider,
                     "model": model,
                     "quality": quality,
                     "size": size,
+                    "strict_size": strict_size,
+                    "persist_manifest": persist_manifest,
+                    "from_manifest": from_manifest,
                 },
                 cancellation,
             )

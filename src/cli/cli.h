@@ -42,6 +42,7 @@ typedef struct {
     const char *chatgpt_account_id; /* --chatgpt-account-id */
     const char **agent_argv;        /* --agent CMD -- args…, NULL-terminated */
     const char *base_url;
+    const char *base_url_env; /* --base-url-env NAME: URL kept off argv */
     const char *api_key_env;
     const char *wire_api; /* --wire-api responses|chat */
 } cli_globals;
@@ -71,6 +72,13 @@ tny_ctx *cli_make_ctx(const cli_globals *g);
 /* "session <id> is still running (pid N)" + watch/stop/steer hints, on
  * stderr. Shared by every lock-refusal path (docs/adr/0031 decision 7). */
 void cli_print_still_running(tny_ctx *ctx, const char *id);
+
+/* Exit status of one `ask` turn, from what actually happened (ADR 0090):
+ * `stream` is a tny_event_write_rc (0 delivered, -1 stdout failed, -2
+ * interrupted while stalled), `terminal` says a real TNY_EV_TURN_END was
+ * observed and delivered, and `stop` is that event's tny_stop_reason. A
+ * failed stream or an absent terminal is never 0, whatever `stop` holds. */
+int cli_ask_exit_status(int stream, bool terminal, int stop);
 
 /* Commands. Each returns the process exit code. */
 int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

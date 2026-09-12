@@ -1,0 +1,92 @@
+{
+  "docker_ps": {
+    "exit": 1,
+    "stdout": ""
+  },
+  "existing_task_cache_roots": [
+    "/Users/tomas/.cache/tny-verification/open-issues-20260912",
+    "/Users/tomas/.cache/tny-verification/open-issues-20260911"
+  ],
+  "no_builds_or_containers_started": true,
+  "tools": {
+    "actionlint": {
+      "exit": 0,
+      "path": "/Users/tomas/.local/share/mise/installs/actionlint/1.7.12/actionlint",
+      "version": "1.7.12\ninstalled by downloading from release page\nbuilt with go1.26.1 compiler for darwin/arm64"
+    },
+    "clang": {
+      "exit": 0,
+      "path": "/usr/bin/clang",
+      "version": "Apple clang version 21.0.0 (clang-2100.3.27.1)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin"
+    },
+    "clang-format": {
+      "exit": 0,
+      "path": "/Users/tomas/.local/share/mise/installs/pipx-clang-format/23.1.0/bin/clang-format",
+      "version": "clang-format version 23.1.0"
+    },
+    "clang-tidy": {
+      "exit": 0,
+      "path": "/Users/tomas/.local/share/mise/installs/pipx-clang-tidy/22.1.8/bin/clang-tidy",
+      "version": "LLVM (http://llvm.org/):\n  LLVM version 22.1.8\n  Optimized build."
+    },
+    "colima": {
+      "exit": 0,
+      "path": "/opt/homebrew/bin/colima",
+      "version": "colima version 0.10.3\ngit commit: 00f6c297e92a82c04a4ab507db0a61435650d7e8"
+    },
+    "docker": {
+      "exit": 0,
+      "path": "/opt/homebrew/bin/docker",
+      "version": "Docker version 29.7.2, build a7dcaa6fdb"
+    },
+    "emcc": {
+      "path": null
+    },
+    "gh": {
+      "exit": 0,
+      "path": "/Users/tomas/.local/share/mise/installs/gh/latest/gh_2.100.0_macOS_arm64/bin/gh",
+      "version": "gh version 2.100.0 (2026-09-03)\nhttps://github.com/cli/cli/releases/tag/v2.100.0"
+    },
+    "magick": {
+      "path": null
+    },
+    "mise": {
+      "exit": 0,
+      "path": "/Users/tomas/.local/bin/mise",
+      "version": "2026.9.5 macos-arm64 (2026-09-10)"
+    },
+    "nix": {
+      "path": null
+    },
+    "node": {
+      "exit": 0,
+      "path": "/Users/tomas/.local/share/mise/installs/node/26/bin/node",
+      "version": "v26.8.1"
+    },
+    "python3": {
+      "exit": 0,
+      "path": "/Users/tomas/.local/share/mise/installs/python/3.14/bin/python3",
+      "version": "Python 3.14.7"
+    },
+    "ruff": {
+      "exit": 0,
+      "path": "/Users/tomas/.local/share/mise/installs/ruff/0.16.6/ruff-aarch64-apple-darwin/ruff",
+      "version": "ruff 0.16.6"
+    },
+    "shellcheck": {
+      "exit": 0,
+      "path": "/Users/tomas/.local/share/mise/installs/shellcheck/0.11.0/shellcheck-v0.11.0/shellcheck",
+      "version": "ShellCheck - shell script analysis tool\nversion: 0.11.0\nlicense: GNU General Public License, version 3\nwebsite: https://www.shellcheck.net"
+    },
+    "shfmt": {
+      "exit": 0,
+      "path": "/Users/tomas/.local/share/mise/installs/shfmt/3.14.0/shfmt",
+      "version": "v3.14.0"
+    },
+    "valgrind": {
+      "path": null
+    }
+  },
+  "uname": "Darwin thestudio 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 22:01:56 PDT 2026; root:xnu-13432.1.9~3/RELEASE_ARM64_T6031 arm64",
+  "utc": "2026-09-12T13:10:05.976048+00:00"
+}

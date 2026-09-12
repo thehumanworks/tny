@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import signal
@@ -19,6 +20,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 TNY = str(Path(os.environ.get("TNY", ROOT / "build/tny")).resolve())
 WASM = "wasm" in TNY
+# Provenance is additive, so the fixed result comparison below stays exact.
+PROVENANCE_KEYS = ("operation_id", "manifest_path", "seed", "request_id")
 WINDOWS = sys.platform in ("win32", "cygwin", "msys")
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0xoAAAAASUVORK5CYII="
@@ -223,14 +226,43 @@ class ImageTests(unittest.TestCase):
     def image_requests(self):
         return [r for r in self.state["requests"] if "/images/" in r[0]]
 
+    def staging(self, stem="result.png"):
+        """Temporary files beside an output; always none. The per-operation
+        record is the documented new default artifact (docs/images.md)."""
+        return sorted(
+            p.name for p in self.home.glob(stem + ".*") if ".tny-image-" not in p.name
+        )
+
+    def records(self, stem="result.png"):
+        return [
+            json.loads(p.read_text())
+            for p in sorted(self.home.glob(stem + ".tny-image-*.json"))
+        ]
+
     def test_generate_defaults_chunk_boundaries_and_metadata(self):
         for mode in ("ok", "chunked"):
             self.state["mode"] = mode
             r = self.generate("--json")
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(self.out.read_bytes(), PNG)
+            value = json.loads(r.stdout)
+            # Additive provenance (#127): the record actually written, and no
+            # provider identifier this fixture never returned.
+            provenance = {key: value.pop(key) for key in PROVENANCE_KEYS}
+            self.assertRegex(provenance["operation_id"], r"^[0-9a-f]{16}$")
             self.assertEqual(
-                json.loads(r.stdout),
+                provenance["manifest_path"],
+                os.path.realpath(
+                    self.home
+                    / f"result.png.tny-image-{provenance['operation_id']}.json"
+                ),
+            )
+            self.assertIsNone(provenance["seed"])
+            self.assertIsNone(provenance["request_id"])
+            record = json.loads(Path(provenance["manifest_path"]).read_text())
+            self.assertEqual(record["operation_id"], provenance["operation_id"])
+            self.assertEqual(
+                value,
                 {
                     "kind": "image",
                     "ok": True,
@@ -240,6 +272,15 @@ class ImageTests(unittest.TestCase):
                     "path": str(self.out),
                     "mime_type": "image/png",
                     "bytes": len(PNG),
+                    # Additive dimension metadata (#122): the fixture PNG is 1x1
+                    # and no size was requested, so no comparison is claimed.
+                    "requested_size": "auto",
+                    "effective_size": "auto",
+                    "width": 1,
+                    "height": 1,
+                    "size_status": "auto",
+                    "native": True,
+                    "transform": None,
                 },
             )
             path, headers, body = self.image_requests()[-1]
@@ -257,7 +298,95 @@ class ImageTests(unittest.TestCase):
             )
             if not WINDOWS:
                 self.assertEqual(self.out.stat().st_mode & 0o777, 0o600)
-        self.assertFalse(list(self.home.glob("result.png.*")))
+                self.assertEqual(
+                    Path(provenance["manifest_path"]).stat().st_mode & 0o777, 0o600
+                )
+        self.assertEqual(self.staging(), [])
+        # One immutable record per requested operation, never a shared sidecar.
+        records = self.records()
+        self.assertEqual(len(records), 2)
+        self.assertNotEqual(records[0]["operation_id"], records[1]["operation_id"])
+        for record in records:
+            self.assertEqual(record["status"], "succeeded")
+            self.assertTrue(record["committed"])
+            self.assertEqual(record["prompt"], "A blue robot, 世界\n")
+            self.assertEqual(record["references"], [])
+            self.assertEqual(record["artifacts"][0]["role"], "native")
+            self.assertNotIn(TOKEN, json.dumps(record))
+
+    def test_manifests_and_replay_work_through_the_shared_service(self):
+        """Shared C service behavior, so it holds on every runtime including wasm."""
+        r = self.generate("--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        record = self.records()[0]
+        self.assertEqual(len(self.records()), 1)
+        self.assertEqual(record["version"], 1)
+        self.assertEqual(record["status"], "succeeded")
+        self.assertEqual(record["prompt"], "A blue robot, 世界\n")
+        self.assertEqual(
+            record["artifacts"][0]["sha256"], hashlib.sha256(PNG).hexdigest()
+        )
+        source = next(self.home.glob("result.png.tny-image-*.json"))
+        # A rerun reuses the recorded prompt and settings; stdin is optional.
+        again = self.home / "again.png"
+        r = self.run_image(
+            "replay",
+            "--manifest",
+            str(source),
+            "--output-file",
+            str(again),
+            "--json",
+            prompt=b"",
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(again.read_bytes(), PNG)
+        self.assertEqual(self.image_requests()[-1][2]["prompt"], "A blue robot, 世界\n")
+        rerun = self.records("again.png")[0]
+        self.assertEqual(rerun["source"]["operation_id"], record["operation_id"])
+        self.assertNotEqual(rerun["operation_id"], record["operation_id"])
+        # A rerun may not overwrite what it reruns.
+        before = len(self.image_requests())
+        r = self.run_image(
+            "replay",
+            "--manifest",
+            str(source),
+            "--output-file",
+            str(self.out),
+            "--json",
+        )
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(len(self.image_requests()), before)
+        # An unreadable or future record fails before any request.
+        broken = self.home / "broken.json"
+        broken.write_text('{"version":2,"kind":"image_manifest"}')
+        r = self.run_image(
+            "replay",
+            "--manifest",
+            str(broken),
+            "--output-file",
+            str(self.home / "never.png"),
+            "--json",
+        )
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn(b"version", r.stderr)
+        self.assertEqual(len(self.image_requests()), before)
+        self.assertFalse((self.home / "never.png").exists())
+        # The opt-out records nothing at all, and never the prompt.
+        quiet = self.home / "quiet.png"
+        r = self.run_image(
+            "generate",
+            "--output-file",
+            str(quiet),
+            "--no-manifest",
+            "--json",
+            prompt=b"a private sentinel prompt",
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.records("quiet.png"), [])
+        self.assertNotIn(b"manifest:", r.stderr)
+        for path in self.home.rglob("*"):
+            if path.is_file():
+                self.assertNotIn(b"a private sentinel prompt", path.read_bytes(), path)
 
     def test_edit_reference_payload_options_and_in_place(self):
         image = self.home / "input.png"
@@ -413,7 +542,7 @@ class ImageTests(unittest.TestCase):
             self.assertEqual(self.out.read_bytes(), b"keep me")
             self.assertNotIn(TOKEN.encode(), r.stdout + r.stderr)
             self.assertEqual(r.stdout, b"")
-            self.assertFalse(list(self.home.glob("result.png.*")))
+            self.assertEqual(self.staging(), [])
         self.assertEqual(len(self.image_requests()), 14)  # no automatic retries
 
     def test_check_auth_refresh_precedence_and_chat_independence(self):

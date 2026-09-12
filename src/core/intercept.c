@@ -5,6 +5,7 @@
 #include "core/intercept.h"
 #include "core/speech.h"
 #include "core/image_service.h"
+#include "core/image_manifest.h"
 #include "core/tools_image.h"
 #include "core/edit.h"
 #include "core/shellwords.h"
@@ -314,50 +315,103 @@ static tny_intercept *parse_skill(char **argv, int argc, int i) {
     return ic_label(ic, "tny skill show %s", argv[i + 1]);
 }
 
+/* A replay adopts the operation its record names, so the permission identity
+ * is read from that record rather than guessed from the command line. -1 when
+ * the record cannot be read. Parsing it opens no referenced file. */
+static int replayed_operation(tools_env *env, const char *manifest) {
+    char *problem = NULL, *path = tool_resolve_path(env, manifest, &problem);
+    free(problem);
+    char why[256];
+    tny_image_manifest *record = path ? tny_image_manifest_load(path, why, sizeof why) : NULL;
+    free(path);
+    if (!record) return -1;
+    int edit = strcmp(record->operation, "edit") == 0;
+    tny_image_manifest_free(record);
+    return edit;
+}
+
 static tny_intercept *parse_image_render(tools_env *env, char **argv, int argc, int i, bool json,
                                          const buf_t *payload) {
     tny_image_request r = {0};
     bool check = false;
-    if (!payload || tny_image_options(argc - i, argv + i, &r, &json, &check) != 0 || check)
-        return NULL;
-    tny_intercept *ic =
-        ic_new(TNY_INTERCEPT_IMAGE_RENDER, r.edit ? "image_edit" : "image_generate");
+    if (tny_image_options(argc - i, argv + i, &r, &json, &check) != 0 || check) return NULL;
+    /* Pure replay needs no stdin; every other form still does. At most one
+     * leading --artifact is representable as the typed `artifact` input, so a
+     * richer reference ordering stays with the ordinary shell executor. */
+    if (!payload && !r.replay) return NULL;
+    for (size_t j = 1; j < r.image_count; j++)
+        if (r.image_is_artifact[j]) return NULL;
+    bool edit = r.edit;
+    if (r.replay) {
+        int recorded = replayed_operation(env, r.from_manifest);
+        if (recorded < 0) {
+            tny_intercept *refused = ic_new(TNY_INTERCEPT_IMAGE_RENDER, "image_generate");
+            if (!refused) return NULL;
+            refused->kind = TNY_INTERCEPT_REFUSED;
+            refused->message = xstrdup("cannot read the image manifest to rerun");
+            return ic_label(refused, "tny image replay");
+        }
+        edit = recorded != 0;
+    }
+    tny_intercept *ic = ic_new(TNY_INTERCEPT_IMAGE_RENDER, edit ? "image_edit" : "image_generate");
     if (!ic) return NULL;
     ic->json = json;
-    ic->action = xstrdup(r.edit ? "edit" : "generate");
+    ic->action = xstrdup(edit ? "edit" : "generate");
     buf_t args;
     buf_init(&args);
-    buf_appends(&args, "{\"prompt\":");
-    if (!utf8_valid_bytes(payload->data, payload->len)) {
-        ic->kind = TNY_INTERCEPT_REFUSED;
-        ic->message = xstrdup("image prompt must be UTF-8 without embedded NUL");
-        buf_free(&args);
-        return ic_label(ic, "tny image");
+    buf_appends(&args, "{");
+    if (payload && payload->len) {
+        if (!utf8_valid_bytes(payload->data, payload->len)) {
+            ic->kind = TNY_INTERCEPT_REFUSED;
+            ic->message = xstrdup("image prompt must be UTF-8 without embedded NUL");
+            buf_free(&args);
+            return ic_label(ic, "tny image");
+        }
+        buf_appends(&args, "\"prompt\":");
+        jescape(&args, payload->data);
+        buf_appends(&args, ",");
     }
-    jescape(&args, payload->data);
-    const char *keys[] = {"output_file", "provider", "model", "quality", "size"};
-    const char *values[] = {r.output_file, r.provider, r.model, r.quality, r.size};
+    const char *keys[] = {"output_file", "provider", "model", "quality", "size", "from_manifest"};
+    const char *values[] = {r.output_file, r.provider, r.model, r.quality, r.size, r.from_manifest};
     for (size_t j = 0; j < sizeof keys / sizeof keys[0]; j++) {
         if (!values[j]) continue;
-        buf_appendf(&args, ",\"%s\":", keys[j]);
+        buf_appendf(&args, "\"%s\":", keys[j]);
         jescape(&args, values[j]);
+        buf_appends(&args, ",");
     }
-    buf_appends(&args, ",\"images\":[");
-    for (size_t j = 0; j < r.image_count; j++) {
-        if (j) buf_appends(&args, ",");
-        jescape(&args, r.images[j]);
+    if (r.strict_size) buf_appends(&args, "\"strict_size\":true,");
+    if (r.no_manifest) buf_appends(&args, "\"persist_manifest\":false,");
+    size_t first = 0;
+    if (r.image_count && r.image_is_artifact[0]) {
+        buf_appends(&args, "\"artifact\":");
+        jescape(&args, r.images[0]);
+        buf_appends(&args, ",");
+        first = 1;
     }
-    buf_appends(&args, "]}");
+    if (first < r.image_count) {
+        buf_appends(&args, "\"images\":[");
+        for (size_t j = first; j < r.image_count; j++) {
+            if (j > first) buf_appends(&args, ",");
+            jescape(&args, r.images[j]);
+        }
+        buf_appends(&args, "],");
+    }
+    if (args.len && args.data[args.len - 1] == ',') args.len--;
+    buf_appends(&args, "}");
     ic->value = buf_detach(&args);
     yyjson_doc *doc = ic->value ? jparse(ic->value, strlen(ic->value)) : NULL;
-    if (doc) ic->detail = tool_image_detail(env, yyjson_doc_get_root(doc), r.edit, &ic->message);
+    /* The plan outlives this document: everything it needs is copied into it,
+     * so the command can run later without reopening the record. */
+    if (doc)
+        ic->detail =
+            tool_image_detail(env, yyjson_doc_get_root(doc), edit, &ic->image_plan, &ic->message);
     yyjson_doc_free(doc);
     if (ic->message) ic->kind = TNY_INTERCEPT_REFUSED;
     if (!ic->value || !ic->action || (!ic->detail && !ic->message)) {
         tny_intercept_free(ic);
         return NULL;
     }
-    return ic_label(ic, "tny image %s", r.edit ? "edit" : "generate");
+    return ic_label(ic, "tny image %s", r.replay ? "replay" : edit ? "edit" : "generate");
 }
 
 static tny_intercept *parse_image(char **argv, int argc, int i, bool json) {
@@ -470,7 +524,8 @@ static tny_intercept *parse_verb(tools_env *env, const tny_words *w, const buf_t
     if (strcmp(verb, "memory") == 0) return parse_memory(argv, argc, i, payload != NULL);
     if (strcmp(verb, "skill") == 0) return parse_skill(argv, argc, i);
     if (strcmp(verb, "image") == 0) {
-        if (i < argc && (strcmp(argv[i], "generate") == 0 || strcmp(argv[i], "edit") == 0))
+        if (i < argc && (strcmp(argv[i], "generate") == 0 || strcmp(argv[i], "edit") == 0 ||
+                         strcmp(argv[i], "replay") == 0))
             return parse_image_render(env, argv, argc, i, json, payload);
         return parse_image(argv, argc, i, json);
     }
@@ -529,6 +584,7 @@ void tny_intercept_free(tny_intercept *ic) {
     free(ic->marker);
     free(ic->stdin_data);
     free(ic->message);
+    tool_image_plan_free(ic->image_plan);
     free(ic);
 }
 
@@ -809,18 +865,36 @@ static char *exec_image_render(tools_env *env, const tny_intercept *ic) {
     buf_init(&err);
     yyjson_doc *doc = jparse(ic->value, strlen(ic->value));
     char diagnostic[256] = "invalid image arguments";
+    /* ic->image_plan is the plan this command's permission decision was made
+     * about; a const handle to a mutable plan needs no cast. */
     int rc = doc ? tool_image_run(env, yyjson_doc_get_root(doc), strcmp(ic->action, "edit") == 0,
-                                  &out, diagnostic, sizeof diagnostic)
+                                  ic->image_plan, &out, diagnostic, sizeof diagnostic)
                  : 1;
-    if (rc) buf_appendf(&err, "tny: image: %s\n", diagnostic);
-    else if (!ic->json) {
+    if (rc) {
+        /* Only an explicitly requested --json run may carry the structured
+         * failure object; plain-text stdout stays empty exactly as before. */
+        if (!ic->json) buf_clear(&out);
+        buf_appendf(&err, "tny: image: %s\n", diagnostic);
+    } else {
+        /* Same shared wording as the CLI, from the one shared result. */
         yyjson_doc *result = jparse(out.data, out.len);
-        const char *path = result ? jget_str(yyjson_doc_get_root(result), "path") : NULL;
-        buf_t plain;
-        buf_init(&plain);
-        if (path) buf_appendf(&plain, "%s\n", path);
-        buf_free(&out);
-        out = plain;
+        yyjson_val *root = result ? yyjson_doc_get_root(result) : NULL;
+        char warning[320];
+        if (tny_image_size_warning(jget_str(root, "requested_size"), jget_str(root, "size_status"),
+                                   (uint32_t)yyjson_get_uint(jget(root, "width")),
+                                   (uint32_t)yyjson_get_uint(jget(root, "height")), warning,
+                                   sizeof warning))
+            buf_appendf(&err, "tny: image: warning: %s\n", warning);
+        const char *manifest = jget_str(root, "manifest_path");
+        if (manifest) buf_appendf(&err, "tny: image: manifest: %s\n", manifest);
+        if (!ic->json) {
+            const char *path = jget_str(root, "path");
+            buf_t plain;
+            buf_init(&plain);
+            if (path) buf_appendf(&plain, "%s\n", path);
+            buf_free(&out);
+            out = plain;
+        }
         yyjson_doc_free(result);
     }
     yyjson_doc_free(doc);

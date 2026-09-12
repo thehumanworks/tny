@@ -40,7 +40,7 @@ int cmd_image_service(const cli_globals *g, int argc, char **argv) {
         fputs("tny: image: cannot enter --cwd\n", stderr);
         return 1;
     }
-    tny_image_result result;
+    tny_image_result result = {0};
     /* This service consumes only ChatGPT flag credentials from the context.
      * Loading a selected chat profile here could refresh unrelated accounts. */
     tny_ctx ctx = {.chatgpt_token = (char *)g->chatgpt_token,
@@ -53,7 +53,10 @@ int cmd_image_service(const cli_globals *g, int argc, char **argv) {
         if (!available) fprintf(stderr, "tny: image: %s\n", err);
         return available ? 0 : 1;
     }
-    if (isatty(STDIN_FILENO)) {
+    /* A pure replay reruns a recorded prompt, so a terminal is not an error
+     * there; piped text still overrides that prompt explicitly. */
+    bool have_stdin = !isatty(STDIN_FILENO);
+    if (!have_stdin && !r.replay) {
         fputs("tny: image: pipe text on stdin (see tny image --help)\n", stderr);
         return 1;
     }
@@ -66,7 +69,7 @@ int cmd_image_service(const cli_globals *g, int argc, char **argv) {
     buf_t text;
     buf_init(&text);
     int rc = 0;
-    for (;;) {
+    while (have_stdin) {
         char chunk[4096];
         ssize_t n = read(STDIN_FILENO, chunk, sizeof chunk);
         if (interrupted) {
@@ -85,9 +88,11 @@ int cmd_image_service(const cli_globals *g, int argc, char **argv) {
             break;
         }
     }
-    if (!rc && !utf8_valid_bytes(text.data, text.len)) rc = 1;
+    if (!rc && have_stdin && !utf8_valid_bytes(text.data, text.len)) rc = 1;
     if (!rc) {
-        r.prompt = text.data;
+        /* Empty piped text is not an override: a replay then keeps the
+         * recorded prompt, and generate/edit still fail validation. */
+        r.prompt = text.len ? text.data : r.replay ? NULL : "";
         rc = tny_image_run(&ctx, &r, &result, err, sizeof err);
     } else
         snprintf(err, sizeof err,
@@ -95,14 +100,25 @@ int cmd_image_service(const cli_globals *g, int argc, char **argv) {
     buf_free(&text);
     if (have_int) sigaction(SIGINT, &oldint, NULL);
     if (have_term) sigaction(SIGTERM, &oldterm, NULL);
+    char warning[320];
+    /* Ordinary stdout stays the destination path; guidance goes to stderr. */
+    if (!rc && tny_image_size_warning(result.requested_size,
+                                      tny_image_size_status_name(result.size_status), result.width,
+                                      result.height, warning, sizeof warning))
+        fprintf(stderr, "tny: image: warning: %s\n", warning);
+    /* Provenance is guidance, so it joins the warning on stderr and never
+     * changes what a script reading stdout sees. */
+    if (*result.manifest_path) fprintf(stderr, "tny: image: manifest: %s\n", result.manifest_path);
     if (rc) fprintf(stderr, "tny: image: %s\n", err);
-    else if (json) {
+    bool retained = result.code && strcmp(result.code, TNY_IMAGE_CODE_MANIFEST) == 0;
+    if (json && (!rc || result.code)) {
         buf_t out;
         buf_init(&out);
-        tny_image_result_json(&r, &result, &out);
-        if (out.oom) rc = 1;
-        else if (fwrite(out.data, 1, out.len, stdout) != out.len) rc = 1;
+        if (retained) tny_image_retained_json(&r, &result, err, &out);
+        else if (rc) tny_image_error_json(&r, &result, err, &out);
+        else tny_image_result_json(&r, &result, &out);
+        if (out.oom || fwrite(out.data, 1, out.len, stdout) != out.len) rc = rc ? rc : 1;
         buf_free(&out);
-    } else puts(r.output_file);
+    } else if (!rc) puts(r.output_file);
     return rc;
 }

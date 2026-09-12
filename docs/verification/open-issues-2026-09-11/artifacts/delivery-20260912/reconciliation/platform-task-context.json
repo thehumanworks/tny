@@ -1,0 +1,33 @@
+{
+  "containers": [
+    {
+      "exit": 0,
+      "name": "tny-nix-verification-20260911",
+      "read_only_paths_and_process_names": "Linux 601b57e7e5a6 6.8.0-117-generic #117-Ubuntu SMP PREEMPT_DYNAMIC Thu May  7 17:26:37 UTC 2026 aarch64 GNU/Linux\n/root/.nix-profile/bin/nix\nlrwxrwxrwx 1 root root 62 Jan  1  1970 /nix/var/nix/profiles/default/bin/nix -> /nix/store/fw98swa1g4ysvmv6p6m6xf51kzhvpp6p-nix-2.35.2/bin/nix\n"
+    },
+    {
+      "exit": 0,
+      "name": "tny-verification-20260911",
+      "read_only_paths_and_process_names": "Linux 7cdcfcae4414 6.8.0-117-generic #117-Ubuntu SMP PREEMPT_DYNAMIC Thu May  7 17:26:37 UTC 2026 aarch64 aarch64 aarch64 GNU/Linux\n/usr/bin/gcc\n/usr/bin/clang\n/usr/bin/valgrind\n/usr/bin/tini\n-rwxr-xr-x 1 tny tny 1045 Aug 20 16:25 /work/emsdk-6.0.8/upstream/emscripten/emcc\nlrwxrwxrwx 1 tny tny 10 Sep 12 08:50 /work/tny-browser-venv-20260912/bin/python -> python3.14\n   2019       1 python3\n   2159       1 python3\n   3295       1 python3\n   3300       1 python3\n   3304       1 python3\n   3308       1 python3\n   3312       1 python3\n   3316       1 python3\n   3320       1 python3\n   3324       1 python3\n   3328       1 python3\n   3332       1 python3\n   3336       1 python3\n   3340       1 python3\n   3345       1 python3\n   3349       1 python3\n   3353       1 python3\n   3357       1 python3\n   3361       1 python3\n   3365       1 python3\n   3370       1 python3\n   3382       1 python3\n   3731       1 python3\n   3738       1 python3\n   3745       1 python3\n   3761       1 python3\n   5625       1 python3\n  24932       1 python3\n"
+    }
+  ],
+  "context_discovered_in": "artifacts/resume-20260911/run_integrated_platforms.py",
+  "docker_ps": {
+    "argv": [
+      "docker",
+      "--context",
+      "colima-tny-open-issues-20260911",
+      "ps"
+    ],
+    "exit": 0,
+    "stdout": "601b57e7e5a6\ttny-nix-verification-20260911\t7a007c766426\tUp 14 hours\n7cdcfcae4414\ttny-verification-20260911\ttny-verification:20260911\tUp 17 hours\n"
+  },
+  "private_magick": [
+    {
+      "exit": 0,
+      "path": "/Users/tomas/.cache/tny-verification/open-issues-20260911/imagemagick-macos/prefix/bin/magick",
+      "version": "Version: ImageMagick 7.1.2-31 Q16 aarch64 8309dc92a:20260903 https://imagemagick.org\nCopyright: (C) 1999 ImageMagick Studio LLC\nLicense: https://imagemagick.org/license/\nFeatures: Cipher DPC \nDelegates (built-in): jng jpeg png webp xml zlib zstd\nCompiler: clang (21.0.0)\n"
+    }
+  ],
+  "utc": "2026-09-12T13:11:56.963258+00:00"
+}

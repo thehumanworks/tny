@@ -50,10 +50,21 @@ runs remain available; an observer's `session attach` Ctrl-C still detaches.
 In-process turns remain deliberate outside the runner-owned CLI/TUI path:
 wasm (no `fork`), `--ephemeral` (nothing durable to survive for, [ADR
 0020](../adr/0020-ephemeral-sessions.md)), the `TNY_ISOLATE=0` debug escape
-hatch, `tny acp` server mode, and libtny embedders. On macOS, a caller that
+hatch, `tny ask --events=jsonl` (the canonical foreground event stream is
+this process's own engine, [ADR
+0090](../adr/0090-canonical-foreground-ask-events.md)), `tny acp` server
+mode, and libtny embedders. On macOS, a caller that
 has already initialized SecureTransport also keeps later turns in-process;
 that fork-safety containment is separate from the deep-path socket fallback
 above. These in-process modes have no runner socket.
+
+Without that runner there is no control pump behind a synchronous tool, so
+the turn's cancellation signal is what a blocking tool consults directly. An
+interrupted `terminal` command is stopped along with the descendants it
+started — including ones in their own process group or session — and reaped;
+unrelated processes are never touched, and a `background: true` command stays
+detached by design. The tool reports `exit code: 130` and the turn ends
+`interrupted`.
 
 ## Session control channel ([ADR 0058](../adr/0058-session-control-channel-roles-and-tool-ops.md))
 
@@ -106,7 +117,12 @@ every completed turn records them, not just `-B`):
   .result` is how their answers are read back.
 
 Old sessions simply lack all three; readers treat absence as "not a
-background task". The pid lives in the separate `<dir>/pid` file (the
+background task". A foreground `--events=jsonl` turn records the same fields
+on a session that carries them, and records them honestly: if the stream to
+stdout failed, the stored `status`/`exit_code` say so while `result.output`
+still holds the provider text the turn really produced.
+
+The pid lives in the separate `<dir>/pid` file (the
 control channel for `tny session stop`), not in the document — the
 background child stays the sole writer of `session.json`.
 
@@ -169,7 +185,7 @@ does not create or update:
 Saved-session operations are intentionally incompatible with ephemeral mode:
 `resume`, `--resume`, `-r`, `-c`, `/resume`, recovery, migration, and import do
 not load stored conversation state. Native subagents are one-shot, so their
-`message` and `inspect` actions are unavailable. Existing user memories may
+`message`, `inspect` and `lifecycle` actions are unavailable. Existing user memories may
 still be read. `tny ask --json` returns `"ephemeral":true` and an empty
 `session_id`.
 

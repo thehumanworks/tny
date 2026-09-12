@@ -7,6 +7,7 @@
 #include "core/intercept.h"
 #include "core/shellwords.h"
 #include "core/tools.h"
+#include "core/tools_image.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -577,6 +578,82 @@ TEST intercepted_control_verbs_bypass_the_socket(void) {
     PASS();
 }
 
+/* ---- an intercepted image command owns the plan it was approved for ---- */
+
+/* A minimal succeeded record of an earlier generate, written by hand so this
+ * test depends on the documented schema rather than the writer. */
+static void write_record(const char *name, const char *provider, const char *prompt) {
+    buf_t record;
+    buf_init(&record);
+    buf_appends(&record,
+                "{\"version\":1,\"kind\":\"image_manifest\",\"operation_id\":\"1234abcd1234abcd\","
+                "\"operation\":\"generate\",\"status\":\"succeeded\",\"workspace\":");
+    jescape(&record, g_ws);
+    buf_appends(&record, ",\"started\":\"2026-09-12T00:00:00Z\",\"finished\":"
+                         "\"2026-09-12T00:00:05Z\",\"prompt\":");
+    jescape(&record, prompt);
+    buf_appends(&record, ",\"output\":\"old.png\",\"references\":[],\"requested\":{\"provider\":");
+    jescape(&record, provider);
+    buf_appends(&record, ",\"size\":\"auto\"},\"effective\":{\"provider\":");
+    jescape(&record, provider);
+    buf_appends(&record, "}}");
+    write_workspace_file(name, record.data);
+    buf_free(&record);
+}
+
+TEST intercepted_image_runs_the_plan_it_was_approved_for(void) {
+    fixture f;
+    fixture_open(&f, TNY_MODE_ASK);
+    f.ctx->chatgpt_token = xstrdup("fixture-image-token");
+    f.ctx->chatgpt_account_id = xstrdup("fixture-account");
+    write_record("source.json", "codex", "a recorded prompt");
+    /* A directory destination fails inside the service, after the plan has
+     * been honoured, so nothing here needs a provider. */
+    char *destination = path_join(g_ws, "out-dir");
+    ASSERT(destination);
+    mkdir_p(destination);
+    buf_t command;
+    buf_init(&command);
+    buf_appendf(&command, "tny image replay --manifest %s/source.json --output-file %s --json",
+                g_ws, destination);
+    buf_t args;
+    buf_init(&args);
+    buf_appends(&args, "{\"command\":");
+    jescape(&args, command.data);
+    buf_appends(&args, "}");
+
+    tools_call call;
+    ASSERT_EQ(0, tools_call_prepare(&f.env, "terminal", args.data, &call));
+    ASSERT(call.intercept);
+    ASSERT_EQ(TNY_INTERCEPT_IMAGE_RENDER, call.intercept->kind);
+    /* The parser's JSON document is gone; the plan is this intercept's own. */
+    ASSERT(call.intercept->image_plan);
+    ASSERT_STR_EQ("a recorded prompt", call.intercept->image_plan->prompt);
+    ASSERT_STR_EQ("codex", call.intercept->image_plan->provider);
+    ASSERT(strstr(call.detail, "\"provider\":\"codex\""));
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+
+    /* Rewriting the record afterwards cannot redirect this approved command. */
+    write_record("source.json", "nonesuch", "a hijacked prompt");
+    char *result = tools_call_execute(&f.env, &call);
+    ASSERT(result);
+    ASSERT(strstr(result, "image output"));
+    ASSERT(!strstr(result, "unknown image provider"));
+    free(result);
+    tools_call_free(&call);
+
+    /* A parsed command that is never executed frees its plan exactly once. */
+    tny_intercept *parsed = tny_intercept_parse(&f.env, command.data);
+    ASSERT(parsed && parsed->image_plan);
+    tny_intercept_free(parsed);
+
+    buf_free(&args);
+    buf_free(&command);
+    free(destination);
+    fixture_close(&f);
+    PASS();
+}
+
 /* ---- nested runs cannot widen the parent's mode ---- */
 
 TEST nested_runs_cannot_widen_the_permission_mode(void) {
@@ -634,5 +711,6 @@ SUITE(intercept_suite) {
     RUN_TEST(intercepted_edit_matches_the_cli_and_records_undo);
     RUN_TEST(intercepted_memory_and_skill_run_the_builtin_tools);
     RUN_TEST(intercepted_control_verbs_bypass_the_socket);
+    RUN_TEST(intercepted_image_runs_the_plan_it_was_approved_for);
     RUN_TEST(nested_runs_cannot_widen_the_permission_mode);
 }

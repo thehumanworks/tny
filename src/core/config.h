@@ -31,6 +31,17 @@ struct tny_cursor_config;
 #endif
 
 typedef enum { TNY_MODE_ASK = 0, TNY_MODE_AUTO, TNY_MODE_YOLO } tny_perm_mode;
+/* Conversation image input for the effective provider (docs/adr/0089).
+ * Zero is unknown: nothing was configured, so the existing explicitly
+ * requested image paths keep working and no automatic preview may claim
+ * support. CONFIGURED_SUPPORTED is the user's assertion about this profile
+ * ("configured, unverified"), never a live entitlement or model check.
+ * CONFIGURED_UNSUPPORTED prohibits conversation image input. */
+typedef enum {
+    TNY_IMAGE_INPUT_UNKNOWN = 0,
+    TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED,
+    TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED
+} tny_image_input_policy;
 typedef enum {
     TNY_TOOLS_ALL = 0,
     TNY_TOOLS_TERMINAL_EDIT,
@@ -106,6 +117,10 @@ typedef struct tny_ctx {
     bool service_tier_explicit;      /* --fast / TUI /fast was used; settings
                                       * defaults must not replace it */
     bool service_tier_from_settings; /* recompute on provider switches */
+    /* Private image-input capability for the resolved provider, recomputed
+     * by every tny_resolve_backend from settings.json `image_input`. Read it
+     * through tny_image_input_configured() and friends, not as a live probe. */
+    tny_image_input_policy image_input;
 
     /* user system prompt (--system-prompt, all providers). The openai
      * backend carries it on its native system/instructions field; host
@@ -262,6 +277,29 @@ void tny_ctx_add_extra_header(tny_ctx *ctx, const char *line);
  * "acp@claude") when active, else the builtin backend name. Never NULL after
  * tny_resolve_backend. */
 const char *tny_provider_name(const tny_ctx *ctx);
+/* ---- conversation image input (docs/adr/0089) ----
+ * settings.json holds one additive top-level `image_input` object mapping
+ * canonical provider selectors ("codex", "my-gateway", "acp@agent") to
+ * booleans. It is separate from provider objects so configuring image input
+ * can never shadow a builtin subscription profile's auth wiring. The value
+ * is resolved once the effective provider is known and reset on every
+ * provider resolution; a `acp:NAME` selector resolves to the same
+ * `acp@NAME` key. */
+#define TNY_IMAGE_INPUT_KEY_MAX     256u
+#define TNY_IMAGE_INPUT_MAX_ENTRIES 1024u
+/* The one refusal sentence every image gate reports (CLI, engine start,
+ * image queue/flush, read_image). It names no user value. */
+#define TNY_IMAGE_INPUT_REFUSAL \
+    "image input is disabled for this provider by settings.json image_input"
+tny_image_input_policy tny_image_input_configured(const tny_ctx *ctx);
+/* True when the user configured this provider as unable to take images. */
+bool tny_image_input_refused(const tny_ctx *ctx);
+/* Fail closed: only an explicit configured-true may authorize an automatic
+ * image preview. Unknown is not support, and never reported as verified. */
+bool tny_image_input_auto_preview_allowed(const tny_ctx *ctx);
+/* Truthful label for status/preamble text: "unknown", "configured,
+ * unverified" (the user's assertion) or "configured off". */
+const char *tny_image_input_label(const tny_ctx *ctx);
 const char *tny_tool_profile_name(tny_tool_profile profile);
 bool tny_tool_profile_is_shell(const tny_ctx *ctx);
 /* Force an unsupported runtime surface back to `all`, emitting one status

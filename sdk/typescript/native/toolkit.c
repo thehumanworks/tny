@@ -84,6 +84,22 @@ static napi_value make_error(napi_env env, int32_t status, const char *message) 
     return error;
 }
 
+/* libtny leaves a result on a failed job only for its own image decisions: a
+ * strict-size rejection, or an artifact it wrote and kept when the manifest
+ * could not be finalized. Either shape travels as the same hidden JSON string
+ * the wrapper validates; it is non-enumerable, so message, stack,
+ * JSON.stringify and default inspection are unchanged. Formatting failure
+ * simply drops it. */
+static void attach_detail(napi_env env, napi_value error, tny_bytes detail) {
+    napi_value text;
+    if (!detail.ptr || !detail.len ||
+        napi_create_string_utf8(env, detail.ptr, (size_t)detail.len, &text) != napi_ok)
+        return;
+    napi_property_descriptor property = {"imageDetailJson", NULL, NULL, NULL, NULL, text,
+                                         napi_default,      NULL};
+    (void)napi_define_properties(env, error, 1, &property);
+}
+
 static void release(toolkit_work *w) {
     if (--w->refs) return;
     if (w->job) (void)w->api.destroy(&w->job);
@@ -148,6 +164,9 @@ static void complete(napi_env env, napi_value callback, void *context, void *dat
     join_worker(w);
     if (env && !w->closing) {
         napi_value value = NULL;
+        /* The native outcome, before a JavaScript allocation can rewrite it:
+         * a successful result is never reinterpreted as failure detail. */
+        int failed = w->status != 0;
         if (!w->status) {
             tny_bytes result = w->api.result(w->job);
             if (napi_create_string_utf8(env, result.ptr ? result.ptr : "", (size_t)result.len,
@@ -156,6 +175,8 @@ static void complete(napi_env env, napi_value callback, void *context, void *dat
         }
         if (w->status) {
             value = make_error(env, w->status, w->error);
+            /* Still before destroy below; the job owns these bytes. */
+            if (value && failed) attach_detail(env, value, w->api.result(w->job));
             if (value) (void)napi_reject_deferred(env, w->deferred, value);
         } else (void)napi_resolve_deferred(env, w->deferred, value);
     }

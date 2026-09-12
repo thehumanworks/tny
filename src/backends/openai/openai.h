@@ -6,6 +6,7 @@
 #include "core/backend.h"
 #include "core/session.h"
 #include "core/perm.h"
+#include "core/image_preview.h"
 #include "json/json.h"
 
 typedef enum {
@@ -83,6 +84,16 @@ void tny_backend_openai_set_tool_cancel(tny_backend *b, bool (*probe)(void *), v
 /* Queue one validated local image for the next provider request through the
  * same ADR-0008 pending-image path used by read_image. */
 int tny_backend_openai_queue_image(tny_backend *b, const char *path, char *err, size_t errlen);
+/* Admit one explicitly requested generated-image preview onto that same queue
+ * (docs/adr/0096). This backend is the owner of the decision: it queues only
+ * while it is inside a tool batch that can still make another request, so a
+ * merely active turn that is streaming, cancelled, denied or out of step budget
+ * reports turn_not_ready instead of queued. *code_out receives a static
+ * TNY_IMAGE_PREVIEW_CODE_* string unless the status is queued. */
+tny_image_preview_status tny_backend_openai_queue_image_preview(tny_backend *b, const char *path,
+                                                                const char *expected_sha256,
+                                                                const char **code_out, char *err,
+                                                                size_t errlen);
 
 /* Number of agent steps taken in the last turn + tool call log (JSON array
  * text, borrowed until next send). */

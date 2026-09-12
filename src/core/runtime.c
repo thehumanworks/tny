@@ -1543,11 +1543,39 @@ void tny_engine_set_frontend_control(tny_engine *e, tny_engine_ask_user_cb ask_u
 }
 
 int tny_engine_queue_image(tny_engine *e, const char *path, char *err, size_t errlen) {
+    /* Configuration refusal precedes the transport check and every read or
+     * queue mutation (docs/adr/0089). */
+    if (e && tny_image_input_refused(e->ctx)) {
+        if (err && errlen) snprintf(err, errlen, "%s", TNY_IMAGE_INPUT_REFUSAL);
+        return -1;
+    }
     if (!e || !e->bk || e->bk->id != TNY_BK_OPENAI) {
         if (err && errlen) snprintf(err, errlen, "image attach is unavailable on this backend");
         return -1;
     }
     return tny_backend_openai_queue_image(e->bk, path, err, errlen);
+}
+
+tny_image_preview_status tny_engine_queue_image_preview(tny_engine *e, const char *path,
+                                                        const char *expected_sha256,
+                                                        const char **code_out, char *err,
+                                                        size_t errlen) {
+    if (code_out) *code_out = TNY_IMAGE_PREVIEW_CODE_NO_SESSION;
+    /* The configuration refusal precedes the transport check and every read,
+     * exactly like the manual queue entry point (docs/adr/0089). */
+    if (e && tny_image_input_refused(e->ctx)) {
+        if (code_out) *code_out = TNY_IMAGE_PREVIEW_CODE_CAPABILITY;
+        if (err && errlen) snprintf(err, errlen, "%s", TNY_IMAGE_INPUT_REFUSAL);
+        return TNY_IMAGE_PREVIEW_UNSUPPORTED;
+    }
+    /* No owning native turn to attach to: never a queued success from an idle
+     * or completed session (A15 D1). */
+    if (!e || !e->bk || e->bk->id != TNY_BK_OPENAI || !e->active) {
+        if (err && errlen) snprintf(err, errlen, "no active native turn can take an image preview");
+        return TNY_IMAGE_PREVIEW_UNAVAILABLE_SESSION;
+    }
+    return tny_backend_openai_queue_image_preview(e->bk, path, expected_sha256, code_out, err,
+                                                  errlen);
 }
 
 void tny_engine_set_cancel_probe(tny_engine *e, tny_engine_cancel_probe probe, void *ud) {
@@ -1576,6 +1604,14 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images, cha
     if (!e || !e->bk || !prompt || e->active || e->head || e->pending_terminal ||
         (e->terminal && !e->terminal_popped)) {
         if (err && errlen) snprintf(err, errlen, "runtime is not ready for a turn");
+        return -1;
+    }
+    /* The shared image gate (docs/adr/0089): every turn — TUI, one-shot CLI,
+     * detached runner, library caller and native subagent — passes here, so
+     * a configured-false provider refuses before prompt, event, session or
+     * reserve state changes. */
+    if (images && images[0] && tny_image_input_refused(e->ctx)) {
+        if (err && errlen) snprintf(err, errlen, "%s", TNY_IMAGE_INPUT_REFUSAL);
         return -1;
     }
     if (!ensure_oom_reserves(e)) {

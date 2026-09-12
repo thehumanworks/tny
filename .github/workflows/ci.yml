@@ -314,7 +314,19 @@ jobs:
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_speech.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_dictation.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_optimise.py
+          # Both image suites run whole: dimensions, strict size, manifests and
+          # replay are shared C. Cross-process guard, hard-link and host
+          # permission cases skip themselves with wasm's documented semantics.
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_service.py
+          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_workflow.py
+          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_input.py
+          # The captured pending-image queue is shared C: wasm runs the byte
+          # oracle that a file rewritten inside one tool batch cannot change
+          # the pixels that batch already captured. The control-socket preview
+          # group reports itself pending there (no fork, no AF_UNIX runner).
+          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_preview_queue.py
+          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
+            python3 tests/integration/test_ask_events.py "$PWD/build/wasm/tny"
           tests/integration/test_provider_setup.sh "$PWD/build/wasm/tny"
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
             python3 tests/integration/test_extension_capabilities.py

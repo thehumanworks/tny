@@ -6,6 +6,7 @@
  * path. */
 #include "cli/cli.h"
 #include "core/backend.h"
+#include "core/event_jsonl.h"
 #include "core/session.h"
 #include "core/perm.h"
 #include "core/runner.h"
@@ -14,6 +15,7 @@
 #include "backends/openai/openai.h"
 #include "mcp/mcp.h"
 #include "util/tny_poll.h"
+#include "util/process.h"
 #include "util/util.h"
 
 #include <pthread.h>
@@ -35,6 +37,32 @@ static bool ask_cancel_probe(void *ud) {
     if (!g_interrupted) return false;
     g_interrupted = 0;
     return true;
+}
+/* Read-only companion for the event writer: a stalled consumer must not
+ * swallow the interrupt the main loop still has to act on. */
+static bool ask_interrupt_peek(void *ud) {
+    (void)ud;
+    return g_interrupted != 0;
+}
+
+/* One stable machine diagnostic (docs/cli.md). Machine mode gets a JSON
+ * object on stderr — never an engine event, never on the event stream. */
+static void ask_diag(bool machine, const char *code, const char *message, const char *example) {
+    if (!machine) {
+        fprintf(stderr, "tny: %s\n", message);
+        if (example) fprintf(stderr, "Example: %s\n", example);
+        return;
+    }
+    buf_t line;
+    buf_init(&line);
+    buf_appends(&line, "{\"schema_version\":1,\"kind\":\"ask_error\",\"code\":");
+    jescape(&line, code);
+    buf_appends(&line, ",\"message\":");
+    jescape(&line, message);
+    buf_appends(&line, "}\n");
+    if (line.data) fwrite(line.data, 1, line.len, stderr);
+    fflush(stderr);
+    buf_free(&line);
 }
 
 /* connect() run off the main thread while stdin drains (safe per backend.h:
@@ -76,6 +104,9 @@ typedef struct {
     tny_engine *engine;
     tny_perm_mode perm_mode;
     bool print_usage;
+    bool events;   /* --events=jsonl: stdout belongs to the event stream */
+    bool quiet;    /* --progress=none: no successful human status/tool lines */
+    bool terminal; /* an actual TURN_END was read and delivered */
 } ask_state;
 
 static void ask_event_cb(const tny_backend_event *ev, void *ud) {
@@ -83,7 +114,7 @@ static void ask_event_cb(const tny_backend_event *ev, void *ud) {
     switch (ev->kind) {
     case TNY_EV_TEXT_DELTA: {
         buf_append(&st->output, ev->text, ev->text_len);
-        if (st->json) break;
+        if (st->json || st->events) break; /* the reply rides the event stream */
         const char *text = ev->text;
         size_t len = ev->text_len;
         if (!st->text_seen) {
@@ -103,10 +134,11 @@ static void ask_event_cb(const tny_backend_event *ev, void *ud) {
     }
     case TNY_EV_THINKING: break; /* stderr noise in scripts; skip */
     case TNY_EV_TOOL_START:
-        fprintf(stderr, "⏺ %s %.120s\n", ev->tool_name, ev->tool_detail ? ev->tool_detail : "");
+        if (!st->quiet)
+            fprintf(stderr, "⏺ %s %.120s\n", ev->tool_name, ev->tool_detail ? ev->tool_detail : "");
         break;
     case TNY_EV_TOOL_END:
-        fprintf(stderr, "  %s %s\n", ev->tool_ok ? "✓" : "✗", ev->tool_name);
+        if (!st->quiet) fprintf(stderr, "  %s %s\n", ev->tool_ok ? "✓" : "✗", ev->tool_name);
         if (tny_engine_backend_id(st->engine) != TNY_BK_OPENAI && ev->tool_name) {
             if (st->host_tools.len) buf_appends(&st->host_tools, ",");
             buf_appends(&st->host_tools, "{\"name\":");
@@ -115,14 +147,18 @@ static void ask_event_cb(const tny_backend_event *ev, void *ud) {
         }
         break;
     case TNY_EV_TOOL_PROGRESS:
-        fprintf(stderr, "  … %s %.120s\n", ev->tool_name ? ev->tool_name : "tool",
-                ev->tool_detail ? ev->tool_detail : "");
+        if (!st->quiet)
+            fprintf(stderr, "  … %s %.120s\n", ev->tool_name ? ev->tool_name : "tool",
+                    ev->tool_detail ? ev->tool_detail : "");
         break;
     case TNY_EV_PERMISSION:
-        /* `tny ask` never blocks on approvals: yolo allows, otherwise deny */
+        /* `tny ask` never blocks on approvals: yolo allows, otherwise deny.
+         * The refusal stays visible under --progress=none — it explains a
+         * turn that did not do what was asked. */
         if (st->perm_mode == TNY_MODE_YOLO) {
-            fprintf(stderr, "auto-approving (yolo): %s\n",
-                    ev->perm_summary ? ev->perm_summary : "");
+            if (!st->quiet)
+                fprintf(stderr, "auto-approving (yolo): %s\n",
+                        ev->perm_summary ? ev->perm_summary : "");
             tny_engine_respond_permission(st->engine, ev->perm_id, TNY_PERM_DECISION_ALLOW);
         } else {
             fprintf(stderr, "denying (ask mode cannot approve): %s\n",
@@ -130,12 +166,17 @@ static void ask_event_cb(const tny_backend_event *ev, void *ud) {
             tny_engine_respond_permission(st->engine, ev->perm_id, TNY_PERM_DECISION_DENY);
         }
         break;
-    case TNY_EV_STATUS: fprintf(stderr, "%.*s\n", (int)ev->text_len, ev->text); break;
+    case TNY_EV_STATUS:
+        if (!st->quiet) fprintf(stderr, "%.*s\n", (int)ev->text_len, ev->text);
+        break;
     case TNY_EV_CUSTOM_MESSAGE:
-        if (ev->message_type)
-            fprintf(stderr, "extension context (%s): %.*s\n", ev->message_type, (int)ev->text_len,
-                    ev->text);
-        else fprintf(stderr, "extension context: %.*s\n", (int)ev->text_len, ev->text);
+        /* the message itself still reaches the result blob and the stream */
+        if (!st->quiet) {
+            if (ev->message_type)
+                fprintf(stderr, "extension context (%s): %.*s\n", ev->message_type,
+                        (int)ev->text_len, ev->text);
+            else fprintf(stderr, "extension context: %.*s\n", (int)ev->text_len, ev->text);
+        }
         if (st->extension_messages.len) buf_appends(&st->extension_messages, ",");
         buf_appends(&st->extension_messages, "{\"kind\":\"custom\",\"custom_type\":");
         jescape(&st->extension_messages, ev->message_type ? ev->message_type : "tny_extension");
@@ -144,19 +185,21 @@ static void ask_event_cb(const tny_backend_event *ev, void *ud) {
         buf_appends(&st->extension_messages, "}");
         break;
     case TNY_EV_USER_MESSAGE:
-        fprintf(stderr, "extension follow-up: %.*s\n", (int)ev->text_len, ev->text);
+        if (!st->quiet) fprintf(stderr, "extension follow-up: %.*s\n", (int)ev->text_len, ev->text);
         if (st->extension_messages.len) buf_appends(&st->extension_messages, ",");
         buf_appends(&st->extension_messages, "{\"kind\":\"user\",\"content\":");
         jescape(&st->extension_messages, ev->text ? ev->text : "");
         buf_appends(&st->extension_messages, "}");
         break;
     case TNY_EV_STEER_REJECTED: /* ask never steers */ break;
-    case TNY_EV_PLAN: fprintf(stderr, "plan: %.*s\n", (int)ev->text_len, ev->text); break;
+    case TNY_EV_PLAN:
+        if (!st->quiet) fprintf(stderr, "plan: %.*s\n", (int)ev->text_len, ev->text);
+        break;
     case TNY_EV_USAGE:
-        if (!st->print_usage) break;
+        if (!st->print_usage || st->quiet) break;
         /* streamed stdout may lack a trailing newline; finish that line so
          * the usage never glues onto the answer on a terminal */
-        if (!st->json && st->any_out && !st->ends_nl) {
+        if (!st->json && !st->events && st->any_out && !st->ends_nl) {
             fputs("\n", stdout);
             fflush(stdout);
             st->ends_nl = true;
@@ -190,6 +233,21 @@ static char *ask_result_json(tny_ctx *ctx, ask_state *st, tny_engine *engine,
                                 st->errline.len ? st->errline.data : NULL, exit_code);
 }
 
+/* The whole exit-status decision, in one place so it can be read and tested
+ * on its own (docs/adr/0090). Order matters: an undelivered stream outranks
+ * whatever the turn reported, and a turn whose terminal event never arrived
+ * is a failure rather than the DONE that a zeroed stop reason would imply. */
+int cli_ask_exit_status(int stream, bool terminal, int stop) {
+    if (stream == TNY_EVENT_WRITE_IO) return 2;
+    if (stream == TNY_EVENT_WRITE_CANCELLED) return 130;
+    if (!terminal) return 2;
+    switch ((tny_stop_reason)stop) {
+    case TNY_STOP_DONE: return 0;
+    case TNY_STOP_INTERRUPTED: return 130;
+    default: return 2;
+    }
+}
+
 /* Refresh the ADR-0031 status fields after an in-process turn on a session
  * that carries them, so `tny session <id>` reflects this run. */
 static void ask_finalize_status(tny_ctx *ctx, tny_session_state *session, ask_state *st,
@@ -204,11 +262,12 @@ static void ask_finalize_status(tny_ctx *ctx, tny_session_state *session, ask_st
 /* --output-schema VALUE: inline JSON when VALUE starts with '{', otherwise a
  * file path. Normalizes into ctx->output_schema (response_format JSON).
  * Returns 0 ok, -1 error (message already printed). */
-static int load_output_schema(tny_ctx *ctx, const char *value) {
+static int load_output_schema(tny_ctx *ctx, const char *value, bool events) {
     if (ctx->backend != TNY_BK_OPENAI) {
-        fprintf(stderr, "tny: --output-schema needs the openai-compatible provider "
-                        "(structured outputs ride on response_format)\n"
-                        "Example: tny --provider openai ask --output-schema schema.json \"…\"\n");
+        ask_diag(events, "invalid_option",
+                 "--output-schema needs the openai-compatible provider "
+                 "(structured outputs ride on response_format)",
+                 "tny --provider openai ask --output-schema schema.json \"…\"");
         return -1;
     }
     const char *text = value;
@@ -221,10 +280,10 @@ static int load_output_schema(tny_ctx *ctx, const char *value) {
     if (*text != '{') {
         owned = file_slurp(value, &len);
         if (!owned) {
-            fprintf(stderr,
-                    "tny: --output-schema %s: cannot read file\n"
-                    "Example: tny ask --output-schema schema.json \"…\"\n",
-                    value);
+            char message[512];
+            snprintf(message, sizeof message, "--output-schema %s: cannot read file", value);
+            ask_diag(events, "invalid_option", message,
+                     "tny ask --output-schema schema.json \"…\"");
             return -1;
         }
         text = owned;
@@ -232,10 +291,8 @@ static int load_output_schema(tny_ctx *ctx, const char *value) {
     char *rf = tny_openai_response_format(text, len);
     free(owned);
     if (!rf) {
-        fprintf(
-            stderr,
-            "tny: --output-schema: value is not a JSON object\n"
-            "Example: tny ask --output-schema '{\"type\":\"object\",\"properties\":{}}' \"…\"\n");
+        ask_diag(events, "invalid_option", "--output-schema: value is not a JSON object",
+                 "tny ask --output-schema '{\"type\":\"object\",\"properties\":{}}' \"…\"");
         return -1;
     }
     free(ctx->output_schema);
@@ -357,10 +414,10 @@ static int ask_isolated_loop(ask_client *a, tny_ctx *ctx, const char *session_id
                  * (docs/adr/0053). */
                 if (a->pid > 0) kill(a->pid, SIGTERM);
             } else {
-                cancel_started = now_ms() - 5000;
+                cancel_started = now_ms() - TNY_PROCESS_CANCEL_GRACE_MS;
             }
         }
-        if (cancelled && now_ms() - cancel_started >= 5000) {
+        if (cancelled && now_ms() - cancel_started >= TNY_PROCESS_CANCEL_GRACE_MS) {
             char err[256];
             if (session_kill(ctx, session_id, a->pid, err, sizeof err) < 0) {
                 fprintf(stderr, "tny: %s (tny session stop %s --kill)\n", err, session_id);
@@ -433,6 +490,17 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     buf_t prompt;
     buf_init(&prompt);
 
+    /* --events=jsonl decides how every later failure is reported, so the
+     * mode is resolved before the ordinary parse can fail (docs/adr/0090).
+     * Everything after `--` is prompt text, never a mode. */
+    bool events = false, quiet = false;
+    for (int k = 0; k < argc; k++) {
+        if (strcmp(argv[k], "--") == 0) break;
+        if (strcmp(argv[k], "--events=jsonl") == 0 ||
+            (strcmp(argv[k], "--events") == 0 && k + 1 < argc && strcmp(argv[k + 1], "jsonl") == 0))
+            events = true;
+    }
+
     int i = 0;
     bool raw = false;
     const char *task_name = NULL;
@@ -447,13 +515,34 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             else if (strcmp(a, "--steer") == 0) steer = true;
             else if (strcmp(a, "--background") == 0 || strcmp(a, "-B") == 0) background = true;
             else if (strcmp(a, "--print-usage") == 0) print_usage = true;
-            else if (strcmp(a, "--auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
+            else if (strcmp(a, "--events") == 0 || str_starts(a, "--events=")) {
+                const char *value = a[strlen("--events")] == '=' ? a + strlen("--events=")
+                                    : i + 1 < argc               ? argv[++i]
+                                                                 : NULL;
+                if (!value || strcmp(value, "jsonl") != 0) {
+                    ask_diag(events, "invalid_option", "ask: --events accepts only jsonl",
+                             "tny ask --events=jsonl \"summarize this repository\"");
+                    buf_free(&prompt);
+                    return 1;
+                }
+                events = true;
+            } else if (strcmp(a, "--progress") == 0 || str_starts(a, "--progress=")) {
+                const char *value = a[strlen("--progress")] == '=' ? a + strlen("--progress=")
+                                    : i + 1 < argc                 ? argv[++i]
+                                                                   : NULL;
+                if (!value || (strcmp(value, "none") != 0 && strcmp(value, "auto") != 0)) {
+                    ask_diag(events, "invalid_option", "ask: --progress accepts auto or none",
+                             "tny ask --progress=none \"summarize this repository\"");
+                    buf_free(&prompt);
+                    return 1;
+                }
+                quiet = strcmp(value, "none") == 0;
+            } else if (strcmp(a, "--auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
             else if (strcmp(a, "--yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
             else if (strcmp(a, "--task") == 0) {
                 if (i + 1 >= argc) {
-                    fprintf(stderr,
-                            "tny: ask: --task requires a value\n"
-                            "Example: tny ask --task review \"inspect the current diff\"\n");
+                    ask_diag(events, "invalid_option", "ask: --task requires a value",
+                             "tny ask --task review \"inspect the current diff\"");
                     buf_free(&prompt);
                     return 1;
                 }
@@ -462,8 +551,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             else if (strcmp(a, "--resume-id") == 0 && i + 1 < argc) resume = argv[++i];
             else if (strcmp(a, "--output-schema") == 0) {
                 if (i + 1 >= argc) {
-                    fprintf(stderr, "tny: --output-schema requires a value\n"
-                                    "Example: tny ask --output-schema schema.json \"…\"\n");
+                    ask_diag(events, "invalid_option", "--output-schema requires a value",
+                             "tny ask --output-schema schema.json \"…\"");
                     buf_free(&prompt);
                     return 1;
                 }
@@ -471,13 +560,15 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             } else if (strcmp(a, "--image") == 0 && i + 1 < argc) {
                 if (n_images < 16) images[n_images++] = argv[++i];
                 else {
-                    fprintf(stderr, "tny: too many --image flags (max 16)\n");
+                    ask_diag(events, "invalid_option", "too many --image flags (max 16)", NULL);
                     buf_free(&prompt);
                     return 1;
                 }
             } else if (strcmp(a, "--") == 0) raw = true;
             else {
-                fprintf(stderr, "tny: ask: unknown flag %s\nExample: tny ask --json \"hi\"\n", a);
+                char message[256];
+                snprintf(message, sizeof message, "ask: unknown flag %s", a);
+                ask_diag(events, "invalid_option", message, "tny ask --json \"hi\"");
                 buf_free(&prompt);
                 return 1;
             }
@@ -487,8 +578,28 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         }
     }
     if (task_name && tny_task_apply(ctx, task_name) != 0) {
-        fprintf(stderr, "tny: unknown or invalid task '%s' (run `tny tasks` to list tasks)\n",
-                task_name);
+        char message[256];
+        snprintf(message, sizeof message,
+                 "unknown or invalid task '%s' (run `tny tasks` to list tasks)", task_name);
+        ask_diag(events, "invalid_option", message, NULL);
+        buf_free(&prompt);
+        return 1;
+    }
+    /* One owner per stdout, one process per event stream: the final JSON
+     * blob and a detached runner both contradict a foreground event stream
+     * (docs/adr/0090). Refuse instead of silently picking a winner. */
+    if (events && json) {
+        ask_diag(events, "option_conflict",
+                 "ask: --events=jsonl is incompatible with --json (both own stdout)",
+                 "tny ask --events=jsonl \"summarize this repository\"");
+        buf_free(&prompt);
+        return 1;
+    }
+    if (events && background) {
+        ask_diag(events, "option_conflict",
+                 "ask: --events=jsonl is incompatible with --background "
+                 "(a detached turn has no foreground stream; read the session instead)",
+                 "tny ask -B \"audit the Makefile\" && tny session last --wait --json");
         buf_free(&prompt);
         return 1;
     }
@@ -507,44 +618,61 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     }
 #endif
     if (ephemeral && resume) {
-        fprintf(stderr, "tny: --ephemeral is incompatible with --resume\n");
+        ask_diag(events, "option_conflict", "--ephemeral is incompatible with --resume", NULL);
         buf_free(&prompt);
         return 1;
     }
     if (steer && !resume) {
-        fprintf(stderr,
-                "tny: --steer requires --resume\n"
-                "Example: tny ask --resume last --steer \"drop that — check the tests instead\"\n");
+        ask_diag(events, "invalid_option", "--steer requires --resume",
+                 "tny ask --resume last --steer \"drop that — check the tests instead\"");
         buf_free(&prompt);
         return 1;
     }
     if (ephemeral && continue_recovery) {
-        fprintf(stderr, "tny: --ephemeral is incompatible with --continue-recovery\n");
+        ask_diag(events, "option_conflict", "--ephemeral is incompatible with --continue-recovery",
+                 NULL);
         buf_free(&prompt);
         return 1;
     }
-    if (output_schema && load_output_schema(ctx, output_schema) != 0) {
+    if (output_schema && load_output_schema(ctx, output_schema, events) != 0) {
+        buf_free(&prompt);
+        return 1;
+    }
+    /* --image against a provider configured without image input fails here,
+     * before a session is created or opened and before any provider work
+     * (docs/adr/0089). The engine keeps the same gate for every other
+     * caller; this one only avoids a pointless session. */
+    if (n_images && tny_image_input_refused(ctx)) {
+        fprintf(stderr, "tny: %s\n", TNY_IMAGE_INPUT_REFUSAL);
         buf_free(&prompt);
         return 1;
     }
     ctx->no_save = ephemeral;
     ctx->json_out = json;
 
-    bool isolate = tny_isolation_enabled(ctx);
+    /* The event stream is this process's own engine: the detached runner
+     * renders human output and owns a private wire, so machine mode takes
+     * the in-process path that already owns the canonical envelope. */
+    bool isolate = tny_isolation_enabled(ctx) && !events;
 
     /* Resolve the session task snapshot before any provider connection is
      * started. This keeps every resume spelling provider-independent. */
     tny_session_state *session = resume ? session_open(ctx, resume) : session_new(ctx);
     if (!session) {
-        if (resume) fprintf(stderr, "tny: no session '%s' for this workspace\n", resume);
-        else fprintf(stderr, "tny: could not create a session\n");
+        char message[256];
+        if (resume) snprintf(message, sizeof message, "no session '%s' for this workspace", resume);
+        else snprintf(message, sizeof message, "could not create a session");
+        ask_diag(events, "session", message, NULL);
         buf_free(&prompt);
         return 1;
     }
     if (resume) {
         char task_err[192];
         if (session_task_reconcile(session, task_err, sizeof task_err) != 0) {
-            fprintf(stderr, "tny: cannot resume session %s: %s\n", session->id, task_err);
+            char message[384];
+            snprintf(message, sizeof message, "cannot resume session %s: %s", session->id,
+                     task_err);
+            ask_diag(events, "session", message, NULL);
             session_close(session);
             buf_free(&prompt);
             return 1;
@@ -607,7 +735,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 steer_takeover = true;
                 continue_recovery = true;
             } else {
-                cli_print_still_running(ctx, sid);
+                if (events) ask_diag(events, "session_busy", "session is still running", NULL);
+                else cli_print_still_running(ctx, sid);
                 free(sid);
                 session_close(session);
                 buf_free(&prompt);
@@ -616,7 +745,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             free(sid);
         }
         if (lrc != 0) {
-            cli_print_still_running(ctx, session->id);
+            if (events) ask_diag(events, "session_busy", "session is still running", NULL);
+            else cli_print_still_running(ctx, session->id);
             session_close(session);
             buf_free(&prompt);
             return 1;
@@ -712,8 +842,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (connecting) pthread_join(connect_th, NULL);
     }
     if (!prompt.len) {
-        fprintf(stderr,
-                "tny: ask needs a prompt\nExample: tny ask \"summarize this repository\"\n");
+        ask_diag(events, "no_prompt", "ask needs a prompt",
+                 "tny ask \"summarize this repository\"");
         abort_backend(bk, connecting && job.rc == 0);
         session_close(session);
         buf_free(&prompt);
@@ -767,6 +897,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     st.json = json;
     st.perm_mode = ctx->perm_mode;
     st.print_usage = print_usage;
+    st.events = events;
+    st.quiet = quiet;
 
     /* MCP servers warm on detached threads while the provider connects
      * (docs/adr/0049). Native loop only. */
@@ -776,7 +908,9 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         char *rec = session_recovery_read(session);
         if (rec) {
             session_set_extension_start(session, "recovery", NULL);
-            if (!json && !steer_takeover) {
+            /* machine mode: stdout carries events only; the replayed partial
+             * belongs to the previous turn and has no canonical event */
+            if (!json && !events && !steer_takeover) {
                 fputs(rec, stdout);
                 fputs("\n", stdout);
             }
@@ -789,6 +923,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
      * stdin path above) */
     if (!bk) bk = tny_backend_create((tny_backend_id)ctx->backend, ctx);
     if (!bk) {
+        /* the constructor already explained itself on stderr in human mode */
+        if (events) ask_diag(events, "provider", "cannot create the provider client", NULL);
         buf_free(&prompt);
         session_close(session);
         buf_free(&st.output);
@@ -805,7 +941,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         crc = bk->connect(bk, err, sizeof err);
     }
     if (crc != 0) {
-        fprintf(stderr, "tny: %s\n", err);
+        ask_diag(events, "provider", err, NULL);
         bk->destroy(bk);
         session_close(session);
         buf_free(&prompt);
@@ -817,7 +953,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     perm_engine *perm = perm_new(ctx);
     tny_engine *engine = tny_engine_new(ctx, session, perm, NULL, NULL);
     if (!perm || !engine) {
-        fprintf(stderr, "tny: out of memory\n");
+        ask_diag(events, "internal", "out of memory", NULL);
         if (engine) tny_engine_free(engine);
         else bk->destroy(bk);
         perm_free(perm);
@@ -829,7 +965,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         return 1;
     }
     if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_CONNECTED, err, sizeof err) != 0) {
-        fprintf(stderr, "tny: %s\n", err);
+        ask_diag(events, "provider", err, NULL);
         tny_engine_free(engine);
         perm_free(perm);
         session_close(session);
@@ -847,7 +983,9 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
 
     if (tny_engine_start(engine, prompt.data, n_images ? images : NULL, err, sizeof err) != 0) {
-        fprintf(stderr, "tny: %s\n", err);
+        /* No turn was accepted, so no event exists to emit: the machine
+         * diagnostic is the only honest output (docs/adr/0090). */
+        ask_diag(events, "start_failed", err, NULL);
         tny_engine_free(engine);
         perm_free(perm);
         session_close(session);
@@ -858,6 +996,12 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         return 2;
     }
 
+    tny_event_writer writer = {0};
+    tny_event_write_rc stream = TNY_EVENT_WRITE_OK;
+    if (events) {
+        fflush(stdout); /* stdout is the stream's from here: no stdio behind it */
+        tny_event_writer_init(&writer, fileno(stdout), ask_interrupt_peek, NULL);
+    }
     while (!st.turn_ended) {
         if (g_interrupted) {
             g_interrupted = 0;
@@ -867,31 +1011,51 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         tny_owned_event *owned = NULL;
         tny_engine_next next = tny_engine_next_event(engine, 200, &owned, err, sizeof err);
         if (next == TNY_ENGINE_NEXT_EVENT) {
+            if (events) stream = tny_event_writer_emit(&writer, owned);
+            /* The terminal counts only once its line is actually out. */
+            if (stream == TNY_EVENT_WRITE_OK && owned->ev.kind == TNY_EV_TURN_END)
+                st.terminal = true;
             ask_event_cb(&owned->ev, &st);
             tny_owned_event_free(owned);
+            if (stream != TNY_EVENT_WRITE_OK) break;
         } else if (next == TNY_ENGINE_NEXT_TIMEOUT) {
             continue;
         } else if (next == TNY_ENGINE_NEXT_DRAINED) {
             break;
         } else if (!st.turn_ended) {
-            fprintf(stderr, "tny: %s\n", err);
+            ask_diag(events, "engine", err, NULL);
             st.turn_ended = true;
             st.stop = TNY_STOP_ERROR;
         }
     }
+    if (!events) st.terminal = st.turn_ended;
 
-    int exit_code;
-    switch (st.stop) {
-    case TNY_STOP_DONE: exit_code = 0; break;
-    case TNY_STOP_INTERRUPTED: exit_code = 130; break;
-    default: exit_code = 2; break;
+    /* A stream that failed or was abandoned still owns this turn's cleanup:
+     * stop the engine, keep the real output, and never report success. */
+    if (stream != TNY_EVENT_WRITE_OK) {
+        tny_engine_cancel(engine);
+        int64_t deadline = now_ms() + TNY_PROCESS_CANCEL_GRACE_MS;
+        for (;;) {
+            tny_owned_event *owned = NULL;
+            tny_engine_next next = tny_engine_next_event(engine, 100, &owned, err, sizeof err);
+            if (next == TNY_ENGINE_NEXT_EVENT) {
+                ask_event_cb(&owned->ev, &st); /* buffers text; stdout is gone */
+                tny_owned_event_free(owned);
+            } else if (next != TNY_ENGINE_NEXT_TIMEOUT) break;
+            if (st.turn_ended || now_ms() >= deadline) break;
+        }
+        if (stream == TNY_EVENT_WRITE_IO)
+            ask_diag(events, "stream_io", "the event stream could not be written", NULL);
+        else ask_diag(events, "cancelled", "interrupted while the event stream was blocked", NULL);
+    } else if (events && !st.terminal) {
+        /* Nothing may stand in for a terminal the backend never sent. */
+        ask_diag(events, "no_terminal", "the turn ended without a turn_end event", NULL);
     }
-    if (st.stop == TNY_STOP_DONE)
-        tny_settings_remember_use(ctx); /* next launch defaults to this provider */
 
-    const char *stname = st.stop == TNY_STOP_DONE          ? "done"
-                         : st.stop == TNY_STOP_INTERRUPTED ? "interrupted"
-                                                           : "error";
+    int exit_code = cli_ask_exit_status(stream, st.terminal, st.stop);
+    if (exit_code == 0) tny_settings_remember_use(ctx); /* next launch defaults to this provider */
+
+    const char *stname = exit_code == 0 ? "done" : exit_code == 130 ? "interrupted" : "error";
     /* A foreground turn on a session that carries ADR-0031 status fields
      * (a resumed runner/background session) must refresh them, or
      * `tny session <id>` keeps reporting the pre-resume status and
@@ -909,6 +1073,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     }
 
     mcp_shutdown_all();
+    tny_event_writer_free(&writer);
     tny_engine_free(engine);
     perm_free(perm);
     session_close(session);

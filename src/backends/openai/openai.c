@@ -140,6 +140,9 @@ typedef struct {
     int tool_index;     /* next call in the recorded assistant batch */
     int tool_batch_failed;
     bool tool_batch_active;
+    /* Owned transcript entry until its first POST succeeds. Terminal cleanup
+     * removes only this entry, never prior delivered history or later steer. */
+    yyjson_mut_val *unsent_preview;
     oa_pending_perm pending_perm;
     oa_pending_custom pending_custom;
     char *steer; /* user text parked by steer(): appended as a
@@ -236,7 +239,10 @@ static void record_usage(oa_impl *o) {
                               o->usage_cache_write);
 }
 
+static void preview_not_delivered(oa_impl *o, const char *reason);
+
 static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
+    preview_not_delivered(o, "the turn ended before the next request was sent");
     record_usage(o);
     if (o->usage.requests) {
         tny_backend_event usage = {0};
@@ -716,6 +722,12 @@ static void build_system_prompt(oa_impl *o, buf_t *sys) {
         buf_appends(sys, o->ctx->system_prompt);
         buf_appends(sys, "\n");
     }
+    buf_appendf(sys,
+                "Conversation image input: %s. Configuration is not proof of visual "
+                "support; unknown support cannot authorize automatic preview. Image "
+                "generation uses a separate provider and does not itself show pixels "
+                "to this conversation.\n",
+                tny_image_input_label(o->ctx));
     if (!o->ctx->library_mode && !o->ctx->ssh_host) {
         buf_t image_providers;
         buf_init(&image_providers);
@@ -730,7 +742,9 @@ static void build_system_prompt(oa_impl *o, buf_t *sys) {
                 "`tny image edit --image input.png --output-file out.png` (up to 5 --image paths). "
                 "Use --image-provider to select independently of the chat provider; default codex. "
                 "Output replaces the destination only on success; read the result before claiming "
-                "success and use read_image to inspect it. --json returns metadata, not pixels. "
+                "success; use read_image to inspect it only when available. --json returns "
+                "metadata, "
+                "not pixels. "
                 "These are single-image operations, not agent turns.\n");
         }
         buf_free(&image_providers);
@@ -1102,6 +1116,9 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
         snprintf(errbuf, errlen, "provider request failed");
         return -1;
     }
+    /* A successful write is submission, not proof of perception. From here
+     * retries/history must retain these exact bytes. */
+    o->unsent_preview = NULL;
     o->state = ST_HEADERS;
     o->stream_done = false;
     o->stream_failed = false;
@@ -1602,14 +1619,57 @@ static bool tool_batch_control(oa_impl *o) {
     return stop;
 }
 
+/* A preview may only be admitted while this backend can still put it in a
+ * request: inside a live tool batch, not cancelled, not denied, and with a step
+ * left for the next POST. Streaming with turn_active is not enough (A15 D1). */
+static bool preview_batch_ready(const oa_impl *o) {
+    if (!o || !o->tool_batch_active) return false;
+    if (o->cancelled || o->env.perm_blocked) return false;
+    /* Mirrors the step check in finish_tool_batch, so a queued preview always
+     * has a request left to ride. */
+    if (o->ctx->max_steps > 0 && o->step + 1 >= o->ctx->max_steps) return false;
+    return true;
+}
+
+/* Record that an accepted preview will not reach the provider, then release the
+ * batch. Emitted before the turn's terminal event and never phrased as a
+ * generation failure or as visual approval. */
+static void preview_not_delivered(oa_impl *o, const char *reason) {
+    if (!o->unsent_preview && !tools_pending_images_have_preview(&o->env)) return;
+    if (o->unsent_preview) {
+        yyjson_mut_val *messages = session_messages(o->env.session);
+        size_t index = 0, count = 0;
+        yyjson_mut_val *message;
+        yyjson_mut_arr_foreach(messages, index, count, message) {
+            if (message == o->unsent_preview) {
+                yyjson_mut_arr_remove(messages, index);
+                break;
+            }
+        }
+        o->unsent_preview = NULL;
+        if (session_save(o->env.session) != 0) {
+            const char *error = "could not persist unsent preview removal";
+            emit_error(o, TNY_EVENT_ERROR_IO, error, strlen(error));
+        }
+    }
+    char message[320];
+    int len = snprintf(message, sizeof message, "%s: %s", TNY_IMAGE_PREVIEW_NOT_DELIVERED,
+                       reason && *reason ? reason : "the turn ended before the next request");
+    emit_error(o, TNY_EVENT_ERROR_INTERNAL, message, len > 0 ? strlen(message) : 0);
+    tools_discard_pending_images(&o->env);
+}
+
 static int finish_tool_batch(oa_impl *o) {
     tny_session_state *s = o->env.session;
     bool batch_stop = tool_batch_control(o);
-    if (o->env.n_pending_images) {
-        char ierr[256];
-        if (tools_flush_images(&o->env, ierr, sizeof ierr) != 0)
-            emit_error(o, TNY_EVENT_ERROR_INTERNAL, ierr, strlen(ierr));
-    }
+    bool had_preview = tools_pending_images_have_preview(&o->env);
+    tools_image_flush_outcome flushed = TNY_IMAGE_FLUSH_OK;
+    char ierr[256] = "";
+    /* Manual-only batches keep their existing flush timing. Preview batches
+     * stay captured until disposition and tool-result persistence succeed. */
+    if (o->env.n_pending_images && !had_preview &&
+        tools_flush_images_ex(&o->env, &flushed, ierr, sizeof ierr) != 0)
+        emit_error(o, TNY_EVENT_ERROR_INTERNAL, ierr, strlen(ierr));
     pending_perm_clear(o);
     o->tool_batch_active = false;
     o->tool_index = 0;
@@ -1618,20 +1678,25 @@ static int finish_tool_batch(oa_impl *o) {
     if (session_save(s) != 0) {
         const char *message = "could not persist completed tool batch";
         emit_error(o, TNY_EVENT_ERROR_IO, message, strlen(message));
+        if (had_preview) preview_not_delivered(o, "the tool batch could not be persisted");
         emit_turn_end(o, TNY_STOP_ERROR);
         return -1;
     }
 
     if (batch_stop) {
+        if (had_preview)
+            preview_not_delivered(o, "an extension stopped the turn before the next request");
         emit_turn_end(o, TNY_STOP_INTERRUPTED);
         return 0;
     }
 
     if (o->cancelled) {
+        if (had_preview) preview_not_delivered(o, "the turn was cancelled before the next request");
         emit_turn_end(o, TNY_STOP_INTERRUPTED);
         return 0;
     }
     if (o->env.perm_blocked) {
+        if (had_preview) preview_not_delivered(o, "the turn ended denied before the next request");
         emit_turn_end(o, TNY_STOP_DENIED);
         return 0;
     }
@@ -1639,16 +1704,35 @@ static int finish_tool_batch(oa_impl *o) {
      * calls actually made — a capped turn never POSTs again */
     if (o->ctx->max_steps > 0 && o->step + 1 >= o->ctx->max_steps) {
         emit_error(o, TNY_EVENT_ERROR_INTERNAL, "step limit reached", 18);
+        if (had_preview)
+            preview_not_delivered(o, "the step budget ended the turn before the next request");
         session_bump_turns(s);
         session_save(s);
         emit_turn_end(o, TNY_STOP_STEP_LIMIT);
         return 0;
     }
+    if (had_preview) {
+        if (tools_flush_images_ex(&o->env, &flushed, ierr, sizeof ierr) != 0) {
+            preview_not_delivered(o, ierr);
+            emit_turn_end(o, TNY_STOP_ERROR);
+            return -1;
+        }
+        o->unsent_preview = yyjson_mut_arr_get_last(session_messages(s));
+    }
     o->step++;
-    if (take_steer(o)) session_save(s); /* after tool results, before next POST */
+    /* Do not persist a constructed-but-unsent preview. Successful submission
+     * saves it below; any terminal path first removes its owned message. */
+    if (take_steer(o) && !had_preview) session_save(s);
     char err[512];
     if (start_post(o, err, sizeof err) != 0) {
         emit_error(o, TNY_EVENT_ERROR_IO, err, strlen(err));
+        if (had_preview) preview_not_delivered(o, "the next provider request failed");
+        emit_turn_end(o, TNY_STOP_ERROR);
+        return -1;
+    }
+    if (had_preview && o->state != ST_IDLE && session_save(s) != 0) {
+        const char *message = "could not persist submitted image batch";
+        emit_error(o, TNY_EVENT_ERROR_IO, message, strlen(message));
         emit_turn_end(o, TNY_STOP_ERROR);
         return -1;
     }
@@ -2351,7 +2435,7 @@ static void oa_destroy(tny_backend *b) {
     oa_calls_reset(&o->calls);
     pending_perm_clear(o);
     pending_custom_clear(o, true);
-    for (int i = 0; i < o->env.n_pending_images; i++) free(o->env.pending_images[i]);
+    tools_discard_pending_images(&o->env); /* paths and captured bytes, exactly once */
     free(o->steer);
     buf_free(&o->text);
     buf_free(&o->toolcall_log);
@@ -2406,6 +2490,40 @@ int tny_backend_openai_queue_image(tny_backend *b, const char *path, char *err, 
     }
     oa_impl *o = b->impl;
     return tools_queue_image(&o->env, path, true, NULL, NULL, NULL, err, errlen);
+}
+
+tny_image_preview_status tny_backend_openai_queue_image_preview(tny_backend *b, const char *path,
+                                                                const char *expected_sha256,
+                                                                const char **code_out, char *err,
+                                                                size_t errlen) {
+    if (code_out) *code_out = TNY_IMAGE_PREVIEW_CODE_NO_SESSION;
+    if (!b || b->id != TNY_BK_OPENAI) {
+        if (err && errlen) snprintf(err, errlen, "image preview requires the native openai loop");
+        return TNY_IMAGE_PREVIEW_UNAVAILABLE_SESSION;
+    }
+    oa_impl *o = b->impl;
+    /* The capability answer is separate from the readiness answer so a caller
+     * can tell "this provider never takes previews" from "not right now". */
+    if (!tny_image_input_auto_preview_allowed(o->ctx)) {
+        if (code_out) *code_out = TNY_IMAGE_PREVIEW_CODE_CAPABILITY;
+        if (err && errlen)
+            snprintf(err, errlen,
+                     "image preview needs this provider configured for image input in "
+                     "settings.json image_input");
+        return TNY_IMAGE_PREVIEW_UNSUPPORTED;
+    }
+    if (!preview_batch_ready(o)) {
+        if (code_out) *code_out = TNY_IMAGE_PREVIEW_CODE_NOT_READY;
+        if (err && errlen)
+            snprintf(err, errlen,
+                     "this turn has no tool batch that can carry an image preview into another "
+                     "provider request");
+        return TNY_IMAGE_PREVIEW_TURN_NOT_READY;
+    }
+    if (tools_queue_image_preview(&o->env, path, expected_sha256, code_out, err, errlen) != 0)
+        return TNY_IMAGE_PREVIEW_FAILED;
+    if (code_out) *code_out = NULL;
+    return TNY_IMAGE_PREVIEW_QUEUED;
 }
 
 int tny_backend_openai_steps(tny_backend *b) {

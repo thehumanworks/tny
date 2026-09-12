@@ -54,10 +54,33 @@ let
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
     # test_worktree.py generates temporary Git repositories and imports the
     # shared test_tui.py PTY harness; both are included by ../tests above.
-    # Image fixtures (test_image_service.py) embed their PNG in source and
-    # create reference/output files in a temporary directory; no external assets.
+    # Image fixtures (test_image_service.py, and test_image_workflow.py for the
+    # #122 dimension/strict-size cases) embed or generate their PNG/JPEG/WebP
+    # bytes in source with stdlib zlib, and create reference/output files in a
+    # temporary directory; no external assets or image libraries.
+    # test_image_input.py adds the image-input capability gates: a throwaway
+    # HOME with its own settings.json, fake credentials, the stdlib loopback
+    # provider and tests/integration/fake_acp_agent.py, all already in ../tests.
+    # test_settings_schema.py reads schemas/settings.schema.json, named below,
+    # and skips its optional jsonschema case when that library is absent; the
+    # sandbox adds no new Python dependency for it.
+    # test_image_preview_queue.py (ADR 0096) adds no input either: it generates
+    # its PNGs with stdlib struct/zlib, writes its throwaway control client and
+    # settings.json into a temporary HOME, and talks to the real runner's
+    # AF_UNIX socket with stdlib socket/json; ../tests already includes it.
+    # Its generated no-socket helper check compiles src/cli/cmd_control.c and
+    # existing headers (all in ../src); the fake SSH fixture adds no source.
+    # The #127 manifest/replay cases in test_image_workflow.py (-k Manifest) and
+    # test_image_service.py add no inputs either: records are JSON the binary
+    # writes into a throwaway HOME, hashes come from stdlib hashlib, and the
+    # writer-guard and killed-writer cases use only os/subprocess/threading.
     # tests/fixtures/toolkit_provider.py supplies stdlib-only HTTP/media data
     # to native ABI and SDK toolkit tests; ../tests already includes it.
+    # The canonical ask-event suites (test_ask_events.py, its libtny
+    # reader-conformance companion, and tests/abi/test_event_jsonl.py, ADR
+    # 0090) add no asset: they run a stdlib loopback provider, a fake MCP
+    # server written into a temporary HOME, and read sdk/schema/events.json
+    # plus include/tny/tny.h, all already in this fileset.
     # Speech fixtures (test_speech.py) generate their fake player in a temp
     # directory; no MP3 asset or host audio package enters the fileset.
     # make dictation-fixture/test-dictation reuse the same src/ and stdlib
@@ -71,6 +94,8 @@ let
     # Explicit contract for issue #88: every foreign MCP harness parser is
     # exercised from immutable fixture data inside the sandbox.
     ../tests/fixtures/mcp-import
+    # The published settings schema, read by tests/integration/test_settings_schema.py.
+    ../schemas
     # Optional `make -C tnytty benchmark`: keep its product sources, helper,
     # and JSON runner available in the hermetic test source without running
     # the timing-sensitive benchmark as a routine Nix check.

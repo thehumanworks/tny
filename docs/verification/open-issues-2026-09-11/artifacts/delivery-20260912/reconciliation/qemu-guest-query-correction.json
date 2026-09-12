@@ -1,0 +1,33 @@
+{
+  "argv": [
+    "ssh",
+    "-F",
+    "/dev/null",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "StrictHostKeyChecking=yes",
+    "-o",
+    "UpdateHostKeys=no",
+    "-o",
+    "UserKnownHostsFile=/Users/tomas/.cache/tny-verification/open-issues-20260912/windows-runtime/secrets/known_hosts",
+    "-o",
+    "IdentitiesOnly=yes",
+    "-o",
+    "IdentityAgent=none",
+    "-o",
+    "ConnectTimeout=8",
+    "-i",
+    "/Users/tomas/.cache/tny-verification/open-issues-20260912/windows-runtime/secrets/id_ed25519_tnywin",
+    "-p",
+    "2222",
+    "tny@127.0.0.1",
+    "ver"
+  ],
+  "exit": 0,
+  "no_host_key_or_guest_configuration_changed": true,
+  "prior_attempt": "qemu-readonly.json cmd /c ver failed (1); MANAGEMENT.md lines 84-86 documents Windows SSH quoting issue. Do not infer inaccessible guest.",
+  "stderr_present": true,
+  "stdout": "\nMicrosoft Windows [Version 10.0.26200.8037]\n",
+  "utc": "2026-09-12T13:11:56.963258+00:00"
+}
