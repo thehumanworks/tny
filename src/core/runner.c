@@ -601,7 +601,18 @@ static void rn_accept(rn_state *r) {
             close(fd); /* full house; the next detach frees a seat */
             return;
         }
+/* GCC 14's analyzer confuses the listener with the descriptor accept()
+ * returned and reports r->lfd leaking at the first operation on the new fd
+ * (the same false trace src/net/http_server.c scopes off); the listener
+ * lives for the runner's lifetime and the accepted fd is stored in cl[]. */
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wanalyzer-fd-leak"
+#endif
         set_nonblock(fd, true);
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
         fcntl(fd, F_SETFD, FD_CLOEXEC);
         rn_client *c = &r->cl[slot];
         /* A reused slot must not inherit the previous connection's handshake

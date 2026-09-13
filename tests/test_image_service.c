@@ -653,6 +653,7 @@ static bool symlinks_supported(void) {
     unlink(probe);
     cached = symlink("absent-target", probe) == 0;
     unlink(probe);
+    free(probe);
     return cached != 0;
 }
 #if defined(__CYGWIN__) || defined(__MSYS__)
