@@ -147,6 +147,20 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         ctx->extra_dirs[ctx->n_extra_dirs++] = abs;
     }
 
+    /* Dashboard entry applies local controls without starting or selecting
+     * an unrelated provider. Selection resolves the stored row lazily. */
+    if (g->agents_dashboard) return ctx;
+    if (g->standalone_web) {
+        /* This service owns native tools even when no conversation provider
+         * is selected. SSH setup must not depend on that unrelated choice. */
+        ctx->backend = TNY_BK_OPENAI;
+        if (g->ssh && cli_ssh_attach(ctx, g->ssh, g->ssh_cwd) != 0) {
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        return ctx;
+    }
+
     if (tny_resolve_backend(ctx, g->backend) < 0) {
         tny_ctx_free(ctx);
         return NULL;

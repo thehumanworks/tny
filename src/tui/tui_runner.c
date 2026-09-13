@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include "util/tny_poll.h"
 
 bool tui_runner_mode(const tui *t) {
     /* Caller-side TLS can disable future forks on macOS while an already
@@ -72,7 +73,7 @@ int tui_runner_ensure(tui *t, bool quiet) {
 
 void tui_runner_drop(tui *t, const char *reason) {
     if (!t->rc) return;
-    tny_runner_client_end(t->rc, reason ? reason : "exit");
+    if (!t->background_view) tny_runner_client_end(t->rc, reason ? reason : "exit");
     tny_runner_client_close(t->rc);
     t->rc = NULL;
     t->rc_pid = 0;
@@ -96,7 +97,7 @@ static void runner_gone(tui *t) {
 bool tui_runner_stop(tui *t, bool force) {
     if (!t->rc || !t->session) return false;
     char err[256];
-    pid_t pid = t->rc_pid;
+    pid_t pid = t->background_view ? session_read_pid(t->ctx, t->session->id) : t->rc_pid;
     /* Graceful exit requests end before waiting. Force bypasses the socket
      * entirely: the runner may be stuck inside dispatch or a tool. */
     if (!force) tny_runner_client_end(t->rc, "exit");
@@ -122,7 +123,12 @@ void tui_runner_dispatch(tui *t) {
     tny_runner_msg *m;
     while (t->rc && (m = tny_runner_client_pop(t->rc))) {
         switch (m->kind) {
-        case TNY_RMSG_EVENT: tui_handle_backend_event(t, &m->ev); break;
+        case TNY_RMSG_EVENT:
+            if (m->ev.kind == TNY_EV_STATUS && m->ev.text &&
+                str_starts(m->ev.text, "Background restart failed"))
+                t->background_armed = false;
+            tui_handle_backend_event(t, &m->ev);
+            break;
         case TNY_RMSG_SNAPSHOT:
         case TNY_RMSG_RECOVERY:
             if (m->text && *m->text) {
@@ -156,7 +162,17 @@ void tui_runner_dispatch(tui *t) {
             free(answer);
             break;
         }
-        case TNY_RMSG_HELLO: break;
+        case TNY_RMSG_BACKGROUNDED:
+            t->rc_pid = m->pid;
+            t->background_view = true;
+            t->background_armed = false;
+            tui_agents_open(t);
+            break;
+        case TNY_RMSG_HELLO:
+            t->rc_pid = m->pid;
+            t->ctx->perm_mode = m->perm_mode;
+            if (m->turn_active) t->turn_active = true;
+            break;
         case TNY_RMSG_BYE: runner_gone(t); break;
         }
         tny_runner_msg_free(m);
@@ -171,4 +187,34 @@ void tui_runner_dispatch(tui *t) {
             runner_refresh_session(t);
         }
     }
+}
+
+bool tui_runner_attach(tui *t, tny_session_state *session) {
+    char *sock = tny_runner_sock_path(session->dir);
+    tny_runner_client *client =
+        sock ? tny_runner_client_connect(sock, 1000, TNY_RUNNER_OWNER, true) : NULL;
+    free(sock);
+    if (!client) return false;
+    int64_t deadline = monotonic_ms() + 1500;
+    while (monotonic_ms() < deadline) {
+        int rc = tny_runner_client_pump(client);
+        tny_runner_msg *hello = tny_runner_client_pop(client);
+        if (hello) {
+            bool ok = hello->kind == TNY_RMSG_HELLO;
+            if (ok) {
+                t->rc = client;
+                t->rc_pid = hello->pid;
+                t->turn_active = hello->turn_active;
+                t->ctx->perm_mode = hello->perm_mode;
+            }
+            tny_runner_msg_free(hello);
+            if (ok) return true;
+            break;
+        }
+        if (rc != 0) break;
+        struct pollfd p = {tny_runner_client_fd(client), POLLIN, 0};
+        tny_poll(&p, 1, 50);
+    }
+    tny_runner_client_close(client);
+    return false;
 }

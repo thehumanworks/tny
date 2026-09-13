@@ -1,4 +1,4 @@
-/* tools_web.c — web_fetch and web_search (optional provider). */
+/* tools_web.c — overrides, shared Codex search and logged-out DuckDuckGo fallback. */
 #include "core/tools.h"
 #include "util/tny_poll.h"
 #include "net/net.h"
@@ -11,7 +11,7 @@
 
 #define FETCH_MAX (1u * 1024u * 1024u)
 
-static char *fetch_url(tools_env *env, const char *url, int redirects) {
+static char *fetch_url(tools_env *env, const char *url, int redirects, bool raw) {
     url_parts u;
     if (url_parse(url, &u) != 0 ||
         (strcmp(u.scheme, "http") != 0 && strcmp(u.scheme, "https") != 0))
@@ -24,7 +24,8 @@ static char *fetch_url(tools_env *env, const char *url, int redirects) {
     http_conn *c = http_open(base.data, err, sizeof err);
     buf_free(&base);
     if (!c) return tool_err("%s", err);
-    const char *hdrs[] = {"Accept: text/html, text/plain, application/json;q=0.9, */*;q=0.5", NULL};
+    const char *hdrs[] = {"Accept: text/html, text/plain, application/json;q=0.9, */*;q=0.5",
+                          "User-Agent: tny/1.0 web-search", NULL};
     if (http_request(c, "GET", u.path, hdrs, NULL, 0) != 0) {
         http_close(c);
         return tool_err("request to %s failed", url);
@@ -35,46 +36,72 @@ static char *fetch_url(tools_env *env, const char *url, int redirects) {
         if (loc) {
             char *dup = xstrdup(loc);
             http_close(c);
-            char *res = fetch_url(env, dup, redirects - 1);
+            char *res = fetch_url(env, dup, redirects - 1, raw);
             free(dup);
             return res;
         }
     }
-    if (status < 0) {
+    if (status < 0 || (raw && (status < 200 || status >= 300))) {
         http_close(c);
-        return tool_err("no response from %s", url);
+        return tool_err("web request failed (HTTP %d)", status);
     }
     buf_t body;
     buf_init(&body);
-    int64_t deadline = now_ms() + 60000;
+    int64_t deadline = monotonic_ms() + (raw ? 20000 : 60000);
+    const char *failure = NULL;
     for (;;) {
+        if (env->control_pump) env->control_pump(env->control_pump_ud, 0);
+        if (env->cancelled && env->cancelled(env->cancelled_ud)) {
+            failure = "web request interrupted";
+            break;
+        }
+        if (monotonic_ms() >= deadline) {
+            if (raw) failure = "web request timed out";
+            break;
+        }
         char tmp[16384];
         ssize_t n = http_body_read(c, tmp, sizeof tmp);
         if (n == 0) break;
         if (n == -2) {
-            if (now_ms() > deadline) break;
             struct pollfd pf = {http_fd(c), POLLIN, 0};
-            tny_poll(&pf, 1, 1000);
+            tny_poll(&pf, 1, 100);
             continue;
         }
-        if (n < 0) break;
-        if (body.len < FETCH_MAX) buf_append(&body, tmp, (size_t)n);
+        if (n < 0) {
+            if (raw) failure = "web response was interrupted";
+            break;
+        }
+        if ((size_t)n > FETCH_MAX - body.len) {
+            if (raw) {
+                failure = "web response exceeds 1 MiB";
+                break;
+            }
+            size_t keep = FETCH_MAX - body.len;
+            if (keep) buf_append(&body, tmp, keep);
+        } else buf_append(&body, tmp, (size_t)n);
+        if (!raw && body.len >= FETCH_MAX) break;
     }
     http_close(c);
+    if (failure) {
+        buf_free(&body);
+        return tool_err("%s", failure);
+    }
     buf_t out;
     buf_init(&out);
     buf_appendf(&out, "HTTP %d from %s\n\n", status, url);
     buf_append(&out, body.data ? body.data : "", body.len);
     buf_free(&body);
-    char *res = tool_bound_result(env, out.data, out.len);
+    char *res = raw ? xstrndup(out.data, out.len) : tool_bound_result(env, out.data, out.len);
     buf_free(&out);
     return res;
 }
 
-bool tool_web_search_configured(tny_ctx *ctx) {
-    if (!ctx) return false;
-    return tny_settings_get_str(ctx, "web_search_command") != NULL ||
-           tny_settings_get_str(ctx, "web_search_url") != NULL;
+bool tool_web_search_configured(tny_ctx *ctx) { return ctx != NULL; }
+
+bool tool_web_search_native(tny_ctx *ctx) {
+    return ctx && tny_codex_chatgpt_mode(ctx) && !tny_wire_is_chat(ctx->wire_api) &&
+           !tny_settings_get_str(ctx, "web_search_command") &&
+           !tny_settings_get_str(ctx, "web_search_url");
 }
 
 static void append_query_encoded(buf_t *out, const char *q) {
@@ -109,6 +136,156 @@ char *tool_web_search_expand(const char *tmpl, const char *q) {
         }
     }
     buf_appends(&out, p);
+    return buf_detach(&out);
+}
+
+/* Deliberately small HTML reader: only result anchors, never scripts or forms.
+ * A changed page is an error, not invented empty search results. */
+static void search_text(buf_t *out, const char *start, const char *end) {
+    bool tag = false;
+    for (const char *p = start; p < end; p++) {
+        if (*p == '<') {
+            tag = true;
+            continue;
+        }
+        if (*p == '>') {
+            tag = false;
+            continue;
+        }
+        if (tag) continue;
+        static const char *const entities[] = {"&amp;", "&quot;", "&#39;",
+                                               "&lt;",  "&gt;",   "&nbsp;"};
+        static const char decoded[] = "&\"'<> ";
+        bool entity = false;
+        for (size_t i = 0; i < sizeof entities / sizeof entities[0]; i++) {
+            size_t n = strlen(entities[i]);
+            if ((size_t)(end - p) >= n && strncmp(p, entities[i], n) == 0) {
+                buf_append(out, &decoded[i], 1);
+                p += n - 1;
+                entity = true;
+                break;
+            }
+        }
+        if (!entity) {
+            unsigned char c = (unsigned char)*p;
+            if (c <= 32) {
+                if (out->len && out->data[out->len - 1] != ' ') buf_appends(out, " ");
+            } else if (c != 127) buf_append(out, p, 1);
+        }
+    }
+}
+
+static int search_hex(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/* DDG's redirect carries the real destination in uddg; never publish rut
+ * tracking or decode an unrelated site's query string. */
+static bool search_destination(buf_t *url) {
+    url_parts u;
+    if (!url->data || url_parse(url->data, &u) != 0) return false;
+    if (strcmp(u.host, "duckduckgo.com") != 0 || !str_starts(u.path, "/l/?")) return true;
+    const char *p = u.path + 4;
+    while (*p) {
+        const char *end = strchr(p, '&');
+        if (!end) end = p + strlen(p);
+        if ((size_t)(end - p) >= 5 && strncmp(p, "uddg=", 5) == 0) {
+            buf_t dest;
+            buf_init(&dest);
+            for (p += 5; p < end; p++) {
+                unsigned char c = (unsigned char)*p;
+                if (c == '%') {
+                    if (end - p < 3 || search_hex(p[1]) < 0 || search_hex(p[2]) < 0) {
+                        buf_free(&dest);
+                        return false;
+                    }
+                    c = (unsigned char)(search_hex(p[1]) * 16 + search_hex(p[2]));
+                    p += 2;
+                }
+                if (c < 32 || c == 127) {
+                    buf_free(&dest);
+                    return false;
+                }
+                buf_append(&dest, &c, 1);
+            }
+            if (!dest.data ||
+                (!str_starts(dest.data, "https://") && !str_starts(dest.data, "http://"))) {
+                buf_free(&dest);
+                return false;
+            }
+            buf_free(url);
+            *url = dest;
+            return true;
+        }
+        p = *end ? end + 1 : end;
+    }
+    return false;
+}
+
+char *tool_web_search_parse_ddg(const char *html) {
+    if (!html) return tool_err("DuckDuckGo returned no response");
+    if (strstr(html, "anomaly.js") || strstr(html, "id=\"challenge-form\"") ||
+        strstr(html, "id='challenge-form'"))
+        return tool_err(
+            "DuckDuckGo returned a bot challenge; configure web_search_url or web_search_command");
+    buf_t out;
+    buf_init(&out);
+    buf_appends(&out, "DuckDuckGo web search results:\n");
+    int count = 0;
+    const char *p = html;
+    while (count < 10 && (p = strstr(p, "<a"))) {
+        const char *end = strchr(p, '>');
+        if (!end) break;
+        const char *class = strstr(p, "result__a");
+        const char *href = strstr(p, "href=");
+        const char *close = strstr(end, "</a>");
+        if (!class || class > end || !href || href > end || !close) {
+            p = end + 1;
+            continue;
+        }
+        href += 5;
+        char quote = *href++;
+        const char *he = strchr(href, quote);
+        if ((quote != '\'' && quote != '"') || !he || he > end) {
+            p = end + 1;
+            continue;
+        }
+        buf_t url;
+        buf_init(&url);
+        if (he - href >= 2 && href[0] == '/' && href[1] == '/') buf_appends(&url, "https:");
+        search_text(&url, href, he);
+        if (!search_destination(&url) || !url.data ||
+            (!str_starts(url.data, "https://") && !str_starts(url.data, "http://"))) {
+            buf_free(&url);
+            p = close + 4;
+            continue;
+        }
+        buf_appendf(&out, "\n%d. ", ++count);
+        search_text(&out, end + 1, close);
+        buf_appendf(&out, "\n%s\n", url.data);
+        buf_free(&url);
+        const char *snippet = strstr(close, "result__snippet");
+        const char *next = strstr(close, "result__a");
+        if (snippet && (!next || snippet < next)) {
+            const char *st = strchr(snippet, '>');
+            const char *se = st ? strstr(st, "</") : NULL;
+            if (st && se) {
+                search_text(&out, st + 1, se);
+                buf_appends(&out, "\n");
+            }
+        }
+        p = close + 4;
+    }
+    if (!count) {
+        buf_free(&out);
+        if (strstr(html, "No results found") || strstr(html, "no-results"))
+            return xstrdup("DuckDuckGo: no results found for this query.");
+        return tool_err(
+            "DuckDuckGo returned an unrecognized result page; search results unavailable");
+    }
     return buf_detach(&out);
 }
 
@@ -154,7 +331,7 @@ char *tool_web_execute(tools_env *env, const char *name, yyjson_val *args, bool 
     if (strcmp(name, "web_fetch") == 0) {
         const char *url = jget_str(args, "url");
         if (!url) return tool_err("missing url");
-        return fetch_url(env, url, 3);
+        return fetch_url(env, url, 3, false);
     }
     if (strcmp(name, "web_search") == 0) {
         const char *q = jget_str(args, "query");
@@ -165,15 +342,23 @@ char *tool_web_execute(tools_env *env, const char *name, yyjson_val *args, bool 
          * {{query}} and receive the percent-encoded query. */
         const char *cmd_tmpl = tny_settings_get_str(env->ctx, "web_search_command");
         const char *url_tmpl = tny_settings_get_str(env->ctx, "web_search_url");
-        if (!cmd_tmpl && !url_tmpl)
-            return tool_err("no web search provider configured; set "
-                            "\"web_search_command\" or \"web_search_url\" in "
-                            "~/.tny/settings.json (a template containing {query}) "
-                            "or use web_fetch");
+        if (!*q || strlen(q) > 4096) return tool_err("query must contain 1 to 4096 bytes");
         if (cmd_tmpl) return run_search_command(env, cmd_tmpl, q);
+        bool fallback = !url_tmpl;
+        if (fallback) {
+            bool codex_handled = false;
+            char *codex = tool_web_search_codex(env, q, &codex_handled);
+            if (codex_handled) return codex;
+            url_tmpl = "https://html.duckduckgo.com/html/?q={query}";
+        }
         char *url = tool_web_search_expand(url_tmpl, q);
-        char *res = fetch_url(env, url, 3);
+        char *res = fetch_url(env, url, 3, fallback);
         free(url);
+        if (fallback && res && !str_starts(res, "error:")) {
+            char *parsed = tool_web_search_parse_ddg(res);
+            free(res);
+            res = parsed;
+        }
         return res;
     }
     *handled = false;

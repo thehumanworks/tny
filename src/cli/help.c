@@ -24,6 +24,8 @@ void help_root(void) {
           "  jobs COMMAND           Durable ask/image jobs and bounded batches\n"
           "  resume [last|<id>]     Resume a session interactively\n"
           "  acp                    Start an ACP server over stdio (native loop)\n"
+          "  agents                 Background agents dashboard; --json lists state\n"
+          "  web search|fetch TEXT  Search the web or fetch a URL\n"
           "  sessions               List saved sessions for this workspace\n"
           "  session <last|id>      Inspect one saved session\n"
           "  providers | backends   List configured providers and doctor hints\n"
@@ -526,6 +528,15 @@ bool help_for(const char *command) {
             "sheet.png \\\n"
             "                                 --size 512x256 --columns 2 --labels numbers\n";
     else if (strcmp(command, "jobs") == 0) text = jobs_help;
+    else if (strcmp(command, "agents") == 0)
+        text = "Usage: tny agents [--json]\n\nOpen the background-session dashboard without "
+               "starting a provider. Up/Down select, Enter reattaches. q exits without stopping "
+               "work. Non-TTY prints a list.\n\nExamples:\n  tny agents\n  tny agents --json\n";
+    else if (strcmp(command, "web") == 0)
+        text = "Usage: tny web search|fetch TEXT [--json]\n\nSearch uses explicit overrides, else "
+               "the Codex login for any provider/model; without that login, DuckDuckGo. "
+               "Fetch reads a URL.\nExamples:\n  tny web search 'C11 atomics'\n  tny web "
+               "fetch https://example.com --json\n";
     else if (strcmp(command, "sessions") == 0) text = sessions_help;
     else if (strcmp(command, "session") == 0) text = session_help;
     else if (strcmp(command, "tasks") == 0) text = tasks_help;

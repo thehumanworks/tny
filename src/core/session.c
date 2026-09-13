@@ -562,7 +562,8 @@ yyjson_mut_doc *session_provider_view(tny_session_state *s, int boundary, int *r
         if (strcmp(role, "assistant") == 0) {
             yyjson_mut_val *tcs = yyjson_mut_obj_get(m, "tool_calls");
             bool has_calls = tcs && yyjson_mut_is_arr(tcs) && yyjson_mut_arr_size(tcs) > 0;
-            if (!has_calls && !view_has_text(yyjson_mut_obj_get(m, "content"))) {
+            if (!has_calls && !view_has_text(yyjson_mut_obj_get(m, "content")) &&
+                !view_has_text(yyjson_mut_obj_get(m, "responses_items"))) {
                 fixes++; /* nothing a provider can accept: skip it */
                 continue;
             }
@@ -1270,7 +1271,8 @@ static int cmp_meta_updated(const void *a, const void *b) {
     return strcmp(uy, ux); /* newest first */
 }
 
-static void scan_ws_dir(const char *wsdir, const char *wsname, session_meta **arr, int *n) {
+static void scan_ws_dir(const char *wsdir, const char *wsname, session_meta **arr, int *n,
+                        bool backgrounds) {
     if (!wsdir) return;
     DIR *d = opendir(wsdir);
     if (!d) return;
@@ -1284,6 +1286,10 @@ static void scan_ws_dir(const char *wsdir, const char *wsname, session_meta **ar
         buf_free(&p);
         if (!doc) continue;
         yyjson_val *r = yyjson_doc_get_root(doc);
+        if (backgrounds && !jget_bool(r, "background", false)) {
+            yyjson_doc_free(doc);
+            continue;
+        }
         session_meta *grown = realloc(*arr, sizeof(session_meta) * (size_t)(*n + 1));
         if (!grown) {
             yyjson_doc_free(doc);
@@ -1306,6 +1312,7 @@ static void scan_ws_dir(const char *wsdir, const char *wsname, session_meta **ar
             if ((v = jget_str(task, "source")) && safe_task_source(v)) m->task_source = xstrdup(v);
             if ((v = jget_str(task, "digest")) && digest_valid(v)) m->task_digest = xstrdup(v);
         }
+        m->background = jget_bool(r, "background", false);
         m->turns = (int)jget_int(r, "turns", 0);
         buf_t ld;
         buf_init(&ld);
@@ -1329,7 +1336,7 @@ session_meta *session_list(tny_ctx *ctx, bool all, int limit, const char *cursor
             while ((e = readdir(d))) {
                 if (e->d_name[0] == '.') continue;
                 char *ws = path_join(root, e->d_name);
-                scan_ws_dir(ws, e->d_name, &arr, &n);
+                scan_ws_dir(ws, e->d_name, &arr, &n, false);
                 free(ws);
             }
             closedir(d);
@@ -1337,7 +1344,7 @@ session_meta *session_list(tny_ctx *ctx, bool all, int limit, const char *cursor
         free(root);
     } else {
         char *ws = sessions_root(ctx);
-        scan_ws_dir(ws, ctx->ws_hash, &arr, &n);
+        scan_ws_dir(ws, ctx->ws_hash, &arr, &n, false);
         free(ws);
     }
     if (n) qsort(arr, (size_t)n, sizeof *arr, cmp_meta_updated);
@@ -1380,6 +1387,17 @@ session_meta *session_list(tny_ctx *ctx, bool all, int limit, const char *cursor
         free(arr[i].task_digest);
     }
     *count = m;
+    return arr;
+}
+
+session_meta *session_agents(tny_ctx *ctx, int *count) {
+    session_meta *arr = NULL;
+    int n = 0;
+    char *ws = sessions_root(ctx);
+    scan_ws_dir(ws, ctx->ws_hash, &arr, &n, true);
+    free(ws);
+    if (n) qsort(arr, (size_t)n, sizeof *arr, cmp_meta_updated);
+    *count = n;
     return arr;
 }
 

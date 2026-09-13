@@ -30,7 +30,7 @@ Keep fx names so prompts and muscle memory transfer:
 | Files | `list_files`, `glob_files`, `grep_files`, `read_file`, `write_file`, `edit_file`, `delete_file`, `rename_file`, `copy_file`, `create_folder`, `file_info` |
 | Search | `semantic_search` (lexical, not embeddings), `open_file` |
 | Shell | `terminal` (fx runtime name; accept `run_command` as an alias) |
-| Web | `web_fetch`; `web_search` only when a provider is configured (see [Web search providers](#web-search-providers)) |
+| Web | `web_fetch`; `web_search` uses the Codex login across providers, else DuckDuckGo (see [Web search providers](#web-search-providers)) |
 | Images | `read_image` (png/jpeg/gif/webp via magic bytes; `vision` is an alias). A configured-false `image_input` policy hides and refuses this tool and image attachment; image generation remains independent. Tool result is a short text; the pixels are **captured when the tool runs** and go out as a follow-up user `image_url` message ([ADR 0008](../adr/0008-native-loop-images.md), [ADR 0096](../adr/0096-captured-image-queue-and-preview-lifecycle.md)), so rewriting the file later in the same batch cannot change what is sent. `tny ask --image PATH` attaches the same shape on the first user message (max 16 flags; a 17th is exit 1) |
 | Skills | `skill`, `install_skill` |
 | Subagents | `subagent` (`create`, `message`, `inspect`, `lifecycle`; see [Subagents](#subagents)) |
@@ -140,17 +140,33 @@ recogniser.
 
 ### Web search providers
 
-tny ships no search engine. `web_search` is **advertised to the model only
-when `~/.tny/settings.json` names a provider** ([ADR
-0055](../adr/0055-web-search-gating-and-command-provider.md)); without one the
-tool is absent from the native loop's tools array, so the model never burns a
-call to learn there is no provider. A direct call (SDK, `--json` replay) still
-gets the runtime error `no web search provider configured`.
+The builtin Codex ChatGPT Responses profile uses hosted `web_search` with live
+web access; its search items and clickable citations persist across follow-ups.
+A shadowing settings provider named codex does not inherit that inline declaration.
+For other native providers/models (including Grok), the same `web_search` function
+uses a separate Codex search-only request whenever a Codex/ChatGPT login exists.
+The active model, its credentials, transcript and project instructions are not
+sent to the search service. Only absence of that login selects DuckDuckGo; API-key-only
+Codex auth is not a subscription login. Invalid/failed logged-in search reports an
+error rather than silently changing service. Shell tool profiles expose `tny web search "QUERY"` and `tny web fetch URL` through the
+terminal tool's in-process first-party command handling.
+
+Explicit search settings take precedence over hosted search and the fallback
+([ADR 0109](../adr/0109-provider-independent-codex-search.md), amending ADR0106).
+The CLI always shares this routing and does not resolve or refresh an unrelated
+conversation provider. Host-owned tools can call this CLI without tny modifying
+their private tool registry. The service runs locally even under `--ssh` and uses
+the Codex allowance; command overrides retain their existing remote behavior.
+DuckDuckGo query
+encoding, response size and waits are bounded. Bot challenges, HTTP/transport
+errors and unrecognized result pages are errors, never fabricated empty results.
 
 | Key | Shape | Behaviour |
 | --- | --- | --- |
 | `web_search_command` | shell command template | Runs through the `terminal` tool's path (same cwd, `--ssh` remote, 60 s timeout, bounded output); the result is the command's exit code plus its stdout/stderr |
 | `web_search_url` | URL template | `GET` over HTTP(S), same bounded body as `web_fetch` |
+| `web_search_model` | nonempty string, up to 256 bytes | Independent supported Codex search model; default `gpt-5.6-sol` |
+| `web_search_timeout_seconds` | integer 1–300 | Codex search/refresh deadline; default 120 seconds |
 
 Both templates take the placeholder as `{query}` or `{{query}}`; every
 occurrence is replaced. The query is always **percent-encoded** (only
@@ -167,7 +183,8 @@ search phrase, if the command wants human-readable text. If both keys are set,
 }
 ```
 
-wasm: `web_search_url` works as before (fetch); `web_search_command` returns
+wasm: hosted search and URL/DuckDuckGo fetch use the shared HTTP seam (subject
+to endpoint CORS; a blocked request reports its transport error); `web_search_command` returns
 the clean error `web_search_command is not available in wasm`, while the tool
 stays advertised because a provider is configured.
 
@@ -394,3 +411,6 @@ the hash of their exact bytes, the destination and every setting that changes
 the output; that identity is rechecked at execution, so a source or record
 edited after approval needs a new grant. `tny image export` and `tny image
 contact-sheet` typed into `terminal` are intercepted into these same tools.
+
+Codex search uses the shared HTTP/SSE seam on wasm; credentials and CORS must
+permit the request. No shell or local agent runtime is used. Failure is explicit.

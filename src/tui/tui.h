@@ -82,6 +82,10 @@ typedef struct tui {
      * TNY_ISOLATE=0 keep the in-process engine path. */
     tny_runner_client *rc;
     pid_t rc_pid;
+    bool agents_dashboard, background_view, background_armed;
+    session_meta *agents;
+    int n_agents, agent_selected;
+    int64_t agents_refresh;
     bool rc_restart_pending; /* ctx changed mid-turn: restart after it ends */
 
     bool turn_active, turn_done, want_cancel, quit, trace;
@@ -186,6 +190,12 @@ int tui_wrap_width(const tui *t);
 
 /* Queue an image path for the next prompt. Returns 1-based index, or 0. */
 int tui_queue_image(tui *t, const char *path);
+
+void tui_agents_open(tui *t);
+void tui_agents_refresh(tui *t);
+void tui_agents_select(tui *t);
+void tui_background_arm(tui *t);
+bool tui_runner_attach(tui *t, tny_session_state *session);
 
 /* tui.c */
 void tui_submit(tui *t, const char *text);

@@ -96,6 +96,13 @@ tny_image_preview_status tny_backend_openai_queue_image_preview(tny_backend *b, 
                                                                 const char **code_out, char *err,
                                                                 size_t errlen);
 
+/* Internal runner restart boundary; no public ABI addition. */
+void tny_backend_openai_background(tny_backend *b);
+bool tny_backend_openai_parked(tny_backend *b);
+yyjson_mut_val *tny_backend_openai_checkpoint(tny_backend *b, yyjson_mut_doc *d);
+int tny_backend_openai_restore(tny_backend *b, yyjson_val *r, tny_backend_event_cb cb, void *ud);
+int tny_backend_openai_continue(tny_backend *b);
+
 /* Number of agent steps taken in the last turn + tool call log (JSON array
  * text, borrowed until next send). */
 int tny_backend_openai_steps(tny_backend *b);

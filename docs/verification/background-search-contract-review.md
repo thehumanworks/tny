@@ -1,0 +1,22 @@
+# Pre-implementation contract review dispositions
+
+2026-09-13. Reviewer: Claude Fable high, session `4847f48e-02f8-48dd-b41d-88e5f6882a98`; exit 0, `subtype: success`, `is_error: false`. Result parsed before any product-code write. Raw result is held by the supervisor in `/tmp/tny-background-search-20260913/contract-review.json`. No additional review was invoked.
+
+| Finding | Disposition / contract amendment |
+| --- | --- |
+| 1: no per-tool saved boundary | Accepted. BG1 requires an atomic session checkpoint after the effective post-extension result and tool index advance, before any further tool or POST. Cancellation never satisfies it. |
+| 2: resume repairs unanswered batch | Accepted. BG2 requires an explicit native continuation entry point, remaining calls in original order, consumed index, step/failure counters, parked steering, captured images/preview origin, permission grants/block flag, audit/usage and runtime turn state. Never call ordinary send/resume repair to restart. |
+| 3: detach-only cheaper | Declined as a scope reduction: the explicit user instruction requires checkpoint plus fresh exec, not merely retaining the existing worker. BG3 retains this requirement. Reuse listener and inherited writer ownership. |
+| 4: context/lock/ready | Accepted with exact configuration snapshot over anonymous IPC, including runtime-only credentials (never argv or disk). Fresh executable receives writer descriptor continuously held and listener; it cannot execute work before parent activation. Failures before activation retain foreground ownership/continuation. No arbitrary fork-only execution after TLS. |
+| 5: roles and quit | Accepted. Dashboard reattach claims the unique owner; a live owner refuses it. Quitting a background-session view detaches; explicit cancel remains bounded and rereads/verifies the current runner PID. |
+| 6: permissions without owner | Accepted. Background permission decisions remain pending for reattachment, with a bounded deadline and explicit failure on expiry. No silent auto-allow or mode widening. Focused permission/question input retains Left editing. |
+| 7: composer collision | Accepted, corrected after the binding supervisor clarification and implementation finding R1. Only active empty-composer Left arms idempotently with visible status. Nonempty drafts, idle editing and focused modal, question and permission inputs retain editing. Native in-process/TNY_ISOLATE=0, ephemeral, wasm and host contexts report explicit unsupported errors. |
+| 8: hosted representation | Accepted. Assistant extras retain raw Responses hosted search items and annotated output messages, echoed on subsequent Responses input. Hosted calls emit normalized events once and never enter local call execution. Exact pinned tool declaration is web_search with external_web_access true. Drop the same-name function only on builtin ChatGPT Responses, without explicit search overrides. Capability research is not an extra request per turn. |
+| 9: fallback | Accepted. DuckDuckGo HTML endpoint https://html.duckduckgo.com/html/?q={query}, bounded GET with identifiable User-Agent, small result-link/text extraction, challenge/HTTP/parse/timeout errors explicit. No HTML dependency. wasm uses remote HTTP subject to CORS with honest transport error. Grok E1 proves this fallback, not xAI native search. |
+| 10: background definition | Accepted. Durable background marker; live writer probe determines running versus stale. Completed background sessions remain listed. tny agents has noninteractive JSON/list behavior and starts no provider on dashboard entry. |
+| 11: size | Accepted. Preserve numeric budgets: Linux dynamic <1.0 MiB, macOS <1.8 MiB, musl <1.5 MiB, MSYS <2.0 MiB. Record actual local stripped baseline/result; unavailable platforms are not claimed. |
+| 12: ADR/Nix/docs | Accepted. Allocate next serials 0106/0107; preserve all existing ADR bytes (pre-existing duplicate serials are baseline). Register deterministic test paths in Nix. Correct affected native Codex descriptions. |
+
+## Ownership
+
+The implementer owns WS1-WS3 and BG1-BG7 implementation and deterministic/local Q1-Q2 evidence. The supervisor owns live capability and Grok grok-4.6 runs (E1), the one final independent review (R2), and all Git/PR delivery (D1). The delegated implementation lane was instructed not to commit, push, open PRs or invoke additional independent reviews; the supervising delivery lane retains those responsibilities. These gates remain visible and are not claimed by the implementer.

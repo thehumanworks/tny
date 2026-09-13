@@ -37,6 +37,9 @@ tny jobs status|wait|cancel|retry|logs|rm <id>
 tny jobs list               # durable jobs in this workspace's state directory
 tny resume [last|<id>]      # interactive resume
 tny acp                     # ACP server (native loop only)
+tny agents                  # background dashboard; --json for scripts
+tny web search QUERY        # override, else Codex login, else DuckDuckGo
+tny web fetch URL           # bounded HTTP fetch
 tny sessions
 tny session last|<id>
 tny session <id> --wait     # block until a background task finishes ([--timeout S])
@@ -860,6 +863,61 @@ session with no live runner, attach exits 1 and points at `tny session
 id=$(tny ask -B "audit the Makefile")
 tny session attach $id             # watch it live; ^C detaches
 ```
+
+## `tny agents` and active-turn backgrounding
+
+Press **Left with an empty composer** during an active native runner turn to
+arm backgrounding after the next completed tool boundary is saved. Repeated Left
+while armed is idempotent. tny checkpoints the remaining batch and restarts the
+same turn in a fresh detached process; no new prompt, tool replay or step-limit
+reset is needed. A local tool's effective result is saved before any next call.
+A hosted Codex search waits for its provider response to finish, then checkpoints
+before the first pending local tool. If the turn finishes without pending work,
+it opens the completed list instead. Nonempty drafts, idle Left and focused
+modal/question/permission inputs retain ordinary cursor editing.
+
+A successful handoff opens the same dashboard as `tny agents`. Up/Down selects a
+row and Enter claims its unique owner connection, including halfway through a
+running turn. Another live owner is refused. Completed and stale records remain
+visible honestly; selecting a completed row shows its saved conversation.
+`tny agents --json` (or non-TTY plain output) lists the workspace without
+starting any provider. Unlike `tny cursor agents`, this lists local tny sessions.
+
+Quit from a background view or dashboard detaches and leaves work running.
+Ctrl-C explicitly cancels; `tny session stop ID --kill` remains available.
+Handoff-origin ask/auto permissions wait up to five minutes for owner
+reattachment, then report timeout/denial. Ordinary unattended `tny ask -B`
+continues to deny an unanswered permission promptly. Handoff is unavailable for host-managed providers,
+wasm, ephemeral and in-process turns, with an explicit message. Foreground exit
+continues to stop an ordinary active foreground turn.
+See [ADR 0107](adr/0107-tool-boundary-restart-and-agents-dashboard.md).
+
+An unconsumed handoff checkpoint can be resumed with `tny resume ID` or selected
+from `tny agents`, without an extra prompt. Recovery requires the original
+provider configuration and refuses already-activated checkpoints after an arbitrary
+crash. `agents --json` reports `running` for active work and `live` for an available
+writer, so a completed live runner still reports `status:"done"`.
+
+See [ADR 0108](adr/0108-checkpoint-recovery-and-hosted-tool-boundaries.md) for
+recovery and hosted-tool boundary details.
+
+## `tny web search|fetch`
+
+`tny web search "C11 atomics"` uses an explicit command or URL search override,
+else the Codex/ChatGPT login, else DuckDuckGo when no such login exists. This
+selection does not depend on the conversation provider or model. The search-only
+Codex model defaults to `gpt-5.6-sol`; `web_search_model` overrides it independently.
+`web_search_timeout_seconds` sets its 1–300 second deadline (default 120), including
+pumped token refresh. An invalid login or failed Codex request is an error, not a
+silent fallback. API-key-only Codex auth is not a ChatGPT subscription login. `tny web fetch https://example.com` fetches
+one URL. `--json` returns kind, ok and result; errors exit 2. Query templates are
+percent encoded. Search challenges and incomplete responses are reported rather
+than presented as search results. These verbs also execute in process when
+called through the native terminal tool, preserving its permission identity.
+Builtin Codex retains inline hosted search; the explicit CLI always uses the
+independent search service and labels Codex or DuckDuckGo provenance. `web` applies
+local settings/permissions and ChatGPT flags without selecting or refreshing an
+unrelated chat provider. See [ADR 0109](adr/0109-provider-independent-codex-search.md). See [search providers](features/mcp-and-skills.md#web-search-providers).
 
 ## Background one-shots (`tny ask -B`)
 

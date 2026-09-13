@@ -21,7 +21,7 @@ their own Makefile, sources, tests, and docs contract:
 tny is a **C11** TUI + CLI coding-agent harness. It must beat [vercel-labs/fx](https://github.com/vercel-labs/fx) (Zig, advertised **7.8 MiB**) on size and startup, keep fx's Unix-shell functionality, and drive:
 
 1. Cursor via the **SDK Bridge** (`sdk.v1` Connect HTTP/1.1)
-2. Codex via **`codex app-server` WebSockets**
+2. Codex via the native **ChatGPT Responses subscription profile** (ADR0065)
 3. Other agents via **ACP**
 4. **OpenAI-compatible** HTTP (native tool loop)
 

@@ -1087,11 +1087,15 @@ class Handler(BaseHTTPRequestHandler):
         need(isinstance(items, list) and items, "input items missing")
         for t in req.get("tools", []):
             need(
-                t.get("type") == "function" and "name" in t and "function" not in t,
-                f"responses tools must be flat: {t}",
+                (t.get("type") == "function" and "name" in t and "function" not in t)
+                or (
+                    t == {"type": "web_search", "external_web_access": True}
+                    and self.headers.get("OpenAI-Beta") == "responses=v1"
+                ),
+                f"responses tools must be flat functions or pinned ChatGPT hosted search: {t}",
             )
         if EXPECT_TOOL_NAMES is not None:
-            actual = {t["name"] for t in req.get("tools", [])}
+            actual = {t.get("name", t["type"]) for t in req.get("tools", [])}
             expected = set(EXPECT_TOOL_NAMES.split(",")) if EXPECT_TOOL_NAMES else set()
             need(
                 actual == expected,

@@ -33,6 +33,40 @@ log flush and socket removal, then releases it before sending `bye`
 writer to be free and reloads the saved conversation under that ownership.
 Serve runners retain ownership between turns, including rejected turns.
 
+## Background conversation turns
+
+`tny agents` lists sessions marked `background:true`, including explicit `ask -B`
+and Left-arrow handoffs. The live writer lock determines liveness; a stored
+running state with no writer is stale. Completed/error/interrupted rows remain
+inspectable. The interactive dashboard acquires the unique owner connection so
+reattachment can continue the same active turn and answer its permissions.
+Dashboard/view exit detaches; explicit cancellation remains bounded.
+
+A Left handoff saves a `continuation` object in the atomic session document,
+after a completed tool result and before the next call or POST. It records
+pending calls, consumed index and native/runtime continuation state. A fresh
+executable inherits the continuous writer lock and existing listener. Resolved
+configuration, credentials and provider affinity travel only through anonymous
+IPC; no secret configuration checkpoint is written. Failures before activation
+retain/recover foreground work or report the saved checkpoint honestly. A
+completed turn removes its continuation checkpoint. This is controlled handoff,
+not a guarantee of automatic recovery from arbitrary external-effect crashes.
+See [ADR 0107](../adr/0107-tool-boundary-restart-and-agents-dashboard.md).
+
+`tny agents --json` distinguishes `running` (active work) from `live` (held writer,
+including an idle completed runner). A done row remains done while that writer
+waits for another prompt. `/agents` or Ctrl-X detaches back to the list; observer
+clients reconnect after exec. The transferred owner connection stays continuous.
+
+If a restart exits before activating pending work, `tny resume ID` or dashboard
+selection consumes the saved continuation without a new prompt. Use the original
+provider configuration: recovery checks endpoint/settings/repository identity,
+restores saved effective options and re-resolves credentials normally. A changed
+configuration or already-consumed checkpoint is refused explicitly, before tools
+run; ordinary missing-result repair cannot discard the pending batch. This is
+safe handoff recovery, not automatic replay after arbitrary external effects.
+See [ADR 0108](../adr/0108-checkpoint-recovery-and-hosted-tool-boundaries.md).
+
 ## Durable jobs ([ADR 0093](../adr/0093-durable-native-jobs-and-verified-retry.md))
 
 A durable job is a separate record under `~/.tny/jobs/<32 hex id>/`, not a

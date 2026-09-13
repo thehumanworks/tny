@@ -68,6 +68,7 @@ struct tny_engine {
     bool message_started;
     bool turn_started;
     bool preserve_session_on_free;
+    bool restart_initialization_pending;
     buf_t extension_followup;
 
     tny_owned_event *head;
@@ -1607,6 +1608,12 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images, cha
         if (err && errlen) snprintf(err, errlen, "runtime is not ready for a turn");
         return -1;
     }
+    if (yyjson_mut_obj_get(yyjson_mut_doc_get_root(e->session->doc), "continuation")) {
+        snprintf(err, errlen,
+                 "saved continuation requires tny resume; a new prompt cannot repair or replay "
+                 "pending calls");
+        return -1;
+    }
     /* The shared image gate (docs/adr/0089): every turn — TUI, one-shot CLI,
      * detached runner, library caller and native subagent — passes here, so
      * a configured-false provider refuses before prompt, event, session or
@@ -2039,4 +2046,98 @@ void tny_engine_free(tny_engine *e) {
     free(e->current_message_id);
     tny_wake_close(&e->cancel_wake);
     free(e);
+}
+
+int tny_engine_background(tny_engine *e) {
+    if (!e || !e->active || !e->bk || e->bk->id != TNY_BK_OPENAI) return -1;
+    tny_backend_openai_background(e->bk);
+    return 0;
+}
+
+bool tny_engine_parked(tny_engine *e) {
+    return e && e->active && e->bk && e->bk->id == TNY_BK_OPENAI &&
+           tny_backend_openai_parked(e->bk);
+}
+
+yyjson_mut_val *tny_engine_checkpoint(tny_engine *e, yyjson_mut_doc *d) {
+    if (!tny_engine_parked(e) || e->head || e->pending_terminal) return NULL;
+    yyjson_mut_val *r = yyjson_mut_obj(d);
+    yyjson_mut_val *native = tny_backend_openai_checkpoint(e->bk, d);
+    if (!native) return NULL;
+    yyjson_mut_obj_add_val(d, r, "native", native);
+    if (e->prompt_text) yyjson_mut_obj_add_strcpy(d, r, "prompt_text", e->prompt_text);
+    if (e->prepared_requeue_text)
+        yyjson_mut_obj_add_strcpy(d, r, "prepared_requeue_text", e->prepared_requeue_text);
+    if (e->current_message_id)
+        yyjson_mut_obj_add_strcpy(d, r, "current_message_id", e->current_message_id);
+    yyjson_mut_obj_add_strcpy(d, r, "turn_text", e->turn_text.data ? e->turn_text.data : "");
+    yyjson_mut_obj_add_strcpy(d, r, "message_text",
+                              e->message_text.data ? e->message_text.data : "");
+    yyjson_mut_obj_add_strcpy(d, r, "extension_followup",
+                              e->extension_followup.data ? e->extension_followup.data : "");
+    yyjson_mut_obj_add_bool(d, r, "system_prompt_delivered", e->system_prompt_delivered);
+    yyjson_mut_obj_add_bool(d, r, "extensions_started", e->extensions_started);
+    yyjson_mut_obj_add_bool(d, r, "message_started", e->message_started);
+    yyjson_mut_obj_add_bool(d, r, "turn_started", e->turn_started);
+    yyjson_mut_obj_add_uint(d, r, "submission_sequence", e->submission_sequence);
+    yyjson_mut_obj_add_int(d, r, "extension_continuations", e->extension_continuations);
+    return r;
+}
+
+int tny_engine_restore(tny_engine *e, yyjson_val *r) {
+    if (!e || !e->bk || e->bk->id != TNY_BK_OPENAI || e->active || !yyjson_is_obj(r)) return -1;
+    if (!ensure_oom_reserves(e) ||
+        tny_backend_openai_restore(e->bk, jget(r, "native"), backend_event, e) != 0)
+        return -1;
+    free(e->prompt_text);
+    e->prompt_text = jget_str(r, "prompt_text") ? xstrdup(jget_str(r, "prompt_text")) : NULL;
+    free(e->prepared_requeue_text);
+    e->prepared_requeue_text =
+        jget_str(r, "prepared_requeue_text") ? xstrdup(jget_str(r, "prepared_requeue_text")) : NULL;
+    free(e->current_message_id);
+    e->current_message_id =
+        jget_str(r, "current_message_id") ? xstrdup(jget_str(r, "current_message_id")) : NULL;
+    buf_clear(&e->turn_text);
+    buf_appends(&e->turn_text, jget_str(r, "turn_text") ? jget_str(r, "turn_text") : "");
+    buf_clear(&e->message_text);
+    buf_appends(&e->message_text, jget_str(r, "message_text") ? jget_str(r, "message_text") : "");
+    buf_clear(&e->extension_followup);
+    buf_appends(&e->extension_followup,
+                jget_str(r, "extension_followup") ? jget_str(r, "extension_followup") : "");
+    e->system_prompt_delivered = jget_bool(r, "system_prompt_delivered", false);
+    e->extensions_started = jget_bool(r, "extensions_started", false);
+    e->message_started = jget_bool(r, "message_started", false);
+    e->turn_started = jget_bool(r, "turn_started", false);
+    e->submission_sequence = (uint64_t)jget_int(r, "submission_sequence", 0);
+    e->extension_continuations = (int)jget_int(r, "extension_continuations", 0);
+    e->active = true;
+    e->terminal = e->terminal_popped = false;
+    e->restart_initialization_pending = true;
+    return 0;
+}
+
+int tny_engine_continue(tny_engine *e) {
+    if (!tny_engine_parked(e)) return -1;
+    if (e->restart_initialization_pending) {
+        e->restart_initialization_pending = false;
+        if (e->extensions) {
+            /* A new interpreter needs a distinct resume initialization. This
+             * does not resubmit the prompt or start another agent/turn. */
+            char *json = session_event_json(e, "session_start", "background_resume", NULL);
+            if (json) {
+                (void)invoke_extensions(e, "session_start", json, EXT_PHASE_OBSERVE, NULL);
+                free(json);
+            }
+        }
+    }
+    int rc = tny_backend_openai_continue(e->bk);
+    after_backend(e, rc);
+    return rc;
+}
+
+void tny_engine_handoff_free(tny_engine *e) {
+    if (!tny_engine_parked(e)) return;
+    e->active = false; /* ownership transfer, never a cancelled turn */
+    tny_engine_preserve_session_on_free(e);
+    tny_engine_free(e);
 }

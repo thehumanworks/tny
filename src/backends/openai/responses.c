@@ -115,8 +115,19 @@ static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *sum
                     if (copy) yyjson_mut_arr_add_val(arr, copy);
                 }
             }
+            bool has_message = false;
+            yyjson_mut_val *hosted = yyjson_mut_obj_get(m, "responses_items");
+            size_t hi, hn;
+            yyjson_mut_val *item;
+            yyjson_mut_arr_foreach(hosted, hi, hn, item) {
+                const char *type = mstr(item, "type");
+                if (!type) continue;
+                if (strcmp(type, "message") == 0) has_message = true;
+                yyjson_mut_val *copy = yyjson_mut_val_mut_copy(d, item);
+                if (copy) yyjson_mut_arr_add_val(arr, copy);
+            }
             const char *text = yyjson_mut_get_str(content);
-            if (text && *text) add_text_message(d, arr, "assistant", text);
+            if (!has_message && text && *text) add_text_message(d, arr, "assistant", text);
             yyjson_mut_val *tcs = yyjson_mut_obj_get(m, "tool_calls");
             if (tcs && yyjson_mut_is_arr(tcs)) add_function_calls(d, arr, tcs);
             continue;

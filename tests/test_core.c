@@ -2,6 +2,7 @@
  * $HOME so nothing touches the real ~/.tny. */
 #include "greatest.h"
 #include "core/config.h"
+#include "core/checkpoint.h"
 #include "core/backend.h"
 #include "core/perm.h"
 #include "core/session.h"
@@ -5485,7 +5486,77 @@ TEST job_wait_cancellation_leaves_live_job_untouched(void) {
     PASS();
 }
 
+TEST context_checkpoint_preserves_resolved_selection(void) {
+    ensure_env();
+    write_settings("{\"web_search_command\":\"echo {query}\",\"secret_fixture\":\"private-only\"}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    free(ctx->api_key);
+    ctx->api_key = xstrdup("private-runtime-key");
+    free(ctx->provider_name);
+    ctx->provider_name = xstrdup("grok");
+    free(ctx->model);
+    ctx->model = xstrdup("grok-4.6");
+    ctx->perm_mode = TNY_MODE_ASK;
+    ctx->max_steps = 7;
+    ctx->tool_profile = TNY_TOOLS_TERMINAL;
+    ctx->extensions_enabled = false;
+    tny_ctx_add_extra_header(ctx, "X-Fixture: runtime-only");
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(jallocator());
+    ASSERT(doc);
+    yyjson_mut_doc_set_root(doc, tny_checkpoint_context(doc, ctx));
+    char *json = jwrite(doc);
+    ASSERT(json);
+    yyjson_doc *parsed = jparse(json, strlen(json));
+    ASSERT(parsed);
+    tny_ctx *restored = tny_checkpoint_context_restore(yyjson_doc_get_root(parsed));
+    ASSERT(restored);
+    yyjson_mut_doc *copy = yyjson_mut_doc_new(jallocator());
+    ASSERT(copy);
+    yyjson_mut_doc_set_root(copy, tny_checkpoint_context(copy, restored));
+    char *again = jwrite(copy);
+    ASSERT(again);
+    ASSERT_STR_EQ(json, again);
+    ASSERT_EQ(TNY_MODE_ASK, restored->perm_mode);
+    ASSERT_EQ(7, restored->max_steps);
+    tny_ctx_free(restored);
+    /* Public recovery stores effective selection but no credential/settings
+     * bytes, and rejects changed identity or widened permission access. */
+    free(ctx->provider_name);
+    ctx->provider_name = NULL; /* default openai must record its effective name */
+    ctx->backend = TNY_BK_OPENAI;
+    yyjson_mut_doc *public_doc = yyjson_mut_doc_new(jallocator());
+    ASSERT(public_doc);
+    yyjson_mut_doc_set_root(public_doc, tny_checkpoint_public(public_doc, ctx));
+    char *public_json = jwrite(public_doc);
+    ASSERT(public_json);
+    ASSERT_FALSE(strstr(public_json, "private-runtime-key"));
+    ASSERT_FALSE(strstr(public_json, "private-only"));
+    ASSERT_FALSE(strstr(public_json, "runtime-only"));
+    yyjson_doc *public_parsed = jparse(public_json, strlen(public_json));
+    ASSERT(public_parsed);
+    tny_ctx *recovered = tny_checkpoint_recover(ctx, yyjson_doc_get_root(public_parsed));
+    ASSERT(recovered);
+    ASSERT_EQ(TNY_MODE_ASK, recovered->perm_mode);
+    ASSERT_EQ(7, recovered->max_steps);
+    ASSERT_STR_EQ("private-runtime-key", recovered->api_key);
+    tny_ctx_free(recovered);
+    tny_ctx_add_extra_header(ctx, "X-Changed: different");
+    ASSERT_FALSE(tny_checkpoint_recover(ctx, yyjson_doc_get_root(public_parsed)));
+    yyjson_doc_free(public_parsed);
+    yyjson_mut_doc_free(public_doc);
+    free(public_json);
+    tny_ctx_free(ctx);
+    secure_free(json);
+    secure_free(again);
+    yyjson_doc_free(parsed);
+    yyjson_mut_doc_free(doc);
+    yyjson_mut_doc_free(copy);
+    PASS();
+}
+
 SUITE(core_suite) {
+    RUN_TEST(context_checkpoint_preserves_resolved_selection);
     RUN_TEST(job_wait_cancellation_leaves_live_job_untouched);
     RUN_TEST(job_spawn_maps_colliding_descriptors_without_clobbering);
     RUN_TEST(job_parent_watch_is_off_for_ordinary_commands);

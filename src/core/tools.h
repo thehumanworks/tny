@@ -152,9 +152,12 @@ char *tools_path_detail(tools_env *env, const char *path);
 char *tool_fs_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
 char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
 char *tool_web_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
-/* true when settings name a web_search provider ("web_search_command" or
- * "web_search_url"); the schema omits web_search otherwise (docs/adr/0055). */
+/* Search uses explicit overrides, else a Codex login, else DuckDuckGo. */
 bool tool_web_search_configured(tny_ctx *ctx);
+bool tool_web_search_native(tny_ctx *ctx);
+char *tool_web_search_parse_ddg(const char *html);
+/* Shared Codex service: handled=false only without a ChatGPT login. */
+char *tool_web_search_codex(tools_env *env, const char *query, bool *handled);
 /* Expand every {query} / {{query}} in tmpl with the percent-encoded query.
  * malloc'd. */
 char *tool_web_search_expand(const char *tmpl, const char *query);

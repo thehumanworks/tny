@@ -14,6 +14,7 @@
 
 typedef enum {
     TNY_INTERCEPT_EDIT = 1,
+    TNY_INTERCEPT_WEB,
     TNY_INTERCEPT_MCP_CALL,
     TNY_INTERCEPT_MCP_DESCRIBE, /* `tny mcp tools SERVER` / `describe SERVER/TOOL` */
     TNY_INTERCEPT_MEMORY,

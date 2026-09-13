@@ -20,6 +20,8 @@ if not TNY.is_absolute():
 # newly dispatched command fail until its parser is registered here.
 COMMAND_PARSERS = {
     "acp": ("cmd_acp_server",),
+    "agents": ("cmd_agents",),
+    "web": ("cmd_web",),
     "ask": ("cmd_ask",),
     "ask-user": ("cmd_ask_user",),
     "backends": ("cmd_backends",),
@@ -57,7 +59,9 @@ GLOBAL_PARSERS = ("main", "cli_parse_globals", "parse_globals")
 # finite token that help could enumerate; --resume <last|id> is canonical.
 # Private jobs prefix is intentionally not a public image option.
 PARSED_WITHOUT_HELP = {
-    "<global>": {"--resume-*"},
+    # Descriptor-only internal runner entry. It is not a user operation and
+    # refuses without its private inherited socket/listener/writer handles.
+    "<global>": {"--resume-*", "--runner-restart"},
     "image": {"--job-no-replace"},
 }
 
@@ -68,6 +72,7 @@ HELP_WITHOUT_PARSER = {"<global>": {"--acp"}}
 
 SOURCE_PATHS = [
     ROOT / "src/main.c",
+    ROOT / "src/tui/tui_agents.c",
     ROOT / "src/core/image_service.c",
     ROOT / "src/core/jobs.c",
     ROOT / "src/cli/args.c",

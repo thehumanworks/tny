@@ -5,6 +5,11 @@
  * callers can watch, steer, approve, and cancel the turn live. Client
  * death is detachment, never turn death. */
 #include "core/runner.h"
+#include "core/checkpoint.h"
+#include "core/extensions.h"
+#include "util/jobs_host.h"
+#include "util/process.h"
+#include <sys/wait.h>
 #include "core/perm.h"
 #include "core/runtime.h"
 #include "json/json.h"
@@ -300,11 +305,15 @@ typedef struct {
     bool turn_ran;
     bool control_pumping;
     bool hard_cancel_pending;
+    bool background_armed, background, background_permissions, handoff_pending;
+    int64_t permission_deadline;
+    char *permission_summary;
+    int permission_options;
     tny_stop_reason stop;
     int64_t started_ms;
     int64_t last_ckpt;
     /* recorder — the -B accumulation, one place for every mode */
-    buf_t output, host_tools, ext_msgs, errline;
+    buf_t output, thinking, host_tools, ext_msgs, errline;
     int errpipe;            /* read end of the fd-2 tee (host stderr, diagnostics) */
     buf_t erracc;           /* partial line from the tee */
     char pending_perm[128]; /* forwarded permission id awaiting a client */
@@ -375,7 +384,7 @@ static void rn_client_drop(rn_state *r, int i) {
         r->question_failed = true;
     }
     if (owner) {
-        if (r->pending_perm[0] && r->engine) {
+        if (r->pending_perm[0] && r->engine && !r->background_permissions) {
             char id[sizeof r->pending_perm];
             snprintf(id, sizeof id, "%s", r->pending_perm);
             r->pending_perm[0] = 0;
@@ -533,7 +542,7 @@ static void rn_drain_errpipe(rn_state *r) {
         jescape(&b, owned ? owned : "");
         free(owned);
         buf_appends(&b, "}");
-        rn_broadcast(r, &b);
+        if (!r->handoff_pending) rn_broadcast(r, &b);
         buf_free(&b);
         buf_consume(&r->erracc, linelen + 1);
     }
@@ -546,6 +555,8 @@ static void rn_send_hello(rn_state *r, int i) {
     jescape(&b, tny_provider_name(r->ctx));
     buf_appends(&b, ",\"model\":");
     jescape(&b, r->ctx->model ? r->ctx->model : "default");
+    buf_appends(&b, ",\"permission_mode\":");
+    jescape(&b, tny_perm_mode_name(r->ctx->perm_mode));
     buf_appends(&b, ",\"session_id\":");
     jescape(&b, r->session->id);
     buf_appends(&b, ",\"role\":");
@@ -553,13 +564,25 @@ static void rn_send_hello(rn_state *r, int i) {
     buf_appendf(&b, ",\"turn_active\":%s}", r->turn_active ? "true" : "false");
     rn_send_line(r, i, b.data, b.len);
     buf_clear(&b);
-    if (r->cl[i].role != TNY_RUNNER_TOOL && r->turn_active && r->output.len) {
-        /* late-joining frontends catch up; tool clients receive only their
-         * correlated control result */
-        buf_appends(&b, "{\"ev\":\"snapshot\",\"text\":");
-        jescape(&b, r->output.data);
-        buf_appends(&b, "}");
-        rn_send_line(r, i, b.data, b.len);
+    if (r->cl[i].role != TNY_RUNNER_TOOL && r->turn_active) {
+        const buf_t *parts[] = {&r->thinking, &r->output};
+        for (int part = 0; part < 2; part++) {
+            for (size_t at = 0; at < parts[part]->len;) {
+                size_t len = parts[part]->len - at;
+                if (len > 32768) len = 32768;
+                while (len && at + len < parts[part]->len &&
+                       ((unsigned char)parts[part]->data[at + len] & 0xc0) == 0x80)
+                    len--;
+                char *piece = xstrndup(parts[part]->data + at, len);
+                buf_clear(&b);
+                buf_appendf(&b, "{\"ev\":\"%s\",\"text\":", part ? "snapshot" : "thinking");
+                jescape(&b, piece);
+                free(piece);
+                buf_appends(&b, "}");
+                rn_send_line(r, i, b.data, b.len);
+                at += len;
+            }
+        }
     }
     buf_free(&b);
 }
@@ -579,6 +602,7 @@ static void rn_accept(rn_state *r) {
             return;
         }
         set_nonblock(fd, true);
+        fcntl(fd, F_SETFD, FD_CLOEXEC);
         rn_client *c = &r->cl[slot];
         /* A reused slot must not inherit the previous connection's handshake
          * or role: every client handshakes for itself, and a tool client that
@@ -606,6 +630,7 @@ static void rn_finalize(rn_state *r, tny_stop_reason stop, int exit_code) {
         r->ctx, r->engine, r->session, r->output.data ? r->output.data : "",
         r->host_tools.len ? r->host_tools.data : NULL, r->ext_msgs.len ? r->ext_msgs.data : NULL,
         r->errline.len ? r->errline.data : NULL, exit_code);
+    yyjson_mut_obj_remove_key(yyjson_mut_doc_get_root(r->session->doc), "continuation");
     session_set_status_finished(r->session, stname, exit_code, result);
     session_save(r->session);
     /* The runner still owns teardown writes and its socket. Both modes keep
@@ -627,8 +652,10 @@ static void rn_finalize(rn_state *r, tny_stop_reason stop, int exit_code) {
     fflush(stdout);
     r->turn_active = false;
     r->turn_ended = false;
+    r->background_armed = false;
     r->pending_perm[0] = 0;
     buf_clear(&r->output);
+    buf_clear(&r->thinking);
     buf_clear(&r->host_tools);
     buf_clear(&r->ext_msgs);
     buf_clear(&r->errline);
@@ -659,6 +686,10 @@ static void rn_turn_err(rn_state *r, const char *msg, int exit_code) {
  * `tny session <id>` points readers at it for tool progress. */
 static void rn_on_event(rn_state *r, const tny_backend_event *ev) {
     switch (ev->kind) {
+    case TNY_EV_THINKING:
+        buf_append(&r->thinking, ev->text, ev->text_len);
+        rn_broadcast_event(r, ev);
+        break;
     case TNY_EV_TEXT_DELTA:
         buf_append(&r->output, ev->text, ev->text_len);
         fwrite(ev->text, 1, ev->text_len, stdout);
@@ -723,9 +754,14 @@ static void rn_on_event(rn_state *r, const tny_backend_event *ev) {
                      ev->perm_summary ? ev->perm_summary : "");
             rn_broadcast_status(r, line);
             tny_engine_respond_permission(r->engine, ev->perm_id, TNY_PERM_DECISION_ALLOW);
-        } else if (rn_owner(r) >= 0) {
+        } else if (rn_owner(r) >= 0 || r->background_permissions) {
             snprintf(r->pending_perm, sizeof r->pending_perm, "%s", ev->perm_id ? ev->perm_id : "");
-            rn_broadcast_event(r, ev); /* the client decides; `perm` op answers */
+            free(r->permission_summary);
+            r->permission_summary =
+                xstrdup(ev->perm_summary ? ev->perm_summary : "Permission required");
+            r->permission_options = ev->perm_options;
+            r->permission_deadline = monotonic_ms() + 300000;
+            rn_broadcast_event(r, ev); /* reattach may answer a parked decision */
         } else {
             char line[400];
             snprintf(line, sizeof line, "denying (no client attached to approve): %.280s",
@@ -813,6 +849,7 @@ static void rn_turn_begin(rn_state *r, const char *prompt, const char **images,
         }
     }
     buf_clear(&r->output);
+    buf_clear(&r->thinking);
     buf_clear(&r->host_tools);
     buf_clear(&r->ext_msgs);
     buf_clear(&r->errline);
@@ -849,7 +886,7 @@ bool tny_runner_role_allows(tny_runner_role role, const char *op) {
     if (role == TNY_RUNNER_OWNER)
         return strcmp(op, "turn") == 0 || strcmp(op, "steer") == 0 || strcmp(op, "cancel") == 0 ||
                strcmp(op, "perm") == 0 || strcmp(op, "end") == 0 ||
-               strcmp(op, "ask_user_reply") == 0;
+               strcmp(op, "ask_user_reply") == 0 || strcmp(op, "background") == 0;
     if (role == TNY_RUNNER_TOOL)
         return strcmp(op, "ask_user") == 0 || strcmp(op, "image_attach") == 0 ||
                /* exactly one narrow addition (docs/adr/0096); owner control
@@ -932,6 +969,13 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
         client->handshaken = true;
         r->had_client = true;
         rn_send_hello(r, ci);
+        if (parsed == TNY_RUNNER_OWNER && r->pending_perm[0]) {
+            tny_backend_event ev = {.kind = TNY_EV_PERMISSION,
+                                    .perm_id = r->pending_perm,
+                                    .perm_summary = r->permission_summary,
+                                    .perm_options = r->permission_options};
+            rn_broadcast_event(r, &ev);
+        }
         return;
     }
     if (strcmp(op, "hello") == 0 || !tny_runner_role_allows(client->role, op)) {
@@ -973,7 +1017,18 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
             ev.text_len = strlen(text);
             rn_broadcast_event(r, &ev);
         }
+    } else if (strcmp(op, "background") == 0) {
+        if (!r->turn_active || !r->engine || r->ctx->backend != TNY_BK_OPENAI) {
+            rn_op_error(r, ci, root, "background handoff requires an active native session runner");
+        } else if (!r->background_armed) {
+            /* Flag-only operation, also legal from the blocking-tool pump. */
+            if (tny_engine_background(r->engine) == 0) {
+                r->background_armed = true;
+                rn_broadcast_status(r, "Background armed: after the next completed tool call");
+            }
+        }
     } else if (strcmp(op, "cancel") == 0) {
+        r->background_armed = false;
         bool hard = jget_bool(root, "hard", false);
         if (r->control_pumping) {
             /* The blocking tool still owns the engine stack. Let its probe
@@ -1173,10 +1228,253 @@ static char *rn_ask_user(const char *question, void *ud) {
     return answer;
 }
 
+/* Restart protocol uses one anonymous socket for length-framed private JSON,
+ * READY, GO (ownership), COMMITTED, RUN (side effects). Each wait is bounded.
+ * The inherited flock/listener are never released or rebound during transfer. */
+#define RN_RESTART_MAX (128u * 1024u * 1024u)
+
+static int rn_transfer(int fd, void *bytes, size_t len, bool writing) {
+    size_t off = 0;
+    int64_t deadline = monotonic_ms() + 10000;
+    while (off < len && monotonic_ms() < deadline && !g_rn_stop) {
+        struct pollfd p = {fd, writing ? POLLOUT : POLLIN, 0};
+        int pr = tny_poll(&p, 1, 50);
+        if (pr < 0 && errno != EINTR) return -1;
+        if (!pr) continue;
+        ssize_t n = writing ? write(fd, (char *)bytes + off, len - off)
+                            : read(fd, (char *)bytes + off, len - off);
+        if (n > 0) off += (size_t)n;
+        else if (n == 0 || (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)) return -1;
+    }
+    return off == len ? 0 : -1;
+}
+
+static int rn_exchange_byte(int fd, char expected, bool writing) {
+    char value = expected;
+    return rn_transfer(fd, &value, 1, writing) == 0 && value == expected ? 0 : -1;
+}
+
+static void rn_background_marker(rn_state *r) {
+    yyjson_mut_doc *d = r->session->doc;
+    yyjson_mut_obj_put(yyjson_mut_doc_get_root(d), yyjson_mut_str(d, "background"),
+                       yyjson_mut_bool(d, true));
+    r->background = true;
+}
+
+static void rn_background_notice(rn_state *r) {
+    buf_t b;
+    buf_init(&b);
+    buf_appendf(&b, "{\"ev\":\"backgrounded\",\"pid\":%ld}", (long)getpid());
+    rn_broadcast(r, &b);
+    buf_free(&b);
+    r->background_armed = false;
+}
+
+static yyjson_mut_doc *rn_checkpoint(rn_state *r) {
+    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
+    if (!d) return NULL;
+    yyjson_mut_val *root = yyjson_mut_obj(d);
+    yyjson_mut_doc_set_root(d, root);
+    yyjson_mut_val *engine = tny_engine_checkpoint(r->engine, d);
+    if (!engine) {
+        yyjson_mut_doc_free(d);
+        return NULL;
+    }
+    yyjson_mut_obj_add_int(d, root, "version", 1);
+    yyjson_mut_obj_add_val(d, root, "engine", engine);
+    yyjson_mut_obj_add_val(d, root, "context", tny_checkpoint_context(d, r->ctx));
+    yyjson_mut_obj_add_strcpy(d, root, "session_id", r->session->id);
+    yyjson_mut_obj_add_strcpy(d, root, "thinking", r->thinking.data ? r->thinking.data : "");
+    yyjson_mut_obj_add_strcpy(d, root, "output", r->output.data ? r->output.data : "");
+    yyjson_mut_obj_add_strcpy(d, root, "ext_msgs", r->ext_msgs.data ? r->ext_msgs.data : "");
+    yyjson_mut_obj_add_uint(d, root, "event_sequence", r->session->extension_event_sequence);
+    yyjson_mut_obj_add_uint(d, root, "agent_sequence", r->session->extension_agent_sequence);
+    yyjson_mut_obj_add_bool(d, root, "session_started", r->session->extension_session_started);
+    yyjson_mut_val *grants = yyjson_mut_arr(d);
+    for (int i = 0; i < r->perm->n_grants; i++)
+        yyjson_mut_arr_add_strcpy(d, grants, r->perm->grants[i]);
+    yyjson_mut_obj_add_val(d, root, "grants", grants);
+    int owner = rn_owner(r);
+    yyjson_mut_obj_add_bool(d, root, "owner", owner >= 0);
+    if (owner >= 0) {
+        yyjson_mut_obj_add_strcpy(d, root, "client_in",
+                                  r->cl[owner].in.data ? r->cl[owner].in.data : "");
+        yyjson_mut_obj_add_strcpy(d, root, "client_out",
+                                  r->cl[owner].out.data ? r->cl[owner].out.data : "");
+        yyjson_mut_obj_add_bool(d, root, "questions", r->cl[owner].can_answer_questions);
+    }
+    /* Atomic checkpoint includes the full saved batch/results plus nonsecret
+     * continuation state. Context and provider affinity NEVER go to disk. */
+    yyjson_mut_doc *sd = r->session->doc;
+    yyjson_mut_val *disk = yyjson_mut_val_mut_copy(sd, engine);
+    yyjson_mut_obj_remove_key(yyjson_mut_obj_get(disk, "native"), "turn_state");
+    yyjson_mut_val *resume = yyjson_mut_val_mut_copy(sd, root);
+    yyjson_mut_obj_remove_key(resume, "engine");
+    yyjson_mut_obj_remove_key(resume, "context");
+    yyjson_mut_obj_remove_key(resume, "client_in");
+    yyjson_mut_obj_remove_key(resume, "client_out");
+    yyjson_mut_obj_put(resume, yyjson_mut_str(sd, "owner"), yyjson_mut_bool(sd, false));
+    yyjson_mut_obj_add_bool(sd, resume, "resumable", true);
+    yyjson_mut_val *public = tny_checkpoint_public(sd, r->ctx);
+    if (!public) {
+        yyjson_mut_doc_free(d);
+        return NULL;
+    }
+    yyjson_mut_obj_add_val(sd, resume, "public_context", public);
+    yyjson_mut_obj_add_val(sd, disk, "_resume", resume);
+    yyjson_mut_obj_put(yyjson_mut_doc_get_root(sd), yyjson_mut_str(sd, "continuation"), disk);
+    session_set_meta(r->session, tny_provider_name(r->ctx), r->ctx->model);
+    if (!session_title(r->session)) {
+        const char *prompt = yyjson_mut_get_str(yyjson_mut_obj_get(engine, "prompt_text"));
+        session_set_title(r->session, prompt ? prompt : "Background agent");
+    }
+    if (session_save(r->session) != 0) {
+        yyjson_mut_doc_free(d);
+        return NULL;
+    }
+    /* Sync the checkpoint through the existing private-filesystem seam. */
+    char *path = path_join(r->session->dir, "session.json");
+    char *saved = jwrite(sd);
+    int rc = !path || !saved ? -1 : tny_jobs_host_write_private(path, saved, strlen(saved));
+    free(path);
+    free(saved);
+    if (rc != 0) {
+        yyjson_mut_doc_free(d);
+        return NULL;
+    }
+    return d;
+}
+
+static void rn_restart(rn_state *r) {
+    rn_drain_errpipe(r); /* last wire drain before snapshotting client buffers */
+    r->handoff_pending = true;
+    yyjson_mut_doc *snapshot = rn_checkpoint(r);
+    char *payload = snapshot ? jwrite(snapshot) : NULL;
+    size_t len = payload ? strlen(payload) : 0;
+    char *self = tny_process_self_path();
+    int pair[2] = {-1, -1};
+    pid_t child = -1;
+    bool released = false;
+    yyjson_doc *recovery = payload ? jparse(payload, len) : NULL;
+    int owner = rn_owner(r);
+    if (!payload || !len || len > RN_RESTART_MAX || !self || !recovery ||
+        socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0)
+        goto failed;
+    for (int i = 0; i < 2; i++) {
+        set_nonblock(pair[i], true);
+        fcntl(pair[i], F_SETFD, FD_CLOEXEC);
+    }
+    char restart_arg[] = "--runner-restart";
+    char *argv[] = {self, restart_arg, NULL};
+    extern char **environ;
+    tny_fd_mapping maps[4] = {{pair[1], 3},
+                              {r->lfd, 4},
+                              {r->session->lock_fd, 5},
+                              {owner >= 0 ? r->cl[owner].fd : pair[1], 6}};
+    if (tny_process_spawn_mapped(argv, environ, maps, owner >= 0 ? 4 : 3, &child) != 0) goto failed;
+    close(pair[1]);
+    pair[1] = -1;
+    uint64_t size = len;
+    if (rn_transfer(pair[0], &size, sizeof size, true) != 0 ||
+        rn_transfer(pair[0], payload, len, true) != 0 || rn_exchange_byte(pair[0], 'R', false) != 0)
+        goto failed;
+    /* Child has validated/constructed the continuation but cannot mutate.
+     * Parent quiesces every old writer before transferring mutation rights. */
+    tny_engine_handoff_free(r->engine);
+    r->engine = NULL;
+    mcp_shutdown_all();
+    tny_extensions_free(r->ctx->extensions);
+    r->ctx->extensions = NULL;
+    rn_drain_errpipe(r);
+    fflush(NULL);
+    released = true;
+    if (rn_exchange_byte(pair[0], 'G', true) != 0 || rn_exchange_byte(pair[0], 'C', false) != 0)
+        goto failed;
+    if (rn_exchange_byte(pair[0], 'X', true) != 0) goto failed;
+    /* RUN was released: no further session writes, unlock, unlink, or end
+     * events from this process. The child owns all remaining tool effects. */
+    _exit(0);
+failed:
+    r->handoff_pending = false;
+    if (pair[0] >= 0) close(pair[0]);
+    if (pair[1] >= 0) close(pair[1]);
+    if (child > 0) {
+        kill(child, SIGKILL);
+        while (waitpid(child, NULL, 0) < 0 && errno == EINTR) {}
+    }
+    if (released) {
+        char err[256];
+        session_write_pid(r->session, getpid());
+        mcp_warm_start(r->ctx);
+        if (r->ctx->extensions_enabled)
+            r->ctx->extensions =
+                tny_extensions_new(r->ctx->tny_dir, r->ctx->cwd, r->ctx->extension_timeout_ms);
+        if (rn_ensure_engine(r, err, sizeof err) != 0 ||
+            tny_engine_restore(r->engine, jget(yyjson_doc_get_root(recovery), "engine")) != 0) {
+            rn_broadcast_status(r,
+                                "Background restart failed; saved continuation requires recovery");
+            r->quit = true;
+            r->turn_active = false; /* do not fabricate results for pending calls */
+            r->quit_code = 2;
+        }
+    }
+    r->background_armed = false;
+    if (!r->quit) {
+        yyjson_mut_obj_remove_key(yyjson_mut_doc_get_root(r->session->doc), "continuation");
+        session_save(r->session);
+        rn_broadcast_status(r, "Background restart failed; continuing in foreground");
+        tny_engine_continue(r->engine);
+    }
+    yyjson_doc_free(recovery);
+    yyjson_mut_doc_free(snapshot);
+    if (payload) secure_free(payload);
+    free(self);
+}
+
+static yyjson_mut_val *rn_continuation(tny_session_state *session) {
+    return yyjson_mut_obj_get(yyjson_mut_doc_get_root(session->doc), "continuation");
+}
+
+static yyjson_doc *rn_disk_packet(tny_session_state *session) {
+    yyjson_mut_val *engine = rn_continuation(session);
+    yyjson_mut_val *resume = yyjson_mut_obj_get(engine, "_resume");
+    if (!yyjson_mut_get_bool(yyjson_mut_obj_get(resume, "resumable"))) return NULL;
+    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
+    if (!d) return NULL;
+    yyjson_mut_val *root = yyjson_mut_val_mut_copy(d, resume);
+    yyjson_mut_doc_set_root(d, root);
+    yyjson_mut_obj_add_val(d, root, "engine", yyjson_mut_val_mut_copy(d, engine));
+    char *bytes = jwrite(d);
+    yyjson_doc *packet = bytes ? jparse(bytes, strlen(bytes)) : NULL;
+    free(bytes);
+    yyjson_mut_doc_free(d);
+    return packet;
+}
+
+static bool rn_consume_checkpoint(rn_state *r) {
+    yyjson_mut_val *resume = yyjson_mut_obj_get(rn_continuation(r->session), "_resume");
+    if (!resume) return false;
+    yyjson_mut_obj_put(resume, yyjson_mut_str(r->session->doc, "resumable"),
+                       yyjson_mut_bool(r->session->doc, false));
+    if (session_save(r->session) == 0) return true;
+    yyjson_mut_obj_put(resume, yyjson_mut_str(r->session->doc, "resumable"),
+                       yyjson_mut_bool(r->session->doc, true));
+    rn_broadcast_status(r, "Could not activate saved continuation; no pending tools were run");
+    return false;
+}
+
 static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
-                                    const tny_runner_opts *opts, int lfd, char *sock_path) {
-    setsid(); /* own group: survives the caller; `session stop` signals us */
-    session_write_pid(session, getpid());
+                                    const tny_runner_opts *opts, int lfd, char *sock_path,
+                                    yyjson_val *restart) {
+    /* Initial fork creates a session. A mapped restart already leads its
+     * own group inside this detached session and has no controlling TTY. */
+    if (!restart && setsid() < 0) _exit(2);
+    bool from_disk = !restart && rn_continuation(session);
+    yyjson_doc *disk_packet = from_disk ? rn_disk_packet(session) : NULL;
+    if (from_disk && !disk_packet) _exit(2);
+    if (disk_packet) restart = yyjson_doc_get_root(disk_packet);
+    session->ctx = ctx;
+    if (!restart) session_write_pid(session, getpid());
     if (opts->no_host_registry) ctx->no_host_registry = true;
     if (!freopen("/dev/null", "r", stdin)) { /* best effort */
     }
@@ -1199,6 +1497,7 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
     {
         int ep[2];
         if (pipe(ep) == 0) {
+            fcntl(ep[0], F_SETFD, FD_CLOEXEC);
             set_nonblock(ep[0], true);
             set_nonblock(ep[1], true);
 /* fd 2 is deliberately held for the process lifetime (it IS stderr) */
@@ -1226,7 +1525,7 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
 
     /* MCP servers must be our children so the stop group-signal reaches
      * them; threads do not survive fork (docs/adr/0031, 0049). */
-    if (ctx->backend == TNY_BK_OPENAI) mcp_warm_start(ctx);
+    if (!restart && ctx->backend == TNY_BK_OPENAI) mcp_warm_start(ctx);
 
     rn_state r;
     memset(&r, 0, sizeof r);
@@ -1239,15 +1538,76 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
     r.errpipe = errpipe;
     for (int i = 0; i < RN_MAX_CLIENTS; i++) r.cl[i].fd = -1;
     buf_init(&r.output);
+    buf_init(&r.thinking);
     buf_init(&r.erracc);
     buf_init(&r.host_tools);
     buf_init(&r.ext_msgs);
     buf_init(&r.errline);
     r.perm = perm_new(ctx);
     r.quit_code = 0;
+    r.background = yyjson_mut_get_bool(
+        yyjson_mut_obj_get(yyjson_mut_doc_get_root(session->doc), "background"));
+    if (restart) {
+        r.background_permissions = true;
+        char err[256];
+        if (rn_ensure_engine(&r, err, sizeof err) != 0 ||
+            tny_engine_restore(r.engine, jget(restart, "engine")) != 0)
+            _exit(2);
+        size_t gi, gn;
+        yyjson_val *grant;
+        yyjson_arr_foreach(jget(restart, "grants"), gi, gn, grant) {
+            const char *g = yyjson_get_str(grant);
+            if (!g) _exit(2);
+            perm_grant(r.perm, g, NULL);
+        }
+        session->extension_event_sequence = (uint64_t)jget_int(restart, "event_sequence", 0);
+        session->extension_agent_sequence = (uint64_t)jget_int(restart, "agent_sequence", 0);
+        session->extension_session_started = jget_bool(restart, "session_started", false);
+        buf_appends(&r.thinking,
+                    jget_str(restart, "thinking") ? jget_str(restart, "thinking") : "");
+        buf_appends(&r.output, jget_str(restart, "output") ? jget_str(restart, "output") : "");
+        buf_appends(&r.ext_msgs,
+                    jget_str(restart, "ext_msgs") ? jget_str(restart, "ext_msgs") : "");
+        if (jget_bool(restart, "owner", false)) {
+            r.cl[0].fd = 6;
+            r.cl[0].role = TNY_RUNNER_OWNER;
+            r.cl[0].handshaken = true;
+            r.cl[0].can_answer_questions = jget_bool(restart, "questions", false);
+            buf_appends(&r.cl[0].in, jget_str(restart, "client_in"));
+            buf_appends(&r.cl[0].out, jget_str(restart, "client_out"));
+            fcntl(6, F_SETFD, FD_CLOEXEC);
+        }
+        r.turn_active = r.turn_ran = r.had_client = true;
+        if (!from_disk &&
+            (rn_exchange_byte(3, 'R', true) != 0 || rn_exchange_byte(3, 'G', false) != 0))
+            _exit(2);
+        rn_background_marker(&r);
+        if (session_write_pid(session, getpid()) != 0 || session_save(session) != 0) _exit(2);
+        if (!from_disk &&
+            (rn_exchange_byte(3, 'C', true) != 0 || rn_exchange_byte(3, 'X', false) != 0))
+            _exit(2);
+        if (!from_disk) close(3);
+        mcp_warm_start(ctx);
+        rn_control_pump(&r, 0);
+        if (g_rn_stop) {
+            g_rn_stop = 0;
+            tny_engine_cancel(r.engine);
+        } else {
+            if (!from_disk) rn_background_notice(&r);
+            if (rn_consume_checkpoint(&r)) tny_engine_continue(r.engine);
+            else {
+                tny_engine_handoff_free(r.engine);
+                r.engine = NULL;
+                r.turn_active = false;
+                r.quit = true;
+                r.quit_code = 2;
+            }
+        }
+        rn_drain_engine(&r);
+    }
 
     /* spawn acquired the writer before binding; this child inherited it. */
-    if (r.serve || !opts->initial_prompt) {
+    if (!restart && (r.serve || !opts->initial_prompt)) {
         /* the pre-warm, as a process: connect before any turn arrives (for
          * foreground once-mode this overlaps the caller reading stdin,
          * docs/adr/0004 decision 2) */
@@ -1255,6 +1615,8 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
         if (rn_ensure_engine(&r, err, sizeof err) != 0)
             fprintf(stderr, "tny-runner: warm-up: %s (will retry at the first turn)\n", err);
     }
+    yyjson_doc_free(disk_packet);
+    if (opts->initial_prompt) rn_background_marker(&r);
     if (opts->initial_prompt)
         rn_turn_begin(&r, opts->initial_prompt, opts->initial_images, opts->continue_recovery);
 
@@ -1315,13 +1677,26 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
             rn_drain_engine(&r);
             rn_drain_errpipe(&r); /* forward what the dispatch just printed */
         }
+        if (r.turn_active && r.engine && tny_engine_parked(r.engine)) rn_restart(&r);
+        if (r.background_permissions && r.pending_perm[0] &&
+            monotonic_ms() >= r.permission_deadline) {
+            rn_broadcast_status(&r, "Background permission timed out waiting for reattachment");
+            char id[sizeof r.pending_perm];
+            snprintf(id, sizeof id, "%s", r.pending_perm);
+            r.pending_perm[0] = 0;
+            tny_engine_respond_permission(r.engine, id, TNY_PERM_DECISION_DENY);
+            rn_drain_engine(&r);
+        }
         if (r.hard_cancel_pending) {
             r.hard_cancel_pending = false;
             rn_hard_cancel(&r);
         }
         if (r.turn_ended) {
             int code = r.stop == TNY_STOP_DONE ? 0 : r.stop == TNY_STOP_INTERRUPTED ? 130 : 2;
+            bool open_list = r.background_armed && r.stop == TNY_STOP_DONE;
+            if (open_list) rn_background_marker(&r);
             rn_finalize(&r, r.stop, code);
+            if (open_list) rn_background_notice(&r);
         }
         if (r.serve && r.had_client && !r.turn_active && rn_frontend_count(&r) == 0)
             r.quit = true; /* the shell is gone and nothing is running */
@@ -1360,6 +1735,8 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
     }
     perm_free(r.perm);
     buf_free(&r.output);
+    buf_free(&r.thinking);
+    free(r.permission_summary);
     buf_free(&r.host_tools);
     buf_free(&r.ext_msgs);
     buf_free(&r.errline);
@@ -1374,6 +1751,7 @@ pid_t tny_runner_spawn(tny_ctx *ctx, tny_session_state *session, const tny_runne
         snprintf(err, errlen, "isolation needs a saved session");
         return -1;
     }
+    tny_ctx *original_ctx = ctx;
     bool acquired_here = session->lock_fd < 0;
     if (session_lock_acquire(session) != 0) {
         snprintf(err, errlen, "session is locked by another process");
@@ -1383,17 +1761,37 @@ pid_t tny_runner_spawn(tny_ctx *ctx, tny_session_state *session, const tny_runne
         session_lock_release(session);
         return -1;
     }
+    yyjson_mut_val *pending = rn_continuation(session);
+    if (pending) {
+        yyjson_doc *packet = opts->serve && !opts->initial_prompt ? rn_disk_packet(session) : NULL;
+        tny_ctx *restored =
+            packet
+                ? tny_checkpoint_recover(ctx, jget(yyjson_doc_get_root(packet), "public_context"))
+                : NULL;
+        yyjson_doc_free(packet);
+        if (!restored) {
+            snprintf(
+                err, errlen,
+                "checkpoint cannot be replayed with this configuration or after activation; use "
+                "tny resume with its original provider/configuration for an unconsumed checkpoint");
+            if (acquired_here) session_lock_release(session);
+            return -1;
+        }
+        ctx = restored;
+    }
     /* Publish a genuinely new snapshot before fork, so the parent also knows
      * that later runners must reload it, even if this child ends before a turn. */
     if (!session->persisted && session_save(session) != 0) {
         snprintf(err, errlen, "cannot write new session");
         if (acquired_here) session_lock_release(session);
+        if (ctx != original_ctx) tny_ctx_free(ctx);
         return -1;
     }
     char *sock = tny_runner_sock_path(session->dir);
     if (!sock) {
         snprintf(err, errlen, "session path too long for a unix socket");
         if (acquired_here) session_lock_release(session);
+        if (ctx != original_ctx) tny_ctx_free(ctx);
         return -1;
     }
     int lfd = unix_listen(sock);
@@ -1401,8 +1799,10 @@ pid_t tny_runner_spawn(tny_ctx *ctx, tny_session_state *session, const tny_runne
         snprintf(err, errlen, "cannot listen on %s", sock);
         free(sock);
         if (acquired_here) session_lock_release(session);
+        if (ctx != original_ctx) tny_ctx_free(ctx);
         return -1;
     }
+    fcntl(lfd, F_SETFD, FD_CLOEXEC);
     fflush(NULL); /* buffered stdio must not replay into task.log */
     pid_t pid = fork();
     if (pid < 0) {
@@ -1411,15 +1811,57 @@ pid_t tny_runner_spawn(tny_ctx *ctx, tny_session_state *session, const tny_runne
         free(sock);
         snprintf(err, errlen, "fork failed");
         if (acquired_here) session_lock_release(session);
+        if (ctx != original_ctx) tny_ctx_free(ctx);
         return -1;
     }
     if (pid > 0) {
         close(lfd);
         free(sock);
         if (acquired_here) session_lock_release(session);
+        if (ctx != original_ctx) tny_ctx_free(ctx);
         return pid;
     }
-    rn_child_main(ctx, session, opts, lfd, sock);
+    rn_child_main(ctx, session, opts, lfd, sock, NULL);
+}
+
+int tny_runner_restart_main(void) {
+    signal(SIGPIPE, SIG_IGN);
+    set_nonblock(3, true);
+    uint64_t len = 0;
+    if (rn_transfer(3, &len, sizeof len, false) != 0 || !len || len > RN_RESTART_MAX) return 2;
+    char *bytes = malloc((size_t)len + 1);
+    if (!bytes || rn_transfer(3, bytes, (size_t)len, false) != 0) {
+        free(bytes);
+        return 2;
+    }
+    bytes[len] = 0;
+    yyjson_doc *d = jparse(bytes, (size_t)len);
+    secure_free(bytes);
+    yyjson_val *r = d ? yyjson_doc_get_root(d) : NULL;
+    if (jget_int(r, "version", 0) != 1) {
+        yyjson_doc_free(d);
+        return 2;
+    }
+    tny_ctx *ctx = tny_checkpoint_context_restore(jget(r, "context"));
+    const char *sid = jget_str(r, "session_id");
+    tny_session_state *session = ctx && sid ? session_open(ctx, sid) : NULL;
+    char *lock = session ? path_join(session->dir, "lock") : NULL;
+    bool valid = lock && tny_jobs_host_fd_is_file(5, lock) &&
+                 tny_jobs_host_lock_try(5) == TNY_JOBS_LOCK_ACQUIRED;
+    free(lock);
+    if (!valid) {
+        session_close(session);
+        tny_ctx_free(ctx);
+        yyjson_doc_free(d);
+        return 2;
+    }
+    session->lock_fd = 5;
+    fcntl(5, F_SETFD, FD_CLOEXEC);
+    fcntl(4, F_SETFD, FD_CLOEXEC);
+    char *sock = tny_runner_sock_path(session->dir);
+    if (!sock || chdir(ctx->cwd) != 0) return 2;
+    tny_runner_opts opts = {.serve = true};
+    rn_child_main(ctx, session, &opts, 4, sock, r);
 }
 
 /* ---- client ---- */
@@ -1491,12 +1933,19 @@ static void rc_parse_line(tny_runner_client *c, const char *line, size_t len) {
         return;
     }
     m->doc = doc;
-    if (strcmp(ev, "hello") == 0) {
+    if (strcmp(ev, "backgrounded") == 0) {
+        m->kind = TNY_RMSG_BACKGROUNDED;
+        m->pid = (pid_t)jget_int(root, "pid", 0);
+    } else if (strcmp(ev, "hello") == 0) {
         m->kind = TNY_RMSG_HELLO;
         m->pid = (pid_t)jget_int(root, "pid", -1);
         m->provider = (char *)jget_str(root, "provider");
         m->model = (char *)jget_str(root, "model");
         m->turn_active = jget_bool(root, "turn_active", false);
+        const char *mode = jget_str(root, "permission_mode");
+        m->perm_mode = mode && strcmp(mode, "yolo") == 0   ? TNY_MODE_YOLO
+                       : mode && strcmp(mode, "auto") == 0 ? TNY_MODE_AUTO
+                                                           : TNY_MODE_ASK;
     } else if (strcmp(ev, "snapshot") == 0) {
         m->kind = TNY_RMSG_SNAPSHOT;
         m->text = (char *)jget_str(root, "text");
@@ -1663,6 +2112,15 @@ int tny_runner_client_steer(tny_runner_client *c, const char *text) {
     return rc;
 }
 
+int tny_runner_client_background(tny_runner_client *c) {
+    buf_t b;
+    buf_init(&b);
+    buf_appends(&b, "{\"op\":\"background\"}\n");
+    int rc = rc_send(c, &b);
+    buf_free(&b);
+    return rc;
+}
+
 int tny_runner_client_cancel(tny_runner_client *c, bool hard) {
     buf_t b;
     buf_init(&b);
@@ -1725,6 +2183,12 @@ void tny_runner_client_close(tny_runner_client *c) {
 }
 
 #else /* __EMSCRIPTEN__: clean-error stubs (docs/adr/0017, 0053) */
+
+int tny_runner_restart_main(void) { return 1; }
+int tny_runner_client_background(tny_runner_client *c) {
+    (void)c;
+    return -1;
+}
 
 char *tny_runner_sock_path(const char *session_dir) {
     (void)session_dir;

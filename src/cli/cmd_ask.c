@@ -462,6 +462,7 @@ static int ask_isolated_loop(ask_client *a, tny_ctx *ctx, const char *session_id
                 finishing = true;
                 finish_deadline = now_ms() + 10000;
                 break;
+            case TNY_RMSG_BACKGROUNDED:
             case TNY_RMSG_HELLO: break;
             case TNY_RMSG_ASK_USER: break; /* one-shot owners never answer */
             case TNY_RMSG_BYE:
