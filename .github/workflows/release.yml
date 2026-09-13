@@ -12,6 +12,11 @@
 #
 # Same build matrix as ci.yml (docs/ci.md, docs/adr/0005). Never add
 # Darwin Intel runners.
+#
+# A tag is only cut once ci, nix and sdk are green on its commit, so this
+# workflow builds, certifies the SDK artifacts and publishes; it does not
+# run the test suite a second time (docs/adr/0110). A hand-pushed tag on
+# an unchecked commit gets no safety net here — tag green commits.
 
 name: release
 
@@ -62,7 +67,7 @@ jobs:
     name: ${{ matrix.name }}
     needs: version
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 180
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -104,21 +109,16 @@ jobs:
           set -eu
           jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
           if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
-          if [ "$(uname -s)" = Darwin ]; then
-            export MACOSX_DEPLOYMENT_TARGET=13.0
-            export MOCK_CHUNK_WIDTH=1048576 MOCK_CONNECTION_CLOSE=1 \
-              TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
-              TNY_TEST_SUITE_TIMEOUT=900 \
-              TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
-          fi
+          if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
           # version from the pushed tag; shallow checkouts have no tags for
           # `git describe` (docs/adr/0014)
           export TNY_VERSION="${GITHUB_REF_NAME#v}"
-          make -j"$jobs" test
-          make test-libtny-fault
+          make -j"$jobs" release
           make size-check SIZE_MAX="${{ matrix.size_max }}"
           make pack TRIPLE="${{ matrix.triple }}"
           ./dist/tny-${{ matrix.triple }} --version
+          ./dist/tny-${{ matrix.triple }} --help >/dev/null
+          ./dist/tny-${{ matrix.triple }} ask --help >/dev/null
           # Ship a tar.gz with the binary named plain `tny` so mise (and
           # humans) get a clean bin after extraction; exec bit survives tar.
           mkdir -p dist/stage/lib/tny/tny_ext dist/stage/share/tny

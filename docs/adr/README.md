@@ -93,3 +93,4 @@ files in this directory are the complete record.
 | [0086](0086-standalone-sdk-toolkit.md) | Standalone Python and TypeScript toolkit methods reuse native media and optimisation services through cancellable ABI 1.2 jobs |
 | [0087](0087-stream-completion-and-continuation.md) | A stream without its terminal event is an interruption, never a finished step; after shown text the next attempt continues the answer instead of repeating it; a 300 s stall clock ends silent streams |
 | [0109](0109-provider-independent-codex-search.md) | Provider-independent search uses the Codex login regardless of conversation provider/model; DuckDuckGo only without that login; partially supersedes ADR0106 routing |
+| [0110](0110-one-suite-per-platform.md) | Each suite runs once per platform: native `linux-x86_64` and the hermetic `nix` job carry the full suite, other lanes build and package, `release.yml` does not re-test, and `main` runs are never cancelled |

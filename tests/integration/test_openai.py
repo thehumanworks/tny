@@ -298,6 +298,15 @@ def check_stream_interruption(env, ws, wire):
         ("abort", b"stream aborted mid-response"),
         ("stall", b"stream stalled (no data for 1s)"),
     ):
+        if mode == "abort" and IS_WASM:
+            # A reset socket errors fetch()'s ReadableStream, which discards
+            # the chunks it had not yet handed out: the partial never reaches
+            # tny, so the whole request is repeated (SI-2 path) and the mock's
+            # continuation expectation cannot apply. docs/verification/
+            # stream-interruption.md records the wasm row; clean and stall
+            # exercise SI-3 on this transport.
+            print("check_stream_interruption: abort mode skipped on wasm")
+            continue
         mock, port = start_mock(MOCK_EXPECT_WIRE=wire, MOCK_CUT_ANSWER_ONCE=mode)
         try:
             started = time.monotonic()

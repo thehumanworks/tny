@@ -7,6 +7,12 @@
 #   windows-x86_64                       — MSYS2 POSIX (msys-2.0.dll)
 #
 # Never add macos-*-intel / macos-*-large. Darwin Intel is not a product target.
+#
+# Each suite runs once per platform (docs/adr/0110): the linux-x86_64 lane
+# runs the whole `make test` natively, the other native lanes build,
+# unit-test and package, and the hermetic full suite for every platform is
+# the nix workflow. The auto-release gate needs ci, nix and sdk green on the
+# same commit, so a main run is never cancelled by a newer push.
 
 name: ci
 
@@ -18,7 +24,7 @@ on:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -86,9 +92,11 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    # Hosted macOS completes the full fixture suite more slowly; its previous
-    # runs exhausted 90 minutes while still passing tests. Match release CI.
-    timeout-minutes: ${{ matrix.metal && 180 || 90 }}
+    # `suite: full` is the one native lane that runs every integration
+    # fixture; the hosted macOS runner needed over two hours for the same
+    # suite, so the other lanes stop at the unit suite plus packaging and
+    # leave their full run to the sandboxed nix job (docs/adr/0110).
+    timeout-minutes: ${{ matrix.suite == 'full' && 60 || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -97,16 +105,19 @@ jobs:
             os: ubuntu-24.04
             triple: linux-x86_64
             size_max: "1048576"
+            suite: full
             metal: false
           - name: linux-aarch64
             os: ubuntu-24.04-arm
             triple: linux-aarch64
             size_max: "1048576"
+            suite: unit
             metal: false
           - name: darwin-arm64
             os: macos-15
             triple: darwin-arm64
             size_max: "1887436"
+            suite: unit
             metal: true
     steps:
       - uses: actions/checkout@v7
@@ -124,23 +135,11 @@ jobs:
             exit 1
           fi
 
-      - name: Warm python3
-        if: matrix.metal
-        run: python3 -c 'print("python3 ok")'
-
-      # tests/integration/test_image_exports.py runs the real optional
-      # ImageMagick 7 `magick` for #125 exports. Homebrew ships 7; Ubuntu
-      # 24.04 ships ImageMagick 6, which tny refuses on purpose, so the Linux
-      # coverage for this dependency comes from the Nix check job (nix/tests.nix
-      # declares it) and the converter-independent cases run everywhere. tny
-      # itself never links or requires it.
-      - name: Install optional ImageMagick 7 (image export tests)
-        if: matrix.metal
-        run: |
-          set -eu
-          brew install imagemagick
-          magick -version | head -1
-
+      # tests/integration/test_image_exports.py (part of the full suite) runs
+      # the real optional ImageMagick 7 `magick`; Ubuntu 24.04 ships 6, which
+      # tny refuses on purpose, so that dependency is covered by the nix job
+      # (nix/tests.nix declares it) and the converter-independent cases run
+      # here. tny itself never links or requires it.
       - name: Build, test, size
         run: |
           set -eu
@@ -148,14 +147,12 @@ jobs:
           # Ubuntu's cc is gcc; macOS is clang. Keep Linux on gcc so ASan
           # links libasan (clang on some images lacks the compiler-rt asan libs).
           if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
-          if [ "$(uname -s)" = Darwin ]; then
-            export MACOSX_DEPLOYMENT_TARGET=13.0
-            export MOCK_CHUNK_WIDTH=1048576 MOCK_CONNECTION_CLOSE=1 \
-              TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
-              TNY_TEST_SUITE_TIMEOUT=900 \
-              TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
+          if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
+          if [ "${{ matrix.suite }}" = full ]; then
+            make -j"$jobs" test
+          else
+            make -j"$jobs" test-unit release
           fi
-          make -j"$jobs" test
           if [ "$(uname -s)" = Darwin ]; then
             make test-shell-workflows BASH=/bin/bash ZSH=/bin/zsh
           fi
@@ -167,6 +164,15 @@ jobs:
           ./dist/tny-${{ matrix.triple }} ask --help >/dev/null
           file ./dist/tny-${{ matrix.triple }} || true
           uname -s -m
+
+      # tnytty, the monorepo's sibling terminal app (docs/adr/0045): its own
+      # Makefile, tests with ASan/UBSan, strict warnings, and a size report.
+      - name: tnytty (test, strict warnings, release size)
+        run: |
+          set -eu
+          make -C tnytty test
+          make -C tnytty warn-strict
+          make -C tnytty release size
 
       - name: Verify or seed immutable ABI1 consumer fixture
         id: abi-fixtures
@@ -428,31 +434,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # tnytty, the monorepo's sibling terminal app (docs/adr/0045): its own
-  # Makefile, tests with ASan/UBSan, strict warnings, and a size report.
-  tnytty:
-    name: tnytty (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Test (ASan/UBSan), strict warnings, release size
-        run: |
-          set -eu
-          make -C tnytty test
-          make -C tnytty warn-strict
-          make -C tnytty release size
-
   ci:
     name: ci
-    needs: [quality, build, musl, windows, wasm, tsan, fuzz, tnytty]
+    needs: [quality, build, musl, windows, wasm, tsan, fuzz]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -466,4 +450,3 @@ jobs:
           test "${{ needs.wasm.result }}" = "success"
           test "${{ needs.tsan.result }}" = "success"
           test "${{ needs.fuzz.result }}" = "success"
-          test "${{ needs.tnytty.result }}" = "success"

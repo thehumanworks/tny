@@ -8,11 +8,11 @@ workflow (`.github/workflows/ci.yml`).
 
 | Artifact | Runner | Notes |
 | --- | --- | --- |
-| `tny-linux-x86_64` | `ubuntu-24.04` | glibc, ASan unit tests + fixtures |
-| `tny-linux-aarch64` | `ubuntu-24.04-arm` | glibc, same tests |
+| `tny-linux-x86_64` | `ubuntu-24.04` | glibc, the whole `make test` natively: ASan unit tests + every integration fixture |
+| `tny-linux-aarch64` | `ubuntu-24.04-arm` | glibc, ASan unit tests, libtny fault/fuzz smoke, size, package; its full suite is the `nix` job ([ADR 0110](adr/0110-one-suite-per-platform.md)) |
 | `tny-linux-x86_64-musl` | `ubuntu-24.04` + Alpine 3.21 | **static** musl; unit tests + smoke |
 | `tny-linux-aarch64-musl` | `ubuntu-24.04-arm` + Alpine 3.21 | **static** musl; unit tests + smoke |
-| `tny-darwin-arm64` | `macos-15` | Apple Silicon only; deterministic sdk.v1 contract/unit tests run, while the spawned Python Cursor bridge fixture retains its documented Darwin-CI skip |
+| `tny-darwin-arm64` | `macos-15` | Apple Silicon only; ASan unit tests, shell workflows with the system Bash/Zsh, libtny fault/fuzz smoke, size, package; its full suite is the `nix` job, where the Python Cursor bridge fixture keeps its documented Darwin-CI skip |
 | `tny-windows-x86_64.exe` | `windows-2025` + MSYS2 `MSYS` | POSIX via `msys-2.0.dll`; unit, smoke, durable jobs |
 | `tny-wasm` (`tny.js`+`tny.wasm`, `tny-web.mjs`+`.wasm`) | `ubuntu-24.04` + emsdk 6.0.8 | the SAME openai/acp-ws/codex-profile mock suites with `TNY=build/wasm/tny`, `wasm-size-check`, and a headless-Chromium page smoke ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
 
@@ -24,6 +24,17 @@ Windows libtny shared library. `test_windows_lto_flags.py` checks both branches.
 
 The Pages workflow also builds `tny-web.mjs` with emsdk and publishes it
 under `assets/wasm/` — the landing terminal is the CI-tested artifact.
+
+Every glibc/Darwin build lane also runs the sibling `tnytty` app's tests,
+strict warnings and size report from its own Makefile (docs/adr/0045).
+
+Each suite runs once per platform ([ADR 0110](adr/0110-one-suite-per-platform.md)):
+the hosted macOS runner needed over two hours for the fixture suite that the
+sandboxed `nix` job finishes in about twenty minutes on the same runner
+class, and that one job decided when every merge could release. Runs on
+`main` are never cancelled by a newer push — the `ci`, `nix` and `sdk`
+workflows only cancel superseded pull-request runs — because a cancelled
+gate can never turn green for `auto-release`.
 
 `make quality` and `make test` verify the vendored Cursor v1.0.30 hashes and
 contract counts before accepting the adapter. Native integration fixtures
@@ -160,11 +171,6 @@ leaks are never suppressed.
 
 ## Releases (mise / `github:` backend)
 
-The native macOS CI job has a 180-minute overall budget, matching the release
-build job. Hosted runners exceeded the former 90-minute budget while the
-fixture suite was still progressing. Individual test and interruption
-deadlines are unchanged; Linux native CI retains its 90-minute job budget.
-
 Pushing a `v*` tag runs `.github/workflows/release.yml`: the same matrix,
 packaged as `tny-<os>-<arch>[-musl].tar.gz` (Windows: `.zip` with
 `msys-2.0.dll`), plus `libtny1-*` / `libtny0-compat-*`, SDK wheels, npm
@@ -193,8 +199,10 @@ other two through the Actions API, runs `scripts/next_release_version.py`,
 pushes the annotated tag as `github-actions[bot]`, and dispatches
 `release.yml` on the tag ref (a tag pushed with `GITHUB_TOKEN` never fires
 `on: push: tags`, so the dispatch is the trigger, not a fallback). The
-`release` run then builds, tests, and publishes exactly as for a hand-pushed
-tag, and the auto-release job fails loudly if that run does not start.
+`release` run then builds, packages, certifies the SDK artifacts and
+publishes; it does not repeat the test suite, which the three gates already
+ran on that commit ([ADR 0110](adr/0110-one-suite-per-platform.md)), and
+the auto-release job fails loudly if that run does not start.
 
 The version comes from the commit messages since the newest stable
 `vX.Y.Z` tag reachable from the commit (Conventional Commits prefixes,
@@ -216,7 +224,8 @@ commit, so the release tag normally sits one commit below the tip of `main`.
 
 Manual paths still work: `git tag v<version> && git push origin v<version>`
 starts `release.yml` directly (a tag on a `[skip ci]` commit will not — pick
-the merge commit), and "Run workflow" on `auto-release` cuts a release from
+the merge commit; the release does not test, so tag only commits whose gates
+are green), and "Run workflow" on `auto-release` cuts a release from
 the newest commit with green gates, optionally forcing the bump kind. If a
 tag exists without a release, dispatch it on the tag ref:
 `gh workflow run release.yml --ref v<version>`.
