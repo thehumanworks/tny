@@ -104,6 +104,13 @@ int main(int argc, char **argv) {
         if (ctx) rc = cmd_agents(ctx, &g, cargc, cargv);
         goto done;
     }
+    if (cmd && strcmp(cmd, "web") == 0) {
+        cli_globals web = g;
+        web.standalone_web = true;
+        ctx = cli_make_ctx(&web);
+        if (ctx) rc = cmd_web(ctx, &g, cargc, cargv);
+        goto done;
+    }
     ctx = cli_make_ctx(&g);
     if (!ctx) goto done;
 
@@ -112,8 +119,6 @@ int main(int argc, char **argv) {
         else rc = cmd_tui(ctx, &g);
     } else if (strcmp(cmd, "ask") == 0) {
         rc = cmd_ask(ctx, &g, cargc, cargv);
-    } else if (strcmp(cmd, "web") == 0) {
-        rc = cmd_web(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "jobs") == 0) {
         rc = cmd_jobs(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "resume") == 0) {

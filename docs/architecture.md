@@ -177,3 +177,13 @@ inputs/results and atomically persists one artifact. The initial Codex adapter
 uses ChatGPT credentials independently of the chat provider. See
 [ADR 0074](adr/0074-extensible-image-service.md) and
 [ADR 0075](adr/0075-image-cli-and-agent-tools.md).
+
+## Provider-independent web search
+
+`core/search_codex.c` performs a bounded search-only Responses request using
+independent Codex credentials/model; it has no conversation or local tool loop.
+The shared web_search tool and CLI use this service when logged into Codex and
+DuckDuckGo only without that login (explicit command/URL overrides still win).
+Builtin Codex retains its inline hosted-search optimization. Search results are
+ordinary parent tool results for checkpoint/reattach purposes. See
+[ADR 0109](adr/0109-provider-independent-codex-search.md).

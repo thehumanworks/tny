@@ -327,9 +327,50 @@ static const char *refresh_url(void) {
     return built;
 }
 
+/* The service path cannot block runner controls inside token refresh. Keep
+ * ordinary login/profile refresh behavior unchanged; only opted-in services
+ * use this bounded, polling transport. */
+static int refresh_post(const char *url, const char *body, buf_t *reply, char *err, size_t errlen,
+                        bool (*cancelled)(void *), void *ud, int64_t deadline) {
+    if (!cancelled) return tny_codex_http_post(url, "application/json", body, reply, err, errlen);
+    if (cancelled(ud) || monotonic_ms() >= deadline) return -1;
+    http_conn *conn = http_open(url, err, errlen);
+    int status = -1;
+    const char *headers[] = {"Content-Type: application/json", "Accept: application/json", NULL};
+    const char *prefix = conn ? http_prefix(conn) : NULL;
+    if (!conn ||
+        http_request(conn, "POST", prefix && *prefix ? prefix : "/", headers, body, strlen(body)))
+        goto done;
+    do {
+        if (cancelled(ud) || monotonic_ms() >= deadline) goto failed;
+        status = http_read_response(conn, 100);
+    } while (status == -2);
+    if (status <= 0) goto failed;
+    for (;;) {
+        if (cancelled(ud) || monotonic_ms() >= deadline) goto failed;
+        char chunk[8192];
+        ssize_t got = http_body_read(conn, chunk, sizeof chunk);
+        if (!got) break;
+        if (got == -2) {
+            struct pollfd pf = {http_fd(conn), POLLIN, 0};
+            tny_poll(&pf, 1, 100);
+            continue;
+        }
+        if (got < 0 || (size_t)got > 1024u * 1024u - reply->len) goto failed;
+        buf_append(reply, chunk, (size_t)got);
+        if (reply->oom) goto failed;
+    }
+    goto done;
+failed:
+    status = -1;
+done:
+    http_close(conn);
+    return status;
+}
+
 /* Refresh one Codex-shaped file in place. Returns true when the file held
  * a usable credential at all (stale or not), so the caller stops there. */
-static bool refresh_file(char *path) {
+static bool refresh_file(char *path, bool (*cancelled)(void *), void *ud, int64_t deadline) {
     if (!path) return false;
     yyjson_mut_doc *m = yyjson_mut_doc_new(NULL);
     yyjson_doc *old = m ? jparse_file(path) : NULL;
@@ -364,7 +405,7 @@ static bool refresh_file(char *path) {
     buf_appends(&body, "}");
     char err[256] = "";
     int status =
-        tny_codex_http_post(refresh_url(), "application/json", body.data, &reply, err, sizeof err);
+        refresh_post(refresh_url(), body.data, &reply, err, sizeof err, cancelled, ud, deadline);
     secure_zero(body.data, body.len);
     buf_free(&body);
 
@@ -374,7 +415,8 @@ static bool refresh_file(char *path) {
             write_secret_file(path, m);
         yyjson_doc_free(tok);
     } else if (tny_debug()) {
-        fprintf(stderr, "tny: codex token refresh failed (HTTP %d): %s\n", status, err);
+        if (cancelled) fprintf(stderr, "tny: codex token refresh failed (HTTP %d)\n", status);
+        else fprintf(stderr, "tny: codex token refresh failed (HTTP %d): %s\n", status, err);
     }
     if (reply.data) secure_zero(reply.data, reply.len);
     buf_free(&reply);
@@ -388,8 +430,15 @@ static bool refresh_file(char *path) {
  * carry no refresh token and are never refreshed. */
 void tny_codex_refresh_if_stale(void) {
     if (env_token()) return;
-    if (refresh_file(tny_codex_store_path())) return;
-    refresh_file(tny_codex_auth_path());
+    if (refresh_file(tny_codex_store_path(), NULL, NULL, 0)) return;
+    refresh_file(tny_codex_auth_path(), NULL, NULL, 0);
+}
+
+void tny_codex_refresh_if_stale_control(bool (*cancelled)(void *), void *ud, int64_t deadline) {
+    if (env_token()) return;
+    if (refresh_file(tny_codex_store_path(), cancelled, ud, deadline)) return;
+    if (cancelled && cancelled(ud)) return;
+    refresh_file(tny_codex_auth_path(), cancelled, ud, deadline);
 }
 
 /* ---------- logout ---------- */

@@ -33,6 +33,7 @@ typedef struct {
     const char *ssh_cwd;   /* --ssh-cwd DIR (remote) */
     bool ephemeral;        /* --ephemeral | --no-save */
     bool agents_dashboard; /* tny agents entry; no prewarm */
+    bool standalone_web;   /* web service entry; no conversation-provider resolution */
     bool resume_picker;    /* -r */
     bool resume_last;      /* -c / --continue */
     const char *resume;    /* --resume value */

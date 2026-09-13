@@ -533,8 +533,9 @@ bool help_for(const char *command) {
                "starting a provider. Up/Down select, Enter reattaches. q exits without stopping "
                "work. Non-TTY prints a list.\n\nExamples:\n  tny agents\n  tny agents --json\n";
     else if (strcmp(command, "web") == 0)
-        text = "Usage: tny web search|fetch TEXT [--json]\n\nSearch with configured overrides or "
-               "DuckDuckGo; fetch a URL.\nExamples:\n  tny web search 'C11 atomics'\n  tny web "
+        text = "Usage: tny web search|fetch TEXT [--json]\n\nSearch uses explicit overrides, else "
+               "the Codex login for any provider/model; without that login, DuckDuckGo. "
+               "Fetch reads a URL.\nExamples:\n  tny web search 'C11 atomics'\n  tny web "
                "fetch https://example.com --json\n";
     else if (strcmp(command, "sessions") == 0) text = sessions_help;
     else if (strcmp(command, "session") == 0) text = session_help;

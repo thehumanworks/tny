@@ -56,6 +56,8 @@ let
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
     # runner_restart_fault.c uses the existing stdenv C compiler for a private
     # read/write interposer; no network, new package or external test data.
+    # test_search_service.py adds stdlib-only HTTP/PTY service fixtures for
+    # Codex auth, independent callers, cancellation/refresh and backgrounding.
     # test_background_agents.py and test_native_search.py are self-contained
     # stdlib PTY/loopback fixtures (and import test_tui.py), all included above.
     # test_worktree.py generates temporary Git repositories and imports the

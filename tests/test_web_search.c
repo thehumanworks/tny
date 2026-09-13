@@ -1,8 +1,4 @@
-/* test_web_search.c — web_search gating and providers (docs/adr/0055).
- *
- * The tool is advertised only when settings name a provider; both the URL
- * and the command template accept {query} and {{query}}; the command
- * provider runs through the terminal tool's local execution path. */
+/* Search routing, logged-out fallback, templates and bounded result parsing. */
 #include "greatest.h"
 #include "core/tools.h"
 #include "core/config.h"
@@ -191,7 +187,84 @@ TEST command_provider_beats_url_provider(void) {
     PASS();
 }
 
+static void restore_env(const char *name, char *old) {
+    if (old) setenv(name, old, 1);
+    else unsetenv(name);
+    free(old);
+}
+
+TEST codex_search_uses_subscription_login_not_active_provider_key(void) {
+    tny_ctx *ctx = ctx_with_settings("{}");
+    ASSERT(ctx);
+    const char *value = getenv("CHATGPT_ACCESS_TOKEN");
+    char *token = value ? xstrdup(value) : NULL;
+    value = getenv("CHATGPT_ACCOUNT_ID");
+    char *account = value ? xstrdup(value) : NULL;
+    value = getenv("CODEX_HOME");
+    char *codex_home = value ? xstrdup(value) : NULL;
+    unsetenv("CHATGPT_ACCESS_TOKEN");
+    unsetenv("CHATGPT_ACCOUNT_ID");
+    setenv("CODEX_HOME", g_home, 1);
+    tools_env env = {.ctx = ctx};
+    bool handled = true;
+    char *result = tool_web_search_codex(&env, "fixture", &handled);
+    ASSERT_FALSE(handled);
+    ASSERT_FALSE(result);
+    char path[600];
+    snprintf(path, sizeof path, "%s/auth.json", g_home);
+    const char *apikey = "{\"auth_mode\":\"apikey\",\"OPENAI_API_KEY\":\"fixture-api-only\"}";
+    ASSERT_EQ(0, file_write_atomic(path, apikey, strlen(apikey)));
+    result = tool_web_search_codex(&env, "fixture", &handled);
+    ASSERT_FALSE(handled);
+    ASSERT_FALSE(result);
+    ASSERT_EQ(0, file_write_atomic(path, "bad-json", 8));
+    result = tool_web_search_codex(&env, "fixture", &handled);
+    ASSERT(handled);
+    ASSERT(result && strstr(result, "login is unreadable"));
+    free(result);
+    setenv("CHATGPT_ACCESS_TOKEN", "fixture-token-no-account", 1);
+    result = tool_web_search_codex(&env, "fixture", &handled);
+    ASSERT(handled);
+    ASSERT(result && strstr(result, "invalid Codex login"));
+    free(result);
+    setenv("CHATGPT_ACCOUNT_ID", "fixture-account", 1);
+    setenv("CHATGPT_ACCESS_TOKEN", "fixture\r\nInjection: bad", 1);
+    result = tool_web_search_codex(&env, "fixture", &handled);
+    ASSERT(handled);
+    ASSERT(result && strstr(result, "invalid Codex login"));
+    free(result);
+    ASSERT_EQ(0, unlink(path));
+    restore_env("CHATGPT_ACCESS_TOKEN", token);
+    restore_env("CHATGPT_ACCOUNT_ID", account);
+    restore_env("CODEX_HOME", codex_home);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+static bool search_already_cancelled(void *ud) {
+    (void)ud;
+    return true;
+}
+
+TEST codex_search_cancelled_before_auth_is_not_fallback(void) {
+    tny_ctx *ctx = ctx_with_settings("{}");
+    tools_env env = {.ctx = ctx, .cancelled = search_already_cancelled};
+    bool handled = false;
+    char *result = tool_web_search_codex(&env, "fixture", &handled);
+    ASSERT(handled);
+    ASSERT(result && strstr(result, "interrupted"));
+    free(result);
+    result = tool_web_search_codex(&env, "", &handled);
+    ASSERT(handled);
+    ASSERT(result && str_starts(result, "error:"));
+    free(result);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 SUITE(web_search_suite) {
+    RUN_TEST(codex_search_uses_subscription_login_not_active_provider_key);
+    RUN_TEST(codex_search_cancelled_before_auth_is_not_fallback);
     RUN_TEST(schema_includes_default_search);
     RUN_TEST(schema_includes_web_search_with_url_provider);
     RUN_TEST(schema_includes_web_search_with_command_provider);

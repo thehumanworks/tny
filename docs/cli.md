@@ -38,7 +38,7 @@ tny jobs list               # durable jobs in this workspace's state directory
 tny resume [last|<id>]      # interactive resume
 tny acp                     # ACP server (native loop only)
 tny agents                  # background dashboard; --json for scripts
-tny web search QUERY        # explicit override or DuckDuckGo fallback
+tny web search QUERY        # override, else Codex login, else DuckDuckGo
 tny web fetch URL           # bounded HTTP fetch
 tny sessions
 tny session last|<id>
@@ -903,14 +903,21 @@ recovery and hosted-tool boundary details.
 
 ## `tny web search|fetch`
 
-`tny web search "C11 atomics"` uses the configured command or URL search provider,
-else bounded DuckDuckGo HTML search. `tny web fetch https://example.com` fetches
+`tny web search "C11 atomics"` uses an explicit command or URL search override,
+else the Codex/ChatGPT login, else DuckDuckGo when no such login exists. This
+selection does not depend on the conversation provider or model. The search-only
+Codex model defaults to `gpt-5.6-sol`; `web_search_model` overrides it independently.
+`web_search_timeout_seconds` sets its 1–300 second deadline (default 120), including
+pumped token refresh. An invalid login or failed Codex request is an error, not a
+silent fallback. API-key-only Codex auth is not a ChatGPT subscription login. `tny web fetch https://example.com` fetches
 one URL. `--json` returns kind, ok and result; errors exit 2. Query templates are
 percent encoded. Search challenges and incomplete responses are reported rather
 than presented as search results. These verbs also execute in process when
 called through the native terminal tool, preserving its permission identity.
-Builtin Codex hosted search remains a provider tool; the explicit CLI verb
-identifies its local override/fallback path. See [search providers](features/mcp-and-skills.md#web-search-providers).
+Builtin Codex retains inline hosted search; the explicit CLI always uses the
+independent search service and labels Codex or DuckDuckGo provenance. `web` applies
+local settings/permissions and ChatGPT flags without selecting or refreshing an
+unrelated chat provider. See [ADR 0109](adr/0109-provider-independent-codex-search.md). See [search providers](features/mcp-and-skills.md#web-search-providers).
 
 ## Background one-shots (`tny ask -B`)
 

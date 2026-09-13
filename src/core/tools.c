@@ -151,7 +151,7 @@ static const char *SCHEMA_JSON =
     "text.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},"
     "\"required\":[\"url\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"web_search\",\"description\":\"Search the web "
-    "(DuckDuckGo fallback, or the configured search "
+    "(Codex login across all providers, else DuckDuckGo; or the configured search "
     "provider).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":"
     "\"string\"}},\"required\":[\"query\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"memory\",\"description\":\"Persist or recall "

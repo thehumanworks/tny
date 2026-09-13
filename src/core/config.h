@@ -230,6 +230,8 @@ const char *tny_codex_cred_source_name(tny_codex_cred_source s);
  * be read — tny's first, else the Codex CLI's — when its access token is
  * expired/near expiry or last_refresh is stale; rewritten in place. */
 void tny_codex_refresh_if_stale(void);
+/* Standalone service refresh: pump-aware cancellation and monotonic deadline. */
+void tny_codex_refresh_if_stale_control(bool (*cancelled)(void *), void *ud, int64_t deadline);
 /* Write a fresh OAuth token response into ~/.tny/codex-auth.json (0600). */
 int tny_codex_store_save(yyjson_val *token_response);
 /* POST a body and slurp the JSON reply: HTTP status, or -1 with err. */

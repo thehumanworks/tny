@@ -928,21 +928,24 @@ static void build_system_prompt(oa_impl *o, buf_t *sys) {
                              "| tny edit FILE` (or a quoted heredoc with the same three lines); "
                              "no --old/--new flags, one FILE; exit 2 means zero or many matches, "
                              "widen OLD and retry; never use `sed -i`. ");
-        buf_appends(
-            sys,
-            "Search the web with `tny web search \"QUERY\"`; it uses explicit search settings or "
-            "DuckDuckGo (a challenge or network error is not a search result). "
-            "Fetch pages with `tny web fetch URL`. "
-            "Read the `exit:` line before claiming success. Call MCP tools with `tny "
-            "mcp call SERVER/TOOL` and JSON on stdin; the MCP catalog above names the "
-            "tools. Before the first call to a tool run `tny mcp describe SERVER/TOOL` "
-            "and shape the JSON from its input schema (`tny mcp tools SERVER` lists a "
-            "server's tools with their arguments); never guess argument names. Attach "
-            "images with `tny image attach PATH` and ask questions with "
-            "`tny ask-user \"...\"`; if either prints `no session socket`, skip it or "
-            "state the assumption. Use subagents only with `tny ask -B --json ...` then "
-            "`tny session ID --wait --json`; never run a foreground `tny ask` inside a "
-            "turn.\n");
+        buf_appends(sys,
+                    "Search the web with `tny web search \"QUERY\"`; explicit search settings take "
+                    "priority, "
+                    "otherwise it uses the Codex login independently of this conversation's "
+                    "provider/model. "
+                    "Only without that login does it fall back to DuckDuckGo; errors are not "
+                    "search results. "
+                    "Fetch pages with `tny web fetch URL`. "
+                    "Read the `exit:` line before claiming success. Call MCP tools with `tny "
+                    "mcp call SERVER/TOOL` and JSON on stdin; the MCP catalog above names the "
+                    "tools. Before the first call to a tool run `tny mcp describe SERVER/TOOL` "
+                    "and shape the JSON from its input schema (`tny mcp tools SERVER` lists a "
+                    "server's tools with their arguments); never guess argument names. Attach "
+                    "images with `tny image attach PATH` and ask questions with "
+                    "`tny ask-user \"...\"`; if either prints `no session socket`, skip it or "
+                    "state the assumption. Use subagents only with `tny ask -B --json ...` then "
+                    "`tny session ID --wait --json`; never run a foreground `tny ask` inside a "
+                    "turn.\n");
     }
 }
 

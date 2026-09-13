@@ -2,8 +2,19 @@
 #include "cli/cli.h"
 #include "core/tools.h"
 #include <stdio.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+
+static volatile sig_atomic_t interrupted;
+static void web_signal(int sig) {
+    (void)sig;
+    interrupted = 1;
+}
+static bool web_cancelled(void *ud) {
+    (void)ud;
+    return interrupted != 0;
+}
 
 int cmd_web(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = g->json;
@@ -29,10 +40,18 @@ int cmd_web(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     jescape(&args, argv[1]);
     buf_appends(&args, "}");
     yyjson_doc *d = jparse(args.data, args.len);
-    tools_env env = {.ctx = ctx, .perm = perm};
+    interrupted = 0;
+    struct sigaction sa = {0}, oldint = {0}, oldterm = {0};
+    sa.sa_handler = web_signal;
+    sigemptyset(&sa.sa_mask);
+    bool have_int = sigaction(SIGINT, &sa, &oldint) == 0;
+    bool have_term = sigaction(SIGTERM, &sa, &oldterm) == 0;
+    tools_env env = {.ctx = ctx, .perm = perm, .cancelled = web_cancelled};
     bool handled = false;
     char *result = d ? tool_web_execute(&env, name, yyjson_doc_get_root(d), &handled) : NULL;
-    int code = !result || str_starts(result, "error:") ? 2 : 0;
+    int code = interrupted ? 130 : !result || str_starts(result, "error:") ? 2 : 0;
+    if (have_int) sigaction(SIGINT, &oldint, NULL);
+    if (have_term) sigaction(SIGTERM, &oldterm, NULL);
     if (json) {
         buf_t out;
         buf_init(&out);

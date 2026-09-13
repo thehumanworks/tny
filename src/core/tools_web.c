@@ -1,4 +1,4 @@
-/* tools_web.c — explicit search overrides and bounded DuckDuckGo fallback. */
+/* tools_web.c — overrides, shared Codex search and logged-out DuckDuckGo fallback. */
 #include "core/tools.h"
 #include "util/tny_poll.h"
 #include "net/net.h"
@@ -345,7 +345,12 @@ char *tool_web_execute(tools_env *env, const char *name, yyjson_val *args, bool 
         if (!*q || strlen(q) > 4096) return tool_err("query must contain 1 to 4096 bytes");
         if (cmd_tmpl) return run_search_command(env, cmd_tmpl, q);
         bool fallback = !url_tmpl;
-        if (fallback) url_tmpl = "https://html.duckduckgo.com/html/?q={query}";
+        if (fallback) {
+            bool codex_handled = false;
+            char *codex = tool_web_search_codex(env, q, &codex_handled);
+            if (codex_handled) return codex;
+            url_tmpl = "https://html.duckduckgo.com/html/?q={query}";
+        }
         char *url = tool_web_search_expand(url_tmpl, q);
         char *res = fetch_url(env, url, 3, fallback);
         free(url);

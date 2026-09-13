@@ -130,9 +130,15 @@ search; tny displays its progress and clickable source links, saves hosted
 search and annotated message items, and echoes them on later requests. Hosted
 items never run again as local function tools. Explicit `web_search_command`
 or `web_search_url` settings retain priority and disable this hosted declaration;
-API-key mode and user profiles named codex use local search with DuckDuckGo
-fallback. `tny web search QUERY` explicitly runs that local search path.
-See [ADR 0106](../adr/0106-native-web-search-and-duckduckgo.md).
+all other profiles use the shared search service. **The Codex login also powers
+search for Grok, Claude, OpenAI-compatible and other conversation providers.**
+`tny web search QUERY` uses that same independent service even with Codex selected.
+It defaults to a separate `gpt-5.6-sol` search model (`web_search_model` overrides),
+without changing the conversation model. Only absence of a Codex/ChatGPT login
+selects DuckDuckGo; failed or invalid logged-in requests are errors, not fallback.
+Explicit command/URL settings remain authoritative. API-key-only Codex auth is
+not a subscription login. See [ADR 0106](../adr/0106-native-web-search-and-duckduckgo.md)
+and its routing amendment [ADR 0109](../adr/0109-provider-independent-codex-search.md).
 
 ## Model catalog (`tny models`, `/models`)
 

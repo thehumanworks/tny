@@ -79,6 +79,8 @@ stdenv.mkDerivation {
     # project files; it requires no OpenRouter login or live model access.
     # runner_restart_fault.c uses the existing stdenv C compiler for a private
     # read/write interposer; no network, new package or external test data.
+    # test_search_service.py adds stdlib-only HTTP/PTY service fixtures for
+    # Codex auth, independent callers, cancellation/refresh and backgrounding.
     # test_background_agents.py uses stdlib PTYs, fcntl writer probes, owned
     # processes, and local HTTP; test_native_search.py uses split SSE fixtures.
     # Their shell markers use existing coreutils; neither uses external search.

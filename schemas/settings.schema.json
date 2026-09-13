@@ -102,6 +102,20 @@
       "type": "string",
       "description": "URL template that provides web_search. Every {query} or {{query}} placeholder receives the percent-encoded query; fetched over HTTP(S) like web_fetch."
     },
+    "web_search_model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "default": "gpt-5.6-sol",
+      "description": "Supported Codex model for provider-independent search-only requests. Does not change the conversation model or builtin Codex inline hosted search."
+    },
+    "web_search_timeout_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 300,
+      "default": 120,
+      "description": "Total Codex search-service deadline including token refresh and streamed response, in seconds."
+    },
     "mcp": {
       "type": "object",
       "description": "MCP client options. Import from other harnesses is off by default.",
@@ -118,7 +132,7 @@
     }
   },
   "patternProperties": {
-    "^(?!\\$schema$|provider$|model$|models$|optimise$|effort$|fast$|image_input$|permission_mode$|tools$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_command$|web_search_url$|mcp$)[A-Za-z0-9_-]+$": {
+    "^(?!\\$schema$|provider$|model$|models$|optimise$|effort$|fast$|image_input$|permission_mode$|tools$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_command$|web_search_url$|web_search_model$|web_search_timeout_seconds$|mcp$)[A-Za-z0-9_-]+$": {
       "$ref": "#/$defs/openAIProfile",
       "description": "Named OpenAI-compatible provider profile."
     }

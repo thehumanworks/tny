@@ -330,6 +330,10 @@ jobs:
           tests/integration/test_acp_ws.sh "$PWD/build/wasm/tny"
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_codex_chatgpt.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_prompt_cache.py
+          # Shared search HTTP/auth/parser paths run on wasm too; only native
+          # signal, subprocess override and runner/PTY semantics are excluded.
+          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
+            python3 tests/integration/test_search_service.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_speech.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_dictation.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_optimise.py
