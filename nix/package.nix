@@ -52,6 +52,14 @@ stdenv.mkDerivation (finalAttrs: {
   enableParallelBuilding = true;
   dontConfigure = true;
 
+  # nixpkgs' default hardening set adds -fzero-call-used-regs=used-gpr, which
+  # the Ubuntu-built release binaries never carry; on aarch64 its ~15 KiB of
+  # register clearing pushed the read-only segment past a 64 KiB boundary and
+  # the RELRO alignment then added a whole page to the file (ADR 0111). The
+  # rest of the set (PIE, RELRO, bindnow, stack protector, stack clash,
+  # fortify, format) stays.
+  hardeningDisable = [ "zerocallusedregs" ];
+
   makeFlags = [
     "PREFIX=$(out)"
     "CC=${stdenv.cc.targetPrefix}cc"

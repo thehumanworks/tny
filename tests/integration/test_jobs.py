@@ -33,6 +33,8 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+MSYS = os.name == "posix" and os.uname().sysname.startswith(("MSYS", "CYGWIN"))
+
 ROOT = Path(__file__).resolve().parents[2]
 TNY = str(Path(os.environ.get("TNY", ROOT / "build/tny")).resolve())
 WASM = bool(os.environ.get("TNY_TEST_EXPECT_WASM")) or "wasm" in TNY
@@ -602,8 +604,9 @@ class JobsSubmitAndStatus(JobsFixture):
         self.assertIn(payload["state"], ("queued", "running"))
         metadata = Path(payload["metadata_path"])
         self.assertTrue(metadata.is_file(), payload)
-        self.assertEqual(oct(metadata.stat().st_mode & 0o777), "0o600")
-        self.assertEqual(oct(metadata.parent.stat().st_mode & 0o777), "0o700")
+        if not MSYS:  # NTFS ACLs do not map to POSIX mode bits
+            self.assertEqual(oct(metadata.stat().st_mode & 0o777), "0o600")
+            self.assertEqual(oct(metadata.parent.stat().st_mode & 0o777), "0o700")
         log = Path(payload["items"][0]["log_path"])
         self.assertEqual(log.parent, metadata.parent)
         record = self.await_terminal(payload["id"])

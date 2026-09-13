@@ -642,6 +642,26 @@ static char *under_root(const char *name) {
     return path;
 }
 
+/* MSYS2 copies the target instead of creating a symlink unless winsymlinks is
+ * set, and NTFS ACLs never map to POSIX mode bits. Probe the host once (a
+ * dangling link only succeeds with real symlink semantics) rather than assert
+ * a capability it does not have; the alias and mode rows are Unix rows. */
+static bool symlinks_supported(void) {
+    static int cached = -1;
+    if (cached >= 0) return cached != 0;
+    char *probe = under_root("symlink-probe");
+    unlink(probe);
+    cached = symlink("absent-target", probe) == 0;
+    unlink(probe);
+    free(probe);
+    return cached != 0;
+}
+#if defined(__CYGWIN__) || defined(__MSYS__)
+#define MODE_BITS_SUPPORTED 0 /* NTFS ACLs do not map to mode bits */
+#else
+#define MODE_BITS_SUPPORTED 1
+#endif
+
 /* ---- explicit local exports and contact sheets (#125) ---- */
 
 /* A complete 2x2 PNG, so an export's own bounds and hashes have real bytes to
@@ -1174,16 +1194,19 @@ TEST image_export_commit_never_follows_its_target(void) {
     buf_free(&contents);
     /* A symlink target is refused rather than written through, so the file it
      * points at keeps its bytes. */
-    char *link = under_root("commit-link.png");
-    unlink(link);
-    ASSERT_EQ(0, symlink(other, link));
-    ASSERT(!tny_image_io_commit_open(link, true, err, sizeof err));
-    ASSERT(strstr(err, "symlink"));
-    buf_init(&contents);
-    ASSERT_EQ(0, tny_image_io_read_bounded(other, 64, &contents));
-    ASSERT_EQ(8u, contents.len);
-    ASSERT_EQ(0, memcmp(contents.data, "original", 8));
-    buf_free(&contents);
+    char *link = NULL;
+    if (symlinks_supported()) {
+        link = under_root("commit-link.png");
+        unlink(link);
+        ASSERT_EQ(0, symlink(other, link));
+        ASSERT(!tny_image_io_commit_open(link, true, err, sizeof err));
+        ASSERT(strstr(err, "symlink"));
+        buf_init(&contents);
+        ASSERT_EQ(0, tny_image_io_read_bounded(other, 64, &contents));
+        ASSERT_EQ(8u, contents.len);
+        ASSERT_EQ(0, memcmp(contents.data, "original", 8));
+        buf_free(&contents);
+    }
     /* An abandoned stage leaves no debris and no partial artifact. */
     unlink(target);
     commit = tny_image_io_commit_open(target, false, err, sizeof err);
@@ -1205,7 +1228,7 @@ TEST image_export_commit_never_follows_its_target(void) {
     ASSERT_EQ(-1, tny_image_io_read_input(other, 4, &contents, &id, err, sizeof err));
     ASSERT(!id.present);
     buf_free(&contents);
-    unlink(link);
+    if (link) unlink(link);
     unlink(other);
     free(link);
     free(other);
@@ -1261,7 +1284,7 @@ TEST image_manifest_round_trip_and_strict_parsing(void) {
     ASSERT_EQ(0, tny_image_io_write_new(path, out.data, out.len));
     struct stat st;
     ASSERT_EQ(0, stat(path, &st));
-    ASSERT_EQ(0600, (int)(st.st_mode & 0777));
+    if (MODE_BITS_SUPPORTED) ASSERT_EQ(0600, (int)(st.st_mode & 0777));
     /* Writing the same record twice can never overwrite the first. */
     ASSERT_EQ(-1, tny_image_io_write_new(path, out.data, out.len));
     char err[256];
@@ -1401,12 +1424,17 @@ TEST image_destinations_reject_aliases(void) {
     char *hard = under_root("hard.png");
     char *missing = under_root("absent-dir/x.png");
     ASSERT_EQ(0, file_write_atomic(real, bytes, sizeof bytes - 1));
-    ASSERT_EQ(0, symlink(real, soft));
-    ASSERT_EQ(0, link(real, hard));
     /* A symlink, a multiply linked name, a directory and a missing parent are
-     * all refused before anything can be written through them. */
-    const char *refused[] = {soft, hard, root, missing, ".", ""};
-    for (size_t i = 0; i < sizeof refused / sizeof refused[0]; i++) {
+     * all refused before anything can be written through them. The two alias
+     * rows need real symlink and inode semantics (Unix only). */
+    bool aliases = symlinks_supported();
+    if (aliases) {
+        ASSERT_EQ(0, symlink(real, soft));
+        ASSERT_EQ(0, link(real, hard));
+    }
+    const char *refused[] = {root, missing, ".", "", soft, hard};
+    size_t n_refused = sizeof refused / sizeof refused[0] - (aliases ? 0 : 2);
+    for (size_t i = 0; i < n_refused; i++) {
         err[0] = 0;
         char *resolved = tny_image_io_canonical(refused[i], err, sizeof err);
         if (resolved) {
@@ -1415,8 +1443,10 @@ TEST image_destinations_reject_aliases(void) {
         }
         ASSERT(*err);
     }
-    ASSERT(tny_image_io_same_file(real, hard));
-    ASSERT(tny_image_io_same_file(real, soft));
+    if (aliases) {
+        ASSERT(tny_image_io_same_file(real, hard));
+        ASSERT(tny_image_io_same_file(real, soft));
+    }
     ASSERT(!tny_image_io_same_file(real, fresh));
     unlink(hard);
     unlink(soft);
@@ -1928,7 +1958,7 @@ TEST image_private_writes_are_atomic_and_bounded(void) {
     ASSERT_EQ(0, tny_image_io_replace(path, "replaced", 8));
     struct stat st;
     ASSERT_EQ(0, stat(path, &st));
-    ASSERT_EQ(0600, (int)(st.st_mode & 0777));
+    if (MODE_BITS_SUPPORTED) ASSERT_EQ(0600, (int)(st.st_mode & 0777));
     buf_t out;
     buf_init(&out);
     ASSERT_EQ(0, tny_image_io_read_bounded(path, 64, &out));
@@ -1965,10 +1995,12 @@ TEST image_publication_never_replaces_a_competing_entry(void) {
     ASSERT_EQ(0, tny_image_io_read_bounded(output, 32, &bytes));
     ASSERT_STR_EQ("winner", bytes.data);
     ASSERT_EQ(0, unlink(output));
-    ASSERT_EQ(0, symlink("absent", output));
-    ASSERT_EQ(-1, tny_image_io_no_replace_preflight(output, err, sizeof err));
-    ASSERT_EQ(-1, tny_image_io_publish(stage, output, true));
-    ASSERT_EQ(0, unlink(output));
+    if (symlinks_supported()) {
+        ASSERT_EQ(0, symlink("absent", output));
+        ASSERT_EQ(-1, tny_image_io_no_replace_preflight(output, err, sizeof err));
+        ASSERT_EQ(-1, tny_image_io_publish(stage, output, true));
+        ASSERT_EQ(0, unlink(output));
+    }
     ASSERT_EQ(0, tny_image_io_publish(stage, output, true));
     ASSERT_EQ(-1, access(stage, F_OK));
     ASSERT_EQ(0, tny_image_io_write_new(stage, "replacement", 11));

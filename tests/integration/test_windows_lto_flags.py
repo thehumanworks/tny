@@ -46,11 +46,14 @@ class WindowsLtoFlags(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="tny-compiler-policy-") as tmp:
             compiler = Path(tmp) / "compiler.py"
             compiler.write_text("import sys\nprint(sys.argv[1])\n")
-            for platform, vendor, expected in (
-                ("Linux", "clang", "-Oz"),
-                ("Linux", "gcc", ""),
-                ("Darwin", "clang", ""),
-                ("MSYS_NT-10.0", "clang", ""),
+            # Linux native executables omit the frame pointer (ADR 0111);
+            # Linux Clang adds -Oz after it (ADR 0102); other hosts get neither.
+            omit = "-fomit-frame-pointer -momit-leaf-frame-pointer"
+            for platform, vendor, expected, level in (
+                ("Linux", "clang", f"{omit} -Oz", "-Oz"),
+                ("Linux", "gcc", omit, "-Os"),
+                ("Darwin", "clang", "", "-Os"),
+                ("MSYS_NT-10.0", "clang", "", "-Os"),
             ):
                 with self.subTest(platform=platform, vendor=vendor):
                     cc = shlex.join([sys.executable, str(compiler), vendor])
@@ -79,6 +82,7 @@ class WindowsLtoFlags(unittest.TestCase):
                     self.assertEqual(flags[0], expected)
                     for other in flags[1:4]:
                         self.assertNotIn("-Oz", other.split())
+                        self.assertNotIn("-fomit-frame-pointer", other.split())
                     commands = subprocess.run(
                         ["make", "-n", "-B", "release", "dictation-fixture", *args],
                         cwd=ROOT,
@@ -93,7 +97,10 @@ class WindowsLtoFlags(unittest.TestCase):
                         self.assertEqual(len(matches), 1, target)
                         options = shlex.split(matches[0])
                         optimization = [opt for opt in options if opt.startswith("-O")]
-                        self.assertEqual(optimization[-1], expected or "-Os")
+                        self.assertEqual(optimization[-1], level)
+                        self.assertEqual(
+                            "-fomit-frame-pointer" in options, platform == "Linux"
+                        )
 
     def flags(self, windows):
         result = subprocess.run(

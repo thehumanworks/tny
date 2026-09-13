@@ -14,6 +14,10 @@ INC      = -Iinclude -Isrc -Ithird_party -Ithird_party/yyjson -Ithird_party/pico
 DEFS     = -DHAVE_ARPA_INET_H -DHAVE_NETINET_IN_H -D_DARWIN_C_SOURCE \
            -D_DEFAULT_SOURCE -D_BSD_SOURCE \
            -DTNY_SHELL_PATH=\"$(TNY_SHELL_PATH)\"
+# tny never sets a YYJSON_READ_ALLOW_*/WRITE_ALLOW_* flag, so the vendored
+# reader's and writer's non-standard JSON paths (comments, NaN/Inf, trailing
+# commas, invalid unicode) are dead code; the knob is documented upstream.
+DEFS    += -DYYJSON_DISABLE_NON_STANDARD
 TNY_SHELL_PATH ?= /bin/sh
 
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
@@ -78,12 +82,18 @@ REL_LTO = -flto
 # Let -Os/LTO choose JSON helper inlining for native releases (ADR0100).
 # Kept out of REL_CFLAGS, which also feeds PIC/library and analysis builds.
 REL_INLINE = -Dyyjson_inline=inline
-# Linux Clang needs -Oz for the native executable budget (ADR0102).
+# Linux native executables omit the frame pointer (ADR0111): GCC keeps it
+# on aarch64 at every -O level, which costs ~9 KiB of prologues and, with
+# the 64 KiB LOAD alignment plus RELRO, can add a whole page to the file.
+# Unwind tables stay (backtraces come from .eh_frame, not x29). Darwin
+# arm64 requires frame pointers by ABI and is left alone.
+# Linux Clang also needs -Oz for the native executable budget (ADR0102).
 # Probe the selected command, including wrappers; leave other build lanes alone.
 REL_SIZE_OPT =
 ifeq ($(UNAME_S),Linux)
+  REL_SIZE_OPT = -fomit-frame-pointer -momit-leaf-frame-pointer
   ifneq ($(findstring clang,$(shell $(CC) --version 2>/dev/null)),)
-    REL_SIZE_OPT = -Oz
+    REL_SIZE_OPT += -Oz
   endif
 endif
 DBG_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -O0 -g

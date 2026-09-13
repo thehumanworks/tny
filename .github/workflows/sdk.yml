@@ -8,7 +8,8 @@ on:
 
 concurrency:
   group: sdk-${{ github.ref }}
-  cancel-in-progress: true
+  # a main run is an auto-release gate: never cancel it (docs/adr/0110)
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

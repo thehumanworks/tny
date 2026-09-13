@@ -321,7 +321,12 @@ def run_case(
                 term.send("STEER-KEEP\r")
                 term.expect("steer")
             if restart_failure:
-                os.rename(binary, binary + ".hidden")
+                # Make the re-exec fail on every platform: the runner spawns
+                # its own executable path, and on Linux /proc/self/exe follows
+                # a rename, so hiding the file would still restart there.
+                # A copy with no permission bits fails posix_spawn with
+                # EACCES on Linux and macOS alike.
+                os.chmod(binary, 0)
             term.send("\x1b[D\x1b[D")
             term.expect("Background armed")
             if images:

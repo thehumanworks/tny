@@ -743,6 +743,10 @@ raise SystemExit(subprocess.call(["sh", "-c", args[-1]]))
             }
         )
 
+    @unittest.skipIf(
+        WASM,
+        "wasm has no tool profiles: `terminal` is ignored and the prompt is `all` (ADR 0017)",
+    )
     def test_terminal_prompt_advertises_provider_independent_login(self):
         self.fixture.terminal = True
         result = subprocess.run(
