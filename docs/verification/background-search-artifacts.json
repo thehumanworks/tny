@@ -534,7 +534,16 @@
     }
   },
   "publication": {
-    "status": "pending commit/push/PR"
+    "status": "feature committed and pushed; PR opened; this record is the docs-only follow-up",
+    "feature_commit": "ab9caada7f257afd7d37a3420739e9b280693df8",
+    "branch": "feat/codex-search-durable-agents",
+    "base": "main",
+    "pr_number": 133,
+    "pr_url": "https://github.com/thehumanworks/tny/pull/133",
+    "verified_remote_feature_commit": "ab9caada7f257afd7d37a3420739e9b280693df8",
+    "recorded_at_utc": "2026-09-13T09:23:43+00:00",
+    "ci_waited": false,
+    "merged": false
   },
   "build_baseline_head": "948d3b6966fbb4e68acdca6a68b9ca9b52ba5853",
   "supplemental_live_probes": {

@@ -1,6 +1,6 @@
 # Verification contract: native web search and durable background agents
 
-Status: final local acceptance passed; Git publication (D1) pending. See [final delivery evidence](background-search-delivery.md).
+Status: COMPLETE — required local acceptance and Git publication (D1) passed. See [final delivery evidence](background-search-delivery.md).
 Date: 2026-09-13. Baseline: 948d3b6 (clean main).
 Scope: root C11 tny harness only, not tnytty or unrelated open issues.
 
@@ -111,5 +111,5 @@ preference outside child test processes. Details: temporary baseline-findings.md
 All WS/BG/Q/R/E invariants passed their required local evidence checks on the
 frozen delivered source. [The delivery matrix](background-search-delivery.md)
 records exact commands, source/binary hashes, live IDs, platform boundaries and
-the remaining D1 publication step. Supplemental DDG bot-challenge attempts are
+the completed D1 publication step. Supplemental DDG bot-challenge attempts are
 retained as failures, not relabelled as successful searches.

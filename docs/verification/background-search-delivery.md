@@ -1,8 +1,9 @@
 # Final delivery verification — native search and background agents
 
 Checked 2026-09-13T09:17:56+00:00 on the user's Apple Silicon Mac Studio. **All required local
-acceptance gates passed.** Git publication is the final remaining gate; its
-commit and PR are recorded below after successful publication. No CI wait is required.
+acceptance gates passed, and the feature commit was pushed with its GitHub PR
+opened.** The tested product sources are unchanged by this publication record.
+CI completion was not required or awaited.
 
 ## Delivered behavior
 
@@ -36,7 +37,7 @@ noninteractive JSON, and immediate `/agents` or Ctrl-X detach from a background 
 | Q2 | ADR0106/0107/0108 and CLI/TUI/backend/session/Nix documentation reconciled; all 108 pre-existing ADR hashes unchanged. | PASS |
 | R1 | Existing pre-implementation Claude Fable high contract review, session `4847f48e-02f8-48dd-b41d-88e5f6882a98`, verified successful; dispositions applied. | PASS |
 | R2 | Exactly one independent Claude Fable high implementation review, session `11d12fb6-4c7c-4dbe-9474-4a64452c1dfc`; findings actioned and regressions rerun. No second independent review. | PASS |
-| D1 | Successful local compilation and scoped publication secret scan; commit/push/PR recorded after publishing. | PUBLICATION PENDING |
+| D1 | Successful local compilation; scoped feature commit `ab9caada7f25` pushed; [PR #133](https://github.com/thehumanworks/tny/pull/133) opened. Publication metadata follows as a docs-only commit. | PASS |
 
 ## Direct live acceptance on the delivered binary
 
@@ -118,5 +119,8 @@ errors; deterministic fixtures do not require external search or credentials.
 
 ## Publication
 
-Pending the scoped feature commit, push and GitHub PR. The final delivery lane
-records actual identifiers here; no CI completion is required.
+- Repository: `thehumanworks/tny`; branch: `feat/codex-search-durable-agents`; target: `main`.
+- Tested feature commit: `ab9caada7f257afd7d37a3420739e9b280693df8` (verified present at the remote branch before recording).
+- Pull request: [#133 — native Codex web search and durable background agents](https://github.com/thehumanworks/tny/pull/133).
+- All feature changes were staged and committed after the successful local gates. This final publication record is a documentation-only follow-up; the 626-file tested source/test/build selection is unchanged.
+- No CI wait, merge or auto-merge was requested or performed. The final conversational delivery identifies the final docs commit and verified clean/remote-equal HEAD.
