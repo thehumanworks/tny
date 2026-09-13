@@ -47,6 +47,14 @@ Do not initialize backends until the user sends a turn or `ask` starts. Human
 `doctor` may spawn bounded health probes; `doctor --json` is a side-effect-free
 configuration/capability query and never starts a provider or Python.
 
+On aarch64 Linux the budget hides a cliff ([ADR 0111](adr/0111-aarch64-size-cliff.md)):
+the two `LOAD` segments are aligned to 64 KiB and the RELRO end must sit
+on a 64 KiB boundary, so the file grows by a whole 64 KiB the moment the
+read-only (`R E`) segment passes ≈ 975 KiB (`64 KiB − relro_size` past a
+boundary; `readelf -lW build/tny` shows the segment). Read a sudden +64 KiB
+as that cliff, and pay for it with code-size work; the Linux native lanes
+already omit the frame pointer and drop dead yyjson paths for margin.
+
 Packaged builds pay the budget too. The Nix package
 ([ADR 0035](adr/0035-nix-flake-packaging.md)) runs `make size-check` in its
 `checkPhase` and checks the installed payload against the same Makefile-owned
