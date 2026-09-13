@@ -58,24 +58,43 @@ static bool schema_has(tools_env *env, const char *tool) {
     return found;
 }
 
-/* No provider: web_search leaves the schema (web_fetch stays), but a direct
- * call still gets the runtime error instead of an "unavailable" refusal. */
-TEST schema_omits_web_search_when_unconfigured(void) {
+/* Default fallback is available without configuration; malformed and
+ * challenged pages are honest errors. */
+TEST schema_includes_default_search(void) {
     tny_ctx *ctx = ctx_with_settings("{}");
     ASSERT(ctx);
-    perm_engine *perm = perm_new(ctx);
-    tools_env env = {.ctx = ctx, .perm = perm};
-    ASSERT_FALSE(tool_web_search_configured(ctx));
-    ASSERT_FALSE(schema_has(&env, "web_search"));
-    ASSERT(schema_has(&env, "web_fetch"));
-    ASSERT(schema_has(&env, "terminal"));
-    char *r = tools_execute(&env, "web_search", "{\"query\":\"x\"}");
-    ASSERT(r);
-    ASSERT(strstr(r, "no web search provider configured"));
-    ASSERT(strstr(r, "web_search_command"));
-    ASSERT_EQ(NULL, strstr(r, "unavailable"));
-    free(r);
-    perm_free(perm);
+    tools_env env = {.ctx = ctx};
+    ASSERT(tool_web_search_configured(ctx));
+    ASSERT(schema_has(&env, "web_search"));
+    char *result = tool_web_search_parse_ddg(
+        "<a class=\"result__a\" href=\"https://example.com/?x=1&amp;y=2\">A &amp; B</a>");
+    ASSERT(result);
+    ASSERT(strstr(result, "A & B"));
+    ASSERT(strstr(result, "https://example.com/?x=1&y=2"));
+    free(result);
+    result = tool_web_search_parse_ddg("<form id=\"challenge-form\">");
+    ASSERT(str_starts(result, "error:"));
+    ASSERT(strstr(result, "challenge"));
+    free(result);
+    result = tool_web_search_parse_ddg("unrecognized page");
+    ASSERT(str_starts(result, "error:"));
+    free(result);
+    result = tool_web_search_parse_ddg("<div class=\"no-results\">No results found</div>");
+    ASSERT_STR_EQ("DuckDuckGo: no results found for this query.", result);
+    free(result);
+    result =
+        tool_web_search_parse_ddg("<a class=\"result__a\" href=\"javascript:void(0)\">Bad</a>");
+    ASSERT(str_starts(result, "error:"));
+    free(result);
+    result = tool_web_search_parse_ddg("<a class=\"result__a\" "
+                                       "href=\"//duckduckgo.com/l/"
+                                       "?uddg=https%3A%2F%2Fexample.com%2Fcaptcha%3Fa%3D1%26b%3D2&"
+                                       "amp;rut=tracking\">captcha reference</a>");
+    ASSERT(result);
+    ASSERT(strstr(result, "https://example.com/captcha?a=1&b=2"));
+    ASSERT_FALSE(strstr(result, "rut="));
+    ASSERT_FALSE(str_starts(result, "error:"));
+    free(result);
     tny_ctx_free(ctx);
     PASS();
 }
@@ -173,7 +192,7 @@ TEST command_provider_beats_url_provider(void) {
 }
 
 SUITE(web_search_suite) {
-    RUN_TEST(schema_omits_web_search_when_unconfigured);
+    RUN_TEST(schema_includes_default_search);
     RUN_TEST(schema_includes_web_search_with_url_provider);
     RUN_TEST(schema_includes_web_search_with_command_provider);
     RUN_TEST(placeholder_expands_both_spellings);

@@ -419,6 +419,21 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         return; /* recording/transcription keys cannot submit or mutate the draft */
     }
 
+    if (t->agents_dashboard) {
+        if (k == TUI_K_UP && t->agent_selected > 0) t->agent_selected--;
+        else if (k == TUI_K_DOWN && t->agent_selected + 1 < t->n_agents) t->agent_selected++;
+        else if (k == TUI_K_ENTER) {
+            tui_agents_select(t);
+            return;
+        } else if (k == TUI_K_ESC || k == TUI_K_CTRLD || k == TUI_K_CTRLC ||
+                   (k == TUI_K_CHAR && chlen == 1 && ch[0] == 'q')) {
+            t->quit = true;
+            return;
+        }
+        tui_agents_refresh(t);
+        return;
+    }
+
     switch (k) {
     case TUI_K_CHAR:
         ins(t, ch, chlen);
@@ -460,6 +475,11 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         tui_pick_refresh(t);
         break;
     case TUI_K_LEFT:
+        if (t->turn_active && !t->input.len && !t->wiz_step && !popover && !t->overlay.len &&
+            !t->perm_id) {
+            tui_background_arm(t);
+            break;
+        }
         t->cur = prev_ch(t, t->cur);
         t->dirty = true;
         tui_pick_refresh(t);
@@ -568,7 +588,10 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         tui_raw_end(t);
         break;
     case TUI_K_CTRLO: tui_optimise_start(t, NULL); break;
-    case TUI_K_CTRLX: tui_sys(t, "subagent manager: not available on this backend"); break;
+    case TUI_K_CTRLX:
+        if (t->turn_active && !t->background_view) tui_background_arm(t);
+        else tui_agents_open(t);
+        break;
     default: break;
     }
 }

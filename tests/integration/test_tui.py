@@ -51,7 +51,7 @@ BANNER = f"tny {VERSION}"
 # plus tny's own status and composer rows, plus the banner and hint lines it
 # asserts survive. Adding a /command grows the menu by a row; when this stops
 # leaving headroom, raise ROWS rather than trimming the menu.
-ROWS, COLS = 44, 100
+ROWS, COLS = 45, 100
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][B0]|\r")
 

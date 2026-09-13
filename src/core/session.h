@@ -180,11 +180,13 @@ typedef struct {
     char *id, *title, *updated, *backend, *model, *workspace;
     char *status; /* stored status field; NULL for pre-0031 sessions */
     char *task_name, *task_source, *task_digest; /* secret-safe task metadata */
-    bool running;                                /* live writer-lock probe at list time */
+    bool background;
+    bool running; /* live writer-lock probe at list time */
     int turns;
 } session_meta;
 
 session_meta *session_list(tny_ctx *ctx, bool all, int limit, const char *cursor, int *count);
+session_meta *session_agents(tny_ctx *ctx, int *count);
 void session_meta_free(session_meta *m, int count);
 char *session_latest_id(tny_ctx *ctx); /* malloc'd or NULL */
 

@@ -54,6 +54,10 @@ let
     # under tests/bench/fixtures/tools/ that
     # tests/integration/test_bench_tools.py copies and scores (issue #103).
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
+    # runner_restart_fault.c uses the existing stdenv C compiler for a private
+    # read/write interposer; no network, new package or external test data.
+    # test_background_agents.py and test_native_search.py are self-contained
+    # stdlib PTY/loopback fixtures (and import test_tui.py), all included above.
     # test_worktree.py generates temporary Git repositories and imports the
     # shared test_tui.py PTY harness; both are included by ../tests above.
     # Image fixtures (test_image_service.py, and test_image_workflow.py for the

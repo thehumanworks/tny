@@ -663,6 +663,22 @@ static tny_intercept *parse_ask(char **argv, int argc, int i) {
     return ic_label(ic, "tny ask");
 }
 
+static tny_intercept *parse_web(char **argv, int argc, int i, bool json) {
+    if (argc - i < 2 || argc - i > 3) return NULL;
+    const char *action = argv[i++];
+    const char *name = strcmp(action, "search") == 0  ? "web_search"
+                       : strcmp(action, "fetch") == 0 ? "web_fetch"
+                                                      : NULL;
+    if (!name || (argc - i == 2 && strcmp(argv[i + 1], "--json") != 0)) return NULL;
+    tny_intercept *ic = ic_new(TNY_INTERCEPT_WEB, name);
+    if (!ic) return NULL;
+    ic->json = json || argc - i == 2;
+    ic->action = xstrdup(action);
+    ic->value = xstrdup(argv[i]);
+    ic->detail = xstrdup(argv[i]);
+    return ic_label(ic, "tny web %s", action);
+}
+
 static tny_intercept *parse_verb(tools_env *env, const tny_words *w, const buf_t *payload) {
     char **argv = w->argv;
     int argc = w->argc;
@@ -690,6 +706,7 @@ static tny_intercept *parse_verb(tools_env *env, const tny_words *w, const buf_t
         }
     }
     const char *verb = argv[i++];
+    if (strcmp(verb, "web") == 0) return parse_web(argv, argc, i, json);
     if (strcmp(verb, "edit") == 0) return parse_edit(env, argv, argc, i, json);
     if (strcmp(verb, "mcp") == 0) return parse_mcp(argv, argc, i, json);
     if (strcmp(verb, "memory") == 0) return parse_memory(argv, argc, i, payload != NULL);
@@ -1150,6 +1167,21 @@ static char *exec_jobs(tools_env *env, const tny_intercept *ic) {
     return ic_result(env, rc, &out, &err);
 }
 
+static char *exec_web(tools_env *env, const tny_intercept *ic) {
+    buf_t args;
+    buf_init(&args);
+    buf_appendf(&args, "{\"%s\":", strcmp(ic->action, "search") == 0 ? "query" : "url");
+    jescape(&args, ic->value);
+    buf_appends(&args, "}");
+    yyjson_doc *d = jparse(args.data, args.len);
+    bool handled = false;
+    char *result =
+        d ? tool_web_execute(env, ic->permission_tool, yyjson_doc_get_root(d), &handled) : NULL;
+    yyjson_doc_free(d);
+    buf_free(&args);
+    return result ? result : tool_err("web operation failed");
+}
+
 char *tny_intercept_execute(tools_env *env, const tny_intercept *ic) {
     if (!env || !ic) return NULL;
     switch (ic->kind) {
@@ -1171,6 +1203,7 @@ char *tny_intercept_execute(tools_env *env, const tny_intercept *ic) {
     case TNY_INTERCEPT_EDIT: return exec_edit(env, ic);
     case TNY_INTERCEPT_MCP_CALL: return exec_mcp_call(env, ic);
     case TNY_INTERCEPT_MCP_DESCRIBE: return exec_mcp_describe(env, ic);
+    case TNY_INTERCEPT_WEB: return exec_web(env, ic);
     case TNY_INTERCEPT_MEMORY: return exec_memory(env, ic);
     case TNY_INTERCEPT_SKILL: return exec_skill(env, ic);
     case TNY_INTERCEPT_IMAGE_ATTACH: return exec_image_attach(env, ic);

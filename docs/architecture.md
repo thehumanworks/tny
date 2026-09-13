@@ -83,6 +83,14 @@ remain CLI surfaces and do not expand the embedding ABI.
 - Drain host stderr on a dedicated reader. A full pipe stalls `cursor-sdk-bridge` and most ACP agents.
 - Never log bearer tokens, ready-line JSON, or `.env` values.
 
+Left-arrow backgrounding adds a quiescent tool boundary to the native loop:
+local effective results (or a completed hosted-search response) and the consumed
+batch index are saved before a mapped fresh
+executable takes over the same turn. The listener and writer description remain
+continuously held; the TUI opens the shared agents dashboard and can reattach
+mid-turn as owner. Resolved secrets/configuration travel only through anonymous
+IPC. See [ADR 0107](adr/0107-tool-boundary-restart-and-agents-dashboard.md).
+
 ## Config and state
 
 | Path | Contents |

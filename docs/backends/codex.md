@@ -122,6 +122,18 @@ Default model: `gpt-5.6-sol` (`--model`, `/model`, or a saved
 `models.codex` entry override it; `CODEX_DEFAULT_MODEL` applies only to a
 shadowing user profile, see below).
 
+## Native web search
+
+Builtin ChatGPT Responses requests include
+`{"type":"web_search","external_web_access":true}`. The service executes
+search; tny displays its progress and clickable source links, saves hosted
+search and annotated message items, and echoes them on later requests. Hosted
+items never run again as local function tools. Explicit `web_search_command`
+or `web_search_url` settings retain priority and disable this hosted declaration;
+API-key mode and user profiles named codex use local search with DuckDuckGo
+fallback. `tny web search QUERY` explicitly runs that local search path.
+See [ADR 0106](../adr/0106-native-web-search-and-duckduckgo.md).
+
 ## Model catalog (`tny models`, `/models`)
 
 The ChatGPT backend's catalog is not the public `GET /v1/models`:

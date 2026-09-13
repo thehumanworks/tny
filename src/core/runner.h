@@ -60,16 +60,17 @@ char *tny_turn_result_json(tny_ctx *ctx, struct tny_engine *engine, tny_session_
 /* ---- client ---- */
 
 typedef enum {
-    TNY_RMSG_EVENT = 0, /* ev is a normalized backend event */
-    TNY_RMSG_HELLO,     /* pid/provider/model/state; snapshot may follow */
-    TNY_RMSG_SNAPSHOT,  /* text: output accumulated before this attach */
-    TNY_RMSG_RECOVERY,  /* text: replayed recovery partial */
-    TNY_RMSG_LOG,       /* text: one runner-side stderr line (host stderr,
-                         * diagnostics) — the pre-0053 terminal trail */
-    TNY_RMSG_ASK_USER,  /* id + text: owner-only free-text question */
-    TNY_RMSG_TURN_END,  /* ev.stop + exit_code + result_json */
-    TNY_RMSG_TURN_ERR,  /* text: the turn could not start */
-    TNY_RMSG_BYE        /* text: reason; the runner is exiting */
+    TNY_RMSG_EVENT = 0,    /* ev is a normalized backend event */
+    TNY_RMSG_BACKGROUNDED, /* checkpoint restarted; owner may detach */
+    TNY_RMSG_HELLO,        /* pid/provider/model/state; snapshot may follow */
+    TNY_RMSG_SNAPSHOT,     /* text: output accumulated before this attach */
+    TNY_RMSG_RECOVERY,     /* text: replayed recovery partial */
+    TNY_RMSG_LOG,          /* text: one runner-side stderr line (host stderr,
+                            * diagnostics) — the pre-0053 terminal trail */
+    TNY_RMSG_ASK_USER,     /* id + text: owner-only free-text question */
+    TNY_RMSG_TURN_END,     /* ev.stop + exit_code + result_json */
+    TNY_RMSG_TURN_ERR,     /* text: the turn could not start */
+    TNY_RMSG_BYE           /* text: reason; the runner is exiting */
 } tny_runner_msg_kind;
 
 typedef struct tny_runner_msg {
@@ -82,7 +83,8 @@ typedef struct tny_runner_msg {
     pid_t pid;
     char *provider;
     char *model;
-    bool turn_active; /* HELLO: a turn is streaming right now */
+    tny_perm_mode perm_mode; /* HELLO: actual runner permission mode */
+    bool turn_active;        /* HELLO: a turn is streaming right now */
     struct tny_runner_msg *next;
     void *doc; /* yyjson_doc backing every borrowed pointer above */
 } tny_runner_msg;
@@ -106,6 +108,8 @@ void tny_runner_msg_free(tny_runner_msg *m);
 int tny_runner_client_turn(tny_runner_client *c, const char *prompt, const char **images,
                            bool continue_recovery);
 int tny_runner_client_steer(tny_runner_client *c, const char *text);
+int tny_runner_restart_main(void); /* private inherited-descriptor entry point */
+int tny_runner_client_background(tny_runner_client *c);
 int tny_runner_client_cancel(tny_runner_client *c, bool hard);
 int tny_runner_client_perm(tny_runner_client *c, const char *perm_id, tny_perm_decision d);
 int tny_runner_client_ask_user_reply(tny_runner_client *c, const char *id, const char *answer);

@@ -21,6 +21,7 @@
 #include "util/tny_poll.h"
 
 #include <ctype.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
@@ -248,6 +249,10 @@ static int conn_open_stdio(mcp_conn *c, char *const argv[], const char *cwd,
     c->pid = pid;
     c->in_fd = inpipe[1];
     c->out_fd = outpipe[0];
+    if (fcntl(c->in_fd, F_SETFD, FD_CLOEXEC) != 0 || fcntl(c->out_fd, F_SETFD, FD_CLOEXEC) != 0) {
+        mcp_conn_close(c);
+        return -1;
+    }
 
     yyjson_doc *init =
         rpc_stdio(c, "initialize",

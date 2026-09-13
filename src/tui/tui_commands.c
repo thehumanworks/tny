@@ -43,6 +43,7 @@ static const struct {
     {"status", "provider, auth, workspace"},
     {"usage", "token usage for this workspace"},
     {"sessions", "list sessions for this workspace"},
+    {"agents", "background agents dashboard; select and reattach"},
     {"mcp", "list configured MCP servers"},
     {"skills", "list discovered skills"},
     {"workspace", "/workspace [add|remove DIR]"},
@@ -588,6 +589,9 @@ void tui_command(tui *t, const char *line) {
         }
     } else if (strcmp(c, "continue") == 0) {
         cmd_resume_id(t, "last");
+    } else if (strcmp(c, "agents") == 0) {
+        if (t->turn_active && !t->background_view) tui_background_arm(t);
+        else tui_agents_open(t);
     } else if (strcmp(c, "sessions") == 0) {
         run_cli(t, cmd_sessions, 0, NULL);
     } else if (strcmp(c, "rename") == 0) {

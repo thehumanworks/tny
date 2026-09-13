@@ -7,10 +7,12 @@
 #include "cli/cli.h"
 #include "cli/cmd_control.h"
 #include "core/backend.h"
+#include "core/runner.h"
 #include "util/process.h"
 
 int main(int argc, char **argv) {
     if (tny_process_scope_admit() != 0) return 1;
+    if (argc == 2 && strcmp(argv[1], "--runner-restart") == 0) return tny_runner_restart_main();
     /* fast paths: no allocation, no config */
     if (argc >= 2) {
         const char *a = argv[1];
@@ -95,6 +97,13 @@ int main(int argc, char **argv) {
         goto done;
     }
 
+    if (cmd && strcmp(cmd, "agents") == 0) {
+        cli_globals dashboard = g;
+        dashboard.agents_dashboard = true;
+        ctx = cli_make_ctx(&dashboard);
+        if (ctx) rc = cmd_agents(ctx, &g, cargc, cargv);
+        goto done;
+    }
     ctx = cli_make_ctx(&g);
     if (!ctx) goto done;
 
@@ -103,6 +112,8 @@ int main(int argc, char **argv) {
         else rc = cmd_tui(ctx, &g);
     } else if (strcmp(cmd, "ask") == 0) {
         rc = cmd_ask(ctx, &g, cargc, cargv);
+    } else if (strcmp(cmd, "web") == 0) {
+        rc = cmd_web(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "jobs") == 0) {
         rc = cmd_jobs(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "resume") == 0) {

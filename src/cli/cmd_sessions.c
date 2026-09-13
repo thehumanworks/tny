@@ -317,6 +317,7 @@ static int cmd_session_attach(tny_ctx *ctx, int argc, char **argv) {
                     ends_nl = m->text[strlen(m->text) - 1] == '\n';
                 }
                 break;
+            case TNY_RMSG_BACKGROUNDED:
             case TNY_RMSG_HELLO:
                 fprintf(stderr, "  %s  %s  %s\n", m->provider ? m->provider : "?",
                         m->model ? m->model : "default",

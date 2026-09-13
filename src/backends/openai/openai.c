@@ -31,7 +31,8 @@ typedef enum {
     ST_BODY,
     ST_WAIT_PERMISSION,
     ST_WAIT_CUSTOM,
-    ST_RETRY_WAIT /* backoff before re-POSTing the same step (docs/adr/0069) */
+    ST_CHECKPOINT, /* quiescent completed-tool boundary, awaiting fresh exec */
+    ST_RETRY_WAIT  /* backoff before re-POSTing the same step (docs/adr/0069) */
 } oa_state;
 
 /* Retry budget per model call: the first attempt plus this many retries,
@@ -103,6 +104,7 @@ typedef struct {
     yyjson_mut_doc *rdoc;
     yyjson_mut_val *reasoning_details;
     yyjson_mut_val *reasoning_items;
+    yyjson_mut_val *hosted_items; /* raw web_search_call and annotated messages */
     buf_t reasoning_content;
     bool thinking_seen; /* any reasoning reached the frontend this step */
     int step;
@@ -148,6 +150,7 @@ typedef struct {
     int tool_index;     /* next call in the recorded assistant batch */
     int tool_batch_failed;
     bool tool_batch_active;
+    bool background_armed, background_boundary;
     /* Owned transcript entry until its first POST succeeds. Terminal cleanup
      * removes only this entry, never prior delivered history or later steer. */
     yyjson_mut_val *unsent_preview;
@@ -293,6 +296,7 @@ static void reasoning_reset(oa_impl *o) {
     o->rdoc = NULL;
     o->reasoning_details = NULL;
     o->reasoning_items = NULL;
+    o->hosted_items = NULL;
     buf_clear(&o->reasoning_content);
     o->thinking_seen = false;
 }
@@ -405,12 +409,89 @@ static void capture_reasoning_item(oa_impl *o, yyjson_val *item) {
     }
 }
 
+/* Hosted tools execute at the provider. Keep their completed wire items and
+ * annotations, with id-based replacement for added/done/completed repeats. */
+static void capture_hosted_item(oa_impl *o, yyjson_val *item) {
+    if (!tool_web_search_native(o->ctx)) return;
+    const char *type = jget_str(item, "type");
+    const char *id = jget_str(item, "id");
+    if (!type || !id) return;
+    bool search = strcmp(type, "web_search_call") == 0;
+    if (!search && strcmp(type, "message") != 0) return;
+    const char *status = jget_str(item, "status");
+    bool done = status && (strcmp(status, "completed") == 0 || strcmp(status, "failed") == 0);
+    if (!search && !done) return;
+    yyjson_mut_val *arr = reasoning_array(o, &o->hosted_items);
+    if (!arr) return;
+    size_t idx, max;
+    yyjson_mut_val *old;
+    bool found = false, was_done = false;
+    yyjson_mut_arr_foreach(arr, idx, max, old) {
+        const char *oid = yyjson_mut_get_str(yyjson_mut_obj_get(old, "id"));
+        if (!oid || strcmp(oid, id) != 0) continue;
+        found = true;
+        const char *os = yyjson_mut_get_str(yyjson_mut_obj_get(old, "status"));
+        was_done = os && (strcmp(os, "completed") == 0 || strcmp(os, "failed") == 0);
+        if (!was_done || done) yyjson_mut_arr_replace(arr, idx, yyjson_val_mut_copy(o->rdoc, item));
+        break;
+    }
+    if (!found) yyjson_mut_arr_add_val(arr, yyjson_val_mut_copy(o->rdoc, item));
+    if (search) {
+        tny_backend_event ev = {0};
+        ev.tool_name = "web_search";
+        ev.tool_id = id;
+        ev.tool_detail = "Codex hosted web search";
+        if (!found) {
+            ev.kind = TNY_EV_TOOL_START;
+            emit(o, &ev);
+        }
+        if (done && !was_done) {
+            if (o->background_armed && !o->cancelled) o->background_boundary = true;
+            ev.kind = TNY_EV_TOOL_END;
+            ev.tool_ok = strcmp(status, "completed") == 0;
+            ev.tool_detail =
+                ev.tool_ok ? "Codex hosted search completed" : "Codex hosted search failed";
+            emit(o, &ev);
+        }
+    } else if (!was_done) {
+        size_t pi, pm, ai, am;
+        yyjson_val *part, *annotation;
+        yyjson_arr_foreach(jget(item, "content"), pi, pm, part) {
+            yyjson_arr_foreach(jget(part, "annotations"), ai, am, annotation) {
+                const char *at = jget_str(annotation, "type");
+                const char *url = jget_str(annotation, "url");
+                if (!at || strcmp(at, "url_citation") != 0 || !url ||
+                    (!str_starts(url, "https://") && !str_starts(url, "http://")))
+                    continue;
+                const char *title = jget_str(annotation, "title");
+                buf_t citation;
+                buf_init(&citation);
+                buf_appendf(&citation, "\n[%s](%s)\n", title ? title : "Source", url);
+                buf_append(&o->text, citation.data, citation.len);
+                emit_text(o, TNY_EV_TEXT_DELTA, citation.data, citation.len);
+                buf_free(&citation);
+            }
+        }
+    }
+}
+
+static void capture_hosted_output(oa_impl *o, yyjson_val *response) {
+    size_t i, n;
+    yyjson_val *item;
+    yyjson_arr_foreach(jget(response, "output"), i, n, item) {
+        capture_hosted_item(o, item);
+        const char *type = jget_str(item, "type");
+        if (type && strcmp(type, "reasoning") == 0) capture_reasoning_item(o, item);
+    }
+}
+
 /* The extra assistant-message members for this step's tool-call batch, or
  * NULL when the provider streamed no reasoning. Compact JSON object. */
 static char *reasoning_extras_json(oa_impl *o) {
     bool details = o->reasoning_details && yyjson_mut_arr_size(o->reasoning_details) > 0;
     bool items = o->reasoning_items && yyjson_mut_arr_size(o->reasoning_items) > 0;
-    if (!details && !items && !o->reasoning_content.len) return NULL;
+    bool hosted = o->hosted_items && yyjson_mut_arr_size(o->hosted_items) > 0;
+    if (!details && !items && !hosted && !o->reasoning_content.len) return NULL;
     yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
     if (!d) return NULL;
     yyjson_mut_val *root = yyjson_mut_obj(d);
@@ -424,6 +505,9 @@ static char *reasoning_extras_json(oa_impl *o) {
     if (items)
         yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, "reasoning_items"),
                            yyjson_mut_val_mut_copy(d, o->reasoning_items));
+    if (hosted)
+        yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, "responses_items"),
+                           yyjson_mut_val_mut_copy(d, o->hosted_items));
     char *out = jwrite(d);
     yyjson_mut_doc_free(d);
     return out;
@@ -844,17 +928,21 @@ static void build_system_prompt(oa_impl *o, buf_t *sys) {
                              "| tny edit FILE` (or a quoted heredoc with the same three lines); "
                              "no --old/--new flags, one FILE; exit 2 means zero or many matches, "
                              "widen OLD and retry; never use `sed -i`. ");
-        buf_appends(sys,
-                    "Read the `exit:` line before claiming success. Call MCP tools with `tny "
-                    "mcp call SERVER/TOOL` and JSON on stdin; the MCP catalog above names the "
-                    "tools. Before the first call to a tool run `tny mcp describe SERVER/TOOL` "
-                    "and shape the JSON from its input schema (`tny mcp tools SERVER` lists a "
-                    "server's tools with their arguments); never guess argument names. Attach "
-                    "images with `tny image attach PATH` and ask questions with "
-                    "`tny ask-user \"...\"`; if either prints `no session socket`, skip it or "
-                    "state the assumption. Use subagents only with `tny ask -B --json ...` then "
-                    "`tny session ID --wait --json`; never run a foreground `tny ask` inside a "
-                    "turn.\n");
+        buf_appends(
+            sys,
+            "Search the web with `tny web search \"QUERY\"`; it uses explicit search settings or "
+            "DuckDuckGo (a challenge or network error is not a search result). "
+            "Fetch pages with `tny web fetch URL`. "
+            "Read the `exit:` line before claiming success. Call MCP tools with `tny "
+            "mcp call SERVER/TOOL` and JSON on stdin; the MCP catalog above names the "
+            "tools. Before the first call to a tool run `tny mcp describe SERVER/TOOL` "
+            "and shape the JSON from its input schema (`tny mcp tools SERVER` lists a "
+            "server's tools with their arguments); never guess argument names. Attach "
+            "images with `tny image attach PATH` and ask questions with "
+            "`tny ask-user \"...\"`; if either prints `no session socket`, skip it or "
+            "state the assumption. Use subagents only with `tny ask -B --json ...` then "
+            "`tny session ID --wait --json`; never run a foreground `tny ask` inside a "
+            "turn.\n");
     }
 }
 
@@ -908,6 +996,7 @@ static char *build_request_chat(oa_impl *o) {
         yyjson_mut_val *m = yyjson_mut_arr_get(msgs, i);
         /* responses-wire reasoning items are tny-private on this wire */
         yyjson_mut_obj_remove_key(m, "reasoning_items");
+        yyjson_mut_obj_remove_key(m, "responses_items");
         char *mj = jwrite_mut_val(m);
         if (mj) {
             buf_appends(&b, ",");
@@ -1029,7 +1118,14 @@ static char *build_request_rsp(oa_impl *o) {
         return NULL;
     }
     char *flat = tny_openai_responses_tools(schema);
-    buf_appendf(&b, ",\"tools\":%s,\"tool_choice\":\"auto\"", flat ? flat : "[]");
+    if (tool_web_search_native(o->ctx) && flat) {
+        size_t len = strlen(flat);
+        buf_appends(&b, ",\"tools\":");
+        buf_append(&b, flat, len - 1);
+        if (len > 2) buf_appends(&b, ",");
+        buf_appends(
+            &b, "{\"type\":\"web_search\",\"external_web_access\":true}],\"tool_choice\":\"auto\"");
+    } else buf_appendf(&b, ",\"tools\":%s,\"tool_choice\":\"auto\"", flat ? flat : "[]");
     free(flat);
     free(schema);
 
@@ -1377,6 +1473,7 @@ static void rsp_absorb_response(oa_impl *o, yyjson_val *response) {
             capture_reasoning_item(o, item);
         }
     }
+    capture_hosted_output(o, response);
     yyjson_val *usage = jget(response, "usage");
     capture_usage(o, usage, false);
     const char *status = jget_str(response, "status");
@@ -1432,12 +1529,14 @@ static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
         const char *d = jget_strn(root, "delta", &delta_len);
         if (d && delta_len) {
             o->thinking_seen = true;
+            if (tool_web_search_native(o->ctx)) buf_append(&o->reasoning_content, d, delta_len);
             emit_text(o, TNY_EV_THINKING, d, delta_len);
         }
     } else if (strcmp(type, "response.output_item.added") == 0 ||
                strcmp(type, "response.output_item.done") == 0) {
         yyjson_val *item = jget(root, "item");
         const char *itype = jget_str(item, "type");
+        capture_hosted_item(o, item);
         if (itype && strcmp(itype, "reasoning") == 0) capture_reasoning_item(o, item);
         if (itype && strcmp(itype, "function_call") == 0) {
             int64_t oindex = jget_int(root, "output_index", o->calls.n);
@@ -1468,6 +1567,7 @@ static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
         const char *d = jget_str(root, "delta");
         if (pc && d) buf_appends(&pc->args, d);
     } else if (strcmp(type, "response.completed") == 0) {
+        capture_hosted_output(o, jget(root, "response"));
         yyjson_val *usage = jget(jget(root, "response"), "usage");
         capture_usage(o, usage, false);
         o->stream_done = true;
@@ -1522,7 +1622,9 @@ static void finish_turn_ok(oa_impl *o) {
     tny_session_state *s = o->env.session;
     /* an empty answer is not recorded: strict providers reject assistant
      * messages without content, and nothing in it helps the next turn */
-    if (o->text.len) session_add_assistant(s, o->text.data, NULL);
+    char *extras = tool_web_search_native(o->ctx) ? reasoning_extras_json(o) : NULL;
+    if (o->text.len || extras) session_add_assistant_ex(s, o->text.data, NULL, extras);
+    free(extras);
     session_bump_turns(s);
     if (session_save(s) != 0) {
         const char *message = "could not persist completed turn";
@@ -1590,6 +1692,7 @@ static void complete_tool(oa_impl *o, const char *cid, const char *name, const c
     log_toolcall(o, name, original_ok, effective_ok, transformed);
     if (!effective_ok) o->tool_batch_failed++;
     session_add_tool_result(o->env.session, cid, effective_result);
+    if (o->background_armed && !o->cancelled) o->background_boundary = true;
     control_response_free(&response);
 }
 
@@ -1819,9 +1922,26 @@ static int finish_tool_batch(oa_impl *o) {
     return 0;
 }
 
+/* Park only after complete_tool's effective result and the consumed index.
+ * The runner will persist the complete engine checkpoint before spawning. */
+static bool park_background(oa_impl *o) {
+    if (!o->background_armed || !o->background_boundary || o->cancelled || o->env.perm_blocked)
+        return false;
+    o->background_armed = false;
+    o->background_boundary = false;
+    if (session_save(o->env.session) != 0) {
+        emit_text(o, TNY_EV_STATUS, "background checkpoint failed; continuing in foreground", 54);
+        return false;
+    }
+    conn_drop(o);
+    o->state = ST_CHECKPOINT;
+    return true;
+}
+
 static int run_tools(oa_impl *o) {
     char idbuf[16];
     while (o->tool_index < o->calls.n) {
+        if (park_background(o)) return 0;
         if (tny_alloc_scope_failed()) return -1;
         oa_call *pc = &o->calls.calls[o->tool_index];
         const char *cid = oa_call_id(pc, o->tool_index, idbuf, sizeof idbuf);
@@ -2049,6 +2169,7 @@ static int run_tools(oa_impl *o) {
         pending_perm_clear(o);
         o->tool_index++;
     }
+    if (park_background(o)) return 0;
     return tny_alloc_scope_failed() ? -1 : finish_tool_batch(o);
 }
 
@@ -2060,7 +2181,9 @@ static int step_finished(oa_impl *o) {
             /* the model answered before the steer could ride along: record
              * that answer and run one more round on the steered message so
              * it is addressed within the turn it targeted (adr/0011) */
-            if (o->text.len) session_add_assistant(s, o->text.data, NULL);
+            char *extras = reasoning_extras_json(o);
+            if (o->text.len || extras) session_add_assistant_ex(s, o->text.data, NULL, extras);
+            free(extras);
             take_steer(o);
             session_save(s);
             if (o->ctx->max_steps <= 0 || o->step + 1 < o->ctx->max_steps) {
@@ -2176,6 +2299,7 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images, tny_
     }
     o->cb = cb;
     o->ud = ud;
+    o->background_armed = o->background_boundary = false;
     o->step = 0;
     o->cancelled = false;
     o->usage_in = o->usage_out = 0;
@@ -2299,8 +2423,8 @@ static int oa_pollfds(tny_backend *b, struct pollfd *fds, int max) {
         fds[0].revents = 0;
         return 1;
     }
-    if (o->state == ST_IDLE || o->state == ST_WAIT_PERMISSION || o->state == ST_RETRY_WAIT ||
-        !o->conn || max < 1)
+    if (o->state == ST_IDLE || o->state == ST_CHECKPOINT || o->state == ST_WAIT_PERMISSION ||
+        o->state == ST_RETRY_WAIT || !o->conn || max < 1)
         return 0;
     fds[0].fd = http_fd(o->conn);
     fds[0].events = POLLIN;
@@ -2352,7 +2476,9 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         emit_turn_end(o, TNY_STOP_ERROR);
         return -1;
     }
-    if (o->state == ST_IDLE || o->state == ST_WAIT_PERMISSION || !o->conn) return 0;
+    if (o->state == ST_IDLE || o->state == ST_CHECKPOINT || o->state == ST_WAIT_PERMISSION ||
+        !o->conn)
+        return 0;
 
     if (o->state == ST_HEADERS) {
         int status = http_read_response(o->conn, 0);
@@ -2758,4 +2884,175 @@ tny_backend *tny_backend_openai_new(struct tny_ctx *ctx) {
     b->doctor = oa_doctor;
     b->destroy = oa_destroy;
     return b;
+}
+
+/* Private same-turn continuation; never enters oa_send or provider-view repair. */
+void tny_backend_openai_background(tny_backend *b) {
+    oa_impl *o = b->impl;
+    if (o->state != ST_IDLE && o->state != ST_CHECKPOINT && !o->background_armed) {
+        o->background_armed = true;
+        o->background_boundary = false;
+    }
+}
+
+bool tny_backend_openai_parked(tny_backend *b) {
+    return ((oa_impl *)b->impl)->state == ST_CHECKPOINT;
+}
+
+yyjson_mut_val *tny_backend_openai_checkpoint(tny_backend *b, yyjson_mut_doc *d) {
+    oa_impl *o = b->impl;
+    if (o->state != ST_CHECKPOINT || o->pending_perm.id || o->pending_custom.id) return NULL;
+    yyjson_mut_val *r = yyjson_mut_obj(d);
+    yyjson_mut_obj_add_int(d, r, "step", o->step);
+    yyjson_mut_obj_add_int(d, r, "tool_index", o->tool_index);
+    yyjson_mut_obj_add_int(d, r, "tool_batch_failed", o->tool_batch_failed);
+    yyjson_mut_obj_add_int(d, r, "max_retries", o->max_retries);
+    yyjson_mut_obj_add_int(d, r, "stall_ms", o->stall_ms);
+    yyjson_mut_obj_add_int(d, r, "provider_attempt", o->provider_attempt);
+    yyjson_mut_obj_add_int(d, r, "final_stop", o->final_stop);
+    yyjson_mut_obj_add_bool(d, r, "wire_chat", o->wire_chat);
+    yyjson_mut_obj_add_bool(d, r, "repairs_noted", o->repairs_noted);
+    yyjson_mut_obj_add_bool(d, r, "perm_blocked", o->env.perm_blocked);
+    yyjson_mut_obj_add_uint(d, r, "provider_request_sequence", o->provider_request_sequence);
+    yyjson_mut_obj_add_strcpy(d, r, "text", o->text.data ? o->text.data : "");
+    yyjson_mut_obj_add_strcpy(d, r, "toolcall_log",
+                              o->toolcall_log.data ? o->toolcall_log.data : "");
+    if (o->steer) yyjson_mut_obj_add_strcpy(d, r, "steer", o->steer);
+    yyjson_mut_obj_add_strcpy(d, r, "turn_state", o->turn_state); /* IPC only */
+    yyjson_mut_val *usage = yyjson_mut_obj(d);
+    yyjson_mut_obj_add_int(d, usage, "input_tokens", o->usage.input_tokens);
+    yyjson_mut_obj_add_int(d, usage, "output_tokens", o->usage.output_tokens);
+    yyjson_mut_obj_add_int(d, usage, "cached_input_tokens", o->usage.cached_input_tokens);
+    yyjson_mut_obj_add_int(d, usage, "cache_write_tokens", o->usage.cache_write_tokens);
+    yyjson_mut_obj_add_int(d, usage, "requests", o->usage.requests);
+    yyjson_mut_obj_add_int(d, usage, "cache_read_requests", o->usage.cache_read_requests);
+    yyjson_mut_obj_add_int(d, usage, "cache_write_requests", o->usage.cache_write_requests);
+    yyjson_mut_obj_add_val(d, r, "usage", usage);
+    yyjson_mut_val *calls = yyjson_mut_arr(d);
+    for (int i = 0; i < o->calls.n; i++) {
+        const oa_call *c = &o->calls.calls[i];
+        yyjson_mut_val *v = yyjson_mut_obj(d);
+        if (c->id) yyjson_mut_obj_add_strcpy(d, v, "id", c->id);
+        if (c->name) yyjson_mut_obj_add_strcpy(d, v, "name", c->name);
+        yyjson_mut_obj_add_int(d, v, "index", c->wire_index);
+        yyjson_mut_obj_add_strcpy(d, v, "args", c->args.data ? c->args.data : "{}");
+        yyjson_mut_arr_add_val(calls, v);
+    }
+    yyjson_mut_obj_add_val(d, r, "calls", calls);
+    yyjson_mut_val *images = yyjson_mut_arr(d);
+    for (int i = 0; i < o->env.n_pending_images; i++) {
+        tools_pending_capture *c = &o->env.pending_capture[i];
+        yyjson_mut_val *v = yyjson_mut_obj(d);
+        buf_t bytes;
+        buf_init(&bytes);
+        b64_encode(c->data, c->len, &bytes);
+        yyjson_mut_obj_add_strcpy(d, v, "bytes", bytes.data ? bytes.data : "");
+        buf_free(&bytes);
+        yyjson_mut_obj_add_strcpy(d, v, "path", o->env.pending_images[i]);
+        yyjson_mut_obj_add_strcpy(d, v, "mime", c->mime ? c->mime : "");
+        yyjson_mut_obj_add_strcpy(d, v, "sha256", c->sha256);
+        yyjson_mut_obj_add_int(d, v, "origin", c->origin);
+        yyjson_mut_arr_add_val(images, v);
+    }
+    yyjson_mut_obj_add_val(d, r, "images", images);
+    return r;
+}
+
+int tny_backend_openai_restore(tny_backend *b, yyjson_val *r, tny_backend_event_cb cb, void *ud) {
+    oa_impl *o = b->impl;
+    yyjson_val *calls = jget(r, "calls"), *images = jget(r, "images");
+    int64_t index = jget_int(r, "tool_index", -1);
+    if (!yyjson_is_arr(calls) || yyjson_arr_size(calls) > OA_MAX_TOOL_CALLS ||
+        !yyjson_arr_size(calls) || index < 0 || (uint64_t)index > yyjson_arr_size(calls) ||
+        yyjson_arr_size(images) > 8)
+        return -1;
+    if (index == 0) {
+        bool hosted_boundary = false;
+        yyjson_mut_val *last = yyjson_mut_arr_get_last(session_messages(o->env.session));
+        yyjson_mut_val *items = yyjson_mut_obj_get(last, "responses_items");
+        size_t hi, hn;
+        yyjson_mut_val *item;
+        yyjson_mut_arr_foreach(items, hi, hn, item) {
+            const char *type = yyjson_mut_get_str(yyjson_mut_obj_get(item, "type"));
+            const char *status = yyjson_mut_get_str(yyjson_mut_obj_get(item, "status"));
+            if (type && strcmp(type, "web_search_call") == 0 && status &&
+                (strcmp(status, "completed") == 0 || strcmp(status, "failed") == 0))
+                hosted_boundary = true;
+        }
+        if (!hosted_boundary || !tool_web_search_native(o->ctx)) return -1;
+    }
+    o->cb = cb;
+    o->ud = ud;
+    o->step = (int)jget_int(r, "step", 0);
+    o->tool_index = (int)jget_int(r, "tool_index", 0);
+    o->tool_batch_failed = (int)jget_int(r, "tool_batch_failed", 0);
+    o->max_retries = (int)jget_int(r, "max_retries", 0);
+    o->stall_ms = (int)jget_int(r, "stall_ms", 0);
+    o->provider_attempt = (int)jget_int(r, "provider_attempt", 0);
+    o->final_stop = (tny_stop_reason)jget_int(r, "final_stop", 0);
+    o->wire_chat = jget_bool(r, "wire_chat", false);
+    o->repairs_noted = jget_bool(r, "repairs_noted", false);
+    o->env.perm_blocked = jget_bool(r, "perm_blocked", false);
+    o->provider_request_sequence = (uint64_t)jget_int(r, "provider_request_sequence", 0);
+    buf_clear(&o->text);
+    buf_appends(&o->text, jget_str(r, "text") ? jget_str(r, "text") : "");
+    buf_clear(&o->toolcall_log);
+    buf_appends(&o->toolcall_log, jget_str(r, "toolcall_log") ? jget_str(r, "toolcall_log") : "");
+    free(o->steer);
+    o->steer = jget_str(r, "steer") ? xstrdup(jget_str(r, "steer")) : NULL;
+    snprintf(o->turn_state, sizeof o->turn_state, "%s",
+             jget_str(r, "turn_state") ? jget_str(r, "turn_state") : "");
+    yyjson_val *usage = jget(r, "usage");
+    o->usage.input_tokens = jget_int(usage, "input_tokens", 0);
+    o->usage.output_tokens = jget_int(usage, "output_tokens", 0);
+    o->usage.cached_input_tokens = jget_int(usage, "cached_input_tokens", 0);
+    o->usage.cache_write_tokens = jget_int(usage, "cache_write_tokens", 0);
+    o->usage.requests = (int)jget_int(usage, "requests", 0);
+    o->usage.cache_read_requests = (int)jget_int(usage, "cache_read_requests", 0);
+    o->usage.cache_write_requests = (int)jget_int(usage, "cache_write_requests", 0);
+    oa_calls_reset(&o->calls);
+    size_t i, n;
+    yyjson_val *v;
+    yyjson_arr_foreach(calls, i, n, v) {
+        oa_call *c = &o->calls.calls[o->calls.n++];
+        c->id = jget_str(v, "id") ? xstrdup(jget_str(v, "id")) : NULL;
+        c->name = jget_str(v, "name") ? xstrdup(jget_str(v, "name")) : NULL;
+        c->wire_index = (int)jget_int(v, "index", -1);
+        buf_init(&c->args);
+        buf_appends(&c->args, jget_str(v, "args") ? jget_str(v, "args") : "{}");
+    }
+    tools_discard_pending_images(&o->env);
+    yyjson_arr_foreach(images, i, n, v) {
+        const char *bytes = jget_str(v, "bytes"), *path = jget_str(v, "path");
+        const char *mime = jget_str(v, "mime");
+        if (!bytes || !path || !mime || strlen(bytes) > 12u * 1024u * 1024u) return -1;
+        tools_pending_capture *c = &o->env.pending_capture[i];
+        o->env.pending_images[i] = xstrdup(path);
+        o->env.n_pending_images++;
+        c->data = malloc(strlen(bytes) + 1);
+        if (!c->data) return -1;
+        c->len = b64_decode(bytes, c->data, strlen(bytes) + 1);
+        if (!c->len) return -1;
+        if (strcmp(mime, "image/png") != 0 && strcmp(mime, "image/jpeg") != 0 &&
+            strcmp(mime, "image/webp") != 0 && strcmp(mime, "image/gif") != 0)
+            return -1;
+        c->mime = strcmp(mime, "image/png") == 0    ? "image/png"
+                  : strcmp(mime, "image/jpeg") == 0 ? "image/jpeg"
+                  : strcmp(mime, "image/webp") == 0 ? "image/webp"
+                                                    : "image/gif";
+        snprintf(c->sha256, sizeof c->sha256, "%s",
+                 jget_str(v, "sha256") ? jget_str(v, "sha256") : "");
+        c->origin = (tny_image_queue_origin)jget_int(v, "origin", 0);
+    }
+    o->tool_batch_active = true;
+    o->state = ST_CHECKPOINT;
+    return tny_alloc_scope_failed() ? -1 : 0;
+}
+
+int tny_backend_openai_continue(tny_backend *b) {
+    oa_impl *o = b->impl;
+    if (o->state != ST_CHECKPOINT) return -1;
+    o->background_armed = o->background_boundary = false;
+    o->state = ST_BODY;
+    return run_tools(o);
 }

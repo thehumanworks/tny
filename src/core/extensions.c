@@ -396,6 +396,12 @@ static int host_spawn(tny_extensions *x) {
     x->in_fd = inp[1];
     x->out_fd = outp[0];
     x->err_fd = errp[0];
+    /* A fresh runner inherits only its explicit handoff descriptors. */
+    if (fcntl(x->in_fd, F_SETFD, FD_CLOEXEC) != 0 || fcntl(x->out_fd, F_SETFD, FD_CLOEXEC) != 0 ||
+        fcntl(x->err_fd, F_SETFD, FD_CLOEXEC) != 0) {
+        host_stop(x);
+        return -1;
+    }
     nonblock(x->in_fd);
     nonblock(x->out_fd);
     nonblock(x->err_fd);

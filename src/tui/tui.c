@@ -156,6 +156,8 @@ tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
     t->dirty = true;
     tny_perm_decision d = TNY_PERM_DECISION_DENY;
     bool got = false;
+    buf_t keys;
+    buf_init(&keys);
     while (!got && !t->quit && !g_exit_signal) {
         tui_render(t);
         struct pollfd pf = {STDIN_FILENO, POLLIN, 0};
@@ -169,15 +171,27 @@ tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
             t->want_cancel = true;
             break;
         }
-        if (pr <= 0) continue;
-        char b[64];
-        ssize_t n = read(STDIN_FILENO, b, sizeof b);
-        if (n <= 0) {
-            if (n == 0) t->quit = true;
-            break;
+        bool final = pr == 0;
+        if (pr > 0) {
+            char bytes[64];
+            ssize_t n = read(STDIN_FILENO, bytes, sizeof bytes);
+            if (n <= 0) {
+                if (n == 0) t->quit = true;
+                break;
+            }
+            buf_append(&keys, bytes, (size_t)n);
         }
-        for (ssize_t i = 0; i < n && !got; i++) {
-            switch (b[i]) {
+        while (keys.len && !got) {
+            tui_decoded key;
+            size_t used = tui_decode_one(keys.data, keys.len, final, &key);
+            if (!used) break;
+            int value = key.key == TUI_K_CHAR && key.chlen == 1 ? key.ch[0]
+                        : key.key == TUI_K_ESC                  ? 27
+                        : key.key == TUI_K_CTRLC                ? 3
+                        : key.key == TUI_K_CTRLD                ? 4
+                                                                : 0;
+            buf_consume(&keys, used);
+            switch (value) {
             case 'y':
             case 'Y':
                 d = TNY_PERM_DECISION_ALLOW;
@@ -207,6 +221,7 @@ tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
             }
         }
     }
+    buf_free(&keys);
     t->approval = false;
     tui_sys(t, d == TNY_PERM_DECISION_ALLOW          ? "  allowed once"
                : d == TNY_PERM_DECISION_ALLOW_ALWAYS ? "  allowed for this session"
@@ -232,10 +247,14 @@ char *tui_ask_user(tui *t, const char *question) {
     tui_pick_close(t);
     t->approval = true; /* the nested reader owns stdin */
     bool done = false, failed = false;
+    size_t cursor = 0;
+    buf_t keys;
+    buf_init(&keys);
     while (!done && !t->quit && !g_exit_signal) {
         buf_clear(&t->overlay);
         tui_overlay_linef(t, "? %s", question ? question : "Question");
-        tui_overlay_linef(t, "> %s", answer.data ? answer.data : "");
+        tui_overlay_linef(t, "> %.*s▏%s", (int)cursor, answer.data ? answer.data : "",
+                          answer.data ? answer.data + cursor : "");
         tui_render(t);
         struct pollfd pf = {STDIN_FILENO, POLLIN, 0};
         int pr = tny_poll(&pf, 1, 200);
@@ -248,34 +267,53 @@ char *tui_ask_user(tui *t, const char *question) {
             failed = true;
             break;
         }
-        if (pr <= 0) continue;
-        char bytes[256];
-        ssize_t n = read(STDIN_FILENO, bytes, sizeof bytes);
-        if (n <= 0) {
-            if (n == 0) t->quit = true;
-            failed = true;
-            break;
-        }
-        for (ssize_t i = 0; i < n && !done; i++) {
-            unsigned char ch = (unsigned char)bytes[i];
-            if (ch == '\r' || ch == '\n') {
-                done = true;
-            } else if (ch == 3 || ch == 4 || ch == 27) {
-                if (ch == 4) t->quit = true;
+        bool final = pr == 0;
+        if (pr > 0) {
+            char bytes[256];
+            ssize_t n = read(STDIN_FILENO, bytes, sizeof bytes);
+            if (n <= 0) {
+                if (n == 0) t->quit = true;
                 failed = true;
-                done = true;
-            } else if (ch == 0x7f || ch == 0x08) {
-                if (answer.len && answer.data) {
-                    answer.len--;
-                    while (answer.len && ((unsigned char)answer.data[answer.len] & 0xc0u) == 0x80u)
-                        answer.len--;
-                    answer.data[answer.len] = 0;
-                }
-            } else if (ch >= 0x20 && answer.len < (1u << 20)) {
-                buf_append(&answer, &bytes[i], 1);
+                break;
             }
+            buf_append(&keys, bytes, (size_t)n);
+        }
+        while (keys.len && !done) {
+            tui_decoded key;
+            size_t used = tui_decode_one(keys.data, keys.len, final, &key);
+            if (!used) break;
+            if (key.key == TUI_K_ENTER) done = true;
+            else if (key.key == TUI_K_ESC || key.key == TUI_K_CTRLC || key.key == TUI_K_CTRLD) {
+                if (key.key == TUI_K_CTRLD) t->quit = true;
+                failed = done = true;
+            } else if ((key.key == TUI_K_LEFT || key.key == TUI_K_BS) && answer.data && cursor) {
+                size_t previous = cursor - 1;
+                while (previous && ((unsigned char)answer.data[previous] & 0xc0u) == 0x80u)
+                    previous--;
+                if (key.key == TUI_K_BS) {
+                    memmove(answer.data + previous, answer.data + cursor, answer.len - cursor + 1);
+                    answer.len -= cursor - previous;
+                }
+                cursor = previous;
+            } else if (key.key == TUI_K_RIGHT && answer.data && cursor < answer.len) {
+                cursor++;
+                while (cursor < answer.len && ((unsigned char)answer.data[cursor] & 0xc0u) == 0x80u)
+                    cursor++;
+            } else if (key.key == TUI_K_HOME) cursor = 0;
+            else if (key.key == TUI_K_END) cursor = answer.len;
+            else if (key.key == TUI_K_CHAR && answer.len + key.chlen <= (1u << 20)) {
+                size_t old = answer.len;
+                buf_append(&answer, key.ch, key.chlen);
+                if (!buf_oom(&answer)) {
+                    memmove(answer.data + cursor + key.chlen, answer.data + cursor, old - cursor);
+                    memcpy(answer.data + cursor, key.ch, key.chlen);
+                    cursor += key.chlen;
+                }
+            }
+            buf_consume(&keys, used);
         }
     }
+    buf_free(&keys);
     t->approval = false;
     buf_clear(&t->overlay);
     if (saved.len) buf_append(&t->overlay, saved.data, saved.len);
@@ -553,6 +591,7 @@ static bool ensure_backend(tui *t) {
 }
 
 static void after_turn(tui *t) {
+    t->background_armed = false;
     tui_bol(t);
     tui_write(t, "\n", 1);
     t->gap = 0;
@@ -801,9 +840,11 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     signal(SIGPIPE, SIG_IGN);
 
     tui_hist_load(&t);
-    banner(&t);
+    if (!g->agents_dashboard) banner(&t);
 
-    if (session_id) {
+    if (g->agents_dashboard) {
+        tui_agents_open(&t);
+    } else if (session_id) {
         t.session = session_open(ctx, session_id);
         if (t.session) {
             char task_err[192];
@@ -829,10 +870,22 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     /* warm the provider's host now — after the session is open, so a resumed
      * session's host pointer rides along and the first prompt starts
      * instantly; a failure stays silent and resurfaces on the lazy path */
-    if (!t.quit) tui_prewarm_start(&t);
+    if (!t.quit && !t.agents_dashboard) {
+        bool checkpoint = t.session && yyjson_mut_obj_get(yyjson_mut_doc_get_root(t.session->doc),
+                                                          "continuation");
+        if (checkpoint) {
+            if (!tui_runner_mode(&t))
+                tui_err(&t, "checkpoint recovery requires a native session runner");
+            else if (tui_runner_ensure(&t, false) == 0) {
+                t.turn_active = true;
+                t.background_view = true;
+            }
+        } else tui_prewarm_start(&t);
+    }
 
     t.dirty = true;
     while (!t.quit) {
+        if (t.agents_dashboard && monotonic_ms() >= t.agents_refresh) tui_agents_refresh(&t);
         tui_render(&t);
 
         struct pollfd fds[2 * TNY_BACKEND_POLLFD_MAX + 2];
@@ -918,7 +971,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         tny_engine_cancel(t.engine);
         drain_engine_events(&t);
     }
-    if (t.turn_active && t.rc && !tui_runner_stop(&t, false)) t.exit_code = 1;
+    if (t.turn_active && t.rc && !t.background_view && !tui_runner_stop(&t, false)) t.exit_code = 1;
     tui_raw_begin(&t);
     fflush(stdout);
     if (!t.worktree) term_restore();
@@ -930,13 +983,14 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     if (t.engine) tny_engine_end_session(t.engine, "exit");
     tui_drop_backend(&t);
     if (t.session) {
-        if (!had_runner) session_save(t.session);
+        if (!had_runner && !t.background_view && t.session->lock_fd >= 0) session_save(t.session);
         session_close(t.session);
     }
     mcp_shutdown_all();
     bool stopped = !t.worktree || tui_worktree_wait_runner(runner_pid);
     tui_worktree_finish(&t, stopped);
     term_restore();
+    session_meta_free(t.agents, t.n_agents);
     perm_free(t.perm);
     tui_items_clear(&t);
     tui_files_free(&t);

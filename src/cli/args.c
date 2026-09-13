@@ -147,6 +147,10 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         ctx->extra_dirs[ctx->n_extra_dirs++] = abs;
     }
 
+    /* Dashboard entry applies local controls without starting or selecting
+     * an unrelated provider. Selection resolves the stored row lazily. */
+    if (g->agents_dashboard) return ctx;
+
     if (tny_resolve_backend(ctx, g->backend) < 0) {
         tny_ctx_free(ctx);
         return NULL;

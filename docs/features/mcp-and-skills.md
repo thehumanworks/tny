@@ -140,12 +140,17 @@ recogniser.
 
 ### Web search providers
 
-tny ships no search engine. `web_search` is **advertised to the model only
-when `~/.tny/settings.json` names a provider** ([ADR
-0055](../adr/0055-web-search-gating-and-command-provider.md)); without one the
-tool is absent from the native loop's tools array, so the model never burns a
-call to learn there is no provider. A direct call (SDK, `--json` replay) still
-gets the runtime error `no web search provider configured`.
+The builtin Codex ChatGPT Responses profile uses hosted `web_search` with live
+web access; its search items and clickable citations persist across follow-ups.
+A shadowing settings provider named codex does not inherit that capability.
+Other native providers, including Grok, use DuckDuckGo by default. Shell tool
+profiles expose `tny web search "QUERY"` and `tny web fetch URL` through the
+terminal tool's in-process first-party command handling.
+
+Explicit search settings take precedence over hosted search and the fallback
+([ADR 0106](../adr/0106-native-web-search-and-duckduckgo.md)). DuckDuckGo query
+encoding, response size and waits are bounded. Bot challenges, HTTP/transport
+errors and unrecognized result pages are errors, never fabricated empty results.
 
 | Key | Shape | Behaviour |
 | --- | --- | --- |
@@ -167,7 +172,8 @@ search phrase, if the command wants human-readable text. If both keys are set,
 }
 ```
 
-wasm: `web_search_url` works as before (fetch); `web_search_command` returns
+wasm: hosted search and URL/DuckDuckGo fetch use the shared HTTP seam (subject
+to endpoint CORS; a blocked request reports its transport error); `web_search_command` returns
 the clean error `web_search_command is not available in wasm`, while the tool
 stays advertised because a provider is configured.
 

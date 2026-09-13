@@ -151,7 +151,7 @@ static const char *SCHEMA_JSON =
     "text.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},"
     "\"required\":[\"url\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"web_search\",\"description\":\"Search the web "
-    "(requires a configured search "
+    "(DuckDuckGo fallback, or the configured search "
     "provider).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":"
     "\"string\"}},\"required\":[\"query\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"memory\",\"description\":\"Persist or recall "
@@ -231,9 +231,12 @@ static const char *SCHEMA_JSON =
     "successful manifest or job/item artifact without generating or "
     "converting.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"manifest\":{\"type\":"
     "\"string\"},\"job\":{\"type\":\"string\",\"pattern\":\"^[0-9a-f]{32}$\"},\"item\":{\"type\":"
-    "\"integer\",\"minimum\":0,\"maximum\":63}},\"oneOf\":[{\"required\":[\"manifest\"],\"not\":{"
-    "\"anyOf\":[{\"required\":[\"job\"]},{\"required\":[\"item\"]}]}},{\"required\":[\"job\","
-    "\"item\"],\"not\":{\"required\":[\"manifest\"]}}],\"additionalProperties\":false}}},"
+    "\"integer\",\"minimum\":0,\"maximum\":63}},\"oneOf\":[{\"type\":\"object\",\"required\":["
+    "\"manifest\"],\"not\":{\"type\":\"object\","
+    "\"anyOf\":[{\"type\":\"object\",\"required\":[\"job\"]},{\"type\":\"object\",\"required\":["
+    "\"item\"]}]}},{\"type\":\"object\",\"required\":[\"job\","
+    "\"item\"],\"not\":{\"type\":\"object\",\"required\":[\"manifest\"]}}],"
+    "\"additionalProperties\":false}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"image_generate\",\"description\":\"Generate "
     "an image from a prompt. Uses the selected image provider (codex default: ChatGPT allowance). "
     "Saves one image and returns metadata. "
@@ -428,7 +431,8 @@ static bool schema_tool_hidden(const tools_env *env, const char *name) {
     if (schema_tool_disabled(env, name)) return true;
     if (!env || !env->ctx || !name) return false;
     if (!profile_allows_builtin(env, name)) return true;
-    return strcmp(name, "web_search") == 0 && !tool_web_search_configured(env->ctx);
+    return strcmp(name, "web_search") == 0 &&
+           (!tool_web_search_configured(env->ctx) || tool_web_search_native(env->ctx));
 }
 
 static char *append_custom_schema(char *base, custom_tool_registry *registry) {
@@ -456,7 +460,8 @@ static char *append_custom_schema(char *base, custom_tool_registry *registry) {
 char *tools_schema_json(tools_env *env) {
     if (env && env->ctx &&
         (env->ctx->prompt_optimisation || env->ctx->mcp_disabled || env->ctx->library_mode ||
-         env->ctx->tool_profile != TNY_TOOLS_ALL || !tool_web_search_configured(env->ctx) ||
+         env->ctx->tool_profile != TNY_TOOLS_ALL ||
+         (!tool_web_search_configured(env->ctx) || tool_web_search_native(env->ctx)) ||
          !tny_speech_available(env->ctx, NULL, true, NULL, 0) || env->ctx->ssh_host ||
          !tny_image_capabilities(env->ctx, false, NULL) || !tny_image_export_supported() ||
          tny_image_input_refused(env->ctx))) {

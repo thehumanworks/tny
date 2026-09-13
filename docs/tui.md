@@ -96,7 +96,8 @@ This prevents local project instructions from crossing into the remote workspace
 | Ctrl-V | paste a clipboard image path (or text) |
 | Ctrl-R | record dictation; Enter/Ctrl-R transcribes into the editable draft; Esc/Ctrl-C cancels |
 | Ctrl-O | optimise the typed/dictated draft using an independent model; review before Enter submits |
-| Ctrl-X | subagent manager (native loop) |
+| Left during an active turn with an empty composer | arm backgrounding after the next completed tool boundary is saved; nonempty drafts and idle/focused inputs still edit |
+| Ctrl-X / `/agents` | background-session dashboard (during an active foreground turn, arms handoff) |
 
 `/optimise PROMPT` also rewrites the draft; `--model MODEL` and
 `--provider NAME` before the prompt override its configured defaults.
@@ -118,6 +119,21 @@ stop it with `tny session stop <id> --kill`. See
 Typing while a turn runs never writes a note into the transcript: a steered message is echoed as `› text steer`, a queued one sits in a dim `queued (n): …` row above the status row until the turn ends and it is sent through the normal prompt path. Queued messages are dropped (with a one-line note) when the turn is interrupted or fails.
 
 Menus are **transient overlays** ([ADR 0003](adr/0003-transient-menu-overlay.md)): the palette and `/help` draw inside the redrawn bottom block, esc hides them, and the next submit clears them — they never enter the scrollback. Without a tty, menu output degrades to plain transcript lines.
+
+The background dashboard also opens directly with `tny agents`, without provider
+prewarm. Up/Down selects running, completed or stale background sessions; Enter
+reattaches to a live turn as its owner, without another prompt. `/agents` returns
+to the list. A live owner elsewhere refuses reattachment. Quit from this view
+or the dashboard detaches; Ctrl-C still cancels explicitly. Handoff-origin pending
+permissions retain the runner's mode and wait for an owner (five-minute bound).
+A no-tool turn finishes before opening the list. Handoff requires a saved native
+runner; host, wasm, ephemeral and in-process turns report an explicit error.
+[ADR 0107](adr/0107-tool-boundary-restart-and-agents-dashboard.md) defines the
+checkpoint and fresh-process boundary.
+[ADR 0108](adr/0108-checkpoint-recovery-and-hosted-tool-boundaries.md) adds safe
+unconsumed-checkpoint recovery and hosted search boundaries. A hosted search waits
+for its provider response to finish, then checkpoints before the first local tool.
+`/agents` and Ctrl-X detach immediately from a background view without restarting it.
 
 ## Slash commands (v1)
 

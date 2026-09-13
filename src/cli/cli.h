@@ -27,14 +27,15 @@ typedef struct {
     bool fast;                            /* --fast (providers with TNY_CAP_FAST) */
     const char **add_dirs;                /* --add-dir, repeatable */
     int n_add_dirs;
-    bool json;           /* --json */
-    const char *color;   /* --color auto|always|never (--no-color = never) */
-    const char *ssh;     /* --ssh user@host[:port] */
-    const char *ssh_cwd; /* --ssh-cwd DIR (remote) */
-    bool ephemeral;      /* --ephemeral | --no-save */
-    bool resume_picker;  /* -r */
-    bool resume_last;    /* -c / --continue */
-    const char *resume;  /* --resume value */
+    bool json;             /* --json */
+    const char *color;     /* --color auto|always|never (--no-color = never) */
+    const char *ssh;       /* --ssh user@host[:port] */
+    const char *ssh_cwd;   /* --ssh-cwd DIR (remote) */
+    bool ephemeral;        /* --ephemeral | --no-save */
+    bool agents_dashboard; /* tny agents entry; no prewarm */
+    bool resume_picker;    /* -r */
+    bool resume_last;      /* -c / --continue */
+    const char *resume;    /* --resume value */
     /* backend-specific */
     const char *bridge_bin;
     const char *xai_api_key;        /* --xai-api-key: dictation only */
@@ -113,6 +114,8 @@ int cmd_task(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_logout(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_acp_server(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+int cmd_agents(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+int cmd_web(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_tui(tny_ctx *ctx, const cli_globals *g);
 /* Interactive shell starting on an existing session (NULL = picker/new). */
 int cmd_tui_resume(tny_ctx *ctx, const cli_globals *g, const char *session_id);
