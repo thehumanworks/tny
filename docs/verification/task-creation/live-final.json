@@ -1,0 +1,93 @@
+{
+  "provider": "aiproxy",
+  "model": "grok-4.6",
+  "effort": "xhigh",
+  "tool_profile": "terminal",
+  "binary": "/Users/tomas/projects/tny-task-creation/build/tny",
+  "workspace": "/tmp/tny-task-creation-final-live-536o3sws",
+  "creation_prompt": "Create a reusable tny task named project-summary. Its workflow must read NOTES.md from the workspace and return exactly one line in this format: PROJECT: <text of the first Markdown heading> | ITEMS: <number of dash-prefixed list items>. The workflow must not edit project files. Create the task now, but do not execute its workflow. Preserve all existing files and tasks. Use the tny CLI on PATH to validate the saved task. Work in this workspace only; do not use subagents or change global configuration.",
+  "execution_prompt": "Summarize the project notes.",
+  "creator_session": "d50e8ddd84c4dae5",
+  "executor_session": "1882ea42cf1b520a",
+  "creator_task": {
+    "name": "task-creation",
+    "source": "builtin",
+    "digest": "edda7d090f600acf43db580bf321bf8fdd9ec50b"
+  },
+  "executor_task": {
+    "name": "project-summary",
+    "source": "project",
+    "digest": "816bb77eba4bd01ce1aa1e97871c65c3c5ff4423"
+  },
+  "creator_status": "done",
+  "creator_exit_code": 0,
+  "executor_status": "done",
+  "executor_exit_code": 0,
+  "creator_output": "I'll inspect the workspace task layout and existing `project-summary` definitions before writing the preset.I'll inspect an existing task file for format, then write `project-summary` without touching other files.Writing the project-scoped task file, then validating it with the tny CLI.Saved `/private/tmp/tny-task-creation-final-live-536o3sws/.tny/tasks/project-summary.md`. It is a project-scoped preset that reads `NOTES.md` and replies with one `PROJECT: \u2026 | ITEMS: \u2026` line, without editing files. The workflow was not run.\n\n| Work completed | Checks and results | Blockers |\n| --- | --- | --- |\n| Wrote `project-summary` (name + description frontmatter) | `tny --json task show project-summary`: name `project-summary`, source `project`, body matches, not shadowed | None |\n| Left `keep-existing.md`, `KEEP.txt`, and `NOTES.md` unchanged | `tny --json tasks`: `project-summary` `valid: true`, `keep-existing` still project/valid | |\n\nInvoke in a new session:\n\n`tny --cwd /private/tmp/tny-task-creation-final-live-536o3sws --task project-summary ask \"Summarize NOTES.md\"`",
+  "executor_combined_output": "I'll read NOTES.md and extract the first heading plus dash-prefixed list count.PROJECT: Observatory | ITEMS: 3",
+  "executor_final_message": {
+    "role": "assistant",
+    "content": "PROJECT: Observatory | ITEMS: 3"
+  },
+  "executor_messages": [
+    {
+      "role": "user",
+      "content": "Summarize the project notes."
+    },
+    {
+      "role": "assistant",
+      "content": "I'll read NOTES.md and extract the first heading plus dash-prefixed list count.",
+      "tool_calls": [
+        {
+          "id": "call-b209a6cc-2800-4481-8f1d-010e52a5b901-0",
+          "type": "function",
+          "function": {
+            "name": "terminal",
+            "arguments": "{\"command\":\"cat NOTES.md\"}"
+          }
+        }
+      ],
+      "reasoning_items": [
+        {
+          "type": "reasoning",
+          "id": "rs_7abf266c-9464-939d-a079-536fdff1de35",
+          "summary": [
+            {
+              "text": "The user wants me to summarize the project notes based on a specific task preset. Let me follow the instructions carefully.\n",
+              "type": "summary_text"
+            }
+          ],
+          "encrypted_content": "Pi3D762riYvI/P8uUKdSt88wAE7V5SrNvUDutU3IUATIFWLIjklrq6+62ZbcbXDoQ3zqw2Y99o413oZc1NwMgMG9yaLMtsQ4+Z6oO8KzmUCBUa9Anwrk4RIQpcEut3/zoX4vLeO4Qbf2iLYxfW1Wh+T4FRPOj2s84SH9ijkLpqmfvXf8Fcktp9ME6m1BsY25zxbefx80yWYARs/L67ejWFdReBKmIsiwfz1WFy7vOb0eKQXPS9dvDCljglShU1w3l4RtFZLbxvqS3uctaX3k/Vn+xrKPUNh37KH7CczZrD52VMRmbPmQNAcVLgLkQ1Q27sKt60p7v3ICYU7r8JrBHPUbuyZycyyK5zB/dlkQu1u2t8fQiXBMXj960wB7G5Gy1c2D6GNqcFrIHBdSFtuujX/UUt7dtO0TmMnsss0AdFr64YEMCxe+O7/E+Ded9FWbRuXAkLIb0UIgfYM3VFtJ0/xUZ2/4YQME15Eu9lhyBBXQBpmobfh8q2z61rnYO8Yiy9qFV69qrsg34DK033huDbcKh5uw8q3TW5HLIkN0jBnCXq5RNRr5a1cxkLi6Iy08EvtiGY9PpMCX1elsJFN8B731Pb1Pxc7ug7kpn2HqTT2/u8j4XLtNqzd/ul2Ums6De6KwPhgboALZZsnP4L34MPkyPWJi/e4FVCpXotPxKx9ZozEYRj82hhrYxHxSdCKdBcvLZNViFch+gbbHTgSybxSTOzkjT9+3/7fujlU1/QG/VLfcUElkX2uh32PrhwAOhcqdCHeaJApbubZJQn4l1YLtuK2pSUVJE2ZCBul5vqgmJz9hHLfcvJEXPNvBBTxtEX7hqDOyrGJEgJp5aM0hhtXyZ89qXc4b8hxFbaMIxVByD1iBXz1pm/v65OvW"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call-b209a6cc-2800-4481-8f1d-010e52a5b901-0",
+      "content": "exit: 0\nbytes: 44\ncwd: /private/tmp/tny-task-creation-final-live-536o3sws\n# Observatory\n\n- sensor\n- transit\n- horizon\n"
+    },
+    {
+      "role": "assistant",
+      "content": "PROJECT: Observatory | ITEMS: 3"
+    }
+  ],
+  "created_file": "---\nname: project-summary\ndescription: Summarize NOTES.md as one PROJECT/ITEMS line\n---\n\nRead NOTES.md in the workspace. Do not edit, create, or delete any project files.\n\nFrom NOTES.md:\n1. Take the first Markdown heading. Use only its visible text: strip the leading hash marks and surrounding whitespace.\n2. Count dash-prefixed list items. A dash-prefixed list item is a line whose first non-whitespace character is `-`.\n\nReply with exactly one line and no other text:\n\nPROJECT: <text of the first Markdown heading> | ITEMS: <number of dash-prefixed list items>\n",
+  "resolved_task": {
+    "kind": "task",
+    "name": "project-summary",
+    "source": "project",
+    "digest": "816bb77eba4bd01ce1aa1e97871c65c3c5ff4423",
+    "description": "Summarize NOTES.md as one PROJECT/ITEMS line",
+    "instructions": "Read NOTES.md in the workspace. Do not edit, create, or delete any project files.\n\nFrom NOTES.md:\n1. Take the first Markdown heading. Use only its visible text: strip the leading hash marks and surrounding whitespace.\n2. Count dash-prefixed list items. A dash-prefixed list item is a line whose first non-whitespace character is `-`.\n\nReply with exactly one line and no other text:\n\nPROJECT: <text of the first Markdown heading> | ITEMS: <number of dash-prefixed list items>\n"
+  },
+  "listed_task": {
+    "name": "project-summary",
+    "source": "project",
+    "description": "Summarize NOTES.md as one PROJECT/ITEMS line",
+    "valid": true
+  },
+  "sentinels_unchanged": true,
+  "created_file_unchanged_after_execution": true,
+  "oracle": "The final assistant message exactly matches the task output, and a real tool result contains the fixture notes. result.output aggregates earlier progress narration and is not the final-message boundary.",
+  "verdict": "PASS"
+}

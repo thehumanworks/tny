@@ -48,7 +48,7 @@ const runtime = await Runtime.create({
   baseUrl: "https://api.openai.com/v1",
   apiKey: process.env.OPENAI_API_KEY,
   permissionMode: "ask",
-  taskPreset: "review", // built-ins: review, optimizer, document, retro
+  taskPreset: "review", // built-ins: review, optimizer, document, retro, task-creation
 });
 
 const session = await runtime.createSession();

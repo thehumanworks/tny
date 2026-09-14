@@ -1,0 +1,9 @@
+{
+  "result": "PASS",
+  "baseline": "fb232e8002b1ba18bfdf12ed723146e0ac1295ab",
+  "binary": "/tmp/tny-task-creation-baseline-pl_zn6r7/tny",
+  "construction": "Original tasks.c and help.c from git, linked with unchanged release objects; original test function from git; all other runtime sources and build inputs unchanged.",
+  "command": "check_stream_interruption(env, ws, responses) from original test_openai.py",
+  "seconds": 8.94,
+  "environment": "TNY_TOOLS removed inside Python before spawning tny"
+}

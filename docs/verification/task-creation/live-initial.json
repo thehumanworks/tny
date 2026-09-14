@@ -1,0 +1,14 @@
+{
+  "creator": {
+    "provider": "aiproxy",
+    "model": "grok-4.6",
+    "output": "I'll inspect the workspace and existing tny tasks first, then write `project-summary` without running it.There's already a task file; I'll inspect it and the destination path before writing `project-summary`.I'll check an existing task's format, then write `project-summary` without touching other files.Writing the project-level task file, leaving existing tasks and fixtures untouched.Validating the saved task with the tny CLI and confirming other files are unchanged.Saved `/private/tmp/tny-task-creation-live-5jzzkj4u/.tny/tasks/project-summary.md`. It tells the agent to read `NOTES.md` and reply with exactly `PROJECT: <first heading text> | ITEMS: <dash-list count>`, without editing files. The workflow was not run.\n\n| Work completed | Checks and results | Blockers |\n|---|---|---|\n| Created project task `project-summary` | `tny task show project-summary`: name `project-summary`, source `project`, valid body | None |\n| Left `keep-existing`, `NOTES.md`, `KEEP.txt` unchanged | `tny tasks`: `project-summary` valid; no higher-priority shadow | |\n\nUse it in a new session:\n\n`tny --cwd /private/tmp/tny-task-creation-live-5jzzkj4u --task project-summary ask \"Summarize this project from NOTES.md\"`"
+  },
+  "executor": {
+    "provider": "aiproxy",
+    "model": "grok-4.6",
+    "output": "PROJECT: Observatory | ITEMS: 3"
+  },
+  "created_file": "---\nname: project-summary\ndescription: Summarize NOTES.md as one PROJECT and ITEMS line\n---\n\nRead NOTES.md from the workspace. Do not create, edit, or delete any files.\n\nFrom NOTES.md, take the text of the first Markdown heading (the heading content without leading hash marks or surrounding whitespace). Count the dash-prefixed list items (lines whose first non-whitespace characters are `-` followed by a space, then item text).\n\nReply with exactly one line and nothing else:\n\nPROJECT: <text of the first Markdown heading> | ITEMS: <number of dash-prefixed list items>\n\nDo not add extra lines, commentary, or code fences.\n",
+  "status": "PASS; superseded by final run after browser wording correction"
+}

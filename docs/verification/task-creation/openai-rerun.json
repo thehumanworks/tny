@@ -1,0 +1,6 @@
+{
+  "command": "python3 tests/integration/test_openai.py (TNY_TOOLS removed after interpreter initialization)",
+  "exit_code": 0,
+  "seconds": 51.7,
+  "log": "/tmp/tny-task-creation-openai-rerun.log"
+}

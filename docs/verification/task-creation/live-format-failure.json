@@ -1,0 +1,16 @@
+{
+  "status": "done",
+  "exit_code": 0,
+  "provider": "aiproxy",
+  "model": "grok-4.6",
+  "task": {
+    "name": "project-summary",
+    "source": "project",
+    "digest": "816bb77eba4bd01ce1aa1e97871c65c3c5ff4423"
+  },
+  "output": "I'll read NOTES.md and extract the first heading plus dash-prefixed list count.PROJECT: Observatory | ITEMS: 3",
+  "expected": "PROJECT: Observatory | ITEMS: 3",
+  "validation": "FAIL: output also included progress narration",
+  "source": "final task-creation preset; unchanged generated project-summary task",
+  "session_id": "1882ea42cf1b520a"
+}

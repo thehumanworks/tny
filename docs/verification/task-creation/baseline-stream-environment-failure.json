@@ -1,0 +1,9 @@
+{
+  "result": "FAIL",
+  "seconds": 1.3,
+  "traceback": "Traceback (most recent call last):\n  File \"<stdin>\", line 26, in <module>\n  File \"/Users/tomas/projects/tny-task-creation/tests/integration/test_openai.py\", line 328, in check_stream_interruption\n    assert r.returncode == 2, f\"{wire}: exit {r.returncode}: {r.stderr.decode()}\"\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    assert (\n    ^^^^^^^^\n        b\"provider rejected the request (HTTP 400, invalid_request_error)\"\n        ^\nAssertionError: ('responses', 'clean', {'output': 'The workspace contains 1 entries. MOCK-OK. tier=unset', 'exit_code': 0, 'provider': 'openai', 'model': 'default', 'session_id': '', 'ephemeral': True, 'task': None, 'steps': 2, 'tool_calls': [{'name': 'list_files', 'status': 'error'}, {'name': 'glob_files', 'status': 'error'}], 'usage': {'input_tokens': 300, 'output_tokens': 30, 'requests': 2, 'cached_input_tokens': None, 'uncached_input_tokens': None, 'cache_write_tokens': None}, 'extension_messages': []})\n",
+  "baseline": "fb232e8002b1ba18bfdf12ed723146e0ac1295ab",
+  "binary": "/tmp/tny-task-creation-baseline-pl_zn6r7/tny",
+  "construction": "Original tasks.c and help.c from git, linked with unchanged release objects; original test function from git; all other runtime sources and build inputs unchanged.",
+  "command": "check_stream_interruption(env, ws, responses) from original test_openai.py"
+}

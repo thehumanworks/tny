@@ -186,7 +186,7 @@ skill is a prompt, sent with that `SKILL.md` ahead of the text ([ADR
 does the same. Builtins always win on a name collision.
 
 `/task` lists available runtime presets and selects `review`, `optimizer`,
-`document`, `retro`, or a custom name. Selection is session-scoped: it must be
+`document`, `retro`, `task-creation`, or a custom name. Selection is session-scoped: it must be
 made before the first turn; after a turn or on a resumed host conversation,
 changing or clearing the task is rejected. `/new` starts a fresh session.
 On resume, tny restores the saved task snapshot when no task was explicitly

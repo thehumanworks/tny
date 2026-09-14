@@ -606,7 +606,7 @@ tny login | logout | setup</code></pre>
 <pre><code>tny --provider cursor|acp|openai|codex|claude|grok [command]
 tny --cwd DIR
 tny --model ID
-tny --task NAME             # runtime preset: review|optimizer|document|retro
+tny --task NAME             # runtime preset: review|optimizer|document|retro|task-creation
 tny --add-dir DIR           # repeatable, process-only
 tny --permission-mode ask|auto|yolo   # default: yolo
 tny --json                  # where listed
@@ -614,7 +614,8 @@ tny -r                      # session picker (TUI)
 tny -c                      # resume last for this workspace</code></pre>
 <h2 id="task-presets">Runtime task presets</h2>
 <p><code>--task NAME</code> selects one of the built-ins <code>review</code>,
-<code>optimizer</code>, <code>document</code>, or <code>retro</code>, or a custom
+<code>optimizer</code>, <code>document</code>, <code>retro</code>, or
+<code>task-creation</code>, or a custom
 Markdown file at <code>.tny/tasks/NAME.md</code> (project) or
 <code>~/.tny/tasks/NAME.md</code> (user). Project definitions win. Files may
 use only <code>name:</code> and <code>description:</code> frontmatter and a
@@ -630,6 +631,11 @@ description: Review release-readiness risks
 Inspect correctness, compatibility, rollback, and test coverage.
 TASK
 tny --task release-review ask "Review this release"</code></pre>
+<p>Ask the bundled authoring preset to create a reusable task. It defaults to
+<code>.tny/tasks/NAME.md</code>, validates the result when CLI access is available,
+and gives you a new invocation without automatically executing the task.</p>
+<pre><code>tny --task task-creation ask "Create a task named release-review for reviewing releases"
+tny task show release-review</code></pre>
 <h2 id="cursor-management">Cursor management</h2>
 <p><code>tny cursor</code> starts a short-lived v1.0.30 bridge and exposes the complete public management surface. Create/resume/send preserve trusted <code>settings.cursor</code> local/cloud options. Downloads stream decoded artifact bytes with a strict 8 MiB cap; delete requires <code>--yes</code>.</p>
 <pre><code>tny cursor ping | version | me | models | repositories
@@ -729,7 +735,7 @@ tny_result implement</code></pre>
 <p>Each task starts in its own process group using <code>setsid</code>, or Perl with <code>POSIX::setsid</code> on macOS, so cancellation can terminate descendants and escalate to <code>KILL</code> after a bounded grace period.</p>
 <p>Inspect with <code>tny_status NAME</code>, <code>tny_result NAME</code>, <code>tny_result_path NAME</code>, <code>tny_stderr NAME</code>, and <code>tny_workflow_report</code>.</p>
 <h2 id="task-types">Runtime task presets</h2>
-<p>A task preset is reusable runtime configuration: system-level instructions that describe how an agent should approach a workflow node, while the task prompt remains the concrete job. The workflow helper passes <code>--task NAME</code> directly to <code>tny</code>, so the CLI, TUI, SDKs, and shell use the same definitions. Built-ins are <code>review</code>, <code>optimizer</code>, <code>document</code>, and <code>retro</code>.</p>
+<p>A task preset is reusable runtime configuration: system-level instructions that describe how an agent should approach a workflow node, while the task prompt remains the concrete job. The workflow helper passes <code>--task NAME</code> directly to <code>tny</code>, so the CLI, TUI, SDKs, and shell use the same definitions. Built-ins are <code>review</code>, <code>optimizer</code>, <code>document</code>, <code>retro</code>, and <code>task-creation</code>.</p>
 <pre><code>tny_task review-change --task review -- "Review the current diff"
 tny_task optimize --task optimizer --after review-change -- "Optimize accepted findings"
 tny_task docs --task document --after optimize -- "Document final behavior"

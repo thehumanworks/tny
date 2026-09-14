@@ -282,6 +282,7 @@ printf '%s\n' "$types" | grep -F "review" > /dev/null || fail "review task type 
 printf '%s\n' "$types" | grep -F "optimizer" > /dev/null || fail "optimizer task type missing"
 printf '%s\n' "$types" | grep -F "document" > /dev/null || fail "document task type missing"
 printf '%s\n' "$types" | grep -F "retro" > /dev/null || fail "retro task type missing"
+printf '%s\n' "$types" | grep -F "task-creation" > /dev/null || fail "task-creation task type missing"
 tny_task_type security --stdin << 'TYPE'
 Act as a repository security reviewer. Verify trust boundaries and report concrete risks.
 TYPE

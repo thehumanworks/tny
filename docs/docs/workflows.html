@@ -77,7 +77,7 @@ tny_result implement</code></pre>
 <p>Each task starts in its own process group using <code>setsid</code>, or Perl with <code>POSIX::setsid</code> on macOS, so cancellation can terminate descendants and escalate to <code>KILL</code> after a bounded grace period.</p>
 <p>Inspect with <code>tny_status NAME</code>, <code>tny_result NAME</code>, <code>tny_result_path NAME</code>, <code>tny_stderr NAME</code>, and <code>tny_workflow_report</code>.</p>
 <h2 id="task-types">Runtime task presets</h2>
-<p>A task preset is reusable runtime configuration: system-level instructions that describe how an agent should approach a workflow node, while the task prompt remains the concrete job. The workflow helper passes <code>--task NAME</code> directly to <code>tny</code>, so the CLI, TUI, SDKs, and shell use the same definitions. Built-ins are <code>review</code>, <code>optimizer</code>, <code>document</code>, and <code>retro</code>.</p>
+<p>A task preset is reusable runtime configuration: system-level instructions that describe how an agent should approach a workflow node, while the task prompt remains the concrete job. The workflow helper passes <code>--task NAME</code> directly to <code>tny</code>, so the CLI, TUI, SDKs, and shell use the same definitions. Built-ins are <code>review</code>, <code>optimizer</code>, <code>document</code>, <code>retro</code>, and <code>task-creation</code>.</p>
 <pre><code>tny_task review-change --task review -- "Review the current diff"
 tny_task optimize --task optimizer --after review-change -- "Optimize accepted findings"
 tny_task docs --task document --after optimize -- "Document final behavior"

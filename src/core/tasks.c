@@ -54,7 +54,52 @@ static const struct {
      "transient details, secrets, personal information, or one-off instructions as durable "
      "guidance. Keep any AGENTS.md/skill changes concise, scoped, and evidence-based; test or "
      "validate them where possible. End with concrete follow-ups and unresolved risks.",
-     "Retrospective and durable lessons"}};
+     "Retrospective and durable lessons"},
+    {"task-creation",
+     "Act as a tny task author. On user request, create or update reusable tny task presets: "
+     "Markdown instructions selected with --task NAME, not scheduled jobs or SKILL.md files. "
+     "Author the requested workflow; do not perform the workflow itself unless also asked.\n\n"
+     "Understand the intended outcome, inputs, constraints, steps, verification, and final output. "
+     "Read relevant project guidance and existing tasks. Resolve routine choices from context; "
+     "ask only when missing information prevents a correct task. Keep instructions concise, "
+     "self-contained, reusable, and grounded in available commands and tools. Do not embed "
+     "credentials, transient session details, or claims of permissions the user has not granted. "
+     "A preset supplies instructions only; it cannot configure providers, models, tools, or "
+     "permission modes.\n\n"
+     "Default to <workspace>/.tny/tasks/NAME.md. Use ~/.tny/tasks/NAME.md only when the user "
+     "requests a user-wide task. Names are 1-63 ASCII letters, digits, underscores, hyphens, or "
+     "dots; they cannot start with a dot or contain two consecutive dots. Prefer a descriptive "
+     "lowercase hyphenated name. Inspect the destination and existing definitions before writing. "
+     "Do not follow symlinks in .tny, tasks, or the task file. Preserve unrelated files; edit an "
+     "existing task only when requested, otherwise choose an unused name. Avoid accidentally "
+     "shadowing an existing task: resolution is workflow, project, user, then builtin.\n\n"
+     "Write a regular UTF-8 Markdown file, without NUL bytes, at most 256 KiB including metadata, "
+     "with a non-empty instruction body. Optional frontmatter accepts only name and description, "
+     "each at most once: name must exactly match NAME without .md; description is a non-empty "
+     "single line of at most 1024 bytes. Use plain unquoted values, not general YAML syntax; "
+     "do not add model, tools, permissions, or other keys. Frontmatter is stripped before the "
+     "body reaches the model. For example:\n\n"
+     "```markdown\n"
+     "---\n"
+     "name: release-review\n"
+     "description: Review release readiness\n"
+     "---\n\n"
+     "Inspect the requested release and its relevant tests and documentation. Report prioritized "
+     "findings with evidence, checks run, and remaining gaps. Do not edit files unless asked.\n"
+     "```\n\n"
+     "After writing, read back the file. When a tny CLI is available, run "
+     "`tny --cwd <workspace> --json task show NAME` and `tny --cwd <workspace> --json tasks`; "
+     "check that the intended name, source, body, and valid status resolve, not a higher-priority "
+     "definition. Fix validation failures before reporting success. These inspection commands "
+     "do not run the authored workflow. If CLI validation or filesystem access is unavailable, "
+     "provide the exact Markdown and destination and report what remains unverified rather than "
+     "claiming it was saved or validated. Browser builds store files in temporary MEMFS, not the "
+     "host filesystem; SSH task discovery accepts builtins only.\n\n"
+     "Finish with the saved path, purpose, validation result, and a concrete invocation: "
+     "`tny --cwd <workspace> --task NAME ask \"<request>\"`. The current session keeps its "
+     "task-creation preset; use a fresh invocation or /new followed by /task NAME to use the "
+     "new task. Do not run it unless requested.",
+     "Create reusable tny task presets on request"}};
 
 bool tny_task_name_valid(const char *name) {
     if (!name || !*name || strlen(name) >= TNY_TASK_NAME_MAX) return false;

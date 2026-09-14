@@ -1,0 +1,26 @@
+{
+  "arch": "aarch64 Linux",
+  "compiler": "Ubuntu GCC 13.3.0",
+  "image": "tny-verification:20260911 (644051009539)",
+  "source": "Final src/include/third_party/Makefile streamed into a new offline container; existing containers untouched",
+  "commands": [
+    "make -j4 release TNY_VERSION=1.0.0",
+    "readelf -lW build/tny",
+    "make size-check TNY_VERSION=1.0.0",
+    "tny --json task show task-creation"
+  ],
+  "binary_bytes": 986192,
+  "limit": 1048576,
+  "sha256": "4c1cfc6b758577dcb728047a0021853d5b7b02640c50e374accbd6274706c263",
+  "segments": [
+    "LOAD           0x000000 0x0000000000000000 0x0000000000000000 0x0ed69c 0x0ed69c R E 0x10000",
+    "LOAD           0x0ee1c8 0x00000000000fe1c8 0x00000000000fe1c8 0x002258 0x008e78 RW  0x10000"
+  ],
+  "runtime": {
+    "name": "task-creation",
+    "source": "builtin",
+    "digest": "edda7d090f600acf43db580bf321bf8fdd9ec50b",
+    "description": "Create reusable tny task presets on request"
+  },
+  "verdict": "PASS"
+}

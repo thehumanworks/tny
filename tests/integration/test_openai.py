@@ -35,6 +35,88 @@ def free_port():
     return port
 
 
+def check_task_creation(base_env, ws):
+    """Create a preset through the real tool loop, then select its saved body."""
+    shown = subprocess.run(
+        [TNY, "--cwd", ws, "--json", "task", "show", "task-creation"],
+        env=base_env,
+        capture_output=True,
+        timeout=10,
+    )
+    assert shown.returncode == 0, shown.stderr.decode()
+    creator = json.loads(shown.stdout)
+    assert creator["name"] == "task-creation", creator
+    assert creator["source"] == "builtin", creator
+    assert len(creator["digest"]) == 40, creator
+
+    for wire in ("responses", "chat"):
+        name = f"created-{wire}"
+        path = os.path.join(ws, ".tny", "tasks", f"{name}.md")
+        body = "Report the workspace files and any verification gaps.\n"
+        content = f"---\nname: {name}\ndescription: Created fixture\n---\n\n{body}"
+        for preset, instructions, tool, arguments in (
+            (
+                "task-creation",
+                creator["instructions"],
+                "write_file",
+                {"path": path, "content": content},
+            ),
+            (name, body, "list_files", {"path": "."}),
+        ):
+            port = free_port()
+            mock = subprocess.Popen(
+                [sys.executable, MOCK, str(port)],
+                env=dict(
+                    os.environ,
+                    MOCK_EXPECT_WIRE=wire,
+                    MOCK_EXPECT_INSTRUCTIONS=f"# Task preset: {preset}\n{instructions}",
+                    MOCK_CUSTOM_TOOL=tool,
+                    MOCK_CUSTOM_ARGUMENTS=json.dumps(arguments),
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                line = mock.stdout.readline().decode()
+                assert "ready" in line, line
+                result = subprocess.run(
+                    [TNY, "--cwd", ws, "--task", preset, "ask", "--json", "fixture"],
+                    env=dict(
+                        base_env,
+                        TNY_TOOLS="all",
+                        OPENAI_WIRE_API=wire,
+                        OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1",
+                    ),
+                    capture_output=True,
+                    timeout=30,
+                )
+                assert result.returncode == 0, result.stderr.decode()
+                output = json.loads(result.stdout)
+                assert "MOCK-OK" in output["output"], output
+                assert output["task"]["name"] == preset, output
+                assert output["task"]["source"] == (
+                    "builtin" if preset == "task-creation" else "project"
+                ), output
+                assert os.path.isfile(path) and not os.path.islink(path), path
+                with open(path, encoding="utf-8") as saved:
+                    assert saved.read() == content
+                parsed = subprocess.run(
+                    [TNY, "--cwd", ws, "--json", "task", "show", name],
+                    env=base_env,
+                    capture_output=True,
+                    timeout=10,
+                )
+                assert parsed.returncode == 0, parsed.stderr.decode()
+                resolved = json.loads(parsed.stdout)
+                assert resolved["source"] == "project", resolved
+                assert resolved["instructions"] == body, resolved
+                assert resolved["description"] == "Created fixture", resolved
+            finally:
+                mock.terminate()
+                mock.wait(timeout=5)
+        os.unlink(path)
+
+
 def check_tool_profile_wire(base_env, ws, wire):
     """Pin schema, enforcement, and prompt behavior on one OpenAI wire."""
     for profile in ("terminal", "terminal+edit", "all"):
@@ -603,6 +685,12 @@ def main():
                 "description": "Alpha project task",
                 "valid": True,
             }, alpha
+            creator = next(
+                item for item in task_items if item["name"] == "task-creation"
+            )
+            assert creator["source"] == "builtin" and creator["valid"], creator
+            assert creator["description"], creator
+            assert "instructions" not in creator, creator
             shown = subprocess.run(
                 [TNY, "--cwd", ws, "task", "show", "alpha", "--json"],
                 env=env,
@@ -633,6 +721,7 @@ def main():
             )
             assert extra.returncode == 1, extra
             assert b"Usage: tny [--json] tasks" in extra.stderr, extra.stderr
+            check_task_creation(env, ws)
             os.unlink(os.path.join(task_dir, "alpha.md"))
             os.rmdir(task_dir)
             os.rmdir(os.path.join(ws, ".tny"))

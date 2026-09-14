@@ -158,6 +158,34 @@ Report prioritized findings; do not edit unless explicitly asked.
 Save it as `.tny/tasks/release-review.md`, then run
 `tny --task release-review ask "Review this release"`.
 
+The bundled `task-creation` preset lets an agent author tasks for you:
+
+```sh
+tny --task task-creation ask "Create a task named release-review for reviewing release readiness"
+# With a specific provider and model:
+tny --provider aiproxy --model grok-4.6 --task task-creation ask \
+  "Create a task named release-review for reviewing release readiness"
+tny task show release-review
+tny --task release-review ask "Review this release"
+```
+
+In the TUI, select `/task task-creation` in a fresh session, then describe the
+task you want. The preset guides the agent to create `.tny/tasks/NAME.md` in the
+workspace, or `~/.tny/tasks/NAME.md` when you request a user-wide task, and to
+validate its resolved contents with `tny task show` and `tny tasks`. It explains
+the supported format and asks the agent to preserve existing definitions and
+avoid accidental shadowing. These are authoring instructions subject to the
+selected model and normal tool permissions; they do not add a new write API
+or grant authority. The authored workflow runs only when requested. Start a
+new invocation, or `/new` followed by `/task NAME`, to use it.
+
+When filesystem or CLI access is unavailable, the agent can provide the exact
+Markdown to save and identify the unverified steps. Browser files are
+temporary MEMFS files, not persistent host tasks; Node wasm uses the host
+filesystem. Over SSH, custom task discovery remains unavailable. See
+[ADR 0112](adr/0112-bundled-task-creation.md) and the filesystem clarification in
+[ADR 0113](adr/0113-task-creation-filesystem-clarification.md).
+
 The resolved instruction body travels with the request itself, so the model
 adopts the preset without spending tool calls to locate or read the file. The
 native openai-compatible loop carries it in the system prompt, after tny's
