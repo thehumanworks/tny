@@ -1,0 +1,163 @@
+{
+  "source_commit": "1857b70040ead4bca7681689a4c18ba27a99ed14",
+  "checks": [
+    {
+      "name": "quality",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330799/job/104170945941"
+    },
+    {
+      "name": "nix-linux-x86_64",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330641/job/104170944205"
+    },
+    {
+      "name": "synthetic SDK release aggregation",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330644/job/104170944434"
+    },
+    {
+      "name": "snapshot",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330692/job/104170944049"
+    },
+    {
+      "name": "nix-linux-aarch64",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330641/job/104170944266"
+    },
+    {
+      "name": "nix-darwin-arm64",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330641/job/104170943804"
+    },
+    {
+      "name": "valgrind",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330799/job/104170945961"
+    },
+    {
+      "name": "python-linux-x64-3.10",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330644/job/104170944331"
+    },
+    {
+      "name": "python-linux-x64-3.12",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330644/job/104170944431"
+    },
+    {
+      "name": "python-linux-x64-3.14",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330644/job/104170944520"
+    },
+    {
+      "name": "python-linux-arm64-3.14",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330644/job/104170944560"
+    },
+    {
+      "name": "python-macos-arm64-3.14",
+      "status": "IN_PROGRESS",
+      "conclusion": "",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330644/job/104170944519"
+    },
+    {
+      "name": "linux-x86_64",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330799/job/104170945986"
+    },
+    {
+      "name": "node-linux-x64-20",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330644/job/104170944381"
+    },
+    {
+      "name": "linux-aarch64",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330799/job/104170946010"
+    },
+    {
+      "name": "node-linux-x64-26",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330644/job/104170944459"
+    },
+    {
+      "name": "darwin-arm64",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330799/job/104170946071"
+    },
+    {
+      "name": "node-linux-arm64-24",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330644/job/104170944158"
+    },
+    {
+      "name": "node-macos-arm64-24",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330644/job/104170944547"
+    },
+    {
+      "name": "linux-x86_64-musl",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330799/job/104170945724"
+    },
+    {
+      "name": "linux-aarch64-musl",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330799/job/104170945835"
+    },
+    {
+      "name": "windows-x86_64",
+      "status": "COMPLETED",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330799/job/104170945963"
+    },
+    {
+      "name": "wasm-node",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330799/job/104170945858"
+    },
+    {
+      "name": "linux-x86_64-tsan",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330799/job/104170946107"
+    },
+    {
+      "name": "linux-x86_64-fuzz",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330799/job/104170945948"
+    },
+    {
+      "name": "ci",
+      "status": "COMPLETED",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/thehumanworks/tny/actions/runs/34902330799/job/104177913815"
+    }
+  ],
+  "windows_initial_failure": "NativeMsysJobs.test_forged_metadata_pid_is_not_authority: empty stdout parsed as JSON in unchanged tests/integration/test_jobs.py status(). Windows build/size passed at 965632 bytes.",
+  "isolated_retry": "Initial rerun request was unavailable while the workflow was active. After it completed, gh run rerun 34902330799 --job 104170945963 was requested again; current state is read back at handoff."
+}
