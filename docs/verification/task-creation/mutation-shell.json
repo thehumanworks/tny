@@ -1,0 +1,35 @@
+{
+  "mutation": "M2: remove task-creation from shell builtin catalog in an isolated copy",
+  "test_script": "set -eu\nfail() { printf '%s\\n' \"$1\" >&2; return 1; }\n. \"$1\"\ntny_workflow_begin \"$2\" > /dev/null\ntrap 'tny_workflow_cleanup' EXIT\ntypes=$(tny_task_types)\nprintf '%s\\n' \"$types\" | grep -F \"task-creation\" > /dev/null || fail \"task-creation task type missing\"\n",
+  "source_assertion": "tests/shell/test_workflows.sh",
+  "runs": [
+    {
+      "shell": "bash",
+      "state": "baseline",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "shell": "bash",
+      "state": "mutant",
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "task-creation task type missing\n"
+    },
+    {
+      "shell": "zsh",
+      "state": "baseline",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "shell": "zsh",
+      "state": "mutant",
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "task-creation task type missing\n"
+    }
+  ]
+}

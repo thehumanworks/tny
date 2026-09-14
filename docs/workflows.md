@@ -139,7 +139,7 @@ task prompt describes *what* it should do. The workflow helper passes the
 selector through to `tny`, so the CLI, TUI, SDKs, and shell use the same
 definitions (issue [#81](https://github.com/thehumanworks/tny/issues/81)).
 
-Four built-ins are available:
+The following built-ins are available:
 
 | Type | Intended behavior |
 | --- | --- |
@@ -147,6 +147,7 @@ Four built-ins are available:
 | `optimizer` | Improve runtime/resource performance **and** algorithmic/implementation complexity, with measurement and behavior preservation |
 | `document` | Documentation expert that verifies implementation, examples, commands, links, and generated docs before writing |
 | `retro` | Retrospective analysis of the work/session; may update `AGENTS.md` or create/update a skill when a durable lesson or repeatable procedure justifies it |
+| `task-creation` | Author reusable tny task Markdown on request, validate it, and show how to use it |
 
 Use one with `--task`:
 

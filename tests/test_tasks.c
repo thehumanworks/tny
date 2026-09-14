@@ -102,6 +102,60 @@ TEST task_name_grammar_is_strict(void) {
     PASS();
 }
 
+TEST task_creation_builtin_and_example_are_usable(void) {
+    task_env env;
+    task_env_begin(&env);
+    tny_ctx *ctx = tny_ctx_new_explicit(env.workspace, env.root);
+    ASSERT(ctx);
+    ASSERT_EQ(TNY_TASK_OK, tny_task_apply(ctx, "task-creation"));
+    ASSERT_STR_EQ("builtin", ctx->task_source);
+    ASSERT_STR_EQ("task-creation", ctx->task_name);
+    ASSERT_EQ(TNY_TASK_DIGEST_HEX_LEN, strlen(ctx->task_digest));
+
+    tny_task_info *items = NULL;
+    size_t count = 0;
+    ASSERT_EQ(TNY_TASK_OK, tny_task_list(ctx, &items, &count));
+    const tny_task_info *creator = find_task(items, count, "task-creation");
+    ASSERT(creator);
+    ASSERT(creator->valid);
+    ASSERT_STR_EQ("builtin", creator->source);
+    ASSERT(creator->description && *creator->description);
+    tny_task_list_free(items, count);
+
+    /* Keep the shipped authoring example honest against the real parser. */
+    const char *example = strstr(ctx->task_instructions, "```markdown\n");
+    ASSERT(example);
+    example += strlen("```markdown\n");
+    const char *end = strstr(example, "```\n");
+    ASSERT(end);
+    char *path = custom_path(env.workspace, "release-review");
+    ASSERT_EQ(0, file_write_atomic(path, example, (size_t)(end - example)));
+    ASSERT_EQ(TNY_TASK_OK, tny_task_apply(ctx, "release-review"));
+    ASSERT_STR_EQ("project", ctx->task_source);
+    ASSERT(strstr(ctx->task_instructions, "Report prioritized findings with evidence"));
+    ASSERT_FALSE(strstr(ctx->task_instructions, "description:"));
+    ASSERT_EQ(TNY_TASK_OK, tny_task_list(ctx, &items, &count));
+    const tny_task_info *created = find_task(items, count, "release-review");
+    ASSERT(created && created->valid);
+    ASSERT_STR_EQ("Review release readiness", created->description);
+    tny_task_list_free(items, count);
+    unlink(path);
+    free(path);
+
+    /* The new builtin keeps the same override semantics as existing tasks. */
+    path = custom_path(env.workspace, "task-creation");
+    const char *override = "Follow the project's authoring conventions.\n";
+    ASSERT_EQ(0, file_write_atomic(path, override, strlen(override)));
+    ASSERT_EQ(TNY_TASK_OK, tny_task_apply(ctx, "task-creation"));
+    ASSERT_STR_EQ("project", ctx->task_source);
+    ASSERT_STR_EQ(override, ctx->task_instructions);
+    unlink(path);
+    free(path);
+    tny_ctx_free(ctx);
+    task_env_end(&env);
+    PASS();
+}
+
 TEST task_set_is_atomic_on_invalid_input(void) {
     tny_ctx ctx = {0};
     ASSERT_EQ(TNY_TASK_OK, tny_task_set_explicit(&ctx, "first", "keep me", "explicit"));
@@ -382,6 +436,7 @@ TEST task_listing_rejects_excessive_definition_count(void) {
 
 SUITE(tasks_suite) {
     RUN_TEST(task_name_grammar_is_strict);
+    RUN_TEST(task_creation_builtin_and_example_are_usable);
     RUN_TEST(task_set_is_atomic_on_invalid_input);
     RUN_TEST(task_frontmatter_is_stripped_and_described);
     RUN_TEST(task_precedence_and_sources_match_selection);

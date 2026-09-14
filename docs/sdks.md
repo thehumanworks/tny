@@ -21,7 +21,7 @@ snapshots—not platform guesses—govern supported behavior.
 Task presets are first-class runtime configuration in both adapters. Python
 uses `RuntimeConfig(task_preset=TaskPreset("review"))`; TypeScript accepts
 `Runtime.create({ workspace, taskPreset: "review" })`. Built-ins are `review`,
-`optimizer`, `document`, and `retro`; an explicit `{name, instructions}` form
+`optimizer`, `document`, `retro`, and `task-creation`; an explicit `{name, instructions}` form
 supplies custom instructions. SDK runtimes never perform ambient task-file
 discovery, preserving deterministic embedding.
 Task creation requires ABI minor 1; against an ABI 1.0 library both SDKs keep

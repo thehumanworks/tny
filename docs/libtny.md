@@ -156,7 +156,7 @@ ABI 1.1 embedders that need a named task use the additive `v2` options record:
 initialize `tny_runtime_options_v2` with `tny_runtime_options_v2_init`, fill its
 embedded base options, and set `task.name` before calling
 `tny_runtime_create_v2`. An empty `task.instructions` selects one of the
-built-ins (`review`, `optimizer`, `document`, or `retro`); a non-empty body is
+built-ins (`review`, `optimizer`, `document`, `retro`, or `task-creation`); a non-empty body is
 an explicit custom preset. This path never searches user or project files,
 which keeps embedded runtimes deterministic. The body is copied and is not
 included in ordinary status or diagnostic output. Existing v0/v1 callers and

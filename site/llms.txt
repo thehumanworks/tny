@@ -39,7 +39,9 @@ Leading flags: `--provider cursor|codex|acp|openai` (`--backend` alias), `--cwd`
 
 `tny ask` stdout is Markdown (or one JSON object with `--json`). Exit 0/1/2/130.
 
-Built-in task presets are `review`, `optimizer`, `document`, and `retro`.
+Built-in task presets are `review`, `optimizer`, `document`, `retro`, and `task-creation`.
+`tny --task task-creation ask "Create a task for reviewing releases"` authors
+a reusable project task and validates it without automatically running it.
 Resolution precedence is workflow-private `TNY_WORKFLOW_TASK_DIR` (when a
 workflow explicitly sets it), then project `.tny/tasks/NAME.md`, then user
 `~/.tny/tasks/NAME.md`, then the built-in. Markdown files accept only optional

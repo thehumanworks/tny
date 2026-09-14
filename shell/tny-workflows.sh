@@ -193,7 +193,7 @@ tny_task_type() {
 tny_task_types() {
     local name
     _tny_workflow_require_active || return
-    printf 'review\tbuiltin\noptimizer\tbuiltin\ndocument\tbuiltin\nretro\tbuiltin\n'
+    printf 'review\tbuiltin\noptimizer\tbuiltin\ndocument\tbuiltin\nretro\tbuiltin\ntask-creation\tbuiltin\n'
     if [ -d "$TNY_WORKFLOW_DIR/task-types" ]; then
         find "$TNY_WORKFLOW_DIR/task-types" -type f -maxdepth 1 -print 2> /dev/null | sort | while IFS= read -r name; do
             printf '%s\tcustom\n' "${name##*/}"
