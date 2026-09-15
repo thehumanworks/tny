@@ -1,0 +1,14 @@
+{
+  "command": "make test",
+  "environment": "TNY_TOOLS removed after Python/Mise startup before make",
+  "source_commit": "1857b70040ead4bca7681689a4c18ba27a99ed14",
+  "exit_code": 0,
+  "seconds": 1333.07,
+  "log": "/tmp/tny-task-creation-committed-test.log",
+  "unit_tests": 551,
+  "unit_assertions": 13689,
+  "integration_groups_passed": 67,
+  "binary_sha256": "5c9a5e70e9615e41ffcf74a3b26b928a67851fcef005217eacd3139149a0ae1e",
+  "binary_bytes": 1086288,
+  "version": "0.10.0-2-g1857b70"
+}

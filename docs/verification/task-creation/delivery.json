@@ -1,0 +1,18 @@
+{
+  "number": 135,
+  "url": "https://github.com/thehumanworks/tny/pull/135",
+  "state": "MERGED",
+  "isDraft": false,
+  "headRefName": "feat/bundled-task-creation",
+  "headRefOid": "1857b70040ead4bca7681689a4c18ba27a99ed14",
+  "baseRefName": "main",
+  "mergedAt": "2026-09-14T22:27:33Z",
+  "mergeCommit": {
+    "oid": "b0a4e6e0b4b0873ceab4769c7e698659f39eb540"
+  },
+  "original_remote_sha_verified": "1857b70040ead4bca7681689a4c18ba27a99ed14",
+  "remote_branch_after_merge": "deleted by the time of final readback; not recreated",
+  "verification_branch": "docs/task-creation-verification",
+  "verification_base": "c6a0bbf2bab94aa8c48e7a85b9ec248a4940843a",
+  "source_comparison": "All tested inputs unchanged after merge; only docs/assets/wasm/tny-web.wasm regenerated on main."
+}
