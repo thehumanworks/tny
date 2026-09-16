@@ -500,7 +500,12 @@ TARGETS = [
         "tests/integration/test_openai.py",
     ),
     # streamed tool_call assembly: parallel calls, gateway index reuse
-    ("src/backends/openai/toolcalls.c", None, None, "tests/integration/test_openai.py"),
+    (
+        "src/backends/openai/toolcalls.cpp",
+        None,
+        None,
+        "tests/integration/test_openai.py",
+    ),
     # --ssh remote tool runtime (docs/adr/0022): target parsing, the quoting
     # + stdin/timeout primitive, and every remote tool script
     ("src/core/ssh.c", ["ssh_target_set", "ssh_shell_quote", "ssh_run"], None),
@@ -808,13 +813,13 @@ TARGETS = [
     ("src/backends/openai/responses.c", None, None, "tests/integration/test_openai.py"),
     (
         "src/backends/openai/openai.c",
-        ["build_request_rsp", "on_sse_event_rsp", "rsp_call_by_index", "on_sse_event"],
+        ["build_request_rsp", "on_sse_event"],
         r"^(?!.*reasoning_)",
         "tests/integration/test_openai.py",
     ),
     # thinking deltas are dropped by `ask` (stderr noise); only the TUI
     # renders them, so these lines answer to the TUI suite
-    ("src/backends/openai/openai.c", ["on_sse_event_rsp"], r"reasoning_"),
+    ("src/backends/openai/events.cpp", ["response_event"], r"reasoning_"),
     (
         "src/backends/openai/openai.c",
         ["start_post", "oa_dispatch"],

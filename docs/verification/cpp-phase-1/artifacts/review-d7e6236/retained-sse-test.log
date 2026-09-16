@@ -1,0 +1,4 @@
+parser mode 0: 2 allocation indices, two failures then recovery each
+parser mode 1: 9 allocation indices, two failures then recovery each
+parser mode 2: 13 allocation indices, two failures then recovery each
+parser check failed: SSE OOM must release capacity before free/reset

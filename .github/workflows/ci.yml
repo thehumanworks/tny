@@ -48,14 +48,14 @@ jobs:
           pipx install clang-tidy==22.1.8
           pipx install ruff==0.16.6
           sudo apt-get update -q
-          sudo apt-get install -y -q gcc-14 zsh tmux
+          sudo apt-get install -y -q gcc-14 g++-14 zsh tmux
           go install mvdan.cc/sh/v3/cmd/shfmt@v3.14.0
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
           shellcheck --version
 
       - name: make quality
-        run: make quality ANALYZER_CC=gcc-14
+        run: make quality test-cpp-gates ANALYZER_CC=gcc-14
 
       - name: Test Bash and Zsh workflow helpers
         run: make test-shell-workflows
@@ -66,8 +66,8 @@ jobs:
       - name: make warn-strict (gcc + clang)
         run: |
           set -eu
-          make warn-strict CC=gcc-14
-          make warn-strict CC=clang
+          make warn-strict CC=gcc-14 CXX=g++-14
+          make warn-strict CC=clang CXX=clang++
 
   # Memory-leak gate (docs/adr/0061). valgrind has no arm64 Darwin port, so
   # Linux is where the whole unit binary and the CLI smoke get checked; macOS
@@ -146,7 +146,7 @@ jobs:
           jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
           # Ubuntu's cc is gcc; macOS is clang. Keep Linux on gcc so ASan
           # links libasan (clang on some images lacks the compiler-rt asan libs).
-          if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
+          if [ "$(uname -s)" = Linux ]; then export CC=gcc CXX=g++; fi
           if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
           if [ "${{ matrix.suite }}" = full ]; then
             make -j"$jobs" test
@@ -158,6 +158,7 @@ jobs:
           fi
           make test-libtny-fault
           make test-libtny-fuzz-smoke
+          make test-parser-smoke
           make size-check SIZE_MAX="${{ matrix.size_max }}"
           make pack TRIPLE="${{ matrix.triple }}"
           ./dist/tny-${{ matrix.triple }} --version
@@ -228,7 +229,7 @@ jobs:
           docker run --rm -v "$PWD":/src -w /src alpine:3.21 \
             sh -c 'apk add --no-cache build-base python3 \
               && make -j"$(getconf _NPROCESSORS_ONLN)" release STATIC=1 \
-              && make test-unit SANITIZE=0 STATIC=1 \
+              && make test-unit test-parser-smoke SANITIZE=0 STATIC=1 \
               && make size-check SIZE_MAX=1572864 STATIC=1 \
               && make pack TRIPLE='"${{ matrix.triple }}"' STATIC=1 \
               && ./dist/tny-'"${{ matrix.triple }}"' --version \
@@ -279,7 +280,7 @@ jobs:
           ./dist/tny-windows-x86_64.exe --help >/dev/null
           ./dist/tny-windows-x86_64.exe ask --help >/dev/null
           # Unit tests without ASan. PTY/TUI integration stays on Unix CI.
-          make test-unit SANITIZE=0
+          make test-unit test-parser-smoke SANITIZE=0
           # Runtime DLL for a usable artifact outside this runner.
           cp /usr/bin/msys-2.0.dll dist/
           ldd dist/tny-windows-x86_64.exe || true
@@ -401,6 +402,7 @@ jobs:
       - name: Stress independent libtny runtimes under ThreadSanitizer
         env:
           CC: gcc
+          CXX: g++
           TNY_TSAN_WORKERS: "4"
           TNY_TSAN_CYCLES: "20"
         run: |
@@ -418,19 +420,23 @@ jobs:
       - name: Fuzz ABI1 capacity and custom-tool validators
         env:
           FUZZ_CC: clang
+          FUZZ_CXX: clang++
           FUZZ_RUNS: "20000"
           FUZZ_SECONDS: "60"
         run: |
           set -eu
           clang --version | head -1
           make test-libtny-fuzz
+          make test-parser-fuzz
 
       - name: Upload libFuzzer crash artifacts
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: libtny-fuzz-crashes-linux-x86_64
-          path: build/fuzz-artifacts
+          path: |
+            build/fuzz-artifacts
+            build/parser-fuzz-artifacts
           if-no-files-found: ignore
           retention-days: 14
 

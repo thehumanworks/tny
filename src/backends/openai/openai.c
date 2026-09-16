@@ -96,7 +96,7 @@ typedef struct {
     void *control_ud;
 
     buf_t text;       /* assistant text this step */
-    oa_callset calls; /* streamed tool_calls this step (toolcalls.c) */
+    oa_callset calls; /* streamed tool_calls this step (toolcalls.cpp) */
     /* provider reasoning payloads streamed this step, kept in the shape the
      * provider used so they ride back with the tool calls they belong to
      * (docs/adr/0069): chat `reasoning_details` items merged by index,
@@ -123,8 +123,10 @@ typedef struct {
                                 * own error message to diagnostics (opt-in; it may
                                 * echo request content) */
     char error_detail[400];
-    bool conn_reused;           /* this POST rode a kept-alive connection */
-    bool wire_chat;             /* this POST rides the legacy chat wire */
+    bool conn_reused; /* this POST rode a kept-alive connection */
+    bool wire_chat;   /* this POST rides the legacy chat wire */
+    bool parser_oom;
+    bool parser_active;         /* cancellation defers cleanup until borrowed callbacks return */
     bool stream_done;           /* saw [DONE] / response.completed */
     bool stream_failed;         /* the stream carried a terminal error event */
     oa_error_info stream_error; /* its classification (valid when stream_failed) */
@@ -693,6 +695,7 @@ static bool schedule_retry(oa_impl *o, const char *what, int delay_hint_ms) {
     o->retries++;
     conn_drop(o);
     oa_calls_reset(&o->calls);
+    o->parser_oom = false;
     if (!cont) buf_clear(&o->text);
     o->continuing = cont;
     buf_clear(&o->rawbody);
@@ -1343,264 +1346,75 @@ static void capture_usage(oa_impl *o, yyjson_val *usage, bool chat) {
     if (o->usage_cache_write > o->usage_in) o->usage_cache_write = o->usage_in;
 }
 
-static void on_sse_event_chat(const char *data, size_t len, void *ud) {
+/* Parser callbacks borrow document nodes/bytes only during this call. */
+static void on_decoded_event(oa_decoded_kind kind, yyjson_val *value, const char *bytes, size_t len,
+                             void *ud) {
     oa_impl *o = ud;
-    if ((len == 6 && memcmp(data, "[DONE]", 6) == 0) ||
-        (len == 4 && memcmp(data, "DONE", 4) == 0)) {
-        o->stream_done = true;
-        return;
-    }
-    yyjson_doc *doc = jparse(data, len);
-    if (!doc) return; /* never block the loop on a parse error */
-    yyjson_val *root = yyjson_doc_get_root(doc);
-    yyjson_val *root_error = jget(root, "error");
-    /* `"error": null` rides in every chunk of some gateways: only an
-     * object or a non-empty string is a failure (docs/adr/0069) */
-    if (root_error && (yyjson_is_obj(root_error) ||
-                       (yyjson_is_str(root_error) && yyjson_get_len(root_error) > 0))) {
-        classify_error(o, root_error, 0, &o->stream_error);
-        o->stream_done = true;
-        o->stream_failed = true;
-        yyjson_doc_free(doc);
-        return;
-    }
-    yyjson_val *usage = jget(root, "usage");
-    capture_usage(o, usage, true);
-    yyjson_val *choice = yyjson_arr_get_first(jget(root, "choices"));
-    if (!choice) {
-        yyjson_doc_free(doc);
-        return;
-    }
-    const char *fr = jget_str(choice, "finish_reason");
-    if (fr) {
-        snprintf(o->finish_reason, sizeof o->finish_reason, "%s", fr);
-        if (strcmp(fr, "length") == 0) o->final_stop = TNY_STOP_STEP_LIMIT;
-        else if (strcmp(fr, "content_filter") == 0) o->final_stop = TNY_STOP_DENIED;
-        else if (strcmp(fr, "error") == 0 && !o->stream_failed) {
+    if (o->parser_oom || o->cancelled) return;
+    switch (kind) {
+    case OA_DECODE_DONE: o->stream_done = true; break;
+    case OA_DECODE_ERROR:
+        classify_error(o, value, 0, &o->stream_error);
+        o->stream_done = o->stream_failed = true;
+        break;
+    case OA_DECODE_USAGE_CHAT: capture_usage(o, value, true); break;
+    case OA_DECODE_USAGE_RSP: capture_usage(o, value, false); break;
+    case OA_DECODE_FINISH:
+        snprintf(o->finish_reason, sizeof o->finish_reason, "%.*s", (int)len, bytes);
+        if (strcmp(o->finish_reason, "length") == 0) o->final_stop = TNY_STOP_STEP_LIMIT;
+        else if (strcmp(o->finish_reason, "content_filter") == 0) o->final_stop = TNY_STOP_DENIED;
+        else if (strcmp(o->finish_reason, "error") == 0 && !o->stream_failed) {
             classify_error(o, NULL, 0, &o->stream_error);
-            o->stream_done = true;
-            o->stream_failed = true;
+            o->stream_done = o->stream_failed = true;
         }
-    }
-    yyjson_val *delta = jget(choice, "delta");
-    if (!delta) delta = jget(choice, "message"); /* non-stream fallback */
-    size_t content_len = 0;
-    const char *content = jget_strn(delta, "content", &content_len);
-    if (content && content_len) {
-        buf_append(&o->text, content, content_len);
-        emit_text(o, TNY_EV_TEXT_DELTA, content, content_len);
-    }
-    size_t reasoning_len = 0;
-    const char *reasoning_content = jget_strn(delta, "reasoning_content", &reasoning_len);
-    if (reasoning_content && reasoning_len) {
-        /* DeepSeek/Kimi-style thinking: the text must ride back with the
-         * tool calls it produced, in the member the provider used */
-        buf_append(&o->reasoning_content, reasoning_content, reasoning_len);
+        break;
+    case OA_DECODE_TEXT:
+        buf_append(&o->text, bytes, len);
+        if (!o->text.oom) emit_text(o, TNY_EV_TEXT_DELTA, bytes, len);
+        break;
+    case OA_DECODE_REASONING_CONTENT:
+    case OA_DECODE_RSP_THINKING:
+    case OA_DECODE_THINKING:
+        if (kind == OA_DECODE_REASONING_CONTENT ||
+            (kind == OA_DECODE_RSP_THINKING && tool_web_search_native(o->ctx)))
+            buf_append(&o->reasoning_content, bytes, len);
         o->thinking_seen = true;
-        emit_text(o, TNY_EV_THINKING, reasoning_content, reasoning_len);
-    } else {
-        const char *reasoning = jget_strn(delta, "reasoning", &reasoning_len);
-        if (reasoning && reasoning_len) {
-            o->thinking_seen = true;
-            emit_text(o, TNY_EV_THINKING, reasoning, reasoning_len);
-        }
-    }
-    yyjson_val *details = jget(delta, "reasoning_details");
-    if (details && yyjson_is_arr(details)) {
-        /* OpenRouter: signed/encrypted blocks the upstream model needs back
-         * (Anthropic thinking, Gemini thought signatures) — kept verbatim */
-        capture_reasoning_details(o, details);
-        if (!reasoning_content && !jget(delta, "reasoning")) {
-            size_t idx, max;
-            yyjson_val *detail;
-            yyjson_arr_foreach(details, idx, max, detail) {
-                size_t text_len = 0;
-                const char *text = jget_strn(detail, "text", &text_len);
-                if (!text) text = jget_strn(detail, "summary", &text_len);
-                if (text && text_len) {
-                    o->thinking_seen = true;
-                    emit_text(o, TNY_EV_THINKING, text, text_len);
-                }
-            }
-        }
-    }
-
-    oa_calls_feed(&o->calls, jget(delta, "tool_calls"));
-    yyjson_doc_free(doc);
-}
-
-/* Responses wire: pending call for one output_index, or NULL. The
- * item's output_index lives in oa_call.wire_index (the chat wire's
- * "index" slot — both are the provider's per-call ordinal). */
-static oa_call *rsp_call_by_index(oa_impl *o, int64_t oindex) {
-    for (int i = 0; i < o->calls.n; i++)
-        if (o->calls.calls[i].wire_index == oindex) return &o->calls.calls[i];
-    return NULL;
-}
-
-/* A complete Response object (a gateway that answered stream:true with one
- * JSON document): fold its output items as if they had streamed. */
-static void rsp_absorb_response(oa_impl *o, yyjson_val *response) {
-    size_t idx, max;
-    yyjson_val *item;
-    yyjson_arr_foreach(jget(response, "output"), idx, max, item) {
-        const char *itype = jget_str(item, "type");
-        if (!itype) continue;
-        if (strcmp(itype, "message") == 0) {
-            size_t pi, pmax;
-            yyjson_val *part;
-            yyjson_arr_foreach(jget(item, "content"), pi, pmax, part) {
-                const char *ptype = jget_str(part, "type");
-                size_t tlen = 0;
-                const char *text = jget_strn(part, "text", &tlen);
-                if (ptype && strcmp(ptype, "output_text") == 0 && text && tlen) {
-                    buf_append(&o->text, text, tlen);
-                    emit_text(o, TNY_EV_TEXT_DELTA, text, tlen);
-                }
-            }
-        } else if (strcmp(itype, "function_call") == 0) {
-            if (o->calls.n >= OA_MAX_TOOL_CALLS) continue;
-            oa_call *pc = &o->calls.calls[o->calls.n];
-            pc->id = NULL;
-            pc->name = NULL;
-            buf_init(&pc->args);
-            pc->wire_index = o->calls.n;
-            const char *id = jget_str(item, "call_id");
-            const char *name = jget_str(item, "name");
-            const char *args = jget_str(item, "arguments");
-            if (id) pc->id = xstrdup(id);
-            if (name) pc->name = xstrdup(name);
-            if (args) buf_appends(&pc->args, args);
-            o->calls.n++;
-        } else if (strcmp(itype, "reasoning") == 0) {
-            capture_reasoning_item(o, item);
-        }
-    }
-    capture_hosted_output(o, response);
-    yyjson_val *usage = jget(response, "usage");
-    capture_usage(o, usage, false);
-    const char *status = jget_str(response, "status");
-    if (status && strcmp(status, "failed") == 0) {
-        yyjson_val *err = jget(response, "error");
-        classify_error(o, err ? err : response, 0, &o->stream_error);
-        o->stream_failed = true;
-    } else if (status && strcmp(status, "incomplete") == 0) {
-        const char *reason = jget_str(jget(response, "incomplete_details"), "reason");
+        if (!o->reasoning_content.oom) emit_text(o, TNY_EV_THINKING, bytes, len);
+        break;
+    case OA_DECODE_DETAILS: capture_reasoning_details(o, value); break;
+    case OA_DECODE_REASONING_ITEM: capture_reasoning_item(o, value); break;
+    case OA_DECODE_HOSTED_ITEM: capture_hosted_item(o, value); break;
+    case OA_DECODE_HOSTED_OUTPUT: capture_hosted_output(o, value); break;
+    case OA_DECODE_INCOMPLETE: {
+        const char *reason = jget_str(jget(value, "incomplete_details"), "reason");
         o->final_stop =
             reason && strstr(reason, "content_filter") ? TNY_STOP_DENIED : TNY_STOP_STEP_LIMIT;
+        break;
     }
-    o->stream_done = true;
-}
-
-/* Typed Responses API events (docs/adr/0016). The SSE parser drops the
- * `event:` line; every payload repeats the type in its "type" member, so
- * dispatch happens on the data alone. */
-static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
-    oa_impl *o = ud;
-    yyjson_doc *doc = jparse(data, len);
-    /* parse errors never block the loop. A stray "[DONE]" from a
-     * chat-flavored gateway lands here too: it is not JSON, and the
-     * Responses stream ends on response.completed, not the sentinel. */
-    if (!doc) return;
-    yyjson_val *root = yyjson_doc_get_root(doc);
-    const char *type = jget_str(root, "type");
-    if (!type) {
-        /* a chat-shaped error wrapper behind HTTP 200 ({"error":{…}}), as
-         * gateways fronting the responses endpoint produce */
-        yyjson_val *err = jget(root, "error");
-        if (err && (yyjson_is_obj(err) || (yyjson_is_str(err) && yyjson_get_len(err) > 0))) {
-            classify_error(o, err, 0, &o->stream_error);
-            o->stream_done = true;
-            o->stream_failed = true;
-        } else if (yyjson_is_arr(jget(root, "output"))) {
-            rsp_absorb_response(o, root); /* a whole Response object: stream:true ignored */
-        }
-        yyjson_doc_free(doc);
-        return;
     }
-
-    if (strcmp(type, "response.output_text.delta") == 0) {
-        size_t delta_len = 0;
-        const char *d = jget_strn(root, "delta", &delta_len);
-        if (d && delta_len) {
-            buf_append(&o->text, d, delta_len);
-            emit_text(o, TNY_EV_TEXT_DELTA, d, delta_len);
-        }
-    } else if (strcmp(type, "response.reasoning_summary_text.delta") == 0 ||
-               strcmp(type, "response.reasoning_text.delta") == 0) {
-        size_t delta_len = 0;
-        const char *d = jget_strn(root, "delta", &delta_len);
-        if (d && delta_len) {
-            o->thinking_seen = true;
-            if (tool_web_search_native(o->ctx)) buf_append(&o->reasoning_content, d, delta_len);
-            emit_text(o, TNY_EV_THINKING, d, delta_len);
-        }
-    } else if (strcmp(type, "response.output_item.added") == 0 ||
-               strcmp(type, "response.output_item.done") == 0) {
-        yyjson_val *item = jget(root, "item");
-        const char *itype = jget_str(item, "type");
-        capture_hosted_item(o, item);
-        if (itype && strcmp(itype, "reasoning") == 0) capture_reasoning_item(o, item);
-        if (itype && strcmp(itype, "function_call") == 0) {
-            int64_t oindex = jget_int(root, "output_index", o->calls.n);
-            oa_call *pc = rsp_call_by_index(o, oindex);
-            if (!pc && oindex >= 0 && o->calls.n < OA_MAX_TOOL_CALLS) {
-                pc = &o->calls.calls[o->calls.n++];
-                pc->id = NULL;
-                pc->name = NULL;
-                buf_init(&pc->args);
-                pc->wire_index = (int)oindex;
-            }
-            if (pc) {
-                const char *id = jget_str(item, "call_id");
-                if (id && !pc->id) pc->id = xstrdup(id);
-                const char *name = jget_str(item, "name");
-                if (name && !pc->name) pc->name = xstrdup(name);
-                /* item.done carries the complete argument string — it is
-                 * authoritative over deltas assembled along the way */
-                const char *args = jget_str(item, "arguments");
-                if (args && *args) {
-                    buf_clear(&pc->args);
-                    buf_appends(&pc->args, args);
-                }
-            }
-        }
-    } else if (strcmp(type, "response.function_call_arguments.delta") == 0) {
-        oa_call *pc = rsp_call_by_index(o, jget_int(root, "output_index", -1));
-        const char *d = jget_str(root, "delta");
-        if (pc && d) buf_appends(&pc->args, d);
-    } else if (strcmp(type, "response.completed") == 0) {
-        capture_hosted_output(o, jget(root, "response"));
-        yyjson_val *usage = jget(jget(root, "response"), "usage");
-        capture_usage(o, usage, false);
-        o->stream_done = true;
-    } else if (strcmp(type, "response.incomplete") == 0) {
-        /* token/limit cutoff: keep the partial text, end the step cleanly
-         * (the chat wire treats finish_reason "length" the same way) */
-        yyjson_val *response = jget(root, "response");
-        capture_usage(o, jget(response, "usage"), false);
-        const char *reason = jget_str(jget(response, "incomplete_details"), "reason");
-        o->final_stop =
-            reason && strstr(reason, "content_filter") ? TNY_STOP_DENIED : TNY_STOP_STEP_LIMIT;
-        o->stream_done = true;
-    } else if (strcmp(type, "response.failed") == 0 || strcmp(type, "error") == 0) {
-        capture_usage(o, jget(jget(root, "response"), "usage"), false);
-        /* response.failed nests the error under response.error; the bare
-         * error event carries code/message at its top level */
-        yyjson_val *err = jget(jget(root, "response"), "error");
-        if (!err) err = jget(root, "error");
-        if (!err) err = root;
-        classify_error(o, err, 0, &o->stream_error);
-        o->stream_done = true;
-        o->stream_failed = true;
-    }
-    yyjson_doc_free(doc);
+    if (o->text.oom || o->reasoning_content.oom || tny_alloc_scope_failed()) o->parser_oom = true;
 }
 
 static void on_sse_event(const char *data, size_t len, void *ud) {
     oa_impl *o = ud;
-    if (o->wire_chat) on_sse_event_chat(data, len, ud);
-    else on_sse_event_rsp(data, len, ud);
+    if (o->parser_oom || o->cancelled) return;
+    if (oa_decode_event(o->wire_chat, data, len, &o->calls, on_decoded_event, o) == -2)
+        o->parser_oom = true;
+}
+
+static int parser_failed(oa_impl *o) {
+    static const char message[] = "out of memory decoding provider stream";
+    /* Dispatch/flush has returned: no callback can still borrow these bytes.
+     * Release capacity before terminal delivery or any later request allocates. */
+    sse_parser_free(&o->sse);
+    o->sse.status = -2;
+    oa_calls_reset(&o->calls);
+    o->calls.status = -2;
+    buf_free(&o->rawbody);
+    conn_drop(o);
+    emit_error(o, TNY_EVENT_ERROR_OOM, message, sizeof message - 1);
+    emit_turn_end(o, TNY_STOP_ERROR);
+    return -1;
 }
 
 /* ---------- step completion ---------- */
@@ -1861,6 +1675,7 @@ static int finish_tool_batch(oa_impl *o) {
     o->tool_index = 0;
     o->tool_batch_failed = 0;
     oa_calls_reset(&o->calls);
+    o->parser_oom = false;
     if (session_save(s) != 0) {
         const char *message = "could not persist completed tool batch";
         emit_error(o, TNY_EVENT_ERROR_IO, message, strlen(message));
@@ -2320,6 +2135,7 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images, tny_
     buf_clear(&o->toolcall_log);
     buf_appends(&o->toolcall_log, "[");
     oa_calls_reset(&o->calls);
+    o->parser_oom = false;
     o->repairs_noted = false;
 
     tny_session_state *s = o->env.session;
@@ -2366,6 +2182,7 @@ static void oa_cancel(tny_backend *b) {
     oa_impl *o = b->impl;
     if (o->state == ST_IDLE) return;
     o->cancelled = true;
+    if (o->parser_active) return;
     bool had_tool_batch = o->tool_batch_active;
     if (had_tool_batch) {
         char idbuf[16];
@@ -2396,6 +2213,11 @@ static void oa_cancel(tny_backend *b) {
         }
         o->tool_index = o->calls.n;
         oa_disconnect(b);
+        /* Cancellation results above still need the call records; batch
+         * finalization releases them before any terminal event. Release the
+         * finished response buffers here, since this path returns below. */
+        sse_parser_free(&o->sse);
+        buf_free(&o->rawbody);
         (void)finish_tool_batch(o);
         return;
     }
@@ -2405,6 +2227,9 @@ static void oa_cancel(tny_backend *b) {
         session_save(o->env.session);
     }
     oa_disconnect(b);
+    sse_parser_free(&o->sse);
+    oa_calls_reset(&o->calls);
+    buf_free(&o->rawbody);
     emit_turn_end(o, TNY_STOP_INTERRUPTED);
 }
 
@@ -2583,14 +2408,21 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             bytes += (size_t)bn;
             o->last_byte_ms = monotonic_ms();
             if (!o->body_sniffed) sniff_body(o, tmp, (size_t)bn);
-            if (o->body_is_sse) sse_feed(&o->sse, tmp, (size_t)bn, on_sse_event, o);
-            else {
+            if (o->body_is_sse) {
+                o->parser_active = true;
+                sse_feed(&o->sse, tmp, (size_t)bn, on_sse_event, o);
+                o->parser_active = false;
+            } else {
                 size_t cap = o->error_status ? OA_ERROR_BODY_MAX : OA_RAW_BODY_MAX;
                 if (o->rawbody.len + (size_t)bn <= cap) buf_append(&o->rawbody, tmp, (size_t)bn);
                 else o->rawbody_overflow = true;
             }
+            if (o->cancelled) {
+                oa_cancel(b);
+                return 0;
+            }
+            if (o->sse.status || o->parser_oom) return parser_failed(o);
             if (o->error_status) continue;
-            if (o->cancelled) return 0;
             /* a terminal error event settles the step now: whatever the
              * provider sends after it is not worth waiting for */
             if (o->stream_failed) return fail_stream(o);
@@ -2619,6 +2451,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 emit_turn_end(o, TNY_STOP_ERROR);
                 return -1;
             }
+            o->parser_active = true;
             if (o->body_is_sse) sse_flush(&o->sse, on_sse_event, o);
             else if (o->rawbody.len) {
                 on_sse_event(o->rawbody.data, o->rawbody.len, o);
@@ -2627,6 +2460,12 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                  * that delivered it whole is its terminal event */
                 o->stream_done = true;
             }
+            o->parser_active = false;
+            if (o->cancelled) {
+                oa_cancel(b);
+                return 0;
+            }
+            if (o->sse.status || o->parser_oom) return parser_failed(o);
             if (o->stream_failed) return fail_stream(o);
         }
         if (!oa_stream_complete(o->stream_done, o->wire_chat, o->finish_reason)) {
@@ -2663,6 +2502,7 @@ static void oa_destroy(tny_backend *b) {
     oa_impl *o = b->impl;
     oa_disconnect(b);
     oa_calls_reset(&o->calls);
+    o->parser_oom = false;
     pending_perm_clear(o);
     pending_custom_clear(o, true);
     tools_discard_pending_images(&o->env); /* paths and captured bytes, exactly once */
@@ -3014,15 +2854,14 @@ int tny_backend_openai_restore(tny_backend *b, yyjson_val *r, tny_backend_event_
     o->usage.cache_read_requests = (int)jget_int(usage, "cache_read_requests", 0);
     o->usage.cache_write_requests = (int)jget_int(usage, "cache_write_requests", 0);
     oa_calls_reset(&o->calls);
+    o->parser_oom = false;
     size_t i, n;
     yyjson_val *v;
     yyjson_arr_foreach(calls, i, n, v) {
-        oa_call *c = &o->calls.calls[o->calls.n++];
-        c->id = jget_str(v, "id") ? xstrdup(jget_str(v, "id")) : NULL;
-        c->name = jget_str(v, "name") ? xstrdup(jget_str(v, "name")) : NULL;
-        c->wire_index = (int)jget_int(v, "index", -1);
-        buf_init(&c->args);
-        buf_appends(&c->args, jget_str(v, "args") ? jget_str(v, "args") : "{}");
+        if (oa_calls_set(&o->calls, o->calls.n, (int)jget_int(v, "index", -1), jget_str(v, "id"),
+                         jget_str(v, "name"), jget_str(v, "args") ? jget_str(v, "args") : "{}",
+                         true) != 0)
+            return -1;
     }
     tools_discard_pending_images(&o->env);
     yyjson_arr_foreach(images, i, n, v) {

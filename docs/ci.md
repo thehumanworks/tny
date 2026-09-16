@@ -330,3 +330,41 @@ bookkeeping that are never copied into the scratch a model sees: `task.md`
 (the reference solution, which both proves the check is satisfiable and drives
 the `--mock` trajectory). Checks are deterministic and offline; the C fixtures
 need only `cc`.
+
+## Private C++ parser gates (ADR 0114)
+
+Every source lane discovers `.cpp` alongside C, compiles C++20 separately and
+links with `CXX` (or `EMCXX=em++` for wasm). Set matching pairs when overriding:
+`CC=gcc CXX=g++`, `CC=clang CXX=clang++`. Vendored header paths are quote-only
+for C++ because VERSION collides with the standard <version> header on macOS.
+C++ allocation uses the C fault boundary explicitly, without malloc macros.
+ABI0 continues to compile its immutable C-only archive. MSYS statically links
+the GCC and C++ runtimes; the POSIX DLL packaging remains unchanged.
+
+- `make test-parser-smoke`: portable deterministic SSE/Connect/Chat/Responses
+  corpus, every split and single-byte feeds, 64 MiB limit neighbors, retained
+  tool identity/lifetime, allocation-index sweeps and recovery after two OOMs.
+  Also checks live parser allocations at terminal SSE/JSON OOM in a loopback
+  backend before teardown or another turn. Private test-only allocation counters
+  are enabled in separate C++ objects; production objects have no counters.
+  Runs with ASan/UBSan debug objects on macOS/Linux and in Nix.
+- `make test-parser-fuzz FUZZ_CC=clang FUZZ_CXX=clang++`: Linux x86_64 libFuzzer,
+  production C++ objects instrumented with fuzzer-no-link/address/undefined;
+  10000 runs, 30 seconds, 5-second input timeout, 128 KiB inputs, 1 GiB RSS.
+  Override `FUZZ_RUNS`/`FUZZ_SECONDS` for longer campaigns. Corpus lives in
+  `tests/fuzz/parser-corpus`; artifacts stay under build/parser-fuzz-artifacts.
+- `make test-cpp-gates`: positive discovery for each build/quality lane plus
+  negative tests that a C++ formatting violation and an enabled clang analyzer
+  null-dereference diagnostic fail. Requires the pinned quality tools.
+
+`make quality` formats C/C++ headers and sources, applies clang-tidy separately
+with each language standard, and runs strict warnings for both. GCC -fanalyzer
+analyzes only C with an explicit C++ skip; clang-tidy analyzes every C++ unit.
+These checks add no live provider calls. Platform commands that cannot run on
+a developer host remain required CI gates, recorded as unmet in phase evidence.
+
+`python3 tests/mutation/parser_critical.py` compiles four isolated parser
+mutants under `build/parser-mutations`, asserts their intended behavioral
+failures, verifies production source hashes are unchanged, then reruns the
+unmodified smoke. It requires `make test-parser-smoke` and the native compiler;
+no mutation is written to production sources.

@@ -65,9 +65,10 @@ script — for `python3` and the CA bundle, measured at ~0.3 ms on Linux x86_64
 (0.73 ms wrapped vs 0.42 ms unwrapped). A shell wrapper would cost several
 times that; `packages.tny-unwrapped` skips it entirely.
 
-## How we stay under fx
+## Size controls
 
-1. C11, no C++ stdlib, no Zig runtime extras.
+1. Keep mixed-language runtime dependencies explicit and measured (ADR 0115);
+   preserve C11 for unchanged areas. Do not assume a C++ runtime is free.
 2. ANSI TUI, not a widget kit.
 3. yyjson + picohttpparser + wslay, vendored as .c files you can see in `nm`.
    (nanopb deferred: v1 speaks Connect with the JSON codec, no protobuf runtime.)
@@ -108,3 +109,27 @@ The dylib reduction is not attributed to the feature: the new ABI adds two
 exports, so the smaller link result is treated as toolchain/dead-strip layout
 variance rather than an optimisation claim. The relevant gate is that CLI size
 and startup did not regress measurably.
+
+## Mixed-language series reporting (policy 0115-v1)
+
+[ADR 0115](adr/0115-startup-size-reporting.md) freezes reporting before migration
+candidate evaluation. All hard ceilings above remain in force; none is relaxed
+without a measured same-target migration delta and a documented policy change.
+Historical fx figures above are not current like-for-like performance evidence.
+The earlier C-only implementation strategy is historical for migrated areas;
+C++ runtime dependencies must now be reported explicitly, not assumed absent.
+
+`make size-report` reports stripped-copy bytes, binary hash, otool/ldd output,
+libc++/libstdc++ dependencies and available wasm/glue files. It supplements
+`make size-check` and `make wasm-size-check`; neither is disabled.
+
+`make bench-startup BASELINE_TNY=/absolute/baseline/tny` compares the current
+release binary with the baseline, writing `build/startup.json` and `.md`.
+Override `STARTUP_JSON` and `STARTUP_LABEL` as needed. The harness uses three
+alternating batches, at least 100 help/version and 20 PTY prompt observations
+per binary. It enforces the absolute startup medians above and added medians
+of at most max(0.25 ms, 10%) for CLI or max(0.5 ms, 10%) for PTY. Reports include
+p95, raw observations and per-launch peak child RSS. Peak RSS is not the idle
+RSS budget. The no-credential OpenAI path avoids pre-warm for this measurement.
+See [benchmark instructions](../tests/bench/README.md) for prompt detection,
+comparison of two reports, build metadata and evidence limitations.

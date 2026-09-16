@@ -42,7 +42,7 @@ jobs:
           actions-cache-folder: emsdk-cache
       - name: Build tny-web.wasm (the page terminal is the real CLI)
         run: |
-          make -j"$(getconf _NPROCESSORS_ONLN)" wasm-web
+          make -j"$(getconf _NPROCESSORS_ONLN)" wasm-web EMCXX=em++
           mkdir -p site/assets/wasm
           cp build/wasm/tny-web.mjs build/wasm/tny-web.wasm site/assets/wasm/
       - name: Rebuild static pages

@@ -1,0 +1,30 @@
+[
+  {
+    "regression": "omitted-arguments",
+    "restored_source": "d7e6236:src/backends/openai/toolcalls.cpp",
+    "exit": 1,
+    "marker": "omitted_and_empty_arguments_are_distinct",
+    "killed": true
+  },
+  {
+    "regression": "leading-nul",
+    "restored_source": "d7e6236:src/backends/openai/events.cpp",
+    "exit": 1,
+    "marker": "reasoning_leading_nul_survives_every_split",
+    "killed": true
+  },
+  {
+    "regression": "retained-sse",
+    "restored_source": "d7e6236:src/net/sse.cpp",
+    "exit": -6,
+    "marker": "SSE OOM must release capacity before free/reset",
+    "killed": true
+  },
+  {
+    "regression": "retained-calls",
+    "restored_source": "d7e6236:src/backends/openai/openai.c",
+    "exit": -6,
+    "marker": "terminal OOM must release SSE and abandoned call allocations immediately",
+    "killed": true
+  }
+]

@@ -9,8 +9,7 @@ struct State {
     int diagnostic_calls = 0;
 };
 
-static int32_t TNY_CALL diagnostic(void *opaque, uint32_t, tny_bytes,
-                                   tny_bytes) noexcept {
+static int32_t TNY_CALL diagnostic(void *opaque, uint32_t, tny_bytes, tny_bytes) noexcept {
     static_cast<State *>(opaque)->diagnostic_calls++;
     return TNY_STATUS_OK;
 }
@@ -20,28 +19,22 @@ static int32_t TNY_CALL clock_ms(void *opaque, int64_t *out) noexcept {
     try {
         *out = 4000 + ++state->clock_calls;
         return TNY_STATUS_OK;
-    } catch (...) {
-        return TNY_STATUS_INTERNAL;
-    }
+    } catch (...) { return TNY_STATUS_INTERNAL; }
 }
 
-static tny_bytes view(const char *text) {
-    return {text, static_cast<uint64_t>(std::strlen(text))};
-}
+static tny_bytes view(const char *text) { return {text, static_cast<uint64_t>(std::strlen(text))}; }
 
 int main(int argc, char **argv) {
     if (argc != 2) return 2;
     State state;
     tny_host_services_v1 services;
-    if (tny_host_services_v1_init(&services, sizeof services) != TNY_STATUS_OK)
-        return 2;
+    if (tny_host_services_v1_init(&services, sizeof services) != TNY_STATUS_OK) return 2;
     services.user_data = &state;
     services.diagnostic = diagnostic;
     services.monotonic_ms = clock_ms;
 
     tny_runtime_options_v1 options;
-    if (tny_runtime_options_v1_init(&options, sizeof options) != TNY_STATUS_OK)
-        return 3;
+    if (tny_runtime_options_v1_init(&options, sizeof options) != TNY_STATUS_OK) return 3;
     options.runtime.workspace = view(argv[1]);
     options.runtime.base_url = view("http://127.0.0.1:1/v1");
     options.runtime.api_key = view("cpp-fixture-not-real");
@@ -52,8 +45,7 @@ int main(int argc, char **argv) {
     if (tny_runtime_create_v1(&options, sizeof options, &runtime, &error) != TNY_STATUS_OK)
         return 3;
     int64_t now = 0;
-    if (tny_runtime_host_monotonic_ms(runtime, &now, &error) != TNY_STATUS_OK ||
-        now != 4001)
+    if (tny_runtime_host_monotonic_ms(runtime, &now, &error) != TNY_STATUS_OK || now != 4001)
         return 4;
     tny_runtime_free(runtime);
     if (state.diagnostic_calls != 2) return 5;

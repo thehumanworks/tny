@@ -1,0 +1,9 @@
+
+* Suite openai_suite:
+F
+FAIL reasoning_leading_nul_survives_every_split: 1 != d.reasoning_events (tests/test_openai.c:280)
+
+1 test - 0 passed, 1 failed, 0 skipped (369 ticks, 0.000 sec)
+
+Total: 1 test (436 ticks, 0.000 sec), 4 assertions
+Pass: 0, fail: 1, skip: 0.

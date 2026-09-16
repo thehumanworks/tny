@@ -1,0 +1,9 @@
+
+* Suite openai_suite:
+F
+FAIL omitted_and_empty_arguments_are_distinct: NULL != cs.calls[0].args.data (tests/test_openai.c:205)
+
+1 test - 0 passed, 1 failed, 0 skipped (314 ticks, 0.000 sec)
+
+Total: 1 test (379 ticks, 0.000 sec), 2 assertions
+Pass: 0, fail: 1, skip: 0.

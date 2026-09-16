@@ -1,0 +1,49 @@
+python3 tests/bench/bench_startup.py --baseline "/Users/tomas/projects/tny-cpp-baseline/build/tny" \
+		--candidate "build/tny" --json "/Users/tomas/projects/tny-cpp-out/p1d-startup.json" --label "p1d"
+# Startup: p1d
+
+Policy: 0115-v1; host: macOS-27.0-arm64-arm-64bit-Mach-O
+Build metadata: unspecified; record compiler and release flags
+
+| Metric | Baseline median ms | Candidate median ms | Delta ms | Result |
+| --- | ---: | ---: | ---: | --- |
+| help | 4.0389 | 4.0544 | +0.0154 | PASS |
+| version | 4.1807 | 4.2085 | +0.0279 | PASS |
+| prompt | 3.9848 | 4.0961 | +0.1113 | PASS |
+
+## baseline
+
+Stripped bytes: 1086288
+C++ runtimes: none
+
+```text
+/Users/tomas/projects/tny-cpp-baseline/build/tny:
+	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1359.0.0)
+```
+
+| Metric | p95 ms | Peak child RSS bytes |
+| --- | ---: | ---: |
+| help | 4.4355 | 2179072 |
+| version | 4.5438 | 2195456 |
+| prompt | 4.3652 | 2555904 |
+
+Wasm accounting: `{"artifacts_bytes": {}, "available": false, "directory": "/Users/tomas/projects/tny-cpp-baseline/build/wasm", "total_bytes": 0}`
+
+## candidate
+
+Stripped bytes: 1087408
+C++ runtimes: ['/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 2200.27.0)']
+
+```text
+/Users/tomas/projects/tny-cpp-parsers/build/tny:
+	/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 2200.27.0)
+	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1359.0.0)
+```
+
+| Metric | p95 ms | Peak child RSS bytes |
+| --- | ---: | ---: |
+| help | 4.5024 | 2228224 |
+| version | 4.7405 | 2211840 |
+| prompt | 4.3198 | 2523136 |
+
+Wasm accounting: `{"artifacts_bytes": {}, "available": false, "directory": "/Users/tomas/projects/tny-cpp-parsers/build/wasm", "total_bytes": 0}`

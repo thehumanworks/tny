@@ -63,7 +63,7 @@ jobs:
       - name: Build libtny and install SDK test tools
         run: |
           set -eu
-          if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
+          if [ "$(uname -s)" = Linux ]; then export CC=gcc CXX=g++; fi
           if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
           make lib-shared
           python scripts/check_native_compat.py \
@@ -220,7 +220,7 @@ jobs:
       - name: Build native SDK
         run: |
           set -eu
-          if [ "$(uname -s)" = Linux ]; then export CC=gcc; fi
+          if [ "$(uname -s)" = Linux ]; then export CC=gcc CXX=g++; fi
           if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
           make lib-shared
           npm --prefix sdk/typescript run build

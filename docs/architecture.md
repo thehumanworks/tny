@@ -187,3 +187,15 @@ DuckDuckGo only without that login (explicit command/URL overrides still win).
 Builtin Codex retains its inline hosted-search optimization. Search results are
 ordinary parent tool results for checkpoint/reattach purposes. See
 [ADR 0109](adr/0109-provider-independent-codex-search.md).
+
+## Private parser ownership (ADR 0114)
+
+C++20 owns SSE/Connect accumulation, immutable event JSON documents and
+streamed tool-call strings behind private C facades. Callback bytes and JSON
+nodes are borrowed only during the synchronous decode call. Retained tool
+IDs, names and arguments are owned; C scheduling, retries, checkpoints,
+tool execution and event-loop policy retain their existing owners. Socket,
+TLS, WebSocket, HTTP chunk decoding, ACP, MCP and tnytty remain C11.
+Allocation failures return explicit OOM status before control returns to C;
+C++ destructors neither allocate nor throw. These parsers are shared by native
+and wasm builds; the transport capability differences remain unchanged.

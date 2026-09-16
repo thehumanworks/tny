@@ -1,0 +1,7 @@
+
+* Suite openai_suite:
+..........................
+26 tests - 26 passed, 0 failed, 0 skipped (240964 ticks, 0.241 sec)
+
+Total: 26 tests (241007 ticks, 0.241 sec), 1181 assertions
+Pass: 26, fail: 0, skip: 0.

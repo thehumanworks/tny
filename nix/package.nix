@@ -63,6 +63,7 @@ stdenv.mkDerivation (finalAttrs: {
   makeFlags = [
     "PREFIX=$(out)"
     "CC=${stdenv.cc.targetPrefix}cc"
+    "CXX=${stdenv.cc.targetPrefix}c++"
     "TNY_VERSION=${finalAttrs.version}"
     "TNY_SHELL_PATH=${stdenv.shell}"
   ];

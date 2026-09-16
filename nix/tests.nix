@@ -162,6 +162,8 @@ stdenv.mkDerivation {
       }
     done
     ${testRunner}make -j''${NIX_BUILD_CORES} $makeFlags test
+    # Includes the loopback backend OOM retention check before teardown.
+    ${testRunner}make $makeFlags test-parser-smoke
     ${testRunner}make $makeFlags test-shell-workflows
     runHook postBuild
   '';
@@ -174,6 +176,7 @@ stdenv.mkDerivation {
 
   makeFlags = [
     "CC=${stdenv.cc.targetPrefix}cc"
+    "CXX=${stdenv.cc.targetPrefix}c++"
     "TNY_VERSION=${version}"
     "TNY_SHELL_PATH=${stdenv.shell}"
     "BASH=${bash}/bin/bash"

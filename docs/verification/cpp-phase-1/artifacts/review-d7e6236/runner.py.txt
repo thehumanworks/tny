@@ -1,0 +1,23 @@
+import os
+import hashlib,json,pathlib,subprocess,sys,time
+root=pathlib.Path.cwd()
+os.environ["TMPDIR"] = str(root / "build/tmp")
+os.environ.pop("TNY_TOOLS", None)
+os.environ.pop("CURSOR_API_KEY", None)
+for key in list(os.environ):
+    if key.endswith(("_BASE_URL", "_API_KEY", "_API_KEY_CMD", "_WIRE_API")) or key in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN", "CHATGPT_TOKEN"):
+        os.environ.pop(key, None)
+os.environ["PATH"] = str(root / "build/phase1-bin") + os.pathsep + os.environ["PATH"]
+name=sys.argv[1]; command=sys.argv[2:]
+paths=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','-z']).decode().split('\0')
+manifest={p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in sorted(set(paths)) if p and pathlib.Path(p).is_file() and not p.startswith('docs/verification/')}
+path=pathlib.Path('build/phase1-logs')
+(path/(name+'.manifest.json')).write_text(json.dumps(manifest,sort_keys=True,indent=2)+'\n')
+entry={'name':name,'command':command,'head':subprocess.check_output(['git','rev-parse','HEAD']).decode().strip(),'manifest':str(path/(name+'.manifest.json')),'started':time.time()}
+with (path/(name+'.log')).open('w') as log:
+ result=subprocess.run(command,stdout=log,stderr=subprocess.STDOUT)
+entry.update(exit=result.returncode,seconds=round(time.time()-entry['started'],2))
+with (path/'runs.jsonl').open('a') as f:f.write(json.dumps(entry)+'\n')
+print(json.dumps(entry))
+print('\n'.join((path/(name+'.log')).read_text(errors='replace').splitlines()[-12:]))
+sys.exit(result.returncode)

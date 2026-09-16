@@ -1,0 +1,25 @@
+      |                                    ^~~~~~
+third_party/greatest/greatest.h:1210:24: note: expanded from macro 'ASSERT_EQ'
+ 1210 | #define ASSERT_EQ      GREATEST_ASSERT_EQ
+      |                        ^
+tests/test_openai.c:247:30: error: call to undeclared function 'sse_feed'; ISO C99 and later do not support implicit function declarations [-Wimplicit-function-declaration]
+  247 |                 ASSERT_EQ(0, sse_feed(&parser, wire + i, 1, reasoning_sse, &d));
+      |                              ^
+third_party/greatest/greatest.h:1210:24: note: expanded from macro 'ASSERT_EQ'
+ 1210 | #define ASSERT_EQ      GREATEST_ASSERT_EQ
+      |                        ^
+tests/test_openai.c:247:40: error: use of undeclared identifier 'parser'
+  247 |                 ASSERT_EQ(0, sse_feed(&parser, wire + i, 1, reasoning_sse, &d));
+      |                                        ^~~~~~
+third_party/greatest/greatest.h:1210:24: note: expanded from macro 'ASSERT_EQ'
+ 1210 | #define ASSERT_EQ      GREATEST_ASSERT_EQ
+      |                        ^
+tests/test_openai.c:254:9: error: call to undeclared function 'sse_parser_free'; ISO C99 and later do not support implicit function declarations [-Wimplicit-function-declaration]
+  254 |         sse_parser_free(&parser);
+      |         ^
+tests/test_openai.c:254:26: error: use of undeclared identifier 'parser'
+  254 |         sse_parser_free(&parser);
+      |                          ^~~~~~
+11 errors generated.
+make: *** [build/dbg/tests/test_openai.o] Error 1
+make: *** Waiting for unfinished jobs....

@@ -1,0 +1,14 @@
+..................
+18 tests - 18 passed, 0 failed, 0 skipped (3524 ticks, 0.004 sec)
+
+* Suite intercept_suite:
+..............tny: TNY_PERMISSION_MODE: permission mode 'yolo' is wider than the 'ask' mode of the tny turn this command runs inside; a nested run cannot widen it
+.
+15 tests - 15 passed, 0 failed, 0 skipped (19706 ticks, 0.020 sec)
+
+* Suite provider_extras_suite:
+....
+4 tests - 4 passed, 0 failed, 0 skipped (41 ticks, 0.000 sec)
+
+Total: 553 tests (3139787 ticks, 3.140 sec), 14404 assertions
+Pass: 553, fail: 0, skip: 0.

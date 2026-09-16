@@ -1,4 +1,4 @@
-/* test_openai.c — streamed tool_call assembly (src/backends/openai/toolcalls.c).
+/* test_openai.c — streamed tool_call assembly (src/backends/openai/toolcalls.cpp).
  *
  * The native loop must survive parallel tool calls in every streaming shape
  * seen in the wild. The regression that motivates this suite: a gateway
@@ -15,6 +15,7 @@
 #include "core/session.h"
 #include "core/tools.h"
 #include "net/http_server.h"
+#include "net/net.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
 
@@ -195,6 +196,103 @@ TEST fallback_ids_are_slot_unique(void) {
     PASS();
 }
 
+/* Missing arguments retain the legacy NULL view; empty is a supplied value. */
+TEST omitted_and_empty_arguments_are_distinct(void) {
+    oa_callset cs = {0};
+    feed(&cs, "[{\"id\":\"missing\",\"function\":{\"name\":\"list_files\"}},"
+              "{\"id\":\"empty\",\"function\":{\"name\":\"list_files\",\"arguments\":\"\"}}]");
+    ASSERT_EQ(2, cs.n);
+    ASSERT_EQ(NULL, cs.calls[0].args.data);
+    ASSERT(cs.calls[1].args.data != NULL);
+    ASSERT_STR_EQ("", cs.calls[1].args.data);
+    oa_calls_reset(&cs);
+    PASS();
+}
+
+typedef struct {
+    oa_callset calls;
+    buf_t reasoning;
+    int reasoning_events, fallback_events, status;
+} reasoning_decode;
+
+static void reasoning_event(oa_decoded_kind kind, yyjson_val *value, const char *bytes, size_t len,
+                            void *ud) {
+    (void)value;
+    reasoning_decode *d = ud;
+    if (kind == OA_DECODE_REASONING_CONTENT) {
+        d->reasoning_events++;
+        buf_append(&d->reasoning, bytes, len);
+    }
+    if (kind == OA_DECODE_THINKING) d->fallback_events++;
+}
+
+TEST responses_argument_presence_survives_item_updates(void) {
+    const char *events[] = {
+        "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_"
+        "call\",\"call_id\":\"missing\",\"name\":\"list_files\"}}",
+        "{\"type\":\"response.output_item.added\",\"output_index\":1,\"item\":{\"type\":\"function_"
+        "call\",\"call_id\":\"empty\",\"name\":\"list_files\",\"arguments\":\"\"}}",
+        "{\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"function_"
+        "call\"}}",
+        "{\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":{\"type\":\"function_"
+        "call\"}}"};
+    reasoning_decode d = {0};
+    for (size_t i = 0; i < sizeof events / sizeof events[0]; i++)
+        ASSERT_EQ(
+            0, oa_decode_event(false, events[i], strlen(events[i]), &d.calls, reasoning_event, &d));
+    ASSERT_EQ(2, d.calls.n);
+    ASSERT_EQ(NULL, d.calls.calls[0].args.data);
+    ASSERT_EQ(NULL, d.calls.calls[1].args.data);
+    const char empty_delta[] =
+        "{\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"\"}";
+    ASSERT_EQ(0, oa_decode_event(false, empty_delta, sizeof empty_delta - 1, &d.calls,
+                                 reasoning_event, &d));
+    ASSERT(d.calls.calls[0].args.data != NULL);
+    ASSERT_STR_EQ("", d.calls.calls[0].args.data);
+    const char delta[] =
+        "{\"type\":\"response.function_call_arguments.delta\",\"output_index\":1,\"delta\":\"{}\"}";
+    const char done[] = "{\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":{"
+                        "\"type\":\"function_call\",\"arguments\":\"\"}}";
+    ASSERT_EQ(0, oa_decode_event(false, delta, sizeof delta - 1, &d.calls, reasoning_event, &d));
+    ASSERT_EQ(0, oa_decode_event(false, done, sizeof done - 1, &d.calls, reasoning_event, &d));
+    ASSERT_STR_EQ("{}", d.calls.calls[1].args.data);
+    oa_calls_reset(&d.calls);
+    PASS();
+}
+
+static void reasoning_sse(const char *data, size_t len, void *ud) {
+    reasoning_decode *d = ud;
+    d->status = oa_decode_event(true, data, len, &d->calls, reasoning_event, d);
+}
+
+TEST reasoning_leading_nul_survives_every_split(void) {
+    const char wire[] = "data: {\"choices\":[{\"delta\":{\"reasoning_content\":"
+                        "\"\\u0000abc\",\"reasoning\":\"wrong fallback\"}}]}\r\n\r\n";
+    const char expected[] = {0, 'a', 'b', 'c'};
+    size_t n = sizeof wire - 1;
+    for (size_t split = 0; split <= n + 1; split++) {
+        reasoning_decode d = {0};
+        sse_parser parser;
+        sse_parser_init(&parser);
+        if (split <= n) {
+            ASSERT_EQ(0, sse_feed(&parser, wire, split, reasoning_sse, &d));
+            ASSERT_EQ(0, sse_feed(&parser, wire + split, n - split, reasoning_sse, &d));
+        } else {
+            for (size_t i = 0; i < n; i++)
+                ASSERT_EQ(0, sse_feed(&parser, wire + i, 1, reasoning_sse, &d));
+        }
+        ASSERT_EQ(0, d.status);
+        ASSERT_EQ(1, d.reasoning_events);
+        ASSERT_EQ(0, d.fallback_events);
+        ASSERT_EQ(sizeof expected, d.reasoning.len);
+        ASSERT_EQ(0, memcmp(expected, d.reasoning.data, sizeof expected));
+        sse_parser_free(&parser);
+        oa_calls_reset(&d.calls);
+        buf_free(&d.reasoning);
+    }
+    PASS();
+}
+
 /* ---- provider failure classification (docs/adr/0069) ---- */
 
 TEST error_token_keeps_only_identifiers(void) {
@@ -325,6 +423,9 @@ typedef struct {
     perm_engine *perm;
     char root[600], workspace[640], state[640], png[700], outside[700];
     char hash_a[65], hash_b[65];
+    const char *first_body, *done_body;
+    bool argument_checkpoint;
+    int tools_ok, tools_failed;
     int requests;
     int turn_requests; /* reset per turn: only its first POST asks for a tool */
     buf_t bodies[6];
@@ -384,6 +485,8 @@ static int pv_post(const http_server_request *request, http_server_response *res
         "{\"id\":\"call_later\",\"type\":\"function\",\"function\":{\"name\":\"terminal\","
         "\"arguments\":\"{\\\"command\\\":\\\"printf harmless\\\"}\"}}]}}]}";
     if (first_of_turn && f->selected) body = f->terminal_case >= 3 ? selected_two : selected;
+    if (first_of_turn && f->first_body) body = f->first_body;
+    if (!first_of_turn && f->done_body) body = f->done_body;
     response->status = 200;
     response->content_type = "application/json";
     response->body = body;
@@ -393,6 +496,10 @@ static int pv_post(const http_server_request *request, http_server_response *res
 
 static void pv_event(const tny_backend_event *ev, void *ud) {
     pv_fixture *f = ud;
+    if (ev->kind == TNY_EV_TOOL_END) {
+        if (ev->tool_ok) f->tools_ok++;
+        else f->tools_failed++;
+    }
     if (ev->kind == TNY_EV_ERROR) {
         f->errors++;
         buf_append(&f->error_text, ev->text, ev->text_len);
@@ -447,6 +554,10 @@ static char *pv_ask_user(const char *question, void *ud) {
 static void pv_control(const tny_openai_control_request *request,
                        tny_openai_control_response *response, void *ud) {
     pv_fixture *f = ud;
+    if (f->argument_checkpoint && request->kind == TNY_OPENAI_CONTROL_POST_TOOL) {
+        f->argument_checkpoint = false;
+        tny_backend_openai_background(f->backend);
+    }
     if (f->selected && request->tool_name && strcmp(request->tool_name, "image_preview") == 0) {
         if (request->kind == TNY_OPENAI_CONTROL_PERMISSION) {
             f->preview_permissions++;
@@ -533,14 +644,9 @@ static void pv_close(pv_fixture *f) {
 }
 
 /* One turn, driven with the fixture server in the same poll set. */
-static int pv_turn(pv_fixture *f, const char *prompt) {
-    char error[512];
-    f->ended = false;
-    f->turn_requests = 0;
-    if (f->backend->send(f->backend, prompt, NULL, pv_event, f, error, sizeof error) != 0)
-        return -1;
+static int pv_drain(pv_fixture *f) {
     int64_t deadline = monotonic_ms() + 10000;
-    while (!f->ended && monotonic_ms() < deadline) {
+    while (!f->ended && !tny_backend_openai_parked(f->backend) && monotonic_ms() < deadline) {
         struct pollfd fds[HTTP_SERVER_POLLFD_CAPACITY + TNY_BACKEND_POLLFD_MAX];
         int sn = http_server_pollfds(f->server, fds, HTTP_SERVER_POLLFD_CAPACITY);
         int bn = f->backend->pollfds(f->backend, fds + sn, TNY_BACKEND_POLLFD_MAX);
@@ -550,7 +656,117 @@ static int pv_turn(pv_fixture *f, const char *prompt) {
         if (f->terminal_case == 5 && f->hook_calls && !f->ended)
             f->backend->cancel(f->backend); /* parked permission, not re-entrant */
     }
-    return f->ended ? 0 : -1;
+    return f->ended || tny_backend_openai_parked(f->backend) ? 0 : -1;
+}
+
+static int pv_turn(pv_fixture *f, const char *prompt) {
+    char error[512];
+    f->ended = false;
+    f->turn_requests = 0;
+    if (f->backend->send(f->backend, prompt, NULL, pv_event, f, error, sizeof error) != 0)
+        return -1;
+    return pv_drain(f);
+}
+
+TEST arguments_execution_transcript_and_checkpoint(void) {
+    /* Chat, whole Responses, then streamed added-only, done-only and both. */
+    for (int responses = 0; responses < 5; responses++) {
+        for (int empty = 0; empty < 2; empty++) {
+            for (int checkpoint = 0; checkpoint < 2; checkpoint++) {
+                pv_fixture f;
+                pv_open(&f);
+                if (responses) {
+                    free(f.ctx->wire_api);
+                    f.ctx->wire_api = xstrdup("responses");
+                    f.done_body = "{\"output\":[],\"status\":\"completed\"}";
+                }
+                buf_t response = {0};
+                const char *args = empty ? ",\"arguments\":\"\"" : "";
+                if (responses >= 2) {
+                    buf_appends(&response,
+                                "data: {\"type\":\"response.output_item.added\",\"output_index\":0,"
+                                "\"item\":{\"type\":\"function_call\",\"call_id\":\"seed\","
+                                "\"name\":\"list_files\",\"arguments\":\"{}\"}}\n\n");
+                    for (int done = 0; done < 2; done++) {
+                        if ((responses == 2 && done) || (responses == 3 && !done)) continue;
+                        buf_appendf(
+                            &response,
+                            "data: {\"type\":\"response.output_item.%s\",\"output_index\":1,"
+                            "\"item\":{\"type\":\"function_call\",\"call_id\":\"subject\","
+                            "\"name\":\"list_files\"%s}}\n\n",
+                            done ? "done" : "added", args);
+                    }
+                    buf_appends(&response, "data: {\"type\":\"response.completed\","
+                                           "\"response\":{\"status\":\"completed\"}}\n\n");
+                } else if (responses)
+                    buf_appendf(&response,
+                                "{\"status\":\"completed\",\"output\":["
+                                "{\"type\":\"function_call\",\"call_id\":\"seed\",\"name\":\"list_"
+                                "files\",\"arguments\":\"{}\"},"
+                                "{\"type\":\"function_call\",\"call_id\":\"subject\",\"name\":"
+                                "\"list_files\"%s}]}",
+                                args);
+                else
+                    buf_appendf(
+                        &response,
+                        "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"message\":{\"tool_"
+                        "calls\":["
+                        "{\"id\":\"seed\",\"function\":{\"name\":\"list_files\",\"arguments\":\"{}"
+                        "\"}},"
+                        "{\"id\":\"subject\",\"function\":{\"name\":\"list_files\"%s}}]}}]}",
+                        args);
+                f.first_body = response.data;
+                f.argument_checkpoint = checkpoint != 0;
+                ASSERT_EQ(0, pv_turn(&f, "argument presence regression"));
+                bool explicit_empty = empty && responses < 2;
+                const char *expected = explicit_empty ? "" : "{}";
+                if (checkpoint) {
+                    ASSERT(tny_backend_openai_parked(f.backend));
+                    ASSERT_EQ(1, f.tools_ok);
+                    yyjson_mut_doc *saved = yyjson_mut_doc_new(jallocator());
+                    yyjson_mut_doc_set_root(saved, tny_backend_openai_checkpoint(f.backend, saved));
+                    char *serialized = jwrite(saved);
+                    yyjson_doc *doc = jparse(serialized, strlen(serialized));
+                    yyjson_val *root = yyjson_doc_get_root(doc);
+                    ASSERT_STR_EQ(expected,
+                                  jget_str(yyjson_arr_get(jget(root, "calls"), 1), "args"));
+                    /* Destroy the original backend: restoration cannot borrow its strings. */
+                    f.backend->destroy(f.backend);
+                    f.backend = tny_backend_openai_new(f.ctx);
+                    ASSERT(f.backend);
+                    tny_backend_openai_bind(f.backend, f.session, f.perm, NULL, NULL, pv_ask_user,
+                                            &f, NULL, NULL, NULL, NULL, pv_control, &f);
+                    ASSERT_EQ(0, tny_backend_openai_restore(f.backend, root, pv_event, &f));
+                    free(serialized);
+                    yyjson_doc_free(doc);
+                    yyjson_mut_doc_free(saved);
+                    ASSERT_EQ(0, tny_backend_openai_continue(f.backend));
+                    ASSERT_EQ(0, pv_drain(&f));
+                }
+                ASSERT(f.ended);
+                ASSERT_EQ(explicit_empty ? 1 : 2, f.tools_ok);
+                ASSERT_EQ(explicit_empty ? 1 : 0, f.tools_failed);
+                char *transcript = jwrite_mut_val(session_messages(f.session));
+                yyjson_doc *doc = jparse(transcript, strlen(transcript));
+                yyjson_val *messages = yyjson_doc_get_root(doc), *m;
+                size_t i, n;
+                bool found = false;
+                yyjson_arr_foreach(messages, i, n, m) {
+                    yyjson_val *call = yyjson_arr_get(jget(m, "tool_calls"), 1);
+                    if (call) {
+                        ASSERT_STR_EQ(expected, jget_str(jget(call, "function"), "arguments"));
+                        found = true;
+                    }
+                }
+                ASSERT(found);
+                free(transcript);
+                yyjson_doc_free(doc);
+                pv_close(&f);
+                buf_free(&response);
+            }
+        }
+    }
+    PASS();
 }
 
 /* Every image_url payload in one recorded request body, decoded. */
@@ -930,6 +1146,10 @@ TEST continuation_trails_partial_then_user_turn(void) {
 }
 
 SUITE(openai_suite) {
+    RUN_TEST(omitted_and_empty_arguments_are_distinct);
+    RUN_TEST(responses_argument_presence_survives_item_updates);
+    RUN_TEST(reasoning_leading_nul_survives_every_split);
+    RUN_TEST(arguments_execution_transcript_and_checkpoint);
     RUN_TEST(single_call_assembles_from_fragments);
     RUN_TEST(parallel_calls_keyed_by_index);
     RUN_TEST(parallel_calls_in_one_delta_array);

@@ -113,6 +113,34 @@ TEST sse_ignores_event_field(void) {
     PASS();
 }
 
+TEST sse_every_split_and_flush(void) {
+    const char *wire = ": comment\r\nevent: ignored\r\ndata: hé\r\ndata: 🐕\r\n\r\ndata: tail\r";
+    size_t len = strlen(wire);
+    for (size_t split = 0; split <= len + 1; split++) {
+        sse_parser p;
+        sse_parser_init(&p);
+        sse_col c = {0};
+        ASSERT_EQ(0, sse_feed(&p, NULL, 0, sse_col_cb, &c));
+        if (split <= len) {
+            ASSERT_EQ(0, sse_feed(&p, wire, split, sse_col_cb, &c));
+            ASSERT_EQ(0, sse_feed(&p, wire + split, len - split, sse_col_cb, &c));
+        } else {
+            for (size_t i = 0; i < len; i++)
+                ASSERT_EQ(0, sse_feed(&p, wire + i, 1, sse_col_cb, &c));
+        }
+        ASSERT_EQ(1, c.n);
+        ASSERT_EQ(0, sse_flush(&p, sse_col_cb, &c));
+        ASSERT_EQ(2, c.n);
+        ASSERT_STR_EQ("hé\n🐕", c.events[0]);
+        ASSERT_STR_EQ("tail", c.events[1]);
+        ASSERT_EQ(0, sse_flush(&p, sse_col_cb, &c));
+        ASSERT_EQ(2, c.n);
+        sse_parser_free(&p);
+        sse_col_free(&c);
+    }
+    PASS();
+}
+
 /* ---- Connect envelope framing ---- */
 
 TEST connect_roundtrip(void) {
@@ -172,6 +200,19 @@ TEST connect_keepalives_skipped(void) {
     connect_decoder_free(&d);
     frame_col_free(&c);
     buf_free(&wire);
+    PASS();
+}
+
+TEST connect_encode_rejects_length_wrap(void) {
+    if (SIZE_MAX > UINT32_MAX) {
+        buf_t out = {0};
+        ASSERT_EQ(-1, connect_frame_encode(&out, 0, "", SIZE_MAX));
+        ASSERT_EQ(0, out.len);
+        ASSERT(!out.oom);
+        buf_free(&out);
+    }
+    buf_t failed = {.oom = true};
+    ASSERT_EQ(-2, connect_frame_encode(&failed, 0, "", 0));
     PASS();
 }
 
@@ -443,6 +484,7 @@ TEST tls_to_plain_http_server_fails_cleanly(void) {
 }
 
 SUITE(net_suite) {
+    RUN_TEST(sse_every_split_and_flush);
     RUN_TEST(sse_single_event);
     RUN_TEST(sse_byte_by_byte);
     RUN_TEST(sse_multiline_data_joined);
@@ -451,6 +493,7 @@ SUITE(net_suite) {
     RUN_TEST(connect_roundtrip);
     RUN_TEST(connect_fragmented_feed);
     RUN_TEST(connect_keepalives_skipped);
+    RUN_TEST(connect_encode_rejects_length_wrap);
     RUN_TEST(connect_oversized_rejected);
     RUN_TEST(url_parse_forms);
     RUN_TEST(response_headers_empty_partial_complete_and_eof);
