@@ -30,6 +30,7 @@ struct tny_cursor_config;
 #define TNY_VERSION "0.0.0-dev"
 #endif
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum { TNY_MODE_ASK = 0, TNY_MODE_AUTO, TNY_MODE_YOLO } tny_perm_mode;
 /* Conversation image input for the effective provider (docs/adr/0089).
  * Zero is unknown: nothing was configured, so the existing explicitly
@@ -37,11 +38,13 @@ typedef enum { TNY_MODE_ASK = 0, TNY_MODE_AUTO, TNY_MODE_YOLO } tny_perm_mode;
  * support. CONFIGURED_SUPPORTED is the user's assertion about this profile
  * ("configured, unverified"), never a live entitlement or model check.
  * CONFIGURED_UNSUPPORTED prohibits conversation image input. */
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_IMAGE_INPUT_UNKNOWN = 0,
     TNY_IMAGE_INPUT_CONFIGURED_SUPPORTED,
     TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED
 } tny_image_input_policy;
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_TOOLS_ALL = 0,
     TNY_TOOLS_TERMINAL_EDIT,
@@ -202,6 +205,7 @@ bool tny_builtin_profile_exists(const char *name);
  * Precedence: --chatgpt-token flag > CHATGPT_ACCESS_TOKEN env >
  * ~/.tny/codex-auth.json (tny's own login, native refresh) >
  * $CODEX_HOME/auth.json (the Codex CLI's login, refreshed in place). */
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_CODEX_CRED_NONE = 0,
     TNY_CODEX_CRED_FLAG,

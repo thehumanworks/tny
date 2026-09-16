@@ -15,6 +15,10 @@
 
 #include <sys/types.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct tny_engine;
 
 /* Native default on; TNY_ISOLATE=0 (debug escape hatch) or wasm turn it
@@ -59,6 +63,7 @@ char *tny_turn_result_json(tny_ctx *ctx, struct tny_engine *engine, tny_session_
 
 /* ---- client ---- */
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_RMSG_EVENT = 0,    /* ev is a normalized backend event */
     TNY_RMSG_BACKGROUNDED, /* checkpoint restarted; owner may detach */
@@ -91,7 +96,13 @@ typedef struct tny_runner_msg {
 
 typedef struct tny_runner_client tny_runner_client;
 
-typedef enum { TNY_RUNNER_OWNER = 1, TNY_RUNNER_OBSERVER, TNY_RUNNER_TOOL } tny_runner_role;
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
+typedef enum {
+    TNY_RUNNER_UNHANDSHAKEN = 0,
+    TNY_RUNNER_OWNER,
+    TNY_RUNNER_OBSERVER,
+    TNY_RUNNER_TOOL
+} tny_runner_role;
 bool tny_runner_role_allows(tny_runner_role role, const char *op);
 
 /* Connect and send the mandatory client-role handshake. An owner is unique;
@@ -118,4 +129,7 @@ int tny_runner_client_end(tny_runner_client *c, const char *reason);
 /* Plain close = detach: an active turn keeps running (docs/adr/0053). */
 void tny_runner_client_close(tny_runner_client *c);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

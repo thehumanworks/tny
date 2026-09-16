@@ -4,6 +4,7 @@
  * children, finalize on every exit path — plus an AF_UNIX NDJSON socket so
  * callers can watch, steer, approve, and cancel the turn live. Client
  * death is detachment, never turn death. */
+extern "C" {
 #include "core/runner.h"
 #include "core/checkpoint.h"
 #include "core/extensions.h"
@@ -29,6 +30,10 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+}
+#include "cpp/owners.hpp"
+#include "cpp/resources.hpp"
+extern "C" char **environ;
 
 bool tny_isolation_policy(const tny_ctx *ctx, bool transport_fork_safe) {
 #ifdef __EMSCRIPTEN__
@@ -278,7 +283,7 @@ char *tny_runner_sock_path(const char *session_dir) {
 /* ---- server ---- */
 
 typedef struct {
-    int fd;
+    tny::descriptor fd;
     buf_t in;
     buf_t out;
     tny_runner_role role;
@@ -293,7 +298,7 @@ typedef struct {
     perm_engine *perm;
     tny_engine *engine;
     bool serve;
-    int lfd;
+    tny::descriptor lfd;
     char *sock_path;
     rn_client cl[RN_MAX_CLIENTS];
     bool had_client;
@@ -314,9 +319,9 @@ typedef struct {
     int64_t last_ckpt;
     /* recorder — the -B accumulation, one place for every mode */
     buf_t output, thinking, host_tools, ext_msgs, errline;
-    int errpipe;            /* read end of the fd-2 tee (host stderr, diagnostics) */
-    buf_t erracc;           /* partial line from the tee */
-    char pending_perm[128]; /* forwarded permission id awaiting a client */
+    tny::descriptor errpipe; /* read end of the fd-2 tee (host stderr, diagnostics) */
+    buf_t erracc;            /* partial line from the tee */
+    char pending_perm[128];  /* forwarded permission id awaiting a client */
     bool question_pending;
     bool question_done;
     bool question_failed;
@@ -341,20 +346,22 @@ static bool rn_cancel_probe(void *ud) {
 static int rn_client_count(rn_state *r) {
     int n = 0;
     for (int i = 0; i < RN_MAX_CLIENTS; i++)
-        if (r->cl[i].fd >= 0) n++;
+        if (r->cl[i].fd.borrow() >= 0) n++;
     return n;
 }
 
 static int rn_frontend_count(rn_state *r) {
     int n = 0;
     for (int i = 0; i < RN_MAX_CLIENTS; i++)
-        if (r->cl[i].fd >= 0 && r->cl[i].handshaken && r->cl[i].role != TNY_RUNNER_TOOL) n++;
+        if (r->cl[i].fd.borrow() >= 0 && r->cl[i].handshaken && r->cl[i].role != TNY_RUNNER_TOOL)
+            n++;
     return n;
 }
 
 static int rn_owner(rn_state *r) {
     for (int i = 0; i < RN_MAX_CLIENTS; i++)
-        if (r->cl[i].fd >= 0 && r->cl[i].handshaken && r->cl[i].role == TNY_RUNNER_OWNER) return i;
+        if (r->cl[i].fd.borrow() >= 0 && r->cl[i].handshaken && r->cl[i].role == TNY_RUNNER_OWNER)
+            return i;
     return -1;
 }
 
@@ -372,10 +379,9 @@ static const char *rn_role_name(tny_runner_role role) {
 }
 
 static void rn_client_drop(rn_state *r, int i) {
-    if (r->cl[i].fd < 0) return;
+    if (r->cl[i].fd.borrow() < 0) return;
     bool owner = r->cl[i].handshaken && r->cl[i].role == TNY_RUNNER_OWNER;
-    close(r->cl[i].fd);
-    r->cl[i].fd = -1;
+    r->cl[i].fd.reset();
     buf_free(&r->cl[i].in);
     buf_free(&r->cl[i].out);
     if (r->question_pending && r->question_tool_client == i) {
@@ -396,8 +402,8 @@ static void rn_client_drop(rn_state *r, int i) {
 
 static void rn_client_flush(rn_state *r, int i) {
     rn_client *c = &r->cl[i];
-    while (c->fd >= 0 && c->out.len) {
-        ssize_t n = write(c->fd, c->out.data, c->out.len);
+    while (c->fd.borrow() >= 0 && c->out.len) {
+        ssize_t n = write(c->fd.borrow(), c->out.data, c->out.len);
         if (n > 0) {
             buf_consume(&c->out, (size_t)n);
             continue;
@@ -419,9 +425,9 @@ static void rn_flush_before_exit(rn_state *r) {
         int clients[RN_MAX_CLIENTS];
         nfds_t n = 0;
         for (int i = 0; i < RN_MAX_CLIENTS; i++) {
-            if (r->cl[i].fd < 0 || !r->cl[i].out.len) continue;
+            if (r->cl[i].fd.borrow() < 0 || !r->cl[i].out.len) continue;
             clients[n] = i;
-            fds[n++] = (struct pollfd){r->cl[i].fd, POLLOUT, 0};
+            fds[n++] = pollfd{r->cl[i].fd.borrow(), POLLOUT, 0};
         }
         if (!n) break;
         int pr = tny_poll(fds, n, 50);
@@ -433,7 +439,7 @@ static void rn_flush_before_exit(rn_state *r) {
 
 static void rn_send_line(rn_state *r, int i, const char *line, size_t len) {
     rn_client *c = &r->cl[i];
-    if (c->fd < 0) return;
+    if (c->fd.borrow() < 0) return;
     if (c->out.len + len > RN_OUTBUF_MAX) { /* stalled reader: cut it loose */
         rn_client_drop(r, i);
         return;
@@ -492,7 +498,7 @@ static void rn_question_fail(rn_state *r, const char *error) {
 static void rn_broadcast(rn_state *r, const buf_t *line) {
     for (int i = 0; i < RN_MAX_CLIENTS; i++) {
         rn_client *c = &r->cl[i];
-        if (c->fd >= 0 && c->handshaken && c->role != TNY_RUNNER_TOOL)
+        if (c->fd.borrow() >= 0 && c->handshaken && c->role != TNY_RUNNER_TOOL)
             rn_send_line(r, i, line->data, line->len);
     }
 }
@@ -507,7 +513,7 @@ static void rn_broadcast_event(rn_state *r, const tny_backend_event *ev) {
 
 static void rn_broadcast_status(rn_state *r, const char *text) {
     fprintf(stdout, "%s\n", text); /* task.log keeps the -B era trail */
-    tny_backend_event ev = {0};
+    tny_backend_event ev = {};
     ev.kind = TNY_EV_STATUS;
     ev.text = text;
     ev.text_len = strlen(text);
@@ -517,22 +523,22 @@ static void rn_broadcast_status(rn_state *r, const char *text) {
 /* Drain the fd-2 tee: every complete line goes to task.log (stdout) and to
  * the clients as a `log` message — the pre-0053 terminal trail, live. */
 static void rn_drain_errpipe(rn_state *r) {
-    if (r->errpipe < 0) return;
+    if (r->errpipe.borrow() < 0) return;
     char tmp[4096];
     for (;;) {
-        ssize_t n = read(r->errpipe, tmp, sizeof tmp);
+        ssize_t n = read(r->errpipe.borrow(), tmp, sizeof tmp);
         if (n > 0) {
             buf_append(&r->erracc, tmp, (size_t)n);
             continue;
         }
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
         if (n < 0 && errno == EINTR) continue;
-        close(r->errpipe); /* nothing writes fd 2 anymore */
-        r->errpipe = -1;
+        r->errpipe.reset(); /* nothing writes fd 2 anymore */
         break;
     }
     char *nl;
-    while (r->erracc.len && (nl = memchr(r->erracc.data, '\n', r->erracc.len))) {
+    while (r->erracc.len &&
+           (nl = static_cast<char *>(memchr(r->erracc.data, '\n', r->erracc.len)))) {
         size_t linelen = (size_t)(nl - r->erracc.data);
         fwrite(r->erracc.data, 1, linelen + 1, stdout);
         buf_t b;
@@ -591,18 +597,20 @@ static void rn_accept(rn_state *r) {
     for (;;) {
         int slot = -1;
         for (int i = 0; i < RN_MAX_CLIENTS; i++)
-            if (r->cl[i].fd < 0) {
+            if (r->cl[i].fd.borrow() < 0) {
                 slot = i;
                 break;
             }
-        int fd = accept(r->lfd, NULL, NULL);
+        tny::descriptor accepted;
+        accepted.adopt(accept(r->lfd.borrow(), NULL, NULL));
+        int fd = accepted.borrow();
         if (fd < 0) return;
         if (slot < 0) {
-            close(fd); /* full house; the next detach frees a seat */
+            /* full house; accepted closes on return */
             return;
         }
 /* GCC 14's analyzer confuses the listener with the descriptor accept()
- * returned and reports r->lfd leaking at the first operation on the new fd
+ * returned and reports r->lfd.borrow() leaking at the first operation on the new fd
  * (the same false trace src/net/http_server.c scopes off); the listener
  * lives for the runner's lifetime and the accepted fd is stored in cl[]. */
 #if defined(__GNUC__) && !defined(__clang__)
@@ -620,9 +628,9 @@ static void rn_accept(rn_state *r) {
          * lands where an owner sat is still only a tool client. Sequential
          * tool-role control requests within one turn reuse slots routinely. */
         c->handshaken = false;
-        c->role = 0;
+        c->role = TNY_RUNNER_UNHANDSHAKEN;
         c->can_answer_questions = false;
-        c->fd = fd;
+        c->fd.adopt(accepted.release());
         buf_init(&c->in);
         buf_init(&c->out);
         c->accepted_ms = now_ms();
@@ -965,11 +973,11 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
             return;
         }
         const char *role = rn_string(root, "role", 16);
-        tny_runner_role parsed = !role                           ? 0
+        tny_runner_role parsed = !role                           ? TNY_RUNNER_UNHANDSHAKEN
                                  : strcmp(role, "owner") == 0    ? TNY_RUNNER_OWNER
                                  : strcmp(role, "observer") == 0 ? TNY_RUNNER_OBSERVER
                                  : strcmp(role, "tool") == 0     ? TNY_RUNNER_TOOL
-                                                                 : 0;
+                                                                 : TNY_RUNNER_UNHANDSHAKEN;
         if (!parsed || (parsed == TNY_RUNNER_OWNER && rn_owner(r) >= 0)) {
             rn_client_drop(r, ci);
             return;
@@ -981,10 +989,11 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
         r->had_client = true;
         rn_send_hello(r, ci);
         if (parsed == TNY_RUNNER_OWNER && r->pending_perm[0]) {
-            tny_backend_event ev = {.kind = TNY_EV_PERMISSION,
-                                    .perm_id = r->pending_perm,
-                                    .perm_summary = r->permission_summary,
-                                    .perm_options = r->permission_options};
+            tny_backend_event ev{};
+            ev.kind = TNY_EV_PERMISSION;
+            ev.perm_id = r->pending_perm;
+            ev.perm_summary = r->permission_summary;
+            ev.perm_options = r->permission_options;
             rn_broadcast_event(r, &ev);
         }
         return;
@@ -1004,7 +1013,7 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
             rn_turn_err(r, "turn without a prompt", 1);
             return;
         }
-        const char *images[17] = {0};
+        const char *images[17] = {};
         int n = 0;
         yyjson_val *arr = jget(root, "images");
         if (arr && yyjson_is_arr(arr)) {
@@ -1022,7 +1031,7 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
         if (!r->turn_active || !r->engine ||
             tny_engine_steer(r->engine, text, err, sizeof err) != 0) {
             /* hand the text back exactly like a host refusal (docs/adr/0013) */
-            tny_backend_event ev = {0};
+            tny_backend_event ev = {};
             ev.kind = TNY_EV_STEER_REJECTED;
             ev.text = text;
             ev.text_len = strlen(text);
@@ -1144,8 +1153,8 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
 static void rn_client_read(rn_state *r, int i) {
     rn_client *c = &r->cl[i];
     char tmp[8192];
-    for (size_t bytes = 0; c->fd >= 0 && bytes < 65536;) {
-        ssize_t n = read(c->fd, tmp, sizeof tmp);
+    for (size_t bytes = 0; c->fd.borrow() >= 0 && bytes < 65536;) {
+        ssize_t n = read(c->fd.borrow(), tmp, sizeof tmp);
         if (n > 0) {
             bytes += (size_t)n;
             buf_append(&c->in, tmp, (size_t)n);
@@ -1153,7 +1162,8 @@ static void rn_client_read(rn_state *r, int i) {
              * not discard the owner's last commands. Limit each line,
              * not the combined size of a burst of valid messages. */
             char *nl;
-            while (c->fd >= 0 && c->in.len && (nl = memchr(c->in.data, '\n', c->in.len))) {
+            while (c->fd.borrow() >= 0 && c->in.len &&
+                   (nl = static_cast<char *>(memchr(c->in.data, '\n', c->in.len)))) {
                 size_t linelen = (size_t)(nl - c->in.data);
                 if (linelen > RN_MAX_LINE) {
                     rn_client_drop(r, i);
@@ -1182,42 +1192,43 @@ static void rn_client_read(rn_state *r, int i) {
  * intentionally contains only the listener and session clients: never the
  * backend, stderr tee, MCP, or extension fds. */
 static int rn_control_pump(void *ud, int timeout_ms) {
-    rn_state *r = ud;
+    rn_state *r = static_cast<rn_state *>(ud);
     struct pollfd fds[1 + RN_MAX_CLIENTS];
     int cmap[RN_MAX_CLIENTS];
     nfds_t n = 0;
     int li = -1;
     if (rn_client_count(r) < RN_MAX_CLIENTS) {
         li = (int)n;
-        fds[n++] = (struct pollfd){r->lfd, POLLIN, 0};
+        fds[n++] = pollfd{r->lfd.borrow(), POLLIN, 0};
     }
     for (int i = 0; i < RN_MAX_CLIENTS; i++) {
         cmap[i] = -1;
-        if (r->cl[i].fd < 0) continue;
+        if (r->cl[i].fd.borrow() < 0) continue;
         cmap[i] = (int)n;
         fds[n++] =
-            (struct pollfd){r->cl[i].fd, (short)(POLLIN | (r->cl[i].out.len ? POLLOUT : 0)), 0};
+            pollfd{r->cl[i].fd.borrow(), (short)(POLLIN | (r->cl[i].out.len ? POLLOUT : 0)), 0};
     }
     int pr = tny_poll(fds, n, timeout_ms < 0 ? 0 : timeout_ms);
     if (pr < 0 && errno != EINTR) return -1;
     if (li >= 0 && (fds[li].revents & POLLIN)) rn_accept(r);
     for (int i = 0; i < RN_MAX_CLIENTS; i++) {
-        if (cmap[i] < 0 || r->cl[i].fd < 0) continue;
+        if (cmap[i] < 0 || r->cl[i].fd.borrow() < 0) continue;
         short re = fds[cmap[i]].revents;
         if (re & POLLOUT) rn_client_flush(r, i);
-        if (r->cl[i].fd >= 0 && (re & (POLLIN | POLLHUP | POLLERR))) {
+        if (r->cl[i].fd.borrow() >= 0 && (re & (POLLIN | POLLHUP | POLLERR))) {
             r->control_pumping = true;
             rn_client_read(r, i);
             r->control_pumping = false;
         }
-        if (r->cl[i].fd >= 0 && !r->cl[i].handshaken && now_ms() - r->cl[i].accepted_ms > 5000)
+        if (r->cl[i].fd.borrow() >= 0 && !r->cl[i].handshaken &&
+            now_ms() - r->cl[i].accepted_ms > 5000)
             rn_client_drop(r, i);
     }
     return 0;
 }
 
 static char *rn_ask_user(const char *question, void *ud) {
-    rn_state *r = ud;
+    rn_state *r = static_cast<rn_state *>(ud);
     char *id = gen_id();
     if (!id) return NULL;
     int started = rn_start_question(r, -1, id, question);
@@ -1248,7 +1259,7 @@ static int rn_transfer(int fd, void *bytes, size_t len, bool writing) {
     size_t off = 0;
     int64_t deadline = monotonic_ms() + 10000;
     while (off < len && monotonic_ms() < deadline && !g_rn_stop) {
-        struct pollfd p = {fd, writing ? POLLOUT : POLLIN, 0};
+        struct pollfd p = {fd, static_cast<short>(writing ? POLLOUT : POLLIN), 0};
         int pr = tny_poll(&p, 1, 50);
         if (pr < 0 && errno != EINTR) return -1;
         if (!pr) continue;
@@ -1326,12 +1337,12 @@ static yyjson_mut_doc *rn_checkpoint(rn_state *r) {
     yyjson_mut_obj_remove_key(resume, "client_out");
     yyjson_mut_obj_put(resume, yyjson_mut_str(sd, "owner"), yyjson_mut_bool(sd, false));
     yyjson_mut_obj_add_bool(sd, resume, "resumable", true);
-    yyjson_mut_val *public = tny_checkpoint_public(sd, r->ctx);
-    if (!public) {
+    yyjson_mut_val *public_context = tny_checkpoint_public(sd, r->ctx);
+    if (!public_context) {
         yyjson_mut_doc_free(d);
         return NULL;
     }
-    yyjson_mut_obj_add_val(sd, resume, "public_context", public);
+    yyjson_mut_obj_add_val(sd, resume, "public_context", public_context);
     yyjson_mut_obj_add_val(sd, disk, "_resume", resume);
     yyjson_mut_obj_put(yyjson_mut_doc_get_root(sd), yyjson_mut_str(sd, "continuation"), disk);
     session_set_meta(r->session, tny_provider_name(r->ctx), r->ctx->model);
@@ -1363,31 +1374,33 @@ static void rn_restart(rn_state *r) {
     char *payload = snapshot ? jwrite(snapshot) : NULL;
     size_t len = payload ? strlen(payload) : 0;
     char *self = tny_process_self_path();
-    int pair[2] = {-1, -1};
+    int raw_pair[2] = {-1, -1};
+    tny::descriptor pair[2];
     pid_t child = -1;
     bool released = false;
     yyjson_doc *recovery = payload ? jparse(payload, len) : NULL;
     int owner = rn_owner(r);
-    if (!payload || !len || len > RN_RESTART_MAX || !self || !recovery ||
-        socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0)
-        goto failed;
-    for (int i = 0; i < 2; i++) {
-        set_nonblock(pair[i], true);
-        fcntl(pair[i], F_SETFD, FD_CLOEXEC);
-    }
     char restart_arg[] = "--runner-restart";
     char *argv[] = {self, restart_arg, NULL};
-    extern char **environ;
-    tny_fd_mapping maps[4] = {{pair[1], 3},
-                              {r->lfd, 4},
-                              {r->session->lock_fd, 5},
-                              {owner >= 0 ? r->cl[owner].fd : pair[1], 6}};
-    if (tny_process_spawn_mapped(argv, environ, maps, owner >= 0 ? 4 : 3, &child) != 0) goto failed;
-    close(pair[1]);
-    pair[1] = -1;
+    tny_fd_mapping maps[4];
     uint64_t size = len;
-    if (rn_transfer(pair[0], &size, sizeof size, true) != 0 ||
-        rn_transfer(pair[0], payload, len, true) != 0 || rn_exchange_byte(pair[0], 'R', false) != 0)
+    if (!payload || !len || len > RN_RESTART_MAX || !self || !recovery ||
+        socketpair(AF_UNIX, SOCK_STREAM, 0, raw_pair) != 0)
+        goto failed;
+    for (int i = 0; i < 2; i++) {
+        pair[i].adopt(raw_pair[i]);
+        set_nonblock(pair[i].borrow(), true);
+        fcntl(pair[i].borrow(), F_SETFD, FD_CLOEXEC);
+    }
+    maps[0] = {pair[1].borrow(), 3};
+    maps[1] = {r->lfd.borrow(), 4};
+    maps[2] = {r->session->lock_fd, 5};
+    maps[3] = {owner >= 0 ? r->cl[owner].fd.borrow() : pair[1].borrow(), 6};
+    if (tny_process_spawn_mapped(argv, environ, maps, owner >= 0 ? 4 : 3, &child) != 0) goto failed;
+    pair[1].reset();
+    if (rn_transfer(pair[0].borrow(), &size, sizeof size, true) != 0 ||
+        rn_transfer(pair[0].borrow(), payload, len, true) != 0 ||
+        rn_exchange_byte(pair[0].borrow(), 'R', false) != 0)
         goto failed;
     /* Child has validated/constructed the continuation but cannot mutate.
      * Parent quiesces every old writer before transferring mutation rights. */
@@ -1399,16 +1412,17 @@ static void rn_restart(rn_state *r) {
     rn_drain_errpipe(r);
     fflush(NULL);
     released = true;
-    if (rn_exchange_byte(pair[0], 'G', true) != 0 || rn_exchange_byte(pair[0], 'C', false) != 0)
+    if (rn_exchange_byte(pair[0].borrow(), 'G', true) != 0 ||
+        rn_exchange_byte(pair[0].borrow(), 'C', false) != 0)
         goto failed;
-    if (rn_exchange_byte(pair[0], 'X', true) != 0) goto failed;
+    if (rn_exchange_byte(pair[0].borrow(), 'X', true) != 0) goto failed;
     /* RUN was released: no further session writes, unlock, unlink, or end
      * events from this process. The child owns all remaining tool effects. */
     _exit(0);
 failed:
     r->handoff_pending = false;
-    if (pair[0] >= 0) close(pair[0]);
-    if (pair[1] >= 0) close(pair[1]);
+    pair[0].reset();
+    pair[1].reset();
     if (child > 0) {
         kill(child, SIGKILL);
         while (waitpid(child, NULL, 0) < 0 && errno == EINTR) {}
@@ -1464,19 +1478,19 @@ static yyjson_doc *rn_disk_packet(tny_session_state *session) {
 
 static bool rn_consume_checkpoint(rn_state *r) {
     yyjson_mut_val *resume = yyjson_mut_obj_get(rn_continuation(r->session), "_resume");
-    if (!resume) return false;
-    yyjson_mut_obj_put(resume, yyjson_mut_str(r->session->doc, "resumable"),
-                       yyjson_mut_bool(r->session->doc, false));
+    yyjson_mut_val *resumable = yyjson_mut_obj_get(resume, "resumable");
+    if (!yyjson_mut_is_bool(resumable) || !yyjson_mut_get_bool(resumable) ||
+        !yyjson_mut_set_bool(resumable, false))
+        return false;
     if (session_save(r->session) == 0) return true;
-    yyjson_mut_obj_put(resume, yyjson_mut_str(r->session->doc, "resumable"),
-                       yyjson_mut_bool(r->session->doc, true));
+    if (!yyjson_mut_set_bool(resumable, true)) return false;
     rn_broadcast_status(r, "Could not activate saved continuation; no pending tools were run");
     return false;
 }
 
-static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
-                                    const tny_runner_opts *opts, int lfd, char *sock_path,
-                                    yyjson_val *restart) {
+[[noreturn]] static void rn_child_main(tny_ctx *ctx, tny_session_state *session,
+                                       const tny_runner_opts *opts, int lfd, char *sock_path,
+                                       yyjson_val *restart) {
     /* Initial fork creates a session. A mapped restart already leads its
      * own group inside this detached session and has no controlling TTY. */
     if (!restart && setsid() < 0) _exit(2);
@@ -1504,24 +1518,16 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
      * live, exactly like the pre-0053 terminal (`log` messages). The write
      * end is nonblocking: a burst larger than the pipe inside one dispatch
      * drops lines instead of deadlocking the single-threaded loop. */
-    int errpipe = -1;
+    tny::descriptor errpipe;
     {
-        int ep[2];
-        if (pipe(ep) == 0) {
-            fcntl(ep[0], F_SETFD, FD_CLOEXEC);
-            set_nonblock(ep[0], true);
-            set_nonblock(ep[1], true);
-/* fd 2 is deliberately held for the process lifetime (it IS stderr) */
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wanalyzer-fd-leak"
-#endif
-            if (dup2(ep[1], 2) == 2) errpipe = ep[0];
-            else close(ep[0]);
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
-            close(ep[1]);
+        tny::pipe_pair tee;
+        if (tee.open() == 0) {
+            fcntl(tee.ends[0].borrow(), F_SETFD, FD_CLOEXEC);
+            set_nonblock(tee.ends[0].borrow(), true);
+            set_nonblock(tee.ends[1].borrow(), true);
+            /* fd2 is deliberately process-lifetime stderr; the original pipe
+             * ends remain scoped even when dup2 fails. */
+            if (dup2(tee.ends[1].borrow(), 2) == 2) errpipe.adopt(tee.ends[0].release());
         }
     }
 
@@ -1538,16 +1544,16 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
      * them; threads do not survive fork (docs/adr/0031, 0049). */
     if (!restart && ctx->backend == TNY_BK_OPENAI) mcp_warm_start(ctx);
 
-    rn_state r;
-    memset(&r, 0, sizeof r);
+    rn_state r{};
+
     r.ctx = ctx;
     r.session = session;
     r.serve = opts->serve;
-    r.lfd = lfd;
+    r.lfd.adopt(lfd);
     r.sock_path = sock_path;
     r.started_ms = now_ms();
-    r.errpipe = errpipe;
-    for (int i = 0; i < RN_MAX_CLIENTS; i++) r.cl[i].fd = -1;
+    r.errpipe.adopt(errpipe.release());
+    for (int i = 0; i < RN_MAX_CLIENTS; i++) r.cl[i].fd.adopt(-1);
     buf_init(&r.output);
     buf_init(&r.thinking);
     buf_init(&r.erracc);
@@ -1580,7 +1586,7 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
         buf_appends(&r.ext_msgs,
                     jget_str(restart, "ext_msgs") ? jget_str(restart, "ext_msgs") : "");
         if (jget_bool(restart, "owner", false)) {
-            r.cl[0].fd = 6;
+            r.cl[0].fd.adopt(6);
             r.cl[0].role = TNY_RUNNER_OWNER;
             r.cl[0].handshaken = true;
             r.cl[0].can_answer_questions = jget_bool(restart, "questions", false);
@@ -1638,24 +1644,24 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
         int li = -1;
         if (rn_client_count(&r) < RN_MAX_CLIENTS) {
             li = (int)n;
-            fds[n].fd = r.lfd;
+            fds[n].fd = r.lfd.borrow();
             fds[n].events = POLLIN;
             fds[n].revents = 0;
             n++;
         }
         for (int i = 0; i < RN_MAX_CLIENTS; i++) {
             cmap[i] = -1;
-            if (r.cl[i].fd < 0) continue;
+            if (r.cl[i].fd.borrow() < 0) continue;
             cmap[i] = (int)n;
-            fds[n].fd = r.cl[i].fd;
+            fds[n].fd = r.cl[i].fd.borrow();
             fds[n].events = POLLIN | (r.cl[i].out.len ? POLLOUT : 0);
             fds[n].revents = 0;
             n++;
         }
         int pi = -1;
-        if (r.errpipe >= 0) {
+        if (r.errpipe.borrow() >= 0) {
             pi = (int)n;
-            fds[n].fd = r.errpipe;
+            fds[n].fd = r.errpipe.borrow();
             fds[n].events = POLLIN;
             fds[n].revents = 0;
             n++;
@@ -1675,11 +1681,13 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
         }
         if (li >= 0 && (fds[li].revents & POLLIN)) rn_accept(&r);
         for (int i = 0; i < RN_MAX_CLIENTS; i++) {
-            if (cmap[i] < 0 || r.cl[i].fd < 0) continue;
+            if (cmap[i] < 0 || r.cl[i].fd.borrow() < 0) continue;
             short re = fds[cmap[i]].revents;
             if (re & POLLOUT) rn_client_flush(&r, i);
-            if (r.cl[i].fd >= 0 && (re & (POLLIN | POLLHUP | POLLERR))) rn_client_read(&r, i);
-            if (r.cl[i].fd >= 0 && !r.cl[i].handshaken && now_ms() - r.cl[i].accepted_ms > 5000)
+            if (r.cl[i].fd.borrow() >= 0 && (re & (POLLIN | POLLHUP | POLLERR)))
+                rn_client_read(&r, i);
+            if (r.cl[i].fd.borrow() >= 0 && !r.cl[i].handshaken &&
+                now_ms() - r.cl[i].accepted_ms > 5000)
                 rn_client_drop(&r, i);
         }
         if (pi >= 0 && (fds[pi].revents & (POLLIN | POLLHUP))) rn_drain_errpipe(&r);
@@ -1729,7 +1737,7 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
     session_save(r.session);
     rn_drain_errpipe(&r);
     fflush(NULL); /* task.log is complete before anyone hears bye */
-    close(r.lfd);
+    r.lfd.reset();
     unlink(r.sock_path); /* last session-dir mutation: bye promises quiescence */
     session_lock_release(r.session);
     {
@@ -1753,6 +1761,7 @@ static _Noreturn void rn_child_main(tny_ctx *ctx, tny_session_state *session,
     buf_free(&r.errline);
     buf_free(&r.erracc);
     free(r.question_answer);
+    r.errpipe.reset();
     _exit(r.quit_code);
 }
 
@@ -1768,8 +1777,8 @@ pid_t tny_runner_spawn(tny_ctx *ctx, tny_session_state *session, const tny_runne
         snprintf(err, errlen, "session is locked by another process");
         return -1;
     }
+    tny::spawn_writer writer(session, acquired_here);
     if (acquired_here && session->persisted && session_reload_locked(session, err, errlen) != 0) {
-        session_lock_release(session);
         return -1;
     }
     yyjson_mut_val *pending = rn_continuation(session);
@@ -1785,7 +1794,6 @@ pid_t tny_runner_spawn(tny_ctx *ctx, tny_session_state *session, const tny_runne
                 err, errlen,
                 "checkpoint cannot be replayed with this configuration or after activation; use "
                 "tny resume with its original provider/configuration for an unconsumed checkpoint");
-            if (acquired_here) session_lock_release(session);
             return -1;
         }
         ctx = restored;
@@ -1794,22 +1802,21 @@ pid_t tny_runner_spawn(tny_ctx *ctx, tny_session_state *session, const tny_runne
      * that later runners must reload it, even if this child ends before a turn. */
     if (!session->persisted && session_save(session) != 0) {
         snprintf(err, errlen, "cannot write new session");
-        if (acquired_here) session_lock_release(session);
         if (ctx != original_ctx) tny_ctx_free(ctx);
         return -1;
     }
     char *sock = tny_runner_sock_path(session->dir);
     if (!sock) {
         snprintf(err, errlen, "session path too long for a unix socket");
-        if (acquired_here) session_lock_release(session);
         if (ctx != original_ctx) tny_ctx_free(ctx);
         return -1;
     }
-    int lfd = unix_listen(sock);
+    tny::descriptor listener;
+    listener.adopt(unix_listen(sock));
+    int lfd = listener.borrow();
     if (lfd < 0) {
         snprintf(err, errlen, "cannot listen on %s", sock);
         free(sock);
-        if (acquired_here) session_lock_release(session);
         if (ctx != original_ctx) tny_ctx_free(ctx);
         return -1;
     }
@@ -1817,30 +1824,33 @@ pid_t tny_runner_spawn(tny_ctx *ctx, tny_session_state *session, const tny_runne
     fflush(NULL); /* buffered stdio must not replay into task.log */
     pid_t pid = fork();
     if (pid < 0) {
-        close(lfd);
         unlink(sock);
         free(sock);
         snprintf(err, errlen, "fork failed");
-        if (acquired_here) session_lock_release(session);
         if (ctx != original_ctx) tny_ctx_free(ctx);
         return -1;
     }
     if (pid > 0) {
-        close(lfd);
         free(sock);
-        if (acquired_here) session_lock_release(session);
         if (ctx != original_ctx) tny_ctx_free(ctx);
         return pid;
     }
-    rn_child_main(ctx, session, opts, lfd, sock, NULL);
+    writer.release();
+    rn_child_main(ctx, session, opts, listener.release(), sock, NULL);
 }
 
 int tny_runner_restart_main(void) {
+    tny::descriptor channel, listener, owner_client;
+    tny::lock_descriptor writer;
+    channel.adopt(3);
+    listener.adopt(4);
+    writer.adopt(5);
+    if (fcntl(6, F_GETFD) >= 0) owner_client.adopt(6);
     signal(SIGPIPE, SIG_IGN);
     set_nonblock(3, true);
     uint64_t len = 0;
     if (rn_transfer(3, &len, sizeof len, false) != 0 || !len || len > RN_RESTART_MAX) return 2;
-    char *bytes = malloc((size_t)len + 1);
+    char *bytes = static_cast<char *>(tny_alloc_malloc((size_t)len + 1));
     if (!bytes || rn_transfer(3, bytes, (size_t)len, false) != 0) {
         free(bytes);
         return 2;
@@ -1866,19 +1876,28 @@ int tny_runner_restart_main(void) {
         yyjson_doc_free(d);
         return 2;
     }
-    session->lock_fd = 5;
+    session->lock_fd = writer.release();
     fcntl(5, F_SETFD, FD_CLOEXEC);
     fcntl(4, F_SETFD, FD_CLOEXEC);
     char *sock = tny_runner_sock_path(session->dir);
-    if (!sock || chdir(ctx->cwd) != 0) return 2;
-    tny_runner_opts opts = {.serve = true};
-    rn_child_main(ctx, session, &opts, 4, sock, r);
+    if (!sock || chdir(ctx->cwd) != 0) {
+        free(sock);
+        session_close(session);
+        tny_ctx_free(ctx);
+        yyjson_doc_free(d);
+        return 2;
+    }
+    tny_runner_opts opts{};
+    opts.serve = true;
+    (void)channel.release(); /* child protocol consumes fd3 */
+    if (jget_bool(r, "owner", false)) (void)owner_client.release();
+    rn_child_main(ctx, session, &opts, listener.release(), sock, r);
 }
 
 /* ---- client ---- */
 
 struct tny_runner_client {
-    int fd;
+    tny::descriptor fd;
     buf_t in;
     tny_runner_msg *head, *tail;
     bool dead;
@@ -1897,12 +1916,14 @@ tny_runner_client *tny_runner_client_connect(const char *sock_path, int timeout_
         struct pollfd none = {-1, 0, 0};
         tny_poll(&none, 1, 50); /* bounded retry sleep through the seam */
     }
-    tny_runner_client *c = calloc(1, sizeof *c);
-    if (!c) {
-        close(fd);
-        return NULL;
-    }
-    c->fd = fd;
+    tny::descriptor connection;
+    connection.adopt(fd);
+    tny::owner<tny_runner_client> owned;
+    try {
+        owned = tny::make_owner<tny_runner_client>();
+    } catch (const std::bad_alloc &) { return NULL; }
+    tny_runner_client *c = owned.get();
+    c->fd.adopt(connection.release());
     buf_init(&c->in);
     buf_t hello;
     buf_init(&hello);
@@ -1913,14 +1934,14 @@ tny_runner_client *tny_runner_client_connect(const char *sock_path, int timeout_
     buf_appends(&hello, "}\n");
     if (rc_send(c, &hello) != 0) {
         buf_free(&hello);
-        tny_runner_client_close(c);
+        tny_runner_client_close(owned.release());
         return NULL;
     }
     buf_free(&hello);
-    return c;
+    return owned.release();
 }
 
-int tny_runner_client_fd(const tny_runner_client *c) { return c ? c->fd : -1; }
+int tny_runner_client_fd(const tny_runner_client *c) { return c ? c->fd.borrow() : -1; }
 
 static void rc_queue(tny_runner_client *c, tny_runner_msg *m) {
     m->next = NULL;
@@ -1938,7 +1959,7 @@ static void rc_parse_line(tny_runner_client *c, const char *line, size_t len) {
         yyjson_doc_free(doc);
         return;
     }
-    tny_runner_msg *m = calloc(1, sizeof *m);
+    tny_runner_msg *m = static_cast<tny_runner_msg *>(tny_alloc_calloc(1, sizeof *m));
     if (!m) {
         yyjson_doc_free(doc);
         return;
@@ -2022,17 +2043,17 @@ static void rc_parse_line(tny_runner_client *c, const char *line, size_t len) {
 }
 
 int tny_runner_client_pump(tny_runner_client *c) {
-    if (!c || c->fd < 0) return -1;
+    if (!c || c->fd.borrow() < 0) return -1;
     char tmp[8192];
     /* A hot runner must not monopolize the renderer's input loop. Parse
      * each read so a burst of small lines cannot trip the per-line cap. */
     for (size_t bytes = 0; !c->dead && bytes < 65536;) {
-        ssize_t n = read(c->fd, tmp, sizeof tmp);
+        ssize_t n = read(c->fd.borrow(), tmp, sizeof tmp);
         if (n > 0) {
             bytes += (size_t)n;
             buf_append(&c->in, tmp, (size_t)n);
             char *nl;
-            while (c->in.len && (nl = memchr(c->in.data, '\n', c->in.len))) {
+            while (c->in.len && (nl = static_cast<char *>(memchr(c->in.data, '\n', c->in.len)))) {
                 size_t linelen = (size_t)(nl - c->in.data);
                 if (linelen > RN_MAX_LINE) {
                     c->dead = true;
@@ -2071,17 +2092,17 @@ void tny_runner_msg_free(tny_runner_msg *m) {
 }
 
 static int rc_send(tny_runner_client *c, const buf_t *line) {
-    if (!c || c->fd < 0 || c->dead) return -1;
+    if (!c || c->fd.borrow() < 0 || c->dead) return -1;
     size_t off = 0;
     while (off < line->len) {
-        ssize_t n = write(c->fd, line->data + off, line->len - off);
+        ssize_t n = write(c->fd.borrow(), line->data + off, line->len - off);
         if (n > 0) {
             off += (size_t)n;
             continue;
         }
         if (n < 0 && errno == EINTR) continue;
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            struct pollfd pf = {c->fd, POLLOUT, 0};
+            struct pollfd pf = {c->fd.borrow(), POLLOUT, 0};
             if (tny_poll(&pf, 1, 5000) <= 0) return -1;
             continue;
         }
@@ -2182,7 +2203,7 @@ int tny_runner_client_end(tny_runner_client *c, const char *reason) {
 
 void tny_runner_client_close(tny_runner_client *c) {
     if (!c) return;
-    if (c->fd >= 0) close(c->fd);
+    if (c->fd.borrow() >= 0) c->fd.reset();
     buf_free(&c->in);
     tny_runner_msg *m = c->head;
     while (m) {
@@ -2190,7 +2211,7 @@ void tny_runner_client_close(tny_runner_client *c) {
         tny_runner_msg_free(m);
         m = next;
     }
-    free(c);
+    tny::owner<tny_runner_client> owned(c);
 }
 
 #else /* __EMSCRIPTEN__: clean-error stubs (docs/adr/0017, 0053) */

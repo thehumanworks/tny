@@ -5,6 +5,7 @@
 
 #include "core/config.h"
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     PERM_ALLOW, /* run it */
     PERM_DENY,  /* refuse, tell the model */

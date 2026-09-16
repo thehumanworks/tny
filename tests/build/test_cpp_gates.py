@@ -48,7 +48,12 @@ def main():
         for line in result.stdout.splitlines():
             name, paths = line.split("=", 1)
             assert relative in paths, f"{name} did not discover {relative}"
-            for source in ("src/core/owned_event.cpp", "src/lib/custom_tools.cpp"):
+            for source in (
+                "src/core/owned_event.cpp",
+                "src/lib/custom_tools.cpp",
+                "src/core/runner.cpp",
+                "src/core/jobs.cpp",
+            ):
                 assert source in paths, f"{name} did not discover {source}"
         fmt = run(
             [

@@ -1,0 +1,8 @@
+
+* Suite runner_suite:
+phase3 runner descriptors: before=4 after=4 cycles=12
+...................
+19 tests - 19 passed, 0 failed, 0 skipped (81179 ticks, 0.081 sec)
+
+Total: 19 tests (81218 ticks, 0.081 sec), 3139 assertions
+Pass: 19, fail: 0, skip: 0.

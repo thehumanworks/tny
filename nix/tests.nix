@@ -32,6 +32,8 @@ stdenv.mkDerivation {
   name = "tny-tests-${version}";
   inherit src;
 
+  # Phase-3 runner/jobs C++ owners and source-bound fd/lock fixture use
+  # the existing C++ compiler and Python; src/ and tests/ include all inputs.
   # test_jobs.py compiles tests/fixtures/jobs_launch_barrier.c with stdenv's cc
   # (-dynamiclib on Darwin, -shared on Linux; -ldl for snapshot crash faults).
   # The host C runtime supplies dl; no extra runtime package is used.
@@ -167,8 +169,9 @@ stdenv.mkDerivation {
     # Includes the loopback backend OOM retention check before teardown.
     # Custom-tool C++ sanitizer fixtures reuse stdenv's C++ compiler and Python;
     # the fault-sanitize target needs no additional sandbox inputs.
-    ${testRunner}make $makeFlags test-parser-smoke test-runtime-ownership
+    ${testRunner}make $makeFlags test-parser-smoke test-runtime-ownership test-runner-ownership
     ${testRunner}python3 tests/mutation/runtime_critical.py
+    ${testRunner}python3 tests/mutation/runner_critical.py
     ${testRunner}make $makeFlags test-shell-workflows
     runHook postBuild
   '';

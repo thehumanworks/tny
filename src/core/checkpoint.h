@@ -7,5 +7,5 @@
 yyjson_mut_val *tny_checkpoint_context(yyjson_mut_doc *doc, const tny_ctx *ctx);
 tny_ctx *tny_checkpoint_context_restore(yyjson_val *root);
 yyjson_mut_val *tny_checkpoint_public(yyjson_mut_doc *d, const tny_ctx *ctx);
-tny_ctx *tny_checkpoint_recover(tny_ctx *resolved, yyjson_val *public);
+tny_ctx *tny_checkpoint_recover(tny_ctx *resolved, yyjson_val *public_context);
 #endif

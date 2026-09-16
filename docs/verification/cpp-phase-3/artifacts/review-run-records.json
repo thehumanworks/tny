@@ -1,0 +1,159 @@
+[
+  {
+    "label": "review-debug",
+    "command": [
+      "make",
+      "-j8",
+      "debug"
+    ],
+    "exit": 0,
+    "seconds": 1.608,
+    "revision": "4e8a3526f772152ed059e81cdb2e8a707bc80fe7",
+    "manifest_sha256": "cdefff16fd58051680ba0659de1a3bd899f41feef771a0260878ec41a5db3b5a",
+    "changes_to_final": []
+  },
+  {
+    "label": "review-unit",
+    "command": [
+      "build/tny-test"
+    ],
+    "exit": 0,
+    "seconds": 38.23,
+    "revision": "4e8a3526f772152ed059e81cdb2e8a707bc80fe7",
+    "manifest_sha256": "cdefff16fd58051680ba0659de1a3bd899f41feef771a0260878ec41a5db3b5a",
+    "changes_to_final": []
+  },
+  {
+    "label": "review-ownership",
+    "command": [
+      "make",
+      "test-runner-ownership"
+    ],
+    "exit": 0,
+    "seconds": 7.065,
+    "revision": "4e8a3526f772152ed059e81cdb2e8a707bc80fe7",
+    "manifest_sha256": "cdefff16fd58051680ba0659de1a3bd899f41feef771a0260878ec41a5db3b5a",
+    "changes_to_final": []
+  },
+  {
+    "label": "review-runtime",
+    "command": [
+      "make",
+      "test-runtime-ownership"
+    ],
+    "exit": 0,
+    "seconds": 9.19,
+    "revision": "4e8a3526f772152ed059e81cdb2e8a707bc80fe7",
+    "manifest_sha256": "cdefff16fd58051680ba0659de1a3bd899f41feef771a0260878ec41a5db3b5a",
+    "changes_to_final": []
+  },
+  {
+    "label": "review-fault",
+    "command": [
+      "make",
+      "test-libtny-fault"
+    ],
+    "exit": 0,
+    "seconds": 113.631,
+    "revision": "4e8a3526f772152ed059e81cdb2e8a707bc80fe7",
+    "manifest_sha256": "cdefff16fd58051680ba0659de1a3bd899f41feef771a0260878ec41a5db3b5a",
+    "changes_to_final": []
+  },
+  {
+    "label": "review-fault-sanitize",
+    "command": [
+      "make",
+      "test-libtny-fault-sanitize"
+    ],
+    "exit": 0,
+    "seconds": 151.436,
+    "revision": "4e8a3526f772152ed059e81cdb2e8a707bc80fe7",
+    "manifest_sha256": "cdefff16fd58051680ba0659de1a3bd899f41feef771a0260878ec41a5db3b5a",
+    "changes_to_final": []
+  },
+  {
+    "label": "review-mutations",
+    "command": [
+      "python3",
+      "tests/mutation/runner_critical.py"
+    ],
+    "exit": 0,
+    "seconds": 60.392,
+    "revision": "4e8a3526f772152ed059e81cdb2e8a707bc80fe7",
+    "manifest_sha256": "cdefff16fd58051680ba0659de1a3bd899f41feef771a0260878ec41a5db3b5a",
+    "changes_to_final": []
+  },
+  {
+    "label": "review-quality",
+    "command": [
+      "make",
+      "quality"
+    ],
+    "exit": 0,
+    "seconds": 228.457,
+    "revision": "4e8a3526f772152ed059e81cdb2e8a707bc80fe7",
+    "manifest_sha256": "cdefff16fd58051680ba0659de1a3bd899f41feef771a0260878ec41a5db3b5a",
+    "changes_to_final": []
+  },
+  {
+    "label": "review-release",
+    "command": [
+      "make",
+      "-j8",
+      "release"
+    ],
+    "exit": 0,
+    "seconds": 5.707,
+    "revision": "4e8a3526f772152ed059e81cdb2e8a707bc80fe7",
+    "manifest_sha256": "cdefff16fd58051680ba0659de1a3bd899f41feef771a0260878ec41a5db3b5a",
+    "changes_to_final": []
+  },
+  {
+    "label": "review-background",
+    "command": [
+      "python3",
+      "tests/integration/test_background.py"
+    ],
+    "exit": 0,
+    "seconds": 5.312,
+    "revision": "4e8a3526f772152ed059e81cdb2e8a707bc80fe7",
+    "manifest_sha256": "cdefff16fd58051680ba0659de1a3bd899f41feef771a0260878ec41a5db3b5a",
+    "changes_to_final": []
+  },
+  {
+    "label": "review-background-agents",
+    "command": [
+      "python3",
+      "tests/integration/test_background_agents.py"
+    ],
+    "exit": 0,
+    "seconds": 63.742,
+    "revision": "4e8a3526f772152ed059e81cdb2e8a707bc80fe7",
+    "manifest_sha256": "cdefff16fd58051680ba0659de1a3bd899f41feef771a0260878ec41a5db3b5a",
+    "changes_to_final": []
+  },
+  {
+    "label": "review-interrupt",
+    "command": [
+      "python3",
+      "tests/integration/test_interrupt.py"
+    ],
+    "exit": 0,
+    "seconds": 63.526,
+    "revision": "4e8a3526f772152ed059e81cdb2e8a707bc80fe7",
+    "manifest_sha256": "cdefff16fd58051680ba0659de1a3bd899f41feef771a0260878ec41a5db3b5a",
+    "changes_to_final": []
+  },
+  {
+    "label": "review-regression-baseline",
+    "command": [
+      "python3",
+      "build/review-regression-baseline.py"
+    ],
+    "exit": 0,
+    "seconds": 5.742,
+    "revision": "4e8a3526f772152ed059e81cdb2e8a707bc80fe7",
+    "manifest_sha256": "cdefff16fd58051680ba0659de1a3bd899f41feef771a0260878ec41a5db3b5a",
+    "changes_to_final": []
+  }
+]

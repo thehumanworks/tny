@@ -1,0 +1,7 @@
+descriptor transfer/reuse cycles=200 before=4 after=4
+job failed acquisition cycles=100 before=4 after=4
+acquisition faults: pipe1/pipe2/save/listener/fork closed all resources
+client allocation failure and allocation-free teardown passed
+item spawn/pump/reap/drain cycles=40 before=4 after=4
+host faults: open/write/fsync/rename/dup1/dup2/spawn preserve bytes and borrowed fds
+Assertion failed: (jm_bool(root, "cleanup_hold", false)), function durable_cleanup_faults, file runner_ownership.cpp, line 486.

@@ -1,0 +1,51 @@
+[
+  {
+    "mutation": "writer-before-save",
+    "exit": -6,
+    "killed": true,
+    "oracle": "bye && WIFEXITED",
+    "source_sha256": "84e43b608be4e2f4acc9d91d566fad2f0f9ef9a7314e202bac51eb599fcf8032"
+  },
+  {
+    "mutation": "close-transferred-descriptor",
+    "exit": -6,
+    "killed": true,
+    "oracle": "send_result == 0",
+    "source_sha256": "84e43b608be4e2f4acc9d91d566fad2f0f9ef9a7314e202bac51eb599fcf8032"
+  },
+  {
+    "mutation": "signal-metadata-pid",
+    "exit": -6,
+    "killed": true,
+    "oracle": "WIFEXITED(status)",
+    "source_sha256": "a1490d3c1cc962a687833300403b49faca66859fc6091649cace1d8956fe25b9"
+  },
+  {
+    "mutation": "unknown-is-complete",
+    "exit": -6,
+    "killed": true,
+    "oracle": "!cleanup_reclaimable(root)",
+    "source_sha256": "a1490d3c1cc962a687833300403b49faca66859fc6091649cace1d8956fe25b9"
+  },
+  {
+    "mutation": "omit-cleanup-write-ahead",
+    "exit": -6,
+    "killed": true,
+    "oracle": "jm_bool(root, \"cleanup_hold\", false)",
+    "source_sha256": "a1490d3c1cc962a687833300403b49faca66859fc6091649cace1d8956fe25b9"
+  },
+  {
+    "mutation": "drop-partial-cleanup-hold",
+    "exit": -6,
+    "killed": true,
+    "oracle": "jm_bool(root, \"cleanup_hold\", false)",
+    "source_sha256": "a1490d3c1cc962a687833300403b49faca66859fc6091649cace1d8956fe25b9"
+  },
+  {
+    "mutation": "replay-consumed-batch",
+    "exit": -6,
+    "killed": true,
+    "oracle": "rn_disk_packet(session) == nullptr",
+    "source_sha256": "84e43b608be4e2f4acc9d91d566fad2f0f9ef9a7314e202bac51eb599fcf8032"
+  }
+]

@@ -1,5 +1,6 @@
 /* Compile the real jobs implementation here to exercise its private producer
  * analyzer. The selector and all its filesystem dependencies stay real. */
+extern "C" {
 #include "core/jobs.h"
 #include "util/image_io.h"
 #include <fcntl.h>
@@ -9,17 +10,18 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+}
 
 static const char *allocation_value;
 static const char *swap_path, *foreign_path;
 static int swapped, foreign_reads;
 
-char *job_test_strdup(const char *s) {
+static char *job_test_strdup(const char *s) {
     if (allocation_value && s && strcmp(s, allocation_value) == 0) return NULL;
     return xstrdup(s);
 }
 
-int job_test_openat(int dir, const char *path, int flags, ...);
+extern "C" int job_test_openat(int dir, const char *path, int flags, ...);
 int job_test_openat(int dir, const char *path, int flags, ...) {
     const char *leaf = swap_path ? strrchr(swap_path, '/') : NULL;
     if (!swapped && leaf && strcmp(path, leaf + 1) == 0) {
@@ -31,7 +33,7 @@ int job_test_openat(int dir, const char *path, int flags, ...) {
     return openat(dir, path, flags);
 }
 
-ssize_t job_test_read(int fd, void *data, size_t length);
+extern "C" ssize_t job_test_read(int fd, void *data, size_t length);
 ssize_t job_test_read(int fd, void *data, size_t length) {
     struct stat actual, foreign;
     if (foreign_path && fstat(fd, &actual) == 0 && stat(foreign_path, &foreign) == 0 &&
@@ -41,7 +43,7 @@ ssize_t job_test_read(int fd, void *data, size_t length) {
 }
 
 #define xstrdup job_test_strdup
-#include "../../src/core/jobs.c"
+#include "../../src/core/jobs.cpp"
 #undef xstrdup
 
 int main(int argc, char **argv) {

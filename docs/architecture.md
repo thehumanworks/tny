@@ -91,6 +91,13 @@ continuously held; the TUI opens the shared agents dashboard and can reattach
 mid-turn as owner. Resolved secrets/configuration travel only through anonymous
 IPC. See [ADR 0107](adr/0107-tool-boundary-restart-and-agents-dashboard.md).
 
+Private runner and durable-job C++ aggregates own descriptors, advisory-lock
+lifetimes and native process scopes ([ADR 0117](adr/0117-runner-and-job-resource-ownership.md)).
+Cancellation, observed reaping, log drainage, terminal persistence and restart
+activation remain explicit operations. Destructors only release storage resources;
+unknown scope cleanup retains authority and its persisted reservation hold.
+OS-specific spawn and pre-exec operations remain in the C host seams.
+
 ## Config and state
 
 | Path | Contents |

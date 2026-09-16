@@ -6,6 +6,8 @@
 SSE/Connect accumulation, Chat/Responses event decoding and tool-call owners.
 [ADR 0116](adr/0116-runtime-event-and-async-ownership.md) additionally authorizes
 owned runtime events and custom-tool registration/async-call lifetimes.
+[ADR 0117](adr/0117-runner-and-job-resource-ownership.md) authorizes runner
+and durable-job resource aggregates; platform process operations stay in C.
 Untouched code, vendored dependencies and tnytty remain C11. Public libtny
 headers, layouts and exports remain C. Private facades expose opaque owners
 and synchronous borrowed views, never standard-library types.

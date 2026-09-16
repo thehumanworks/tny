@@ -1,0 +1,36 @@
+E
+======================================================================
+ERROR: test_repeated_invalid_admission_preserves_protected_state (__main__.JobsWorkerHandshake.test_repeated_invalid_admission_preserves_protected_state)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/tomas/projects/tny-cpp-phase3/tests/integration/test_jobs.py", line 431, in tearDown
+    for pid in pids_matching("jobs _worker", self.home.name):
+               ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/tomas/projects/tny-cpp-phase3/tests/integration/test_jobs.py", line 345, in pids_matching
+    out = subprocess.run(
+          ~~~~~~~~~~~~~~^
+        ["ps", "-eo", "pid=,args="], capture_output=True, text=True, timeout=30
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ).stdout
+    ^
+  File "/Users/tomas/.local/share/mise/installs/python/3.14.7/lib/python3.14/subprocess.py", line 555, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/tomas/.local/share/mise/installs/python/3.14.7/lib/python3.14/subprocess.py", line 1039, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                        pass_fds, cwd, env,
+                        ^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+                        gid, gids, uid, umask,
+                        ^^^^^^^^^^^^^^^^^^^^^^
+                        start_new_session, process_group)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/tomas/.local/share/mise/installs/python/3.14.7/lib/python3.14/subprocess.py", line 1990, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+PermissionError: [Errno 1] Operation not permitted: 'ps'
+
+----------------------------------------------------------------------
+Ran 1 test in 0.432s
+
+FAILED (errors=1)

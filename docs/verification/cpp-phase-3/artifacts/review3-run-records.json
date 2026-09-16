@@ -1,0 +1,98 @@
+[
+  {
+    "label": "review3-debug",
+    "command": [
+      "make",
+      "-j8",
+      "debug"
+    ],
+    "exit": 0,
+    "seconds": 1.55,
+    "revision": "3e6882829c13ab4f301cca77b890b836435da7a1",
+    "manifest_sha256": "8986ef5089313328e9d669861e7009ba3547df4702ade025a061ac870c7e3725",
+    "changes_to_final": []
+  },
+  {
+    "label": "review3-unit",
+    "command": [
+      "build/tny-test"
+    ],
+    "exit": 0,
+    "seconds": 38.834,
+    "revision": "3e6882829c13ab4f301cca77b890b836435da7a1",
+    "manifest_sha256": "8986ef5089313328e9d669861e7009ba3547df4702ade025a061ac870c7e3725",
+    "changes_to_final": []
+  },
+  {
+    "label": "review3-ownership",
+    "command": [
+      "make",
+      "test-runner-ownership"
+    ],
+    "exit": 0,
+    "seconds": 7.085,
+    "revision": "3e6882829c13ab4f301cca77b890b836435da7a1",
+    "manifest_sha256": "8986ef5089313328e9d669861e7009ba3547df4702ade025a061ac870c7e3725",
+    "changes_to_final": []
+  },
+  {
+    "label": "review3-fault",
+    "command": [
+      "make",
+      "test-libtny-fault"
+    ],
+    "exit": 0,
+    "seconds": 118.096,
+    "revision": "3e6882829c13ab4f301cca77b890b836435da7a1",
+    "manifest_sha256": "8986ef5089313328e9d669861e7009ba3547df4702ade025a061ac870c7e3725",
+    "changes_to_final": []
+  },
+  {
+    "label": "review3-mutations",
+    "command": [
+      "python3",
+      "tests/mutation/runner_critical.py"
+    ],
+    "exit": 0,
+    "seconds": 63.737,
+    "revision": "3e6882829c13ab4f301cca77b890b836435da7a1",
+    "manifest_sha256": "8986ef5089313328e9d669861e7009ba3547df4702ade025a061ac870c7e3725",
+    "changes_to_final": []
+  },
+  {
+    "label": "review3-quality",
+    "command": [
+      "make",
+      "quality"
+    ],
+    "exit": 0,
+    "seconds": 214.796,
+    "revision": "3e6882829c13ab4f301cca77b890b836435da7a1",
+    "manifest_sha256": "8986ef5089313328e9d669861e7009ba3547df4702ade025a061ac870c7e3725",
+    "changes_to_final": []
+  },
+  {
+    "label": "review3-regression",
+    "command": [
+      "python3",
+      "build/review3-regression.py"
+    ],
+    "exit": 0,
+    "seconds": 6.643,
+    "revision": "3e6882829c13ab4f301cca77b890b836435da7a1",
+    "manifest_sha256": "8986ef5089313328e9d669861e7009ba3547df4702ade025a061ac870c7e3725",
+    "changes_to_final": []
+  },
+  {
+    "label": "review3-restore-mutation",
+    "command": [
+      "python3",
+      "build/review3-restore-mutation.py"
+    ],
+    "exit": 0,
+    "seconds": 6.386,
+    "revision": "3e6882829c13ab4f301cca77b890b836435da7a1",
+    "manifest_sha256": "8986ef5089313328e9d669861e7009ba3547df4702ade025a061ac870c7e3725",
+    "changes_to_final": []
+  }
+]
