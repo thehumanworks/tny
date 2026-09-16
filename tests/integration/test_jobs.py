@@ -1878,6 +1878,23 @@ class JobsWorkerHandshake(JobsFixture):
             metadata.read_bytes(), before, "a forged worker rewrote the record"
         )
 
+    def test_repeated_invalid_admission_preserves_protected_state(self):
+        _run, payload = self.submit("ask", "--prompt", "admission owner fixture")
+        self.await_terminal(payload["id"])
+        metadata = Path(payload["metadata_path"])
+        before = metadata.read_bytes()
+        requests = len(self.ask_requests())
+        owner = (metadata.parent / "owner.lock").open("r+b")
+        fcntl.flock(owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            for _ in range(12):
+                refused = self.run_tny("jobs", "_worker", payload["id"], check=False)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertEqual(metadata.read_bytes(), before)
+            self.assertEqual(len(self.ask_requests()), requests)
+        finally:
+            owner.close()
+
     def test_a_supervisor_without_a_complete_payload_never_spends(self):
         """An incomplete payload is a truthful failed setup, not a request."""
         _run, payload = self.submit("ask", "--prompt", "complete payload")

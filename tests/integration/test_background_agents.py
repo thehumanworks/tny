@@ -317,6 +317,29 @@ def run_case(
                 until(lambda: (ws / "started").exists(), term)
             session = next((Path(home) / ".tny/sessions").glob("*/*/session.json"))
             old_pid = int((session.parent / "pid").read_text())
+            candidates = [session.parent / "sock"]
+            for root in (env.get("TMPDIR", "/tmp"), "/tmp"):
+                candidates.append(
+                    Path(root) / f"tny-{os.getuid()}" / f"{session.parent.name}.sock"
+                )
+            socket_path = next(path for path in candidates if path.exists())
+            socket_identity = socket_path.stat()
+
+            def assert_writer_and_listener_retained():
+                current = socket_path.stat()
+                assert (current.st_dev, current.st_ino) == (
+                    socket_identity.st_dev,
+                    socket_identity.st_ino,
+                )
+                with (session.parent / "lock").open("r+b") as lock:
+                    try:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        pass
+                    else:
+                        raise AssertionError("restart released writer authority")
+
+            assert_writer_and_listener_retained()
             if steer:
                 term.send("STEER-KEEP\r")
                 term.expect("steer")
@@ -341,6 +364,10 @@ def run_case(
                 )
                 until(provider.second.is_set, term)
                 assert int((session.parent / "pid").read_text()) == old_pid
+                assert_writer_and_listener_retained()
+                assert len(provider.requests) == 2, provider.requests
+                effects = (ws / "effects").read_text()
+                assert effects.count("first") == effects.count("second") == 1
                 provider.finish.set()
                 term.expect("FINISHED-ONCE")
                 term.send("\x04")
@@ -438,6 +465,7 @@ def run_case(
             if not no_tools:
                 pid = int((session.parent / "pid").read_text())
                 assert pid != old_pid, (old_pid, pid)
+                assert_writer_and_listener_retained()
                 if not permission:
                     until(provider.second.is_set, term)
                 else:

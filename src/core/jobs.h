@@ -46,6 +46,7 @@
 #define TNY_JOBS_CODE_STATE         "JOB_STATE_UNREADABLE"
 #define TNY_JOBS_CODE_IO            "JOB_IO_FAILED"
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_JOBS_OP_SUBMIT = 0,
     TNY_JOBS_OP_STATUS,
@@ -57,6 +58,10 @@ typedef enum {
     TNY_JOBS_OP_RM,
     TNY_JOBS_OP_NONE
 } tny_jobs_op;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* "submit" -> TNY_JOBS_OP_SUBMIT, else TNY_JOBS_OP_NONE. */
 tny_jobs_op tny_jobs_op_parse(const char *name);
@@ -147,4 +152,7 @@ tny_job_artifact *tny_jobs_select_artifact(const tny_ctx *, const char *id, int 
                                            size_t errlen);
 void tny_jobs_artifact_free(tny_job_artifact *);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

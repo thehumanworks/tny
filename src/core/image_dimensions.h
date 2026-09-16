@@ -10,12 +10,14 @@
 /* Any larger edge is treated as impossible rather than reported. */
 #define TNY_IMAGE_DIMENSION_MAX 1048576u
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_IMAGE_DIM_OK,           /* complete in-bounds header, positive dimensions */
     TNY_IMAGE_DIM_UNVERIFIABLE, /* truncated, malformed, inconsistent or out of range */
     TNY_IMAGE_DIM_UNSUPPORTED   /* recognized container, dimension encoding not supported */
 } tny_image_dim_status;
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_IMAGE_SIZE_AUTO,
     TNY_IMAGE_SIZE_MATCH,

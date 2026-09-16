@@ -16,12 +16,14 @@
 
 typedef struct tny_engine tny_engine;
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_ENGINE_PREPARE_FRESH = 0,
     TNY_ENGINE_PREPARE_CONNECTED,
     TNY_ENGINE_PREPARE_RESUMED
 } tny_engine_prepare_state;
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_ENGINE_NEXT_ERROR = -1,
     TNY_ENGINE_NEXT_TIMEOUT = 0,

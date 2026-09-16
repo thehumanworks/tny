@@ -23,6 +23,7 @@
 #include "core/image_service.h"
 #include "core/jobs.h"
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     /* Captured and queued for this batch's next request. */
     TNY_IMAGE_PREVIEW_QUEUED = 0,

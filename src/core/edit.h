@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_EDIT_OK = 0,
     TNY_EDIT_NOT_FOUND,

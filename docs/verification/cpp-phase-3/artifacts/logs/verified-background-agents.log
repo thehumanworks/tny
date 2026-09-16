@@ -1,0 +1,15 @@
+PASS background agents multi-tool restart/reattach
+PASS background agents no-tools
+PASS background agents permission
+PASS background agents steer
+PASS background restart failure retains foreground
+PASS background agents multi-tool restart/reattach
+PASS background agents multi-tool restart/reattach
+PASS background restart failure retains foreground
+PASS unconsumed checkpoint recovery with exact batch/config/steps
+PASS unconsumed checkpoint recovery with exact batch/config/steps
+PASS active cancellation beats armed handoff; idle Left edits
+PASS empty dashboard without provider work
+PASS unattended ask -B denies without handoff permission parking
+PASS completed host dashboard followup preserves ACP backend
+PASS in-process Left/CtrlX/agents reject safely and preserve active turn

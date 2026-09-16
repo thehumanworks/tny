@@ -74,7 +74,7 @@ SOURCE_PATHS = [
     ROOT / "src/main.c",
     ROOT / "src/tui/tui_agents.c",
     ROOT / "src/core/image_service.c",
-    ROOT / "src/core/jobs.c",
+    ROOT / "src/core/jobs.cpp",
     ROOT / "src/cli/args.c",
     ROOT / "src/cli/globals.c",
     *sorted((ROOT / "src/cli").glob("cmd_*.c")),

@@ -35,6 +35,7 @@ int tny_jobs_host_snapshot(const char *path, const void *data, size_t len);
  * the lock while reading and rewriting it. */
 int tny_jobs_host_lock_open(const char *path);
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_JOBS_LOCK_ACQUIRED = 0, /* this caller now holds it */
     TNY_JOBS_LOCK_BUSY,         /* EWOULDBLOCK: someone else holds it */
@@ -47,6 +48,7 @@ tny_jobs_lock_rc tny_jobs_host_lock_try(int fd);
 void tny_jobs_host_lock_release(int fd);
 void tny_jobs_host_lock_close(int fd);
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_JOBS_OWNER_FREE = 0, /* no live holder: the record is abandoned */
     TNY_JOBS_OWNER_HELD,     /* a live holder still owns it */

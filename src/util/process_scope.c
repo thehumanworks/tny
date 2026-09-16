@@ -34,6 +34,7 @@
 extern char **environ;
 
 struct tny_process_scope {
+    struct tny_process_scope *retained_next;
     pid_t pid;
     bool reaped, root_unknown, ack_ready, released, stopping;
     int status, ack_fd;
@@ -512,4 +513,13 @@ int tny_process_scope_destroy(tny_process_scope *scope) {
 #endif
     free(scope);
     return 0;
+}
+
+/* Sole supervisor/event-loop owner, not a process-global service for callers.
+ * Failed cleanup cannot discard its retained native Job authority. */
+static tny_process_scope *retained_scopes;
+void tny_process_scope_retain_until_exit(tny_process_scope *scope) {
+    if (!scope) return;
+    scope->retained_next = retained_scopes;
+    retained_scopes = scope;
 }

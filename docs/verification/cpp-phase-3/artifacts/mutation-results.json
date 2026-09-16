@@ -1,0 +1,37 @@
+[
+  {
+    "mutation": "writer-before-save",
+    "exit": -6,
+    "killed": true,
+    "oracle": "bye && WIFEXITED",
+    "source_sha256": "f69fa2479de0c8db2d0b82246d256ace1b433a380ec731754deaed4d63998855"
+  },
+  {
+    "mutation": "close-transferred-descriptor",
+    "exit": -6,
+    "killed": true,
+    "oracle": "send_result == 0",
+    "source_sha256": "f69fa2479de0c8db2d0b82246d256ace1b433a380ec731754deaed4d63998855"
+  },
+  {
+    "mutation": "signal-metadata-pid",
+    "exit": -6,
+    "killed": true,
+    "oracle": "WIFEXITED(status)",
+    "source_sha256": "da9f2d763b42b117fe4061e3e86804540947e28564ae9d980ed6a6f2ff9144fb"
+  },
+  {
+    "mutation": "unknown-is-complete",
+    "exit": -6,
+    "killed": true,
+    "oracle": "!cleanup_reclaimable(root)",
+    "source_sha256": "da9f2d763b42b117fe4061e3e86804540947e28564ae9d980ed6a6f2ff9144fb"
+  },
+  {
+    "mutation": "replay-consumed-batch",
+    "exit": -6,
+    "killed": true,
+    "oracle": "rn_disk_packet(session) == nullptr",
+    "source_sha256": "f69fa2479de0c8db2d0b82246d256ace1b433a380ec731754deaed4d63998855"
+  }
+]

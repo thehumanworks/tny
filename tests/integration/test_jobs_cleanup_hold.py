@@ -90,6 +90,14 @@ class JobsCleanupHold(JobsFixture):
     def test_observed_unknown_refuses_post_exit_contender_retry_and_rm(self):
         self.denied_unchanged(self.seed())
 
+    def test_repeated_refusal_preserves_unknown_hold_and_record_bytes(self):
+        seeded = self.seed()
+        for _ in range(3):
+            self.denied_unchanged(seeded)
+        with (seeded[2].parent / "owner.lock").open("r+b") as owner:
+            fcntl.flock(owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assertEqual(json.loads(seeded[2].read_text())["cleanup"], "unknown")
+
     def test_root_wait_loss_is_not_an_owner_loss_projection(self):
         self.denied_unchanged(
             self.seed(state="interrupted", code="JOB_IO_FAILED", hold=False)

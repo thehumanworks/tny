@@ -56,6 +56,8 @@ let
     # tests/integration/test_bench_tools.py copies and scores (issue #103).
     # tests/fuzz/parser corpus, portable parser driver and parser_backend_oom.c
     # loopback retention regression are included here; no extra assets/tools.
+    # Phase-3 runner/jobs C++ owners and source-bound fd/lock fixture use
+    # the existing C++ compiler and Python; src/ and tests/ include all inputs.
     # Phase-2 runtime ownership/fault and mutation drivers use the existing compiler/Python.
     # The C++ custom-tool completion-OOM sanitizer host is included by ../tests too.
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark

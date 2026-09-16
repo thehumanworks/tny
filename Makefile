@@ -1131,3 +1131,26 @@ $(PROVIDER_FAULT_SAN_TEST): $(PROVIDER_FAULT_TEST_SRC:%.c=$(OBJ_FAULT_SAN_PIC)/%
 test-libtny-fault: $(PROVIDER_FAULT_TEST)
 test-libtny-fault-sanitize: $(PROVIDER_FAULT_SAN_TEST)
 -include $(PROVIDER_FAULT_TEST_SRC:%.c=$(OBJ_FAULT_PIC)/%.d) $(PROVIDER_FAULT_TEST_SRC:%.c=$(OBJ_FAULT_SAN_PIC)/%.d)
+
+# Phase-3 source-bound ownership faults use real fd/pipe/flock boundaries.
+RUNNER_OWNERSHIP = $(BUILD)/runner-ownership
+RUNNER_OWNERSHIP_OBJS = $(filter-out $(OBJ_DBG)/src/core/runner.cpp.o $(OBJ_DBG)/src/core/jobs.cpp.o $(OBJ_DBG)/src/util/alloc.o $(OBJ_DBG)/src/cpp/owners.cpp.o $(OBJ_DBG)/src/util/jobs_host.o $(OBJ_DBG)/src/util/process.o,$(sort $(TEST_OBJS))) $(BUILD)/runner-host/jobs_host.o $(BUILD)/runner-host/process.o $(OBJ_DBG)/tests/fixtures/resource_host_faults.o $(PARSER_FAULT_ALLOC) $(BUILD)/parser-test/src/cpp/owners.cpp.o
+$(OBJ_DBG)/tests/fixtures/runner_ownership.cpp.o: CXXFLAGS += -DTNY_ALLOC_TESTING=1
+$(OBJ_DBG)/tests/fixtures/runner_ownership.cpp.o: tests/fixtures/runner_ownership.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(call cppflags,$(DBG_CFLAGS)) -MMD -MP -c -o $@ $<
+$(RUNNER_OWNERSHIP): $(OBJ_DBG)/tests/fixtures/runner_ownership.cpp.o $(RUNNER_OWNERSHIP_OBJS)
+	$(CXX) $(call cppflags,$(DBG_CFLAGS)) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))
+test-runner-ownership: $(RUNNER_OWNERSHIP)
+	@directory=$$(mktemp -d "$${TMPDIR:-/tmp}/tny-ownership.XXXXXX"); \
+	  $(RUNNER_OWNERSHIP) "$$directory"; result=$$?; rm -rf "$$directory"; exit $$result
+.PHONY: test-runner-ownership
+-include $(OBJ_DBG)/tests/fixtures/runner_ownership.cpp.d
+
+$(BUILD)/runner-host/jobs_host.o: src/util/jobs_host.c
+	@mkdir -p $(@D)
+	$(CC) $(DBG_CFLAGS) -Dopen=tny_resource_open -Dwrite=tny_resource_write -Dfsync=tny_resource_fsync -Drename=tny_resource_rename -MMD -MP -c -o $@ $<
+$(BUILD)/runner-host/process.o: src/util/process.c
+	@mkdir -p $(@D)
+	$(CC) $(DBG_CFLAGS) -Dfcntl=tny_resource_fcntl -Dposix_spawn=tny_resource_spawn -MMD -MP -c -o $@ $<
+-include $(BUILD)/runner-host/jobs_host.d $(BUILD)/runner-host/process.d $(OBJ_DBG)/tests/fixtures/resource_host_faults.d

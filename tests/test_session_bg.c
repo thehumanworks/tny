@@ -209,6 +209,54 @@ TEST bg_lock_contention_across_processes(void) {
     PASS();
 }
 
+/* SIGKILL does not run RAII: kernel description release is a separate proof. */
+TEST bg_sigkill_inherited_writer_preserves_snapshot(void) {
+    bg_env e;
+    bg_env_begin(&e);
+    tny_ctx *ctx = tny_ctx_load(e.workspace);
+    ASSERT(ctx);
+    tny_session_state *session = session_new(ctx);
+    ASSERT(session);
+    ASSERT_EQ(0, session_lock_acquire(session));
+    ASSERT_EQ(0, session_save(session));
+    char *path = path_join(session->dir, "session.json");
+    size_t before_len = 0, after_len = 0;
+    char *before = file_slurp(path, &before_len);
+    ASSERT(before);
+    int ready[2];
+    ASSERT_EQ(0, pipe(ready));
+    pid_t child = fork();
+    ASSERT(child >= 0);
+    if (!child) {
+        close(ready[0]);
+        if (write(ready[1], "r", 1) != 1) _exit(2);
+        for (;;) pause();
+    }
+    close(ready[1]);
+    char byte;
+    ASSERT_EQ(1, (int)read(ready[0], &byte, 1));
+    close(ready[0]);
+    session_lock_release(session);
+    ASSERT(session_is_running(ctx, session->id));
+    ASSERT_EQ(0, kill(child, SIGKILL));
+    int status;
+    ASSERT_EQ(child, waitpid(child, &status, 0));
+    ASSERT(WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL);
+    ASSERT(!session_is_running(ctx, session->id));
+    ASSERT_EQ(0, session_lock_acquire(session));
+    char *after = file_slurp(path, &after_len);
+    ASSERT(after);
+    ASSERT_EQ(before_len, after_len);
+    ASSERT_EQ(0, memcmp(before, after, before_len));
+    free(before);
+    free(after);
+    free(path);
+    session_close(session);
+    tny_ctx_free(ctx);
+    bg_env_end(&e);
+    PASS();
+}
+
 TEST bg_pid_file_roundtrip(void) {
     bg_env e;
     bg_env_begin(&e);
@@ -751,6 +799,7 @@ TEST bg_force_kill_refuses_own_process(void) {
 }
 
 SUITE(session_bg_suite) {
+    RUN_TEST(bg_sigkill_inherited_writer_preserves_snapshot);
     RUN_TEST(bg_immediate_kill_refuses_changed_runner);
     RUN_TEST(bg_force_kill_reaches_separate_child_group);
     RUN_TEST(bg_force_kill_refuses_own_process);
