@@ -176,3 +176,23 @@ report normal CLI startup independently. Peak RSS includes process/runtime
 costs and corpus storage, so preserve the raw values and dependency inventory.
 The deterministic `test_bench_parsers.py` checks reject semantic differences,
 missing samples and invalid measurements before computing performance ratios.
+
+For the event migration, use the same build/provenance/comparison machinery
+with the real private engine and a fixed synchronous callback source:
+
+```sh
+python3 tests/bench/bench_events.py \
+  --baseline /absolute/pre-change \
+  --candidate /absolute/candidate \
+  --work-dir /absolute/new-event-evidence-directory
+```
+
+Each iteration emits 64 events and a duplicated terminal callback, immediately
+overwrites every borrowed payload buffer, then drains and releases the queue.
+The driver checks embedded-NUL text lengths, all retained string fields,
+monotonic event ordering, exactly one terminal, and unchanged logical payload
+accounting. It exercises real engine admission, copying and release, not a
+standalone owner substitute. Inputs and callback observers are identical across
+builds. Use 2,000 iterations for measurement; a two-iteration smoke only proves
+the executable harness and behavioral oracles. Allocation counts and process
+peak RSS supplement, rather than replace, the logical queue-byte counters.

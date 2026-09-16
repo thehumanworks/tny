@@ -31,3 +31,23 @@ Reviews, delegation, gate results, merge and cleanup: pending.
   tests and are not performance acceptance measurements.
 - Implementation and final integrated/platform/performance gates remain
   pending. No independent review has yet been invoked.
+
+## Baseline and instrumentation checkpoint — 2026-09-16
+
+- Clean `make test` rerun finished nonzero with exactly one suite failure:
+  OpenAI Responses reset-socket fixture expected an abort diagnostic but
+  observed the existing one-second stall diagnostic. All other listed
+  integration suites completed successfully. That failure also occurred in
+  the isolated build helper's unchanged-C tests; investigate/reproduce before
+  attributing it to ownership migration. Raw log: task `baseline-clean.log`.
+- Parser benchmark smoke compiled both copies from identical baseline sources
+  and all nine output/checksum oracles agreed. At only 20 iterations during
+  concurrent builds, one timing ratio exceeded 10%; this is retained as a
+  failed performance-gate run, not counted as acceptance.
+- Actual engine event benchmark baseline-vs-baseline two-iteration smoke
+  passed all six executions (three paired batches), including retained binary
+  payloads and exactly-once terminal settlement. Its timing is functional
+  smoke only, not the required 2,000-iteration quiet-host comparison.
+- Baseline phase-specific runtime/platform results and environment limitations
+  are retained in task `platform/RESULT.md` and `platform/inventory.json`.
+  They are not evidence that unintegrated migration code passes those lanes.

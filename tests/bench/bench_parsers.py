@@ -38,7 +38,8 @@ tny-parser-benchmark-config:
 \t@printf '%s\\n' 'CC=$(CC)' 'CXX=$(CXX)' \\
 \t 'CFLAGS=$(REL_CFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT)' \\
 \t 'CXXFLAGS=$(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT)' \\
-\t 'HAS_CXXFLAGS=$(strip $(REL_CXXFLAGS))' 'LDFLAGS=$(REL_LDFLAGS)'
+\t 'HAS_CXXFLAGS=$(strip $(REL_CXXFLAGS))' 'LDFLAGS=$(REL_LDFLAGS)' \
+\t 'SOURCES=$(TEST_DEPS)' 'VERSION_HEADER=$(VERSION_H)'
 """
 
 
@@ -88,7 +89,13 @@ def manifest(root: Path, sources: list[Path], harness: Path) -> dict[str, str]:
 
 
 def build(
-    root: Path, out: Path, harness: Path, args: argparse.Namespace, env: dict[str, str]
+    root: Path,
+    out: Path,
+    harness: Path,
+    args: argparse.Namespace,
+    env: dict[str, str],
+    *,
+    runtime: bool = False,
 ) -> dict[str, Any]:
     out.mkdir(parents=True, exist_ok=False)
     log = out / "build.log"
@@ -114,7 +121,26 @@ def build(
     if not config["HAS_CXXFLAGS"]:
         cppflags = [flag for flag in cflags if not flag.startswith("-std=")]
         cppflags.extend(("-std=c++20", "-fno-rtti"))
-    sources = [source_file(root, stem) for stem in SOURCE_STEMS]
+    sources = (
+        [root / source for source in sorted(set(shlex.split(config["SOURCES"])))]
+        if runtime
+        else [source_file(root, stem) for stem in SOURCE_STEMS]
+    )
+    if runtime:
+        checked(
+            [
+                args.make,
+                "--no-print-directory",
+                "-s",
+                f"CC={args.cc}",
+                f"CXX={args.cxx}",
+                f"BUILD={out / 'generated-build'}",
+                config["VERSION_HEADER"],
+            ],
+            root,
+            env,
+            log,
+        )
     before = manifest(root, sources, harness)
     commands: list[list[str]] = []
     objects: list[str] = []
