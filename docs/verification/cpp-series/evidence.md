@@ -180,3 +180,43 @@ Git staging remains denied (exit **128**); the worktree is therefore not clean.
 Coordinator must rerun unmet gates in a suitable environment, resolve the
 unclassified SDK I/O failures if still present, and create the requested
 logical commits. No push was attempted. All launched checks have completed.
+
+### Review findings 3 and 4: startup tooling corrections (2026-09-16)
+
+Assigned P1-I6 tooling follow-up on clean `a4fd3a4`, confined to
+`migration/cpp-build`; no sub-agents, commits or pushes. This disposition
+supersedes the earlier two-report regression-exit claim above, not the wider
+series completion status.
+
+- Finding 3: `--compare` now labels its deltas **informational, not a contract
+  verdict**, prints no PASS/FAIL and exits 0 for valid reports regardless of
+  thresholds. Invalid inputs retain exit 2. Fresh paired measurement remains
+  the contract-verdict path. README and CLI help clarify that distinction;
+  ADR 0115 already requires alternation and does not promise a cross-report
+  verdict, so its frozen text is unchanged.
+- Finding 4: threshold subtraction and allowance calculation use decimal
+  arithmetic; JSON report numbers remain numeric. `4.0 -> 4.4 ms` passes,
+  `4.0 -> 4.400001 ms` fails, and existing exact 5/10 ms ceiling tests still
+  fail as required.
+- Regression evidence: before the implementation fix, the new tests failed
+  for both cross-report scenarios (`1 -> 8` and historical `4.5 -> 3.5`, with
+  paired baseline 3) and the decimal boundary. Final suite has nine tests.
+  Isolated mutations restoring verdict output or float subtraction each
+  exited 1 on the intended assertions; delivered sources were not mutated.
+- The first quality attempt stopped at Ruff formatting (exit 2); applied the
+  formatter only to the two owned Python files and reran all requested gates.
+  Source manifest refreshed and independently verified (exit 0).
+
+Final requested gates on the refreshed source manifest:
+
+| Gate | Exit code |
+| --- | ---: |
+| `python3 tests/bench/test_bench_startup.py` | 0 |
+| `make test-bench-startup` | 0 |
+| `make lint-py` | 0 |
+| `make quality` | 0 |
+
+Quality emitted no warnings; macOS reports the expected Linux GCC analyzer
+skip. Local logs are retained under `build/startup-review-*.log`. Both assigned
+findings are resolved; this is tooling-fix proof, not final candidate performance
+or whole-series completion proof. Changes remain uncommitted as requested.

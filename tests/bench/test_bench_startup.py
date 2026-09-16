@@ -38,6 +38,11 @@ class StartupTests(unittest.TestCase):
         self.assertFalse(bench.gates(metrics(9.8), metrics(10))["prompt"]["pass"])
         self.assertFalse(bench.gates(metrics(1), metrics(1.500001))["prompt"]["pass"])
 
+    def test_decimal_threshold_boundary(self):
+        for mode in ("help", "version"):
+            self.assertTrue(bench.gates(metrics(4), metrics(4.4))[mode]["pass"])
+            self.assertFalse(bench.gates(metrics(4), metrics(4.400001))[mode]["pass"])
+
     def test_percentiles_and_raw_order(self):
         self.assertEqual(
             bench.summary([3, 1, 2]), {"median": 2, "p95": 3, "raw": [3, 1, 2]}
@@ -123,7 +128,7 @@ class StartupTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "inconsistent"):
             bench.validate_report(report)
 
-    def test_cli_rejects_small_sample_and_regression(self):
+    def test_cli_rejects_small_sample(self):
         script = str(Path(bench.__file__))
         result = subprocess.run(
             [
@@ -141,9 +146,17 @@ class StartupTests(unittest.TestCase):
             capture_output=True,
         )
         self.assertEqual(result.returncode, 2)
+
+    def test_comparison_is_informational(self):
+        for before, after in ((1, 8), (4.5, 3.5)):
+            with self.subTest(before=before, after=after):
+                self.check_comparison(before, after)
+
+    def check_comparison(self, before, after):
+        script = str(Path(bench.__file__))
         with tempfile.TemporaryDirectory() as tmp:
             files = []
-            for index, value in enumerate((1, 8)):
+            for index, value in enumerate((before, after)):
                 item = metrics(value)
                 item["size"] = {
                     "stripped_bytes": 1,
@@ -155,6 +168,7 @@ class StartupTests(unittest.TestCase):
                     "policy": bench.POLICY,
                     "schema": 1,
                     "candidate": item,
+                    "baseline": metrics(3),
                     "host": "test",
                 }
                 path = Path(tmp) / f"{index}.json"
@@ -163,8 +177,11 @@ class StartupTests(unittest.TestCase):
             result = subprocess.run(
                 [sys.executable, script, "--compare", *files], capture_output=True
             )
-            self.assertEqual(result.returncode, 1, result.stderr)
-            self.assertIn(b"FAIL", result.stdout)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(b"informational, not a contract verdict", result.stdout)
+            self.assertIn(f"{after - before:+.4f}".encode(), result.stdout)
+            self.assertNotIn(b"PASS", result.stdout)
+            self.assertNotIn(b"FAIL", result.stdout)
 
 
 if __name__ == "__main__":
