@@ -18,14 +18,28 @@
     "exit": -6,
     "killed": true,
     "oracle": "WIFEXITED(status)",
-    "source_sha256": "da9f2d763b42b117fe4061e3e86804540947e28564ae9d980ed6a6f2ff9144fb"
+    "source_sha256": "6c66c5646eddbaac95089fba71dcc2c1b6f6aa6523f0bcc14d0cf3cbcc6981b6"
   },
   {
     "mutation": "unknown-is-complete",
     "exit": -6,
     "killed": true,
     "oracle": "!cleanup_reclaimable(root)",
-    "source_sha256": "da9f2d763b42b117fe4061e3e86804540947e28564ae9d980ed6a6f2ff9144fb"
+    "source_sha256": "6c66c5646eddbaac95089fba71dcc2c1b6f6aa6523f0bcc14d0cf3cbcc6981b6"
+  },
+  {
+    "mutation": "omit-cleanup-write-ahead",
+    "exit": -6,
+    "killed": true,
+    "oracle": "jm_bool(root, \"cleanup_hold\", false)",
+    "source_sha256": "6c66c5646eddbaac95089fba71dcc2c1b6f6aa6523f0bcc14d0cf3cbcc6981b6"
+  },
+  {
+    "mutation": "drop-partial-cleanup-hold",
+    "exit": -6,
+    "killed": true,
+    "oracle": "jm_bool(root, \"cleanup_hold\", false)",
+    "source_sha256": "6c66c5646eddbaac95089fba71dcc2c1b6f6aa6523f0bcc14d0cf3cbcc6981b6"
   },
   {
     "mutation": "replay-consumed-batch",

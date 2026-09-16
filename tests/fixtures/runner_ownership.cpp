@@ -71,10 +71,69 @@ static int unlink_checked(const char *path) {
 #undef session_save
 #undef unix_listen
 #undef fork
+
+/* Job persistence faults run the real supervisor. Mode 1 loses the first
+ * child's wait result while a second real child waits for a fixture file;
+ * mode 2 rejects the final write, mode 3 rejects the write-ahead hold. */
+static int job_fault_mode, job_fault_hits, job_notify_fd = -1;
+static pid_t job_children[2] = {-1, -1};
+static char job_release_path[1024];
+static int checked_job_reap(pid_t pid, int *status) {
+    if (!job_fault_mode) return tny_jobs_host_reap(pid, status);
+    if (job_children[0] < 0) job_children[0] = pid;
+    if (pid != job_children[0]) job_children[1] = pid;
+    if (job_fault_mode == 1 && pid == job_children[1]) return 0;
+    int result = tny_jobs_host_reap(pid, status);
+    if (job_fault_mode == 1 && result == 1) {
+        ++job_fault_hits;
+        return -1; /* real child reaped, but its exit proof is unavailable */
+    }
+    return result;
+}
+static int checked_job_write(const char *path, const void *data, size_t size) {
+    if (!job_fault_mode || !std::strstr(path, "job.json"))
+        return tny_jobs_host_write_private(path, data, size);
+    auto *doc = jparse(static_cast<const char *>(data), size);
+    assert(doc);
+    auto *root = yyjson_doc_get_root(doc);
+    const char *state = jget_str(root, "state");
+    auto *items = jget(root, "items");
+    bool terminal = state && std::strcmp(state, "failed") == 0;
+    bool protected_start = jget_bool(root, "cleanup_hold", false);
+    bool partial = yyjson_arr_size(items) == 2 &&
+                   std::strcmp(jget_str(yyjson_arr_get(items, 0), "state"), "interrupted") == 0 &&
+                   std::strcmp(jget_str(yyjson_arr_get(items, 1), "state"), "running") == 0;
+    yyjson_doc_free(doc);
+    if ((job_fault_mode == 2 && terminal) || (job_fault_mode == 3 && protected_start)) {
+        ++job_fault_hits;
+        return EIO;
+    }
+    if (job_fault_mode == 1 && partial) {
+        assert(job_fault_hits == 1 && job_children[1] > 1);
+        int status;
+        assert(waitpid(job_children[1], &status, WNOHANG) == 0);
+        int result = tny_jobs_host_write_private(path, data, size);
+        assert(result == 0); /* unknown item persisted while the sibling is alive */
+        int release = open(job_release_path, O_CREAT | O_WRONLY, 0600);
+        assert(release >= 0);
+        close(release);
+        /* Reap the fixture-owned sibling before the parent kills this worker.
+         * Its persisted state remains running at the tested crash boundary. */
+        assert(waitpid(job_children[1], &status, 0) == job_children[1]);
+        assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+        assert(write(job_notify_fd, "x", 1) == 1);
+        for (;;) pause();
+    }
+    return tny_jobs_host_write_private(path, data, size);
+}
+#define tny_jobs_host_reap          checked_job_reap
+#define tny_jobs_host_write_private checked_job_write
 #ifndef TNY_JOBS_SOURCE
 #define TNY_JOBS_SOURCE "../../src/core/jobs.cpp"
 #endif
 #include TNY_JOBS_SOURCE
+#undef tny_jobs_host_write_private
+#undef tny_jobs_host_reap
 
 static int descriptor_count() {
     DIR *d = opendir("/dev/fd");
@@ -331,6 +390,147 @@ static void unknown_cleanup() {
     yyjson_mut_doc_free(doc);
 }
 
+static void durable_cleanup_faults(const char *directory) {
+    /* These injected consuming-wait faults cover the POSIX seam. Native Job
+     * handle cleanup is covered by the actual MSYS integration suite. */
+    if (tny_process_scope_native_jobs()) return;
+    auto *ctx = tny_ctx_new_explicit(directory, directory);
+    assert(ctx);
+    std::snprintf(job_release_path, sizeof job_release_path, "%s/release-item", directory);
+    for (int mode = 0; mode <= 3; ++mode) {
+        char id[33], output_path[1024], error[256];
+        std::snprintf(id, sizeof id, "%032d", mode + 100);
+        std::snprintf(output_path, sizeof output_path, "%s/held-%d.png", directory, mode);
+        char *dir = jobs_dir(ctx, id);
+        assert(dir && mkdir_p(dir) == 0);
+        char *owner_path = jobs_file(dir, "owner.lock");
+        tny::lock_descriptor owner;
+        owner.adopt(tny_jobs_host_lock_open(owner_path));
+        assert(tny_jobs_host_lock_try(owner.borrow()) == TNY_JOBS_LOCK_ACQUIRED);
+        const char *json =
+            mode == 1 ? "{\"kind\":\"ask\",\"concurrency\":2,\"items\":["
+                        "{\"index\":0,\"prompt\":\"quick\"},"
+                        "{\"index\":1,\"prompt\":\"fixture wait\"}]}"
+                      : "{\"kind\":\"ask\",\"items\":[{\"index\":0,\"prompt\":\"quick\"}]}";
+        auto *args = jparse(json, std::strlen(json));
+        jobs_request request{};
+        assert(jobs_request_parse(ctx, yyjson_doc_get_root(args), &request, error, sizeof error) ==
+               0);
+        /* A real claim exercises the same shared reservation policy as image
+         * jobs; these local ask children never contact a provider. */
+        request.outputs[0] = xstrdup(output_path);
+        auto *record = record_new(ctx, &request, id, dir);
+        assert(record && jobs_record_store(dir, record) == 0);
+        yyjson_mut_doc_free(record);
+        assert(reservation_claim_one(ctx, output_path, id, 0, 1, error, sizeof error) == 0);
+        auto *payload_doc = yyjson_doc_mut_copy(args, jallocator());
+        auto *root = yyjson_mut_doc_get_root(payload_doc);
+        char *self = tny_process_self_path();
+        jm_set_str(payload_doc, root, "self", self);
+        jm_set_str(payload_doc, root, "cwd", directory);
+        jm_set_int(payload_doc, root, "attempt", 1);
+        std::free(self);
+        char *serialized = jwrite(payload_doc);
+        auto *payload = jparse(serialized, std::strlen(serialized));
+        std::free(serialized);
+        yyjson_mut_doc_free(payload_doc);
+        job_fault_hits = 0;
+        job_children[0] = job_children[1] = -1;
+        if (mode == 1) {
+            tny::pipe_pair notice;
+            assert(notice.open() == 0);
+            pid_t supervisor = fork();
+            assert(supervisor >= 0);
+            if (!supervisor) {
+                notice.ends[0].reset();
+                job_notify_fd = notice.ends[1].borrow();
+                fcntl(job_notify_fd, F_SETFD, FD_CLOEXEC);
+                job_fault_mode = mode;
+                _exit(worker_supervise(ctx, dir, id, yyjson_doc_get_root(payload)) ? 2 : 0);
+            }
+            owner.reset(); /* only the supervisor now owns its inherited description */
+            notice.ends[1].reset();
+            pollfd event{notice.ends[0].borrow(), POLLIN, 0};
+            int ready = tny_poll(&event, 1, 10000);
+            char byte = 0;
+            bool reached = ready > 0 && read(notice.ends[0].borrow(), &byte, 1) == 1;
+            kill(supervisor, SIGKILL);
+            int status;
+            assert(waitpid(supervisor, &status, 0) == supervisor);
+            assert(reached && WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL);
+            unlink(job_release_path);
+        } else {
+            job_fault_mode = mode;
+            int result = worker_supervise(ctx, dir, id, yyjson_doc_get_root(payload));
+            job_fault_mode = 0;
+            assert(mode == 0 ? result == 0 : result == EIO);
+            assert(job_fault_hits == (mode == 0 ? 0 : 1));
+            owner.reset();
+        }
+        assert(tny_jobs_host_owner_state(owner_path) == TNY_JOBS_OWNER_FREE);
+        record = jobs_record_load(dir, id, error, sizeof error);
+        assert(record);
+        root = yyjson_mut_doc_get_root(record);
+        if (mode == 1 || mode == 2) {
+            assert(jm_bool(root, "cleanup_hold", false));
+            assert(std::strcmp(jm_str(root, "state"), "running") == 0);
+            if (mode == 1) {
+                assert(std::strcmp(jm_str(jm_item(record, 0), "state"), "interrupted") == 0);
+                assert(std::strcmp(jm_str(jm_item(record, 1), "state"), "running") == 0);
+            }
+            assert(reservation_claim_one(ctx, output_path, "abcdef0123456789abcdef0123456789", 0, 1,
+                                         error, sizeof error) != 0);
+            assert(jobs_project(dir, id) == 0); /* loss projection preserves the latch */
+            char *record_path = jobs_file(dir, "job.json");
+            char *claim_path = reservation_path(ctx, output_path);
+            size_t size;
+            char *before_record = file_slurp(record_path, &size);
+            char *before_claim = file_slurp(claim_path, &size);
+            char selection[80];
+            std::snprintf(selection, sizeof selection, "{\"id\":\"%s\"}", id);
+            auto *retry = jparse(selection, std::strlen(selection));
+            buf_t out{};
+            assert(jobs_retry(ctx, yyjson_doc_get_root(retry), &out, error, sizeof error, nullptr,
+                              nullptr) != 0);
+            assert(std::strstr(error, "cleanup is unverified"));
+            assert(jobs_rm(ctx, yyjson_doc_get_root(retry), &out, error, sizeof error) != 0);
+            assert(std::strstr(error, "cleanup is unverified"));
+            char *after_record = file_slurp(record_path, &size);
+            char *after_claim = file_slurp(claim_path, &size);
+            assert(before_record && after_record && std::strcmp(before_record, after_record) == 0);
+            assert(before_claim && after_claim && std::strcmp(before_claim, after_claim) == 0);
+            std::free(before_record);
+            std::free(after_record);
+            std::free(before_claim);
+            std::free(after_claim);
+            std::free(record_path);
+            std::free(claim_path);
+            buf_free(&out);
+            yyjson_doc_free(retry);
+        } else {
+            assert(!jm_bool(root, "cleanup_hold", true));
+            if (mode == 3) {
+                assert(job_children[0] == -1);
+                assert(std::strcmp(jm_str(root, "state"), "queued") == 0);
+                char *log = jobs_item_log(dir, 0, 1);
+                assert(access(log, F_OK) != 0);
+                std::free(log);
+            } else assert(std::strcmp(jm_str(root, "cleanup"), "complete") == 0);
+            assert(reservation_claim_one(ctx, output_path, "abcdef0123456789abcdef0123456789", 0, 1,
+                                         error, sizeof error) == 0);
+        }
+        yyjson_mut_doc_free(record);
+        yyjson_doc_free(payload);
+        jobs_request_free(&request);
+        yyjson_doc_free(args);
+        std::free(owner_path);
+        std::free(dir);
+    }
+    tny_ctx_free(ctx);
+    puts("job cleanup: mixed-item supervisor loss and final-write failure retain claims; "
+         "guard failure launches nothing; proven cleanup releases");
+}
+
 static void runner_shutdown(const char *directory) {
     auto *ctx = tny_ctx_new_explicit(directory, directory);
     assert(ctx);
@@ -394,7 +594,11 @@ static void metadata_pid_is_not_authority(const char *directory) {
         signal(SIGTERM, SIG_DFL);
         close(sentinel_gate.ends[1].borrow());
         char byte;
-        _exit(read(sentinel_gate.ends[0].borrow(), &byte, 1) == 1 ? 0 : 2);
+        ssize_t read_result;
+        do {
+            read_result = read(sentinel_gate.ends[0].borrow(), &byte, 1);
+        } while (read_result < 0 && errno == EINTR);
+        _exit(read_result == 0 ? 0 : 2);
     }
     sentinel_gate.ends[0].reset();
     auto *record = yyjson_mut_doc_new(jallocator());
@@ -414,10 +618,13 @@ static void metadata_pid_is_not_authority(const char *directory) {
     auto *args = jparse(request, std::strlen(request));
     buf_t output{};
     char error[256];
-    assert(jobs_cancel(ctx, yyjson_doc_get_root(args), &output, error, sizeof error) == 0);
-    assert(write(sentinel_gate.ends[1].borrow(), "x", 1) == 1);
+    int cancel_result = jobs_cancel(ctx, yyjson_doc_get_root(args), &output, error, sizeof error);
+    sentinel_gate.ends[1].reset(); /* EOF also works if a mutant killed the reader. */
     int status = 0;
-    assert(waitpid(sentinel, &status, 0) == sentinel);
+    pid_t waited;
+    do { waited = waitpid(sentinel, &status, 0); } while (waited < 0 && errno == EINTR);
+    assert(waited == sentinel);
+    assert(cancel_result == 0);
     assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
     buf_free(&output);
     yyjson_doc_free(args);
@@ -454,7 +661,20 @@ int main(int argc, char **argv) {
     if (argc > 2 && std::strcmp(argv[1], "--cwd") == 0) {
         if (tny_process_scope_admit() != 0) return 2;
         char bytes[64];
-        while (read(STDIN_FILENO, bytes, sizeof bytes) > 0) {}
+        bool wait_for_release = false;
+        ssize_t size;
+        while ((size = read(STDIN_FILENO, bytes, sizeof bytes - 1)) > 0) {
+            bytes[size] = '\0';
+            if (std::strstr(bytes, "fixture wait")) wait_for_release = true;
+        }
+        if (wait_for_release) {
+            char path[1024];
+            std::snprintf(path, sizeof path, "%s/release-item", argv[2]);
+            pid_t parent = getppid();
+            int64_t deadline = monotonic_ms() + 10000;
+            while (access(path, F_OK) != 0 && getppid() == parent && monotonic_ms() < deadline)
+                tny_jobs_host_sleep_ms(10);
+        }
         puts("fixture child drained");
         return 0;
     }
@@ -466,6 +686,7 @@ int main(int argc, char **argv) {
     item_lifecycle_loops(argv[1]);
     host_boundary_faults(argv[1]);
     unknown_cleanup();
+    durable_cleanup_faults(argv[1]);
     runner_shutdown(argv[1]);
     metadata_pid_is_not_authority(argv[1]);
     consumed_checkpoint_stays_consumed(argv[1]);

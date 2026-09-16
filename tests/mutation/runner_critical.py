@@ -40,6 +40,24 @@ MUTANTS = [
         "!cleanup_reclaimable(root)",
     ),
     (
+        "omit-cleanup-write-ahead",
+        "jobs",
+        "            rc = jobs_txn_commit(&t);\n"
+        "            if (rc) break;\n"
+        "            cleanup_protected = true;",
+        "            jobs_txn_end(&t);\n"
+        "            rc = 0;\n"
+        "            cleanup_protected = true;",
+        'jm_bool(root, "cleanup_hold", false)',
+    ),
+    (
+        "drop-partial-cleanup-hold",
+        "jobs",
+        '            if (slots[i].cleanup_unknown) jm_set_bool(doc, root, "cleanup_hold", true);',
+        '            if (slots[i].cleanup_unknown) jm_set_bool(doc, root, "cleanup_hold", false);',
+        'jm_bool(root, "cleanup_hold", false)',
+    ),
+    (
         "replay-consumed-batch",
         "runner",
         "                       yyjson_mut_bool(r->session->doc, false));",

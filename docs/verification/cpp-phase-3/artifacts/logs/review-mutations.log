@@ -1,0 +1,23 @@
+descriptor transfer/reuse cycles=200 before=4 after=4
+job failed acquisition cycles=100 before=4 after=4
+acquisition faults: pipe1/pipe2/save/listener/fork closed all resources
+client allocation failure and allocation-free teardown passed
+item spawn/pump/reap/drain cycles=40 before=4 after=4
+host faults: open/write/fsync/rename/dup1/dup2/spawn preserve bytes and borrowed fds
+job cleanup: mixed-item supervisor loss and final-write failure retain claims; guard failure launches nothing; proven cleanup releases
+phase3 ownership oracles passed
+{"mutation": "writer-before-save", "exit": -6, "killed": true, "oracle": "bye && WIFEXITED", "source_sha256": "f69fa2479de0c8db2d0b82246d256ace1b433a380ec731754deaed4d63998855"}
+{"mutation": "close-transferred-descriptor", "exit": -6, "killed": true, "oracle": "send_result == 0", "source_sha256": "f69fa2479de0c8db2d0b82246d256ace1b433a380ec731754deaed4d63998855"}
+{"mutation": "signal-metadata-pid", "exit": -6, "killed": true, "oracle": "WIFEXITED(status)", "source_sha256": "6c66c5646eddbaac95089fba71dcc2c1b6f6aa6523f0bcc14d0cf3cbcc6981b6"}
+{"mutation": "unknown-is-complete", "exit": -6, "killed": true, "oracle": "!cleanup_reclaimable(root)", "source_sha256": "6c66c5646eddbaac95089fba71dcc2c1b6f6aa6523f0bcc14d0cf3cbcc6981b6"}
+{"mutation": "omit-cleanup-write-ahead", "exit": -6, "killed": true, "oracle": "jm_bool(root, \"cleanup_hold\", false)", "source_sha256": "6c66c5646eddbaac95089fba71dcc2c1b6f6aa6523f0bcc14d0cf3cbcc6981b6"}
+{"mutation": "drop-partial-cleanup-hold", "exit": -6, "killed": true, "oracle": "jm_bool(root, \"cleanup_hold\", false)", "source_sha256": "6c66c5646eddbaac95089fba71dcc2c1b6f6aa6523f0bcc14d0cf3cbcc6981b6"}
+{"mutation": "replay-consumed-batch", "exit": -6, "killed": true, "oracle": "rn_disk_packet(session) == nullptr", "source_sha256": "f69fa2479de0c8db2d0b82246d256ace1b433a380ec731754deaed4d63998855"}
+descriptor transfer/reuse cycles=200 before=4 after=4
+job failed acquisition cycles=100 before=4 after=4
+acquisition faults: pipe1/pipe2/save/listener/fork closed all resources
+client allocation failure and allocation-free teardown passed
+item spawn/pump/reap/drain cycles=40 before=4 after=4
+host faults: open/write/fsync/rename/dup1/dup2/spawn preserve bytes and borrowed fds
+job cleanup: mixed-item supervisor loss and final-write failure retain claims; guard failure launches nothing; proven cleanup releases
+phase3 ownership oracles passed

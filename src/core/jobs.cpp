@@ -3451,7 +3451,7 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
     }
     (void)n_payload;
 
-    bool finished = false;
+    bool finished = false, cleanup_protected = false;
     int rc = 0;
     while (!finished) {
         for (int i = 0; i < TNY_JOBS_MAX_ITEMS; i++) worker_scope_progress(&slots[i]);
@@ -3467,6 +3467,21 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
             jobs_txn_end(&t);
             rc = EBUSY;
             break;
+        }
+        if (!cleanup_protected) {
+            /* Write ahead of acquiring children: cleanup, reaping and even
+             * their final save can fail. Owner loss must not make an unfinished
+             * cleanup reclaimable. Only a committed, proven terminal result
+             * clears this hold; a failed guard write launches no work. */
+            jm_set_bool(doc, root, "cleanup_hold", true);
+            if (!jm_bool(root, "cleanup_hold", false)) {
+                rc = ENOMEM;
+                break;
+            }
+            rc = jobs_txn_commit(&t);
+            if (rc) break;
+            cleanup_protected = true;
+            continue;
         }
         bool dirty = false;
         bool job_cancel = jm_bool(root, "cancel_requested", false);
@@ -3504,6 +3519,7 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
             if (slots[i].scope.borrow() &&
                 (slots[i].cleanup_unknown || slots[i].scope.retire() != 0))
                 slots[i].cleanup_unknown = true;
+            if (slots[i].cleanup_unknown) jm_set_bool(doc, root, "cleanup_hold", true);
             worker_record_result(ctx, doc, &slots[i], cancelled && slots[i].cancel_signalled);
             slot_close(&slots[i]);
             slots[i].active = false;

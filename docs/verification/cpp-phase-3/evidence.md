@@ -186,7 +186,72 @@ but their ps-based teardown is unavailable in the sandbox.
 
 ## Reviews
 
-Pending.
+### Coordinator-supplied independent design/first-slice review, 2026-09-16
+
+Reviewed candidate: rebased phase-3 commit
+`4e8a3526f772152ed059e81cdb2e8a707bc80fe7`. Reviewer identity was not supplied;
+the coordinator supplied the independent read-only report and its
+**APPROVE-WITH-FIXES** verdict. This is design/first-slice approval only, not
+completion of #139 or a post-fix independent review. No agents were spawned
+for this correction assignment.
+
+| Finding | Disposition | Proof |
+| --- | --- | --- |
+| 1, major: unknown item cleanup not durably held while siblings run; failed terminal save permits later reclaim (P3-I4, P3-I6) | Fixed. The supervisor commits the existing root hold before acquiring any item child, aborts without launching when that commit fails, latches unknown cleanup in the item's result transaction, and clears the hold only with a committed terminal result proving complete cleanup. This conservatively retains claims after loss during a protected lifecycle; legacy/pre-protection owner-loss recovery remains available. No schema or PID authority was added. | The real-supervisor fixture injects a lost consuming-wait result while a sibling is alive, saves the mixed terminal/running record, reaps fixture children and kills/reaps the supervisor. A separate case rejects the final write. Both prove owner freedom, contender/retry/rm refusal, and unchanged record/claim bytes across retry/rm. Initial-write rejection launches no child; successful terminal persistence permits reclaim. Critical mutants remove the write-ahead commit and drop the partial-result hold. |
+| 2, minor: metadata-PID sentinel writer races child death, causing SIGPIPE/EPIPE instead of the intended status oracle (P3-I4, C4) | Fixed. Close the writer to release the sentinel through EOF; retry interrupted waits and always reap before asserting cancellation/exit results. | The signal-metadata-PID mutant must compile and fail the explicit WIFEXITED status assertion, with the sentinel already reaped. |
+
+### Rebased correction verification
+
+The initial `git log -3` and `make -j8 debug` succeeded at the clean rebased
+head before these corrections. All correction edits remain uncommitted.
+The local gate and mutation tables above are historical, pre-rebase records;
+the correction gate table below and refreshed source manifest supersede them
+for current local proof. Hosted/platform, leak, ABI/SDK and performance limits
+remain coordinator-owned and unchanged below. Existing finalized ADRs are
+unchanged; this implements the persisted-hold requirements of ADR0101 and
+ADR0117, with the conservative write-ahead behavior documented in `docs/jobs.md`.
+
+**Correction gate: PASS** for findings 1 and 2 and the requested local reruns.
+This does not change the full-issue INCOMPLETE verdict or the coordinator's
+outstanding gates. All 564 unit tests pass (19,874 assertions); all seven
+critical mutants compile and fail their intended behavioral assertions, and the
+restored ownership baseline passes. The added mixed-item regression also fails
+against `git show 4e8a352:src/core/jobs.cpp` at the missing durable hold assertion,
+after fixture children are reaped; that expected-failure experiment is recorded
+as a successful regression check, not as a passing pre-fix implementation.
+
+[Correction run records](artifacts/review-run-records.json) bind every command to
+`4e8a3526f772152ed059e81cdb2e8a707bc80fe7` plus the same 634-input
+[refreshed source manifest](artifacts/final-source-sha256.json), identity
+`cdefff16fd58051680ba0659de1a3bd899f41feef771a0260878ec41a5db3b5a`. This refresh includes the rebased runtime, allocator,
+transport and build inputs as well as these fixes. [Mutation results](artifacts/mutation-results.json)
+and [binary hashes](artifacts/binary-sha256.json) are refreshed as well. The
+[dirty-tree manifest](artifacts/dirty-tree-sha256.json) records the uncommitted
+handoff, excluding itself to avoid a self-referential hash.
+
+All requested commands exit 0. There are no compiler/linter warnings or
+sanitizer findings. The unit suite's expected invalid-settings/MCP-import
+warnings remain visible in its raw log; these are intentional negative-test
+runtime diagnostics. Darwin quality explicitly skips the Linux-only GCC
+analyzer, as before. The added supervisor fault fixture exercises real POSIX
+children, pipes, locks and persistence; it does not claim native MSYS runtime
+proof. There is no new target or dependency requiring a Nix inventory change.
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `make -j8 debug` | 0 | [review-debug](artifacts/logs/review-debug.log) |
+| `build/tny-test` | 0 | [review-unit](artifacts/logs/review-unit.log) |
+| `make test-runner-ownership` | 0 | [review-ownership](artifacts/logs/review-ownership.log) |
+| `make test-runtime-ownership` | 0 | [review-runtime](artifacts/logs/review-runtime.log) |
+| `make test-libtny-fault` | 0 | [review-fault](artifacts/logs/review-fault.log) |
+| `make test-libtny-fault-sanitize` | 0 | [review-fault-sanitize](artifacts/logs/review-fault-sanitize.log) |
+| `python3 tests/mutation/runner_critical.py` | 0 | [review-mutations](artifacts/logs/review-mutations.log) |
+| `make quality` | 0 | [review-quality](artifacts/logs/review-quality.log) |
+| `make -j8 release` | 0 | [review-release](artifacts/logs/review-release.log) |
+| `python3 tests/integration/test_background.py` | 0 | [review-background](artifacts/logs/review-background.log) |
+| `python3 tests/integration/test_background_agents.py` | 0 | [review-background-agents](artifacts/logs/review-background-agents.log) |
+| `python3 tests/integration/test_interrupt.py` | 0 | [review-interrupt](artifacts/logs/review-interrupt.log) |
+| `python3 build/review-regression-baseline.py` | 0 | [review-regression-baseline](artifacts/logs/review-regression-baseline.log) |
 
 ## Unmet gates and coordinator handoff
 
