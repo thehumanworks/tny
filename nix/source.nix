@@ -39,6 +39,9 @@ let
     buildFiles
     ../.github/workflows/ci.yml
     ../.github/workflows/nix.yml
+    # tests/packaging/test_size_budget.py mirrors Linux SIZE_MAX into
+    # both hosted workflows, including the release matrix.
+    ../.github/workflows/release.yml
     # tests/integration/test_toolchain_pins.py keeps the mise pins and the CI
     # quality job on the same tool versions (docs/adr/0061).
     ../.mise.toml

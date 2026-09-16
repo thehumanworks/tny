@@ -10,46 +10,46 @@ unset MAKEFLAGS MFLAGS MAKELEVEL
 
 TNY="${TNY:-$PWD/build/tny}"
 if [ ! -x "$TNY" ]; then
-	echo "run.sh: $TNY not found — run 'make release' first" >&2
-	exit 1
+    echo "run.sh: $TNY not found — run 'make release' first" >&2
+    exit 1
 fi
 export TNY
 
 fail=0
 run() {
-	name=$1
-	shift
-	echo "== integration: $name"
-	if "$@"; then
-		echo "   ok"
-	else
-		echo "   FAIL: $name" >&2
-		fail=1
-	fi
+    name=$1
+    shift
+    echo "== integration: $name"
+    if "$@"; then
+        echo "   ok"
+    else
+        echo "   FAIL: $name" >&2
+        fail=1
+    fi
 }
 
 run openai python3 tests/integration/test_openai.py
 
 for t in tests/integration/test_*.sh; do
-	[ -e "$t" ] || continue
-	# macos-15 runners: python under a throwaway HOME exceeds the 30 s
-	# cursor ready-line timeout. Local Darwin still runs the fixture.
-	if [ -n "${CI:-}" ] && [ "$(uname -s)" = Darwin ] &&
-		[ "$(basename "$t")" = test_cursor.sh ]; then
-		echo "== integration: test_cursor"
-		echo "   skip: darwin CI (cursor mock ready-line vs macos python)"
-		continue
-	fi
-	# Honor each script's shebang (bash scripts use pipefail; dash rejects it).
-	run "$(basename "$t" .sh)" "$t" "$TNY"
+    [ -e "$t" ] || continue
+    # macos-15 runners: python under a throwaway HOME exceeds the 30 s
+    # cursor ready-line timeout. Local Darwin still runs the fixture.
+    if [ -n "${CI:-}" ] && [ "$(uname -s)" = Darwin ] &&
+        [ "$(basename "$t")" = test_cursor.sh ]; then
+        echo "== integration: test_cursor"
+        echo "   skip: darwin CI (cursor mock ready-line vs macos python)"
+        continue
+    fi
+    # Honor each script's shebang (bash scripts use pipefail; dash rejects it).
+    run "$(basename "$t" .sh)" "$t" "$TNY"
 done
 
 for t in tests/integration/test_*.py; do
-	[ -e "$t" ] || continue
-	case "$t" in
-	*/test_openai.py | */test_help_flags.py) continue ;;
-	esac
-	run "$(basename "$t" .py)" python3 "$t" "$TNY"
+    [ -e "$t" ] || continue
+    case "$t" in
+        */test_openai.py | */test_help_flags.py) continue ;;
+    esac
+    run "$(basename "$t" .py)" python3 "$t" "$TNY"
 done
 
 exit $fail

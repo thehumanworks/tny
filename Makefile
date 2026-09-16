@@ -16,7 +16,8 @@ CXXSTD   = -std=c++20
 # Vendor VERSION files can shadow <version> on case-insensitive filesystems.
 # Vendors remain available for quoted/angle includes, after the standard library;
 # first-party include paths and their diagnostics retain normal precedence.
-cxx_flags = $(subst -Ithird_party,-idirafter third_party,$(filter-out $(STD),$(subst -include src/util/alloc_override.h,,$(1)))) $(CXXSTD) -fexceptions -fno-rtti
+CXX_GLIBC_FLOOR := $(if $(wildcard src/util/cxx_glibc_floor.h),-include src/util/cxx_glibc_floor.h)
+cxx_flags = $(subst -Ithird_party,-idirafter third_party,$(filter-out $(STD),$(subst -include src/util/alloc_override.h,,$(1)))) $(CXXSTD) -fexceptions -fno-rtti $(CXX_GLIBC_FLOOR)
 # Keep foo.c and foo.cpp distinct: C adapters can coexist with their owners.
 objects = $(addprefix $(1)/,$(patsubst %.cpp,%.cpp.o,$(patsubst %.c,%.o,$(2))))
 GIT     ?= git

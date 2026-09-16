@@ -385,7 +385,7 @@ jobs:
         with:
           msystem: MSYS
           update: true
-          install: gcc gcc-c++ make python zip
+          install: gcc make python zip
           path-type: minimal
 
       - name: Build, size, smoke, package

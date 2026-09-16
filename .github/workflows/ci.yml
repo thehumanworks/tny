@@ -270,7 +270,7 @@ jobs:
         with:
           msystem: MSYS
           update: true
-          install: gcc gcc-c++ make python
+          install: gcc make python
           path-type: minimal
 
       - name: Build, smoke, size

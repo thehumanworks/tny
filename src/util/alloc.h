@@ -32,6 +32,9 @@ void *tny_alloc_malloc(size_t size);
 void *tny_alloc_calloc(size_t count, size_t size);
 void *tny_alloc_realloc(void *ptr, size_t size);
 char *tny_alloc_strdup(const char *value);
+/* C11 wrapper: C++ TUs must not call libc strtol, which glibc 2.38+
+ * redirects to __isoc23_strtol@GLIBC_2.38 via libstdc++'s _GNU_SOURCE. */
+long tny_c_strtol(const char *nptr, char **endptr, int base);
 
 #ifdef TNY_ALLOC_TESTING
 /* Test-only introspection for the process-isolated fault harness. These are

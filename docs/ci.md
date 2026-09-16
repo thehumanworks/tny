@@ -20,7 +20,10 @@ The MSYS2 executable uses yyjson's supported `yyjson_api` override with an empty
 annotation. Its POSIX compiler does not define `_WIN32`, and ELF visibility
 attributes are not supported at the Windows LTO link. This configures the
 static dependency; it does not suppress warnings, disable LTO or advertise a
-Windows libtny shared library. `test_windows_lto_flags.py` checks both branches.
+Windows libtny shared library. GCC native release LTO uses `-flto=auto` and
+Clang keeps `-flto` ([ADR 0119](adr/0119-build-lane-parity-and-exhaustive-fault-proof.md)).
+`test_windows_lto_flags.py` checks both branches and both LTO spellings.
+The MSYS2 `gcc` package already ships `g++`; there is no `gcc-c++` package.
 
 The Pages workflow also builds `tny-web.mjs` with emsdk and publishes it
 under `assets/wasm/` — the landing terminal is the CI-tested artifact.

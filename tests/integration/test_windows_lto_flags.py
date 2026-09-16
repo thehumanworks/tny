@@ -95,7 +95,7 @@ class WindowsLtoFlags(unittest.TestCase):
                             "-fomit-frame-pointer" in options, platform == "Linux"
                         )
 
-    def flags(self, windows):
+    def flags(self, windows, *extra):
         result = subprocess.run(
             [
                 "make",
@@ -108,6 +108,7 @@ class WindowsLtoFlags(unittest.TestCase):
                 f"WINDOWS={int(windows)}",
                 "UNAME_S=MSYS_NT-10.0" if windows else "UNAME_S=Linux",
                 "UNAME_M=x86_64",
+                *extra,
             ],
             input=".PHONY: flags-for-test\nflags-for-test:\n"
             "\t@printf '%s\\n' '$(DEFS)' '$(REL_CFLAGS)' '$(REL_LTO)'\n",
@@ -118,18 +119,57 @@ class WindowsLtoFlags(unittest.TestCase):
         )
         return result.stdout.splitlines()
 
+    def expected_lto(self, windows, *extra):
+        version = subprocess.run(
+            [
+                "make",
+                "-s",
+                "-f",
+                "Makefile",
+                "-f",
+                "-",
+                "cc-version-for-test",
+                f"WINDOWS={int(windows)}",
+                "UNAME_S=MSYS_NT-10.0" if windows else "UNAME_S=Linux",
+                "UNAME_M=x86_64",
+                *extra,
+            ],
+            input=".PHONY: cc-version-for-test\ncc-version-for-test:\n"
+            "\t@$(CC) --version\n",
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        text = version.stdout + version.stderr
+        return "-flto" if "clang" in text else "-flto=auto"
+
     def test_msys_uses_supported_static_annotation_override(self):
         definitions, flags, lto = self.flags(True)
         self.assertIn("-Dyyjson_api=", definitions.split())
         self.assertIn("-Werror", flags.split())
         self.assertNotIn("-Wno-attributes", flags.split())
-        self.assertEqual(lto, "-flto")
+        self.assertEqual(lto, self.expected_lto(True))
 
     def test_elf_keeps_vendor_visibility_and_lto(self):
         definitions, flags, lto = self.flags(False)
         self.assertNotIn("-Dyyjson_api=", definitions.split())
         self.assertIn("-Werror", flags.split())
-        self.assertEqual(lto, "-flto")
+        self.assertEqual(lto, self.expected_lto(False))
+
+    def test_gcc_schedules_lto_automatically_and_clang_keeps_generic_lto(self):
+        with tempfile.TemporaryDirectory(prefix="tny-lto-vendor-") as tmp:
+            compiler = Path(tmp) / "compiler.py"
+            compiler.write_text(
+                "import sys\n"
+                "print('clang version 18.0.0' if 'clang' in sys.argv[1] "
+                "else 'gcc (GCC) 14.2.0')\n"
+            )
+            for vendor, expected in (("clang", "-flto"), ("gcc", "-flto=auto")):
+                with self.subTest(vendor=vendor):
+                    cc = shlex.join([sys.executable, str(compiler), vendor])
+                    _, _, lto = self.flags(False, f"CC={cc}")
+                    self.assertEqual(lto, expected)
 
     def test_json_inlining_stays_out_of_shared_debug_and_wasm_flags(self):
         result = subprocess.run(

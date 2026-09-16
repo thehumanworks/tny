@@ -1024,7 +1024,7 @@ static bool jobs_indexes_json(const char *list, buf_t *out) {
     int written = 0;
     for (const char *p = list; p && *p;) {
         char *end = NULL;
-        long value = strtol(p, &end, 10);
+        long value = tny_c_strtol(p, &end, 10);
         if (end == p || value < 0 || value >= TNY_JOBS_MAX_ITEMS) return false;
         if (written++) buf_appends(out, ",");
         buf_appendf(out, "%ld", value);
@@ -1038,7 +1038,7 @@ static bool jobs_indexes_json(const char *list, buf_t *out) {
 
 static long jobs_bounded_long(const char *text, long low, long high, bool *ok) {
     char *end = NULL;
-    long value = text ? strtol(text, &end, 10) : 0;
+    long value = text ? tny_c_strtol(text, &end, 10) : 0;
     *ok = text && end && !*end && value >= low && value <= high;
     return value;
 }
