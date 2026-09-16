@@ -15,9 +15,21 @@
 
 #define UNARY_TIMEOUT_MS 30000
 
+static bool rpc_oom(void) {
+    if (!tny_alloc_scope_failed()) return false;
+    tny_alloc_provider_failed();
+    return true;
+}
+
 void cursor_error_line(const char *body, size_t len, const char *fallback, char *out,
                        size_t outlen) {
     yyjson_doc *doc = len ? jparse(body, len) : NULL;
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        snprintf(out, outlen, "%s", fallback);
+        yyjson_doc_free(doc);
+        return;
+    }
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
     yyjson_val *e = jget(root, "error");
     if (!e) e = root; /* unary Connect errors are the bare error object */
@@ -48,7 +60,10 @@ void cursor_rpc_init(cursor_rpc *r, const char *base_url, const char *token) {
 
 void cursor_rpc_close(cursor_rpc *r) {
     if (r->conn) {
+        bool emergency = tny_alloc_scope_failed() && !tny_alloc_settling();
+        if (emergency) tny_alloc_settlement_begin();
         http_close(r->conn);
+        if (emergency) tny_alloc_settlement_end();
         r->conn = NULL;
     }
 }
@@ -58,6 +73,7 @@ static int read_body(http_conn *c, buf_t *out, int64_t deadline, char *err, size
     for (;;) {
         char tmp[8192];
         ssize_t n = http_body_read(c, tmp, sizeof tmp);
+        if (rpc_oom()) return -2;
         if (n == 0) return 0;
         if (n == -1) {
             snprintf(err, errlen, "bridge closed the connection mid-response");
@@ -78,12 +94,17 @@ static int read_body(http_conn *c, buf_t *out, int64_t deadline, char *err, size
             return -1;
         }
         buf_append(out, tmp, (size_t)n);
+        if (buf_oom(out) || tny_alloc_scope_failed()) {
+            tny_alloc_provider_failed();
+            return -2;
+        }
     }
 }
 
 char *cursor_rpc_unary_raw(cursor_rpc *r, const char *service, const char *method, const char *body,
                            int timeout_ms, int *status_out, char *err, size_t errlen) {
     if (status_out) *status_out = 0;
+    if (rpc_oom()) return NULL;
     char path[256];
     snprintf(path, sizeof path, "%s/%s", service, method);
     buf_t auth;
@@ -91,6 +112,10 @@ char *cursor_rpc_unary_raw(cursor_rpc *r, const char *service, const char *metho
     const char *hdrs[5];
     auth_headers(r->token, "Content-Type: application/json", &auth, hdrs);
 
+    if (rpc_oom()) {
+        buf_free(&auth);
+        return NULL;
+    }
     int rc = -1;
     for (int attempt = 0; attempt < 2; attempt++) {
         if (!r->conn) {
@@ -103,7 +128,7 @@ char *cursor_rpc_unary_raw(cursor_rpc *r, const char *service, const char *metho
             }
         }
         rc = http_request(r->conn, "POST", path, hdrs, body, strlen(body));
-        if (rc == 0) break;
+        if (rc == 0 || rpc_oom()) break;
         cursor_rpc_close(r); /* stale keep-alive: reopen once */
     }
     buf_free(&auth);
@@ -117,6 +142,7 @@ char *cursor_rpc_unary_raw(cursor_rpc *r, const char *service, const char *metho
     for (;;) {
         int left = (int)(deadline - now_ms());
         status = http_read_response(r->conn, left > 0 ? left : 0);
+        if (rpc_oom()) return NULL;
         if (status != -2) break;
         if (left <= 0) {
             snprintf(err, errlen, "%s timed out", method);
@@ -173,7 +199,10 @@ void cursor_stream_init(cursor_stream *s, const char *base_url, const char *toke
 
 void cursor_stream_stop(cursor_stream *s) {
     if (s->conn) {
+        bool emergency = tny_alloc_scope_failed() && !tny_alloc_settling();
+        if (emergency) tny_alloc_settlement_begin();
         http_close(s->conn);
+        if (emergency) tny_alloc_settlement_end();
         s->conn = NULL;
     }
     connect_decoder_free(&s->dec);
@@ -185,6 +214,7 @@ int cursor_stream_fd(cursor_stream *s) { return s->conn ? http_fd(s->conn) : -1;
 
 int cursor_stream_start(cursor_stream *s, const char *service, const char *method, const char *body,
                         char *err, size_t errlen) {
+    if (rpc_oom()) return -2;
     cursor_stream_stop(s);
     char oerr[256];
     s->conn = http_open(s->base_url, oerr, sizeof oerr);
@@ -201,7 +231,7 @@ int cursor_stream_start(cursor_stream *s, const char *service, const char *metho
 
     buf_t framed;
     buf_init(&framed);
-    int encoded = connect_frame_encode(&framed, 0, body, strlen(body));
+    int encoded = rpc_oom() ? -2 : connect_frame_encode(&framed, 0, body, strlen(body));
     if (encoded != 0 || auth.oom) {
         snprintf(err, errlen, "%s",
                  encoded == -1 ? "bridge request exceeds wire length field"
@@ -216,6 +246,7 @@ int cursor_stream_start(cursor_stream *s, const char *service, const char *metho
     buf_free(&framed);
     if (auth.data) secure_zero(auth.data, auth.len);
     buf_free(&auth);
+    if (rpc_oom()) return -2;
     if (rc != 0) {
         snprintf(err, errlen, "%s failed: cannot write to the bridge", method);
         cursor_stream_stop(s);
@@ -233,6 +264,7 @@ int cursor_stream_pump_raw(cursor_stream *s, connect_frame_cb cb, void *ud, int 
 
     if (s->state == CS_HEADERS) {
         int status = http_read_response(s->conn, 0);
+        if (rpc_oom()) return -2;
         if (status == -2) return 0;
         if (status < 0) {
             snprintf(err, errlen, "bridge closed the connection before responding");
@@ -242,11 +274,20 @@ int cursor_stream_pump_raw(cursor_stream *s, connect_frame_cb cb, void *ud, int 
             buf_t body;
             buf_init(&body);
             read_body(s->conn, &body, now_ms() + 2000, err, errlen);
+            if (tny_alloc_scope_failed()) {
+                tny_alloc_provider_failed();
+                buf_free(&body);
+                return -2;
+            }
             char detail[300];
             char fallback[64];
             snprintf(fallback, sizeof fallback, "HTTP %d", status);
             cursor_error_line(body.data ? body.data : "", body.len, fallback, detail,
                               sizeof detail);
+            if (tny_alloc_scope_failed()) {
+                buf_free(&body);
+                return -2;
+            }
             if (status_out) *status_out = status;
             if (error_body_out) *error_body_out = buf_detach(&body);
             if (status == 401 || status == 403)
@@ -261,6 +302,7 @@ int cursor_stream_pump_raw(cursor_stream *s, connect_frame_cb cb, void *ud, int 
     for (;;) {
         char tmp[16384];
         ssize_t n = http_body_read(s->conn, tmp, sizeof tmp);
+        if (rpc_oom()) return -2;
         if (n == -2) return 0;
         if (n == 0) return 1;
         if (n < 0) {

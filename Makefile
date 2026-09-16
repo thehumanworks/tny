@@ -1119,7 +1119,7 @@ test-runtime-ownership: $(RUNTIME_TEST)
 -include $(BUILD)/runtime-test/src/core/runtime.d $(BUILD)/runtime-test/tests/test_runtime.d
 
 # Provider OOM regressions use the complete allocator-instrumented object graph.
-PROVIDER_FAULT_TEST_SRC := tests/test_acp.c tests/test_cursor.c tests/integration/libtny_provider_fault_host.c
+PROVIDER_FAULT_TEST_SRC := tests/test_acp.c tests/test_cursor.c tests/test_openai.c tests/integration/libtny_provider_fault_host.c
 PROVIDER_FAULT_TEST := $(BUILD)/lib-fault/provider-faults
 PROVIDER_FAULT_SAN_TEST := $(BUILD)/lib-fault-san/provider-faults
 $(PROVIDER_FAULT_TEST): $(PROVIDER_FAULT_TEST_SRC:%.c=$(OBJ_FAULT_PIC)/%.o) $(FAULT_PIC_OBJS)

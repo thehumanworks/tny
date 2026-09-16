@@ -402,6 +402,10 @@ static int ac_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     ac_impl *o = b->impl;
     if (!o->ws && o->out_fd < 0) return 0;
     int rc = ac_pump_reads(o);
+    if (rc == -3 || tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
     if (rc == -2) {
         fail_turn(o, "acp: agent sent a message over the 8 MiB cap");
         return -1;

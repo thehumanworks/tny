@@ -279,7 +279,103 @@ TEST emergency_cancel_reaps_sigterm_ignoring_child_and_retries(void) {
     PASS();
 }
 
+#ifdef TNY_ALLOC_TESTING
+TEST message_oom_stops_multiline_batch_and_event_copy(void) {
+    static const char update[] =
+        "{\"method\":\"session/update\",\"params\":{\"update\":{"
+        "\"sessionUpdate\":\"agent_message_chunk\",\"content\":{"
+        "\"type\":\"text\",\"text\":\"owned text long enough to allocate a retained payload\"}}}}";
+    for (int batch = 0; batch < 3; batch++) {
+        size_t allocations = 0;
+        for (size_t fault = 0; fault <= allocations; fault++) {
+            tny_alloc_scope_begin("disabled");
+            char root[] = "/tmp/tny-acp-message-XXXXXX";
+            ASSERT(mkdtemp(root));
+            tny_ctx *ctx = tny_ctx_new_explicit(root, root);
+            ASSERT(ctx);
+            ctx->backend = TNY_BK_ACP;
+            ctx->no_save = true;
+            tny_session_state *session = session_new(ctx);
+            perm_engine *perm = perm_new(ctx);
+            tny_engine *engine = tny_engine_new(ctx, session, perm, NULL, NULL);
+            tny_backend *backend = tny_backend_acp_new(ctx);
+            ASSERT(engine && backend);
+            ac_impl *o = backend->impl;
+            int input[2], output[2];
+            ASSERT_EQ(0, pipe(input));
+            ASSERT_EQ(0, pipe(output));
+            o->in_fd = input[1];
+            o->out_fd = output[0];
+            ASSERT_EQ(0, fcntl(o->out_fd, F_SETFL, O_NONBLOCK));
+            o->session_id = xstrdup("message-fault");
+            o->effort_noted = true;
+            char err[256];
+            ASSERT_EQ(0, tny_engine_prepare(engine, backend, TNY_ENGINE_PREPARE_RESUMED, err,
+                                            sizeof err));
+            ASSERT_EQ(0, tny_engine_start(engine, "parse", NULL, err, sizeof err));
+            char messages[2048];
+            snprintf(messages, sizeof messages, batch == 1 ? "[%s,%s]\n" : "malformed\n%s\n%s\n",
+                     update, update);
+            /* Both messages are already buffered before injection. The sweep
+             * includes line copy, jparse, batch jwrite/jparse and owned events. */
+            if (batch == 2)
+                ASSERT_EQ((ssize_t)strlen(messages), write(output[1], messages, strlen(messages)));
+            else acp_reader_feed(&o->out_r, messages, strlen(messages));
+            char index[32];
+            snprintf(index, sizeof index, "%zu", fault);
+            ASSERT_EQ(0, setenv("TNY_TEST_ALLOC_SCOPE", "acp-message", 1));
+            ASSERT_EQ(0, setenv("TNY_TEST_ALLOC_FAIL_AT", index, 1));
+            tny_alloc_scope_begin("acp-message");
+            (void)tny_engine_dispatch(engine, NULL, 0);
+            if (!fault) allocations = tny_alloc_test_scope_count();
+            else {
+                ASSERT(tny_alloc_test_scope_injected());
+                ASSERT_EQ(fault, tny_alloc_test_scope_count());
+                ASSERT_EQ(0, tny_alloc_test_settlement_allocations());
+                ASSERT_FALSE(o->turn_active);
+            }
+            unsetenv("TNY_TEST_ALLOC_SCOPE");
+            unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+            int texts = 0, errors = 0, ends = 0;
+            tny_owned_event *event = NULL;
+            for (;;) {
+                tny_engine_next rc = tny_engine_next_event(engine, 0, &event, err, sizeof err);
+                if (rc == TNY_ENGINE_NEXT_DRAINED || rc == TNY_ENGINE_NEXT_TIMEOUT) break;
+                ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, rc);
+                if (event->ev.kind == TNY_EV_TEXT_DELTA) texts++;
+                if (event->ev.kind == TNY_EV_ERROR) {
+                    ASSERT_EQ(0, ends);
+                    ASSERT_EQ(TNY_EVENT_ERROR_OOM, event->ev.error_code);
+                    errors++;
+                }
+                if (event->ev.kind == TNY_EV_TURN_END) {
+                    ASSERT_EQ(1, errors);
+                    ASSERT_EQ(TNY_STOP_ERROR, event->ev.stop);
+                    ends++;
+                }
+                tny_owned_event_free(event);
+            }
+            ASSERT_EQ(fault ? 1 : 0, errors);
+            ASSERT_EQ(fault ? 1 : 0, ends);
+            if (!fault) ASSERT_EQ(2, texts);
+            tny_alloc_scope_begin("disabled");
+            tny_engine_free(engine);
+            close(input[0]);
+            close(output[1]);
+            perm_free(perm);
+            session_close(session);
+            tny_ctx_free(ctx);
+        }
+        ASSERT(allocations >= (batch == 1 ? 10u : 6u));
+    }
+    PASS();
+}
+#endif
+
 SUITE(acp_suite) {
+#ifdef TNY_ALLOC_TESTING
+    RUN_TEST(message_oom_stops_multiline_batch_and_event_copy);
+#endif
     RUN_TEST(emergency_cancel_reaps_sigterm_ignoring_child_and_retries);
     RUN_TEST(emergency_cancel_releases_pending_protocol_state);
     RUN_TEST(agent_is_ws_detects_only_ws_urls);

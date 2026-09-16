@@ -1,0 +1,56 @@
+
+* Suite openai_suite:
+
+* Suite acp_suite:
+
+* Suite cursor_suite:
+.
+1 test - 1 passed, 0 failed, 0 skipped (1111 ticks, 0.001 sec)
+
+Total: 1 test (1167 ticks, 0.001 sec), 31 assertions
+Pass: 1, fail: 0, skip: 0.
+
+* Suite openai_suite:
+
+* Suite acp_suite:
+.
+1 test - 1 passed, 0 failed, 0 skipped (2389 ticks, 0.002 sec)
+
+* Suite cursor_suite:
+
+Total: 1 test (2424 ticks, 0.002 sec), 29 assertions
+Pass: 1, fail: 0, skip: 0.
+
+* Suite openai_suite:
+.
+1 test - 1 passed, 0 failed, 0 skipped (20446 ticks, 0.020 sec)
+
+* Suite acp_suite:
+
+* Suite cursor_suite:
+
+Total: 1 test (20470 ticks, 0.020 sec), 118 assertions
+Pass: 1, fail: 0, skip: 0.
+
+* Suite openai_suite:
+
+* Suite acp_suite:
+
+* Suite cursor_suite:
+.
+1 test - 1 passed, 0 failed, 0 skipped (10253 ticks, 0.010 sec)
+
+Total: 1 test (10274 ticks, 0.010 sec), 678 assertions
+Pass: 1, fail: 0, skip: 0.
+
+* Suite openai_suite:
+
+* Suite acp_suite:
+.
+1 test - 1 passed, 0 failed, 0 skipped (12591 ticks, 0.013 sec)
+
+* Suite cursor_suite:
+
+Total: 1 test (12622 ticks, 0.013 sec), 1003 assertions
+Pass: 1, fail: 0, skip: 0.
+test_libtny_faults: exhaustive allocation sweeps passed; tools_fs_walk=10, toolkit_create=3, toolkit_run=28, runtime_create=23, tool_register=8, tool_error=5, session_create=18, session_open=24, session_send=68, session_send_rearm=67, next_event=151, session_steer=3, respond_permission=9, session_free_permission=8, runtime_free_permission=8, session_free_active=2, runtime_free_active=2, session_free_cancelled=2, runtime_free_cancelled=2, session_free_failed=0, runtime_free_failed=0

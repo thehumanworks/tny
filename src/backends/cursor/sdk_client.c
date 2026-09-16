@@ -140,6 +140,10 @@ void cursor_sdk_client_close(cursor_sdk_client *client) {
 static int validate_request(cursor_sdk_client *client, cursor_sdk_rpc_id id, const char *json,
                             cursor_sdk_rpc_kind kind, const cursor_sdk_route **route_out, char *err,
                             size_t errlen) {
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -2;
+    }
     const cursor_sdk_route *route = cursor_sdk_route_by_id(id);
     if (!client || !route || route->kind != kind || !json) {
         snprintf(err, errlen, "cursor: invalid sdk.v1 invocation");
@@ -169,11 +173,20 @@ static int validate_request(cursor_sdk_client *client, cursor_sdk_rpc_id id, con
 
 static void parse_or_synthesize_error(cursor_sdk_error *sdk_error, const char *body, size_t len,
                                       int status, const char *transport_error) {
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return;
+    }
     if (!sdk_error) return;
     if (body && cursor_sdk_error_parse(sdk_error, body, len, status) == 0) return;
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return;
+    }
     cursor_sdk_error_free(sdk_error);
     sdk_error->http_status = status;
     sdk_error->message = xstrdup(transport_error ? transport_error : "sdk.v1 request failed");
+    if (tny_alloc_scope_failed()) tny_alloc_provider_failed();
 }
 
 char *cursor_sdk_invoke_unary(cursor_sdk_client *client, cursor_sdk_rpc_id id,
@@ -192,6 +205,10 @@ char *cursor_sdk_invoke_unary(cursor_sdk_client *client, cursor_sdk_rpc_id id,
     }
     if (status != 200) {
         parse_or_synthesize_error(sdk_error, body, strlen(body), status, err);
+        if (tny_alloc_scope_failed()) {
+            free(body);
+            return NULL;
+        }
         char line[300];
         cursor_error_line(body, strlen(body), "bridge RPC failed", line, sizeof line);
         snprintf(err, errlen, "%s failed: %s", route->method, line);
@@ -364,17 +381,29 @@ int cursor_sdk_stream_pump(cursor_sdk_client *client, connect_frame_cb cb, void 
     if (error_body) {
         parse_or_synthesize_error(sdk_error, error_body, strlen(error_body), status, err);
         free(error_body);
+        if (tny_alloc_scope_failed()) {
+            tny_alloc_provider_failed();
+            return -2;
+        }
         cursor_sdk_stream_stop(client);
         return -1;
     }
     if (client->stream_protocol_error) {
         snprintf(err, errlen, "%s", client->stream_protocol_error_message);
         parse_or_synthesize_error(sdk_error, NULL, 0, status, err);
+        if (tny_alloc_scope_failed()) {
+            tny_alloc_provider_failed();
+            return -2;
+        }
         cursor_sdk_stream_stop(client);
         return -1;
     }
     if (rc < 0) {
         parse_or_synthesize_error(sdk_error, NULL, 0, status, err);
+        if (tny_alloc_scope_failed()) {
+            tny_alloc_provider_failed();
+            return -2;
+        }
         cursor_sdk_stream_stop(client);
         return -1;
     }
@@ -382,12 +411,20 @@ int cursor_sdk_stream_pump(cursor_sdk_client *client, connect_frame_cb cb, void 
         if (connect_decoder_pending(&client->stream.dec)) {
             snprintf(err, errlen, "cursor: bridge stream ended with a truncated Connect envelope");
             parse_or_synthesize_error(sdk_error, NULL, 0, status, err);
+            if (tny_alloc_scope_failed()) {
+                tny_alloc_provider_failed();
+                return -2;
+            }
             cursor_sdk_stream_stop(client);
             return -1;
         }
         if (!client->stream_saw_end) {
             snprintf(err, errlen, "cursor: bridge stream ended without an EndStream envelope");
             parse_or_synthesize_error(sdk_error, NULL, 0, status, err);
+            if (tny_alloc_scope_failed()) {
+                tny_alloc_provider_failed();
+                return -2;
+            }
             cursor_sdk_stream_stop(client);
             return -1;
         }
@@ -405,8 +442,16 @@ int cursor_sdk_stream_pump(cursor_sdk_client *client, connect_frame_cb cb, void 
                      : parsed->connect_code[0] ? parsed->connect_code
                                                : "a Connect error");
             if (!sdk_error) cursor_sdk_error_free(&temporary);
+            if (tny_alloc_scope_failed()) {
+                tny_alloc_provider_failed();
+                return -2;
+            }
             cursor_sdk_stream_stop(client);
             return -1;
+        }
+        if (tny_alloc_scope_failed()) {
+            tny_alloc_provider_failed();
+            return -2;
         }
         cursor_sdk_stream_stop(client);
     }

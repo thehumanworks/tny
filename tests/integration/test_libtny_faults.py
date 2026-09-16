@@ -1028,7 +1028,13 @@ def main():
     script = os.path.abspath(__file__)
     results = {}
     native_host = Path(libpath).with_name("provider-faults")
-    for test in ("decoder_oom_mid_stream", "emergency_cancel_reaps"):
+    for test in (
+        "decoder_oom_mid_stream",
+        "emergency_cancel_reaps",
+        "request_construction_oom",
+        "error_decode_oom",
+        "message_oom",
+    ):
         subprocess.run([str(native_host), "-t", test], check=True, timeout=15)
     for scenario in ("text", "permission", "custom", "later"):
         reserved_settlement_fixture(script, libpath, scenario)

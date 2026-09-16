@@ -9,6 +9,8 @@
 #include "greatest.h"
 #include "backends/openai/openai.h"
 #include "core/config.h"
+#include "core/runtime.h"
+#include "util/alloc.h"
 #include "core/image.h"
 #include "core/image_manifest.h"
 #include "core/perm.h"
@@ -1145,7 +1147,143 @@ TEST continuation_trails_partial_then_user_turn(void) {
     PASS();
 }
 
+#ifdef TNY_ALLOC_TESTING
+typedef struct {
+    pv_fixture *fixture;
+    bool body, parser;
+    size_t fault_index;
+    char *snapshot;
+    char *path;
+    bool armed;
+} request_fault_fixture;
+
+static void request_fault_control(const tny_openai_control_request *request,
+                                  tny_openai_control_response *response, void *ud) {
+    (void)response;
+    request_fault_fixture *f = ud;
+    if (f->armed) return;
+    if (f->body) {
+        if (request->kind != TNY_OPENAI_CONTROL_TOOL_BATCH) return;
+        /* Measure the ordinary batch save on the same session, then fail the
+         * first request-body allocation immediately following that save. */
+        tny_alloc_scope_begin("disabled");
+        if (session_save(f->fixture->session) != 0) return;
+        f->fault_index = tny_alloc_test_scope_count() + 1;
+        tny_alloc_scope_begin("disabled");
+        char err[256];
+        http_conn *probe = http_open(f->fixture->ctx->base_url, err, sizeof err);
+        if (!probe) return;
+        f->fault_index += tny_alloc_test_scope_count();
+        http_close(probe);
+    } else {
+        tny_openai_control_kind edge =
+            f->parser ? TNY_OPENAI_CONTROL_PROVIDER_RESPONSE : TNY_OPENAI_CONTROL_PROVIDER_REQUEST;
+        if (request->kind != edge || request->step != 1) return;
+        f->fault_index = 1;
+    }
+    f->snapshot = file_slurp(f->path, NULL);
+    f->armed = true;
+    /* The complete second request has reached the transport-construction
+     * boundary. Fail its first owned HTTP request allocation, after the first
+     * response's usage and tool/steer transcript have been persisted. */
+    setenv("TNY_TEST_ALLOC_SCOPE", "openai-request", 1);
+    char index[32];
+    snprintf(index, sizeof index, "%zu", f->fault_index);
+    setenv("TNY_TEST_ALLOC_FAIL_AT", index, 1);
+    tny_alloc_scope_begin("openai-request");
+}
+
+TEST request_construction_oom_after_usage_skips_finalization(void) {
+    for (int mode = 0; mode < 4; mode++) {
+        bool steer = mode == 1;
+        tny_alloc_scope_begin("disabled");
+        pv_fixture f;
+        pv_open(&f);
+        free(f.ctx->wire_api);
+        f.ctx->wire_api = xstrdup("responses");
+        f.first_body =
+            steer
+                ? "{\"status\":\"completed\",\"usage\":{\"input_tokens\":123,\"output_tokens\":7},"
+                  "\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\","
+                  "\"text\":\"first answer\"}]}]}"
+                : "{\"status\":\"completed\",\"usage\":{\"input_tokens\":123,\"output_tokens\":7},"
+                  "\"output\":[{\"type\":\"function_call\",\"call_id\":\"request-oom\","
+                  "\"name\":\"list_files\",\"arguments\":\"{}\"}]}";
+        tny_engine *engine = tny_engine_new(f.ctx, f.session, f.perm, NULL, NULL);
+        ASSERT(engine);
+        char err[512];
+        ASSERT_EQ(
+            0, tny_engine_prepare(engine, f.backend, TNY_ENGINE_PREPARE_RESUMED, err, sizeof err));
+        request_fault_fixture fault = {.fixture = &f, .body = mode == 2, .parser = mode == 3};
+        fault.path = path_join(f.session->dir, "session.json");
+        tny_backend_openai_bind(f.backend, f.session, f.perm, NULL, NULL, NULL, NULL, NULL, NULL,
+                                NULL, NULL, request_fault_control, &fault);
+        ASSERT_EQ(0, tny_engine_start(engine, "first", NULL, err, sizeof err));
+        if (steer) ASSERT_EQ(0, tny_engine_steer(engine, "continue", err, sizeof err));
+        for (int i = 0; i < 1000 && !fault.armed; i++) {
+            struct pollfd fds[HTTP_SERVER_POLLFD_CAPACITY + TNY_BACKEND_POLLFD_MAX];
+            int sn = http_server_pollfds(f.server, fds, HTTP_SERVER_POLLFD_CAPACITY);
+            int bn = tny_engine_pollfds(engine, fds + sn, TNY_BACKEND_POLLFD_MAX);
+            ASSERT(tny_poll(fds, (nfds_t)(sn + bn), 10) >= 0);
+            ASSERT_EQ(0, http_server_dispatch(f.server, fds, sn));
+            (void)tny_engine_dispatch(engine, fds + sn, bn);
+        }
+        ASSERT(fault.armed && fault.snapshot);
+        ASSERT(tny_alloc_test_scope_injected());
+        ASSERT_EQ(fault.fault_index, tny_alloc_test_scope_count());
+        ASSERT_EQ(0, tny_alloc_test_settlement_allocations());
+        ASSERT_EQ(fault.parser ? 2 : 1, f.requests); /* construction failure never submits */
+        unsetenv("TNY_TEST_ALLOC_SCOPE");
+        unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+        int errors = 0, terminals = 0;
+        tny_owned_event *event = NULL;
+        for (;;) {
+            tny_engine_next rc = tny_engine_next_event(engine, 0, &event, err, sizeof err);
+            if (rc == TNY_ENGINE_NEXT_DRAINED) break;
+            ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, rc);
+            if (event->ev.kind == TNY_EV_ERROR) {
+                ASSERT_EQ(TNY_EVENT_ERROR_OOM, event->ev.error_code);
+                errors++;
+            }
+            if (event->ev.kind == TNY_EV_TURN_END) {
+                ASSERT_EQ(1, errors);
+                ASSERT_EQ(TNY_STOP_ERROR, event->ev.stop);
+                terminals++;
+            }
+            tny_owned_event_free(event);
+        }
+        ASSERT_EQ(1, errors);
+        ASSERT_EQ(1, terminals);
+        ASSERT_EQ(fault.fault_index,
+                  tny_alloc_test_scope_count()); /* delivery also allocated nothing */
+        tny_alloc_scope_begin("disabled");
+        char *after = file_slurp(fault.path, NULL);
+        ASSERT(after);
+        ASSERT_STR_EQ(fault.snapshot, after);
+        yyjson_doc *saved = jparse(after, strlen(after));
+        ASSERT(saved);
+        yyjson_val *usage = jget(yyjson_doc_get_root(saved), "usage");
+        ASSERT_EQ(123, jget_int(usage, "in", -1));
+        yyjson_doc_free(saved);
+        free(after);
+        free(fault.snapshot);
+        free(fault.path);
+        tny_engine_free(engine); /* owns f.backend */
+        perm_free(f.perm);
+        session_close(f.session);
+        tny_ctx_free(f.ctx);
+        http_server_destroy(&f.server);
+        buf_free(&f.error_text);
+        for (size_t i = 0; i < sizeof f.bodies / sizeof f.bodies[0]; i++) buf_free(&f.bodies[i]);
+    }
+    PASS();
+}
+#endif
+
 SUITE(openai_suite) {
+#ifdef TNY_ALLOC_TESTING
+    RUN_TEST(request_construction_oom_after_usage_skips_finalization);
+#endif
     RUN_TEST(omitted_and_empty_arguments_are_distinct);
     RUN_TEST(responses_argument_presence_survives_item_updates);
     RUN_TEST(reasoning_leading_nul_survives_every_split);

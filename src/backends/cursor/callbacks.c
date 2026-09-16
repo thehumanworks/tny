@@ -7,6 +7,7 @@
 #include "util/tny_poll.h"
 #include "util/tny_wake.h"
 #include "util/util.h"
+#include "util/alloc.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -88,6 +89,10 @@ static bool exact_path(const char *path, size_t len, const char *expected) {
 
 static void set_reply(cursor_callbacks *cb, http_server_response *response, int status,
                       const char *json) {
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return;
+    }
     buf_clear(&cb->reply);
     buf_appends(&cb->reply, json);
     response->status = status;
@@ -98,6 +103,11 @@ static void set_reply(cursor_callbacks *cb, http_server_response *response, int 
 
 static bool append_tool_result(buf_t *out, const char *result, bool is_error) {
     yyjson_doc *doc = result ? jparse(result, strlen(result)) : NULL;
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        yyjson_doc_free(doc);
+        return false;
+    }
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
     buf_appends(out, "{\"result\":");
     if (is_error) {
@@ -147,6 +157,12 @@ static int tool_request(cursor_callbacks *cb, yyjson_val *root, http_server_resp
     bool is_error = false;
     int32_t status = custom_tool_invoke(tool, arguments, &call, &result, &is_error);
     free(arguments);
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        if (call) custom_tool_invalidate(call);
+        free(result);
+        return HTTP_SERVER_POST_HANDLED;
+    }
     if (status == TNY_TOOL_INVOKE_ASYNC) {
         pending_tool *pending = calloc(1, sizeof *pending);
         if (!pending) {
@@ -796,6 +812,11 @@ static void pending_dispatch(cursor_callbacks *cb) {
         char *result = NULL;
         bool is_error = false;
         int state = custom_tool_take(pending->call, &result, &is_error);
+        if (tny_alloc_scope_failed()) {
+            tny_alloc_provider_failed();
+            free(result);
+            return;
+        }
         if (state == 0) {
             link = &pending->next;
             continue;
@@ -807,6 +828,11 @@ static void pending_dispatch(cursor_callbacks *cb) {
                                                  cb->reply.len, pending->request_id};
                 (void)http_server_complete(cb->server, pending->request_id, &response);
             } else {
+                if (tny_alloc_scope_failed()) {
+                    tny_alloc_provider_failed();
+                    free(result);
+                    return;
+                }
                 static const char oom[] = "{\"error\":\"out of memory\"}";
                 http_server_response response = {500, "application/json", oom, sizeof oom - 1,
                                                  pending->request_id};
@@ -833,7 +859,15 @@ int cursor_callbacks_dispatch(cursor_callbacks *cb, const struct pollfd *fds, in
     for (int i = 0; i < n; i++)
         if (fds[i].fd == wake && (fds[i].revents & POLLIN)) custom_tools_wake_drain(cb->tools);
     int rc = http_server_dispatch(cb->server, fds, n);
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
     pending_dispatch(cb);
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
     return rc;
 }
 

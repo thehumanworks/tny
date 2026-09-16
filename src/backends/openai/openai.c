@@ -254,9 +254,17 @@ static void record_usage(oa_impl *o) {
 
 static void preview_not_delivered(oa_impl *o, const char *reason);
 
+static bool provider_oom(void) {
+    if (!tny_alloc_scope_failed()) return false;
+    tny_alloc_provider_failed();
+    return true;
+}
+
 static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
+    if (provider_oom()) return;
     preview_not_delivered(o, "the turn ended before the next request was sent");
     record_usage(o);
+    if (provider_oom()) return;
     if (o->usage.requests) {
         tny_backend_event usage = {0};
         usage.kind = TNY_EV_USAGE;
@@ -264,6 +272,7 @@ static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
         usage.out_tokens = o->usage.output_tokens;
         usage.context_used = o->usage_in;
         emit(o, &usage);
+        if (provider_oom()) return;
         session_save(o->env.session);
     }
     secure_zero(o->turn_state, sizeof o->turn_state);
@@ -686,6 +695,7 @@ static int parse_retry_after(const char *value) {
  * assistant message — never the answer twice, never a lost turn. Returns
  * false when neither is possible (budget spent, cancelled). */
 static bool schedule_retry(oa_impl *o, const char *what, int delay_hint_ms) {
+    if (provider_oom()) return false;
     if (o->cancelled || o->retries >= o->max_retries) return false;
     bool cont = o->text.len > 0;
     record_usage(o);
@@ -721,6 +731,10 @@ static int finish_error_response(oa_impl *o) {
     int retry_after = parse_retry_after(http_header(o->conn, "Retry-After"));
     conn_drop(o);
     yyjson_doc *doc = o->rawbody.len ? jparse(o->rawbody.data, o->rawbody.len) : NULL;
+    if (provider_oom()) {
+        yyjson_doc_free(doc);
+        return -1;
+    }
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
     yyjson_val *err = jget(root, "error");
     if (!err && root && yyjson_is_obj(root) && (jget(root, "message") || jget(root, "type")))
@@ -967,10 +981,14 @@ static char *build_request_chat(oa_impl *o) {
     if (tny_tier_is_fast(o->ctx->service_tier)) buf_appends(&b, ",\"service_tier\":\"priority\"");
     buf_appends(&b, ",\"stream\":true,\"messages\":[");
 
+    if (buf_oom(&b) || provider_oom()) {
+        buf_free(&b);
+        return NULL;
+    }
     buf_t sys;
     buf_init(&sys);
     build_system_prompt(o, &sys);
-    if (buf_oom(&sys)) {
+    if (buf_oom(&sys) || provider_oom()) {
         buf_free(&sys);
         buf_free(&b);
         return NULL;
@@ -988,6 +1006,10 @@ static char *build_request_chat(oa_impl *o) {
         jescape(&b, summary);
         buf_appends(&b, "}");
     }
+    if (buf_oom(&b) || provider_oom()) {
+        buf_free(&b);
+        return NULL;
+    }
     int repairs = 0;
     yyjson_mut_doc *view = session_provider_view(s, boundary, &repairs);
     if (!view) {
@@ -1003,6 +1025,7 @@ static char *build_request_chat(oa_impl *o) {
         /* responses-wire reasoning items are tny-private on this wire */
         yyjson_mut_obj_remove_key(m, "reasoning_items");
         yyjson_mut_obj_remove_key(m, "responses_items");
+        if (provider_oom()) break;
         char *mj = jwrite_mut_val(m);
         if (mj) {
             buf_appends(&b, ",");
@@ -1013,6 +1036,10 @@ static char *build_request_chat(oa_impl *o) {
     yyjson_mut_doc_free(view);
     buf_appends(&b, "]");
 
+    if (buf_oom(&b) || provider_oom()) {
+        buf_free(&b);
+        return NULL;
+    }
     char *schema = tools_schema_json(&o->env);
     if (!schema) {
         buf_free(&b);
@@ -1084,10 +1111,14 @@ static char *build_request_rsp(oa_impl *o) {
         jescape(&b, cache_routing_key(o, key));
     }
 
+    if (buf_oom(&b) || provider_oom()) {
+        buf_free(&b);
+        return NULL;
+    }
     buf_t sys;
     buf_init(&sys);
     build_system_prompt(o, &sys);
-    if (buf_oom(&sys)) {
+    if (buf_oom(&sys) || provider_oom()) {
         buf_free(&sys);
         buf_free(&b);
         return NULL;
@@ -1098,6 +1129,10 @@ static char *build_request_rsp(oa_impl *o) {
 
     const char *summary = NULL;
     int boundary = session_compact_boundary(s, &summary);
+    if (buf_oom(&b) || provider_oom()) {
+        buf_free(&b);
+        return NULL;
+    }
     int repairs = 0;
     yyjson_mut_doc *view = session_provider_view(s, boundary, &repairs);
     if (!view) {
@@ -1118,6 +1153,10 @@ static char *build_request_rsp(oa_impl *o) {
     if (rsp_include_encrypted_reasoning(o->ctx))
         buf_appends(&b, ",\"include\":[\"reasoning.encrypted_content\"]");
 
+    if (buf_oom(&b) || provider_oom()) {
+        buf_free(&b);
+        return NULL;
+    }
     char *schema = tools_schema_json(&o->env);
     if (!schema) {
         buf_free(&b);
@@ -1177,6 +1216,10 @@ static tny_openai_control_response provider_control(oa_impl *o, tny_openai_contr
 
 static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) {
     char err[256] = {0};
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -2;
+    }
     if (retry) o->provider_attempt++;
     else {
         o->provider_request_sequence++;
@@ -1193,6 +1236,10 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
             if (str_starts(err, "TLS ") || str_starts(err, "https not built"))
                 snprintf(errbuf, errlen, "%s", err);
             else snprintf(errbuf, errlen, "could not connect to provider");
+            if (tny_alloc_scope_failed()) {
+                tny_alloc_provider_failed();
+                return -2;
+            }
             return -1;
         }
     }
@@ -1202,8 +1249,14 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     char *body = o->wire_chat ? build_request_chat(o) : build_request_rsp(o);
     buf_t auth;
     buf_init(&auth);
+    buf_t path;
+    buf_init(&path);
+    char *addons[4];
+    int an = 0;
+    if (!body || tny_alloc_scope_failed()) goto request_oom;
     buf_appendf(&auth, "%s: %s%s", o->ctx->auth_header_name, o->ctx->auth_header_prefix,
                 o->ctx->api_key ? o->ctx->api_key : "");
+    if (buf_oom(&auth)) goto request_oom;
     const char *hdrs[20];
     int hn = 0;
     hdrs[hn++] = "Content-Type: application/json";
@@ -1214,10 +1267,10 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     for (char **e = o->ctx->extra_headers; e && *e && hn < 11; e++) hdrs[hn++] = *e;
     /* per-provider add-ons (docs/adr/0067): the one seam where a hosted
      * provider's request quirk enters; the table lives in provider_extras.c */
-    char *addons[4];
     tny_request_scope scope = {o->ctx->provider_name, o->ctx->base_url,
                                o->env.session ? o->env.session->id : NULL};
-    int an = tny_provider_extras_headers(&scope, addons, 4);
+    an = tny_provider_extras_headers(&scope, addons, 4);
+    if (tny_alloc_scope_failed()) goto request_oom;
     for (int i = 0; i < an && hn < 15; i++) hdrs[hn++] = addons[i];
     char session_header[128], thread_header[128], state_header[544];
     if (!o->wire_chat && cache_routing_enabled(o) && tny_codex_chatgpt_mode(o->ctx) &&
@@ -1234,21 +1287,15 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
         }
     }
     hdrs[hn] = NULL;
-    buf_t path;
-    buf_init(&path);
     buf_appendf(&path, "%s%s", http_prefix(o->conn),
                 o->wire_chat ? "/chat/completions" : "/responses");
-    if (!body || buf_oom(&auth) || buf_oom(&path) || tny_alloc_scope_failed()) {
-        snprintf(errbuf, errlen, "out of memory");
-        buf_free(&path);
-        if (auth.data) secure_zero(auth.data, auth.len);
-        buf_free(&auth);
-        tny_provider_extras_free(addons, an);
-        free(body);
-        return -1;
-    }
+    if (buf_oom(&path) || tny_alloc_scope_failed()) goto request_oom;
     tny_openai_control_response control =
         provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_REQUEST, 0);
+    if (tny_alloc_scope_failed()) {
+        control_response_free(&control);
+        goto request_oom;
+    }
     if (control.stop) {
         o->cancelled = true;
         control_response_free(&control);
@@ -1262,6 +1309,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     }
     control_response_free(&control);
     int rc = http_request(o->conn, "POST", path.data, hdrs, body, strlen(body));
+    if (tny_alloc_scope_failed()) goto request_oom;
     if (rc != 0) {
         /* stale keep-alive caught at write time: reopen once */
         control = provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
@@ -1280,6 +1328,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
             } else {
                 control_response_free(&control);
                 rc = http_request(o->conn, "POST", path.data, hdrs, body, strlen(body));
+                if (tny_alloc_scope_failed()) goto request_oom;
                 if (rc != 0) {
                     control = provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
                     if (control.stop) o->cancelled = true;
@@ -1288,6 +1337,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
             }
         }
     }
+    if (tny_alloc_scope_failed()) goto request_oom;
     buf_free(&path);
     if (auth.data) secure_zero(auth.data, auth.len);
     buf_free(&auth);
@@ -1321,6 +1371,18 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     sse_parser_free(&o->sse);
     sse_parser_init(&o->sse);
     return 0;
+
+request_oom:
+    /* Keep OOM distinct from retryable I/O. Only release local ownership;
+     * the runtime cancels the provider after this stack has unwound. */
+    tny_alloc_provider_failed();
+    snprintf(errbuf, errlen, "out of memory");
+    buf_free(&path);
+    if (auth.data) secure_zero(auth.data, auth.len);
+    buf_free(&auth);
+    tny_provider_extras_free(addons, an);
+    free(body);
+    return -2;
 }
 
 static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
@@ -1442,8 +1504,10 @@ static void finish_turn_ok(oa_impl *o) {
     char *extras = tool_web_search_native(o->ctx) ? reasoning_extras_json(o) : NULL;
     if (o->text.len || extras) session_add_assistant_ex(s, o->text.data, NULL, extras);
     free(extras);
+    if (provider_oom()) return;
     session_bump_turns(s);
     if (session_save(s) != 0) {
+        if (provider_oom()) return;
         const char *message = "could not persist completed turn";
         emit_error(o, TNY_EVENT_ERROR_IO, message, strlen(message));
         emit_turn_end(o, TNY_STOP_ERROR);
@@ -1662,6 +1726,7 @@ static void preview_not_delivered(oa_impl *o, const char *reason) {
 static int finish_tool_batch(oa_impl *o) {
     tny_session_state *s = o->env.session;
     bool batch_stop = tool_batch_control(o);
+    if (provider_oom()) return -1;
     bool had_preview = tools_pending_images_have_preview(&o->env);
     tools_image_flush_outcome flushed = TNY_IMAGE_FLUSH_OK;
     char ierr[256] = "";
@@ -1677,6 +1742,7 @@ static int finish_tool_batch(oa_impl *o) {
     oa_calls_reset(&o->calls);
     o->parser_oom = false;
     if (session_save(s) != 0) {
+        if (provider_oom()) return -1;
         const char *message = "could not persist completed tool batch";
         emit_error(o, TNY_EVENT_ERROR_IO, message, strlen(message));
         if (had_preview) preview_not_delivered(o, "the tool batch could not be persisted");
@@ -1725,7 +1791,9 @@ static int finish_tool_batch(oa_impl *o) {
      * saves it below; any terminal path first removes its owned message. */
     if (take_steer(o) && !had_preview) session_save(s);
     char err[512];
-    if (start_post(o, err, sizeof err) != 0) {
+    int post_rc = start_post(o, err, sizeof err);
+    if (post_rc == -2) return -1;
+    if (post_rc != 0) {
         emit_error(o, TNY_EVENT_ERROR_IO, err, strlen(err));
         if (had_preview) preview_not_delivered(o, "the next provider request failed");
         emit_turn_end(o, TNY_STOP_ERROR);
@@ -1993,6 +2061,7 @@ static int run_tools(oa_impl *o) {
 
 static int step_finished(oa_impl *o) {
     record_usage(o);
+    if (provider_oom()) return -1;
     tny_session_state *s = o->env.session;
     if (o->calls.n == 0) {
         if (o->steer && !o->cancelled) {
@@ -2007,7 +2076,9 @@ static int step_finished(oa_impl *o) {
             if (o->ctx->max_steps <= 0 || o->step + 1 < o->ctx->max_steps) {
                 o->step++;
                 char err[512];
-                if (start_post(o, err, sizeof err) == 0) return 0;
+                int post_rc = start_post(o, err, sizeof err);
+                if (post_rc == 0) return 0;
+                if (post_rc == -2) return -1;
                 emit_error(o, TNY_EVENT_ERROR_IO, err, strlen(err));
                 emit_turn_end(o, TNY_STOP_ERROR);
                 return -1;
@@ -2336,7 +2407,9 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         if (o->cancelled) return 0;
         if (monotonic_ms() < o->retry_at_ms) return 0;
         char rerr[512];
-        if (start_post_mode(o, rerr, sizeof rerr, true) == 0) return 0;
+        int post_rc = start_post_mode(o, rerr, sizeof rerr, true);
+        if (post_rc == 0) return 0;
+        if (post_rc == -2) return -1;
         /* the gateway itself may be restarting: that is what the budget is for */
         if (!o->cancelled && schedule_retry(o, rerr, 0)) return 0;
         emit_error(o, TNY_EVENT_ERROR_IO, rerr, strlen(rerr));
@@ -2349,6 +2422,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
 
     if (o->state == ST_HEADERS) {
         int status = http_read_response(o->conn, 0);
+        if (provider_oom()) return parser_failed(b);
         if (status == -2) {
             if (!stream_stalled(o)) return 0;
             /* the POST went out and nothing came back within the stall
@@ -2375,7 +2449,9 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                     provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
                 if (failed.stop) o->cancelled = true;
                 control_response_free(&failed);
-                if (start_post_mode(o, rerr, sizeof rerr, true) == 0) return 0;
+                int post_rc = start_post_mode(o, rerr, sizeof rerr, true);
+                if (post_rc == 0) return 0;
+                if (post_rc == -2) return -1;
                 if (!o->cancelled && schedule_retry(o, rerr, 0)) return 0;
                 emit_error(o, TNY_EVENT_ERROR_IO, rerr, strlen(rerr));
                 emit_turn_end(o, TNY_STOP_ERROR);
@@ -2429,6 +2505,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     for (size_t bytes = 0; bytes < 8192;) {
         char tmp[8192];
         ssize_t bn = http_body_read(o->conn, tmp, sizeof tmp);
+        if (provider_oom()) return parser_failed(b);
         if (bn == -2) {
             if (o->error_status && monotonic_ms() >= o->error_deadline_ms)
                 return finish_error_response(o);

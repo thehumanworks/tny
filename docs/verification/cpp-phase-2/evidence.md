@@ -557,3 +557,160 @@ No compiler, clang-tidy, strict-warning or sanitizer diagnostics occurred in the
 **Review 2 findings 1 and 2: PASS for this assigned macOS host repair.** P2-I2/P2-I3 now cover the reviewed provider-parser gap and the owned ACP child lifecycle. Ten behavioral mutations are recorded in [mutation-results.json](artifacts/review-2/mutation-results.json), including the three regression-restoring failures. Broader phase-2 review/performance/platform obligations remain coordinator-owned.
 
 Final reconciliation: all 729 source hashes match; all 64 production exports match `abi/libtny.exports.macos`; public headers and existing ADRs are unchanged; `git diff --check` passes. The [changed-file inventory](artifacts/review-2/files-changed.txt) lists the uncommitted deliverable. No commit, push, PR or live provider call occurred.
+
+## Review 3 dispositions (2026-09-16)
+
+Pre-implementation baseline: clean `e56d01e`, branch `migration/cpp-series-fix`.
+This is the coordinator-assigned P2-I3 repair under the existing contract,
+using the supplied independent Review 3 as the bounded design checkpoint.
+No new goal, worktree, agent, commit or remote operation is part of this repair.
+Acceptance: distinct request-construction OOM after accumulated usage; Cursor
+HTTP/EndStream error-decoding OOM; ACP multi-line/batch/parser/event-copy OOM.
+Each must stop before ordinary recovery/persistence and drain exactly one
+reserved OOM/error terminal pair with zero later allocation attempts.
+Required gates are the commands in the current request, plus a source-bound
+provider allocation-path audit and refreshed manifests. Existing broader
+phase/platform/performance obligations remain coordinator-owned.
+
+Status before edits: all three supplied findings reproduced in source;
+regressions and final gate results pending. Initial source hashes and revision
+are retained in `artifacts/review-3/baseline-source-sha256.json` and `baseline.txt`.
+
+| Review 3 finding | Disposition | Regression oracle |
+| --- | --- | --- |
+| OpenAI/builtin Codex request-construction OOM enters ordinary finalization | `start_post_mode` now returns distinct `-2`, marks provider failure, frees only local request ownership and preserves credential wiping. Tool-batch, steer, delayed-retry and stale-connection callers bypass ordinary errors/recovery. Request body owners stop before building the next owner after failure. Finalization and HTTP/error-body boundaries also recognize sticky OOM. | `request_construction_oom_after_usage_skips_finalization` runs real native turns with 123 input / 7 output tokens, then faults the next request body or HTTP construction (tool and steer cases), and a deterministic second-response parser boundary. It asserts allocation count equals the injected index, zero marked settlement allocations, one reserved OOM ERROR/error TURN_END, byte-identical saved session JSON, retained earlier usage, and no submission for failed construction. |
+| Cursor HTTP/EndStream error decoding falls back or closes normally after OOM | Raw RPC checks header/body allocation failures before decoding; `cursor_sdk_error_parse` distinguishes OOM from malformed JSON and stops nested protobuf detail/string decoding. SDK parsing never synthesizes a fallback or ordinarily stops a stream after OOM. Dispatch unwinds to resource-only cancellation before ObserveRun; unary/request boundaries also propagate sticky OOM and close resources in emergency mode. | `error_decode_oom_http_and_endstream_settle_once` discovers then sweeps every allocation in both real loopback error responses. The payload includes SDK detail message, request ID, help URL and provider strings. Every injected index asserts total allocations equal that index, zero settlement allocations, exactly the reserved pair, inactive provider and no ObserveRun connection. Existing decoder-growth regression remains. |
+| ACP parser OOM continues through lines/batch entries | Reader feed/copy, stderr drain, `jparse`, batch `jwrite_val`/`jparse`, and callback/event-copy failures stop at the first message boundary; documents are freed before `-3` propagates through `ac_dispatch`/`ac_rpc`. Allocation failure remains distinct from malformed input and the size cap. Outgoing request formatting also stops before constructing another transport buffer. | `message_oom_stops_multiline_batch_and_event_copy` discovers and sweeps allocations with two buffered messages, a two-element JSON batch, and pipe-fed multi-line input. Malformed input still permits later valid lines. The sweep reaches line/batch document construction and retained event payload copying; every fault asserts no subsequent allocation attempts and exactly one OOM pair. Existing SIGTERM-ignore/reap/retry regression remains. |
+
+These regressions are part of the fully instrumented native provider host in
+both fault and sanitizer gates; `test_libtny_faults.py` invokes each explicitly.
+The Makefile adds the existing `test_openai.c` to that host, and the Nix inventory
+notes that dependency. No new production allocations, public ABI entries,
+protocol capabilities or dependencies were introduced. ADR 0118 still governs
+resource-only settlement; existing ADRs were not changed.
+
+### Provider allocation-failure path audit
+
+The final source was searched across every OpenAI, Cursor and ACP translation
+unit, native provider selection, runtime settlement, and the reverse-callback
+HTTP server. The exact search and matching lines are retained in
+[provider-path-audit.txt](artifacts/review-3/provider-path-audit.txt).
+There is no separate `src/backends/codex`: `config.c`/`profiles.c` select the
+OpenAI native backend for the builtin Codex Responses profile. The table below
+lists the failure-to-settlement routes, including adjacent routes that the
+three original repros did not exercise. "Static" distinguishes inspected
+control flow from a dedicated injected fixture; ordinary mock coverage does
+not imply that every remote service or platform allocation was injected.
+
+| Provider / failure origin | Route to reserved settlement and allocation boundary | Coverage |
+| --- | --- | --- |
+| OpenAI/Codex new request: connection, body/system/view/schema conversion, auth/add-on/path buffers, HTTP serialization | `start_post_mode` local cleanup -> `-2` -> tool-batch/steer/retry/send caller return -> `after_backend` -> `tny_engine_fail_oom`. No `emit_turn_end` or retry on the distinct OOM result. | New body and HTTP request faults after persisted usage; existing public `session_send` sweep; static audit of all four continuation/retry call sites. |
+| OpenAI/Codex HTTP response headers/body transport, raw JSON, SSE growth, decoded fields and event-copy callbacks | `oa_dispatch` checks sticky failure immediately after HTTP reads and parser callbacks; `parser_failed` marks failure, emits a stack error view and emergency-cancels after borrowed callbacks unwind. SSE/Connect owners short-circuit before consuming another frame. | Deterministic second-response parser fault, existing persistent `later` Responses fault, parser split/OOM units, exhaustive public `next_event` sweep. |
+| OpenAI/Codex non-200 error-body JSON | `finish_error_response` checks `jparse` OOM before classification/retry/finalization; runtime settles after return. | Static JSON-error exit audit; ordinary OpenAI retry/error fixtures; HTTP allocation and public event sweeps. |
+| OpenAI/Codex usage/finalization, tool batch, preview, steer, custom-tool and permission transitions | Sticky checks at provider/control/tool boundaries defer to runtime; `emit_turn_end`, `schedule_retry`, successful-turn and batch-save error exits reject OOM before ordinary persistence/recovery. Runtime emergency cancellation invalidates pending calls, frees permissions/images/parser storage and wipes turn state; transcript repair is deferred to a later healthy turn. | New request/tool/steer regression; persistent `text`, `permission`, `custom`, `later` fixtures (two failed turns then successful retry); public permission/steer/free sweeps and async host. Static audit of shared finalization guards. |
+| Cursor unary request/validation/auth/connect/write/reply | `validate_request` and `rpc_oom` propagate sticky failure; no transport retry or synthesized SDK error after OOM. RPC resource close enters emergency mode if needed. An active caller reaches runtime settlement; failed pre-turn construction returns a normal API OOM without a partial handle. | Static call-chain audit; existing session/send and constructor sweeps; ordinary Cursor SDK/management/mock suites. |
+| Cursor streaming request frame/auth/HTTP construction | `cursor_stream_start` avoids frame construction after auth OOM and stops at failed serialization; SDK validation rejects an already-failed request body before parsing. Send/Observe caller returns to runtime. | Static Send/Observe request-path audit; ordinary Send/resume/Observe mocks and existing decoder fault host. |
+| Cursor HTTP error-body growth and first RPC error JSON parse | `read_body`/`cursor_error_line` mark failure before another parse; raw pump returns `-2`; SDK frees temporary error body and propagates; dispatch skips recovery. | Exhaustive new HTTP-error allocation sweep (including transport buffers and JSON). |
+| Cursor Connect decoding, EndStream validation/retention, SDK error JSON/message/detail copies | Decoder `-2` and sticky callback failure reach SDK guard; later SDK parsing independently returns `-2`. Partial error owners are freed without fallback or normal stream shutdown; dispatch emergency-cancels. | Existing decoder-growth case plus exhaustive EndStream-error sweep with all SDK detail string owners; parser units. |
+| Cursor normalized frame/event copies, durable identity/progress bookkeeping | Connect checks callback failure before another frame; raw pump -> SDK -> dispatch carries OOM. Observe progress and failed retry construction have explicit guards before further recovery. | Existing stream decoder case, runtime owned-event sweeps/ownership suite and ordinary Cursor mapping/recovery units; static frame-to-dispatch inspection. |
+| Cursor custom-tool callback request JSON, tool arguments/result ownership, reply JSON and response-buffer allocation | Failed tool/result parse or copy avoids fallback construction; HTTP server closes failed requests instead of queuing a new error response. Callback dispatch returns before pending tools or stream recovery. `cu_dispatch` then returns to runtime; emergency cancel destroys callbacks and securely frees their token. | Static fallback/pending-dispatch/HTTP-server audit; existing authenticated callback, store, async-tool and teardown units under debug sanitizers; real callback-resource emergency-cancel test. These adjacent callback guards are source-reviewed, not a new exhaustive store-operation fault sweep. |
+| ACP stdout/stderr reader growth, line duplication and WebSocket feed | Sticky reader failure prevents subsequent feeds/copies. Pump returns `-3` before another message; dispatch marks and returns directly to runtime. | New buffered/pipe-fed exhaustive sweeps; ordinary stdio and WebSocket mocks; static stderr/WS guard audit. |
+| ACP malformed line vs message parser OOM | Malformed input without sticky failure continues; OOM releases line/document and immediately exits via `oom`. | New multi-line sweep includes malformed prefix followed by two valid updates; existing framing/death mocks. |
+| ACP batch serialization/subdocument parsing | Failed `jwrite_val`, `jparse` or handled submessage breaks the batch, frees parent document, then returns `-3`. | New exhaustive two-element batch sweep. |
+| ACP update/permission/event copies and outgoing RPC formatting | Pump checks callback completion before another line/batch element; permission option ownership stops on sticky failure. `ac_tx*` stops failed formatting before allocating a wire buffer. Runtime then invokes emergency cancel. | New retained-text event-copy faults; runtime ownership/permission coverage; static permission and outgoing-format checks; ordinary ACP permission mocks. |
+| Shared runtime reserve consumption / provider resource release / delivery | `after_backend` observes sticky failure; `tny_engine_fail_oom` publishes terminal guard, clears only failure status for resource cleanup, invokes emergency cancel and enqueues preowned ERROR/TURN_END. Provider marker survives scope-clear for allocation accounting. Reserved delivery allocates nothing. ACP reaps owned children with bounded TERM/KILL escalation. | Runtime ownership suite; all real-provider fault hosts; ASan/UBSan; reserved settlement and lifecycle mutations; repeated-failure/retry and SIGTERM-ignore child tests. |
+
+Standalone management/doctor/setup paths without an active turn do not consume
+a reserved terminal pair; their failure propagates to their caller. The scope
+above is tny-owned allocation through a quiescent active-provider boundary,
+not malloc activity inside embedding applications, libc or platform TLS.
+Local mock success is not live-service cancellation/reconnect or cross-platform
+proof. No such broader claim is made here.
+
+### Review 3 development and verification history
+
+The initial request fixture checked the wrong persisted usage field name; it
+was corrected to the actual `usage.in` schema. Extending the fault to the first
+request-body allocation exposed another sequential-owner construction attempt,
+which is now short-circuited. Cursor error sweeps were expanded to nested SDK
+error-detail owners. ACP sweeps were expanded to actual pipe feed and malformed
+prefix handling. These were fixture/repair development runs, not final gates.
+
+The first ACP shell/server invocations inherited their default `build-acp/tny`
+path. Final runs explicitly use the current `build/tny`. Darwin's bare `mktemp`
+wrapper uses an explicit build-local TMPDIR template, as in Review 2. Concurrent
+Makefile gates raced on `build/generated/tny_version.h.tmp`; final Makefile runs
+are serialized. The earlier failed logs are preserved in the run history.
+
+The old parser mutation became insufficient as adjacent guards changed where
+the Python fixture first encountered failure. The new native fixture arms a
+fault at the second provider-response boundary, after HTTP header parsing, so
+it deterministically reaches the parser path with earlier persisted usage.
+Mutation checks now deliberately reintroduce a persistence allocation there;
+request-error persistence, SDK-error fallback allocation and ACP next-line
+allocation each have their own behavioral mutant. Redundant guards are not
+silently counted as mutation kills. Product sources are never edited by the
+mutation runner; mutants compile from private build-directory copies.
+
+Final gate results and source/ABI reconciliation are appended below after all
+pending checks complete. Earlier source manifests and successful runs are
+historical and are not substituted for final-state proof.
+
+The final call-site audit also initialized the stack diagnostic on Cursor
+error-line parser OOM, preserving safety for legacy unary callers while making
+no allocation. All requested gates were refreshed after this last source edit;
+only the `delivered-*` records below are final-state proof.
+
+### Review 3 final host gates
+
+**PASS for all three Review 3 findings in the assigned macOS arm64 repair.**
+All final commands below exited 0 on uncommitted HEAD
+`e56d01ed11da54257f850ce9beda3394e528ca33`, branch `migration/cpp-series-fix`,
+with the same [729-file manifest](artifacts/review-3/source-sha256.json), SHA256
+`1c00072e8addc2e1e4c60d14962acd308b16672a4080803206ccf1155516ba33`.
+[Gate records](artifacts/review-3/gate-results.json) retain exact commands,
+statuses, elapsed times and source identity; the complete
+[run history](artifacts/review-3/run-history.json) retains superseded/failed runs.
+The [environment record](artifacts/review-3/environment.json) describes tool
+versions and build-local fixture configuration. Quality uses `-j8` within one
+Makefile invocation; separate Makefile writers are serialized.
+
+| Command / log | Exit | Result |
+| --- | ---: | --- |
+| [`make -j8 debug && build/tny-test`](artifacts/review-3/delivered-debug.log) | 0 | 564/564 unit tests; 19,741 assertions |
+| [`make test-runtime-ownership`](artifacts/review-3/delivered-runtime.log) | 0 | 38/38 ownership tests; 5,008 assertions |
+| [`python3 tests/mutation/runtime_critical.py`](artifacts/review-3/delivered-mutation.log) | 0 | 13/13 behavioral kills, including request persistence, error fallback and next-line allocation |
+| [`make test-libtny-fault`](artifacts/review-3/delivered-fault.log) | 0 | 21 exhaustive public scenarios plus real OpenAI/Cursor/ACP fault regressions |
+| [`python3 tests/integration/test_libtny_faults.py build/lib-fault/libtny.1.dylib`](artifacts/review-3/delivered-fault-direct.log) | 0 | Direct sweep of build/lib-fault/libtny.1.dylib and all provider hosts |
+| [`make test-libtny-fault-sanitize`](artifacts/review-3/delivered-sanitize.log) | 0 | ASan/UBSan fault sweeps, provider hosts and C/C++ sync/async completion hosts |
+| [`python3 tests/integration/test_openai.py`](artifacts/review-3/delivered-openai.log) | 0 | All OpenAI mock integration assertions |
+| [`python3 tests/integration/test_codex_chatgpt.py`](artifacts/review-3/delivered-codex.log) | 0 | Builtin Codex Responses/auth/profile mock assertions |
+| [`sh tests/integration/test_cursor.sh /Users/tomas/projects/tny-cpp-p1fix/build/tny`](artifacts/review-3/delivered-cursor.log) | 0 | Bridge send/resume/effort/fast mocks |
+| [`python3 tests/integration/test_cursor_management.py`](artifacts/review-3/delivered-cursor-management.log) | 0 | Management aliases, raw RPC, streams, artifacts and cleanup |
+| [`python3 tests/integration/test_cursor_sdk_contract.py`](artifacts/review-3/delivered-cursor-contract.log) | 0 | 12 pinned SDK contract tests |
+| [`sh tests/integration/test_acp.sh`](artifacts/review-3/delivered-acp.log) | 0 | stdio model/permission/resume/framing/death mocks |
+| [`sh tests/integration/test_acp_ws.sh /Users/tomas/projects/tny-cpp-p1fix/build/tny`](artifacts/review-3/delivered-acp-ws.log) | 0 | WebSocket turn/resume/refusal/death mocks |
+| [`python3 tests/integration/test_acp_server.py`](artifacts/review-3/delivered-acp-server.log) | 0 | initialize/prompt/cancel/replay/error mocks |
+| [`make -j8 quality`](artifacts/review-3/delivered-quality.log) | 0 | C/C++ format, clang-tidy, strict warnings, Ruff, shell, actionlint and JS checks |
+
+No compiler, clang-tidy, strict-warning or sanitizer diagnostics occurred in
+the final build/quality/sanitizer logs. The full unit log retains 14 expected
+negative-fixture warning messages for invalid tool profiles and MCP imports;
+they were neither suppressed nor misreported as compiler warnings. Deliberate
+mutation failures are separate from passing baseline/sanitizer gates. Darwin
+quality explicitly skips GCC `-fanalyzer`, and ASan leak detection is disabled
+on this host. No Linux/Windows/wasm/Nix execution, live remote-provider call,
+macOS leaks or P2-I6 performance proof is claimed.
+
+Final reconciliation: all 729 source hashes and 125 additional tool/config/vendor
+input hashes match current files; the production library has exactly the
+expected 64 exports; all 121 public-header/existing-ADR hashes are unchanged;
+`git diff --check` passes. The [reconciliation record](artifacts/review-3/reconciliation.json)
+and [changed-file inventory](artifacts/review-3/files-changed.txt) identify the
+uncommitted deliverable. The final diff was checked for callback quiescence,
+first-boundary OOM propagation, secret wiping, local-owner release, malformed
+input behavior, ordinary non-OOM recovery, and retained ABI compatibility.
+This is a scoped self-review plus the supplied independent Review 3; no fresh
+independent reviewer is claimed. Broader phase-2/platform/performance gates
+remain coordinator-owned. No commit, push, PR, agent or live-session restart
+was performed.

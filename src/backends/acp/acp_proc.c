@@ -3,6 +3,7 @@
  * Nothing here knows about tny events; see acp_events.c for that. */
 #include "backends/acp/acp_client.h"
 #include "util/util.h"
+#include "util/alloc.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -37,6 +38,11 @@ int ac_connect_ws(ac_impl *o, char *errbuf, size_t errlen) {
 
 /* One JSON-RPC message per text frame on ws; JSONL on the pipe. */
 static int ac_tx(ac_impl *o, buf_t *b) {
+    if (buf_oom(b) || tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        buf_free(b);
+        return -1;
+    }
     int rc =
         o->ws ? ws_send_text(o->ws, b->data, b->len) : acp_write_line(o->in_fd, b->data, b->len);
     buf_free(b);
@@ -44,6 +50,10 @@ static int ac_tx(ac_impl *o, buf_t *b) {
 }
 
 int ac_tx_request(ac_impl *o, int64_t id, const char *method, const char *params) {
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
     buf_t b;
     buf_init(&b);
     acp_fmt_request(&b, id, method, params);
@@ -51,6 +61,10 @@ int ac_tx_request(ac_impl *o, int64_t id, const char *method, const char *params
 }
 
 int ac_tx_notify(ac_impl *o, const char *method, const char *params) {
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
     buf_t b;
     buf_init(&b);
     acp_fmt_notify(&b, method, params);
@@ -58,6 +72,10 @@ int ac_tx_notify(ac_impl *o, const char *method, const char *params) {
 }
 
 int ac_tx_result(ac_impl *o, const char *id_raw, const char *result_json) {
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
     buf_t b;
     buf_init(&b);
     acp_fmt_result(&b, id_raw, result_json);
@@ -65,6 +83,10 @@ int ac_tx_result(ac_impl *o, const char *id_raw, const char *result_json) {
 }
 
 int ac_tx_error(ac_impl *o, const char *id_raw, int code, const char *msg) {
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
     buf_t b;
     buf_init(&b);
     buf_appendf(&b, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"error\":{\"code\":%d,\"message\":",
@@ -184,6 +206,7 @@ static void drain_stderr(ac_impl *o) {
         ssize_t n = read(o->err_fd, tmp, sizeof tmp);
         if (n > 0) {
             acp_reader_feed(&o->err_r, tmp, (size_t)n);
+            if (tny_alloc_scope_failed()) return;
             continue;
         }
         if (n < 0 && errno == EINTR) continue;
@@ -230,12 +253,13 @@ static bool handle_message(ac_impl *o, yyjson_doc *doc) {
 static void ac_on_ws_msg(const char *data, size_t len, void *ud) {
     ac_impl *o = ud;
     acp_reader_feed(&o->out_r, data, len);
-    acp_reader_feed(&o->out_r, "\n", 1);
+    if (!tny_alloc_scope_failed()) acp_reader_feed(&o->out_r, "\n", 1);
 }
 
 /* Read whatever is pending. Returns -1 on EOF/error of the agent's stdout. */
 int ac_pump_reads(ac_impl *o) {
     drain_stderr(o);
+    if (tny_alloc_scope_failed()) goto oom;
     bool eof = false;
     if (o->ws) {
         if (ws_pump(o->ws, ac_on_ws_msg, o) != 0) eof = true;
@@ -247,6 +271,7 @@ int ac_pump_reads(ac_impl *o) {
             ssize_t n = read(o->out_fd, tmp, sizeof tmp);
             if (n > 0) {
                 acp_reader_feed(&o->out_r, tmp, (size_t)n);
+                if (tny_alloc_scope_failed()) goto oom;
                 continue;
             }
             if (n == 0) {
@@ -259,35 +284,51 @@ int ac_pump_reads(ac_impl *o) {
             break;
         }
     }
+    if (tny_alloc_scope_failed()) goto oom;
     for (;;) {
         size_t len = 0;
         char *line = acp_reader_next(&o->out_r, &len);
-        if (!line) break;
+        if (!line) {
+            if (tny_alloc_scope_failed()) goto oom;
+            break;
+        }
         if (!len) {
             free(line);
             continue;
         }
         yyjson_doc *doc = jparse(line, len);
         free(line);
-        if (!doc) continue; /* a malformed line must not kill the loop */
+        if (!doc) {
+            if (tny_alloc_scope_failed()) goto oom;
+            continue; /* malformed input is distinct from allocator exhaustion */
+        }
         yyjson_val *root = yyjson_doc_get_root(doc);
         if (root && yyjson_is_arr(root)) { /* v2 batch: process each element */
             size_t idx, max;
             yyjson_val *el;
             yyjson_arr_foreach(root, idx, max, el) {
                 char *one = jwrite_val(el);
-                if (!one) continue;
+                if (!one) {
+                    if (tny_alloc_scope_failed()) break;
+                    continue;
+                }
                 yyjson_doc *sub = jparse(one, strlen(one));
                 free(one);
                 if (sub && !handle_message(o, sub)) yyjson_doc_free(sub);
+                if (tny_alloc_scope_failed()) break;
             }
             yyjson_doc_free(doc);
+            if (tny_alloc_scope_failed()) goto oom;
             continue;
         }
         if (!handle_message(o, doc)) yyjson_doc_free(doc);
+        if (tny_alloc_scope_failed()) goto oom;
     }
     if (o->out_r.overflow) return -2;
     return eof ? -1 : 0;
+oom:
+    tny_alloc_provider_failed();
+    return -3; /* reserved settlement after borrowed message callbacks unwind */
 }
 
 /* Exit status of the agent once its stdout is closed, or -1 if it is still
@@ -333,6 +374,11 @@ yyjson_doc *ac_rpc(ac_impl *o, const char *method, const char *params, char *err
         int pr = tny_poll(fds, (nfds_t)n, (int)(left > 200 ? 200 : left));
         if (pr < 0 && errno == EINTR) continue;
         int rc = ac_pump_reads(o);
+        if (rc == -3) {
+            o->wait_id = -1;
+            snprintf(errbuf, errlen, "acp: out of memory");
+            return NULL;
+        }
         if (rc == -2) {
             o->wait_id = -1;
             snprintf(errbuf, errlen, "acp: agent sent a message over the 8 MiB cap");

@@ -1,0 +1,11 @@
+ok  turn 1: model selected before prompt, streamed text, denied permission, session 284eade75ae0f72a
+ok  turn 2: session/load selected model before resumed prompt, permission allowed
+ok  default permission mode is yolo (docs/adr/0001)
+ok  semantic model category and grouped values selected over stdio
+ok  framing: partial lines and batched reads reassembled
+ok  model selection fails clearly when missing, unsupported, rejected, or unconfirmed
+ok  settings acp profile selected its configured model
+ok  agent exit mid-turn: turn ends with an error
+ok  missing agent binary: exit 1
+ok  doctor: acp agent resolves
+PASS test_acp.sh

@@ -1,6 +1,7 @@
 /* acp_wire.c — JSONL framing + JSON-RPC message builders (docs/backends/acp.md). */
 #include "backends/acp/acp_wire.h"
 #include "util/tny_poll.h"
+#include "util/alloc.h"
 
 #include <errno.h>
 #include <poll.h>
@@ -17,7 +18,7 @@ void acp_reader_init(acp_reader *r) {
 void acp_reader_free(acp_reader *r) { buf_free(&r->buf); }
 
 void acp_reader_feed(acp_reader *r, const char *data, size_t n) {
-    if (r->overflow) return;
+    if (r->overflow || tny_alloc_scope_failed()) return;
     buf_append(&r->buf, data, n);
     if (r->buf.len > ACP_MAX_MSG && !memchr(r->buf.data, '\n', r->buf.len)) {
         r->overflow = true;
@@ -26,7 +27,7 @@ void acp_reader_feed(acp_reader *r, const char *data, size_t n) {
 }
 
 char *acp_reader_next(acp_reader *r, size_t *len_out) {
-    if (r->overflow || !r->buf.len) return NULL;
+    if (r->overflow || !r->buf.len || tny_alloc_scope_failed()) return NULL;
     char *nl = memchr(r->buf.data, '\n', r->buf.len);
     if (!nl) return NULL;
     size_t n = (size_t)(nl - r->buf.data);

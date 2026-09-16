@@ -42,6 +42,7 @@ stdenv.mkDerivation {
   nativeBuildInputs = [
     bash
     git # test_worktree.py uses temporary real repositories and linked worktrees
+    # The provider-fault host also compiles test_openai.c for second-request OOM.
     # Integration fixtures plus the optional stdlib-only
     # tnytty/tests/bench/bench_tnytty.py runner. The performance benchmark is
     # intentionally not part of buildPhase because shared CI timing is noisy.

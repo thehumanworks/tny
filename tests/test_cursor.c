@@ -1717,7 +1717,122 @@ TEST decoder_oom_mid_stream_skips_observe_and_settles_once(void) {
     PASS();
 }
 
+#ifdef TNY_ALLOC_TESTING
+TEST error_decode_oom_http_and_endstream_settle_once(void) {
+    static const char payload[] =
+        "{\"error\":{\"code\":\"internal\",\"message\":\"error decoding allocation "
+        "fixture\",\"details\":[{\"type\":\"sdk.v1.SdkErrorDetails\",\"value\":"
+        "\"CgdyZXF1ZXN0Gg5kZXRhaWwgbWVzc2FnZSIcaHR0cHM6Ly9leGFtcGxlLmludmFsaWQvaGVscCoHZml4dHVyZQ=="
+        "\"}]}}";
+    for (int endstream = 0; endstream < 2; endstream++) {
+        size_t allocations = 0;
+        for (size_t fault = 0; fault <= allocations; fault++) {
+            tny_alloc_scope_begin("disabled");
+            char root[] = "/tmp/tny-cursor-error-XXXXXX";
+            ASSERT(mkdtemp(root));
+            tny_ctx *ctx = tny_ctx_new_explicit(root, root);
+            ASSERT(ctx);
+            ctx->backend = TNY_BK_CURSOR;
+            ctx->no_save = true;
+            tny_session_state *session = session_new(ctx);
+            perm_engine *perm = perm_new(ctx);
+            tny_engine *engine = tny_engine_new(ctx, session, perm, NULL, NULL);
+            tny_backend *backend = tny_backend_cursor_new(ctx);
+            ASSERT(engine && backend);
+            cu_impl *o = backend->impl;
+            o->agent_id = xstrdup("agent-error");
+            o->connected = o->sdk.negotiated = true;
+            o->sdk.version.capability_count = 2;
+            snprintf(o->sdk.version.capabilities[0], sizeof o->sdk.version.capabilities[0],
+                     "agent.send");
+            snprintf(o->sdk.version.capabilities[1], sizeof o->sdk.version.capabilities[1],
+                     "run.observe");
+            int port = 0, listener = recovery_listener(&port);
+            ASSERT(listener >= 0);
+            snprintf(o->sdk.stream.base_url, sizeof o->sdk.stream.base_url, "http://127.0.0.1:%d",
+                     port);
+            char err[256];
+            ASSERT_EQ(0, tny_engine_prepare(engine, backend, TNY_ENGINE_PREPARE_RESUMED, err,
+                                            sizeof err));
+            ASSERT_EQ(0, tny_engine_start(engine, "errors", NULL, err, sizeof err));
+            o->run_id = xstrdup("run-error");
+            int client = accept(listener, NULL, NULL);
+            ASSERT(client >= 0);
+            char request[8192];
+            ASSERT(recv(client, request, sizeof request, 0) > 0);
+            char wire[1024];
+            int head = snprintf(wire, sizeof wire, "HTTP/1.1 %s\r\nContent-Length: %zu\r\n\r\n",
+                                endstream ? "200 OK" : "500 Error",
+                                sizeof payload - 1 + (endstream ? 5u : 0u));
+            size_t len = (size_t)head;
+            if (endstream) {
+                const unsigned char prefix[5] = {2, 0, 0, (sizeof payload - 1) >> 8,
+                                                 (sizeof payload - 1) & 255};
+                memcpy(wire + len, prefix, sizeof prefix);
+                len += sizeof prefix;
+            }
+            memcpy(wire + len, payload, sizeof payload - 1);
+            len += sizeof payload - 1;
+            ASSERT_EQ((ssize_t)len, send(client, wire, len, 0));
+            struct pollfd fd = {cursor_sdk_stream_fd(&o->sdk), POLLIN, 0};
+            ASSERT_EQ(1, tny_poll(&fd, 1, 1000));
+            char index[32];
+            snprintf(index, sizeof index, "%zu", fault);
+            ASSERT_EQ(0, setenv("TNY_TEST_ALLOC_SCOPE", "cursor-error", 1));
+            ASSERT_EQ(0, setenv("TNY_TEST_ALLOC_FAIL_AT", index, 1));
+            tny_alloc_scope_begin("cursor-error");
+            if (!fault) {
+                cursor_sdk_error error;
+                cursor_sdk_error_init(&error);
+                ASSERT_EQ(-1, cursor_sdk_stream_pump(&o->sdk, NULL, NULL, &error, err, sizeof err));
+                allocations = tny_alloc_test_scope_count();
+                cursor_sdk_error_free(&error);
+            } else {
+                (void)tny_engine_dispatch(engine, &fd, 1);
+                ASSERT(tny_alloc_test_scope_injected());
+                ASSERT_EQ(fault, tny_alloc_test_scope_count());
+                ASSERT_EQ(0, tny_alloc_test_settlement_allocations());
+                ASSERT_FALSE(o->active);
+                ASSERT_FALSE(o->observe_retry_pending);
+                struct pollfd pending = {listener, POLLIN, 0};
+                ASSERT_EQ(0, tny_poll(&pending, 1, 0));
+                tny_owned_event *event = NULL;
+                ASSERT_EQ(TNY_ENGINE_NEXT_EVENT,
+                          tny_engine_next_event(engine, 0, &event, err, sizeof err));
+                ASSERT_EQ(TNY_EV_ERROR, event->ev.kind);
+                ASSERT_EQ(TNY_EVENT_ERROR_OOM, event->ev.error_code);
+                tny_owned_event_free(event);
+                ASSERT_EQ(TNY_ENGINE_NEXT_EVENT,
+                          tny_engine_next_event(engine, 0, &event, err, sizeof err));
+                ASSERT_EQ(TNY_EV_TURN_END, event->ev.kind);
+                ASSERT_EQ(TNY_STOP_ERROR, event->ev.stop);
+                tny_owned_event_free(event);
+                ASSERT_EQ(TNY_ENGINE_NEXT_DRAINED,
+                          tny_engine_next_event(engine, 0, &event, err, sizeof err));
+            }
+            unsetenv("TNY_TEST_ALLOC_SCOPE");
+            unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+            tny_alloc_scope_begin("disabled");
+            close(client);
+            close(listener);
+            tny_alloc_settlement_begin();
+            backend->cancel(backend);
+            tny_alloc_settlement_end();
+            tny_engine_free(engine);
+            perm_free(perm);
+            session_close(session);
+            tny_ctx_free(ctx);
+        }
+        ASSERT(allocations >= 4);
+    }
+    PASS();
+}
+#endif
+
 SUITE(cursor_suite) {
+#ifdef TNY_ALLOC_TESTING
+    RUN_TEST(error_decode_oom_http_and_endstream_settle_once);
+#endif
     RUN_TEST(decoder_oom_mid_stream_skips_observe_and_settles_once);
     RUN_TEST(emergency_cancel_releases_callbacks_and_retains_identity);
     RUN_TEST(tool_call_union_maps_name_args_and_clipped_result);

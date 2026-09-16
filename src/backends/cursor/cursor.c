@@ -1112,7 +1112,12 @@ static void cu_note_observe_progress(cu_impl *o) {
 
 static int cu_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     cu_impl *o = b->impl;
-    if (o->callbacks && cursor_callbacks_dispatch(o->callbacks, fds, n) != 0) {
+    int callbacks_rc = o->callbacks ? cursor_callbacks_dispatch(o->callbacks, fds, n) : 0;
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
+    if (callbacks_rc != 0) {
         static const char error[] = "cursor: callback server failed";
         if (!o->ended) {
             cu_emit_text(o, TNY_EV_ERROR, error, sizeof error - 1);
@@ -1121,6 +1126,10 @@ static int cu_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         return -1;
     }
     cursor_bridge_pump(&o->bridge);
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
     if (o->observe_retry_pending) {
         if (now_ms() < o->observe_retry_at_ms) return 0;
         o->observe_retry_pending = false;
@@ -1129,6 +1138,10 @@ static int cu_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             static const char resumed[] = "cursor: recovering the durable run stream";
             cu_emit_text(o, TNY_EV_STATUS, resumed, sizeof resumed - 1);
             return 0;
+        }
+        if (tny_alloc_scope_failed()) {
+            tny_alloc_provider_failed();
+            return -1;
         }
         buf_t message;
         buf_init(&message);
@@ -1160,6 +1173,10 @@ static int cu_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         return -1;
     }
     cu_note_observe_progress(o);
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
 
     if (o->saw_terminal_result) {
         o->observe_no_progress_attempts = 0;
