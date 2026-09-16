@@ -2,6 +2,7 @@
 #ifndef TNY_CPP_OWNERS_HPP
 #define TNY_CPP_OWNERS_HPP
 
+#include "cpp/testing.h"
 #include <cstdlib>
 #include <limits>
 #include <memory>
@@ -15,6 +16,16 @@ extern "C" {
 }
 
 namespace tny {
+inline void allocated() noexcept {
+#ifdef TNY_ALLOC_TESTING
+    tny_parser_test_allocated();
+#endif
+}
+inline void freed() noexcept {
+#ifdef TNY_ALLOC_TESTING
+    tny_parser_test_freed();
+#endif
+}
 template <class T> struct allocator {
     using value_type = T;
     allocator() noexcept = default;
@@ -23,9 +34,13 @@ template <class T> struct allocator {
         if (count > std::numeric_limits<std::size_t>::max() / sizeof(T)) throw std::bad_alloc();
         auto *p = static_cast<T *>(tny_alloc_malloc(count * sizeof(T)));
         if (!p) throw std::bad_alloc();
+        allocated();
         return p;
     }
-    void deallocate(T *p, std::size_t) noexcept { std::free(p); }
+    void deallocate(T *p, std::size_t) noexcept {
+        std::free(p);
+        freed();
+    }
     template <class U> bool operator==(const allocator<U> &) const noexcept { return true; }
 };
 using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;
@@ -36,6 +51,7 @@ template <class T> struct destroy {
         if (p) {
             p->~T();
             std::free(p);
+            freed();
         }
     }
 };
@@ -43,10 +59,12 @@ template <class T> using owner = std::unique_ptr<T, destroy<T>>;
 template <class T> owner<T> make_owner() {
     void *p = tny_alloc_malloc(sizeof(T));
     if (!p) throw std::bad_alloc();
+    allocated();
     try {
         return owner<T>(::new (p) T());
     } catch (...) {
         std::free(p);
+        freed();
         throw;
     }
 }

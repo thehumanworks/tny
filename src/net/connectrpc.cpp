@@ -59,7 +59,10 @@ extern "C" int connect_decoder_feed(connect_decoder *d, const char *bytes, size_
             state.used = 0;
         }
         return 0;
-    } catch (const std::bad_alloc &) { return d->status = -2; }
+    } catch (const std::bad_alloc &) {
+        connect_decoder_free(d);
+        return d->status = -2;
+    }
 }
 
 extern "C" bool connect_decoder_pending(const connect_decoder *d) {

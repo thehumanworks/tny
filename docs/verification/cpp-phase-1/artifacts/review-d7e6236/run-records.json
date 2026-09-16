@@ -1,0 +1,276 @@
+[
+  {
+    "command": [
+      "build/tny-test",
+      "-s",
+      "openai_suite"
+    ],
+    "exit": 0,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-baseline-openai-unit.manifest.json",
+    "manifest_sha256": "f4674fb40548f5e2d1f2adfb9cec2de0e3a252d80f5a13301fee830ae229dd10",
+    "name": "review-baseline-openai-unit",
+    "note": "Existing pre-repair binary; dirty-source manifest is not a rebuilt-source claim.",
+    "seconds": 0.55,
+    "source_delta_from_final": {
+      "Makefile": "bf46d3bc3b5656d868812345dfeba866f43e4ca5a2e8b04ec693a41406463894",
+      "docs/ci.md": "1c6bdf40cbb230b2ed774b9ba362ed5f4ee691eb20fae3deb04d3ac9c2733e0f",
+      "nix/source.nix": "0a5ec72ba152cf71828ec050a46cac5605f38c64a80d6fb271bc78d78288f2d6",
+      "nix/tests.nix": "c680e43bf88b787f76b207e0c2300612a2c9036c0d6e5de35a6f8e01e7a6af04",
+      "src/backends/openai/events.cpp": "8d3c25c62831b4d2cf4d8988678093322b551028148d7f03c27c59bf421ad5cd",
+      "tests/build/test_cpp_gates.py": "81934a4ded5b73e4186db53ead3ea3544f9f080fbe6e7507f1933b5cbebbf58c",
+      "tests/fuzz/fuzz_parsers.cpp": "ec1fdaf0749c3929f65f4ec390c9863fbe9970190d659815e961bb974fce7f18",
+      "tests/fuzz/parser_backend_oom.c": null,
+      "tests/test_openai.c": "ffa362adfb4dd5d89d1b320f039ad1d74066e130fa0390d1be7791aab10388b8"
+    },
+    "started": 1789528698.7361228
+  },
+  {
+    "command": [
+      "make",
+      "-j8",
+      "debug",
+      "test-parser-smoke"
+    ],
+    "exit": 2,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-build.manifest.json",
+    "manifest_sha256": "9ec9015f8cd2e8a7bda47edfb4fbb84e881f48c4283a24c2a9485dce73541837",
+    "name": "review-build",
+    "seconds": 0.67,
+    "source_delta_from_final": {
+      "docs/ci.md": "1c6bdf40cbb230b2ed774b9ba362ed5f4ee691eb20fae3deb04d3ac9c2733e0f",
+      "nix/source.nix": "0a5ec72ba152cf71828ec050a46cac5605f38c64a80d6fb271bc78d78288f2d6",
+      "nix/tests.nix": "c680e43bf88b787f76b207e0c2300612a2c9036c0d6e5de35a6f8e01e7a6af04",
+      "tests/build/test_cpp_gates.py": "81934a4ded5b73e4186db53ead3ea3544f9f080fbe6e7507f1933b5cbebbf58c",
+      "tests/fuzz/parser_backend_oom.c": "bd7603a7da83b7f0a71143e095891275f812305a12feff38327e24b2310d5e00",
+      "tests/test_openai.c": "f75e92d0e9997012db597548702b7e8e625dda743bf34c84a37221f4cb2f1736"
+    },
+    "started": 1789528950.3146958
+  },
+  {
+    "command": [
+      "make",
+      "-j8",
+      "debug",
+      "test-parser-smoke"
+    ],
+    "exit": 2,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-build-2.manifest.json",
+    "manifest_sha256": "b13b64b347425508f4def95640bb0a039315623ee76062448ab6f33650bc0084",
+    "name": "review-build-2",
+    "seconds": 0.57,
+    "source_delta_from_final": {
+      "docs/ci.md": "1c6bdf40cbb230b2ed774b9ba362ed5f4ee691eb20fae3deb04d3ac9c2733e0f",
+      "nix/source.nix": "0a5ec72ba152cf71828ec050a46cac5605f38c64a80d6fb271bc78d78288f2d6",
+      "nix/tests.nix": "c680e43bf88b787f76b207e0c2300612a2c9036c0d6e5de35a6f8e01e7a6af04",
+      "tests/build/test_cpp_gates.py": "81934a4ded5b73e4186db53ead3ea3544f9f080fbe6e7507f1933b5cbebbf58c",
+      "tests/fuzz/parser_backend_oom.c": "bd7603a7da83b7f0a71143e095891275f812305a12feff38327e24b2310d5e00",
+      "tests/test_openai.c": "80e7a5fc8048395c5f28f94ce25c2472c28e9b3d68e966322199e48510bf29f6"
+    },
+    "started": 1789528965.429971
+  },
+  {
+    "command": [
+      "make",
+      "-j8",
+      "debug",
+      "test-parser-smoke"
+    ],
+    "exit": 0,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-build-3.manifest.json",
+    "manifest_sha256": "d6f00d64d275486d7185aec65001754dcb3790e0ceddb0d686ccfaa2ca16c9d9",
+    "name": "review-build-3",
+    "seconds": 1.63,
+    "source_delta_from_final": {
+      "docs/ci.md": "1c6bdf40cbb230b2ed774b9ba362ed5f4ee691eb20fae3deb04d3ac9c2733e0f",
+      "nix/source.nix": "0a5ec72ba152cf71828ec050a46cac5605f38c64a80d6fb271bc78d78288f2d6",
+      "nix/tests.nix": "c680e43bf88b787f76b207e0c2300612a2c9036c0d6e5de35a6f8e01e7a6af04",
+      "tests/build/test_cpp_gates.py": "81934a4ded5b73e4186db53ead3ea3544f9f080fbe6e7507f1933b5cbebbf58c",
+      "tests/test_openai.c": "80e7a5fc8048395c5f28f94ce25c2472c28e9b3d68e966322199e48510bf29f6"
+    },
+    "started": 1789529103.115828
+  },
+  {
+    "command": [
+      "build/tny-test",
+      "-s",
+      "openai_suite"
+    ],
+    "exit": 0,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-openai-unit.manifest.json",
+    "manifest_sha256": "d6f00d64d275486d7185aec65001754dcb3790e0ceddb0d686ccfaa2ca16c9d9",
+    "name": "review-openai-unit",
+    "seconds": 0.6,
+    "source_delta_from_final": {
+      "docs/ci.md": "1c6bdf40cbb230b2ed774b9ba362ed5f4ee691eb20fae3deb04d3ac9c2733e0f",
+      "nix/source.nix": "0a5ec72ba152cf71828ec050a46cac5605f38c64a80d6fb271bc78d78288f2d6",
+      "nix/tests.nix": "c680e43bf88b787f76b207e0c2300612a2c9036c0d6e5de35a6f8e01e7a6af04",
+      "tests/build/test_cpp_gates.py": "81934a4ded5b73e4186db53ead3ea3544f9f080fbe6e7507f1933b5cbebbf58c",
+      "tests/test_openai.c": "80e7a5fc8048395c5f28f94ce25c2472c28e9b3d68e966322199e48510bf29f6"
+    },
+    "started": 1789529124.938087
+  },
+  {
+    "command": [
+      "make",
+      "-j8",
+      "debug",
+      "release",
+      "test-parser-smoke"
+    ],
+    "exit": 0,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-build-final.manifest.json",
+    "manifest_sha256": "6b464d414965e657933644d35efeffcce958443cdc9b92399aa467184df494fc",
+    "name": "review-build-final",
+    "seconds": 5.36,
+    "source_delta_from_final": {
+      "tests/build/test_cpp_gates.py": "81934a4ded5b73e4186db53ead3ea3544f9f080fbe6e7507f1933b5cbebbf58c"
+    },
+    "started": 1789529168.293686
+  },
+  {
+    "command": [
+      "python3",
+      "tests/mutation/parser_critical.py"
+    ],
+    "exit": 0,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-mutations-final.manifest.json",
+    "manifest_sha256": "6b464d414965e657933644d35efeffcce958443cdc9b92399aa467184df494fc",
+    "name": "review-mutations-final",
+    "seconds": 5.13,
+    "source_delta_from_final": {
+      "tests/build/test_cpp_gates.py": "81934a4ded5b73e4186db53ead3ea3544f9f080fbe6e7507f1933b5cbebbf58c"
+    },
+    "started": 1789529191.01775
+  },
+  {
+    "command": [
+      "build/tny-test"
+    ],
+    "exit": 0,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-unit-final.manifest.json",
+    "manifest_sha256": "6b464d414965e657933644d35efeffcce958443cdc9b92399aa467184df494fc",
+    "name": "review-unit-final",
+    "seconds": 39.06,
+    "source_delta_from_final": {
+      "tests/build/test_cpp_gates.py": "81934a4ded5b73e4186db53ead3ea3544f9f080fbe6e7507f1933b5cbebbf58c"
+    },
+    "started": 1789529191.017754
+  },
+  {
+    "command": [
+      "python3",
+      "tests/integration/test_openai.py"
+    ],
+    "exit": 0,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-openai-final.manifest.json",
+    "manifest_sha256": "6b464d414965e657933644d35efeffcce958443cdc9b92399aa467184df494fc",
+    "name": "review-openai-final",
+    "seconds": 51.82,
+    "source_delta_from_final": {
+      "tests/build/test_cpp_gates.py": "81934a4ded5b73e4186db53ead3ea3544f9f080fbe6e7507f1933b5cbebbf58c"
+    },
+    "started": 1789529191.017799
+  },
+  {
+    "command": [
+      "python3",
+      "build/review-regressions.py"
+    ],
+    "exit": 1,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-regression-controls.manifest.json",
+    "manifest_sha256": "6b464d414965e657933644d35efeffcce958443cdc9b92399aa467184df494fc",
+    "name": "review-regression-controls",
+    "seconds": 0.67,
+    "source_delta_from_final": {
+      "tests/build/test_cpp_gates.py": "81934a4ded5b73e4186db53ead3ea3544f9f080fbe6e7507f1933b5cbebbf58c"
+    },
+    "started": 1789529267.0317209
+  },
+  {
+    "command": [
+      "python3",
+      "build/review-regressions.py"
+    ],
+    "exit": 0,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-regression-controls-2.manifest.json",
+    "manifest_sha256": "6b464d414965e657933644d35efeffcce958443cdc9b92399aa467184df494fc",
+    "name": "review-regression-controls-2",
+    "seconds": 3.63,
+    "source_delta_from_final": {
+      "tests/build/test_cpp_gates.py": "81934a4ded5b73e4186db53ead3ea3544f9f080fbe6e7507f1933b5cbebbf58c"
+    },
+    "started": 1789529276.212663
+  },
+  {
+    "command": [
+      "make",
+      "test-parser-smoke"
+    ],
+    "exit": 0,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-parser-smoke-final.manifest.json",
+    "manifest_sha256": "6b464d414965e657933644d35efeffcce958443cdc9b92399aa467184df494fc",
+    "name": "review-parser-smoke-final",
+    "seconds": 0.84,
+    "source_delta_from_final": {
+      "tests/build/test_cpp_gates.py": "81934a4ded5b73e4186db53ead3ea3544f9f080fbe6e7507f1933b5cbebbf58c"
+    },
+    "started": 1789529321.413383
+  },
+  {
+    "command": [
+      "make",
+      "quality"
+    ],
+    "exit": 0,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-quality-final.manifest.json",
+    "manifest_sha256": "6b464d414965e657933644d35efeffcce958443cdc9b92399aa467184df494fc",
+    "name": "review-quality-final",
+    "seconds": 203.13,
+    "source_delta_from_final": {
+      "tests/build/test_cpp_gates.py": "81934a4ded5b73e4186db53ead3ea3544f9f080fbe6e7507f1933b5cbebbf58c"
+    },
+    "started": 1789529210.670796
+  },
+  {
+    "command": [
+      "make",
+      "test-cpp-gates"
+    ],
+    "exit": 0,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-cpp-gates-final.manifest.json",
+    "manifest_sha256": "e3285b96ed600f5018387bc833baf86e99dfda5988b487ab27cd2b6debac6b2b",
+    "name": "review-cpp-gates-final",
+    "seconds": 3.41,
+    "source_delta_from_final": {},
+    "started": 1789529430.106112
+  },
+  {
+    "command": [
+      "make",
+      "format-check",
+      "lint-py"
+    ],
+    "exit": 0,
+    "head": "d7e62367cbba08dd36fdede18be65870e097c2b4",
+    "manifest": "build/phase1-logs/review-format-lint-final.manifest.json",
+    "manifest_sha256": "e3285b96ed600f5018387bc833baf86e99dfda5988b487ab27cd2b6debac6b2b",
+    "name": "review-format-lint-final",
+    "seconds": 1.54,
+    "source_delta_from_final": {},
+    "started": 1789529441.4352908
+  }
+]

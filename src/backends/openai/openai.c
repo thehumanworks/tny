@@ -1403,6 +1403,13 @@ static void on_sse_event(const char *data, size_t len, void *ud) {
 
 static int parser_failed(oa_impl *o) {
     static const char message[] = "out of memory decoding provider stream";
+    /* Dispatch/flush has returned: no callback can still borrow these bytes.
+     * Release capacity before terminal delivery or any later request allocates. */
+    sse_parser_free(&o->sse);
+    o->sse.status = -2;
+    oa_calls_reset(&o->calls);
+    o->calls.status = -2;
+    buf_free(&o->rawbody);
     conn_drop(o);
     emit_error(o, TNY_EVENT_ERROR_OOM, message, sizeof message - 1);
     emit_turn_end(o, TNY_STOP_ERROR);

@@ -20,8 +20,11 @@ struct sink {
     }
     void set(int slot, int index, yyjson_val *item) const {
         const char *args = jget_str(item, "arguments");
+        /* Empty item.done must not erase deltas already assembled. Otherwise
+         * retain the distinction between an omitted and an empty argument field. */
+        if (args && !*args && slot < calls->n && calls->calls[slot].args.len) args = nullptr;
         if (oa_calls_set(calls, slot, index, jget_str(item, "call_id"), jget_str(item, "name"),
-                         args && *args ? args : nullptr, true) != 0)
+                         args, true) != 0)
             throw std::bad_alloc();
     }
 };
@@ -41,8 +44,10 @@ void chat_event(const sink &out, yyjson_val *root) {
     auto *delta = jget(choice, "delta");
     if (!delta) delta = jget(choice, "message");
     out.text(OA_DECODE_TEXT, delta, "content");
-    const char *reasoning = jget_str(delta, "reasoning_content");
-    if (reasoning && *reasoning) out.text(OA_DECODE_REASONING_CONTENT, delta, "reasoning_content");
+    size_t reasoning_len = 0;
+    const char *reasoning = jget_strn(delta, "reasoning_content", &reasoning_len);
+    if (reasoning && reasoning_len)
+        out.text(OA_DECODE_REASONING_CONTENT, delta, "reasoning_content");
     else out.text(OA_DECODE_THINKING, delta, "reasoning");
     auto *details = jget(delta, "reasoning_details");
     if (yyjson_is_arr(details)) {

@@ -54,9 +54,9 @@ def main():
         ["make", "-s", "-f", "Makefile", "-f", "-", "mutant-vars"],
         cwd=ROOT,
         text=True,
-        input="mutant-vars:\n\t@printf '%s\\n' '$(CXX)' '$(call cppflags,$(DBG_CFLAGS))' "
+        input="mutant-vars:\n\t@printf '%s\\n' '$(CXX)' '$(PARSER_TEST_CPPFLAGS)' "
         "'$(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))' "
-        "'$(filter-out $(OBJ_DBG)/src/util/alloc.o,$(sort $(TEST_OBJS)))'\n",
+        "'$(PARSER_TEST_OBJS)'\n",
     ).splitlines()
     compiler, flags, linker, objects = map(shlex.split, variables)
     results = []
@@ -83,7 +83,7 @@ def main():
                 str(obj),
                 "build/dbg/tests/fuzz/fuzz_parsers.cpp.o",
                 "build/dbg/parser-alloc.o",
-                *[p for p in objects if p != "build/dbg/" + source + ".o"],
+                *[p for p in objects if p != "build/parser-test/" + source + ".o"],
                 *linker,
             ],
             directory / (name + "-link.log"),

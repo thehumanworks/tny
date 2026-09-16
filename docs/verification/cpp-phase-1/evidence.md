@@ -5,7 +5,7 @@ focused macOS checks pass; full host/platform, review, performance and local
 commit gates do not all pass. No scope reduction is claimed.
 
 Assigned worktree: `/Users/tomas/projects/tny-cpp-parsers`, branch
-`migration/cpp-parsers`. Initial and current Git HEAD:
+`migration/cpp-parsers`. Initial implementation Git HEAD:
 `c6d938a0846e0cabd7235b56468abc5cf65cfaf5` (contracts on main baseline
 `1d8ad71d66c06c726b3c5b35e367fec678031e85`). Initially clean. Implementation is
 uncommitted because the sandbox denies writes to this linked worktree's Git
@@ -21,6 +21,15 @@ native-goal limitation and leaves independent reviews to the coordinator.
 ADR 0114 was allocated by the user and written before production conversion.
 All 116 pre-existing ADR files match [the initial hashes](artifacts/adr-before.json).
 ADR 0115, `tests/bench/`, and `docs/size-and-speed.md` were not edited.
+
+## Review repair state (2026-09-16)
+
+The coordinator committed the initial implementation as
+`d7e62367cbba08dd36fdede18be65870e097c2b4`. The records below that predate this
+section describe the original delivery attempt, not the current Git state.
+The review repairs are an **uncommitted diff on d7e6236**, intentionally left
+for the coordinator to commit. Finding 1 remains coordinator-owned and open;
+this repair does not establish full phase-1 completion or a new review approval.
 
 ## Delivered ownership and caller inventory
 
@@ -187,9 +196,90 @@ warning. No new compiler warnings remain in passing build/quality runs.
 The broad suite also prints existing expected invalid-input warnings and
 recursive jobserver warnings; it is not presented as warning/error-free.
 
+## Review repair execution records (2026-09-16)
+
+All repair gates run through `build/phase1-run.py`, which removes `TNY_TOOLS`
+and every environment name ending in `_BASE_URL`, `_API_KEY`, `_API_KEY_CMD`
+or `_WIRE_API` before spawning the command. It also removes inherited OAuth
+credentials. Fixtures supply synthetic credentials and loopback endpoints.
+`TMPDIR=$PWD/build/tmp` and the documented local mktemp shim remain necessary
+for sandbox compiler/test temporary files. No product workaround for inherited
+provider variables was added. The coordinator's baseline diagnosis supersedes
+any earlier inference from contaminated test runs.
+
+The tested revision is d7e6236 plus the source hashes in
+[review source manifest](artifacts/review-d7e6236/source-sha256.json).
+[Review run records](artifacts/review-d7e6236/run-records.json) retain command,
+exit, time, HEAD, per-run manifest hash and differences from that final source.
+The runner and isolated regression-control script are archived there as text.
+Read-only inspection and formatting commands included `git status --short`,
+`git diff --stat`, `git diff --check`, targeted `rg`/`sed`/`cat` reads,
+`clang-format -i` for changed C/C++ sources and Ruff formatting for the mutation
+script; all completed successfully. Two development builds failed with exit 2
+for missing test-only includes (`net/net.h`, then `unistd.h`) and were fixed.
+The first isolated regression-control link failed with exit 1 because its object
+list contained duplicates; the script now deduplicates exactly as Make's `$^`.
+Those are recorded failed attempts, not counted as passing tests.
+
+| Gate command | Exit | Result |
+| --- | ---: | --- |
+| `make -j8 debug release test-parser-smoke` | 0 | Final debug/release builds; parser and backend retention smoke |
+| `build/tny-test` | 0 | 557 tests, 15275 assertions; no SIGABRT |
+| `make test-parser-smoke` | 0 | Split/corpus/fault checks and immediate retention regression |
+| `make test-cpp-gates` | 0 | Positive discovery, including new instrumented parser-test objects; formatter/analyzer negatives rejected |
+| `python3 tests/mutation/parser_critical.py` | 0 | Four intended behavioral kills; unmodified smoke passes |
+| `python3 tests/integration/test_openai.py` | 0 | All assertions passed against rebuilt release |
+| `make quality` | 0 | No warnings/errors; explicit Darwin GCC analyzer skip remains |
+| `make format-check lint-py` | 0 | Rechecked final discovery-test additions after quality |
+| `python3 build/review-regressions.py` | 0 | Four isolated restored-defect controls fail as intended |
+
+The only non-evidence edit after the quality run was extending the Python
+source-discovery test to cover the new instrumented parser-test object lane.
+That test then passed, and its affected formatting/Python lint gates were rerun.
+All production source and compiled regression tests match the full quality,
+unit, smoke, mutation and integration runs.
+
+The broader OpenAI SIGABRT **did not reproduce**: the existing pre-repair unit
+binary passed all 23 OpenAI tests (321 assertions), the repaired focused suite
+passed, the final complete unit binary passed 557 tests (15275 assertions), and
+the rebuilt release passed `test_openai.py`. No unexpected exit 134/-6 occurred
+in these runs. The fixture has explicit setup `abort()` paths (temporary
+directory, server, context and backend setup); without the reviewer's stack or
+stderr there is no evidence identifying the cause of their abort. Expected
+SIGABRT exits below belong only to deliberately restored defects/mutations.
+
+The new retention harness observes private C++ owner/container allocation
+counts during terminal delivery: **6 before OOM -> 0 at TURN_END**, both for SSE
+growth failure and JSON allocation failure with a pending tool call. It checks
+again before destroy/reset/a later request. Separate smoke assertions verify
+SSE feed, SSE flush and Connect capacity release while preserving sticky -2.
+The counters compile only in test/fault objects and add no release runtime work.
+
+Isolated controls compile/link d7e6236 versions of one source at a time with the
+new tests; production files are never rewritten. All four controls fail for the
+intended assertion: omitted arguments (exit 1), leading NUL (exit 1), retained
+SSE capacity (-6), and retained backend calls (-6). See
+[regression controls](artifacts/review-d7e6236/regression-results.json).
+The four contract-critical mutants also compile/link and are killed again:
+frame limit, identity precedence, borrowed document and swallowed OOM (all -6).
+See [current mutations](artifacts/review-d7e6236/mutation-results.json).
+
 ## Reviews
 
-Pending.
+2026-09-16: the coordinator supplied an independent read-only review of
+`c6d938a..d7e6236` from a different model session, verdict **REJECT**. The reviewer
+reported no file changes/builds of their own and listed the observed focused
+checks separately. Dispositions below are implementation responses, not an
+independent re-review or approval:
+
+| Finding | Disposition |
+| --- | --- |
+| 1, blocker: incomplete landing/platform/performance proof | Open, coordinator-owned. All previously unmet integrated gates and benchmark/size-policy reconciliation remain required. No hosted/platform or performance proof claimed here. |
+| 2, major: omitted arguments lose `{}` fallback | Fixed in `toolcalls.cpp` with explicit argument presence. Responses item updates retain empty versus omitted fields without discarding assembled deltas. Unit/backend regressions cover Chat and Responses execution, transcript serialization, and destruction plus serialized checkpoint restoration. Restoring old source fails the new assertion. |
+| 3, major: terminal parser OOM retains buffers/calls | SSE feed/flush and Connect release owners on OOM and preserve -2. OpenAI releases SSE, abandoned calls and raw-body capacity after callbacks unwind, before terminal events. Test-only live counts prove release before teardown/new turn; old SSE/backend sources fail separately. |
+| 4, minor: leading NUL loses reasoning bytes | Decoder selects `reasoning_content` by `jget_strn` length. Every-split and byte-at-a-time tests assert one event, no fallback, exact length 4 and byte equality after the parse callback returns. Restoring old source fails. |
+
+Coordinator review of these repairs and all finding-1 landing gates remain open.
 
 ## Mutation results
 

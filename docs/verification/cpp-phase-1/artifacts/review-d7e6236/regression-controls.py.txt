@@ -1,0 +1,38 @@
+import json, pathlib, shlex, subprocess
+root = pathlib.Path.cwd()
+out = root / 'build/review-regressions'
+out.mkdir(exist_ok=True)
+text = subprocess.check_output(['make', '-s', '-f', 'Makefile', '-f', '-', 'review-vars'], text=True, input="review-vars:\n\t@printf '%s\\n' '$(CC)' '$(CXX)' '$(DBG_CFLAGS)' '$(call cppflags,$(DBG_CFLAGS))' '$(PARSER_TEST_CPPFLAGS)' '$(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))' '$(TEST_OBJS) $(TEST_SRC:%.c=$(OBJ_DBG)/%.o)' '$(PARSER_TEST_OBJS)'\n")
+cc, cxx, cflags, cppflags, faultflags, linkflags, unitobjs, parserobjs = map(shlex.split, text.splitlines())
+results=[]
+for name, source, mode, args, marker in [
+ ('omitted-arguments','src/backends/openai/toolcalls.cpp','unit',['-s','openai_suite','-t','omitted_and_empty_arguments_are_distinct'],'omitted_and_empty_arguments_are_distinct'),
+ ('leading-nul','src/backends/openai/events.cpp','unit',['-s','openai_suite','-t','reasoning_leading_nul_survives_every_split'],'reasoning_leading_nul_survives_every_split'),
+ ('retained-sse','src/net/sse.cpp','smoke',[],'SSE OOM must release capacity before free/reset'),
+ ('retained-calls','src/backends/openai/openai.c','backend',[],'terminal OOM must release SSE and abandoned call allocations immediately'),
+]:
+ p=out/(name+pathlib.Path(source).suffix)
+ p.write_bytes(subprocess.check_output(['git','show','d7e6236:'+source]))
+ obj=out/(name+'.o'); binary=out/name
+ is_cpp=source.endswith('.cpp')
+ flags=(cppflags if mode=='unit' else faultflags) if is_cpp else cflags
+ commands=[[* (cxx if is_cpp else cc), *flags, '-c',str(p),'-o',str(obj)]]
+ if mode=='unit':
+  objects=[p for p in unitobjs if p != 'build/dbg/'+source+'.o']
+ else:
+  excluded=('build/parser-test/'+source+'.o') if is_cpp else ('build/dbg/'+source[:-2]+'.o')
+  objects=[p for p in parserobjs if p != excluded]
+  objects += ['build/dbg/parser-alloc.o', 'build/dbg/tests/fuzz/'+('fuzz_parsers.cpp.o' if mode=='smoke' else 'parser_backend_oom.o')]
+ commands += [[*cxx,*cppflags,'-o',str(binary),str(obj),*dict.fromkeys(objects),*linkflags]]
+ for i, command in enumerate(commands):
+  r=subprocess.run(command,capture_output=True,text=True)
+  (out/(name+f'-build-{i}.log')).write_text(r.stdout+r.stderr)
+  assert r.returncode==0,r.stderr
+ r=subprocess.run([str(binary),*args],capture_output=True,text=True)
+ output=r.stdout+r.stderr
+ (out/(name+'-test.log')).write_text(output)
+ assert r.returncode!=0 and marker in output,output
+ record={'regression':name,'restored_source':'d7e6236:'+source,'exit':r.returncode,'marker':marker,'killed':True}
+ results.append(record)
+ print(json.dumps(record),flush=True)
+(out/'results.json').write_text(json.dumps(results,indent=2)+'\n')

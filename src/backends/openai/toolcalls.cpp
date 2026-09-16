@@ -11,7 +11,7 @@ extern "C" {
 namespace {
 struct call {
     tny::string id, name, args;
-    bool has_id = false, has_name = false;
+    bool has_id = false, has_name = false, has_args = false;
     call() = default;
     call(const call &) = delete;
     call &operator=(const call &) = delete;
@@ -37,10 +37,11 @@ void set(oa_callset *cs, int slot, int index, const char *id, const char *name, 
     if (args) {
         if (replace) c.args.clear();
         tny::append(c.args, args);
+        c.has_args = true;
     }
     cs->calls[slot] = {c.has_id ? c.id.data() : nullptr,
                        c.has_name ? c.name.data() : nullptr,
-                       {c.args.data(), c.args.size(), 0, false},
+                       {c.has_args ? c.args.data() : nullptr, c.args.size(), 0, false},
                        index};
     if (slot == cs->n) cs->n++;
 }

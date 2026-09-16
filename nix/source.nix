@@ -53,7 +53,8 @@ let
     # All of tests/, which includes the frozen tool-profile A/B fixtures
     # under tests/bench/fixtures/tools/ that
     # tests/integration/test_bench_tools.py copies and scores (issue #103).
-    # tests/fuzz/parser corpus and portable parser driver are included here.
+    # tests/fuzz/parser corpus, portable parser driver and parser_backend_oom.c
+    # loopback retention regression are included here; no extra assets/tools.
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
     # runner_restart_fault.c uses the existing stdenv C compiler for a private
     # read/write interposer; no network, new package or external test data.

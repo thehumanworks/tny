@@ -344,7 +344,10 @@ the GCC and C++ runtimes; the POSIX DLL packaging remains unchanged.
 - `make test-parser-smoke`: portable deterministic SSE/Connect/Chat/Responses
   corpus, every split and single-byte feeds, 64 MiB limit neighbors, retained
   tool identity/lifetime, allocation-index sweeps and recovery after two OOMs.
-  Runs with the normal ASan/UBSan debug objects on macOS/Linux and in Nix.
+  Also checks live parser allocations at terminal SSE/JSON OOM in a loopback
+  backend before teardown or another turn. Private test-only allocation counters
+  are enabled in separate C++ objects; production objects have no counters.
+  Runs with ASan/UBSan debug objects on macOS/Linux and in Nix.
 - `make test-parser-fuzz FUZZ_CC=clang FUZZ_CXX=clang++`: Linux x86_64 libFuzzer,
   production C++ objects instrumented with fuzzer-no-link/address/undefined;
   10000 runs, 30 seconds, 5-second input timeout, 128 KiB inputs, 1 GiB RSS.

@@ -55,6 +55,7 @@ extern "C" int sse_feed(sse_parser *p, const char *bytes, size_t n, sse_event_cb
         }
         return 0;
     } catch (const std::bad_alloc &) {
+        sse_parser_free(p);
         p->status = -2;
         return p->status;
     }
@@ -68,6 +69,7 @@ extern "C" int sse_flush(sse_parser *p, sse_event_cb cb, void *ud) {
         state.dispatch(cb, ud);
         return 0;
     } catch (const std::bad_alloc &) {
+        sse_parser_free(p);
         p->status = -2;
         return p->status;
     }

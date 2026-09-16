@@ -12,6 +12,7 @@ extern "C" {
 #include "net/net.h"
 #include "backends/openai/parsers.h"
 #include "util/alloc.h"
+#include "cpp/testing.h"
 }
 
 namespace {
@@ -205,6 +206,52 @@ void lifetime_and_identity() {
     check(oa_decode_event(true, "{", 1, &d.calls, decoded, &d.out) == 1,
           "malformed JSON distinguished");
 }
+void fail_next() {
+    check(setenv("TNY_TEST_ALLOC_SCOPE", "retained", 1) == 0, "set fault scope");
+    check(setenv("TNY_TEST_ALLOC_FAIL_AT", "1", 1) == 0, "set fault index");
+    tny_alloc_scope_begin("retained");
+}
+void clear_fault() {
+    unsetenv("TNY_TEST_ALLOC_SCOPE");
+    unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+    tny_alloc_scope_begin("disabled");
+}
+void terminal_failure_releases_capacity() {
+    const size_t baseline = tny_parser_test_live_allocations();
+    std::string prefix = "data: " + std::string(1024, 'a');
+    std::string large(32768, 'b');
+    for (bool flush : {false, true}) {
+        sse_parser p{};
+        capture out;
+        check(sse_feed(&p, prefix.data(), prefix.size(), event, &out) == 0, "SSE warm buffer");
+        check(tny_parser_test_live_allocations() > baseline, "SSE owns allocations before fault");
+        fail_next();
+        int rc = flush ? sse_flush(&p, event, &out)
+                       : sse_feed(&p, large.data(), large.size(), event, &out);
+        check(rc == -2 && tny_alloc_test_scope_injected(), "SSE terminal fault exercised");
+        check(p.owner == nullptr && tny_parser_test_live_allocations() == baseline,
+              "SSE OOM must release capacity before free/reset");
+        check(sse_feed(&p, "", 0, event, &out) == -2 && sse_flush(&p, event, &out) == -2,
+              "SSE OOM status stays sticky after release");
+        clear_fault();
+        sse_parser_free(&p);
+    }
+    connect_decoder p{};
+    capture out;
+    const char header[] = {0, 0, 1, 0, 0};
+    check(connect_decoder_feed(&p, header, sizeof header, frame, &out) == 0, "Connect header");
+    check(connect_decoder_feed(&p, prefix.data(), prefix.size(), frame, &out) == 0,
+          "Connect prefix");
+    check(tny_parser_test_live_allocations() > baseline, "Connect owns allocations before fault");
+    fail_next();
+    check(connect_decoder_feed(&p, large.data(), large.size(), frame, &out) == -2,
+          "Connect terminal fault exercised");
+    check(p.owner == nullptr && tny_parser_test_live_allocations() == baseline,
+          "Connect OOM must release capacity before free/reset");
+    check(connect_decoder_feed(&p, "", 0, frame, &out) == -2, "Connect OOM stays sticky");
+    clear_fault();
+    connect_decoder_free(&p);
+}
 void faults() {
     for (unsigned mode : {0u, 1u, 2u}) {
         const char connect[] = {0,   0,   0,   0,   32,  'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
@@ -243,6 +290,7 @@ int main(int argc, char **argv) {
     split_positions();
     lifetime_and_identity();
     faults();
+    terminal_failure_releases_capacity();
     limits();
     for (auto wire : {"", chat, responses, "data: {\n\n", "data:\r\n\r\n"}) {
         for (unsigned char mode : {0, 1, 2}) {

@@ -1011,16 +1011,23 @@ tnytty-clean:
 # Focused parser driver: deterministic smoke with allocation-index sweeps on
 # every native host; libFuzzer uses instrumented production C++ objects.
 PARSER_SMOKE = $(BUILD)/fuzz/parser-smoke
+PARSER_TEST_CPP_OBJS = $(addprefix $(BUILD)/parser-test/,$(SRC_CPP:%=%.o))
+PARSER_TEST_OBJS = $(filter-out $(OBJ_DBG)/src/util/alloc.o $(addprefix $(OBJ_DBG)/,$(SRC_CPP:%=%.o)),$(sort $(TEST_OBJS))) $(PARSER_TEST_CPP_OBJS)
+PARSER_TEST_CPPFLAGS = $(call cppflags,$(DBG_CFLAGS)) -DTNY_ALLOC_TESTING=1
+$(BUILD)/parser-test/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(PARSER_TEST_CPPFLAGS) -MMD -MP -c -o $@ $<
 PARSER_FAULT_ALLOC = $(OBJ_DBG)/parser-alloc.o
 $(PARSER_FAULT_ALLOC): src/util/alloc.c
 	@mkdir -p $(@D)
 	$(CC) $(DBG_CFLAGS) -DTNY_ALLOC_TESTING=1 -MMD -MP -c -o $@ $<
 $(OBJ_DBG)/tests/fuzz/fuzz_parsers.cpp.o: CXXFLAGS += -DTNY_PARSER_STANDALONE=1 -DTNY_ALLOC_TESTING=1
-$(PARSER_SMOKE): $(OBJ_DBG)/tests/fuzz/fuzz_parsers.cpp.o $(PARSER_FAULT_ALLOC) $(filter-out $(OBJ_DBG)/src/util/alloc.o,$(sort $(TEST_OBJS)))
+$(PARSER_SMOKE): $(OBJ_DBG)/tests/fuzz/fuzz_parsers.cpp.o $(PARSER_FAULT_ALLOC) $(PARSER_TEST_OBJS)
 	@mkdir -p $(@D)
 	$(CXX) $(call cppflags,$(DBG_CFLAGS)) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))
 test-parser-smoke: $(PARSER_SMOKE)
 	$(PARSER_SMOKE) $(wildcard tests/fuzz/parser-corpus/*)
+	$(PARSER_BACKEND_SMOKE)
 
 PARSER_FUZZ = $(BUILD)/fuzz-libfuzzer/parser-fuzz
 $(PARSER_FUZZ): $(OBJ_FUZZ)/tests/fuzz/fuzz_parsers.cpp.o $(FUZZ_OBJS)
@@ -1043,3 +1050,13 @@ endif
 test-cpp-gates:
 	CLANG_FORMAT='$(CLANG_FORMAT)' CLANG_TIDY='$(CLANG_TIDY)' python3 tests/build/test_cpp_gates.py
 .PHONY: test-cpp-gates
+
+-include $(PARSER_TEST_CPP_OBJS:.o=.d)
+
+PARSER_BACKEND_SMOKE = $(BUILD)/fuzz/parser-backend-oom
+$(OBJ_DBG)/tests/fuzz/parser_backend_oom.o: DBG_CFLAGS += -DTNY_ALLOC_TESTING=1
+$(PARSER_BACKEND_SMOKE): $(OBJ_DBG)/tests/fuzz/parser_backend_oom.o $(PARSER_FAULT_ALLOC) $(PARSER_TEST_OBJS)
+	@mkdir -p $(@D)
+	$(CXX) $(call cppflags,$(DBG_CFLAGS)) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))
+test-parser-smoke: $(PARSER_BACKEND_SMOKE)
+-include $(OBJ_DBG)/tests/fuzz/parser_backend_oom.d

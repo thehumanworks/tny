@@ -1,0 +1,25 @@
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/custom_tools.o
+duplicate symbol '_tny_host_services_copy' in:
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/host_services.o
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/host_services.o
+duplicate symbol '_custom_tools_register' in:
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/custom_tools.o
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/custom_tools.o
+duplicate symbol '_tny_host_services_monotonic' in:
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/host_services.o
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/host_services.o
+duplicate symbol '_tny_tool_call_release' in:
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/custom_tools.o
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/custom_tools.o
+duplicate symbol '_tny_host_services_random' in:
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/host_services.o
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/host_services.o
+duplicate symbol '_custom_tools_visit' in:
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/custom_tools.o
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/custom_tools.o
+duplicate symbol '_custom_tools_free' in:
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/custom_tools.o
+    /Users/tomas/projects/tny-cpp-parsers/build/dbg/src/lib/custom_tools.o
+ld: 37 duplicate symbols
+clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+

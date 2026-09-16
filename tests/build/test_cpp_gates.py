@@ -28,6 +28,8 @@ def main():
             "TIDY_CPP_SRC",
             "REL_OBJS",
             "TEST_OBJS",
+            "PARSER_TEST_CPP_OBJS",
+            "PARSER_TEST_OBJS",
             "LIB_PIC_OBJS",
             "FAULT_PIC_OBJS",
             "FAULT_SAN_PIC_OBJS",
@@ -79,6 +81,7 @@ def main():
         for target, compiler, flag in [
             ("build/rel/" + relative + ".o", "c++20", "-flto"),
             ("build/dbg/" + relative + ".o", "c++20", "-fsanitize=address,undefined"),
+            ("build/parser-test/" + relative + ".o", "c++20", "-DTNY_ALLOC_TESTING=1"),
             ("build/fault-pic/" + relative + ".o", "c++20", "-DTNY_ALLOC_TESTING=1"),
             (
                 "build/fault-san-pic/" + relative + ".o",
