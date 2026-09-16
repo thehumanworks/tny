@@ -190,6 +190,23 @@ TP_WASM := third_party/yyjson/yyjson.c
 
 REL_OBJS := $(call objects,$(OBJ_REL),$(SRC)) $(call objects,$(OBJ_REL),$(TP))
 
+# GCC on MSYS2/Cygwin targets PE without MAKE_DECL_ONE_ONLY, so its
+# binds_local_p refuses local binding for public inline one-only definitions
+# (config/mingw/winnt.cc, PR target/66655). GCC 15.3 then asserts in
+# binds_to_current_def_p during the LTRANS alias pass of the IPA-CP clone of
+# jobs.cpp's supervisor launcher, which calls the private descriptor owners.
+# That module alone becomes a native object on that lane (ADR 0122); every
+# other object and the link keep -flto=auto, -Os, -fexceptions and -Werror.
+# Empty on every other host and driver. LTO_EXEMPT_CPP= re-tests a fixed GCC.
+LTO_EXEMPT_CPP ?=
+ifeq ($(WINDOWS):$(REL_LTO),1:-flto=auto)
+  LTO_EXEMPT_CPP += src/core/jobs.cpp
+endif
+ifneq ($(strip $(LTO_EXEMPT_CPP)),)
+$(call objects,$(OBJ_REL),$(LTO_EXEMPT_CPP)): Makefile
+$(call objects,$(OBJ_REL),$(LTO_EXEMPT_CPP)): REL_LTO := -fno-lto
+endif
+
 # libtny ABI 1: headless runtime only. ACP server/turn are application
 # adapters; the ACP client wire remains a library backend.
 LIB_APP_EXCLUDE := src/main.c $(filter-out src/cli/globals.c,$(wildcard src/cli/*.c src/tui/*.c)) \

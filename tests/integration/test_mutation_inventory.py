@@ -59,6 +59,7 @@ class MutationInventory(unittest.TestCase):
             }
             with (
                 patch.object(sys, "argv", ["mutate", "--focus", "fixture"]),
+                patch.object(MUTATION, "ROOT", directory),
                 patch.object(
                     MUTATION,
                     "TARGETS",
@@ -78,7 +79,9 @@ class MutationInventory(unittest.TestCase):
 
     def test_all_uncompilable_mutants_fail_closed(self):
         self.assertEqual(
-            self.exercise([(0, ""), (0, ""), (1, "invalid mutant"), (0, ""), (0, "")]),
+            self.exercise(
+                [(0, ""), (0, ""), (1, "invalid mutant"), (0, ""), (0, ""), (0, "")]
+            ),
             2,
         )
 
@@ -93,7 +96,7 @@ class MutationInventory(unittest.TestCase):
     def test_valid_killed_mutant_and_restored_build_pass(self):
         self.assertEqual(
             self.exercise(
-                [(0, ""), (0, ""), (0, ""), (1, "assertion"), (0, ""), (0, "")]
+                [(0, ""), (0, ""), (0, ""), (1, "assertion"), (0, ""), (0, ""), (0, "")]
             ),
             0,
         )

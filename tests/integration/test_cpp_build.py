@@ -222,6 +222,39 @@ int main() { return 0; }
             self.assertTrue((self.root / f"build/lib/libtny.{suffix}").exists())
             self.run_command([str(self.root / "build/consumer")])
 
+    def test_lto_exempt_cpp_object_links_into_the_lto_executable(self):
+        # ADR 0122: a listed private C++ module compiles to a native object
+        # while every other object and the executable link keep LTO. The
+        # exception path through that native object still runs.
+        exempt = "LTO_EXEMPT_CPP=src/util/probe.cpp"
+        self.make("-j2", "release", "SANITIZE=0", exempt)
+        self.run_command([str(self.root / "build/tny")])
+        output = self.make(
+            "-n", "-B", "release", exempt, "CC=probe-cc", "CXX=probe-cxx"
+        )
+
+        def options(target):
+            matches = [line for line in output.splitlines() if f" -o {target} " in line]
+            self.assertEqual(len(matches), 1, target)
+            return shlex.split(matches[0])
+
+        native = options("build/rel/src/util/probe.cpp.o")
+        self.assertIn("-fno-lto", native)
+        self.assertFalse([option for option in native if option.startswith("-flto")])
+        for required in ("-std=c++20", "-fexceptions", "-fno-rtti", "-Werror"):
+            self.assertIn(required, native)
+        for target in (
+            "build/rel/src/json/discovery.cpp.o",
+            "build/rel/src/util/probe.o",
+            "build/tny",
+        ):
+            with self.subTest(target=target):
+                kept = options(target)
+                self.assertTrue(
+                    [option for option in kept if option.startswith("-flto")]
+                )
+                self.assertNotIn("-fno-lto", kept)
+
     def test_gitless_quality_discovery_keeps_first_party_sources(self):
         self.write("scripts/discovery.sh", "#!/bin/sh\necho discovery\n")
         self.write("build/ignored.cpp", "invalid generated source\n")

@@ -1094,6 +1094,20 @@ def run(cmd, timeout, cwd=ROOT):
         return -9, "(timeout after %ss)" % timeout
 
 
+def write_source_and_invalidate_objects(filename, text):
+    """Force real recompilation without future mtimes or clock-skew warnings."""
+    source = Path(filename)
+    relative = source.resolve().relative_to(Path(ROOT).resolve())
+    object_name = (
+        str(relative) + ".o"
+        if source.suffix == ".cpp"
+        else str(relative.with_suffix(".o"))
+    )
+    source.write_text(text)
+    for lane in ("dbg", "rel", "pic", "fault-pic", "fault-san-pic", "tsan-pic"):
+        (Path(ROOT) / "build" / lane / object_name).unlink(missing_ok=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fast", action="store_true")
@@ -1142,12 +1156,7 @@ def main():
     t0 = time.time()
     for i, mu in enumerate(mutants):
         orig = Path(mu["file"]).read_text()
-        Path(mu["file"]).write_text(mu["text"])
-        # ancient GNU make (3.81, macOS) has 1-second mtime granularity: a
-        # mutant written <1s after the previous restore would NOT rebuild
-        # and the tests would run against the original code. Force it.
-        now = time.time()
-        os.utime(mu["file"], (now + 2, now + 2))
+        write_source_and_invalidate_objects(mu["file"], mu["text"])
         tag = "%s:%d [%s]" % (os.path.relpath(mu["file"], ROOT), mu["line"], mu["op"])
         try:
             rc, out = run(["make", "debug"], 180)
@@ -1183,11 +1192,9 @@ def main():
                 survivors.append(mu)
                 print("%3d/%d  SURVIVED  %s" % (i + 1, len(mutants), tag))
         finally:
-            Path(mu["file"]).write_text(orig)
-            now = time.time()  # same granularity trap on the restore
-            os.utime(mu["file"], (now + 2, now + 2))
+            write_source_and_invalidate_objects(mu["file"], orig)
     # Restoration is part of the gate, not an unchecked best-effort action.
-    for command in (["make", "debug"], ["make", "release"]):
+    for command in (["make", "debug"], ["make", "release"], baseline):
         rc, output = run(command, 300)
         if rc != 0:
             print("error: restored mutation build failed\n" + output, file=sys.stderr)

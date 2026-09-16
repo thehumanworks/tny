@@ -23,6 +23,14 @@ static dependency; it does not suppress warnings, disable LTO or advertise a
 Windows libtny shared library. GCC native release LTO uses `-flto=auto` and
 Clang keeps `-flto` ([ADR 0119](adr/0119-build-lane-parity-and-exhaustive-fault-proof.md)).
 `test_windows_lto_flags.py` checks both branches and both LTO spellings.
+GCC 15.3 on that lane compiles `src/core/jobs.cpp` alone as a native object:
+its PE `binds_local_p` refuses local binding for public inline one-only
+definitions, and the LTRANS alias pass then asserts in `binds_to_current_def_p`
+while compiling the launcher's IPA-CP clone. Every other object and the link
+keep `-flto=auto`, `-Os`, `-fexceptions` and `-Werror`
+([ADR 0122](adr/0122-msys-gcc-lto-exempt-jobs-module.md)); `make release
+LTO_EXEMPT_CPP=` re-tests a fixed compiler, and `test_cpp_build.py` links a
+real native C++ object into an LTO executable.
 The MSYS2 `gcc` package already ships `g++`; there is no `gcc-c++` package.
 
 The Pages workflow also builds `tny-web.mjs` with emsdk and publishes it

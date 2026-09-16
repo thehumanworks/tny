@@ -213,6 +213,78 @@ class WindowsLtoFlags(unittest.TestCase):
             self.assertEqual(len(commands), 1, target)
             self.assertIn("-Dyyjson_inline=inline", commands[0].split())
 
+    def test_msys_gcc_compiles_only_the_jobs_module_natively(self):
+        # ADR 0122: GCC on PE asserts in binds_to_current_def_p during the
+        # LTRANS alias pass of jobs.cpp's launcher clone. That object alone is
+        # native on the MSYS GCC lane; MSYS Clang, other hosts and the explicit
+        # LTO_EXEMPT_CPP= override keep every object in LTO.
+        jobs = "build/rel/src/core/jobs.cpp.o"
+        siblings = (
+            "build/rel/src/core/runner.cpp.o",
+            "build/rel/src/util/jobs_host.o",
+        )
+        kept = ("-Wall", "-Wextra", "-Werror", "-Os", "-std=c++20", "-fexceptions")
+        with tempfile.TemporaryDirectory(prefix="tny-lto-exempt-") as tmp:
+            compiler = Path(tmp) / "compiler.py"
+            compiler.write_text(
+                "import sys\n"
+                "print('clang version 18.0.0' if 'clang' in sys.argv[1] "
+                "else 'gcc (GCC) 15.3.0')\n"
+            )
+            cases = (
+                ("MSYS_NT-10.0", "gcc", (), "-fno-lto", "-flto=auto", "build/tny.exe"),
+                (
+                    "MSYS_NT-10.0",
+                    "gcc",
+                    ("LTO_EXEMPT_CPP=",),
+                    "-flto=auto",
+                    "-flto=auto",
+                    "build/tny.exe",
+                ),
+                ("MSYS_NT-10.0", "clang", (), "-flto", "-flto", "build/tny.exe"),
+                ("Linux", "gcc", (), "-flto=auto", "-flto=auto", "build/tny"),
+            )
+            for platform, vendor, extra, jobs_lto, lto, binary in cases:
+                with self.subTest(platform=platform, vendor=vendor, extra=extra):
+                    cc = shlex.join([sys.executable, str(compiler), vendor])
+                    commands = subprocess.run(
+                        [
+                            "make",
+                            "-n",
+                            "-B",
+                            "release",
+                            f"CC={cc}",
+                            f"UNAME_S={platform}",
+                            "UNAME_M=x86_64",
+                            *extra,
+                        ],
+                        cwd=ROOT,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    ).stdout.splitlines()
+
+                    def options(target):
+                        matches = [
+                            line for line in commands if f" -o {target} " in line
+                        ]
+                        self.assertEqual(len(matches), 1, target)
+                        return shlex.split(matches[0])
+
+                    jobs_options = options(jobs)
+                    lto_options = [
+                        option
+                        for option in jobs_options
+                        if option.startswith("-flto") or option == "-fno-lto"
+                    ]
+                    self.assertEqual(lto_options, [jobs_lto])
+                    for option in kept:
+                        self.assertIn(option, jobs_options)
+                    for target in (*siblings, binary):
+                        sibling_options = options(target)
+                        self.assertIn(lto, sibling_options)
+                        self.assertNotIn("-fno-lto", sibling_options)
+
 
 if __name__ == "__main__":
     # The integration runner supplies its binary even though this check reads

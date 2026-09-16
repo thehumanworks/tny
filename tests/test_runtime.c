@@ -457,6 +457,57 @@ TEST runtime_async_allocation_sweep(void) {
 #endif
 
 #ifdef TNY_ALLOC_TESTING
+TEST runtime_callback_oom_survives_allocator_scope_reset(void) {
+    fixture x = fixture_new(3);
+    char err[128];
+    for (int index = 1; index <= 2; ++index) {
+        ASSERT_EQ(0, tny_engine_start(x.engine, "callback oom", NULL, err, sizeof err));
+        size_t live = tny_alloc_test_owned_live();
+        char value[16];
+        snprintf(value, sizeof value, "%d", index);
+        setenv("TNY_TEST_ALLOC_SCOPE", "callback-event-copy", 1);
+        setenv("TNY_TEST_ALLOC_FAIL_AT", value, 1);
+        tny_alloc_scope_begin("callback-event-copy");
+        tny_backend_event event = {0};
+        event.kind = TNY_EV_TEXT_DELTA;
+        event.text = "retained callback bytes";
+        event.text_len = strlen(event.text);
+        x.fake->cb(&event, x.fake->ud);
+        bool injected = tny_alloc_test_scope_injected();
+        bool failed = tny_alloc_scope_failed();
+        unsetenv("TNY_TEST_ALLOC_SCOPE");
+        unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+        /* The provider can finish its allocation scope before the event loop
+         * resumes. The queue's error belongs to the engine, not that TLS scope. */
+        tny_alloc_scope_begin("later-backend-work");
+        ASSERT(injected && failed);
+        ASSERT_EQ(live, tny_alloc_test_owned_live());
+        tny_owned_event *owned = NULL;
+        ASSERT_EQ(TNY_ENGINE_NEXT_EVENT,
+                  tny_engine_next_event(x.engine, 0, &owned, err, sizeof err));
+        ASSERT(owned);
+        ASSERT_EQ(TNY_EV_ERROR, owned->ev.kind);
+        ASSERT_EQ(TNY_EVENT_ERROR_OOM, owned->ev.error_code);
+        tny_owned_event_free(owned);
+        ASSERT_EQ(TNY_ENGINE_NEXT_EVENT,
+                  tny_engine_next_event(x.engine, 0, &owned, err, sizeof err));
+        ASSERT(owned);
+        ASSERT_EQ(TNY_EV_TURN_END, owned->ev.kind);
+        ASSERT_EQ(TNY_STOP_ERROR, owned->ev.stop);
+        tny_owned_event_free(owned);
+        ASSERT_EQ(TNY_ENGINE_NEXT_DRAINED,
+                  tny_engine_next_event(x.engine, 0, &owned, err, sizeof err));
+        ASSERT_EQ(index, x.fake->cancels);
+    }
+    x.fake->mode = 0;
+    ASSERT_EQ(0, tny_engine_start(x.engine, "after callback oom", NULL, err, sizeof err));
+    tny_stop_reason stop = TNY_STOP_ERROR;
+    ASSERT_EQ(2, drain_engine(x.engine, &stop));
+    ASSERT_EQ(TNY_STOP_DONE, stop);
+    fixture_free(&x);
+    PASS();
+}
+
 TEST runtime_reserved_settlement_never_allocates(void) {
     fixture x = fixture_new(3);
     char err[128];
@@ -1676,6 +1727,7 @@ TEST event_jsonl_writer_yields_to_a_late_interrupt_on_an_initially_full_pipe(voi
 SUITE(runtime_suite) {
     RUN_TEST(runtime_async_leases_survive_all_invalidation_orders);
 #ifdef TNY_ALLOC_TESTING
+    RUN_TEST(runtime_callback_oom_survives_allocator_scope_reset);
     RUN_TEST(runtime_reserved_settlement_never_allocates);
     RUN_TEST(runtime_async_allocation_sweep);
     RUN_TEST(runtime_async_pending_call_free_releases_owner);

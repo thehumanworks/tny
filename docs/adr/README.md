@@ -109,3 +109,5 @@ files in this directory are the complete record.
 - [0121 — Maintainable C++ and the six-megabyte ceiling](0121-maintainable-cpp-and-six-megabyte-ceiling.md)
 
 - [0123 — Reconcile the two C++ migration histories](0123-reconcile-the-two-cpp-migration-histories.md)
+
+- [0122 — Scoped MSYS GCC LTO workaround](0122-msys-gcc-lto-exempt-jobs-module.md)

@@ -99,3 +99,5 @@ old per-platform executable ceilings with a strictly-below-6,000,000-byte
 artifact guardrail. Prefer readable, explicit ownership and maintainable
 extension boundaries over byte-saving tricks. Latency, throughput, memory,
 fault recovery and ABI gates remain mandatory and independently measured.
+
+Implementation guide: [Extending the private C++ ownership layer](cpp-ownership.md).

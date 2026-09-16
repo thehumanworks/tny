@@ -7,4 +7,9 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-subprocess.run(["make", "test-libtny-fault"], cwd=ROOT, check=True, timeout=600)
+subprocess.run(
+    ["make", "test-runtime-ownership", "test-libtny-fault"],
+    cwd=ROOT,
+    check=True,
+    timeout=600,
+)
