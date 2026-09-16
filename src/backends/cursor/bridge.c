@@ -4,6 +4,7 @@
  * is not the ready line is forwarded to our stderr; the ready line and the
  * bearer token are never printed or logged. */
 #include "backends/cursor/cursor.h"
+#include "util/alloc.h"
 #include "util/tny_poll.h"
 
 #include <errno.h>
@@ -221,11 +222,10 @@ static const char *resolve_bin(tny_ctx *ctx) {
 static void forward_line(cursor_bridge *bp, const char *line, size_t len, buf_t *capture) {
     while (len && (line[len - 1] == '\r' || line[len - 1] == '\n')) len--;
     if (!len) return;
-    if (bp->token[0] && len < 64u * 1024u) {
-        char *tmp = xstrndup(line, len);
-        bool leak = strstr(tmp, bp->token) != NULL;
-        free(tmp);
-        if (leak) return;
+    size_t token_len = strlen(bp->token);
+    if (token_len && token_len <= len) {
+        for (size_t i = 0; i <= len - token_len; i++)
+            if (memcmp(line + i, bp->token, token_len) == 0) return;
     }
     if (capture && capture->len < 2048) buf_appendf(capture, "%.*s ", (int)len, line);
     if (!bp->quiet && tny_debug()) fprintf(stderr, "cursor-sdk-bridge: %.*s\n", (int)len, line);
@@ -242,6 +242,7 @@ static int consume_lines(cursor_bridge *bp, buf_t *capture, char *err, size_t er
         if (rc < 0) return -1;
         if (rc == 1) bp->ready = true;
         else forward_line(bp, bp->acc.data, len, capture);
+        if (tny_alloc_scope_failed()) return -1;
         buf_consume(&bp->acc, len + 1);
     }
     if (bp->acc.len > CURSOR_MAX_STDERR) buf_clear(&bp->acc); /* runaway host */
@@ -257,7 +258,7 @@ static int drain(cursor_bridge *bp, buf_t *capture, char *err, size_t errlen, bo
         if (n > 0) {
             buf_append(&bp->acc, tmp, (size_t)n);
             got = 1;
-            if (consume_lines(bp, capture, err, errlen) != 0) {
+            if (tny_alloc_scope_failed() || consume_lines(bp, capture, err, errlen) != 0) {
                 *bad = true;
                 return -1;
             }

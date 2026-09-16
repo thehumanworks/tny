@@ -1,0 +1,19 @@
+{
+  "baseline": {
+    "events": 200,
+    "allocations": 2400,
+    "requested_bytes": 262200,
+    "malloc_size_bytes": 332800,
+    "logical_payload_bytes": 219000
+  },
+  "candidate": {
+    "events": 200,
+    "allocations": 400,
+    "requested_bytes": 270200,
+    "malloc_size_bytes": 307200,
+    "logical_payload_bytes": 219000
+  },
+  "baseline_revision": "a33deda56d6b1388832d98bc3a52572bd15b4a70",
+  "candidate_source_sha256": "8c46efe39670bafe027de792bbfd5c2a95b04db6fda95f61dc7563d3e8e5c448",
+  "scope": "200 event construction/retention only; allocator block sizes via Darwin malloc_size, not process RSS or throughput"
+}

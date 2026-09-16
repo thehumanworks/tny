@@ -2,6 +2,7 @@
 #include "backends/cursor/sdk_error.h"
 
 #include "json/json.h"
+#include "util/alloc.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -123,6 +124,7 @@ static bool parse_rate_limit(cursor_sdk_error *error, const uint8_t *data, size_
 static bool parse_details(cursor_sdk_error *error, const uint8_t *data, size_t len) {
     wire_reader r = {data, data + len};
     while (r.p < r.end) {
+        if (tny_alloc_scope_failed()) return false;
         uint64_t tag, value;
         const uint8_t *bytes;
         size_t n;
@@ -148,6 +150,7 @@ static bool parse_details(cursor_sdk_error *error, const uint8_t *data, size_t l
             return false;
         }
     }
+    if (tny_alloc_scope_failed()) return false;
     error->has_sdk_details = true;
     return true;
 }
@@ -200,6 +203,7 @@ int cursor_sdk_error_parse(cursor_sdk_error *error, const char *body, size_t len
     cursor_sdk_error_free(error);
     error->http_status = http_status;
     yyjson_doc *doc = jparse(body ? body : "", len);
+    if (tny_alloc_scope_failed()) goto oom;
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
     if (!yyjson_is_obj(root)) {
         yyjson_doc_free(doc);
@@ -213,6 +217,7 @@ int cursor_sdk_error_parse(cursor_sdk_error *error, const char *body, size_t len
     const char *message = jget_str(source, "message");
     if (code) snprintf(error->connect_code, sizeof error->connect_code, "%.39s", code);
     if (message) error->message = xstrdup(message);
+    if (tny_alloc_scope_failed()) goto oom;
 
     yyjson_val *details = jget(source, "details");
     if (yyjson_is_arr(details)) {
@@ -225,7 +230,7 @@ int cursor_sdk_error_parse(cursor_sdk_error *error, const char *body, size_t len
             size_t cap = (strlen(encoded) * 3u) / 4u + 3u;
             if (cap > CURSOR_SDK_MAX_ERROR_DETAIL) continue;
             uint8_t *decoded = malloc(cap ? cap : 1u);
-            if (!decoded) continue;
+            if (!decoded) goto oom;
             size_t decoded_len = decode_detail(encoded, decoded, cap);
             cursor_sdk_error parsed;
             cursor_sdk_error_init(&parsed);
@@ -242,11 +247,17 @@ int cursor_sdk_error_parse(cursor_sdk_error *error, const char *body, size_t len
                 cursor_sdk_error_free(&parsed);
             }
             free(decoded);
+            if (tny_alloc_scope_failed()) goto oom;
             if (error->has_sdk_details) break;
         }
     }
     yyjson_doc_free(doc);
     return 0;
+oom:
+    tny_alloc_provider_failed();
+    yyjson_doc_free(doc);
+    cursor_sdk_error_free(error);
+    return -2;
 }
 
 const char *cursor_sdk_error_code_name(int32_t code) {

@@ -4,7 +4,9 @@
  * session/prompt stays pending for the whole turn. */
 #include "backends/acp/acp_client.h"
 #include "util/util.h"
+#include "util/alloc.h"
 
+#include <errno.h>
 #include <poll.h>
 #include "util/tny_poll.h"
 #include <signal.h>
@@ -123,21 +125,25 @@ static void ac_disconnect(tny_backend *b) {
         if (o->in_fd >= 0) close(o->in_fd);
         o->in_fd = -1;
         int status = 0;
-        for (int i = 0; i < 50; i++) {
+        if (kill(-pgid, SIGTERM) != 0) kill(o->pid, SIGTERM);
+        int64_t deadline = monotonic_ms() + 500;
+        while (o->pid > 0) {
             pid_t r = waitpid(o->pid, &status, WNOHANG);
-            if (r == o->pid || r < 0) {
+            if (r == o->pid || (r < 0 && errno == ECHILD)) {
                 o->pid = 0;
                 break;
             }
-            struct pollfd p = {o->out_fd, POLLIN, 0};
-            tny_poll(&p, o->out_fd >= 0 ? 1 : 0, 10);
+            int64_t remaining = deadline - monotonic_ms();
+            if (remaining <= 0) break;
+            /* Closed/readable pipes must not turn the grace period into a spin. */
+            tny_poll(NULL, 0, remaining < 10 ? (int)remaining : 10);
         }
+        if (kill(-pgid, SIGKILL) != 0 && o->pid > 0) kill(o->pid, SIGKILL);
         if (o->pid > 0) {
-            if (kill(-pgid, SIGTERM) != 0) kill(o->pid, SIGTERM);
-            waitpid(o->pid, &status, 0);
+            /* Never block before escalation, including agents ignoring TERM. */
+            while (waitpid(o->pid, &status, 0) < 0 && errno == EINTR) {}
             o->pid = 0;
         }
-        kill(-pgid, SIGKILL); /* sweep wrapper-forked descendants */
     }
     if (o->in_fd >= 0) {
         close(o->in_fd);
@@ -262,6 +268,21 @@ static char *ac_session_pointer(tny_backend *b) {
 static int ac_send(tny_backend *b, const char *prompt, const char **images, tny_backend_event_cb cb,
                    void *ud, char *errbuf, size_t errlen) {
     ac_impl *o = b->impl;
+    if (o->cancelled && o->pid <= 0 && !o->ws) {
+        /* OOM teardown retained the id, but no live protocol state. */
+        char *pointer = ac_session_pointer(b);
+        if (!pointer) {
+            snprintf(errbuf, errlen, "acp: out of memory retaining session pointer");
+            return -1;
+        }
+        int rc = ac_connect(b, errbuf, errlen);
+        if (rc == 0) rc = ac_create_or_resume(b, pointer, errbuf, errlen);
+        free(pointer);
+        if (rc != 0) {
+            ac_disconnect(b);
+            return -1;
+        }
+    }
     if (!o->session_id) {
         snprintf(errbuf, errlen, "acp: no session (call create_or_resume first)");
         return -1;
@@ -306,8 +327,21 @@ static int ac_send(tny_backend *b, const char *prompt, const char **images, tny_
 
 static void ac_cancel(tny_backend *b) {
     ac_impl *o = b->impl;
-    if (!o->turn_active || o->cancelled) return;
+    if ((!o->turn_active || o->cancelled) && !tny_alloc_settling()) return;
     o->cancelled = true;
+    if (tny_alloc_settling()) {
+        ac_disconnect(b);
+        ac_perms_clear(o);
+        acp_reader_free(&o->out_r);
+        acp_reader_free(&o->err_r);
+        acp_reader_init(&o->out_r);
+        acp_reader_init(&o->err_r);
+        yyjson_doc_free(o->wait_doc);
+        o->wait_doc = NULL;
+        o->wait_id = -1;
+        o->turn_active = false;
+        return;
+    }
     buf_t p;
     buf_init(&p);
     buf_appends(&p, "{\"sessionId\":");
@@ -368,6 +402,10 @@ static int ac_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     ac_impl *o = b->impl;
     if (!o->ws && o->out_fd < 0) return 0;
     int rc = ac_pump_reads(o);
+    if (rc == -3 || tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
     if (rc == -2) {
         fail_turn(o, "acp: agent sent a message over the 8 MiB cap");
         return -1;

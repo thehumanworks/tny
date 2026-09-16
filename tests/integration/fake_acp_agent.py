@@ -14,6 +14,7 @@ it across processes). Stdlib only.
 
 import json
 import os
+import signal
 import sys
 
 STATE = os.environ.get("FAKE_ACP_STATE")
@@ -354,7 +355,24 @@ def main():
             confirmed = "default-model" if BAD_MODEL_CONFIRM else CURRENT_MODEL
             result(msg["id"], {"configOptions": config_options(confirmed)})
         elif method == "session/prompt":
-            run_prompt(msg)
+            if "--oom-settlement" in sys.argv:
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                update(
+                    SESSION_ID,
+                    {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "ready"},
+                    },
+                )
+                if params["prompt"][0]["text"] == "park":
+                    # Bound a broken parent implementation without masking its
+                    # timely-settlement assertion or leaking a fixture process.
+                    signal.alarm(5)
+                    while True:
+                        signal.pause()
+                result(msg["id"], {"stopReason": "end_turn"})
+            else:
+                run_prompt(msg)
         elif method == "session/cancel":
             state_write("cancelled", True)
         elif "id" in msg:

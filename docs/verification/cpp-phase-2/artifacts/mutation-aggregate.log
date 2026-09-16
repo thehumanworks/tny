@@ -1,0 +1,44 @@
+python3 tests/mutation/mutate.py --focus libtny-safety --test runtime_
+generated 6 mutants
+  1/6  invalid   src/core/runtime.c:1710 [&& -> ||]
+  2/6  invalid   src/core/runtime.c:1710 [&& -> ||]
+  3/6  killed:u  src/core/runtime.c:1702 [|| -> &&]
+  4/6  killed:u  src/core/runtime.c:1704 [false -> true]
+  5/6  killed:u  src/core/runtime.c:1705 [false -> true]
+  6/6  killed:u  src/core/runtime.c:1728 [false -> true]
+
+== mutation results (35s) ==
+valid mutants : 4 (invalid/uncompilable: 2)
+killed by unit: 4
+killed by int : 0
+survived      : 0
+kill ratio    : 100.0%
+python3 tests/mutation/mutate.py --focus libtny-fault-mutation --test runtime_
+generated 2 mutants
+  1/2  killed:u  src/core/runtime.c:185 [true -> false]
+  2/2  killed:u  src/core/runtime.c:1350 [true -> false]
+
+== mutation results (12s) ==
+valid mutants : 2 (invalid/uncompilable: 0)
+killed by unit: 2
+killed by int : 0
+survived      : 0
+kill ratio    : 100.0%
+python3 tests/mutation/mutate.py --focus libtny-custom-tools --test runtime_async
+generated 9 mutants
+  1/9  killed:u  src/lib/custom_tools.cpp:459 [!= -> ==]
+  2/9  killed:u  src/lib/custom_tools.cpp:460 [!= -> ==]
+  3/9  invalid   src/lib/custom_tools.cpp:459 [|| -> &&]
+  4/9  invalid   src/lib/custom_tools.cpp:459 [|| -> &&]
+  5/9  invalid   src/lib/custom_tools.cpp:459 [|| -> &&]
+  6/9  invalid   src/lib/custom_tools.cpp:459 [|| -> &&]
+  7/9  invalid   src/lib/custom_tools.cpp:460 [|| -> &&]
+  8/9  killed:u  src/lib/custom_tools.cpp:468 [true -> false]
+  9/9  killed:i  src/lib/custom_tools.cpp:485 [return 0 -> return -1]
+
+== mutation results (21s) ==
+valid mutants : 4 (invalid/uncompilable: 5)
+killed by unit: 3
+killed by int : 1
+survived      : 0
+kill ratio    : 100.0%

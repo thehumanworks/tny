@@ -15,7 +15,7 @@ struct mcp_client;    /* mcp/mcp.h */
 struct tny_intercept; /* core/intercept.h */
 struct tny_image_plan;
 struct tny_tool_registration;
-struct tny_tool_call;
+struct custom_tool_pending;
 
 /* Why an entry was admitted to the pending-image queue. It decides the
  * truthful transcript wording and, for a preview, the stricter
@@ -101,7 +101,7 @@ typedef struct {
     char *error;   /* validation error when prepare returns -1 */
     perm_verdict verdict;
     struct tny_tool_registration *custom;
-    struct tny_tool_call *custom_call;
+    struct custom_tool_pending *custom_call;
     /* Set when a `terminal` command was recognised as a first-party tny verb
      * and runs in-process instead (docs/adr/0063). */
     struct tny_intercept *intercept;

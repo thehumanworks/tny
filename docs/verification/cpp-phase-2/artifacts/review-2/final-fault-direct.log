@@ -1,0 +1,19 @@
+
+* Suite acp_suite:
+
+* Suite cursor_suite:
+.
+1 test - 1 passed, 0 failed, 0 skipped (950 ticks, 0.001 sec)
+
+Total: 1 test (984 ticks, 0.001 sec), 29 assertions
+Pass: 1, fail: 0, skip: 0.
+
+* Suite acp_suite:
+.
+1 test - 1 passed, 0 failed, 0 skipped (2457 ticks, 0.002 sec)
+
+* Suite cursor_suite:
+
+Total: 1 test (2482 ticks, 0.002 sec), 29 assertions
+Pass: 1, fail: 0, skip: 0.
+test_libtny_faults: exhaustive allocation sweeps passed; tools_fs_walk=10, toolkit_create=3, toolkit_run=28, runtime_create=23, tool_register=8, tool_error=5, session_create=18, session_open=24, session_send=68, session_send_rearm=67, next_event=151, session_steer=3, respond_permission=9, session_free_permission=8, runtime_free_permission=8, session_free_active=2, runtime_free_active=2, session_free_cancelled=2, runtime_free_cancelled=2, session_free_failed=0, runtime_free_failed=0

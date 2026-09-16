@@ -1,0 +1,21 @@
+release exit=0
+test exit=0
+quality exit=0
+leaks exit=0
+test-abi exit=0
+test-sdks exit=0
+test-libtny-fault exit=0
+test-libtny-fault-sanitize exit=0
+test-libtny-fuzz-smoke exit=0
+test-parser-smoke exit=0
+test-cpp-gates exit=0
+test-runtime-ownership exit=0
+test-libtny-mutation exit=0
+size-check exit=0
+size-report exit=0
+bench-startup exit=0
+ttft-tui-baseline exit=0
+ttft-tui-candidate exit=0
+ttft-ask-stdin-baseline exit=0
+ttft-ask-stdin-candidate exit=0
+ALL-DONE

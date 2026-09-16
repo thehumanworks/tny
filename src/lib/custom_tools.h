@@ -7,6 +7,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct custom_tool_pending custom_tool_pending;
 typedef struct custom_tool_registry custom_tool_registry;
 
 custom_tool_registry *custom_tools_new(void);
@@ -33,10 +38,12 @@ bool custom_tools_visit(custom_tool_registry *registry, custom_tools_visit_fn vi
 
 /* 0 synchronous result, 1 pending async result, negative stable status. */
 int32_t custom_tool_invoke(tny_tool_registration *registration, const char *arguments_json,
-                           tny_tool_call **out_call, char **out_result, bool *out_is_error);
-/* 1 completed result taken, 0 still pending, -1 invalidated. */
-int custom_tool_take(tny_tool_call *call, char **out_result, bool *out_is_error);
-void custom_tool_invalidate(tny_tool_call *call);
+                           custom_tool_pending **out_call, char **out_result, bool *out_is_error);
+/* Pending handle is uniquely owned by the provider. take consumes it on 1 or -1;
+ * invalidate always consumes it. Registry invalidation only changes state.
+ * 1 completed result taken, 0 still pending, -1 invalidated. */
+int custom_tool_take(custom_tool_pending *call, char **out_result, bool *out_is_error);
+void custom_tool_invalidate(custom_tool_pending *call);
 void custom_tools_invalidate_all(custom_tool_registry *registry);
 int custom_tools_wake_fd(custom_tool_registry *registry);
 void custom_tools_wake_drain(custom_tool_registry *registry);
@@ -44,4 +51,7 @@ void custom_tools_wake_drain(custom_tool_registry *registry);
 int32_t custom_tool_complete(tny_tool_call *call, uint64_t generation,
                              const tny_tool_result_v1 *result);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

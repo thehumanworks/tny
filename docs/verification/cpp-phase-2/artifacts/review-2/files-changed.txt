@@ -1,0 +1,20 @@
+Makefile
+docs/verification/cpp-phase-2/evidence.md
+nix/source.nix
+nix/tests.nix
+src/backends/acp/acp_client.c
+src/backends/cursor/cursor.c
+src/backends/cursor/rpc.c
+src/backends/cursor/sdk_client.c
+src/backends/openai/openai.c
+src/net/connectrpc.cpp
+src/net/sse.cpp
+src/util/alloc.c
+src/util/alloc.h
+tests/integration/fake_acp_agent.py
+tests/integration/libtny_provider_fault_host.c
+tests/integration/test_libtny_faults.py
+tests/mutation/runtime_critical.py
+tests/test_acp.c
+tests/test_cursor.c
+docs/verification/cpp-phase-2/artifacts/review-2/ (logs, manifests and mutation evidence)

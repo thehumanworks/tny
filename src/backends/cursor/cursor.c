@@ -14,6 +14,7 @@
 #include "core/cursor_config.h"
 #include "core/image.h"
 #include "lib/custom_tools.h"
+#include "util/alloc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -149,7 +150,7 @@ int cu_append_images(buf_t *body, const char **images, char *err, size_t errlen)
 /* ---------- events ---------- */
 
 void cu_emit(cu_impl *o, const tny_backend_event *ev) {
-    if (o->cb) o->cb(ev, o->ud);
+    if (o->cb && !tny_alloc_scope_failed()) o->cb(ev, o->ud);
 }
 
 void cu_emit_text(cu_impl *o, tny_event_kind k, const char *t, size_t n) {
@@ -686,7 +687,7 @@ static int cu_connect(tny_backend *b, char *e, size_t el) {
                                        e, el) != 0)
         return -1;
     tny_cursor_config *cfg = o->ctx->cursor_config;
-    if (o->ctx->no_save && strcmp(runtime_name(o), "local") == 0) {
+    if (o->ctx->no_save && strcmp(runtime_name(o), "local") == 0 && !o->ephemeral_root) {
         o->ephemeral_root = cu_ephemeral_root_create(e, el);
         if (!o->ephemeral_root) return -1;
     }
@@ -833,10 +834,13 @@ static int cu_create_or_resume(tny_backend *b, const char *ptr, char *e, size_t 
     char *res = rpc(o, method, body.data, e, el);
     if (pump_store) cursor_callbacks_blocking_end(o->callbacks);
     buf_free(&body);
-    if (!res) return -1;
+    if (!res || tny_alloc_scope_failed()) {
+        free(res);
+        return -1;
+    }
     char *fallback_id = resume_id && *resume_id ? xstrdup(resume_id) : NULL;
     free(o->agent_id);
-    o->agent_id = parse_agent_id(res);
+    o->agent_id = tny_alloc_scope_failed() ? NULL : parse_agent_id(res);
     free(res);
     if (!o->agent_id) {
         o->agent_id = fallback_id;
@@ -875,6 +879,22 @@ static char *cu_session_pointer(tny_backend *b) {
 static int cu_send(tny_backend *b, const char *prompt, const char **images, tny_backend_event_cb cb,
                    void *ud, char *errbuf, size_t errlen) {
     cu_impl *o = b->impl;
+    if (!o->connected && o->ended && o->cancel_requested) {
+        /* Emergency OOM closed the bridge without allocating a CancelRun.
+         * Reconnect/resume only after the next turn has rearmed its reserves. */
+        char *pointer = cu_session_pointer(b);
+        if (!pointer) {
+            snprintf(errbuf, errlen, "cursor: out of memory retaining session pointer");
+            return -1;
+        }
+        int rc = cu_connect(b, errbuf, errlen);
+        if (rc == 0) rc = cu_create_or_resume(b, pointer, errbuf, errlen);
+        free(pointer);
+        if (rc != 0) {
+            cu_disconnect(b);
+            return -1;
+        }
+    }
     /* report the model that actually ran (`ask --json`, session meta) —
      * ctx is written here on the caller's thread, never from
      * create_or_resume, which may run on the TUI pre-warm thread */
@@ -1007,6 +1027,10 @@ int cu_send_cancel(cu_impl *o, char *err, size_t errlen) {
         jescape(&body, o->agent_id);
     }
     buf_appends(&body, "}");
+    if (tny_alloc_scope_failed()) {
+        buf_free(&body);
+        return -1;
+    }
     bool pump_store = cursor_callbacks_store_started(o->callbacks);
     if (pump_store && cursor_callbacks_blocking_begin(o->callbacks, err, errlen) != 0) {
         buf_free(&body);
@@ -1015,7 +1039,10 @@ int cu_send_cancel(cu_impl *o, char *err, size_t errlen) {
     char *res = rpc(o, CURSOR_SDK_RPC_CANCEL_RUN, body.data, err, errlen);
     if (pump_store) cursor_callbacks_blocking_end(o->callbacks);
     buf_free(&body);
-    if (!res) return -1;
+    if (!res || tny_alloc_scope_failed()) {
+        free(res);
+        return -1;
+    }
     free(res);
     o->cancel_sent = true;
     return 0;
@@ -1023,10 +1050,21 @@ int cu_send_cancel(cu_impl *o, char *err, size_t errlen) {
 
 static void cu_cancel(tny_backend *b) {
     cu_impl *o = b->impl;
-    if (!o->active) return;
+    if (!o->active && !tny_alloc_settling()) return;
     o->cancel_requested = true;
+    if (tny_alloc_settling()) {
+        /* No JSON/RPC, callback replies, Shutdown RPC or directory traversal.
+         * Retain the session identity and ephemeral store for a later resume. */
+        cursor_sdk_client_close(&o->sdk);
+        cursor_bridge_stop(&o->bridge, 0);
+        cursor_callbacks_destroy(&o->callbacks);
+        o->connected = o->active = false;
+        o->ended = true;
+        return;
+    }
     char err[256];
     if (o->run_id && cu_send_cancel(o, err, sizeof err) != 0) {
+        if (tny_alloc_scope_failed()) return;
         cu_emit_text(o, TNY_EV_STATUS, err, strlen(err));
         if (!o->ctx->library_mode && tny_debug())
             fprintf(stderr, "tny: cursor: CancelRun failed: %s\n", err);
@@ -1085,7 +1123,12 @@ static void cu_note_observe_progress(cu_impl *o) {
 
 static int cu_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     cu_impl *o = b->impl;
-    if (o->callbacks && cursor_callbacks_dispatch(o->callbacks, fds, n) != 0) {
+    int callbacks_rc = o->callbacks ? cursor_callbacks_dispatch(o->callbacks, fds, n) : 0;
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
+    if (callbacks_rc != 0) {
         static const char error[] = "cursor: callback server failed";
         if (!o->ended) {
             cu_emit_text(o, TNY_EV_ERROR, error, sizeof error - 1);
@@ -1094,6 +1137,10 @@ static int cu_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         return -1;
     }
     cursor_bridge_pump(&o->bridge);
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
     if (o->observe_retry_pending) {
         if (now_ms() < o->observe_retry_at_ms) return 0;
         o->observe_retry_pending = false;
@@ -1102,6 +1149,10 @@ static int cu_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             static const char resumed[] = "cursor: recovering the durable run stream";
             cu_emit_text(o, TNY_EV_STATUS, resumed, sizeof resumed - 1);
             return 0;
+        }
+        if (tny_alloc_scope_failed()) {
+            tny_alloc_provider_failed();
+            return -1;
         }
         buf_t message;
         buf_init(&message);
@@ -1118,7 +1169,25 @@ static int cu_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     cursor_sdk_error_init(&sdk_error);
     int rc = cursor_sdk_stream_pump(&o->sdk, cu_on_frame, o, &sdk_error, err, sizeof err);
     cursor_sdk_error_free(&sdk_error);
+    if (rc == -2 || tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        tny_alloc_settlement_begin();
+        cu_cancel(b);
+        tny_backend_event error = {.kind = TNY_EV_ERROR,
+                                   .error_code = TNY_EVENT_ERROR_OOM,
+                                   .text = "out of memory decoding bridge stream",
+                                   .text_len = sizeof "out of memory decoding bridge stream" - 1};
+        if (o->cb) o->cb(&error, o->ud);
+        tny_backend_event end = {.kind = TNY_EV_TURN_END, .stop = TNY_STOP_ERROR};
+        if (o->cb) o->cb(&end, o->ud);
+        tny_alloc_settlement_end();
+        return -1;
+    }
     cu_note_observe_progress(o);
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
 
     if (o->saw_terminal_result) {
         o->observe_no_progress_attempts = 0;
@@ -1162,6 +1231,10 @@ static int cu_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             static const char resumed[] = "cursor: recovering the durable run stream";
             cu_emit_text(o, TNY_EV_STATUS, resumed, sizeof resumed - 1);
             return 0;
+        }
+        if (tny_alloc_scope_failed()) {
+            tny_alloc_provider_failed();
+            return -1;
         }
         buf_t message;
         buf_init(&message);

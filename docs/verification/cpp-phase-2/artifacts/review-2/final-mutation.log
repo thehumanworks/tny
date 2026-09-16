@@ -1,0 +1,27 @@
+build/runtime-test/tny-test -s runtime_suite
+
+* Suite runtime_suite:
+......................................
+38 tests - 38 passed, 0 failed, 0 skipped (119426 ticks, 0.119 sec)
+
+Total: 38 tests (119682 ticks, 0.120 sec), 5008 assertions
+Pass: 38, fail: 0, skip: 0.
+{"mutation": "borrowed-payload", "exit": -6, "reason": "heap-use-after-free", "killed": true, "source_sha256": "8c46efe39670bafe027de792bbfd5c2a95b04db6fda95f61dc7563d3e8e5c448"}
+{"mutation": "wrong-generation", "exit": 1, "reason": "FAIL", "killed": true, "source_sha256": "2aca2111cc32ecccafab7d71f15cc3b2b77164fd9cbce2d460b0711dc861adf9"}
+{"mutation": "early-async-release", "exit": -6, "reason": "heap-use-after-free", "killed": true, "source_sha256": "2aca2111cc32ecccafab7d71f15cc3b2b77164fd9cbce2d460b0711dc861adf9"}
+{"mutation": "queue-byte-accounting", "exit": 1, "reason": "FAIL", "killed": true, "source_sha256": "9f6abf28073ac61189f1eb6f90c5b6ec326e12617cd43aeba257e0c1465c344b"}
+{"mutation": "second-terminal", "exit": 1, "reason": "FAIL", "killed": true, "source_sha256": "9f6abf28073ac61189f1eb6f90c5b6ec326e12617cd43aeba257e0c1465c344b"}
+{"mutation": "allocating-settlement", "exit": 1, "reason": "FAIL", "killed": true, "source_sha256": "9f6abf28073ac61189f1eb6f90c5b6ec326e12617cd43aeba257e0c1465c344b"}
+{"mutation": "provider-allocating-settlement", "exit": 1, "reason": "allocation during reserved OOM settlement", "killed": true, "source_sha256": "ee77c7776b3fca95acd8142ad2851d363b0f7066743dce0a391266de80a29db7"}
+make: `build/lib-fault/provider-faults' is up to date.
+{"mutation": "parser-ordinary-finalization", "exit": 1, "reason": "allocation during reserved OOM settlement", "killed": true, "source_sha256": "ee77c7776b3fca95acd8142ad2851d363b0f7066743dce0a391266de80a29db7"}
+{"mutation": "decoder-observe-recovery", "exit": 1, "reason": "0 != tny_alloc_test_settlement_allocations()", "killed": true, "source_sha256": "a453f80cbfef918e02a5edb57472951dae1d75ab690a9e40200975eab4551123"}
+{"mutation": "acp-block-before-kill", "exit": 1, "reason": "monotonic_ms() - start < 2000", "killed": true, "source_sha256": "9f8ea55deeff99c458092f9c6421501056ee0acb601857054d93122037d01345"}
+build/runtime-test/tny-test -s runtime_suite
+
+* Suite runtime_suite:
+......................................
+38 tests - 38 passed, 0 failed, 0 skipped (121794 ticks, 0.122 sec)
+
+Total: 38 tests (122096 ticks, 0.122 sec), 5008 assertions
+Pass: 38, fail: 0, skip: 0.

@@ -1,0 +1,26 @@
+{
+  "cwd": "/Users/tomas/projects/tny-cpp-series",
+  "baseline": "1b2b89a98ded270af08e4d8ae8b26ba6df2a90b2",
+  "commands": {
+    "uname -sm": {
+      "exit": 0,
+      "output": "Darwin arm64\n"
+    },
+    "cc --version": {
+      "exit": 0,
+      "output": "Apple clang version 21.0.0 (clang-2100.3.27.1)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n"
+    },
+    "c++ --version": {
+      "exit": 0,
+      "output": "Apple clang version 21.0.0 (clang-2100.3.27.1)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n"
+    },
+    "python3 --version": {
+      "exit": 0,
+      "output": "Python 3.14.7\n"
+    },
+    "clang-format --version": {
+      "exit": 0,
+      "output": "clang-format version 23.1.0\n"
+    }
+  }
+}

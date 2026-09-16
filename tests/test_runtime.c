@@ -1,6 +1,7 @@
 /* test_runtime.c — private engine ownership and terminal normalization. */
 #include "greatest.h"
 #include "core/runtime.h"
+#include "core/tools.h"
 #include "cli/cli.h"
 #include "core/event_jsonl.h"
 #include "core/instructions.h"
@@ -8,6 +9,9 @@
 #include "core/tasks.h"
 #include "core/skills.h"
 #include "util/util.h"
+#include "util/alloc.h"
+#include "cpp/testing.h"
+#include "lib/custom_tools.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -291,6 +295,351 @@ TEST runtime_copies_events_and_suppresses_duplicate_terminal(void) {
     ASSERT_EQ(TNY_ENGINE_NEXT_DRAINED, tny_engine_next_event(x.engine, 0, &ev, err, sizeof err));
     fixture_free(&x);
 
+    PASS();
+}
+
+typedef struct {
+    tny_tool_call *host;
+    uint64_t generation;
+    bool release_early;
+} runtime_async_fixture;
+
+static int32_t runtime_async_invoke(void *ud, tny_tool_call *call, uint64_t generation,
+                                    tny_bytes arguments, tny_tool_result_v1 *result) {
+    (void)arguments;
+    (void)result;
+    runtime_async_fixture *x = ud;
+    x->host = call;
+    x->generation = generation;
+    if (x->release_early) {
+        tny_tool_result_v1 completion = {0};
+        completion.abi_version = TNY_TOOL_RESULT_ABI_VERSION;
+        completion.struct_size = sizeof completion;
+        completion.data = (tny_bytes){"early", 5};
+        if (custom_tool_complete(call, generation, &completion) != TNY_STATUS_OK)
+            return TNY_STATUS_INTERNAL;
+        tny_tool_call_release(call);
+        x->host = NULL;
+    }
+    return TNY_TOOL_INVOKE_ASYNC;
+}
+
+static int32_t runtime_async_register(custom_tool_registry *registry, runtime_async_fixture *x,
+                                      tny_tool_registration **registration) {
+    tny_tool_spec_v1 spec = {0};
+    spec.abi_version = TNY_TOOL_SPEC_ABI_VERSION;
+    spec.struct_size = sizeof spec;
+    spec.name = (tny_bytes){"phase_two", 9};
+    spec.description = (tny_bytes){"description longer than the small string optimization", 53};
+    spec.input_schema_json = (tny_bytes){"{\"type\":\"object\"}", 17};
+    spec.invoke = runtime_async_invoke;
+    spec.user_data = x;
+    return custom_tools_register(registry, NULL, &spec, registration);
+}
+
+TEST runtime_async_leases_survive_all_invalidation_orders(void) {
+    for (int mode = 0; mode < 5; ++mode) {
+        custom_tool_registry *registry = custom_tools_new();
+        ASSERT(registry);
+        runtime_async_fixture x = {0};
+        x.release_early = mode == 4;
+        tny_tool_registration *registration = NULL;
+        ASSERT_EQ(TNY_STATUS_OK, runtime_async_register(registry, &x, &registration));
+        custom_tool_pending *pending = NULL;
+        char *result = NULL;
+        bool is_error = false;
+        ASSERT_EQ(TNY_TOOL_INVOKE_ASYNC,
+                  custom_tool_invoke(registration, "{}", &pending, &result, &is_error));
+        ASSERT(pending);
+        if (mode == 4) {
+            ASSERT_EQ(NULL, x.host);
+            ASSERT_EQ(1, custom_tool_take(pending, &result, &is_error));
+            ASSERT_STR_EQ("early", result);
+            free(result);
+            custom_tools_free(registry);
+            continue;
+        }
+        tny_tool_result_v1 completion = {0};
+        completion.abi_version = TNY_TOOL_RESULT_ABI_VERSION;
+        completion.struct_size = sizeof completion;
+        char input[] = "retained";
+        completion.data = (tny_bytes){input, 8};
+        ASSERT_EQ(TNY_STATUS_BAD_STATE,
+                  custom_tool_complete(x.host, x.generation + 1, &completion));
+        if (mode == 0) {
+            ASSERT_EQ(TNY_STATUS_OK, custom_tool_complete(x.host, x.generation, &completion));
+            ASSERT_EQ(TNY_STATUS_BAD_STATE,
+                      custom_tool_complete(x.host, x.generation, &completion));
+            memset(input, 'x', 8);
+            ASSERT_EQ(1, custom_tool_take(pending, &result, &is_error));
+            ASSERT_STR_EQ("retained", result);
+            free(result);
+        } else {
+            if (mode == 1) custom_tools_invalidate_all(registry);
+            if (mode == 2) ASSERT_EQ(TNY_STATUS_OK, custom_tools_unregister(registration));
+            if (mode == 3) {
+                custom_tools_free(registry);
+                registry = NULL;
+            }
+            ASSERT_EQ(-1, custom_tool_take(pending, &result, &is_error));
+        }
+        /* Provider lease is already gone; the worker owns the remaining state. */
+        ASSERT_EQ(TNY_STATUS_BAD_STATE, custom_tool_complete(x.host, x.generation, &completion));
+        ASSERT_EQ(x.generation, tny_tool_call_generation(x.host));
+        tny_tool_call_release(x.host);
+        custom_tools_free(registry);
+    }
+    PASS();
+}
+
+#ifdef TNY_ALLOC_TESTING
+TEST runtime_async_pending_call_free_releases_owner(void) {
+    size_t live = tny_parser_test_live_allocations();
+    custom_tool_registry *registry = custom_tools_new();
+    ASSERT(registry);
+    runtime_async_fixture x = {0};
+    tny_tool_registration *registration = NULL;
+    ASSERT_EQ(TNY_STATUS_OK, runtime_async_register(registry, &x, &registration));
+    tools_call call = {0};
+    char *result = NULL;
+    bool is_error = false;
+    ASSERT_EQ(TNY_TOOL_INVOKE_ASYNC,
+              custom_tool_invoke(registration, "{}", &call.custom_call, &result, &is_error));
+    ASSERT(tools_call_pending(&call));
+    tools_call_free(&call);
+    ASSERT(!tools_call_pending(&call));
+    tools_call_free(&call); /* Cleanup remains idempotent. */
+    tny_tool_call_release(x.host);
+    custom_tools_free(registry);
+    ASSERT_EQ(live, tny_parser_test_live_allocations());
+    PASS();
+}
+
+TEST runtime_async_allocation_sweep(void) {
+    size_t live = tny_parser_test_live_allocations();
+    /* Discover and fail every allocation in creation, metadata/container and
+     * two-handle/shared-control-block invocation, twice before a clean retry. */
+    for (size_t fail_at = 0, maximum = 0; fail_at <= maximum; ++fail_at) {
+        for (int repeat = 0; repeat < (fail_at ? 2 : 1); ++repeat) {
+            char index[32];
+            snprintf(index, sizeof index, "%zu", fail_at);
+            setenv("TNY_TEST_ALLOC_SCOPE", "registry-sweep", 1);
+            setenv("TNY_TEST_ALLOC_FAIL_AT", index, 1);
+            tny_alloc_scope_begin("registry-sweep");
+            custom_tool_registry *registry = custom_tools_new();
+            runtime_async_fixture x = {0};
+            tny_tool_registration *registration = NULL;
+            custom_tool_pending *pending = NULL;
+            char *result = NULL;
+            bool is_error = false;
+            int status =
+                registry ? runtime_async_register(registry, &x, &registration) : TNY_STATUS_OOM;
+            if (status == TNY_STATUS_OK)
+                status = custom_tool_invoke(registration, "{}", &pending, &result, &is_error);
+            if (!fail_at) maximum = tny_alloc_test_scope_count();
+            else {
+                ASSERT(tny_alloc_test_scope_injected());
+                ASSERT_EQ(TNY_STATUS_OOM, status);
+                ASSERT_EQ(NULL, pending);
+                ASSERT_EQ(NULL, x.host);
+            }
+            custom_tool_invalidate(pending);
+            tny_tool_call_release(x.host);
+            custom_tools_free(registry);
+            ASSERT_EQ(live, tny_parser_test_live_allocations());
+        }
+    }
+    unsetenv("TNY_TEST_ALLOC_SCOPE");
+    unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+    tny_alloc_scope_begin("registry-sweep");
+    ASSERT_EQ(0, runtime_async_leases_survive_all_invalidation_orders());
+    PASS();
+}
+#endif
+
+#ifdef TNY_ALLOC_TESTING
+TEST runtime_reserved_settlement_never_allocates(void) {
+    fixture x = fixture_new(3);
+    char err[128];
+    for (int turn = 0; turn < 2; ++turn) {
+        ASSERT_EQ(0, tny_engine_start(x.engine, "oom", NULL, err, sizeof err));
+        tny_alloc_scope_begin("reserved-settlement");
+        tny_engine_fail_oom(x.engine);
+        ASSERT_EQ_FMT(0u, (unsigned)tny_alloc_test_scope_count(), "%u");
+        tny_engine_fail_oom(x.engine);
+        ASSERT_EQ(2, drain_engine(x.engine, NULL));
+    }
+    x.fake->mode = 0;
+    ASSERT_EQ(0, tny_engine_start(x.engine, "success", NULL, err, sizeof err));
+    tny_stop_reason stop = TNY_STOP_ERROR;
+    ASSERT_EQ(2, drain_engine(x.engine, &stop));
+    ASSERT_EQ(TNY_STOP_DONE, stop);
+    fixture_free(&x);
+    PASS();
+}
+
+TEST runtime_owned_event_allocation_sweep(void) {
+    tny_backend_event ev = {0};
+    ev.kind = TNY_EV_STATUS;
+    ev.text = "a\0b";
+    ev.text_len = 3;
+    ev.message_id = "message";
+    ev.tool_name = "tool";
+    ev.tool_id = "id";
+    ev.tool_detail = "detail";
+    ev.perm_id = "permission";
+    ev.perm_summary = "summary";
+    ev.message_type = "";
+    size_t live = tny_parser_test_live_allocations();
+    tny_alloc_scope_begin("owned-event");
+    tny_owned_event *o = tny_owned_event_copy(&ev, "provider", "session", "turn", 192);
+    ASSERT(o);
+    size_t allocations = tny_alloc_test_scope_count();
+    ASSERT(allocations > 0);
+    tny_owned_event_free(o);
+    for (size_t index = 1; index <= allocations; ++index) {
+        char value[32];
+        snprintf(value, sizeof value, "%zu", index);
+        setenv("TNY_TEST_ALLOC_SCOPE", "owned-event", 1);
+        setenv("TNY_TEST_ALLOC_FAIL_AT", value, 1);
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            tny_alloc_scope_begin("owned-event");
+            ASSERT_EQ(NULL, tny_owned_event_copy(&ev, "provider", "session", "turn", 192));
+            ASSERT(tny_alloc_test_scope_injected());
+            ASSERT_EQ(live, tny_parser_test_live_allocations());
+        }
+        unsetenv("TNY_TEST_ALLOC_SCOPE");
+        unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+        tny_alloc_scope_begin("owned-event");
+        o = tny_owned_event_copy(&ev, "provider", "session", "turn", 0);
+        ASSERT(o);
+        ASSERT_MEM_EQ("a\0b", o->ev.text, 3);
+        tny_owned_event_free(o);
+        ASSERT_EQ(live, tny_parser_test_live_allocations());
+    }
+    PASS();
+}
+#endif
+
+TEST runtime_all_payloads_survive_queue_transfer_and_teardown(void) {
+    fixture x = fixture_new(3);
+    char err[128];
+    ASSERT_EQ(0, tny_engine_start(x.engine, "retain", NULL, err, sizeof err));
+    tny_owned_event *retained[200];
+    const char *views[200];
+    char *input = malloc(512);
+    ASSERT(input);
+    for (int i = 0; i < 200; ++i) {
+        memcpy(input, "a\0b", 4);
+        strcpy(input + 8, "message");
+        strcpy(input + 32, "tool");
+        strcpy(input + 64, "id");
+        strcpy(input + 96, "detail");
+        strcpy(input + 128, "permission");
+        strcpy(input + 160, "summary");
+        input[192] = 0; /* present empty differs from NULL */
+        tny_backend_event ev = {0};
+        ev.kind = TNY_EV_STATUS;
+        ev.text = input;
+        ev.text_len = 3;
+        ev.message_id = input + 8;
+        ev.tool_name = input + 32;
+        ev.tool_id = input + 64;
+        ev.tool_detail = input + 96;
+        ev.perm_id = input + 128;
+        ev.perm_summary = input + 160;
+        ev.message_type = input + 192;
+        ev.tool_ok = true;
+        ev.perm_options = 5;
+        ev.in_tokens = 17;
+        ev.out_tokens = 19;
+        ev.context_used = 23;
+        ev.context_size = 29;
+        ev.cost = 0.125;
+        ev.has_cost = true;
+        x.fake->cb(&ev, x.fake->ud);
+        memset(input, 'x', 512);
+    }
+    free(input);
+    for (int i = 0; i < 200; ++i) {
+        retained[i] = tny_engine_pop_event(x.engine);
+        ASSERT(retained[i]);
+        views[i] = retained[i]->ev.text;
+        ASSERT_MEM_EQ("a\0b", views[i], 3);
+    }
+    ASSERT_EQ(NULL, tny_engine_pop_event(x.engine));
+    fixture_free(&x);
+    for (int i = 0; i < 200; ++i) {
+        const tny_owned_event *o = retained[i];
+        ASSERT_EQ(views[i], o->ev.text);
+        ASSERT_EQ(3, o->ev.text_len);
+        ASSERT_MEM_EQ("a\0b", o->ev.text, 3);
+        ASSERT_STR_EQ("message", o->ev.message_id);
+        ASSERT_STR_EQ("tool", o->ev.tool_name);
+        ASSERT_STR_EQ("id", o->ev.tool_id);
+        ASSERT_STR_EQ("detail", o->ev.tool_detail);
+        ASSERT_STR_EQ("permission", o->ev.perm_id);
+        ASSERT_STR_EQ("summary", o->ev.perm_summary);
+        ASSERT(o->ev.message_type);
+        ASSERT_STR_EQ("", o->ev.message_type);
+        ASSERT(o->provider && o->session_id && o->turn_id);
+        ASSERT(o->ev.tool_ok && o->ev.has_cost);
+        ASSERT_EQ(5, o->ev.perm_options);
+        ASSERT_EQ(17, o->ev.in_tokens);
+        ASSERT_EQ(19, o->ev.out_tokens);
+        ASSERT_EQ(23, o->ev.context_used);
+        ASSERT_EQ(29, o->ev.context_size);
+        ASSERT_EQ(0.125, o->ev.cost);
+        tny_owned_event_free(retained[i]);
+    }
+    PASS();
+}
+
+TEST runtime_payload_byte_limit_and_accounting(void) {
+    const size_t limit = 1024u * 1024u - 1024u;
+    for (int neighbor = -1; neighbor <= 1; ++neighbor) {
+        fixture x = fixture_new(3);
+        char err[128];
+        ASSERT_EQ(0, tny_engine_start(x.engine, "bytes", NULL, err, sizeof err));
+        tny_backend_event ev = {0};
+        ev.kind = TNY_EV_STATUS;
+        ev.text = "";
+        x.fake->cb(&ev, x.fake->ud);
+        tny_owned_event *probe = tny_engine_pop_event(x.engine);
+        ASSERT(probe);
+        size_t overhead = probe->owned_bytes;
+        tny_owned_event_free(probe);
+        size_t length = limit - overhead + (size_t)neighbor;
+        char *input = malloc(length + 1);
+        ASSERT(input);
+        memset(input, 'a', length);
+        input[length] = 0;
+        ev.text = input;
+        ev.text_len = length;
+        x.fake->cb(&ev, x.fake->ud);
+        /* A second payload cannot fit beside an admitted near-limit event. */
+        ev.text = "second";
+        ev.text_len = 6;
+        x.fake->cb(&ev, x.fake->ud);
+        free(input);
+        ASSERT_EQ(0, tny_engine_dispatch(x.engine, NULL, 0));
+        int statuses = 0, errors = 0, terminals = 0;
+        tny_owned_event *o;
+        while ((o = tny_engine_pop_event(x.engine))) {
+            if (o->ev.kind == TNY_EV_STATUS) {
+                ++statuses;
+                ASSERT_EQ(neighbor > 0 ? 6 : length, o->ev.text_len);
+            } else if (o->ev.kind == TNY_EV_ERROR) {
+                ++errors;
+                ASSERT_EQ(TNY_EVENT_ERROR_BACKPRESSURE, o->ev.error_code);
+            } else if (o->ev.kind == TNY_EV_TURN_END) ++terminals;
+            tny_owned_event_free(o);
+        }
+        ASSERT_EQ(1, statuses);
+        ASSERT_EQ(1, errors);
+        ASSERT_EQ(1, terminals);
+        fixture_free(&x);
+    }
     PASS();
 }
 
@@ -1326,6 +1675,15 @@ TEST event_jsonl_writer_yields_to_a_late_interrupt_on_an_initially_full_pipe(voi
 }
 
 SUITE(runtime_suite) {
+    RUN_TEST(runtime_async_leases_survive_all_invalidation_orders);
+#ifdef TNY_ALLOC_TESTING
+    RUN_TEST(runtime_reserved_settlement_never_allocates);
+    RUN_TEST(runtime_async_allocation_sweep);
+    RUN_TEST(runtime_async_pending_call_free_releases_owner);
+    RUN_TEST(runtime_owned_event_allocation_sweep);
+#endif
+    RUN_TEST(runtime_all_payloads_survive_queue_transfer_and_teardown);
+    RUN_TEST(runtime_payload_byte_limit_and_accounting);
     RUN_TEST(runtime_copies_events_and_suppresses_duplicate_terminal);
     RUN_TEST(runtime_system_prompt_prefixes_only_the_first_user_message);
     RUN_TEST(runtime_task_precedes_explicit_system_prompt_on_host_first_turn);

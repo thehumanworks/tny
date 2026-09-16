@@ -376,7 +376,7 @@ TARGETS = [
         "extension-control",
     ),
     (
-        "src/lib/custom_tools.c",
+        "src/lib/custom_tools.cpp",
         [
             "result_copy",
             "custom_tool_complete",
@@ -384,7 +384,7 @@ TARGETS = [
             "custom_tool_invalidate",
             "custom_tools_invalidate_all",
         ],
-        r"tny_wake_signal|call->completed|call->generation !=|call->epoch !=",
+        r"tny_wake_signal|call.completed|call.generation !=|call.epoch !=",
         "tests/integration/test_libtny_custom_tools.py",
         "libtny-custom-tools",
     ),

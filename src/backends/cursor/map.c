@@ -9,6 +9,7 @@
  * snake_case, and every lookup tolerates a missing or wrongly typed node:
  * host output is untrusted. */
 #include "backends/cursor/impl.h"
+#include "util/alloc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,12 +27,14 @@ static uint64_t frame_hash(const char *payload, size_t len) {
 }
 
 bool cu_accept_frame(cu_impl *o, const char *payload, size_t len) {
+    if (tny_alloc_scope_failed()) return false;
     if (!o || o->stream_kind == CU_STREAM_NONE) return true;
     yyjson_doc *doc = jparse(payload, len);
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
     if (!yyjson_is_obj(root)) {
         yyjson_doc_free(doc);
-        return true; /* keepalive or malformed frame: not part of durable replay */
+        return !tny_alloc_scope_failed(); /* keepalive or malformed frame: not part of durable
+                                             replay */
     }
     const char *offset = jget_str(root, "offset");
     uint64_t hash = frame_hash(payload, len);
@@ -51,6 +54,10 @@ bool cu_accept_frame(cu_impl *o, const char *payload, size_t len) {
         }
     }
 
+    if (tny_alloc_scope_failed()) {
+        yyjson_doc_free(doc);
+        return false;
+    }
     if (o->stream_kind == CU_STREAM_SEND) {
         if (o->send_hash_count == o->send_hash_capacity) {
             size_t next_capacity = o->send_hash_capacity ? o->send_hash_capacity * 2 : 64;
@@ -62,7 +69,7 @@ bool cu_accept_frame(cu_impl *o, const char *payload, size_t len) {
         }
         if (o->send_hash_count < o->send_hash_capacity) o->send_hashes[o->send_hash_count++] = hash;
         yyjson_doc_free(doc);
-        return true;
+        return !tny_alloc_scope_failed();
     }
 
     bool repeated_offset = offset && o->observe_offset && strcmp(offset, o->observe_offset) == 0;
@@ -70,7 +77,7 @@ bool cu_accept_frame(cu_impl *o, const char *payload, size_t len) {
         free(o->observe_offset);
         o->observe_offset = xstrdup(offset);
     }
-    if (repeated_offset) {
+    if (tny_alloc_scope_failed() || repeated_offset) {
         yyjson_doc_free(doc);
         return false;
     }
@@ -103,7 +110,7 @@ static bool is_one_of(const char *s, const char *const *set) {
 
 /* Flatten any text-bearing node (string, content part array, message, delta). */
 static void collect_text(yyjson_val *v, buf_t *out, int depth) {
-    if (!v || depth > 4 || out->len > 64u * 1024u) return;
+    if (tny_alloc_scope_failed() || !v || depth > 4 || out->len > 64u * 1024u) return;
     if (yyjson_is_str(v)) {
         buf_appends(out, yyjson_get_str(v));
         return;
@@ -281,7 +288,12 @@ static void emit_tool(cu_impl *o, yyjson_val *v) {
     buf_init(&detail);
     append_short(src, &detail);
     /* completed frames repeat the args: fall back so TOOL_END is never bare */
-    if (!detail.len && call) append_short(jget(call, "args"), &detail);
+    if (!tny_alloc_scope_failed() && !detail.len && call) append_short(jget(call, "args"), &detail);
+
+    if (tny_alloc_scope_failed()) {
+        buf_free(&detail);
+        return;
+    }
 
     /* The SDK re-emits `running` frames for one call while args stream in
      * (observed live): drop a start that repeats the previous one exactly,
@@ -293,7 +305,7 @@ static void emit_tool(cu_impl *o, yyjson_val *v) {
         buf_append(&sig, detail.data ? detail.data : "", detail.len);
         bool dup = o->last_tool_start.len == sig.len && sig.len &&
                    memcmp(o->last_tool_start.data, sig.data, sig.len) == 0;
-        if (!dup) {
+        if (!dup && !tny_alloc_scope_failed()) {
             buf_clear(&o->last_tool_start);
             buf_append(&o->last_tool_start, sig.data, sig.len);
         }
@@ -328,7 +340,7 @@ static void handle_sdk_json_str(cu_impl *o, const char *s, int depth) {
 }
 
 static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
-    if (!v || depth > 2 || o->ended) return;
+    if (tny_alloc_scope_failed() || !v || depth > 2 || o->ended) return;
     if (yyjson_is_str(v)) {
         handle_sdk_json_str(o, yyjson_get_str(v), depth);
         return;
@@ -344,6 +356,7 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
 
     const char *rid = str2(v, "runId", "run_id");
     if (rid && *rid && !o->run_id) o->run_id = xstrdup(rid);
+    if (tny_alloc_scope_failed()) return;
     take_usage(o, v);
 
     const char *type = jget_str(v, "type");
@@ -373,6 +386,7 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
             v = inner;
             rid = str2(v, "runId", "run_id");
             if (rid && *rid && !o->run_id) o->run_id = xstrdup(rid);
+            if (tny_alloc_scope_failed()) return;
             take_usage(o, v);
         }
     }
@@ -385,7 +399,7 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
         buf_t t;
         buf_init(&t);
         collect_text(v, &t, 0);
-        if (t.len) {
+        if (t.len && !tny_alloc_scope_failed()) {
             if (o->text_source != CU_TEXT_NONE && o->text_source != o->mapping_source) {
                 buf_free(&t);
                 return;
@@ -406,7 +420,7 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
         buf_t t;
         buf_init(&t);
         collect_text(v, &t, 0);
-        if (t.len) {
+        if (t.len && !tny_alloc_scope_failed()) {
             tny_backend_event ev = {0};
             ev.kind = TNY_EV_THINKING;
             ev.text = t.data;
@@ -440,11 +454,11 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
         const char *msg = jget_str(v, "message");
         if (msg) buf_appends(&t, msg);
         else collect_text(v, &t, 0);
-        if (!t.len && strcmp(type, "system") == 0 && tny_debug()) {
+        if (!tny_alloc_scope_failed() && !t.len && strcmp(type, "system") == 0 && tny_debug()) {
             const char *sub = jget_str(v, "subtype"); /* lifecycle noise */
             buf_appendf(&t, "cursor session %s", sub ? sub : "started");
         }
-        if (t.len) {
+        if (t.len && !tny_alloc_scope_failed()) {
             if (strcmp(type, "status") == 0) {
                 buf_clear(&o->last_status);
                 buf_append(&o->last_status, t.data, t.len);
@@ -460,12 +474,14 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
         if (t.len) cu_emit_text(o, TNY_EV_PLAN, t.data, t.len);
         buf_free(&t);
     } else if (strcmp(type, "usage") == 0) {
+        if (tny_alloc_scope_failed()) return;
         take_usage(o, v);
     } else if (strcmp(type, "error") == 0) {
         buf_t t;
         buf_init(&t);
         collect_text(v, &t, 0);
-        if (!t.len) buf_appends(&t, "the cursor agent reported an error");
+        if (!tny_alloc_scope_failed() && !t.len)
+            buf_appends(&t, "the cursor agent reported an error");
         o->saw_error = true;
         cu_emit_text(o, TNY_EV_ERROR, t.data, t.len);
         buf_free(&t);
@@ -474,7 +490,7 @@ static void handle_sdk(cu_impl *o, yyjson_val *v, int depth) {
 }
 
 static void handle_result(cu_impl *o, yyjson_val *r) {
-    if (o->ended) return;
+    if (o->ended || tny_alloc_scope_failed()) return;
     /* RunStreamResult.result is a RunResult: final text in `result`,
      * usage in `usage` (sdk_messages.proto). */
     yyjson_val *rr = jget(r, "result");
@@ -490,6 +506,7 @@ static void handle_result(cu_impl *o, yyjson_val *r) {
         free(o->run_id);
         o->run_id = xstrdup(rid);
     }
+    if (tny_alloc_scope_failed()) return;
     const char *code = str2(r, "errorCode", "error_code");
     bool cancelled = st && (strstr(st, "CANCELLED") || strcmp(st, "cancelled") == 0);
     bool pending = st && (strstr(st, "CREATING") || strstr(st, "RUNNING") ||
@@ -505,17 +522,17 @@ static void handle_result(cu_impl *o, yyjson_val *r) {
         buf_t t;
         buf_init(&t);
         collect_text(r, &t, 0);
-        if (!t.len && rr) {
+        if (!tny_alloc_scope_failed() && !t.len && rr) {
             const char *txt = jget_str(rr, "result");
             if (txt) buf_appends(&t, txt);
         }
-        if (t.len) {
+        if (t.len && !tny_alloc_scope_failed()) {
             o->got_text = true;
             cu_emit_text(o, TNY_EV_TEXT_DELTA, t.data, t.len);
         }
         buf_free(&t);
     }
-    if (pending) return;
+    if (tny_alloc_scope_failed() || pending) return;
     if (!finished && !cancelled && !bad) {
         buf_t unknown;
         buf_init(&unknown);
@@ -545,6 +562,10 @@ static void handle_result(cu_impl *o, yyjson_val *r) {
 static void handle_end_frame(cu_impl *o, const char *payload, size_t len) {
     yyjson_doc *doc = len ? jparse(payload, len) : NULL;
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+    if (tny_alloc_scope_failed()) {
+        yyjson_doc_free(doc);
+        return;
+    }
     bool bad = jget(root, "error") != NULL;
     if (bad && !o->ended) {
         char line[320];
@@ -560,12 +581,12 @@ static void handle_end_frame(cu_impl *o, const char *payload, size_t len) {
 
 void cu_on_frame(uint8_t flags, const char *payload, size_t len, void *ud) {
     cu_impl *o = ud;
-    if (len > CURSOR_MAX_MSG_BYTES) return;
+    if (tny_alloc_scope_failed() || len > CURSOR_MAX_MSG_BYTES) return;
     if (flags & CONNECT_FLAG_END) {
         handle_end_frame(o, payload, len);
         return;
     }
-    if (o->ended) return;
+    if (o->ended || tny_alloc_scope_failed()) return;
     if (!cu_accept_frame(o, payload, len)) return;
 
     yyjson_doc *doc = jparse(payload, len);
@@ -587,13 +608,13 @@ void cu_on_frame(uint8_t flags, const char *payload, size_t len, void *ud) {
      * variants through the same defensive normalizer and ignore unknowns. */
     yyjson_val *interaction = jget(root, "interactionUpdate");
     if (!interaction) interaction = jget(root, "interaction_update");
-    if (interaction) {
+    if (interaction && !tny_alloc_scope_failed()) {
         o->mapping_source = CU_TEXT_INTERACTION;
         handle_sdk(o, interaction, 0);
     }
 
     yyjson_val *step = jget(root, "step");
-    if (step) {
+    if (step && !tny_alloc_scope_failed()) {
         const char *type = jget_str(step, "type");
         /* Completed assistant steps restate text already delivered through
          * sdkMessage/interaction deltas. Keep them as a fallback only. */
@@ -602,7 +623,7 @@ void cu_on_frame(uint8_t flags, const char *payload, size_t len, void *ud) {
     }
 
     yyjson_val *res = jget(root, "result");
-    if (res && yyjson_is_obj(res)) handle_result(o, res);
+    if (res && yyjson_is_obj(res) && !tny_alloc_scope_failed()) handle_result(o, res);
     else if (jget(root, "done") && !o->ended) o->saw_done = true;
 
     yyjson_doc_free(doc);

@@ -2,6 +2,7 @@
 #include "core/tasks.h"
 #include "util/util.h"
 #include "util/process.h"
+#include "util/alloc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -445,11 +446,13 @@ void session_add_text(tny_session_state *s, const char *role, const char *conten
 
 void session_add_assistant_ex(tny_session_state *s, const char *content, const char *tc_json,
                               const char *extras_json) {
+    if (tny_alloc_scope_failed()) return;
     yyjson_mut_val *m = yyjson_mut_obj(s->doc);
     yyjson_mut_obj_put(m, yyjson_mut_strcpy(s->doc, "role"),
                        yyjson_mut_strcpy(s->doc, "assistant"));
     yyjson_mut_obj_put(m, yyjson_mut_strcpy(s->doc, "content"),
                        content ? yyjson_mut_strcpy(s->doc, content) : yyjson_mut_null(s->doc));
+    if (tny_alloc_scope_failed()) return;
     if (tc_json) {
         yyjson_doc *tc = jparse(tc_json, strlen(tc_json));
         if (tc) {
@@ -458,6 +461,7 @@ void session_add_assistant_ex(tny_session_state *s, const char *content, const c
             yyjson_doc_free(tc);
         }
     }
+    if (tny_alloc_scope_failed()) return;
     if (extras_json) {
         yyjson_doc *ex = jparse(extras_json, strlen(extras_json));
         yyjson_val *root = ex ? yyjson_doc_get_root(ex) : NULL;
@@ -465,6 +469,7 @@ void session_add_assistant_ex(tny_session_state *s, const char *content, const c
             size_t idx, max;
             yyjson_val *k, *v;
             yyjson_obj_foreach(root, idx, max, k, v) {
+                if (tny_alloc_scope_failed()) break;
                 const char *key = yyjson_get_str(k);
                 /* the shape members stay authoritative */
                 if (!key || strcmp(key, "role") == 0 || strcmp(key, "content") == 0 ||
@@ -476,7 +481,9 @@ void session_add_assistant_ex(tny_session_state *s, const char *content, const c
         }
         if (ex) yyjson_doc_free(ex);
     }
-    yyjson_mut_arr_add_val(session_messages(s), m);
+    /* Publish only a complete message, including retained reasoning. The
+     * document owns any unlinked nodes until session teardown. */
+    if (!tny_alloc_scope_failed()) yyjson_mut_arr_add_val(session_messages(s), m);
 }
 
 void session_add_assistant(tny_session_state *s, const char *content, const char *tc_json) {

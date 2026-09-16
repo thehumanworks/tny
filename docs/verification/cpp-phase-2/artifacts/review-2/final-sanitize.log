@@ -1,0 +1,42 @@
+cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -Iinclude -O1 -g -fno-omit-frame-pointer \
+		-fsanitize=address,undefined -o build/fault-san/libtny-sanitizer-host tests/integration/libtny_sanitizer_host.c build/lib-fault-san/libtny.1.dylib \
+		 \
+		-Wl,-rpath,/Users/tomas/projects/tny-cpp-p1fix/build/lib-fault-san
+cc -std=c11 -Wall -Wextra -Werror -Iinclude -O1 -g -fno-omit-frame-pointer \
+		-fsanitize=address,undefined -o build/fault-san/libtny-custom-tools-sanitizer tests/integration/libtny_custom_tools.c build/lib-fault-san/libtny.1.dylib -pthread \
+		-Wl,-rpath,/Users/tomas/projects/tny-cpp-p1fix/build/lib-fault-san/
+c++ -std=c++17 -Wall -Wextra -Werror -Iinclude -O1 -g -fno-omit-frame-pointer \
+		-fsanitize=address,undefined -o build/fault-san/libtny-custom-tools-cpp-sanitizer tests/integration/libtny_custom_tools_cpp.cpp build/lib-fault-san/libtny.1.dylib -pthread \
+		-Wl,-rpath,/Users/tomas/projects/tny-cpp-p1fix/build/lib-fault-san/
+
+* Suite acp_suite:
+
+* Suite cursor_suite:
+.
+1 test - 1 passed, 0 failed, 0 skipped (1587 ticks, 0.002 sec)
+
+Total: 1 test (1635 ticks, 0.002 sec), 29 assertions
+Pass: 1, fail: 0, skip: 0.
+
+* Suite acp_suite:
+.
+1 test - 1 passed, 0 failed, 0 skipped (6213 ticks, 0.006 sec)
+
+* Suite cursor_suite:
+
+Total: 1 test (6278 ticks, 0.006 sec), 29 assertions
+Pass: 1, fail: 0, skip: 0.
+test_libtny_faults: exhaustive allocation sweeps passed; tools_fs_walk=10, toolkit_create=3, toolkit_run=28, runtime_create=23, tool_register=8, tool_error=5, session_create=18, session_open=24, session_send=68, session_send_rearm=67, next_event=151, session_steer=3, respond_permission=9, session_free_permission=8, runtime_free_permission=8, session_free_active=2, runtime_free_active=2, session_free_cancelled=2, runtime_free_cancelled=2, session_free_failed=0, runtime_free_failed=0
+ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+		python3 tests/integration/libtny_sanitizer_launcher.py build/fault-san/libtny-sanitizer-host
+ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+	TNY_CUSTOM_TOOL_HOST=build/fault-san/libtny-custom-tools-sanitizer \
+		python3 tests/integration/test_libtny_custom_tools.py
+libtny-custom-tools: sync/async/cancel/deny lifecycle passed
+ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+	TNY_CUSTOM_TOOL_HOST=build/fault-san/libtny-custom-tools-cpp-sanitizer TNY_CUSTOM_TOOL_COMPLETION_OOM=1 \
+		python3 tests/integration/test_libtny_custom_tools.py
+libtny-custom-tools: C++ callback passed; completion OOMs=2

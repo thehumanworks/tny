@@ -1,9 +1,11 @@
 # Language and runtime
 
-## Decision: C11 with private C++20 parsers
+## Decision: C11 with private C++20 ownership
 
 [ADR 0114](adr/0114-private-cpp-parser-ownership.md) authorizes C++20 only for
 SSE/Connect accumulation, Chat/Responses event decoding and tool-call owners.
+[ADR 0116](adr/0116-runtime-event-and-async-ownership.md) additionally authorizes
+owned runtime events and custom-tool registration/async-call lifetimes.
 Untouched code, vendored dependencies and tnytty remain C11. Public libtny
 headers, layouts and exports remain C. Private facades expose opaque owners
 and synchronous borrowed views, never standard-library types.

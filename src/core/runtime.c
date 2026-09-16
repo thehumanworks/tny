@@ -94,111 +94,30 @@ static char *dup_bytes(const char *s, size_t n) {
 
 static char *dup_cstr(const char *s) { return s ? dup_bytes(s, strlen(s)) : NULL; }
 
-static void free_fields(tny_owned_event *o) {
-    free(o->provider);
-    free(o->session_id);
-    free(o->turn_id);
-    free((char *)o->ev.text);
-    free((char *)o->ev.message_id);
-    free((char *)o->ev.tool_name);
-    free((char *)o->ev.tool_id);
-    free((char *)o->ev.tool_detail);
-    free((char *)o->ev.perm_id);
-    free((char *)o->ev.perm_summary);
-    free((char *)o->ev.message_type);
-}
-
-void tny_owned_event_free(tny_owned_event *o) {
-    if (!o) return;
-    free_fields(o);
-    free(o);
-}
-
-static bool copy_field(const char *src, size_t n, const char **dst, size_t *owned) {
-    if (!src) {
-        *dst = NULL;
-        return true;
-    }
-    char *copy = dup_bytes(src, n);
-    if (!copy) return false;
-    *dst = copy;
-    *owned += n + 1;
-    return true;
-}
-
 static tny_owned_event *event_copy(tny_engine *e, const tny_backend_event *ev) {
-    tny_owned_event *o = calloc(1, sizeof *o);
-    if (!o) return NULL;
-    o->ev = *ev;
-    /* Never leave borrowed callback pointers in an object that may take a
-     * partial-allocation cleanup path.  A failed earlier field copy must not
-     * free provider/tool memory which the event does not own. */
-    o->ev.text = NULL;
-    o->ev.message_id = NULL;
-    o->ev.tool_name = NULL;
-    o->ev.tool_id = NULL;
-    o->ev.tool_detail = NULL;
-    o->ev.perm_id = NULL;
-    o->ev.perm_summary = NULL;
-    o->ev.message_type = NULL;
-    o->sequence = ++e->session->extension_event_sequence;
-    o->timestamp_ms = engine_monotonic_ms(e);
-    o->provider = dup_cstr(tny_provider_name(e->ctx));
-    o->session_id = dup_cstr(e->session->id);
+    uint64_t sequence = ++e->session->extension_event_sequence;
+    int64_t timestamp_ms = engine_monotonic_ms(e);
     char turn_id[160];
     snprintf(turn_id, sizeof turn_id, "%s:%llu:%d", e->session->id,
              (unsigned long long)e->session->extension_agent_sequence, e->extension_continuations);
-    o->turn_id = dup_cstr(turn_id);
-    if (!o->provider || !o->session_id || !o->turn_id) {
-        tny_owned_event_free(o);
-        return NULL;
-    }
-    o->owned_bytes += strlen(o->provider) + strlen(o->session_id) + strlen(o->turn_id) + 3;
-    if (!copy_field(ev->text, ev->text ? ev->text_len : 0, &o->ev.text, &o->owned_bytes) ||
-        !copy_field(ev->message_id, ev->message_id ? strlen(ev->message_id) : 0, &o->ev.message_id,
-                    &o->owned_bytes) ||
-        !copy_field(ev->tool_name, ev->tool_name ? strlen(ev->tool_name) : 0, &o->ev.tool_name,
-                    &o->owned_bytes) ||
-        !copy_field(ev->tool_id, ev->tool_id ? strlen(ev->tool_id) : 0, &o->ev.tool_id,
-                    &o->owned_bytes) ||
-        !copy_field(ev->tool_detail, ev->tool_detail ? strlen(ev->tool_detail) : 0,
-                    &o->ev.tool_detail, &o->owned_bytes) ||
-        !copy_field(ev->perm_id, ev->perm_id ? strlen(ev->perm_id) : 0, &o->ev.perm_id,
-                    &o->owned_bytes) ||
-        !copy_field(ev->perm_summary, ev->perm_summary ? strlen(ev->perm_summary) : 0,
-                    &o->ev.perm_summary, &o->owned_bytes) ||
-        !copy_field(ev->message_type, ev->message_type ? strlen(ev->message_type) : 0,
-                    &o->ev.message_type, &o->owned_bytes)) {
-        tny_owned_event_free(o);
-        return NULL;
+    tny_owned_event *o =
+        tny_owned_event_copy(ev, tny_provider_name(e->ctx), e->session->id, turn_id, 0);
+    if (o) {
+        o->sequence = sequence;
+        o->timestamp_ms = timestamp_ms;
     }
     return o;
 }
 
 static tny_owned_event *reserve_event(tny_engine *e, tny_event_kind kind) {
-    tny_owned_event *o = calloc(1, sizeof *o);
-    if (!o) return NULL;
-    o->ev.kind = kind;
-    o->provider = dup_cstr(tny_provider_name(e->ctx));
-    o->session_id = dup_cstr(e->session->id);
-    /* A session id, 64-bit sequence and continuation counter fit comfortably.
-     * The fixed allocation is made before the session is published so OOM
-     * settlement itself does not allocate. */
-    o->turn_id = calloc(1, 192);
+    tny_backend_event ev = {0};
+    ev.kind = kind;
     if (kind == TNY_EV_ERROR) {
-        o->ev.text = dup_cstr("out of memory");
-        o->ev.text_len = strlen("out of memory");
-        o->ev.error_code = TNY_EVENT_ERROR_OOM;
-    } else {
-        o->ev.stop = TNY_STOP_ERROR;
-    }
-    if (!o->provider || !o->session_id || !o->turn_id || (kind == TNY_EV_ERROR && !o->ev.text)) {
-        tny_owned_event_free(o);
-        return NULL;
-    }
-    o->owned_bytes = strlen(o->provider) + strlen(o->session_id) + 192 + 2;
-    if (o->ev.text) o->owned_bytes += o->ev.text_len + 1;
-    return o;
+        ev.text = "out of memory";
+        ev.text_len = strlen(ev.text);
+        ev.error_code = TNY_EVENT_ERROR_OOM;
+    } else ev.stop = TNY_STOP_ERROR;
+    return tny_owned_event_copy(&ev, tny_provider_name(e->ctx), e->session->id, "", 192);
 }
 
 /* Replenish a consumed OOM pair only while no turn is active. Public events
@@ -233,8 +152,8 @@ static bool ensure_oom_reserves(tny_engine *e) {
 static void prepare_reserved_event(tny_engine *e, tny_owned_event *o) {
     o->sequence = ++e->session->extension_event_sequence;
     o->timestamp_ms = engine_monotonic_ms(e);
-    snprintf(o->turn_id, 192, "%s:%llu:%d", e->session->id,
-             (unsigned long long)e->session->extension_agent_sequence, e->extension_continuations);
+    tny_owned_event_set_turn(o, e->session->id, e->session->extension_agent_sequence,
+                             e->extension_continuations);
     o->next = NULL;
     o->hooks_done = true;
     o->suppressed = false;
@@ -255,6 +174,10 @@ static void append_owned(tny_engine *e, tny_owned_event *copy) {
 
 static void queue_event(tny_engine *e, const tny_backend_event *ev) {
     if (e->terminal) return; /* duplicate/post-terminal events ignored */
+    if (tny_alloc_scope_failed()) {
+        e->oom_pending = true;
+        return;
+    }
 
     /* A provider terminal is only a candidate agent end. Hold it outside the
      * frontend queue until Python hooks have observed every preceding event
@@ -978,7 +901,7 @@ static void start_extension_message(tny_engine *e, const tny_backend_event *ev) 
 }
 
 static void process_queued_extension_hooks(tny_engine *e) {
-    if (!e->extensions) return;
+    if (!e->extensions || (e->terminal && e->forcing_error)) return;
     for (tny_owned_event *owned = e->head; owned; owned = owned->next) {
         if (owned->hooks_done) continue;
         owned->hooks_done = true;
@@ -1327,17 +1250,28 @@ static void native_openai_control(const tny_openai_control_request *request,
     if (e->cancel_probe && e->cancel_probe(e->cancel_probe_ud)) { response->stop = true; }
 }
 
+static void finalize_turn(tny_engine *e);
+
 static void commit_pending_terminal(tny_engine *e) {
     tny_owned_event *terminal = e->pending_terminal;
     if (!terminal) return;
+    /* Keep the terminal private until fallible finalization succeeds. */
+    bool was_active = e->active;
+    e->active = false;
+    e->stop = terminal->ev.stop;
+    e->finalize_pending = true;
+    finalize_turn(e);
+    if (tny_alloc_scope_failed()) {
+        e->active = was_active;
+        tny_engine_fail_oom(e);
+        return;
+    }
     e->pending_terminal = NULL;
     e->terminal = true;
-    e->active = false;
     atomic_store_explicit(&e->cancel_armed, false, memory_order_release);
     e->stop = terminal->ev.stop;
     terminal->hooks_done = true;
     append_owned(e, terminal);
-    e->finalize_pending = true;
 }
 
 /* Returns true when the resolver queued or started work that needs another
@@ -1412,18 +1346,20 @@ static bool resolve_pending_terminal(tny_engine *e) {
 }
 
 static void finalize_turn(tny_engine *e) {
-    if (!e->finalize_pending || !e->session || !e->bk) return;
+    if (!e->finalize_pending || !e->session || !e->bk || tny_alloc_scope_failed()) return;
     e->finalize_pending = false;
     if (e->bk->session_pointer) {
         char *ptr = e->bk->session_pointer(e->bk);
-        if (ptr) {
-            session_set_host_pointer(e->session, ptr);
-            free(ptr);
-        }
+        if (ptr && !tny_alloc_scope_failed()) session_set_host_pointer(e->session, ptr);
+        free(ptr);
     }
+    if (tny_alloc_scope_failed()) return;
     session_set_meta(e->session, tny_provider_name(e->ctx), e->ctx->model);
+    if (tny_alloc_scope_failed()) return;
     if (!session_title(e->session) && e->prompt_text) session_set_title(e->session, e->prompt_text);
+    if (tny_alloc_scope_failed()) return;
     if (e->stop == TNY_STOP_DONE) (void)tny_engine_compact(e, false, "threshold");
+    if (tny_alloc_scope_failed()) return;
     session_save(e->session);
 }
 
@@ -1781,10 +1717,17 @@ void tny_engine_cancel(tny_engine *e) {
 
 void tny_engine_fail_oom(tny_engine *e) {
     if (!e || e->terminal) return;
+    tny_alloc_settlement_begin();
     tny_alloc_scope_clear();
     e->oom_pending = false;
     e->overflow_pending = false;
     e->forcing_error = true;
+    e->finalize_pending = false; /* persistence is not emergency settlement */
+    e->extension_stop_requested = false;
+    e->extension_cancel_sent = true;
+    /* Publish settlement before cancel: backend cancellation callbacks must
+     * not construct another event while the reserved pair is being used. */
+    e->terminal = true;
     if (e->bk && e->active && e->bk->cancel) e->bk->cancel(e->bk);
     if (e->pending_terminal) {
         tny_owned_event_free(e->pending_terminal);
@@ -1807,6 +1750,7 @@ void tny_engine_fail_oom(tny_engine *e) {
     e->terminal_popped = false;
     e->stop = TNY_STOP_ERROR;
     atomic_store_explicit(&e->cancel_armed, false, memory_order_release);
+    tny_alloc_settlement_end();
 }
 
 void tny_engine_respond_permission(tny_engine *e, const char *id, tny_perm_decision decision) {
@@ -1968,8 +1912,12 @@ int tny_engine_compact(tny_engine *e, bool force, const char *trigger) {
             free(json);
         }
     }
+    if (tny_alloc_scope_failed()) return -1;
     int changed = session_compact(e->session, force);
-    if (changed >= 0 && session_save(e->session) == 0) {
+    if (tny_alloc_scope_failed()) return -1;
+    int saved = changed >= 0 ? session_save(e->session) : -1;
+    if (tny_alloc_scope_failed()) return -1;
+    if (changed >= 0 && saved == 0) {
         if (changed && observable) {
             const char *summary = NULL;
             int boundary = session_compact_boundary(e->session, &summary);

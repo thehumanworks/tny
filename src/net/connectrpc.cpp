@@ -55,6 +55,10 @@ extern "C" int connect_decoder_feed(connect_decoder *d, const char *bytes, size_
             rest.remove_prefix(count);
             if (state.payload.size() < state.length) break;
             if (state.length || h[0]) cb(h[0], state.payload.data(), state.payload.size(), ud);
+            if (tny_alloc_scope_failed()) {
+                connect_decoder_free(d);
+                return d->status = -2;
+            }
             state.payload.clear();
             state.used = 0;
         }

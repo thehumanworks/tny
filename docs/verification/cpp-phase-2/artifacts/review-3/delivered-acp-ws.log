@@ -1,0 +1,8 @@
+ok  turn 1 over ws: grouped model selected, streamed text, session ddbb37de0006c0cf
+ok  turn 2 over ws: resumed
+ok  refused ws connect is a clean startup error
+tests/integration/test_acp_ws.sh: line 95: 53890 Terminated: 15          FAKE_ACP_DIE=1 "$PY" "$WRAP" 0 > "$TMP/wrap2.out" 2> "$TMP/wrap2.err"
+ok  mid-turn ws close ends the turn with an error
+ok  doctor reports the remote agent
+all acp-ws integration tests passed
+tests/integration/test_acp_ws.sh: line 105: 53697 Terminated: 15          FAKE_ACP_STATE=$TMP/state.json FAKE_ACP_GROUPED_MODELS=1 "$PY" "$WRAP" 0 > "$TMP/wrap.out" 2> "$TMP/wrap.err"

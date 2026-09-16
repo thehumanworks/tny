@@ -1,3 +1,4 @@
+# Provider OOM hosts reuse the existing tests fileset, Python and C/C++ toolchain.
 # `make test` as a derivation: the greatest unit suite under ASan/UBSan, the
 # event-schema and conformance-contract checks, and the fixture-driven
 # integration suite for every backend. No live keys, no network (AGENTS.md).
@@ -41,6 +42,7 @@ stdenv.mkDerivation {
   nativeBuildInputs = [
     bash
     git # test_worktree.py uses temporary real repositories and linked worktrees
+    # The provider-fault host also compiles test_openai.c for second-request OOM.
     # Integration fixtures plus the optional stdlib-only
     # tnytty/tests/bench/bench_tnytty.py runner. The performance benchmark is
     # intentionally not part of buildPhase because shared CI timing is noisy.
@@ -163,7 +165,10 @@ stdenv.mkDerivation {
     done
     ${testRunner}make -j''${NIX_BUILD_CORES} $makeFlags test
     # Includes the loopback backend OOM retention check before teardown.
-    ${testRunner}make $makeFlags test-parser-smoke
+    # Custom-tool C++ sanitizer fixtures reuse stdenv's C++ compiler and Python;
+    # the fault-sanitize target needs no additional sandbox inputs.
+    ${testRunner}make $makeFlags test-parser-smoke test-runtime-ownership
+    ${testRunner}python3 tests/mutation/runtime_critical.py
     ${testRunner}make $makeFlags test-shell-workflows
     runHook postBuild
   '';

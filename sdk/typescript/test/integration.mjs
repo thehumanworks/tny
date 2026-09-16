@@ -124,12 +124,14 @@ await withMock({}, async (baseUrl) => {
   const session = await runtime.createSession();
   const sequences = [];
   const transcript = [];
+  const retained = [];
   let text = "";
   let stop;
   for await (const event of session.run("list files in .")) {
     assert.equal(event.provider, "openai");
     assert.equal(event.sessionId, session.id);
     assert.ok(event.turnId);
+    retained.push(event);
     transcript.push(normalized(event));
     sequences.push(event.sequence);
     if (event.type === "text_delta") text += event.text;
@@ -139,6 +141,7 @@ await withMock({}, async (baseUrl) => {
   assert.match(text, /MOCK-OK/);
   assert.equal(stop, "done");
   assert.ok(sequences.every((value, index) => index === 0 || value > sequences[index - 1]));
+  const snapshot = structuredClone(retained);
   let secondText = "";
   let secondStop;
   for await (const event of session.run("run the strict turn again")) {
@@ -161,6 +164,8 @@ await withMock({}, async (baseUrl) => {
   observed.success_two_turns = transcript;
   await session.close();
   await runtime.close();
+  assert.deepEqual(structuredClone(retained), snapshot);
+  assert.equal(retained.filter((event) => event.type === "turn_end").length, 1);
 });
 
 await withMock({

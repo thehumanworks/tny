@@ -3,6 +3,7 @@
 
 #include "picohttpparser.h"
 #include "util/util.h"
+#include "util/alloc.h"
 
 #include <arpa/inet.h>
 #include <ctype.h>
@@ -217,6 +218,11 @@ static int queue_response(http_server_conn *conn, int status, const char *conten
 }
 
 static void queue_static(http_server_conn *conn, int status) {
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        conn_close(conn);
+        return;
+    }
     const char *body;
     const char *extra = NULL;
     switch (status) {
@@ -263,6 +269,11 @@ static void invoke_post(http_server *server, http_server_conn *conn) {
     http_server_request request = {conn->path, conn->path_len, body, conn->body.len,
                                    conn->connect_protocol_v1};
     int route = server->post(&request, &response, server->ud);
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        conn_close(conn);
+        return;
+    }
     if (route == HTTP_SERVER_POST_NOT_FOUND) {
         queue_static(conn, 404);
         return;
@@ -565,6 +576,10 @@ int http_server_dispatch(http_server *server, const struct pollfd *fds, int n) {
         if (conn->state == HC_UNUSED) continue;
         short events = revents_for(fds, n, conn->fd);
         if (events & POLLIN) read_request(server, conn);
+        if (tny_alloc_scope_failed()) {
+            tny_alloc_provider_failed();
+            return -1;
+        }
         if (conn->state != HC_UNUSED && events & POLLOUT) flush_response(conn);
         if (conn->state != HC_UNUSED && events & (POLLERR | POLLHUP | POLLNVAL)) {
             if (conn->state == HC_WRITING) flush_response(conn);

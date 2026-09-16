@@ -1,0 +1,13 @@
+{
+  "revision": "e56d01ed11da54257f850ce9beda3394e528ca33",
+  "source_manifest_sha256": "1c00072e8addc2e1e4c60d14962acd308b16672a4080803206ccf1155516ba33",
+  "matched_source_files": 729,
+  "gates": 15,
+  "all_exits_zero": true,
+  "production_exports": 64,
+  "unchanged_public_headers_and_adrs": 121,
+  "mutation_kills": 13,
+  "diff_check": 0,
+  "scope": "Review 3 macOS arm64 provider OOM settlement repair; broader phase gates excluded",
+  "committed": false
+}

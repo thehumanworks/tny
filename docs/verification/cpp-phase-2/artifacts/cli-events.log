@@ -1,0 +1,30 @@
+Traceback (most recent call last):
+  File "/Users/tomas/projects/tny-cpp-series/tests/integration/test_ask_events.py", line 885, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/tomas/projects/tny-cpp-series/tests/integration/test_ask_events.py", line 872, in main
+    case_interrupt_while_blocked(ws)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^
+  File "/Users/tomas/projects/tny-cpp-series/tests/integration/test_ask_events.py", line 727, in case_interrupt_while_blocked
+    row for row in descendants(proc.pid) if marker in row[2] or "sh" in row[2]
+                   ~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/tomas/projects/tny-cpp-series/tests/integration/test_ask_events.py", line 675, in descendants
+    out = subprocess.run(
+        ["ps", "-ax", "-o", "pid=,ppid=,command="], capture_output=True, text=True
+    )
+  File "/Users/tomas/.local/share/mise/installs/python/3.14.7/lib/python3.14/subprocess.py", line 555, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/tomas/.local/share/mise/installs/python/3.14.7/lib/python3.14/subprocess.py", line 1039, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                        pass_fds, cwd, env,
+                        ^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+                        gid, gids, uid, umask,
+                        ^^^^^^^^^^^^^^^^^^^^^^
+                        start_new_session, process_group)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/tomas/.local/share/mise/installs/python/3.14.7/lib/python3.14/subprocess.py", line 1990, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+PermissionError: [Errno 1] Operation not permitted: 'ps'

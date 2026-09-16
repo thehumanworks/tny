@@ -1,0 +1,2248 @@
+Command: rg -n 'alloc|oom|fail|xstr|jparse|jwrite|yyjson_mut_|buf_|copy|path_join|file_slurp|session_save|settlement|start_post|emit_turn_end|cancel|recover' src/backends/openai src/backends/cursor src/backends/acp src/core/backend.c src/core/config.c src/core/profiles.c src/core/runtime.c src/net/http_server.c
+Codex is the builtin native Responses profile; no src/backends/codex directory exists.
+
+src/net/http_server.c:6:#include "util/alloc.h"
+src/net/http_server.c:40:    buf_t headers;
+src/net/http_server.c:41:    buf_t body;
+src/net/http_server.c:42:    buf_t output;
+src/net/http_server.c:73: * accepted descriptor is closed on every failure or transferred to conns[]. */
+src/net/http_server.c:101:    buf_init(&conn->headers);
+src/net/http_server.c:102:    buf_init(&conn->body);
+src/net/http_server.c:103:    buf_init(&conn->output);
+src/net/http_server.c:108:    buf_free(&conn->headers);
+src/net/http_server.c:109:    buf_free(&conn->body);
+src/net/http_server.c:110:    buf_free(&conn->output);
+src/net/http_server.c:203:    buf_clear(&conn->output);
+src/net/http_server.c:204:    buf_appendf(&conn->output,
+src/net/http_server.c:211:    if (extra_header) buf_appends(&conn->output, extra_header);
+src/net/http_server.c:212:    buf_appends(&conn->output, "\r\n");
+src/net/http_server.c:213:    if (body_len) buf_append(&conn->output, body, body_len);
+src/net/http_server.c:214:    if (buf_oom(&conn->output)) return -1;
+src/net/http_server.c:221:    if (tny_alloc_scope_failed()) {
+src/net/http_server.c:222:        tny_alloc_provider_failed();
+src/net/http_server.c:272:    if (tny_alloc_scope_failed()) {
+src/net/http_server.c:273:        tny_alloc_provider_failed();
+src/net/http_server.c:288:        buf_free(&conn->output);
+src/net/http_server.c:289:        buf_init(&conn->output);
+src/net/http_server.c:298:        buf_append(&conn->body, bytes, take);
+src/net/http_server.c:299:        if (buf_oom(&conn->body)) {
+src/net/http_server.c:313:    buf_append(&conn->body, bytes, decoded);
+src/net/http_server.c:314:    if (buf_oom(&conn->body)) {
+src/net/http_server.c:413:    buf_free(&conn->headers);
+src/net/http_server.c:414:    buf_init(&conn->headers);
+src/net/http_server.c:423:                buf_append(&conn->headers, bytes, (size_t)got);
+src/net/http_server.c:424:                if (buf_oom(&conn->headers)) {
+src/net/http_server.c:498:    http_server *server = calloc(1, sizeof *server);
+src/net/http_server.c:505:    server->bearer_token = xstrdup(bearer_token);
+src/net/http_server.c:579:        if (tny_alloc_scope_failed()) {
+src/net/http_server.c:580:            tny_alloc_provider_failed();
+src/core/profiles.c:77:    char **v = realloc(ctx->extra_headers, sizeof(char *) * (size_t)(n + 2));
+src/core/profiles.c:80:    v[n] = xstrdup(line);
+src/core/profiles.c:89:    char *p = path_join(home, rel);
+src/core/profiles.c:98:    if (dir && *dir) return path_join(dir, ".credentials.json");
+src/core/profiles.c:107:        return xstrdup(env);
+src/core/profiles.c:112:        return xstrdup(env);
+src/core/profiles.c:116:    yyjson_doc *doc = jparse_file(path);
+src/core/profiles.c:120:    char *out = tok && *tok ? xstrdup(tok) : NULL;
+src/core/profiles.c:153:    yyjson_doc *doc = jparse_file(path);
+src/core/profiles.c:172:    char *out = tok && *tok && strlen(tok) == yyjson_get_len(value) ? xstrdup(tok) : NULL;
+src/core/profiles.c:189:    *slot = v ? xstrdup(v) : NULL;
+src/core/profiles.c:224:            buf_t h;
+src/core/profiles.c:225:            buf_init(&h);
+src/core/profiles.c:226:            buf_appendf(&h, "chatgpt-account-id: %s", c.account_id);
+src/core/profiles.c:228:            buf_free(&h);
+src/core/profiles.c:270:        buf_t vh;
+src/core/profiles.c:271:        buf_init(&vh);
+src/core/profiles.c:272:        buf_appendf(&vh, "x-grok-client-version: %s", ver && *ver ? ver : GROK_PROXY_VERSION);
+src/core/profiles.c:274:        buf_free(&vh);
+src/core/profiles.c:303:    yyjson_doc *doc = jparse(body, len);
+src/core/profiles.c:310:    buf_t out;
+src/core/profiles.c:311:    buf_init(&out);
+src/core/profiles.c:312:    buf_appends(&out, "[");
+src/core/profiles.c:321:        if (n++) buf_appends(&out, ",");
+src/core/profiles.c:322:        buf_appends(&out, "{\"id\":");
+src/core/profiles.c:326:            buf_appends(&out, ",\"name\":");
+src/core/profiles.c:331:            buf_appends(&out, ",\"description\":");
+src/core/profiles.c:336:            buf_appends(&out, ",\"efforts\":[");
+src/core/profiles.c:343:                if (ln++) buf_appends(&out, ",");
+src/core/profiles.c:346:            buf_appends(&out, "]");
+src/core/profiles.c:350:            buf_appends(&out, ",\"default_effort\":");
+src/core/profiles.c:354:        if (ctxw > 0) buf_appendf(&out, ",\"context_window\":%lld", (long long)ctxw);
+src/core/profiles.c:355:        buf_appends(&out, "}");
+src/core/profiles.c:357:    buf_appends(&out, "]");
+src/core/profiles.c:374:    buf_t h;
+src/core/profiles.c:375:    buf_init(&h);
+src/core/profiles.c:376:    buf_appendf(&h, "x-grok-model-override: %s", ctx->model);
+src/core/profiles.c:378:    buf_free(&h);
+src/core/runtime.c:9:#include "util/alloc.h"
+src/core/runtime.c:37:    tny_engine_cancel_probe cancel_probe;
+src/core/runtime.c:38:    void *cancel_probe_ud;
+src/core/runtime.c:39:    tny_wake cancel_wake;
+src/core/runtime.c:40:    atomic_bool cancel_requested;
+src/core/runtime.c:41:    atomic_bool cancel_armed;
+src/core/runtime.c:42:    bool threadsafe_cancel;
+src/core/runtime.c:50:    bool oom_pending;
+src/core/runtime.c:61:    bool extension_cancel_sent;
+src/core/runtime.c:65:    buf_t turn_text;
+src/core/runtime.c:66:    buf_t message_text;
+src/core/runtime.c:72:    buf_t extension_followup;
+src/core/runtime.c:78:    tny_owned_event *oom_error_reserve;
+src/core/runtime.c:79:    tny_owned_event *oom_terminal_reserve;
+src/core/runtime.c:88:    char *p = malloc(n + 1);
+src/core/runtime.c:97:static tny_owned_event *event_copy(tny_engine *e, const tny_backend_event *ev) {
+src/core/runtime.c:104:        tny_owned_event_copy(ev, tny_provider_name(e->ctx), e->session->id, turn_id, 0);
+src/core/runtime.c:120:    return tny_owned_event_copy(&ev, tny_provider_name(e->ctx), e->session->id, "", 192);
+src/core/runtime.c:126: * replacements transactionally also leaves a retryable state if allocation
+src/core/runtime.c:127: * fails part-way through the pre-turn re-arm. */
+src/core/runtime.c:128:static bool ensure_oom_reserves(tny_engine *e) {
+src/core/runtime.c:129:    if (e->oom_error_reserve && e->oom_terminal_reserve) return true;
+src/core/runtime.c:130:    tny_owned_event *error = e->oom_error_reserve;
+src/core/runtime.c:131:    tny_owned_event *terminal = e->oom_terminal_reserve;
+src/core/runtime.c:147:    e->oom_error_reserve = error;
+src/core/runtime.c:148:    e->oom_terminal_reserve = terminal;
+src/core/runtime.c:166:static void append_owned(tny_engine *e, tny_owned_event *copy) {
+src/core/runtime.c:167:    if (e->tail) e->tail->next = copy;
+src/core/runtime.c:168:    else e->head = copy;
+src/core/runtime.c:169:    e->tail = copy;
+src/core/runtime.c:171:    e->queue_bytes += copy->owned_bytes;
+src/core/runtime.c:177:    if (tny_alloc_scope_failed()) {
+src/core/runtime.c:178:        e->oom_pending = true;
+src/core/runtime.c:184:     * and agent_end has either continued or allowed settlement. */
+src/core/runtime.c:187:    tny_owned_event *copy = event_copy(e, ev);
+src/core/runtime.c:188:    if (!copy) {
+src/core/runtime.c:189:        if (tny_alloc_scope_failed()) e->oom_pending = true;
+src/core/runtime.c:197:    if (e->queue_count >= count_limit || copy->owned_bytes > byte_limit ||
+src/core/runtime.c:198:        e->queue_bytes > byte_limit - copy->owned_bytes) {
+src/core/runtime.c:199:        tny_owned_event_free(copy);
+src/core/runtime.c:204:        copy->ev.stop = e->forcing_error ? TNY_STOP_ERROR : ev->stop;
+src/core/runtime.c:205:        e->pending_terminal = copy;
+src/core/runtime.c:208:    append_owned(e, copy);
+src/core/runtime.c:303:    case TNY_EVENT_ERROR_OOM: return "oom";
+src/core/runtime.c:308:static void event_json_begin(tny_engine *e, buf_t *b, const char *type) {
+src/core/runtime.c:315:    buf_appends(b, "{\"schema_version\":1,\"event_id\":");
+src/core/runtime.c:317:    buf_appends(b, ",\"type\":");
+src/core/runtime.c:319:    buf_appendf(b, ",\"sequence\":%llu,\"provider\":", (unsigned long long)seq);
+src/core/runtime.c:321:    buf_appends(b, ",\"session_id\":");
+src/core/runtime.c:323:    buf_appends(b, ",\"turn_id\":");
+src/core/runtime.c:325:    buf_appendf(b, ",\"timestamp_ms\":%lld,\"payload\":{", (long long)engine_monotonic_ms(e));
+src/core/runtime.c:329:    buf_t b;
+src/core/runtime.c:330:    buf_init(&b);
+src/core/runtime.c:340:        buf_appends(&b, "\"text\":");
+src/core/runtime.c:343:            buf_appends(&b, ",\"message_id\":");
+src/core/runtime.c:347:            buf_appends(&b, ",\"custom_type\":");
+src/core/runtime.c:354:        buf_appends(&b, "\"tool_name\":");
+src/core/runtime.c:356:        buf_appends(&b, ",\"tool_id\":");
+src/core/runtime.c:358:        buf_appends(&b, ",\"detail\":");
+src/core/runtime.c:361:            buf_appendf(&b, ",\"ok\":%s", ev->tool_ok ? "true" : "false");
+src/core/runtime.c:364:        buf_appends(&b, "\"permission_id\":");
+src/core/runtime.c:366:        buf_appends(&b, ",\"summary\":");
+src/core/runtime.c:368:        buf_appendf(&b, ",\"options\":%d", ev->perm_options);
+src/core/runtime.c:371:        buf_appendf(&b,
+src/core/runtime.c:376:        if (ev->has_cost) buf_appendf(&b, ",\"cost\":%.12g", ev->cost);
+src/core/runtime.c:379:        buf_appends(&b, "\"stop\":{\"reason\":");
+src/core/runtime.c:381:        buf_appends(&b, "}");
+src/core/runtime.c:384:        buf_appends(&b, "\"message\":");
+src/core/runtime.c:392:        buf_appends(&b, ",\"error_code\":");
+src/core/runtime.c:396:    buf_appends(&b, "}}");
+src/core/runtime.c:397:    return buf_detach(&b);
+src/core/runtime.c:402:    buf_t b;
+src/core/runtime.c:403:    buf_init(&b);
+src/core/runtime.c:407:        buf_appends(&b, "\"prompt\":");
+src/core/runtime.c:412:        if (comma) buf_appends(&b, ",");
+src/core/runtime.c:413:        buf_appends(&b, "\"stop\":{\"reason\":");
+src/core/runtime.c:415:        buf_appends(&b, "},\"output_text\":");
+src/core/runtime.c:417:        buf_appends(&b, ",\"messages\":[{\"role\":\"assistant\",\"content\":");
+src/core/runtime.c:419:        buf_appends(&b, "}]");
+src/core/runtime.c:420:        buf_appendf(&b,
+src/core/runtime.c:425:    buf_appends(&b, "}}");
+src/core/runtime.c:426:    return buf_detach(&b);
+src/core/runtime.c:431:    buf_t b;
+src/core/runtime.c:432:    buf_init(&b);
+src/core/runtime.c:434:    buf_appends(&b, "\"reason\":");
+src/core/runtime.c:437:        buf_appends(&b, ",\"previous_session_id\":");
+src/core/runtime.c:440:    buf_appends(&b, "}}");
+src/core/runtime.c:441:    return buf_detach(&b);
+src/core/runtime.c:449:    buf_t b;
+src/core/runtime.c:450:    buf_init(&b);
+src/core/runtime.c:452:    buf_appends(&b, "\"prompt\":");
+src/core/runtime.c:454:    buf_appends(&b, ",\"source\":");
+src/core/runtime.c:456:    buf_appends(&b, ",\"submission_id\":");
+src/core/runtime.c:458:    buf_appends(&b, ",\"images\":[");
+src/core/runtime.c:460:        if (i) buf_appends(&b, ",");
+src/core/runtime.c:461:        buf_appends(&b, "{\"path\":");
+src/core/runtime.c:463:        buf_appends(&b, "}");
+src/core/runtime.c:465:    buf_appends(&b, "]}}");
+src/core/runtime.c:466:    return buf_detach(&b);
+src/core/runtime.c:470:    buf_t b;
+src/core/runtime.c:471:    buf_init(&b);
+src/core/runtime.c:473:    buf_appendf(&b, "\"iteration\":%d,\"source\":", e->extension_continuations);
+src/core/runtime.c:475:    buf_appends(&b, "}}");
+src/core/runtime.c:476:    return buf_detach(&b);
+src/core/runtime.c:481:    buf_t b;
+src/core/runtime.c:482:    buf_init(&b);
+src/core/runtime.c:484:    buf_appends(&b, "\"message_id\":");
+src/core/runtime.c:486:    buf_appends(&b, ",\"role\":\"assistant\",\"content_type\":\"text\"");
+src/core/runtime.c:488:        buf_appends(&b, ",\"text\":");
+src/core/runtime.c:491:    buf_appends(&b, "}}");
+src/core/runtime.c:492:    return buf_detach(&b);
+src/core/runtime.c:498:    buf_t b;
+src/core/runtime.c:499:    buf_init(&b);
+src/core/runtime.c:501:    buf_appends(&b, "\"trigger\":");
+src/core/runtime.c:504:        buf_appendf(&b, ",\"message_count\":%d", before_count);
+src/core/runtime.c:506:        buf_appendf(&b,
+src/core/runtime.c:512:                            : xstrdup("");
+src/core/runtime.c:516:        buf_appends(&b, ",\"error\":");
+src/core/runtime.c:517:        jescape(&b, error ? error : "compaction failed");
+src/core/runtime.c:519:    buf_appends(&b, "}}");
+src/core/runtime.c:520:    return buf_detach(&b);
+src/core/runtime.c:525:    buf_t b;
+src/core/runtime.c:526:    buf_init(&b);
+src/core/runtime.c:528:    buf_appends(&b, "\"previous\":");
+src/core/runtime.c:530:    buf_appends(&b, ",\"current\":");
+src/core/runtime.c:532:    buf_appends(&b, ",\"source\":");
+src/core/runtime.c:534:    buf_appends(&b, "}}");
+src/core/runtime.c:535:    return buf_detach(&b);
+src/core/runtime.c:539:    buf_t b;
+src/core/runtime.c:540:    buf_init(&b);
+src/core/runtime.c:542:    buf_appends(&b, "\"action\":");
+src/core/runtime.c:544:    buf_appends(&b, ",\"path\":");
+src/core/runtime.c:546:    buf_appends(&b, ",\"directories\":[");
+src/core/runtime.c:548:        if (i) buf_appends(&b, ",");
+src/core/runtime.c:551:    buf_appends(&b, "]}}");
+src/core/runtime.c:552:    return buf_detach(&b);
+src/core/runtime.c:556:    buf_t b;
+src/core/runtime.c:557:    buf_init(&b);
+src/core/runtime.c:559:    buf_appends(&b, "\"paths\":[");
+src/core/runtime.c:561:        if (i) buf_appends(&b, ",");
+src/core/runtime.c:564:    buf_appends(&b, "],\"digest\":");
+src/core/runtime.c:566:    buf_appendf(&b, ",\"count\":%d}}", e->ctx->n_instruction_paths);
+src/core/runtime.c:567:    return buf_detach(&b);
+src/core/runtime.c:578:    buf_t b;
+src/core/runtime.c:579:    buf_init(&b);
+src/core/runtime.c:580:    buf_appendf(&b, "extension %.100s hook %.80s failed (%.40s): %.300s",
+src/core/runtime.c:588:    buf_free(&b);
+src/core/runtime.c:591:static void append_custom_context(buf_t *prompt, const tny_extension_action *action) {
+src/core/runtime.c:592:    if (prompt->len) buf_appends(prompt, "\n\n");
+src/core/runtime.c:593:    buf_appendf(prompt, "[Context from tny extension %s",
+src/core/runtime.c:595:    if (action->custom_type) buf_appendf(prompt, " (%s)", action->custom_type);
+src/core/runtime.c:596:    buf_appends(prompt, "]\n");
+src/core/runtime.c:597:    buf_appends(prompt, action->content ? action->content : "");
+src/core/runtime.c:598:    buf_appends(prompt, "\n[End extension context]");
+src/core/runtime.c:601:static void append_user_followup(buf_t *prompt, const tny_extension_action *action) {
+src/core/runtime.c:602:    if (prompt->len) buf_appends(prompt, "\n\n");
+src/core/runtime.c:603:    buf_appends(prompt, action->content ? action->content : "");
+src/core/runtime.c:618:                                            tny_extension_result *result, buf_t *target) {
+src/core/runtime.c:620:    for (size_t i = 0; i < result->failure_count; i++) {
+src/core/runtime.c:621:        tny_extension_failure *f = &result->failures[i];
+src/core/runtime.c:686:            buf_clear(target);
+src/core/runtime.c:687:            buf_appends(target, a->content ? a->content : "");
+src/core/runtime.c:699:            buf_t *destination = phase == EXT_PHASE_BEFORE_START ? target : &e->extension_followup;
+src/core/runtime.c:724:                                        extension_phase phase, buf_t *target) {
+src/core/runtime.c:756:                                          const char *source, buf_t *effective) {
+src/core/runtime.c:758:    buf_clear(effective);
+src/core/runtime.c:759:    buf_appends(effective, prompt);
+src/core/runtime.c:774:        buf_t status;
+src/core/runtime.c:775:        buf_init(&status);
+src/core/runtime.c:776:        buf_appendf(&status, "extension %s blocked prompt: %s",
+src/core/runtime.c:784:        buf_free(&status);
+src/core/runtime.c:811:    buf_t effective;
+src/core/runtime.c:812:    buf_init(&effective);
+src/core/runtime.c:821:    if (effective.len) buf_appends(&effective, "\n\n");
+src/core/runtime.c:822:    buf_appends(&effective, prompt);
+src/core/runtime.c:823:    if (buf_oom(&effective) || tny_alloc_scope_failed()) {
+src/core/runtime.c:825:        buf_free(&effective);
+src/core/runtime.c:829:    buf_clear(&e->turn_text);
+src/core/runtime.c:830:    buf_clear(&e->message_text);
+src/core/runtime.c:839:        buf_free(&effective);
+src/core/runtime.c:857:    buf_free(&effective);
+src/core/runtime.c:860:        synth_error(e, TNY_EVENT_ERROR_IO, err && *err ? err : "backend send failed");
+src/core/runtime.c:878:    buf_clear(&e->message_text);
+src/core/runtime.c:893:    e->current_message_id = xstrdup(id);
+src/core/runtime.c:910:            buf_append(&e->turn_text, owned->ev.text, owned->ev.text_len);
+src/core/runtime.c:911:            buf_append(&e->message_text, owned->ev.text, owned->ev.text_len);
+src/core/runtime.c:942:static void native_control_failures(tny_engine *e, const char *event,
+src/core/runtime.c:944:    for (size_t i = 0; i < result->failure_count; i++) {
+src/core/runtime.c:945:        tny_extension_failure *failure = &result->failures[i];
+src/core/runtime.c:946:        extension_status(e, failure->extension, event, failure->code, failure->message);
+src/core/runtime.c:986:    buf_t b;
+src/core/runtime.c:987:    buf_init(&b);
+src/core/runtime.c:992:                               ? jparse(request->arguments_json, strlen(request->arguments_json))
+src/core/runtime.c:996:        buf_appends(&b, "\"tool_name\":");
+src/core/runtime.c:998:        buf_appends(&b, ",\"tool_id\":");
+src/core/runtime.c:1000:        buf_appendf(&b,
+src/core/runtime.c:1009:        buf_appends(&b, "\"permission_id\":");
+src/core/runtime.c:1011:        buf_appends(&b, ",\"summary\":");
+src/core/runtime.c:1013:        buf_appendf(&b, ",\"options\":%d", request->permission_options);
+src/core/runtime.c:1016:        buf_appends(&b, "\"tool_name\":");
+src/core/runtime.c:1018:        buf_appends(&b, ",\"tool_id\":");
+src/core/runtime.c:1020:        buf_appends(&b, ",\"result\":");
+src/core/runtime.c:1022:        buf_appendf(&b, ",\"original_ok\":%s", request->original_ok ? "true" : "false");
+src/core/runtime.c:1025:        buf_appendf(&b, "\"tool_ids\":%s,\"failed\":%d",
+src/core/runtime.c:1026:                    request->tool_ids_json ? request->tool_ids_json : "[]", request->failed_tools);
+src/core/runtime.c:1029:        buf_appends(&b, "\"method\":");
+src/core/runtime.c:1031:        buf_appends(&b, ",\"endpoint\":");
+src/core/runtime.c:1033:        buf_appends(&b, ",\"metadata\":{");
+src/core/runtime.c:1034:        buf_appendf(&b,
+src/core/runtime.c:1038:        buf_appends(&b, ",\"logical_request_id\":");
+src/core/runtime.c:1040:        buf_appendf(&b, ",\"attempt\":%d}", request->attempt);
+src/core/runtime.c:1043:        buf_appendf(&b,
+src/core/runtime.c:1049:        buf_appends(&b, ",\"logical_request_id\":");
+src/core/runtime.c:1051:        buf_appendf(&b, ",\"attempt\":%d}", request->attempt);
+src/core/runtime.c:1054:        buf_appends(&b, "\"subagent_id\":");
+src/core/runtime.c:1056:        buf_appends(&b, ",\"action\":");
+src/core/runtime.c:1060:        buf_appends(&b, "\"subagent_id\":");
+src/core/runtime.c:1062:        buf_appends(&b, ",\"action\":");
+src/core/runtime.c:1064:        buf_appends(&b, ",\"outcome\":");
+src/core/runtime.c:1066:        buf_appendf(&b, ",\"ok\":%s", request->subagent_ok ? "true" : "false");
+src/core/runtime.c:1069:    buf_appends(&b, "}}");
+src/core/runtime.c:1070:    return buf_detach(&b);
+src/core/runtime.c:1085:    native_control_failures(e, "pre_tool_use", &result);
+src/core/runtime.c:1115:    native_control_failures(e, "permission_request", &result);
+src/core/runtime.c:1148:    native_control_failures(e, event, &result);
+src/core/runtime.c:1151:    buf_t annotations;
+src/core/runtime.c:1152:    buf_init(&annotations);
+src/core/runtime.c:1153:    buf_appends(&annotations, "[");
+src/core/runtime.c:1163:            if (annotation_count > 0) buf_appends(&annotations, ",");
+src/core/runtime.c:1165:            buf_appends(&annotations, "{\"extension\":");
+src/core/runtime.c:1167:            buf_appends(&annotations, ",\"content\":");
+src/core/runtime.c:1169:            buf_appendf(&annotations, ",\"display\":%s}", action->display ? "true" : "false");
+src/core/runtime.c:1176:    buf_appends(&annotations, "]");
+src/core/runtime.c:1198:    buf_free(&annotations);
+src/core/runtime.c:1205:    native_control_failures(e, event, &result);
+src/core/runtime.c:1232:        event = request->original_ok ? "post_tool_use" : "post_tool_failure";
+src/core/runtime.c:1250:    if (e->cancel_probe && e->cancel_probe(e->cancel_probe_ud)) { response->stop = true; }
+src/core/runtime.c:1259:    atomic_store_explicit(&e->cancel_armed, false, memory_order_release);
+src/core/runtime.c:1267: * pass through after_backend before settlement. */
+src/core/runtime.c:1309:        char *prompt = xstrdup(e->extension_followup.data);
+src/core/runtime.c:1310:        buf_clear(&e->extension_followup);
+src/core/runtime.c:1315:        e->extension_cancel_sent = false;
+src/core/runtime.c:1321:        synth_error(e, TNY_EVENT_ERROR_IO, err[0] ? err : "extension continuation failed");
+src/core/runtime.c:1326:    buf_clear(&e->extension_followup);
+src/core/runtime.c:1350:    session_save(e->session);
+src/core/runtime.c:1354:    if (tny_alloc_scope_failed()) e->oom_pending = true;
+src/core/runtime.c:1355:    if (e->oom_pending && !e->terminal) {
+src/core/runtime.c:1356:        tny_engine_fail_oom(e);
+src/core/runtime.c:1361:        if (e->bk && e->bk->cancel) e->bk->cancel(e->bk);
+src/core/runtime.c:1364:        synth_error(e, TNY_EVENT_ERROR_IO, "backend transport failed");
+src/core/runtime.c:1369:        if (e->extension_stop_requested && !e->extension_cancel_sent && !e->pending_terminal &&
+src/core/runtime.c:1370:            e->bk && e->bk->cancel) {
+src/core/runtime.c:1371:            e->extension_cancel_sent = true;
+src/core/runtime.c:1372:            e->bk->cancel(e->bk);
+src/core/runtime.c:1386:    tny_engine *e = calloc(1, sizeof *e);
+src/core/runtime.c:1393:    e->cancel_wake.read_fd = -1;
+src/core/runtime.c:1394:    e->cancel_wake.write_fd = -1;
+src/core/runtime.c:1395:    atomic_init(&e->cancel_requested, false);
+src/core/runtime.c:1396:    atomic_init(&e->cancel_armed, false);
+src/core/runtime.c:1397:    buf_init(&e->turn_text);
+src/core/runtime.c:1398:    buf_init(&e->message_text);
+src/core/runtime.c:1399:    buf_init(&e->extension_followup);
+src/core/runtime.c:1400:    if (!ensure_oom_reserves(e)) {
+src/core/runtime.c:1416:static bool native_tool_cancelled(void *ud) {
+src/core/runtime.c:1418:    return atomic_load_explicit(&e->cancel_requested, memory_order_acquire) ||
+src/core/runtime.c:1419:           (e->cancel_probe && e->cancel_probe(e->cancel_probe_ud));
+src/core/runtime.c:1443:    if (bk->id == TNY_BK_OPENAI) tny_backend_openai_set_tool_cancel(bk, native_tool_cancelled, e);
+src/core/runtime.c:1506:void tny_engine_set_cancel_probe(tny_engine *e, tny_engine_cancel_probe probe, void *ud) {
+src/core/runtime.c:1508:    e->cancel_probe = probe;
+src/core/runtime.c:1509:    e->cancel_probe_ud = ud;
+src/core/runtime.c:1512:int tny_engine_enable_threadsafe_cancel(tny_engine *e) {
+src/core/runtime.c:1513:    if (!e || e->threadsafe_cancel || e->active) return -1;
+src/core/runtime.c:1514:    if (tny_wake_init(&e->cancel_wake) != 0) return -1;
+src/core/runtime.c:1515:    e->threadsafe_cancel = true;
+src/core/runtime.c:1519:void tny_engine_request_cancel(tny_engine *e) {
+src/core/runtime.c:1520:    if (!e || !e->threadsafe_cancel ||
+src/core/runtime.c:1521:        !atomic_load_explicit(&e->cancel_armed, memory_order_acquire))
+src/core/runtime.c:1523:    if (!atomic_exchange_explicit(&e->cancel_requested, true, memory_order_acq_rel))
+src/core/runtime.c:1524:        tny_wake_signal(&e->cancel_wake);
+src/core/runtime.c:1534:    if (yyjson_mut_obj_get(yyjson_mut_doc_get_root(e->session->doc), "continuation")) {
+src/core/runtime.c:1548:    if (!ensure_oom_reserves(e)) {
+src/core/runtime.c:1563:    e->extension_cancel_sent = false;
+src/core/runtime.c:1565:    atomic_store_explicit(&e->cancel_requested, false, memory_order_release);
+src/core/runtime.c:1566:    tny_wake_drain(&e->cancel_wake);
+src/core/runtime.c:1570:    buf_clear(&e->extension_followup);
+src/core/runtime.c:1571:    buf_t effective;
+src/core/runtime.c:1572:    buf_init(&effective);
+src/core/runtime.c:1575:        buf_appends(&effective, prompt); /* mutating hook already consumed */
+src/core/runtime.c:1581:    if (buf_oom(&effective) || tny_alloc_scope_failed()) {
+src/core/runtime.c:1583:        buf_free(&effective);
+src/core/runtime.c:1590:        session_save(e->session);
+src/core/runtime.c:1596:        buf_free(&effective);
+src/core/runtime.c:1612:            buf_clear(&effective);
+src/core/runtime.c:1613:            buf_appends(&effective, with_skills);
+src/core/runtime.c:1615:            if (buf_oom(&effective)) {
+src/core/runtime.c:1617:                buf_free(&effective);
+src/core/runtime.c:1625:        buf_t with_sys;
+src/core/runtime.c:1626:        buf_init(&with_sys);
+src/core/runtime.c:1629:            buf_appends(&with_sys, e->ctx->system_prompt);
+src/core/runtime.c:1630:            buf_appends(&with_sys, "\n\n");
+src/core/runtime.c:1632:        buf_append(&with_sys, effective.data, effective.len);
+src/core/runtime.c:1633:        if (buf_oom(&with_sys)) {
+src/core/runtime.c:1635:            buf_free(&with_sys);
+src/core/runtime.c:1636:            buf_free(&effective);
+src/core/runtime.c:1640:        buf_free(&effective);
+src/core/runtime.c:1645:     * entered. Allocation failure or a before_agent_start stop leaves the
+src/core/runtime.c:1652:    buf_free(&effective);
+src/core/runtime.c:1657:        buf_clear(&e->extension_followup);
+src/core/runtime.c:1658:        return -1; /* start failure creates no event stream */
+src/core/runtime.c:1660:    if (e->active) atomic_store_explicit(&e->cancel_armed, true, memory_order_release);
+src/core/runtime.c:1670:    buf_t effective;
+src/core/runtime.c:1671:    buf_init(&effective);
+src/core/runtime.c:1674:        session_save(e->session);
+src/core/runtime.c:1675:        buf_free(&effective);
+src/core/runtime.c:1681:        buf_free(&effective);
+src/core/runtime.c:1695:    buf_free(&effective);
+src/core/runtime.c:1699:void tny_engine_cancel(tny_engine *e) {
+src/core/runtime.c:1700:    if (!e || !e->active || !e->bk || !e->bk->cancel) return;
+src/core/runtime.c:1701:    e->bk->cancel(e->bk);
+src/core/runtime.c:1705:void tny_engine_fail_oom(tny_engine *e) {
+src/core/runtime.c:1707:    tny_alloc_settlement_begin();
+src/core/runtime.c:1708:    tny_alloc_scope_clear();
+src/core/runtime.c:1709:    e->oom_pending = false;
+src/core/runtime.c:1712:    e->finalize_pending = false; /* persistence is not emergency settlement */
+src/core/runtime.c:1714:    e->extension_cancel_sent = true;
+src/core/runtime.c:1715:    /* Publish settlement before cancel: backend cancellation callbacks must
+src/core/runtime.c:1718:    if (e->bk && e->active && e->bk->cancel) e->bk->cancel(e->bk);
+src/core/runtime.c:1723:    tny_owned_event *error = e->oom_error_reserve;
+src/core/runtime.c:1724:    tny_owned_event *terminal = e->oom_terminal_reserve;
+src/core/runtime.c:1725:    e->oom_error_reserve = NULL;
+src/core/runtime.c:1726:    e->oom_terminal_reserve = NULL;
+src/core/runtime.c:1739:    atomic_store_explicit(&e->cancel_armed, false, memory_order_release);
+src/core/runtime.c:1740:    tny_alloc_settlement_end();
+src/core/runtime.c:1790:    if (e->threadsafe_cancel &&
+src/core/runtime.c:1791:        atomic_exchange_explicit(&e->cancel_requested, false, memory_order_acq_rel) && e->active)
+src/core/runtime.c:1792:        tny_engine_cancel(e);
+src/core/runtime.c:1810:        if (e->threadsafe_cancel) {
+src/core/runtime.c:1812:            fds[wake_index].fd = tny_wake_fd(&e->cancel_wake);
+src/core/runtime.c:1828:            synth_error(e, TNY_EVENT_ERROR_IO, "runtime poll failed");
+src/core/runtime.c:1829:            if (e->bk && e->bk->cancel) e->bk->cancel(e->bk);
+src/core/runtime.c:1834:                tny_wake_drain(&e->cancel_wake);
+src/core/runtime.c:1835:                if (atomic_exchange_explicit(&e->cancel_requested, false, memory_order_acq_rel) &&
+src/core/runtime.c:1837:                    tny_engine_cancel(e);
+src/core/runtime.c:1869:                                                     : xstrdup("null");
+src/core/runtime.c:1903:    if (changed >= 0 && session_save(e->session) == 0) {
+src/core/runtime.c:1918:        char *json = compact_event_json(e, "compact_failed", trigger, before, before, NULL,
+src/core/runtime.c:1919:                                        "session persistence failed");
+src/core/runtime.c:1921:            (void)invoke_extensions(e, "compact_failed", json, EXT_PHASE_OBSERVE, NULL);
+src/core/runtime.c:1962:    atomic_store_explicit(&e->cancel_armed, false, memory_order_release);
+src/core/runtime.c:1963:    if (e->active) tny_engine_cancel(e);
+src/core/runtime.c:1969:    tny_owned_event_free(e->oom_error_reserve);
+src/core/runtime.c:1970:    tny_owned_event_free(e->oom_terminal_reserve);
+src/core/runtime.c:1971:    buf_free(&e->turn_text);
+src/core/runtime.c:1972:    buf_free(&e->message_text);
+src/core/runtime.c:1973:    buf_free(&e->extension_followup);
+src/core/runtime.c:1978:    tny_wake_close(&e->cancel_wake);
+src/core/runtime.c:1993:yyjson_mut_val *tny_engine_checkpoint(tny_engine *e, yyjson_mut_doc *d) {
+src/core/runtime.c:1995:    yyjson_mut_val *r = yyjson_mut_obj(d);
+src/core/runtime.c:1996:    yyjson_mut_val *native = tny_backend_openai_checkpoint(e->bk, d);
+src/core/runtime.c:1998:    yyjson_mut_obj_add_val(d, r, "native", native);
+src/core/runtime.c:1999:    if (e->prompt_text) yyjson_mut_obj_add_strcpy(d, r, "prompt_text", e->prompt_text);
+src/core/runtime.c:2001:        yyjson_mut_obj_add_strcpy(d, r, "prepared_requeue_text", e->prepared_requeue_text);
+src/core/runtime.c:2003:        yyjson_mut_obj_add_strcpy(d, r, "current_message_id", e->current_message_id);
+src/core/runtime.c:2004:    yyjson_mut_obj_add_strcpy(d, r, "turn_text", e->turn_text.data ? e->turn_text.data : "");
+src/core/runtime.c:2005:    yyjson_mut_obj_add_strcpy(d, r, "message_text",
+src/core/runtime.c:2007:    yyjson_mut_obj_add_strcpy(d, r, "extension_followup",
+src/core/runtime.c:2009:    yyjson_mut_obj_add_bool(d, r, "system_prompt_delivered", e->system_prompt_delivered);
+src/core/runtime.c:2010:    yyjson_mut_obj_add_bool(d, r, "extensions_started", e->extensions_started);
+src/core/runtime.c:2011:    yyjson_mut_obj_add_bool(d, r, "message_started", e->message_started);
+src/core/runtime.c:2012:    yyjson_mut_obj_add_bool(d, r, "turn_started", e->turn_started);
+src/core/runtime.c:2013:    yyjson_mut_obj_add_uint(d, r, "submission_sequence", e->submission_sequence);
+src/core/runtime.c:2014:    yyjson_mut_obj_add_int(d, r, "extension_continuations", e->extension_continuations);
+src/core/runtime.c:2020:    if (!ensure_oom_reserves(e) ||
+src/core/runtime.c:2024:    e->prompt_text = jget_str(r, "prompt_text") ? xstrdup(jget_str(r, "prompt_text")) : NULL;
+src/core/runtime.c:2027:        jget_str(r, "prepared_requeue_text") ? xstrdup(jget_str(r, "prepared_requeue_text")) : NULL;
+src/core/runtime.c:2030:        jget_str(r, "current_message_id") ? xstrdup(jget_str(r, "current_message_id")) : NULL;
+src/core/runtime.c:2031:    buf_clear(&e->turn_text);
+src/core/runtime.c:2032:    buf_appends(&e->turn_text, jget_str(r, "turn_text") ? jget_str(r, "turn_text") : "");
+src/core/runtime.c:2033:    buf_clear(&e->message_text);
+src/core/runtime.c:2034:    buf_appends(&e->message_text, jget_str(r, "message_text") ? jget_str(r, "message_text") : "");
+src/core/runtime.c:2035:    buf_clear(&e->extension_followup);
+src/core/runtime.c:2036:    buf_appends(&e->extension_followup,
+src/core/runtime.c:2071:    e->active = false; /* ownership transfer, never a cancelled turn */
+src/core/config.c:161:    return xstrdup(v && *v ? v : dflt);
+src/core/config.c:238:/* Validate only when selected, then copy every argv string out of yyjson's
+src/core/config.c:289:    char **argv = calloc(argc + 1, sizeof *argv);
+src/core/config.c:293:    if (!legacy_command) argv[out++] = xstrdup(command);
+src/core/config.c:309:            argv[out] = xstrdup(arg);
+src/core/config.c:313:                return -1; /* OOM: allocator fault injection is out of scope */
+src/core/config.c:354:    ctx->provider_name = xstrdup(provider);
+src/core/config.c:357:        ctx->model = model ? xstrdup(model) : NULL;
+src/core/config.c:366:    char *s = malloc(n + m + 1);
+src/core/config.c:398:    return env && *env ? xstrdup(env) : tny_provider_env_var(name, "_API_KEY");
+src/core/config.c:405: * not round-trip through tny_provider_env_var). malloc'd array; the
+src/core/config.c:419:        char *name = malloc(plen + 1);
+src/core/config.c:446:        char **nv = realloc(v, sizeof(char *) * (size_t)(n + 2));
+src/core/config.c:463: * last_provider remembers it). Returns a malloc'd name or NULL. */
+src/core/config.c:472:        if (!pick) pick = xstrdup(v[i]);
+src/core/config.c:489:    ctx->base_url = xstrdup(bu && *bu ? bu : "https://api.openai.com/v1");
+src/core/config.c:495:    ctx->api_key = key && *key ? xstrdup(key) : NULL;
+src/core/config.c:500:    ctx->auth_header_name = xstrdup(ahn ? ahn : "Authorization");
+src/core/config.c:501:    ctx->auth_header_prefix = xstrdup(ahp ? ahp : "Bearer ");
+src/core/config.c:504:    ctx->max_tokens_field = mtf ? xstrdup(mtf) : NULL;
+src/core/config.c:508:    ctx->wire_api = wa && *wa ? xstrdup(wa) : NULL; /* NULL = responses */
+src/core/config.c:520:    ctx->provider_name = xstrdup(name);
+src/core/config.c:524:    ctx->base_url = xstrdup(bu ? bu : "");
+src/core/config.c:532:    ctx->api_key = key && *key ? xstrdup(key) : NULL;
+src/core/config.c:537:    ctx->auth_header_name = xstrdup(ahn ? ahn : "Authorization");
+src/core/config.c:538:    ctx->auth_header_prefix = xstrdup(ahp ? ahp : "Bearer ");
+src/core/config.c:541:    ctx->max_tokens_field = mtf ? xstrdup(mtf) : NULL;
+src/core/config.c:545:    ctx->wire_api = wa && *wa ? xstrdup(wa) : NULL; /* NULL = responses */
+src/core/config.c:550:    tny_ctx *ctx = calloc(1, sizeof *ctx);
+src/core/config.c:567:        ctx->cwd = xstrdup(tmp);
+src/core/config.c:573:    ctx->settings_path = path_join(ctx->tny_dir, "settings.json");
+src/core/config.c:574:    ctx->settings = jparse_file(ctx->settings_path);
+src/core/config.c:576:    char *repo_cfg_path = path_join(ctx->cwd, ".tny.json");
+src/core/config.c:577:    ctx->repo_cfg = jparse_file(repo_cfg_path);
+src/core/config.c:606:    ctx->sandbox_mode = xstrdup("auto");
+src/core/config.c:697:    if (re_env && *re_env) ctx->reasoning_effort = xstrdup(re_env);
+src/core/config.c:715:            ctx->sandbox_mode = xstrdup(sb);
+src/core/config.c:727:                realloc(ctx->extra_dirs, sizeof(char *) * (size_t)(ctx->n_extra_dirs + 1));
+src/core/config.c:730:            ctx->extra_dirs[ctx->n_extra_dirs++] = xstrdup(yyjson_get_str(v));
+src/core/config.c:746:    tny_ctx *ctx = calloc(1, sizeof *ctx);
+src/core/config.c:756:    ctx->settings_path = path_join(ctx->tny_dir, "settings.json");
+src/core/config.c:759:    ctx->provider_name = xstrdup("openai");
+src/core/config.c:770:    ctx->sandbox_mode = xstrdup("auto");
+src/core/config.c:772:    ctx->base_url = xstrdup("https://api.openai.com/v1");
+src/core/config.c:773:    ctx->auth_header_name = xstrdup("Authorization");
+src/core/config.c:774:    ctx->auth_header_prefix = xstrdup("Bearer ");
+src/core/config.c:775:    ctx->bridge_bin = xstrdup("cursor-sdk-bridge");
+src/core/config.c:816:        ctx->model = xstrdup(m);
+src/core/config.c:879: * key, value or a repeated key fails configuration rather than resolving to
+src/core/config.c:941: * after provider resolution so unsupported providers can fail clearly. */
+src/core/config.c:970:    ctx->service_tier = xstrdup(tny_tier_is_fast(tier) ? "fast" : "default");
+src/core/config.c:991:        ctx->reasoning_effort = xstrdup(v);
+src/core/config.c:1134:typedef void (*settings_edit_fn)(yyjson_mut_doc *doc, yyjson_mut_val *root, void *ud);
+src/core/config.c:1137:    yyjson_mut_doc *doc;
+src/core/config.c:1139:        doc = yyjson_doc_mut_copy(ctx->settings, NULL);
+src/core/config.c:1141:        doc = yyjson_mut_doc_new(NULL);
+src/core/config.c:1142:        yyjson_mut_doc_set_root(doc, yyjson_mut_obj(doc));
+src/core/config.c:1145:    yyjson_mut_val *root = yyjson_mut_doc_get_root(doc);
+src/core/config.c:1147:    char *out = jwrite_pretty(doc);
+src/core/config.c:1148:    yyjson_mut_doc_free(doc);
+src/core/config.c:1155:        ctx->settings = jparse_file(ctx->settings_path);
+src/core/config.c:1164:static void edit_set_str(yyjson_mut_doc *doc, yyjson_mut_val *root, void *ud) {
+src/core/config.c:1166:    yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, kv->k), yyjson_mut_strcpy(doc, kv->v));
+src/core/config.c:1181:static void edit_provider_profile(yyjson_mut_doc *doc, yyjson_mut_val *root, void *ud) {
+src/core/config.c:1183:    yyjson_mut_val *o = yyjson_mut_obj_get(root, pe->name);
+src/core/config.c:1184:    if (!o || !yyjson_mut_is_obj(o)) {
+src/core/config.c:1185:        o = yyjson_mut_obj(doc);
+src/core/config.c:1186:        yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, pe->name), o);
+src/core/config.c:1197:            yyjson_mut_obj_put(o, yyjson_mut_strcpy(doc, kv[i].k), yyjson_mut_strcpy(doc, kv[i].v));
+src/core/config.c:1200:    if (pe->f->api_key) yyjson_mut_obj_remove_key(o, "api_key_env");
+src/core/config.c:1201:    if (pe->f->api_key_env) yyjson_mut_obj_remove_key(o, "api_key");
+src/core/config.c:1272:static void edit_remember_use(yyjson_mut_doc *doc, yyjson_mut_val *root, void *ud) {
+src/core/config.c:1274:    yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "last_provider"),
+src/core/config.c:1275:                       yyjson_mut_strcpy(doc, kv->k));
+src/core/config.c:1277:    yyjson_mut_val *models = yyjson_mut_obj_get(root, "models");
+src/core/config.c:1278:    if (!models || !yyjson_mut_is_obj(models)) {
+src/core/config.c:1279:        models = yyjson_mut_obj(doc);
+src/core/config.c:1280:        yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "models"), models);
+src/core/config.c:1282:    yyjson_mut_obj_put(models, yyjson_mut_strcpy(doc, kv->k), yyjson_mut_strcpy(doc, kv->v));
+src/core/config.c:1302:static yyjson_mut_val *ws_mut_obj(yyjson_mut_doc *doc, yyjson_mut_val *root, const char *cwd) {
+src/core/config.c:1303:    yyjson_mut_val *all = yyjson_mut_obj_get(root, "workspaces");
+src/core/config.c:1305:        all = yyjson_mut_obj(doc);
+src/core/config.c:1306:        yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "workspaces"), all);
+src/core/config.c:1308:    yyjson_mut_val *ws = yyjson_mut_obj_get(all, cwd);
+src/core/config.c:1310:        ws = yyjson_mut_obj(doc);
+src/core/config.c:1311:        yyjson_mut_obj_put(all, yyjson_mut_strcpy(doc, cwd), ws);
+src/core/config.c:1316:static void edit_ws(yyjson_mut_doc *doc, yyjson_mut_val *root, void *ud) {
+src/core/config.c:1318:    yyjson_mut_val *ws = ws_mut_obj(doc, root, e->ctx->cwd);
+src/core/config.c:1319:    yyjson_mut_val *arr = yyjson_mut_obj_get(ws, "additional_dirs");
+src/core/config.c:1321:        yyjson_mut_obj_put(ws, yyjson_mut_strcpy(doc, "additional_dirs"), yyjson_mut_arr(doc));
+src/core/config.c:1324:    yyjson_mut_val *narr = yyjson_mut_arr(doc);
+src/core/config.c:1325:    if (arr && yyjson_mut_is_arr(arr)) {
+src/core/config.c:1327:        yyjson_mut_val *v;
+src/core/config.c:1328:        yyjson_mut_arr_foreach(arr, idx, max, v) {
+src/core/config.c:1330:            const char *s = yyjson_mut_get_str(v);
+src/core/config.c:1334:            yyjson_mut_arr_add_val(narr, yyjson_mut_strcpy(doc, s));
+src/core/config.c:1337:    if (e->op == 0) yyjson_mut_arr_add_val(narr, yyjson_mut_strcpy(doc, e->dir));
+src/core/config.c:1338:    yyjson_mut_obj_put(ws, yyjson_mut_strcpy(doc, "additional_dirs"), narr);
+src/core/config.c:1360:        char **next = realloc(ctx->extra_dirs, sizeof(char *) * (size_t)(ctx->n_extra_dirs + 1));
+src/core/config.c:1363:            ctx->extra_dirs[ctx->n_extra_dirs++] = xstrdup(abs);
+src/core/config.c:1448:    buf_t b;
+src/core/config.c:1449:    buf_init(&b);
+src/core/config.c:1451:        buf_appendf(&b, "%s%s", i ? "|" : "", tny_backend_name((tny_backend_id)i));
+src/core/config.c:1452:    buf_appends(&b, "|codex|claude|grok"); /* builtin profiles (docs/adr/0019) */
+src/core/config.c:1462:            buf_appendf(&b, "|%s", name);
+src/core/config.c:1472:            buf_appendf(&b, "|acp@%s", name);
+src/core/config.c:1479:            buf_appendf(&b, "|%s", env[i]);
+src/backends/openai/toolcalls.cpp:22:static_assert(!std::is_copy_constructible_v<call_state>);
+src/backends/openai/toolcalls.cpp:58:int fail(oa_callset *cs) noexcept {
+src/backends/openai/toolcalls.cpp:70:    } catch (const std::bad_alloc &) { return fail(cs); }
+src/backends/openai/toolcalls.cpp:103:    } catch (const std::bad_alloc &) { return fail(cs); }
+src/backends/acp/acp_wire.h:28:    buf_t buf;
+src/backends/acp/acp_wire.h:35:/* Next complete line (NUL-terminated, malloc'd, no CR/LF). NULL if none. */
+src/backends/acp/acp_wire.h:47:void acp_fmt_request(buf_t *b, int64_t id, const char *method, const char *params_json);
+src/backends/acp/acp_wire.h:48:void acp_fmt_notify(buf_t *b, const char *method, const char *params_json);
+src/backends/acp/acp_wire.h:49:void acp_fmt_result(buf_t *b, const char *id_raw, const char *result_json);
+src/backends/acp/acp_wire.h:59:/* Verbatim JSON text of a message's "id" (malloc'd; "null" when absent). */
+src/backends/acp/acp_wire.h:66:bool acp_blocks_to_text(yyjson_val *arr, buf_t *out, const char **bad);
+src/backends/acp/acp_wire.h:69:void acp_append_text_block(buf_t *b, const char *text, size_t len);
+src/backends/cursor/options.c:10:static char *fail(char *err, size_t errlen, const char *msg) {
+src/backends/cursor/options.c:15:static yyjson_mut_doc *mutable_object(const char *json, char *err, size_t errlen) {
+src/backends/cursor/options.c:17:    yyjson_doc *parsed = jparse(source, strlen(source));
+src/backends/cursor/options.c:21:        fail(err, errlen, "Cursor options must encode a JSON object");
+src/backends/cursor/options.c:24:    yyjson_mut_doc *doc = yyjson_doc_mut_copy(parsed, jallocator());
+src/backends/cursor/options.c:26:    if (!doc) fail(err, errlen, "could not allocate Cursor options");
+src/backends/cursor/options.c:30:static void put_str(yyjson_mut_doc *doc, yyjson_mut_val *obj, const char *key, const char *value) {
+src/backends/cursor/options.c:31:    yyjson_mut_obj_put(obj, yyjson_mut_strcpy(doc, key), yyjson_mut_strcpy(doc, value));
+src/backends/cursor/options.c:34:static void inject_model(const tny_ctx *ctx, yyjson_mut_doc *doc, yyjson_mut_val *root) {
+src/backends/cursor/options.c:36:    yyjson_mut_val *model = yyjson_mut_obj_get(root, "model");
+src/backends/cursor/options.c:37:    if (!yyjson_mut_is_obj(model)) {
+src/backends/cursor/options.c:38:        model = yyjson_mut_obj(doc);
+src/backends/cursor/options.c:39:        yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "model"), model);
+src/backends/cursor/options.c:44:static yyjson_mut_val *string_array(yyjson_mut_doc *doc, char **values, int n) {
+src/backends/cursor/options.c:45:    yyjson_mut_val *arr = yyjson_mut_arr(doc);
+src/backends/cursor/options.c:46:    for (int i = 0; i < n; i++) yyjson_mut_arr_add_strcpy(doc, arr, values[i]);
+src/backends/cursor/options.c:68:    if (!ctx || !ctx->cursor_config) return fail(err, errlen, "Cursor config is unavailable");
+src/backends/cursor/options.c:69:    if (!api_key || !*api_key) return fail(err, errlen, "CURSOR_API_KEY is required");
+src/backends/cursor/options.c:71:    yyjson_mut_doc *doc = mutable_object(cfg->agent_options_json, err, errlen);
+src/backends/cursor/options.c:73:    yyjson_mut_val *root = yyjson_mut_doc_get_root(doc);
+src/backends/cursor/options.c:76:    yyjson_mut_obj_remove_key(root, "apiKey");
+src/backends/cursor/options.c:77:    yyjson_mut_obj_remove_key(root, "api_key");
+src/backends/cursor/options.c:81:    yyjson_mut_val *local = yyjson_mut_obj_get(root, "local");
+src/backends/cursor/options.c:82:    yyjson_mut_val *cloud = yyjson_mut_obj_get(root, "cloud");
+src/backends/cursor/options.c:85:        yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, kind), yyjson_mut_obj(doc));
+src/backends/cursor/options.c:86:        local = yyjson_mut_obj_get(root, "local");
+src/backends/cursor/options.c:88:    if (yyjson_mut_is_obj(local)) {
+src/backends/cursor/options.c:89:        if (!yyjson_mut_obj_get(local, "cwd")) {
+src/backends/cursor/options.c:91:            yyjson_mut_obj_put(local, yyjson_mut_strcpy(doc, "cwd"), string_array(doc, cwdv, 1));
+src/backends/cursor/options.c:93:        if (!yyjson_mut_obj_get(local, "dirs") && ctx->n_extra_dirs > 0)
+src/backends/cursor/options.c:94:            yyjson_mut_obj_put(local, yyjson_mut_strcpy(doc, "dirs"),
+src/backends/cursor/options.c:99:        yyjson_doc *tools_doc = jparse(custom_tools_json, strlen(custom_tools_json));
+src/backends/cursor/options.c:103:            yyjson_mut_doc_free(doc);
+src/backends/cursor/options.c:104:            return fail(
+src/backends/cursor/options.c:108:        if (!yyjson_mut_is_obj(local)) {
+src/backends/cursor/options.c:110:            yyjson_mut_doc_free(doc);
+src/backends/cursor/options.c:111:            return fail(err, errlen, "Cursor custom tools require the local runtime");
+src/backends/cursor/options.c:113:        yyjson_mut_val *copy = yyjson_val_mut_copy(doc, tools);
+src/backends/cursor/options.c:115:        if (!copy) {
+src/backends/cursor/options.c:116:            yyjson_mut_doc_free(doc);
+src/backends/cursor/options.c:117:            return fail(err, errlen, "could not allocate Cursor custom-tool metadata");
+src/backends/cursor/options.c:119:        yyjson_mut_obj_remove_key(local, "custom_tools");
+src/backends/cursor/options.c:120:        yyjson_mut_obj_put(local, yyjson_mut_strcpy(doc, "customTools"), copy);
+src/backends/cursor/options.c:123:    char *out = jwrite(doc);
+src/backends/cursor/options.c:124:    yyjson_mut_doc_free(doc);
+src/backends/cursor/options.c:125:    if (!out) return fail(err, errlen, "could not serialize Cursor AgentOptions");
+src/backends/cursor/options.c:131:    if (!ctx || !ctx->cursor_config) return fail(err, errlen, "Cursor config is unavailable");
+src/backends/cursor/options.c:132:    yyjson_mut_doc *doc = mutable_object(ctx->cursor_config->send_options_json, err, errlen);
+src/backends/cursor/options.c:134:    yyjson_mut_val *root = yyjson_mut_doc_get_root(doc);
+src/backends/cursor/options.c:137:        yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "enableDeltas"), yyjson_mut_true(doc));
+src/backends/cursor/options.c:138:    char *out = jwrite(doc);
+src/backends/cursor/options.c:139:    yyjson_mut_doc_free(doc);
+src/backends/cursor/options.c:140:    if (!out) return fail(err, errlen, "could not serialize Cursor SendOptions");
+src/backends/openai/parsers.h:20:    buf_t args;     /* read-only view of owned fragments; never buf_free/mutate */
+src/backends/openai/parsers.h:35: * Zero-initialize a new set; never copy an initialized facade. */
+src/backends/acp/acp_server.h:30:    bool cancel_requested; /* session/cancel seen; applied outside dispatch */
+src/backends/acp/acp_server.h:31:    bool cancelled;
+src/backends/acp/acp_server.h:33:    buf_t last_error;
+src/backends/openai/responses.c:14:static const char *mstr(yyjson_mut_val *obj, const char *key) {
+src/backends/openai/responses.c:15:    return yyjson_mut_get_str(yyjson_mut_obj_get(obj, key));
+src/backends/openai/responses.c:18:static void add_str(yyjson_mut_doc *d, yyjson_mut_val *obj, const char *k, const char *v) {
+src/backends/openai/responses.c:19:    yyjson_mut_obj_put(obj, yyjson_mut_strcpy(d, k), yyjson_mut_strcpy(d, v));
+src/backends/openai/responses.c:23:static void add_text_message(yyjson_mut_doc *d, yyjson_mut_val *arr, const char *role,
+src/backends/openai/responses.c:25:    yyjson_mut_val *m = yyjson_mut_obj(d);
+src/backends/openai/responses.c:28:    yyjson_mut_arr_add_val(arr, m);
+src/backends/openai/responses.c:33:static void add_parts_message(yyjson_mut_doc *d, yyjson_mut_val *arr, const char *role,
+src/backends/openai/responses.c:34:                              yyjson_mut_val *parts) {
+src/backends/openai/responses.c:35:    yyjson_mut_val *m = yyjson_mut_obj(d);
+src/backends/openai/responses.c:37:    yyjson_mut_val *out = yyjson_mut_arr(d);
+src/backends/openai/responses.c:39:    yyjson_mut_val *p;
+src/backends/openai/responses.c:40:    yyjson_mut_arr_foreach(parts, idx, max, p) {
+src/backends/openai/responses.c:45:            yyjson_mut_val *np = yyjson_mut_obj(d);
+src/backends/openai/responses.c:48:            yyjson_mut_arr_add_val(out, np);
+src/backends/openai/responses.c:50:            yyjson_mut_val *iu = yyjson_mut_obj_get(p, "image_url");
+src/backends/openai/responses.c:53:            yyjson_mut_val *np = yyjson_mut_obj(d);
+src/backends/openai/responses.c:56:            yyjson_mut_arr_add_val(out, np);
+src/backends/openai/responses.c:59:    yyjson_mut_obj_put(m, yyjson_mut_strcpy(d, "content"), out);
+src/backends/openai/responses.c:60:    yyjson_mut_arr_add_val(arr, m);
+src/backends/openai/responses.c:64:static void add_function_calls(yyjson_mut_doc *d, yyjson_mut_val *arr, yyjson_mut_val *tcs) {
+src/backends/openai/responses.c:66:    yyjson_mut_val *tc;
+src/backends/openai/responses.c:67:    yyjson_mut_arr_foreach(tcs, idx, max, tc) {
+src/backends/openai/responses.c:69:        yyjson_mut_val *fn = yyjson_mut_obj_get(tc, "function");
+src/backends/openai/responses.c:73:        yyjson_mut_val *item = yyjson_mut_obj(d);
+src/backends/openai/responses.c:78:        yyjson_mut_arr_add_val(arr, item);
+src/backends/openai/responses.c:82:static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *summary) {
+src/backends/openai/responses.c:83:    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
+src/backends/openai/responses.c:85:    yyjson_mut_val *arr = yyjson_mut_arr(d);
+src/backends/openai/responses.c:86:    yyjson_mut_doc_set_root(d, arr);
+src/backends/openai/responses.c:89:    size_t total = msgs ? yyjson_mut_arr_size(msgs) : 0;
+src/backends/openai/responses.c:91:        yyjson_mut_val *m = yyjson_mut_arr_get(msgs, i);
+src/backends/openai/responses.c:94:        yyjson_mut_val *content = yyjson_mut_obj_get(m, "content");
+src/backends/openai/responses.c:97:            const char *out = yyjson_mut_get_str(content);
+src/backends/openai/responses.c:98:            yyjson_mut_val *item = yyjson_mut_obj(d);
+src/backends/openai/responses.c:102:            yyjson_mut_arr_add_val(arr, item);
+src/backends/openai/responses.c:108:            yyjson_mut_val *ritems = yyjson_mut_obj_get(m, "reasoning_items");
+src/backends/openai/responses.c:109:            if (ritems && yyjson_mut_is_arr(ritems)) {
+src/backends/openai/responses.c:111:                yyjson_mut_val *r;
+src/backends/openai/responses.c:112:                yyjson_mut_arr_foreach(ritems, ri, rmax, r) {
+src/backends/openai/responses.c:114:                    yyjson_mut_val *copy = yyjson_mut_val_mut_copy(d, r);
+src/backends/openai/responses.c:115:                    if (copy) yyjson_mut_arr_add_val(arr, copy);
+src/backends/openai/responses.c:119:            yyjson_mut_val *hosted = yyjson_mut_obj_get(m, "responses_items");
+src/backends/openai/responses.c:121:            yyjson_mut_val *item;
+src/backends/openai/responses.c:122:            yyjson_mut_arr_foreach(hosted, hi, hn, item) {
+src/backends/openai/responses.c:126:                yyjson_mut_val *copy = yyjson_mut_val_mut_copy(d, item);
+src/backends/openai/responses.c:127:                if (copy) yyjson_mut_arr_add_val(arr, copy);
+src/backends/openai/responses.c:129:            const char *text = yyjson_mut_get_str(content);
+src/backends/openai/responses.c:131:            yyjson_mut_val *tcs = yyjson_mut_obj_get(m, "tool_calls");
+src/backends/openai/responses.c:132:            if (tcs && yyjson_mut_is_arr(tcs)) add_function_calls(d, arr, tcs);
+src/backends/openai/responses.c:136:        if (yyjson_mut_is_arr(content)) {
+src/backends/openai/responses.c:139:            const char *text = yyjson_mut_get_str(content);
+src/backends/openai/responses.c:143:    char *out = jwrite(d);
+src/backends/openai/responses.c:144:    yyjson_mut_doc_free(d);
+src/backends/openai/responses.c:148:char *tny_openai_responses_input(yyjson_mut_val *msgs, int boundary, const char *summary) {
+src/backends/openai/responses.c:153:char *tny_openai_responses_input_with_summary(yyjson_mut_val *msgs, const char *summary) {
+src/backends/openai/responses.c:159:    yyjson_doc *doc = jparse(chat_tools_json, strlen(chat_tools_json));
+src/backends/openai/responses.c:166:    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
+src/backends/openai/responses.c:171:    yyjson_mut_val *arr = yyjson_mut_arr(d);
+src/backends/openai/responses.c:172:    yyjson_mut_doc_set_root(d, arr);
+src/backends/openai/responses.c:177:        yyjson_mut_val *item = yyjson_mut_obj(d);
+src/backends/openai/responses.c:184:                yyjson_mut_val *cv = yyjson_val_mut_copy(d, v);
+src/backends/openai/responses.c:185:                if (cv) yyjson_mut_obj_put(item, yyjson_mut_strcpy(d, yyjson_get_str(k)), cv);
+src/backends/openai/responses.c:188:        yyjson_mut_arr_add_val(arr, item);
+src/backends/openai/responses.c:190:    char *out = jwrite(d);
+src/backends/openai/responses.c:191:    yyjson_mut_doc_free(d);
+src/backends/openai/responses.c:198:    yyjson_doc *doc = jparse(response_format_json, strlen(response_format_json));
+src/backends/openai/responses.c:206:    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
+src/backends/openai/responses.c:211:    yyjson_mut_val *fmt = yyjson_mut_obj(d);
+src/backends/openai/responses.c:212:    yyjson_mut_doc_set_root(d, fmt);
+src/backends/openai/responses.c:220:            yyjson_mut_val *cv = yyjson_val_mut_copy(d, v);
+src/backends/openai/responses.c:221:            if (cv) yyjson_mut_obj_put(fmt, yyjson_mut_strcpy(d, yyjson_get_str(k)), cv);
+src/backends/openai/responses.c:224:    char *out = jwrite(d);
+src/backends/openai/responses.c:225:    yyjson_mut_doc_free(d);
+src/backends/acp/acp_events.c:6:#include "util/alloc.h"
+src/backends/acp/acp_events.c:60:    if (tny_alloc_scope_failed()) {
+src/backends/acp/acp_events.c:79:            if (tny_alloc_scope_failed()) return;
+src/backends/acp/acp_events.c:84:                if (!p->allow_always) p->allow_always = xstrdup(oid);
+src/backends/acp/acp_events.c:86:                if (!p->allow_once) p->allow_once = xstrdup(oid);
+src/backends/acp/acp_events.c:89:                if (!p->reject) p->reject = xstrdup(oid);
+src/backends/acp/acp_events.c:91:                p->allow_once = xstrdup(oid); /* unknown kind: treat as allow-once */
+src/backends/acp/acp_events.c:95:    if (tny_alloc_scope_failed()) return;
+src/backends/acp/acp_events.c:103:    buf_t sum;
+src/backends/acp/acp_events.c:104:    buf_init(&sum);
+src/backends/acp/acp_events.c:105:    buf_appendf(&sum, "%.200s%s%.40s", title ? title : "tool call", kind ? " (" : "",
+src/backends/acp/acp_events.c:107:    if (kind) buf_appends(&sum, ")");
+src/backends/acp/acp_events.c:108:    p->summary = buf_detach(&sum);
+src/backends/acp/acp_events.c:121:static void append_tool_content(yyjson_val *content, buf_t *out) {
+src/backends/acp/acp_events.c:130:        if (out->len) buf_appends(out, "\n");
+src/backends/acp/acp_events.c:131:        buf_appends(out, t);
+src/backends/acp/acp_events.c:140:    bool done = status && (strcmp(status, "completed") == 0 || strcmp(status, "failed") == 0);
+src/backends/acp/acp_events.c:141:    buf_t detail;
+src/backends/acp/acp_events.c:142:    buf_init(&detail);
+src/backends/acp/acp_events.c:169:    buf_free(&detail);
+src/backends/acp/acp_events.c:173:    buf_t b;
+src/backends/acp/acp_events.c:174:    buf_init(&b);
+src/backends/acp/acp_events.c:183:            if (b.len) buf_appends(&b, "\n");
+src/backends/acp/acp_events.c:184:            buf_appendf(&b, "[%s] %.300s", st ? st : "pending", c);
+src/backends/acp/acp_events.c:189:    buf_free(&b);
+src/backends/acp/acp_events.c:237:        buf_t s;
+src/backends/acp/acp_events.c:238:        buf_init(&s);
+src/backends/acp/acp_events.c:239:        buf_appendf(&s, "%.80s", kind);
+src/backends/acp/acp_events.c:241:        if (mode) buf_appendf(&s, ": %.80s", mode);
+src/backends/acp/acp_events.c:243:        buf_free(&s);
+src/backends/acp/acp_events.c:253:            ac_tx_result(o, id, "{\"outcome\":{\"outcome\":\"cancelled\"}}");
+src/backends/acp/acp_events.c:268:        buf_t s;
+src/backends/acp/acp_events.c:269:        buf_init(&s);
+src/backends/acp/acp_events.c:270:        buf_appendf(&s, "%.40s: %.200s", method, q ? q : "(no detail)");
+src/backends/acp/acp_events.c:272:        buf_free(&s);
+src/backends/acp/acp_events.c:277:    buf_t m;
+src/backends/acp/acp_events.c:278:    buf_init(&m);
+src/backends/acp/acp_events.c:279:    buf_appendf(&m,
+src/backends/acp/acp_events.c:284:    buf_free(&m);
+src/backends/acp/acp_events.c:294:        buf_t b;
+src/backends/acp/acp_events.c:295:        buf_init(&b);
+src/backends/acp/acp_events.c:296:        buf_appendf(&b, "agent rejected the prompt: %.300s", m ? m : "unknown error");
+src/backends/acp/acp_events.c:298:        buf_free(&b);
+src/backends/acp/acp_events.c:306:    } else if (strcmp(reason, "cancelled") == 0) {
+src/backends/acp/acp_events.c:315:        buf_t b;
+src/backends/acp/acp_events.c:316:        buf_init(&b);
+src/backends/acp/acp_events.c:317:        buf_appendf(&b, "unknown stopReason '%.60s'", reason);
+src/backends/acp/acp_events.c:319:        buf_free(&b);
+src/backends/cursor/cursor.c:17:#include "util/alloc.h"
+src/backends/cursor/cursor.c:75:    char *copy = xstrdup(root);
+src/backends/cursor/cursor.c:76:    if (!copy) {
+src/backends/cursor/cursor.c:80:    return copy;
+src/backends/cursor/cursor.c:89:            char *child = path_join(path, entry->d_name);
+src/backends/cursor/cursor.c:109:int cu_append_images(buf_t *body, const char **images, char *err, size_t errlen) {
+src/backends/cursor/cursor.c:118:    buf_appends(body, ",\"images\":[");
+src/backends/cursor/cursor.c:138:        if (i) buf_appends(body, ",");
+src/backends/cursor/cursor.c:139:        buf_appends(body, "{\"data\":{\"data\":\"");
+src/backends/cursor/cursor.c:142:        buf_appends(body, "\",\"mimeType\":");
+src/backends/cursor/cursor.c:144:        buf_appends(body, "}}");
+src/backends/cursor/cursor.c:146:    buf_appends(body, "]");
+src/backends/cursor/cursor.c:147:    return buf_oom(body) ? -1 : 0;
+src/backends/cursor/cursor.c:190:bool cursor_append_fast_param(buf_t *b, const char *tier, bool first) {
+src/backends/cursor/cursor.c:192:    buf_appendf(b, "%s{\"id\":\"fast\",\"value\":\"%s\"}", first ? "" : ",",
+src/backends/cursor/cursor.c:198:void cursor_append_model_params(buf_t *b, const char *tier) {
+src/backends/cursor/cursor.c:200:    buf_appends(b, ",\"params\":[");
+src/backends/cursor/cursor.c:202:    buf_appends(b, "]");
+src/backends/cursor/cursor.c:219:    yyjson_doc *doc = jparse(json, strlen(json));
+src/backends/cursor/cursor.c:229:    char *out = id && *id ? xstrdup(id) : NULL;
+src/backends/cursor/cursor.c:240:    yyjson_doc *parsed = jparse(json, strlen(json));
+src/backends/cursor/cursor.c:246:    yyjson_mut_doc *doc = yyjson_doc_mut_copy(parsed, jallocator());
+src/backends/cursor/cursor.c:249:        snprintf(err, errlen, "cursor: could not allocate model options");
+src/backends/cursor/cursor.c:252:    yyjson_mut_val *root = yyjson_mut_doc_get_root(doc);
+src/backends/cursor/cursor.c:254:        yyjson_mut_obj_remove_key(root, "model");
+src/backends/cursor/cursor.c:255:        char *out = jwrite(doc);
+src/backends/cursor/cursor.c:256:        yyjson_mut_doc_free(doc);
+src/backends/cursor/cursor.c:260:    yyjson_mut_val *model = yyjson_mut_obj_get(root, "model");
+src/backends/cursor/cursor.c:261:    if (!yyjson_mut_is_obj(model)) {
+src/backends/cursor/cursor.c:262:        model = yyjson_mut_obj(doc);
+src/backends/cursor/cursor.c:263:        yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "model"), model);
+src/backends/cursor/cursor.c:265:    yyjson_mut_obj_put(model, yyjson_mut_strcpy(doc, "id"), yyjson_mut_strcpy(doc, o->model));
+src/backends/cursor/cursor.c:270:        yyjson_mut_val *params = yyjson_mut_arr(doc);
+src/backends/cursor/cursor.c:271:        yyjson_mut_val *old = yyjson_mut_obj_get(model, "params");
+src/backends/cursor/cursor.c:273:        yyjson_mut_val *existing_param;
+src/backends/cursor/cursor.c:274:        if (yyjson_mut_is_arr(old)) {
+src/backends/cursor/cursor.c:275:            yyjson_mut_arr_foreach(old, idx, max, existing_param) {
+src/backends/cursor/cursor.c:276:                const char *id = yyjson_mut_get_str(yyjson_mut_obj_get(existing_param, "id"));
+src/backends/cursor/cursor.c:279:                yyjson_mut_val *copy = yyjson_mut_val_mut_copy(doc, existing_param);
+src/backends/cursor/cursor.c:280:                if (copy) yyjson_mut_arr_add_val(params, copy);
+src/backends/cursor/cursor.c:284:            yyjson_mut_val *effort_param = yyjson_mut_obj(doc);
+src/backends/cursor/cursor.c:285:            yyjson_mut_obj_add_strcpy(doc, effort_param, "id", o->effort_param);
+src/backends/cursor/cursor.c:286:            yyjson_mut_obj_add_strcpy(doc, effort_param, "value", o->effort_value);
+src/backends/cursor/cursor.c:287:            yyjson_mut_arr_add_val(params, effort_param);
+src/backends/cursor/cursor.c:290:            yyjson_mut_val *fast_param = yyjson_mut_obj(doc);
+src/backends/cursor/cursor.c:291:            yyjson_mut_obj_add_strcpy(doc, fast_param, "id", "fast");
+src/backends/cursor/cursor.c:292:            yyjson_mut_obj_add_strcpy(doc, fast_param, "value",
+src/backends/cursor/cursor.c:294:            yyjson_mut_arr_add_val(params, fast_param);
+src/backends/cursor/cursor.c:296:        yyjson_mut_obj_put(model, yyjson_mut_strcpy(doc, "params"), params);
+src/backends/cursor/cursor.c:298:    char *out = jwrite(doc);
+src/backends/cursor/cursor.c:299:    yyjson_mut_doc_free(doc);
+src/backends/cursor/cursor.c:308:    yyjson_doc *doc = jparse(json, strlen(json));
+src/backends/cursor/cursor.c:318:    yyjson_doc *doc = jparse(json, strlen(json));
+src/backends/cursor/cursor.c:328:    yyjson_doc *doc = json ? jparse(json, strlen(json)) : NULL;
+src/backends/cursor/cursor.c:342:    yyjson_doc *doc = json ? jparse(json, strlen(json)) : NULL;
+src/backends/cursor/cursor.c:347:    char *out = yyjson_is_obj(tools) ? jwrite_val(tools) : NULL;
+src/backends/cursor/cursor.c:354:    yyjson_doc *parsed = jparse(json, strlen(json));
+src/backends/cursor/cursor.c:356:    yyjson_mut_doc *doc = parsed ? yyjson_doc_mut_copy(parsed, jallocator()) : NULL;
+src/backends/cursor/cursor.c:362:    yyjson_mut_val *local = yyjson_mut_obj_get(yyjson_mut_doc_get_root(doc), "local");
+src/backends/cursor/cursor.c:363:    if (yyjson_mut_is_obj(local)) yyjson_mut_obj_remove_key(local, "store");
+src/backends/cursor/cursor.c:364:    char *out = jwrite(doc);
+src/backends/cursor/cursor.c:365:    yyjson_mut_doc_free(doc);
+src/backends/cursor/cursor.c:377:        yyjson_doc *doc = json ? jparse(json, strlen(json)) : NULL;
+src/backends/cursor/cursor.c:390:    yyjson_doc *doc = jparse(ptr + sizeof prefix - 1, strlen(ptr + sizeof prefix - 1));
+src/backends/cursor/cursor.c:408:    o->run_id = run && *run ? xstrdup(run) : NULL;
+src/backends/cursor/cursor.c:410:    o->observe_offset = offset && *offset ? xstrdup(offset) : NULL;
+src/backends/cursor/cursor.c:412:    o->agent_id = xstrdup(agent);
+src/backends/cursor/cursor.c:421:        o->model = xstrdup(o->ctx->model);
+src/backends/cursor/cursor.c:424:    buf_t body;
+src/backends/cursor/cursor.c:425:    buf_init(&body);
+src/backends/cursor/cursor.c:426:    buf_appends(&body, "{");
+src/backends/cursor/cursor.c:429:        buf_appends(&body, "\"options\":{\"apiKey\":");
+src/backends/cursor/cursor.c:431:        buf_appends(&body, "}");
+src/backends/cursor/cursor.c:433:    buf_appends(&body, "}");
+src/backends/cursor/cursor.c:435:    buf_free(&body);
+src/backends/cursor/cursor.c:437:        snprintf(err, errlen, "cannot pick a model: ListModels failed; pass --model");
+src/backends/cursor/cursor.c:440:    yyjson_doc *doc = jparse(res, strlen(res));
+src/backends/cursor/cursor.c:453:    if (id && *id) o->model = xstrdup(id);
+src/backends/cursor/cursor.c:479: * are emitted from cu_send). Best effort by design: a failure never blocks
+src/backends/cursor/cursor.c:489:    o->effort_for = xstrdup(want);
+src/backends/cursor/cursor.c:492:    buf_t body;
+src/backends/cursor/cursor.c:493:    buf_init(&body);
+src/backends/cursor/cursor.c:494:    buf_appends(&body, "{");
+src/backends/cursor/cursor.c:496:        buf_appends(&body, "\"options\":{\"apiKey\":");
+src/backends/cursor/cursor.c:498:        buf_appends(&body, "}");
+src/backends/cursor/cursor.c:500:    buf_appends(&body, "}");
+src/backends/cursor/cursor.c:503:    buf_free(&body);
+src/backends/cursor/cursor.c:504:    yyjson_doc *doc = res ? jparse(res, strlen(res)) : NULL;
+src/backends/cursor/cursor.c:509:        o->effort_param = xstrdup("effort");
+src/backends/cursor/cursor.c:510:        o->effort_value = xstrdup(wire);
+src/backends/cursor/cursor.c:511:        buf_t n;
+src/backends/cursor/cursor.c:512:        buf_init(&n);
+src/backends/cursor/cursor.c:513:        buf_appendf(&n, "cursor: ListModels failed; sent effort \"%s\" unverified", wire);
+src/backends/cursor/cursor.c:514:        o->effort_note = buf_detach(&n);
+src/backends/cursor/cursor.c:542:        buf_t n;
+src/backends/cursor/cursor.c:543:        buf_init(&n);
+src/backends/cursor/cursor.c:544:        buf_appendf(&n,
+src/backends/cursor/cursor.c:548:        o->effort_note = buf_detach(&n);
+src/backends/cursor/cursor.c:570:        o->effort_param = xstrdup(jget_str(def, "id"));
+src/backends/cursor/cursor.c:571:        o->effort_value = xstrdup(picked);
+src/backends/cursor/cursor.c:573:        buf_t n;
+src/backends/cursor/cursor.c:574:        buf_init(&n);
+src/backends/cursor/cursor.c:575:        buf_appendf(&n,
+src/backends/cursor/cursor.c:583:                if (val) buf_appendf(&n, " %s", val);
+src/backends/cursor/cursor.c:586:        buf_appends(&n, "); running at the model default");
+src/backends/cursor/cursor.c:587:        o->effort_note = buf_detach(&n);
+src/backends/cursor/cursor.c:596:    buf_t body;
+src/backends/cursor/cursor.c:597:    buf_init(&body);
+src/backends/cursor/cursor.c:598:    buf_appends(&body, "{");
+src/backends/cursor/cursor.c:600:        buf_appends(&body, "\"options\":{\"apiKey\":");
+src/backends/cursor/cursor.c:602:        buf_appends(&body, "}");
+src/backends/cursor/cursor.c:604:    buf_appends(&body, "}");
+src/backends/cursor/cursor.c:606:    buf_free(&body);
+src/backends/cursor/cursor.c:608:    yyjson_doc *doc = jparse(res, strlen(res));
+src/backends/cursor/cursor.c:615:    buf_t j;
+src/backends/cursor/cursor.c:616:    buf_init(&j);
+src/backends/cursor/cursor.c:617:    buf_appends(&j, "[");
+src/backends/cursor/cursor.c:625:            if (!first) buf_appends(&j, ",");
+src/backends/cursor/cursor.c:627:            buf_appends(&j, "{\"id\":");
+src/backends/cursor/cursor.c:631:                buf_appends(&j, ",\"name\":");
+src/backends/cursor/cursor.c:645:                    buf_appends(&j, ",\"efforts\":[");
+src/backends/cursor/cursor.c:652:                        if (!vfirst) buf_appends(&j, ",");
+src/backends/cursor/cursor.c:656:                    buf_appends(&j, "]");
+src/backends/cursor/cursor.c:660:            buf_appends(&j, "}");
+src/backends/cursor/cursor.c:663:    buf_appends(&j, "]");
+src/backends/cursor/cursor.c:665:    *out = buf_detach(&j);
+src/backends/cursor/cursor.c:746:        buf_t request;
+src/backends/cursor/cursor.c:747:        buf_init(&request);
+src/backends/cursor/cursor.c:748:        buf_appends(&request, "{\"url\":");
+src/backends/cursor/cursor.c:750:        buf_appends(&request, ",\"authToken\":");
+src/backends/cursor/cursor.c:752:        buf_appends(&request, "}");
+src/backends/cursor/cursor.c:754:        buf_free(&request);
+src/backends/cursor/cursor.c:814:    buf_t body;
+src/backends/cursor/cursor.c:815:    buf_init(&body);
+src/backends/cursor/cursor.c:819:        buf_appends(&body, "{\"agentId\":");
+src/backends/cursor/cursor.c:821:        buf_appends(&body, ",\"options\":");
+src/backends/cursor/cursor.c:823:        buf_appends(&body, "{\"options\":");
+src/backends/cursor/cursor.c:825:    buf_appends(&body, options);
+src/backends/cursor/cursor.c:826:    buf_appends(&body, "}");
+src/backends/cursor/cursor.c:831:        buf_free(&body);
+src/backends/cursor/cursor.c:836:    buf_free(&body);
+src/backends/cursor/cursor.c:838:    char *fallback_id = resume_id && *resume_id ? xstrdup(resume_id) : NULL;
+src/backends/cursor/cursor.c:858:    buf_t p;
+src/backends/cursor/cursor.c:859:    buf_init(&p);
+src/backends/cursor/cursor.c:860:    buf_appends(&p, "cursor-sdk.v1:{\"agent_id\":");
+src/backends/cursor/cursor.c:863:        buf_appends(&p, ",\"run_id\":");
+src/backends/cursor/cursor.c:867:        buf_appends(&p, ",\"after_offset\":");
+src/backends/cursor/cursor.c:870:    buf_appends(&p, ",\"runtime\":");
+src/backends/cursor/cursor.c:872:    buf_appends(&p, "}");
+src/backends/cursor/cursor.c:873:    return buf_detach(&p);
+src/backends/cursor/cursor.c:879:    if (!o->connected && o->ended && o->cancel_requested) {
+src/backends/cursor/cursor.c:880:        /* Emergency OOM closed the bridge without allocating a CancelRun.
+src/backends/cursor/cursor.c:900:        o->ctx->model = xstrdup(o->model);
+src/backends/cursor/cursor.c:913:    o->cancel_requested = false;
+src/backends/cursor/cursor.c:914:    o->cancel_sent = false;
+src/backends/cursor/cursor.c:915:    o->cancel_attempted = false;
+src/backends/cursor/cursor.c:927:    buf_clear(&o->last_status);
+src/backends/cursor/cursor.c:928:    buf_clear(&o->last_tool_start);
+src/backends/cursor/cursor.c:956:    buf_t body;
+src/backends/cursor/cursor.c:957:    buf_init(&body);
+src/backends/cursor/cursor.c:958:    buf_appends(&body, "{\"agentId\":");
+src/backends/cursor/cursor.c:960:    buf_appends(&body, ",\"message\":{\"text\":");
+src/backends/cursor/cursor.c:964:        buf_free(&body);
+src/backends/cursor/cursor.c:968:    buf_appends(&body, "},\"options\":");
+src/backends/cursor/cursor.c:969:    buf_appends(&body, options);
+src/backends/cursor/cursor.c:970:    buf_appends(&body, "}");
+src/backends/cursor/cursor.c:973:    buf_free(&body);
+src/backends/cursor/cursor.c:989:    buf_t body;
+src/backends/cursor/cursor.c:990:    buf_init(&body);
+src/backends/cursor/cursor.c:991:    buf_appends(&body, "{\"runId\":");
+src/backends/cursor/cursor.c:994:        buf_appends(&body, ",\"afterOffset\":");
+src/backends/cursor/cursor.c:997:    buf_appends(&body, "}");
+src/backends/cursor/cursor.c:999:    buf_free(&body);
+src/backends/cursor/cursor.c:1002:        o->observe_progress_offset = o->observe_offset ? xstrdup(o->observe_offset) : NULL;
+src/backends/cursor/cursor.c:1015:int cu_send_cancel(cu_impl *o, char *err, size_t errlen) {
+src/backends/cursor/cursor.c:1016:    if (o->cancel_attempted || !o->cancel_requested || !o->run_id) return 0;
+src/backends/cursor/cursor.c:1017:    o->cancel_attempted = true;
+src/backends/cursor/cursor.c:1018:    buf_t body;
+src/backends/cursor/cursor.c:1019:    buf_init(&body);
+src/backends/cursor/cursor.c:1020:    buf_appends(&body, "{\"runId\":");
+src/backends/cursor/cursor.c:1023:        buf_appends(&body, ",\"agentId\":");
+src/backends/cursor/cursor.c:1026:    buf_appends(&body, "}");
+src/backends/cursor/cursor.c:1029:        buf_free(&body);
+src/backends/cursor/cursor.c:1034:    buf_free(&body);
+src/backends/cursor/cursor.c:1037:    o->cancel_sent = true;
+src/backends/cursor/cursor.c:1041:static void cu_cancel(tny_backend *b) {
+src/backends/cursor/cursor.c:1043:    if (!o->active && !tny_alloc_settling()) return;
+src/backends/cursor/cursor.c:1044:    o->cancel_requested = true;
+src/backends/cursor/cursor.c:1045:    if (tny_alloc_settling()) {
+src/backends/cursor/cursor.c:1056:    if (o->run_id && cu_send_cancel(o, err, sizeof err) != 0) {
+src/backends/cursor/cursor.c:1059:            fprintf(stderr, "tny: cursor: CancelRun failed: %s\n", err);
+src/backends/cursor/cursor.c:1061:        static const char waiting[] = "cursor: waiting for the run id before cancelling";
+src/backends/cursor/cursor.c:1109:    o->observe_progress_offset = xstrdup(o->observe_offset);
+src/backends/cursor/cursor.c:1116:    if (tny_alloc_scope_failed()) {
+src/backends/cursor/cursor.c:1117:        tny_alloc_provider_failed();
+src/backends/cursor/cursor.c:1121:        static const char error[] = "cursor: callback server failed";
+src/backends/cursor/cursor.c:1129:    if (tny_alloc_scope_failed()) {
+src/backends/cursor/cursor.c:1130:        tny_alloc_provider_failed();
+src/backends/cursor/cursor.c:1136:        char recover_err[300];
+src/backends/cursor/cursor.c:1137:        if (cu_start_observe(o, false, recover_err, sizeof recover_err) == 0) {
+src/backends/cursor/cursor.c:1138:            static const char resumed[] = "cursor: recovering the durable run stream";
+src/backends/cursor/cursor.c:1142:        if (tny_alloc_scope_failed()) {
+src/backends/cursor/cursor.c:1143:            tny_alloc_provider_failed();
+src/backends/cursor/cursor.c:1146:        buf_t message;
+src/backends/cursor/cursor.c:1147:        buf_init(&message);
+src/backends/cursor/cursor.c:1148:        buf_appendf(&message, "cursor stream closed; recovery failed: %s", recover_err);
+src/backends/cursor/cursor.c:1150:        buf_free(&message);
+src/backends/cursor/cursor.c:1161:    if (rc == -2 || tny_alloc_scope_failed()) {
+src/backends/cursor/cursor.c:1162:        tny_alloc_provider_failed();
+src/backends/cursor/cursor.c:1163:        tny_alloc_settlement_begin();
+src/backends/cursor/cursor.c:1164:        cu_cancel(b);
+src/backends/cursor/cursor.c:1172:        tny_alloc_settlement_end();
+src/backends/cursor/cursor.c:1176:    if (tny_alloc_scope_failed()) {
+src/backends/cursor/cursor.c:1177:        tny_alloc_provider_failed();
+src/backends/cursor/cursor.c:1187:    if (o->cancel_requested && !o->cancel_attempted && o->run_id) {
+src/backends/cursor/cursor.c:1188:        char cancel_err[300];
+src/backends/cursor/cursor.c:1189:        if (cu_send_cancel(o, cancel_err, sizeof cancel_err) != 0)
+src/backends/cursor/cursor.c:1190:            cu_emit_text(o, TNY_EV_STATUS, cancel_err, strlen(cancel_err));
+src/backends/cursor/cursor.c:1218:        char recover_err[300];
+src/backends/cursor/cursor.c:1219:        if (cu_start_observe(o, from_start, recover_err, sizeof recover_err) == 0) {
+src/backends/cursor/cursor.c:1220:            static const char resumed[] = "cursor: recovering the durable run stream";
+src/backends/cursor/cursor.c:1224:        buf_t message;
+src/backends/cursor/cursor.c:1225:        buf_init(&message);
+src/backends/cursor/cursor.c:1226:        buf_appendf(&message, "%s; recovery failed: %s", err[0] ? err : "cursor stream closed",
+src/backends/cursor/cursor.c:1227:                    recover_err);
+src/backends/cursor/cursor.c:1229:        buf_free(&message);
+src/backends/cursor/cursor.c:1242:    char *dup = xstrdup(path);
+src/backends/cursor/cursor.c:1245:        char *full = path_join(p, bin);
+src/backends/cursor/cursor.c:1285:        snprintf(line, linelen, "cursor: bridge sdk.v1 negotiation failed: %.150s", err);
+src/backends/cursor/cursor.c:1315:    buf_free(&o->last_status);
+src/backends/cursor/cursor.c:1316:    buf_free(&o->last_tool_start);
+src/backends/cursor/cursor.c:1322:    tny_backend *b = calloc(1, sizeof *b);
+src/backends/cursor/cursor.c:1323:    cu_impl *o = calloc(1, sizeof *o);
+src/backends/cursor/cursor.c:1332:    buf_init(&o->last_status);
+src/backends/cursor/cursor.c:1333:    buf_init(&o->last_tool_start);
+src/backends/cursor/cursor.c:1340:    if (key && *key) o->api_key = xstrdup(key);
+src/backends/cursor/cursor.c:1349:    b->cancel = cu_cancel;
+src/backends/openai/events.cpp:29:            throw std::bad_alloc();
+src/backends/openai/events.cpp:64:    if (oa_calls_feed(out.calls, jget(delta, "tool_calls")) != 0) throw std::bad_alloc();
+src/backends/openai/events.cpp:92:    if (status && std::strcmp(status, "failed") == 0) {
+src/backends/openai/events.cpp:129:            throw std::bad_alloc();
+src/backends/openai/events.cpp:140:    } else if (type == "response.failed" || type == "error") {
+src/backends/openai/events.cpp:164:        return tny_alloc_scope_failed() ? -2 : 0;
+src/backends/openai/events.cpp:165:    } catch (const std::bad_alloc &) { return -2; }
+src/backends/acp/acp_turn.c:19:    buf_t p;
+src/backends/acp/acp_turn.c:20:    buf_init(&p);
+src/backends/acp/acp_turn.c:21:    buf_appends(&p, "{\"sessionId\":");
+src/backends/acp/acp_turn.c:23:    buf_appendf(&p, ",\"update\":%s}", update_json);
+src/backends/acp/acp_turn.c:25:    buf_free(&p);
+src/backends/acp/acp_turn.c:30:    buf_t u;
+src/backends/acp/acp_turn.c:31:    buf_init(&u);
+src/backends/acp/acp_turn.c:32:    buf_appendf(&u, "{\"sessionUpdate\":\"%s\",\"content\":", kind);
+src/backends/acp/acp_turn.c:34:    buf_appends(&u, "}");
+src/backends/acp/acp_turn.c:36:    buf_free(&u);
+src/backends/acp/acp_turn.c:49:        !strcmp(name, "create_folder") || !strcmp(name, "copy_file"))
+src/backends/acp/acp_turn.c:61:static void append_raw_input(buf_t *u, const char *args_json) {
+src/backends/acp/acp_turn.c:65:    yyjson_doc *doc = jparse(args_json, len);
+src/backends/acp/acp_turn.c:69:        char *compact = jwrite_val(root);
+src/backends/acp/acp_turn.c:71:            buf_appendf(u, ",\"rawInput\":%s", compact);
+src/backends/acp/acp_turn.c:79:    buf_t u;
+src/backends/acp/acp_turn.c:80:    buf_init(&u);
+src/backends/acp/acp_turn.c:81:    buf_appends(&u, "{\"sessionUpdate\":\"tool_call\",\"toolCallId\":");
+src/backends/acp/acp_turn.c:83:    buf_appends(&u, ",\"title\":");
+src/backends/acp/acp_turn.c:85:    buf_appendf(&u, ",\"kind\":\"%s\",\"status\":\"in_progress\"", tool_kind(ev->tool_name));
+src/backends/acp/acp_turn.c:87:    buf_appends(&u, "}");
+src/backends/acp/acp_turn.c:89:    buf_free(&u);
+src/backends/acp/acp_turn.c:93:    buf_t u;
+src/backends/acp/acp_turn.c:94:    buf_init(&u);
+src/backends/acp/acp_turn.c:95:    buf_appends(&u, "{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":");
+src/backends/acp/acp_turn.c:97:    buf_appendf(&u, ",\"status\":\"%s\"", ev->tool_ok ? "completed" : "failed");
+src/backends/acp/acp_turn.c:101:        buf_appends(&u, ",\"content\":[{\"type\":\"content\",\"content\":");
+src/backends/acp/acp_turn.c:103:        buf_appends(&u, "}]");
+src/backends/acp/acp_turn.c:105:    buf_appends(&u, "}");
+src/backends/acp/acp_turn.c:107:    buf_free(&u);
+src/backends/acp/acp_turn.c:111:    buf_t u;
+src/backends/acp/acp_turn.c:112:    buf_init(&u);
+src/backends/acp/acp_turn.c:113:    buf_appends(&u, "{\"sessionUpdate\":\"plan\",\"entries\":[{\"content\":");
+src/backends/acp/acp_turn.c:114:    char *text = xstrndup(ev->text, ev->text_len);
+src/backends/acp/acp_turn.c:117:    buf_appends(&u, ",\"priority\":\"medium\",\"status\":\"pending\"}]}");
+src/backends/acp/acp_turn.c:119:    buf_free(&u);
+src/backends/acp/acp_turn.c:147:        buf_clear(&s->last_error);
+src/backends/acp/acp_turn.c:148:        buf_append(&s->last_error, ev->text, ev->text_len);
+src/backends/acp/acp_turn.c:165:    if (s->cancel_requested) return TNY_PERM_DECISION_DENY;
+src/backends/acp/acp_turn.c:172:    buf_t p;
+src/backends/acp/acp_turn.c:173:    buf_init(&p);
+src/backends/acp/acp_turn.c:174:    buf_appends(&p, "{\"sessionId\":");
+src/backends/acp/acp_turn.c:176:    buf_appendf(
+src/backends/acp/acp_turn.c:179:    buf_appendf(&p, ",\"kind\":\"%s\",\"status\":\"pending\"}", tool_kind(tool));
+src/backends/acp/acp_turn.c:180:    buf_appends(&p, ",\"options\":["
+src/backends/acp/acp_turn.c:186:    buf_free(&p);
+src/backends/acp/acp_turn.c:195:        if (s->cancel_requested) break;
+src/backends/acp/acp_turn.c:204:    if (answer == TNY_PERM_DECISION_DENY) return xstrdup("no");
+src/backends/acp/acp_turn.c:205:    return xstrdup("yes");
+src/backends/acp/acp_turn.c:221:    case TNY_STOP_INTERRUPTED: return "cancelled";
+src/backends/acp/acp_turn.c:230:        buf_clear(&s->last_error);
+src/backends/acp/acp_turn.c:231:        buf_appends(&s->last_error, "no active session");
+src/backends/acp/acp_turn.c:236:    s->cancelled = false;
+src/backends/acp/acp_turn.c:237:    s->cancel_requested = false;
+src/backends/acp/acp_turn.c:239:    buf_clear(&s->last_error);
+src/backends/acp/acp_turn.c:244:        buf_clear(&s->last_error);
+src/backends/acp/acp_turn.c:245:        buf_appends(&s->last_error, err);
+src/backends/acp/acp_turn.c:252:            tny_engine_cancel(s->engine);
+src/backends/acp/acp_turn.c:256:        if (s->cancel_requested && !s->cancelled) {
+src/backends/acp/acp_turn.c:257:            s->cancelled = true;
+src/backends/acp/acp_turn.c:258:            tny_engine_cancel(s->engine);
+src/backends/acp/acp_turn.c:274:    if (s->cancelled && s->stop == TNY_STOP_DONE) s->stop = TNY_STOP_INTERRUPTED;
+src/backends/cursor/impl.h:35:    char *observe_progress_offset; /* last offset that reset the recovery budget */
+src/backends/cursor/impl.h:37:    bool cancel_requested;
+src/backends/cursor/impl.h:38:    bool cancel_sent;
+src/backends/cursor/impl.h:39:    bool cancel_attempted;
+src/backends/cursor/impl.h:69:    buf_t last_status;     /* failure text often lives on status.message */
+src/backends/cursor/impl.h:70:    buf_t last_tool_start; /* id+name+detail: drop re-emitted `running` frames */
+src/backends/cursor/impl.h:83:int cu_append_images(buf_t *body, const char **images, char *err, size_t errlen);
+src/backends/cursor/impl.h:87:int cu_send_cancel(cu_impl *o, char *err, size_t errlen);
+src/backends/acp/acp_client.c:7:#include "util/alloc.h"
+src/backends/acp/acp_client.c:19:static void fail_turn(ac_impl *o, const char *msg) {
+src/backends/acp/acp_client.c:77:    buf_t p;
+src/backends/acp/acp_client.c:78:    buf_init(&p);
+src/backends/acp/acp_client.c:79:    buf_appends(&p, "{\"sessionId\":");
+src/backends/acp/acp_client.c:81:    buf_appends(&p, ",\"configId\":");
+src/backends/acp/acp_client.c:83:    buf_appends(&p, ",\"value\":");
+src/backends/acp/acp_client.c:85:    buf_appends(&p, "}");
+src/backends/acp/acp_client.c:87:    buf_free(&p);
+src/backends/acp/acp_client.c:171:    buf_t p;
+src/backends/acp/acp_client.c:172:    buf_init(&p);
+src/backends/acp/acp_client.c:173:    buf_appendf(&p,
+src/backends/acp/acp_client.c:179:    buf_free(&p);
+src/backends/acp/acp_client.c:206:    buf_t p;
+src/backends/acp/acp_client.c:207:    buf_init(&p);
+src/backends/acp/acp_client.c:211:        buf_appends(&p, "{\"sessionId\":");
+src/backends/acp/acp_client.c:213:        buf_appends(&p, ",\"cwd\":");
+src/backends/acp/acp_client.c:215:        buf_appends(&p, ",\"mcpServers\":[]}");
+src/backends/acp/acp_client.c:221:                buf_free(&p);
+src/backends/acp/acp_client.c:226:            o->session_id = xstrdup(ptr);
+src/backends/acp/acp_client.c:227:            buf_free(&p);
+src/backends/acp/acp_client.c:232:            fprintf(stderr, "acp: session/load failed (%s); starting a new session\n", e);
+src/backends/acp/acp_client.c:239:    buf_clear(&p);
+src/backends/acp/acp_client.c:240:    buf_appends(&p, "{\"cwd\":");
+src/backends/acp/acp_client.c:242:    buf_appends(&p, ",\"mcpServers\":[]}");
+src/backends/acp/acp_client.c:244:    buf_free(&p);
+src/backends/acp/acp_client.c:258:    o->session_id = xstrdup(sid);
+src/backends/acp/acp_client.c:265:    return o->session_id ? xstrdup(o->session_id) : NULL;
+src/backends/acp/acp_client.c:271:    if (o->cancelled && o->pid <= 0 && !o->ws) {
+src/backends/acp/acp_client.c:296:    o->cancelled = false;
+src/backends/acp/acp_client.c:308:    buf_t p;
+src/backends/acp/acp_client.c:309:    buf_init(&p);
+src/backends/acp/acp_client.c:310:    buf_appends(&p, "{\"sessionId\":");
+src/backends/acp/acp_client.c:312:    buf_appends(&p, ",\"prompt\":[");
+src/backends/acp/acp_client.c:314:    buf_appends(&p, "]}");
+src/backends/acp/acp_client.c:319:    buf_free(&p);
+src/backends/acp/acp_client.c:328:static void ac_cancel(tny_backend *b) {
+src/backends/acp/acp_client.c:330:    if ((!o->turn_active || o->cancelled) && !tny_alloc_settling()) return;
+src/backends/acp/acp_client.c:331:    o->cancelled = true;
+src/backends/acp/acp_client.c:332:    if (tny_alloc_settling()) {
+src/backends/acp/acp_client.c:345:    buf_t p;
+src/backends/acp/acp_client.c:346:    buf_init(&p);
+src/backends/acp/acp_client.c:347:    buf_appends(&p, "{\"sessionId\":");
+src/backends/acp/acp_client.c:349:    buf_appends(&p, "}");
+src/backends/acp/acp_client.c:350:    ac_tx_notify(o, "session/cancel", p.data);
+src/backends/acp/acp_client.c:351:    buf_free(&p);
+src/backends/acp/acp_client.c:354:        ac_tx_result(o, o->perms[0].id_raw, "{\"outcome\":{\"outcome\":\"cancelled\"}}");
+src/backends/acp/acp_client.c:365:    if (o->cancelled) {
+src/backends/acp/acp_client.c:366:        ac_tx_result(o, p->id_raw, "{\"outcome\":{\"outcome\":\"cancelled\"}}");
+src/backends/acp/acp_client.c:378:        /* The agent offered nothing usable for this decision: cancel instead
+src/backends/acp/acp_client.c:380:        ac_tx_result(o, p->id_raw, "{\"outcome\":{\"outcome\":\"cancelled\"}}");
+src/backends/acp/acp_client.c:384:    buf_t r;
+src/backends/acp/acp_client.c:385:    buf_init(&r);
+src/backends/acp/acp_client.c:386:    buf_appends(&r, "{\"outcome\":{\"outcome\":\"selected\",\"optionId\":");
+src/backends/acp/acp_client.c:388:    buf_appends(&r, "}}");
+src/backends/acp/acp_client.c:390:    buf_free(&r);
+src/backends/acp/acp_client.c:405:    if (rc == -3 || tny_alloc_scope_failed()) {
+src/backends/acp/acp_client.c:406:        tny_alloc_provider_failed();
+src/backends/acp/acp_client.c:410:        fail_turn(o, "acp: agent sent a message over the 8 MiB cap");
+src/backends/acp/acp_client.c:425:            fail_turn(o, msg);
+src/backends/acp/acp_client.c:463:    tny_backend *b = calloc(1, sizeof *b);
+src/backends/acp/acp_client.c:464:    ac_impl *o = calloc(1, sizeof *o);
+src/backends/acp/acp_client.c:484:    b->cancel = ac_cancel;
+src/backends/cursor/callbacks.c:10:#include "util/alloc.h"
+src/backends/cursor/callbacks.c:44:    buf_t reply;
+src/backends/cursor/callbacks.c:54:static void fail(char *err, size_t errlen, const char *message) {
+src/backends/cursor/callbacks.c:92:    if (tny_alloc_scope_failed()) {
+src/backends/cursor/callbacks.c:93:        tny_alloc_provider_failed();
+src/backends/cursor/callbacks.c:96:    buf_clear(&cb->reply);
+src/backends/cursor/callbacks.c:97:    buf_appends(&cb->reply, json);
+src/backends/cursor/callbacks.c:104:static bool append_tool_result(buf_t *out, const char *result, bool is_error) {
+src/backends/cursor/callbacks.c:105:    yyjson_doc *doc = result ? jparse(result, strlen(result)) : NULL;
+src/backends/cursor/callbacks.c:106:    if (tny_alloc_scope_failed()) {
+src/backends/cursor/callbacks.c:107:        tny_alloc_provider_failed();
+src/backends/cursor/callbacks.c:112:    buf_appends(out, "{\"result\":");
+src/backends/cursor/callbacks.c:114:        buf_appends(out, "{\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":");
+src/backends/cursor/callbacks.c:115:        jescape(out, result ? result : "tool failed");
+src/backends/cursor/callbacks.c:116:        buf_appends(out, "}]}");
+src/backends/cursor/callbacks.c:118:        buf_appends(out, result);
+src/backends/cursor/callbacks.c:120:        buf_appends(out, "{\"value\":");
+src/backends/cursor/callbacks.c:121:        buf_appends(out, result);
+src/backends/cursor/callbacks.c:122:        buf_appends(out, "}");
+src/backends/cursor/callbacks.c:124:        buf_appends(out, "{\"content\":[{\"type\":\"text\",\"text\":");
+src/backends/cursor/callbacks.c:126:        buf_appends(out, "}]}");
+src/backends/cursor/callbacks.c:128:    buf_appends(out, "}");
+src/backends/cursor/callbacks.c:130:    return !buf_oom(out);
+src/backends/cursor/callbacks.c:150:    char *arguments = jwrite_val(args);
+src/backends/cursor/callbacks.c:160:    if (tny_alloc_scope_failed()) {
+src/backends/cursor/callbacks.c:161:        tny_alloc_provider_failed();
+src/backends/cursor/callbacks.c:167:        pending_tool *pending = calloc(1, sizeof *pending);
+src/backends/cursor/callbacks.c:181:                  "{\"error\":\"custom tool invocation failed\"}");
+src/backends/cursor/callbacks.c:184:    buf_clear(&cb->reply);
+src/backends/cursor/callbacks.c:208:    return name ? path_join(cb->store_root, name) : NULL;
+src/backends/cursor/callbacks.c:222:    buf_t key;
+src/backends/cursor/callbacks.c:223:    buf_init(&key);
+src/backends/cursor/callbacks.c:224:    buf_appends(&key, a);
+src/backends/cursor/callbacks.c:226:        buf_appends(&key, "\n");
+src/backends/cursor/callbacks.c:227:        buf_appends(&key, b);
+src/backends/cursor/callbacks.c:229:    return buf_detach(&key);
+src/backends/cursor/callbacks.c:242:    return path_join(dir, name);
+src/backends/cursor/callbacks.c:246:    char *json = jwrite_val(value);
+src/backends/cursor/callbacks.c:248:    buf_t out;
+src/backends/cursor/callbacks.c:249:    buf_init(&out);
+src/backends/cursor/callbacks.c:250:    buf_appends(&out, "{\"key\":");
+src/backends/cursor/callbacks.c:252:    buf_appends(&out, ",\"value\":");
+src/backends/cursor/callbacks.c:253:    buf_appends(&out, json);
+src/backends/cursor/callbacks.c:254:    buf_appends(&out, "}");
+src/backends/cursor/callbacks.c:256:    return buf_detach(&out);
+src/backends/cursor/callbacks.c:268:        yyjson_doc *existing = jparse_file(path);
+src/backends/cursor/callbacks.c:301:    yyjson_doc *doc = path ? jparse_file(path) : NULL;
+src/backends/cursor/callbacks.c:365:    char *json = value ? jwrite_val(value) : NULL;
+src/backends/cursor/callbacks.c:370:    buf_clear(&cb->reply);
+src/backends/cursor/callbacks.c:371:    if (!value) buf_appends(&cb->reply, "{}");
+src/backends/cursor/callbacks.c:373:        buf_appends(&cb->reply, "{\"output\":");
+src/backends/cursor/callbacks.c:374:        buf_appends(&cb->reply, json);
+src/backends/cursor/callbacks.c:375:        buf_appends(&cb->reply, "}");
+src/backends/cursor/callbacks.c:406:        char *path = path_join(dir, entry->d_name);
+src/backends/cursor/callbacks.c:407:        yyjson_doc *doc = path ? jparse_file(path) : NULL;
+src/backends/cursor/callbacks.c:418:        char *json = jwrite_val(record);
+src/backends/cursor/callbacks.c:419:        char *key = position ? xstrdup(position) : NULL;
+src/backends/cursor/callbacks.c:431:            listed_record *next = realloc(items, next_capacity * sizeof *next);
+src/backends/cursor/callbacks.c:450:        buf_clear(&cb->reply);
+src/backends/cursor/callbacks.c:451:        buf_appends(&cb->reply, "{\"output\":{\"items\":[]}}");
+src/backends/cursor/callbacks.c:466:    buf_clear(&cb->reply);
+src/backends/cursor/callbacks.c:467:    buf_appends(&cb->reply, "{\"output\":{\"items\":[");
+src/backends/cursor/callbacks.c:470:        if (i) buf_appends(&cb->reply, ",");
+src/backends/cursor/callbacks.c:472:            yyjson_doc *doc = jparse(item->json, strlen(item->json));
+src/backends/cursor/callbacks.c:476:        } else buf_appends(&cb->reply, item->json);
+src/backends/cursor/callbacks.c:478:    buf_appends(&cb->reply, "]");
+src/backends/cursor/callbacks.c:480:        buf_appends(&cb->reply, event_store ? ",\"nextOffset\":" : ",\"nextCursor\":");
+src/backends/cursor/callbacks.c:483:    buf_appends(&cb->reply, "}}");
+src/backends/cursor/callbacks.c:502:        char *path = path_join(dir, entry->d_name);
+src/backends/cursor/callbacks.c:503:        yyjson_doc *doc = path ? jparse_file(path) : NULL;
+src/backends/cursor/callbacks.c:529:        char *path = path_join(dir, entry->d_name);
+src/backends/cursor/callbacks.c:530:        yyjson_doc *doc = path ? jparse_file(path) : NULL;
+src/backends/cursor/callbacks.c:549:    buf_t json;
+src/backends/cursor/callbacks.c:550:    buf_init(&json);
+src/backends/cursor/callbacks.c:551:    buf_appends(&json, "{\"runId\":");
+src/backends/cursor/callbacks.c:553:    buf_appendf(&json, ",\"seq\":%llu,\"offset\":\"%llu\",\"eventType\":", (unsigned long long)seq,
+src/backends/cursor/callbacks.c:557:    char *payload_json = payload ? jwrite_val(payload) : NULL;
+src/backends/cursor/callbacks.c:558:    buf_appends(&json, ",\"payload\":");
+src/backends/cursor/callbacks.c:559:    buf_appends(&json, payload_json ? payload_json : "null");
+src/backends/cursor/callbacks.c:561:    buf_appends(&json, ",\"payloadRef\":");
+src/backends/cursor/callbacks.c:563:                                  : buf_appends(&json, "null");
+src/backends/cursor/callbacks.c:564:    buf_appends(&json, ",\"idempotencyKey\":");
+src/backends/cursor/callbacks.c:565:    idempotency ? jescape(&json, idempotency) : buf_appends(&json, "null");
+src/backends/cursor/callbacks.c:566:    buf_appendf(&json, ",\"createdAt\":%lld}", (long long)now_ms());
+src/backends/cursor/callbacks.c:567:    yyjson_doc *event_doc = jparse(json.data, json.len);
+src/backends/cursor/callbacks.c:575:    buf_free(&json);
+src/backends/cursor/callbacks.c:623:            buf_clear(&cb->reply);
+src/backends/cursor/callbacks.c:625:                buf_appends(&cb->reply, "{\"output\":{\"found\":true,\"data\":");
+src/backends/cursor/callbacks.c:627:                buf_appends(&cb->reply, "}}");
+src/backends/cursor/callbacks.c:629:                buf_appends(&cb->reply, "{\"output\":{\"found\":false}}");
+src/backends/cursor/callbacks.c:651:                set_reply(cb, response, 500, "{\"error\":\"record write failed\"}");
+src/backends/cursor/callbacks.c:679:    yyjson_doc *doc = jparse(request->body, request->body_len);
+src/backends/cursor/callbacks.c:692:    buf_t *out;
+src/backends/cursor/callbacks.c:699:    if (!ctx->first) buf_appends(ctx->out, ",");
+src/backends/cursor/callbacks.c:702:    buf_appends(ctx->out, ":{\"description\":");
+src/backends/cursor/callbacks.c:704:    buf_appends(ctx->out, ",\"inputSchema\":");
+src/backends/cursor/callbacks.c:705:    buf_appends(ctx->out, custom_tool_schema(tool));
+src/backends/cursor/callbacks.c:710:        char *json = jwrite_val(output);
+src/backends/cursor/callbacks.c:712:        buf_appends(ctx->out, ",\"outputSchema\":");
+src/backends/cursor/callbacks.c:713:        buf_appends(ctx->out, json);
+src/backends/cursor/callbacks.c:716:    buf_appends(ctx->out, "}");
+src/backends/cursor/callbacks.c:717:    return !buf_oom(ctx->out);
+src/backends/cursor/callbacks.c:725:        fail(err, errlen, "invalid Cursor callback options");
+src/backends/cursor/callbacks.c:728:    cursor_callbacks *cb = calloc(1, sizeof *cb);
+src/backends/cursor/callbacks.c:730:    buf_init(&cb->reply);
+src/backends/cursor/callbacks.c:739:        fail(err, errlen, "could not initialize callback pump wakeup");
+src/backends/cursor/callbacks.c:746:        fail(err, errlen, "could not generate callback bearer token");
+src/backends/cursor/callbacks.c:750:    cb->token = xstrdup(token);
+src/backends/cursor/callbacks.c:753:        cb->store_root = path_join(options->state_dir, "cursor-sdk-store");
+src/backends/cursor/callbacks.c:755:            fail(err, errlen, "could not initialize Cursor callback store");
+src/backends/cursor/callbacks.c:784:    if (!cb || !cb->tools) return xstrdup("{}");
+src/backends/cursor/callbacks.c:785:    yyjson_doc *doc = configured_json ? jparse(configured_json, strlen(configured_json)) : NULL;
+src/backends/cursor/callbacks.c:788:    buf_t out;
+src/backends/cursor/callbacks.c:789:    buf_init(&out);
+src/backends/cursor/callbacks.c:790:    buf_appends(&out, "{");
+src/backends/cursor/callbacks.c:793:    buf_appends(&out, "}");
+src/backends/cursor/callbacks.c:795:    if (!ok || buf_oom(&out)) {
+src/backends/cursor/callbacks.c:796:        buf_free(&out);
+src/backends/cursor/callbacks.c:799:    return buf_detach(&out);
+src/backends/cursor/callbacks.c:815:        if (tny_alloc_scope_failed()) {
+src/backends/cursor/callbacks.c:816:            tny_alloc_provider_failed();
+src/backends/cursor/callbacks.c:825:            buf_clear(&cb->reply);
+src/backends/cursor/callbacks.c:831:                if (tny_alloc_scope_failed()) {
+src/backends/cursor/callbacks.c:832:                    tny_alloc_provider_failed();
+src/backends/cursor/callbacks.c:836:                static const char oom[] = "{\"error\":\"out of memory\"}";
+src/backends/cursor/callbacks.c:837:                http_server_response response = {500, "application/json", oom, sizeof oom - 1,
+src/backends/cursor/callbacks.c:862:    if (tny_alloc_scope_failed()) {
+src/backends/cursor/callbacks.c:863:        tny_alloc_provider_failed();
+src/backends/cursor/callbacks.c:867:    if (tny_alloc_scope_failed()) {
+src/backends/cursor/callbacks.c:868:        tny_alloc_provider_failed();
+src/backends/cursor/callbacks.c:901:        fail(err, errlen, "callback server is not ready for a blocking bridge RPC");
+src/backends/cursor/callbacks.c:908:        fail(err, errlen, "could not start callback pump thread");
+src/backends/cursor/callbacks.c:948:    buf_free(&cb->reply);
+src/backends/acp/acp_server.c:48:static bool acp_srv_cancel_probe(void *ud) { return ((acp_srv *)ud)->cancel_requested; }
+src/backends/acp/acp_server.c:54:    s->session_id = xstrdup(sess->id);
+src/backends/acp/acp_server.c:60:    tny_engine_set_cancel_probe(s->engine, acp_srv_cancel_probe, s);
+src/backends/acp/acp_server.c:81:        buf_t m;
+src/backends/acp/acp_server.c:82:        buf_init(&m);
+src/backends/acp/acp_server.c:83:        buf_appendf(&m,
+src/backends/acp/acp_server.c:88:        buf_free(&m);
+src/backends/acp/acp_server.c:91:    buf_t r;
+src/backends/acp/acp_server.c:92:    buf_init(&r);
+src/backends/acp/acp_server.c:93:    buf_appendf(&r,
+src/backends/acp/acp_server.c:100:    buf_free(&r);
+src/backends/acp/acp_server.c:137:    session_save(sess);
+src/backends/acp/acp_server.c:138:    buf_t r;
+src/backends/acp/acp_server.c:139:    buf_init(&r);
+src/backends/acp/acp_server.c:140:    buf_appends(&r, "{\"sessionId\":");
+src/backends/acp/acp_server.c:142:    buf_appends(&r, "}");
+src/backends/acp/acp_server.c:144:    buf_free(&r);
+src/backends/acp/acp_server.c:150:    yyjson_mut_val *msgs = session_messages(s->session);
+src/backends/acp/acp_server.c:152:    yyjson_mut_val *m;
+src/backends/acp/acp_server.c:153:    yyjson_mut_arr_foreach(msgs, i, max, m) {
+src/backends/acp/acp_server.c:155:        yyjson_mut_val *rv = yyjson_mut_obj_get(m, "role");
+src/backends/acp/acp_server.c:156:        yyjson_mut_val *cv = yyjson_mut_obj_get(m, "content");
+src/backends/acp/acp_server.c:157:        const char *role = yyjson_mut_get_str(rv);
+src/backends/acp/acp_server.c:158:        const char *text = yyjson_mut_get_str(cv);
+src/backends/acp/acp_server.c:164:        buf_t u;
+src/backends/acp/acp_server.c:165:        buf_init(&u);
+src/backends/acp/acp_server.c:166:        buf_appendf(&u, "{\"sessionUpdate\":\"%s\",\"content\":", kind);
+src/backends/acp/acp_server.c:168:        buf_appends(&u, "}");
+src/backends/acp/acp_server.c:169:        buf_t p;
+src/backends/acp/acp_server.c:170:        buf_init(&p);
+src/backends/acp/acp_server.c:171:        buf_appends(&p, "{\"sessionId\":");
+src/backends/acp/acp_server.c:173:        buf_appendf(&p, ",\"update\":%s}", u.data);
+src/backends/acp/acp_server.c:175:        buf_free(&p);
+src/backends/acp/acp_server.c:176:        buf_free(&u);
+src/backends/acp/acp_server.c:221:    buf_t text;
+src/backends/acp/acp_server.c:222:    buf_init(&text);
+src/backends/acp/acp_server.c:225:        buf_t m;
+src/backends/acp/acp_server.c:226:        buf_init(&m);
+src/backends/acp/acp_server.c:227:        buf_appendf(&m,
+src/backends/acp/acp_server.c:232:        buf_free(&m);
+src/backends/acp/acp_server.c:233:        buf_free(&text);
+src/backends/acp/acp_server.c:238:        buf_free(&text);
+src/backends/acp/acp_server.c:243:    buf_free(&text);
+src/backends/acp/acp_server.c:247:                       s->last_error.len ? s->last_error.data : "turn failed");
+src/backends/acp/acp_server.c:251:    buf_t r;
+src/backends/acp/acp_server.c:252:    buf_init(&r);
+src/backends/acp/acp_server.c:253:    buf_appends(&r, "{\"stopReason\":");
+src/backends/acp/acp_server.c:255:    buf_appends(&r, "}");
+src/backends/acp/acp_server.c:257:    buf_free(&r);
+src/backends/acp/acp_server.c:296:        buf_t m;
+src/backends/acp/acp_server.c:297:        buf_init(&m);
+src/backends/acp/acp_server.c:298:        buf_appendf(&m, "unknown method '%.100s'", method);
+src/backends/acp/acp_server.c:300:        buf_free(&m);
+src/backends/acp/acp_server.c:307:    if (!res) { /* the client errored out: fail closed */
+src/backends/acp/acp_server.c:320:        if (outcome && strcmp(outcome, "cancelled") == 0) s->cancel_requested = true;
+src/backends/acp/acp_server.c:336:        if (strcmp(method, "session/cancel") == 0) {
+src/backends/acp/acp_server.c:337:            s->cancel_requested = true;
+src/backends/acp/acp_server.c:338:            if (!s->turn_active) acp_srv_log("session/cancel with no active prompt");
+src/backends/acp/acp_server.c:381:        yyjson_doc *doc = jparse(line, len);
+src/backends/acp/acp_server.c:414:            ctx->model = xstrdup(argv[++i]);
+src/backends/acp/acp_server.c:432:    buf_init(&s.last_error);
+src/backends/acp/acp_server.c:443:    buf_free(&s.last_error);
+src/backends/openai/openai.c:16:#include "util/alloc.h"
+src/backends/openai/openai.c:56:/* One classified provider failure (docs/adr/0069): the HTTP status (0 for
+src/backends/openai/openai.c:98:    buf_t text;       /* assistant text this step */
+src/backends/openai/openai.c:104:    yyjson_mut_doc *rdoc;
+src/backends/openai/openai.c:105:    yyjson_mut_val *reasoning_details;
+src/backends/openai/openai.c:106:    yyjson_mut_val *reasoning_items;
+src/backends/openai/openai.c:107:    yyjson_mut_val *hosted_items; /* raw web_search_call and annotated messages */
+src/backends/openai/openai.c:108:    buf_t reasoning_content;
+src/backends/openai/openai.c:111:    bool cancelled;
+src/backends/openai/openai.c:112:    bool (*tool_cancel_probe)(void *);
+src/backends/openai/openai.c:113:    void *tool_cancel_ud;
+src/backends/openai/openai.c:118:    buf_t rawbody;       /* non-SSE body, dispatched whole at end */
+src/backends/openai/openai.c:128:    bool parser_oom;
+src/backends/openai/openai.c:129:    bool parser_active;         /* cancellation defers cleanup until borrowed callbacks return */
+src/backends/openai/openai.c:131:    bool stream_failed;         /* the stream carried a terminal error event */
+src/backends/openai/openai.c:132:    oa_error_info stream_error; /* its classification (valid when stream_failed) */
+src/backends/openai/openai.c:151:    buf_t toolcall_log; /* JSON array text for ask --json */
+src/backends/openai/openai.c:153:    int tool_batch_failed;
+src/backends/openai/openai.c:158:    yyjson_mut_val *unsent_preview;
+src/backends/openai/openai.c:257:static bool provider_oom(void) {
+src/backends/openai/openai.c:258:    if (!tny_alloc_scope_failed()) return false;
+src/backends/openai/openai.c:259:    tny_alloc_provider_failed();
+src/backends/openai/openai.c:263:static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
+src/backends/openai/openai.c:264:    if (provider_oom()) return;
+src/backends/openai/openai.c:267:    if (provider_oom()) return;
+src/backends/openai/openai.c:275:        if (provider_oom()) return;
+src/backends/openai/openai.c:276:        session_save(o->env.session);
+src/backends/openai/openai.c:306:    if (o->rdoc) yyjson_mut_doc_free(o->rdoc);
+src/backends/openai/openai.c:311:    buf_clear(&o->reasoning_content);
+src/backends/openai/openai.c:315:static yyjson_mut_val *reasoning_array(oa_impl *o, yyjson_mut_val **slot) {
+src/backends/openai/openai.c:317:        o->rdoc = yyjson_mut_doc_new(jallocator());
+src/backends/openai/openai.c:319:        yyjson_mut_doc_set_root(o->rdoc, yyjson_mut_obj(o->rdoc));
+src/backends/openai/openai.c:321:    if (!*slot) *slot = yyjson_mut_arr(o->rdoc);
+src/backends/openai/openai.c:331:void oa_reasoning_details_merge(yyjson_mut_doc *rdoc, yyjson_mut_val *arr, yyjson_val *details) {
+src/backends/openai/openai.c:339:        yyjson_mut_val *item = NULL;
+src/backends/openai/openai.c:342:            yyjson_mut_val *cand;
+src/backends/openai/openai.c:343:            yyjson_mut_arr_foreach(arr, ai, amax, cand) {
+src/backends/openai/openai.c:344:                yyjson_mut_val *ci = yyjson_mut_obj_get(cand, "index");
+src/backends/openai/openai.c:345:                if (ci && yyjson_mut_is_int(ci) && yyjson_mut_get_int(ci) == index) {
+src/backends/openai/openai.c:352:            item = yyjson_val_mut_copy(rdoc, frag);
+src/backends/openai/openai.c:353:            if (item) yyjson_mut_arr_add_val(arr, item);
+src/backends/openai/openai.c:362:            yyjson_mut_val *have = yyjson_mut_obj_get(item, key);
+src/backends/openai/openai.c:365:            if (textual && yyjson_is_str(v) && have && yyjson_mut_is_str(have)) {
+src/backends/openai/openai.c:366:                size_t hl = yyjson_mut_get_len(have), vl = yyjson_get_len(v);
+src/backends/openai/openai.c:367:                char *joined = malloc(hl + vl + 1);
+src/backends/openai/openai.c:369:                memcpy(joined, yyjson_mut_get_str(have), hl);
+src/backends/openai/openai.c:372:                yyjson_mut_obj_put(item, yyjson_mut_strcpy(rdoc, key),
+src/backends/openai/openai.c:373:                                   yyjson_mut_strncpy(rdoc, joined, hl + vl));
+src/backends/openai/openai.c:375:            } else if (!have || yyjson_mut_is_null(have)) {
+src/backends/openai/openai.c:376:                yyjson_mut_val *cv = yyjson_val_mut_copy(rdoc, v);
+src/backends/openai/openai.c:377:                if (cv) yyjson_mut_obj_put(item, yyjson_mut_strcpy(rdoc, key), cv);
+src/backends/openai/openai.c:384:    yyjson_mut_val *arr = reasoning_array(o, &o->reasoning_details);
+src/backends/openai/openai.c:394:    yyjson_mut_val *arr = reasoning_array(o, &o->reasoning_items);
+src/backends/openai/openai.c:397:    yyjson_mut_val *copy = NULL;
+src/backends/openai/openai.c:400:        yyjson_mut_val *cand;
+src/backends/openai/openai.c:401:        yyjson_mut_arr_foreach(arr, ai, amax, cand) {
+src/backends/openai/openai.c:402:            const char *cid = yyjson_mut_get_str(yyjson_mut_obj_get(cand, "id"));
+src/backends/openai/openai.c:404:                copy = cand;
+src/backends/openai/openai.c:409:    if (!copy) {
+src/backends/openai/openai.c:410:        copy = yyjson_mut_obj(o->rdoc);
+src/backends/openai/openai.c:411:        if (!copy) return;
+src/backends/openai/openai.c:412:        yyjson_mut_arr_add_val(arr, copy);
+src/backends/openai/openai.c:418:        yyjson_mut_val *cv = yyjson_val_mut_copy(o->rdoc, v);
+src/backends/openai/openai.c:419:        if (cv) yyjson_mut_obj_put(copy, yyjson_mut_strcpy(o->rdoc, keep[i]), cv);
+src/backends/openai/openai.c:433:    bool done = status && (strcmp(status, "completed") == 0 || strcmp(status, "failed") == 0);
+src/backends/openai/openai.c:435:    yyjson_mut_val *arr = reasoning_array(o, &o->hosted_items);
+src/backends/openai/openai.c:438:    yyjson_mut_val *old;
+src/backends/openai/openai.c:440:    yyjson_mut_arr_foreach(arr, idx, max, old) {
+src/backends/openai/openai.c:441:        const char *oid = yyjson_mut_get_str(yyjson_mut_obj_get(old, "id"));
+src/backends/openai/openai.c:444:        const char *os = yyjson_mut_get_str(yyjson_mut_obj_get(old, "status"));
+src/backends/openai/openai.c:445:        was_done = os && (strcmp(os, "completed") == 0 || strcmp(os, "failed") == 0);
+src/backends/openai/openai.c:446:        if (!was_done || done) yyjson_mut_arr_replace(arr, idx, yyjson_val_mut_copy(o->rdoc, item));
+src/backends/openai/openai.c:449:    if (!found) yyjson_mut_arr_add_val(arr, yyjson_val_mut_copy(o->rdoc, item));
+src/backends/openai/openai.c:460:            if (o->background_armed && !o->cancelled) o->background_boundary = true;
+src/backends/openai/openai.c:464:                ev.tool_ok ? "Codex hosted search completed" : "Codex hosted search failed";
+src/backends/openai/openai.c:478:                buf_t citation;
+src/backends/openai/openai.c:479:                buf_init(&citation);
+src/backends/openai/openai.c:480:                buf_appendf(&citation, "\n[%s](%s)\n", title ? title : "Source", url);
+src/backends/openai/openai.c:481:                buf_append(&o->text, citation.data, citation.len);
+src/backends/openai/openai.c:483:                buf_free(&citation);
+src/backends/openai/openai.c:502:    bool details = o->reasoning_details && yyjson_mut_arr_size(o->reasoning_details) > 0;
+src/backends/openai/openai.c:503:    bool items = o->reasoning_items && yyjson_mut_arr_size(o->reasoning_items) > 0;
+src/backends/openai/openai.c:504:    bool hosted = o->hosted_items && yyjson_mut_arr_size(o->hosted_items) > 0;
+src/backends/openai/openai.c:506:    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
+src/backends/openai/openai.c:508:    yyjson_mut_val *root = yyjson_mut_obj(d);
+src/backends/openai/openai.c:509:    yyjson_mut_doc_set_root(d, root);
+src/backends/openai/openai.c:511:        yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, "reasoning_details"),
+src/backends/openai/openai.c:512:                           yyjson_mut_val_mut_copy(d, o->reasoning_details));
+src/backends/openai/openai.c:514:        yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, "reasoning_content"),
+src/backends/openai/openai.c:515:                           yyjson_mut_strcpy(d, o->reasoning_content.data));
+src/backends/openai/openai.c:517:        yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, "reasoning_items"),
+src/backends/openai/openai.c:518:                           yyjson_mut_val_mut_copy(d, o->reasoning_items));
+src/backends/openai/openai.c:520:        yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, "responses_items"),
+src/backends/openai/openai.c:521:                           yyjson_mut_val_mut_copy(d, o->hosted_items));
+src/backends/openai/openai.c:522:    char *out = jwrite(d);
+src/backends/openai/openai.c:523:    yyjson_mut_doc_free(d);
+src/backends/openai/openai.c:527:/* ---------- provider failures (docs/adr/0069) ---------- */
+src/backends/openai/openai.c:588: * Responses wire response.completed / .incomplete / .failed (or a whole
+src/backends/openai/openai.c:617:void oa_view_append_continuation(yyjson_mut_doc *view, const char *partial) {
+src/backends/openai/openai.c:618:    yyjson_mut_val *msgs = view ? yyjson_mut_doc_get_root(view) : NULL;
+src/backends/openai/openai.c:619:    if (!msgs || !yyjson_mut_is_arr(msgs) || !partial || !*partial) return;
+src/backends/openai/openai.c:620:    yyjson_mut_val *a = yyjson_mut_obj(view);
+src/backends/openai/openai.c:621:    yyjson_mut_obj_put(a, yyjson_mut_strcpy(view, "role"), yyjson_mut_strcpy(view, "assistant"));
+src/backends/openai/openai.c:622:    yyjson_mut_obj_put(a, yyjson_mut_strcpy(view, "content"), yyjson_mut_strcpy(view, partial));
+src/backends/openai/openai.c:623:    yyjson_mut_arr_add_val(msgs, a);
+src/backends/openai/openai.c:624:    yyjson_mut_val *u = yyjson_mut_obj(view);
+src/backends/openai/openai.c:625:    yyjson_mut_obj_put(u, yyjson_mut_strcpy(view, "role"), yyjson_mut_strcpy(view, "user"));
+src/backends/openai/openai.c:626:    yyjson_mut_obj_put(u, yyjson_mut_strcpy(view, "content"),
+src/backends/openai/openai.c:627:                       yyjson_mut_strcpy(view, oa_continue_prompt));
+src/backends/openai/openai.c:628:    yyjson_mut_arr_add_val(msgs, u);
+src/backends/openai/openai.c:653:/* The user-facing line for a failure; `final` appends the opt-in detail. */
+src/backends/openai/openai.c:658:        snprintf(out, cap, "authentication failed (HTTP 401%s): check the API key", cat);
+src/backends/openai/openai.c:696: * false when neither is possible (budget spent, cancelled). */
+src/backends/openai/openai.c:698:    if (provider_oom()) return false;
+src/backends/openai/openai.c:699:    if (o->cancelled || o->retries >= o->max_retries) return false;
+src/backends/openai/openai.c:708:    o->parser_oom = false;
+src/backends/openai/openai.c:709:    if (!cont) buf_clear(&o->text);
+src/backends/openai/openai.c:711:    buf_clear(&o->rawbody);
+src/backends/openai/openai.c:733:    yyjson_doc *doc = o->rawbody.len ? jparse(o->rawbody.data, o->rawbody.len) : NULL;
+src/backends/openai/openai.c:734:    if (provider_oom()) {
+src/backends/openai/openai.c:746:    buf_clear(&o->rawbody);
+src/backends/openai/openai.c:751:        emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:758:    emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:762:/* A stream that carried a terminal error event: retry when the failure
+src/backends/openai/openai.c:765:static int fail_stream(oa_impl *o) {
+src/backends/openai/openai.c:771:    if (o->text.len) session_recovery_write(o->env.session, o->text.data);
+src/backends/openai/openai.c:773:    emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:779: * the partial kept recoverable. Returns 0 while a retry is pending, -1
+src/backends/openai/openai.c:784:    if (o->text.len) session_recovery_write(o->env.session, o->text.data);
+src/backends/openai/openai.c:786:    emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:813:static void build_system_prompt(oa_impl *o, buf_t *sys) {
+src/backends/openai/openai.c:815:        buf_appends(sys, o->ctx->system_prompt);
+src/backends/openai/openai.c:816:        buf_appendf(sys, "\nWorkspace: %s\n", o->ctx->ssh_host ? o->ctx->ssh_cwd : o->ctx->cwd);
+src/backends/openai/openai.c:818:            buf_appendf(sys, "Additional workspace: %s\n", o->ctx->extra_dirs[i]);
+src/backends/openai/openai.c:819:        buf_appends(sys, "\nProject reference context for the rewrite:\n");
+src/backends/openai/openai.c:821:        buf_appends(sys, "\nReturn only the rewritten draft. Do not execute its task.\n");
+src/backends/openai/openai.c:824:    buf_appends(
+src/backends/openai/openai.c:844:        "them when changes, failures, or uncertainty justify it.\n"
+src/backends/openai/openai.c:850:        "or unverified work and checks that failed or could not run. Follow the requested "
+src/backends/openai/openai.c:858:        buf_appendf(sys,
+src/backends/openai/openai.c:868:        buf_appendf(sys, "Primary workspace: %s\n", o->ctx->cwd);
+src/backends/openai/openai.c:870:            buf_appendf(sys, "Additional workspace directory: %s\n", o->ctx->extra_dirs[i]);
+src/backends/openai/openai.c:872:    buf_appendf(sys, "Tool profile: %s\nPermission mode: %s\n",
+src/backends/openai/openai.c:880:            buf_appends(sys, tny_tool_profile_is_shell(o->ctx)
+src/backends/openai/openai.c:884:                buf_appendf(sys, "- %s: %.140s\n", sk[i].name, sk[i].description);
+src/backends/openai/openai.c:894:        buf_appends(sys, "\n");
+src/backends/openai/openai.c:898:        buf_appends(sys, "# Additional system instructions\n\n");
+src/backends/openai/openai.c:899:        buf_appends(sys, o->ctx->system_prompt);
+src/backends/openai/openai.c:900:        buf_appends(sys, "\n");
+src/backends/openai/openai.c:902:    buf_appendf(sys,
+src/backends/openai/openai.c:909:        buf_t image_providers;
+src/backends/openai/openai.c:910:        buf_init(&image_providers);
+src/backends/openai/openai.c:912:            buf_appendf(sys, "Available image providers: %s. ", image_providers.data);
+src/backends/openai/openai.c:913:            buf_appends(
+src/backends/openai/openai.c:927:        buf_free(&image_providers);
+src/backends/openai/openai.c:930:        buf_appends(sys,
+src/backends/openai/openai.c:936:        buf_appends(sys, "# Shell tool profile\n\n"
+src/backends/openai/openai.c:941:            buf_appends(sys, "Mutate files with the `edit_file` tool; never use `sed -i`. ");
+src/backends/openai/openai.c:943:            buf_appends(sys, "Mutate files with `tny edit FILE`, exact match, payload on stdin as "
+src/backends/openai/openai.c:948:        buf_appends(sys,
+src/backends/openai/openai.c:972:    buf_t b;
+src/backends/openai/openai.c:973:    buf_init(&b);
+src/backends/openai/openai.c:974:    buf_appends(&b, "{\"model\":");
+src/backends/openai/openai.c:981:    if (tny_tier_is_fast(o->ctx->service_tier)) buf_appends(&b, ",\"service_tier\":\"priority\"");
+src/backends/openai/openai.c:982:    buf_appends(&b, ",\"stream\":true,\"messages\":[");
+src/backends/openai/openai.c:984:    if (buf_oom(&b) || provider_oom()) {
+src/backends/openai/openai.c:985:        buf_free(&b);
+src/backends/openai/openai.c:988:    buf_t sys;
+src/backends/openai/openai.c:989:    buf_init(&sys);
+src/backends/openai/openai.c:991:    if (buf_oom(&sys) || provider_oom()) {
+src/backends/openai/openai.c:992:        buf_free(&sys);
+src/backends/openai/openai.c:993:        buf_free(&b);
+src/backends/openai/openai.c:996:    buf_appends(&b, "{\"role\":\"system\",\"content\":");
+src/backends/openai/openai.c:998:    buf_appends(&b, "}");
+src/backends/openai/openai.c:999:    buf_free(&sys);
+src/backends/openai/openai.c:1005:        buf_appends(&b, ",{\"role\":\"system\",\"content\":");
+src/backends/openai/openai.c:1007:        buf_appends(&b, "}");
+src/backends/openai/openai.c:1009:    if (buf_oom(&b) || provider_oom()) {
+src/backends/openai/openai.c:1010:        buf_free(&b);
+src/backends/openai/openai.c:1014:    yyjson_mut_doc *view = session_provider_view(s, boundary, &repairs);
+src/backends/openai/openai.c:1016:        buf_free(&b);
+src/backends/openai/openai.c:1021:    yyjson_mut_val *msgs = yyjson_mut_doc_get_root(view);
+src/backends/openai/openai.c:1022:    size_t total = yyjson_mut_arr_size(msgs);
+src/backends/openai/openai.c:1024:        yyjson_mut_val *m = yyjson_mut_arr_get(msgs, i);
+src/backends/openai/openai.c:1026:        yyjson_mut_obj_remove_key(m, "reasoning_items");
+src/backends/openai/openai.c:1027:        yyjson_mut_obj_remove_key(m, "responses_items");
+src/backends/openai/openai.c:1028:        if (provider_oom()) break;
+src/backends/openai/openai.c:1029:        char *mj = jwrite_mut_val(m);
+src/backends/openai/openai.c:1031:            buf_appends(&b, ",");
+src/backends/openai/openai.c:1032:            buf_appends(&b, mj);
+src/backends/openai/openai.c:1036:    yyjson_mut_doc_free(view);
+src/backends/openai/openai.c:1037:    buf_appends(&b, "]");
+src/backends/openai/openai.c:1039:    if (buf_oom(&b) || provider_oom()) {
+src/backends/openai/openai.c:1040:        buf_free(&b);
+src/backends/openai/openai.c:1045:        buf_free(&b);
+src/backends/openai/openai.c:1048:    buf_appendf(&b, ",\"tools\":%s,\"tool_choice\":\"auto\"", schema);
+src/backends/openai/openai.c:1050:    if (o->ctx->output_schema) buf_appendf(&b, ",\"response_format\":%s", o->ctx->output_schema);
+src/backends/openai/openai.c:1051:    if (o->ctx->max_tokens_field) buf_appendf(&b, ",\"%s\":8192", o->ctx->max_tokens_field);
+src/backends/openai/openai.c:1054:        buf_appends(&b, ",\"reasoning_effort\":");
+src/backends/openai/openai.c:1057:    buf_appends(&b, "}");
+src/backends/openai/openai.c:1058:    return buf_detach(&b);
+src/backends/openai/openai.c:1101:    buf_t b;
+src/backends/openai/openai.c:1102:    buf_init(&b);
+src/backends/openai/openai.c:1103:    buf_appends(&b, "{\"model\":");
+src/backends/openai/openai.c:1105:    if (tny_tier_is_fast(o->ctx->service_tier)) buf_appends(&b, ",\"service_tier\":\"priority\"");
+src/backends/openai/openai.c:1106:    buf_appends(&b, ",\"stream\":true,\"store\":false");
+src/backends/openai/openai.c:1110:        buf_appends(&b, ",\"prompt_cache_key\":");
+src/backends/openai/openai.c:1114:    if (buf_oom(&b) || provider_oom()) {
+src/backends/openai/openai.c:1115:        buf_free(&b);
+src/backends/openai/openai.c:1118:    buf_t sys;
+src/backends/openai/openai.c:1119:    buf_init(&sys);
+src/backends/openai/openai.c:1121:    if (buf_oom(&sys) || provider_oom()) {
+src/backends/openai/openai.c:1122:        buf_free(&sys);
+src/backends/openai/openai.c:1123:        buf_free(&b);
+src/backends/openai/openai.c:1126:    buf_appends(&b, ",\"instructions\":");
+src/backends/openai/openai.c:1128:    buf_free(&sys);
+src/backends/openai/openai.c:1132:    if (buf_oom(&b) || provider_oom()) {
+src/backends/openai/openai.c:1133:        buf_free(&b);
+src/backends/openai/openai.c:1137:    yyjson_mut_doc *view = session_provider_view(s, boundary, &repairs);
+src/backends/openai/openai.c:1139:        buf_free(&b);
+src/backends/openai/openai.c:1144:    char *input = tny_openai_responses_input_with_summary(yyjson_mut_doc_get_root(view),
+src/backends/openai/openai.c:1146:    yyjson_mut_doc_free(view);
+src/backends/openai/openai.c:1147:    buf_appendf(&b, ",\"input\":%s", input ? input : "[]");
+src/backends/openai/openai.c:1154:        buf_appends(&b, ",\"include\":[\"reasoning.encrypted_content\"]");
+src/backends/openai/openai.c:1156:    if (buf_oom(&b) || provider_oom()) {
+src/backends/openai/openai.c:1157:        buf_free(&b);
+src/backends/openai/openai.c:1162:        buf_free(&b);
+src/backends/openai/openai.c:1168:        buf_appends(&b, ",\"tools\":");
+src/backends/openai/openai.c:1169:        buf_append(&b, flat, len - 1);
+src/backends/openai/openai.c:1170:        if (len > 2) buf_appends(&b, ",");
+src/backends/openai/openai.c:1171:        buf_appends(
+src/backends/openai/openai.c:1173:    } else buf_appendf(&b, ",\"tools\":%s,\"tool_choice\":\"auto\"", flat ? flat : "[]");
+src/backends/openai/openai.c:1180:            buf_appendf(&b, ",\"text\":{\"format\":%s}", fmt);
+src/backends/openai/openai.c:1186:    if (o->ctx->max_tokens_field) buf_appends(&b, ",\"max_output_tokens\":8192");
+src/backends/openai/openai.c:1188:        buf_appends(&b, ",\"reasoning\":{\"effort\":");
+src/backends/openai/openai.c:1190:        buf_appends(&b, "}");
+src/backends/openai/openai.c:1192:    buf_appends(&b, "}");
+src/backends/openai/openai.c:1193:    return buf_detach(&b);
+src/backends/openai/openai.c:1217:static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) {
+src/backends/openai/openai.c:1219:    if (tny_alloc_scope_failed()) {
+src/backends/openai/openai.c:1220:        tny_alloc_provider_failed();
+src/backends/openai/openai.c:1239:            if (tny_alloc_scope_failed()) {
+src/backends/openai/openai.c:1240:                tny_alloc_provider_failed();
+src/backends/openai/openai.c:1250:    buf_t auth;
+src/backends/openai/openai.c:1251:    buf_init(&auth);
+src/backends/openai/openai.c:1252:    buf_t path;
+src/backends/openai/openai.c:1253:    buf_init(&path);
+src/backends/openai/openai.c:1256:    if (!body || tny_alloc_scope_failed()) goto request_oom;
+src/backends/openai/openai.c:1257:    buf_appendf(&auth, "%s: %s%s", o->ctx->auth_header_name, o->ctx->auth_header_prefix,
+src/backends/openai/openai.c:1259:    if (buf_oom(&auth)) goto request_oom;
+src/backends/openai/openai.c:1273:    if (tny_alloc_scope_failed()) goto request_oom;
+src/backends/openai/openai.c:1290:    buf_appendf(&path, "%s%s", http_prefix(o->conn),
+src/backends/openai/openai.c:1292:    if (buf_oom(&path) || tny_alloc_scope_failed()) goto request_oom;
+src/backends/openai/openai.c:1295:    if (tny_alloc_scope_failed()) {
+src/backends/openai/openai.c:1297:        goto request_oom;
+src/backends/openai/openai.c:1300:        o->cancelled = true;
+src/backends/openai/openai.c:1302:        buf_free(&path);
+src/backends/openai/openai.c:1304:        buf_free(&auth);
+src/backends/openai/openai.c:1307:        emit_turn_end(o, TNY_STOP_INTERRUPTED);
+src/backends/openai/openai.c:1312:    if (tny_alloc_scope_failed()) goto request_oom;
+src/backends/openai/openai.c:1316:        if (control.stop) o->cancelled = true;
+src/backends/openai/openai.c:1325:                o->cancelled = true;
+src/backends/openai/openai.c:1331:                if (tny_alloc_scope_failed()) goto request_oom;
+src/backends/openai/openai.c:1334:                    if (control.stop) o->cancelled = true;
+src/backends/openai/openai.c:1340:    if (tny_alloc_scope_failed()) goto request_oom;
+src/backends/openai/openai.c:1341:    buf_free(&path);
+src/backends/openai/openai.c:1343:    buf_free(&auth);
+src/backends/openai/openai.c:1347:        snprintf(errbuf, errlen, "provider request failed");
+src/backends/openai/openai.c:1356:    o->stream_failed = false;
+src/backends/openai/openai.c:1368:    if (!o->continuing) buf_clear(&o->text); /* a continuation keeps the shown partial */
+src/backends/openai/openai.c:1369:    buf_clear(&o->rawbody);
+src/backends/openai/openai.c:1375:request_oom:
+src/backends/openai/openai.c:1377:     * the runtime cancels the provider after this stack has unwound. */
+src/backends/openai/openai.c:1378:    tny_alloc_provider_failed();
+src/backends/openai/openai.c:1380:    buf_free(&path);
+src/backends/openai/openai.c:1382:    buf_free(&auth);
+src/backends/openai/openai.c:1388:static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
+src/backends/openai/openai.c:1389:    return start_post_mode(o, errbuf, errlen, false);
+src/backends/openai/openai.c:1415:    if (o->parser_oom || o->cancelled) return;
+src/backends/openai/openai.c:1420:        o->stream_done = o->stream_failed = true;
+src/backends/openai/openai.c:1428:        else if (strcmp(o->finish_reason, "error") == 0 && !o->stream_failed) {
+src/backends/openai/openai.c:1430:            o->stream_done = o->stream_failed = true;
+src/backends/openai/openai.c:1434:        buf_append(&o->text, bytes, len);
+src/backends/openai/openai.c:1435:        if (!o->text.oom) emit_text(o, TNY_EV_TEXT_DELTA, bytes, len);
+src/backends/openai/openai.c:1442:            buf_append(&o->reasoning_content, bytes, len);
+src/backends/openai/openai.c:1444:        if (!o->reasoning_content.oom) emit_text(o, TNY_EV_THINKING, bytes, len);
+src/backends/openai/openai.c:1457:    if (o->text.oom || o->reasoning_content.oom || tny_alloc_scope_failed()) o->parser_oom = true;
+src/backends/openai/openai.c:1462:    if (o->parser_oom || o->cancelled) return;
+src/backends/openai/openai.c:1464:        o->parser_oom = true;
+src/backends/openai/openai.c:1467:static void oa_cancel(tny_backend *b);
+src/backends/openai/openai.c:1469:static int parser_failed(tny_backend *b) {
+src/backends/openai/openai.c:1474:    tny_alloc_provider_failed();
+src/backends/openai/openai.c:1475:    tny_alloc_settlement_begin();
+src/backends/openai/openai.c:1477:    oa_cancel(b);
+src/backends/openai/openai.c:1478:    tny_alloc_settlement_end();
+src/backends/openai/openai.c:1486:    if (o->toolcall_log.len > 1) buf_appends(&o->toolcall_log, ",");
+src/backends/openai/openai.c:1487:    buf_appends(&o->toolcall_log, "{\"name\":");
+src/backends/openai/openai.c:1490:        buf_appendf(&o->toolcall_log, ",\"status\":\"%s\"}", effective_ok ? "success" : "error");
+src/backends/openai/openai.c:1493:    buf_appendf(&o->toolcall_log,
+src/backends/openai/openai.c:1507:    if (provider_oom()) return;
+src/backends/openai/openai.c:1509:    if (session_save(s) != 0) {
+src/backends/openai/openai.c:1510:        if (provider_oom()) return;
+src/backends/openai/openai.c:1513:        emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:1516:    session_recovery_clear(s);
+src/backends/openai/openai.c:1517:    emit_turn_end(o, o->final_stop);
+src/backends/openai/openai.c:1546:    if (response.stop) o->cancelled = true;
+src/backends/openai/openai.c:1574:    if (!effective_ok) o->tool_batch_failed++;
+src/backends/openai/openai.c:1576:    if (o->background_armed && !o->cancelled) o->background_boundary = true;
+src/backends/openai/openai.c:1595:    char *result = o->cancelled ? tool_err("interrupted before %s ran", call->name)
+src/backends/openai/openai.c:1613:    pending->id = xstrdup(cid);
+src/backends/openai/openai.c:1614:    pending->original_args = xstrdup(original_args ? original_args : "{}");
+src/backends/openai/openai.c:1615:    pending->effective_args = xstrdup(effective_args ? effective_args : "{}");
+src/backends/openai/openai.c:1616:    pending->control_extension = control_extension ? xstrdup(control_extension) : NULL;
+src/backends/openai/openai.c:1617:    pending->control_reason = control_reason ? xstrdup(control_reason) : NULL;
+src/backends/openai/openai.c:1658:static void finish_cancelled_call(oa_impl *o, const char *cid, const char *name, const char *args) {
+src/backends/openai/openai.c:1660:    complete_tool(o, cid, name, args, args, NULL, "cancelled", result);
+src/backends/openai/openai.c:1666:    buf_t ids;
+src/backends/openai/openai.c:1667:    buf_init(&ids);
+src/backends/openai/openai.c:1668:    buf_appends(&ids, "[");
+src/backends/openai/openai.c:1671:        if (i) buf_appends(&ids, ",");
+src/backends/openai/openai.c:1674:    buf_appends(&ids, "]");
+src/backends/openai/openai.c:1678:    request.failed_tools = o->tool_batch_failed;
+src/backends/openai/openai.c:1682:    buf_free(&ids);
+src/backends/openai/openai.c:1687: * request: inside a live tool batch, not cancelled, not denied, and with a step
+src/backends/openai/openai.c:1691:    if (o->cancelled || o->env.perm_blocked) return false;
+src/backends/openai/openai.c:1700: * generation failure or as visual approval. */
+src/backends/openai/openai.c:1704:        yyjson_mut_val *messages = session_messages(o->env.session);
+src/backends/openai/openai.c:1706:        yyjson_mut_val *message;
+src/backends/openai/openai.c:1707:        yyjson_mut_arr_foreach(messages, index, count, message) {
+src/backends/openai/openai.c:1709:                yyjson_mut_arr_remove(messages, index);
+src/backends/openai/openai.c:1714:        if (session_save(o->env.session) != 0) {
+src/backends/openai/openai.c:1729:    if (provider_oom()) return -1;
+src/backends/openai/openai.c:1741:    o->tool_batch_failed = 0;
+src/backends/openai/openai.c:1743:    o->parser_oom = false;
+src/backends/openai/openai.c:1744:    if (session_save(s) != 0) {
+src/backends/openai/openai.c:1745:        if (provider_oom()) return -1;
+src/backends/openai/openai.c:1749:        emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:1756:        emit_turn_end(o, TNY_STOP_INTERRUPTED);
+src/backends/openai/openai.c:1760:    if (o->cancelled) {
+src/backends/openai/openai.c:1761:        if (had_preview) preview_not_delivered(o, "the turn was cancelled before the next request");
+src/backends/openai/openai.c:1762:        emit_turn_end(o, TNY_STOP_INTERRUPTED);
+src/backends/openai/openai.c:1767:        emit_turn_end(o, TNY_STOP_DENIED);
+src/backends/openai/openai.c:1777:        session_save(s);
+src/backends/openai/openai.c:1778:        emit_turn_end(o, TNY_STOP_STEP_LIMIT);
+src/backends/openai/openai.c:1784:            emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:1787:        o->unsent_preview = yyjson_mut_arr_get_last(session_messages(s));
+src/backends/openai/openai.c:1792:    if (take_steer(o) && !had_preview) session_save(s);
+src/backends/openai/openai.c:1794:    int post_rc = start_post(o, err, sizeof err);
+src/backends/openai/openai.c:1798:        if (had_preview) preview_not_delivered(o, "the next provider request failed");
+src/backends/openai/openai.c:1799:        emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:1802:    if (had_preview && o->state != ST_IDLE && session_save(s) != 0) {
+src/backends/openai/openai.c:1805:        emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:1814:    if (!o->background_armed || !o->background_boundary || o->cancelled || o->env.perm_blocked)
+src/backends/openai/openai.c:1818:    if (session_save(o->env.session) != 0) {
+src/backends/openai/openai.c:1819:        emit_text(o, TNY_EV_STATUS, "background checkpoint failed; continuing in foreground", 54);
+src/backends/openai/openai.c:1831:        if (tny_alloc_scope_failed()) return -1;
+src/backends/openai/openai.c:1837:        if (o->cancelled) {
+src/backends/openai/openai.c:1838:            finish_cancelled_call(o, cid, name, args);
+src/backends/openai/openai.c:1852:            char *effective_args = xstrdup(effective);
+src/backends/openai/openai.c:1853:            char *control_extension = response.extension ? xstrdup(response.extension) : NULL;
+src/backends/openai/openai.c:1854:            char *control_reason = response.reason ? xstrdup(response.reason) : NULL;
+src/backends/openai/openai.c:1864:                if (response.stop) o->cancelled = true;
+src/backends/openai/openai.c:1883:                char *result = call.error ? xstrdup(call.error)
+src/backends/openai/openai.c:1898:            if (session_save(o->env.session) != 0) {
+src/backends/openai/openai.c:1908:                emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:1949:                control_extension = xstrdup(response.extension);
+src/backends/openai/openai.c:1953:                control_reason = xstrdup(response.reason);
+src/backends/openai/openai.c:2010:            o->pending_perm.id = xstrdup(cid);
+src/backends/openai/openai.c:2011:            o->pending_perm.original_args = xstrdup(args);
+src/backends/openai/openai.c:2059:    return tny_alloc_scope_failed() ? -1 : finish_tool_batch(o);
+src/backends/openai/openai.c:2064:    if (provider_oom()) return -1;
+src/backends/openai/openai.c:2067:        if (o->steer && !o->cancelled) {
+src/backends/openai/openai.c:2075:            session_save(s);
+src/backends/openai/openai.c:2079:                int post_rc = start_post(o, err, sizeof err);
+src/backends/openai/openai.c:2083:                emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:2094:        buf_t tcj;
+src/backends/openai/openai.c:2095:        buf_init(&tcj);
+src/backends/openai/openai.c:2096:        buf_appends(&tcj, "[");
+src/backends/openai/openai.c:2100:            if (i) buf_appends(&tcj, ",");
+src/backends/openai/openai.c:2101:            buf_appendf(
+src/backends/openai/openai.c:2106:            buf_appends(&tcj, "}}");
+src/backends/openai/openai.c:2108:        buf_appends(&tcj, "]");
+src/backends/openai/openai.c:2112:        buf_free(&tcj);
+src/backends/openai/openai.c:2113:        if (session_save(s) != 0) {
+src/backends/openai/openai.c:2115:            emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:2193:    o->cancelled = false;
+src/backends/openai/openai.c:2203:    o->tool_batch_failed = 0;
+src/backends/openai/openai.c:2206:    buf_clear(&o->toolcall_log);
+src/backends/openai/openai.c:2207:    buf_appends(&o->toolcall_log, "[");
+src/backends/openai/openai.c:2209:    o->parser_oom = false;
+src/backends/openai/openai.c:2220:    if (session_save(s) != 0) {
+src/backends/openai/openai.c:2224:    return start_post(o, errbuf, errlen);
+src/backends/openai/openai.c:2231:    if (o->state == ST_IDLE || o->cancelled) {
+src/backends/openai/openai.c:2238:        char *both = malloc(n);
+src/backends/openai/openai.c:2248:    o->steer = xstrdup(text);
+src/backends/openai/openai.c:2252:static void oa_cancel(tny_backend *b) {
+src/backends/openai/openai.c:2254:    if (o->state == ST_IDLE && !tny_alloc_settling()) return;
+src/backends/openai/openai.c:2255:    o->cancelled = true;
+src/backends/openai/openai.c:2257:    if (tny_alloc_settling()) {
+src/backends/openai/openai.c:2264:            yyjson_mut_val *messages = session_messages(o->env.session);
+src/backends/openai/openai.c:2266:            yyjson_mut_val *message;
+src/backends/openai/openai.c:2267:            yyjson_mut_arr_foreach(messages, index, count, message) {
+src/backends/openai/openai.c:2269:                    yyjson_mut_arr_remove(messages, index);
+src/backends/openai/openai.c:2279:        buf_free(&o->rawbody);
+src/backends/openai/openai.c:2280:        buf_free(&o->text);
+src/backends/openai/openai.c:2285:        o->tool_index = o->tool_batch_failed = 0;
+src/backends/openai/openai.c:2286:        o->parser_oom = false;
+src/backends/openai/openai.c:2291:         * suppresses this stack view without copying it. */
+src/backends/openai/openai.c:2304:                          pending->effective_args, pending->control_extension, "cancelled", result);
+src/backends/openai/openai.c:2313:                          pending->effective_args, pending->control_extension, "cancelled", result);
+src/backends/openai/openai.c:2320:            finish_cancelled_call(o, oa_call_id(pc, i, idbuf, sizeof idbuf),
+src/backends/openai/openai.c:2330:        buf_free(&o->rawbody);
+src/backends/openai/openai.c:2335:        session_recovery_write(o->env.session, o->text.data);
+src/backends/openai/openai.c:2337:        session_save(o->env.session);
+src/backends/openai/openai.c:2342:    buf_free(&o->rawbody);
+src/backends/openai/openai.c:2343:    emit_turn_end(o, TNY_STOP_INTERRUPTED);
+src/backends/openai/openai.c:2374: * elapses, then dispatch() re-POSTs (cancel still wakes it, ADR 0053). */
+src/backends/openai/openai.c:2407:        if (o->cancelled) return 0;
+src/backends/openai/openai.c:2410:        int post_rc = start_post_mode(o, rerr, sizeof rerr, true);
+src/backends/openai/openai.c:2414:        if (!o->cancelled && schedule_retry(o, rerr, 0)) return 0;
+src/backends/openai/openai.c:2416:        emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:2425:        if (provider_oom()) return parser_failed(b);
+src/backends/openai/openai.c:2435:            if (silent.stop) o->cancelled = true;
+src/backends/openai/openai.c:2448:                tny_openai_control_response failed =
+src/backends/openai/openai.c:2450:                if (failed.stop) o->cancelled = true;
+src/backends/openai/openai.c:2451:                control_response_free(&failed);
+src/backends/openai/openai.c:2452:                int post_rc = start_post_mode(o, rerr, sizeof rerr, true);
+src/backends/openai/openai.c:2455:                if (!o->cancelled && schedule_retry(o, rerr, 0)) return 0;
+src/backends/openai/openai.c:2457:                emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:2461:            /* every attempt gets its response event, a failed one included */
+src/backends/openai/openai.c:2464:            if (lost.stop) o->cancelled = true;
+src/backends/openai/openai.c:2468:            emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:2474:            o->cancelled = true;
+src/backends/openai/openai.c:2477:            emit_turn_end(o, TNY_STOP_INTERRUPTED);
+src/backends/openai/openai.c:2503:     * The caller must drain events and service stdin/cancel between batches;
+src/backends/openai/openai.c:2508:        if (provider_oom()) return parser_failed(b);
+src/backends/openai/openai.c:2515:                 * 0087). Waiting longer only delays the recovery. */
+src/backends/openai/openai.c:2533:                if (o->rawbody.len + (size_t)bn <= cap) buf_append(&o->rawbody, tmp, (size_t)bn);
+src/backends/openai/openai.c:2536:            if (o->sse.status || o->parser_oom || tny_alloc_scope_failed()) return parser_failed(b);
+src/backends/openai/openai.c:2537:            if (o->cancelled) {
+src/backends/openai/openai.c:2538:                oa_cancel(b);
+src/backends/openai/openai.c:2544:            if (o->stream_failed) return fail_stream(o);
+src/backends/openai/openai.c:2555:             * keep-alive read failure (tens of seconds on some macOS hosts).
+src/backends/openai/openai.c:2565:                buf_clear(&o->rawbody);
+src/backends/openai/openai.c:2567:                emit_turn_end(o, TNY_STOP_ERROR);
+src/backends/openai/openai.c:2574:                buf_clear(&o->rawbody);
+src/backends/openai/openai.c:2580:            if (o->sse.status || o->parser_oom || tny_alloc_scope_failed()) return parser_failed(b);
+src/backends/openai/openai.c:2581:            if (o->cancelled) {
+src/backends/openai/openai.c:2582:                oa_cancel(b);
+src/backends/openai/openai.c:2585:            if (o->stream_failed) return fail_stream(o);
+src/backends/openai/openai.c:2621:    o->parser_oom = false;
+src/backends/openai/openai.c:2626:    buf_free(&o->text);
+src/backends/openai/openai.c:2627:    buf_free(&o->toolcall_log);
+src/backends/openai/openai.c:2628:    buf_free(&o->rawbody);
+src/backends/openai/openai.c:2630:    buf_free(&o->reasoning_content);
+src/backends/openai/openai.c:2636:static bool tool_cancelled(void *ud) {
+src/backends/openai/openai.c:2638:    if (o->tool_cancel_probe && o->tool_cancel_probe(o->tool_cancel_ud)) o->cancelled = true;
+src/backends/openai/openai.c:2639:    return o->cancelled;
+src/backends/openai/openai.c:2642:void tny_backend_openai_set_tool_cancel(tny_backend *b, bool (*probe)(void *), void *ud) {
+src/backends/openai/openai.c:2644:    o->tool_cancel_probe = probe;
+src/backends/openai/openai.c:2645:    o->tool_cancel_ud = ud;
+src/backends/openai/openai.c:2646:    o->env.cancelled = tool_cancelled;
+src/backends/openai/openai.c:2647:    o->env.cancelled_ud = o;
+src/backends/openai/openai.c:2725:    if (!u->requests) return xstrdup("null");
+src/backends/openai/openai.c:2726:    buf_t out;
+src/backends/openai/openai.c:2727:    buf_init(&out);
+src/backends/openai/openai.c:2728:    buf_appendf(&out,
+src/backends/openai/openai.c:2733:        buf_appendf(&out, "%lld,\"uncached_input_tokens\":%lld", (long long)u->cached_input_tokens,
+src/backends/openai/openai.c:2735:    else buf_appends(&out, "null,\"uncached_input_tokens\":null");
+src/backends/openai/openai.c:2736:    buf_appends(&out, ",\"cache_write_tokens\":");
+src/backends/openai/openai.c:2738:        buf_appendf(&out, "%lld", (long long)u->cache_write_tokens);
+src/backends/openai/openai.c:2739:    else buf_appends(&out, "null");
+src/backends/openai/openai.c:2740:    buf_appends(&out, "}");
+src/backends/openai/openai.c:2741:    return buf_detach(&out);
+src/backends/openai/openai.c:2747:    if (o->toolcall_log.data[o->toolcall_log.len - 1] != ']') buf_appends(&o->toolcall_log, "]");
+src/backends/openai/openai.c:2752:    yyjson_doc *doc = jparse(schema_json, len);
+src/backends/openai/openai.c:2759:    yyjson_mut_doc *m = yyjson_mut_doc_new(jallocator());
+src/backends/openai/openai.c:2764:    yyjson_mut_val *copy = yyjson_val_mut_copy(m, root);
+src/backends/openai/openai.c:2766:    yyjson_mut_val *rf;
+src/backends/openai/openai.c:2768:        rf = copy; /* already a full response_format */
+src/backends/openai/openai.c:2770:        rf = yyjson_mut_obj(m);
+src/backends/openai/openai.c:2771:        yyjson_mut_obj_add_str(m, rf, "type", "json_schema");
+src/backends/openai/openai.c:2772:        yyjson_mut_val *js;
+src/backends/openai/openai.c:2774:            js = copy; /* already a json_schema object ({name, schema, …}) */
+src/backends/openai/openai.c:2775:            if (!jget(root, "name")) yyjson_mut_obj_add_str(m, js, "name", "output");
+src/backends/openai/openai.c:2777:            js = yyjson_mut_obj(m);
+src/backends/openai/openai.c:2778:            yyjson_mut_obj_add_str(m, js, "name", "output");
+src/backends/openai/openai.c:2779:            yyjson_mut_obj_add_bool(m, js, "strict", true);
+src/backends/openai/openai.c:2780:            yyjson_mut_obj_add_val(m, js, "schema", copy);
+src/backends/openai/openai.c:2782:        yyjson_mut_obj_add_val(m, rf, "json_schema", js);
+src/backends/openai/openai.c:2784:    yyjson_mut_doc_set_root(m, rf);
+src/backends/openai/openai.c:2785:    char *out = jwrite(m);
+src/backends/openai/openai.c:2786:    yyjson_mut_doc_free(m);
+src/backends/openai/openai.c:2801:    tny_backend *b = calloc(1, sizeof *b);
+src/backends/openai/openai.c:2802:    oa_impl *o = calloc(1, sizeof *o);
+src/backends/openai/openai.c:2812:    buf_init(&o->text);
+src/backends/openai/openai.c:2813:    buf_init(&o->toolcall_log);
+src/backends/openai/openai.c:2814:    buf_init(&o->rawbody);
+src/backends/openai/openai.c:2815:    buf_init(&o->reasoning_content);
+src/backends/openai/openai.c:2838:    b->cancel = oa_cancel;
+src/backends/openai/openai.c:2861:yyjson_mut_val *tny_backend_openai_checkpoint(tny_backend *b, yyjson_mut_doc *d) {
+src/backends/openai/openai.c:2864:    yyjson_mut_val *r = yyjson_mut_obj(d);
+src/backends/openai/openai.c:2865:    yyjson_mut_obj_add_int(d, r, "step", o->step);
+src/backends/openai/openai.c:2866:    yyjson_mut_obj_add_int(d, r, "tool_index", o->tool_index);
+src/backends/openai/openai.c:2867:    yyjson_mut_obj_add_int(d, r, "tool_batch_failed", o->tool_batch_failed);
+src/backends/openai/openai.c:2868:    yyjson_mut_obj_add_int(d, r, "max_retries", o->max_retries);
+src/backends/openai/openai.c:2869:    yyjson_mut_obj_add_int(d, r, "stall_ms", o->stall_ms);
+src/backends/openai/openai.c:2870:    yyjson_mut_obj_add_int(d, r, "provider_attempt", o->provider_attempt);
+src/backends/openai/openai.c:2871:    yyjson_mut_obj_add_int(d, r, "final_stop", o->final_stop);
+src/backends/openai/openai.c:2872:    yyjson_mut_obj_add_bool(d, r, "wire_chat", o->wire_chat);
+src/backends/openai/openai.c:2873:    yyjson_mut_obj_add_bool(d, r, "repairs_noted", o->repairs_noted);
+src/backends/openai/openai.c:2874:    yyjson_mut_obj_add_bool(d, r, "perm_blocked", o->env.perm_blocked);
+src/backends/openai/openai.c:2875:    yyjson_mut_obj_add_uint(d, r, "provider_request_sequence", o->provider_request_sequence);
+src/backends/openai/openai.c:2876:    yyjson_mut_obj_add_strcpy(d, r, "text", o->text.data ? o->text.data : "");
+src/backends/openai/openai.c:2877:    yyjson_mut_obj_add_strcpy(d, r, "toolcall_log",
+src/backends/openai/openai.c:2879:    if (o->steer) yyjson_mut_obj_add_strcpy(d, r, "steer", o->steer);
+src/backends/openai/openai.c:2880:    yyjson_mut_obj_add_strcpy(d, r, "turn_state", o->turn_state); /* IPC only */
+src/backends/openai/openai.c:2881:    yyjson_mut_val *usage = yyjson_mut_obj(d);
+src/backends/openai/openai.c:2882:    yyjson_mut_obj_add_int(d, usage, "input_tokens", o->usage.input_tokens);
+src/backends/openai/openai.c:2883:    yyjson_mut_obj_add_int(d, usage, "output_tokens", o->usage.output_tokens);
+src/backends/openai/openai.c:2884:    yyjson_mut_obj_add_int(d, usage, "cached_input_tokens", o->usage.cached_input_tokens);
+src/backends/openai/openai.c:2885:    yyjson_mut_obj_add_int(d, usage, "cache_write_tokens", o->usage.cache_write_tokens);
+src/backends/openai/openai.c:2886:    yyjson_mut_obj_add_int(d, usage, "requests", o->usage.requests);
+src/backends/openai/openai.c:2887:    yyjson_mut_obj_add_int(d, usage, "cache_read_requests", o->usage.cache_read_requests);
+src/backends/openai/openai.c:2888:    yyjson_mut_obj_add_int(d, usage, "cache_write_requests", o->usage.cache_write_requests);
+src/backends/openai/openai.c:2889:    yyjson_mut_obj_add_val(d, r, "usage", usage);
+src/backends/openai/openai.c:2890:    yyjson_mut_val *calls = yyjson_mut_arr(d);
+src/backends/openai/openai.c:2893:        yyjson_mut_val *v = yyjson_mut_obj(d);
+src/backends/openai/openai.c:2894:        if (c->id) yyjson_mut_obj_add_strcpy(d, v, "id", c->id);
+src/backends/openai/openai.c:2895:        if (c->name) yyjson_mut_obj_add_strcpy(d, v, "name", c->name);
+src/backends/openai/openai.c:2896:        yyjson_mut_obj_add_int(d, v, "index", c->wire_index);
+src/backends/openai/openai.c:2897:        yyjson_mut_obj_add_strcpy(d, v, "args", c->args.data ? c->args.data : "{}");
+src/backends/openai/openai.c:2898:        yyjson_mut_arr_add_val(calls, v);
+src/backends/openai/openai.c:2900:    yyjson_mut_obj_add_val(d, r, "calls", calls);
+src/backends/openai/openai.c:2901:    yyjson_mut_val *images = yyjson_mut_arr(d);
+src/backends/openai/openai.c:2904:        yyjson_mut_val *v = yyjson_mut_obj(d);
+src/backends/openai/openai.c:2905:        buf_t bytes;
+src/backends/openai/openai.c:2906:        buf_init(&bytes);
+src/backends/openai/openai.c:2908:        yyjson_mut_obj_add_strcpy(d, v, "bytes", bytes.data ? bytes.data : "");
+src/backends/openai/openai.c:2909:        buf_free(&bytes);
+src/backends/openai/openai.c:2910:        yyjson_mut_obj_add_strcpy(d, v, "path", o->env.pending_images[i]);
+src/backends/openai/openai.c:2911:        yyjson_mut_obj_add_strcpy(d, v, "mime", c->mime ? c->mime : "");
+src/backends/openai/openai.c:2912:        yyjson_mut_obj_add_strcpy(d, v, "sha256", c->sha256);
+src/backends/openai/openai.c:2913:        yyjson_mut_obj_add_int(d, v, "origin", c->origin);
+src/backends/openai/openai.c:2914:        yyjson_mut_arr_add_val(images, v);
+src/backends/openai/openai.c:2916:    yyjson_mut_obj_add_val(d, r, "images", images);
+src/backends/openai/openai.c:2930:        yyjson_mut_val *last = yyjson_mut_arr_get_last(session_messages(o->env.session));
+src/backends/openai/openai.c:2931:        yyjson_mut_val *items = yyjson_mut_obj_get(last, "responses_items");
+src/backends/openai/openai.c:2933:        yyjson_mut_val *item;
+src/backends/openai/openai.c:2934:        yyjson_mut_arr_foreach(items, hi, hn, item) {
+src/backends/openai/openai.c:2935:            const char *type = yyjson_mut_get_str(yyjson_mut_obj_get(item, "type"));
+src/backends/openai/openai.c:2936:            const char *status = yyjson_mut_get_str(yyjson_mut_obj_get(item, "status"));
+src/backends/openai/openai.c:2938:                (strcmp(status, "completed") == 0 || strcmp(status, "failed") == 0))
+src/backends/openai/openai.c:2947:    o->tool_batch_failed = (int)jget_int(r, "tool_batch_failed", 0);
+src/backends/openai/openai.c:2956:    buf_clear(&o->text);
+src/backends/openai/openai.c:2957:    buf_appends(&o->text, jget_str(r, "text") ? jget_str(r, "text") : "");
+src/backends/openai/openai.c:2958:    buf_clear(&o->toolcall_log);
+src/backends/openai/openai.c:2959:    buf_appends(&o->toolcall_log, jget_str(r, "toolcall_log") ? jget_str(r, "toolcall_log") : "");
+src/backends/openai/openai.c:2961:    o->steer = jget_str(r, "steer") ? xstrdup(jget_str(r, "steer")) : NULL;
+src/backends/openai/openai.c:2973:    o->parser_oom = false;
+src/backends/openai/openai.c:2988:        o->env.pending_images[i] = xstrdup(path);
+src/backends/openai/openai.c:2990:        c->data = malloc(strlen(bytes) + 1);
+src/backends/openai/openai.c:3007:    return tny_alloc_scope_failed() ? -1 : 0;
+src/backends/cursor/sdk_client.c:5:#include "util/alloc.h"
+src/backends/cursor/sdk_client.c:37:    {CURSOR_SDK_RPC_CANCEL_RUN, AGENT, "CancelRun", CURSOR_SDK_UNARY, "run.cancel"},
+src/backends/cursor/sdk_client.c:74:    yyjson_doc *doc = jparse(json ? json : "", len);
+src/backends/cursor/sdk_client.c:143:    if (tny_alloc_scope_failed()) {
+src/backends/cursor/sdk_client.c:144:        tny_alloc_provider_failed();
+src/backends/cursor/sdk_client.c:157:    yyjson_doc *doc = jparse(json, len);
+src/backends/cursor/sdk_client.c:176:    if (tny_alloc_scope_failed()) {
+src/backends/cursor/sdk_client.c:177:        tny_alloc_provider_failed();
+src/backends/cursor/sdk_client.c:182:    if (tny_alloc_scope_failed()) {
+src/backends/cursor/sdk_client.c:183:        tny_alloc_provider_failed();
+src/backends/cursor/sdk_client.c:188:    sdk_error->message = xstrdup(transport_error ? transport_error : "sdk.v1 request failed");
+src/backends/cursor/sdk_client.c:189:    if (tny_alloc_scope_failed()) tny_alloc_provider_failed();
+src/backends/cursor/sdk_client.c:208:        if (tny_alloc_scope_failed()) {
+src/backends/cursor/sdk_client.c:213:        cursor_error_line(body, strlen(body), "bridge RPC failed", line, sizeof line);
+src/backends/cursor/sdk_client.c:214:        snprintf(err, errlen, "%s failed: %s", route->method, line);
+src/backends/cursor/sdk_client.c:280:    yyjson_doc *doc = jparse(payload, len);
+src/backends/cursor/sdk_client.c:352:        ctx->client->stream_end_error_payload = xstrndup(payload, len);
+src/backends/cursor/sdk_client.c:376:    if (rc == -2 || tny_alloc_scope_failed()) {
+src/backends/cursor/sdk_client.c:377:        tny_alloc_provider_failed();
+src/backends/cursor/sdk_client.c:384:        if (tny_alloc_scope_failed()) {
+src/backends/cursor/sdk_client.c:385:            tny_alloc_provider_failed();
+src/backends/cursor/sdk_client.c:394:        if (tny_alloc_scope_failed()) {
+src/backends/cursor/sdk_client.c:395:            tny_alloc_provider_failed();
+src/backends/cursor/sdk_client.c:403:        if (tny_alloc_scope_failed()) {
+src/backends/cursor/sdk_client.c:404:            tny_alloc_provider_failed();
+src/backends/cursor/sdk_client.c:414:            if (tny_alloc_scope_failed()) {
+src/backends/cursor/sdk_client.c:415:                tny_alloc_provider_failed();
+src/backends/cursor/sdk_client.c:424:            if (tny_alloc_scope_failed()) {
+src/backends/cursor/sdk_client.c:425:                tny_alloc_provider_failed();
+src/backends/cursor/sdk_client.c:445:            if (tny_alloc_scope_failed()) {
+src/backends/cursor/sdk_client.c:446:                tny_alloc_provider_failed();
+src/backends/cursor/sdk_client.c:452:        if (tny_alloc_scope_failed()) {
+src/backends/cursor/sdk_client.c:453:            tny_alloc_provider_failed();
+src/backends/acp/acp_wire.c:4:#include "util/alloc.h"
+src/backends/acp/acp_wire.c:14:    buf_init(&r->buf);
+src/backends/acp/acp_wire.c:18:void acp_reader_free(acp_reader *r) { buf_free(&r->buf); }
+src/backends/acp/acp_wire.c:21:    if (r->overflow || tny_alloc_scope_failed()) return;
+src/backends/acp/acp_wire.c:22:    buf_append(&r->buf, data, n);
+src/backends/acp/acp_wire.c:25:        buf_clear(&r->buf);
+src/backends/acp/acp_wire.c:30:    if (r->overflow || !r->buf.len || tny_alloc_scope_failed()) return NULL;
+src/backends/acp/acp_wire.c:36:        buf_clear(&r->buf);
+src/backends/acp/acp_wire.c:41:    char *line = xstrndup(r->buf.data, trimmed);
+src/backends/acp/acp_wire.c:42:    buf_consume(&r->buf, n + 1);
+src/backends/acp/acp_wire.c:49:    buf_t out;
+src/backends/acp/acp_wire.c:50:    buf_init(&out);
+src/backends/acp/acp_wire.c:51:    buf_append(&out, json, len);
+src/backends/acp/acp_wire.c:52:    buf_append(&out, "\n", 1);
+src/backends/acp/acp_wire.c:73:    buf_free(&out);
+src/backends/acp/acp_wire.c:77:void acp_fmt_request(buf_t *b, int64_t id, const char *method, const char *params_json) {
+src/backends/acp/acp_wire.c:78:    buf_appendf(b, "{\"jsonrpc\":\"2.0\",\"id\":%lld,\"method\":", (long long)id);
+src/backends/acp/acp_wire.c:80:    buf_appendf(b, ",\"params\":%s}", params_json ? params_json : "{}");
+src/backends/acp/acp_wire.c:83:void acp_fmt_notify(buf_t *b, const char *method, const char *params_json) {
+src/backends/acp/acp_wire.c:84:    buf_appends(b, "{\"jsonrpc\":\"2.0\",\"method\":");
+src/backends/acp/acp_wire.c:86:    buf_appendf(b, ",\"params\":%s}", params_json ? params_json : "{}");
+src/backends/acp/acp_wire.c:89:void acp_fmt_result(buf_t *b, const char *id_raw, const char *result_json) {
+src/backends/acp/acp_wire.c:90:    buf_appendf(b, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}", id_raw ? id_raw : "null",
+src/backends/acp/acp_wire.c:95:    buf_t b;
+src/backends/acp/acp_wire.c:96:    buf_init(&b);
+src/backends/acp/acp_wire.c:99:    buf_free(&b);
+src/backends/acp/acp_wire.c:104:    buf_t b;
+src/backends/acp/acp_wire.c:105:    buf_init(&b);
+src/backends/acp/acp_wire.c:108:    buf_free(&b);
+src/backends/acp/acp_wire.c:113:    buf_t b;
+src/backends/acp/acp_wire.c:114:    buf_init(&b);
+src/backends/acp/acp_wire.c:117:    buf_free(&b);
+src/backends/acp/acp_wire.c:122:    buf_t b;
+src/backends/acp/acp_wire.c:123:    buf_init(&b);
+src/backends/acp/acp_wire.c:124:    buf_appendf(&b, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"error\":{\"code\":%d,\"message\":",
+src/backends/acp/acp_wire.c:127:    buf_appends(&b, "}}");
+src/backends/acp/acp_wire.c:129:    buf_free(&b);
+src/backends/acp/acp_wire.c:135:    if (!id) return xstrdup("null");
+src/backends/acp/acp_wire.c:139:        return xstrdup(tmp);
+src/backends/acp/acp_wire.c:142:        buf_t b;
+src/backends/acp/acp_wire.c:143:        buf_init(&b);
+src/backends/acp/acp_wire.c:145:        return buf_detach(&b);
+src/backends/acp/acp_wire.c:147:    char *raw = jwrite_val(id);
+src/backends/acp/acp_wire.c:148:    return raw ? raw : xstrdup("null");
+src/backends/acp/acp_wire.c:174:bool acp_blocks_to_text(yyjson_val *arr, buf_t *out, const char **bad) {
+src/backends/acp/acp_wire.c:190:        if (out->len) buf_appends(out, "\n");
+src/backends/acp/acp_wire.c:191:        buf_appends(out, t);
+src/backends/acp/acp_wire.c:196:void acp_append_text_block(buf_t *b, const char *text, size_t len) {
+src/backends/acp/acp_wire.c:197:    buf_appends(b, "{\"type\":\"text\",\"text\":");
+src/backends/acp/acp_wire.c:198:    char *tmp = xstrndup(text, len);
+src/backends/acp/acp_wire.c:201:    buf_appends(b, "}");
+src/backends/openai/openai.h:45:    int failed_tools;
+src/backends/openai/openai.h:83:void tny_backend_openai_set_tool_cancel(tny_backend *b, bool (*probe)(void *), void *ud);
+src/backends/openai/openai.h:90: * merely active turn that is streaming, cancelled, denied or out of step budget
+src/backends/openai/openai.h:102:yyjson_mut_val *tny_backend_openai_checkpoint(tny_backend *b, yyjson_mut_doc *d);
+src/backends/openai/openai.h:120:/* ---- provider failure classification and reasoning passthrough
+src/backends/openai/openai.h:143:void oa_view_append_continuation(yyjson_mut_doc *view, const char *partial);
+src/backends/openai/openai.h:148:void oa_reasoning_details_merge(yyjson_mut_doc *rdoc, yyjson_mut_val *arr, yyjson_val *details);
+src/backends/openai/openai.h:153: * `{"type":"json_schema",…}` wrapper. Returns malloc'd compact JSON, or
+src/backends/openai/openai.h:160: * All return malloc'd compact JSON, or NULL on bad input. */
+src/backends/openai/openai.h:166:char *tny_openai_responses_input(yyjson_mut_val *msgs, int boundary, const char *summary);
+src/backends/openai/openai.h:169:char *tny_openai_responses_input_with_summary(yyjson_mut_val *msgs, const char *summary);
+src/backends/cursor/bridge.c:48:    char *entry = malloc(nl + vl + 2);
+src/backends/cursor/bridge.c:76:    out->values = malloc((count + 4) * sizeof *out->values);
+src/backends/cursor/bridge.c:77:    if (!out->values) goto oom;
+src/backends/cursor/bridge.c:80:        if (!out->api_key) goto oom;
+src/backends/cursor/bridge.c:84:        if (!out->store_token) goto oom;
+src/backends/cursor/bridge.c:102:oom:
+src/backends/cursor/bridge.c:208:    buf_init(&bp->acc);
+src/backends/cursor/bridge.c:221:static void forward_line(cursor_bridge *bp, const char *line, size_t len, buf_t *capture) {
+src/backends/cursor/bridge.c:225:        char *tmp = xstrndup(line, len);
+src/backends/cursor/bridge.c:230:    if (capture && capture->len < 2048) buf_appendf(capture, "%.*s ", (int)len, line);
+src/backends/cursor/bridge.c:235:static int consume_lines(cursor_bridge *bp, buf_t *capture, char *err, size_t errlen) {
+src/backends/cursor/bridge.c:245:        buf_consume(&bp->acc, len + 1);
+src/backends/cursor/bridge.c:247:    if (bp->acc.len > CURSOR_MAX_STDERR) buf_clear(&bp->acc); /* runaway host */
+src/backends/cursor/bridge.c:252:static int drain(cursor_bridge *bp, buf_t *capture, char *err, size_t errlen, bool *bad) {
+src/backends/cursor/bridge.c:258:            buf_append(&bp->acc, tmp, (size_t)n);
+src/backends/cursor/bridge.c:279:    char *raw = file_slurp(bp->info.auth_token_file, &n);
+src/backends/cursor/bridge.c:367:    buf_t capture;
+src/backends/cursor/bridge.c:368:    buf_init(&capture);
+src/backends/cursor/bridge.c:420:    buf_free(&capture);
+src/backends/cursor/bridge.c:467:    buf_free(&bp->acc);
+src/backends/cursor/bridge.c:468:    buf_init(&bp->acc);
+src/backends/acp/acp_proc.c:6:#include "util/alloc.h"
+src/backends/acp/acp_proc.c:40:static int ac_tx(ac_impl *o, buf_t *b) {
+src/backends/acp/acp_proc.c:41:    if (buf_oom(b) || tny_alloc_scope_failed()) {
+src/backends/acp/acp_proc.c:42:        tny_alloc_provider_failed();
+src/backends/acp/acp_proc.c:43:        buf_free(b);
+src/backends/acp/acp_proc.c:48:    buf_free(b);
+src/backends/acp/acp_proc.c:53:    if (tny_alloc_scope_failed()) {
+src/backends/acp/acp_proc.c:54:        tny_alloc_provider_failed();
+src/backends/acp/acp_proc.c:57:    buf_t b;
+src/backends/acp/acp_proc.c:58:    buf_init(&b);
+src/backends/acp/acp_proc.c:64:    if (tny_alloc_scope_failed()) {
+src/backends/acp/acp_proc.c:65:        tny_alloc_provider_failed();
+src/backends/acp/acp_proc.c:68:    buf_t b;
+src/backends/acp/acp_proc.c:69:    buf_init(&b);
+src/backends/acp/acp_proc.c:75:    if (tny_alloc_scope_failed()) {
+src/backends/acp/acp_proc.c:76:        tny_alloc_provider_failed();
+src/backends/acp/acp_proc.c:79:    buf_t b;
+src/backends/acp/acp_proc.c:80:    buf_init(&b);
+src/backends/acp/acp_proc.c:86:    if (tny_alloc_scope_failed()) {
+src/backends/acp/acp_proc.c:87:        tny_alloc_provider_failed();
+src/backends/acp/acp_proc.c:90:    buf_t b;
+src/backends/acp/acp_proc.c:91:    buf_init(&b);
+src/backends/acp/acp_proc.c:92:    buf_appendf(&b, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"error\":{\"code\":%d,\"message\":",
+src/backends/acp/acp_proc.c:95:    buf_appends(&b, "}}");
+src/backends/acp/acp_proc.c:125:    char *dup = xstrdup(path);
+src/backends/acp/acp_proc.c:128:        char *full = path_join(p, bin);
+src/backends/acp/acp_proc.c:145:        snprintf(errbuf, errlen, "pipe failed");
+src/backends/acp/acp_proc.c:151:        snprintf(errbuf, errlen, "pipe failed");
+src/backends/acp/acp_proc.c:159:        snprintf(errbuf, errlen, "pipe failed");
+src/backends/acp/acp_proc.c:170:        snprintf(errbuf, errlen, "fork failed");
+src/backends/acp/acp_proc.c:209:            if (tny_alloc_scope_failed()) return;
+src/backends/acp/acp_proc.c:256:    if (!tny_alloc_scope_failed()) acp_reader_feed(&o->out_r, "\n", 1);
+src/backends/acp/acp_proc.c:262:    if (tny_alloc_scope_failed()) goto oom;
+src/backends/acp/acp_proc.c:274:                if (tny_alloc_scope_failed()) goto oom;
+src/backends/acp/acp_proc.c:287:    if (tny_alloc_scope_failed()) goto oom;
+src/backends/acp/acp_proc.c:292:            if (tny_alloc_scope_failed()) goto oom;
+src/backends/acp/acp_proc.c:299:        yyjson_doc *doc = jparse(line, len);
+src/backends/acp/acp_proc.c:302:            if (tny_alloc_scope_failed()) goto oom;
+src/backends/acp/acp_proc.c:303:            continue; /* malformed input is distinct from allocator exhaustion */
+src/backends/acp/acp_proc.c:310:                char *one = jwrite_val(el);
+src/backends/acp/acp_proc.c:312:                    if (tny_alloc_scope_failed()) break;
+src/backends/acp/acp_proc.c:315:                yyjson_doc *sub = jparse(one, strlen(one));
+src/backends/acp/acp_proc.c:318:                if (tny_alloc_scope_failed()) break;
+src/backends/acp/acp_proc.c:321:            if (tny_alloc_scope_failed()) goto oom;
+src/backends/acp/acp_proc.c:325:        if (tny_alloc_scope_failed()) goto oom;
+src/backends/acp/acp_proc.c:329:oom:
+src/backends/acp/acp_proc.c:330:    tny_alloc_provider_failed();
+src/backends/acp/acp_proc.c:331:    return -3; /* reserved settlement after borrowed message callbacks unwind */
+src/backends/acp/acp_proc.c:411:        snprintf(errbuf, errlen, "acp: %s failed: %.200s", method,
+src/backends/acp/acp_client.h:37:    bool cancelled;
+src/backends/acp/acp_client.h:79:/* Read pending messages: 0 ok, -1 EOF/error, -2 over 8 MiB, -3 allocation failure. */
+src/backends/cursor/map.c:30:    yyjson_doc *doc = jparse(payload, len);
+src/backends/cursor/map.c:40:     * cursor so recovery cannot duplicate already rendered output. */
+src/backends/cursor/map.c:42:        yyjson_mut_doc *normalized = yyjson_doc_mut_copy(doc, jallocator());
+src/backends/cursor/map.c:44:            yyjson_mut_obj_remove_key(yyjson_mut_doc_get_root(normalized), "offset");
+src/backends/cursor/map.c:45:            char *json = jwrite(normalized);
+src/backends/cursor/map.c:50:            yyjson_mut_doc_free(normalized);
+src/backends/cursor/map.c:57:            uint64_t *next = realloc(o->send_hashes, next_capacity * sizeof *next);
+src/backends/cursor/map.c:71:        o->observe_offset = xstrdup(offset);
+src/backends/cursor/map.c:105:static void collect_text(yyjson_val *v, buf_t *out, int depth) {
+src/backends/cursor/map.c:108:        buf_appends(out, yyjson_get_str(v));
+src/backends/cursor/map.c:120:        buf_appends(out, yyjson_get_str(t));
+src/backends/cursor/map.c:130:static void append_short(yyjson_val *v, buf_t *out) {
+src/backends/cursor/map.c:137:        owned = jwrite_val(v);
+src/backends/cursor/map.c:142:    buf_append(out, s, take);
+src/backends/cursor/map.c:146:    if (n > take) buf_appends(out, "...");
+src/backends/cursor/map.c:207:                                          "result",    "error",    "failed",   NULL};
+src/backends/cursor/map.c:208:    static const char *const BAD_SUB[] = {"error", "failed", NULL};
+src/backends/cursor/map.c:252:     * so the clipped detail shows the interesting part, and a failure
+src/backends/cursor/map.c:260:        if (!err) err = jget(result, "failure");
+src/backends/cursor/map.c:280:    buf_t detail;
+src/backends/cursor/map.c:281:    buf_init(&detail);
+src/backends/cursor/map.c:290:        buf_t sig;
+src/backends/cursor/map.c:291:        buf_init(&sig);
+src/backends/cursor/map.c:292:        buf_appendf(&sig, "%s\x1f%s\x1f", id ? id : "", name);
+src/backends/cursor/map.c:293:        buf_append(&sig, detail.data ? detail.data : "", detail.len);
+src/backends/cursor/map.c:297:            buf_clear(&o->last_tool_start);
+src/backends/cursor/map.c:298:            buf_append(&o->last_tool_start, sig.data, sig.len);
+src/backends/cursor/map.c:300:        buf_free(&sig);
+src/backends/cursor/map.c:302:            buf_free(&detail);
+src/backends/cursor/map.c:306:        buf_clear(&o->last_tool_start);
+src/backends/cursor/map.c:316:    buf_free(&detail);
+src/backends/cursor/map.c:324:    yyjson_doc *d = jparse(s, n);
+src/backends/cursor/map.c:346:    if (rid && *rid && !o->run_id) o->run_id = xstrdup(rid);
+src/backends/cursor/map.c:375:            if (rid && *rid && !o->run_id) o->run_id = xstrdup(rid);
+src/backends/cursor/map.c:385:        buf_t t;
+src/backends/cursor/map.c:386:        buf_init(&t);
+src/backends/cursor/map.c:390:                buf_free(&t);
+src/backends/cursor/map.c:402:        buf_free(&t);
+src/backends/cursor/map.c:406:        buf_t t;
+src/backends/cursor/map.c:407:        buf_init(&t);
+src/backends/cursor/map.c:417:        buf_free(&t);
+src/backends/cursor/map.c:423:        buf_t detail;
+src/backends/cursor/map.c:424:        buf_init(&detail);
+src/backends/cursor/map.c:432:        buf_free(&detail);
+src/backends/cursor/map.c:438:        buf_t t;
+src/backends/cursor/map.c:439:        buf_init(&t);
+src/backends/cursor/map.c:441:        if (msg) buf_appends(&t, msg);
+src/backends/cursor/map.c:445:            buf_appendf(&t, "cursor session %s", sub ? sub : "started");
+src/backends/cursor/map.c:449:                buf_clear(&o->last_status);
+src/backends/cursor/map.c:450:                buf_append(&o->last_status, t.data, t.len);
+src/backends/cursor/map.c:454:        buf_free(&t);
+src/backends/cursor/map.c:457:        buf_t t;
+src/backends/cursor/map.c:458:        buf_init(&t);
+src/backends/cursor/map.c:461:        buf_free(&t);
+src/backends/cursor/map.c:465:        buf_t t;
+src/backends/cursor/map.c:466:        buf_init(&t);
+src/backends/cursor/map.c:468:        if (!t.len) buf_appends(&t, "the cursor agent reported an error");
+src/backends/cursor/map.c:471:        buf_free(&t);
+src/backends/cursor/map.c:491:        o->run_id = xstrdup(rid);
+src/backends/cursor/map.c:494:    bool cancelled = st && (strstr(st, "CANCELLED") || strcmp(st, "cancelled") == 0);
+src/backends/cursor/map.c:505:        buf_t t;
+src/backends/cursor/map.c:506:        buf_init(&t);
+src/backends/cursor/map.c:510:            if (txt) buf_appends(&t, txt);
+src/backends/cursor/map.c:516:        buf_free(&t);
+src/backends/cursor/map.c:519:    if (!finished && !cancelled && !bad) {
+src/backends/cursor/map.c:520:        buf_t unknown;
+src/backends/cursor/map.c:521:        buf_init(&unknown);
+src/backends/cursor/map.c:522:        buf_appendf(&unknown, "cursor run ended with unknown status %s", st ? st : "?");
+src/backends/cursor/map.c:524:        buf_free(&unknown);
+src/backends/cursor/map.c:529:        buf_t m;
+src/backends/cursor/map.c:530:        buf_init(&m);
+src/backends/cursor/map.c:531:        buf_appends(&m, "cursor run failed: ");
+src/backends/cursor/map.c:532:        if (o->last_status.len) buf_append(&m, o->last_status.data, o->last_status.len);
+src/backends/cursor/map.c:533:        else if (code && *code) buf_appends(&m, code);
+src/backends/cursor/map.c:534:        else buf_appends(&m, "the bridge reported an error with no message");
+src/backends/cursor/map.c:536:        buf_free(&m);
+src/backends/cursor/map.c:541:    cu_end_turn(o, cancelled ? TNY_STOP_INTERRUPTED : TNY_STOP_DONE);
+src/backends/cursor/map.c:546:    yyjson_doc *doc = len ? jparse(payload, len) : NULL;
+src/backends/cursor/map.c:571:    yyjson_doc *doc = jparse(payload, len);
+src/backends/cursor/callbacks.h:45: * deferred tools remain pending for the owner thread; new custom tools fail
+src/backends/cursor/rpc.c:9:#include "util/alloc.h"
+src/backends/cursor/rpc.c:18:static bool rpc_oom(void) {
+src/backends/cursor/rpc.c:19:    if (!tny_alloc_scope_failed()) return false;
+src/backends/cursor/rpc.c:20:    tny_alloc_provider_failed();
+src/backends/cursor/rpc.c:26:    yyjson_doc *doc = len ? jparse(body, len) : NULL;
+src/backends/cursor/rpc.c:27:    if (tny_alloc_scope_failed()) {
+src/backends/cursor/rpc.c:28:        tny_alloc_provider_failed();
+src/backends/cursor/rpc.c:44:static void auth_headers(const char *token, const char *ctype, buf_t *auth, const char *hdrs[5]) {
+src/backends/cursor/rpc.c:45:    buf_appendf(auth, "Authorization: Bearer %s", token);
+src/backends/cursor/rpc.c:63:        bool emergency = tny_alloc_scope_failed() && !tny_alloc_settling();
+src/backends/cursor/rpc.c:64:        if (emergency) tny_alloc_settlement_begin();
+src/backends/cursor/rpc.c:66:        if (emergency) tny_alloc_settlement_end();
+src/backends/cursor/rpc.c:72:static int read_body(http_conn *c, buf_t *out, int64_t deadline, char *err, size_t errlen) {
+src/backends/cursor/rpc.c:76:        if (rpc_oom()) return -2;
+src/backends/cursor/rpc.c:96:        buf_append(out, tmp, (size_t)n);
+src/backends/cursor/rpc.c:97:        if (buf_oom(out) || tny_alloc_scope_failed()) {
+src/backends/cursor/rpc.c:98:            tny_alloc_provider_failed();
+src/backends/cursor/rpc.c:107:    if (rpc_oom()) return NULL;
+src/backends/cursor/rpc.c:110:    buf_t auth;
+src/backends/cursor/rpc.c:111:    buf_init(&auth);
+src/backends/cursor/rpc.c:115:    if (rpc_oom()) {
+src/backends/cursor/rpc.c:116:        buf_free(&auth);
+src/backends/cursor/rpc.c:126:                buf_free(&auth);
+src/backends/cursor/rpc.c:131:        if (rc == 0 || rpc_oom()) break;
+src/backends/cursor/rpc.c:134:    buf_free(&auth);
+src/backends/cursor/rpc.c:136:        snprintf(err, errlen, "%s failed: cannot write to the bridge", method);
+src/backends/cursor/rpc.c:145:        if (rpc_oom()) return NULL;
+src/backends/cursor/rpc.c:154:        snprintf(err, errlen, "%s failed: bridge closed the connection", method);
+src/backends/cursor/rpc.c:159:    buf_t out;
+src/backends/cursor/rpc.c:160:    buf_init(&out);
+src/backends/cursor/rpc.c:162:        buf_free(&out);
+src/backends/cursor/rpc.c:167:    if (!out.data) buf_appends(&out, "{}");
+src/backends/cursor/rpc.c:168:    return buf_detach(&out);
+src/backends/cursor/rpc.c:182:            snprintf(err, errlen, "%s rejected: bridge auth failed (%s)", method, detail);
+src/backends/cursor/rpc.c:183:        else snprintf(err, errlen, "%s failed: %s", method, detail);
+src/backends/cursor/rpc.c:202:        bool emergency = tny_alloc_scope_failed() && !tny_alloc_settling();
+src/backends/cursor/rpc.c:203:        if (emergency) tny_alloc_settlement_begin();
+src/backends/cursor/rpc.c:205:        if (emergency) tny_alloc_settlement_end();
+src/backends/cursor/rpc.c:217:    if (rpc_oom()) return -2;
+src/backends/cursor/rpc.c:227:    buf_t auth;
+src/backends/cursor/rpc.c:228:    buf_init(&auth);
+src/backends/cursor/rpc.c:232:    buf_t framed;
+src/backends/cursor/rpc.c:233:    buf_init(&framed);
+src/backends/cursor/rpc.c:234:    int encoded = rpc_oom() ? -2 : connect_frame_encode(&framed, 0, body, strlen(body));
+src/backends/cursor/rpc.c:235:    if (encoded != 0 || auth.oom) {
+src/backends/cursor/rpc.c:239:        buf_free(&framed);
+src/backends/cursor/rpc.c:241:        buf_free(&auth);
+src/backends/cursor/rpc.c:246:    buf_free(&framed);
+src/backends/cursor/rpc.c:248:    buf_free(&auth);
+src/backends/cursor/rpc.c:249:    if (rpc_oom()) return -2;
+src/backends/cursor/rpc.c:251:        snprintf(err, errlen, "%s failed: cannot write to the bridge", method);
+src/backends/cursor/rpc.c:267:        if (rpc_oom()) return -2;
+src/backends/cursor/rpc.c:274:            buf_t body;
+src/backends/cursor/rpc.c:275:            buf_init(&body);
+src/backends/cursor/rpc.c:277:            if (tny_alloc_scope_failed()) {
+src/backends/cursor/rpc.c:278:                tny_alloc_provider_failed();
+src/backends/cursor/rpc.c:279:                buf_free(&body);
+src/backends/cursor/rpc.c:287:            if (tny_alloc_scope_failed()) {
+src/backends/cursor/rpc.c:288:                buf_free(&body);
+src/backends/cursor/rpc.c:292:            if (error_body_out) *error_body_out = buf_detach(&body);
+src/backends/cursor/rpc.c:294:                snprintf(err, errlen, "bridge auth failed (%s)", detail);
+src/backends/cursor/rpc.c:295:            else snprintf(err, errlen, "bridge stream failed: %s", detail);
+src/backends/cursor/rpc.c:296:            buf_free(&body);
+src/backends/cursor/rpc.c:305:        if (rpc_oom()) return -2;
+src/backends/cursor/rpc.c:313:        if (decoded == -2 || tny_alloc_scope_failed()) {
+src/backends/cursor/rpc.c:314:            tny_alloc_provider_failed();
+src/backends/cursor/sdk_client.h:100: * stay intact in the returned malloc'd JSON. Error details are decoded into
+src/backends/cursor/cursor.h:56:void cursor_append_model_params(buf_t *b, const char *tier);
+src/backends/cursor/cursor.h:57:bool cursor_append_fast_param(buf_t *b, const char *tier, bool first);
+src/backends/cursor/cursor.h:64:    buf_t acc;  /* partial line */
+src/backends/cursor/cursor.h:98:/* Blocking POST. Returns the malloc'd response body, or NULL with err set. */
+src/backends/cursor/cursor.h:128: * sdk.v1 error decoding. error_body_out is malloc'd when set. */
+src/backends/cursor/sdk_error.c:5:#include "util/alloc.h"
+src/backends/cursor/sdk_error.c:17:    char *next = xstrndup((const char *)src, len);
+src/backends/cursor/sdk_error.c:127:        if (tny_alloc_scope_failed()) return false;
+src/backends/cursor/sdk_error.c:153:    if (tny_alloc_scope_failed()) return false;
+src/backends/cursor/sdk_error.c:205:    yyjson_doc *doc = jparse(body ? body : "", len);
+src/backends/cursor/sdk_error.c:206:    if (tny_alloc_scope_failed()) goto oom;
+src/backends/cursor/sdk_error.c:212:    /* Unary failures are bare errors. A server-stream EndStreamResponse wraps
+src/backends/cursor/sdk_error.c:219:    if (message) error->message = xstrdup(message);
+src/backends/cursor/sdk_error.c:220:    if (tny_alloc_scope_failed()) goto oom;
+src/backends/cursor/sdk_error.c:232:            uint8_t *decoded = malloc(cap ? cap : 1u);
+src/backends/cursor/sdk_error.c:233:            if (!decoded) goto oom;
+src/backends/cursor/sdk_error.c:241:                if (!parsed.message && error->message) parsed.message = xstrdup(error->message);
+src/backends/cursor/sdk_error.c:250:            if (tny_alloc_scope_failed()) goto oom;
+src/backends/cursor/sdk_error.c:256:oom:
+src/backends/cursor/sdk_error.c:257:    tny_alloc_provider_failed();
+src/backends/cursor/sdk_v1_coverage.json:609:        "tests/test_cursor_callbacks.c:blocking_unary_pump_serves_store_and_fails_tools_closed"
+src/backends/cursor/sdk_v1_coverage.json:2233:        "tests/test_cursor.c:observe_recovery_request_uses_offsets_only_after_initial_send_recovery",
+src/backends/cursor/sdk_v1_coverage.json:2250:            "tests/test_cursor.c:observe_recovery_request_uses_offsets_only_after_initial_send_recovery",
+src/backends/cursor/sdk_v1_coverage.json:2268:            "tests/test_cursor.c:observe_recovery_request_uses_offsets_only_after_initial_send_recovery",
+src/backends/cursor/sdk_v1_coverage.json:4529:        "tests/test_cursor_management.c:cursor_artifact_frame_reports_every_boundary_and_failure",
+src/backends/cursor/sdk_v1_coverage.json:4545:            "tests/test_cursor_management.c:cursor_artifact_frame_reports_every_boundary_and_failure",
+src/backends/cursor/callbacks_wasm.c:47:    return xstrdup("{}");
+src/backends/cursor/ready.c:2: * Isolated so it stays unit-testable: no I/O, no globals, no allocation of
+src/backends/cursor/ready.c:23:static bool copy_field(char *dst, size_t cap, const char *src) {
+src/backends/cursor/ready.c:51:    yyjson_doc *doc = jparse(json, jlen);
+src/backends/cursor/ready.c:62:    copy_field(r.transport, sizeof r.transport, jget_str(root, "transport"));
+src/backends/cursor/ready.c:63:    copy_field(r.protocol, sizeof r.protocol, jget_str(root, "protocol"));
+src/backends/cursor/ready.c:64:    copy_field(r.auth_token_file, sizeof r.auth_token_file,
+src/backends/cursor/ready.c:66:    copy_field(r.auth_token, sizeof r.auth_token, field(root, "authToken", "auth_token"));
+src/backends/cursor/ready.c:70:        if (!copy_field(r.url, sizeof r.url, url)) {
+src/backends/cursor/options.h:10:/* Return malloc'd compact protojson objects. Configuration is copied first,
+src/backends/cursor/management.c:25:    yyjson_doc *doc = jparse(json, strlen(json));
+src/backends/cursor/management.c:35:    yyjson_doc *doc = json ? jparse(json, strlen(json)) : NULL;
+src/backends/cursor/management.c:75:    yyjson_doc *doc = jparse(json, len);
+src/backends/cursor/management.c:245:            snprintf(err, errlen, "cursor: stream poll failed: %s", strerror(errno));
+src/backends/cursor/management.c:251:            snprintf(err, errlen, "cursor: callback server failed");

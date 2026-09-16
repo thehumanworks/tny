@@ -3,6 +3,7 @@
  * type-checked before use and every copied span is bounded. */
 #include "backends/acp/acp_client.h"
 #include "util/util.h"
+#include "util/alloc.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -12,7 +13,7 @@
 /* ---------- event helpers ---------- */
 
 void ac_emit(ac_impl *o, const tny_backend_event *ev) {
-    if (o->cb) o->cb(ev, o->ud);
+    if (o->cb && !tny_alloc_scope_failed()) o->cb(ev, o->ud);
 }
 
 void ac_emit_text(ac_impl *o, tny_event_kind k, const char *t, size_t n) {
@@ -56,6 +57,10 @@ void ac_perms_clear(ac_impl *o) {
 
 static void handle_permission(ac_impl *o, yyjson_val *msg, yyjson_val *params) {
     char *id_raw = acp_id_text(msg);
+    if (tny_alloc_scope_failed()) {
+        free(id_raw);
+        return;
+    }
     if (o->nperms >= ACP_MAX_PERMS) {
         ac_tx_error(o, id_raw, ACP_E_INTERNAL, "too many pending permissions");
         free(id_raw);
@@ -71,6 +76,7 @@ static void handle_permission(ac_impl *o, yyjson_val *msg, yyjson_val *params) {
     yyjson_val *op;
     if (arr && yyjson_is_arr(arr)) {
         yyjson_arr_foreach(arr, idx, max, op) {
+            if (tny_alloc_scope_failed()) return;
             const char *oid = jget_str(op, "optionId");
             const char *kind = jget_str(op, "kind");
             if (!oid) continue;
@@ -86,6 +92,7 @@ static void handle_permission(ac_impl *o, yyjson_val *msg, yyjson_val *params) {
             }
         }
     }
+    if (tny_alloc_scope_failed()) return;
     if (p->allow_once) opts |= TNY_PERM_ALLOW_ONCE;
     if (p->allow_always) opts |= TNY_PERM_ALLOW_ALWAYS;
     if (p->reject) opts |= TNY_PERM_DENY;
@@ -251,6 +258,10 @@ void ac_handle_agent_request(ac_impl *o, yyjson_val *msg, const char *method, yy
         return;
     }
     char *id = acp_id_text(msg);
+    if (tny_alloc_scope_failed()) {
+        free(id);
+        return;
+    }
     /* Cursor's ACP surface blocks on these; acknowledge so the turn moves on
      * (docs/backends/acp.md "Cursor-as-ACP"). tny has no answer to invent, so
      * the ack is empty and the request is surfaced as a status line. */

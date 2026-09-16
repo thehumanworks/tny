@@ -183,6 +183,7 @@ def compile_harness(tmp: Path) -> Path:
         "src/net/http1.c",
         "src/net/url.c",
         "src/util/util.c",
+        "src/util/alloc.c",
         "src/util/tny_poll.c",
         "third_party/picohttpparser/picohttpparser.c",
         "-ldl",

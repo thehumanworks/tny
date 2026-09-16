@@ -1,0 +1,23 @@
+build/runtime-test/tny-test -s runtime_suite
+
+* Suite runtime_suite:
+......................................
+38 tests - 38 passed, 0 failed, 0 skipped (117149 ticks, 0.117 sec)
+
+Total: 38 tests (117435 ticks, 0.117 sec), 5008 assertions
+Pass: 38, fail: 0, skip: 0.
+{"mutation": "borrowed-payload", "exit": -6, "reason": "heap-use-after-free", "killed": true, "source_sha256": "8c46efe39670bafe027de792bbfd5c2a95b04db6fda95f61dc7563d3e8e5c448"}
+{"mutation": "wrong-generation", "exit": 1, "reason": "FAIL", "killed": true, "source_sha256": "2aca2111cc32ecccafab7d71f15cc3b2b77164fd9cbce2d460b0711dc861adf9"}
+{"mutation": "early-async-release", "exit": -6, "reason": "heap-use-after-free", "killed": true, "source_sha256": "2aca2111cc32ecccafab7d71f15cc3b2b77164fd9cbce2d460b0711dc861adf9"}
+{"mutation": "queue-byte-accounting", "exit": 1, "reason": "FAIL", "killed": true, "source_sha256": "9f6abf28073ac61189f1eb6f90c5b6ec326e12617cd43aeba257e0c1465c344b"}
+{"mutation": "second-terminal", "exit": 1, "reason": "FAIL", "killed": true, "source_sha256": "9f6abf28073ac61189f1eb6f90c5b6ec326e12617cd43aeba257e0c1465c344b"}
+{"mutation": "allocating-settlement", "exit": 1, "reason": "FAIL", "killed": true, "source_sha256": "9f6abf28073ac61189f1eb6f90c5b6ec326e12617cd43aeba257e0c1465c344b"}
+{"mutation": "provider-allocating-settlement", "exit": 1, "reason": "allocation during reserved OOM settlement", "killed": true, "source_sha256": "a51e520c9c83ec9fd7ccd134abb3a82fee11caa0287a3cedff4ef612f46d951e"}
+build/runtime-test/tny-test -s runtime_suite
+
+* Suite runtime_suite:
+......................................
+38 tests - 38 passed, 0 failed, 0 skipped (114681 ticks, 0.115 sec)
+
+Total: 38 tests (115013 ticks, 0.115 sec), 5008 assertions
+Pass: 38, fail: 0, skip: 0.

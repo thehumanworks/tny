@@ -1,0 +1,2 @@
+mv: build/generated/tny_version.h.tmp: No such file or directory
+make: *** [build/generated/tny_version.h] Error 1

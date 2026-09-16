@@ -1,0 +1,9 @@
+
+* Suite runtime_suite:
+F
+FAIL runtime_copies_events_and_suppresses_duplicate_terminal: TNY_ENGINE_NEXT_DRAINED != tny_engine_next_event(x.engine, 0, &ev, err, sizeof err) (tests/test_runtime.c:294)
+
+1 test - 0 passed, 1 failed, 0 skipped (1683 ticks, 0.002 sec)
+
+Total: 1 test (1759 ticks, 0.002 sec), 8 assertions
+Pass: 0, fail: 1, skip: 0.

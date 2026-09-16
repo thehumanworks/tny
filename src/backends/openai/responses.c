@@ -7,6 +7,7 @@
  * flattened `text.format` structured-output object. */
 #include "backends/openai/openai.h"
 #include "util/util.h"
+#include "util/alloc.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -16,12 +17,17 @@ static const char *mstr(yyjson_mut_val *obj, const char *key) {
 }
 
 static void add_str(yyjson_mut_doc *d, yyjson_mut_val *obj, const char *k, const char *v) {
-    yyjson_mut_obj_put(obj, yyjson_mut_strcpy(d, k), yyjson_mut_strcpy(d, v));
+    if (tny_alloc_scope_failed()) return;
+    yyjson_mut_val *key = yyjson_mut_strcpy(d, k);
+    if (!key) return;
+    yyjson_mut_val *value = yyjson_mut_strcpy(d, v);
+    if (value) yyjson_mut_obj_put(obj, key, value);
 }
 
 /* {"role":R,"content":"text"} — EasyInputMessage with string content. */
 static void add_text_message(yyjson_mut_doc *d, yyjson_mut_val *arr, const char *role,
                              const char *text) {
+    if (tny_alloc_scope_failed()) return;
     yyjson_mut_val *m = yyjson_mut_obj(d);
     add_str(d, m, "role", role);
     add_str(d, m, "content", text);
@@ -32,13 +38,15 @@ static void add_text_message(yyjson_mut_doc *d, yyjson_mut_val *arr, const char 
  * message with input_text / input_image parts. Unknown parts are skipped. */
 static void add_parts_message(yyjson_mut_doc *d, yyjson_mut_val *arr, const char *role,
                               yyjson_mut_val *parts) {
+    if (tny_alloc_scope_failed()) return;
     yyjson_mut_val *m = yyjson_mut_obj(d);
     add_str(d, m, "role", role);
+    if (tny_alloc_scope_failed()) return;
     yyjson_mut_val *out = yyjson_mut_arr(d);
     size_t idx, max;
     yyjson_mut_val *p;
     yyjson_mut_arr_foreach(parts, idx, max, p) {
-        if (!p) break;
+        if (!p || tny_alloc_scope_failed()) break;
         const char *type = mstr(p, "type");
         if (type && strcmp(type, "text") == 0) {
             const char *t = mstr(p, "text");
@@ -56,6 +64,7 @@ static void add_parts_message(yyjson_mut_doc *d, yyjson_mut_val *arr, const char
             yyjson_mut_arr_add_val(out, np);
         }
     }
+    if (tny_alloc_scope_failed()) return;
     yyjson_mut_obj_put(m, yyjson_mut_strcpy(d, "content"), out);
     yyjson_mut_arr_add_val(arr, m);
 }
@@ -65,7 +74,7 @@ static void add_function_calls(yyjson_mut_doc *d, yyjson_mut_val *arr, yyjson_mu
     size_t idx, max;
     yyjson_mut_val *tc;
     yyjson_mut_arr_foreach(tcs, idx, max, tc) {
-        if (!tc) break;
+        if (!tc || tny_alloc_scope_failed()) break;
         yyjson_mut_val *fn = yyjson_mut_obj_get(tc, "function");
         const char *id = mstr(tc, "id");
         const char *name = fn ? mstr(fn, "name") : NULL;
@@ -88,6 +97,7 @@ static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *sum
 
     size_t total = msgs ? yyjson_mut_arr_size(msgs) : 0;
     for (size_t i = start; i < total; i++) {
+        if (tny_alloc_scope_failed()) break;
         yyjson_mut_val *m = yyjson_mut_arr_get(msgs, i);
         const char *role = mstr(m, "role");
         if (!role) continue;
@@ -110,7 +120,7 @@ static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *sum
                 size_t ri, rmax;
                 yyjson_mut_val *r;
                 yyjson_mut_arr_foreach(ritems, ri, rmax, r) {
-                    if (!r) break;
+                    if (!r || tny_alloc_scope_failed()) break;
                     yyjson_mut_val *copy = yyjson_mut_val_mut_copy(d, r);
                     if (copy) yyjson_mut_arr_add_val(arr, copy);
                 }
@@ -120,6 +130,7 @@ static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *sum
             size_t hi, hn;
             yyjson_mut_val *item;
             yyjson_mut_arr_foreach(hosted, hi, hn, item) {
+                if (tny_alloc_scope_failed()) break;
                 const char *type = mstr(item, "type");
                 if (!type) continue;
                 if (strcmp(type, "message") == 0) has_message = true;
@@ -140,7 +151,7 @@ static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *sum
             add_text_message(d, arr, role, text ? text : "");
         }
     }
-    char *out = jwrite(d);
+    char *out = tny_alloc_scope_failed() ? NULL : jwrite(d);
     yyjson_mut_doc_free(d);
     return out;
 }
@@ -173,6 +184,7 @@ char *tny_openai_responses_tools(const char *chat_tools_json) {
     size_t idx, max;
     yyjson_val *t;
     yyjson_arr_foreach(root, idx, max, t) {
+        if (tny_alloc_scope_failed()) break;
         yyjson_val *fn = jget(t, "function");
         yyjson_mut_val *item = yyjson_mut_obj(d);
         add_str(d, item, "type", "function");
@@ -181,13 +193,14 @@ char *tny_openai_responses_tools(const char *chat_tools_json) {
             size_t fi, fm;
             yyjson_val *k, *v;
             yyjson_obj_foreach(fn, fi, fm, k, v) {
+                if (tny_alloc_scope_failed()) break;
                 yyjson_mut_val *cv = yyjson_val_mut_copy(d, v);
                 if (cv) yyjson_mut_obj_put(item, yyjson_mut_strcpy(d, yyjson_get_str(k)), cv);
             }
         }
         yyjson_mut_arr_add_val(arr, item);
     }
-    char *out = jwrite(d);
+    char *out = tny_alloc_scope_failed() ? NULL : jwrite(d);
     yyjson_mut_doc_free(d);
     yyjson_doc_free(doc);
     return out;
@@ -217,11 +230,12 @@ char *tny_openai_responses_text_format(const char *response_format_json) {
         size_t idx, max;
         yyjson_val *k, *v;
         yyjson_obj_foreach(js, idx, max, k, v) {
+            if (tny_alloc_scope_failed()) break;
             yyjson_mut_val *cv = yyjson_val_mut_copy(d, v);
             if (cv) yyjson_mut_obj_put(fmt, yyjson_mut_strcpy(d, yyjson_get_str(k)), cv);
         }
     }
-    char *out = jwrite(d);
+    char *out = tny_alloc_scope_failed() ? NULL : jwrite(d);
     yyjson_mut_doc_free(d);
     yyjson_doc_free(doc);
     return out;

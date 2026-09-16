@@ -1,0 +1,87 @@
+import hashlib,json,os,subprocess
+from pathlib import Path
+root=Path.cwd(); d=root/'build/event-workload'; d.mkdir(exist_ok=True)
+baseline_revision='a33deda56d6b1388832d98bc3a52572bd15b4a70'
+base=subprocess.check_output(['git','show',baseline_revision+':src/core/runtime.c'],text=True)
+old_header=subprocess.check_output(['git','show',baseline_revision+':src/core/runtime.h'],text=True)
+struct=old_header[old_header.index('typedef struct tny_owned_event {'):old_header.index('} tny_owned_event;')+len('} tny_owned_event;')]
+common='''#include "core/events.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+'''
+(d/'metrics.h').write_text('''#ifdef __cplusplus
+#include <cstdlib>
+#include <vector>
+#include <string>
+#include <memory>
+extern "C" {
+#else
+#include <stdlib.h>
+#endif
+void *workload_malloc(size_t n);
+void *workload_calloc(size_t n, size_t size);
+void workload_free(void *p);
+#ifdef __cplusplus
+}
+namespace std { using ::workload_free; }
+#endif
+#define malloc workload_malloc
+#define calloc workload_calloc
+#define free workload_free
+''')
+helpers=base[base.index('static char *dup_bytes'):base.index('static tny_owned_event *reserve_event')]
+(d/'baseline.c').write_text(common+struct+'''
+typedef struct {const char *id; unsigned long long extension_event_sequence, extension_agent_sequence;} session;
+typedef struct {void *ctx; session *session; int extension_continuations;} tny_engine;
+static const char *tny_provider_name(void *ctx) {(void)ctx; return "openai";}
+static int64_t engine_monotonic_ms(tny_engine *e) {(void)e; return 0;}
+#include "metrics.h"
+'''+helpers+'''
+tny_owned_event *workload_copy(const tny_backend_event *ev) {
+    session s = {"session", 0, 0}; tny_engine e = {NULL, &s, 0}; return event_copy(&e, ev);
+}
+''')
+(d/'candidate.cpp').write_text('''#include "core/owned_event.h"
+extern "C" tny_owned_event *workload_copy(const tny_backend_event *ev) {
+    return tny_owned_event_copy(ev, "openai", "session", "session:0:0", 0);
+}
+''')
+(d/'driver.c').write_text('''#include "core/owned_event.h"
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <malloc/malloc.h>
+tny_owned_event *workload_copy(const tny_backend_event *);
+static size_t count, requested, actual;
+void *workload_malloc(size_t n) {void *p=malloc(n); assert(p); ++count; requested+=n; actual+=malloc_size(p); return p;}
+void *workload_calloc(size_t n,size_t size) {void *p=workload_malloc(n*size); memset(p,0,n*size); return p;}
+void workload_free(void *p) {free(p);}
+void *tny_alloc_malloc(size_t n) {return workload_malloc(n);}
+int main(void) {
+    char text[1024]; memset(text,'a',sizeof text);
+    tny_backend_event ev={0}; ev.kind=TNY_EV_STATUS; ev.text=text; ev.text_len=sizeof text;
+    ev.message_id="message"; ev.tool_name="tool"; ev.tool_id="id"; ev.tool_detail="detail";
+    ev.perm_id="permission"; ev.perm_summary="summary"; ev.message_type="";
+    tny_owned_event *events[200]; size_t payload=0;
+    for(int i=0;i<200;++i) {events[i]=workload_copy(&ev); assert(events[i]); payload+=events[i]->owned_bytes;}
+    printf("{\\"events\\":200,\\"allocations\\":%zu,\\"requested_bytes\\":%zu,\\"malloc_size_bytes\\":%zu,\\"logical_payload_bytes\\":%zu}\\n",count,requested,actual,payload);
+    for(int i=0;i<200;++i) {assert(events[i]->ev.text_len==sizeof text); assert(!memcmp(events[i]->ev.text,text,sizeof text)); tny_owned_event_free(events[i]);}
+}
+''')
+inc=['-Isrc','-iquotethird_party/yyjson','-I'+str(d)]
+env=os.environ.copy();env['TMPDIR']=str(root/'build/tmp')
+def run(args): subprocess.run(args,check=True,env=env)
+run(['cc','-std=c11','-Os',*inc,'-c',str(d/'driver.c'),'-o',str(d/'driver.o')])
+run(['cc','-std=c11','-Os',*inc,'-c',str(d/'baseline.c'),'-o',str(d/'baseline.o')])
+run(['c++','-std=c++20','-Os',*inc,'-include',str(d/'metrics.h'),'-c','src/core/owned_event.cpp','-o',str(d/'owned.o')])
+run(['c++','-std=c++20','-Os',*inc,'-c',str(d/'candidate.cpp'),'-o',str(d/'candidate.o')])
+run(['cc',str(d/'driver.o'),str(d/'baseline.o'),'-o',str(d/'baseline')])
+run(['c++',str(d/'driver.o'),str(d/'owned.o'),str(d/'candidate.o'),'-o',str(d/'candidate')])
+results={name:json.loads(subprocess.check_output([str(d/name)],text=True)) for name in ['baseline','candidate']}
+results['baseline_revision']=baseline_revision
+results['candidate_source_sha256']=hashlib.sha256(Path('src/core/owned_event.cpp').read_bytes()).hexdigest()
+results['scope']='200 event construction/retention only; allocator block sizes via Darwin malloc_size, not process RSS or throughput'
+(root/'docs/verification/cpp-phase-2/artifacts/event-allocation.json').write_text(json.dumps(results,indent=2)+'\n')
+print(json.dumps(results,indent=2))

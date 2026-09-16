@@ -4,6 +4,7 @@
 #include "lib/custom_tools.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
+#include "util/alloc.h"
 
 #include <arpa/inet.h>
 #include <dirent.h>
@@ -611,7 +612,215 @@ TEST blocking_begin_thread_failure_restores_mode_and_reports_error(void) {
     PASS();
 }
 
+#ifdef TNY_ALLOC_TESTING
+/* Send without pumping: fixture construction must be outside the fault scope. */
+static int send_fault_request(cursor_callbacks *cb, int fd, const char *path, const char *body) {
+    char request[8192];
+    int n = snprintf(request, sizeof request,
+                     "POST %s HTTP/1.1\r\nAuthorization: Bearer %s\r\n"
+                     "Connect-Protocol-Version: 1\r\nContent-Length: %zu\r\n\r\n%s",
+                     path, cursor_callbacks_token(cb), strlen(body), body);
+    return n > 0 && n < (int)sizeof request && send(fd, request, (size_t)n, 0) == n ? 0 : -1;
+}
+
+TEST pending_completion_oom_unlinks_consumed_lease(void) {
+    size_t allocations = 0;
+    for (size_t fault = 0; fault <= allocations; fault++) {
+        tny_alloc_scope_begin("disabled");
+        custom_tool_registry *registry = custom_tools_new();
+        tool_state async = {TOOL_ASYNC, 0, NULL, 0};
+        ASSERT(register_test_tool(registry, "async_echo", &async, false));
+        cursor_callbacks_options options = {.tools = registry, .enable_tools = true};
+        char err[256];
+        cursor_callbacks *cb = cursor_callbacks_start(&options, err, sizeof err);
+        ASSERT(cb);
+        int fd = open_client(cb);
+        ASSERT(fd >= 0);
+        ASSERT_EQ(0, send_request(cb, fd, "/sdk.v1.SdkCustomToolCallbackService/CallCustomTool",
+                                  cursor_callbacks_token(cb),
+                                  "{\"toolName\":\"async_echo\",\"args\":{}}"));
+        for (int i = 0; i < 100 && !async.calls; i++) ASSERT_EQ(0, callback_step(cb, 1));
+        ASSERT_EQ(1, async.calls);
+        tny_tool_result_v1 result = {.abi_version = TNY_TOOL_RESULT_ABI_VERSION,
+                                     .struct_size = sizeof result,
+                                     .data = {"{\"answer\":42}", 13}};
+        ASSERT_EQ(TNY_STATUS_OK, custom_tool_complete(async.call, async.generation, &result));
+        char index[32];
+        snprintf(index, sizeof index, "%zu", fault);
+        setenv("TNY_TEST_ALLOC_SCOPE", "callback-complete", 1);
+        setenv("TNY_TEST_ALLOC_FAIL_AT", index, 1);
+        tny_alloc_scope_begin("callback-complete");
+        (void)callback_step(cb, 0);
+        if (!fault) allocations = tny_alloc_test_scope_count();
+        else {
+            ASSERT(tny_alloc_test_scope_injected());
+            ASSERT_EQ(fault, tny_alloc_test_scope_count());
+        }
+        /* The old linked dangling lease caused an ASan UAF here. */
+        tny_alloc_settlement_begin();
+        cursor_callbacks_destroy(&cb);
+        tny_alloc_settlement_end();
+        ASSERT_EQ(0, tny_alloc_test_settlement_allocations());
+        tny_alloc_scope_begin("disabled");
+        unsetenv("TNY_TEST_ALLOC_SCOPE");
+        unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+        tny_tool_call_release(async.call);
+        custom_tools_free(registry);
+        close(fd);
+    }
+    ASSERT(allocations >= 4);
+    printf("callback completion sweep: %zu indices\n", allocations);
+    PASS();
+}
+
+TEST store_callback_exhaustive_oom(void) {
+    static const char *const requests[] = {
+        "{\"substore\":\"agents\",\"method\":\"get\",\"input\":{\"agentId\":\"a\"}}",
+        "{\"substore\":\"agents\",\"method\":\"create\",\"input\":{\"agentId\":\"c\"}}",
+        "{\"substore\":\"agents\",\"method\":\"update\",\"input\":{\"agentId\":\"a\",\"value\":42}"
+        "}",
+        "{\"substore\":\"agents\",\"method\":\"list\",\"input\":{}}",
+        "{\"substore\":\"agents\",\"method\":\"delete\",\"input\":{\"filter\":{}}}",
+        "{\"substore\":\"runEvents\",\"method\":\"append\",\"input\":{\"runId\":\"r\","
+        "\"eventType\":\"text\",\"payload\":{\"text\":\"hello\"}}}",
+        "{\"substore\":\"checkpoints\",\"method\":\"list\",\"input\":{}}"};
+    for (size_t scenario = 0; scenario < sizeof requests / sizeof requests[0]; scenario++) {
+        size_t allocations = 0;
+        for (size_t fault = 0; fault <= allocations; fault++) {
+            tny_alloc_scope_begin("disabled");
+            char root[] = "/tmp/tny-store-fault-XXXXXX";
+            ASSERT(mkdtemp(root));
+            custom_tool_registry *registry = custom_tools_new();
+            cursor_callbacks *cb = start_callbacks(registry, root, true);
+            ASSERT(cb);
+            buf_t response;
+            buf_init(&response);
+            store_exchange(
+                cb, "{\"substore\":\"agents\",\"method\":\"create\",\"input\":{\"agentId\":\"a\"}}",
+                &response);
+            store_exchange(
+                cb, "{\"substore\":\"agents\",\"method\":\"create\",\"input\":{\"agentId\":\"b\"}}",
+                &response);
+            store_exchange(cb,
+                           "{\"substore\":\"checkpoints\",\"method\":\"create\",\"input\":{"
+                           "\"agentId\":\"a\",\"blobId\":\"b\",\"data\":\"YQ==\"}}",
+                           &response);
+            store_exchange(cb,
+                           "{\"substore\":\"checkpoints\",\"method\":\"create\",\"input\":{"
+                           "\"agentId\":\"a\",\"blobId\":\"c\",\"data\":\"YQ==\"}}",
+                           &response);
+            int fd = open_client(cb);
+            ASSERT(fd >= 0);
+            ASSERT_EQ(0, send_fault_request(cb, fd, "/sdk.v1.SdkStoreCallbackService/CallStore",
+                                            requests[scenario]));
+            char index[32];
+            snprintf(index, sizeof index, "%zu", fault);
+            setenv("TNY_TEST_ALLOC_SCOPE", "callback-store", 1);
+            setenv("TNY_TEST_ALLOC_FAIL_AT", index, 1);
+            tny_alloc_scope_begin("callback-store");
+            bool received = false;
+            for (int spin = 0; spin < 100 && !tny_alloc_scope_failed(); spin++) {
+                (void)callback_step(cb, 1);
+                char data[4096];
+                if (recv(fd, data, sizeof data, 0) > 0) {
+                    received = true;
+                    break;
+                }
+            }
+            if (!fault) {
+                ASSERT(received);
+                allocations = tny_alloc_test_scope_count();
+            } else {
+                ASSERT(tny_alloc_test_scope_injected());
+                ASSERT_EQ(fault, tny_alloc_test_scope_count());
+                ASSERT_EQ(0, tny_alloc_test_settlement_allocations());
+            }
+            tny_alloc_scope_begin("disabled");
+            unsetenv("TNY_TEST_ALLOC_SCOPE");
+            unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+            cursor_callbacks_destroy(&cb);
+            custom_tools_free(registry);
+            buf_free(&response);
+            close(fd);
+        }
+        printf("store sweep %zu: %zu indices\n", scenario, allocations);
+    }
+    PASS();
+}
+
+static void *(*pump_entry)(void *);
+static void *pump_argument;
+static size_t pump_allocations;
+static bool pump_injected;
+static void *measured_pump(void *unused) {
+    (void)unused;
+    void *result = pump_entry(pump_argument);
+    pump_allocations = tny_alloc_test_scope_count();
+    pump_injected = tny_alloc_test_scope_injected();
+    return result;
+}
+static int measured_thread_create(pthread_t *thread, const pthread_attr_t *attr,
+                                  void *(*entry)(void *), void *argument) {
+    pump_entry = entry;
+    pump_argument = argument;
+    return pthread_create(thread, attr, measured_pump, NULL);
+}
+
+TEST callback_thread_oom_survives_join(void) {
+    size_t allocations = 0;
+    for (size_t fault = 0; fault <= allocations; fault++) {
+        tny_alloc_scope_begin("disabled");
+        char root[] = "/tmp/tny-pump-fault-XXXXXX";
+        ASSERT(mkdtemp(root));
+        custom_tool_registry *registry = custom_tools_new();
+        cursor_callbacks_options options = {registry, root, true,
+                                            true,     true, measured_thread_create};
+        char err[256];
+        cursor_callbacks *cb = cursor_callbacks_start(&options, err, sizeof err);
+        ASSERT(cb);
+        int fd = open_client(cb);
+        ASSERT(fd >= 0);
+        ASSERT_EQ(0, send_fault_request(cb, fd, "/sdk.v1.SdkStoreCallbackService/CallStore",
+                                        "{\"substore\":\"agents\",\"method\":\"create\",\"input\":{"
+                                        "\"agentId\":\"thread-agent\"}}"));
+        char index[32];
+        snprintf(index, sizeof index, "%zu", fault);
+        setenv("TNY_TEST_ALLOC_SCOPE", "cursor-callback-pump", 1);
+        setenv("TNY_TEST_ALLOC_FAIL_AT", index, 1);
+        ASSERT_EQ(0, cursor_callbacks_blocking_begin(cb, err, sizeof err));
+        struct pollfd ready = {fd, POLLIN, 0};
+        ASSERT(tny_poll(&ready, 1, 1000) > 0);
+        cursor_callbacks_blocking_end(cb);
+        if (!fault) {
+            ASSERT_FALSE(tny_alloc_scope_failed());
+            allocations = pump_allocations;
+        } else {
+            ASSERT(pump_injected);
+            ASSERT_EQ(fault, pump_allocations);
+            ASSERT(tny_alloc_scope_failed());
+        }
+        tny_alloc_settlement_begin();
+        cursor_callbacks_destroy(&cb);
+        tny_alloc_settlement_end();
+        ASSERT_EQ(0, tny_alloc_test_settlement_allocations());
+        unsetenv("TNY_TEST_ALLOC_SCOPE");
+        unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+        tny_alloc_scope_begin("disabled");
+        custom_tools_free(registry);
+        close(fd);
+    }
+    printf("callback thread sweep: %zu indices\n", allocations);
+    PASS();
+}
+
+#endif
+
 SUITE(cursor_callbacks_suite) {
+#ifdef TNY_ALLOC_TESTING
+    RUN_TEST(pending_completion_oom_unlinks_consumed_lease);
+    RUN_TEST(store_callback_exhaustive_oom);
+    RUN_TEST(callback_thread_oom_survives_join);
+#endif
     RUN_TEST(cursor_callbacks_route_auth_metadata_and_tools);
     RUN_TEST(cursor_callback_store_persists_bare_records_blobs_and_events);
     RUN_TEST(blocking_unary_pump_serves_store_and_fails_tools_closed);

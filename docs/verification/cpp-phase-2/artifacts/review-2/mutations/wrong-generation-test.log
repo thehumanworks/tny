@@ -1,0 +1,9 @@
+
+* Suite runtime_suite:
+F
+FAIL runtime_async_leases_survive_all_invalidation_orders: TNY_STATUS_BAD_STATE != custom_tool_complete(x.host, x.generation + 1, &completion) (tests/test_runtime.c:368)
+
+1 test - 0 passed, 1 failed, 0 skipped (504 ticks, 0.001 sec)
+
+Total: 1 test (585 ticks, 0.001 sec), 5 assertions
+Pass: 0, fail: 1, skip: 0.
