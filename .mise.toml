@@ -10,6 +10,8 @@
 #   make quality CLANG_FORMAT='uvx clang-format@21.1.2' \
 #                CLANG_TIDY='uvx clang-tidy@22.1.8' RUFF='uvx ruff@0.14.0'
 
+# Native cc/c++ come from the host toolchain (Xcode or GCC/Clang packages).
+# Set CC and CXX together for cross compilers; wasm uses emcc/em++.
 [tools]
 # LLVM is not in the mise registry as a versioned pair; the PyPI wheels that
 # CI installs with pipx are, and they carry the same upstream binaries. mise

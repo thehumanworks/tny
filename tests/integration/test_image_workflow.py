@@ -570,10 +570,12 @@ class PublicationFaults(ImageFixture):
             cwd=ROOT,
             text=True,
             input=".PHONY: publication-variables\npublication-variables:\n"
-            "\t@printf '%s\\n' '$(CC)' '$(REL_CFLAGS) $(REL_INLINE) $(REL_SIZE_OPT)' '$(REL_LTO)' "
+            "\t@printf '%s\\n' '$(CC)' '$(CXX)' '$(REL_CXXFLAGS) $(REL_INLINE) $(REL_SIZE_OPT)' '$(REL_CFLAGS) $(REL_INLINE) $(REL_SIZE_OPT)' '$(REL_LTO)' "
             "'$(REL_LDFLAGS)' '$(REL_OBJS)'\n",
         ).splitlines()
-        compiler, flags, lto, linker, names = map(shlex.split, variables)
+        compiler, cxx, cxx_flags, flags, lto, linker, names = map(
+            shlex.split, variables
+        )
         objects = [Path(name) for name in names]
         if not objects or not all(path.is_file() for path in objects):
             raise AssertionError(
@@ -596,8 +598,8 @@ class PublicationFaults(ImageFixture):
         cls.binary = str(directory / "tny")
         subprocess.run(
             [
-                *compiler,
-                *flags,
+                *cxx,
+                *cxx_flags,
                 *lto,
                 "-o",
                 cls.binary,

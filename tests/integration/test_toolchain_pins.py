@@ -56,15 +56,15 @@ def main() -> int:
     failures: list[str] = []
 
     for tool, pattern in PINS.items():
-        found = re.search(pattern, workflow)
+        found = re.findall(pattern, workflow)
         if not found:
             failures.append(f"ci.yml no longer pins {tool} (pattern {pattern!r})")
             continue
         if tool not in mise:
             failures.append(f".mise.toml does not pin {tool}")
-        elif mise[tool] != found.group(1):
+        elif any(version != mise[tool] for version in found):
             failures.append(
-                f"{tool}: .mise.toml pins {mise[tool]}, ci.yml pins {found.group(1)}"
+                f"{tool}: .mise.toml pins {mise[tool]}, ci.yml pins {found}"
             )
 
     for tool in REQUIRED_MISE_TOOLS:
@@ -76,6 +76,20 @@ def main() -> int:
 
     if "make valgrind" not in workflow:
         failures.append("ci.yml has no valgrind job running `make valgrind`")
+
+    for required in (
+        "gcc-14 g++-14",
+        "ANALYZER_CC=gcc-14 ANALYZER_CXX=g++-14",
+        "CC=gcc-14 CXX=g++-14",
+        "CC=clang CXX=clang++",
+        "install: gcc gcc-c++ make",
+        "build-base g++",
+        "make test-cpp-build",
+        "test-parser-fuzz-smoke",
+        "make test-libtny-fuzz test-parser-fuzz",
+    ):
+        if required not in workflow:
+            failures.append(f"ci.yml is missing mixed C/C++ coverage: {required}")
 
     if failures:
         for problem in failures:

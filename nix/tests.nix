@@ -8,6 +8,7 @@
   git,
   bash,
   bubblewrap,
+  clang-tools,
   imagemagick,
   nodejs,
   openssl,
@@ -40,6 +41,7 @@ stdenv.mkDerivation {
   strictDeps = true;
   nativeBuildInputs = [
     bash
+    clang-tools # test_cpp_build.py runs real negative format/analyzer fixtures
     git # test_worktree.py uses temporary real repositories and linked worktrees
     # Integration fixtures plus the optional stdlib-only
     # tnytty/tests/bench/bench_tnytty.py runner. The performance benchmark is
@@ -162,7 +164,7 @@ stdenv.mkDerivation {
       }
     done
     ${testRunner}make -j''${NIX_BUILD_CORES} $makeFlags test
-    ${testRunner}make $makeFlags test-shell-workflows
+    ${testRunner}make $makeFlags test-shell-workflows test-parser-fuzz-smoke
     runHook postBuild
   '';
 
@@ -174,6 +176,7 @@ stdenv.mkDerivation {
 
   makeFlags = [
     "CC=${stdenv.cc.targetPrefix}cc"
+    "CXX=${stdenv.cc.targetPrefix}c++"
     "TNY_VERSION=${version}"
     "TNY_SHELL_PATH=${stdenv.shell}"
     "BASH=${bash}/bin/bash"

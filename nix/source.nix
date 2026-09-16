@@ -42,17 +42,21 @@ let
     # tests/integration/test_toolchain_pins.py keeps the mise pins and the CI
     # quality job on the same tool versions (docs/adr/0061).
     ../.mise.toml
+    # Isolated mixed C/C++ discovery and actual negative quality fixtures.
+    ../.clang-format
+    ../.clang-tidy
     ../docs
     ../examples # tests/extensions/test_examples.py loads every shipped example
     ../flake.nix
     ../nix/source.nix
-    ../scripts
+    ../scripts # includes tidy_cpp.py, which probes stdenv's C++ header paths
     ../sdk/conformance
     ../sdk/schema
     ../site
     # All of tests/, which includes the frozen tool-profile A/B fixtures
     # under tests/bench/fixtures/tools/ that
     # tests/integration/test_bench_tools.py copies and scores (issue #103).
+    # Includes fuzz/fuzz_parsers.cpp and fuzz/parser-corpus for parser smoke.
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
     # runner_restart_fault.c uses the existing stdenv C compiler for a private
     # read/write interposer; no network, new package or external test data.

@@ -37,9 +37,9 @@ class CompiledArtifactChecks:
             ["make", "-s", "-f", "Makefile", "-f", "-", "artifact-variables"],
             cwd=ROOT,
             text=True,
-            input="artifact-variables:\n\t@printf '%s\\n' '$(CC)' '$(DBG_CFLAGS)' '$(DBG_LDFLAGS)' '$(TEST_OBJS)'\n",
+            input="artifact-variables:\n\t@printf '%s\\n' '$(CC)' '$(CXX)' '$(DBG_CFLAGS)' '$(DBG_LDFLAGS)' '$(TEST_OBJS)'\n",
         ).splitlines()
-        compiler, flags, linker, objects = map(shlex.split, variables)
+        compiler, cxx, flags, linker, objects = map(shlex.split, variables)
         objects = list(dict.fromkeys(objects))
         objects.remove("build/dbg/src/core/jobs.o")
         objects.remove("build/dbg/src/util/image_io.o")
@@ -58,11 +58,19 @@ class CompiledArtifactChecks:
             cwd=ROOT,
             check=True,
         )
+        harnesses = {}
+        for name in ("job_artifact_checks", "job_artifact_pending"):
+            obj = str(Path(cls.fixture_dir.name) / f"{name}.o")
+            subprocess.run(
+                compiler + flags + ["-c", f"tests/fixtures/{name}.c", "-o", obj],
+                cwd=ROOT,
+                check=True,
+            )
+            harnesses[name] = obj
         cls.checker = str(Path(cls.fixture_dir.name) / "checks")
         subprocess.run(
-            compiler
-            + flags
-            + ["tests/fixtures/job_artifact_checks.c", image_io]
+            cxx
+            + [harnesses["job_artifact_checks"], image_io]
             + objects
             + linker
             + ["-o", cls.checker],
@@ -71,9 +79,8 @@ class CompiledArtifactChecks:
         )
         cls.pending = str(Path(cls.fixture_dir.name) / "pending")
         subprocess.run(
-            compiler
-            + flags
-            + ["tests/fixtures/job_artifact_pending.c"]
+            cxx
+            + [harnesses["job_artifact_pending"]]
             + objects
             + ["build/dbg/src/core/jobs.o", "build/dbg/src/util/image_io.o"]
             + linker

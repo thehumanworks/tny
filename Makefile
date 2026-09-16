@@ -1,8 +1,24 @@
-# tny — C11 TUI + CLI coding-agent harness.
+# tny — C11 + private C++20 TUI + CLI coding-agent harness.
 # Targets: make (release), make debug, make test, make size, make size-check,
 #          make pack, make bench, make install, make site
 
 CC      ?= cc
+# Explicit cross/wrapper toolchains should set both drivers (CC and CXX).
+# Derive the ordinary cc/gcc/clang pair, including versioned GCC/Clang.
+ifneq ($(filter default undefined,$(origin CXX)),)
+  CXX = $(call cxx_driver,$(CC))
+endif
+CXX     ?= c++
+cxx_name = $(subst gcc,g++,$(subst clang,clang++,$(patsubst %cc,%c++,$(1))))
+cxx_driver = $(foreach arg,$(1),$(subst $(notdir $(arg)),$(call cxx_name,$(notdir $(arg))),$(arg)))
+CXXSTD   = -std=c++20
+# Owners use the explicit tny allocator; C allocation macros poison STL headers.
+# Vendor VERSION files can shadow <version> on case-insensitive filesystems.
+# Vendors remain available for quoted/angle includes, after the standard library;
+# first-party include paths and their diagnostics retain normal precedence.
+cxx_flags = $(subst -Ithird_party,-idirafter third_party,$(filter-out $(STD),$(subst -include src/util/alloc_override.h,,$(1)))) $(CXXSTD) -fexceptions -fno-rtti
+# Keep foo.c and foo.cpp distinct: C adapters can coexist with their owners.
+objects = $(addprefix $(1)/,$(patsubst %.cpp,%.cpp.o,$(patsubst %.c,%.o,$(2))))
 GIT     ?= git
 BASH    ?= bash
 ZSH     ?= zsh
@@ -129,7 +145,7 @@ ifeq ($(SANITIZE),1)
 endif
 
 ifeq ($(WINDOWS),1)
-  REL_LDFLAGS += -static-libgcc
+  REL_LDFLAGS += -static-libgcc -static-libstdc++
 endif
 
 BUILD    = build
@@ -139,11 +155,14 @@ GEN      = $(BUILD)/generated
 VERSION_H = $(GEN)/tny_version.h
 INC     += -I$(GEN)
 
+CPP_SRC := $(wildcard src/util/*.cpp src/json/*.cpp src/net/*.cpp \
+                     src/backends/openai/*.cpp src/core/*.cpp src/lib/*.cpp)
 SRC_PUBLIC_API := $(wildcard src/lib/*.c)
-SRC_ALL := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c \
+C_SRC_ALL := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c \
         src/net/*.c src/mcp/*.c src/tui/*.c \
         src/backends/openai/*.c src/backends/acp/*.c \
         src/backends/cursor/*.c) src/lib/host_services.c src/lib/custom_tools.c
+SRC_ALL := $(C_SRC_ALL) $(CPP_SRC)
 
 # Per-platform source lists (docs/adr/0017). Native transports (sockets, TLS,
 # hand-rolled HTTP/1.1 + wslay WebSocket) and the poll(2) wrapper are excluded
@@ -163,7 +182,7 @@ TP  := third_party/yyjson/yyjson.c third_party/picohttpparser/picohttpparser.c \
 # keeps just yyjson so `nm` stays honest about dead code.
 TP_WASM := third_party/yyjson/yyjson.c
 
-REL_OBJS := $(SRC:%.c=$(OBJ_REL)/%.o) $(TP:%.c=$(OBJ_REL)/%.o)
+REL_OBJS := $(call objects,$(OBJ_REL),$(SRC)) $(call objects,$(OBJ_REL),$(TP))
 
 # libtny ABI 1: headless runtime only. ACP server/turn are application
 # adapters; the ACP client wire remains a library backend.
@@ -173,29 +192,29 @@ LIB_SRC := $(SRC_PUBLIC_API) \
            $(filter-out $(LIB_APP_EXCLUDE) $(SRC_PUBLIC_API),$(SRC_SHARED)) \
            $(SRC_NATIVE)
 OBJ_PIC := $(BUILD)/pic
-LIB_PIC_OBJS := $(LIB_SRC:%.c=$(OBJ_PIC)/%.o) $(TP:%.c=$(OBJ_PIC)/%.o)
+LIB_PIC_OBJS := $(call objects,$(OBJ_PIC),$(LIB_SRC)) $(call objects,$(OBJ_PIC),$(TP))
 PIC_CFLAGS := $(REL_CFLAGS) -fPIC -fvisibility=hidden \
               -DTNY_SHARED_LIBRARY_BUILD=1 \
               -include src/util/alloc_override.h
 OBJ_FAULT_PIC := $(BUILD)/fault-pic
-FAULT_PIC_OBJS := $(LIB_SRC:%.c=$(OBJ_FAULT_PIC)/%.o) \
-                  $(TP:%.c=$(OBJ_FAULT_PIC)/%.o)
+FAULT_PIC_OBJS := $(call objects,$(OBJ_FAULT_PIC),$(LIB_SRC)) \
+                  $(call objects,$(OBJ_FAULT_PIC),$(TP))
 FAULT_PIC_CFLAGS := $(PIC_CFLAGS) -DTNY_ALLOC_TESTING=1
 OBJ_FAULT_SAN_PIC := $(BUILD)/fault-san-pic
-FAULT_SAN_PIC_OBJS := $(LIB_SRC:%.c=$(OBJ_FAULT_SAN_PIC)/%.o) \
-                      $(TP:%.c=$(OBJ_FAULT_SAN_PIC)/%.o)
+FAULT_SAN_PIC_OBJS := $(call objects,$(OBJ_FAULT_SAN_PIC),$(LIB_SRC)) \
+                      $(call objects,$(OBJ_FAULT_SAN_PIC),$(TP))
 FAULT_SAN_PIC_CFLAGS := $(FAULT_PIC_CFLAGS) -O1 -g \
                         -fsanitize=address,undefined \
                         -fno-omit-frame-pointer
 OBJ_TSAN_PIC := $(BUILD)/tsan-pic
-TSAN_PIC_OBJS := $(LIB_SRC:%.c=$(OBJ_TSAN_PIC)/%.o) \
-                 $(TP:%.c=$(OBJ_TSAN_PIC)/%.o)
+TSAN_PIC_OBJS := $(call objects,$(OBJ_TSAN_PIC),$(LIB_SRC)) \
+                 $(call objects,$(OBJ_TSAN_PIC),$(TP))
 TSAN_PIC_CFLAGS := $(PIC_CFLAGS) -O1 -g -fsanitize=thread \
                    -fno-omit-frame-pointer
 FUZZ_CC ?= clang
 OBJ_FUZZ := $(BUILD)/fuzz-libfuzzer/obj
-FUZZ_OBJS := $(LIB_SRC:%.c=$(OBJ_FUZZ)/%.o) \
-             $(TP:%.c=$(OBJ_FUZZ)/%.o)
+FUZZ_OBJS := $(call objects,$(OBJ_FUZZ),$(LIB_SRC)) \
+             $(call objects,$(OBJ_FUZZ),$(TP))
 FUZZ_CFLAGS := $(PIC_CFLAGS) -O1 -g -fno-omit-frame-pointer \
                -fsanitize=fuzzer-no-link,address,undefined
 FUZZ_HARNESS_CFLAGS := $(PIC_CFLAGS) -O1 -g -fno-omit-frame-pointer \
@@ -206,6 +225,16 @@ FUZZ_CORPUS := $(wildcard tests/fuzz/corpus-v1/*)
 FUZZ_RUNS ?= 10000
 FUZZ_SECONDS ?= 30
 SAN_HOST := $(BUILD)/fault-san/libtny-sanitizer-host
+REL_CXXFLAGS = $(call cxx_flags,$(REL_CFLAGS))
+DBG_CXXFLAGS = $(call cxx_flags,$(DBG_CFLAGS))
+PIC_CXXFLAGS = $(call cxx_flags,$(PIC_CFLAGS))
+FAULT_PIC_CXXFLAGS = $(call cxx_flags,$(FAULT_PIC_CFLAGS))
+FAULT_SAN_PIC_CXXFLAGS = $(call cxx_flags,$(FAULT_SAN_PIC_CFLAGS))
+TSAN_PIC_CXXFLAGS = $(call cxx_flags,$(TSAN_PIC_CFLAGS))
+FUZZ_CXX ?= $(call cxx_driver,$(FUZZ_CC))
+FUZZ_CXXFLAGS = $(call cxx_flags,$(FUZZ_CFLAGS))
+FUZZ_HARNESS_CXXFLAGS = $(call cxx_flags,$(FUZZ_HARNESS_CFLAGS))
+
 ABI0_COMPAT_COMMIT := 510a95c2ef89aa9ec02a66d8b0a5cadd953025a8
 ABI0_COMPAT_ARCHIVE ?=
 ABI0_COMPAT_ARCHIVE_SHA256 := 8718336dbde47f3f8427bf6b3a724127e3ed24b61eaedb6f315523ec2a00c2f6
@@ -255,9 +284,9 @@ else
   ABI0_COMPAT_LIBS := -l:libtny.so.0
 endif
 
-TEST_SRC := $(wildcard tests/*.c)
+TEST_SRC := $(wildcard tests/*.c tests/*.cpp)
 TEST_DEPS := $(filter-out src/main.c,$(SRC)) $(SRC_PUBLIC_API) $(TP)
-TEST_OBJS := $(TEST_DEPS:%.c=$(OBJ_DBG)/%.o)
+TEST_OBJS := $(call objects,$(OBJ_DBG),$(TEST_DEPS))
 
 PREFIX ?= $(HOME)/.local
 
@@ -308,7 +337,7 @@ release: $(BIN)
 
 $(BIN): $(REL_OBJS)
 	@mkdir -p $(@D)
-	$(CC) $(REL_CFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(REL_LDFLAGS)
+	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(REL_LDFLAGS)
 	strip $@ 2>/dev/null || strip -x $@
 	@wc -c $@
 
@@ -321,7 +350,7 @@ $(DICTATION_FIXTURE_OBJ): src/core/dictation_xai.c | $(VERSION_H)
 	$(CC) $(REL_CFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -DTNY_DICTATION_FIXTURE -MMD -MP -c -o $@ $<
 
 $(DICTATION_FIXTURE): $(filter-out $(OBJ_REL)/src/core/dictation_xai.o,$(REL_OBJS)) $(DICTATION_FIXTURE_OBJ)
-	$(CC) $(REL_CFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(REL_LDFLAGS)
+	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(REL_LDFLAGS)
 
 .PHONY: dictation-fixture test-dictation wasm-dictation-fixture
 dictation-fixture: $(DICTATION_FIXTURE)
@@ -357,6 +386,34 @@ $(OBJ_FUZZ)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(FUZZ_CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FUZZ_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FUZZ_CFLAGS)) -MMD -MP -c -o $@ $<
 
+$(OBJ_REL)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -MMD -MP -c -o $@ $<
+
+$(OBJ_DBG)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(DBG_CXXFLAGS) -MMD -MP -c -o $@ $<
+
+$(OBJ_PIC)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(PIC_CXXFLAGS) -MMD -MP -c -o $@ $<
+
+$(OBJ_FAULT_PIC)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(FAULT_PIC_CXXFLAGS) -MMD -MP -c -o $@ $<
+
+$(OBJ_FAULT_SAN_PIC)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(FAULT_SAN_PIC_CXXFLAGS) -MMD -MP -c -o $@ $<
+
+$(OBJ_TSAN_PIC)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(TSAN_PIC_CXXFLAGS) -MMD -MP -c -o $@ $<
+
+$(OBJ_FUZZ)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(FUZZ_CXX) $(FUZZ_CXXFLAGS) -MMD -MP -c -o $@ $<
+
 ifeq ($(LIBTNY_SHARED_SUPPORTED),1)
 lib-shared-active: $(LIB_LINK)
 lib-shared: lib-shared-active $(LIB_COMPAT0_REAL)
@@ -384,7 +441,7 @@ $(LIB_REAL): $(LIB_PIC_OBJS) $(LIB_EXPORT_FILE)
 	@test -n "$(if $(filter Darwin,$(UNAME_S)),$(LIBTNY_MACH_CURRENT_VERSION),ok)" || \
 		python3 scripts/check_abi_baseline.py --mach-version '$(TNY_VERSION)' \
 			--development-fallback
-	$(CC) -o $@ $(LIB_PIC_OBJS) $(LIB_LDFLAGS)
+	$(CXX) -o $@ $(LIB_PIC_OBJS) $(LIB_LDFLAGS)
 
 $(LIB_LINK): $(LIB_REAL)
 	@mkdir -p $(@D)
@@ -416,7 +473,7 @@ $(LIB_COMPAT0_REAL): $(ABI0_COMPAT_STAMP)
 
 $(LIB_FAULT_REAL): $(FAULT_PIC_OBJS) $(LIB_EXPORT_FILE)
 	@mkdir -p $(@D)
-	$(CC) -o $@ $(FAULT_PIC_OBJS) $(LIB_FAULT_LDFLAGS)
+	$(CXX) -o $@ $(FAULT_PIC_OBJS) $(LIB_FAULT_LDFLAGS)
 
 $(LIB_FAULT_LINK): $(LIB_FAULT_REAL)
 	@mkdir -p $(@D)
@@ -424,7 +481,7 @@ $(LIB_FAULT_LINK): $(LIB_FAULT_REAL)
 
 $(LIB_FAULT_SAN_REAL): $(FAULT_SAN_PIC_OBJS) $(LIB_EXPORT_FILE)
 	@mkdir -p $(@D)
-	$(CC) -o $@ $(FAULT_SAN_PIC_OBJS) $(LIB_FAULT_LDFLAGS) \
+	$(CXX) -o $@ $(FAULT_SAN_PIC_OBJS) $(LIB_FAULT_LDFLAGS) \
 		-fsanitize=address,undefined
 
 $(LIB_FAULT_SAN_LINK): $(LIB_FAULT_SAN_REAL)
@@ -441,7 +498,7 @@ $(SAN_HOST): tests/integration/libtny_sanitizer_host.c $(LIB_FAULT_SAN_REAL)
 ifeq ($(UNAME_S),Linux)
 $(LIB_TSAN_REAL): $(TSAN_PIC_OBJS) $(LIB_EXPORT_FILE)
 	@mkdir -p $(@D)
-	$(CC) -o $@ $(TSAN_PIC_OBJS) $(LIB_LDFLAGS) -fsanitize=thread
+	$(CXX) -o $@ $(TSAN_PIC_OBJS) $(LIB_LDFLAGS) -fsanitize=thread
 
 $(LIB_TSAN_LINK): $(LIB_TSAN_REAL)
 	@mkdir -p $(@D)
@@ -460,9 +517,9 @@ $(TSAN_CUSTOM_HOST): tests/integration/libtny_custom_tools.c $(LIB_TSAN_REAL)
 		-Wl,-rpath,$(abspath $(dir $(LIB_TSAN_REAL)))
 endif
 
-$(TEST_BIN): $(TEST_OBJS) $(TEST_SRC:%.c=$(OBJ_DBG)/%.o)
+$(TEST_BIN): $(TEST_OBJS) $(call objects,$(OBJ_DBG),$(TEST_SRC))
 	@mkdir -p $(@D)
-	$(CC) $(DBG_CFLAGS) -o $@ $^ $(DBG_LDFLAGS)
+	$(CXX) $(DBG_CXXFLAGS) -o $@ $^ $(DBG_LDFLAGS)
 
 debug: $(TEST_BIN)
 
@@ -547,10 +604,14 @@ test-libtny-mutation:
 	python3 tests/mutation/mutate.py --focus libtny-fault-mutation
 	python3 tests/mutation/mutate.py --focus libtny-custom-tools
 
-$(FUZZ_SMOKE_BIN): tests/fuzz/fuzz_libtny.c $(sort $(TEST_OBJS))
+FUZZ_SMOKE_OBJ := $(BUILD)/fuzz/fuzz_libtny.o
+$(FUZZ_SMOKE_OBJ): tests/fuzz/fuzz_libtny.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CC) $(DBG_CFLAGS) -DTNY_FUZZ_STANDALONE=1 -o $@ $< \
-		$(sort $(TEST_OBJS)) $(DBG_LDFLAGS)
+	$(CC) $(DBG_CFLAGS) -DTNY_FUZZ_STANDALONE=1 -MMD -MP -c -o $@ $<
+
+$(FUZZ_SMOKE_BIN): $(FUZZ_SMOKE_OBJ) $(sort $(TEST_OBJS))
+	@mkdir -p $(@D)
+	$(CXX) $(DBG_CXXFLAGS) -o $@ $^ $(DBG_LDFLAGS)
 
 test-libtny-fuzz-smoke: $(FUZZ_SMOKE_BIN)
 	$(FUZZ_SMOKE_BIN) --self-test
@@ -563,10 +624,15 @@ test-libtny-fuzz-smoke: $(FUZZ_SMOKE_BIN)
 	fi
 	$(FUZZ_SMOKE_BIN) $(FUZZ_CORPUS)
 
-$(FUZZ_BIN): tests/fuzz/fuzz_libtny.c $(FUZZ_OBJS)
+FUZZ_HARNESS_OBJ := $(BUILD)/fuzz-libfuzzer/fuzz_libtny.o
+$(FUZZ_HARNESS_OBJ): tests/fuzz/fuzz_libtny.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(FUZZ_CC) $(FUZZ_HARNESS_CFLAGS) -MMD -MP -c -o $@ $<
+
+$(FUZZ_BIN): $(FUZZ_HARNESS_OBJ) $(FUZZ_OBJS)
 	@mkdir -p $(@D) $(BUILD)/fuzz-artifacts
-	$(FUZZ_CC) $(FUZZ_HARNESS_CFLAGS) \
-		-o $@ $< $(FUZZ_OBJS) \
+	$(FUZZ_CXX) $(FUZZ_HARNESS_CXXFLAGS) \
+		-o $@ $^ \
 		$(if $(filter Linux,$(UNAME_S)),-pthread -ldl,)
 
 ifeq ($(UNAME_S)-$(UNAME_M),Linux-x86_64)
@@ -581,6 +647,53 @@ test-libtny-fuzz:
 	@echo "error: libtny libFuzzer gate is supported only on Linux x86_64" >&2
 	@exit 2
 endif
+
+# Parser stream fuzzing (ADR0112). Portable smoke consumes every checked-in
+# seed. The Linux x86_64 campaign shares the fully instrumented production
+# object set with ABI fuzzing; FUZZ_RUNS/FUZZ_SECONDS bound each campaign.
+PARSER_FUZZ_SRC := tests/fuzz/fuzz_parsers.cpp
+PARSER_CORPUS := $(wildcard tests/fuzz/parser-corpus/*)
+PARSER_SMOKE_OBJ := $(BUILD)/fuzz/fuzz_parsers.cpp.o
+PARSER_SMOKE_BIN := $(BUILD)/fuzz/parser-fuzz-smoke
+PARSER_FUZZ_OBJ := $(BUILD)/fuzz-libfuzzer/fuzz_parsers.cpp.o
+PARSER_FUZZ_BIN := $(BUILD)/fuzz-libfuzzer/parser-fuzz
+
+$(PARSER_SMOKE_OBJ): $(PARSER_FUZZ_SRC) | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(DBG_CXXFLAGS) -DTNY_FUZZ_STANDALONE=1 -MMD -MP -c -o $@ $<
+
+$(PARSER_SMOKE_BIN): $(PARSER_SMOKE_OBJ) $(sort $(TEST_OBJS))
+	$(CXX) $(DBG_CXXFLAGS) -o $@ $^ $(DBG_LDFLAGS)
+
+$(PARSER_FUZZ_OBJ): $(PARSER_FUZZ_SRC) | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(FUZZ_CXX) $(FUZZ_HARNESS_CXXFLAGS) -MMD -MP -c -o $@ $<
+
+$(PARSER_FUZZ_BIN): $(PARSER_FUZZ_OBJ) $(FUZZ_OBJS)
+	@mkdir -p $(@D) $(BUILD)/parser-fuzz-artifacts
+	$(FUZZ_CXX) $(FUZZ_HARNESS_CXXFLAGS) -o $@ $^ \
+		$(if $(filter Linux,$(UNAME_S)),-pthread -ldl,)
+
+test-parser-fuzz-smoke: $(PARSER_SMOKE_BIN)
+	@test -n "$(PARSER_CORPUS)" || { echo "error: parser corpus is empty" >&2; exit 1; }
+	$(PARSER_SMOKE_BIN) $(PARSER_CORPUS)
+
+ifeq ($(UNAME_S)-$(UNAME_M),Linux-x86_64)
+test-parser-fuzz: $(PARSER_FUZZ_BIN)
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+		$(PARSER_FUZZ_BIN) -runs=$(FUZZ_RUNS) -max_total_time=$(FUZZ_SECONDS) \
+		-timeout=5 -max_len=131072 -rss_limit_mb=1024 \
+		-artifact_prefix=$(BUILD)/parser-fuzz-artifacts/ tests/fuzz/parser-corpus
+else
+test-parser-fuzz:
+	@echo "error: parser libFuzzer gate is supported only on Linux x86_64" >&2
+	@exit 2
+endif
+
+.PHONY: test-parser-fuzz-smoke test-parser-fuzz test-cpp-build
+test-cpp-build:
+	python3 tests/integration/test_cpp_build.py
 
 test-libtny-fault-sanitize: lib-shared-fault-sanitize $(SAN_HOST)
 ifeq ($(UNAME_S),Darwin)
@@ -704,6 +817,7 @@ SHELLCHECK   ?= shellcheck
 SHFMT        ?= shfmt
 ACTIONLINT   ?= actionlint
 ANALYZER_CC  ?= gcc
+ANALYZER_CXX ?= $(call cxx_driver,$(ANALYZER_CC))
 
 # First-party scopes only; third_party/ and the frozen ABI and bench task
 # fixtures stay exempt (reformatting a bench fixture changes the task).
@@ -711,8 +825,8 @@ ANALYZER_CC  ?= gcc
 # the quality gate automatically instead of depending on maintained globs.
 # Tracked *and* untracked-but-not-ignored sources: a file in flight is
 # exactly the one whose formatting has not been checked yet.
-FMT_SRC := $(shell { git ls-files -- '*.c' '*.h'; \
-	git ls-files --others --exclude-standard -- '*.c' '*.h'; } | sort -u | \
+FMT_SRC := $(shell { git ls-files -- '*.c' '*.h' '*.cpp' '*.hpp'; \
+	git ls-files --others --exclude-standard -- '*.c' '*.h' '*.cpp' '*.hpp'; } | sort -u | \
 	grep -Ev '^(third_party/|tests/abi/fixtures/|tests/bench/fixtures/)')
 SH_SRC  := $(shell git ls-files -- '*.sh')
 SHFMT_FLAGS := -i 4 -ci -sr
@@ -724,7 +838,12 @@ JS_SRC  := docs/assets/site.js docs/assets/term-core.js docs/assets/term-wasm.js
 
 # clang-tidy analyzes the native translation units with the release flag
 # set (minus -Werror; WarningsAsErrors in .clang-tidy is the gate).
-TIDY_SRC    := $(SRC) $(SRC_PUBLIC_API)
+TIDY_SRC    := $(sort $(SRC) $(SRC_PUBLIC_API))
+TIDY_C_SRC = $(filter %.c,$(TIDY_SRC))
+TIDY_CPP_SRC = $(filter %.cpp,$(TIDY_SRC))
+# scripts/tidy_cpp.py discovers the selected CXX driver's STL/system paths;
+# a standalone clang-tidy wheel may not know the host toolchain layout.
+TIDY_CXXFLAGS = $(call cxx_flags,$(TIDY_CFLAGS))
 TIDY_CFLAGS  = $(STD) $(filter-out -Werror,$(WARN)) $(INC) $(DEFS)
 ifeq ($(UNAME_S),Darwin)
   TIDY_CFLAGS += -isysroot $(shell xcrun --show-sdk-path)
@@ -737,31 +856,42 @@ WARN_STRICT = -Wpedantic -Wformat=2 -Wno-format-nonliteral -Wno-overlength-strin
               -Wshadow -Wstrict-prototypes -Wmissing-prototypes -Wundef \
               -Wwrite-strings -Wvla
 
+WARN_STRICT_CXX = $(filter-out -Wstrict-prototypes -Wmissing-prototypes,$(WARN_STRICT)) \
+                  -Wnon-virtual-dtor -Woverloaded-virtual
+
 format:
 	$(CLANG_FORMAT) -i $(FMT_SRC)
 	$(RUFF) format .
 	$(SHFMT) -w $(SHFMT_FLAGS) $(SH_SRC)
 
-format-check:
+format-c-check:
 	$(CLANG_FORMAT) --dry-run --Werror $(FMT_SRC)
+
+format-check: format-c-check
 	$(RUFF) format --check .
 	$(SHFMT) -d $(SHFMT_FLAGS) $(SH_SRC)
 
 tidy: $(VERSION_H)
-	$(CLANG_TIDY) --quiet $(TIDY_SRC) -- $(TIDY_CFLAGS)
+	$(if $(TIDY_C_SRC),$(CLANG_TIDY) --quiet $(TIDY_C_SRC) -- $(TIDY_CFLAGS),:)
+	$(if $(TIDY_CPP_SRC),python3 scripts/tidy_cpp.py --cxx '$(CXX)' --tidy '$(CLANG_TIDY)' $(TIDY_CPP_SRC) -- $(TIDY_CXXFLAGS),:)
 
 warn-strict: $(VERSION_H)
-	$(CC) $(REL_CFLAGS) $(WARN_STRICT) -fsyntax-only $(SRC) $(SRC_PUBLIC_API)
+	$(if $(TIDY_C_SRC),$(CC) $(REL_CFLAGS) $(WARN_STRICT) -fsyntax-only $(TIDY_C_SRC),:)
+	$(if $(TIDY_CPP_SRC),$(CXX) $(REL_CXXFLAGS) $(WARN_STRICT_CXX) -fsyntax-only $(TIDY_CPP_SRC),:)
 
 # GCC's path-sensitive analyzer (leaks, use-after-free, fd/stream misuse).
 # Complementary to clang-tidy; Linux CI runs it, gcc is required.
 # double-free is off: it misreads the oom-flag-guarded free in buf_detach
 # (src/util/util.c) and flags every caller of path_join.
 analyze: $(VERSION_H)
-	@for f in $(SRC) $(SRC_PUBLIC_API); do \
+	@for f in $(TIDY_C_SRC); do \
 		$(ANALYZER_CC) $(STD) $(WARN) $(INC) $(DEFS) -fanalyzer -O1 \
 			-Wno-analyzer-double-free \
 			-c -o /dev/null $$f || exit 1; \
+	done
+	@for f in $(TIDY_CPP_SRC); do \
+		$(ANALYZER_CXX) $(call cxx_flags,$(STD) $(WARN) $(INC) $(DEFS)) \
+			-fanalyzer -O1 -c -o /dev/null $$f || exit 1; \
 	done
 	@echo "analyze: $(words $(SRC) $(SRC_PUBLIC_API)) files clean"
 
@@ -790,7 +920,7 @@ quality: check-cursor-sdk-contract format-check tidy warn-strict lint-py lint-sh
 		echo "quality: GCC -fanalyzer skipped on $(UNAME_S); CI runs it on Linux"; \
 	fi
 
-.PHONY: format format-check tidy warn-strict analyze lint-py lint-sh lint-workflows lint-js quality
+.PHONY: format format-c-check format-check tidy warn-strict analyze lint-py lint-sh lint-workflows lint-js quality
 
 # ---- leak checks (docs/adr/0061) ----------------------------------------
 # ASan/UBSan is the default test build, and neither checker can see through
@@ -872,25 +1002,33 @@ leaks-docker:
 # through the existing integration suite) and tny-web.mjs (browser, MEMFS —
 # what the landing page loads). The C is identical; only FS + env glue differ.
 EMCC        ?= emcc
+EMCXX       ?= $(patsubst %emcc,%em++,$(EMCC))
 OBJ_WASM     = $(BUILD)/wasm/obj
 WASM_NODE    = $(BUILD)/wasm/tny.js
 WASM_WEB     = $(BUILD)/wasm/tny-web.mjs
 WASM_SRC    := $(SRC_SHARED) $(SRC_WASM_ONLY) $(TP_WASM)
-WASM_OBJS   := $(WASM_SRC:%.c=$(OBJ_WASM)/%.o)
+WASM_OBJS   := $(call objects,$(OBJ_WASM),$(WASM_SRC))
 WASM_CFLAGS  = $(STD) $(WARN) $(INC) $(DEFS) -Os
+WASM_CXXFLAGS = $(call cxx_flags,$(WASM_CFLAGS))
+# -fexceptions at compile AND link enables portable JS exception catching:
+# https://emscripten.org/docs/porting/exceptions.html
 # Asyncify is the suspension mechanism (JSPI is Chrome-only, COOP/COEP for
 # workers cannot be set on GitHub Pages). Broad instrumentation first; narrow
 # later if the size budget demands it (docs/adr/0017 footguns).
-WASM_LDFLAGS = -Os -sASYNCIFY -sASYNCIFY_STACK_SIZE=131072 \
+WASM_LDFLAGS = -fexceptions -Os -sASYNCIFY -sASYNCIFY_STACK_SIZE=131072 \
                -sALLOW_MEMORY_GROWTH -sEXIT_RUNTIME=1 -sSTACK_SIZE=1048576
 
 $(OBJ_WASM)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(EMCC) $(WASM_CFLAGS) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
 
+$(OBJ_WASM)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(EMCXX) $(WASM_CXXFLAGS) -MMD -MP -c -o $@ $<
+
 $(WASM_NODE): $(WASM_OBJS) src/wasm/pre_node.js
 	@mkdir -p $(@D)
-	$(EMCC) $(WASM_LDFLAGS) -sENVIRONMENT=node -sNODERAWFS \
+	$(EMCXX) $(WASM_LDFLAGS) -sENVIRONMENT=node -sNODERAWFS \
 		--pre-js src/wasm/pre_node.js -o $@ $(WASM_OBJS)
 	@printf '#!/bin/sh\nexec node "%s" "$$@"\n' "$$(cd $(@D) && pwd)/tny.js" > $(@D)/tny
 	@chmod +x $(@D)/tny
@@ -898,7 +1036,7 @@ $(WASM_NODE): $(WASM_OBJS) src/wasm/pre_node.js
 
 $(WASM_WEB): $(WASM_OBJS) src/wasm/pre_web.js
 	@mkdir -p $(@D)
-	$(EMCC) $(WASM_LDFLAGS) -sENVIRONMENT=web -sMODULARIZE -sEXPORT_ES6 \
+	$(EMCXX) $(WASM_LDFLAGS) -sENVIRONMENT=web -sMODULARIZE -sEXPORT_ES6 \
 		-sINVOKE_RUN=0 -sEXPORTED_RUNTIME_METHODS=callMain,FS,ENV \
 		--pre-js src/wasm/pre_web.js -o $@ $(WASM_OBJS)
 	@wc -c $@ $(@:.mjs=.wasm)
@@ -910,7 +1048,7 @@ $(WASM_DICTATION_FIXTURE_OBJ): src/core/dictation_xai.c | $(VERSION_H)
 	$(EMCC) $(WASM_CFLAGS) -DTNY_DICTATION_FIXTURE -MMD -MP -c -o $@ $<
 
 $(WASM_DICTATION_FIXTURE): $(filter-out $(OBJ_WASM)/src/core/dictation_xai.o,$(WASM_OBJS)) $(WASM_DICTATION_FIXTURE_OBJ) src/wasm/pre_node.js
-	$(EMCC) $(WASM_LDFLAGS) -sENVIRONMENT=node -sNODERAWFS \
+	$(EMCXX) $(WASM_LDFLAGS) -sENVIRONMENT=node -sNODERAWFS \
 		--pre-js src/wasm/pre_node.js -o $@ $(filter %.o,$^)
 	@printf '#!/bin/sh\nexec node "%s" "$$@"\n' "$(abspath $(WASM_DICTATION_FIXTURE))" > $(@D)/tny-dictation-fixture
 	@chmod +x $(@D)/tny-dictation-fixture
@@ -950,6 +1088,10 @@ tnytty-clean:
 -include $(REL_OBJS:.o=.d) $(LIB_PIC_OBJS:.o=.d) \
          $(FAULT_PIC_OBJS:.o=.d) $(FAULT_SAN_PIC_OBJS:.o=.d) \
          $(TSAN_PIC_OBJS:.o=.d) $(FUZZ_OBJS:.o=.d) $(TEST_OBJS:.o=.d) \
-         $(TEST_SRC:%.c=$(OBJ_DBG)/%.d)
+         $(patsubst %.o,%.d,$(call objects,$(OBJ_DBG),$(TEST_SRC)))
 
 -include $(DICTATION_FIXTURE_OBJ:.o=.d) $(WASM_DICTATION_FIXTURE_OBJ:.o=.d)
+
+-include $(WASM_OBJS:.o=.d) $(FUZZ_SMOKE_OBJ:.o=.d) $(FUZZ_HARNESS_OBJ:.o=.d)
+
+-include $(PARSER_SMOKE_OBJ:.o=.d) $(PARSER_FUZZ_OBJ:.o=.d)

@@ -39,7 +39,7 @@ stdenv.mkDerivation (finalAttrs: {
     tini
   ];
 
-  # No buildInputs: tny links nothing beyond libc/libdl/libpthread. TLS is
+  # stdenv supplies matching C/C++ drivers and the C++ runtime. TLS is
   # dlopen'd at first use (docs/size-and-speed.md forbids linking OpenSSL).
   # Preserve the linker-created layout: adding RUNPATH after stripping can
   # create another 64 KiB-aligned LOAD segment (ADR 0103).
@@ -63,6 +63,7 @@ stdenv.mkDerivation (finalAttrs: {
   makeFlags = [
     "PREFIX=$(out)"
     "CC=${stdenv.cc.targetPrefix}cc"
+    "CXX=${stdenv.cc.targetPrefix}c++"
     "TNY_VERSION=${finalAttrs.version}"
     "TNY_SHELL_PATH=${stdenv.shell}"
   ];

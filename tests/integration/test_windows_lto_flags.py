@@ -14,10 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class WindowsLtoFlags(unittest.TestCase):
     def test_native_fault_links_retain_the_captured_release_flags(self):
-        for filename, compiler in (
-            ("test_image_workflow.py", "compiler"),
-            ("test_jobs_msys.py", "cc"),
-        ):
+        for filename in ("test_image_workflow.py", "test_jobs_msys.py"):
             with self.subTest(fixture=filename):
                 tree = ast.parse((ROOT / "tests/integration" / filename).read_text())
                 links = []
@@ -33,14 +30,10 @@ class WindowsLtoFlags(unittest.TestCase):
                     constants = [
                         elt.value for elt in node.elts if isinstance(elt, ast.Constant)
                     ]
-                    if (
-                        compiler in names
-                        and "-o" in constants
-                        and "-c" not in constants
-                    ):
+                    if "cxx" in names and "-o" in constants and "-c" not in constants:
                         links.append(names)
                 self.assertEqual(len(links), 1)
-                self.assertEqual(links[0][:3], [compiler, "flags", "lto"])
+                self.assertEqual(links[0][:3], ["cxx", "cxx_flags", "lto"])
 
     def test_linux_clang_size_policy_uses_selected_compiler_and_native_recipes(self):
         with tempfile.TemporaryDirectory(prefix="tny-compiler-policy-") as tmp:

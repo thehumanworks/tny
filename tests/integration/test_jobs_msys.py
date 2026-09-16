@@ -109,9 +109,11 @@ class NativeMsysJobs(jobs.JobsFixture):
             cwd=jobs.ROOT,
             text=True,
             input=".PHONY: msys-fault-flags\nmsys-fault-flags:\n"
-            "\t@printf '%s\\n' '$(CC)' '$(REL_CFLAGS) $(REL_INLINE) $(REL_SIZE_OPT)' '$(REL_LTO)' '$(REL_LDFLAGS)' '$(REL_OBJS)' '$(OBJ_REL)/src/util/process_scope.o'\n",
+            "\t@printf '%s\\n' '$(CC)' '$(CXX)' '$(REL_CXXFLAGS) $(REL_INLINE) $(REL_SIZE_OPT)' '$(REL_CFLAGS) $(REL_INLINE) $(REL_SIZE_OPT)' '$(REL_LTO)' '$(REL_LDFLAGS)' '$(REL_OBJS)' '$(OBJ_REL)/src/util/process_scope.o'\n",
         ).splitlines()
-        cc, flags, lto, linker, objects, scope_objects = map(shlex.split, variables)
+        cc, cxx, cxx_flags, flags, lto, linker, objects, scope_objects = map(
+            shlex.split, variables
+        )
         wait = "pid_t got = waitpid(scope->pid, &scope->status, WNOHANG);"
         if source.count(wait) != 1:
             raise AssertionError(
@@ -139,8 +141,8 @@ class NativeMsysJobs(jobs.JobsFixture):
         ]
         subprocess.run(
             [
-                *cc,
-                *flags,
+                *cxx,
+                *cxx_flags,
                 *lto,
                 "-o",
                 str(cls.wait_loss),
