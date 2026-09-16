@@ -213,12 +213,17 @@ class Provider:
                 provider.handle(self, json.loads(raw or b"{}"))
 
             def _send(self, status, ctype, data):
-                self.send_response(status)
-                self.send_header("Content-Type", ctype)
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-                self.wfile.flush()
+                try:
+                    self.send_response(status)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    # Cancellation deliberately closes the fixture connection
+                    # while a held child response is being released.
+                    self.close_connection = True
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.server.daemon_threads = True

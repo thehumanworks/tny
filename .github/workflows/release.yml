@@ -389,6 +389,8 @@ jobs:
         run: |
           set -eu
           export TNY_VERSION="${GITHUB_REF_NAME#v}"
+          gcc --version
+          g++ --version
           make -j"$(nproc)" release
           make size-check
           make pack TRIPLE=windows-x86_64

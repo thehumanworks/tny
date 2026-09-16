@@ -278,6 +278,8 @@ jobs:
             MSYS*|MINGW*|CYGWIN*) ;;
             *) echo "expected an MSYS2 POSIX environment" >&2; exit 1 ;;
           esac
+          gcc --version
+          g++ --version
           make -j"$(nproc)" release
           make size-check
           make pack TRIPLE=windows-x86_64

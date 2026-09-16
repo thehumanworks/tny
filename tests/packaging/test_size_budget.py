@@ -93,6 +93,24 @@ class SizeBudgetTests(unittest.TestCase):
                 else:
                     self.assertIn("over the", result.stderr)
 
+    def test_wasm_and_glue_together_reject_exactly_six_megabytes(self):
+        with tempfile.TemporaryDirectory(prefix="tny-size-wasm-") as root:
+            javascript = Path(root) / "artifact.js"
+            wasm = javascript.with_suffix(".wasm")
+            javascript.write_bytes(b"fixture-glue")
+            for size in (MAXIMUM, LIMIT):
+                with wasm.open("wb") as file:
+                    file.truncate(size - javascript.stat().st_size)
+                result = self.make(
+                    "-o", "wasm", "wasm-size-check", f"WASM_NODE={javascript}"
+                )
+                self.assertIn(f"{size} wasm artifact", result.stdout)
+                self.assertEqual(result.returncode == 0, size < LIMIT, result.stderr)
+                if size < LIMIT:
+                    self.assertEqual(result.stderr, "")
+                else:
+                    self.assertIn("over the", result.stderr)
+
     def test_wasm_budget_is_declared_from_same_source(self):
         makefile = (ROOT / "Makefile").read_text()
         self.assertRegex(
