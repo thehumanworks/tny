@@ -953,3 +953,19 @@ tnytty-clean:
          $(TEST_SRC:%.c=$(OBJ_DBG)/%.d)
 
 -include $(DICTATION_FIXTURE_OBJ:.o=.d) $(WASM_DICTATION_FIXTURE_OBJ:.o=.d)
+
+# === C++ series startup and size reporting (ADR 0115) ===
+STARTUP_JSON ?= $(BUILD)/startup.json
+STARTUP_LABEL ?= candidate
+.PHONY: bench-startup size-report test-bench-startup
+bench-startup: release
+	@test -n "$(BASELINE_TNY)" || { echo "error: set BASELINE_TNY" >&2; exit 2; }
+	python3 tests/bench/bench_startup.py --baseline "$(BASELINE_TNY)" \
+		--candidate "$(BIN)" --json "$(STARTUP_JSON)" --label "$(STARTUP_LABEL)"
+
+size-report: release
+	python3 tests/bench/bench_startup.py --candidate "$(BIN)" --size-only
+
+test: test-bench-startup
+test-bench-startup:
+	python3 tests/bench/test_bench_startup.py
