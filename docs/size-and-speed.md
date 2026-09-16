@@ -108,3 +108,40 @@ The dylib reduction is not attributed to the feature: the new ABI adds two
 exports, so the smaller link result is treated as toolchain/dead-strip layout
 variance rather than an optimisation claim. The relevant gate is that CLI size
 and startup did not regress measurably.
+
+## C++ ownership series: reproducible startup gate
+
+The private ownership migration (ADR 0112, issues #137–#139) keeps the size
+ceilings above unless a separately measured policy amendment justifies a
+revision. Report `otool -L` / `ldd` dependencies alongside stripped bytes;
+a dynamically loaded C++ runtime is not part of the executable's byte count.
+Do not attribute a language change's size or speed effect without measurement.
+
+Use an idle reference host, identical toolchain/release flags, and immutable
+baseline/candidate binaries. The startup runner creates a new empty HOME and
+workspace for every launch, submits no turn, and selects the lazy native
+OpenAI provider. It detects the completed PTY composer paint, not the banner,
+raw-mode setup, or first token. It drains the PTY during fixture shutdown.
+
+```sh
+python3 tests/bench/bench_startup.py \
+  --baseline /absolute/pre-series/build/tny \
+  --candidate /absolute/candidate/build/tny \
+  --output /absolute/evidence/startup.json
+```
+
+Defaults provide 102 samples of `--version` and `ask --help` for each binary,
+in three paired batches with alternating artifact order, and 20 fresh PTY
+launches for each binary. The JSON retains every sample, median/p95,
+artifact SHA-256 and size, host identity, configuration, and pass/fail status.
+The command returns nonzero on an absolute or relative gate failure, artifact
+mutation, timeout, or unexpected process failure. CLI median must be below
+5 ms and added median at most max(0.25 ms, 10%); prompt median must be below
+10 ms and added median at most max(0.5 ms, 10%). Always compare the final
+combined implementation to the pre-series baseline too.
+
+`tests/integration/test_bench_startup.py` checks threshold arithmetic,
+fragmented-paint discrimination, sampling, and environment isolation without
+noisy timing assertions in CI. Run the existing local-mock `bench_ttft.py`
+`tui` and `ask-stdin` modes separately with 20 iterations per artifact.
+Those measure a different boundary and do not replace first-prompt evidence.
