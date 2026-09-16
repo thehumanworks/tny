@@ -12,11 +12,13 @@ struct sink {
     void *ud;
     void node(oa_decoded_kind kind, yyjson_val *value = nullptr) const {
         emit(kind, value, nullptr, 0, ud);
+        if (tny_alloc_scope_failed()) throw std::bad_alloc();
     }
     void text(oa_decoded_kind kind, yyjson_val *obj, const char *key) const {
         size_t len = 0;
         const char *value = jget_strn(obj, key, &len);
         if (value && len) emit(kind, nullptr, value, len, ud);
+        if (tny_alloc_scope_failed()) throw std::bad_alloc();
     }
     void set(int slot, int index, yyjson_val *item, bool streamed = false) const {
         const char *args = jget_str(item, "arguments");

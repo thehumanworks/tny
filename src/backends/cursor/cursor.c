@@ -150,7 +150,7 @@ int cu_append_images(buf_t *body, const char **images, char *err, size_t errlen)
 /* ---------- events ---------- */
 
 void cu_emit(cu_impl *o, const tny_backend_event *ev) {
-    if (o->cb) o->cb(ev, o->ud);
+    if (o->cb && !tny_alloc_scope_failed()) o->cb(ev, o->ud);
 }
 
 void cu_emit_text(cu_impl *o, tny_event_kind k, const char *t, size_t n) {
@@ -834,10 +834,13 @@ static int cu_create_or_resume(tny_backend *b, const char *ptr, char *e, size_t 
     char *res = rpc(o, method, body.data, e, el);
     if (pump_store) cursor_callbacks_blocking_end(o->callbacks);
     buf_free(&body);
-    if (!res) return -1;
+    if (!res || tny_alloc_scope_failed()) {
+        free(res);
+        return -1;
+    }
     char *fallback_id = resume_id && *resume_id ? xstrdup(resume_id) : NULL;
     free(o->agent_id);
-    o->agent_id = parse_agent_id(res);
+    o->agent_id = tny_alloc_scope_failed() ? NULL : parse_agent_id(res);
     free(res);
     if (!o->agent_id) {
         o->agent_id = fallback_id;
@@ -1024,6 +1027,10 @@ int cu_send_cancel(cu_impl *o, char *err, size_t errlen) {
         jescape(&body, o->agent_id);
     }
     buf_appends(&body, "}");
+    if (tny_alloc_scope_failed()) {
+        buf_free(&body);
+        return -1;
+    }
     bool pump_store = cursor_callbacks_store_started(o->callbacks);
     if (pump_store && cursor_callbacks_blocking_begin(o->callbacks, err, errlen) != 0) {
         buf_free(&body);
@@ -1032,7 +1039,10 @@ int cu_send_cancel(cu_impl *o, char *err, size_t errlen) {
     char *res = rpc(o, CURSOR_SDK_RPC_CANCEL_RUN, body.data, err, errlen);
     if (pump_store) cursor_callbacks_blocking_end(o->callbacks);
     buf_free(&body);
-    if (!res) return -1;
+    if (!res || tny_alloc_scope_failed()) {
+        free(res);
+        return -1;
+    }
     free(res);
     o->cancel_sent = true;
     return 0;
@@ -1054,6 +1064,7 @@ static void cu_cancel(tny_backend *b) {
     }
     char err[256];
     if (o->run_id && cu_send_cancel(o, err, sizeof err) != 0) {
+        if (tny_alloc_scope_failed()) return;
         cu_emit_text(o, TNY_EV_STATUS, err, strlen(err));
         if (!o->ctx->library_mode && tny_debug())
             fprintf(stderr, "tny: cursor: CancelRun failed: %s\n", err);
@@ -1220,6 +1231,10 @@ static int cu_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             static const char resumed[] = "cursor: recovering the durable run stream";
             cu_emit_text(o, TNY_EV_STATUS, resumed, sizeof resumed - 1);
             return 0;
+        }
+        if (tny_alloc_scope_failed()) {
+            tny_alloc_provider_failed();
+            return -1;
         }
         buf_t message;
         buf_init(&message);

@@ -13,7 +13,7 @@
 /* ---------- event helpers ---------- */
 
 void ac_emit(ac_impl *o, const tny_backend_event *ev) {
-    if (o->cb) o->cb(ev, o->ud);
+    if (o->cb && !tny_alloc_scope_failed()) o->cb(ev, o->ud);
 }
 
 void ac_emit_text(ac_impl *o, tny_event_kind k, const char *t, size_t n) {
@@ -258,6 +258,10 @@ void ac_handle_agent_request(ac_impl *o, yyjson_val *msg, const char *method, yy
         return;
     }
     char *id = acp_id_text(msg);
+    if (tny_alloc_scope_failed()) {
+        free(id);
+        return;
+    }
     /* Cursor's ACP surface blocks on these; acknowledge so the turn moves on
      * (docs/backends/acp.md "Cursor-as-ACP"). tny has no answer to invent, so
      * the ack is empty and the request is surfaced as a status line. */

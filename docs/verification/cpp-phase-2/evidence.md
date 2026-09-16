@@ -714,3 +714,112 @@ This is a scoped self-review plus the supplied independent Review 3; no fresh
 independent reviewer is claimed. Broader phase-2/platform/performance gates
 remain coordinator-owned. No commit, push, PR, agent or live-session restart
 was performed.
+
+## Review 4 dispositions (in progress)
+
+Assigned repair baseline: `58e92bf`, clean `migration/cpp-series-fix`, 2026-09-16.
+This is a continuation of the coordinator's P2-I3/P2-I4 contract, not a new
+phase-wide completion claim. The supplied fourth independent review is the
+repair input. Changes remain uncommitted as requested. Before implementation,
+the required checks are: both blocker regressions under ASan/UBSan; failure
+boundaries for findings 3–7; exhaustive discovered-index representative
+OpenAI/Cursor/ACP sweeps including C++ owners; exactly one reserved error/end,
+allocation-free settlement and later successful turn; requested host gates;
+per-inventory dispositions and refreshed source/input/deliverable manifests.
+The user explicitly authorizes amending ADR 0118 to name bounded exceptions;
+this supersedes the default immutable-ADR workflow for that file only.
+
+### Finding dispositions
+
+| Review 4 finding | Disposition and verification boundary |
+| --- | --- |
+| 1. Consumed pending lease retained during completion OOM | Fixed. `pending_dispatch` unlinks/frees the list node immediately after nonzero `custom_tool_take`, before result parsing, serialization or HTTP completion. Its exhaustive completion sweep destroys callbacks in settlement scope and releases the retained host handle; the sanitizer gate exercises the former lifetime violation. |
+| 2. Bridge stderr copy failure | Fixed. Token filtering compares bounded bytes without a temporary allocation; buffered line processing stops after accumulator growth fails. The fixture checks both preallocated multi-line drain and growth failure. |
+| 3. OpenAI/Codex failed callback and lifecycle continuation | Fixed at provider owner/callback boundaries. Event decode returns OOM immediately after callback failure; tool-end, pending strings, reasoning/hosted items, retry control, preview, steer and persistence callers stop before the next owner or action. Composite helper internals retain bounded exception E1 below. Whole-turn Responses and Chat sweeps include parser/C++ owners and tool continuation; selected request/finalization regression fixtures remain. |
+| 4. Cursor mapping and immediate recovery | Fixed. Parse/normalization failure stops before replay/mapping, mapped fields stop after failure, and both immediate/delayed ObserveRun paths stop before diagnostic construction. Whole-turn mapping and the immediate-recovery exhaustive fixture cover the changed boundaries. |
+| 5. Cursor store callback continuation | Fixed at path/read/parse/serialize/write boundaries. Scans release documents/items and stop; failed serialization cannot enter a later save or reply allocation. Exhaustive get/create/update/list/delete/append and checkpoint-list fixtures exercise these operations. Writes/deletions completed before a subsequent failure retain their existing semantics. |
+| 6. Callback-thread allocation state | Fixed. The pump owns an allocation scope, records failure, and the owner marks failure after joining. Create/resume and CancelRun check that transfer before further parsing or diagnostics. A dedicated threaded store sweep checks each discovered pump index and allocation-free destruction after join. |
+| 7. ACP helpers and WebSocket callback continuation | Fixed at tny boundaries. ID serialization does not allocate a fallback after OOM; prompt/agent-request helpers return before later owners. WebSocket callback failure shuts down receive/send before the next coalesced frame. Existing ID/batch fixtures and both transport sweeps cover this; wslay's own allocator remains exception E2. |
+
+### Independent allocation-inventory dispositions
+
+Every row from the supplied Review 4 inventory is retained below; an exception
+is a limit on the stronger first-inner-allocation claim, not a waiver of
+reserved settlement, resource ownership or the tested later-turn recovery.
+
+| Inventory row | Disposition |
+| --- | --- |
+| OpenAI request construction | Fixed between system prompt, view/continuation, serialized messages, Responses input/tools/text-format and fallback buffer owners. E1: composite shared collectors, session view, tools schema and recursive yyjson internals remain guarded at return boundaries. |
+| OpenAI request retry | Fixed: request/response control failure returns before `http_open`, `http_request` or body reads, including stale connection recovery. |
+| OpenAI decoded callbacks | Fixed: callback failure unwinds the C++ decoder before callset feed/set; reasoning and hosted-output processing stops between items/fields and after event emission. E1 applies to a recursive JSON copy's internal allocation sequence. |
+| OpenAI tools/finalization | Fixed between event/control callbacks, pending-owner copies, tool preparation, transcript/save calls, preview, steer and batch work. Runtime finalization completes before terminal publication. E1 applies within shared session/tool helpers. |
+| Cursor RPC / SDK error decoding | Existing Review 3 fixes retained: header/body, JSON, fallback, EndStream and protobuf failures unwind. Exhaustive error-decoding and mutation fixtures rerun. |
+| Cursor frame mapping | Fixed: normalization/hash/offset/run-ID owners and nested mapped fields stop before the next owner/callback. Recursive JSON copy internals fall within E1. |
+| Cursor dispatch | Fixed: immediate recovery stops before diagnostics, stderr token matching allocates nothing, and failed callback-thread join returns before reading a diagnostic buffer. |
+| Cursor store callbacks | Fixed: envelope, scan, key, checkpoint, reply, append and save boundaries. Store operation sweeps retain exact first-fault allocation-count assertions. |
+| ACP | Fixed: ID fallback, prompt copy, agent diagnostics and next-frame callback processing. E2 explicitly excludes internal wslay allocation indices; coalesced tny-reader failures are covered. |
+| HTTP callback server | Existing immediate connection failure checks retained; deferred completion now releases its consumed lease before any fallible processing. Completion and store/pump sweeps rerun under sanitizers. |
+| Reserved runtime settlement | Fixed/retained: only reserved owned events and resource release execute; no persistence or ordinary cancellation allocations. Finalization OOM cannot follow a delivered successful terminal. Sweeps assert one OOM ERROR and one error TURN_END, zero settlement allocations, and successful reuse. |
+
+### Exception list and coverage semantics
+
+[ADR 0118](../../adr/0118-allocation-free-provider-oom-settlement.md) is amended
+under the user's explicit authorization; all other pre-existing ADRs remain
+immutable. Its named exceptions are **E1** (shared composite helper internals
+and recursive JSON allocation sequences), **E2** (uninstrumented vendored
+wslay allocator), and **E3** (embedding/libc/platform-TLS allocators). E1's
+instrumented allocations are included when reached by the fixed workload;
+E2/E3 are outside the tny allocation-index counter. None permits an allocation
+inside tny's reserved settlement path.
+
+The native whole-turn fixture starts counting after successful turn admission
+and retains one scope across dispatch, tools, subsequent requests and runtime
+finalization. Initial construction/admission remains covered by the separate
+public API sweeps. It discovers the maximum count across three healthy runs,
+then injects every index through that maximum, requiring actual injection;
+shorter transport schedules are retried and newly observed healthy indices
+extend the sweep. Each injected case requires exactly one OOM ERROR, exactly
+one error TURN_END, zero allocations after failure handoff/inside settlement,
+a later successful turn on the same engine, and no host stdout/stderr output.
+C++ owned events, strings/vectors and shared control blocks use the same
+instrumented allocator. This is exhaustive over discovered indices of these
+finite fixtures, not a claim of exhaustive provider input coverage.
+
+Final commands, counts, source manifests and reconciliation follow after the
+remaining runs. Development runs are retained separately and do not establish
+final-state proof.
+
+Development coverage expansion added encrypted Responses reasoning and
+fragmented Chat reasoning to the representative workloads. At Responses index
+70, OOM while copying assistant-message extras left a tool proposal without
+its required reasoning payload; the next turn received mock HTTP 400.
+`session_add_assistant_ex` now publishes the message only after all retained
+fields are constructed. Unlinked yyjson nodes remain document-owned until
+session teardown. The same expanded sweeps verify this failure and recovery
+boundary. This is a directly exercised shared-helper correction within finding
+3; E1 does not exempt publishing incomplete assistant messages.
+
+### Coordinator completion of the Review 4 repair (2026-09-16)
+
+The repair session above was cut short twice by provider-side errors and then
+by the Codex usage limit, after its dispositions, provider sweeps and gate
+logs under `build/review4/` had been produced. The coordinator finished it
+directly with three bounded edits and reran the gates outside the sandbox:
+
+- `src/backends/openai/openai.c` `emit()`: event delivery is unconditional
+  again. The runtime drops backend events itself once an allocation failure is
+  sticky (`queue_event` sets `oom_pending` without allocating) and marks the
+  engine terminal before reserved settlement, so the backend-level suppression
+  was redundant for libtny and broke the phase-1 direct-backend fixture
+  (`tests/fuzz/parser_backend_oom.c` cancel mode expected the allocation-free
+  cancelled `TURN_END`). Every other Review 4 boundary guard is retained.
+- `src/backends/acp/acp_wire.c` `acp_write_line()`: a newline-buffer
+  allocation failure now returns -1 before any `write()` instead of reporting a
+  truncated or empty line as success (the second remaining item noted by the
+  follow-up session; the first, `cursor.c` dispatch after a failed
+  callback-thread join, was already in place).
+- `tests/integration/test_libtny_faults.py` active-turn sweep: an index that
+  eight injection runs never reach is re-discovered on the spot; it is a
+  defect only if discovery still reports it. The previous assertion failed on
+  ACP index 93/94, which only appears in some discovery runs (child and socket
+  scheduling), while every reached index had settled cleanly.

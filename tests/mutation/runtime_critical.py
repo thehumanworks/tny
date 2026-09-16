@@ -45,8 +45,8 @@ MUTANTS = [
     (
         "second-terminal",
         "src/core/runtime.c",
-        "append_owned(e, terminal);\n    e->finalize_pending = true;",
-        "append_owned(e, terminal);\n    append_owned(e, event_copy(e, &terminal->ev));\n    e->finalize_pending = true;",
+        "    terminal->hooks_done = true;\n    append_owned(e, terminal);",
+        "    terminal->hooks_done = true;\n    append_owned(e, terminal);\n    append_owned(e, event_copy(e, &terminal->ev));",
         "runtime_copies_events_and_suppresses_duplicate_terminal",
         "FAIL",
     ),

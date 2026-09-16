@@ -68,10 +68,14 @@ static int genmask_cb(wslay_event_context_ptr ctx, uint8_t *buf, size_t len, voi
 
 static void on_msg_cb(wslay_event_context_ptr ctx, const struct wslay_event_on_msg_recv_arg *arg,
                       void *user_data) {
-    (void)ctx;
     ws_conn *w = user_data;
     if (arg->opcode == WSLAY_TEXT_FRAME && w->cb)
         w->cb((const char *)arg->msg, arg->msg_length, w->ud);
+    if (tny_alloc_scope_failed()) {
+        wslay_event_shutdown_read(ctx);
+        wslay_event_shutdown_write(ctx);
+        w->dead = true;
+    }
     /* ping/pong handled by wslay; binary frames ignored (text-only peers) */
 }
 
@@ -218,6 +222,10 @@ int ws_pump(ws_conn *w, ws_msg_cb cb, void *ud) {
         w->dead = true;
         return -1;
     }
+    if (tny_alloc_scope_failed()) {
+        w->dead = true;
+        return -1;
+    }
     if (wslay_event_want_write(w->ctx) && wslay_event_send(w->ctx) != 0) {
         w->dead = true;
         return -1;
@@ -232,7 +240,7 @@ int ws_pump(ws_conn *w, ws_msg_cb cb, void *ud) {
 void ws_close(ws_conn *w) {
     if (!w) return;
     if (w->ctx) {
-        if (!tny_alloc_settling()) {
+        if (!tny_alloc_settling() && !tny_alloc_scope_failed()) {
             wslay_event_queue_close(w->ctx, WSLAY_CODE_NORMAL_CLOSURE, NULL, 0);
             wslay_event_send(w->ctx);
         }

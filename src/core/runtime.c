@@ -1250,17 +1250,28 @@ static void native_openai_control(const tny_openai_control_request *request,
     if (e->cancel_probe && e->cancel_probe(e->cancel_probe_ud)) { response->stop = true; }
 }
 
+static void finalize_turn(tny_engine *e);
+
 static void commit_pending_terminal(tny_engine *e) {
     tny_owned_event *terminal = e->pending_terminal;
     if (!terminal) return;
+    /* Keep the terminal private until fallible finalization succeeds. */
+    bool was_active = e->active;
+    e->active = false;
+    e->stop = terminal->ev.stop;
+    e->finalize_pending = true;
+    finalize_turn(e);
+    if (tny_alloc_scope_failed()) {
+        e->active = was_active;
+        tny_engine_fail_oom(e);
+        return;
+    }
     e->pending_terminal = NULL;
     e->terminal = true;
-    e->active = false;
     atomic_store_explicit(&e->cancel_armed, false, memory_order_release);
     e->stop = terminal->ev.stop;
     terminal->hooks_done = true;
     append_owned(e, terminal);
-    e->finalize_pending = true;
 }
 
 /* Returns true when the resolver queued or started work that needs another
@@ -1335,18 +1346,20 @@ static bool resolve_pending_terminal(tny_engine *e) {
 }
 
 static void finalize_turn(tny_engine *e) {
-    if (!e->finalize_pending || !e->session || !e->bk) return;
+    if (!e->finalize_pending || !e->session || !e->bk || tny_alloc_scope_failed()) return;
     e->finalize_pending = false;
     if (e->bk->session_pointer) {
         char *ptr = e->bk->session_pointer(e->bk);
-        if (ptr) {
-            session_set_host_pointer(e->session, ptr);
-            free(ptr);
-        }
+        if (ptr && !tny_alloc_scope_failed()) session_set_host_pointer(e->session, ptr);
+        free(ptr);
     }
+    if (tny_alloc_scope_failed()) return;
     session_set_meta(e->session, tny_provider_name(e->ctx), e->ctx->model);
+    if (tny_alloc_scope_failed()) return;
     if (!session_title(e->session) && e->prompt_text) session_set_title(e->session, e->prompt_text);
+    if (tny_alloc_scope_failed()) return;
     if (e->stop == TNY_STOP_DONE) (void)tny_engine_compact(e, false, "threshold");
+    if (tny_alloc_scope_failed()) return;
     session_save(e->session);
 }
 
@@ -1899,8 +1912,12 @@ int tny_engine_compact(tny_engine *e, bool force, const char *trigger) {
             free(json);
         }
     }
+    if (tny_alloc_scope_failed()) return -1;
     int changed = session_compact(e->session, force);
-    if (changed >= 0 && session_save(e->session) == 0) {
+    if (tny_alloc_scope_failed()) return -1;
+    int saved = changed >= 0 ? session_save(e->session) : -1;
+    if (tny_alloc_scope_failed()) return -1;
+    if (changed >= 0 && saved == 0) {
         if (changed && observable) {
             const char *summary = NULL;
             int boundary = session_compact_boundary(e->session, &summary);

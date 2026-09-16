@@ -285,7 +285,7 @@ TEST message_oom_stops_multiline_batch_and_event_copy(void) {
         "{\"method\":\"session/update\",\"params\":{\"update\":{"
         "\"sessionUpdate\":\"agent_message_chunk\",\"content\":{"
         "\"type\":\"text\",\"text\":\"owned text long enough to allocate a retained payload\"}}}}";
-    for (int batch = 0; batch < 3; batch++) {
+    for (int batch = 0; batch < 5; batch++) {
         size_t allocations = 0;
         for (size_t fault = 0; fault <= allocations; fault++) {
             tny_alloc_scope_begin("disabled");
@@ -316,6 +316,12 @@ TEST message_oom_stops_multiline_batch_and_event_copy(void) {
             char messages[2048];
             snprintf(messages, sizeof messages, batch == 1 ? "[%s,%s]\n" : "malformed\n%s\n%s\n",
                      update, update);
+            if (batch >= 3)
+                snprintf(
+                    messages, sizeof messages,
+                    "{\"jsonrpc\":\"2.0\",\"id\":%s,\"method\":\"%s\",\"params\":{}}\n%s\n%s\n",
+                    batch == 3 ? "{}" : "true", batch == 3 ? "cursor/task" : "unknown/request",
+                    update, update);
             /* Both messages are already buffered before injection. The sweep
              * includes line copy, jparse, batch jwrite/jparse and owned events. */
             if (batch == 2)

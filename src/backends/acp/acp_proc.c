@@ -214,7 +214,7 @@ static void drain_stderr(ac_impl *o) {
     }
     char *line;
     while ((line = acp_reader_next(&o->err_r, NULL)) != NULL) {
-        if (*line) fprintf(stderr, "acp: %.500s\n", line);
+        if (*line && !o->ctx->library_mode) fprintf(stderr, "acp: %.500s\n", line);
         free(line);
     }
     if (o->err_r.overflow) o->err_r.overflow = false; /* logs are best effort */

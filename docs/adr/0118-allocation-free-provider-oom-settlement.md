@@ -56,3 +56,47 @@ delivery allocation attempts, exactly one OOM ERROR and error TURN_END per turn,
 late completion rejection, then success on the same handle. The provider
 allocation mutant must fail the counter assertion. Phase-2 evidence records
 host gate results and the boundary between fixtures and live service proof.
+
+## Review 4 clarification and bounded exceptions
+
+Amended 2026-09-16 under explicit repair authorization. The allocation-free
+claim starts at the provider failure handoff / reserved settlement boundary.
+It is not a claim that every legacy helper returns at its first failed inner
+allocation. The following exceptions delimit that stronger claim:
+
+- **E1 — composite request and persistence helpers.** Instruction/skill/MCP
+  collection, `session_provider_view`, `tools_schema_json`, `session_add_*`,
+  `session_save`, and tool preparation/execution retain their existing internal
+  allocation sequences. Recursive yyjson copy/serialization and mutable JSON
+  construction can also attempt another allocation before returning to their
+  guarded caller. Provider callers stop before constructing another owner,
+  invoking another tool/control callback, or entering another persistence
+  operation once failure is observed. Rewriting those shared helper internals
+  is outside this provider repair. Their instrumented indices in the fixed
+  mock workloads remain included in the whole-turn sweeps; allocations inside
+  the reserved settlement boundary remain forbidden.
+- **E2 — vendored WebSocket allocator coverage.** The pinned wslay sources use
+  their own malloc calls and are not compiled with the tny allocation override.
+  Their internal allocation failures are not indices in the tny sweep. The
+  tny WebSocket callback now disables both receive and send immediately when
+  its reader fails, so wslay cannot consume another coalesced frame after that
+  callback failure. This closes the continuation path without modifying the
+  pinned library. It does not establish exhaustive fault injection of wslay's
+  own chunk/queue/flatten allocations.
+- **E3 — external allocators.** Allocations inside embedding callbacks, libc,
+  and platform TLS are outside the tny allocator counters. This is the existing
+  external-allocation boundary, not proof of those implementations' OOM paths.
+
+The runtime keeps its pending terminal private until fallible finalization
+returns. A finalization allocation failure therefore substitutes the reserved
+OOM ERROR/TURN_END pair before any successful terminal is delivered. Cursor
+pending completion unlinks the consumed provider lease before result
+serialization; its pump thread transfers failure across `pthread_join` before
+owner-thread processing resumes. These ownership and lifetime rules are not
+exceptions. Store operations stop at the failed operation; already completed
+writes/deletions are not rolled back.
+
+The Review 4 evidence records discovered allocation counts, sanitizer coverage,
+per-inventory dispositions and the exact tested source. Those finite mock
+workloads do not establish every possible provider payload or external service
+behavior, nor do host sanitizers establish unavailable platform/leak gates.

@@ -989,7 +989,8 @@ def start_mock(**settings):
     port = free_port()
     settings.setdefault("MOCK_CONNECTION_CLOSE", "1")
     settings.setdefault("MOCK_CHUNK_WIDTH", "1048576")
-    env = dict(os.environ, MOCK_EXPECT_WIRE="responses", **settings)
+    settings.setdefault("MOCK_EXPECT_WIRE", "responses")
+    env = dict(os.environ, **settings)
     mock = subprocess.Popen(
         [sys.executable, os.path.join(HERE, "mock_openai.py"), str(port)],
         env=env,
@@ -1003,7 +1004,111 @@ def start_mock(**settings):
     return mock, f"http://127.0.0.1:{port}/v1"
 
 
+def provider_turn_sweeps(libpath):
+    """Sweep every discovered index of each complete active mock turn.
+
+    Admission/constructor indices remain covered by the public API sweeps.
+    Unlike those per-call scopes, the native host retains one scope across
+    all dispatches, tool requests and finalization, then checks a later turn.
+    """
+    host = Path(libpath).with_name("provider-faults")
+    mock, url = start_mock(MOCK_REASONING="item")
+    chat, chat_url = start_mock(MOCK_EXPECT_WIRE="chat", MOCK_REASONING="details")
+    ws = subprocess.Popen(
+        [sys.executable, os.path.join(HERE, "fake_acp_agent_ws.py"), "0"],
+        env=dict(os.environ, FAKE_ACP_COALESCE="1"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    ws_url = "ws://127.0.0.1:" + ws.stdout.readline().decode().strip().split()[-1]
+    counts = {}
+    try:
+        for provider in ("openai", "openai-chat", "cursor", "acp", "acp-ws"):
+            provider_url = (
+                ws_url
+                if provider == "acp-ws"
+                else chat_url
+                if provider == "openai-chat"
+                else url
+            )
+
+            def run(index):
+                with tempfile.TemporaryDirectory(prefix="tny-turn-sweep-") as root:
+                    report = os.path.join(root, "report")
+                    process = subprocess.run(
+                        [
+                            str(host),
+                            "--turn-sweep",
+                            provider,
+                            str(index),
+                            provider_url,
+                            root,
+                            report,
+                        ],
+                        capture_output=True,
+                        timeout=30,
+                    )
+                    detail = (
+                        Path(report).read_text()
+                        if Path(report).exists()
+                        else "no report"
+                    )
+                    assert (
+                        process.returncode == 0
+                        and not process.stdout
+                        and not process.stderr
+                    ), (
+                        provider,
+                        index,
+                        process.returncode,
+                        detail,
+                        process.stdout.decode(errors="replace"),
+                        process.stderr.decode(errors="replace"),
+                    )
+                    count, injected, settlements, after_failure, status = map(
+                        int, detail.split()
+                    )
+                    assert status == 0 and after_failure == 0
+                    if injected:
+                        assert settlements >= 1
+                    return count, injected
+
+            maximum = max(run(0)[0] for _ in range(3))
+            index = 1
+            while index <= maximum:
+                for _attempt in range(8):
+                    count, injected = run(index)
+                    if injected:
+                        break
+                    maximum = max(maximum, count)
+                if not injected:
+                    # Discovery keeps the maximum of several runs, so an index
+                    # can come from a timing-dependent path (child or socket
+                    # scheduling). Re-discover now: the index must still be
+                    # reachable for "never injected" to be a defect.
+                    still_discovered = max(run(0)[0] for _ in range(3)) >= index
+                    assert not still_discovered, (
+                        provider,
+                        index,
+                        "discovered index never injected",
+                    )
+                index += 1
+            counts[provider] = maximum
+            print(f"provider active-turn sweep: {provider}={maximum}", flush=True)
+    finally:
+        mock.terminate()
+        mock.wait(timeout=5)
+        ws.terminate()
+        ws.wait(timeout=5)
+        chat.terminate()
+        chat.wait(timeout=5)
+    return counts
+
+
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--provider-sweeps-only":
+        provider_turn_sweeps(os.path.abspath(sys.argv[2]))
+        return
     if len(sys.argv) >= 2 and sys.argv[1] == "--reserved-settlement":
         child_reserved_settlement(sys.argv[2], sys.argv[3], sys.argv[4])
         return
@@ -1034,8 +1139,14 @@ def main():
         "request_construction_oom",
         "error_decode_oom",
         "message_oom",
+        "pending_completion_oom",
+        "store_callback_exhaustive",
+        "callback_thread_oom",
+        "bridge_stderr_oom",
+        "immediate_observe_recovery_exhaustive",
     ):
-        subprocess.run([str(native_host), "-t", test], check=True, timeout=15)
+        subprocess.run([str(native_host), "-t", test], check=True, timeout=60)
+    results.update(provider_turn_sweeps(libpath))
     for scenario in ("text", "permission", "custom", "later"):
         reserved_settlement_fixture(script, libpath, scenario)
 

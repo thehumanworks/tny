@@ -45,11 +45,15 @@ char *acp_reader_next(acp_reader *r, size_t *len_out) {
 }
 
 int acp_write_line(int fd, const char *json, size_t len) {
-    if (fd < 0) return -1;
+    if (fd < 0 || tny_alloc_scope_failed()) return -1;
     buf_t out;
     buf_init(&out);
     buf_append(&out, json, len);
     buf_append(&out, "\n", 1);
+    if (out.oom) { /* never write a truncated line as success */
+        buf_free(&out);
+        return -1;
+    }
     size_t off = 0;
     int rc = 0;
     while (off < out.len) {
@@ -131,6 +135,7 @@ int acp_send_error(int fd, const char *id_raw, int code, const char *msg) {
 }
 
 char *acp_id_text(yyjson_val *msg) {
+    if (tny_alloc_scope_failed()) return NULL;
     yyjson_val *id = jget(msg, "id");
     if (!id) return xstrdup("null");
     if (yyjson_is_int(id) || yyjson_is_uint(id) || yyjson_is_sint(id)) {
@@ -145,7 +150,7 @@ char *acp_id_text(yyjson_val *msg) {
         return buf_detach(&b);
     }
     char *raw = jwrite_val(id);
-    return raw ? raw : xstrdup("null");
+    return raw || tny_alloc_scope_failed() ? raw : xstrdup("null");
 }
 
 int64_t acp_id_num(yyjson_val *msg) {
@@ -195,7 +200,9 @@ bool acp_blocks_to_text(yyjson_val *arr, buf_t *out, const char **bad) {
 
 void acp_append_text_block(buf_t *b, const char *text, size_t len) {
     buf_appends(b, "{\"type\":\"text\",\"text\":");
+    if (tny_alloc_scope_failed()) return;
     char *tmp = xstrndup(text, len);
+    if (!tmp) return;
     jescape(b, tmp);
     free(tmp);
     buf_appends(b, "}");
