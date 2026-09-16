@@ -56,6 +56,7 @@ let
     # tests/fuzz/parser corpus, portable parser driver and parser_backend_oom.c
     # loopback retention regression are included here; no extra assets/tools.
     # Phase-2 runtime ownership/fault and mutation drivers use the existing compiler/Python.
+    # The C++ custom-tool completion-OOM sanitizer host is included by ../tests too.
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
     # runner_restart_fault.c uses the existing stdenv C compiler for a private
     # read/write interposer; no network, new package or external test data.

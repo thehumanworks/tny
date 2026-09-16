@@ -1,6 +1,7 @@
 /* test_runtime.c — private engine ownership and terminal normalization. */
 #include "greatest.h"
 #include "core/runtime.h"
+#include "core/tools.h"
 #include "cli/cli.h"
 #include "core/event_jsonl.h"
 #include "core/instructions.h"
@@ -392,6 +393,28 @@ TEST runtime_async_leases_survive_all_invalidation_orders(void) {
 }
 
 #ifdef TNY_ALLOC_TESTING
+TEST runtime_async_pending_call_free_releases_owner(void) {
+    size_t live = tny_parser_test_live_allocations();
+    custom_tool_registry *registry = custom_tools_new();
+    ASSERT(registry);
+    runtime_async_fixture x = {0};
+    tny_tool_registration *registration = NULL;
+    ASSERT_EQ(TNY_STATUS_OK, runtime_async_register(registry, &x, &registration));
+    tools_call call = {0};
+    char *result = NULL;
+    bool is_error = false;
+    ASSERT_EQ(TNY_TOOL_INVOKE_ASYNC,
+              custom_tool_invoke(registration, "{}", &call.custom_call, &result, &is_error));
+    ASSERT(tools_call_pending(&call));
+    tools_call_free(&call);
+    ASSERT(!tools_call_pending(&call));
+    tools_call_free(&call); /* Cleanup remains idempotent. */
+    tny_tool_call_release(x.host);
+    custom_tools_free(registry);
+    ASSERT_EQ(live, tny_parser_test_live_allocations());
+    PASS();
+}
+
 TEST runtime_async_allocation_sweep(void) {
     size_t live = tny_parser_test_live_allocations();
     /* Discover and fail every allocation in creation, metadata/container and
@@ -1656,6 +1679,7 @@ SUITE(runtime_suite) {
 #ifdef TNY_ALLOC_TESTING
     RUN_TEST(runtime_reserved_settlement_never_allocates);
     RUN_TEST(runtime_async_allocation_sweep);
+    RUN_TEST(runtime_async_pending_call_free_releases_owner);
     RUN_TEST(runtime_owned_event_allocation_sweep);
 #endif
     RUN_TEST(runtime_all_payloads_survive_queue_transfer_and_teardown);

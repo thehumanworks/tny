@@ -633,7 +633,14 @@ $(SAN_CUSTOM_HOST): tests/integration/libtny_custom_tools.c $(LIB_FAULT_SAN_REAL
 		-fsanitize=address,undefined -o $@ $< $(LIB_FAULT_SAN_REAL) -pthread \
 		-Wl,-rpath,$(CURDIR)/$(dir $(LIB_FAULT_SAN_REAL))
 
-test-libtny-fault-sanitize: lib-shared-fault-sanitize $(SAN_HOST) $(SAN_CUSTOM_HOST)
+SAN_CUSTOM_CPP_HOST = $(BUILD)/fault-san/libtny-custom-tools-cpp-sanitizer
+$(SAN_CUSTOM_CPP_HOST): tests/integration/libtny_custom_tools_cpp.cpp $(LIB_FAULT_SAN_REAL)
+	@mkdir -p $(@D)
+	$(CXX) -std=c++17 -Wall -Wextra -Werror -Iinclude -O1 -g -fno-omit-frame-pointer \
+		-fsanitize=address,undefined -o $@ $< $(LIB_FAULT_SAN_REAL) -pthread \
+		-Wl,-rpath,$(CURDIR)/$(dir $(LIB_FAULT_SAN_REAL))
+
+test-libtny-fault-sanitize: lib-shared-fault-sanitize $(SAN_HOST) $(SAN_CUSTOM_HOST) $(SAN_CUSTOM_CPP_HOST)
 ifeq ($(UNAME_S),Darwin)
 	@runtime="$$($(CC) --print-resource-dir)/lib/darwin/libclang_rt.asan_osx_dynamic.dylib"; \
 	python="$(SANITIZER_PYTHON)"; \
@@ -659,6 +666,10 @@ endif
 	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
 	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 	TNY_CUSTOM_TOOL_HOST=$(SAN_CUSTOM_HOST) \
+		python3 tests/integration/test_libtny_custom_tools.py
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+	TNY_CUSTOM_TOOL_HOST=$(SAN_CUSTOM_CPP_HOST) TNY_CUSTOM_TOOL_COMPLETION_OOM=1 \
 		python3 tests/integration/test_libtny_custom_tools.py
 
 ifeq ($(UNAME_S),Linux)

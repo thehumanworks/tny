@@ -827,6 +827,7 @@ void tools_call_invalidate_async(tools_call *call) {
 
 void tools_call_free(tools_call *call) {
     if (!call) return;
+    tools_call_invalidate_async(call);
     free(call->name);
     free(call->permission_tool);
     free(call->detail);

@@ -171,7 +171,68 @@ for this input, not universal allocation totals.
 
 ## Reviews
 
-Pending.
+### Independent phase-2 review follow-up (2026-09-16)
+
+The coordinator supplied an independent review of `4c62c66` with verdict
+**APPROVE-WITH-FIXES**; reviewer identity was not included in the handoff.
+This follow-up starts from clean `1b2b89a98ded270af08e4d8ae8b26ba6df2a90b2`
+and remains uncommitted. It uses the existing delegated contract, with no
+additional agents or changes to coordinator-owned integration/performance work.
+
+| Finding | Invariants | Disposition |
+| --- | --- | --- |
+| 1: `tools_call_free()` drops the pending provider owner | P2-I4 | Fixed: invalidate/consume the async owner before clearing the call. The regression frees a pending call twice, releases the worker, destroys the registry and asserts tracked live C++ allocations return to the pre-registry baseline. Before the fix it failed that final allocation assertion; after the fix it passes. |
+| 2: C++ fixture releases a handle on negative completion return | P2-I3, P2-I5 | Fixed: release only on the ASYNC return path; negative status leaves cleanup to the invoker. The real C++ fixture injects result-copy OOM twice through `tny_tool_call_complete`, verifies two OOM statuses and failed tool events, then completes a successful async retry. It is now included in `make test-libtny-fault-sanitize`. Before the fix ASan caught heap-use-after-free in handle destruction; after the fix ASan/UBSan pass. |
+| 3: integrated evidence and performance | Coordinator-owned | Not acted on; remains the coordinator's gate. This follow-up does not establish whole-phase completion. |
+
+No new ownership decision is introduced. ADR 0118 is the provider OOM
+settlement decision; no remaining stale `0117-allocation` references were found.
+Existing ADR files remain unchanged. The sanitizer fixture reuses the existing
+C++ compiler, Python mock driver, library and fault scope; the Nix input
+inventory already includes them and its comments now record this dependency.
+
+Development checks first exposed a missing `core/tools.h` include in the new
+unit test (compile failure, repaired). The first fixed C++ fixture incorrectly
+expected a turn-level error: callback failures are emitted as tool errors and
+the mock then finishes normally. Its oracle now checks failed tool events,
+exact OOM status counts, one tool-end per turn and successful recovery. These
+failed development checks are not counted as passing gates.
+
+The pre-fix [allocation failure](artifacts/review-fixes/review-repro-owner-fixed-include.log)
+and [ASan failure](artifacts/review-fixes/review-repro-cpp.log) demonstrate that
+both regressions detect the original bugs. The latter also contains macOS
+symbolizer warnings during the expected failing run; these do not occur in
+the passing sanitizer run.
+
+All eight final commands exited 0 on the same current source/test/configuration
+manifest ([source-sha256.json](artifacts/review-fixes/source-sha256.json)).
+[Run records](artifacts/review-fixes/runs.json) retain exact commands, revision,
+durations, exit codes and manifest hashes; [environment](artifacts/review-fixes/environment.json)
+records tool versions. Runs use the sanitized environment described above.
+
+| Requested gate | Exit | Result |
+| --- | ---: | --- |
+| [`make -j8 debug && build/tny-test`](artifacts/review-fixes/review-final-debug.log) | 0 | 562/562 tests, 19,688 assertions |
+| [`make test-runtime-ownership`](artifacts/review-fixes/review-final-runtime.log) | 0 | 38/38 tests, 5,008 assertions, including pending-owner reclamation |
+| [`make test-libtny-fault`](artifacts/review-fixes/review-final-fault.log) | 0 | 21 exhaustive scenarios and real-provider reserved cases |
+| [`make test-libtny-fault-sanitize`](artifacts/review-fixes/review-final-sanitize.log) | 0 | Fault sweeps, C async host and real C++ callback OOM/recovery under ASan/UBSan |
+| [`python3 tests/mutation/runtime_critical.py`](artifacts/review-fixes/review-final-mutation.log) | 0 | 7/7 intended behavioral kills; [results](artifacts/review-fixes/mutation-results.json) |
+| [`python3 tests/integration/test_libtny_custom_tools.py`](artifacts/review-fixes/review-final-custom.log) | 0 | C/C++/Python clients and available Go/Swift header checks |
+| [`python3 tests/integration/test_libtny_faults.py build/lib-fault/libtny.1.dylib`](artifacts/review-fixes/review-final-faults-direct.log) | 0 | Direct exhaustive allocation sweeps and real-provider reserved cases |
+| [`make quality`](artifacts/review-fixes/review-final-quality.log) | 0 | Format, C/C++ clang-tidy, strict warnings, Ruff, shell and JS checks |
+
+No compiler, sanitizer or quality warnings occurred in these final gates.
+The full unit suite prints 14 existing expected negative-fixture warnings
+for invalid tool profiles and malformed/unsupported/duplicate MCP imports;
+these are retained in the raw log, not suppressed or represented as absent.
+Darwin retains its documented GCC analyzer skip and disables ASan leak
+detection; the new pending-owner regression explicitly checks tracked live
+C++ allocations. This is host proof only.
+
+Findings 1 and 2: **PASS** for the assigned fixes and requested host gates.
+Finding 3 and whole-phase completion remain coordinator-owned and unresolved
+by this follow-up. `git diff --check` passes, all existing ADRs compare
+byte-for-byte with `1b2b89a`, and no changes were committed.
 
 ## Mutation results
 

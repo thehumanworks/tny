@@ -163,6 +163,8 @@ stdenv.mkDerivation {
     done
     ${testRunner}make -j''${NIX_BUILD_CORES} $makeFlags test
     # Includes the loopback backend OOM retention check before teardown.
+    # Custom-tool C++ sanitizer fixtures reuse stdenv's C++ compiler and Python;
+    # the fault-sanitize target needs no additional sandbox inputs.
     ${testRunner}make $makeFlags test-parser-smoke test-runtime-ownership
     ${testRunner}python3 tests/mutation/runtime_critical.py
     ${testRunner}make $makeFlags test-shell-workflows

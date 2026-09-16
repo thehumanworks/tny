@@ -1,0 +1,186 @@
+=================================================================
+==65127==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000010d8 at pc 0x000105618da4 bp 0x00016b485c60 sp 0x00016b485c58
+READ of size 8 at 0x6020000010d8 thread T0
+==65127==WARNING: external symbolizer didn't start up correctly!
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x105618da0"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10560f17c"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10552500c"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10559f9a0"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10557c6b0"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10558f820"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x105579338"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x1054878cc"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x105488430"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x1053771f0"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x104970e08"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x19c48be84"
+    #0 0x000105618da0 in tny::destroy<tny_tool_call>::operator()(tny_tool_call*) const+0x110 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x2b0da0)
+    #1 0x00010560f17c in custom_tool_invoke+0xdf0 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x2a717c)
+    #2 0x00010552500c in tools_call_execute+0x24c (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x1bd00c)
+    #3 0x00010559f9a0 in execute_or_park+0x254 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x2379a0)
+    #4 0x00010557c6b0 in run_tools+0x1824 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x2146b0)
+    #5 0x00010558f820 in step_finished+0xd80 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x227820)
+    #6 0x000105579338 in oa_dispatch+0x207c (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x211338)
+    #7 0x0001054878cc in tny_engine_dispatch+0x140 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x11f8cc)
+    #8 0x000105488430 in tny_engine_next_event+0x774 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x120430)
+    #9 0x0001053771f0 in tny_session_next_event+0x2f0 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0xf1f0)
+    #10 0x000104970e08 in main+0x4a0 (/Users/tomas/projects/tny-cpp-series/build/fault-san/libtny-custom-tools-cpp-sanitizer:arm64+0x100000e08)
+    #11 0x00019c48be84 in start+0x1a1c (/usr/lib/dyld:arm64e+0x31e84)
+
+0x6020000010d8 is located 8 bytes inside of 16-byte region [0x6020000010d0,0x6020000010e0)
+freed by thread T0 here:
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x105ab5308"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x105618cec"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x105611438"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x1049714c0"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10560f088"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10552500c"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10559f9a0"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10557c6b0"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10558f820"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x105579338"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x1054878cc"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x105488430"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x1053771f0"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x104970e08"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x19c48be84"
+    #0 0x000105ab5308 in free+0x7c (/Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.asan_osx_dynamic.dylib:arm64e+0x41308)
+    #1 0x000105618cec in tny::destroy<tny_tool_call>::operator()(tny_tool_call*) const+0x5c (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x2b0cec)
+    #2 0x000105611438 in tny_tool_call_release+0x1c (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x2a9438)
+    #3 0x0001049714c0 in invoke(void*, tny_tool_call*, unsigned long long, tny_bytes, tny_tool_result_v1*)+0x474 (/Users/tomas/projects/tny-cpp-series/build/fault-san/libtny-custom-tools-cpp-sanitizer:arm64+0x1000014c0)
+    #4 0x00010560f088 in custom_tool_invoke+0xcfc (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x2a7088)
+    #5 0x00010552500c in tools_call_execute+0x24c (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x1bd00c)
+    #6 0x00010559f9a0 in execute_or_park+0x254 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x2379a0)
+    #7 0x00010557c6b0 in run_tools+0x1824 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x2146b0)
+    #8 0x00010558f820 in step_finished+0xd80 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x227820)
+    #9 0x000105579338 in oa_dispatch+0x207c (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x211338)
+    #10 0x0001054878cc in tny_engine_dispatch+0x140 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x11f8cc)
+    #11 0x000105488430 in tny_engine_next_event+0x774 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x120430)
+    #12 0x0001053771f0 in tny_session_next_event+0x2f0 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0xf1f0)
+    #13 0x000104970e08 in main+0x4a0 (/Users/tomas/projects/tny-cpp-series/build/fault-san/libtny-custom-tools-cpp-sanitizer:arm64+0x100000e08)
+    #14 0x00019c48be84 in start+0x1a1c (/usr/lib/dyld:arm64e+0x31e84)
+
+previously allocated by thread T0 here:
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x105ab5214"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x105381ed8"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10560f84c"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10560e558"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10552500c"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10559f9a0"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10557c6b0"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x10558f820"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x105579338"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x1054878cc"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x105488430"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x1053771f0"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x104970e08"
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x19c48be84"
+    #0 0x000105ab5214 in malloc+0x78 (/Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.asan_osx_dynamic.dylib:arm64e+0x41214)
+    #1 0x000105381ed8 in tny_alloc_malloc+0x78 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x19ed8)
+    #2 0x00010560f84c in std::__1::unique_ptr<tny_tool_call, tny::destroy<tny_tool_call>> tny::make_owner<tny_tool_call>()+0x24 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x2a784c)
+    #3 0x00010560e558 in custom_tool_invoke+0x1cc (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x2a6558)
+    #4 0x00010552500c in tools_call_execute+0x24c (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x1bd00c)
+    #5 0x00010559f9a0 in execute_or_park+0x254 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x2379a0)
+    #6 0x00010557c6b0 in run_tools+0x1824 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x2146b0)
+    #7 0x00010558f820 in step_finished+0xd80 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x227820)
+    #8 0x000105579338 in oa_dispatch+0x207c (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x211338)
+    #9 0x0001054878cc in tny_engine_dispatch+0x140 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x11f8cc)
+    #10 0x000105488430 in tny_engine_next_event+0x774 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x120430)
+    #11 0x0001053771f0 in tny_session_next_event+0x2f0 (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0xf1f0)
+    #12 0x000104970e08 in main+0x4a0 (/Users/tomas/projects/tny-cpp-series/build/fault-san/libtny-custom-tools-cpp-sanitizer:arm64+0x100000e08)
+    #13 0x00019c48be84 in start+0x1a1c (/usr/lib/dyld:arm64e+0x31e84)
+
+==65127==WARNING: Can't read from symbolizer at fd 7
+==65127==WARNING: atos failed to symbolize address "0x105618da0"
+SUMMARY: AddressSanitizer: heap-use-after-free (/Users/tomas/projects/tny-cpp-series/build/lib-fault-san/libtny.1.dylib:arm64+0x2b0da0) in tny::destroy<tny_tool_call>::operator()(tny_tool_call*) const+0x110
+Shadow bytes around the buggy address:
+  0x602000000e00: fa fa fd fd fa fa fd fd fa fa fd fd fa fa fd fd
+  0x602000000e80: fa fa fd fd fa fa fd fd fa fa fd fd fa fa fd fa
+  0x602000000f00: fa fa fd fa fa fa fd fd fa fa fd fd fa fa fd fa
+  0x602000000f80: fa fa 04 fa fa fa fd fd fa fa 00 07 fa fa fd fa
+  0x602000001000: fa fa fd fa fa fa fd fd fa fa fd fd fa fa 00 02
+=>0x602000001080: fa fa 00 02 fa fa 00 00 fa fa fd[fd]fa fa 00 00
+  0x602000001100: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x602000001180: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x602000001200: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x602000001280: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x602000001300: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==65127==ABORTING
+Traceback (most recent call last):
+  File "/Users/tomas/projects/tny-cpp-series/tests/integration/test_libtny_custom_tools.py", line 355, in <module>
+    main()
+    ~~~~^^
+  File "/Users/tomas/projects/tny-cpp-series/tests/integration/test_libtny_custom_tools.py", line 293, in main
+    subprocess.run(
+    ~~~~~~~~~~~~~~^
+        [
+        ^
+    ...<6 lines>...
+        timeout=180,
+        ^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/tomas/.local/share/mise/installs/python/3.14.7/lib/python3.14/subprocess.py", line 578, in run
+    raise CalledProcessError(retcode, process.args,
+                             output=stdout, stderr=stderr)
+subprocess.CalledProcessError: Command '['/Users/tomas/projects/tny-cpp-series/build/fault-san/libtny-custom-tools-cpp-sanitizer', '/Users/tomas/projects/tny-cpp-series/build/tmp/tny-custom-tools-oj75wmm8/workspace', 'http://127.0.0.1:59148/v1']' died with <Signals.SIGABRT: 6>.
