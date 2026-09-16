@@ -1,0 +1,5 @@
+build/fuzz/libtny-fuzz-smoke --self-test
+fuzz classes: 0x1ff required: 0x1ff
+fuzz classes: 0x057 required: 0x1ff
+fuzz negative self-test: expected missing-class rejection
+build/fuzz/libtny-fuzz-smoke tests/fuzz/corpus-v1/00-valid-minimal tests/fuzz/corpus-v1/01-valid-required tests/fuzz/corpus-v1/02-unsupported-keyword tests/fuzz/corpus-v1/03-nested-schema tests/fuzz/corpus-v1/04-length-and-nul

@@ -1,0 +1,98 @@
+[
+  {
+    "label": "review2-debug",
+    "command": [
+      "make",
+      "-j8",
+      "debug"
+    ],
+    "exit": 0,
+    "seconds": 1.618,
+    "revision": "2727f6cf19b95e58b3fb6dbd787bb58b41e503c4",
+    "manifest_sha256": "fcd62b9e21a3654d386e05a1786ca81108be8ebe8b5420b1a794138b400f7f12",
+    "changes_to_final": []
+  },
+  {
+    "label": "review2-unit",
+    "command": [
+      "build/tny-test"
+    ],
+    "exit": 0,
+    "seconds": 38.08,
+    "revision": "2727f6cf19b95e58b3fb6dbd787bb58b41e503c4",
+    "manifest_sha256": "fcd62b9e21a3654d386e05a1786ca81108be8ebe8b5420b1a794138b400f7f12",
+    "changes_to_final": []
+  },
+  {
+    "label": "review2-ownership",
+    "command": [
+      "make",
+      "test-runner-ownership"
+    ],
+    "exit": 0,
+    "seconds": 17.072,
+    "revision": "2727f6cf19b95e58b3fb6dbd787bb58b41e503c4",
+    "manifest_sha256": "fcd62b9e21a3654d386e05a1786ca81108be8ebe8b5420b1a794138b400f7f12",
+    "changes_to_final": []
+  },
+  {
+    "label": "review2-fault",
+    "command": [
+      "make",
+      "test-libtny-fault"
+    ],
+    "exit": 0,
+    "seconds": 107.991,
+    "revision": "2727f6cf19b95e58b3fb6dbd787bb58b41e503c4",
+    "manifest_sha256": "fcd62b9e21a3654d386e05a1786ca81108be8ebe8b5420b1a794138b400f7f12",
+    "changes_to_final": []
+  },
+  {
+    "label": "review2-fault-sanitize",
+    "command": [
+      "make",
+      "test-libtny-fault-sanitize"
+    ],
+    "exit": 0,
+    "seconds": 138.878,
+    "revision": "2727f6cf19b95e58b3fb6dbd787bb58b41e503c4",
+    "manifest_sha256": "fcd62b9e21a3654d386e05a1786ca81108be8ebe8b5420b1a794138b400f7f12",
+    "changes_to_final": []
+  },
+  {
+    "label": "review2-mutations",
+    "command": [
+      "python3",
+      "tests/mutation/runner_critical.py"
+    ],
+    "exit": 0,
+    "seconds": 64.848,
+    "revision": "2727f6cf19b95e58b3fb6dbd787bb58b41e503c4",
+    "manifest_sha256": "fcd62b9e21a3654d386e05a1786ca81108be8ebe8b5420b1a794138b400f7f12",
+    "changes_to_final": []
+  },
+  {
+    "label": "review2-quality",
+    "command": [
+      "make",
+      "quality"
+    ],
+    "exit": 0,
+    "seconds": 207.251,
+    "revision": "2727f6cf19b95e58b3fb6dbd787bb58b41e503c4",
+    "manifest_sha256": "fcd62b9e21a3654d386e05a1786ca81108be8ebe8b5420b1a794138b400f7f12",
+    "changes_to_final": []
+  },
+  {
+    "label": "review2-regression-baseline",
+    "command": [
+      "python3",
+      "build/review-regression-baseline.py"
+    ],
+    "exit": 0,
+    "seconds": 7.188,
+    "revision": "2727f6cf19b95e58b3fb6dbd787bb58b41e503c4",
+    "manifest_sha256": "fcd62b9e21a3654d386e05a1786ca81108be8ebe8b5420b1a794138b400f7f12",
+    "changes_to_final": []
+  }
+]

@@ -1,0 +1,8 @@
+#!/bin/sh
+# macOS mktemp without a template uses confstr's sandbox-denied temp directory.
+# Preserve all explicit templates; use the task's TMPDIR for bare -d/default.
+case "$*" in
+    -d) exec /usr/bin/mktemp -d "$TMPDIR/tmp.XXXXXXXXXX" ;;
+    '') exec /usr/bin/mktemp "$TMPDIR/tmp.XXXXXXXXXX" ;;
+    *) exec /usr/bin/mktemp "$@" ;;
+esac

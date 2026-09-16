@@ -1,0 +1,15 @@
+== run 1: new session
+⏺ read {"path":"README.md"}
+  ✓ read
+wrapping up
+== run 2: --resume 23be90c0b7357acd
+⏺ read {"path":"README.md"}
+  ✓ read
+wrapping up
+== run 3: --effort light -> catalog value low
+⏺ read {"path":"README.md"}
+  ✓ read
+wrapping up
+== run 4: --fast
+== run 5: --effort light --fast
+PASS: cursor bridge backend (agent agent-mock-0001 reused on resume)

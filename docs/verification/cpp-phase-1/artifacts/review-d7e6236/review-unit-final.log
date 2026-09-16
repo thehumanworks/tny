@@ -1,0 +1,25 @@
+8 tests - 8 passed, 0 failed, 0 skipped (9769 ticks, 0.010 sec)
+
+* Suite sandbox_suite:
+......
+6 tests - 6 passed, 0 failed, 0 skipped (14280 ticks, 0.014 sec)
+
+* Suite edit_suite:
+..........
+10 tests - 10 passed, 0 failed, 0 skipped (5038 ticks, 0.005 sec)
+
+* Suite perm_suite:
+..................
+18 tests - 18 passed, 0 failed, 0 skipped (3424 ticks, 0.003 sec)
+
+* Suite intercept_suite:
+..............tny: TNY_PERMISSION_MODE: permission mode 'yolo' is wider than the 'ask' mode of the tny turn this command runs inside; a nested run cannot widen it
+.
+15 tests - 15 passed, 0 failed, 0 skipped (19123 ticks, 0.019 sec)
+
+* Suite provider_extras_suite:
+....
+4 tests - 4 passed, 0 failed, 0 skipped (65 ticks, 0.000 sec)
+
+Total: 557 tests (3186392 ticks, 3.186 sec), 15275 assertions
+Pass: 557, fail: 0, skip: 0.

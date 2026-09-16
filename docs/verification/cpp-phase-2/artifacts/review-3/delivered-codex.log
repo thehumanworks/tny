@@ -1,0 +1,17 @@
+ok  --chatgpt-token/--chatgpt-account-id drive the profile with no files
+ok  --chatgpt-token beats CHATGPT_ACCESS_TOKEN
+ok  CHATGPT_ACCESS_TOKEN auto-detects codex; account id from the JWT claim
+ok  CHATGPT_ACCOUNT_ID beats the claim
+ok  tny models reads the ChatGPT catalog (client_version, hidden slugs dropped)
+ok  $CODEX_HOME/auth.json from `codex login` still works and auto-detects
+ok  expired Codex CLI token refreshed via auth.openai.com shape, rewritten in place, not re-refreshed
+ok  API-key auth.json rides plain bearer auth without ChatGPT headers
+ok  --device login: usercode → pending polls → exchange with the server verifier → ~/.tny/codex-auth.json 0600
+ok  the tny store auto-detects and drives the profile
+ok  precedence: env > ~/.tny/codex-auth.json > $CODEX_HOME/auth.json
+ok  expired tny store refreshed in place; the Codex CLI file is left alone
+ok  browser login: authorize URL (PKCE S256, state, originator tny), bad state refused, callback exchanged, store written
+ok  browser login: pasted redirect URL with state check
+ok  logout removes ~/.tny/codex-auth.json and points at the Codex CLI's own file
+ok  missing credential names login, the env var, and the flag
+all codex (ChatGPT backend) integration tests passed

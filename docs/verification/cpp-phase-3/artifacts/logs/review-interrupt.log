@@ -1,0 +1,16 @@
+ok: ctrl-c, saturated runner, TUI, chat, isolate=True: interrupted and disconnected in 0.125s
+ok: ctrl-d, saturated runner, TUI, chat, isolate=True: interrupted and disconnected in 0.021s
+ok: ctrl-c, saturated runner, TUI, responses, isolate=True: interrupted and disconnected in 0.118s
+ok: ctrl-c, saturated runner, TUI, chat, isolate=False: interrupted and disconnected in 0.121s
+ok: ctrl-c, saturated runner, TUI, chat, isolate=True: interrupted and disconnected in 0.139s
+ok: ctrl-d, saturated runner, TUI, chat, isolate=True: interrupted and disconnected in 0.101s
+ok: double-ctrl-c, frozen runner, TUI, chat, isolate=True: interrupted and disconnected in 0.516s
+ok: ctrl-c, frozen runner, TUI, chat, isolate=True: interrupted and disconnected in 5.247s
+ok: ctrl-d, frozen runner, TUI, chat, isolate=True: interrupted and disconnected in 5.350s
+ok: ctrl-d, frozen runner, TUI, chat, isolate=True: interrupted and disconnected in 5.917s
+ok: hangup, frozen runner, TUI, chat, isolate=True: interrupted and disconnected in 5.383s
+ok: terminal-close, frozen runner, TUI, chat, isolate=True: interrupted and disconnected in 5.416s
+ok: double-ctrl-c, frozen runner, CLI, chat, isolate=True: interrupted and disconnected in 0.624s
+ok: ctrl-c, saturated runner, CLI, chat, isolate=True: interrupted and disconnected in 0.114s
+ok: hangup, frozen runner, CLI, chat, isolate=True: interrupted and disconnected in 5.275s
+ok: session-kill, frozen runner, TUI, chat, isolate=True: interrupted and disconnected in 5.161s

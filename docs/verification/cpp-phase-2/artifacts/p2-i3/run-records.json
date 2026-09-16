@@ -1,0 +1,317 @@
+[
+  {
+    "label": "p2i3-reserved",
+    "command": [
+      "python3",
+      "tests/integration/test_libtny_faults.py",
+      "--reserved-only",
+      "build/lib-fault/libtny.1.dylib"
+    ],
+    "exit": 1,
+    "seconds": 1.1628379821777344,
+    "source_manifest_sha256": "d3418d4941bf62da9b291211fc9a06512813ee8c49ab394d02903f845aaa8e9a",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-reserved2",
+    "command": [
+      "python3",
+      "tests/integration/test_libtny_faults.py",
+      "--reserved-only",
+      "build/lib-fault/libtny.1.dylib"
+    ],
+    "exit": 1,
+    "seconds": 1.6660809516906738,
+    "source_manifest_sha256": "5bb2fc9b84bcdf86b097cb14791c530d1e07a6097ab6a56d94a6cd268bb4befa",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-reserved3",
+    "command": [
+      "python3",
+      "tests/integration/test_libtny_faults.py",
+      "--reserved-only",
+      "build/lib-fault/libtny.1.dylib"
+    ],
+    "exit": 0,
+    "seconds": 1.7074732780456543,
+    "source_manifest_sha256": "3d1f32cfc429fe78d764966651fb96414f4beee7e265e259b49dba9d72f6a8c9",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-debug",
+    "command": [
+      "sh",
+      "-c",
+      "make -j8 debug && build/tny-test"
+    ],
+    "exit": 1,
+    "seconds": 41.88838028907776,
+    "source_manifest_sha256": "581a3cde5a9393b70728b57e313cd075e0b297dbdfb44d39096a1eebf0ee92dd",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-fault",
+    "command": [
+      "make",
+      "-j8",
+      "test-libtny-fault"
+    ],
+    "exit": 0,
+    "seconds": 102.13297986984253,
+    "source_manifest_sha256": "581a3cde5a9393b70728b57e313cd075e0b297dbdfb44d39096a1eebf0ee92dd",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-mutation",
+    "command": [
+      "python3",
+      "tests/mutation/runtime_critical.py"
+    ],
+    "exit": 0,
+    "seconds": 22.311872959136963,
+    "source_manifest_sha256": "a7ab0028755a46605386af867719f263f6c2a2041f8c667b1411e48c1a14df6b",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-sanitize",
+    "command": [
+      "make",
+      "-j8",
+      "test-libtny-fault-sanitize"
+    ],
+    "exit": 0,
+    "seconds": 124.44128203392029,
+    "source_manifest_sha256": "581a3cde5a9393b70728b57e313cd075e0b297dbdfb44d39096a1eebf0ee92dd",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-builds",
+    "command": [
+      "make",
+      "-j8",
+      "release",
+      "lib-shared-active",
+      "lib-shared-fault",
+      "lib-shared-fault-sanitize"
+    ],
+    "exit": 0,
+    "seconds": 7.624919891357422,
+    "source_manifest_sha256": "09295438d6788e8b49a80a10aceda694cbbf4296cf24c9363b3cd3ecab4448e2",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-debug-final",
+    "command": [
+      "sh",
+      "-c",
+      "make -j8 debug && build/tny-test"
+    ],
+    "exit": 1,
+    "seconds": 39.095213174819946,
+    "source_manifest_sha256": "09295438d6788e8b49a80a10aceda694cbbf4296cf24c9363b3cd3ecab4448e2",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-debug-pass",
+    "command": [
+      "sh",
+      "-c",
+      "make -j8 debug && build/tny-test"
+    ],
+    "exit": 2,
+    "seconds": 0.41432809829711914,
+    "source_manifest_sha256": "593114ace62d0c6899358051ececd6250de385d7a9d45d6f614e2b3ae157b641",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-fault-final",
+    "command": [
+      "make",
+      "test-libtny-fault"
+    ],
+    "exit": 2,
+    "seconds": 0.3679041862487793,
+    "source_manifest_sha256": "593114ace62d0c6899358051ececd6250de385d7a9d45d6f614e2b3ae157b641",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-libtny",
+    "command": [
+      "python3",
+      "tests/integration/test_libtny.py"
+    ],
+    "exit": 0,
+    "seconds": 2.5121829509735107,
+    "source_manifest_sha256": "593114ace62d0c6899358051ececd6250de385d7a9d45d6f614e2b3ae157b641",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-fault-pass",
+    "command": [
+      "make",
+      "test-libtny-fault"
+    ],
+    "exit": 2,
+    "seconds": 0.7857210636138916,
+    "source_manifest_sha256": "f4b872cb9087e4bed5382cdf0bdb977d825c9c07d8bf40777061b663f01b060c",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-custom",
+    "command": [
+      "python3",
+      "tests/integration/test_libtny_custom_tools.py"
+    ],
+    "exit": 0,
+    "seconds": 3.1665401458740234,
+    "source_manifest_sha256": "f4b872cb9087e4bed5382cdf0bdb977d825c9c07d8bf40777061b663f01b060c",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-fuzz",
+    "command": [
+      "make",
+      "test-libtny-fuzz-smoke"
+    ],
+    "exit": 0,
+    "seconds": 0.814579963684082,
+    "source_manifest_sha256": "b32fc353c19f9dd9e699b5a7bc7f690fb8cf5ab8489e39663cd9417862578b24",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-debug4",
+    "command": [
+      "sh",
+      "-c",
+      "make -j8 debug && build/tny-test"
+    ],
+    "exit": 0,
+    "seconds": 38.69710993766785,
+    "source_manifest_sha256": "f4b872cb9087e4bed5382cdf0bdb977d825c9c07d8bf40777061b663f01b060c",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-sanitize-final",
+    "command": [
+      "make",
+      "test-libtny-fault-sanitize"
+    ],
+    "exit": 0,
+    "seconds": 119.1321370601654,
+    "source_manifest_sha256": "593114ace62d0c6899358051ececd6250de385d7a9d45d6f614e2b3ae157b641",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-libtny-final",
+    "command": [
+      "python3",
+      "tests/integration/test_libtny.py"
+    ],
+    "exit": 0,
+    "seconds": 2.0691158771514893,
+    "source_manifest_sha256": "b32fc353c19f9dd9e699b5a7bc7f690fb8cf5ab8489e39663cd9417862578b24",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-runtime",
+    "command": [
+      "make",
+      "test-runtime-ownership"
+    ],
+    "exit": 0,
+    "seconds": 5.162489891052246,
+    "source_manifest_sha256": "b32fc353c19f9dd9e699b5a7bc7f690fb8cf5ab8489e39663cd9417862578b24",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-quality",
+    "command": [
+      "make",
+      "quality"
+    ],
+    "exit": 0,
+    "seconds": 224.9896740913391,
+    "source_manifest_sha256": "09295438d6788e8b49a80a10aceda694cbbf4296cf24c9363b3cd3ecab4448e2",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-mutation-final",
+    "command": [
+      "python3",
+      "tests/mutation/runtime_critical.py"
+    ],
+    "exit": 0,
+    "seconds": 18.468860864639282,
+    "source_manifest_sha256": "b32fc353c19f9dd9e699b5a7bc7f690fb8cf5ab8489e39663cd9417862578b24",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-fault-gate",
+    "command": [
+      "make",
+      "test-libtny-fault"
+    ],
+    "exit": 0,
+    "seconds": 99.54621505737305,
+    "source_manifest_sha256": "b32fc353c19f9dd9e699b5a7bc7f690fb8cf5ab8489e39663cd9417862578b24",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-custom-final",
+    "command": [
+      "python3",
+      "tests/integration/test_libtny_custom_tools.py"
+    ],
+    "exit": 0,
+    "seconds": 2.4110498428344727,
+    "source_manifest_sha256": "b32fc353c19f9dd9e699b5a7bc7f690fb8cf5ab8489e39663cd9417862578b24",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-debug-gate",
+    "command": [
+      "sh",
+      "-c",
+      "make -j8 debug && build/tny-test"
+    ],
+    "exit": 0,
+    "seconds": 37.86453604698181,
+    "source_manifest_sha256": "b32fc353c19f9dd9e699b5a7bc7f690fb8cf5ab8489e39663cd9417862578b24",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-faults-direct",
+    "command": [
+      "python3",
+      "tests/integration/test_libtny_faults.py",
+      "build/lib-fault/libtny.1.dylib"
+    ],
+    "exit": 0,
+    "seconds": 95.18992114067078,
+    "source_manifest_sha256": "b32fc353c19f9dd9e699b5a7bc7f690fb8cf5ab8489e39663cd9417862578b24",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-sanitize-gate",
+    "command": [
+      "make",
+      "test-libtny-fault-sanitize"
+    ],
+    "exit": 0,
+    "seconds": 118.48613214492798,
+    "source_manifest_sha256": "b32fc353c19f9dd9e699b5a7bc7f690fb8cf5ab8489e39663cd9417862578b24",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  },
+  {
+    "label": "p2i3-quality-final",
+    "command": [
+      "make",
+      "quality"
+    ],
+    "exit": 0,
+    "seconds": 227.24301528930664,
+    "source_manifest_sha256": "b32fc353c19f9dd9e699b5a7bc7f690fb8cf5ab8489e39663cd9417862578b24",
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2"
+  }
+]

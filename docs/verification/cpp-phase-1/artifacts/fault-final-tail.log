@@ -1,0 +1,14 @@
+		-fsanitize=address,undefined
+cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -Iinclude -O1 -g -fno-omit-frame-pointer \
+		-fsanitize=address,undefined -o build/fault-san/libtny-sanitizer-host tests/integration/libtny_sanitizer_host.c build/lib-fault-san/libtny.1.dylib \
+		 \
+		-Wl,-rpath,/Users/tomas/projects/tny-cpp-parsers/build/lib-fault-san
+ok  native transport preserves host SIGPIPE state and total deadlines
+ok  TLS handshake and close paths cannot terminate the embedding host
+ok  Authorization-bearing native request buffers are securely wiped
+python3 tests/integration/test_libtny_faults.py build/lib-fault/libtny.1.dylib
+test_libtny_faults: exhaustive allocation sweeps passed; tools_fs_walk=10, toolkit_create=3, toolkit_run=28, runtime_create=22, session_create=22, session_open=28, session_send=68, session_send_rearm=72, next_event=171, session_steer=3, respond_permission=18, session_free_permission=17, runtime_free_permission=17, session_free_active=4, runtime_free_active=4, session_free_cancelled=4, runtime_free_cancelled=4, session_free_failed=0, runtime_free_failed=0
+test_libtny_faults: exhaustive allocation sweeps passed; tools_fs_walk=10, toolkit_create=3, toolkit_run=28, runtime_create=22, session_create=22, session_open=28, session_send=68, session_send_rearm=72, next_event=171, session_steer=3, respond_permission=18, session_free_permission=17, runtime_free_permission=17, session_free_active=4, runtime_free_active=4, session_free_cancelled=4, runtime_free_cancelled=4, session_free_failed=0, runtime_free_failed=0
+ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+		python3 tests/integration/libtny_sanitizer_launcher.py build/fault-san/libtny-sanitizer-host

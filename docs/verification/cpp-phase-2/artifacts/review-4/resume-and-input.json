@@ -1,0 +1,9 @@
+{
+  "revision": "58e92bf9dc03e5cbd139ae0203eaaae35f894416",
+  "branch": "migration/cpp-series-fix",
+  "source_files": 729,
+  "source_manifest_sha256": "daa77b4b2c2d5f337db9b314ba68597e216bc02ad6e537e8d923dc952313b6a8",
+  "input_review_sha256": "f9a51e9d11c1e1de30516d2d18d097b024db1e7a011c8a47b0a6de0fea1a82fd",
+  "contract_initial_matches_live": true,
+  "resume_state": "20 existing uncommitted files preserved; initial status and stat inspected before continuation"
+}

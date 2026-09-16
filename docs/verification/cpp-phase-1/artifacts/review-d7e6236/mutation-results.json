@@ -1,0 +1,30 @@
+[
+  {
+    "mutation": "frame-limit",
+    "exit": -6,
+    "reason": "64 MiB frame-size check",
+    "killed": true,
+    "source_sha256": "f44d795db66d648ab70973403ea3105d2933964d227f45d02f5f64e43019e069"
+  },
+  {
+    "mutation": "identity-precedence",
+    "exit": -6,
+    "reason": "fresh ID must take precedence",
+    "killed": true,
+    "source_sha256": "558cf2a85001f6a830ade791e48af74bddbc5259129ea978b9417bd0dfdf2743"
+  },
+  {
+    "mutation": "borrowed-document",
+    "exit": -6,
+    "reason": "heap-use-after-free",
+    "killed": true,
+    "source_sha256": "558cf2a85001f6a830ade791e48af74bddbc5259129ea978b9417bd0dfdf2743"
+  },
+  {
+    "mutation": "swallowed-oom",
+    "exit": -6,
+    "reason": "OOM must not be swallowed",
+    "killed": true,
+    "source_sha256": "f44d795db66d648ab70973403ea3105d2933964d227f45d02f5f64e43019e069"
+  }
+]

@@ -1,0 +1,207 @@
+
+* Suite image_service_suite:
+...............................
+31 tests - 31 passed, 0 failed, 0 skipped (1887385 ticks, 1.887 sec)
+
+* Suite speech_suite:
+....
+4 tests - 4 passed, 0 failed, 0 skipped (2039 ticks, 0.002 sec)
+
+* Suite dictation_suite:
+........
+8 tests - 8 passed, 0 failed, 0 skipped (1072 ticks, 0.001 sec)
+
+* Suite util_suite:
+...........
+11 tests - 11 passed, 0 failed, 0 skipped (204 ticks, 0.000 sec)
+
+* Suite worktree_suite:
+..
+2 tests - 2 passed, 0 failed, 0 skipped (58 ticks, 0.000 sec)
+
+* Suite net_suite:
+.................
+17 tests - 17 passed, 0 failed, 0 skipped (10307 ticks, 0.010 sec)
+
+* Suite http_server_suite:
+.......
+7 tests - 7 passed, 0 failed, 0 skipped (55482 ticks, 0.055 sec)
+
+* Suite core_suite:
+..............codex login removed (/Users/tomas/projects/tny-cpp-phase3/build/tmp/tny-test-home-iSsE4n/.tny/codex-auth.json deleted).
+...tny: unknown provider 'nope' (cursor|acp|openai|codex|claude|grok|acp@NAME, a settings.json object with a base_url, or NAME_BASE_URL in the environment)
+....tny: invalid ACP provider 'acp:': names use letters, digits, - and _
+tny: ACP provider 'acp:unknown' is not defined under settings.json acp.unknown
+tny: invalid ACP provider 'acp:bad name': names use letters, digits, - and _
+tny: settings.json acp.missing.command must be a nonempty string
+tny: settings.json acp.not_array.command must be a nonempty string
+tny: settings.json acp.empty.command must not be empty
+tny: settings.json acp.non_string.command[1] must be a nonempty string
+tny: settings.json acp.empty_arg.command[1] must be a nonempty string
+tny: settings.json acp.remote_args.args must be empty for a remote WebSocket agent
+tny: settings.json acp.bad_model.model must be a nonempty string when present
+tny: --agent cannot be combined with named ACP provider 'acp:named'; use --provider acp for an ad-hoc command
+.....tny: warning: TNY_TOOLS must be all|terminal+edit|terminal
+tny: warning: TNY_TOOLS must be all|terminal+edit|terminal
+tny: tool profile terminal ignored in ACP server mode; using all
+.......To sign in, open this URL in a browser on any device:
+
+  https://x.ai/device?user_code=AB-12
+
+and confirm this code (only continue with a code you requested):
+
+  AB-12
+
+Waiting for authorization…
+grok session saved (~/.grok/auth.json) — `tny --provider grok` uses it.
+.To sign in, open this URL in a browser on any device:
+
+  https://x.ai/device
+
+and confirm this code (only continue with a code you requested):
+
+  CD-34
+
+Waiting for authorization…
+tny: authorization denied in the browser.
+..grok session removed from ~/.grok/auth.json (other issuers kept).
+no xAI session entries in ~/.grok/auth.json; nothing removed.
+grok session removed (~/.grok/auth.json deleted).
+........(expected error) tny: --fast is not supported by provider 'acp'
+Providers with a fast tier: openai cursor
+Example: tny --provider openai --fast ask "hi"
+............................
+.........tny: settings.json image_input must be an object mapping provider names to true or false
+tny: settings.json image_input must be an object mapping provider names to true or false
+tny: settings.json image_input must be an object mapping provider names to true or false
+tny: settings.json image_input.openai must be true or false
+tny: settings.json image_input.openai must be true or false
+tny: settings.json image_input.openai must be true or false
+tny: settings.json image_input.openai must be true or false
+tny: settings.json image_input keys must be provider names (letters, digits, - and _, or acp@NAME) of at most 256 bytes
+tny: settings.json image_input keys must be provider names (letters, digits, - and _, or acp@NAME) of at most 256 bytes
+tny: settings.json image_input keys must be provider names (letters, digits, - and _, or acp@NAME) of at most 256 bytes
+tny: settings.json image_input keys must be provider names (letters, digits, - and _, or acp@NAME) of at most 256 bytes
+tny: settings.json image_input keys must be provider names (letters, digits, - and _, or acp@NAME) of at most 256 bytes
+tny: settings.json image_input.openai is defined more than once
+tny: settings.json image_input keys must be provider names (letters, digits, - and _, or acp@NAME) of at most 256 bytes
+tny: settings.json image_input has more than 1024 providers
+...........................tny: --base-url-env requires a value
+Example: tny --base-url-env VALUE ask "hi"
+tny: --base-url-env TNY_TEST_UNSET_URL: variable is empty
+tny: --base-url and --base-url-env are alternatives; pass one
+...tny: --wire-api must be responses|chat
+Example: tny --wire-api chat ask "hi"
+.tny: --color must be auto|always|never
+Example: NO_COLOR= tny --color=always
+..
+114 tests - 114 passed, 0 failed, 0 skipped (183560 ticks, 0.184 sec)
+
+* Suite runtime_suite:
+..................................
+34 tests - 34 passed, 0 failed, 0 skipped (116378 ticks, 0.116 sec)
+
+* Suite extensions_suite:
+.............
+13 tests - 13 passed, 0 failed, 0 skipped (41869 ticks, 0.042 sec)
+
+* Suite tui_suite:
+.....................................................
+53 tests - 53 passed, 0 failed, 0 skipped (5071 ticks, 0.005 sec)
+
+* Suite cursor_suite:
+...............................................
+47 tests - 47 passed, 0 failed, 0 skipped (20356 ticks, 0.020 sec)
+
+* Suite cursor_sdk_suite:
+............
+12 tests - 12 passed, 0 failed, 0 skipped (106984 ticks, 0.107 sec)
+
+* Suite cursor_options_suite:
+.......
+7 tests - 7 passed, 0 failed, 0 skipped (796 ticks, 0.001 sec)
+
+* Suite cursor_management_suite:
+....
+4 tests - 4 passed, 0 failed, 0 skipped (62882 ticks, 0.063 sec)
+
+* Suite cursor_callbacks_suite:
+......
+6 tests - 6 passed, 0 failed, 0 skipped (14964 ticks, 0.015 sec)
+
+* Suite acp_suite:
+......
+6 tests - 6 passed, 0 failed, 0 skipped (105 ticks, 0.000 sec)
+
+* Suite openai_suite:
+...........................
+27 tests - 27 passed, 0 failed, 0 skipped (247175 ticks, 0.247 sec)
+
+* Suite ephemeral_suite:
+....
+4 tests - 4 passed, 0 failed, 0 skipped (713 ticks, 0.001 sec)
+
+* Suite session_bg_suite:
+....................
+20 tests - 20 passed, 0 failed, 0 skipped (66345 ticks, 0.066 sec)
+
+* Suite runner_suite:
+phase3 runner descriptors: before=4 after=4 cycles=12
+...................
+19 tests - 19 passed, 0 failed, 0 skipped (95207 ticks, 0.095 sec)
+
+* Suite ssh_suite:
+..........
+10 tests - 10 passed, 0 failed, 0 skipped (214754 ticks, 0.215 sec)
+
+* Suite tasks_suite:
+..........
+10 tests - 10 passed, 0 failed, 0 skipped (60172 ticks, 0.060 sec)
+
+* Suite mcp_suite:
+............tny: warning: skipped 'codex_remote' from codex: unsupported transport (http)
+tny: warning: skipped 'claude_project_wins' from claude (name already taken)
+tny: warning: skipped 'grok_sse' from grok: unsupported transport (sse)
+tny: warning: skipped 'grok_project_wins' from grok (name already taken)
+tny: warning: skipped 'grok_user' from grok (name already taken)
+tny: warning: skipped 'grok_project_wins' from grok (name already taken)
+tny: warning: skipped 'shared' from cursor-agent (name already taken)
+tny: warning: skipped 'cursor_remote' from cursor-agent: unsupported transport (http)
+tny: warning: skipped 'cursor_project_wins' from cursor-agent (name already taken)
+.tny: warning: cursor-agent MCP import disabled: malformed config
+..tny: warning: codex MCP import disabled: malformed config.toml
+tny: warning: grok MCP import: no config file found
+............
+27 tests - 27 passed, 0 failed, 0 skipped (69142 ticks, 0.069 sec)
+
+* Suite web_search_suite:
+........
+8 tests - 8 passed, 0 failed, 0 skipped (13325 ticks, 0.013 sec)
+
+* Suite skills_suite:
+........
+8 tests - 8 passed, 0 failed, 0 skipped (7945 ticks, 0.008 sec)
+
+* Suite sandbox_suite:
+......
+6 tests - 6 passed, 0 failed, 0 skipped (14468 ticks, 0.014 sec)
+
+* Suite edit_suite:
+..........
+10 tests - 10 passed, 0 failed, 0 skipped (5305 ticks, 0.005 sec)
+
+* Suite perm_suite:
+..................
+18 tests - 18 passed, 0 failed, 0 skipped (3669 ticks, 0.004 sec)
+
+* Suite intercept_suite:
+..............tny: TNY_PERMISSION_MODE: permission mode 'yolo' is wider than the 'ask' mode of the tny turn this command runs inside; a nested run cannot widen it
+.
+15 tests - 15 passed, 0 failed, 0 skipped (21295 ticks, 0.021 sec)
+
+* Suite provider_extras_suite:
+....
+4 tests - 4 passed, 0 failed, 0 skipped (59 ticks, 0.000 sec)
+
+Total: 562 tests (3329364 ticks, 3.329 sec), 19853 assertions
+Pass: 562, fail: 0, skip: 0.

@@ -1,0 +1,14 @@
+test_libtny: stage build shared library
+test_libtny: stage idempotent pointer-to-pointer destruction
+test_libtny: stage synchronous error classification
+test_libtny: stage clean-prefix consumers
+test_libtny: stage multi-runtime teardown and fork rejection
+test_libtny: stage strict mock turns and ephemeral state
+test_libtny: stage abrupt terminal transport close
+test_libtny: terminal close settled in 0.007s
+test_libtny: stage simultaneous owner threads
+test_libtny: stage cross-thread cancellation wake
+test_libtny: stage permission parking
+test_libtny: stage asynchronous authentication error
+test_libtny: stage unreachable endpoint capability
+test_libtny: C and Python ctypes consumers passed

@@ -1,0 +1,19 @@
+ok: happy path
+ok: result parity
+ok: --wait returns finalized document
+ok: ephemeral fields in result json
+ok: --json launch shape
+ok: lock contention refusal
+ok: --wait --timeout -> 124
+ok: live partial readable
+ok: stop -> interrupted, lock free
+ok: stop no-op / --json shape / usage guard
+ok: stale detection
+ok: wedged holder -> exit 2 hint, --kill writes 137
+ok: steer interrupt-and-redirect
+ok: detach hygiene
+ok: no orphans
+ok: host-backend (acp) result parity
+ok: -B --ephemeral rejected
+test_background: all assertions passed
+test_background: done in 5.3s

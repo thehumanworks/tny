@@ -1,0 +1,7 @@
+
+* Suite session_bg_suite:
+....................
+20 tests - 20 passed, 0 failed, 0 skipped (54117 ticks, 0.054 sec)
+
+Total: 20 tests (54148 ticks, 0.054 sec), 195 assertions
+Pass: 20, fail: 0, skip: 0.

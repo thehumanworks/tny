@@ -1,0 +1,8 @@
+build/fuzz/parser-smoke tests/fuzz/parser-corpus/chat tests/fuzz/parser-corpus/connect tests/fuzz/parser-corpus/malformed tests/fuzz/parser-corpus/responses
+parser mode 0: 2 allocation indices, two failures then recovery each
+parser mode 1: 9 allocation indices, two failures then recovery each
+parser mode 2: 13 allocation indices, two failures then recovery each
+parser smoke passed: splits, lifetime, identity, limits, OOM and corpus
+build/fuzz/parser-backend-oom
+backend parser OOM SSE: live allocations 6 -> 0 before teardown
+backend parser OOM JSON: live allocations 6 -> 0 before teardown

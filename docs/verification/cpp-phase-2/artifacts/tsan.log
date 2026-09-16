@@ -1,0 +1,2 @@
+error: libtny TSan verification is supported only on Linux
+make: *** [test-libtny-tsan] Error 2

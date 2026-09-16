@@ -1,0 +1,93 @@
+[
+  {
+    "mutation": "borrowed-payload",
+    "exit": -6,
+    "reason": "heap-use-after-free",
+    "killed": true,
+    "source_sha256": "8c46efe39670bafe027de792bbfd5c2a95b04db6fda95f61dc7563d3e8e5c448"
+  },
+  {
+    "mutation": "wrong-generation",
+    "exit": 1,
+    "reason": "FAIL",
+    "killed": true,
+    "source_sha256": "2aca2111cc32ecccafab7d71f15cc3b2b77164fd9cbce2d460b0711dc861adf9"
+  },
+  {
+    "mutation": "early-async-release",
+    "exit": -6,
+    "reason": "heap-use-after-free",
+    "killed": true,
+    "source_sha256": "2aca2111cc32ecccafab7d71f15cc3b2b77164fd9cbce2d460b0711dc861adf9"
+  },
+  {
+    "mutation": "queue-byte-accounting",
+    "exit": 1,
+    "reason": "FAIL",
+    "killed": true,
+    "source_sha256": "9f6abf28073ac61189f1eb6f90c5b6ec326e12617cd43aeba257e0c1465c344b"
+  },
+  {
+    "mutation": "second-terminal",
+    "exit": 1,
+    "reason": "FAIL",
+    "killed": true,
+    "source_sha256": "9f6abf28073ac61189f1eb6f90c5b6ec326e12617cd43aeba257e0c1465c344b"
+  },
+  {
+    "mutation": "allocating-settlement",
+    "exit": 1,
+    "reason": "FAIL",
+    "killed": true,
+    "source_sha256": "9f6abf28073ac61189f1eb6f90c5b6ec326e12617cd43aeba257e0c1465c344b"
+  },
+  {
+    "mutation": "provider-allocating-settlement",
+    "exit": 1,
+    "reason": "allocation during reserved OOM settlement",
+    "killed": true,
+    "source_sha256": "9b3d48debe5c7072171541dbaec398cb888f3fa5660dab6e04833a2d4886d48e"
+  },
+  {
+    "mutation": "parser-ordinary-finalization",
+    "exit": 1,
+    "reason": "fault.fault_index != tny_alloc_test_scope_count()",
+    "killed": true,
+    "source_sha256": "9b3d48debe5c7072171541dbaec398cb888f3fa5660dab6e04833a2d4886d48e"
+  },
+  {
+    "mutation": "decoder-observe-recovery",
+    "exit": 1,
+    "reason": "0 != tny_alloc_test_settlement_allocations()",
+    "killed": true,
+    "source_sha256": "ba226536485e94cb7be29fc1a9310b3f386f293d10fff8b1419fa36aa8da40d1"
+  },
+  {
+    "mutation": "acp-block-before-kill",
+    "exit": 1,
+    "reason": "monotonic_ms() - start < 2000",
+    "killed": true,
+    "source_sha256": "d9fabee0b1f7defa4bf8e7d02fd6d9d1d8d3d8f02e5d621fb0929e2a0c79087d"
+  },
+  {
+    "mutation": "request-oom-persists-usage",
+    "exit": 1,
+    "reason": "fault.fault_index != tny_alloc_test_scope_count()",
+    "killed": true,
+    "source_sha256": "9b3d48debe5c7072171541dbaec398cb888f3fa5660dab6e04833a2d4886d48e"
+  },
+  {
+    "mutation": "sdk-error-oom-fallback",
+    "exit": 1,
+    "reason": "fault != tny_alloc_test_scope_count()",
+    "killed": true,
+    "source_sha256": "08a61591213816bf342f540861465e43c7ec1bd8c2d6420b3a5ca199adaa1818"
+  },
+  {
+    "mutation": "acp-parser-oom-next-line",
+    "exit": 1,
+    "reason": "fault != tny_alloc_test_scope_count()",
+    "killed": true,
+    "source_sha256": "52f2b0557b99f73dd0c6f8842ace1929207f122368e806679f8508961e79e669"
+  }
+]

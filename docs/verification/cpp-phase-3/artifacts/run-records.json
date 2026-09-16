@@ -1,0 +1,841 @@
+[
+  {
+    "label": "build-unit",
+    "command": [
+      "make",
+      "-j8",
+      "debug",
+      "release",
+      "test-runner-ownership"
+    ],
+    "exit": 0,
+    "seconds": 5.023,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8441519287e4267ab753847779688537db7e3ebba462d59adf713fcc31c07532",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/backend.h",
+      "src/core/config.h",
+      "src/core/edit.h",
+      "src/core/extensions.h",
+      "src/core/image_dimensions.h",
+      "src/core/image_preview.h",
+      "src/core/jobs.cpp",
+      "src/core/jobs.h",
+      "src/core/perm.h",
+      "src/core/runner.cpp",
+      "src/core/runner.h",
+      "src/core/runtime.h",
+      "src/core/tools.h",
+      "src/mcp/mcp.h",
+      "src/util/jobs_host.h",
+      "tests/build/test_cpp_gates.py",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp",
+      "tests/integration/test_background.py",
+      "tests/integration/test_background_agents.py",
+      "tests/integration/test_interrupt.py",
+      "tests/integration/test_jobs.py",
+      "tests/integration/test_jobs_cleanup_hold.py",
+      "tests/integration/test_jobs_msys.py",
+      "tests/mutation/runner_critical.py",
+      "tests/test_session_bg.c"
+    ]
+  },
+  {
+    "label": "ownership2",
+    "command": [
+      "make",
+      "-j8",
+      "test-runner-ownership"
+    ],
+    "exit": 2,
+    "seconds": 1.972,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "e1fe70436c4513abd8f007d0bf3b04d9148fb222da9b76aded3aee9a89ed67b4",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/backend.h",
+      "src/core/config.h",
+      "src/core/edit.h",
+      "src/core/extensions.h",
+      "src/core/image_dimensions.h",
+      "src/core/image_preview.h",
+      "src/core/jobs.cpp",
+      "src/core/jobs.h",
+      "src/core/perm.h",
+      "src/core/runner.cpp",
+      "src/core/runner.h",
+      "src/core/runtime.h",
+      "src/core/tools.h",
+      "src/mcp/mcp.h",
+      "src/util/jobs_host.h",
+      "tests/build/test_cpp_gates.py",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp",
+      "tests/integration/test_background.py",
+      "tests/integration/test_background_agents.py",
+      "tests/integration/test_interrupt.py",
+      "tests/integration/test_jobs.py",
+      "tests/integration/test_jobs_cleanup_hold.py",
+      "tests/integration/test_jobs_msys.py",
+      "tests/mutation/runner_critical.py",
+      "tests/test_session_bg.c"
+    ]
+  },
+  {
+    "label": "ownership3",
+    "command": [
+      "make",
+      "-j8",
+      "test-runner-ownership"
+    ],
+    "exit": 0,
+    "seconds": 2.688,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "1e4bfbf8ed03e07b9c491acbe9f4be68da48cea76949220c87a4b31057d31be5",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/jobs.cpp",
+      "src/core/runner.cpp",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp",
+      "tests/integration/test_background.py",
+      "tests/integration/test_background_agents.py",
+      "tests/integration/test_interrupt.py",
+      "tests/integration/test_jobs.py",
+      "tests/integration/test_jobs_cleanup_hold.py",
+      "tests/integration/test_jobs_msys.py",
+      "tests/mutation/runner_critical.py",
+      "tests/test_session_bg.c"
+    ]
+  },
+  {
+    "label": "mutations1",
+    "command": [
+      "python3",
+      "tests/mutation/runner_critical.py"
+    ],
+    "exit": 1,
+    "seconds": 9.525,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "74de9cf3afc425fe85502b4d60cad526abc1b5dbd503dd6b2eeac462141ab871",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/jobs.cpp",
+      "src/core/runner.cpp",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp",
+      "tests/integration/test_background_agents.py",
+      "tests/mutation/runner_critical.py",
+      "tests/test_session_bg.c"
+    ]
+  },
+  {
+    "label": "mutations2",
+    "command": [
+      "python3",
+      "tests/mutation/runner_critical.py"
+    ],
+    "exit": 0,
+    "seconds": 17.372,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "0a3e3c3c5c631409d58d03d0e6296b5142108f32cc56da6e4d52a9756970def1",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/jobs.cpp",
+      "src/core/runner.cpp",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp",
+      "tests/integration/test_background_agents.py",
+      "tests/mutation/runner_critical.py",
+      "tests/test_session_bg.c"
+    ]
+  },
+  {
+    "label": "build-all-gates",
+    "command": [
+      "make",
+      "-j8",
+      "debug",
+      "release",
+      "lib-shared-fault",
+      "lib-shared-fault-sanitize",
+      "build/fuzz/libtny-fuzz-smoke",
+      "build/fuzz/parser-smoke",
+      "build/fuzz/parser-backend-oom",
+      "build/runtime-test/tny-test",
+      "test-runner-ownership"
+    ],
+    "exit": 0,
+    "seconds": 24.598,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "f9b9bcd2ac543528bced3f954d309080049b2f4b5ab0d8d29f00d44e1664e32e",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/jobs.cpp",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp",
+      "tests/integration/test_background_agents.py",
+      "tests/mutation/runner_critical.py"
+    ]
+  },
+  {
+    "label": "background",
+    "command": [
+      "python3",
+      "tests/integration/test_background.py"
+    ],
+    "exit": 0,
+    "seconds": 5.371,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "4a58af264288157101151696a8a85af6658d3edd83bf71df23c8dfdbb9c7b66c",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/jobs.cpp",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp",
+      "tests/integration/test_background_agents.py",
+      "tests/mutation/runner_critical.py"
+    ]
+  },
+  {
+    "label": "background-agents",
+    "command": [
+      "python3",
+      "tests/integration/test_background_agents.py"
+    ],
+    "exit": 1,
+    "seconds": 1.161,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "ca8dec800c3b82136a458c2aa98d32fb9a44b835d1fc0305fe00b0b15bf4a244",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/jobs.cpp",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp",
+      "tests/integration/test_background_agents.py"
+    ]
+  },
+  {
+    "label": "quality2",
+    "command": [
+      "make",
+      "-j8",
+      "quality"
+    ],
+    "exit": 0,
+    "seconds": 214.541,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "ca8dec800c3b82136a458c2aa98d32fb9a44b835d1fc0305fe00b0b15bf4a244",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/jobs.cpp",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp",
+      "tests/integration/test_background_agents.py"
+    ]
+  },
+  {
+    "label": "final-build",
+    "command": [
+      "make",
+      "-j8",
+      "debug",
+      "release",
+      "test-runner-ownership"
+    ],
+    "exit": 0,
+    "seconds": 2.068,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "091263a35566bae95d47e5e1cf3f009f4d5da8422c98fd62e650ad5cc922ac36",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/jobs.cpp",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "cleanup-hold",
+    "command": [
+      "python3",
+      "tests/integration/test_jobs_cleanup_hold.py",
+      "JobsCleanupHold.test_repeated_refusal_preserves_unknown_hold_and_record_bytes"
+    ],
+    "exit": 1,
+    "seconds": 0.438,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "091263a35566bae95d47e5e1cf3f009f4d5da8422c98fd62e650ad5cc922ac36",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/jobs.cpp",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "jobs-focused",
+    "command": [
+      "python3",
+      "tests/integration/test_jobs.py",
+      "JobsWorkerHandshake.test_repeated_invalid_admission_preserves_protected_state"
+    ],
+    "exit": 1,
+    "seconds": 0.498,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "091263a35566bae95d47e5e1cf3f009f4d5da8422c98fd62e650ad5cc922ac36",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/jobs.cpp",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "unit",
+    "command": [
+      "build/tny-test"
+    ],
+    "exit": 0,
+    "seconds": 38.234,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "091263a35566bae95d47e5e1cf3f009f4d5da8422c98fd62e650ad5cc922ac36",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/jobs.cpp",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "job-artifacts",
+    "command": [
+      "python3",
+      "tests/integration/test_job_artifacts.py",
+      "JobArtifactProducer.test_real_producer_identity_is_preserved"
+    ],
+    "exit": 1,
+    "seconds": 2.891,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "091263a35566bae95d47e5e1cf3f009f4d5da8422c98fd62e650ad5cc922ac36",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/jobs.cpp",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "background-agents2",
+    "command": [
+      "python3",
+      "tests/integration/test_background_agents.py"
+    ],
+    "exit": 0,
+    "seconds": 63.687,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "091263a35566bae95d47e5e1cf3f009f4d5da8422c98fd62e650ad5cc922ac36",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/jobs.cpp",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "interrupt",
+    "command": [
+      "python3",
+      "tests/integration/test_interrupt.py"
+    ],
+    "exit": 0,
+    "seconds": 64.291,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "091263a35566bae95d47e5e1cf3f009f4d5da8422c98fd62e650ad5cc922ac36",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "src/core/jobs.cpp",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "fault",
+    "command": [
+      "make",
+      "test-libtny-fault"
+    ],
+    "exit": 0,
+    "seconds": 92.079,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "72541b31a044fc2b922af2d6e22b2c8463cc0229be8691fd45411e66e3b82b67",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "fault-sanitize",
+    "command": [
+      "make",
+      "test-libtny-fault-sanitize"
+    ],
+    "exit": 0,
+    "seconds": 109.767,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "72541b31a044fc2b922af2d6e22b2c8463cc0229be8691fd45411e66e3b82b67",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "fuzz-smoke",
+    "command": [
+      "make",
+      "test-libtny-fuzz-smoke"
+    ],
+    "exit": 0,
+    "seconds": 1.675,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "72541b31a044fc2b922af2d6e22b2c8463cc0229be8691fd45411e66e3b82b67",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "parser-smoke",
+    "command": [
+      "make",
+      "test-parser-smoke"
+    ],
+    "exit": 0,
+    "seconds": 2.439,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "72541b31a044fc2b922af2d6e22b2c8463cc0229be8691fd45411e66e3b82b67",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "runtime-ownership",
+    "command": [
+      "make",
+      "test-runtime-ownership"
+    ],
+    "exit": 0,
+    "seconds": 5.167,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "72541b31a044fc2b922af2d6e22b2c8463cc0229be8691fd45411e66e3b82b67",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "cpp-gates",
+    "command": [
+      "make",
+      "test-cpp-gates"
+    ],
+    "exit": 2,
+    "seconds": 2.103,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "233448aee78a5e5ea6472a85e6d17f204c41c22548d4b202334cdb2c48119cb6",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "runner-unit",
+    "command": [
+      "build/tny-test",
+      "-s",
+      "runner_suite"
+    ],
+    "exit": 0,
+    "seconds": 0.882,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "233448aee78a5e5ea6472a85e6d17f204c41c22548d4b202334cdb2c48119cb6",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "item-loop",
+    "command": [
+      "make",
+      "-j8",
+      "test-runner-ownership"
+    ],
+    "exit": 0,
+    "seconds": 6.447,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "233448aee78a5e5ea6472a85e6d17f204c41c22548d4b202334cdb2c48119cb6",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "session-unit",
+    "command": [
+      "build/tny-test",
+      "-s",
+      "session_bg_suite"
+    ],
+    "exit": 0,
+    "seconds": 5.282,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "233448aee78a5e5ea6472a85e6d17f204c41c22548d4b202334cdb2c48119cb6",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "mutations-final",
+    "command": [
+      "python3",
+      "tests/mutation/runner_critical.py"
+    ],
+    "exit": 0,
+    "seconds": 44.699,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "233448aee78a5e5ea6472a85e6d17f204c41c22548d4b202334cdb2c48119cb6",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "msys-source",
+    "command": [
+      "python3",
+      "tests/integration/test_jobs_msys.py",
+      "OwnershipSourceChecks"
+    ],
+    "exit": 0,
+    "seconds": 0.056,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "233448aee78a5e5ea6472a85e6d17f204c41c22548d4b202334cdb2c48119cb6",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "nix-inventory",
+    "command": [
+      "python3",
+      "tests/integration/test_nix_ci_matrix.py"
+    ],
+    "exit": 0,
+    "seconds": 0.024,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "233448aee78a5e5ea6472a85e6d17f204c41c22548d4b202334cdb2c48119cb6",
+    "changes_to_final": [
+      "Makefile",
+      "nix/tests.nix",
+      "tests/fixtures/resource_host_faults.c",
+      "tests/fixtures/runner_ownership.cpp"
+    ]
+  },
+  {
+    "label": "host-faults",
+    "command": [
+      "make",
+      "-j8",
+      "test-runner-ownership"
+    ],
+    "exit": 0,
+    "seconds": 5.854,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "a8ad6cb0b4dd06cd07cc78a8a4a4f0a0283c16fe349c65171c164d1c9a427eb5",
+    "changes_to_final": [
+      "nix/tests.nix"
+    ]
+  },
+  {
+    "label": "quality-final",
+    "command": [
+      "make",
+      "-j8",
+      "quality"
+    ],
+    "exit": 0,
+    "seconds": 221.988,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "a8ad6cb0b4dd06cd07cc78a8a4a4f0a0283c16fe349c65171c164d1c9a427eb5",
+    "changes_to_final": [
+      "nix/tests.nix"
+    ]
+  },
+  {
+    "label": "cpp-gates-rerun",
+    "command": [
+      "make",
+      "test-cpp-gates"
+    ],
+    "exit": 0,
+    "seconds": 3.527,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "a8ad6cb0b4dd06cd07cc78a8a4a4f0a0283c16fe349c65171c164d1c9a427eb5",
+    "changes_to_final": [
+      "nix/tests.nix"
+    ]
+  },
+  {
+    "label": "verified-final-build",
+    "command": [
+      "make",
+      "-j8",
+      "debug",
+      "release",
+      "test-runner-ownership"
+    ],
+    "exit": 0,
+    "seconds": 5.003,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-format",
+    "command": [
+      "make",
+      "format-check",
+      "lint-py"
+    ],
+    "exit": 0,
+    "seconds": 1.688,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-background",
+    "command": [
+      "python3",
+      "tests/integration/test_background.py"
+    ],
+    "exit": 0,
+    "seconds": 5.324,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-unit",
+    "command": [
+      "build/tny-test"
+    ],
+    "exit": 0,
+    "seconds": 38.054,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-interrupt",
+    "command": [
+      "python3",
+      "tests/integration/test_interrupt.py"
+    ],
+    "exit": 0,
+    "seconds": 63.335,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-background-agents",
+    "command": [
+      "python3",
+      "tests/integration/test_background_agents.py"
+    ],
+    "exit": 0,
+    "seconds": 63.418,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-fault",
+    "command": [
+      "make",
+      "test-libtny-fault"
+    ],
+    "exit": 0,
+    "seconds": 96.048,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-fault-sanitize",
+    "command": [
+      "make",
+      "test-libtny-fault-sanitize"
+    ],
+    "exit": 0,
+    "seconds": 108.618,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-fuzz-smoke",
+    "command": [
+      "make",
+      "test-libtny-fuzz-smoke"
+    ],
+    "exit": 0,
+    "seconds": 0.391,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-parser-smoke",
+    "command": [
+      "make",
+      "test-parser-smoke"
+    ],
+    "exit": 0,
+    "seconds": 0.903,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-runtime-ownership",
+    "command": [
+      "make",
+      "test-runtime-ownership"
+    ],
+    "exit": 0,
+    "seconds": 4.733,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-cpp-gates",
+    "command": [
+      "make",
+      "test-cpp-gates"
+    ],
+    "exit": 0,
+    "seconds": 3.706,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-runner-unit",
+    "command": [
+      "build/tny-test",
+      "-s",
+      "runner_suite"
+    ],
+    "exit": 0,
+    "seconds": 0.826,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-session-unit",
+    "command": [
+      "build/tny-test",
+      "-s",
+      "session_bg_suite"
+    ],
+    "exit": 0,
+    "seconds": 5.3,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-mutations-final",
+    "command": [
+      "python3",
+      "tests/mutation/runner_critical.py"
+    ],
+    "exit": 0,
+    "seconds": 46.316,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-msys-source",
+    "command": [
+      "python3",
+      "tests/integration/test_jobs_msys.py",
+      "OwnershipSourceChecks"
+    ],
+    "exit": 0,
+    "seconds": 0.055,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  },
+  {
+    "label": "verified-nix-inventory",
+    "command": [
+      "python3",
+      "tests/integration/test_nix_ci_matrix.py"
+    ],
+    "exit": 0,
+    "seconds": 0.023,
+    "revision": "4c62c6692bace9e6365e4fa5448dfbcee5bb32b2",
+    "manifest_sha256": "8876ec17177cbeaa90c0abf14cbabd006290675167bdcfcc2a83f745548aef32",
+    "changes_to_final": []
+  }
+]

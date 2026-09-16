@@ -1,0 +1,12 @@
+
+* Suite runtime_suite:
+
+Expected: 0
+     Got: 2
+F
+FAIL runtime_reserved_settlement_never_allocates: 0u != (unsigned)tny_alloc_test_scope_count() (tests/test_runtime.c:445)
+
+1 test - 0 passed, 1 failed, 0 skipped (1454 ticks, 0.001 sec)
+
+Total: 1 test (1530 ticks, 0.002 sec), 2 assertions
+Pass: 0, fail: 1, skip: 0.

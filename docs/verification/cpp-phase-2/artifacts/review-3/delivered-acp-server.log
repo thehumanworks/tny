@@ -1,0 +1,10 @@
+ok  initialize: protocolVersion 1, loadSession advertised
+ok  session/new: e03788ea3aa5c047
+ok  session/prompt: end_turn, 13 updates, tool_call list_files
+ok  session/cancel: stopReason cancelled, connection still live
+ok  session/prompt: image blocks refused with -32602
+ok  unknown method: -32601
+ok  session/load: replayed 3 history chunks
+ok  session/load: unknown sessionId rejected
+ok  initialize: fails closed without a provider credential
+PASS test_acp_server.py

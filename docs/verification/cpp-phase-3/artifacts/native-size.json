@@ -1,0 +1,5 @@
+{
+  "bytes": 1104608,
+  "dependencies": "build/tny:\n\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 2200.27.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1359.0.0)\n",
+  "comparison": "not measured; coordinator benchmark gate"
+}

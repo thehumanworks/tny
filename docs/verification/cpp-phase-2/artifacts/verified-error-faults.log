@@ -1,0 +1,15 @@
+python3 tests/integration/test_net_host_safety.py
+ok  native transport preserves host SIGPIPE state and total deadlines
+ok  TLS handshake and close paths cannot terminate the embedding host
+ok  Authorization-bearing native request buffers are securely wiped
+python3 tests/integration/test_libtny_faults.py build/lib-fault/libtny.1.dylib
+test_libtny_faults: exhaustive allocation sweeps passed; tools_fs_walk=10, toolkit_create=3, toolkit_run=28, runtime_create=22, tool_register=8, tool_error=5, session_create=17, session_open=23, session_send=68, session_send_rearm=67, next_event=151, session_steer=3, respond_permission=9, session_free_permission=8, runtime_free_permission=8, session_free_active=2, runtime_free_active=2, session_free_cancelled=2, runtime_free_cancelled=2, session_free_failed=0, runtime_free_failed=0
+test_libtny_faults: exhaustive allocation sweeps passed; tools_fs_walk=10, toolkit_create=3, toolkit_run=28, runtime_create=22, tool_register=8, tool_error=5, session_create=17, session_open=23, session_send=68, session_send_rearm=67, next_event=151, session_steer=3, respond_permission=9, session_free_permission=8, runtime_free_permission=8, session_free_active=2, runtime_free_active=2, session_free_cancelled=2, runtime_free_cancelled=2, session_free_failed=0, runtime_free_failed=0
+ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+		python3 tests/integration/libtny_sanitizer_launcher.py build/fault-san/libtny-sanitizer-host
+ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+	TNY_CUSTOM_TOOL_HOST=build/fault-san/libtny-custom-tools-sanitizer \
+		python3 tests/integration/test_libtny_custom_tools.py
+libtny-custom-tools: sync/async/cancel/deny lifecycle passed

@@ -1,0 +1,773 @@
+[
+  {
+    "command": [
+      "make",
+      "-j8",
+      "test"
+    ],
+    "exit": 2,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/test.manifest.json",
+    "manifest_sha256": "870917d006cf179c32b05568c6408ac9c97cfef0ba343466fc73cdf4d3c1c68f",
+    "name": "test",
+    "seconds": 7.01,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "Makefile": "d39edd55ea64e416f57fee7b7a5e8a28d0cb77affacb6fd61d82eb807e58842c",
+      "docs/backends/openai-compatible.md": "b6507801fb5770063def4902e9b05fed2dddd197cf4de9b5832baebb6573b20d",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/openai.c": "da93ff568ed325b72f257183e09023104910a13f4c9d9ef8cbddd2f0c1392ce3",
+      "src/backends/openai/parsers.h": "f25630c8e1a82e1bafc9653b2e36958c49a83bf435f9acf37080cae16e716476",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/build/test_cpp_gates.py": "6b148089869f5ff644b1b3aaba77f1b826e909e73b773eae7043d4c85fce196b",
+      "tests/fuzz/fuzz_parsers.cpp": "51e6f3bf12d62d7e133ba3b9c006d0bedc49e0767110a6107bd10f19e7503adf",
+      "tests/mutation/mutate.py": "958f98b101317e289f5c1381d5370b08a4ccb183bba324f26e75f6c2813e54ac",
+      "tests/mutation/parser_critical.py": null,
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca",
+      "tests/test_openai.c": "5b2e136b8fa67f9a774aa48e6b63a965103875b91b2939879192f8a65d7e4266"
+    },
+    "started": 1789526136.663746
+  },
+  {
+    "command": [
+      "make",
+      "release"
+    ],
+    "exit": 2,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/release-retry.manifest.json",
+    "manifest_sha256": "46ae6e3e187fbf5361e03ff8869557a1f326eefd3bf3ea6ef8e66eb56e44cc7b",
+    "name": "release-retry",
+    "seconds": 5.06,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "Makefile": "6de5ba000b78169a641075c3e9a6af9359eb1cf529387d00962f7eb50ea59c2b",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "f25630c8e1a82e1bafc9653b2e36958c49a83bf435f9acf37080cae16e716476",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/build/test_cpp_gates.py": "6b148089869f5ff644b1b3aaba77f1b826e909e73b773eae7043d4c85fce196b",
+      "tests/fuzz/fuzz_parsers.cpp": "51e6f3bf12d62d7e133ba3b9c006d0bedc49e0767110a6107bd10f19e7503adf",
+      "tests/mutation/parser_critical.py": null,
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526201.3087518
+  },
+  {
+    "command": [
+      "make",
+      "release"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/release-tmpdir.manifest.json",
+    "manifest_sha256": "46ae6e3e187fbf5361e03ff8869557a1f326eefd3bf3ea6ef8e66eb56e44cc7b",
+    "name": "release-tmpdir",
+    "seconds": 4.38,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "Makefile": "6de5ba000b78169a641075c3e9a6af9359eb1cf529387d00962f7eb50ea59c2b",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "f25630c8e1a82e1bafc9653b2e36958c49a83bf435f9acf37080cae16e716476",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/build/test_cpp_gates.py": "6b148089869f5ff644b1b3aaba77f1b826e909e73b773eae7043d4c85fce196b",
+      "tests/fuzz/fuzz_parsers.cpp": "51e6f3bf12d62d7e133ba3b9c006d0bedc49e0767110a6107bd10f19e7503adf",
+      "tests/mutation/parser_critical.py": null,
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526232.758077
+  },
+  {
+    "command": [
+      "make",
+      "-j8",
+      "test-parser-smoke"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/parser-smoke.manifest.json",
+    "manifest_sha256": "fadb7487dd74ea0d86f86136c7653c1876b054c9c905c2bfcd2746024be84ab9",
+    "name": "parser-smoke",
+    "seconds": 2.16,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "Makefile": "89880ce7da384178a36d6d289509616f33eec6ea0808dd085eacecedd3743262",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "f25630c8e1a82e1bafc9653b2e36958c49a83bf435f9acf37080cae16e716476",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/build/test_cpp_gates.py": "6b148089869f5ff644b1b3aaba77f1b826e909e73b773eae7043d4c85fce196b",
+      "tests/mutation/parser_critical.py": null,
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526295.7728431
+  },
+  {
+    "command": [
+      "python3",
+      "tests/mutation/parser_critical.py"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/parser-mutations.manifest.json",
+    "manifest_sha256": "c7a184e4ca3e16f503aa661d60b1d2b014d98abb0e0eddd54be6af60be71f71a",
+    "name": "parser-mutations",
+    "seconds": 5.62,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "Makefile": "89880ce7da384178a36d6d289509616f33eec6ea0808dd085eacecedd3743262",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "f25630c8e1a82e1bafc9653b2e36958c49a83bf435f9acf37080cae16e716476",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/build/test_cpp_gates.py": "6b148089869f5ff644b1b3aaba77f1b826e909e73b773eae7043d4c85fce196b",
+      "tests/mutation/parser_critical.py": "4eae5d01e80fc439e8ba1204453bfb32173a0d1265c6a000777235bbac07c034",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526341.049511
+  },
+  {
+    "command": [
+      "make",
+      "test-cpp-gates"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/cpp-gates.manifest.json",
+    "manifest_sha256": "c7a184e4ca3e16f503aa661d60b1d2b014d98abb0e0eddd54be6af60be71f71a",
+    "name": "cpp-gates",
+    "seconds": 3.39,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "Makefile": "89880ce7da384178a36d6d289509616f33eec6ea0808dd085eacecedd3743262",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "f25630c8e1a82e1bafc9653b2e36958c49a83bf435f9acf37080cae16e716476",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/build/test_cpp_gates.py": "6b148089869f5ff644b1b3aaba77f1b826e909e73b773eae7043d4c85fce196b",
+      "tests/mutation/parser_critical.py": "4eae5d01e80fc439e8ba1204453bfb32173a0d1265c6a000777235bbac07c034",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526349.364445
+  },
+  {
+    "command": [
+      "make",
+      "quality"
+    ],
+    "exit": 2,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/quality.manifest.json",
+    "manifest_sha256": "46ae6e3e187fbf5361e03ff8869557a1f326eefd3bf3ea6ef8e66eb56e44cc7b",
+    "name": "quality",
+    "seconds": 220.47,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "Makefile": "6de5ba000b78169a641075c3e9a6af9359eb1cf529387d00962f7eb50ea59c2b",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "f25630c8e1a82e1bafc9653b2e36958c49a83bf435f9acf37080cae16e716476",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/build/test_cpp_gates.py": "6b148089869f5ff644b1b3aaba77f1b826e909e73b773eae7043d4c85fce196b",
+      "tests/fuzz/fuzz_parsers.cpp": "51e6f3bf12d62d7e133ba3b9c006d0bedc49e0767110a6107bd10f19e7503adf",
+      "tests/mutation/parser_critical.py": null,
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526161.314792
+  },
+  {
+    "command": [
+      "make",
+      "-j8",
+      "test-libtny-fault"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/fault.manifest.json",
+    "manifest_sha256": "c7a184e4ca3e16f503aa661d60b1d2b014d98abb0e0eddd54be6af60be71f71a",
+    "name": "fault",
+    "seconds": 109.63,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "Makefile": "89880ce7da384178a36d6d289509616f33eec6ea0808dd085eacecedd3743262",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "f25630c8e1a82e1bafc9653b2e36958c49a83bf435f9acf37080cae16e716476",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/build/test_cpp_gates.py": "6b148089869f5ff644b1b3aaba77f1b826e909e73b773eae7043d4c85fce196b",
+      "tests/mutation/parser_critical.py": "4eae5d01e80fc439e8ba1204453bfb32173a0d1265c6a000777235bbac07c034",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526386.802428
+  },
+  {
+    "command": [
+      "make",
+      "-j8",
+      "test-abi",
+      "BUILD=build/abi-check"
+    ],
+    "exit": 2,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/abi.manifest.json",
+    "manifest_sha256": "475ac05e9c9dd6295f9bc759d3668328e6d7040f39ab8e7356fc5224dab66f13",
+    "name": "abi",
+    "seconds": 19.5,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "Makefile": "89880ce7da384178a36d6d289509616f33eec6ea0808dd085eacecedd3743262",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "bdc42752954cd3ada6fb78c5cc6c3d326fa12aa62fd61e34417405a9af2102c5",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526508.409791
+  },
+  {
+    "command": [
+      "make",
+      "-j8",
+      "test-abi"
+    ],
+    "exit": 2,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/abi-default.manifest.json",
+    "manifest_sha256": "475ac05e9c9dd6295f9bc759d3668328e6d7040f39ab8e7356fc5224dab66f13",
+    "name": "abi-default",
+    "seconds": 44.81,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "Makefile": "89880ce7da384178a36d6d289509616f33eec6ea0808dd085eacecedd3743262",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "bdc42752954cd3ada6fb78c5cc6c3d326fa12aa62fd61e34417405a9af2102c5",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526562.0474062
+  },
+  {
+    "command": [
+      "make",
+      "-j8",
+      "test-libtny-fault-sanitize"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/fault-sanitize.manifest.json",
+    "manifest_sha256": "475ac05e9c9dd6295f9bc759d3668328e6d7040f39ab8e7356fc5224dab66f13",
+    "name": "fault-sanitize",
+    "seconds": 137.91,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "Makefile": "89880ce7da384178a36d6d289509616f33eec6ea0808dd085eacecedd3743262",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "bdc42752954cd3ada6fb78c5cc6c3d326fa12aa62fd61e34417405a9af2102c5",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526537.361887
+  },
+  {
+    "command": [
+      "make",
+      "quality"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/quality-2.manifest.json",
+    "manifest_sha256": "475ac05e9c9dd6295f9bc759d3668328e6d7040f39ab8e7356fc5224dab66f13",
+    "name": "quality-2",
+    "seconds": 225.07,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "Makefile": "89880ce7da384178a36d6d289509616f33eec6ea0808dd085eacecedd3743262",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "bdc42752954cd3ada6fb78c5cc6c3d326fa12aa62fd61e34417405a9af2102c5",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526486.8826408
+  },
+  {
+    "command": [
+      "make",
+      "-j8",
+      "test-libtny-fuzz-smoke"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/fuzz-smoke.manifest.json",
+    "manifest_sha256": "fb29c2e0c733072aa895a7e6b090c74ee2950ec88ce06577fcda8b8d521bc28e",
+    "name": "fuzz-smoke",
+    "seconds": 2.96,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "bdc42752954cd3ada6fb78c5cc6c3d326fa12aa62fd61e34417405a9af2102c5",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526729.861753
+  },
+  {
+    "command": [
+      "make",
+      "test-sdks"
+    ],
+    "exit": 2,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/sdks.manifest.json",
+    "manifest_sha256": "fb29c2e0c733072aa895a7e6b090c74ee2950ec88ce06577fcda8b8d521bc28e",
+    "name": "sdks",
+    "seconds": 26.98,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "bdc42752954cd3ada6fb78c5cc6c3d326fa12aa62fd61e34417405a9af2102c5",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526753.912817
+  },
+  {
+    "command": [
+      "make",
+      "test-sdk-typescript"
+    ],
+    "exit": 2,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/typescript.manifest.json",
+    "manifest_sha256": "177f88ddc9652c454f5344fee39c59b469fe5fed934235654cc88b6bc7482fe0",
+    "name": "typescript",
+    "seconds": 15.12,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "b98bab0a661c6f8405ade36d27fa3c9ecbc628a2a370bcb4d08b4567daa88564",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526830.697601
+  },
+  {
+    "command": [
+      "tests/integration/test_provider_setup.sh",
+      "/Users/tomas/projects/tny-cpp-parsers/build/tny"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/provider-setup-clean-env.manifest.json",
+    "manifest_sha256": "177f88ddc9652c454f5344fee39c59b469fe5fed934235654cc88b6bc7482fe0",
+    "name": "provider-setup-clean-env",
+    "seconds": 0.51,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "b98bab0a661c6f8405ade36d27fa3c9ecbc628a2a370bcb4d08b4567daa88564",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526938.937786
+  },
+  {
+    "command": [
+      "make",
+      "test-cpp-gates",
+      "warn-strict",
+      "test-parser-smoke"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/cpp-final.manifest.json",
+    "manifest_sha256": "177f88ddc9652c454f5344fee39c59b469fe5fed934235654cc88b6bc7482fe0",
+    "name": "cpp-final",
+    "seconds": 22.85,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "b98bab0a661c6f8405ade36d27fa3c9ecbc628a2a370bcb4d08b4567daa88564",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526955.165846
+  },
+  {
+    "command": [
+      "make",
+      "test-abi"
+    ],
+    "exit": 2,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/abi-clean-env.manifest.json",
+    "manifest_sha256": "177f88ddc9652c454f5344fee39c59b469fe5fed934235654cc88b6bc7482fe0",
+    "name": "abi-clean-env",
+    "seconds": 47.48,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "b98bab0a661c6f8405ade36d27fa3c9ecbc628a2a370bcb4d08b4567daa88564",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526937.7808719
+  },
+  {
+    "command": [
+      "python3",
+      "tests/integration/test_search_service.py"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/search-mocks.manifest.json",
+    "manifest_sha256": "58f5f1e722a86d8691bc6e032378e68e9e98e07f10e2c43cbf5c35ed69b590de",
+    "name": "search-mocks",
+    "seconds": 26.71,
+    "source_delta_from_final": {
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "8856e1f8120d04b94c7b02b3fd95123a0000d0eed90bf11b65a918ae6de7bf45",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789527037.249959
+  },
+  {
+    "command": [
+      "make",
+      "-j8",
+      "debug",
+      "test-parser-smoke"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/parser-final.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "parser-final",
+    "seconds": 2.89,
+    "source_delta_from_final": {},
+    "started": 1789527073.27403
+  },
+  {
+    "command": [
+      "make",
+      "quality"
+    ],
+    "exit": 2,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/quality-final.manifest.json",
+    "manifest_sha256": "58f5f1e722a86d8691bc6e032378e68e9e98e07f10e2c43cbf5c35ed69b590de",
+    "name": "quality-final",
+    "seconds": 167.07,
+    "source_delta_from_final": {
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "8856e1f8120d04b94c7b02b3fd95123a0000d0eed90bf11b65a918ae6de7bf45",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526985.732625
+  },
+  {
+    "command": [
+      "python3",
+      "tests/mutation/parser_critical.py"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/mutations-final.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "mutations-final",
+    "seconds": 5.6,
+    "source_delta_from_final": {},
+    "started": 1789527152.066699
+  },
+  {
+    "command": [
+      "build/tny-test"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/units-final.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "units-final",
+    "seconds": 38.15,
+    "source_delta_from_final": {},
+    "started": 1789527193.2629602
+  },
+  {
+    "command": [
+      "python3",
+      "tests/integration/test_native_search.py"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/native-search-mocks.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "native-search-mocks",
+    "seconds": 5.09,
+    "source_delta_from_final": {},
+    "started": 1789527256.2763178
+  },
+  {
+    "command": [
+      "make",
+      "-j8",
+      "test-libtny-fault",
+      "test-libtny-fault-sanitize"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/fault-final.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "fault-final",
+    "seconds": 129.63,
+    "source_delta_from_final": {},
+    "started": 1789527150.892776
+  },
+  {
+    "command": [
+      "make",
+      "-j8",
+      "release",
+      "BUILD=build/parser-candidate"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/release-candidate.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "release-candidate",
+    "seconds": 6.26,
+    "source_delta_from_final": {},
+    "started": 1789527289.7907588
+  },
+  {
+    "command": [
+      "python3",
+      "scripts/check_abi_baseline.py",
+      "--candidate",
+      "build/abi/libtny-v1-current.json"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/abi-manifest.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "abi-manifest",
+    "seconds": 0.04,
+    "source_delta_from_final": {},
+    "started": 1789527317.7310789
+  },
+  {
+    "command": [
+      "python3",
+      "scripts/check_abi_baseline.py",
+      "--compat0",
+      "abi/compat0.json"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/compat0-manifest.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "compat0-manifest",
+    "seconds": 0.1,
+    "source_delta_from_final": {},
+    "started": 1789527318.033061
+  },
+  {
+    "command": [
+      "tests/integration/test_cursor.sh",
+      "/Users/tomas/projects/tny-cpp-parsers/build/parser-candidate/tny"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/cursor-final.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "cursor-final",
+    "seconds": 1.87,
+    "source_delta_from_final": {},
+    "started": 1789527344.5769799
+  },
+  {
+    "command": [
+      "python3",
+      "tests/integration/test_cursor_management.py"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/cursor-management-final.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "cursor-management-final",
+    "seconds": 4.88,
+    "source_delta_from_final": {},
+    "started": 1789527345.746449
+  },
+  {
+    "command": [
+      "python3",
+      "tests/integration/test_openai.py"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/openai-final.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "openai-final",
+    "seconds": 51.06,
+    "source_delta_from_final": {},
+    "started": 1789527343.411575
+  },
+  {
+    "command": [
+      "make",
+      "quality"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/quality-frozen.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "quality-frozen",
+    "seconds": 217.7,
+    "source_delta_from_final": {},
+    "started": 1789527192.081661
+  },
+  {
+    "command": [
+      "make",
+      "leaks"
+    ],
+    "exit": 2,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/leaks-final.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "leaks-final",
+    "seconds": 14.52,
+    "source_delta_from_final": {},
+    "started": 1789527417.483208
+  },
+  {
+    "command": [
+      "python3",
+      "tests/integration/test_libtny_custom_tools.py"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/custom-tools-final.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "custom-tools-final",
+    "seconds": 2.66,
+    "source_delta_from_final": {},
+    "started": 1789527704.6161752
+  },
+  {
+    "command": [
+      "make",
+      "-j8",
+      "test"
+    ],
+    "exit": 2,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/test-3.manifest.json",
+    "manifest_sha256": "8b42321c760e4e295c9f1cd7fc3fdf42e9c4ca5c2c5db26f941eaa3721213aa9",
+    "name": "test-3",
+    "seconds": 1270.89,
+    "source_delta_from_final": {
+      ".clang-format": "215eb4100110392f174a430ddf2c1157f5954f389f7306a258410f5df90cd5ff",
+      ".github/workflows/ci.yml": "d9140beeef9fce7f6a2cf151b7c341b56aad5091e1cf1908c662143fed593baf",
+      "Makefile": "89880ce7da384178a36d6d289509616f33eec6ea0808dd085eacecedd3743262",
+      "docs/ci.md": "5fd749be3f021735639d89c0dbcfa34acdb194c42748f0cb4aaeea923aad01bc",
+      "docs/product.md": "70a928015d0faf070cfb1c43ff772748fd25879a4942129444323141e87692c4",
+      "src/backends/cursor/rpc.c": "dcefbd17ada0e2ac90374e52f03e84ad6cb48b08247ebd034b3982ea25a207b4",
+      "src/backends/openai/parsers.h": "bdc42752954cd3ada6fb78c5cc6c3d326fa12aa62fd61e34417405a9af2102c5",
+      "src/net/connectrpc.cpp": "3c2be7c153a11f92a5aa7c6cc9ccb1d17b37958931e3cf0a048c8d7eef45b76d",
+      "src/net/net.h": "b99cb9b06a53bb5bc3c40bb0a8fd7b904b5f6c9b1001d48dd06d80ee2cbdbfca",
+      "tests/build/test_cpp_gates.py": "6b148089869f5ff644b1b3aaba77f1b826e909e73b773eae7043d4c85fce196b",
+      "tests/mutation/parser_critical.py": "4eae5d01e80fc439e8ba1204453bfb32173a0d1265c6a000777235bbac07c034",
+      "tests/test_net.c": "bf3b703196897ec5112816c53295e8afea7268073f78b439f77f5e45cb1cdbca"
+    },
+    "started": 1789526475.179282
+  },
+  {
+    "command": [
+      "python3",
+      "tests/integration/test_subagent.py"
+    ],
+    "exit": 1,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/subagent-clean-env.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "subagent-clean-env",
+    "seconds": 15.07,
+    "source_delta_from_final": {},
+    "started": 1789527750.243794
+  },
+  {
+    "command": [
+      "make",
+      "test-cpp-gates",
+      "test-parser-smoke",
+      "test-libtny-fuzz-smoke"
+    ],
+    "exit": 0,
+    "head": "c6d938a0846e0cabd7235b56468abc5cf65cfaf5",
+    "manifest": "build/phase1-logs/final-smokes.manifest.json",
+    "manifest_sha256": "868d6c5acf50245af458450406f448bf8cc8fabb0427293d24d7df040abfc846",
+    "name": "final-smokes",
+    "seconds": 4.23,
+    "source_delta_from_final": {},
+    "started": 1789527907.566227
+  }
+]

@@ -1,0 +1,44 @@
+[
+  {
+    "mutation": "borrowed-payload",
+    "exit": -6,
+    "reason": "heap-use-after-free",
+    "killed": true,
+    "source_sha256": "8c46efe39670bafe027de792bbfd5c2a95b04db6fda95f61dc7563d3e8e5c448"
+  },
+  {
+    "mutation": "wrong-generation",
+    "exit": 1,
+    "reason": "FAIL",
+    "killed": true,
+    "source_sha256": "2aca2111cc32ecccafab7d71f15cc3b2b77164fd9cbce2d460b0711dc861adf9"
+  },
+  {
+    "mutation": "early-async-release",
+    "exit": -6,
+    "reason": "heap-use-after-free",
+    "killed": true,
+    "source_sha256": "2aca2111cc32ecccafab7d71f15cc3b2b77164fd9cbce2d460b0711dc861adf9"
+  },
+  {
+    "mutation": "queue-byte-accounting",
+    "exit": 1,
+    "reason": "FAIL",
+    "killed": true,
+    "source_sha256": "e173d51a5d990136317af7362ccee638931112dcde3831477928dab1f246afc9"
+  },
+  {
+    "mutation": "second-terminal",
+    "exit": 1,
+    "reason": "FAIL",
+    "killed": true,
+    "source_sha256": "e173d51a5d990136317af7362ccee638931112dcde3831477928dab1f246afc9"
+  },
+  {
+    "mutation": "allocating-settlement",
+    "exit": 1,
+    "reason": "FAIL",
+    "killed": true,
+    "source_sha256": "e173d51a5d990136317af7362ccee638931112dcde3831477928dab1f246afc9"
+  }
+]
