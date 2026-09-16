@@ -1,0 +1,6 @@
+data: {"choices": [{"delta": {"content": "hé世界", "tool_calls": [{"id": "a", "index": 0, "function": {"name": "read_file", "arguments": "{"}}]}}]}
+
+data: {"choices": [{"delta": {"tool_calls": [{"id": "b", "index": 0, "function": {"name": "list_files", "arguments": "{}"}}]}}]}
+
+data: {"choices": [{"delta": {"tool_calls": [{"id": "a", "index": 1, "function": {"arguments": "}"}}]}, "finish_reason": "tool_calls"}]}
+

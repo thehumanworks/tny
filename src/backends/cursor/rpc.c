@@ -200,7 +200,15 @@ int cursor_stream_start(cursor_stream *s, const char *service, const char *metho
 
     buf_t framed;
     buf_init(&framed);
-    connect_frame_encode(&framed, 0, body, strlen(body));
+    int encoded = connect_frame_encode(&framed, 0, body, strlen(body));
+    if (encoded != TNY_PARSE_OK || buf_oom(&auth)) {
+        snprintf(err, errlen, "%s",
+                 encoded == TNY_PARSE_INVALID ? "bridge request frame too large" : "out of memory");
+        buf_free(&framed);
+        buf_free(&auth);
+        cursor_stream_stop(s);
+        return -1;
+    }
     int rc = http_request(s->conn, "POST", path, hdrs, framed.data, framed.len);
     buf_free(&framed);
     buf_free(&auth);
@@ -250,13 +258,23 @@ int cursor_stream_pump_raw(cursor_stream *s, connect_frame_cb cb, void *ud, int 
         char tmp[16384];
         ssize_t n = http_body_read(s->conn, tmp, sizeof tmp);
         if (n == -2) return 0;
-        if (n == 0) return 1;
+        if (n == 0) {
+            if (connect_decoder_finish(&s->dec) != TNY_PARSE_OK) {
+                snprintf(err, errlen,
+                         "cursor: bridge stream ended with a truncated Connect envelope");
+                return -1;
+            }
+            return 1;
+        }
         if (n < 0) {
             snprintf(err, errlen, "bridge stream aborted mid-response");
             return -1;
         }
-        if (connect_decoder_feed(&s->dec, tmp, (size_t)n, cb, ud) != 0) {
-            snprintf(err, errlen, "bridge sent an oversized stream frame");
+        int decoded = connect_decoder_feed(&s->dec, tmp, (size_t)n, cb, ud);
+        if (decoded != TNY_PARSE_OK) {
+            snprintf(err, errlen, "%s",
+                     decoded == TNY_PARSE_OOM ? "out of memory decoding bridge frame"
+                                              : "bridge sent an oversized stream frame");
             return -1;
         }
     }

@@ -1,0 +1,4 @@
+data: {"choices": [{"delta": {"reasoning_details": [{"index": 0, "text": "think", "unknown": {"signature": "abc"}}]}}]}
+
+data: {"choices": [{"delta": {"reasoning_details": [{"index": 0, "text": " more", "data": "signed"}]}}]}
+

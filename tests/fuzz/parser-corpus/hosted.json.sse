@@ -1,0 +1,6 @@
+data: {"type": "response.output_item.done", "item": {"type": "web_search_call", "id": "s", "status": "completed"}}
+
+data: {"type": "response.output_item.done", "item": {"type": "message", "id": "m", "status": "completed", "content": [{"annotations": [{"type": "url_citation", "url": "https://example.com", "title": "Example"}]}]}}
+
+data: {"type": "response.completed", "response": {}}
+

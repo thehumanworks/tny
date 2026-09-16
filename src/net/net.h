@@ -3,6 +3,10 @@
 #ifndef TNY_NET_H
 #define TNY_NET_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -77,20 +81,24 @@ void http_close(http_conn *c);
 const char *http_prefix(http_conn *c);
 
 /* ---- SSE ---- */
+/* Private parser statuses: malformed/limit vs allocation failure. Views passed
+ * to callbacks are borrowed only until that callback returns. No reentry.
+ * Init is allocation-free; the first nonempty feed allocates lazily. */
+enum { TNY_PARSE_OK = 0, TNY_PARSE_INVALID = -1, TNY_PARSE_OOM = -2 };
 typedef void (*sse_event_cb)(const char *data, size_t len, void *ud);
 
 typedef struct {
-    buf_t acc;  /* unparsed input */
-    buf_t data; /* accumulated data: lines for the current event */
+    void *owner; /* private move-only owner; never copy an initialized parser */
+    int status;  /* sticky until free/init */
 } sse_parser;
 
 void sse_parser_init(sse_parser *p);
 void sse_parser_free(sse_parser *p);
 /* Feed raw body bytes; cb fires once per complete event (data joined by \n). */
-void sse_feed(sse_parser *p, const char *bytes, size_t n, sse_event_cb cb, void *ud);
+int sse_feed(sse_parser *p, const char *bytes, size_t n, sse_event_cb cb, void *ud);
 /* End of body: dispatch a final event whose terminating blank line never
  * arrived (a last `data:` line closed by EOF). */
-void sse_flush(sse_parser *p, sse_event_cb cb, void *ud);
+int sse_flush(sse_parser *p, sse_event_cb cb, void *ud);
 
 /* ---- WebSocket client (RFC 6455 text frames via wslay) ---- */
 typedef struct ws_conn ws_conn;
@@ -109,19 +117,28 @@ void ws_close(ws_conn *w);
 
 /* ---- Connect streaming envelope (docs/backends/cursor-bridge.md) ----
  * frame: flags:1 | length:4 big-endian | payload */
-#define CONNECT_FLAG_END 0x02
+#define CONNECT_FLAG_END  0x02
+#define CONNECT_MAX_FRAME (64u * 1024u * 1024u)
 
-void connect_frame_encode(buf_t *out, uint8_t flags, const char *payload, size_t len);
+/* Encoder checks wire-length representability; inbound decoder cap is 64 MiB. */
+int connect_frame_encode(buf_t *out, uint8_t flags, const char *payload, size_t len);
 
 typedef struct {
-    buf_t acc;
+    void *owner; /* private move-only owner; never copy an initialized decoder */
+    int status;
 } connect_decoder;
 typedef void (*connect_frame_cb)(uint8_t flags, const char *payload, size_t len, void *ud);
 
 void connect_decoder_init(connect_decoder *d);
 void connect_decoder_free(connect_decoder *d);
-/* Feed bytes; cb per complete frame. Returns 0, or -1 on oversized frame. */
+/* EOF: reject an incomplete header/payload. */
+int connect_decoder_finish(const connect_decoder *d);
+/* Feed bytes; cb per complete frame. Returns TNY_PARSE_OK, INVALID (oversized), or OOM. */
 int connect_decoder_feed(connect_decoder *d, const char *bytes, size_t n, connect_frame_cb cb,
                          void *ud);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

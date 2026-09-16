@@ -8,6 +8,7 @@
  * HTTP 400 "no tool output found for function call …". */
 #include "greatest.h"
 #include "backends/openai/openai.h"
+#include "backends/openai/stream_decode.h"
 #include "core/config.h"
 #include "core/image.h"
 #include "core/image_manifest.h"
@@ -929,7 +930,128 @@ TEST continuation_trails_partial_then_user_turn(void) {
     PASS();
 }
 
+typedef struct {
+    oa_decoder decoder;
+    oa_callset calls;
+    bool chat;
+    int status, done, failed;
+    tny_stop_reason stop;
+    buf_t text, thinking;
+} decode_capture;
+
+static int decoded_collect(const oa_decoded_event *event, void *ud) {
+    decode_capture *c = ud;
+    switch (event->kind) {
+    case OA_DECODE_TEXT: buf_append(&c->text, event->text, event->len); break;
+    case OA_DECODE_THINKING: buf_append(&c->thinking, event->text, event->len); break;
+    case OA_DECODE_DONE: c->done++; break;
+    case OA_DECODE_ERROR: c->failed++; break;
+    case OA_DECODE_FINISH: c->stop = event->stop; break;
+    default: break;
+    }
+    return c->text.oom || c->thinking.oom ? TNY_PARSE_OOM : TNY_PARSE_OK;
+}
+static void decoded_sse(const char *data, size_t len, void *ud) {
+    decode_capture *c = ud;
+    int rc = oa_decoder_feed(&c->decoder, &c->calls, c->chat, true, data, len, decoded_collect, c);
+    if (rc != TNY_PARSE_OK) c->status = rc;
+}
+static void decoded_free(decode_capture *c) {
+    oa_decoder_reset(&c->decoder);
+    oa_calls_reset(&c->calls);
+    buf_free(&c->text);
+    buf_free(&c->thinking);
+}
+TEST provider_decoding_every_split(void) {
+    const char *wire[] = {
+        ": comment\r\ndata: "
+        "{\"choices\":[{\"delta\":{\"content\":\"h\u00e9\u4e16\u754c\",\"reasoning_content\":"
+        "\"thinking\",\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"read_file\","
+        "\"arguments\":\"{\"}}]}}]}\r\n\r\n"
+        "data: "
+        "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"late\",\"function\":{"
+        "\"arguments\":\"}\"}}]},\"finish_reason\":\"length\"}]}\n\n"
+        "data: [DONE]",
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"h\u00e9\u4e16\u754c\"}\n\n"
+        "data: "
+        "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_"
+        "call\",\"name\":\"read_file\"}}\n\n"
+        "data: "
+        "{\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":"
+        "\"broken prefix\"}\n\n"
+        "data: "
+        "{\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"function_"
+        "call\",\"call_id\":\"late\",\"arguments\":\"{}\"}}\n\n"
+        "data: "
+        "{\"type\":\"response.incomplete\",\"response\":{\"incomplete_details\":{\"reason\":\"max_"
+        "output_tokens\"}}}"};
+    for (size_t w = 0; w < 2; w++) {
+        size_t len = strlen(wire[w]);
+        /* split==len+1 exercises the byte-at-a-time path too. */
+        for (size_t split = 0; split <= len + 1; split++) {
+            decode_capture c = {0};
+            c.chat = w == 0;
+            sse_parser parser;
+            sse_parser_init(&parser);
+            if (split <= len) {
+                ASSERT_EQ(TNY_PARSE_OK, sse_feed(&parser, wire[w], split, decoded_sse, &c));
+                ASSERT_EQ(TNY_PARSE_OK,
+                          sse_feed(&parser, wire[w] + split, len - split, decoded_sse, &c));
+            } else {
+                for (size_t i = 0; i < len; i++)
+                    ASSERT_EQ(TNY_PARSE_OK, sse_feed(&parser, wire[w] + i, 1, decoded_sse, &c));
+            }
+            ASSERT_EQ(TNY_PARSE_OK, sse_flush(&parser, decoded_sse, &c));
+            ASSERT_EQ(TNY_PARSE_OK, c.status);
+            ASSERT_EQ(1, c.done);
+            ASSERT_EQ(0, c.failed);
+            ASSERT_EQ(TNY_STOP_STEP_LIMIT, c.stop);
+            ASSERT_STR_EQ("h\u00e9\u4e16\u754c", c.text.data);
+            ASSERT_EQ(1, c.calls.n);
+            ASSERT_STR_EQ("late", c.calls.calls[0].id);
+            ASSERT_STR_EQ("read_file", c.calls.calls[0].name);
+            ASSERT_STR_EQ("{}", c.calls.calls[0].args.data);
+            if (c.chat) ASSERT_STR_EQ("thinking", c.thinking.data);
+            sse_parser_free(&parser);
+            decoded_free(&c);
+        }
+    }
+    PASS();
+}
+TEST responses_reasoning_owns_unknown_fields(void) {
+    const char *event =
+        "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"reasoning\",\"id\":\"r\","
+        "\"encrypted_content\":\"signed\",\"status\":\"completed\",\"future\":{\"key\":"
+        "\"retained\"}}}";
+    decode_capture c = {0};
+    ASSERT_EQ(TNY_PARSE_OK, oa_decoder_feed(&c.decoder, &c.calls, false, false, event,
+                                            strlen(event), decoded_collect, &c));
+    char *extras = NULL;
+    ASSERT_EQ(TNY_PARSE_OK, oa_decoder_extras(&c.decoder, &extras));
+    ASSERT(extras);
+    yyjson_doc *doc = jparse(extras, strlen(extras));
+    ASSERT(doc);
+    yyjson_val *item = yyjson_arr_get_first(jget(yyjson_doc_get_root(doc), "reasoning_items"));
+    ASSERT_STR_EQ("retained", jget_str(jget(item, "future"), "key"));
+    ASSERT_STR_EQ("signed", jget_str(item, "encrypted_content"));
+    ASSERT_EQ(NULL, jget(item, "status"));
+    yyjson_doc_free(doc);
+    free(extras);
+    decoded_free(&c);
+    PASS();
+}
+
+/* The C suite calls the separately C++-compiled ownership checks. */
+extern int tny_ownership_selftest(void);
+TEST cpp_ownership_boundary(void) {
+    ASSERT_EQ(0, tny_ownership_selftest());
+    PASS();
+}
+
 SUITE(openai_suite) {
+    RUN_TEST(cpp_ownership_boundary);
+    RUN_TEST(provider_decoding_every_split);
+    RUN_TEST(responses_reasoning_owns_unknown_fields);
     RUN_TEST(single_call_assembles_from_fragments);
     RUN_TEST(parallel_calls_keyed_by_index);
     RUN_TEST(parallel_calls_in_one_delta_array);

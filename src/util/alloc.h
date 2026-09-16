@@ -7,6 +7,10 @@
 #ifndef TNY_ALLOC_H
 #define TNY_ALLOC_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -24,6 +28,10 @@ char *tny_alloc_strdup(const char *value);
  * intentionally absent from production objects and the public ABI. */
 size_t tny_alloc_test_scope_count(void);
 bool tny_alloc_test_scope_injected(void);
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

@@ -2,6 +2,7 @@
  * or Chat Completions SSE (wire_api "chat"), plus the tny-owned tool loop
  * (docs/backends/openai-compatible.md, docs/adr/0016). */
 #include "backends/openai/openai.h"
+#include "backends/openai/stream_decode.h"
 #include "core/tools.h"
 #include "core/speech.h"
 #include "core/image_service.h"
@@ -95,17 +96,10 @@ typedef struct {
     tny_openai_control_cb control;
     void *control_ud;
 
-    buf_t text;       /* assistant text this step */
-    oa_callset calls; /* streamed tool_calls this step (toolcalls.c) */
-    /* provider reasoning payloads streamed this step, kept in the shape the
-     * provider used so they ride back with the tool calls they belong to
-     * (docs/adr/0069): chat `reasoning_details` items merged by index,
-     * chat `reasoning_content` text, responses `reasoning` output items */
-    yyjson_mut_doc *rdoc;
-    yyjson_mut_val *reasoning_details;
-    yyjson_mut_val *reasoning_items;
-    yyjson_mut_val *hosted_items; /* raw web_search_call and annotated messages */
-    buf_t reasoning_content;
+    buf_t text;         /* assistant text this step */
+    oa_callset calls;   /* streamed tool_calls this step (toolcalls.cpp) */
+    oa_decoder decoder; /* owns retained provider decoding data */
+    bool decode_oom;
     bool thinking_seen; /* any reasoning reached the frontend this step */
     int step;
     bool cancelled;
@@ -276,6 +270,11 @@ static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
         free(o->steer);
         o->steer = NULL;
     }
+    /* Terminal/cancel/OOM settles retained parser resources without allocating.
+     * This runs after synchronous decode callbacks have returned. */
+    oa_decoder_reset(&o->decoder);
+    oa_calls_reset(&o->calls);
+    sse_parser_free(&o->sse);
     tny_backend_event ev = {0};
     ev.kind = TNY_EV_TURN_END;
     ev.stop = stop;
@@ -292,225 +291,24 @@ static void conn_drop(oa_impl *o) {
 /* ---------- reasoning capture (docs/adr/0069) ---------- */
 
 static void reasoning_reset(oa_impl *o) {
-    if (o->rdoc) yyjson_mut_doc_free(o->rdoc);
-    o->rdoc = NULL;
-    o->reasoning_details = NULL;
-    o->reasoning_items = NULL;
-    o->hosted_items = NULL;
-    buf_clear(&o->reasoning_content);
+    oa_decoder_reset(&o->decoder);
     o->thinking_seen = false;
+    o->decode_oom = false;
 }
 
-static yyjson_mut_val *reasoning_array(oa_impl *o, yyjson_mut_val **slot) {
-    if (!o->rdoc) {
-        o->rdoc = yyjson_mut_doc_new(jallocator());
-        if (!o->rdoc) return NULL;
-        yyjson_mut_doc_set_root(o->rdoc, yyjson_mut_obj(o->rdoc));
-    }
-    if (!*slot) *slot = yyjson_mut_arr(o->rdoc);
-    return *slot;
-}
-
-/* OpenRouter-style chat streams carry `reasoning_details` as fragments: one
- * item's text/summary/data arrives piecewise under a stable "index", and
- * its signature (what the upstream model verifies on the way back) usually
- * last. Fragments merge by index — textual members concatenate, every other
- * member is kept from the first fragment that carried it — so the recorded
- * item is what a non-streaming response would have returned. */
-void oa_reasoning_details_merge(yyjson_mut_doc *rdoc, yyjson_mut_val *arr, yyjson_val *details) {
-    if (!details || !yyjson_is_arr(details)) return;
-    size_t di, dmax;
-    yyjson_val *frag;
-    yyjson_arr_foreach(details, di, dmax, frag) {
-        if (!yyjson_is_obj(frag)) continue;
-        yyjson_val *iv = jget(frag, "index");
-        int64_t index = iv && yyjson_is_int(iv) ? yyjson_get_int(iv) : -1;
-        yyjson_mut_val *item = NULL;
-        if (index >= 0) {
-            size_t ai, amax;
-            yyjson_mut_val *cand;
-            yyjson_mut_arr_foreach(arr, ai, amax, cand) {
-                yyjson_mut_val *ci = yyjson_mut_obj_get(cand, "index");
-                if (ci && yyjson_mut_is_int(ci) && yyjson_mut_get_int(ci) == index) {
-                    item = cand;
-                    break;
-                }
-            }
-        }
-        if (!item) {
-            item = yyjson_val_mut_copy(rdoc, frag);
-            if (item) yyjson_mut_arr_add_val(arr, item);
-            continue;
-        }
-        yyjson_obj_iter it = yyjson_obj_iter_with(frag);
-        yyjson_val *k;
-        while ((k = yyjson_obj_iter_next(&it))) {
-            yyjson_val *v = yyjson_obj_iter_get_val(k);
-            const char *key = yyjson_get_str(k);
-            if (!key || !v || yyjson_is_null(v)) continue;
-            yyjson_mut_val *have = yyjson_mut_obj_get(item, key);
-            bool textual =
-                strcmp(key, "text") == 0 || strcmp(key, "summary") == 0 || strcmp(key, "data") == 0;
-            if (textual && yyjson_is_str(v) && have && yyjson_mut_is_str(have)) {
-                size_t hl = yyjson_mut_get_len(have), vl = yyjson_get_len(v);
-                char *joined = malloc(hl + vl + 1);
-                if (!joined) continue;
-                memcpy(joined, yyjson_mut_get_str(have), hl);
-                memcpy(joined + hl, yyjson_get_str(v), vl);
-                joined[hl + vl] = 0;
-                yyjson_mut_obj_put(item, yyjson_mut_strcpy(rdoc, key),
-                                   yyjson_mut_strncpy(rdoc, joined, hl + vl));
-                free(joined);
-            } else if (!have || yyjson_mut_is_null(have)) {
-                yyjson_mut_val *cv = yyjson_val_mut_copy(rdoc, v);
-                if (cv) yyjson_mut_obj_put(item, yyjson_mut_strcpy(rdoc, key), cv);
-            }
-        }
-    }
-}
-
-static void capture_reasoning_details(oa_impl *o, yyjson_val *details) {
-    yyjson_mut_val *arr = reasoning_array(o, &o->reasoning_details);
-    if (arr) oa_reasoning_details_merge(o->rdoc, arr, details);
-}
-
-/* Responses wire: a completed `reasoning` output item. Only one carrying
- * encrypted_content is worth keeping — with store:false the provider cannot
- * resolve a bare id, and echoing one 400s the next request. */
-static void capture_reasoning_item(oa_impl *o, yyjson_val *item) {
-    const char *enc = jget_str(item, "encrypted_content");
-    if (!enc || !*enc) return;
-    yyjson_mut_val *arr = reasoning_array(o, &o->reasoning_items);
-    if (!arr) return;
-    const char *id = jget_str(item, "id");
-    yyjson_mut_val *copy = NULL;
-    if (id) { /* added then done: the later, complete item wins */
-        size_t ai, amax;
-        yyjson_mut_val *cand;
-        yyjson_mut_arr_foreach(arr, ai, amax, cand) {
-            const char *cid = yyjson_mut_get_str(yyjson_mut_obj_get(cand, "id"));
-            if (cid && strcmp(cid, id) == 0) {
-                copy = cand;
-                break;
-            }
-        }
-    }
-    if (!copy) {
-        copy = yyjson_mut_obj(o->rdoc);
-        if (!copy) return;
-        yyjson_mut_arr_add_val(arr, copy);
-    }
-    static const char *const keep[] = {"type", "id", "summary", "content", "encrypted_content"};
-    for (size_t i = 0; i < sizeof keep / sizeof keep[0]; i++) {
-        yyjson_val *v = jget(item, keep[i]);
-        if (!v) continue;
-        yyjson_mut_val *cv = yyjson_val_mut_copy(o->rdoc, v);
-        if (cv) yyjson_mut_obj_put(copy, yyjson_mut_strcpy(o->rdoc, keep[i]), cv);
-    }
-}
-
-/* Hosted tools execute at the provider. Keep their completed wire items and
- * annotations, with id-based replacement for added/done/completed repeats. */
-static void capture_hosted_item(oa_impl *o, yyjson_val *item) {
-    if (!tool_web_search_native(o->ctx)) return;
-    const char *type = jget_str(item, "type");
-    const char *id = jget_str(item, "id");
-    if (!type || !id) return;
-    bool search = strcmp(type, "web_search_call") == 0;
-    if (!search && strcmp(type, "message") != 0) return;
-    const char *status = jget_str(item, "status");
-    bool done = status && (strcmp(status, "completed") == 0 || strcmp(status, "failed") == 0);
-    if (!search && !done) return;
-    yyjson_mut_val *arr = reasoning_array(o, &o->hosted_items);
-    if (!arr) return;
-    size_t idx, max;
-    yyjson_mut_val *old;
-    bool found = false, was_done = false;
-    yyjson_mut_arr_foreach(arr, idx, max, old) {
-        const char *oid = yyjson_mut_get_str(yyjson_mut_obj_get(old, "id"));
-        if (!oid || strcmp(oid, id) != 0) continue;
-        found = true;
-        const char *os = yyjson_mut_get_str(yyjson_mut_obj_get(old, "status"));
-        was_done = os && (strcmp(os, "completed") == 0 || strcmp(os, "failed") == 0);
-        if (!was_done || done) yyjson_mut_arr_replace(arr, idx, yyjson_val_mut_copy(o->rdoc, item));
-        break;
-    }
-    if (!found) yyjson_mut_arr_add_val(arr, yyjson_val_mut_copy(o->rdoc, item));
-    if (search) {
-        tny_backend_event ev = {0};
-        ev.tool_name = "web_search";
-        ev.tool_id = id;
-        ev.tool_detail = "Codex hosted web search";
-        if (!found) {
-            ev.kind = TNY_EV_TOOL_START;
-            emit(o, &ev);
-        }
-        if (done && !was_done) {
-            if (o->background_armed && !o->cancelled) o->background_boundary = true;
-            ev.kind = TNY_EV_TOOL_END;
-            ev.tool_ok = strcmp(status, "completed") == 0;
-            ev.tool_detail =
-                ev.tool_ok ? "Codex hosted search completed" : "Codex hosted search failed";
-            emit(o, &ev);
-        }
-    } else if (!was_done) {
-        size_t pi, pm, ai, am;
-        yyjson_val *part, *annotation;
-        yyjson_arr_foreach(jget(item, "content"), pi, pm, part) {
-            yyjson_arr_foreach(jget(part, "annotations"), ai, am, annotation) {
-                const char *at = jget_str(annotation, "type");
-                const char *url = jget_str(annotation, "url");
-                if (!at || strcmp(at, "url_citation") != 0 || !url ||
-                    (!str_starts(url, "https://") && !str_starts(url, "http://")))
-                    continue;
-                const char *title = jget_str(annotation, "title");
-                buf_t citation;
-                buf_init(&citation);
-                buf_appendf(&citation, "\n[%s](%s)\n", title ? title : "Source", url);
-                buf_append(&o->text, citation.data, citation.len);
-                emit_text(o, TNY_EV_TEXT_DELTA, citation.data, citation.len);
-                buf_free(&citation);
-            }
-        }
-    }
-}
-
-static void capture_hosted_output(oa_impl *o, yyjson_val *response) {
-    size_t i, n;
-    yyjson_val *item;
-    yyjson_arr_foreach(jget(response, "output"), i, n, item) {
-        capture_hosted_item(o, item);
-        const char *type = jget_str(item, "type");
-        if (type && strcmp(type, "reasoning") == 0) capture_reasoning_item(o, item);
-    }
-}
-
-/* The extra assistant-message members for this step's tool-call batch, or
- * NULL when the provider streamed no reasoning. Compact JSON object. */
 static char *reasoning_extras_json(oa_impl *o) {
-    bool details = o->reasoning_details && yyjson_mut_arr_size(o->reasoning_details) > 0;
-    bool items = o->reasoning_items && yyjson_mut_arr_size(o->reasoning_items) > 0;
-    bool hosted = o->hosted_items && yyjson_mut_arr_size(o->hosted_items) > 0;
-    if (!details && !items && !hosted && !o->reasoning_content.len) return NULL;
-    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
-    if (!d) return NULL;
-    yyjson_mut_val *root = yyjson_mut_obj(d);
-    yyjson_mut_doc_set_root(d, root);
-    if (details)
-        yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, "reasoning_details"),
-                           yyjson_mut_val_mut_copy(d, o->reasoning_details));
-    if (o->reasoning_content.len)
-        yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, "reasoning_content"),
-                           yyjson_mut_strcpy(d, o->reasoning_content.data));
-    if (items)
-        yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, "reasoning_items"),
-                           yyjson_mut_val_mut_copy(d, o->reasoning_items));
-    if (hosted)
-        yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, "responses_items"),
-                           yyjson_mut_val_mut_copy(d, o->hosted_items));
-    char *out = jwrite(d);
-    yyjson_mut_doc_free(d);
+    char *out = NULL;
+    if (oa_decoder_extras(&o->decoder, &out) != TNY_PARSE_OK) o->decode_oom = true;
     return out;
+}
+
+/* Ordinary parser failure is settled explicitly; the embedding runtime uses
+ * its preallocated OOM ERROR/TURN_END reserves when its allocator scope failed. */
+static int parser_oom(oa_impl *o) {
+    conn_drop(o);
+    emit_error(o, TNY_EVENT_ERROR_OOM, "out of memory decoding provider response", 40);
+    emit_turn_end(o, TNY_STOP_ERROR);
+    return -1;
 }
 
 /* ---------- provider failures (docs/adr/0069) ---------- */
@@ -1326,281 +1124,70 @@ static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
 
 /* ---------- SSE event handling ---------- */
 
-static void capture_usage(oa_impl *o, yyjson_val *usage, bool chat) {
-    if (!yyjson_is_obj(usage) ||
-        (!yyjson_is_int(jget(usage, chat ? "prompt_tokens" : "input_tokens")) &&
-         !yyjson_is_int(jget(usage, chat ? "completion_tokens" : "output_tokens"))))
-        return;
+static void capture_usage(oa_impl *o, const oa_decoded_event *event) {
     o->usage_seen = true;
-    o->usage_in = jget_int(usage, chat ? "prompt_tokens" : "input_tokens", o->usage_in);
-    o->usage_out = jget_int(usage, chat ? "completion_tokens" : "output_tokens", o->usage_out);
+    if (event->usage_fields & 1) o->usage_in = event->input_tokens;
+    if (event->usage_fields & 2) o->usage_out = event->output_tokens;
+    if (event->usage_fields & 4) o->usage_cached = event->cached_tokens;
+    if (event->usage_fields & 8) o->usage_cache_write = event->cache_write_tokens;
     if (o->usage_in < 0) o->usage_in = 0;
     if (o->usage_out < 0) o->usage_out = 0;
-    yyjson_val *details = jget(usage, chat ? "prompt_tokens_details" : "input_tokens_details");
-    o->usage_cached = jget_int(details, "cached_tokens", o->usage_cached);
-    o->usage_cache_write = jget_int(details, "cache_write_tokens", o->usage_cache_write);
     if (o->usage_cached > o->usage_in) o->usage_cached = o->usage_in;
     if (o->usage_cache_write > o->usage_in) o->usage_cache_write = o->usage_in;
 }
 
-static void on_sse_event_chat(const char *data, size_t len, void *ud) {
+static int on_decoded(const oa_decoded_event *event, void *ud) {
     oa_impl *o = ud;
-    if ((len == 6 && memcmp(data, "[DONE]", 6) == 0) ||
-        (len == 4 && memcmp(data, "DONE", 4) == 0)) {
-        o->stream_done = true;
-        return;
-    }
-    yyjson_doc *doc = jparse(data, len);
-    if (!doc) return; /* never block the loop on a parse error */
-    yyjson_val *root = yyjson_doc_get_root(doc);
-    yyjson_val *root_error = jget(root, "error");
-    /* `"error": null` rides in every chunk of some gateways: only an
-     * object or a non-empty string is a failure (docs/adr/0069) */
-    if (root_error && (yyjson_is_obj(root_error) ||
-                       (yyjson_is_str(root_error) && yyjson_get_len(root_error) > 0))) {
-        classify_error(o, root_error, 0, &o->stream_error);
-        o->stream_done = true;
-        o->stream_failed = true;
-        yyjson_doc_free(doc);
-        return;
-    }
-    yyjson_val *usage = jget(root, "usage");
-    capture_usage(o, usage, true);
-    yyjson_val *choice = yyjson_arr_get_first(jget(root, "choices"));
-    if (!choice) {
-        yyjson_doc_free(doc);
-        return;
-    }
-    const char *fr = jget_str(choice, "finish_reason");
-    if (fr) {
-        snprintf(o->finish_reason, sizeof o->finish_reason, "%s", fr);
-        if (strcmp(fr, "length") == 0) o->final_stop = TNY_STOP_STEP_LIMIT;
-        else if (strcmp(fr, "content_filter") == 0) o->final_stop = TNY_STOP_DENIED;
-        else if (strcmp(fr, "error") == 0 && !o->stream_failed) {
-            classify_error(o, NULL, 0, &o->stream_error);
-            o->stream_done = true;
-            o->stream_failed = true;
-        }
-    }
-    yyjson_val *delta = jget(choice, "delta");
-    if (!delta) delta = jget(choice, "message"); /* non-stream fallback */
-    size_t content_len = 0;
-    const char *content = jget_strn(delta, "content", &content_len);
-    if (content && content_len) {
-        buf_append(&o->text, content, content_len);
-        emit_text(o, TNY_EV_TEXT_DELTA, content, content_len);
-    }
-    size_t reasoning_len = 0;
-    const char *reasoning_content = jget_strn(delta, "reasoning_content", &reasoning_len);
-    if (reasoning_content && reasoning_len) {
-        /* DeepSeek/Kimi-style thinking: the text must ride back with the
-         * tool calls it produced, in the member the provider used */
-        buf_append(&o->reasoning_content, reasoning_content, reasoning_len);
+    if (o->decode_oom || tny_alloc_scope_failed()) return TNY_PARSE_OOM;
+    switch (event->kind) {
+    case OA_DECODE_TEXT:
+        buf_append(&o->text, event->text, event->len);
+        if (buf_oom(&o->text)) return TNY_PARSE_OOM;
+        emit_text(o, TNY_EV_TEXT_DELTA, event->text, event->len);
+        break;
+    case OA_DECODE_THINKING:
         o->thinking_seen = true;
-        emit_text(o, TNY_EV_THINKING, reasoning_content, reasoning_len);
-    } else {
-        const char *reasoning = jget_strn(delta, "reasoning", &reasoning_len);
-        if (reasoning && reasoning_len) {
-            o->thinking_seen = true;
-            emit_text(o, TNY_EV_THINKING, reasoning, reasoning_len);
-        }
-    }
-    yyjson_val *details = jget(delta, "reasoning_details");
-    if (details && yyjson_is_arr(details)) {
-        /* OpenRouter: signed/encrypted blocks the upstream model needs back
-         * (Anthropic thinking, Gemini thought signatures) — kept verbatim */
-        capture_reasoning_details(o, details);
-        if (!reasoning_content && !jget(delta, "reasoning")) {
-            size_t idx, max;
-            yyjson_val *detail;
-            yyjson_arr_foreach(details, idx, max, detail) {
-                size_t text_len = 0;
-                const char *text = jget_strn(detail, "text", &text_len);
-                if (!text) text = jget_strn(detail, "summary", &text_len);
-                if (text && text_len) {
-                    o->thinking_seen = true;
-                    emit_text(o, TNY_EV_THINKING, text, text_len);
-                }
-            }
-        }
-    }
-
-    oa_calls_feed(&o->calls, jget(delta, "tool_calls"));
-    yyjson_doc_free(doc);
-}
-
-/* Responses wire: pending call for one output_index, or NULL. The
- * item's output_index lives in oa_call.wire_index (the chat wire's
- * "index" slot — both are the provider's per-call ordinal). */
-static oa_call *rsp_call_by_index(oa_impl *o, int64_t oindex) {
-    for (int i = 0; i < o->calls.n; i++)
-        if (o->calls.calls[i].wire_index == oindex) return &o->calls.calls[i];
-    return NULL;
-}
-
-/* A complete Response object (a gateway that answered stream:true with one
- * JSON document): fold its output items as if they had streamed. */
-static void rsp_absorb_response(oa_impl *o, yyjson_val *response) {
-    size_t idx, max;
-    yyjson_val *item;
-    yyjson_arr_foreach(jget(response, "output"), idx, max, item) {
-        const char *itype = jget_str(item, "type");
-        if (!itype) continue;
-        if (strcmp(itype, "message") == 0) {
-            size_t pi, pmax;
-            yyjson_val *part;
-            yyjson_arr_foreach(jget(item, "content"), pi, pmax, part) {
-                const char *ptype = jget_str(part, "type");
-                size_t tlen = 0;
-                const char *text = jget_strn(part, "text", &tlen);
-                if (ptype && strcmp(ptype, "output_text") == 0 && text && tlen) {
-                    buf_append(&o->text, text, tlen);
-                    emit_text(o, TNY_EV_TEXT_DELTA, text, tlen);
-                }
-            }
-        } else if (strcmp(itype, "function_call") == 0) {
-            if (o->calls.n >= OA_MAX_TOOL_CALLS) continue;
-            oa_call *pc = &o->calls.calls[o->calls.n];
-            pc->id = NULL;
-            pc->name = NULL;
-            buf_init(&pc->args);
-            pc->wire_index = o->calls.n;
-            const char *id = jget_str(item, "call_id");
-            const char *name = jget_str(item, "name");
-            const char *args = jget_str(item, "arguments");
-            if (id) pc->id = xstrdup(id);
-            if (name) pc->name = xstrdup(name);
-            if (args) buf_appends(&pc->args, args);
-            o->calls.n++;
-        } else if (strcmp(itype, "reasoning") == 0) {
-            capture_reasoning_item(o, item);
-        }
-    }
-    capture_hosted_output(o, response);
-    yyjson_val *usage = jget(response, "usage");
-    capture_usage(o, usage, false);
-    const char *status = jget_str(response, "status");
-    if (status && strcmp(status, "failed") == 0) {
-        yyjson_val *err = jget(response, "error");
-        classify_error(o, err ? err : response, 0, &o->stream_error);
+        emit_text(o, TNY_EV_THINKING, event->text, event->len);
+        break;
+    case OA_DECODE_USAGE: capture_usage(o, event); break;
+    case OA_DECODE_ERROR:
+        classify_error(o, event->value, 0, &o->stream_error);
         o->stream_failed = true;
-    } else if (status && strcmp(status, "incomplete") == 0) {
-        const char *reason = jget_str(jget(response, "incomplete_details"), "reason");
-        o->final_stop =
-            reason && strstr(reason, "content_filter") ? TNY_STOP_DENIED : TNY_STOP_STEP_LIMIT;
+        break;
+    case OA_DECODE_FINISH:
+        if (event->text) snprintf(o->finish_reason, sizeof o->finish_reason, "%s", event->text);
+        if (event->stop != TNY_STOP_DONE) o->final_stop = event->stop;
+        break;
+    case OA_DECODE_DONE: o->stream_done = true; break;
+    case OA_DECODE_HOSTED_START:
+    case OA_DECODE_HOSTED_END: {
+        tny_backend_event ev = {0};
+        ev.tool_name = "web_search";
+        ev.tool_id = event->text;
+        ev.tool_detail = "Codex hosted web search";
+        ev.kind = TNY_EV_TOOL_START;
+        if (event->kind == OA_DECODE_HOSTED_END) {
+            if (o->background_armed && !o->cancelled) o->background_boundary = true;
+            ev.kind = TNY_EV_TOOL_END;
+            ev.tool_ok = event->ok;
+            ev.tool_detail =
+                event->ok ? "Codex hosted search completed" : "Codex hosted search failed";
+        }
+        emit(o, &ev);
+        break;
     }
-    o->stream_done = true;
-}
-
-/* Typed Responses API events (docs/adr/0016). The SSE parser drops the
- * `event:` line; every payload repeats the type in its "type" member, so
- * dispatch happens on the data alone. */
-static void on_sse_event_rsp(const char *data, size_t len, void *ud) {
-    oa_impl *o = ud;
-    yyjson_doc *doc = jparse(data, len);
-    /* parse errors never block the loop. A stray "[DONE]" from a
-     * chat-flavored gateway lands here too: it is not JSON, and the
-     * Responses stream ends on response.completed, not the sentinel. */
-    if (!doc) return;
-    yyjson_val *root = yyjson_doc_get_root(doc);
-    const char *type = jget_str(root, "type");
-    if (!type) {
-        /* a chat-shaped error wrapper behind HTTP 200 ({"error":{…}}), as
-         * gateways fronting the responses endpoint produce */
-        yyjson_val *err = jget(root, "error");
-        if (err && (yyjson_is_obj(err) || (yyjson_is_str(err) && yyjson_get_len(err) > 0))) {
-            classify_error(o, err, 0, &o->stream_error);
-            o->stream_done = true;
-            o->stream_failed = true;
-        } else if (yyjson_is_arr(jget(root, "output"))) {
-            rsp_absorb_response(o, root); /* a whole Response object: stream:true ignored */
-        }
-        yyjson_doc_free(doc);
-        return;
     }
-
-    if (strcmp(type, "response.output_text.delta") == 0) {
-        size_t delta_len = 0;
-        const char *d = jget_strn(root, "delta", &delta_len);
-        if (d && delta_len) {
-            buf_append(&o->text, d, delta_len);
-            emit_text(o, TNY_EV_TEXT_DELTA, d, delta_len);
-        }
-    } else if (strcmp(type, "response.reasoning_summary_text.delta") == 0 ||
-               strcmp(type, "response.reasoning_text.delta") == 0) {
-        size_t delta_len = 0;
-        const char *d = jget_strn(root, "delta", &delta_len);
-        if (d && delta_len) {
-            o->thinking_seen = true;
-            if (tool_web_search_native(o->ctx)) buf_append(&o->reasoning_content, d, delta_len);
-            emit_text(o, TNY_EV_THINKING, d, delta_len);
-        }
-    } else if (strcmp(type, "response.output_item.added") == 0 ||
-               strcmp(type, "response.output_item.done") == 0) {
-        yyjson_val *item = jget(root, "item");
-        const char *itype = jget_str(item, "type");
-        capture_hosted_item(o, item);
-        if (itype && strcmp(itype, "reasoning") == 0) capture_reasoning_item(o, item);
-        if (itype && strcmp(itype, "function_call") == 0) {
-            int64_t oindex = jget_int(root, "output_index", o->calls.n);
-            oa_call *pc = rsp_call_by_index(o, oindex);
-            if (!pc && oindex >= 0 && o->calls.n < OA_MAX_TOOL_CALLS) {
-                pc = &o->calls.calls[o->calls.n++];
-                pc->id = NULL;
-                pc->name = NULL;
-                buf_init(&pc->args);
-                pc->wire_index = (int)oindex;
-            }
-            if (pc) {
-                const char *id = jget_str(item, "call_id");
-                if (id && !pc->id) pc->id = xstrdup(id);
-                const char *name = jget_str(item, "name");
-                if (name && !pc->name) pc->name = xstrdup(name);
-                /* item.done carries the complete argument string — it is
-                 * authoritative over deltas assembled along the way */
-                const char *args = jget_str(item, "arguments");
-                if (args && *args) {
-                    buf_clear(&pc->args);
-                    buf_appends(&pc->args, args);
-                }
-            }
-        }
-    } else if (strcmp(type, "response.function_call_arguments.delta") == 0) {
-        oa_call *pc = rsp_call_by_index(o, jget_int(root, "output_index", -1));
-        const char *d = jget_str(root, "delta");
-        if (pc && d) buf_appends(&pc->args, d);
-    } else if (strcmp(type, "response.completed") == 0) {
-        capture_hosted_output(o, jget(root, "response"));
-        yyjson_val *usage = jget(jget(root, "response"), "usage");
-        capture_usage(o, usage, false);
-        o->stream_done = true;
-    } else if (strcmp(type, "response.incomplete") == 0) {
-        /* token/limit cutoff: keep the partial text, end the step cleanly
-         * (the chat wire treats finish_reason "length" the same way) */
-        yyjson_val *response = jget(root, "response");
-        capture_usage(o, jget(response, "usage"), false);
-        const char *reason = jget_str(jget(response, "incomplete_details"), "reason");
-        o->final_stop =
-            reason && strstr(reason, "content_filter") ? TNY_STOP_DENIED : TNY_STOP_STEP_LIMIT;
-        o->stream_done = true;
-    } else if (strcmp(type, "response.failed") == 0 || strcmp(type, "error") == 0) {
-        capture_usage(o, jget(jget(root, "response"), "usage"), false);
-        /* response.failed nests the error under response.error; the bare
-         * error event carries code/message at its top level */
-        yyjson_val *err = jget(jget(root, "response"), "error");
-        if (!err) err = jget(root, "error");
-        if (!err) err = root;
-        classify_error(o, err, 0, &o->stream_error);
-        o->stream_done = true;
-        o->stream_failed = true;
-    }
-    yyjson_doc_free(doc);
+    return tny_alloc_scope_failed() ? TNY_PARSE_OOM : TNY_PARSE_OK;
 }
 
 static void on_sse_event(const char *data, size_t len, void *ud) {
     oa_impl *o = ud;
-    if (o->wire_chat) on_sse_event_chat(data, len, ud);
-    else on_sse_event_rsp(data, len, ud);
+    if (o->decode_oom) return;
+    int rc = oa_decoder_feed(&o->decoder, &o->calls, o->wire_chat, tool_web_search_native(o->ctx),
+                             data, len, on_decoded, o);
+    /* Malformed individual events retain the existing ignore policy. OOM
+     * must never be interpreted as a malformed/empty successful event. */
+    if (rc == TNY_PARSE_OOM) o->decode_oom = true;
 }
 
 /* ---------- step completion ---------- */
@@ -1626,6 +1213,10 @@ static void finish_turn_ok(oa_impl *o) {
     /* an empty answer is not recorded: strict providers reject assistant
      * messages without content, and nothing in it helps the next turn */
     char *extras = tool_web_search_native(o->ctx) ? reasoning_extras_json(o) : NULL;
+    if (o->decode_oom) {
+        parser_oom(o);
+        return;
+    }
     if (o->text.len || extras) session_add_assistant_ex(s, o->text.data, NULL, extras);
     free(extras);
     session_bump_turns(s);
@@ -2185,6 +1776,7 @@ static int step_finished(oa_impl *o) {
              * that answer and run one more round on the steered message so
              * it is addressed within the turn it targeted (adr/0011) */
             char *extras = reasoning_extras_json(o);
+            if (o->decode_oom) return parser_oom(o);
             if (o->text.len || extras) session_add_assistant_ex(s, o->text.data, NULL, extras);
             free(extras);
             take_steer(o);
@@ -2221,6 +1813,11 @@ static int step_finished(oa_impl *o) {
         }
         buf_appends(&tcj, "]");
         char *extras = reasoning_extras_json(o);
+        if (o->decode_oom || buf_oom(&tcj)) {
+            free(extras);
+            buf_free(&tcj);
+            return parser_oom(o);
+        }
         session_add_assistant_ex(s, o->text.len ? o->text.data : NULL, tcj.data, extras);
         free(extras);
         buf_free(&tcj);
@@ -2583,16 +2180,20 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             bytes += (size_t)bn;
             o->last_byte_ms = monotonic_ms();
             if (!o->body_sniffed) sniff_body(o, tmp, (size_t)bn);
-            if (o->body_is_sse) sse_feed(&o->sse, tmp, (size_t)bn, on_sse_event, o);
-            else {
+            if (o->body_is_sse) {
+                if (sse_feed(&o->sse, tmp, (size_t)bn, on_sse_event, o) == TNY_PARSE_OOM)
+                    o->decode_oom = true;
+            } else {
                 size_t cap = o->error_status ? OA_ERROR_BODY_MAX : OA_RAW_BODY_MAX;
                 if (o->rawbody.len + (size_t)bn <= cap) buf_append(&o->rawbody, tmp, (size_t)bn);
                 else o->rawbody_overflow = true;
             }
+            if (o->decode_oom || buf_oom(&o->rawbody)) return parser_oom(o);
             if (o->error_status) continue;
             if (o->cancelled) return 0;
             /* a terminal error event settles the step now: whatever the
              * provider sends after it is not worth waiting for */
+            if (o->decode_oom) return parser_oom(o);
             if (o->stream_failed) return fail_stream(o);
             continue;
         }
@@ -2619,14 +2220,16 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 emit_turn_end(o, TNY_STOP_ERROR);
                 return -1;
             }
-            if (o->body_is_sse) sse_flush(&o->sse, on_sse_event, o);
-            else if (o->rawbody.len) {
+            if (o->body_is_sse) {
+                if (sse_flush(&o->sse, on_sse_event, o) == TNY_PARSE_OOM) o->decode_oom = true;
+            } else if (o->rawbody.len) {
                 on_sse_event(o->rawbody.data, o->rawbody.len, o);
                 buf_clear(&o->rawbody);
                 /* one JSON document is complete by construction: the framing
                  * that delivered it whole is its terminal event */
                 o->stream_done = true;
             }
+            if (o->decode_oom) return parser_oom(o);
             if (o->stream_failed) return fail_stream(o);
         }
         if (!oa_stream_complete(o->stream_done, o->wire_chat, o->finish_reason)) {
@@ -2671,7 +2274,6 @@ static void oa_destroy(tny_backend *b) {
     buf_free(&o->toolcall_log);
     buf_free(&o->rawbody);
     reasoning_reset(o);
-    buf_free(&o->reasoning_content);
     sse_parser_free(&o->sse);
     free(o);
     free(b);
@@ -2856,7 +2458,6 @@ tny_backend *tny_backend_openai_new(struct tny_ctx *ctx) {
     buf_init(&o->text);
     buf_init(&o->toolcall_log);
     buf_init(&o->rawbody);
-    buf_init(&o->reasoning_content);
     sse_parser_init(&o->sse);
     /* TNY_PROVIDER_RETRIES caps retries per model call (0 disables);
      * TNY_DEBUG_PROVIDER_ERRORS=1 appends provider error text to diagnostics */
@@ -3016,14 +2617,7 @@ int tny_backend_openai_restore(tny_backend *b, yyjson_val *r, tny_backend_event_
     oa_calls_reset(&o->calls);
     size_t i, n;
     yyjson_val *v;
-    yyjson_arr_foreach(calls, i, n, v) {
-        oa_call *c = &o->calls.calls[o->calls.n++];
-        c->id = jget_str(v, "id") ? xstrdup(jget_str(v, "id")) : NULL;
-        c->name = jget_str(v, "name") ? xstrdup(jget_str(v, "name")) : NULL;
-        c->wire_index = (int)jget_int(v, "index", -1);
-        buf_init(&c->args);
-        buf_appends(&c->args, jget_str(v, "args") ? jget_str(v, "args") : "{}");
-    }
+    if (oa_calls_restore(&o->calls, calls) != TNY_PARSE_OK) return -1;
     tools_discard_pending_images(&o->env);
     yyjson_arr_foreach(images, i, n, v) {
         const char *bytes = jget_str(v, "bytes"), *path = jget_str(v, "path");
