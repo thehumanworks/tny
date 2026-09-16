@@ -14,6 +14,7 @@
 #include "core/cursor_config.h"
 #include "core/image.h"
 #include "lib/custom_tools.h"
+#include "util/alloc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -686,7 +687,7 @@ static int cu_connect(tny_backend *b, char *e, size_t el) {
                                        e, el) != 0)
         return -1;
     tny_cursor_config *cfg = o->ctx->cursor_config;
-    if (o->ctx->no_save && strcmp(runtime_name(o), "local") == 0) {
+    if (o->ctx->no_save && strcmp(runtime_name(o), "local") == 0 && !o->ephemeral_root) {
         o->ephemeral_root = cu_ephemeral_root_create(e, el);
         if (!o->ephemeral_root) return -1;
     }
@@ -875,6 +876,22 @@ static char *cu_session_pointer(tny_backend *b) {
 static int cu_send(tny_backend *b, const char *prompt, const char **images, tny_backend_event_cb cb,
                    void *ud, char *errbuf, size_t errlen) {
     cu_impl *o = b->impl;
+    if (!o->connected && o->ended && o->cancel_requested) {
+        /* Emergency OOM closed the bridge without allocating a CancelRun.
+         * Reconnect/resume only after the next turn has rearmed its reserves. */
+        char *pointer = cu_session_pointer(b);
+        if (!pointer) {
+            snprintf(errbuf, errlen, "cursor: out of memory retaining session pointer");
+            return -1;
+        }
+        int rc = cu_connect(b, errbuf, errlen);
+        if (rc == 0) rc = cu_create_or_resume(b, pointer, errbuf, errlen);
+        free(pointer);
+        if (rc != 0) {
+            cu_disconnect(b);
+            return -1;
+        }
+    }
     /* report the model that actually ran (`ask --json`, session meta) —
      * ctx is written here on the caller's thread, never from
      * create_or_resume, which may run on the TUI pre-warm thread */
@@ -1023,8 +1040,18 @@ int cu_send_cancel(cu_impl *o, char *err, size_t errlen) {
 
 static void cu_cancel(tny_backend *b) {
     cu_impl *o = b->impl;
-    if (!o->active) return;
+    if (!o->active && !tny_alloc_settling()) return;
     o->cancel_requested = true;
+    if (tny_alloc_settling()) {
+        /* No JSON/RPC, callback replies, Shutdown RPC or directory traversal.
+         * Retain the session identity and ephemeral store for a later resume. */
+        cursor_sdk_client_close(&o->sdk);
+        cursor_bridge_stop(&o->bridge, 0);
+        cursor_callbacks_destroy(&o->callbacks);
+        o->connected = o->active = false;
+        o->ended = true;
+        return;
+    }
     char err[256];
     if (o->run_id && cu_send_cancel(o, err, sizeof err) != 0) {
         cu_emit_text(o, TNY_EV_STATUS, err, strlen(err));

@@ -3,6 +3,11 @@
  * only; lifecycle and wire behavior live in tests/integration/test_acp*.sh. */
 #include "greatest.h"
 #include "backends/acp/acp_client.h"
+#include "util/alloc.h"
+#include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -159,7 +164,44 @@ TEST sparse_tool_update_emits_progress(void) {
     PASS();
 }
 
+TEST emergency_cancel_releases_pending_protocol_state(void) {
+    tny_ctx ctx = {0};
+    tny_backend *backend = tny_backend_acp_new(&ctx);
+    ASSERT(backend);
+    ac_impl *o = backend->impl;
+    int fds[2];
+    ASSERT_EQ(0, pipe(fds));
+    o->in_fd = fds[1];
+    o->out_fd = fds[0];
+    o->session_id = xstrdup("session-emergency");
+    o->turn_active = true;
+    o->nperms = 1;
+    o->perms[0].id_raw = xstrdup("42");
+    o->perms[0].summary = xstrdup("pending permission");
+    acp_reader_feed(&o->out_r, "partial", 7);
+    o->out_r.overflow = true;
+    tny_alloc_settlement_begin();
+    backend->cancel(backend);
+    tny_alloc_settlement_end();
+    ASSERT(o->cancelled);
+    ASSERT_FALSE(o->turn_active);
+    ASSERT_EQ(0, o->nperms);
+    ASSERT_FALSE(o->out_r.overflow);
+    ASSERT_EQ(0, o->out_r.buf.len);
+    ASSERT_STR_EQ("session-emergency", o->session_id);
+    ASSERT_EQ(-1, fcntl(fds[0], F_GETFD));
+    ASSERT_EQ(EBADF, errno);
+    ASSERT_EQ(-1, fcntl(fds[1], F_GETFD));
+    ASSERT_EQ(EBADF, errno);
+    tny_alloc_settlement_begin();
+    backend->cancel(backend);
+    tny_alloc_settlement_end();
+    backend->destroy(backend);
+    PASS();
+}
+
 SUITE(acp_suite) {
+    RUN_TEST(emergency_cancel_releases_pending_protocol_state);
     RUN_TEST(agent_is_ws_detects_only_ws_urls);
     RUN_TEST(fmt_builders_produce_exact_json);
     RUN_TEST(transport_pollfds_stdio);

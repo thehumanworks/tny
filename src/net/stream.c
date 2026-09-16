@@ -3,6 +3,7 @@
  * Linux: system OpenSSL (libssl.so.3 / .so.1.1), dlopen'd at first TLS use
  *        (docs/adr/0007). Never linked, never vendored, never static. */
 #include "net/net.h"
+#include "util/alloc.h"
 #include "util/tny_poll.h"
 
 #include <stdio.h>
@@ -565,18 +566,22 @@ void nstream_close(nstream *s) {
     if (s->ssl) {
         /* SecureTransport usually emits close_notify through st_write, but
          * guard the framework call too: some OS revisions write directly. */
-        sigpipe_guard guard;
-        sigpipe_guard_begin(&guard);
-        st_api.close(s->ssl);
-        sigpipe_guard_end(&guard);
+        if (!tny_alloc_settling()) {
+            sigpipe_guard guard;
+            sigpipe_guard_begin(&guard);
+            st_api.close(s->ssl);
+            sigpipe_guard_end(&guard);
+        }
         st_api.cf_release(s->ssl);
     }
 #elif defined(__linux__)
     if (s->ssl) {
-        sigpipe_guard guard;
-        sigpipe_guard_begin(&guard);
-        ossl.shutdown((ossl_ssl *)s->ssl); /* best-effort close_notify */
-        sigpipe_guard_end(&guard);
+        if (!tny_alloc_settling()) {
+            sigpipe_guard guard;
+            sigpipe_guard_begin(&guard);
+            ossl.shutdown((ossl_ssl *)s->ssl); /* best-effort close_notify */
+            sigpipe_guard_end(&guard);
+        }
         ossl.ssl_free((ossl_ssl *)s->ssl);
     }
 #endif

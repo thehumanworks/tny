@@ -5,6 +5,7 @@ import hashlib
 import json
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -65,6 +66,69 @@ def run(command, log):
         command, cwd=ROOT, text=True, capture_output=True, timeout=120
     )
     log.write_text(result.stdout + result.stderr)
+    return result
+
+
+def provider_settlement_mutation(directory):
+    subprocess.run(["make", "lib-shared-fault"], cwd=ROOT, check=True)
+    variables = subprocess.check_output(
+        ["make", "-s", "-f", "Makefile", "-f", "-", "provider-mutant-vars"],
+        cwd=ROOT,
+        text=True,
+        input="provider-mutant-vars:\n\t@printf '%s\\n' '$(CC)' '$(CXX)' "
+        "'$(FAULT_PIC_CFLAGS)' '$(FAULT_PIC_OBJS)' '$(LIB_FAULT_LDFLAGS)' '$(LIB_FAULT_REAL)'\n",
+    ).splitlines()
+    cc, cxx, flags, objects, linker, library = map(shlex.split, variables)
+    fixture = [
+        sys.executable,
+        "tests/integration/test_libtny_faults.py",
+        "--reserved-only",
+    ]
+    baseline = run(
+        [*fixture, library[0]], directory / "provider-settlement-baseline.log"
+    )
+    assert baseline.returncode == 0, baseline.stdout + baseline.stderr
+    source = ROOT / "src/backends/openai/openai.c"
+    original = source.read_text()
+    fingerprint = hashlib.sha256(source.read_bytes()).hexdigest()
+    anchor = "if (tny_alloc_settling()) {"
+    assert original.count(anchor) == 1
+    mutant = directory / "provider-allocating-settlement.c"
+    mutant.write_text(original.replace(anchor, anchor + " free(tny_alloc_malloc(1));"))
+    obj = mutant.with_suffix(".o")
+    compiled = run(
+        [*cc, *flags, "-c", str(mutant), "-o", str(obj)],
+        directory / "provider-settlement-compile.log",
+    )
+    assert compiled.returncode == 0, compiled.stdout + compiled.stderr
+    library_mutant = directory / Path(library[0]).name
+    replaced = "build/fault-pic/src/backends/openai/openai.o"
+    assert replaced in objects
+    linked = run(
+        [
+            *cxx,
+            "-o",
+            str(library_mutant),
+            str(obj),
+            *[p for p in objects if p != replaced],
+            *linker,
+        ],
+        directory / "provider-settlement-link.log",
+    )
+    assert linked.returncode == 0, linked.stdout + linked.stderr
+    checked = run(
+        [*fixture, str(library_mutant)], directory / "provider-settlement-test.log"
+    )
+    reason = "allocation during reserved OOM settlement"
+    result = {
+        "mutation": "provider-allocating-settlement",
+        "exit": checked.returncode,
+        "reason": reason,
+        "killed": checked.returncode != 0 and reason in checked.stderr,
+        "source_sha256": fingerprint,
+    }
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == fingerprint
+    print(json.dumps(result), flush=True)
     return result
 
 
@@ -142,6 +206,7 @@ def main():
         )
         assert hashlib.sha256(path.read_bytes()).hexdigest() == fingerprint
         print(json.dumps(results[-1]), flush=True)
+    results.append(provider_settlement_mutation(directory))
     (directory / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     subprocess.run(["make", "test-runtime-ownership"], cwd=ROOT, check=True)
     assert all(item["killed"] for item in results), results

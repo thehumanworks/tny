@@ -1,0 +1,57 @@
+#include "backends/acp/acp_client.h"
+#include "backends/cursor/impl.h"
+#include "lib/custom_tools.h"
+#include "util/alloc.h"
+#include <assert.h>
+#include <stdio.h>
+#include <unistd.h>
+
+int main(void) {
+    tny_ctx ctx = {0};
+    tny_backend *cursor = tny_backend_cursor_new(&ctx);
+    assert(cursor);
+    cu_impl *cu = cursor->impl;
+    cu->agent_id = tny_alloc_strdup("fixture-agent");
+    cu->run_id = tny_alloc_strdup("fixture-run");
+    cu->connected = cu->active = true;
+    custom_tool_registry *registry = custom_tools_new();
+    assert(registry);
+    cursor_callbacks_options options = {.tools = registry, .enable_tools = true};
+    char err[256];
+    cu->callbacks = cursor_callbacks_start(&options, err, sizeof err);
+    assert(cu->callbacks);
+    tny_alloc_scope_begin("adapter-counter");
+    tny_alloc_settlement_begin();
+    cursor->cancel(cursor);
+    tny_alloc_settlement_end();
+    assert(tny_alloc_test_scope_count() == 0);
+    assert(tny_alloc_test_settlement_count() == 1);
+    assert(tny_alloc_test_settlement_allocations() == 0);
+    assert(!cu->callbacks && !cu->active && !cu->connected && cu->agent_id);
+    cursor->destroy(cursor);
+    custom_tools_free(registry);
+
+    tny_backend *acp = tny_backend_acp_new(&ctx);
+    assert(acp);
+    ac_impl *ac = acp->impl;
+    int fds[2];
+    assert(pipe(fds) == 0);
+    ac->in_fd = fds[1];
+    ac->out_fd = fds[0];
+    ac->session_id = tny_alloc_strdup("fixture-session");
+    ac->turn_active = true;
+    ac->nperms = 1;
+    ac->perms[0].id_raw = tny_alloc_strdup("42");
+    ac->perms[0].summary = tny_alloc_strdup("pending");
+    acp_reader_feed(&ac->out_r, "partial", 7);
+    tny_alloc_scope_begin("adapter-counter");
+    tny_alloc_settlement_begin();
+    acp->cancel(acp);
+    tny_alloc_settlement_end();
+    assert(tny_alloc_test_scope_count() == 0);
+    assert(tny_alloc_test_settlement_count() == 1);
+    assert(tny_alloc_test_settlement_allocations() == 0);
+    assert(!ac->turn_active && !ac->nperms && ac->out_fd == -1 && ac->session_id);
+    acp->destroy(acp);
+    puts("Cursor callback teardown and ACP pending-permission teardown: 0 allocations each");
+}

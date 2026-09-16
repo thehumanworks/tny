@@ -12,6 +12,27 @@ typedef struct {
 } tny_alloc_state;
 
 static _Thread_local tny_alloc_state alloc_state;
+static _Thread_local bool settling;
+#ifdef TNY_ALLOC_TESTING
+static _Thread_local size_t settlement_start, settlement_count, settlement_allocations;
+#endif
+
+bool tny_alloc_settling(void) { return settling; }
+
+void tny_alloc_settlement_begin(void) {
+    settling = true;
+#ifdef TNY_ALLOC_TESTING
+    settlement_start = alloc_state.allocation_index;
+    settlement_count++;
+#endif
+}
+
+void tny_alloc_settlement_end(void) {
+#ifdef TNY_ALLOC_TESTING
+    settlement_allocations += alloc_state.allocation_index - settlement_start;
+#endif
+    settling = false;
+}
 
 void tny_alloc_scope_begin(const char *name) {
     alloc_state.allocation_index = 0;
@@ -19,6 +40,7 @@ void tny_alloc_scope_begin(const char *name) {
     alloc_state.failed = false;
     alloc_state.injected = false;
 #ifdef TNY_ALLOC_TESTING
+    settlement_count = settlement_allocations = 0;
     const char *scope = getenv("TNY_TEST_ALLOC_SCOPE");
     const char *index = getenv("TNY_TEST_ALLOC_FAIL_AT");
     if (scope && name && strcmp(scope, name) == 0 && index && *index) {
@@ -48,6 +70,10 @@ TNY_ALLOC_TEST_VISIBLE size_t tny_alloc_test_scope_count(void) {
 }
 
 TNY_ALLOC_TEST_VISIBLE bool tny_alloc_test_scope_injected(void) { return alloc_state.injected; }
+TNY_ALLOC_TEST_VISIBLE size_t tny_alloc_test_settlement_count(void) { return settlement_count; }
+TNY_ALLOC_TEST_VISIBLE size_t tny_alloc_test_settlement_allocations(void) {
+    return settlement_allocations;
+}
 #undef TNY_ALLOC_TEST_VISIBLE
 #endif
 

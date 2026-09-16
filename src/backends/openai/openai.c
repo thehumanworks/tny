@@ -2180,9 +2180,48 @@ static int oa_steer(tny_backend *b, const char *text, char *errbuf, size_t errle
 
 static void oa_cancel(tny_backend *b) {
     oa_impl *o = b->impl;
-    if (o->state == ST_IDLE) return;
+    if (o->state == ST_IDLE && !tny_alloc_settling()) return;
     o->cancelled = true;
     if (o->parser_active) return;
+    if (tny_alloc_settling()) {
+        /* Keep completed transcript entries. Missing tool results are repaired
+         * by session_provider_view on the next request, outside this reserve.
+         * Never run tool/extension callbacks or persist under emergency OOM. */
+        pending_custom_clear(o, true);
+        pending_perm_clear(o);
+        if (o->unsent_preview) {
+            yyjson_mut_val *messages = session_messages(o->env.session);
+            size_t index, count;
+            yyjson_mut_val *message;
+            yyjson_mut_arr_foreach(messages, index, count, message) {
+                if (message == o->unsent_preview) {
+                    yyjson_mut_arr_remove(messages, index);
+                    break;
+                }
+            }
+            o->unsent_preview = NULL;
+        }
+        tools_discard_pending_images(&o->env);
+        oa_disconnect(b);
+        sse_parser_free(&o->sse);
+        oa_calls_reset(&o->calls);
+        buf_free(&o->rawbody);
+        buf_free(&o->text);
+        reasoning_reset(o);
+        free(o->steer);
+        o->steer = NULL;
+        o->tool_batch_active = false;
+        o->tool_index = o->tool_batch_failed = 0;
+        o->parser_oom = false;
+        o->background_armed = o->background_boundary = false;
+        secure_zero(o->turn_state, sizeof o->turn_state);
+        o->state = ST_IDLE;
+        /* The runtime already owns the terminal/error pair. Its event callback
+         * suppresses this stack view without copying it. */
+        tny_backend_event ev = {.kind = TNY_EV_TURN_END, .stop = TNY_STOP_ERROR};
+        emit(o, &ev);
+        return;
+    }
     bool had_tool_batch = o->tool_batch_active;
     if (had_tool_batch) {
         char idbuf[16];

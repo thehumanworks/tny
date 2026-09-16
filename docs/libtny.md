@@ -167,6 +167,12 @@ and wiped from library-owned long-lived storage at teardown. Every allocation
 path reachable through the public runtime is contained by the ABI fault scope:
 pre-turn exhaustion returns `TNY_STATUS_OOM`, while an active turn settles with
 the reserved OOM error and exactly one terminal without terminating the host.
+Emergency provider cancellation and reserved delivery make no tny allocation
+attempts. Native pending tools are invalidated and missing transcript results
+are repaired for the next request; partial text is not newly persisted under
+OOM. Cursor closes its owned bridge and reconnects/resumes on a later send.
+Ordinary cancellation semantics are unchanged. See
+[ADR 0118](adr/0118-allocation-free-provider-oom-settlement.md).
 
 ## Structured capabilities
 

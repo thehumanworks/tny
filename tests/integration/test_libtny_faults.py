@@ -16,7 +16,9 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -49,6 +51,10 @@ def instrument(lib):
     lib.tny_alloc_test_scope_count.restype = ctypes.c_size_t
     lib.tny_alloc_test_scope_injected.argtypes = []
     lib.tny_alloc_test_scope_injected.restype = ctypes.c_bool
+    for name in ("settlement_count", "settlement_allocations"):
+        function = getattr(lib, "tny_alloc_test_" + name)
+        function.argtypes = []
+        function.restype = ctypes.c_size_t
     lib.tny_tools_test_walk.argtypes = [ctypes.c_char_p]
     lib.tny_tools_test_walk.restype = ctypes.c_int
     lib.tny_session_steer.argtypes = [
@@ -86,7 +92,7 @@ def write_report(path, stats):
         report.write(f"{stats[0]} {int(stats[1])}\n")
 
 
-def create_pair(lib, base_url, root, persistence=0):
+def create_pair(lib, base_url, root, persistence=0, create_session=True):
     workspace = os.path.join(root, "workspace")
     state = os.path.join(root, "state")
     os.makedirs(workspace, exist_ok=True)
@@ -114,6 +120,8 @@ def create_pair(lib, base_url, root, persistence=0):
     ):
         die(20)
     free_error(lib, error)
+    if not create_session:
+        return runtime, session, error, keep
     if (
         lib.tny_session_create(runtime, ctypes.byref(session), ctypes.byref(error)) != 0
         or not session.value
@@ -139,16 +147,26 @@ def next_event(lib, session, error, stats=None):
     status = lib.tny_session_next_event(
         session, 5000, ctypes.byref(event), ctypes.byref(error)
     )
+    assert lib.tny_alloc_test_settlement_allocations() == 0, (
+        "allocation during reserved OOM settlement"
+    )
     if stats is not None:
         observe(lib, stats)
     return status, event
 
 
 def drain(
-    lib, session, error, stats=None, expect_oom=None, require_oom_if_injected=False
+    lib,
+    session,
+    error,
+    stats=None,
+    expect_oom=None,
+    require_oom_if_injected=False,
+    expect_success=False,
 ):
     kinds = []
     errors = []
+    stops = []
     for _ in range(128):
         status, event = next_event(lib, session, error, stats)
         if status == DRAINED:
@@ -161,6 +179,8 @@ def drain(
         kinds.append(kind)
         if kind == ERROR_KIND:
             errors.append(lib.tny_event_error_code(event))
+        if kind == TERMINAL_KIND:
+            stops.append(lib.tny_event_stop_reason(event))
         lib.tny_event_free(event)
     else:
         die(31)
@@ -173,6 +193,8 @@ def drain(
         die(34)
     if require_oom_if_injected and (stats is None or stats[1] != saw_oom):
         die(35)
+    if expect_success:
+        assert errors == [] and stops == [0], (errors, stops)
     return saw_oom
 
 
@@ -601,9 +623,236 @@ def child_repeat_oom(libpath, base_url):
         keep.append(raw)
         if lib.tny_session_send(session, prompt, ctypes.byref(error)) != 0:
             die(52)
-        drain(lib, session, error, expect_oom=False)
+        drain(lib, session, error, expect_oom=False, expect_success=True)
         lib.tny_session_free(session)
         lib.tny_runtime_free(runtime)
+
+
+def child_reserved_settlement(libpath, base_url, scenario):
+    from test_libtny_custom_tools import INVOKE, TnyBytes, ToolResult, ToolSpec
+
+    lib = load_lib(libpath)
+    instrument(lib)
+    retained = []
+
+    @INVOKE
+    def pending(_user, call, generation, _arguments, _result):
+        retained.append((call, generation))
+        return 1  # ASYNC transfers a host lease to this fixture.
+
+    with tempfile.TemporaryDirectory() as root:
+        runtime, session, error, keep = create_pair(
+            lib, base_url, root, persistence=1, create_session=scenario != "custom"
+        )
+        if scenario == "custom":
+            lib.tny_runtime_register_tool.argtypes = [
+                ctypes.c_void_p,
+                ctypes.POINTER(ToolSpec),
+                ctypes.POINTER(ctypes.c_void_p),
+                ctypes.POINTER(ctypes.c_void_p),
+            ]
+            spec = ToolSpec()
+            spec.abi_version = 1
+            spec.struct_size = ctypes.sizeof(spec)
+            spec.name = TnyBytes(b"host_pending", 12)
+            spec.description = TnyBytes(b"pending OOM fixture", 19)
+            spec.input_schema_json = TnyBytes(b'{"type":"object"}', 17)
+            spec.invoke = pending
+            registration = ctypes.c_void_p()
+            assert (
+                lib.tny_runtime_register_tool(
+                    runtime,
+                    ctypes.byref(spec),
+                    ctypes.byref(registration),
+                    ctypes.byref(error),
+                )
+                == 0
+            )
+            lib.tny_tool_call_complete.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_uint64,
+                ctypes.POINTER(ToolResult),
+                ctypes.POINTER(ctypes.c_void_p),
+            ]
+            lib.tny_tool_call_release.argtypes = [ctypes.c_void_p]
+            assert (
+                lib.tny_session_create(
+                    runtime, ctypes.byref(session), ctypes.byref(error)
+                )
+                == 0
+            )
+
+        for turn in range(2):
+            raw, prompt = as_bytes(f"reserved {scenario} {turn}")
+            keep.append(raw)
+            assert lib.tny_session_send(session, prompt, ctypes.byref(error)) == 0
+            kinds = []
+            for _ in range(128):
+                event = ctypes.c_void_p()
+                status = lib.tny_session_next_event(
+                    session, 20, ctypes.byref(event), ctypes.byref(error)
+                )
+                if status == EVENT:
+                    kind = lib.tny_event_get_kind(event)
+                    kinds.append(kind)
+                    lib.tny_event_free(event)
+                    assert kind not in (ERROR_KIND, TERMINAL_KIND)
+                    if (scenario == "text" and kind == 0) or (
+                        scenario == "permission" and kind == PERMISSION_KIND
+                    ):
+                        break
+                elif status != TIMEOUT:
+                    raise AssertionError((scenario, status))
+                if scenario == "custom" and retained:
+                    break
+            else:
+                raise AssertionError(
+                    ("provider never reached parked state", scenario, kinds)
+                )
+
+            # Allocation 1 copies the public input; 2 grows the runtime's
+            # effective prompt. Failure settles the already-active real backend.
+            os.environ["TNY_TEST_ALLOC_SCOPE"] = "session_steer"
+            os.environ["TNY_TEST_ALLOC_FAIL_AT"] = "2"
+            raw, steer = as_bytes("cancel through injected OOM")
+            keep.append(raw)
+            assert lib.tny_session_steer(session, steer, ctypes.byref(error)) == 0
+            assert lib.tny_alloc_test_scope_injected()
+            assert lib.tny_alloc_test_settlement_count() == 1
+            assert lib.tny_alloc_test_settlement_allocations() == 0, (
+                "allocation during reserved OOM settlement"
+            )
+            os.environ["TNY_TEST_ALLOC_SCOPE"] = "disabled"
+            errors, terminals = [], []
+            for _ in range(128):
+                status, event = next_event(lib, session, error)
+                # Every remaining event is already owned; public delivery and
+                # terminal bookkeeping must also make zero allocation attempts.
+                assert lib.tny_alloc_test_scope_count() == 0
+                if status == DRAINED:
+                    break
+                assert status == EVENT
+                kind = lib.tny_event_get_kind(event)
+                kinds.append(kind)
+                if kind == ERROR_KIND:
+                    errors.append(lib.tny_event_error_code(event))
+                if kind == TERMINAL_KIND:
+                    terminals.append(lib.tny_event_stop_reason(event))
+                lib.tny_event_free(event)
+            assert errors == [OOM], errors
+            assert terminals == [4], terminals  # TNY_STOP_ERROR
+            assert kinds[-2:] == [ERROR_KIND, TERMINAL_KIND]
+            if retained:
+                call, generation = retained.pop()
+                result = ToolResult()
+                result.abi_version = 1
+                result.struct_size = ctypes.sizeof(result)
+                result.data = TnyBytes(b"late", 4)
+                assert (
+                    lib.tny_tool_call_complete(
+                        call, generation, ctypes.byref(result), None
+                    )
+                    == -2
+                )
+                lib.tny_tool_call_release(call)
+
+        raw, prompt = as_bytes("successful retry after reserved settlement")
+        keep.append(raw)
+        assert lib.tny_session_send(session, prompt, ctypes.byref(error)) == 0
+        drain(lib, session, error, expect_oom=False, expect_success=True)
+        lib.tny_session_free(session)
+        lib.tny_runtime_free(runtime)
+
+
+def reserved_settlement_fixture(script, libpath, scenario):
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):
+            request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            items = request["input"]
+            pending_ids = set()
+            for item in items:
+                if item.get("type") == "function_call":
+                    assert item["call_id"] not in pending_ids
+                    pending_ids.add(item["call_id"])
+                elif item.get("type") == "function_call_output":
+                    assert item["call_id"] in pending_ids
+                    pending_ids.remove(item["call_id"])
+                elif item.get("role") == "user":
+                    assert not pending_ids, (
+                        "unanswered tool call before later user turn"
+                    )
+            assert not pending_ids
+            self.server.requests += 1
+            retry = self.server.requests == 3
+            events = [{"type": "response.output_text.delta", "delta": "partial answer"}]
+            if not retry and scenario != "text":
+                name = "write_file" if scenario == "permission" else "host_pending"
+                arguments = (
+                    '{"path":"permission.txt","content":"allowed"}'
+                    if scenario == "permission"
+                    else "{}"
+                )
+                item = {
+                    "type": "function_call",
+                    "id": "fc_oom",
+                    "call_id": f"oom_{self.server.requests}",
+                    "name": name,
+                    "arguments": arguments,
+                }
+                events += [
+                    {
+                        "type": "response.output_item.added",
+                        "output_index": 0,
+                        "item": item,
+                    },
+                    {
+                        "type": "response.output_item.done",
+                        "output_index": 0,
+                        "item": item,
+                    },
+                ]
+            if retry or scenario != "text":
+                events.append(
+                    {"type": "response.completed", "response": {"status": "completed"}}
+                )
+            body = "".join(
+                "data: " + json.dumps(event) + "\n\n" for event in events
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            if retry or scenario != "text":
+                self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            self.wfile.flush()
+            if not retry and scenario == "text":
+                # Keep a genuine streaming response open until OOM closes it.
+                self.connection.settimeout(10)
+                self.connection.recv(1)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.requests = 0
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        run_child(
+            script,
+            [
+                "--reserved-settlement",
+                libpath,
+                f"http://127.0.0.1:{server.server_port}/v1",
+                scenario,
+            ],
+            dict(os.environ),
+        )
+        assert server.requests == 3
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join()
 
 
 def free_port():
@@ -696,6 +945,16 @@ def start_mock(**settings):
 
 
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == "--reserved-settlement":
+        child_reserved_settlement(sys.argv[2], sys.argv[3], sys.argv[4])
+        return
+    if len(sys.argv) >= 2 and sys.argv[1] == "--reserved-only":
+        for scenario in ("text", "permission", "custom"):
+            reserved_settlement_fixture(
+                os.path.abspath(__file__), os.path.abspath(sys.argv[2]), scenario
+            )
+        print("test_libtny_faults: real provider reserved settlement passed")
+        return
     if len(sys.argv) >= 2 and sys.argv[1] == "--child":
         child_case(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
         return
@@ -709,6 +968,8 @@ def main():
     libpath = os.path.abspath(sys.argv[1])
     script = os.path.abspath(__file__)
     results = {}
+    for scenario in ("text", "permission", "custom"):
+        reserved_settlement_fixture(script, libpath, scenario)
 
     results["tools_fs_walk"] = sweep(
         script, libpath, "tools_fs_walk", "tools_fs_walk", "unused"

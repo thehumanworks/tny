@@ -2,9 +2,9 @@
 
 Contract: [contract.md](contract.md). State: **INCOMPLETE** pending coordinator
 reviews, outside-sandbox/platform gates and performance proof. Local
-ownership conversion covers plan items 1–6, but the whole-provider allocation-free
-settlement obligation in item 3 remains incomplete; passing subsets are not
-issue completion.
+ownership conversion covers plan items 1–6. The P2-I3 follow-up below closes
+the provider-cancellation allocation gap on this host. Passing host subsets
+are not whole-issue completion.
 
 Assignment baseline: `a33deda56d6b1388832d98bc3a52572bd15b4a70`, clean branch
 `migration/cpp-series`, after coordinator integration of phase 1. All work was
@@ -221,7 +221,7 @@ No baseline CLI size/startup/TTFT comparison is claimed by this assignment.
 
 ## Unmet gates and coordinator handoff
 
-- **P2-I3 implementation gap:** the runtime's event construction/queue/reserve
+- **Historical P2-I3 implementation gap (closed by the follow-up below):** the runtime's event construction/queue/reserve
   settlement is allocation-free, but `tny_engine_fail_oom` still calls the
   provider's ordinary cancel callback. Source audit finds allocations in
   OpenAI `oa_cancel` (`tool_err`, transcript completion/persistence), Cursor
@@ -263,8 +263,148 @@ Required unavailable-platform commands:
 ## Final reconciliation
 
 P2-I1, I2, I4 and I5 have ownership implementation and local behavioral coverage.
-P2-I3 has the explicit provider-cancellation allocation gap above; required external
-leak/platform/TSan/aggregate ABI-SDK proof is outstanding. P2-I6 has only the
+P2-I3 now has the host provider-settlement proof below; required external
+leak/platform/TSan/aggregate ABI-SDK proof is still outstanding. P2-I6 has only the
 allocation/size observations above. C0 timing is recorded; C1 reviews are
 coordinator-owned; C2–C6 remain incomplete wherever external proof or delivery
 is required. No requirement or unavailable gate is silently treated as passed.
+
+## P2-I3 follow-up contract (2026-09-16)
+
+Baseline `4c62c66`, clean tree; `git log -3` confirms rebased phase-1
+`e51b232` and parked-batch parser release `77dece0`. Initial
+`make -j8 debug` exited 0 before edits. This is the existing delegated P2-I3
+assignment; independent review and whole-issue delivery remain coordinator-owned.
+
+Acceptance before implementation: measure allocation attempts over emergency
+provider cancellation plus reserved ERROR/TURN_END enqueue, then prove no
+allocations on their public delivery. Exercise real native Responses transport
+with partial text, permission wait and retained async custom-tool wait, exactly
+one OOM ERROR and one error TURN_END, followed by success on the same handle.
+Audit Cursor/ACP cancellation and Codex's shared native profile; retain public
+exports, layouts, event schema and quiescent callback rules. Add a provider-path
+allocation mutation; run every command in the user's requested host gate list.
+Source/test hashes and final gate results will be recorded below.
+
+## P2-I3 follow-up implementation and allocation trace
+
+[ADR 0118](../../adr/0118-allocation-free-provider-oom-settlement.md) documents
+resource-only emergency cancellation and later normal-memory recovery. No
+public header, frozen record, backend vtable, event kind or callback signature
+changed. `nm -gU build/lib/libtny.1.dylib` exactly matched the 64 names in
+`abi/libtny.exports.macos`; the new introspection functions are test-only.
+All previously tracked `docs/adr/` files compared byte-for-byte against HEAD.
+
+| Boundary / former allocating sites | Emergency behavior and evidence |
+| --- | --- |
+| Provider `emit` → `backend_event` → `queue_event` → owned event record/vector | Normal callback ownership still allocates through the injected allocator. Once its scope failed, queue admission records OOM instead of constructing another ERROR/TURN_END. `after_backend` enters settlement only after borrowed provider callbacks return. Exhaustive `next_event` sweeps check this route. |
+| `tny_engine_fail_oom` → provider cancel | Explicit thread-local settlement scope begins before cancel and ends after reserved enqueue; the terminal guard is published first. It clears pending finalization/extension cancellation so the subsequent scheduler pass cannot allocate JSON or call cancel again. Existing callbacks and owner-thread rules are retained. |
+| OpenAI pending permission/custom/remaining batch: `tool_err`, `complete_tool`, `log_toolcall`, control-hook JSON, `session_add_tool_result`, `finish_tool_batch`, image flush, `session_save` | Emergency `oa_cancel` bypasses these construction paths. It invalidates the provider custom-tool lease, frees pending calls/permissions, discards images, removes an unsent preview in place, releases SSE/tool-call/raw/text/reasoning storage, clears turn state and returns to idle. A stack TURN_END callback is suppressed by the runtime guard. |
+| OpenAI partial text / `emit_turn_end`: recovery path creation, assistant JSON, usage JSON, preview persistence and session serialization | Emergency cleanup does not call ordinary `emit_turn_end` or persist partial text. Completed transcript nodes stay owned. The existing provider-view repair creates missing tool results only when the later send can allocate; the strict mock verifies every call/output pair precedes the next user message. |
+| Cursor `cu_send_cancel`: JSON buffer, RPC request/response, callback pump; graceful disconnect Shutdown RPC and recursive path allocation | Emergency cancellation closes SDK streams/RPC connections, stops the owned bridge, invalidates/frees reverse callback state, retains the agent identity and ephemeral store. Later send reconnects/resumes outside settlement. Unit checks and the linked fault-object fixture exercise local callback teardown: zero allocation attempts. |
+| ACP `ac_cancel`: JSON notification and pending permission-result buffers | Emergency cancellation closes transport/owned process, frees permission and framing state and retains session identity. Later send reconnects through existing load/new semantics. Unit checks and the fault-object fixture exercise pending permissions and real pipes: zero allocation attempts. |
+| WebSocket/TLS close frames | Emergency close skips wslay queue/send and TLS close-notify construction; existing contexts/sockets are released. Ordinary close retains its SIGPIPE guard. The standalone host-safety fixture now links `alloc.c` for this private dependency. |
+| Codex callback adapter | There is no separate Codex backend directory: ADR 0065 routes the builtin profile through the same native OpenAI/Responses code and emergency branch. No independent live ChatGPT call is claimed. |
+| Reserved ERROR/TURN_END and public pull delivery | Existing owned reserves are transferred; turn IDs are formatted into their preallocated slot, queue count/bytes updated, pending terminal freed. Pop/release uses owned pointers and destruction only. The fixture separately asserts zero `tny_alloc_test_scope_count()` on every post-OOM pull through DRAINED. |
+
+The guarantee concerns **tny allocation attempts during reserved settlement**,
+not the normal allocation that triggers OOM, pre-settlement transport parsing,
+future reserve replenishment, or allocations internal to an embedding host or
+system TLS destructor. `TNY_ALLOC_TESTING` wraps tny C allocations and the private
+C++ owners. The instrumented scope surrounds the actual provider cancel callback,
+not a fake callback or only the two reserved queue operations.
+
+### Real-library and mutation proof
+
+`test_libtny_faults.py --reserved-only <fault-library>` runs strict HTTP/SSE
+Responses fixtures for partial text, parked permission and retained async custom
+tools. Each uses a persistent real libtny session, reaches the provider state,
+injects allocation 2 of `session_steer`, and observes runtime-driven emergency
+cancellation. Each state is exercised twice on the same handle, followed by a
+successful third turn (`TNY_STOP_DONE`, no ERROR). All six OOM settlements assert:
+
+- injection reached; exactly one settlement scope; zero allocation attempts in it;
+- exactly one ERROR with OOM code and one TURN_END with error stop, in final order;
+- zero allocation attempts on every remaining public event pull;
+- late completion of each retained async lease returns BAD_STATE, then the host
+  releases it; strict provider transcript pairing succeeds on retry.
+
+The exhaustive fault harness also checks the settlement-allocation counter after
+every `next_event`, covering provider parser/callback failures in addition to the
+deterministic parked-state cases. It covers all 21 existing discovery scenarios.
+The sanitizer gate repeats this real-library fixture and the exhaustive sweeps,
+then runs the C lifecycle and async worker hosts under ASan/UBSan.
+
+The new `provider-allocating-settlement` mutant adds
+`free(tny_alloc_malloc(1))` inside actual `oa_cancel` emergency cleanup. The
+unmodified fault library passes; the separately compiled/linked mutant exits 1
+at **allocation during reserved OOM settlement**. Together with the existing six
+mutants, **7/7 are behaviorally killed**, with production source hashes unchanged.
+See [mutation results](artifacts/p2-i3/results.json) and
+[provider failure log](artifacts/p2-i3/provider-settlement-test.log).
+
+The supplemental [adapter counter fixture](artifacts/p2-i3/adapter-counts.md)
+uses the fully instrumented library objects and measures zero attempts in Cursor
+callback teardown and ACP pending-permission teardown. It is local ownership
+proof; host-service reconnects and remote turn termination were not live-tested.
+No live provider credentials or requests were used.
+
+### Development failures and final state
+
+The original debug rebuild passed before edits. During this follow-up:
+
+- The first permission fixture used safe `echo` and did not park; it now uses
+  the established `write_file` permission fixture.
+- Custom-tool registration initially followed session creation; corrected to
+  register first, matching the public callback contract.
+- A broad Cursor reconnect condition broke an existing send-reset unit test;
+  reconnect now requires the existing emergency ended/cancelled state.
+- The new Cursor callback test initially omitted its registry/options and
+  include; corrected, then all 562 unit tests passed.
+- TLS emergency-close guards exposed the standalone network fixture's old
+  source-pattern/link assumptions. Guard nesting is preserved and its source
+  list now includes `alloc.c`; the real SIGPIPE/deadline checks pass.
+
+Earlier runs are retained as development history, not final proof. Final commands
+use the existing sanitized-environment runner documented above. The source/test/
+configuration/dependency manifest is [source-sha256.json](artifacts/p2-i3/source-sha256.json),
+SHA256 `b32fc353c19f9dd9e699b5a7bc7f690fb8cf5ab8489e39663cd9417862578b24`,
+on top of `4c62c6692bace9e6365e4fa5448dfbcee5bb32b2`. All final gate records use
+that manifest. Existing Nix filters already include the edited source and fixture
+files; no target, fixture directory or external tool was added.
+
+### Follow-up host gates
+
+| Command | Exit | Result |
+| --- | ---: | --- |
+| [`make -j8 debug && build/tny-test`](artifacts/p2-i3/p2i3-debug-gate.log) | 0 | 562/562 tests, 19,688 assertions |
+| [`make test-runtime-ownership`](artifacts/p2-i3/p2i3-runtime.log) | 0 | 37/37 tests, 5,002 assertions |
+| [`make test-libtny-fault`](artifacts/p2-i3/p2i3-fault-gate.log) | 0 | 21 exhaustive scenarios plus real-provider reserved cases |
+| [`make test-libtny-fault-sanitize`](artifacts/p2-i3/p2i3-sanitize-gate.log) | 0 | Same fault cases and C/async hosts under ASan/UBSan |
+| [`make test-libtny-fuzz-smoke`](artifacts/p2-i3/p2i3-fuzz.log) | 0 | All required fuzz classes and corpus pass |
+| [`python3 tests/mutation/runtime_critical.py`](artifacts/p2-i3/p2i3-mutation-final.log) | 0 | 7/7 behavioral kills; real-provider allocation mutant killed |
+| [`python3 tests/integration/test_libtny.py`](artifacts/p2-i3/p2i3-libtny-final.log) | 0 | C/ctypes, clean-prefix, affinity, cancellation and permission clients pass |
+| [`python3 tests/integration/test_libtny_custom_tools.py`](artifacts/p2-i3/p2i3-custom-final.log) | 0 | C and C++ sync/async/cancel/deny clients pass |
+| [`python3 tests/integration/test_libtny_faults.py build/lib-fault/libtny.1.dylib`](artifacts/p2-i3/p2i3-faults-direct.log) | 0 | Direct exhaustive sweep and real-provider reserved cases pass |
+| [`make quality`](artifacts/p2-i3/p2i3-quality-final.log) | 0 | Format, clang-tidy, strict C/C++, Ruff, shell and JS checks pass |
+
+No compiler, clang-tidy, strict-warning or sanitizer diagnostics remain in the
+final gates. The unit suite intentionally prints existing warning/error text
+for negative configuration, permission and malformed-import fixtures; these
+are not compiler warnings and were not suppressed. Darwin's quality target
+explicitly skips GCC `-fanalyzer`; Linux proof remains coordinator-owned.
+
+**P2-I3 is met on this macOS arm64 host for the assigned provider-settlement
+closure.** Real native Responses turns and the local Cursor/ACP resource paths
+are evidenced above. This does not claim live remote-service cancellation,
+host-provider reconnect validation, unavailable platform gates or completion of
+all of #138. The broader unmet coordinator gates recorded earlier remain open.
+Changes are uncommitted at HEAD `4c62c66`; no push, merge or live-session restart
+was performed.
+
+Final source/ABI/ADR reconciliation: all 728 manifest entries match current
+bytes; production exports match the 64-symbol baseline; frozen public headers
+and pre-existing ADRs are unchanged; `git diff --check` passes. The final review
+checked callback quiescence, pending-tool invalidation, allocation-free parser
+release, provider state reset, deferred transcript repair and reserve replenishment.
+It is a scoped self-review; coordinator independent reviews are not fabricated.

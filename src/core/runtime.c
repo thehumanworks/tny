@@ -174,6 +174,10 @@ static void append_owned(tny_engine *e, tny_owned_event *copy) {
 
 static void queue_event(tny_engine *e, const tny_backend_event *ev) {
     if (e->terminal) return; /* duplicate/post-terminal events ignored */
+    if (tny_alloc_scope_failed()) {
+        e->oom_pending = true;
+        return;
+    }
 
     /* A provider terminal is only a candidate agent end. Hold it outside the
      * frontend queue until Python hooks have observed every preceding event
@@ -897,7 +901,7 @@ static void start_extension_message(tny_engine *e, const tny_backend_event *ev) 
 }
 
 static void process_queued_extension_hooks(tny_engine *e) {
-    if (!e->extensions) return;
+    if (!e->extensions || (e->terminal && e->forcing_error)) return;
     for (tny_owned_event *owned = e->head; owned; owned = owned->next) {
         if (owned->hooks_done) continue;
         owned->hooks_done = true;
@@ -1700,10 +1704,14 @@ void tny_engine_cancel(tny_engine *e) {
 
 void tny_engine_fail_oom(tny_engine *e) {
     if (!e || e->terminal) return;
+    tny_alloc_settlement_begin();
     tny_alloc_scope_clear();
     e->oom_pending = false;
     e->overflow_pending = false;
     e->forcing_error = true;
+    e->finalize_pending = false; /* persistence is not emergency settlement */
+    e->extension_stop_requested = false;
+    e->extension_cancel_sent = true;
     /* Publish settlement before cancel: backend cancellation callbacks must
      * not construct another event while the reserved pair is being used. */
     e->terminal = true;
@@ -1729,6 +1737,7 @@ void tny_engine_fail_oom(tny_engine *e) {
     e->terminal_popped = false;
     e->stop = TNY_STOP_ERROR;
     atomic_store_explicit(&e->cancel_armed, false, memory_order_release);
+    tny_alloc_settlement_end();
 }
 
 void tny_engine_respond_permission(tny_engine *e, const char *id, tny_perm_decision decision) {

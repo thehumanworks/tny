@@ -1,6 +1,7 @@
 /* ws.c — WebSocket client: tny owns TCP/TLS + the HTTP handshake, wslay owns
  * framing (docs/language-and-runtime.md). Text frames only for JSON-RPC. */
 #include "net/net.h"
+#include "util/alloc.h"
 #include "util/tny_poll.h"
 #include "picohttpparser.h"
 #include <wslay/wslay.h>
@@ -231,8 +232,10 @@ int ws_pump(ws_conn *w, ws_msg_cb cb, void *ud) {
 void ws_close(ws_conn *w) {
     if (!w) return;
     if (w->ctx) {
-        wslay_event_queue_close(w->ctx, WSLAY_CODE_NORMAL_CLOSURE, NULL, 0);
-        wslay_event_send(w->ctx);
+        if (!tny_alloc_settling()) {
+            wslay_event_queue_close(w->ctx, WSLAY_CODE_NORMAL_CLOSURE, NULL, 0);
+            wslay_event_send(w->ctx);
+        }
         wslay_event_context_free(w->ctx);
     }
     nstream_close(w->s);

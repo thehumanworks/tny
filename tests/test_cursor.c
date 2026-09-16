@@ -8,6 +8,8 @@
 #include "backends/cursor/impl.h"
 #include "core/cursor_config.h"
 #include "util/tny_poll.h"
+#include "util/alloc.h"
+#include "lib/custom_tools.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -1591,7 +1593,40 @@ TEST resume_pointer_absent_and_empty_offsets_clear_stale_offset(void) {
     PASS();
 }
 
+TEST emergency_cancel_releases_callbacks_and_retains_identity(void) {
+    tny_ctx ctx = {0};
+    tny_backend *backend = tny_backend_cursor_new(&ctx);
+    ASSERT(backend);
+    cu_impl *o = backend->impl;
+    o->agent_id = xstrdup("agent-emergency");
+    o->run_id = xstrdup("run-emergency");
+    o->connected = o->active = true;
+    custom_tool_registry *registry = custom_tools_new();
+    ASSERT(registry);
+    cursor_callbacks_options options = {.tools = registry, .enable_tools = true};
+    char err[256];
+    o->callbacks = cursor_callbacks_start(&options, err, sizeof err);
+    ASSERTm(err, o->callbacks);
+    tny_alloc_settlement_begin();
+    backend->cancel(backend);
+    tny_alloc_settlement_end();
+    ASSERT_FALSE(o->active);
+    ASSERT_FALSE(o->connected);
+    ASSERT(o->ended && o->cancel_requested);
+    ASSERT_EQ(NULL, o->callbacks);
+    ASSERT_STR_EQ("agent-emergency", o->agent_id);
+    ASSERT_STR_EQ("run-emergency", o->run_id);
+    /* A second emergency cancellation of an already-ended provider is safe. */
+    tny_alloc_settlement_begin();
+    backend->cancel(backend);
+    tny_alloc_settlement_end();
+    backend->destroy(backend);
+    custom_tools_free(registry);
+    PASS();
+}
+
 SUITE(cursor_suite) {
+    RUN_TEST(emergency_cancel_releases_callbacks_and_retains_identity);
     RUN_TEST(tool_call_union_maps_name_args_and_clipped_result);
     RUN_TEST(tool_call_error_result_flags_not_ok);
     RUN_TEST(tool_call_mcp_variant_prefers_inner_tool_name);
