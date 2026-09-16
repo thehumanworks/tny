@@ -2213,6 +2213,11 @@ static void oa_cancel(tny_backend *b) {
         }
         o->tool_index = o->calls.n;
         oa_disconnect(b);
+        /* Cancellation results above still need the call records; batch
+         * finalization releases them before any terminal event. Release the
+         * finished response buffers here, since this path returns below. */
+        sse_parser_free(&o->sse);
+        buf_free(&o->rawbody);
         (void)finish_tool_batch(o);
         return;
     }
