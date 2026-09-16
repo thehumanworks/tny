@@ -1,7 +1,7 @@
 # Phase 3 ownership inventory
 
-Baseline inspected before conversion; implementation details and proof are recorded
-in evidence.md. All raw fd arguments to host seams are synchronous borrows unless
+Integrated source: `feat/cpp-ownership-137-139` (ADR 0118). Implementation
+details and proof are recorded in evidence.md and the series evidence. All raw fd arguments to host seams are synchronous borrows unless
 explicitly called consuming. OS-specific launch/staging/admission stays in C.
 
 | Resource | Acquisition / transfer | Release and failure ordering |
@@ -30,11 +30,11 @@ macOS TLS policy and wasm unsupported policy remain unchanged.
 
 ## Delivered representation
 
-- `src/cpp/resources.hpp`: `descriptor`, `lock_descriptor`, `pipe_pair`,
+- `src/util/resources.hpp`: `descriptor`, `lock_descriptor`, `pipe_pair`,
   `spawn_writer`, and `process_scope`. Integer views are explicitly borrowed;
   `release()` clears the old owner before handoff. All cleanup is noexcept.
 - `src/core/runner.cpp`: `rn_state` and its `rn_client` array directly own their
-  descriptors; the frontend client is constructed with `tny::make_owner` and
+  descriptors; the frontend client is constructed with `tny::make_owned` and
   destroyed with its matching deleter. Session lock ownership remains in its
   existing C slot; the scoped spawn guard owns that slot only when spawn
   acquired it. The fork child transfers the listener out of the parent stack
@@ -85,3 +85,13 @@ It does not claim provider/job-schema end-to-end proof; the existing jobs and
 artifact integration fixtures cover those and require coordinator teardown
 capabilities. Exhaustive platform syscall failures, native Windows handle counts,
 and the complete ps-dependent race suites remain unverified here.
+
+Reproducible focused checks:
+
+```sh
+make test-runner-ownership test-runner-mutation
+python3 tests/integration/test_jobs.py
+python3 tests/integration/test_jobs_cleanup_hold.py
+python3 tests/integration/test_job_artifacts.py
+python3 tests/integration/test_background.py
+```

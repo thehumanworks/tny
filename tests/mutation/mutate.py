@@ -24,6 +24,7 @@ import re
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -384,7 +385,7 @@ TARGETS = [
             "custom_tool_invalidate",
             "custom_tools_invalidate_all",
         ],
-        r"tny_wake_signal|call.completed|call.generation !=|call.epoch !=",
+        r"tny_wake_signal|call\.completed|call\.generation !=|call\.epoch !=",
         "tests/integration/test_libtny_custom_tools.py",
         "libtny-custom-tools",
     ),
@@ -500,12 +501,7 @@ TARGETS = [
         "tests/integration/test_openai.py",
     ),
     # streamed tool_call assembly: parallel calls, gateway index reuse
-    (
-        "src/backends/openai/toolcalls.cpp",
-        None,
-        None,
-        "tests/integration/test_openai.py",
-    ),
+    ("src/backends/openai/toolcalls.c", None, None, "tests/integration/test_openai.py"),
     # --ssh remote tool runtime (docs/adr/0022): target parsing, the quoting
     # + stdin/timeout primitive, and every remote tool script
     ("src/core/ssh.c", ["ssh_target_set", "ssh_shell_quote", "ssh_run"], None),
@@ -813,13 +809,13 @@ TARGETS = [
     ("src/backends/openai/responses.c", None, None, "tests/integration/test_openai.py"),
     (
         "src/backends/openai/openai.c",
-        ["build_request_rsp", "on_sse_event"],
+        ["build_request_rsp", "on_sse_event_rsp", "rsp_call_by_index", "on_sse_event"],
         r"^(?!.*reasoning_)",
         "tests/integration/test_openai.py",
     ),
     # thinking deltas are dropped by `ask` (stderr noise); only the TUI
     # renders them, so these lines answer to the TUI suite
-    ("src/backends/openai/events.cpp", ["response_event"], r"reasoning_"),
+    ("src/backends/openai/openai.c", ["on_sse_event_rsp"], r"reasoning_"),
     (
         "src/backends/openai/openai.c",
         ["start_post", "oa_dispatch"],
@@ -1039,7 +1035,7 @@ def line_of(text, pos):
 
 
 def gen_mutants(path, names, line_re):
-    text = open(path).read()
+    text = Path(path).read_text()
     spans = function_ranges(text, names)
     lines = text.split("\n")
     out = []
@@ -1098,6 +1094,20 @@ def run(cmd, timeout, cwd=ROOT):
         return -9, "(timeout after %ss)" % timeout
 
 
+def write_source_and_invalidate_objects(filename, text):
+    """Force real recompilation without future mtimes or clock-skew warnings."""
+    source = Path(filename)
+    relative = source.resolve().relative_to(Path(ROOT).resolve())
+    object_name = (
+        str(relative) + ".o"
+        if source.suffix == ".cpp"
+        else str(relative.with_suffix(".o"))
+    )
+    source.write_text(text)
+    for lane in ("dbg", "rel", "pic", "fault-pic", "fault-san-pic", "tsan-pic"):
+        (Path(ROOT) / "build" / lane / object_name).unlink(missing_ok=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fast", action="store_true")
@@ -1127,17 +1137,26 @@ def main():
         mutants += ms
     print("generated %d mutants" % len(mutants))
 
+    if not mutants:
+        print("error: mutation selection generated no mutants", file=sys.stderr)
+        return 2
+    baseline = ["./build/tny-test"]
+    if args.test:
+        baseline += ["-t", args.test]
+    for command in (["make", "debug"], baseline):
+        rc, output = run(command, 300)
+        if rc != 0:
+            print(
+                "error: unmodified mutation baseline failed\n" + output, file=sys.stderr
+            )
+            return 2
+
     killed_unit = killed_int = invalid = 0
     survivors = []
     t0 = time.time()
     for i, mu in enumerate(mutants):
-        orig = open(mu["file"]).read()
-        open(mu["file"], "w").write(mu["text"])
-        # ancient GNU make (3.81, macOS) has 1-second mtime granularity: a
-        # mutant written <1s after the previous restore would NOT rebuild
-        # and the tests would run against the original code. Force it.
-        now = time.time()
-        os.utime(mu["file"], (now + 2, now + 2))
+        orig = Path(mu["file"]).read_text()
+        write_source_and_invalidate_objects(mu["file"], mu["text"])
         tag = "%s:%d [%s]" % (os.path.relpath(mu["file"], ROOT), mu["line"], mu["op"])
         try:
             rc, out = run(["make", "debug"], 180)
@@ -1173,12 +1192,13 @@ def main():
                 survivors.append(mu)
                 print("%3d/%d  SURVIVED  %s" % (i + 1, len(mutants), tag))
         finally:
-            open(mu["file"], "w").write(orig)
-            now = time.time()  # same granularity trap on the restore
-            os.utime(mu["file"], (now + 2, now + 2))
-    # restore builds to pristine state
-    run(["make", "debug"], 300)
-    run(["make", "release"], 300)
+            write_source_and_invalidate_objects(mu["file"], orig)
+    # Restoration is part of the gate, not an unchecked best-effort action.
+    for command in (["make", "debug"], ["make", "release"], baseline):
+        rc, output = run(command, 300)
+        if rc != 0:
+            print("error: restored mutation build failed\n" + output, file=sys.stderr)
+            return 2
 
     total = len(mutants) - invalid
     print("\n== mutation results (%.0fs) ==" % (time.time() - t0))
@@ -1193,6 +1213,9 @@ def main():
         )
     if total:
         print("kill ratio    : %.1f%%" % (100.0 * (killed_unit + killed_int) / total))
+    if not total:
+        print("error: no valid mutants were exercised", file=sys.stderr)
+        return 2
     return 1 if survivors else 0
 
 

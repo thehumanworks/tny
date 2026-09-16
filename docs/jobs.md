@@ -52,7 +52,7 @@ rejected before any side effect.
   "kind": "ask",
   "concurrency": 4,
   "items": [
-    {"prompt": "review src/core/jobs.c"},
+    {"prompt": "review src/core/jobs.cpp"},
     {"prompt": "review src/util/process.c", "model": "gpt-5"}
   ]
 }

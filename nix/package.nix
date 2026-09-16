@@ -39,7 +39,7 @@ stdenv.mkDerivation (finalAttrs: {
     tini
   ];
 
-  # No buildInputs: tny links nothing beyond libc/libdl/libpthread. TLS is
+  # stdenv supplies matching C/C++ drivers and the C++ runtime. TLS is
   # dlopen'd at first use (docs/size-and-speed.md forbids linking OpenSSL).
   # Preserve the linker-created layout: adding RUNPATH after stripping can
   # create another 64 KiB-aligned LOAD segment (ADR 0103).
@@ -125,7 +125,7 @@ stdenv.mkDerivation (finalAttrs: {
     longDescription = ''
       tny drives Cursor (SDK Bridge), Codex (ChatGPT subscription), any ACP agent, and
       OpenAI-compatible endpoints through one normalized event loop, from a
-      stripped binary well under 1 MiB.
+      stripped executable checked against its platform-specific size budget.
 
       Host agents stay external processes: install `cursor-sdk-bridge` or
       an ACP agent separately and put them on PATH; the `codex` CLI is only

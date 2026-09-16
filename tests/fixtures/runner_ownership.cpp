@@ -1,6 +1,6 @@
 /* Real descriptor/pipe/lock boundaries; private implementation is source-bound
  * so fault and mutation runs exercise the actual lifecycle, not a model. */
-#include "cpp/owners.hpp"
+#include "util/ownership.hpp"
 #include <unistd.h>
 static int fail_pipe_at = 0, pipe_calls = 0;
 static int checked_pipe(int ends[2]) {
@@ -11,7 +11,7 @@ static int checked_pipe(int ends[2]) {
     return pipe(ends);
 }
 #define pipe checked_pipe
-#include "cpp/resources.hpp"
+#include "util/resources.hpp"
 #undef pipe
 extern "C" {
 #include "core/runner.h"
@@ -285,7 +285,7 @@ static void client_allocation_fault(const char *directory) {
         unlink(path);
         assert(result && WIFEXITED(status) && WEXITSTATUS(status) == 0);
         assert(descriptor_count() == before);
-        assert(tny_parser_test_live_allocations() == 0);
+        assert(tny_alloc_test_owned_live() == 0);
     }
     puts("client allocation failure and allocation-free teardown passed");
 }
@@ -580,7 +580,8 @@ static void runner_shutdown(const char *directory) {
     assert(session && session_save(session) == 0);
     std::snprintf(writer_path, sizeof writer_path, "%s/lock", session->dir);
     probe_writer = true;
-    tny_runner_opts opts{.serve = true};
+    tny_runner_opts opts{};
+    opts.serve = true;
     char error[256];
     pid_t child = tny_runner_spawn(ctx, session, &opts, error, sizeof error);
     assert(child > 0);

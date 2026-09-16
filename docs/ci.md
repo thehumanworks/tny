@@ -20,7 +20,18 @@ The MSYS2 executable uses yyjson's supported `yyjson_api` override with an empty
 annotation. Its POSIX compiler does not define `_WIN32`, and ELF visibility
 attributes are not supported at the Windows LTO link. This configures the
 static dependency; it does not suppress warnings, disable LTO or advertise a
-Windows libtny shared library. `test_windows_lto_flags.py` checks both branches.
+Windows libtny shared library. GCC native release LTO uses `-flto=auto` and
+Clang keeps `-flto` ([ADR 0119](adr/0119-build-lane-parity-and-exhaustive-fault-proof.md)).
+`test_windows_lto_flags.py` checks both branches and both LTO spellings.
+GCC 15.3 on that lane compiles `src/core/jobs.cpp` alone as a native object:
+its PE `binds_local_p` refuses local binding for public inline one-only
+definitions, and the LTRANS alias pass then asserts in `binds_to_current_def_p`
+while compiling the launcher's IPA-CP clone. Every other object and the link
+keep `-flto=auto`, `-Os`, `-fexceptions` and `-Werror`
+([ADR 0122](adr/0122-msys-gcc-lto-exempt-jobs-module.md)); `make release
+LTO_EXEMPT_CPP=` re-tests a fixed compiler, and `test_cpp_build.py` links a
+real native C++ object into an LTO executable.
+The MSYS2 `gcc` package already ships `g++`; there is no `gcc-c++` package.
 
 The Pages workflow also builds `tny-web.mjs` with emsdk and publishes it
 under `assets/wasm/` — the landing terminal is the CI-tested artifact.
@@ -331,51 +342,31 @@ bookkeeping that are never copied into the scratch a model sees: `task.md`
 the `--mock` trajectory). Checks are deterministic and offline; the C fixtures
 need only `cc`.
 
-## Private C++ parser gates (ADR 0114)
-
-Every source lane discovers `.cpp` alongside C, compiles C++20 separately and
-links with `CXX` (or `EMCXX=em++` for wasm). Set matching pairs when overriding:
-`CC=gcc CXX=g++`, `CC=clang CXX=clang++`. Vendored header paths are quote-only
-for C++ because VERSION collides with the standard <version> header on macOS.
-C++ allocation uses the C fault boundary explicitly, without malloc macros.
-ABI0 continues to compile its immutable C-only archive. MSYS statically links
-the GCC and C++ runtimes; the POSIX DLL packaging remains unchanged.
-
-- `make test-parser-smoke`: portable deterministic SSE/Connect/Chat/Responses
-  corpus, every split and single-byte feeds, 64 MiB limit neighbors, retained
-  tool identity/lifetime, allocation-index sweeps and recovery after two OOMs.
-  Also checks live parser allocations at terminal SSE/JSON OOM in a loopback
-  backend before teardown or another turn. Private test-only allocation counters
-  are enabled in separate C++ objects; production objects have no counters.
-  Runs with ASan/UBSan debug objects on macOS/Linux and in Nix.
-- `make test-parser-fuzz FUZZ_CC=clang FUZZ_CXX=clang++`: Linux x86_64 libFuzzer,
-  production C++ objects instrumented with fuzzer-no-link/address/undefined;
-  10000 runs, 30 seconds, 5-second input timeout, 128 KiB inputs, 1 GiB RSS.
-  Override `FUZZ_RUNS`/`FUZZ_SECONDS` for longer campaigns. Corpus lives in
-  `tests/fuzz/parser-corpus`; artifacts stay under build/parser-fuzz-artifacts.
-- `make test-cpp-gates`: positive discovery for each build/quality lane plus
-  negative tests that a C++ formatting violation and an enabled clang analyzer
-  null-dereference diagnostic fail. Requires the pinned quality tools.
-
-`make quality` formats C/C++ headers and sources, applies clang-tidy separately
-with each language standard, and runs strict warnings for both. GCC -fanalyzer
-analyzes only C with an explicit C++ skip; clang-tidy analyzes every C++ unit.
-These checks add no live provider calls. Platform commands that cannot run on
-a developer host remain required CI gates, recorded as unmet in phase evidence.
-
-`python3 tests/mutation/parser_critical.py` compiles four isolated parser
-mutants under `build/parser-mutations`, asserts their intended behavioral
-failures, verifies production source hashes are unchanged, then reruns the
-unmodified smoke. It requires `make test-parser-smoke` and the native compiler;
-no mutation is written to production sources.
-
-### Runtime ownership (ADR 0116)
+### Runtime ownership and provider OOM (ADR 0116, ADR 0117)
 
 `make test-runtime-ownership` links the real runtime unit suite with the C++
 allocator fault lane. It checks retained payloads, reserve settlement without
 allocation, transactional recovery and independent async leases.
-`python3 tests/mutation/runtime_critical.py` compiles six private mutant copies
-and requires behavioral kills; production sources remain untouched.
-`make test-libtny-fault-sanitize` also runs the native custom-tool worker fixture
-through the instrumented library. Native CI and Nix include the runtime target;
-Linux `make test-libtny-tsan` remains the concurrency detector gate.
+`make test-libtny-fault` also builds `build/lib-fault/provider-faults`, the
+real ACP/Cursor/OpenAI backends linked against the fully instrumented object
+graph; `tests/integration/test_libtny_faults.py` runs its named regressions and
+the whole-turn provider allocation sweeps. `make test-runtime-mutation`
+(`tests/mutation/runtime_critical.py`) compiles private mutant copies of the
+runtime, owner and provider sources and requires behavioral kills; production
+sources remain untouched. `make test-libtny-fault-sanitize` also runs the C and
+C++ custom-tool worker fixtures, including completion-time OOM, through the
+instrumented library. Native CI and Nix include the runtime target; Linux
+`make test-libtny-tsan` remains the concurrency detector gate.
+
+### Runner and job ownership (ADR 0118)
+
+`make test-runner-ownership` compiles `tests/fixtures/runner_ownership.cpp`,
+which binds the real `runner.cpp`/`jobs.cpp` sources with real descriptor,
+pipe and advisory-lock boundaries, an allocator-instrumented `alloc.c` and
+syscall-faulting copies of the unchanged C host seams. It checks descriptor
+transfer and reuse, writer ownership at final save and socket removal, partial
+job transactions, failed launches, cleanup holds, checkpoint consumption and
+cancellation authority. `make test-runner-mutation`
+(`tests/mutation/runner_critical.py`) compiles private mutants of those
+sources and requires behavioral kills. Both run in the native CI suite, the
+musl/Windows unit lanes (ownership fixture) and Nix.

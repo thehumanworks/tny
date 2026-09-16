@@ -133,7 +133,12 @@ def provider_settlement_mutation(directory):
 
 
 def provider_failure_mutations(directory):
-    """Challenge provider pre-settlement allocation boundaries and TERM escalation."""
+    """Challenge provider pre-settlement allocation boundaries and TERM escalation.
+
+    Each mutant is compiled from a private copy and linked against the real
+    allocator-instrumented object graph; the oracle is a behavioral assertion
+    in the provider-fault host or the reserved-settlement Python fixture.
+    """
     subprocess.run(
         ["make", "lib-shared-fault", "build/lib-fault/provider-faults"],
         cwd=ROOT,
@@ -143,7 +148,9 @@ def provider_failure_mutations(directory):
         ["make", "-s", "-f", "Makefile", "-f", "-", "failure-mutant-vars"],
         cwd=ROOT,
         text=True,
-        input="failure-mutant-vars:\n\t@printf '%s\\n' '$(CC)' '$(CXX)' '$(FAULT_PIC_CFLAGS)' '$(FAULT_PIC_OBJS)' '$(LIB_FAULT_LDFLAGS)' '$(filter-out $(CXX_RUNTIME),$(REL_LDFLAGS))' '$(PROVIDER_FAULT_TEST_SRC:%.c=$(OBJ_FAULT_PIC)/%.o)' '$(LIB_FAULT_REAL)'\n",
+        input="failure-mutant-vars:\n\t@printf '%s\\n' '$(CC)' '$(CXX)' '$(FAULT_PIC_CFLAGS)' "
+        "'$(FAULT_PIC_OBJS)' '$(LIB_FAULT_LDFLAGS)' '$(REL_LDFLAGS)' "
+        "'$(PROVIDER_FAULT_TEST_OBJS)' '$(LIB_FAULT_REAL)'\n",
     ).splitlines()
     cc, cxx, flags, objects, library_link, host_link, test_objects, library = map(
         shlex.split, variables
@@ -152,8 +159,9 @@ def provider_failure_mutations(directory):
         (
             "parser-ordinary-finalization",
             "src/backends/openai/openai.c",
-            "    oa_cancel(b);\n    tny_alloc_settlement_end();",
-            "    session_save(o->env.session);\n    emit_turn_end(o, TNY_STOP_ERROR);\n    tny_alloc_settlement_end();",
+            "    oa_cancel(o->self);\n    tny_alloc_settlement_end();",
+            "    session_save(o->env.session);\n    emit_turn_end(o, TNY_STOP_ERROR);\n"
+            "    tny_alloc_settlement_end();",
             "request_construction_oom",
             "fault.fault_index != tny_alloc_test_scope_count()",
         ),
@@ -185,7 +193,8 @@ def provider_failure_mutations(directory):
             "sdk-error-oom-fallback",
             "src/backends/cursor/sdk_error.c",
             "oom:\n    tny_alloc_provider_failed();",
-            'oom:\n    free(xstrdup("fallback after decoder OOM"));\n    tny_alloc_provider_failed();',
+            'oom:\n    free(xstrdup("fallback after decoder OOM"));\n'
+            "    tny_alloc_provider_failed();",
             "error_decode_oom",
             "fault != tny_alloc_test_scope_count()",
         ),
@@ -193,7 +202,8 @@ def provider_failure_mutations(directory):
             "acp-parser-oom-next-line",
             "src/backends/acp/acp_proc.c",
             "oom:\n    tny_alloc_provider_failed();",
-            'oom:\n    free(xstrdup("next buffered line after OOM"));\n    tny_alloc_provider_failed();',
+            'oom:\n    free(xstrdup("next buffered line after OOM"));\n'
+            "    tny_alloc_provider_failed();",
             "message_oom",
             "fault != tny_alloc_test_scope_count()",
         ),
@@ -267,8 +277,8 @@ def main():
         ["make", "-s", "-f", "Makefile", "-f", "-", "mutant-vars"],
         cwd=ROOT,
         text=True,
-        input="mutant-vars:\n\t@printf '%s\\n' '$(CC)' '$(CXX)' '$(DBG_CFLAGS)' "
-        "'$(PARSER_TEST_CPPFLAGS)' '$(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))' "
+        input="mutant-vars:\n\t@printf '%s\\n' '$(CC)' '$(CXX)' '$(FAULT_SAN_PIC_CFLAGS)' "
+        "'$(FAULT_SAN_PIC_CXXFLAGS)' '$(DBG_LDFLAGS)' "
         "'$(sort $(RUNTIME_TEST_OBJS))'\n",
     ).splitlines()
     cc, cxx, cflags, cppflags, linker, objects = map(shlex.split, variables)
@@ -299,9 +309,9 @@ def main():
         )
         assert compiled.returncode == 0, compiled.stdout + compiled.stderr
         replaced = (
-            "build/parser-test/" + source + ".o"
+            "build/fault-san-pic/" + source + ".o"
             if cpp
-            else "build/runtime-test/" + source.removesuffix(".c") + ".o"
+            else "build/fault-san-pic/" + source.removesuffix(".c") + ".o"
         )
         assert replaced in objects, replaced
         linked = run(

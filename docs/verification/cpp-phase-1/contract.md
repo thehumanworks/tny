@@ -100,3 +100,17 @@ This is phase 1 and has no dependency on the later C++ issues. Land the working 
 
 None.
 
+
+## Delivery amendment — 2026-09-16
+
+The current user request is to implement #137 -> #138 -> #139 in
+`/Users/tomas/projects/tny`, with exactly one independent review using
+`claude --model fable --effort medium -p <prompt>`, a single pass whose
+feedback is dispositioned. This supersedes the prior multi-review/model
+runbook, not the behavioral, performance, compatibility or failure gates.
+Implementation helpers may implement bounded slices but may not review or
+spawn further agents. The requested checkout is now on
+`feat/cpp-ownership-137-139`; other existing worktrees, live processes and
+local/remote main are preserved. No remote-main merge, issue closure or
+release is authorized by this amendment. Deliver reviewable commits/PRs
+with exact current evidence; unresolved gates remain explicitly unmet.

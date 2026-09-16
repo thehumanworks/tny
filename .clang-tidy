@@ -1,4 +1,4 @@
-# First-party static analysis (make tidy). third_party/ is exempt; the
+# First-party C11/C++20 static analysis (make tidy). third_party/ is exempt; the
 # Makefile passes only first-party translation units. Style-heavy families
 # stay off (compilation with -Wall -Wextra -Werror covers them), as do
 # checks that flag deliberate design:
@@ -40,4 +40,6 @@ Checks: >
   -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
   -clang-analyzer-security.insecureAPI.strcpy
 WarningsAsErrors: '*'
+# C++ invocation narrows header advice to private .hpp/.cpp (scripts/tidy_cpp.py)
+# while C invocation retains this filter for C ABI headers. No checks are disabled.
 HeaderFilterRegex: '^(src|include)/'

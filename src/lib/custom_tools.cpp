@@ -1,5 +1,5 @@
 /* Private registry and async leases; public handles and callbacks retain C ABI. */
-#include "cpp/owners.hpp"
+#include "json/ownership.hpp"
 #include "lib/custom_tools.h"
 extern "C" {
 #include "util/tny_wake.h"
@@ -50,8 +50,8 @@ struct registry_state {
     mutex lock;
     std::weak_ptr<registry_state> self;
     tny_wake wake{-1, -1};
-    std::vector<tny::owner<tny_tool_registration>,
-                tny::allocator<tny::owner<tny_tool_registration>>>
+    std::vector<tny::owned<tny_tool_registration>,
+                tny::allocator<tny::owned<tny_tool_registration>>>
         registrations;
     call_state *calls = nullptr; /* borrowed from pending owner, under lock */
     uint64_t next_generation = 1, epoch = 1;
@@ -249,7 +249,7 @@ static int32_t result_copy(const tny_tool_registration *registration,
 
 custom_tool_registry *custom_tools_new(void) {
     try {
-        auto registry = tny::make_owner<custom_tool_registry>();
+        auto registry = tny::make_owned<custom_tool_registry>();
         registry->state = std::allocate_shared<registry_state>(tny::allocator<registry_state>{});
         registry->state->self = registry->state;
         return registry.release();
@@ -257,7 +257,7 @@ custom_tool_registry *custom_tools_new(void) {
 }
 
 void custom_tools_free(custom_tool_registry *raw) {
-    tny::owner<custom_tool_registry> registry(raw);
+    tny::owned<custom_tool_registry> registry(raw);
     if (!registry) return;
     guard locked(registry->state->lock);
     registry->state->closing = true;
@@ -291,13 +291,13 @@ int32_t custom_tools_register(custom_tool_registry *registry, void *runtime,
     if (argument_limit > TNY_CUSTOM_TOOL_ARGUMENTS_MAX || result_limit > TNY_CUSTOM_TOOL_RESULT_MAX)
         return TNY_STATUS_INVALID_ARGUMENT;
     try {
-        auto item = tny::make_owner<tny_tool_registration>();
+        auto item = tny::make_owned<tny_tool_registration>();
         if (!bytes_text(spec->name, TNY_CUSTOM_TOOL_NAME_MAX, item->name) ||
             !valid_name(item->name.c_str()) ||
             !bytes_text(spec->description, TNY_CUSTOM_TOOL_DESCRIPTION_MAX, item->description) ||
             !bytes_text(spec->input_schema_json, TNY_CUSTOM_TOOL_SCHEMA_MAX, item->schema))
             return TNY_STATUS_INVALID_ARGUMENT;
-        auto schema = tny::parse(item->schema);
+        auto schema = tny::parse(item->schema.data(), item->schema.size());
         if (!schema_supported(schema ? yyjson_doc_get_root(schema.get()) : nullptr))
             return TNY_STATUS_INVALID_ARGUMENT;
         auto &state = *registry->state;
@@ -399,8 +399,8 @@ int32_t custom_tool_invoke(tny_tool_registration *registration, const char *argu
     size_t arguments_size = strlen(arguments_json);
     if (arguments_size > registration->max_argument_bytes) return TNY_STATUS_BACKPRESSURE;
     try {
-        auto pending = tny::make_owner<custom_tool_pending>();
-        auto host = tny::make_owner<tny_tool_call>();
+        auto pending = tny::make_owned<custom_tool_pending>();
+        auto host = tny::make_owned<tny_tool_call>();
         auto call = std::allocate_shared<call_state>(tny::allocator<call_state>{});
         /* The runtime wrapper owns the registry during invocation. The state
          * obtains its shared reference through its non-owning backlink. */
@@ -473,7 +473,7 @@ int32_t custom_tool_complete(tny_tool_call *handle, uint64_t generation,
 uint64_t tny_tool_call_generation(const tny_tool_call *call) {
     return call ? call->state->generation : 0;
 }
-void tny_tool_call_release(tny_tool_call *call) { tny::owner<tny_tool_call> host(call); }
+void tny_tool_call_release(tny_tool_call *call) { tny::owned<tny_tool_call> host(call); }
 
 int custom_tool_take(custom_tool_pending *pending, char **out_result, bool *out_is_error) {
     if (!pending || !out_result || !out_is_error) return -1;
@@ -490,11 +490,11 @@ int custom_tool_take(custom_tool_pending *pending, char **out_result, bool *out_
             result = 1;
         }
     }
-    tny::owner<custom_tool_pending> consumed(pending);
+    tny::owned<custom_tool_pending> consumed(pending);
     return result;
 }
 void custom_tool_invalidate(custom_tool_pending *pending) {
-    tny::owner<custom_tool_pending> consumed(pending);
+    tny::owned<custom_tool_pending> consumed(pending);
     if (!pending) return;
     guard locked(pending->state->registry->lock);
     detach(*pending->state);

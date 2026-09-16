@@ -172,7 +172,7 @@ attempts. Native pending tools are invalidated and missing transcript results
 are repaired for the next request; partial text is not newly persisted under
 OOM. Cursor closes its owned bridge and reconnects/resumes on a later send.
 Ordinary cancellation semantics are unchanged. See
-[ADR 0118](adr/0118-allocation-free-provider-oom-settlement.md).
+[ADR 0117](adr/0117-allocation-free-provider-oom-settlement.md).
 
 ## Structured capabilities
 

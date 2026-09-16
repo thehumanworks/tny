@@ -92,7 +92,7 @@ mid-turn as owner. Resolved secrets/configuration travel only through anonymous
 IPC. See [ADR 0107](adr/0107-tool-boundary-restart-and-agents-dashboard.md).
 
 Private runner and durable-job C++ aggregates own descriptors, advisory-lock
-lifetimes and native process scopes ([ADR 0117](adr/0117-runner-and-job-resource-ownership.md)).
+lifetimes and native process scopes ([ADR 0118](adr/0118-runner-and-job-resource-ownership.md)).
 Cancellation, observed reaping, log drainage, terminal persistence and restart
 activation remain explicit operations. Destructors only release storage resources;
 unknown scope cleanup retains authority and its persisted reservation hold.
@@ -195,23 +195,28 @@ Builtin Codex retains its inline hosted-search optimization. Search results are
 ordinary parent tool results for checkpoint/reattach purposes. See
 [ADR 0109](adr/0109-provider-independent-codex-search.md).
 
-## Private parser ownership (ADR 0114)
+## Private ownership implementation
 
-C++20 owns SSE/Connect accumulation, immutable event JSON documents and
-streamed tool-call strings behind private C facades. Callback bytes and JSON
-nodes are borrowed only during the synchronous decode call. Retained tool
-IDs, names and arguments are owned; C scheduling, retries, checkpoints,
-tool execution and event-loop policy retain their existing owners. Socket,
-TLS, WebSocket, HTTP chunk decoding, ACP, MCP and tnytty remain C11.
-Allocation failures return explicit OOM status before control returns to C;
-C++ destructors neither allocate nor throw. These parsers are shared by native
-and wasm builds; the transport capability differences remain unchanged.
+[ADR 0114](adr/0114-private-cpp20-ownership-boundaries.md) permits private
+C++20 modules for stream decoding, retained events/async tools, and
+runner/job resources. The C-facing adapters retain scheduling, public
+ABI and OS operations in their existing owners. Synchronous views are
+borrowed; retained records own their data. Exceptions never escape to C.
 
 ## Private runtime ownership (ADR 0116)
 
 Runtime queue records own immutable payload bytes in C++ behind the private C
-facade; C retains event ordering, budgets and scheduling. Popped events outlive
-their engine/session. Async custom tools use separate provider and host handles
-sharing only call/registry lifetime. Registry state invalidation, generation,
-epoch and completion checks remain explicit under one scoped mutex. See
-[ADR 0116](adr/0116-runtime-event-and-async-ownership.md).
+facade in `core/owned_event.h`; C retains event ordering, budgets and
+scheduling. Popped events outlive their engine/session. Async custom tools use
+separate provider and host handles sharing only call/registry lifetime; registry
+invalidation, generation, epoch and completion checks remain explicit under one
+scoped mutex. See [ADR 0116](adr/0116-runtime-event-and-async-ownership.md).
+
+## Allocation-free provider OOM settlement (ADR 0117)
+
+When an allocation fails during an active turn, the runtime publishes its
+terminal guard, enters a thread-local settlement scope and invokes the
+provider's cancel. Providers release transports, processes and parser storage
+without constructing RPCs, tool results or transcript JSON; the runtime then
+delivers its preallocated OOM ERROR/TURN_END pair. Ordinary cancellation is
+unchanged. See [ADR 0117](adr/0117-allocation-free-provider-oom-settlement.md).

@@ -83,8 +83,8 @@ def main():
         ["make", "-s", "-f", "Makefile", "-f", "-", "runner-mutant-vars"],
         cwd=ROOT,
         text=True,
-        input="runner-mutant-vars:\n\t@printf '%s\\n' '$(CXX)' '$(call cppflags,$(DBG_CFLAGS))' "
-        "'$(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))' '$(RUNNER_OWNERSHIP_OBJS)'\n",
+        input="runner-mutant-vars:\n\t@printf '%s\\n' '$(CXX)' '$(DBG_CXXFLAGS)' "
+        "'$(DBG_LDFLAGS)' '$(RUNNER_OWNERSHIP_OBJS)'\n",
     ).splitlines()
     compiler, flags, linker, objects = map(shlex.split, values)
     results = []

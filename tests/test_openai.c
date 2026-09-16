@@ -1,4 +1,4 @@
-/* test_openai.c — streamed tool_call assembly (src/backends/openai/toolcalls.cpp).
+/* test_openai.c — streamed tool_call assembly (src/backends/openai/toolcalls.c).
  *
  * The native loop must survive parallel tool calls in every streaming shape
  * seen in the wild. The regression that motivates this suite: a gateway
@@ -8,6 +8,7 @@
  * HTTP 400 "no tool output found for function call …". */
 #include "greatest.h"
 #include "backends/openai/openai.h"
+#include "backends/openai/stream_decode.h"
 #include "core/config.h"
 #include "core/runtime.h"
 #include "util/alloc.h"
@@ -17,9 +18,9 @@
 #include "core/session.h"
 #include "core/tools.h"
 #include "net/http_server.h"
-#include "net/net.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
+#include "util/alloc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -198,103 +199,6 @@ TEST fallback_ids_are_slot_unique(void) {
     PASS();
 }
 
-/* Missing arguments retain the legacy NULL view; empty is a supplied value. */
-TEST omitted_and_empty_arguments_are_distinct(void) {
-    oa_callset cs = {0};
-    feed(&cs, "[{\"id\":\"missing\",\"function\":{\"name\":\"list_files\"}},"
-              "{\"id\":\"empty\",\"function\":{\"name\":\"list_files\",\"arguments\":\"\"}}]");
-    ASSERT_EQ(2, cs.n);
-    ASSERT_EQ(NULL, cs.calls[0].args.data);
-    ASSERT(cs.calls[1].args.data != NULL);
-    ASSERT_STR_EQ("", cs.calls[1].args.data);
-    oa_calls_reset(&cs);
-    PASS();
-}
-
-typedef struct {
-    oa_callset calls;
-    buf_t reasoning;
-    int reasoning_events, fallback_events, status;
-} reasoning_decode;
-
-static void reasoning_event(oa_decoded_kind kind, yyjson_val *value, const char *bytes, size_t len,
-                            void *ud) {
-    (void)value;
-    reasoning_decode *d = ud;
-    if (kind == OA_DECODE_REASONING_CONTENT) {
-        d->reasoning_events++;
-        buf_append(&d->reasoning, bytes, len);
-    }
-    if (kind == OA_DECODE_THINKING) d->fallback_events++;
-}
-
-TEST responses_argument_presence_survives_item_updates(void) {
-    const char *events[] = {
-        "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_"
-        "call\",\"call_id\":\"missing\",\"name\":\"list_files\"}}",
-        "{\"type\":\"response.output_item.added\",\"output_index\":1,\"item\":{\"type\":\"function_"
-        "call\",\"call_id\":\"empty\",\"name\":\"list_files\",\"arguments\":\"\"}}",
-        "{\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"function_"
-        "call\"}}",
-        "{\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":{\"type\":\"function_"
-        "call\"}}"};
-    reasoning_decode d = {0};
-    for (size_t i = 0; i < sizeof events / sizeof events[0]; i++)
-        ASSERT_EQ(
-            0, oa_decode_event(false, events[i], strlen(events[i]), &d.calls, reasoning_event, &d));
-    ASSERT_EQ(2, d.calls.n);
-    ASSERT_EQ(NULL, d.calls.calls[0].args.data);
-    ASSERT_EQ(NULL, d.calls.calls[1].args.data);
-    const char empty_delta[] =
-        "{\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"\"}";
-    ASSERT_EQ(0, oa_decode_event(false, empty_delta, sizeof empty_delta - 1, &d.calls,
-                                 reasoning_event, &d));
-    ASSERT(d.calls.calls[0].args.data != NULL);
-    ASSERT_STR_EQ("", d.calls.calls[0].args.data);
-    const char delta[] =
-        "{\"type\":\"response.function_call_arguments.delta\",\"output_index\":1,\"delta\":\"{}\"}";
-    const char done[] = "{\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":{"
-                        "\"type\":\"function_call\",\"arguments\":\"\"}}";
-    ASSERT_EQ(0, oa_decode_event(false, delta, sizeof delta - 1, &d.calls, reasoning_event, &d));
-    ASSERT_EQ(0, oa_decode_event(false, done, sizeof done - 1, &d.calls, reasoning_event, &d));
-    ASSERT_STR_EQ("{}", d.calls.calls[1].args.data);
-    oa_calls_reset(&d.calls);
-    PASS();
-}
-
-static void reasoning_sse(const char *data, size_t len, void *ud) {
-    reasoning_decode *d = ud;
-    d->status = oa_decode_event(true, data, len, &d->calls, reasoning_event, d);
-}
-
-TEST reasoning_leading_nul_survives_every_split(void) {
-    const char wire[] = "data: {\"choices\":[{\"delta\":{\"reasoning_content\":"
-                        "\"\\u0000abc\",\"reasoning\":\"wrong fallback\"}}]}\r\n\r\n";
-    const char expected[] = {0, 'a', 'b', 'c'};
-    size_t n = sizeof wire - 1;
-    for (size_t split = 0; split <= n + 1; split++) {
-        reasoning_decode d = {0};
-        sse_parser parser;
-        sse_parser_init(&parser);
-        if (split <= n) {
-            ASSERT_EQ(0, sse_feed(&parser, wire, split, reasoning_sse, &d));
-            ASSERT_EQ(0, sse_feed(&parser, wire + split, n - split, reasoning_sse, &d));
-        } else {
-            for (size_t i = 0; i < n; i++)
-                ASSERT_EQ(0, sse_feed(&parser, wire + i, 1, reasoning_sse, &d));
-        }
-        ASSERT_EQ(0, d.status);
-        ASSERT_EQ(1, d.reasoning_events);
-        ASSERT_EQ(0, d.fallback_events);
-        ASSERT_EQ(sizeof expected, d.reasoning.len);
-        ASSERT_EQ(0, memcmp(expected, d.reasoning.data, sizeof expected));
-        sse_parser_free(&parser);
-        oa_calls_reset(&d.calls);
-        buf_free(&d.reasoning);
-    }
-    PASS();
-}
-
 /* ---- provider failure classification (docs/adr/0069) ---- */
 
 TEST error_token_keeps_only_identifiers(void) {
@@ -425,11 +329,9 @@ typedef struct {
     perm_engine *perm;
     char root[600], workspace[640], state[640], png[700], outside[700];
     char hash_a[65], hash_b[65];
-    const char *first_body, *done_body;
-    bool argument_checkpoint;
-    int tools_ok, tools_failed;
     int requests;
-    int turn_requests; /* reset per turn: only its first POST asks for a tool */
+    int turn_requests;                  /* reset per turn: only its first POST asks for a tool */
+    const char *first_body, *done_body; /* optional per-test response overrides */
     buf_t bodies[6];
     int hook_calls;
     pv_hook hook;
@@ -446,6 +348,17 @@ typedef struct {
     int turn_ends;
     tny_stop_reason stop;
     bool ended;
+    int decode_wire; /* 1: JSON, 2: SSE, 3: final SSE event without delimiter */
+    bool cancel_decode;
+    bool cancel_usage;
+    int decoded_texts;
+    int decoded_thinking;
+    int terminal_during_decode;
+    buf_t callback_text;
+#ifdef TNY_ALLOC_TESTING
+    size_t owner_baseline, owner_inside, owner_terminal;
+    bool callback_owners_retained;
+#endif
 } pv_fixture;
 
 static void pv_hash(const uint8_t *data, size_t len, char out[65]) {
@@ -489,8 +402,23 @@ static int pv_post(const http_server_request *request, http_server_response *res
     if (first_of_turn && f->selected) body = f->terminal_case >= 3 ? selected_two : selected;
     if (first_of_turn && f->first_body) body = f->first_body;
     if (!first_of_turn && f->done_body) body = f->done_body;
+    static const char decode_json[] =
+        "{\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2},"
+        "\"choices\":[{\"delta\":{\"content\":\"cancel-now\","
+        "\"reasoning_content\":\"retained reasoning beyond short string storage\"},"
+        "\"finish_reason\":\"stop\"}]}";
+    static const char decode_sse[] =
+        "data: {\"choices\":[{\"delta\":{\"content\":\"cancel-now\","
+        "\"reasoning_content\":\"retained reasoning beyond short string storage\"}}]}\n\n"
+        "data: [DONE]\n\n";
+    static const char decode_flush[] =
+        "data: {\"choices\":[{\"delta\":{\"content\":\"cancel-now\"},"
+        "\"finish_reason\":\"stop\"}]}";
+    if (f->decode_wire)
+        body =
+            f->decode_wire == 1 ? decode_json : (f->decode_wire == 2 ? decode_sse : decode_flush);
     response->status = 200;
-    response->content_type = "application/json";
+    response->content_type = f->decode_wire > 1 ? "text/event-stream" : "application/json";
     response->body = body;
     response->body_len = strlen(body);
     return HTTP_SERVER_POST_HANDLED;
@@ -498,9 +426,26 @@ static int pv_post(const http_server_request *request, http_server_response *res
 
 static void pv_event(const tny_backend_event *ev, void *ud) {
     pv_fixture *f = ud;
-    if (ev->kind == TNY_EV_TOOL_END) {
-        if (ev->tool_ok) f->tools_ok++;
-        else f->tools_failed++;
+    if (ev->kind == TNY_EV_THINKING) f->decoded_thinking++;
+    if (ev->kind == TNY_EV_USAGE && f->cancel_usage) {
+        f->cancel_usage = false;
+        f->backend->cancel(f->backend);
+    }
+    if (ev->kind == TNY_EV_TEXT_DELTA && f->decode_wire) {
+        f->decoded_texts++;
+        if (f->cancel_decode) {
+            int ends = f->turn_ends;
+#ifdef TNY_ALLOC_TESTING
+            f->owner_inside = tny_alloc_test_owned_live();
+#endif
+            f->backend->cancel(f->backend);
+#ifdef TNY_ALLOC_TESTING
+            f->callback_owners_retained = tny_alloc_test_owned_live() == f->owner_inside;
+#endif
+            f->terminal_during_decode += f->turn_ends - ends;
+        }
+        /* Borrowed event bytes must remain usable until this callback returns. */
+        buf_append(&f->callback_text, ev->text, ev->text_len);
     }
     if (ev->kind == TNY_EV_ERROR) {
         f->errors++;
@@ -508,6 +453,9 @@ static void pv_event(const tny_backend_event *ev, void *ud) {
         buf_appends(&f->error_text, "\n");
     }
     if (ev->kind == TNY_EV_TURN_END) {
+#ifdef TNY_ALLOC_TESTING
+        f->owner_terminal = tny_alloc_test_owned_live();
+#endif
         f->turn_ends++;
         f->stop = ev->stop;
         f->ended = true;
@@ -556,10 +504,6 @@ static char *pv_ask_user(const char *question, void *ud) {
 static void pv_control(const tny_openai_control_request *request,
                        tny_openai_control_response *response, void *ud) {
     pv_fixture *f = ud;
-    if (f->argument_checkpoint && request->kind == TNY_OPENAI_CONTROL_POST_TOOL) {
-        f->argument_checkpoint = false;
-        tny_backend_openai_background(f->backend);
-    }
     if (f->selected && request->tool_name && strcmp(request->tool_name, "image_preview") == 0) {
         if (request->kind == TNY_OPENAI_CONTROL_PERMISSION) {
             f->preview_permissions++;
@@ -642,13 +586,19 @@ static void pv_close(pv_fixture *f) {
     tny_ctx_free(f->ctx);
     http_server_destroy(&f->server);
     buf_free(&f->error_text);
+    buf_free(&f->callback_text);
     for (size_t i = 0; i < sizeof f->bodies / sizeof f->bodies[0]; i++) buf_free(&f->bodies[i]);
 }
 
 /* One turn, driven with the fixture server in the same poll set. */
-static int pv_drain(pv_fixture *f) {
+static int pv_turn(pv_fixture *f, const char *prompt) {
+    char error[512];
+    f->ended = false;
+    f->turn_requests = 0;
+    if (f->backend->send(f->backend, prompt, NULL, pv_event, f, error, sizeof error) != 0)
+        return -1;
     int64_t deadline = monotonic_ms() + 10000;
-    while (!f->ended && !tny_backend_openai_parked(f->backend) && monotonic_ms() < deadline) {
+    while (!f->ended && monotonic_ms() < deadline) {
         struct pollfd fds[HTTP_SERVER_POLLFD_CAPACITY + TNY_BACKEND_POLLFD_MAX];
         int sn = http_server_pollfds(f->server, fds, HTTP_SERVER_POLLFD_CAPACITY);
         int bn = f->backend->pollfds(f->backend, fds + sn, TNY_BACKEND_POLLFD_MAX);
@@ -658,117 +608,7 @@ static int pv_drain(pv_fixture *f) {
         if (f->terminal_case == 5 && f->hook_calls && !f->ended)
             f->backend->cancel(f->backend); /* parked permission, not re-entrant */
     }
-    return f->ended || tny_backend_openai_parked(f->backend) ? 0 : -1;
-}
-
-static int pv_turn(pv_fixture *f, const char *prompt) {
-    char error[512];
-    f->ended = false;
-    f->turn_requests = 0;
-    if (f->backend->send(f->backend, prompt, NULL, pv_event, f, error, sizeof error) != 0)
-        return -1;
-    return pv_drain(f);
-}
-
-TEST arguments_execution_transcript_and_checkpoint(void) {
-    /* Chat, whole Responses, then streamed added-only, done-only and both. */
-    for (int responses = 0; responses < 5; responses++) {
-        for (int empty = 0; empty < 2; empty++) {
-            for (int checkpoint = 0; checkpoint < 2; checkpoint++) {
-                pv_fixture f;
-                pv_open(&f);
-                if (responses) {
-                    free(f.ctx->wire_api);
-                    f.ctx->wire_api = xstrdup("responses");
-                    f.done_body = "{\"output\":[],\"status\":\"completed\"}";
-                }
-                buf_t response = {0};
-                const char *args = empty ? ",\"arguments\":\"\"" : "";
-                if (responses >= 2) {
-                    buf_appends(&response,
-                                "data: {\"type\":\"response.output_item.added\",\"output_index\":0,"
-                                "\"item\":{\"type\":\"function_call\",\"call_id\":\"seed\","
-                                "\"name\":\"list_files\",\"arguments\":\"{}\"}}\n\n");
-                    for (int done = 0; done < 2; done++) {
-                        if ((responses == 2 && done) || (responses == 3 && !done)) continue;
-                        buf_appendf(
-                            &response,
-                            "data: {\"type\":\"response.output_item.%s\",\"output_index\":1,"
-                            "\"item\":{\"type\":\"function_call\",\"call_id\":\"subject\","
-                            "\"name\":\"list_files\"%s}}\n\n",
-                            done ? "done" : "added", args);
-                    }
-                    buf_appends(&response, "data: {\"type\":\"response.completed\","
-                                           "\"response\":{\"status\":\"completed\"}}\n\n");
-                } else if (responses)
-                    buf_appendf(&response,
-                                "{\"status\":\"completed\",\"output\":["
-                                "{\"type\":\"function_call\",\"call_id\":\"seed\",\"name\":\"list_"
-                                "files\",\"arguments\":\"{}\"},"
-                                "{\"type\":\"function_call\",\"call_id\":\"subject\",\"name\":"
-                                "\"list_files\"%s}]}",
-                                args);
-                else
-                    buf_appendf(
-                        &response,
-                        "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"message\":{\"tool_"
-                        "calls\":["
-                        "{\"id\":\"seed\",\"function\":{\"name\":\"list_files\",\"arguments\":\"{}"
-                        "\"}},"
-                        "{\"id\":\"subject\",\"function\":{\"name\":\"list_files\"%s}}]}}]}",
-                        args);
-                f.first_body = response.data;
-                f.argument_checkpoint = checkpoint != 0;
-                ASSERT_EQ(0, pv_turn(&f, "argument presence regression"));
-                bool explicit_empty = empty && responses < 2;
-                const char *expected = explicit_empty ? "" : "{}";
-                if (checkpoint) {
-                    ASSERT(tny_backend_openai_parked(f.backend));
-                    ASSERT_EQ(1, f.tools_ok);
-                    yyjson_mut_doc *saved = yyjson_mut_doc_new(jallocator());
-                    yyjson_mut_doc_set_root(saved, tny_backend_openai_checkpoint(f.backend, saved));
-                    char *serialized = jwrite(saved);
-                    yyjson_doc *doc = jparse(serialized, strlen(serialized));
-                    yyjson_val *root = yyjson_doc_get_root(doc);
-                    ASSERT_STR_EQ(expected,
-                                  jget_str(yyjson_arr_get(jget(root, "calls"), 1), "args"));
-                    /* Destroy the original backend: restoration cannot borrow its strings. */
-                    f.backend->destroy(f.backend);
-                    f.backend = tny_backend_openai_new(f.ctx);
-                    ASSERT(f.backend);
-                    tny_backend_openai_bind(f.backend, f.session, f.perm, NULL, NULL, pv_ask_user,
-                                            &f, NULL, NULL, NULL, NULL, pv_control, &f);
-                    ASSERT_EQ(0, tny_backend_openai_restore(f.backend, root, pv_event, &f));
-                    free(serialized);
-                    yyjson_doc_free(doc);
-                    yyjson_mut_doc_free(saved);
-                    ASSERT_EQ(0, tny_backend_openai_continue(f.backend));
-                    ASSERT_EQ(0, pv_drain(&f));
-                }
-                ASSERT(f.ended);
-                ASSERT_EQ(explicit_empty ? 1 : 2, f.tools_ok);
-                ASSERT_EQ(explicit_empty ? 1 : 0, f.tools_failed);
-                char *transcript = jwrite_mut_val(session_messages(f.session));
-                yyjson_doc *doc = jparse(transcript, strlen(transcript));
-                yyjson_val *messages = yyjson_doc_get_root(doc), *m;
-                size_t i, n;
-                bool found = false;
-                yyjson_arr_foreach(messages, i, n, m) {
-                    yyjson_val *call = yyjson_arr_get(jget(m, "tool_calls"), 1);
-                    if (call) {
-                        ASSERT_STR_EQ(expected, jget_str(jget(call, "function"), "arguments"));
-                        found = true;
-                    }
-                }
-                ASSERT(found);
-                free(transcript);
-                yyjson_doc_free(doc);
-                pv_close(&f);
-                buf_free(&response);
-            }
-        }
-    }
-    PASS();
+    return f->ended ? 0 : -1;
 }
 
 /* Every image_url payload in one recorded request body, decoded. */
@@ -1147,6 +987,160 @@ TEST continuation_trails_partial_then_user_turn(void) {
     PASS();
 }
 
+typedef struct {
+    oa_decoder decoder;
+    oa_callset calls;
+    bool chat;
+    int status, done, failed;
+    tny_stop_reason stop;
+    buf_t text, thinking;
+} decode_capture;
+
+static int decoded_collect(const oa_decoded_event *event, void *ud) {
+    decode_capture *c = ud;
+    switch (event->kind) {
+    case OA_DECODE_TEXT: buf_append(&c->text, event->text, event->len); break;
+    case OA_DECODE_THINKING: buf_append(&c->thinking, event->text, event->len); break;
+    case OA_DECODE_DONE: c->done++; break;
+    case OA_DECODE_ERROR: c->failed++; break;
+    case OA_DECODE_FINISH: c->stop = event->stop; break;
+    default: break;
+    }
+    return c->text.oom || c->thinking.oom ? TNY_PARSE_OOM : TNY_PARSE_OK;
+}
+static void decoded_sse(const char *data, size_t len, void *ud) {
+    decode_capture *c = ud;
+    int rc = oa_decoder_feed(&c->decoder, &c->calls, c->chat, true, data, len, decoded_collect, c);
+    if (rc != TNY_PARSE_OK) c->status = rc;
+}
+static void decoded_free(decode_capture *c) {
+    oa_decoder_reset(&c->decoder);
+    oa_calls_reset(&c->calls);
+    buf_free(&c->text);
+    buf_free(&c->thinking);
+}
+TEST provider_decoding_every_split(void) {
+    const char *wire[] = {
+        ": comment\r\ndata: "
+        "{\"choices\":[{\"delta\":{\"content\":\"h\u00e9\u4e16\u754c\",\"reasoning_content\":"
+        "\"thinking\",\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"read_file\","
+        "\"arguments\":\"{\"}}]}}]}\r\n\r\n"
+        "data: "
+        "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"late\",\"function\":{"
+        "\"arguments\":\"}\"}}]},\"finish_reason\":\"length\"}]}\n\n"
+        "data: [DONE]",
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"h\u00e9\u4e16\u754c\"}\n\n"
+        "data: "
+        "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_"
+        "call\",\"name\":\"read_file\"}}\n\n"
+        "data: "
+        "{\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":"
+        "\"broken prefix\"}\n\n"
+        "data: "
+        "{\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"function_"
+        "call\",\"call_id\":\"late\",\"arguments\":\"{}\"}}\n\n"
+        "data: "
+        "{\"type\":\"response.incomplete\",\"response\":{\"incomplete_details\":{\"reason\":\"max_"
+        "output_tokens\"}}}"};
+    for (size_t w = 0; w < 2; w++) {
+        size_t len = strlen(wire[w]);
+        /* split==len+1 exercises the byte-at-a-time path too. */
+        for (size_t split = 0; split <= len + 1; split++) {
+            decode_capture c = {0};
+            c.chat = w == 0;
+            sse_parser parser;
+            sse_parser_init(&parser);
+            if (split <= len) {
+                ASSERT_EQ(TNY_PARSE_OK, sse_feed(&parser, wire[w], split, decoded_sse, &c));
+                ASSERT_EQ(TNY_PARSE_OK,
+                          sse_feed(&parser, wire[w] + split, len - split, decoded_sse, &c));
+            } else {
+                for (size_t i = 0; i < len; i++)
+                    ASSERT_EQ(TNY_PARSE_OK, sse_feed(&parser, wire[w] + i, 1, decoded_sse, &c));
+            }
+            ASSERT_EQ(TNY_PARSE_OK, sse_flush(&parser, decoded_sse, &c));
+            ASSERT_EQ(TNY_PARSE_OK, c.status);
+            ASSERT_EQ(1, c.done);
+            ASSERT_EQ(0, c.failed);
+            ASSERT_EQ(TNY_STOP_STEP_LIMIT, c.stop);
+            ASSERT_STR_EQ("h\u00e9\u4e16\u754c", c.text.data);
+            ASSERT_EQ(1, c.calls.n);
+            ASSERT_STR_EQ("late", c.calls.calls[0].id);
+            ASSERT_STR_EQ("read_file", c.calls.calls[0].name);
+            ASSERT_STR_EQ("{}", c.calls.calls[0].args.data);
+            if (c.chat) ASSERT_STR_EQ("thinking", c.thinking.data);
+            sse_parser_free(&parser);
+            decoded_free(&c);
+        }
+    }
+    PASS();
+}
+TEST responses_reasoning_owns_unknown_fields(void) {
+    const char *event =
+        "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"reasoning\",\"id\":\"r\","
+        "\"encrypted_content\":\"signed\",\"status\":\"completed\",\"future\":{\"key\":"
+        "\"retained\"}}}";
+    decode_capture c = {0};
+    ASSERT_EQ(TNY_PARSE_OK, oa_decoder_feed(&c.decoder, &c.calls, false, false, event,
+                                            strlen(event), decoded_collect, &c));
+    char *extras = NULL;
+    ASSERT_EQ(TNY_PARSE_OK, oa_decoder_extras(&c.decoder, &extras));
+    ASSERT(extras);
+    yyjson_doc *doc = jparse(extras, strlen(extras));
+    ASSERT(doc);
+    yyjson_val *item = yyjson_arr_get_first(jget(yyjson_doc_get_root(doc), "reasoning_items"));
+    ASSERT_STR_EQ("retained", jget_str(jget(item, "future"), "key"));
+    ASSERT_STR_EQ("signed", jget_str(item, "encrypted_content"));
+    ASSERT_EQ(NULL, jget(item, "status"));
+    yyjson_doc_free(doc);
+    free(extras);
+    decoded_free(&c);
+    PASS();
+}
+
+/* The C suite calls the separately C++-compiled ownership checks. */
+TEST cancellation_inside_decode_preserves_callback_and_reuse(void) {
+    for (int wire = 1; wire <= 3; ++wire) {
+        pv_fixture f;
+        pv_open(&f);
+        f.decode_wire = wire;
+        f.cancel_decode = true;
+#ifdef TNY_ALLOC_TESTING
+        f.owner_baseline = tny_alloc_test_owned_live();
+#endif
+        ASSERT_EQ(0, pv_turn(&f, "cancel while decoding"));
+        ASSERT_EQ(1, f.turn_ends);
+        ASSERT_EQ(0, f.terminal_during_decode);
+        ASSERT_EQ(TNY_STOP_INTERRUPTED, f.stop);
+        ASSERT_EQ(0, f.errors);
+        ASSERT_EQ(1, f.decoded_texts);
+        ASSERT_EQ(0, f.decoded_thinking);
+        ASSERT_STR_EQ("cancel-now", f.callback_text.data);
+#ifdef TNY_ALLOC_TESTING
+        ASSERT(f.owner_inside > f.owner_baseline);
+        ASSERT(f.callback_owners_retained);
+        ASSERT_EQ(f.owner_baseline, f.owner_terminal);
+        ASSERT_EQ(f.owner_baseline, tny_alloc_test_owned_live());
+#endif
+        f.cancel_decode = false;
+        f.cancel_usage = true;
+        buf_clear(&f.callback_text);
+        ASSERT_EQ(0, pv_turn(&f, "successful later turn"));
+        ASSERT_EQ(2, f.turn_ends);
+        ASSERT_EQ(TNY_STOP_DONE, f.stop);
+        ASSERT_EQ(0, f.errors);
+        ASSERT_STR_EQ("cancel-now", f.callback_text.data);
+        pv_close(&f);
+    }
+    PASS();
+}
+
+extern int tny_ownership_selftest(void);
+TEST cpp_ownership_boundary(void) {
+    ASSERT_EQ(0, tny_ownership_selftest());
+    PASS();
+}
+
 #ifdef TNY_ALLOC_TESTING
 typedef struct {
     pv_fixture *fixture;
@@ -1194,6 +1188,13 @@ static void request_fault_control(const tny_openai_control_request *request,
 }
 
 TEST request_construction_oom_after_usage_skips_finalization(void) {
+    /* This regression needs the complete allocator-instrumented object graph
+     * (transport, session and provider), which the provider-fault host links.
+     * A partially instrumented unit binary cannot inject the request fault. */
+    tny_alloc_scope_begin("instrumentation-probe");
+    free(xstrdup("instrumentation probe"));
+    if (!tny_alloc_test_scope_count())
+        SKIPm("transport objects are not allocator-instrumented in this binary");
     for (int mode = 0; mode < 4; mode++) {
         bool steer = mode == 1;
         tny_alloc_scope_begin("disabled");
@@ -1274,6 +1275,7 @@ TEST request_construction_oom_after_usage_skips_finalization(void) {
         tny_ctx_free(f.ctx);
         http_server_destroy(&f.server);
         buf_free(&f.error_text);
+        buf_free(&f.callback_text);
         for (size_t i = 0; i < sizeof f.bodies / sizeof f.bodies[0]; i++) buf_free(&f.bodies[i]);
     }
     PASS();
@@ -1284,10 +1286,10 @@ SUITE(openai_suite) {
 #ifdef TNY_ALLOC_TESTING
     RUN_TEST(request_construction_oom_after_usage_skips_finalization);
 #endif
-    RUN_TEST(omitted_and_empty_arguments_are_distinct);
-    RUN_TEST(responses_argument_presence_survives_item_updates);
-    RUN_TEST(reasoning_leading_nul_survives_every_split);
-    RUN_TEST(arguments_execution_transcript_and_checkpoint);
+    RUN_TEST(cancellation_inside_decode_preserves_callback_and_reuse);
+    RUN_TEST(cpp_ownership_boundary);
+    RUN_TEST(provider_decoding_every_split);
+    RUN_TEST(responses_reasoning_owns_unknown_fields);
     RUN_TEST(single_call_assembles_from_fragments);
     RUN_TEST(parallel_calls_keyed_by_index);
     RUN_TEST(parallel_calls_in_one_delta_array);

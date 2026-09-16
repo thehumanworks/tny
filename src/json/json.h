@@ -2,6 +2,10 @@
 #ifndef TNY_JSON_H
 #define TNY_JSON_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 #include <stdint.h>
 #include "yyjson.h"
@@ -38,5 +42,9 @@ yyjson_doc *jwt_payload_doc(const char *jwt);
 
 /* Append a JSON string escape of s into b (with surrounding quotes). */
 void jescape(buf_t *b, const char *s);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

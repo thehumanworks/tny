@@ -231,20 +231,19 @@ int cursor_stream_start(cursor_stream *s, const char *service, const char *metho
 
     buf_t framed;
     buf_init(&framed);
-    int encoded = rpc_oom() ? -2 : connect_frame_encode(&framed, 0, body, strlen(body));
-    if (encoded != 0 || auth.oom) {
+    int encoded = rpc_oom() ? TNY_PARSE_OOM : connect_frame_encode(&framed, 0, body, strlen(body));
+    if (encoded != TNY_PARSE_OK || buf_oom(&auth)) {
         snprintf(err, errlen, "%s",
-                 encoded == -1 ? "bridge request exceeds wire length field"
-                               : "out of memory framing bridge request");
+                 encoded == TNY_PARSE_INVALID ? "bridge request frame too large" : "out of memory");
         buf_free(&framed);
-        if (auth.data) secure_zero(auth.data, auth.len);
+        if (auth.data) secure_zero(auth.data, auth.cap);
         buf_free(&auth);
         cursor_stream_stop(s);
         return -1;
     }
     int rc = http_request(s->conn, "POST", path, hdrs, framed.data, framed.len);
     buf_free(&framed);
-    if (auth.data) secure_zero(auth.data, auth.len);
+    if (auth.data) secure_zero(auth.data, auth.cap);
     buf_free(&auth);
     if (rpc_oom()) return -2;
     if (rc != 0) {
@@ -304,20 +303,27 @@ int cursor_stream_pump_raw(cursor_stream *s, connect_frame_cb cb, void *ud, int 
         ssize_t n = http_body_read(s->conn, tmp, sizeof tmp);
         if (rpc_oom()) return -2;
         if (n == -2) return 0;
-        if (n == 0) return 1;
+        if (n == 0) {
+            if (connect_decoder_finish(&s->dec) != TNY_PARSE_OK) {
+                snprintf(err, errlen,
+                         "cursor: bridge stream ended with a truncated Connect envelope");
+                return -1;
+            }
+            return 1;
+        }
         if (n < 0) {
             snprintf(err, errlen, "bridge stream aborted mid-response");
             return -1;
         }
         int decoded = connect_decoder_feed(&s->dec, tmp, (size_t)n, cb, ud);
-        if (decoded == -2 || tny_alloc_scope_failed()) {
+        if (decoded == TNY_PARSE_OOM || tny_alloc_scope_failed()) {
             tny_alloc_provider_failed();
             return -2;
         }
-        if (decoded != 0) {
+        if (decoded != TNY_PARSE_OK) {
             snprintf(err, errlen, "%s",
-                     decoded == -2 ? "out of memory decoding bridge stream"
-                                   : "bridge sent an oversized stream frame");
+                     decoded == TNY_PARSE_OOM ? "out of memory decoding bridge frame"
+                                              : "bridge sent an oversized stream frame");
             return -1;
         }
     }

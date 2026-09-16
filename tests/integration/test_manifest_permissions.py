@@ -179,10 +179,10 @@ class PendingManifestPermissions(ImageFixture):
             input="""
 .PHONY: pending-variables
 pending-variables:
-	@printf '%s\\n' '$(CC)' '$(PIC_CFLAGS)' '$(REL_LDFLAGS)' '$(LIB_PIC_OBJS)'
+	@printf '%s\\n' '$(CC)' '$(CXX)' '$(PIC_CFLAGS)' '$(REL_LDFLAGS)' '$(LIB_PIC_OBJS)'
 """,
         ).splitlines()
-        compiler, flags, linker, objects = map(shlex.split, variables)
+        compiler, cxx, flags, linker, objects = map(shlex.split, variables)
         # Rename only this translation unit's allocation/ownership calls. The
         # fixture still runs the real parser, prepare, pending move and backend.
         objects.remove("build/pic/src/core/image_service.o")
@@ -204,14 +204,17 @@ pending-variables:
             cwd=ROOT,
             check=True,
         )
-        objects.append(service)
+        harness = str(Path(cls.build.name) / "manifest_pending.o")
         subprocess.run(
             compiler
             + flags
-            + [str(ROOT / "tests/fixtures/manifest_pending.c")]
-            + objects
-            + linker
-            + ["-pthread", "-o", cls.binary],
+            + ["-c", "tests/fixtures/manifest_pending.c", "-o", harness],
+            cwd=ROOT,
+            check=True,
+        )
+        objects.append(service)
+        subprocess.run(
+            cxx + [harness] + objects + linker + ["-pthread", "-o", cls.binary],
             cwd=ROOT,
             check=True,
         )

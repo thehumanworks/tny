@@ -3,6 +3,10 @@
 #ifndef TNY_NET_H
 #define TNY_NET_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -76,19 +80,21 @@ void http_close(http_conn *c);
 /* The path prefix from base_url (e.g. "/v1"), for building request paths. */
 const char *http_prefix(http_conn *c);
 
-/* ---- SSE ----
- * Initialized facades are noncopyable by contract; free before reinitializing. */
+/* ---- SSE ---- */
+/* Private parser statuses: malformed/limit vs allocation failure. Views passed
+ * to callbacks are borrowed only until that callback returns. No reentry.
+ * Init is allocation-free; the first nonempty feed allocates lazily. */
+enum { TNY_PARSE_OK = 0, TNY_PARSE_INVALID = -1, TNY_PARSE_OOM = -2 };
 typedef void (*sse_event_cb)(const char *data, size_t len, void *ud);
 
 typedef struct {
-    void *owner; /* private C++ owner, initialized lazily */
-    int status;  /* sticky until reset: 0 or -2 (OOM) */
+    void *owner; /* private move-only owner; never copy an initialized parser */
+    int status;  /* sticky until free/init */
 } sse_parser;
 
 void sse_parser_init(sse_parser *p);
 void sse_parser_free(sse_parser *p);
-/* Returns 0 or -2 (OOM). Callback views live only during the call.
- * Feed raw body bytes; cb fires once per complete event (data joined by \n). */
+/* Feed raw body bytes; cb fires once per complete event (data joined by \n). */
 int sse_feed(sse_parser *p, const char *bytes, size_t n, sse_event_cb cb, void *ud);
 /* End of body: dispatch a final event whose terminating blank line never
  * arrived (a last `data:` line closed by EOF). */
@@ -111,23 +117,28 @@ void ws_close(ws_conn *w);
 
 /* ---- Connect streaming envelope (docs/backends/cursor-bridge.md) ----
  * frame: flags:1 | length:4 big-endian | payload */
-#define CONNECT_FLAG_END 0x02
+#define CONNECT_FLAG_END  0x02
+#define CONNECT_MAX_FRAME (64u * 1024u * 1024u)
 
-/* Returns -1 if length cannot fit the wire field, -2 on OOM, otherwise 0. */
+/* Encoder checks wire-length representability; inbound decoder cap is 64 MiB. */
 int connect_frame_encode(buf_t *out, uint8_t flags, const char *payload, size_t len);
 
 typedef struct {
-    void *owner;
-    int status; /* 0, -1 (oversize), -2 (OOM) */
+    void *owner; /* private move-only owner; never copy an initialized decoder */
+    int status;
 } connect_decoder;
 typedef void (*connect_frame_cb)(uint8_t flags, const char *payload, size_t len, void *ud);
 
 void connect_decoder_init(connect_decoder *d);
 void connect_decoder_free(connect_decoder *d);
-bool connect_decoder_pending(const connect_decoder *d);
-/* Borrowed callback payload lives only during the call.
- * Returns 0, -1 on oversized frame, -2 on OOM; errors persist until reset. */
+/* EOF: reject an incomplete header/payload. */
+int connect_decoder_finish(const connect_decoder *d);
+/* Feed bytes; cb per complete frame. Returns TNY_PARSE_OK, INVALID (oversized), or OOM. */
 int connect_decoder_feed(connect_decoder *d, const char *bytes, size_t n, connect_frame_cb cb,
                          void *ud);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

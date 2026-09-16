@@ -1,0 +1,14 @@
+{
+  "head": "ed355a953c3c73aa78d0ba99f91e61209a0fa9eb",
+  "files": {
+    "docs/verification/cpp-series/continuation-20260916.initial.md": "850c60cd08521b809bd85920f11e26d44c6eb193de2a8dd329d556b1b8ae4b4a",
+    "docs/verification/cpp-series/continuation-20260916.md": "850c60cd08521b809bd85920f11e26d44c6eb193de2a8dd329d556b1b8ae4b4a",
+    "tests/mutation/parser_ownership.py": "6a6299935ad99501ea114306904f991a67458b4f5aaeef0bacf642bf0b763994",
+    ".github/workflows/ci.yml": "89b26bb211c5ad624435497e784e375d14288c0aac2702232509d04609e9ebf5",
+    "Makefile": "fceca3125eb2aaf5bf185917f8e4f1e46964d403b5994e4657cc9b2a7437e474",
+    "tests/abi/compat0_consumer.cpp": "a7c94802fbf54cba51b0926254767b024adcc1662069f0b9a4206f846081c222",
+    "tests/integration/libtny_custom_tools_cpp.cpp": "7b75c7d9558b16ac8e2bf5563be83ea7249dedb1a3c9e5f8f8e6c1f938d22049",
+    "tests/integration/libtny_host_services_cpp.cpp": "649e2149718005375dc602ff963e93ed20a5ecec4f7c8a3ffc756b58dd783fc1"
+  },
+  "contract_sha256": "850c60cd08521b809bd85920f11e26d44c6eb193de2a8dd329d556b1b8ae4b4a"
+}

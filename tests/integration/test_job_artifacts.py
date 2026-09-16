@@ -37,9 +37,9 @@ class CompiledArtifactChecks:
             ["make", "-s", "-f", "Makefile", "-f", "-", "artifact-variables"],
             cwd=ROOT,
             text=True,
-            input="artifact-variables:\n\t@printf '%s\\n' '$(CC)' '$(DBG_CFLAGS)' '$(DBG_LDFLAGS)' '$(TEST_OBJS)' '$(CXX)' '$(call cppflags,$(DBG_CFLAGS))'\n",
+            input="artifact-variables:\n\t@printf '%s\\n' '$(CC)' '$(CXX)' '$(DBG_CFLAGS)' '$(DBG_LDFLAGS)' '$(TEST_OBJS)' '$(DBG_CXXFLAGS)'\n",
         ).splitlines()
-        compiler, flags, linker, objects, cxx, cppflags = map(shlex.split, variables)
+        compiler, cxx, flags, linker, objects, cxxflags = map(shlex.split, variables)
         objects = list(dict.fromkeys(objects))
         objects.remove("build/dbg/src/core/jobs.cpp.o")
         objects.remove("build/dbg/src/util/image_io.o")
@@ -58,11 +58,23 @@ class CompiledArtifactChecks:
             cwd=ROOT,
             check=True,
         )
+        harnesses = {}
+        for name, suffix in (
+            ("job_artifact_checks", ".cpp"),
+            ("job_artifact_pending", ".c"),
+        ):
+            obj = str(Path(cls.fixture_dir.name) / f"{name}.o")
+            driver = cxx + cxxflags if suffix == ".cpp" else compiler + flags
+            subprocess.run(
+                driver + ["-c", f"tests/fixtures/{name}{suffix}", "-o", obj],
+                cwd=ROOT,
+                check=True,
+            )
+            harnesses[name] = obj
         cls.checker = str(Path(cls.fixture_dir.name) / "checks")
         subprocess.run(
             cxx
-            + cppflags
-            + ["tests/fixtures/job_artifact_checks.cpp", image_io]
+            + [harnesses["job_artifact_checks"], image_io]
             + objects
             + linker
             + ["-o", cls.checker],
@@ -71,9 +83,8 @@ class CompiledArtifactChecks:
         )
         cls.pending = str(Path(cls.fixture_dir.name) / "pending")
         subprocess.run(
-            compiler
-            + flags
-            + ["tests/fixtures/job_artifact_pending.c"]
+            cxx
+            + [harnesses["job_artifact_pending"]]
             + objects
             + ["build/dbg/src/core/jobs.cpp.o", "build/dbg/src/util/image_io.o"]
             + linker

@@ -1,4 +1,3 @@
-# Provider OOM hosts reuse the existing tests fileset, Python and C/C++ toolchain.
 # Source filters shared by every tny derivation.
 #
 # Nix hashes the whole source tree, so an unfiltered `src = ../.` would rebuild
@@ -22,7 +21,7 @@ let
     ../python
     ../scripts/check_abi_baseline.py
     ../shell # installed workflows and the Zsh quick-ask widget
-    ../src # includes private .cpp/.hpp parser, owned-event and async registry owners
+    ../src
     ../third_party
   ];
 
@@ -40,26 +39,35 @@ let
     buildFiles
     ../.github/workflows/ci.yml
     ../.github/workflows/nix.yml
+    # tests/packaging/test_size_budget.py mirrors Linux SIZE_MAX into
+    # both hosted workflows, including the release matrix.
+    ../.github/workflows/release.yml
     # tests/integration/test_toolchain_pins.py keeps the mise pins and the CI
     # quality job on the same tool versions (docs/adr/0061).
     ../.mise.toml
+    # Isolated mixed C/C++ discovery and actual negative quality fixtures.
+    ../.clang-format
+    ../.clang-tidy
     ../docs
     ../examples # tests/extensions/test_examples.py loads every shipped example
     ../flake.nix
     ../nix/source.nix
-    ../scripts
+    ../scripts # includes tidy_cpp.py, which probes stdenv's C++ header paths
     ../sdk/conformance
     ../sdk/schema
     ../site
     # All of tests/, which includes the frozen tool-profile A/B fixtures
     # under tests/bench/fixtures/tools/ that
     # tests/integration/test_bench_tools.py copies and scores (issue #103).
-    # tests/fuzz/parser corpus, portable parser driver and parser_backend_oom.c
-    # loopback retention regression are included here; no extra assets/tools.
-    # Phase-3 runner/jobs C++ owners and source-bound fd/lock fixture use
-    # the existing C++ compiler and Python; src/ and tests/ include all inputs.
-    # Phase-2 runtime ownership/fault and mutation drivers use the existing compiler/Python.
-    # The C++ custom-tool completion-OOM sanitizer host is included by ../tests too.
+    # Includes fuzz/fuzz_parsers.cpp, fuzz/parser-corpus, test_ownership.cpp,
+    # fuzz/search_ownership.c and mutation/parser_ownership.py for instrumented
+    # ownership checks using the existing native sanitizer toolchain.
+    # Runtime ownership also uses test_runtime.c and mutation/runtime_critical.py.
+    # Provider OOM hosts (integration/libtny_provider_fault_host.c, test_cursor_callbacks.c)
+    # and the C++ custom-tool completion-OOM sanitizer host reuse this fileset and toolchain.
+    # test_fault_sweep_inventory.py prevents shrinking discovered fault indices.
+    # Runner/job ownership (fixtures/runner_ownership.cpp, fixtures/resource_host_faults.c,
+    # mutation/runner_critical.py) uses the same C/C++ compiler and Python.
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
     # runner_restart_fault.c uses the existing stdenv C compiler for a private
     # read/write interposer; no network, new package or external test data.

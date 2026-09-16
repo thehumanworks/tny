@@ -3,6 +3,11 @@
 # (default: the release binary). Fixture-only; no live keys (CLAUDE.md).
 cd "$(dirname "$0")/../.." || exit 1
 
+# Python subprocesses close make's jobserver descriptors. Nested fixture
+# builds control their own parallelism; preserve compiler/config environment
+# variables, but never forward unusable jobserver tokens or recursion state.
+unset MAKEFLAGS MFLAGS MAKELEVEL
+
 TNY="${TNY:-$PWD/build/tny}"
 if [ ! -x "$TNY" ]; then
     echo "run.sh: $TNY not found — run 'make release' first" >&2

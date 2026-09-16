@@ -131,15 +131,15 @@ class ToolkitRetainedArtifact(unittest.TestCase):
             makefile = """
 .PHONY: retained-variables
 retained-variables:
-\t@printf '%s\\n' '$(CC)' '$(PIC_CFLAGS)' '$(REL_LDFLAGS)' '$(LIB_PIC_OBJS)'
+\t@printf '%s\\n' '$(CC)' '$(CXX)' '$(PIC_CFLAGS)' '$(REL_LDFLAGS)' '$(LIB_PIC_OBJS)'
 """
             variables = command(
                 "compile-variables",
                 ["make", "-s", "-f", "Makefile", "-f", "-", "retained-variables"],
                 stdin=makefile,
             ).stdout.splitlines()
-            self.assertEqual(len(variables), 4)
-            compiler, flags, linker, objects = map(shlex.split, variables)
+            self.assertEqual(len(variables), 5)
+            compiler, link_driver, flags, linker, objects = map(shlex.split, variables)
             original_object = "build/pic/src/core/image_service.o"
             self.assertIn(original_object, objects)
             objects.remove(original_object)
@@ -171,7 +171,7 @@ retained-variables:
             def link(label):
                 command(
                     label,
-                    compiler
+                    link_driver
                     + ["-o", str(executable)]
                     + objects
                     + ["build/renamed-image.o", "build/retained.o"]

@@ -14,10 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class WindowsLtoFlags(unittest.TestCase):
     def test_native_fault_links_retain_the_captured_release_flags(self):
-        for filename, compiler in (
-            ("test_image_workflow.py", "compiler"),
-            ("test_jobs_msys.py", "cc"),
-        ):
+        for filename in ("test_image_workflow.py", "test_jobs_msys.py"):
             with self.subTest(fixture=filename):
                 tree = ast.parse((ROOT / "tests/integration" / filename).read_text())
                 links = []
@@ -33,14 +30,10 @@ class WindowsLtoFlags(unittest.TestCase):
                     constants = [
                         elt.value for elt in node.elts if isinstance(elt, ast.Constant)
                     ]
-                    if (
-                        compiler in names
-                        and "-o" in constants
-                        and "-c" not in constants
-                    ):
+                    if "cxx" in names and "-o" in constants and "-c" not in constants:
                         links.append(names)
                 self.assertEqual(len(links), 1)
-                self.assertEqual(links[0][:3], [compiler, "flags", "lto"])
+                self.assertEqual(links[0][:3], ["cxx", "cxx_flags", "lto"])
 
     def test_linux_clang_size_policy_uses_selected_compiler_and_native_recipes(self):
         with tempfile.TemporaryDirectory(prefix="tny-compiler-policy-") as tmp:
@@ -102,7 +95,7 @@ class WindowsLtoFlags(unittest.TestCase):
                             "-fomit-frame-pointer" in options, platform == "Linux"
                         )
 
-    def flags(self, windows):
+    def flags(self, windows, *extra):
         result = subprocess.run(
             [
                 "make",
@@ -115,6 +108,7 @@ class WindowsLtoFlags(unittest.TestCase):
                 f"WINDOWS={int(windows)}",
                 "UNAME_S=MSYS_NT-10.0" if windows else "UNAME_S=Linux",
                 "UNAME_M=x86_64",
+                *extra,
             ],
             input=".PHONY: flags-for-test\nflags-for-test:\n"
             "\t@printf '%s\\n' '$(DEFS)' '$(REL_CFLAGS)' '$(REL_LTO)'\n",
@@ -125,18 +119,57 @@ class WindowsLtoFlags(unittest.TestCase):
         )
         return result.stdout.splitlines()
 
+    def expected_lto(self, windows, *extra):
+        version = subprocess.run(
+            [
+                "make",
+                "-s",
+                "-f",
+                "Makefile",
+                "-f",
+                "-",
+                "cc-version-for-test",
+                f"WINDOWS={int(windows)}",
+                "UNAME_S=MSYS_NT-10.0" if windows else "UNAME_S=Linux",
+                "UNAME_M=x86_64",
+                *extra,
+            ],
+            input=".PHONY: cc-version-for-test\ncc-version-for-test:\n"
+            "\t@$(CC) --version\n",
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        text = version.stdout + version.stderr
+        return "-flto" if "clang" in text else "-flto=auto"
+
     def test_msys_uses_supported_static_annotation_override(self):
         definitions, flags, lto = self.flags(True)
         self.assertIn("-Dyyjson_api=", definitions.split())
         self.assertIn("-Werror", flags.split())
         self.assertNotIn("-Wno-attributes", flags.split())
-        self.assertEqual(lto, "-flto")
+        self.assertEqual(lto, self.expected_lto(True))
 
     def test_elf_keeps_vendor_visibility_and_lto(self):
         definitions, flags, lto = self.flags(False)
         self.assertNotIn("-Dyyjson_api=", definitions.split())
         self.assertIn("-Werror", flags.split())
-        self.assertEqual(lto, "-flto")
+        self.assertEqual(lto, self.expected_lto(False))
+
+    def test_gcc_schedules_lto_automatically_and_clang_keeps_generic_lto(self):
+        with tempfile.TemporaryDirectory(prefix="tny-lto-vendor-") as tmp:
+            compiler = Path(tmp) / "compiler.py"
+            compiler.write_text(
+                "import sys\n"
+                "print('clang version 18.0.0' if 'clang' in sys.argv[1] "
+                "else 'gcc (GCC) 14.2.0')\n"
+            )
+            for vendor, expected in (("clang", "-flto"), ("gcc", "-flto=auto")):
+                with self.subTest(vendor=vendor):
+                    cc = shlex.join([sys.executable, str(compiler), vendor])
+                    _, _, lto = self.flags(False, f"CC={cc}")
+                    self.assertEqual(lto, expected)
 
     def test_json_inlining_stays_out_of_shared_debug_and_wasm_flags(self):
         result = subprocess.run(
@@ -179,6 +212,78 @@ class WindowsLtoFlags(unittest.TestCase):
             ]
             self.assertEqual(len(commands), 1, target)
             self.assertIn("-Dyyjson_inline=inline", commands[0].split())
+
+    def test_msys_gcc_compiles_only_the_jobs_module_natively(self):
+        # ADR 0122: GCC on PE asserts in binds_to_current_def_p during the
+        # LTRANS alias pass of jobs.cpp's launcher clone. That object alone is
+        # native on the MSYS GCC lane; MSYS Clang, other hosts and the explicit
+        # LTO_EXEMPT_CPP= override keep every object in LTO.
+        jobs = "build/rel/src/core/jobs.cpp.o"
+        siblings = (
+            "build/rel/src/core/runner.cpp.o",
+            "build/rel/src/util/jobs_host.o",
+        )
+        kept = ("-Wall", "-Wextra", "-Werror", "-Os", "-std=c++20", "-fexceptions")
+        with tempfile.TemporaryDirectory(prefix="tny-lto-exempt-") as tmp:
+            compiler = Path(tmp) / "compiler.py"
+            compiler.write_text(
+                "import sys\n"
+                "print('clang version 18.0.0' if 'clang' in sys.argv[1] "
+                "else 'gcc (GCC) 15.3.0')\n"
+            )
+            cases = (
+                ("MSYS_NT-10.0", "gcc", (), "-fno-lto", "-flto=auto", "build/tny.exe"),
+                (
+                    "MSYS_NT-10.0",
+                    "gcc",
+                    ("LTO_EXEMPT_CPP=",),
+                    "-flto=auto",
+                    "-flto=auto",
+                    "build/tny.exe",
+                ),
+                ("MSYS_NT-10.0", "clang", (), "-flto", "-flto", "build/tny.exe"),
+                ("Linux", "gcc", (), "-flto=auto", "-flto=auto", "build/tny"),
+            )
+            for platform, vendor, extra, jobs_lto, lto, binary in cases:
+                with self.subTest(platform=platform, vendor=vendor, extra=extra):
+                    cc = shlex.join([sys.executable, str(compiler), vendor])
+                    commands = subprocess.run(
+                        [
+                            "make",
+                            "-n",
+                            "-B",
+                            "release",
+                            f"CC={cc}",
+                            f"UNAME_S={platform}",
+                            "UNAME_M=x86_64",
+                            *extra,
+                        ],
+                        cwd=ROOT,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    ).stdout.splitlines()
+
+                    def options(target):
+                        matches = [
+                            line for line in commands if f" -o {target} " in line
+                        ]
+                        self.assertEqual(len(matches), 1, target)
+                        return shlex.split(matches[0])
+
+                    jobs_options = options(jobs)
+                    lto_options = [
+                        option
+                        for option in jobs_options
+                        if option.startswith("-flto") or option == "-fno-lto"
+                    ]
+                    self.assertEqual(lto_options, [jobs_lto])
+                    for option in kept:
+                        self.assertIn(option, jobs_options)
+                    for target in (*siblings, binary):
+                        sibling_options = options(target)
+                        self.assertIn(lto, sibling_options)
+                        self.assertNotIn("-fno-lto", sibling_options)
 
 
 if __name__ == "__main__":

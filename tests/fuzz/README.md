@@ -35,3 +35,13 @@ The smoke gate also runs a positive class-coverage self-test and an expected
 failing negative self-test. This proves the harness distinguishes accepted and
 rejected capacities, creates, schemas and results, and reaches wrong-generation
 rejection rather than merely returning successfully for every input.
+
+## Private stream parser ownership
+
+`fuzz_parsers.cpp` exercises the same private SSE, Connect, tool-call and
+Chat/Responses decoding implementations used by production C callers. The
+`parser-corpus/` fixtures include intentional CRLF, NUL and incomplete-frame
+bytes and are marked binary in `.gitattributes`; do not normalize their line
+endings. `make test-parser-fuzz-smoke` executes portable deterministic seeds.
+The supported Linux x86_64 `make test-parser-fuzz` lane instruments C++
+implementation objects as well as the driver.

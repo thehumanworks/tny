@@ -2,7 +2,7 @@
 
 ## Goal
 
-Ship a **fast, tiny** coding-agent harness with a Unix-like TUI and a scriptable CLI. Beat [vercel-labs/fx](https://github.com/vercel-labs/fx) on **binary size** and **startup/runtime speed** while keeping fx's functionality.
+Ship a **fast, maintainable and reliable** coding-agent harness with a Unix-like TUI and a scriptable CLI. Preserve the required functionality while using explicit C++ ownership to reduce manual memory-management hazards. Keep the shipped artifact below decimal 6 MB; prioritize startup, extensibility and correctness over further size reduction ([ADR 0121](adr/0121-maintainable-cpp-and-six-megabyte-ceiling.md)).
 
 Required backends (all first-class):
 
@@ -11,7 +11,7 @@ Required backends (all first-class):
 3. **Other agents** via [ACP](https://agentclientprotocol.com/) (JSON-RPC over stdio).
 4. **OpenAI-compatible** HTTP providers (native tool loop owned by tny).
 
-fx is Zig 0.16, Apache-2.0, experimental: **6.44 MiB** macOS arm64 and **11.12 MiB** static Linux in v0.0.3 ([fx.sh](https://fx.sh), [README](https://github.com/vercel-labs/fx) still says 7.8 MiB). Inference is Vercel AI Gateway (AI SDK LM spec v4), not public OpenAI-compat. tny uses **C11 with private C++20 parsers** ([ADR 0114](adr/0114-private-cpp-parser-ownership.md)) to talk to BYOK providers and host agents; size and startup remain measured gates.
+fx is Zig 0.16, Apache-2.0, experimental: **6.44 MiB** macOS arm64 and **11.12 MiB** static Linux in v0.0.3 ([fx.sh](https://fx.sh), [README](https://github.com/vercel-labs/fx) still says 7.8 MiB). Inference is Vercel AI Gateway (AI SDK LM spec v4), not public OpenAI-compat. tny uses **C11 with scoped private C++20 ownership modules** (ADR 0114), prioritizing fast startup, extensibility and reliability. Size comparisons require same-target measurements.
 
 ## What "keep the functionality" means
 
@@ -60,7 +60,7 @@ Measured on the same machine as a current `fx` release binary:
 
 | Metric | Target |
 | --- | --- |
-| Stripped `tny` | **< 1.8 MiB macOS** / **< 1.5 MiB Linux musl**; must stay under fx’s 6.44 / 11.12 MiB |
+| Stripped `tny` | **< 6,000,000 bytes** on each supported platform; report runtime dependencies separately |
 | Cold start to interactive prompt (no backend spawn) | **< 10 ms** (do not claim fx’s 10 µs bench hook) |
 | `tny --version` / `tny ask --help` | **< 5 ms** median, stretch **< 2 ms** |
 | First token display after backend stream starts | UI overhead **< 2 ms** |

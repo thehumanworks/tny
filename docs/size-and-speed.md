@@ -21,20 +21,19 @@ Re-measure the same fx version you compare against. Do not compare debug tny to 
 
 These apply to the **tny executable only**. `cursor-sdk-bridge` is a Bun-packaged host (see its `manifest.json` `runtime` field). Codex is a separate Rust binary. Neither counts.
 
-| Build | Must | Stretch |
-| --- | --- | --- |
-| macOS arm64, stripped, libSystem + Security.framework | **< 1.8 MiB** | < 1.2 MiB |
-| Linux musl static, stripped | **< 1.5 MiB** | < 1.0 MiB |
-| Linux glibc dynamic | **< 1.0 MiB** ([ADR 0053](adr/0053-forked-turn-isolation.md): isolation without tmux keeps this budget hard) | < 0.8 MiB |
-| Windows x86_64 (MSYS-linked exe) | **< 2.0 MiB** | — |
-| wasm artifact, js glue + `.wasm`, Asyncify included ([ADR 0017](adr/0017-wasm-browser-parity.md)) | **< 1.5 MiB** | < 1.0 MiB |
-| Idle RSS after prompt | **< 4 MiB** | < 2 MiB |
+| Build | Artifact ceiling |
+| --- | --- |
+| Native tny, all supported platforms (dynamic or static) | **< 6,000,000 bytes** |
+| wasm plus JavaScript glue | **< 6,000,000 bytes** |
 
-Those still beat fx by ~3–4× on macOS and ~7× on static Linux. The `ci`
-workflow runs `make size-check` on every target (and `make wasm-size-check`
-for the wasm artifact) and fails the PR if the budget is exceeded
-([ci.md](ci.md)). Current wasm artifact: ~0.66 MiB total with broad
-Asyncify instrumentation — no narrowing needed yet.
+[ADR 0121](adr/0121-maintainable-cpp-and-six-megabyte-ceiling.md) records the
+user's current priority: maintainability, explicit ownership, reliable failure
+handling and speed matter more than minimizing executable size. CI/release and
+Nix/install reuse the Makefile's one inclusive maximum of 5,999,999 bytes.
+Size tests reject an artifact exactly at 6,000,000 bytes; accounting remains.
+C++ runtime dependencies are reported separately. Previous platform ceilings
+and fx comparisons below are historical evidence, not current acceptance rules.
+Memory and performance gates remain unchanged.
 
 Startup (empty `HOME` override, no network):
 
@@ -52,8 +51,9 @@ the two `LOAD` segments are aligned to 64 KiB and the RELRO end must sit
 on a 64 KiB boundary, so the file grows by a whole 64 KiB the moment the
 read-only (`R E`) segment passes ≈ 975 KiB (`64 KiB − relro_size` past a
 boundary; `readelf -lW build/tny` shows the segment). Read a sudden +64 KiB
-as that cliff, and pay for it with code-size work; the Linux native lanes
-already omit the frame pointer and drop dead yyjson paths for margin.
+as that cliff, not as 64 KiB of new instructions. ADR 0121 replaces the old
+architecture-specific byte constraints with the current six-megabyte guardrail. The Linux native
+lanes already omit the frame pointer and drop dead yyjson paths for margin.
 
 Packaged builds pay the budget too. The Nix package
 ([ADR 0035](adr/0035-nix-flake-packaging.md)) runs `make size-check` in its
@@ -65,10 +65,9 @@ script — for `python3` and the CA bundle, measured at ~0.3 ms on Linux x86_64
 (0.73 ms wrapped vs 0.42 ms unwrapped). A shell wrapper would cost several
 times that; `packages.tny-unwrapped` skips it entirely.
 
-## Size controls
+## How we stay under fx
 
-1. Keep mixed-language runtime dependencies explicit and measured (ADR 0115);
-   preserve C11 for unchanged areas. Do not assume a C++ runtime is free.
+1. C11 with scoped private C++20 owners (ADR 0114); measure C++ runtime dependencies and artifact deltas. No Zig runtime extras.
 2. ANSI TUI, not a widget kit.
 3. yyjson + picohttpparser + wslay, vendored as .c files you can see in `nm`.
    (nanopb deferred: v1 speaks Connect with the JSON codec, no protobuf runtime.)
@@ -110,26 +109,90 @@ exports, so the smaller link result is treated as toolchain/dead-strip layout
 variance rather than an optimisation claim. The relevant gate is that CLI size
 and startup did not regress measurably.
 
-## Mixed-language series reporting (policy 0115-v1)
+## C++ ownership series: reproducible startup gate
 
-[ADR 0115](adr/0115-startup-size-reporting.md) freezes reporting before migration
-candidate evaluation. All hard ceilings above remain in force; none is relaxed
-without a measured same-target migration delta and a documented policy change.
-Historical fx figures above are not current like-for-like performance evidence.
-The earlier C-only implementation strategy is historical for migrated areas;
-C++ runtime dependencies must now be reported explicitly, not assumed absent.
+The private ownership migration (ADR 0114, issues #137–#139) keeps the size
+ceilings above unless a separately measured policy amendment justifies a
+revision. Report `otool -L` / `ldd` dependencies alongside stripped bytes;
+a dynamically loaded C++ runtime is not part of the executable's byte count.
+Do not attribute a language change's size or speed effect without measurement.
 
-`make size-report` reports stripped-copy bytes, binary hash, otool/ldd output,
-libc++/libstdc++ dependencies and available wasm/glue files. It supplements
-`make size-check` and `make wasm-size-check`; neither is disabled.
+Use an idle reference host, identical toolchain/release flags, and immutable
+baseline/candidate binaries. The startup runner creates a new empty HOME and
+workspace for every launch, submits no turn, and selects the lazy native
+OpenAI provider. It detects the completed PTY composer paint, not the banner,
+raw-mode setup, or first token. It drains the PTY during fixture shutdown.
 
-`make bench-startup BASELINE_TNY=/absolute/baseline/tny` compares the current
-release binary with the baseline, writing `build/startup.json` and `.md`.
-Override `STARTUP_JSON` and `STARTUP_LABEL` as needed. The harness uses three
-alternating batches, at least 100 help/version and 20 PTY prompt observations
-per binary. It enforces the absolute startup medians above and added medians
-of at most max(0.25 ms, 10%) for CLI or max(0.5 ms, 10%) for PTY. Reports include
-p95, raw observations and per-launch peak child RSS. Peak RSS is not the idle
-RSS budget. The no-credential OpenAI path avoids pre-warm for this measurement.
-See [benchmark instructions](../tests/bench/README.md) for prompt detection,
-comparison of two reports, build metadata and evidence limitations.
+```sh
+python3 tests/bench/bench_startup.py \
+  --baseline /absolute/pre-series/build/tny \
+  --candidate /absolute/candidate/build/tny \
+  --output /absolute/evidence/startup.json
+```
+
+Defaults provide 102 samples of `--version` and `ask --help` for each binary,
+in three paired batches with alternating artifact order, and 20 fresh PTY
+launches for each binary. The JSON retains every sample, median/p95,
+artifact SHA-256 and size, host identity, configuration, and pass/fail status.
+The command returns nonzero on an absolute or relative gate failure, artifact
+mutation, timeout, or unexpected process failure. CLI median must be below
+5 ms and added median at most max(0.25 ms, 10%); prompt median must be below
+10 ms and added median at most max(0.5 ms, 10%). Always compare the final
+combined implementation to the pre-series baseline too.
+
+`tests/integration/test_bench_startup.py` checks threshold arithmetic,
+fragmented-paint discrimination, sampling, and environment isolation without
+noisy timing assertions in CI. Run the existing local-mock `bench_ttft.py`
+`tui` and `ask-stdin` modes separately with 20 iterations per artifact.
+Those measure a different boundary and do not replace first-prompt evidence.
+
+The parser corpus microbenchmark builds the same C driver against baseline
+and candidate source trees, selecting `.c` or `.cpp` implementations without
+compiling untouched C as C++. It obtains release flags from each Makefile,
+uses the existing tny allocation boundary in both builds, and links the C-only
+baseline without an artificial C++ runtime dependency. It covers SSE (CRLF,
+comments, multiline data, UTF-8 and EOF flush), Connect frames/keepalives/end
+trailers, and 32 id-first tool-call assemblies with reused wire indices.
+
+```sh
+python3 tests/bench/bench_parsers.py \
+  --baseline /absolute/pre-series \
+  --candidate /absolute/candidate \
+  --work-dir /absolute/new-evidence-directory
+```
+
+Whole, one-byte and deterministically fragmented inputs must produce identical
+per-corpus observations. The runner keeps three alternating baseline/candidate
+batches, raw output checksums, time, allocation counts, peak RSS, source and
+artifact hashes, compiler identities, build commands and dynamic dependencies.
+Both median elapsed time and median peak RSS may increase by at most 10%.
+The default is 2,000 fresh parser lifetimes per sample; increase iterations
+on fast hosts rather than interpreting timer noise as an improvement.
+`--iterations 2` is a functional smoke only, never performance acceptance.
+The corpus driver is tested on pre-migration C as well as private C++.
+
+Allocation instrumentation is part of this controlled parser comparison;
+report normal CLI startup independently. Peak RSS includes process/runtime
+costs and corpus storage, so preserve the raw values and dependency inventory.
+The deterministic `test_bench_parsers.py` checks reject semantic differences,
+missing samples and invalid measurements before computing performance ratios.
+
+For the event migration, use the same build/provenance/comparison machinery
+with the real private engine and a fixed synchronous callback source:
+
+```sh
+python3 tests/bench/bench_events.py \
+  --baseline /absolute/pre-change \
+  --candidate /absolute/candidate \
+  --work-dir /absolute/new-event-evidence-directory
+```
+
+Each iteration emits 64 events and a duplicated terminal callback, immediately
+overwrites every borrowed payload buffer, then drains and releases the queue.
+The driver checks embedded-NUL text lengths, all retained string fields,
+monotonic event ordering, exactly one terminal, and unchanged logical payload
+accounting. It exercises real engine admission, copying and release, not a
+standalone owner substitute. Inputs and callback observers are identical across
+builds. Use 2,000 iterations for measurement; a two-iteration smoke only proves
+the executable harness and behavioral oracles. Allocation counts and process
+peak RSS supplement, rather than replace, the logical queue-byte counters.

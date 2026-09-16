@@ -95,3 +95,19 @@ files in this directory are the complete record.
 | [0109](0109-provider-independent-codex-search.md) | Provider-independent search uses the Codex login regardless of conversation provider/model; DuckDuckGo only without that login; partially supersedes ADR0106 routing |
 | [0110](0110-one-suite-per-platform.md) | Each suite runs once per platform: native `linux-x86_64` and the hermetic `nix` job carry the full suite, other lanes build and package, `release.yml` does not re-test, and `main` runs are never cancelled |
 | [0111](0111-aarch64-size-cliff.md) | Linux native releases omit the frame pointer, `YYJSON_DISABLE_NON_STANDARD` drops dead JSON paths, the Nix package drops `zerocallusedregs`; the aarch64 64 KiB RELRO cliff is documented |
+
+- [0114 — Private C++20 ownership boundaries](0114-private-cpp20-ownership-boundaries.md)
+- [0115 — Owned stream decoding and failure boundaries](0115-owned-stream-decoding-and-failure-boundaries.md)
+- [0116 — Private runtime event and async tool ownership](0116-runtime-event-and-async-ownership.md)
+- [0117 — Allocation-free provider OOM settlement](0117-allocation-free-provider-oom-settlement.md)
+- [0118 — Runner and durable job resource ownership](0118-runner-and-job-resource-ownership.md)
+
+- [0119 — Build-lane parity and exhaustive ownership-fault proof](0119-build-lane-parity-and-exhaustive-fault-proof.md)
+
+- [0120 — Measured Linux aarch64 C++ artifact budget](0120-measured-linux-aarch64-cpp-artifact-budget.md)
+
+- [0121 — Maintainable C++ and the six-megabyte ceiling](0121-maintainable-cpp-and-six-megabyte-ceiling.md)
+
+- [0123 — Reconcile the two C++ migration histories](0123-reconcile-the-two-cpp-migration-histories.md)
+
+- [0122 — Scoped MSYS GCC LTO workaround](0122-msys-gcc-lto-exempt-jobs-module.md)

@@ -1,0 +1,8 @@
+data: {"type": "response.output_item.added", "output_index": 0, "item": {"type": "function_call", "call_id": "a", "name": "read_file"}}
+
+data: {"type": "response.function_call_arguments.delta", "output_index": 0, "delta": "{}"}
+
+data: {"type": "response.output_item.done", "output_index": 0, "item": {"type": "function_call", "call_id": "a", "arguments": "{\"path\":\".\"}"}}
+
+data: {"type": "response.completed", "response": {"usage": {"input_tokens": 3, "output_tokens": 4}}}
+

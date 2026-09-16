@@ -1,33 +1,37 @@
 # Language and runtime
 
-## Decision: C11 with private C++20 ownership
+## Decision: C11 with private C++20 ownership modules
 
-[ADR 0114](adr/0114-private-cpp-parser-ownership.md) authorizes C++20 only for
-SSE/Connect accumulation, Chat/Responses event decoding and tool-call owners.
-[ADR 0116](adr/0116-runtime-event-and-async-ownership.md) additionally authorizes
-owned runtime events and custom-tool registration/async-call lifetimes.
-[ADR 0117](adr/0117-runner-and-job-resource-ownership.md) authorizes runner
+[ADR 0114](adr/0114-private-cpp20-ownership-boundaries.md) authorizes a
+limited migration for parser buffers/documents, runtime events/async
+tools, and runner/job resources. It supersedes the old blanket C++ ban,
+not the C ABI, platform support or reliability/performance gates. Keep
+untouched application/transport/OS code, third-party libraries and
+`tnytty` in C11. No public C++ ABI, Boost, UI framework or global allocator
+replacement is introduced. Runtime size and dependencies are measured,
+not inferred from the language.
+[ADR 0115](adr/0115-owned-stream-decoding-and-failure-boundaries.md) covers
+the parser owners, [ADR 0116](adr/0116-runtime-event-and-async-ownership.md)
+the owned runtime events and custom-tool registration/async-call lifetimes,
+and [ADR 0117](adr/0117-allocation-free-provider-oom-settlement.md) the
+allocation-free provider settlement those owners rely on.
+[ADR 0118](adr/0118-runner-and-job-resource-ownership.md) authorizes runner
 and durable-job resource aggregates; platform process operations stay in C.
-Untouched code, vendored dependencies and tnytty remain C11. Public libtny
-headers, layouts and exports remain C. Private facades expose opaque owners
-and synchronous borrowed views, never standard-library types.
-
-C++ allocation uses the existing tny allocator, with local exception
-containment. No global operator new override, Boost, iostreams or new JSON
-library is introduced. Runtime size and startup are measured rather than
-inferred from the implementation language.
+Private facades
+expose opaque owners and synchronous borrowed views, never standard-library
+types.
 
 ## Compiler and link
 
 | Item | Choice |
 | --- | --- |
-| Standard | C11 / private C++20, `-Wall -Wextra -Werror`, no VLAs in new code |
+| Standard | C11 and scoped private C++20, `-Wall -Wextra -Werror`, no VLAs in new code |
 | Debug | ASan/UBSan on the unit-test binary |
 | Release | `-Os -ffunction-sections -fdata-sections`, strip, `--gc-sections` / `-dead_strip` |
 | libc | macOS: libSystem (cannot static-link). Linux publish: **musl static** |
 | TLS | macOS: Security.framework. Linux: **system OpenSSL** (`libssl.so.3` / `.so.1.1`), `dlopen`'d at first TLS use ([adr/0007](adr/0007-linux-tls-system-openssl.md)). Never link or vendor OpenSSL; musl static has no https |
 | Threads | One event loop. TUI prewarm uses one bounded connection thread; Cursor may lend its loopback callback server to one bounded pump thread during a blocking store RPC. Custom tools remain owner-thread-only |
-| Exceptions / RTTI | C++ allocation exceptions caught at private C boundaries; RTTI disabled |
+| Exceptions / RTTI | C++ allocation failures are caught at private C boundaries; RTTI is not needed |
 
 ## Library bill of materials
 
@@ -48,14 +52,6 @@ Vendor by source file, not by package manager graphs.
 Do **not** take: libcurl, OpenSSL, libuv, Boost, nlohmann/json, protobuf C++, grpc, libwebsockets, cJSON, ICU, gtest. Cross-compile C with `zig cc` if needed; do not write Zig. ("Take" means vendor or link; `dlopen`ing the platform's TLS library — Security.framework, system libssl — is the intended alternative, [adr/0007](adr/0007-linux-tls-system-openssl.md).)
 
 ## Build
-
-`CC` compiles `.c` as C11; `CXX` compiles `.cpp` as C++20 and links mixed
-artifacts. `CXXFLAGS` adds caller flags; lane optimization, sanitizers and
-visibility apply to both languages. C++ uses explicit allocator calls, not
-the C-only force-included allocation macros. `EMCXX=em++` handles wasm C++
-objects and links with exception catching enabled. ABI0 is built unchanged
-from its frozen C source archive. See [CI](ci.md) for parser safety targets.
-
 
 POSIX `Makefile` first. Targets: `tny`, `tny-test`, `lib-shared`,
 `install-lib`, `size-check`, `pack`. ABI 0's shared-library platform and
@@ -94,3 +90,14 @@ recording/decoding library or platform framework is linked into tny; PCM16
 WAV framing is C11 in the shared service. Windows and wasm support remote
 file transcription and cleanly reject microphone capture. See
 [Dictation](dictation.md) and [ADR 0079](adr/0079-provider-independent-dictation.md).
+
+
+## Current optimization priorities
+
+[ADR 0121](adr/0121-maintainable-cpp-and-six-megabyte-ceiling.md) supersedes
+old per-platform executable ceilings with a strictly-below-6,000,000-byte
+artifact guardrail. Prefer readable, explicit ownership and maintainable
+extension boundaries over byte-saving tricks. Latency, throughput, memory,
+fault recovery and ABI gates remain mandatory and independently measured.
+
+Implementation guide: [Extending the private C++ ownership layer](cpp-ownership.md).

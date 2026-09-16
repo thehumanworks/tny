@@ -12,7 +12,6 @@
 # Intel Mac runner — aarch64-darwin is the only Darwin system the flake claims.
 
 name: nix
-# Mixed C11/C++20 compiler selection and parser smoke are owned by nix/*.nix.
 
 on:
   push:

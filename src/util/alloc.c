@@ -19,15 +19,27 @@ static _Thread_local size_t settlement_count, settlement_allocations;
 #endif
 
 bool tny_alloc_settling(void) { return settling; }
-
 void tny_alloc_settlement_begin(void) {
     settling = true;
 #ifdef TNY_ALLOC_TESTING
     settlement_count++;
 #endif
 }
-
 void tny_alloc_settlement_end(void) { settling = false; }
+
+#ifdef TNY_ALLOC_TESTING
+#include <stdatomic.h>
+static atomic_size_t owned_live;
+void tny_alloc_test_owned_acquire(void) {
+    atomic_fetch_add_explicit(&owned_live, 1, memory_order_relaxed);
+}
+void tny_alloc_test_owned_release(void) {
+    atomic_fetch_sub_explicit(&owned_live, 1, memory_order_relaxed);
+}
+size_t tny_alloc_test_owned_live(void) {
+    return atomic_load_explicit(&owned_live, memory_order_relaxed);
+}
+#endif
 
 void tny_alloc_scope_begin(const char *name) {
     alloc_state.allocation_index = 0;
@@ -55,6 +67,8 @@ void tny_alloc_provider_failed(void) {
     alloc_state.failed = true;
     alloc_state.provider_failed = true;
 }
+
+long tny_c_strtol(const char *nptr, char **endptr, int base) { return strtol(nptr, endptr, base); }
 
 bool tny_alloc_scope_failed(void) { return alloc_state.failed; }
 

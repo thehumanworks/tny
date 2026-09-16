@@ -64,7 +64,9 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (strcmp(argv[1], "select") != 0 || (argc != 6 && argc != 8)) return 2;
-    tny_ctx ctx = {.cwd = argv[2], .tny_dir = argv[3]};
+    tny_ctx ctx{};
+    ctx.cwd = argv[2];
+    ctx.tny_dir = argv[3];
     if (argc == 8) {
         swap_path = argv[6];
         foreign_path = argv[7];

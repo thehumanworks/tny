@@ -31,8 +31,8 @@ extern "C" {
 #include <time.h>
 #include <unistd.h>
 }
-#include "cpp/owners.hpp"
-#include "cpp/resources.hpp"
+#include "util/ownership.hpp"
+#include "util/resources.hpp"
 extern "C" char **environ;
 
 bool tny_isolation_policy(const tny_ctx *ctx, bool transport_fork_safe) {
@@ -1918,9 +1918,9 @@ tny_runner_client *tny_runner_client_connect(const char *sock_path, int timeout_
     }
     tny::descriptor connection;
     connection.adopt(fd);
-    tny::owner<tny_runner_client> owned;
+    tny::owned<tny_runner_client> owned;
     try {
-        owned = tny::make_owner<tny_runner_client>();
+        owned = tny::make_owned<tny_runner_client>();
     } catch (const std::bad_alloc &) { return NULL; }
     tny_runner_client *c = owned.get();
     c->fd.adopt(connection.release());
@@ -2211,7 +2211,7 @@ void tny_runner_client_close(tny_runner_client *c) {
         tny_runner_msg_free(m);
         m = next;
     }
-    tny::owner<tny_runner_client> owned(c);
+    tny::owned<tny_runner_client> owned(c);
 }
 
 #else /* __EMSCRIPTEN__: clean-error stubs (docs/adr/0017, 0053) */

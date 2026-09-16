@@ -234,7 +234,7 @@ them). Nothing is sent to a provider that did not stream it.
 runs a tool call, its follow-up, and a resumed turn against a real profile
 on both wires and reports the transcript shape and any diagnostics.
 
-Tool-call assembly (`src/backends/openai/toolcalls.cpp`, unit-tested in
+Tool-call assembly (`src/backends/openai/toolcalls.c`, unit-tested in
 `tests/test_openai.c`) is **id-first**, not index-first: a fragment with an
 unseen `id` always opens a new call, a fragment with a known `id` merges into
 it, id-less fragments key by `index` (most recent call for that index), and

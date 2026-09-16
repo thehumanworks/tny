@@ -1,13 +1,25 @@
-# tny — C11 TUI + CLI coding-agent harness.
+# tny — C11 + private C++20 TUI + CLI coding-agent harness.
 # Targets: make (release), make debug, make test, make size, make size-check,
 #          make pack, make bench, make install, make site
 
 CC      ?= cc
+# Explicit cross/wrapper toolchains should set both drivers (CC and CXX).
+# Derive the ordinary cc/gcc/clang pair, including versioned GCC/Clang.
+ifneq ($(filter default undefined,$(origin CXX)),)
+  CXX = $(call cxx_driver,$(CC))
+endif
 CXX     ?= c++
-CXXFLAGS ?=
+cxx_name = $(subst gcc,g++,$(subst clang,clang++,$(patsubst %cc,%c++,$(1))))
+cxx_driver = $(foreach arg,$(1),$(subst $(notdir $(arg)),$(call cxx_name,$(notdir $(arg))),$(arg)))
 CXXSTD   = -std=c++20
-# C++ code calls the allocator explicitly; never inject C malloc macros.
-cppflags = $(patsubst -Ithird_party%,-iquotethird_party%,$(filter-out $(STD) -include src/util/alloc_override.h,$(1))) $(CXXSTD) -fno-rtti $(CXXFLAGS)
+# Owners use the explicit tny allocator; C allocation macros poison STL headers.
+# Vendor VERSION files can shadow <version> on case-insensitive filesystems.
+# Vendors remain available for quoted/angle includes, after the standard library;
+# first-party include paths and their diagnostics retain normal precedence.
+CXX_GLIBC_FLOOR := $(if $(wildcard src/util/cxx_glibc_floor.h),-include src/util/cxx_glibc_floor.h)
+cxx_flags = $(subst -Ithird_party,-idirafter third_party,$(filter-out $(STD),$(subst -include src/util/alloc_override.h,,$(1)))) $(CXXSTD) -fexceptions -fno-rtti $(CXX_GLIBC_FLOOR)
+# Keep foo.c and foo.cpp distinct: C adapters can coexist with their owners.
+objects = $(addprefix $(1)/,$(patsubst %.cpp,%.cpp.o,$(patsubst %.c,%.o,$(2))))
 GIT     ?= git
 BASH    ?= bash
 ZSH     ?= zsh
@@ -84,6 +96,11 @@ endif
 REL_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -Os -ffunction-sections -fdata-sections
 # Native executable objects only (ADR0092); never inherited by PIC/debug/wasm.
 REL_LTO = -flto
+# GCC's automatic LTO scheduling avoids its serial-LTRANS warning without
+# disabling diagnostics; Clang retains its supported native LTO spelling.
+ifeq (,$(findstring clang,$(shell $(CC) --version 2>/dev/null)))
+  REL_LTO = -flto=auto
+endif
 # Let -Os/LTO choose JSON helper inlining for native releases (ADR0100).
 # Kept out of REL_CFLAGS, which also feeds PIC/library and analysis builds.
 REL_INLINE = -Dyyjson_inline=inline
@@ -122,10 +139,6 @@ ifeq ($(UNAME_S),Linux)
   DBG_LDFLAGS += -ldl
 endif
 
-CXX_RUNTIME = $(if $(filter Darwin,$(UNAME_S)),-lc++,-lstdc++)
-REL_LDFLAGS += $(CXX_RUNTIME)
-DBG_LDFLAGS += $(CXX_RUNTIME)
-
 ifeq ($(STATIC),1)
   ifneq ($(UNAME_S),Darwin)
     REL_LDFLAGS += -static
@@ -148,15 +161,14 @@ GEN      = $(BUILD)/generated
 VERSION_H = $(GEN)/tny_version.h
 INC     += -I$(GEN)
 
-SRC_CPP := $(wildcard src/*.cpp src/cpp/*.cpp src/util/*.cpp src/json/*.cpp \
-           src/core/*.cpp src/lib/custom_tools.cpp src/cli/*.cpp src/net/*.cpp src/mcp/*.cpp src/tui/*.cpp \
-           src/backends/openai/*.cpp src/backends/acp/*.cpp src/backends/cursor/*.cpp)
-
+CPP_SRC := $(wildcard src/util/*.cpp src/json/*.cpp src/net/*.cpp \
+                     src/backends/openai/*.cpp src/core/*.cpp src/lib/*.cpp)
 SRC_PUBLIC_API := $(wildcard src/lib/*.c)
-SRC_ALL := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c \
+C_SRC_ALL := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c \
         src/net/*.c src/mcp/*.c src/tui/*.c \
         src/backends/openai/*.c src/backends/acp/*.c \
-        src/backends/cursor/*.c) src/lib/host_services.c $(SRC_CPP)
+        src/backends/cursor/*.c) src/lib/host_services.c
+SRC_ALL := $(C_SRC_ALL) $(CPP_SRC)
 
 # Per-platform source lists (docs/adr/0017). Native transports (sockets, TLS,
 # hand-rolled HTTP/1.1 + wslay WebSocket) and the poll(2) wrapper are excluded
@@ -176,7 +188,24 @@ TP  := third_party/yyjson/yyjson.c third_party/picohttpparser/picohttpparser.c \
 # keeps just yyjson so `nm` stays honest about dead code.
 TP_WASM := third_party/yyjson/yyjson.c
 
-REL_OBJS := $(addprefix $(OBJ_REL)/,$(patsubst %.cpp,%.cpp.o,$(SRC:%.c=%.o))) $(TP:%.c=$(OBJ_REL)/%.o)
+REL_OBJS := $(call objects,$(OBJ_REL),$(SRC)) $(call objects,$(OBJ_REL),$(TP))
+
+# GCC on MSYS2/Cygwin targets PE without MAKE_DECL_ONE_ONLY, so its
+# binds_local_p refuses local binding for public inline one-only definitions
+# (config/mingw/winnt.cc, PR target/66655). GCC 15.3 then asserts in
+# binds_to_current_def_p during the LTRANS alias pass of the IPA-CP clone of
+# jobs.cpp's supervisor launcher, which calls the private descriptor owners.
+# That module alone becomes a native object on that lane (ADR 0122); every
+# other object and the link keep -flto=auto, -Os, -fexceptions and -Werror.
+# Empty on every other host and driver. LTO_EXEMPT_CPP= re-tests a fixed GCC.
+LTO_EXEMPT_CPP ?=
+ifeq ($(WINDOWS):$(REL_LTO),1:-flto=auto)
+  LTO_EXEMPT_CPP += src/core/jobs.cpp
+endif
+ifneq ($(strip $(LTO_EXEMPT_CPP)),)
+$(call objects,$(OBJ_REL),$(LTO_EXEMPT_CPP)): Makefile
+$(call objects,$(OBJ_REL),$(LTO_EXEMPT_CPP)): REL_LTO := -fno-lto
+endif
 
 # libtny ABI 1: headless runtime only. ACP server/turn are application
 # adapters; the ACP client wire remains a library backend.
@@ -186,30 +215,29 @@ LIB_SRC := $(SRC_PUBLIC_API) \
            $(filter-out $(LIB_APP_EXCLUDE) $(SRC_PUBLIC_API),$(SRC_SHARED)) \
            $(SRC_NATIVE)
 OBJ_PIC := $(BUILD)/pic
-LIB_PIC_OBJS := $(addprefix $(OBJ_PIC)/,$(patsubst %.cpp,%.cpp.o,$(LIB_SRC:%.c=%.o))) $(TP:%.c=$(OBJ_PIC)/%.o)
+LIB_PIC_OBJS := $(call objects,$(OBJ_PIC),$(LIB_SRC)) $(call objects,$(OBJ_PIC),$(TP))
 PIC_CFLAGS := $(REL_CFLAGS) -fPIC -fvisibility=hidden \
               -DTNY_SHARED_LIBRARY_BUILD=1 \
               -include src/util/alloc_override.h
 OBJ_FAULT_PIC := $(BUILD)/fault-pic
-FAULT_PIC_OBJS := $(addprefix $(OBJ_FAULT_PIC)/,$(patsubst %.cpp,%.cpp.o,$(LIB_SRC:%.c=%.o))) \
-                  $(TP:%.c=$(OBJ_FAULT_PIC)/%.o)
+FAULT_PIC_OBJS := $(call objects,$(OBJ_FAULT_PIC),$(LIB_SRC)) \
+                  $(call objects,$(OBJ_FAULT_PIC),$(TP))
 FAULT_PIC_CFLAGS := $(PIC_CFLAGS) -DTNY_ALLOC_TESTING=1
 OBJ_FAULT_SAN_PIC := $(BUILD)/fault-san-pic
-FAULT_SAN_PIC_OBJS := $(addprefix $(OBJ_FAULT_SAN_PIC)/,$(patsubst %.cpp,%.cpp.o,$(LIB_SRC:%.c=%.o))) \
-                      $(TP:%.c=$(OBJ_FAULT_SAN_PIC)/%.o)
+FAULT_SAN_PIC_OBJS := $(call objects,$(OBJ_FAULT_SAN_PIC),$(LIB_SRC)) \
+                      $(call objects,$(OBJ_FAULT_SAN_PIC),$(TP))
 FAULT_SAN_PIC_CFLAGS := $(FAULT_PIC_CFLAGS) -O1 -g \
                         -fsanitize=address,undefined \
                         -fno-omit-frame-pointer
 OBJ_TSAN_PIC := $(BUILD)/tsan-pic
-TSAN_PIC_OBJS := $(addprefix $(OBJ_TSAN_PIC)/,$(patsubst %.cpp,%.cpp.o,$(LIB_SRC:%.c=%.o))) \
-                 $(TP:%.c=$(OBJ_TSAN_PIC)/%.o)
+TSAN_PIC_OBJS := $(call objects,$(OBJ_TSAN_PIC),$(LIB_SRC)) \
+                 $(call objects,$(OBJ_TSAN_PIC),$(TP))
 TSAN_PIC_CFLAGS := $(PIC_CFLAGS) -O1 -g -fsanitize=thread \
                    -fno-omit-frame-pointer
 FUZZ_CC ?= clang
-FUZZ_CXX ?= clang++
 OBJ_FUZZ := $(BUILD)/fuzz-libfuzzer/obj
-FUZZ_OBJS := $(addprefix $(OBJ_FUZZ)/,$(patsubst %.cpp,%.cpp.o,$(LIB_SRC:%.c=%.o))) \
-             $(TP:%.c=$(OBJ_FUZZ)/%.o)
+FUZZ_OBJS := $(call objects,$(OBJ_FUZZ),$(LIB_SRC)) \
+             $(call objects,$(OBJ_FUZZ),$(TP))
 FUZZ_CFLAGS := $(PIC_CFLAGS) -O1 -g -fno-omit-frame-pointer \
                -fsanitize=fuzzer-no-link,address,undefined
 FUZZ_HARNESS_CFLAGS := $(PIC_CFLAGS) -O1 -g -fno-omit-frame-pointer \
@@ -220,6 +248,16 @@ FUZZ_CORPUS := $(wildcard tests/fuzz/corpus-v1/*)
 FUZZ_RUNS ?= 10000
 FUZZ_SECONDS ?= 30
 SAN_HOST := $(BUILD)/fault-san/libtny-sanitizer-host
+REL_CXXFLAGS = $(call cxx_flags,$(REL_CFLAGS))
+DBG_CXXFLAGS = $(call cxx_flags,$(DBG_CFLAGS))
+PIC_CXXFLAGS = $(call cxx_flags,$(PIC_CFLAGS))
+FAULT_PIC_CXXFLAGS = $(call cxx_flags,$(FAULT_PIC_CFLAGS))
+FAULT_SAN_PIC_CXXFLAGS = $(call cxx_flags,$(FAULT_SAN_PIC_CFLAGS))
+TSAN_PIC_CXXFLAGS = $(call cxx_flags,$(TSAN_PIC_CFLAGS))
+FUZZ_CXX ?= $(call cxx_driver,$(FUZZ_CC))
+FUZZ_CXXFLAGS = $(call cxx_flags,$(FUZZ_CFLAGS))
+FUZZ_HARNESS_CXXFLAGS = $(call cxx_flags,$(FUZZ_HARNESS_CFLAGS))
+
 ABI0_COMPAT_COMMIT := 510a95c2ef89aa9ec02a66d8b0a5cadd953025a8
 ABI0_COMPAT_ARCHIVE ?=
 ABI0_COMPAT_ARCHIVE_SHA256 := 8718336dbde47f3f8427bf6b3a724127e3ed24b61eaedb6f315523ec2a00c2f6
@@ -269,9 +307,9 @@ else
   ABI0_COMPAT_LIBS := -l:libtny.so.0
 endif
 
-TEST_SRC := $(wildcard tests/*.c)
+TEST_SRC := $(wildcard tests/*.c tests/*.cpp)
 TEST_DEPS := $(filter-out src/main.c,$(SRC)) $(SRC_PUBLIC_API) $(TP)
-TEST_OBJS := $(addprefix $(OBJ_DBG)/,$(patsubst %.cpp,%.cpp.o,$(TEST_DEPS:%.c=%.o)))
+TEST_OBJS := $(call objects,$(OBJ_DBG),$(TEST_DEPS))
 
 PREFIX ?= $(HOME)/.local
 
@@ -293,17 +331,10 @@ ifeq ($(STATIC),0)
   endif
 endif
 
-# Size budgets (docs/size-and-speed.md). Override SIZE_MAX in CI per target.
-# 1.0 MiB Linux dynamic (docs/adr/0053 — no tmux, app stays light; musl
-# static overrides to 1.5 MiB in CI), 1.8 MiB Darwin, 2.0 MiB Windows
-# (MSYS-linked).
-ifeq ($(UNAME_S),Darwin)
-  SIZE_MAX ?= 1887436
-else ifeq ($(WINDOWS),1)
-  SIZE_MAX ?= 2097152
-else
-  SIZE_MAX ?= 1048576
-endif
+# One product ceiling (ADR 0121): strictly below decimal 6 MB on every
+# supported artifact. SIZE_MAX is inclusive, so 6,000,000 itself is rejected.
+# Keep accounting; do not sacrifice readability, ownership or speed for bytes.
+SIZE_MAX ?= 5999999
 
 .PHONY: all release debug test test-unit test-event-schema test-conformance-contract check-cursor-sdk-contract test-cursor-sdk-contract test-extensions-python test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
@@ -322,7 +353,7 @@ release: $(BIN)
 
 $(BIN): $(REL_OBJS)
 	@mkdir -p $(@D)
-	$(CXX) $(call cppflags,$(REL_CFLAGS)) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(REL_LDFLAGS))
+	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(REL_LDFLAGS)
 	strip $@ 2>/dev/null || strip -x $@
 	@wc -c $@
 
@@ -335,7 +366,7 @@ $(DICTATION_FIXTURE_OBJ): src/core/dictation_xai.c | $(VERSION_H)
 	$(CC) $(REL_CFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -DTNY_DICTATION_FIXTURE -MMD -MP -c -o $@ $<
 
 $(DICTATION_FIXTURE): $(filter-out $(OBJ_REL)/src/core/dictation_xai.o,$(REL_OBJS)) $(DICTATION_FIXTURE_OBJ)
-	$(CXX) $(call cppflags,$(REL_CFLAGS)) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(REL_LDFLAGS))
+	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(REL_LDFLAGS)
 
 .PHONY: dictation-fixture test-dictation wasm-dictation-fixture
 dictation-fixture: $(DICTATION_FIXTURE)
@@ -343,61 +374,61 @@ test-dictation: $(TEST_BIN) $(BIN) $(DICTATION_FIXTURE)
 	./$(TEST_BIN) -s dictation
 	TNY=$(abspath $(BIN)) TNY_DICTATION_FIXTURE_BIN=$(abspath $(DICTATION_FIXTURE)) python3 tests/integration/test_dictation.py
 
-$(OBJ_REL)/%.cpp.o: %.cpp | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(CXX) $(call cppflags,$(REL_CFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT)) -MMD -MP -c -o $@ $<
-
 $(OBJ_REL)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(CC) $(REL_CFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
-
-$(OBJ_DBG)/%.cpp.o: %.cpp | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(CXX) $(call cppflags,$(DBG_CFLAGS)) -MMD -MP -c -o $@ $<
 
 $(OBJ_DBG)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(CC) $(DBG_CFLAGS) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
 
-$(OBJ_PIC)/%.cpp.o: %.cpp | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(CXX) $(call cppflags,$(PIC_CFLAGS)) -MMD -MP -c -o $@ $<
-
 $(OBJ_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(PIC_CFLAGS)) -MMD -MP -c -o $@ $<
-
-$(OBJ_FAULT_PIC)/%.cpp.o: %.cpp | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(CXX) $(call cppflags,$(FAULT_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
 
 $(OBJ_FAULT_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FAULT_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FAULT_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
 
-$(OBJ_FAULT_SAN_PIC)/%.cpp.o: %.cpp | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(CXX) $(call cppflags,$(FAULT_SAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
-
 $(OBJ_FAULT_SAN_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FAULT_SAN_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FAULT_SAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
-
-$(OBJ_TSAN_PIC)/%.cpp.o: %.cpp | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(CXX) $(call cppflags,$(TSAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
 
 $(OBJ_TSAN_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(TSAN_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(TSAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
 
-$(OBJ_FUZZ)/%.cpp.o: %.cpp | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(FUZZ_CXX) $(call cppflags,$(FUZZ_CFLAGS)) -MMD -MP -c -o $@ $<
-
 $(OBJ_FUZZ)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(FUZZ_CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FUZZ_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FUZZ_CFLAGS)) -MMD -MP -c -o $@ $<
+
+$(OBJ_REL)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -MMD -MP -c -o $@ $<
+
+$(OBJ_DBG)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(DBG_CXXFLAGS) -MMD -MP -c -o $@ $<
+
+$(OBJ_PIC)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(PIC_CXXFLAGS) -MMD -MP -c -o $@ $<
+
+$(OBJ_FAULT_PIC)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(FAULT_PIC_CXXFLAGS) -MMD -MP -c -o $@ $<
+
+$(OBJ_FAULT_SAN_PIC)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(FAULT_SAN_PIC_CXXFLAGS) -MMD -MP -c -o $@ $<
+
+$(OBJ_TSAN_PIC)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(TSAN_PIC_CXXFLAGS) -MMD -MP -c -o $@ $<
+
+$(OBJ_FUZZ)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(FUZZ_CXX) $(FUZZ_CXXFLAGS) -MMD -MP -c -o $@ $<
 
 ifeq ($(LIBTNY_SHARED_SUPPORTED),1)
 lib-shared-active: $(LIB_LINK)
@@ -426,7 +457,7 @@ $(LIB_REAL): $(LIB_PIC_OBJS) $(LIB_EXPORT_FILE)
 	@test -n "$(if $(filter Darwin,$(UNAME_S)),$(LIBTNY_MACH_CURRENT_VERSION),ok)" || \
 		python3 scripts/check_abi_baseline.py --mach-version '$(TNY_VERSION)' \
 			--development-fallback
-	$(CXX) $(CXXFLAGS) -o $@ $(LIB_PIC_OBJS) $(LIB_LDFLAGS)
+	$(CXX) -o $@ $(LIB_PIC_OBJS) $(LIB_LDFLAGS)
 
 $(LIB_LINK): $(LIB_REAL)
 	@mkdir -p $(@D)
@@ -452,13 +483,13 @@ $(ABI0_COMPAT_STAMP): abi/compat0.json scripts/check_abi_baseline.py
 
 $(LIB_COMPAT0_REAL): $(ABI0_COMPAT_STAMP)
 	$(MAKE) -C $(ABI0_COMPAT_SRC) BUILD=$(ABI0_COMPAT_BUILD) \
-		CC='$(CC)' CXX='$(CXX)' TNY_VERSION='$(TNY_VERSION)' lib-shared
+		CC='$(CC)' TNY_VERSION='$(TNY_VERSION)' lib-shared
 	@mkdir -p $(@D)
 	cp $(ABI0_COMPAT_BUILT) $@
 
 $(LIB_FAULT_REAL): $(FAULT_PIC_OBJS) $(LIB_EXPORT_FILE)
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -o $@ $(FAULT_PIC_OBJS) $(LIB_FAULT_LDFLAGS)
+	$(CXX) -o $@ $(FAULT_PIC_OBJS) $(LIB_FAULT_LDFLAGS)
 
 $(LIB_FAULT_LINK): $(LIB_FAULT_REAL)
 	@mkdir -p $(@D)
@@ -466,7 +497,7 @@ $(LIB_FAULT_LINK): $(LIB_FAULT_REAL)
 
 $(LIB_FAULT_SAN_REAL): $(FAULT_SAN_PIC_OBJS) $(LIB_EXPORT_FILE)
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -o $@ $(FAULT_SAN_PIC_OBJS) $(LIB_FAULT_LDFLAGS) \
+	$(CXX) -o $@ $(FAULT_SAN_PIC_OBJS) $(LIB_FAULT_LDFLAGS) \
 		-fsanitize=address,undefined
 
 $(LIB_FAULT_SAN_LINK): $(LIB_FAULT_SAN_REAL)
@@ -483,7 +514,7 @@ $(SAN_HOST): tests/integration/libtny_sanitizer_host.c $(LIB_FAULT_SAN_REAL)
 ifeq ($(UNAME_S),Linux)
 $(LIB_TSAN_REAL): $(TSAN_PIC_OBJS) $(LIB_EXPORT_FILE)
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -o $@ $(TSAN_PIC_OBJS) $(LIB_LDFLAGS) -fsanitize=thread
+	$(CXX) -o $@ $(TSAN_PIC_OBJS) $(LIB_LDFLAGS) -fsanitize=thread
 
 $(LIB_TSAN_LINK): $(LIB_TSAN_REAL)
 	@mkdir -p $(@D)
@@ -502,9 +533,9 @@ $(TSAN_CUSTOM_HOST): tests/integration/libtny_custom_tools.c $(LIB_TSAN_REAL)
 		-Wl,-rpath,$(abspath $(dir $(LIB_TSAN_REAL)))
 endif
 
-$(TEST_BIN): $(TEST_OBJS) $(TEST_SRC:%.c=$(OBJ_DBG)/%.o)
+$(TEST_BIN): $(TEST_OBJS) $(call objects,$(OBJ_DBG),$(TEST_SRC))
 	@mkdir -p $(@D)
-	$(CXX) $(call cppflags,$(DBG_CFLAGS)) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))
+	$(CXX) $(DBG_CXXFLAGS) -o $@ $^ $(DBG_LDFLAGS)
 
 debug: $(TEST_BIN)
 
@@ -585,16 +616,18 @@ test-libtny-fault: lib-shared-fault
 	python3 tests/integration/test_libtny_faults.py $(LIB_FAULT_REAL)
 
 test-libtny-mutation:
-	python3 tests/mutation/mutate.py --focus libtny-safety --test runtime_
-	python3 tests/mutation/mutate.py --focus libtny-fault-mutation --test runtime_
-	python3 tests/mutation/mutate.py --focus libtny-custom-tools --test runtime_async
+	python3 tests/mutation/mutate.py --focus libtny-safety
+	python3 tests/mutation/mutate.py --focus libtny-fault-mutation
+	python3 tests/mutation/mutate.py --focus libtny-custom-tools
 
-$(OBJ_DBG)/tests/fuzz/fuzz_libtny.o: DBG_CFLAGS += -DTNY_FUZZ_STANDALONE=1
-
-$(FUZZ_SMOKE_BIN): $(OBJ_DBG)/tests/fuzz/fuzz_libtny.o $(sort $(TEST_OBJS))
+FUZZ_SMOKE_OBJ := $(BUILD)/fuzz/fuzz_libtny.o
+$(FUZZ_SMOKE_OBJ): tests/fuzz/fuzz_libtny.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CXX) $(call cppflags,$(DBG_CFLAGS)) -o $@ $< \
-		$(sort $(TEST_OBJS)) $(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))
+	$(CC) $(DBG_CFLAGS) -DTNY_FUZZ_STANDALONE=1 -MMD -MP -c -o $@ $<
+
+$(FUZZ_SMOKE_BIN): $(FUZZ_SMOKE_OBJ) $(sort $(TEST_OBJS))
+	@mkdir -p $(@D)
+	$(CXX) $(DBG_CXXFLAGS) -o $@ $^ $(DBG_LDFLAGS)
 
 test-libtny-fuzz-smoke: $(FUZZ_SMOKE_BIN)
 	$(FUZZ_SMOKE_BIN) --self-test
@@ -607,10 +640,15 @@ test-libtny-fuzz-smoke: $(FUZZ_SMOKE_BIN)
 	fi
 	$(FUZZ_SMOKE_BIN) $(FUZZ_CORPUS)
 
-$(FUZZ_BIN): $(OBJ_FUZZ)/tests/fuzz/fuzz_libtny.o $(FUZZ_OBJS)
+FUZZ_HARNESS_OBJ := $(BUILD)/fuzz-libfuzzer/fuzz_libtny.o
+$(FUZZ_HARNESS_OBJ): tests/fuzz/fuzz_libtny.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(FUZZ_CC) $(FUZZ_HARNESS_CFLAGS) -MMD -MP -c -o $@ $<
+
+$(FUZZ_BIN): $(FUZZ_HARNESS_OBJ) $(FUZZ_OBJS)
 	@mkdir -p $(@D) $(BUILD)/fuzz-artifacts
-	$(FUZZ_CXX) $(call cppflags,$(FUZZ_HARNESS_CFLAGS)) \
-		-o $@ $< $(FUZZ_OBJS) \
+	$(FUZZ_CXX) $(FUZZ_HARNESS_CXXFLAGS) \
+		-o $@ $^ \
 		$(if $(filter Linux,$(UNAME_S)),-pthread -ldl,)
 
 ifeq ($(UNAME_S)-$(UNAME_M),Linux-x86_64)
@@ -626,19 +664,196 @@ test-libtny-fuzz:
 	@exit 2
 endif
 
-SAN_CUSTOM_HOST = $(BUILD)/fault-san/libtny-custom-tools-sanitizer
+# Parser stream fuzzing (ADR0114). Portable smoke consumes every checked-in
+# seed. The Linux x86_64 campaign shares the fully instrumented production
+# object set with ABI fuzzing; FUZZ_RUNS/FUZZ_SECONDS bound each campaign.
+PARSER_FUZZ_SRC := tests/fuzz/fuzz_parsers.cpp
+PARSER_CORPUS := $(wildcard tests/fuzz/parser-corpus/*)
+PARSER_SMOKE_OBJ := $(BUILD)/fuzz/fuzz_parsers.cpp.o
+PARSER_SMOKE_BIN := $(BUILD)/fuzz/parser-fuzz-smoke
+PARSER_FUZZ_OBJ := $(BUILD)/fuzz-libfuzzer/fuzz_parsers.cpp.o
+PARSER_FUZZ_BIN := $(BUILD)/fuzz-libfuzzer/parser-fuzz
+
+$(PARSER_SMOKE_OBJ): $(PARSER_FUZZ_SRC) | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(DBG_CXXFLAGS) -DTNY_FUZZ_STANDALONE=1 -MMD -MP -c -o $@ $<
+
+$(PARSER_SMOKE_BIN): $(PARSER_SMOKE_OBJ) $(sort $(TEST_OBJS))
+	$(CXX) $(DBG_CXXFLAGS) -o $@ $^ $(DBG_LDFLAGS)
+
+$(PARSER_FUZZ_OBJ): $(PARSER_FUZZ_SRC) | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(FUZZ_CXX) $(FUZZ_HARNESS_CXXFLAGS) -MMD -MP -c -o $@ $<
+
+$(PARSER_FUZZ_BIN): $(PARSER_FUZZ_OBJ) $(FUZZ_OBJS)
+	@mkdir -p $(@D) $(BUILD)/parser-fuzz-artifacts
+	$(FUZZ_CXX) $(FUZZ_HARNESS_CXXFLAGS) -o $@ $^ \
+		$(if $(filter Linux,$(UNAME_S)),-pthread -ldl,)
+
+test-parser-fuzz-smoke: $(PARSER_SMOKE_BIN)
+	@test -n "$(PARSER_CORPUS)" || { echo "error: parser corpus is empty" >&2; exit 1; }
+	$(PARSER_SMOKE_BIN) $(PARSER_CORPUS)
+
+ifeq ($(UNAME_S)-$(UNAME_M),Linux-x86_64)
+test-parser-fuzz: $(PARSER_FUZZ_BIN)
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+		$(PARSER_FUZZ_BIN) -runs=$(FUZZ_RUNS) -max_total_time=$(FUZZ_SECONDS) \
+		-timeout=5 -max_len=131072 -rss_limit_mb=1024 \
+		-artifact_prefix=$(BUILD)/parser-fuzz-artifacts/ tests/fuzz/parser-corpus
+else
+test-parser-fuzz:
+	@echo "error: parser libFuzzer gate is supported only on Linux x86_64" >&2
+	@exit 2
+endif
+
+# Owner fault injection is always enabled. Match sanitizer instrumentation
+# to the chosen platform lane: musl/MSYS SANITIZE=0 must not link ASan objects.
+OWNER_OBJ_ROOT := $(if $(filter 1,$(SANITIZE)),$(OBJ_FAULT_SAN_PIC),$(OBJ_FAULT_PIC))
+OWNER_CFLAGS := $(if $(filter 1,$(SANITIZE)),$(FAULT_SAN_PIC_CFLAGS),$(FAULT_PIC_CFLAGS))
+OWNER_CXXFLAGS := $(call cxx_flags,$(OWNER_CFLAGS))
+OWNER_LIB_OBJS := $(if $(filter 1,$(SANITIZE)),$(FAULT_SAN_PIC_OBJS),$(FAULT_PIC_OBJS))
+# Exhaustive parser allocation failures and semantic mutation oracles use the
+# same allocator-instrumented owner objects as the backend ownership suite.
+PARSER_OWNER_SRC := src/util/alloc.c src/util/util.c src/json/json.c \
+                    third_party/yyjson/yyjson.c src/net/sse.cpp \
+                    src/net/connectrpc.cpp src/backends/openai/toolcalls.cpp \
+                    src/backends/openai/stream_decode.cpp
+PARSER_OWNER_OBJS := $(call objects,$(OWNER_OBJ_ROOT),$(PARSER_OWNER_SRC))
+PARSER_OWNER_TEST_OBJ := $(BUILD)/parser-ownership/test_ownership.cpp.o
+PARSER_OWNER_BIN := $(BUILD)/parser-ownership/ownership-test
+
+$(PARSER_OWNER_TEST_OBJ): tests/test_ownership.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(OWNER_CXXFLAGS) -DTNY_OWNERSHIP_STANDALONE=1 -MMD -MP -c -o $@ $<
+
+$(PARSER_OWNER_BIN): $(PARSER_OWNER_TEST_OBJ) $(PARSER_OWNER_OBJS)
+	$(CXX) $(OWNER_CXXFLAGS) -o $@ $^ $(DBG_LDFLAGS)
+
+test-parser-ownership: $(PARSER_OWNER_BIN)
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(PARSER_OWNER_BIN)
+
+test-parser-mutation: test-parser-ownership
+	python3 tests/mutation/parser_ownership.py --cxx '$(CXX)' \
+		--flags '$(OWNER_CXXFLAGS)' --ldflags '$(DBG_LDFLAGS)' \
+		--object-root '$(OWNER_OBJ_ROOT)' --test-object '$(PARSER_OWNER_TEST_OBJ)' \
+		--baseline '$(PARSER_OWNER_BIN)' --work-dir '$(BUILD)/parser-mutations' \
+		$(PARSER_OWNER_OBJS)
+
+.PHONY: test-parser-ownership test-parser-mutation
+-include $(PARSER_OWNER_TEST_OBJ:.o=.d)
+
+SEARCH_OWNER_OBJ := $(BUILD)/parser-ownership/search_ownership.o
+SEARCH_OWNER_BIN := $(BUILD)/parser-ownership/search-test
+$(SEARCH_OWNER_OBJ): tests/fuzz/search_ownership.c src/core/search_codex.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(OWNER_CFLAGS) -include src/util/alloc_override.h -MMD -MP -c -o $@ $<
+$(SEARCH_OWNER_BIN): $(SEARCH_OWNER_OBJ) $(OWNER_LIB_OBJS)
+	$(CXX) -o $@ $^ $(DBG_LDFLAGS)
+test-search-ownership: $(SEARCH_OWNER_BIN)
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(SEARCH_OWNER_BIN)
+.PHONY: test-search-ownership
+-include $(SEARCH_OWNER_OBJ:.o=.d)
+
+# Every C++ object uses the same test-only owner-counter definitions. The
+# remaining C unit objects retain their normal ASan/UBSan instrumentation.
+OWNER_INSTRUMENTED_SRC := $(sort src/util/alloc.c $(filter %.cpp,$(TEST_DEPS)) \
+    src/core/runtime.c tests/test_runtime.c tests/test_openai.c $(filter %.cpp,$(TEST_SRC)))
+OWNER_BACKEND_OBJS := $(filter-out $(call objects,$(OBJ_DBG),$(OWNER_INSTRUMENTED_SRC)),\
+    $(TEST_OBJS) $(call objects,$(OBJ_DBG),$(TEST_SRC))) \
+    $(call objects,$(OWNER_OBJ_ROOT),$(OWNER_INSTRUMENTED_SRC))
+OWNER_BACKEND_BIN := $(BUILD)/parser-ownership/backend-test
+$(OWNER_BACKEND_BIN): $(OWNER_BACKEND_OBJS)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(DBG_LDFLAGS)
+test-parser-backend-ownership: $(OWNER_BACKEND_BIN)
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(OWNER_BACKEND_BIN) -s openai_suite
+.PHONY: test-parser-backend-ownership test-runtime-ownership
+RUNTIME_TEST_OBJS := $(OWNER_BACKEND_OBJS)
+RUNTIME_TEST := $(OWNER_BACKEND_BIN)
+test-runtime-ownership: $(RUNTIME_TEST)
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(RUNTIME_TEST) -s runtime_suite
+
+.PHONY: test-parser-fuzz-smoke test-parser-fuzz test-cpp-build
+test-cpp-build:
+	python3 tests/integration/test_cpp_build.py
+
+SAN_CUSTOM_HOST := $(BUILD)/fault-san/libtny-custom-tools-sanitizer
 $(SAN_CUSTOM_HOST): tests/integration/libtny_custom_tools.c $(LIB_FAULT_SAN_REAL)
 	@mkdir -p $(@D)
 	$(CC) -std=c11 -Wall -Wextra -Werror -Iinclude -O1 -g -fno-omit-frame-pointer \
 		-fsanitize=address,undefined -o $@ $< $(LIB_FAULT_SAN_REAL) -pthread \
 		-Wl,-rpath,$(CURDIR)/$(dir $(LIB_FAULT_SAN_REAL))
 
-SAN_CUSTOM_CPP_HOST = $(BUILD)/fault-san/libtny-custom-tools-cpp-sanitizer
+SAN_CUSTOM_CPP_HOST := $(BUILD)/fault-san/libtny-custom-tools-cpp-sanitizer
 $(SAN_CUSTOM_CPP_HOST): tests/integration/libtny_custom_tools_cpp.cpp $(LIB_FAULT_SAN_REAL)
 	@mkdir -p $(@D)
 	$(CXX) -std=c++17 -Wall -Wextra -Werror -Iinclude -O1 -g -fno-omit-frame-pointer \
 		-fsanitize=address,undefined -o $@ $< $(LIB_FAULT_SAN_REAL) -pthread \
 		-Wl,-rpath,$(CURDIR)/$(dir $(LIB_FAULT_SAN_REAL))
+
+# Provider OOM regressions use the complete allocator-instrumented object graph
+# (ADR 0117): real ACP/Cursor/OpenAI backends with injected C and C++ owners.
+PROVIDER_FAULT_TEST_SRC := tests/test_cursor_callbacks.c tests/test_acp.c tests/test_cursor.c \
+                           tests/test_openai.c tests/test_ownership.cpp \
+                           tests/integration/libtny_provider_fault_host.c
+PROVIDER_FAULT_TEST := $(BUILD)/lib-fault/provider-faults
+PROVIDER_FAULT_SAN_TEST := $(BUILD)/lib-fault-san/provider-faults
+PROVIDER_FAULT_TEST_OBJS := $(call objects,$(OBJ_FAULT_PIC),$(PROVIDER_FAULT_TEST_SRC))
+PROVIDER_FAULT_SAN_TEST_OBJS := $(call objects,$(OBJ_FAULT_SAN_PIC),$(PROVIDER_FAULT_TEST_SRC))
+$(PROVIDER_FAULT_TEST): $(PROVIDER_FAULT_TEST_OBJS) $(FAULT_PIC_OBJS)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(REL_LDFLAGS)
+$(PROVIDER_FAULT_SAN_TEST): $(PROVIDER_FAULT_SAN_TEST_OBJS) $(FAULT_SAN_PIC_OBJS)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(REL_LDFLAGS) -fsanitize=address,undefined
+test-libtny-fault: $(PROVIDER_FAULT_TEST)
+test-libtny-fault-sanitize: $(PROVIDER_FAULT_SAN_TEST)
+-include $(PROVIDER_FAULT_TEST_OBJS:.o=.d) $(PROVIDER_FAULT_SAN_TEST_OBJS:.o=.d)
+
+# Behavioral runtime/provider mutants (ADR 0116/0117): private copies only.
+test-runtime-mutation:
+	python3 tests/mutation/runtime_critical.py
+.PHONY: test-runtime-mutation
+
+# Runner/job ownership faults (ADR 0118) bind the real runner.cpp/jobs.cpp
+# sources into one fixture with real fd/pipe/flock boundaries, an
+# allocator-instrumented alloc.c, and syscall-faulting copies of the unchanged
+# C host seams. Everything else is the ordinary debug object graph.
+RUNNER_OWNERSHIP := $(BUILD)/runner-ownership/runner-ownership
+RUNNER_HOST_ALLOC := $(BUILD)/runner-host/alloc.o
+RUNNER_OWNERSHIP_OBJS = $(filter-out $(OBJ_DBG)/src/core/runner.cpp.o $(OBJ_DBG)/src/core/jobs.cpp.o \
+    $(OBJ_DBG)/src/util/alloc.o $(OBJ_DBG)/src/util/jobs_host.o $(OBJ_DBG)/src/util/process.o,\
+    $(sort $(TEST_OBJS))) $(BUILD)/runner-host/jobs_host.o $(BUILD)/runner-host/process.o \
+    $(OBJ_DBG)/tests/fixtures/resource_host_faults.o $(RUNNER_HOST_ALLOC)
+$(RUNNER_HOST_ALLOC): src/util/alloc.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(DBG_CFLAGS) -DTNY_ALLOC_TESTING=1 -MMD -MP -c -o $@ $<
+$(BUILD)/runner-host/jobs_host.o: src/util/jobs_host.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(DBG_CFLAGS) -Dopen=tny_resource_open -Dwrite=tny_resource_write -Dfsync=tny_resource_fsync -Drename=tny_resource_rename -MMD -MP -c -o $@ $<
+$(BUILD)/runner-host/process.o: src/util/process.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(DBG_CFLAGS) -Dfcntl=tny_resource_fcntl -Dposix_spawn=tny_resource_spawn -MMD -MP -c -o $@ $<
+$(BUILD)/runner-ownership/runner_ownership.cpp.o: tests/fixtures/runner_ownership.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(DBG_CXXFLAGS) -DTNY_ALLOC_TESTING=1 -MMD -MP -c -o $@ $<
+$(RUNNER_OWNERSHIP): $(BUILD)/runner-ownership/runner_ownership.cpp.o $(RUNNER_OWNERSHIP_OBJS)
+	@mkdir -p $(@D)
+	$(CXX) $(DBG_CXXFLAGS) -o $@ $^ $(DBG_LDFLAGS)
+test-runner-ownership: $(RUNNER_OWNERSHIP)
+	@directory=$$(mktemp -d "$${TMPDIR:-/tmp}/tny-ownership.XXXXXX"); \
+	  $(RUNNER_OWNERSHIP) "$$directory"; result=$$?; rm -rf "$$directory"; exit $$result
+test-runner-mutation:
+	python3 tests/mutation/runner_critical.py
+.PHONY: test-runner-ownership test-runner-mutation
+-include $(BUILD)/runner-ownership/runner_ownership.cpp.d $(BUILD)/runner-host/jobs_host.d \
+    $(BUILD)/runner-host/process.d $(RUNNER_HOST_ALLOC:.o=.d) \
+    $(OBJ_DBG)/tests/fixtures/resource_host_faults.d
 
 test-libtny-fault-sanitize: lib-shared-fault-sanitize $(SAN_HOST) $(SAN_CUSTOM_HOST) $(SAN_CUSTOM_CPP_HOST)
 ifeq ($(UNAME_S),Darwin)
@@ -652,12 +867,16 @@ ifeq ($(UNAME_S),Darwin)
 	DYLD_INSERT_LIBRARIES="$$runtime" \
 	"$$python" tests/integration/test_libtny_faults.py $(LIB_FAULT_SAN_REAL)
 else
+	# Python dlopens the C++ library after ASan initializes. Load its exception
+	# runtime up front too, so ASan can resolve __cxa_throw (sanitizers #934).
 	@runtime="$$($(CC) -print-file-name=libasan.so)"; \
+	cxx_runtime="$$($(CXX) -print-file-name=libstdc++.so)"; \
 	test -f "$$runtime" || { echo "error: ASan runtime not found" >&2; exit 1; }; \
+	test -f "$$cxx_runtime" || { echo "error: C++ runtime not found" >&2; exit 1; }; \
 	ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
 	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
-	TNY_TEST_ASAN_RUNTIME="$$runtime" \
-	LD_PRELOAD="$$runtime" \
+	TNY_TEST_ASAN_RUNTIME="$$runtime" TNY_TEST_CXX_RUNTIME="$$cxx_runtime" \
+	LD_PRELOAD="$$runtime:$$cxx_runtime" \
 	python3 tests/integration/test_libtny_faults.py $(LIB_FAULT_SAN_REAL)
 endif
 	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
@@ -770,6 +989,7 @@ SHELLCHECK   ?= shellcheck
 SHFMT        ?= shfmt
 ACTIONLINT   ?= actionlint
 ANALYZER_CC  ?= gcc
+ANALYZER_CXX ?= $(call cxx_driver,$(ANALYZER_CC))
 
 # First-party scopes only; third_party/ and the frozen ABI and bench task
 # fixtures stay exempt (reformatting a bench fixture changes the task).
@@ -777,12 +997,16 @@ ANALYZER_CC  ?= gcc
 # the quality gate automatically instead of depending on maintained globs.
 # Tracked *and* untracked-but-not-ignored sources: a file in flight is
 # exactly the one whose formatting has not been checked yet.
-FMT_SRC := $(shell { git ls-files -- '*.c' '*.h' '*.cpp' '*.hpp'; \
-	git ls-files --others --exclude-standard -- '*.c' '*.h' '*.cpp' '*.hpp'; } | sort -u | \
-	grep -Ev '^(third_party/|tests/abi/fixtures/|tests/bench/fixtures/)')
-# Deleted tracked files are absent until the rename is staged.
-FMT_SRC := $(wildcard $(FMT_SRC))
-SH_SRC  := $(shell git ls-files -- '*.sh')
+SOURCE_FILES := $(shell if $(GIT) rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+	$(GIT) ls-files --cached --others --exclude-standard; \
+	else find . -type d \( -name .git -o -name build -o -name 'build-*' \
+	-o -name .cache -o -name .worktrees -o -name .claude -o -name node_modules \
+	-o -name .venv -o -name venv -o -name gen -o -name dist -o -name out \) -prune \
+	-o -type f -print | sed 's|^./||'; fi)
+# Ignore staged deletions; source archives remain lintable without Git.
+FMT_SRC := $(sort $(wildcard $(filter %.c %.h %.cpp %.hpp,\
+	$(filter-out third_party/% tests/abi/fixtures/% tests/bench/fixtures/%,$(SOURCE_FILES)))))
+SH_SRC  := $(sort $(wildcard $(filter %.sh,$(SOURCE_FILES))))
 SHFMT_FLAGS := -i 4 -ci -sr
 JS_SRC  := docs/assets/site.js docs/assets/term-core.js docs/assets/term-wasm.js \
            $(wildcard site/assets/*.js src/wasm/*.js tests/site/*.js \
@@ -792,8 +1016,12 @@ JS_SRC  := docs/assets/site.js docs/assets/term-core.js docs/assets/term-wasm.js
 
 # clang-tidy analyzes the native translation units with the release flag
 # set (minus -Werror; WarningsAsErrors in .clang-tidy is the gate).
-TIDY_SRC    := $(filter %.c,$(SRC) $(SRC_PUBLIC_API))
-TIDY_CPP_SRC := $(filter %.cpp,$(SRC) $(SRC_PUBLIC_API))
+TIDY_SRC    := $(sort $(SRC) $(SRC_PUBLIC_API))
+TIDY_C_SRC = $(filter %.c,$(TIDY_SRC))
+TIDY_CPP_SRC = $(filter %.cpp,$(TIDY_SRC))
+# scripts/tidy_cpp.py discovers the selected CXX driver's STL/system paths;
+# a standalone clang-tidy wheel may not know the host toolchain layout.
+TIDY_CXXFLAGS = $(call cxx_flags,$(TIDY_CFLAGS))
 TIDY_CFLAGS  = $(STD) $(filter-out -Werror,$(WARN)) $(INC) $(DEFS)
 ifeq ($(UNAME_S),Darwin)
   TIDY_CFLAGS += -isysroot $(shell xcrun --show-sdk-path)
@@ -806,35 +1034,44 @@ WARN_STRICT = -Wpedantic -Wformat=2 -Wno-format-nonliteral -Wno-overlength-strin
               -Wshadow -Wstrict-prototypes -Wmissing-prototypes -Wundef \
               -Wwrite-strings -Wvla
 
+WARN_STRICT_CXX = $(filter-out -Wstrict-prototypes -Wmissing-prototypes,$(WARN_STRICT)) \
+                  -Wnon-virtual-dtor -Woverloaded-virtual
+
 format:
 	$(CLANG_FORMAT) -i $(FMT_SRC)
 	$(RUFF) format .
 	$(SHFMT) -w $(SHFMT_FLAGS) $(SH_SRC)
 
-format-check:
+format-c-check:
 	$(CLANG_FORMAT) --dry-run --Werror $(FMT_SRC)
+
+format-check: format-c-check
 	$(RUFF) format --check .
 	$(SHFMT) -d $(SHFMT_FLAGS) $(SH_SRC)
 
 tidy: $(VERSION_H)
-	$(CLANG_TIDY) --quiet $(TIDY_SRC) -- $(TIDY_CFLAGS)
-	$(CLANG_TIDY) --quiet $(TIDY_CPP_SRC) -- $(call cppflags,$(TIDY_CFLAGS))
+	$(if $(TIDY_C_SRC),$(CLANG_TIDY) --quiet $(TIDY_C_SRC) -- $(TIDY_CFLAGS),:)
+	$(if $(TIDY_CPP_SRC),python3 scripts/tidy_cpp.py --cxx '$(CXX)' --tidy '$(CLANG_TIDY)' $(TIDY_CPP_SRC) -- $(TIDY_CXXFLAGS),:)
 
 warn-strict: $(VERSION_H)
-	$(CC) $(REL_CFLAGS) $(WARN_STRICT) -fsyntax-only $(filter %.c,$(SRC) $(SRC_PUBLIC_API))
-	$(CXX) $(call cppflags,$(REL_CFLAGS)) $(filter-out -Wstrict-prototypes -Wmissing-prototypes,$(WARN_STRICT)) -Wmissing-declarations -fsyntax-only $(TIDY_CPP_SRC)
+	$(if $(TIDY_C_SRC),$(CC) $(REL_CFLAGS) $(WARN_STRICT) -fsyntax-only $(TIDY_C_SRC),:)
+	$(if $(TIDY_CPP_SRC),$(CXX) $(REL_CXXFLAGS) $(WARN_STRICT_CXX) -fsyntax-only $(TIDY_CPP_SRC),:)
 
 # GCC's path-sensitive analyzer (leaks, use-after-free, fd/stream misuse).
 # Complementary to clang-tidy; Linux CI runs it, gcc is required.
 # double-free is off: it misreads the oom-flag-guarded free in buf_detach
 # (src/util/util.c) and flags every caller of path_join.
 analyze: $(VERSION_H)
-	@for f in $(filter %.c,$(SRC) $(SRC_PUBLIC_API)); do \
+	@for f in $(TIDY_C_SRC); do \
 		$(ANALYZER_CC) $(STD) $(WARN) $(INC) $(DEFS) -fanalyzer -O1 \
 			-Wno-analyzer-double-free \
 			-c -o /dev/null $$f || exit 1; \
 	done
-	@echo "analyze: C files clean; C++ GCC -fanalyzer skipped, covered by clang-tidy"
+	@for f in $(TIDY_CPP_SRC); do \
+		$(ANALYZER_CXX) $(call cxx_flags,$(STD) $(WARN) $(INC) $(DEFS)) \
+			-fanalyzer -O1 -c -o /dev/null $$f || exit 1; \
+	done
+	@echo "analyze: $(words $(SRC) $(SRC_PUBLIC_API)) files clean"
 
 lint-py:
 	$(RUFF) check .
@@ -861,7 +1098,7 @@ quality: check-cursor-sdk-contract format-check tidy warn-strict lint-py lint-sh
 		echo "quality: GCC -fanalyzer skipped on $(UNAME_S); CI runs it on Linux"; \
 	fi
 
-.PHONY: format format-check tidy warn-strict analyze lint-py lint-sh lint-workflows lint-js quality
+.PHONY: format format-c-check format-check tidy warn-strict analyze lint-py lint-sh lint-workflows lint-js quality
 
 # ---- leak checks (docs/adr/0061) ----------------------------------------
 # ASan/UBSan is the default test build, and neither checker can see through
@@ -943,26 +1180,29 @@ leaks-docker:
 # through the existing integration suite) and tny-web.mjs (browser, MEMFS —
 # what the landing page loads). The C is identical; only FS + env glue differ.
 EMCC        ?= emcc
-EMCXX       ?= em++
+EMCXX       ?= $(patsubst %emcc,%em++,$(EMCC))
 OBJ_WASM     = $(BUILD)/wasm/obj
 WASM_NODE    = $(BUILD)/wasm/tny.js
 WASM_WEB     = $(BUILD)/wasm/tny-web.mjs
 WASM_SRC    := $(SRC_SHARED) $(SRC_WASM_ONLY) $(TP_WASM)
-WASM_OBJS   := $(addprefix $(OBJ_WASM)/,$(patsubst %.cpp,%.cpp.o,$(WASM_SRC:%.c=%.o)))
+WASM_OBJS   := $(call objects,$(OBJ_WASM),$(WASM_SRC))
 WASM_CFLAGS  = $(STD) $(WARN) $(INC) $(DEFS) -Os
+WASM_CXXFLAGS = $(call cxx_flags,$(WASM_CFLAGS))
+# -fexceptions at compile AND link enables portable JS exception catching:
+# https://emscripten.org/docs/porting/exceptions.html
 # Asyncify is the suspension mechanism (JSPI is Chrome-only, COOP/COEP for
 # workers cannot be set on GitHub Pages). Broad instrumentation first; narrow
 # later if the size budget demands it (docs/adr/0017 footguns).
-WASM_LDFLAGS = -Os -sDISABLE_EXCEPTION_CATCHING=0 -sASYNCIFY -sASYNCIFY_STACK_SIZE=131072 \
+WASM_LDFLAGS = -fexceptions -Os -sASYNCIFY -sASYNCIFY_STACK_SIZE=131072 \
                -sALLOW_MEMORY_GROWTH -sEXIT_RUNTIME=1 -sSTACK_SIZE=1048576
-
-$(OBJ_WASM)/%.cpp.o: %.cpp | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(EMCXX) $(call cppflags,$(WASM_CFLAGS)) -fexceptions -MMD -MP -c -o $@ $<
 
 $(OBJ_WASM)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(EMCC) $(WASM_CFLAGS) -MMD -MP $(if $(findstring third_party,$<),-Wno-error -w,) -c -o $@ $<
+
+$(OBJ_WASM)/%.cpp.o: %.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(EMCXX) $(WASM_CXXFLAGS) -MMD -MP -c -o $@ $<
 
 $(WASM_NODE): $(WASM_OBJS) src/wasm/pre_node.js
 	@mkdir -p $(@D)
@@ -998,7 +1238,7 @@ wasm-web: $(WASM_WEB)
 
 # wasm size budget: artifact (js glue + wasm) stays under the Linux native
 # budget so the browser build cannot quietly outgrow the product invariant.
-WASM_SIZE_MAX ?= 1572864
+WASM_SIZE_MAX ?= $(SIZE_MAX)
 wasm-size-check: wasm
 	@bytes=$$(cat $(WASM_NODE) $(WASM_NODE:.js=.wasm) | wc -c | tr -d ' '); \
 	echo "$$bytes wasm artifact (limit $(WASM_SIZE_MAX))"; \
@@ -1023,134 +1263,19 @@ tnytty-clean:
 .PHONY: tnytty tnytty-test tnytty-clean
 
 # Header dependencies emitted by -MMD; a header edit rebuilds its users.
--include $(WASM_OBJS:.o=.d) $(REL_OBJS:.o=.d) $(LIB_PIC_OBJS:.o=.d) \
+-include $(REL_OBJS:.o=.d) $(LIB_PIC_OBJS:.o=.d) \
          $(FAULT_PIC_OBJS:.o=.d) $(FAULT_SAN_PIC_OBJS:.o=.d) \
          $(TSAN_PIC_OBJS:.o=.d) $(FUZZ_OBJS:.o=.d) $(TEST_OBJS:.o=.d) \
-         $(TEST_SRC:%.c=$(OBJ_DBG)/%.d)
+         $(patsubst %.o,%.d,$(call objects,$(OBJ_DBG),$(TEST_SRC)))
 
 -include $(DICTATION_FIXTURE_OBJ:.o=.d) $(WASM_DICTATION_FIXTURE_OBJ:.o=.d)
 
-# Focused parser driver: deterministic smoke with allocation-index sweeps on
-# every native host; libFuzzer uses instrumented production C++ objects.
-PARSER_SMOKE = $(BUILD)/fuzz/parser-smoke
-PARSER_TEST_CPP_OBJS = $(addprefix $(BUILD)/parser-test/,$(SRC_CPP:%=%.o))
-PARSER_TEST_OBJS = $(filter-out $(OBJ_DBG)/src/util/alloc.o $(addprefix $(OBJ_DBG)/,$(SRC_CPP:%=%.o)),$(sort $(TEST_OBJS))) $(PARSER_TEST_CPP_OBJS)
-PARSER_TEST_CPPFLAGS = $(call cppflags,$(DBG_CFLAGS)) -DTNY_ALLOC_TESTING=1
-$(BUILD)/parser-test/%.cpp.o: %.cpp | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(CXX) $(PARSER_TEST_CPPFLAGS) -MMD -MP -c -o $@ $<
-PARSER_FAULT_ALLOC = $(OBJ_DBG)/parser-alloc.o
-$(PARSER_FAULT_ALLOC): src/util/alloc.c
-	@mkdir -p $(@D)
-	$(CC) $(DBG_CFLAGS) -DTNY_ALLOC_TESTING=1 -MMD -MP -c -o $@ $<
-$(OBJ_DBG)/tests/fuzz/fuzz_parsers.cpp.o: CXXFLAGS += -DTNY_PARSER_STANDALONE=1 -DTNY_ALLOC_TESTING=1
-$(PARSER_SMOKE): $(OBJ_DBG)/tests/fuzz/fuzz_parsers.cpp.o $(PARSER_FAULT_ALLOC) $(PARSER_TEST_OBJS)
-	@mkdir -p $(@D)
-	$(CXX) $(call cppflags,$(DBG_CFLAGS)) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))
-test-parser-smoke: $(PARSER_SMOKE)
-	$(PARSER_SMOKE) $(wildcard tests/fuzz/parser-corpus/*)
-	$(PARSER_BACKEND_SMOKE)
+-include $(WASM_OBJS:.o=.d) $(FUZZ_SMOKE_OBJ:.o=.d) $(FUZZ_HARNESS_OBJ:.o=.d)
 
-PARSER_FUZZ = $(BUILD)/fuzz-libfuzzer/parser-fuzz
-$(PARSER_FUZZ): $(OBJ_FUZZ)/tests/fuzz/fuzz_parsers.cpp.o $(FUZZ_OBJS)
-	@mkdir -p $(@D) $(BUILD)/parser-fuzz-artifacts
-	$(FUZZ_CXX) $(call cppflags,$(FUZZ_HARNESS_CFLAGS)) -o $@ $^ -pthread -ldl
-ifeq ($(UNAME_S)-$(UNAME_M),Linux-x86_64)
-test-parser-fuzz: $(PARSER_FUZZ)
-	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
-		$(PARSER_FUZZ) -runs=$(FUZZ_RUNS) -max_total_time=$(FUZZ_SECONDS) \
-		-timeout=5 -max_len=131072 -rss_limit_mb=1024 \
-		-artifact_prefix=$(BUILD)/parser-fuzz-artifacts/ tests/fuzz/parser-corpus
-else
-test-parser-fuzz:
-	@echo "error: parser libFuzzer gate requires Linux x86_64; use test-parser-smoke" >&2
-	@exit 2
-endif
-.PHONY: test-parser-smoke test-parser-fuzz
--include $(PARSER_FAULT_ALLOC:.o=.d) $(OBJ_DBG)/tests/fuzz/fuzz_parsers.cpp.d $(OBJ_FUZZ)/tests/fuzz/fuzz_parsers.cpp.d
+-include $(PARSER_SMOKE_OBJ:.o=.d) $(PARSER_FUZZ_OBJ:.o=.d)
 
-test-cpp-gates:
-	CLANG_FORMAT='$(CLANG_FORMAT)' CLANG_TIDY='$(CLANG_TIDY)' python3 tests/build/test_cpp_gates.py
-.PHONY: test-cpp-gates
+.PHONY: test-size-policy
+test-size-policy:
+	python3 tests/packaging/test_size_budget.py
 
--include $(PARSER_TEST_CPP_OBJS:.o=.d)
-
-PARSER_BACKEND_SMOKE = $(BUILD)/fuzz/parser-backend-oom
-$(OBJ_DBG)/tests/fuzz/parser_backend_oom.o: DBG_CFLAGS += -DTNY_ALLOC_TESTING=1
-$(PARSER_BACKEND_SMOKE): $(OBJ_DBG)/tests/fuzz/parser_backend_oom.o $(PARSER_FAULT_ALLOC) $(PARSER_TEST_OBJS)
-	@mkdir -p $(@D)
-	$(CXX) $(call cppflags,$(DBG_CFLAGS)) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))
-test-parser-smoke: $(PARSER_BACKEND_SMOKE)
--include $(OBJ_DBG)/tests/fuzz/parser_backend_oom.d
-
-# === C++ series startup and size reporting (ADR 0115) ===
-STARTUP_JSON ?= $(BUILD)/startup.json
-STARTUP_LABEL ?= candidate
-.PHONY: bench-startup size-report test-bench-startup
-bench-startup: release
-	@test -n "$(BASELINE_TNY)" || { echo "error: set BASELINE_TNY" >&2; exit 2; }
-	python3 tests/bench/bench_startup.py --baseline "$(BASELINE_TNY)" \
-		--candidate "$(BIN)" --json "$(STARTUP_JSON)" --label "$(STARTUP_LABEL)"
-
-size-report: release
-	python3 tests/bench/bench_startup.py --candidate "$(BIN)" --size-only
-
-test: test-bench-startup
-test-bench-startup:
-	python3 tests/bench/test_bench_startup.py
-
-# Phase-2 runtime uses the same C scheduler and unit suite with injectable owners.
-RUNTIME_TEST = $(BUILD)/runtime-test/tny-test
-RUNTIME_TEST_OBJS = $(filter-out $(OBJ_DBG)/src/core/runtime.o,$(PARSER_TEST_OBJS)) \
-    $(BUILD)/runtime-test/src/core/runtime.o $(PARSER_FAULT_ALLOC) \
-    $(filter-out $(OBJ_DBG)/tests/test_runtime.o,$(TEST_SRC:%.c=$(OBJ_DBG)/%.o)) \
-    $(BUILD)/runtime-test/tests/test_runtime.o
-$(BUILD)/runtime-test/src/core/runtime.o: src/core/runtime.c
-	@mkdir -p $(@D)
-	$(CC) $(DBG_CFLAGS) -DTNY_ALLOC_TESTING=1 -include src/util/alloc_override.h -MMD -MP -c -o $@ $<
-$(BUILD)/runtime-test/tests/test_runtime.o: tests/test_runtime.c
-	@mkdir -p $(@D)
-	$(CC) $(DBG_CFLAGS) -DTNY_ALLOC_TESTING=1 -MMD -MP -c -o $@ $<
-$(RUNTIME_TEST): $(RUNTIME_TEST_OBJS)
-	$(CXX) $(call cppflags,$(DBG_CFLAGS)) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))
-test-runtime-ownership: $(RUNTIME_TEST)
-	$(RUNTIME_TEST) -s runtime_suite
-.PHONY: test-runtime-ownership
--include $(BUILD)/runtime-test/src/core/runtime.d $(BUILD)/runtime-test/tests/test_runtime.d
-
-# Provider OOM regressions use the complete allocator-instrumented object graph.
-PROVIDER_FAULT_TEST_SRC := tests/test_cursor_callbacks.c tests/test_acp.c tests/test_cursor.c tests/test_openai.c tests/integration/libtny_provider_fault_host.c
-PROVIDER_FAULT_TEST := $(BUILD)/lib-fault/provider-faults
-PROVIDER_FAULT_SAN_TEST := $(BUILD)/lib-fault-san/provider-faults
-$(PROVIDER_FAULT_TEST): $(PROVIDER_FAULT_TEST_SRC:%.c=$(OBJ_FAULT_PIC)/%.o) $(FAULT_PIC_OBJS)
-	@mkdir -p $(@D)
-	$(CXX) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(REL_LDFLAGS))
-$(PROVIDER_FAULT_SAN_TEST): $(PROVIDER_FAULT_TEST_SRC:%.c=$(OBJ_FAULT_SAN_PIC)/%.o) $(FAULT_SAN_PIC_OBJS)
-	@mkdir -p $(@D)
-	$(CXX) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(REL_LDFLAGS)) -fsanitize=address,undefined
-test-libtny-fault: $(PROVIDER_FAULT_TEST)
-test-libtny-fault-sanitize: $(PROVIDER_FAULT_SAN_TEST)
--include $(PROVIDER_FAULT_TEST_SRC:%.c=$(OBJ_FAULT_PIC)/%.d) $(PROVIDER_FAULT_TEST_SRC:%.c=$(OBJ_FAULT_SAN_PIC)/%.d)
-
-# Phase-3 source-bound ownership faults use real fd/pipe/flock boundaries.
-RUNNER_OWNERSHIP = $(BUILD)/runner-ownership
-RUNNER_OWNERSHIP_OBJS = $(filter-out $(OBJ_DBG)/src/core/runner.cpp.o $(OBJ_DBG)/src/core/jobs.cpp.o $(OBJ_DBG)/src/util/alloc.o $(OBJ_DBG)/src/cpp/owners.cpp.o $(OBJ_DBG)/src/util/jobs_host.o $(OBJ_DBG)/src/util/process.o,$(sort $(TEST_OBJS))) $(BUILD)/runner-host/jobs_host.o $(BUILD)/runner-host/process.o $(OBJ_DBG)/tests/fixtures/resource_host_faults.o $(PARSER_FAULT_ALLOC) $(BUILD)/parser-test/src/cpp/owners.cpp.o
-$(OBJ_DBG)/tests/fixtures/runner_ownership.cpp.o: CXXFLAGS += -DTNY_ALLOC_TESTING=1
-$(OBJ_DBG)/tests/fixtures/runner_ownership.cpp.o: tests/fixtures/runner_ownership.cpp
-	@mkdir -p $(@D)
-	$(CXX) $(call cppflags,$(DBG_CFLAGS)) -MMD -MP -c -o $@ $<
-$(RUNNER_OWNERSHIP): $(OBJ_DBG)/tests/fixtures/runner_ownership.cpp.o $(RUNNER_OWNERSHIP_OBJS)
-	$(CXX) $(call cppflags,$(DBG_CFLAGS)) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))
-test-runner-ownership: $(RUNNER_OWNERSHIP)
-	@directory=$$(mktemp -d "$${TMPDIR:-/tmp}/tny-ownership.XXXXXX"); \
-	  $(RUNNER_OWNERSHIP) "$$directory"; result=$$?; rm -rf "$$directory"; exit $$result
-.PHONY: test-runner-ownership
--include $(OBJ_DBG)/tests/fixtures/runner_ownership.cpp.d
-
-$(BUILD)/runner-host/jobs_host.o: src/util/jobs_host.c
-	@mkdir -p $(@D)
-	$(CC) $(DBG_CFLAGS) -Dopen=tny_resource_open -Dwrite=tny_resource_write -Dfsync=tny_resource_fsync -Drename=tny_resource_rename -MMD -MP -c -o $@ $<
-$(BUILD)/runner-host/process.o: src/util/process.c
-	@mkdir -p $(@D)
-	$(CC) $(DBG_CFLAGS) -Dfcntl=tny_resource_fcntl -Dposix_spawn=tny_resource_spawn -MMD -MP -c -o $@ $<
--include $(BUILD)/runner-host/jobs_host.d $(BUILD)/runner-host/process.d $(OBJ_DBG)/tests/fixtures/resource_host_faults.d
+test test-unit: test-size-policy

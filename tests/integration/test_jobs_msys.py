@@ -38,7 +38,7 @@ def proc_matches(*needles):
 class OwnershipSourceChecks(unittest.TestCase):
     def test_retained_scope_and_c_host_seams_are_in_the_build(self):
         source = (jobs.ROOT / "src/core/jobs.cpp").read_text()
-        owners = (jobs.ROOT / "src/cpp/resources.hpp").read_text()
+        owners = (jobs.ROOT / "src/util/resources.hpp").read_text()
         seam = (jobs.ROOT / "src/util/process_scope.c").read_text()
         self.assertIn("tny::process_scope scope;", source)
         self.assertIn("slots[i].scope.retire()", source)
@@ -121,9 +121,11 @@ class NativeMsysJobs(jobs.JobsFixture):
             cwd=jobs.ROOT,
             text=True,
             input=".PHONY: msys-fault-flags\nmsys-fault-flags:\n"
-            "\t@printf '%s\\n' '$(CC)' '$(REL_CFLAGS) $(REL_INLINE) $(REL_SIZE_OPT)' '$(REL_LTO)' '$(REL_LDFLAGS)' '$(REL_OBJS)' '$(OBJ_REL)/src/util/process_scope.o'\n",
+            "\t@printf '%s\\n' '$(CC)' '$(CXX)' '$(REL_CXXFLAGS) $(REL_INLINE) $(REL_SIZE_OPT)' '$(REL_CFLAGS) $(REL_INLINE) $(REL_SIZE_OPT)' '$(REL_LTO)' '$(REL_LDFLAGS)' '$(REL_OBJS)' '$(OBJ_REL)/src/util/process_scope.o'\n",
         ).splitlines()
-        cc, flags, lto, linker, objects, scope_objects = map(shlex.split, variables)
+        cc, cxx, cxx_flags, flags, lto, linker, objects, scope_objects = map(
+            shlex.split, variables
+        )
         wait = "pid_t got = waitpid(scope->pid, &scope->status, WNOHANG);"
         if source.count(wait) != 1:
             raise AssertionError(
@@ -151,8 +153,8 @@ class NativeMsysJobs(jobs.JobsFixture):
         ]
         subprocess.run(
             [
-                *cc,
-                *flags,
+                *cxx,
+                *cxx_flags,
                 *lto,
                 "-o",
                 str(cls.wait_loss),

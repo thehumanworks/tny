@@ -1,5 +1,5 @@
 #include "core/owned_event.h"
-#include "cpp/owners.hpp"
+#include "util/ownership.hpp"
 #include <cstring>
 #include <cstdio>
 #include <vector>
@@ -27,7 +27,7 @@ extern "C" tny_owned_event *tny_owned_event_copy(const tny_backend_event *event,
                                                  const char *provider, const char *session_id,
                                                  const char *turn_id, size_t turn_capacity) {
     try {
-        auto owned = tny::make_owner<owned_event>();
+        auto owned = tny::make_owned<owned_event>();
         owned->ev = *event;
         const char *provider_view = nullptr, *session_view = nullptr, *turn_view = nullptr;
         auto text = [](const char *value, const char **destination) {
@@ -83,5 +83,5 @@ extern "C" void tny_owned_event_set_turn(tny_owned_event *event, const char *ses
 }
 
 extern "C" void tny_owned_event_free(tny_owned_event *event) {
-    tny::owner<owned_event> owned(static_cast<owned_event *>(event));
+    tny::owned<owned_event> owned(static_cast<owned_event *>(event));
 }

@@ -3,6 +3,10 @@
 #ifndef TNY_OPENAI_H
 #define TNY_OPENAI_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "core/backend.h"
 #include "core/session.h"
 #include "core/perm.h"
@@ -115,7 +119,7 @@ typedef struct {
 } tny_openai_usage;
 char *tny_backend_openai_usage_json(tny_backend *b); /* caller frees */
 
-#include "backends/openai/parsers.h"
+#include "backends/openai/toolcalls.h"
 
 /* ---- provider failure classification and reasoning passthrough
  * (docs/adr/0069); pure helpers exposed for tests/test_openai.c ---- */
@@ -145,7 +149,7 @@ void oa_view_append_continuation(yyjson_mut_doc *view, const char *partial);
  * rdoc): fragments sharing an "index" merge into one item — text/summary/
  * data concatenate, other members are kept from the first fragment that
  * carried them; fragments without an index append as their own items. */
-void oa_reasoning_details_merge(yyjson_mut_doc *rdoc, yyjson_mut_val *arr, yyjson_val *details);
+int oa_reasoning_details_merge(yyjson_mut_doc *rdoc, yyjson_mut_val *arr, yyjson_val *details);
 
 /* Normalize a user-supplied JSON Schema into a Chat Completions
  * `response_format` object (docs/backends/openai-compatible.md). Accepts a
@@ -173,5 +177,9 @@ char *tny_openai_responses_tools(const char *chat_tools_json);
 /* Chat `response_format` wrapper → the flattened Responses `text.format`
  * object ({"type":"json_schema","name":…,"schema":…}). */
 char *tny_openai_responses_text_format(const char *response_format_json);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

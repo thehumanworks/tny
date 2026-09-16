@@ -1,4 +1,3 @@
-# Provider OOM hosts reuse the existing tests fileset, Python and C/C++ toolchain.
 # `make test` as a derivation: the greatest unit suite under ASan/UBSan, the
 # event-schema and conformance-contract checks, and the fixture-driven
 # integration suite for every backend. No live keys, no network (AGENTS.md).
@@ -9,6 +8,7 @@
   git,
   bash,
   bubblewrap,
+  clang-tools,
   imagemagick,
   nodejs,
   openssl,
@@ -32,8 +32,6 @@ stdenv.mkDerivation {
   name = "tny-tests-${version}";
   inherit src;
 
-  # Phase-3 runner/jobs C++ owners and source-bound fd/lock fixture use
-  # the existing C++ compiler and Python; src/ and tests/ include all inputs.
   # test_jobs.py compiles tests/fixtures/jobs_launch_barrier.c with stdenv's cc
   # (-dynamiclib on Darwin, -shared on Linux; -ldl for snapshot crash faults).
   # The host C runtime supplies dl; no extra runtime package is used.
@@ -43,8 +41,8 @@ stdenv.mkDerivation {
   strictDeps = true;
   nativeBuildInputs = [
     bash
+    clang-tools # test_cpp_build.py runs real negative format/analyzer fixtures
     git # test_worktree.py uses temporary real repositories and linked worktrees
-    # The provider-fault host also compiles test_openai.c for second-request OOM.
     # Integration fixtures plus the optional stdlib-only
     # tnytty/tests/bench/bench_tnytty.py runner. The performance benchmark is
     # intentionally not part of buildPhase because shared CI timing is noisy.
@@ -166,13 +164,7 @@ stdenv.mkDerivation {
       }
     done
     ${testRunner}make -j''${NIX_BUILD_CORES} $makeFlags test
-    # Includes the loopback backend OOM retention check before teardown.
-    # Custom-tool C++ sanitizer fixtures reuse stdenv's C++ compiler and Python;
-    # the fault-sanitize target needs no additional sandbox inputs.
-    ${testRunner}make $makeFlags test-parser-smoke test-runtime-ownership test-runner-ownership
-    ${testRunner}python3 tests/mutation/runtime_critical.py
-    ${testRunner}python3 tests/mutation/runner_critical.py
-    ${testRunner}make $makeFlags test-shell-workflows
+    ${testRunner}make $makeFlags test-shell-workflows test-parser-fuzz-smoke test-parser-ownership test-search-ownership test-parser-backend-ownership test-runtime-ownership test-runtime-mutation test-runner-ownership test-runner-mutation
     runHook postBuild
   '';
 

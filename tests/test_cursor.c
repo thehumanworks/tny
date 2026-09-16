@@ -1661,12 +1661,12 @@ TEST decoder_oom_mid_stream_skips_observe_and_settles_once(void) {
     ASSERT_EQ((ssize_t)(sizeof head - 1), send(client, head, sizeof head - 1, 0));
     const char prefix[2] = {0, 0};
     ASSERT_EQ(2, send(client, prefix, sizeof prefix, 0));
-    for (int i = 0; i < 100 && !connect_decoder_pending(&o->sdk.stream.dec); i++) {
+    for (int i = 0; i < 100 && connect_decoder_finish(&o->sdk.stream.dec) == TNY_PARSE_OK; i++) {
         struct pollfd fd = {cursor_sdk_stream_fd(&o->sdk), POLLIN, 0};
         ASSERT(tny_poll(&fd, 1, 10) >= 0);
         ASSERT_EQ(0, tny_engine_dispatch(engine, &fd, 1));
     }
-    ASSERT(connect_decoder_pending(&o->sdk.stream.dec));
+    ASSERT(connect_decoder_finish(&o->sdk.stream.dec) != TNY_PARSE_OK);
     char tail[10003];
     memset(tail, 'x', sizeof tail);
     tail[0] = 0;
@@ -1678,7 +1678,7 @@ TEST decoder_oom_mid_stream_skips_observe_and_settles_once(void) {
 #else
     /* Ordinary units exercise status propagation; the fault-object host below
      * injects the real C++ growth failure at this identical transport boundary. */
-    o->sdk.stream.dec.status = -2;
+    o->sdk.stream.dec.status = TNY_PARSE_OOM;
 #endif
     tny_alloc_scope_begin("cursor-decoder");
     ASSERT_EQ((ssize_t)sizeof tail, send(client, tail, sizeof tail, 0));

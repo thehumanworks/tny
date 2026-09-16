@@ -1,0 +1,25 @@
+{
+  "frozen_utc": "2026-09-16T16:58:45.993662+00:00",
+  "authority": "Issue #137 product intent and reconciliation scope; ADR 0114 permits a measured, separately documented budget before candidate acceptance.",
+  "acceptance": "Final post-policy source candidate has not yet been accepted or published.",
+  "baseline_commit": "1d8ad71d66c06c726b3c5b35e367fec678031e85",
+  "linux_aarch64_dynamic_bytes": 1052672,
+  "linux_other_dynamic_bytes": 1048576,
+  "linux_musl_static_bytes": 1572864,
+  "darwin_bytes": 1887436,
+  "windows_msys_bytes": 2097152,
+  "wasm_with_glue_bytes": 1572864,
+  "old_linux_aarch64_dynamic_bytes": 1048576,
+  "change_bytes": 4096,
+  "preflight_baseline_bytes": 986192,
+  "preflight_candidate_bytes": 1051840,
+  "startup_parser_event_rss_thresholds": "unchanged",
+  "runtime_dependency_accounting": "required separately, not hidden in executable size",
+  "rejected_alternatives": [
+    "disable exceptions or unwind metadata",
+    "disable CPU erratum mitigation or RELRO",
+    "reduce supported page size",
+    "strip verification or widen unrelated platform budgets",
+    "unproven linker/optimization changes"
+  ]
+}

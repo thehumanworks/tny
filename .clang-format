@@ -1,4 +1,4 @@
-# First-party C/C++ style (src/, include/, tests/*.c, sdk/typescript/native/).
+# First-party C/C++ style (src/, include/, tests/*.{c,cpp,h,hpp}, sdk/typescript/native/).
 # third_party/ is vendored and exempt. Enforced by `make format-check`.
 BasedOnStyle: LLVM
 Language: Cpp

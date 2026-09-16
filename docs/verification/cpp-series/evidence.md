@@ -7,247 +7,152 @@ Platform: macOS arm64, Apple clang 21.0.0, Python 3.14.7, Node 26.8.2.
 Discovery: GitHub issues 137/138/139 open and saved into full initial contracts. No native goal; tool authorization takes precedence over skill default. Docker CLI exists but default daemon absent; remote/hosted platform inventory pending.
 Reviews, delegation, gate results, merge and cleanup: pending.
 
-## Startup/size tooling lane (issue #137 item 6, 2026-09-16)
+## Current execution checkpoint — 2026-09-16
 
-Assigned worktree: `/Users/tomas/projects/tny-cpp-build`, branch
-`migration/cpp-build`, starting revision `c6d938a` (contracts over `1d8ad71`).
-Initially clean. This lane owns startup/size tooling and policy only; it does
-not establish the full P1-I6 or S-I1 parser/queue/TTFT/platform gates.
-Existing series/phase contracts were read before implementation; no replacement
-contract or goal was created for this bounded assignment. No subagents,
-provider calls, pushes, main-checkout edits, or baseline-checkout writes.
+- Requested checkout started clean at `fb232e8002b1ba18bfdf12ed723146e0ac1295ab`;
+  GitHub main was independently fetched as `1d8ad71d66c06c726b3c5b35e367fec678031e85`.
+- Reused document-only contracts from `c6d938a0846e0cabd7235b56468abc5cf65cfaf5`
+  without changing initial snapshots. Current branch: `feat/cpp-ownership-137-139`.
+- Language-policy/authority amendment committed as `edbd6e7`; no production
+  migration was present in that commit. Previous worktrees and live sessions
+  were left untouched.
+- Clean reference worktree: `/private/tmp/tny-cpp-delivery-20260916/baseline`.
+  Apple clang 21.0.0, Python 3.14.7, Node 26.8.2; native baseline release
+  1,086,288 bytes, SHA-256
+  `34bb033a40129e937bbc4ab68a1d938adee6553861f5f2acc2b822d0a35fee51`,
+  with only `/usr/lib/libSystem.B.dylib` listed by `otool -L`.
+- The first baseline suite inherited the host's `TNY_TOOLS` restriction;
+  expected fixture filesystem/subagent operations failed. That run is retained
+  as contaminated-environment evidence, not a migration regression. A clean
+  rerun unsets the host override. Other fixture-authorized tool restrictions
+  remain test-controlled. Final status is not yet established.
+- Startup tooling: seven deterministic contract tests pass; real baseline
+  version/help/PTY smoke completes. Smoke timings were taken under active
+  tests and are not performance acceptance measurements.
+- Implementation and final integrated/platform/performance gates remain
+  pending. No independent review has yet been invoked.
 
-Policy frozen before migration candidate evaluation:
-[ADR 0115](../../adr/0115-startup-size-reporting.md), SHA-256
-`b17f2cd806b5156a0133819f8b70b4c165d5b4e745c75cfb06e162a1dfa36997`.
-No native or wasm ceiling was changed. Existing ADRs remain untouched.
+## Baseline and instrumentation checkpoint — 2026-09-16
 
-Coverage: `tests/bench/bench_startup.py`, its seven tests, README, appended
-Makefile targets and size documentation. `test-bench-startup` is an additional
-`make test` prerequisite, keeping all owned test code under tests/bench/.
-Nix source.nix already includes all tests/ and Makefile; tests.nix already
-supplies Python. The focused suite uses Python executable stubs and mocks
-strip/dependency inspection, so it adds no Nix package dependency. Actual
-reporting uses the reference host's strip/otool tools.
+- Clean `make test` rerun finished nonzero with exactly one suite failure:
+  OpenAI Responses reset-socket fixture expected an abort diagnostic but
+  observed the existing one-second stall diagnostic. All other listed
+  integration suites completed successfully. That failure also occurred in
+  the isolated build helper's unchanged-C tests; investigate/reproduce before
+  attributing it to ownership migration. Raw log: task `baseline-clean.log`.
+- Parser benchmark smoke compiled both copies from identical baseline sources
+  and all nine output/checksum oracles agreed. At only 20 iterations during
+  concurrent builds, one timing ratio exceeded 10%; this is retained as a
+  failed performance-gate run, not counted as acceptance.
+- Actual engine event benchmark baseline-vs-baseline two-iteration smoke
+  passed all six executions (three paired batches), including retained binary
+  payloads and exactly-once terminal settlement. Its timing is functional
+  smoke only, not the required 2,000-iteration quiet-host comparison.
+- Baseline phase-specific runtime/platform results and environment limitations
+  are retained in task `platform/RESULT.md` and `platform/inventory.json`.
+  They are not evidence that unintegrated migration code passes those lanes.
 
-Initial checks and environment diagnosis:
+## Continuation checks — 2026-09-16 04:27 UTC
 
-| Command | Exit | Result |
-| --- | ---: | --- |
-| `python3 tests/bench/test_bench_startup.py` (initial five cases) | 0 | PTY split marker, child exit/timeout, isolation, threshold edges, order/counts, CLI failure |
-| `ruff check` on both new Python files (initial) | 1 | Two import-order findings, fixed with Ruff |
-| `make test-bench-startup` (expanded seven cases) | 0 | Adds size-copy/runtime/wasm accounting and forged-statistics rejection |
-| `ruff check tests/bench/{bench_startup,test_bench_startup}.py` | 0 | Final focused lint |
-| `ruff format --check tests/bench/{bench_startup,test_bench_startup}.py` | 0 | Final focused formatting |
-| `make -C /Users/tomas/projects/tny-cpp-baseline release BUILD=/Users/tomas/projects/tny-cpp-build/build/startup-baseline` | not collected | Failed; Apple LTO: output-stream bad file descriptor with default temporary directory |
-| Same baseline build with `TMPDIR=/Users/tomas/projects/tny-cpp-build/build/tmp` | 0 | Successful release compile/link/strip; all writes in assigned worktree |
-| `make test` (first attempt) | 2 | Same LTO temporary-directory failure, before full suite |
-| `git add` / `git commit` | 128 | Sandbox denied shared worktree index.lock; no commit created |
+Source started at ed355a9 plus preserved dirty issue changes. See
+[continuation contract](continuation-20260916.md). No completion claim.
 
-The Git metadata path is outside the writable worktree, under the main
-checkout's `.git/worktrees/tny-cpp-build/`. It was not modified. Committing and
-leaving a clean tree require the coordinator's permitted Git write environment;
-this lane cannot override its sandbox or request escalation.
+- Independent read-only review `/root/phase1_review`: no confirmed new
+  memory-safety defect in converted owners. Found inherited search OOM
+  misclassification, missing direct cancellation-release proof, and missing
+  callback-error regression. These remain pending. Review approved unique
+  mutation anchors and Nix ownership-target inclusion before implementation.
+- Parser mutation first run failed infrastructure (two borrowed-view anchors);
+  review found the same problem in the swallowed-OOM anchor. Both are now
+  unique. Second run compiled all four mutants; frame limit, ID precedence,
+  dangling document view and swallowed OOM were behaviorally killed. The
+  unmodified instrumented baseline passed. Report retained below.
+- Initial ABI suite: 41/43 passed, two toolkit fixture link failures because
+  they used CC to link C++ objects. Keep C fixture compilation under CC and
+  query CXX separately for linkage. Both regressions now pass (2 tests,
+  13.986 seconds). Full ABI rerun pending; SDK/fault/fuzz gates running.
+- Native quality and full make test are running; no results yet.
+- Active independent worktrees are not modified. Phases 2/3 remain unintegrated.
 
-An exploratory same-prebuilt-binary run passed (help 3.3792/3.3643 ms,
-version 3.3821/3.3962 ms, prompt 3.1499/3.1292 ms), but overlapped quality checks
-and used an existing binary with unattested build flags. It is superseded by
-the rebuilt reference capture below, not used as candidate performance proof.
-Full local build/check logs are retained in ignored `build/startup-logs/`.
+### Parser continuation review and measurements
 
-`make quality` completed with exit 0 (format, clang-tidy, strict warnings,
-Ruff, shell checks, workflow and JS checks; normal Darwin GCC analyzer skip).
-`make size-report` and unchanged `make size-check` both exited 0: 1,086,288
-bytes against the 1,887,436-byte Darwin budget, libSystem only, no C++ runtime.
-The first `TMPDIR=$PWD/build/tmp make test` run is INVALID as product
-verification: the coordinator identified inherited `TNY_TOOLS=terminal` and
-`CURSOR_API_KEY` contamination. Its tool-status assertion failures do not
-establish baseline or product defects. No code was added to tolerate them.
-The coordinator reports the unmodified baseline passes with both unset.
-Separately observed sandbox denials (mktemp and ps) are retained as environment
-observations only. A fresh explicitly sanitized run supersedes this attempt.
+- `/root/cancel_design` independently found that terminal cleanup already
+  frees the owners: cancellation *during* parsing could free active SSE state.
+  The first reviewer retracted the earlier retention-only diagnosis.
+- New callback-cancel fixture failed before the repair on duplicate terminal
+  delivery. After deferring cleanup through feed/flush/whole-document decode,
+  all 27 OpenAI unit tests pass (11,334 assertions). Callback bytes stay valid,
+  no terminal is emitted inside the callback, later thinking is suppressed,
+  exactly one interrupted terminal appears, and the same backend handles a
+  later turn. Terminal usage callbacks can cancel once without recursion.
+- Callback OOM now has a multi-event regression: first callback rejects, later
+  callbacks stop, DONE preserves sticky error, reset permits success.
+- Search decoder fault fixture reproduced wrong classification at allocation
+  1. The repaired decoder passes all 10 discovered allocation failures,
+  malformed-input distinction and later successful decode, under ASan/UBSan.
+- Initial parser comparison failed tools/whole 1.134x, tools/byte 1.582x and
+  tools/split 1.239x. A reviewed single-slot view refresh improved them, but
+  the second run still failed 1.330x and 1.102x for byte/split. Replacing
+  repeated string-length comparisons with strcmp preserves the C ID semantics.
+  Third run passes all nine throughput and RSS comparisons (2,000 iterations,
+  three paired batches). Tools ratios: 1.004x, 1.083x, 0.987x; maximum RSS
+  ratio across workloads 1.022x. All raw comparison reports are retained.
+- All four parser mutants still compile and fail behaviorally after the
+  optimization. No production mutation remains.
+- Intermediate make quality, test-sdks, test-libtny-fault,
+  test-libtny-fault-sanitize, test-libtny-fuzz-smoke and test-parser-fuzz-smoke
+  exited 0. Later edits invalidate dependent final claims; reruns remain due.
+- Frozen phase-1 platform tar SHA256:
+  6fb9b22f733e8427aa745b68c5b973c6718f2b7f8a6b6abd967741c19926c70e.
+  Linux arm64 and wasm/browser runs are in progress, not counted as passes.
 
-### Rebuilt baseline and reporting validation
+### Latest phase-one checkpoint — 2026-09-16 04:50 UTC
 
-Reference build metadata and exact compile/link commands:
-[build provenance](artifacts/startup-baseline-build-2026-09-16.txt).
-Final measurements: [JSON](artifacts/startup-baseline-2026-09-16.json),
-[Markdown](artifacts/startup-baseline-2026-09-16.md).
-The baseline checkout remained read-only; the rebuilt binary is
-`/Users/tomas/projects/tny-cpp-build/build/startup-baseline/tny`.
-Both roles use that exact binary, SHA-256
-`34bb033a40129e937bbc4ab68a1d938adee6553861f5f2acc2b822d0a35fee51`.
+- `make quality` third continuation run: exit 0, C/C++ formatting, analysis,
+  strict diagnostics, Python/shell/workflow/JS gates. The second run encountered
+  an intermediate allocator edit and is invalid as final evidence; it failed
+  closed and was rerun after edits stopped. GCC analyzer is Linux-only.
+- `make test-parser-backend-ownership test-parser-mutation test-search-ownership`:
+  exit 0. 27 backend tests, actual before-teardown C++ live-allocation
+  assertions for three decode forms, four behavioral mutant kills, and ten
+  search allocation failures plus malformed JSON/recovery.
+- `make test-abi` rerun: exit 0, 43 tests and both ABI baseline comparisons.
+- `make leaks`: exit 0, zero leaks on supported macOS suites and CLI checks;
+  the existing process-spawning suite exclusions still need Linux valgrind.
+- Frozen phase-one wasm run: exit 0, all configured node fixtures, unchanged
+  size gate and actual Playwright Chromium browser smoke. This is the earlier
+  source snapshot listed above, before test-only live counters were added.
+- Startup comparison passes: version 4.042 -> 3.936 ms, help 4.014 -> 3.983 ms,
+  first prompt 3.892 -> 3.942 ms (102 CLI observations and 20 PTY launches
+  per binary in the prescribed three-batch comparison; raw samples retained).
+- TTFT, 20 local-mock runs each: TUI 541.8 -> 538.9 ms; stdin 1112.1 ->
+  1119.7 ms. All within the ten-percent investigation threshold.
+- macOS stripped binary: 1,086,288 -> 1,087,440 bytes (+1,152). Candidate
+  adds /usr/lib/libc++.1.dylib alongside libSystem. Startup candidate source
+  tar SHA256 5076a0efe40c067ae308be83aabdffdb9fda867396aae9d3b8287a215ea036d3.
+- Full root native test and Linux arm64 frozen-snapshot suite remain running.
+  Hosted x86-64, Windows, Nix and Linux fuzz/TSan gates are not claimed.
+- No new commit or remote push has been performed in this continuation.
+  User clarification is pending on early phase-one publication required for
+  the issue's hosted-before-next-phase order versus final-series publication.
 
-Command: `python3 tests/bench/bench_startup.py --baseline "$PWD/build/startup-baseline/tny" --candidate "$PWD/build/startup-baseline/tny" --json docs/verification/cpp-series/artifacts/startup-baseline-2026-09-16.json --label pre-series-1d8ad71 --build-metadata '<compiler/flags/provenance recorded in JSON>'` → **0**.
-102 help and 102 version observations per role; 21 PTY observations per role,
-three alternating batches. No discarded observations. Quality had completed;
-existing integration fixtures still ran concurrently, as the metadata states.
-This is a low-noise same-binary check under that load, not an idle-host claim.
+## Resumed delivery — 2026-09-16 (phases 2 and 3 integrated)
 
-| Metric | Baseline median ms | Other role median ms | Baseline p95 ms | Added median ms | Gate |
-| --- | ---: | ---: | ---: | ---: | --- |
-| help | 3.403313 | 3.363271 | 3.946333 | -0.040042 | PASS |
-| version | 3.244271 | 3.241042 | 3.529500 | -0.003229 | PASS |
-| PTY composer | 2.976250 | 2.970125 | 3.158708 | -0.006125 | PASS |
+Source: `feat/cpp-ownership-137-139` at ed355a9 plus the inherited phase-1
+continuation, with local-main phase-2 fixes (f7b2b70, e56d01e, 58e92bf, 4af1c02)
+and phase-3 commits (aa2c68a, 7258d70, 6b76784, 99445e4) ported onto the newer
+parser stack. The parser/decoder sources were not replaced; owner helpers stay
+`src/util/ownership.hpp` and `src/json/ownership.hpp`. New ADRs 0116, 0117 and
+0116; root ADR 0114/0115 unchanged. Per-phase records: [phase 2](../cpp-phase-2/evidence.md),
+[phase 3](../cpp-phase-3/evidence.md). Raw logs: `/private/tmp/tny-finish-137-139-20260916/`.
 
-Stripped bytes: **1,086,288**. Dependency: `/usr/lib/libSystem.B.dylib`;
-no libc++/libstdc++ detected. Peak baseline child RSS: help/version 2,179,072
-bytes, PTY 2,588,672 bytes. This is peak-through-termination, not idle RSS.
-Wasm/glue absent on this host and explicitly marked unavailable.
-
-Two-result comparison of the saved JSON against itself exited **0**;
-the deterministic regression fixture exits **1** as required. Source state
-for the completed tooling checks is recorded in
-[startup-tooling-source.sha256](artifacts/startup-tooling-source.sha256).
-
-`make bench-startup BASELINE_TNY="$PWD/build/startup-baseline/tny" STARTUP_LABEL=tooling-lane` → **0**; saved `build/startup.json`/`.md`. This verifies the Make wrapper against this C-only tooling checkout, not a migrated candidate.
-
-### Assigned-scope reconciliation
-
-| Requested deliverable | Result |
+| Gate | Result |
 | --- | --- |
-| Help/version, three interleaved batches, minima/median/p95/raw/gates | PASS: full real-binary run plus deterministic edges/order tests |
-| PTY first-composer paint before backend, fresh launches, thresholds | PASS: exact marker, isolated OpenAI/no input, real baseline plus split/timeout tests |
-| Stripped size, dependencies, explicit C++ runtime, available wasm/glue | PASS reporting; native real report and deterministic wasm/runtime tests; actual wasm artifact unavailable |
-| Peak child RSS for the same launches | PASS: per-launch fresh-worker RUSAGE_CHILDREN, raw bytes retained |
-| JSON/Markdown and two-report comparison/nonzero regression | PASS: real output/comparison and regression-exit fixture |
-| Appended Make targets and make-test coverage | PASS: wrapper run and seven tests executed by make test |
-| ADR 0115 frozen policy, no relaxed/disabled size check | PASS: policy hash and existing size-check exit 0 |
-| Fresh pre-series reference build and retained metadata/raw evidence | PASS: clean read-only 1d8ad71 sources; build output confined to assigned worktree |
-| make quality | PASS, exit 0; no added warnings/suppressions |
-| Full make test | INCOMPLETE: sanitized run exit 2; failed groups recorded below; contaminated attempt discarded |
-| Small commits and clean worktree | BLOCKED: shared Git index is outside permitted writes; no commits/staging succeeded |
-
-Overall assigned task: **INCOMPLETE**, despite functional startup/size tooling
-checks passing. The contaminated full-suite run supplies no product verdict;
-the sanitized run also has unmet gates listed below. Final migrated-candidate performance,
-TTFT/parser/queue/resource and cross-platform gates remain owned by the series
-coordinator. No claim that P1-I6 or S-I1 as a whole is complete.
-
-### Coordinator correction and sanitized rerun
-
-On resume, inspected git status/diff first; all owned changes remained intact.
-Tool-launched shells still expose TNY_TOOLS (presence checked without printing
-values), so the new run explicitly removes both variables using `env -u`.
-The benchmark's own launch environment is allowlisted, so neither contaminant
-was inherited by any measured child; baseline timing remains valid.
-No production code, fixture tolerances, or check bypass was introduced.
-
-Sanitized command: `env -u TNY_TOOLS -u CURSOR_API_KEY TMPDIR="$PWD/build/tmp" make test`.
-Verified both variables absent in a child launched with this prefix. OpenAI,
-background and ephemeral assertions now pass; this confirms the coordinator's
-correction and replaces the contaminated tool-status conclusions. The clean
-run independently reproduces denied system-temp creation in `test_acp_ws` and
-`test_provider_setup`, and denied `ps` execution in `test_ask_events`.
-A resumed `git add` attempt also returns 128 on the same index.lock denial.
-No production/fixture workaround has been added. Sanitized aggregate pending.
-
-Final frozen-source quality rerun:
-`env -u TNY_TOOLS -u CURSOR_API_KEY TMPDIR="$PWD/build/tmp" make quality` → **0**.
-No tooling source changed between the source manifest and this run.
-The sanitized full suite also passed the formerly contaminated background,
-ephemeral, extension, intercept and isolation groups. Remaining denied `ps`
-operations affect job/cleanup and subagent process-observation fixtures.
-`test_libtny_custom_tools` additionally reports a denied Swift module-cache
-path. A direct typecheck with `-module-cache-path "$PWD/build/swift-cache"`
-returned **1**, `error: permissionDenied`; it supplies no positive proof.
-`test_image_workflow` reports two Python SDK `IOError (io, code -7)` cases;
-their cause is not established here. Neither the benchmark nor production
-code was changed to tolerate any of these failures.
-
-### Final sanitized aggregate and handoff
-
-Sanitized `make test` completed with exit **2**. Failed integration groups:
-
-- `test_acp_ws`
-- `test_provider_setup`
-- `test_ask_events`
-- `test_image_workflow`
-- `test_job_artifacts`
-- `test_jobs`
-- `test_jobs_cleanup_hold`
-- `test_libtny_custom_tools`
-- `test_subagent`
-- `test_subagent_diagnostics`
-- `test_tui`
-
-[Machine-readable check results](artifacts/startup-tooling-checks-2026-09-16.json).
-The contaminated run is excluded from this verdict. Full-suite proof remains
-unmet; no benchmark code change or weakened fixture is proposed as a remedy.
-`git diff --check` and source-manifest verification exited **0**. Only the
-assigned files are modified/untracked. No commits could be created because
-Git staging remains denied (exit **128**); the worktree is therefore not clean.
-Coordinator must rerun unmet gates in a suitable environment, resolve the
-unclassified SDK I/O failures if still present, and create the requested
-logical commits. No push was attempted. All launched checks have completed.
-
-### Review findings 3 and 4: startup tooling corrections (2026-09-16)
-
-Assigned P1-I6 tooling follow-up on clean `a4fd3a4`, confined to
-`migration/cpp-build`; no sub-agents, commits or pushes. This disposition
-supersedes the earlier two-report regression-exit claim above, not the wider
-series completion status.
-
-- Finding 3: `--compare` now labels its deltas **informational, not a contract
-  verdict**, prints no PASS/FAIL and exits 0 for valid reports regardless of
-  thresholds. Invalid inputs retain exit 2. Fresh paired measurement remains
-  the contract-verdict path. README and CLI help clarify that distinction;
-  ADR 0115 already requires alternation and does not promise a cross-report
-  verdict, so its frozen text is unchanged.
-- Finding 4: threshold subtraction and allowance calculation use decimal
-  arithmetic; JSON report numbers remain numeric. `4.0 -> 4.4 ms` passes,
-  `4.0 -> 4.400001 ms` fails, and existing exact 5/10 ms ceiling tests still
-  fail as required.
-- Regression evidence: before the implementation fix, the new tests failed
-  for both cross-report scenarios (`1 -> 8` and historical `4.5 -> 3.5`, with
-  paired baseline 3) and the decimal boundary. Final suite has nine tests.
-  Isolated mutations restoring verdict output or float subtraction each
-  exited 1 on the intended assertions; delivered sources were not mutated.
-- The first quality attempt stopped at Ruff formatting (exit 2); applied the
-  formatter only to the two owned Python files and reran all requested gates.
-  Source manifest refreshed and independently verified (exit 0).
-
-Final requested gates on the refreshed source manifest:
-
-| Gate | Exit code |
-| --- | ---: |
-| `python3 tests/bench/test_bench_startup.py` | 0 |
-| `make test-bench-startup` | 0 |
-| `make lint-py` | 0 |
-| `make quality` | 0 |
-
-Quality emitted no warnings; macOS reports the expected Linux GCC analyzer
-skip. Local logs are retained under `build/startup-review-*.log`. Both assigned
-findings are resolved; this is tooling-fix proof, not final candidate performance
-or whole-series completion proof. Changes remain uncommitted as requested.
-
-## Final series reconciliation (integrated 99445e4 vs pre-series baseline 1d8ad71, 2026-09-16)
-
-State: all local gates PASS on the combined delivered source; hosted-platform
-lanes remain unmet on this host (see each phase's evidence).
-
-Every phase gate above was rerun on the combined source (phase 1 + 2 + 3):
-`make test`, `quality`, `leaks`, `test-abi`, `test-sdks`, `test-libtny-fault`,
-`test-libtny-fault-sanitize`, `test-libtny-fuzz-smoke`, `test-parser-smoke`,
-`test-cpp-gates`, `test-runtime-ownership`, `test-runner-ownership`,
-`test-libtny-mutation`, `size-check`, `size-report`, all exit 0.
-
-Cumulative startup against the pre-series baseline (paired, alternating,
-100+ samples per binary): added median help +0.019 ms, version +0.043 ms, PTY
-first prompt +0.043 ms; absolute medians under 5 ms / 10 ms. Stripped native
-size 1,086,288 -> 1,104,640 bytes (+18,352, `libc++.1.dylib` now linked;
-`size-check` budgets pass). Local-mock TTFT medians: tui 556.4 -> 556.1 ms,
-ask-stdin 1142.0 -> 1150.9 ms (+0.8%). Per-phase deltas are recorded in
-`cpp-phase-1/artifacts/integrated-e51b232`, `cpp-phase-2/artifacts/integrated-4af1c02`
-and `cpp-phase-3/artifacts/integrated-99445e4`; none hides a cumulative
-regression. wasm+glue accounting was not measured (no emsdk on this host).
-
-Delegation record (S-I2): implementation and review by gpt-6-astra via
-`codex exec` in separate worktrees, effort high for implementation and
-reviews, low for the benchmark tooling; no nested agents. Codex in-process
-subagents were not used because the API rejects a differing child effort
-(`configuration_update ... not supported with multi-agent execution`). Late in
-phase 2 the Codex usage limit was reached; the coordinator completed the last
-repair directly and reviewed it. Local-main merges (S-I3): e78ca2b (phase 1),
-4595490 (phase 2), and the phase-3 merge that follows this record. Task-owned
-worktrees were removed after each merge; branches `migration/*` retained.
+| make (release, macOS arm64) | exit 0; stripped `build/tny` 1,189,456 bytes (pre-series baseline 1,086,288) |
+| make test-runtime-ownership / test-parser-backend-ownership | 38 passed / 27 passed + 1 skipped (needs fully instrumented host) |
+| build/lib-fault/provider-faults | 98 tests, 17,342 assertions passed |
+| make test-libtny-fault | exit 0; provider whole-turn sweeps openai=308, openai-chat=204, cursor=162, acp=95, acp-ws=92 |
+| make test-runtime-mutation | 13/13 mutants killed |
+| make test-runner-ownership | exit 0 (real fd/pipe/lock loops, host faults, cleanup holds, checkpoint flags) |
+| make test-runner-mutation | 7/7 mutants killed |
+| make test-unit (ASan/UBSan) | 567 tests, 32,019 assertions passed |

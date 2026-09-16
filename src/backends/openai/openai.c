@@ -2,6 +2,7 @@
  * or Chat Completions SSE (wire_api "chat"), plus the tny-owned tool loop
  * (docs/backends/openai-compatible.md, docs/adr/0016). */
 #include "backends/openai/openai.h"
+#include "backends/openai/stream_decode.h"
 #include "core/tools.h"
 #include "core/speech.h"
 #include "core/image_service.h"
@@ -95,17 +96,12 @@ typedef struct {
     tny_openai_control_cb control;
     void *control_ud;
 
-    buf_t text;       /* assistant text this step */
-    oa_callset calls; /* streamed tool_calls this step (toolcalls.cpp) */
-    /* provider reasoning payloads streamed this step, kept in the shape the
-     * provider used so they ride back with the tool calls they belong to
-     * (docs/adr/0069): chat `reasoning_details` items merged by index,
-     * chat `reasoning_content` text, responses `reasoning` output items */
-    yyjson_mut_doc *rdoc;
-    yyjson_mut_val *reasoning_details;
-    yyjson_mut_val *reasoning_items;
-    yyjson_mut_val *hosted_items; /* raw web_search_call and annotated messages */
-    buf_t reasoning_content;
+    buf_t text;         /* assistant text this step */
+    oa_callset calls;   /* streamed tool_calls this step (toolcalls.cpp) */
+    oa_decoder decoder; /* owns retained provider decoding data */
+    bool decode_oom;
+    bool parser_active; /* defer cancellation until borrowed decode callbacks return */
+    tny_backend *self;  /* owning backend, for emergency cancellation from private paths */
     bool thinking_seen; /* any reasoning reached the frontend this step */
     int step;
     bool cancelled;
@@ -123,10 +119,8 @@ typedef struct {
                                 * own error message to diagnostics (opt-in; it may
                                 * echo request content) */
     char error_detail[400];
-    bool conn_reused; /* this POST rode a kept-alive connection */
-    bool wire_chat;   /* this POST rides the legacy chat wire */
-    bool parser_oom;
-    bool parser_active;         /* cancellation defers cleanup until borrowed callbacks return */
+    bool conn_reused;           /* this POST rode a kept-alive connection */
+    bool wire_chat;             /* this POST rides the legacy chat wire */
     bool stream_done;           /* saw [DONE] / response.completed */
     bool stream_failed;         /* the stream carried a terminal error event */
     oa_error_info stream_error; /* its classification (valid when stream_failed) */
@@ -258,6 +252,7 @@ static void record_usage(oa_impl *o) {
 
 static void preview_not_delivered(oa_impl *o, const char *reason);
 
+/* Observe a sticky allocation failure and mark the provider OOM boundary. */
 static bool provider_oom(void) {
     if (!tny_alloc_scope_failed()) return false;
     tny_alloc_provider_failed();
@@ -265,7 +260,11 @@ static bool provider_oom(void) {
 }
 
 static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
+    /* Under provider OOM the runtime settles with its reserved pair through
+     * emergency cancel; ordinary finalization must not allocate here. */
     if (provider_oom()) return;
+    /* Settlement callbacks may cancel again; the turn is already ending. */
+    o->state = ST_IDLE;
     preview_not_delivered(o, "the turn ended before the next request was sent");
     if (provider_oom()) return;
     record_usage(o);
@@ -282,7 +281,6 @@ static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
         if (provider_oom()) return;
     }
     secure_zero(o->turn_state, sizeof o->turn_state);
-    o->state = ST_IDLE;
     pending_perm_clear(o);
     o->tool_batch_active = false;
     if (o->steer) {
@@ -293,6 +291,12 @@ static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
         free(o->steer);
         o->steer = NULL;
     }
+    /* Terminal/cancel/OOM settles retained parser resources without allocating.
+     * This runs after synchronous decode callbacks have returned. */
+    oa_decoder_reset(&o->decoder);
+    oa_calls_reset(&o->calls);
+    sse_parser_free(&o->sse);
+    buf_free(&o->rawbody);
     tny_backend_event ev = {0};
     ev.kind = TNY_EV_TURN_END;
     ev.stop = stop;
@@ -309,235 +313,31 @@ static void conn_drop(oa_impl *o) {
 /* ---------- reasoning capture (docs/adr/0069) ---------- */
 
 static void reasoning_reset(oa_impl *o) {
-    if (o->rdoc) yyjson_mut_doc_free(o->rdoc);
-    o->rdoc = NULL;
-    o->reasoning_details = NULL;
-    o->reasoning_items = NULL;
-    o->hosted_items = NULL;
-    buf_clear(&o->reasoning_content);
+    oa_decoder_reset(&o->decoder);
     o->thinking_seen = false;
+    o->decode_oom = false;
 }
 
-static yyjson_mut_val *reasoning_array(oa_impl *o, yyjson_mut_val **slot) {
-    if (provider_oom()) return NULL;
-    if (!o->rdoc) {
-        o->rdoc = yyjson_mut_doc_new(jallocator());
-        if (!o->rdoc) return NULL;
-        yyjson_mut_doc_set_root(o->rdoc, yyjson_mut_obj(o->rdoc));
-    }
-    if (provider_oom()) return NULL;
-    if (!*slot) *slot = yyjson_mut_arr(o->rdoc);
-    return *slot;
-}
-
-/* OpenRouter-style chat streams carry `reasoning_details` as fragments: one
- * item's text/summary/data arrives piecewise under a stable "index", and
- * its signature (what the upstream model verifies on the way back) usually
- * last. Fragments merge by index — textual members concatenate, every other
- * member is kept from the first fragment that carried it — so the recorded
- * item is what a non-streaming response would have returned. */
-void oa_reasoning_details_merge(yyjson_mut_doc *rdoc, yyjson_mut_val *arr, yyjson_val *details) {
-    if (!details || !yyjson_is_arr(details)) return;
-    size_t di, dmax;
-    yyjson_val *frag;
-    yyjson_arr_foreach(details, di, dmax, frag) {
-        if (provider_oom()) return;
-        if (!yyjson_is_obj(frag)) continue;
-        yyjson_val *iv = jget(frag, "index");
-        int64_t index = iv && yyjson_is_int(iv) ? yyjson_get_int(iv) : -1;
-        yyjson_mut_val *item = NULL;
-        if (index >= 0) {
-            size_t ai, amax;
-            yyjson_mut_val *cand;
-            yyjson_mut_arr_foreach(arr, ai, amax, cand) {
-                yyjson_mut_val *ci = yyjson_mut_obj_get(cand, "index");
-                if (ci && yyjson_mut_is_int(ci) && yyjson_mut_get_int(ci) == index) {
-                    item = cand;
-                    break;
-                }
-            }
-        }
-        if (!item) {
-            item = yyjson_val_mut_copy(rdoc, frag);
-            if (item) yyjson_mut_arr_add_val(arr, item);
-            continue;
-        }
-        yyjson_obj_iter it = yyjson_obj_iter_with(frag);
-        yyjson_val *k;
-        while ((k = yyjson_obj_iter_next(&it))) {
-            if (provider_oom()) return;
-            yyjson_val *v = yyjson_obj_iter_get_val(k);
-            const char *key = yyjson_get_str(k);
-            if (!key || !v || yyjson_is_null(v)) continue;
-            yyjson_mut_val *have = yyjson_mut_obj_get(item, key);
-            bool textual =
-                strcmp(key, "text") == 0 || strcmp(key, "summary") == 0 || strcmp(key, "data") == 0;
-            if (textual && yyjson_is_str(v) && have && yyjson_mut_is_str(have)) {
-                size_t hl = yyjson_mut_get_len(have), vl = yyjson_get_len(v);
-                char *joined = malloc(hl + vl + 1);
-                if (!joined) return;
-                memcpy(joined, yyjson_mut_get_str(have), hl);
-                memcpy(joined + hl, yyjson_get_str(v), vl);
-                joined[hl + vl] = 0;
-                yyjson_mut_val *joined_value = yyjson_mut_strncpy(rdoc, joined, hl + vl);
-                if (joined_value)
-                    yyjson_mut_obj_put(item, yyjson_mut_strcpy(rdoc, key), joined_value);
-                free(joined);
-            } else if (!have || yyjson_mut_is_null(have)) {
-                yyjson_mut_val *cv = yyjson_val_mut_copy(rdoc, v);
-                if (cv) yyjson_mut_obj_put(item, yyjson_mut_strcpy(rdoc, key), cv);
-            }
-        }
-    }
-}
-
-static void capture_reasoning_details(oa_impl *o, yyjson_val *details) {
-    yyjson_mut_val *arr = reasoning_array(o, &o->reasoning_details);
-    if (arr) oa_reasoning_details_merge(o->rdoc, arr, details);
-}
-
-/* Responses wire: a completed `reasoning` output item. Only one carrying
- * encrypted_content is worth keeping — with store:false the provider cannot
- * resolve a bare id, and echoing one 400s the next request. */
-static void capture_reasoning_item(oa_impl *o, yyjson_val *item) {
-    const char *enc = jget_str(item, "encrypted_content");
-    if (!enc || !*enc) return;
-    yyjson_mut_val *arr = reasoning_array(o, &o->reasoning_items);
-    if (!arr) return;
-    const char *id = jget_str(item, "id");
-    yyjson_mut_val *copy = NULL;
-    if (id) { /* added then done: the later, complete item wins */
-        size_t ai, amax;
-        yyjson_mut_val *cand;
-        yyjson_mut_arr_foreach(arr, ai, amax, cand) {
-            const char *cid = yyjson_mut_get_str(yyjson_mut_obj_get(cand, "id"));
-            if (cid && strcmp(cid, id) == 0) {
-                copy = cand;
-                break;
-            }
-        }
-    }
-    if (!copy) {
-        copy = yyjson_mut_obj(o->rdoc);
-        if (!copy) return;
-        yyjson_mut_arr_add_val(arr, copy);
-    }
-    static const char *const keep[] = {"type", "id", "summary", "content", "encrypted_content"};
-    for (size_t i = 0; i < sizeof keep / sizeof keep[0]; i++) {
-        if (provider_oom()) return;
-        yyjson_val *v = jget(item, keep[i]);
-        if (!v) continue;
-        yyjson_mut_val *cv = yyjson_val_mut_copy(o->rdoc, v);
-        if (cv) yyjson_mut_obj_put(copy, yyjson_mut_strcpy(o->rdoc, keep[i]), cv);
-    }
-}
-
-/* Hosted tools execute at the provider. Keep their completed wire items and
- * annotations, with id-based replacement for added/done/completed repeats. */
-static void capture_hosted_item(oa_impl *o, yyjson_val *item) {
-    if (!tool_web_search_native(o->ctx)) return;
-    const char *type = jget_str(item, "type");
-    const char *id = jget_str(item, "id");
-    if (!type || !id) return;
-    bool search = strcmp(type, "web_search_call") == 0;
-    if (!search && strcmp(type, "message") != 0) return;
-    const char *status = jget_str(item, "status");
-    bool done = status && (strcmp(status, "completed") == 0 || strcmp(status, "failed") == 0);
-    if (!search && !done) return;
-    yyjson_mut_val *arr = reasoning_array(o, &o->hosted_items);
-    if (!arr) return;
-    size_t idx, max;
-    yyjson_mut_val *old;
-    bool found = false, was_done = false;
-    yyjson_mut_arr_foreach(arr, idx, max, old) {
-        const char *oid = yyjson_mut_get_str(yyjson_mut_obj_get(old, "id"));
-        if (!oid || strcmp(oid, id) != 0) continue;
-        found = true;
-        const char *os = yyjson_mut_get_str(yyjson_mut_obj_get(old, "status"));
-        was_done = os && (strcmp(os, "completed") == 0 || strcmp(os, "failed") == 0);
-        if (!was_done || done) yyjson_mut_arr_replace(arr, idx, yyjson_val_mut_copy(o->rdoc, item));
-        break;
-    }
-    if (!found) yyjson_mut_arr_add_val(arr, yyjson_val_mut_copy(o->rdoc, item));
-    if (provider_oom()) return;
-    if (search) {
-        tny_backend_event ev = {0};
-        ev.tool_name = "web_search";
-        ev.tool_id = id;
-        ev.tool_detail = "Codex hosted web search";
-        if (!found) {
-            ev.kind = TNY_EV_TOOL_START;
-            emit(o, &ev);
-            if (provider_oom()) return;
-        }
-        if (done && !was_done) {
-            if (o->background_armed && !o->cancelled) o->background_boundary = true;
-            ev.kind = TNY_EV_TOOL_END;
-            ev.tool_ok = strcmp(status, "completed") == 0;
-            ev.tool_detail =
-                ev.tool_ok ? "Codex hosted search completed" : "Codex hosted search failed";
-            emit(o, &ev);
-        }
-    } else if (!was_done) {
-        size_t pi, pm, ai, am;
-        yyjson_val *part, *annotation;
-        yyjson_arr_foreach(jget(item, "content"), pi, pm, part) {
-            yyjson_arr_foreach(jget(part, "annotations"), ai, am, annotation) {
-                const char *at = jget_str(annotation, "type");
-                const char *url = jget_str(annotation, "url");
-                if (!at || strcmp(at, "url_citation") != 0 || !url ||
-                    (!str_starts(url, "https://") && !str_starts(url, "http://")))
-                    continue;
-                const char *title = jget_str(annotation, "title");
-                buf_t citation;
-                buf_init(&citation);
-                buf_appendf(&citation, "\n[%s](%s)\n", title ? title : "Source", url);
-                if (!provider_oom()) buf_append(&o->text, citation.data, citation.len);
-                emit_text(o, TNY_EV_TEXT_DELTA, citation.data, citation.len);
-                buf_free(&citation);
-                if (provider_oom()) return;
-            }
-        }
-    }
-}
-
-static void capture_hosted_output(oa_impl *o, yyjson_val *response) {
-    size_t i, n;
-    yyjson_val *item;
-    yyjson_arr_foreach(jget(response, "output"), i, n, item) {
-        capture_hosted_item(o, item);
-        if (provider_oom()) return;
-        const char *type = jget_str(item, "type");
-        if (type && strcmp(type, "reasoning") == 0) capture_reasoning_item(o, item);
-    }
-}
-
-/* The extra assistant-message members for this step's tool-call batch, or
- * NULL when the provider streamed no reasoning. Compact JSON object. */
 static char *reasoning_extras_json(oa_impl *o) {
-    bool details = o->reasoning_details && yyjson_mut_arr_size(o->reasoning_details) > 0;
-    bool items = o->reasoning_items && yyjson_mut_arr_size(o->reasoning_items) > 0;
-    bool hosted = o->hosted_items && yyjson_mut_arr_size(o->hosted_items) > 0;
-    if (!details && !items && !hosted && !o->reasoning_content.len) return NULL;
-    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
-    if (!d) return NULL;
-    yyjson_mut_val *root = yyjson_mut_obj(d);
-    yyjson_mut_doc_set_root(d, root);
-    const char *keys[] = {"reasoning_details", "reasoning_items", "responses_items"};
-    yyjson_mut_val *values[] = {details ? o->reasoning_details : NULL,
-                                items ? o->reasoning_items : NULL, hosted ? o->hosted_items : NULL};
-    for (size_t i = 0; i < 3 && !provider_oom(); i++) {
-        if (!values[i]) continue;
-        yyjson_mut_val *copy = yyjson_mut_val_mut_copy(d, values[i]);
-        if (copy) yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, keys[i]), copy);
-    }
-    if (!provider_oom() && o->reasoning_content.len) {
-        yyjson_mut_val *copy = yyjson_mut_strcpy(d, o->reasoning_content.data);
-        if (copy) yyjson_mut_obj_put(root, yyjson_mut_strcpy(d, "reasoning_content"), copy);
-    }
-    char *out = provider_oom() ? NULL : jwrite(d);
-    yyjson_mut_doc_free(d);
+    char *out = NULL;
+    if (oa_decoder_extras(&o->decoder, &out) != TNY_PARSE_OK) o->decode_oom = true;
     return out;
+}
+
+static void oa_cancel(tny_backend *b);
+
+/* Parser callbacks have unwound. Skip usage accounting, persistence and
+ * ordinary finalization even when earlier steps accumulated usage: the
+ * emergency cancel releases owned resources without allocating and the
+ * embedding runtime supplies its preallocated OOM ERROR/TURN_END reserves. */
+static int parser_oom(oa_impl *o) {
+    static const char message[] = "out of memory decoding provider stream";
+    tny_alloc_provider_failed();
+    tny_alloc_settlement_begin();
+    emit_error(o, TNY_EVENT_ERROR_OOM, message, sizeof message - 1);
+    oa_cancel(o->self);
+    tny_alloc_settlement_end();
+    return -1;
 }
 
 /* ---------- provider failures (docs/adr/0069) ---------- */
@@ -721,7 +521,6 @@ static bool schedule_retry(oa_impl *o, const char *what, int delay_hint_ms) {
     o->retries++;
     conn_drop(o);
     oa_calls_reset(&o->calls);
-    o->parser_oom = false;
     if (!cont) buf_clear(&o->text);
     o->continuing = cont;
     buf_clear(&o->rawbody);
@@ -1450,92 +1249,71 @@ static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
 
 /* ---------- SSE event handling ---------- */
 
-static void capture_usage(oa_impl *o, yyjson_val *usage, bool chat) {
-    if (!yyjson_is_obj(usage) ||
-        (!yyjson_is_int(jget(usage, chat ? "prompt_tokens" : "input_tokens")) &&
-         !yyjson_is_int(jget(usage, chat ? "completion_tokens" : "output_tokens"))))
-        return;
+static void capture_usage(oa_impl *o, const oa_decoded_event *event) {
     o->usage_seen = true;
-    o->usage_in = jget_int(usage, chat ? "prompt_tokens" : "input_tokens", o->usage_in);
-    o->usage_out = jget_int(usage, chat ? "completion_tokens" : "output_tokens", o->usage_out);
+    if (event->usage_fields & 1) o->usage_in = event->input_tokens;
+    if (event->usage_fields & 2) o->usage_out = event->output_tokens;
+    if (event->usage_fields & 4) o->usage_cached = event->cached_tokens;
+    if (event->usage_fields & 8) o->usage_cache_write = event->cache_write_tokens;
     if (o->usage_in < 0) o->usage_in = 0;
     if (o->usage_out < 0) o->usage_out = 0;
-    yyjson_val *details = jget(usage, chat ? "prompt_tokens_details" : "input_tokens_details");
-    o->usage_cached = jget_int(details, "cached_tokens", o->usage_cached);
-    o->usage_cache_write = jget_int(details, "cache_write_tokens", o->usage_cache_write);
     if (o->usage_cached > o->usage_in) o->usage_cached = o->usage_in;
     if (o->usage_cache_write > o->usage_in) o->usage_cache_write = o->usage_in;
 }
 
-/* Parser callbacks borrow document nodes/bytes only during this call. */
-static void on_decoded_event(oa_decoded_kind kind, yyjson_val *value, const char *bytes, size_t len,
-                             void *ud) {
+static int on_decoded(const oa_decoded_event *event, void *ud) {
     oa_impl *o = ud;
-    if (o->parser_oom || o->cancelled) return;
-    switch (kind) {
-    case OA_DECODE_DONE: o->stream_done = true; break;
-    case OA_DECODE_ERROR:
-        classify_error(o, value, 0, &o->stream_error);
-        o->stream_done = o->stream_failed = true;
-        break;
-    case OA_DECODE_USAGE_CHAT: capture_usage(o, value, true); break;
-    case OA_DECODE_USAGE_RSP: capture_usage(o, value, false); break;
-    case OA_DECODE_FINISH:
-        snprintf(o->finish_reason, sizeof o->finish_reason, "%.*s", (int)len, bytes);
-        if (strcmp(o->finish_reason, "length") == 0) o->final_stop = TNY_STOP_STEP_LIMIT;
-        else if (strcmp(o->finish_reason, "content_filter") == 0) o->final_stop = TNY_STOP_DENIED;
-        else if (strcmp(o->finish_reason, "error") == 0 && !o->stream_failed) {
-            classify_error(o, NULL, 0, &o->stream_error);
-            o->stream_done = o->stream_failed = true;
-        }
-        break;
+    if (o->cancelled) return TNY_PARSE_OK;
+    if (o->decode_oom || tny_alloc_scope_failed()) return TNY_PARSE_OOM;
+    switch (event->kind) {
     case OA_DECODE_TEXT:
-        buf_append(&o->text, bytes, len);
-        if (!o->text.oom) emit_text(o, TNY_EV_TEXT_DELTA, bytes, len);
+        buf_append(&o->text, event->text, event->len);
+        if (buf_oom(&o->text)) return TNY_PARSE_OOM;
+        emit_text(o, TNY_EV_TEXT_DELTA, event->text, event->len);
         break;
-    case OA_DECODE_REASONING_CONTENT:
-    case OA_DECODE_RSP_THINKING:
     case OA_DECODE_THINKING:
-        if (kind == OA_DECODE_REASONING_CONTENT ||
-            (kind == OA_DECODE_RSP_THINKING && tool_web_search_native(o->ctx)))
-            buf_append(&o->reasoning_content, bytes, len);
         o->thinking_seen = true;
-        if (!o->reasoning_content.oom) emit_text(o, TNY_EV_THINKING, bytes, len);
+        emit_text(o, TNY_EV_THINKING, event->text, event->len);
         break;
-    case OA_DECODE_DETAILS: capture_reasoning_details(o, value); break;
-    case OA_DECODE_REASONING_ITEM: capture_reasoning_item(o, value); break;
-    case OA_DECODE_HOSTED_ITEM: capture_hosted_item(o, value); break;
-    case OA_DECODE_HOSTED_OUTPUT: capture_hosted_output(o, value); break;
-    case OA_DECODE_INCOMPLETE: {
-        const char *reason = jget_str(jget(value, "incomplete_details"), "reason");
-        o->final_stop =
-            reason && strstr(reason, "content_filter") ? TNY_STOP_DENIED : TNY_STOP_STEP_LIMIT;
+    case OA_DECODE_USAGE: capture_usage(o, event); break;
+    case OA_DECODE_ERROR:
+        classify_error(o, event->value, 0, &o->stream_error);
+        o->stream_failed = true;
+        break;
+    case OA_DECODE_FINISH:
+        if (event->text) snprintf(o->finish_reason, sizeof o->finish_reason, "%s", event->text);
+        if (event->stop != TNY_STOP_DONE) o->final_stop = event->stop;
+        break;
+    case OA_DECODE_DONE: o->stream_done = true; break;
+    case OA_DECODE_HOSTED_START:
+    case OA_DECODE_HOSTED_END: {
+        tny_backend_event ev = {0};
+        ev.tool_name = "web_search";
+        ev.tool_id = event->text;
+        ev.tool_detail = "Codex hosted web search";
+        ev.kind = TNY_EV_TOOL_START;
+        if (event->kind == OA_DECODE_HOSTED_END) {
+            if (o->background_armed && !o->cancelled) o->background_boundary = true;
+            ev.kind = TNY_EV_TOOL_END;
+            ev.tool_ok = event->ok;
+            ev.tool_detail =
+                event->ok ? "Codex hosted search completed" : "Codex hosted search failed";
+        }
+        emit(o, &ev);
         break;
     }
     }
-    if (o->text.oom || o->reasoning_content.oom || tny_alloc_scope_failed()) o->parser_oom = true;
+    return tny_alloc_scope_failed() ? TNY_PARSE_OOM : TNY_PARSE_OK;
 }
 
 static void on_sse_event(const char *data, size_t len, void *ud) {
     oa_impl *o = ud;
-    if (o->parser_oom || o->cancelled) return;
-    if (oa_decode_event(o->wire_chat, data, len, &o->calls, on_decoded_event, o) == -2)
-        o->parser_oom = true;
-}
-
-static void oa_cancel(tny_backend *b);
-
-static int parser_failed(tny_backend *b) {
-    oa_impl *o = b->impl;
-    static const char message[] = "out of memory decoding provider stream";
-    /* Parser callbacks have unwound. Skip usage accounting, persistence and
-     * ordinary finalization even when earlier steps accumulated usage. */
-    tny_alloc_provider_failed();
-    tny_alloc_settlement_begin();
-    emit_error(o, TNY_EVENT_ERROR_OOM, message, sizeof message - 1);
-    oa_cancel(b);
-    tny_alloc_settlement_end();
-    return -1;
+    if (o->decode_oom || o->cancelled) return;
+    int rc = oa_decoder_feed(&o->decoder, &o->calls, o->wire_chat, tool_web_search_native(o->ctx),
+                             data, len, on_decoded, o);
+    /* Malformed individual events retain the existing ignore policy. OOM
+     * must never be interpreted as a malformed/empty successful event. */
+    if (rc == TNY_PARSE_OOM) o->decode_oom = true;
 }
 
 /* ---------- step completion ---------- */
@@ -1561,6 +1339,11 @@ static void finish_turn_ok(oa_impl *o) {
     /* an empty answer is not recorded: strict providers reject assistant
      * messages without content, and nothing in it helps the next turn */
     char *extras = tool_web_search_native(o->ctx) ? reasoning_extras_json(o) : NULL;
+    if (o->decode_oom) {
+        free(extras);
+        parser_oom(o);
+        return;
+    }
     if (!provider_oom() && (o->text.len || extras))
         session_add_assistant_ex(s, o->text.data, NULL, extras);
     free(extras);
@@ -1818,9 +1601,7 @@ static int finish_tool_batch(oa_impl *o) {
     o->tool_index = 0;
     o->tool_batch_failed = 0;
     oa_calls_reset(&o->calls);
-    o->parser_oom = false;
     if (session_save(s) != 0) {
-        if (provider_oom()) return -1;
         const char *message = "could not persist completed tool batch";
         emit_error(o, TNY_EVENT_ERROR_IO, message, strlen(message));
         if (had_preview) preview_not_delivered(o, "the tool batch could not be persisted");
@@ -2163,6 +1944,10 @@ static int step_finished(oa_impl *o) {
              * that answer and run one more round on the steered message so
              * it is addressed within the turn it targeted (adr/0011) */
             char *extras = reasoning_extras_json(o);
+            if (o->decode_oom) {
+                free(extras);
+                return parser_oom(o);
+            }
             if (!provider_oom() && (o->text.len || extras))
                 session_add_assistant_ex(s, o->text.data, NULL, extras);
             free(extras);
@@ -2205,6 +1990,11 @@ static int step_finished(oa_impl *o) {
         }
         buf_appends(&tcj, "]");
         char *extras = provider_oom() ? NULL : reasoning_extras_json(o);
+        if (o->decode_oom || buf_oom(&tcj)) {
+            free(extras);
+            buf_free(&tcj);
+            return parser_oom(o);
+        }
         if (!provider_oom())
             session_add_assistant_ex(s, o->text.len ? o->text.data : NULL, tcj.data, extras);
         free(extras);
@@ -2306,7 +2096,6 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images, tny_
     buf_clear(&o->toolcall_log);
     buf_appends(&o->toolcall_log, "[");
     oa_calls_reset(&o->calls);
-    o->parser_oom = false;
     o->repairs_noted = false;
 
     tny_session_state *s = o->env.session;
@@ -2383,7 +2172,7 @@ static void oa_cancel(tny_backend *b) {
         o->steer = NULL;
         o->tool_batch_active = false;
         o->tool_index = o->tool_batch_failed = 0;
-        o->parser_oom = false;
+        o->decode_oom = false;
         o->background_armed = o->background_boundary = false;
         secure_zero(o->turn_state, sizeof o->turn_state);
         o->state = ST_IDLE;
@@ -2423,11 +2212,6 @@ static void oa_cancel(tny_backend *b) {
         }
         o->tool_index = o->calls.n;
         oa_disconnect(b);
-        /* Cancellation results above still need the call records; batch
-         * finalization releases them before any terminal event. Release the
-         * finished response buffers here, since this path returns below. */
-        sse_parser_free(&o->sse);
-        buf_free(&o->rawbody);
         (void)finish_tool_batch(o);
         return;
     }
@@ -2437,9 +2221,6 @@ static void oa_cancel(tny_backend *b) {
         session_save(o->env.session);
     }
     oa_disconnect(b);
-    sse_parser_free(&o->sse);
-    oa_calls_reset(&o->calls);
-    buf_free(&o->rawbody);
     emit_turn_end(o, TNY_STOP_INTERRUPTED);
 }
 
@@ -2522,7 +2303,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
 
     if (o->state == ST_HEADERS) {
         int status = http_read_response(o->conn, 0);
-        if (provider_oom()) return parser_failed(b);
+        if (provider_oom()) return parser_oom(o);
         if (status == -2) {
             if (!stream_stalled(o)) return 0;
             /* the POST went out and nothing came back within the stall
@@ -2534,7 +2315,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
             if (silent.stop) o->cancelled = true;
             control_response_free(&silent);
-            if (provider_oom()) return parser_failed(b);
+            if (provider_oom()) return parser_oom(o);
             return stream_interrupted(o, stalled);
         }
         o->last_byte_ms = monotonic_ms();
@@ -2550,7 +2331,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                     provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
                 if (failed.stop) o->cancelled = true;
                 control_response_free(&failed);
-                if (provider_oom()) return parser_failed(b);
+                if (provider_oom()) return parser_oom(o);
                 int post_rc = start_post_mode(o, rerr, sizeof rerr, true);
                 if (post_rc == 0) return 0;
                 if (post_rc == -2) return -1;
@@ -2565,7 +2346,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 provider_control(o, TNY_OPENAI_CONTROL_PROVIDER_RESPONSE, 0);
             if (lost.stop) o->cancelled = true;
             control_response_free(&lost);
-            if (provider_oom()) return parser_failed(b);
+            if (provider_oom()) return parser_oom(o);
             if (schedule_retry(o, "connection lost before response", 0)) return 0;
             emit_error(o, TNY_EVENT_ERROR_IO, "connection lost before response", 31);
             emit_turn_end(o, TNY_STOP_ERROR);
@@ -2581,7 +2362,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             return 0;
         }
         control_response_free(&control);
-        if (provider_oom()) return parser_failed(b);
+        if (provider_oom()) return parser_oom(o);
         if (status >= 200 && status < 300 && !o->wire_chat && cache_routing_enabled(o) &&
             tny_codex_chatgpt_mode(o->ctx) && !o->turn_state[0]) {
             const char *state = http_header(o->conn, "x-codex-turn-state");
@@ -2609,7 +2390,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     for (size_t bytes = 0; bytes < 8192;) {
         char tmp[8192];
         ssize_t bn = http_body_read(o->conn, tmp, sizeof tmp);
-        if (provider_oom()) return parser_failed(b);
+        if (provider_oom()) return parser_oom(o);
         if (bn == -2) {
             if (o->error_status && monotonic_ms() >= o->error_deadline_ms)
                 return finish_error_response(o);
@@ -2630,14 +2411,16 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             if (!o->body_sniffed) sniff_body(o, tmp, (size_t)bn);
             if (o->body_is_sse) {
                 o->parser_active = true;
-                sse_feed(&o->sse, tmp, (size_t)bn, on_sse_event, o);
+                if (sse_feed(&o->sse, tmp, (size_t)bn, on_sse_event, o) == TNY_PARSE_OOM)
+                    o->decode_oom = true;
                 o->parser_active = false;
             } else {
                 size_t cap = o->error_status ? OA_ERROR_BODY_MAX : OA_RAW_BODY_MAX;
                 if (o->rawbody.len + (size_t)bn <= cap) buf_append(&o->rawbody, tmp, (size_t)bn);
                 else o->rawbody_overflow = true;
             }
-            if (o->sse.status || o->parser_oom || tny_alloc_scope_failed()) return parser_failed(b);
+            if (o->decode_oom || buf_oom(&o->rawbody) || tny_alloc_scope_failed())
+                return parser_oom(o);
             if (o->cancelled) {
                 oa_cancel(b);
                 return 0;
@@ -2645,6 +2428,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             if (o->error_status) continue;
             /* a terminal error event settles the step now: whatever the
              * provider sends after it is not worth waiting for */
+            if (o->decode_oom) return parser_oom(o);
             if (o->stream_failed) return fail_stream(o);
             continue;
         }
@@ -2672,8 +2456,9 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 return -1;
             }
             o->parser_active = true;
-            if (o->body_is_sse) sse_flush(&o->sse, on_sse_event, o);
-            else if (o->rawbody.len) {
+            if (o->body_is_sse) {
+                if (sse_flush(&o->sse, on_sse_event, o) == TNY_PARSE_OOM) o->decode_oom = true;
+            } else if (o->rawbody.len) {
                 on_sse_event(o->rawbody.data, o->rawbody.len, o);
                 buf_clear(&o->rawbody);
                 /* one JSON document is complete by construction: the framing
@@ -2681,7 +2466,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 o->stream_done = true;
             }
             o->parser_active = false;
-            if (o->sse.status || o->parser_oom || tny_alloc_scope_failed()) return parser_failed(b);
+            if (o->decode_oom || tny_alloc_scope_failed()) return parser_oom(o);
             if (o->cancelled) {
                 oa_cancel(b);
                 return 0;
@@ -2722,7 +2507,6 @@ static void oa_destroy(tny_backend *b) {
     oa_impl *o = b->impl;
     oa_disconnect(b);
     oa_calls_reset(&o->calls);
-    o->parser_oom = false;
     pending_perm_clear(o);
     pending_custom_clear(o, true);
     tools_discard_pending_images(&o->env); /* paths and captured bytes, exactly once */
@@ -2731,7 +2515,6 @@ static void oa_destroy(tny_backend *b) {
     buf_free(&o->toolcall_log);
     buf_free(&o->rawbody);
     reasoning_reset(o);
-    buf_free(&o->reasoning_content);
     sse_parser_free(&o->sse);
     free(o);
     free(b);
@@ -2913,10 +2696,10 @@ tny_backend *tny_backend_openai_new(struct tny_ctx *ctx) {
     o->env.ctx = ctx;
     o->env.preview_admit = preview_admit;
     o->env.preview_ud = b;
+    o->self = b;
     buf_init(&o->text);
     buf_init(&o->toolcall_log);
     buf_init(&o->rawbody);
-    buf_init(&o->reasoning_content);
     sse_parser_init(&o->sse);
     /* TNY_PROVIDER_RETRIES caps retries per model call (0 disables);
      * TNY_DEBUG_PROVIDER_ERRORS=1 appends provider error text to diagnostics */
@@ -3074,15 +2857,9 @@ int tny_backend_openai_restore(tny_backend *b, yyjson_val *r, tny_backend_event_
     o->usage.cache_read_requests = (int)jget_int(usage, "cache_read_requests", 0);
     o->usage.cache_write_requests = (int)jget_int(usage, "cache_write_requests", 0);
     oa_calls_reset(&o->calls);
-    o->parser_oom = false;
     size_t i, n;
     yyjson_val *v;
-    yyjson_arr_foreach(calls, i, n, v) {
-        if (oa_calls_set(&o->calls, o->calls.n, (int)jget_int(v, "index", -1), jget_str(v, "id"),
-                         jget_str(v, "name"), jget_str(v, "args") ? jget_str(v, "args") : "{}",
-                         true) != 0)
-            return -1;
-    }
+    if (oa_calls_restore(&o->calls, calls) != TNY_PARSE_OK) return -1;
     tools_discard_pending_images(&o->env);
     yyjson_arr_foreach(images, i, n, v) {
         const char *bytes = jget_str(v, "bytes"), *path = jget_str(v, "path");
