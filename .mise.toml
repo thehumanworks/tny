@@ -29,3 +29,13 @@ actionlint = "1.7.12"
 python = "3.14"
 # tests/site/test_term.js and sdk/typescript.
 node = "26"
+
+# clangd compile_commands.json helper. Host package, not a CI pin: unused
+# managers are skipped, so this file does not need mise.<os>.toml / auto_env.
+# Apply with `mise bootstrap packages apply`; `mise install` does not.
+[bootstrap.packages]
+"brew:bear" = { os = "macos" }
+"apt:bear" = { os = "linux" }
+
+[tasks]
+"compile:commands" = "bear -- make -j"
