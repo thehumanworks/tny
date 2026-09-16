@@ -448,3 +448,78 @@ All six requested repair gates now pass on the same source/test state.
 source/test files above and this evidence file; all remain uncommitted.
 The broader phase-1 contract and review-2 benchmark findings remain with their
 existing owners.
+
+
+## Review 3 dispositions (2026-09-16)
+
+Bounded P1-I1 repair in `/Users/tomas/projects/tny-cpp-p1fix`, starting clean at
+`d1feba9bceafea33b8b52e84362c45531378e862`. The supplied third independent
+read-only review identified the remaining tool-batch cancellation early return.
+This assignment uses the existing phase-1 contract; the coordinator retains
+independent re-review, integration and the broader phase-1 gates. No agents,
+commits, pushes, live provider calls or finalized ADR changes were made.
+
+| Review-3 finding | Disposition |
+| --- | --- |
+| 1, major, P1-I1: parked tool-batch cancellation bypasses parser cleanup | Fixed: after pending and unstarted calls receive cancellation results, `oa_cancel()` releases SSE ownership/capacity and raw-body storage before calling `finish_tool_batch()`. Call records remain available for batch control and are released by existing finalization before terminal delivery, including its persistence-error and stop branches. |
+
+The ASan/UBSan backend retention harness now sends two tool calls through a
+loopback HTTP response and parks on a real native-tool permission request.
+It verifies both pending and unstarted call IDs/names and cancellation results,
+exactly one interrupted TURN_END with no error, and immediate live C++ parser
+allocation counts inside TURN_END, after cancel returns and after destruction.
+The SSE case records **8 -> 0** and the whole-JSON case **5 -> 0** before teardown.
+The whole-JSON response also exercises the raw-body path; that C buffer is not
+included in the private C++ allocation counter. Its release is explicit in the
+same adapter cleanup. Existing feed/outside-dispatch/flush cancellation checks
+remain **6 -> 0**. Destruction safely repeats free/reset under the sanitizers.
+
+Before changing production code, the final regression failed at
+`parser allocations must be released before terminal delivery` (Make exit 2,
+assertion abort), after all five existing retention cases passed. This is
+`review3-red-smoke-final.log`, against unchanged `d1feba9` production source.
+Two earlier fixture-development runs failed before the intended assertion
+because the explicit context defaults to library mode, which disables terminal;
+setting native mode in the two new cases corrected the fixture. Those runs are
+retained as `review3-red-smoke.log` and `review3-red-probe.log`, not counted as
+valid defect reproduction.
+
+| Final gate | Exit | Evidence |
+| --- | ---: | --- |
+| `make -j8 debug && build/tny-test` | 0 | 557 tests, 15391 assertions; ASan/UBSan |
+| `make test-parser-smoke` | 0 | Existing corpus/fault cases plus parked SSE 8 -> 0 and parked JSON 5 -> 0 |
+| `make test-cpp-gates` | 0 | Source discovery and both intended negative controls |
+| `python3 tests/mutation/parser_critical.py` | 0 | All four behavioral mutants killed; unchanged smoke passes afterward |
+| `python3 tests/integration/test_openai.py` | 0 | All assertions pass against rebuilt CLI |
+| `make quality` | 0 | Format, C/C++ analysis, strict warnings and linters pass; Darwin GCC analyzer skip explicit |
+| `make -j8 release` | 0 | Current companion CLI for integration and runner unit fixture |
+
+No compiler/analyzer warnings or sanitizer errors were emitted by these final
+passing runs. As in review 2, negative unit fixtures intentionally emit invalid
+TNY_TOOLS and MCP-import runtime warnings; these remain visible in the logs and
+were not suppressed. Literal warning-free unit output is therefore not claimed.
+The C++ gate's intentional negative diagnostics and the mutation runner's
+intentional assertion/ASan failures are successful rejection controls.
+
+**Bounded repair gate: PASS.** The requested cancellation repair, regression,
+all six requested commands and disposition record are complete on the same
+source/test state. `git diff --check` passes. This does not declare the broader
+phase-1 contract complete or replace the coordinator's independent re-review.
+
+All final gates use `build/phase1-run.py` with the same documented environment
+isolation and local temporary-file shim as review 2. The release CLI was rebuilt
+before unit/integration execution. Raw logs, exit records and per-run manifests
+are under `build/phase1-logs/review3-*` and `build/phase1-logs/runs.jsonl`.
+All seven final command manifests (six requested gates plus release) match,
+excluding verification records, with SHA256
+`d9956541c9e14511ab19949599992fc2b738617c71dfcba0340120ba97c11c84`.
+
+| Changed source/test file | SHA256 |
+| --- | --- |
+| `src/backends/openai/openai.c` | `440e3871c695244b0c6c2e1d84f8f3d21de12493e58a76ee4663dfed642678e5` |
+| `tests/fuzz/parser_backend_oom.c` | `3c9e799e345f8aeda9c1df616004e68303a17948301853167d8fc84c27b6a7be` |
+
+The baseline/final manifests differ only in these two source/test files.
+ADR 0114's existing ownership policy is unchanged; this repair requires no new
+architectural decision. Existing ADRs and both contract files match HEAD.
+This evidence entry is the only other tracked change. All work is uncommitted.
