@@ -126,6 +126,7 @@ typedef struct {
     bool conn_reused; /* this POST rode a kept-alive connection */
     bool wire_chat;   /* this POST rides the legacy chat wire */
     bool parser_oom;
+    bool parser_active;         /* cancellation defers cleanup until borrowed callbacks return */
     bool stream_done;           /* saw [DONE] / response.completed */
     bool stream_failed;         /* the stream carried a terminal error event */
     oa_error_info stream_error; /* its classification (valid when stream_failed) */
@@ -1349,7 +1350,7 @@ static void capture_usage(oa_impl *o, yyjson_val *usage, bool chat) {
 static void on_decoded_event(oa_decoded_kind kind, yyjson_val *value, const char *bytes, size_t len,
                              void *ud) {
     oa_impl *o = ud;
-    if (o->parser_oom) return;
+    if (o->parser_oom || o->cancelled) return;
     switch (kind) {
     case OA_DECODE_DONE: o->stream_done = true; break;
     case OA_DECODE_ERROR:
@@ -1396,7 +1397,7 @@ static void on_decoded_event(oa_decoded_kind kind, yyjson_val *value, const char
 
 static void on_sse_event(const char *data, size_t len, void *ud) {
     oa_impl *o = ud;
-    if (o->parser_oom) return;
+    if (o->parser_oom || o->cancelled) return;
     if (oa_decode_event(o->wire_chat, data, len, &o->calls, on_decoded_event, o) == -2)
         o->parser_oom = true;
 }
@@ -2181,6 +2182,7 @@ static void oa_cancel(tny_backend *b) {
     oa_impl *o = b->impl;
     if (o->state == ST_IDLE) return;
     o->cancelled = true;
+    if (o->parser_active) return;
     bool had_tool_batch = o->tool_batch_active;
     if (had_tool_batch) {
         char idbuf[16];
@@ -2220,6 +2222,9 @@ static void oa_cancel(tny_backend *b) {
         session_save(o->env.session);
     }
     oa_disconnect(b);
+    sse_parser_free(&o->sse);
+    oa_calls_reset(&o->calls);
+    buf_free(&o->rawbody);
     emit_turn_end(o, TNY_STOP_INTERRUPTED);
 }
 
@@ -2398,15 +2403,21 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
             bytes += (size_t)bn;
             o->last_byte_ms = monotonic_ms();
             if (!o->body_sniffed) sniff_body(o, tmp, (size_t)bn);
-            if (o->body_is_sse) sse_feed(&o->sse, tmp, (size_t)bn, on_sse_event, o);
-            else {
+            if (o->body_is_sse) {
+                o->parser_active = true;
+                sse_feed(&o->sse, tmp, (size_t)bn, on_sse_event, o);
+                o->parser_active = false;
+            } else {
                 size_t cap = o->error_status ? OA_ERROR_BODY_MAX : OA_RAW_BODY_MAX;
                 if (o->rawbody.len + (size_t)bn <= cap) buf_append(&o->rawbody, tmp, (size_t)bn);
                 else o->rawbody_overflow = true;
             }
+            if (o->cancelled) {
+                oa_cancel(b);
+                return 0;
+            }
             if (o->sse.status || o->parser_oom) return parser_failed(o);
             if (o->error_status) continue;
-            if (o->cancelled) return 0;
             /* a terminal error event settles the step now: whatever the
              * provider sends after it is not worth waiting for */
             if (o->stream_failed) return fail_stream(o);
@@ -2435,6 +2446,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 emit_turn_end(o, TNY_STOP_ERROR);
                 return -1;
             }
+            o->parser_active = true;
             if (o->body_is_sse) sse_flush(&o->sse, on_sse_event, o);
             else if (o->rawbody.len) {
                 on_sse_event(o->rawbody.data, o->rawbody.len, o);
@@ -2442,6 +2454,11 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 /* one JSON document is complete by construction: the framing
                  * that delivered it whole is its terminal event */
                 o->stream_done = true;
+            }
+            o->parser_active = false;
+            if (o->cancelled) {
+                oa_cancel(b);
+                return 0;
             }
             if (o->sse.status || o->parser_oom) return parser_failed(o);
             if (o->stream_failed) return fail_stream(o);

@@ -242,8 +242,13 @@ TEST responses_argument_presence_survives_item_updates(void) {
             0, oa_decode_event(false, events[i], strlen(events[i]), &d.calls, reasoning_event, &d));
     ASSERT_EQ(2, d.calls.n);
     ASSERT_EQ(NULL, d.calls.calls[0].args.data);
-    ASSERT(d.calls.calls[1].args.data != NULL);
-    ASSERT_STR_EQ("", d.calls.calls[1].args.data);
+    ASSERT_EQ(NULL, d.calls.calls[1].args.data);
+    const char empty_delta[] =
+        "{\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"\"}";
+    ASSERT_EQ(0, oa_decode_event(false, empty_delta, sizeof empty_delta - 1, &d.calls,
+                                 reasoning_event, &d));
+    ASSERT(d.calls.calls[0].args.data != NULL);
+    ASSERT_STR_EQ("", d.calls.calls[0].args.data);
     const char delta[] =
         "{\"type\":\"response.function_call_arguments.delta\",\"output_index\":1,\"delta\":\"{}\"}";
     const char done[] = "{\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":{"
@@ -664,7 +669,8 @@ static int pv_turn(pv_fixture *f, const char *prompt) {
 }
 
 TEST arguments_execution_transcript_and_checkpoint(void) {
-    for (int responses = 0; responses < 2; responses++) {
+    /* Chat, whole Responses, then streamed added-only, done-only and both. */
+    for (int responses = 0; responses < 5; responses++) {
         for (int empty = 0; empty < 2; empty++) {
             for (int checkpoint = 0; checkpoint < 2; checkpoint++) {
                 pv_fixture f;
@@ -676,7 +682,23 @@ TEST arguments_execution_transcript_and_checkpoint(void) {
                 }
                 buf_t response = {0};
                 const char *args = empty ? ",\"arguments\":\"\"" : "";
-                if (responses)
+                if (responses >= 2) {
+                    buf_appends(&response,
+                                "data: {\"type\":\"response.output_item.added\",\"output_index\":0,"
+                                "\"item\":{\"type\":\"function_call\",\"call_id\":\"seed\","
+                                "\"name\":\"list_files\",\"arguments\":\"{}\"}}\n\n");
+                    for (int done = 0; done < 2; done++) {
+                        if ((responses == 2 && done) || (responses == 3 && !done)) continue;
+                        buf_appendf(
+                            &response,
+                            "data: {\"type\":\"response.output_item.%s\",\"output_index\":1,"
+                            "\"item\":{\"type\":\"function_call\",\"call_id\":\"subject\","
+                            "\"name\":\"list_files\"%s}}\n\n",
+                            done ? "done" : "added", args);
+                    }
+                    buf_appends(&response, "data: {\"type\":\"response.completed\","
+                                           "\"response\":{\"status\":\"completed\"}}\n\n");
+                } else if (responses)
                     buf_appendf(&response,
                                 "{\"status\":\"completed\",\"output\":["
                                 "{\"type\":\"function_call\",\"call_id\":\"seed\",\"name\":\"list_"
@@ -696,7 +718,8 @@ TEST arguments_execution_transcript_and_checkpoint(void) {
                 f.first_body = response.data;
                 f.argument_checkpoint = checkpoint != 0;
                 ASSERT_EQ(0, pv_turn(&f, "argument presence regression"));
-                const char *expected = empty ? "" : "{}";
+                bool explicit_empty = empty && responses < 2;
+                const char *expected = explicit_empty ? "" : "{}";
                 if (checkpoint) {
                     ASSERT(tny_backend_openai_parked(f.backend));
                     ASSERT_EQ(1, f.tools_ok);
@@ -721,8 +744,8 @@ TEST arguments_execution_transcript_and_checkpoint(void) {
                     ASSERT_EQ(0, pv_drain(&f));
                 }
                 ASSERT(f.ended);
-                ASSERT_EQ(empty ? 1 : 2, f.tools_ok);
-                ASSERT_EQ(empty ? 1 : 0, f.tools_failed);
+                ASSERT_EQ(explicit_empty ? 1 : 2, f.tools_ok);
+                ASSERT_EQ(explicit_empty ? 1 : 0, f.tools_failed);
                 char *transcript = jwrite_mut_val(session_messages(f.session));
                 yyjson_doc *doc = jparse(transcript, strlen(transcript));
                 yyjson_val *messages = yyjson_doc_get_root(doc), *m;

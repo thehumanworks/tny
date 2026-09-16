@@ -18,11 +18,12 @@ struct sink {
         const char *value = jget_strn(obj, key, &len);
         if (value && len) emit(kind, nullptr, value, len, ud);
     }
-    void set(int slot, int index, yyjson_val *item) const {
+    void set(int slot, int index, yyjson_val *item, bool streamed = false) const {
         const char *args = jget_str(item, "arguments");
-        /* Empty item.done must not erase deltas already assembled. Otherwise
-         * retain the distinction between an omitted and an empty argument field. */
-        if (args && !*args && slot < calls->n && calls->calls[slot].args.len) args = nullptr;
+        /* Legacy streamed item updates ignore empty fields, preserving both
+         * the missing-arguments fallback and any assembled deltas. Whole
+         * Responses objects still preserve explicitly empty arguments. */
+        if (streamed && args && !*args) args = nullptr;
         if (oa_calls_set(calls, slot, index, jget_str(item, "call_id"), jget_str(item, "name"),
                          args, true) != 0)
             throw std::bad_alloc();
@@ -118,7 +119,7 @@ void response_event(const sink &out, yyjson_val *root) {
             auto index = jget_int(root, "output_index", out.calls->n);
             int slot = by_index(out.calls, index);
             if (slot < 0) slot = out.calls->n;
-            if (index >= 0 && index <= INT_MAX) out.set(slot, static_cast<int>(index), item);
+            if (index >= 0 && index <= INT_MAX) out.set(slot, static_cast<int>(index), item, true);
         }
     } else if (type == "response.function_call_arguments.delta") {
         auto index = jget_int(root, "output_index", -1);

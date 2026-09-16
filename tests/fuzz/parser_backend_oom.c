@@ -21,6 +21,8 @@ static void check(bool value, const char *reason) {
 typedef struct {
     buf_t wire;
     bool ended, armed;
+    int mode; /* SSE OOM, JSON OOM, cancel in feed, outside dispatch, in flush */
+    tny_backend *backend;
     int errors, ends;
     size_t before, at_failure;
 } fixture;
@@ -38,7 +40,17 @@ static void event(const tny_backend_event *ev, void *ud) {
     fixture *f = ud;
     if (ev->kind == TNY_EV_TEXT_DELTA && !f->armed) {
         f->before = tny_parser_test_live_allocations();
-        check(f->before > 3, "pending calls and stream buffers must exist before OOM");
+        check(f->before > 3, "pending calls and stream buffers must exist before termination");
+        f->armed = true;
+        if (f->mode >= 2) {
+            if (f->mode != 3) {
+                f->backend->cancel(f->backend);
+                check(!f->ended, "cancel must wait for the active parser callback to unwind");
+                check(tny_parser_test_live_allocations() == f->before,
+                      "active parser views must remain alive until the callback returns");
+            }
+            return;
+        }
         check(setenv("TNY_TEST_ALLOC_SCOPE", "backend-parser", 1) == 0, "set scope");
         check(setenv("TNY_TEST_ALLOC_FAIL_AT", "1", 1) == 0, "set fault index");
         tny_alloc_scope_begin("backend-parser");
@@ -49,7 +61,8 @@ static void event(const tny_backend_event *ev, void *ud) {
         f->errors++;
     }
     if (ev->kind == TNY_EV_TURN_END) {
-        check(ev->stop == TNY_STOP_ERROR, "terminal stop is error");
+        check(ev->stop == (f->mode >= 2 ? TNY_STOP_INTERRUPTED : TNY_STOP_ERROR),
+              "terminal stop matches cancellation or OOM");
         f->ends++;
         f->ended = true;
         f->at_failure = tny_parser_test_live_allocations();
@@ -58,8 +71,8 @@ static void event(const tny_backend_event *ev, void *ud) {
 int main(void) {
     const char *tmp = getenv("TMPDIR");
     if (!tmp || !*tmp) tmp = "/tmp";
-    for (int json_fault = 0; json_fault < 2; json_fault++) {
-        fixture f = {0};
+    for (int mode = 0; mode < 5; mode++) {
+        fixture f = {.mode = mode};
         size_t baseline = tny_parser_test_live_allocations();
         char root[768];
         snprintf(root, sizeof root, "%s/tny-parser-oom-XXXXXX", tmp);
@@ -79,6 +92,7 @@ int main(void) {
         perm_engine *perm = perm_new(ctx);
         tny_backend *backend = tny_backend_openai_new(ctx);
         check(session && perm && backend, "backend resources");
+        f.backend = backend;
         tny_backend_openai_bind(backend, session, perm, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                                 NULL, NULL, NULL);
         check(backend->connect(backend, error, sizeof error) == 0, "connect");
@@ -90,7 +104,8 @@ int main(void) {
         for (int i = 0; i < 4096; i++) buf_appends(&f.wire, " ");
         buf_appends(&f.wire,
                     "}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"arm\"}}]}\n\n");
-        if (json_fault)
+        if (mode == 4) f.wire.len -= 2; /* final text event dispatches from sse_flush */
+        else if (mode == 1)
             buf_appends(&f.wire, "data: {\"choices\":[{\"delta\":{\"content\":\"after\"}}]}\n\n");
         else {
             buf_appends(&f.wire, "data: ");
@@ -106,12 +121,15 @@ int main(void) {
             tny_poll(fds, (nfds_t)(sn + bn), 10);
             http_server_dispatch(server, fds, sn);
             if (backend->dispatch(backend, fds + sn, bn) < 0) break;
+            if (mode == 3 && f.armed && !f.ended) backend->cancel(backend);
         }
-        check(f.armed && tny_alloc_test_scope_injected(), "stream failure injected");
-        check(f.ended && f.errors == 1 && f.ends == 1, "one OOM error and one terminal event");
+        check(f.armed && (mode >= 2 || tny_alloc_test_scope_injected()),
+              "stream termination exercised");
+        check(f.ended && f.errors == (mode >= 2 ? 0 : 1) && f.ends == 1,
+              "one terminal event with only the expected error");
         /* Deliberately before destroy, reset, or another turn. */
         check(f.at_failure == baseline && tny_parser_test_live_allocations() == baseline,
-              "terminal OOM must release SSE and abandoned call allocations immediately");
+              "termination must release SSE and abandoned call allocations immediately");
         unsetenv("TNY_TEST_ALLOC_SCOPE");
         unsetenv("TNY_TEST_ALLOC_FAIL_AT");
         tny_alloc_scope_begin("disabled");
@@ -121,8 +139,10 @@ int main(void) {
         tny_ctx_free(ctx);
         http_server_destroy(&server);
         buf_free(&f.wire);
-        printf("backend parser OOM %s: live allocations %zu -> %zu before teardown\n",
-               json_fault ? "JSON" : "SSE", f.before, f.at_failure);
+        printf("backend parser %s: live allocations %zu -> %zu before teardown\n",
+               (const char *[]){"OOM SSE", "OOM JSON", "cancel feed", "cancel outside",
+                                "cancel flush"}[mode],
+               f.before, f.at_failure);
     }
     return 0;
 }

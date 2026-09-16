@@ -362,3 +362,89 @@ and `src/backends/openai/parsers.h`; implementation in `src/net/*.cpp`,
 `tests/fuzz/fuzz_parsers.cpp` and `tests/fuzz/parser-corpus/` provide deterministic
 inputs; the leading corpus byte selects Connect=0, Chat=1 or Responses=2.
 No benchmark, size-policy file or ADR 0115 was created or changed here.
+
+
+## Review 2 dispositions (2026-09-16)
+
+Bounded repair assignment: worktree `/Users/tomas/projects/tny-cpp-p1fix`,
+branch `migration/cpp-parsers-fix2`, starting clean at
+`a33deda56d6b1388832d98bc3a52572bd15b4a70`. This assignment uses the existing
+contract (P1-I1 cancellation ownership and P1-I2 argument compatibility).
+Single writer; no sub-agents, commits, pushes, PRs or live provider calls.
+The coordinator retains the broader phase-1 verification and integration gates.
+
+| Review-2 finding | Disposition |
+| --- | --- |
+| 1, major: streamed Responses empty item arguments change legacy behavior | Fixed: only streamed item added/done updates ignore empty fields. Chat, whole Responses, argument deltas and checkpoint restoration preserve explicit empty strings. Baseline `git show c6d938a:src/backends/openai/openai.c`, lines 1559-1571, confirms the item-update `args && *args` guard and the distinct delta handling. |
+| 2, major: cancellation retains abandoned parser allocations | Fixed: cancellation inside parser callbacks is deferred until feed/flush/whole-document decoding returns; cancellation then releases SSE, call owners and raw-body storage before TURN_END. Outside-dispatch cancellation releases immediately. Instrumented assertions run at terminal delivery and afterward, before destruction/reset/another turn. |
+| 3, benchmark-script finding | **owned by bench fix**; no benchmark-script edits or completion claim in this assignment. |
+| 4, benchmark-script finding | **owned by bench fix**; no benchmark-script edits or completion claim in this assignment. |
+
+The corrected decoder assertion and expanded execution/transcript/checkpoint
+matrix failed against unchanged candidate production code: focused OpenAI units
+exited 1 (two failed tests). The expanded retention harness exited 2 through Make
+(expected assertion abort) because cancellation delivered TURN_END inside an
+active parser callback. With the repairs, all 27 OpenAI tests pass (1308
+assertions), and SSE OOM, JSON OOM, cancellation during feed, cancellation outside
+dispatch and cancellation during flush each report **6 -> 0** live allocations
+before teardown. These checks run under ASan/UBSan.
+
+Isolated restored-defect controls compile copies of the original candidate
+source without rewriting production files. Restoring `a33deda:events.cpp`
+separately fails streamed execution (exit 1, successful tool count) and the
+serialized checkpoint (exit 1, expected `{}`, got empty). Restoring
+`a33deda:openai.c` fails the outside-dispatch immediate allocation-count
+assertion (SIGABRT, -6). The control driver returns 0; raw results are in
+`build/review2-controls/results.json`. Its first two runs used an incorrect
+expected diagnostic marker for the checkpoint assertion; correcting that local
+driver marker resolved them without changing production code or regression tests.
+
+| Final gate | Exit | Evidence |
+| --- | ---: | --- |
+| `make -j8 debug && build/tny-test` | 0 | 557 tests, 15391 assertions, ASan/UBSan |
+| `make test-parser-smoke` | 0 | Existing corpus/fault checks plus all three cancellation boundaries, 6 -> 0 allocations |
+| `make test-cpp-gates` | 0 | Positive discovery and both intended negative controls |
+| `python3 tests/mutation/parser_critical.py` | 0 | All four behavioral mutants killed; unchanged smoke passes afterward |
+| `make -j8 release` | 0 | Refreshed CLI used by integration and runner unit fixture |
+| `python3 tests/integration/test_openai.py` | 0 | All assertions pass against that rebuilt CLI |
+| `make quality` | 0 | No compiler/analyzer warnings; Darwin GCC analyzer skip is explicit |
+
+The first full unit run exited 1 at
+`runner_terminal_pumps_control_while_child_asks_user`, whose fixture invokes
+`build/tny`. After building the companion release CLI, its focused check and the
+complete unchanged unit suite both pass. `make debug` builds only the test
+binary. No runner/test behavior was changed to obtain the passing rerun.
+
+Raw command logs, exit records and full source manifests are under
+`build/phase1-logs/review2-*` and `build/phase1-logs/runs.jsonl`.
+The local runner clears inherited provider credentials/endpoints and TNY_TOOLS,
+sets `TMPDIR=$PWD/build/tmp`, and reuses the documented temporary-file shim.
+No product environment workaround was added. Existing unit negative fixtures
+deliberately emit invalid-input/MCP-import warnings; they are retained in the raw
+logs, not suppressed. No compiler/analyzer warning is accepted as a passing gate.
+Process inspection and macOS leaks checks remain coordinator-owned and unrun here.
+
+Every listed final gate has the same source manifest (excluding verification
+records), SHA256
+`bdc6b3c83be485034180b236a2dfe5b064d491eac0b9c667481f8dfa3c1f6711`.
+The tested dirty state is the starting revision plus these four source/test files:
+
+| File | SHA256 |
+| --- | --- |
+| `src/backends/openai/events.cpp` | `408ee4bdfafa570e04b09a1180cb1d71fa01b5a0fc6c9107ba379628df05d006` |
+| `src/backends/openai/openai.c` | `9d32e0294ad6c9edabc0651aab2160f0c685bf1bafed9f1feda18d6273b10233` |
+| `tests/test_openai.c` | `55a488c0ad3e228b609c32b71de0add45d4f02006c29796e8fbadd401d59a639` |
+| `tests/fuzz/parser_backend_oom.c` | `06926a00e1f014ce4eb2a99f0641ff3dede75c1816de33b2d2cbcf2bba76d73d` |
+
+Self-review of the final diff confirms that the argument exception applies only
+to streamed item updates, parser cleanup occurs after borrowed callback lifetimes
+end, and no tool execution/checkpoint policy was changed. ADR 0114's ownership
+boundary is retained; this compatibility repair introduces no new ADR decision.
+This disposition is implementation evidence, not independent re-review approval
+or completion of the coordinator's full phase-1 contract.
+
+All six requested repair gates now pass on the same source/test state.
+`git diff --check` passes. The only tracked modifications are the four hashed
+source/test files above and this evidence file; all remain uncommitted.
+The broader phase-1 contract and review-2 benchmark findings remain with their
+existing owners.
