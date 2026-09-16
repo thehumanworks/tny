@@ -523,3 +523,42 @@ The baseline/final manifests differ only in these two source/test files.
 ADR 0114's existing ownership policy is unchanged; this repair requires no new
 architectural decision. Existing ADRs and both contract files match HEAD.
 This evidence entry is the only other tracked change. All work is uncommitted.
+
+## Coordinator integrated gates (HEAD e51b232, 2026-09-16)
+
+Run outside the agent sandbox by the coordinator with `TNY_TOOLS` and every
+`*_BASE_URL`/`*_API_KEY`/`*_API_KEY_CMD`/`*_WIRE_API` variable unset, on macOS
+arm64 (Apple clang 21.0.0). Raw records: [artifacts/integrated-e51b232/](artifacts/integrated-e51b232/).
+
+| Command | Exit |
+| --- | ---: |
+| `make -j8 release` | 0 |
+| `make -j8 test` | 0 |
+| `make -j8 quality` | 0 (no warnings; GCC analyzer skipped on Darwin as documented) |
+| `make -j8 leaks` | 0 |
+| `make -j8 test-abi` | 0 |
+| `make -j8 test-sdks` | 0 |
+| `make -j8 test-libtny-fault` | 0 |
+| `make -j8 test-libtny-fault-sanitize` | 0 |
+| `make -j8 test-libtny-fuzz-smoke` | 0 |
+| `make -j8 test-parser-smoke` | 0 |
+| `make -j8 test-cpp-gates` | 0 |
+| `make -j8 size-check` | 0 |
+| `make -j8 size-report` | 0 |
+| `make bench-startup BASELINE_TNY=<baseline 1d8ad71 release>` | 0 (all ADR 0115 thresholds pass) |
+| `bench_ttft.py --bench tui --iters 20` baseline / candidate | 0 / 0 |
+| `bench_ttft.py --bench ask-stdin --iters 20` baseline / candidate | 0 / 0 |
+
+Startup (paired, alternating, 100+ samples each): added median help +0.015 ms,
+version +0.028 ms, PTY first prompt +0.111 ms; all medians under 5 ms / 10 ms.
+Stripped size 1,086,288 -> 1,087,408 bytes; candidate links `libc++.1.dylib`
+in addition to `libSystem`. Local-mock TTFT medians: tui 530.2 -> 509.5 ms,
+ask-stdin 1120.3 -> 1168.2 ms (+4.3%, within the 10% gate). wasm artifacts
+were not built on this host (accounting reports unavailable).
+
+Independent reviews: four read-only gpt-6-astra sessions (design/first slice,
+re-review, third and fourth); findings and dispositions recorded above. The
+fourth review returned APPROVE with no remaining findings at code level.
+
+Unmet on this host (hosted CI evidence required): Linux glibc/musl, Windows
+MSYS, Emscripten node/browser, Nix, Linux TSan and libFuzzer lanes.

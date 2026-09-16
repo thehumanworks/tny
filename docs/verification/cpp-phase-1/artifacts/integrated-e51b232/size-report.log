@@ -1,0 +1,21 @@
+python3 tests/bench/bench_startup.py --candidate "build/tny" --size-only
+{
+  "cpp_runtime_dependencies": [
+    "/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 2200.27.0)"
+  ],
+  "dependencies": "/Users/tomas/projects/tny-cpp-parsers/build/tny:\n\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 2200.27.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1359.0.0)",
+  "dependency_command": [
+    "otool",
+    "-L"
+  ],
+  "file_bytes": 1087408,
+  "path": "/Users/tomas/projects/tny-cpp-parsers/build/tny",
+  "sha256": "96abc3bc66571ae63c189f184739cf4b24cb8e7e009abc13dd39fb0a735f1d83",
+  "stripped_bytes": 1087408,
+  "wasm": {
+    "artifacts_bytes": {},
+    "available": false,
+    "directory": "/Users/tomas/projects/tny-cpp-parsers/build/wasm",
+    "total_bytes": 0
+  }
+}
