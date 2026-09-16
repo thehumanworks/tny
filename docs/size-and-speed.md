@@ -145,3 +145,34 @@ fragmented-paint discrimination, sampling, and environment isolation without
 noisy timing assertions in CI. Run the existing local-mock `bench_ttft.py`
 `tui` and `ask-stdin` modes separately with 20 iterations per artifact.
 Those measure a different boundary and do not replace first-prompt evidence.
+
+The parser corpus microbenchmark builds the same C driver against baseline
+and candidate source trees, selecting `.c` or `.cpp` implementations without
+compiling untouched C as C++. It obtains release flags from each Makefile,
+uses the existing tny allocation boundary in both builds, and links the C-only
+baseline without an artificial C++ runtime dependency. It covers SSE (CRLF,
+comments, multiline data, UTF-8 and EOF flush), Connect frames/keepalives/end
+trailers, and 32 id-first tool-call assemblies with reused wire indices.
+
+```sh
+python3 tests/bench/bench_parsers.py \
+  --baseline /absolute/pre-series \
+  --candidate /absolute/candidate \
+  --work-dir /absolute/new-evidence-directory
+```
+
+Whole, one-byte and deterministically fragmented inputs must produce identical
+per-corpus observations. The runner keeps three alternating baseline/candidate
+batches, raw output checksums, time, allocation counts, peak RSS, source and
+artifact hashes, compiler identities, build commands and dynamic dependencies.
+Both median elapsed time and median peak RSS may increase by at most 10%.
+The default is 2,000 fresh parser lifetimes per sample; increase iterations
+on fast hosts rather than interpreting timer noise as an improvement.
+`--iterations 2` is a functional smoke only, never performance acceptance.
+The corpus driver is tested on pre-migration C as well as private C++.
+
+Allocation instrumentation is part of this controlled parser comparison;
+report normal CLI startup independently. Peak RSS includes process/runtime
+costs and corpus storage, so preserve the raw values and dependency inventory.
+The deterministic `test_bench_parsers.py` checks reject semantic differences,
+missing samples and invalid measurements before computing performance ratios.
