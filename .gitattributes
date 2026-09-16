@@ -1,0 +1,3 @@
+# Protocol fuzz seeds intentionally contain CRLF, NULs and incomplete frames.
+# Never normalize them on checkout or interpret their wire bytes as source diffs.
+tests/fuzz/parser-corpus/* binary

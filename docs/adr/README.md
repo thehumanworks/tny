@@ -97,3 +97,4 @@ files in this directory are the complete record.
 | [0111](0111-aarch64-size-cliff.md) | Linux native releases omit the frame pointer, `YYJSON_DISABLE_NON_STANDARD` drops dead JSON paths, the Nix package drops `zerocallusedregs`; the aarch64 64 KiB RELRO cliff is documented |
 
 - [0112 — Private C++20 ownership boundaries](0112-private-cpp20-ownership-boundaries.md)
+- [0113 — Owned stream decoding and failure boundaries](0113-owned-stream-decoding-and-failure-boundaries.md)

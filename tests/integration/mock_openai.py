@@ -365,6 +365,14 @@ class Handler(BaseHTTPRequestHandler):
             self.connection.setsockopt(
                 socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
             )
+            # The handler's makefile() reader retains the descriptor after
+            # socket.close(). Explicitly end transport I/O before releasing
+            # that reference; otherwise macOS can observe an open, silent
+            # socket rather than an aborted, unterminated chunked body.
+            try:
+                self.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass  # already disconnected is also an aborted transport
             self.connection.close()
             self.close_connection = True
         else:  # stall: hold the socket open and silent until the client gives up
