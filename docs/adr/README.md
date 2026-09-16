@@ -105,3 +105,5 @@ files in this directory are the complete record.
 - [0119 — Build-lane parity and exhaustive ownership-fault proof](0119-build-lane-parity-and-exhaustive-fault-proof.md)
 
 - [0120 — Measured Linux aarch64 C++ artifact budget](0120-measured-linux-aarch64-cpp-artifact-budget.md)
+
+- [0121 — Maintainable C++ and the six-megabyte ceiling](0121-maintainable-cpp-and-six-megabyte-ceiling.md)

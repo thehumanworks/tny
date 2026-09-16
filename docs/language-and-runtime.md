@@ -90,3 +90,12 @@ recording/decoding library or platform framework is linked into tny; PCM16
 WAV framing is C11 in the shared service. Windows and wasm support remote
 file transcription and cleanly reject microphone capture. See
 [Dictation](dictation.md) and [ADR 0079](adr/0079-provider-independent-dictation.md).
+
+
+## Current optimization priorities
+
+[ADR 0121](adr/0121-maintainable-cpp-and-six-megabyte-ceiling.md) supersedes
+old per-platform executable ceilings with a strictly-below-6,000,000-byte
+artifact guardrail. Prefer readable, explicit ownership and maintainable
+extension boundaries over byte-saving tricks. Latency, throughput, memory,
+fault recovery and ABI gates remain mandatory and independently measured.

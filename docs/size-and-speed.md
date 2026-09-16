@@ -21,21 +21,19 @@ Re-measure the same fx version you compare against. Do not compare debug tny to 
 
 These apply to the **tny executable only**. `cursor-sdk-bridge` is a Bun-packaged host (see its `manifest.json` `runtime` field). Codex is a separate Rust binary. Neither counts.
 
-| Build | Must | Stretch |
-| --- | --- | --- |
-| macOS arm64, stripped, libSystem + Security.framework | **< 1.8 MiB** | < 1.2 MiB |
-| Linux musl static, stripped | **< 1.5 MiB** | < 1.0 MiB |
-| Linux glibc dynamic, x86_64 and other architectures | **≤ 1,048,576 bytes** | < 0.8 MiB |
-| Linux glibc dynamic, aarch64/arm64 | **≤ 1,052,672 bytes** ([ADR 0120](adr/0120-measured-linux-aarch64-cpp-artifact-budget.md): measured 4 KiB allowance) | ≤ 1 MiB |
-| Windows x86_64 (MSYS-linked exe) | **< 2.0 MiB** | — |
-| wasm artifact, js glue + `.wasm`, Asyncify included ([ADR 0017](adr/0017-wasm-browser-parity.md)) | **< 1.5 MiB** | < 1.0 MiB |
-| Idle RSS after prompt | **< 4 MiB** | < 2 MiB |
+| Build | Artifact ceiling |
+| --- | --- |
+| Native tny, all supported platforms (dynamic or static) | **< 6,000,000 bytes** |
+| wasm plus JavaScript glue | **< 6,000,000 bytes** |
 
-The fx figures above are historical, not a current comparison. The `ci`
-workflow runs `make size-check` on every target (and `make wasm-size-check`
-for the wasm artifact) and fails the PR if the budget is exceeded
-([ci.md](ci.md)). Current wasm artifact: ~0.66 MiB total with broad
-Asyncify instrumentation — no narrowing needed yet.
+[ADR 0121](adr/0121-maintainable-cpp-and-six-megabyte-ceiling.md) records the
+user's current priority: maintainability, explicit ownership, reliable failure
+handling and speed matter more than minimizing executable size. CI/release and
+Nix/install reuse the Makefile's one inclusive maximum of 5,999,999 bytes.
+Size tests reject an artifact exactly at 6,000,000 bytes; accounting remains.
+C++ runtime dependencies are reported separately. Previous platform ceilings
+and fx comparisons below are historical evidence, not current acceptance rules.
+Memory and performance gates remain unchanged.
 
 Startup (empty `HOME` override, no network):
 
@@ -53,9 +51,8 @@ the two `LOAD` segments are aligned to 64 KiB and the RELRO end must sit
 on a 64 KiB boundary, so the file grows by a whole 64 KiB the moment the
 read-only (`R E`) segment passes ≈ 975 KiB (`64 KiB − relro_size` past a
 boundary; `readelf -lW build/tny` shows the segment). Read a sudden +64 KiB
-as that cliff, not as 64 KiB of new instructions. The measured private-C++
-migration uses the frozen, architecture-specific allowance in ADR 0120;
-all other caps and the automated checks remain unchanged. The Linux native
+as that cliff, not as 64 KiB of new instructions. ADR 0121 replaces the old
+architecture-specific byte constraints with the current six-megabyte guardrail. The Linux native
 lanes already omit the frame pointer and drop dead yyjson paths for margin.
 
 Packaged builds pay the budget too. The Nix package

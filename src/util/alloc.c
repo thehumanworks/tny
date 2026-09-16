@@ -68,9 +68,7 @@ void tny_alloc_provider_failed(void) {
     alloc_state.provider_failed = true;
 }
 
-long tny_c_strtol(const char *nptr, char **endptr, int base) {
-    return strtol(nptr, endptr, base);
-}
+long tny_c_strtol(const char *nptr, char **endptr, int base) { return strtol(nptr, endptr, base); }
 
 bool tny_alloc_scope_failed(void) { return alloc_state.failed; }
 

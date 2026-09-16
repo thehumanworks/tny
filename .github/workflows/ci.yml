@@ -107,19 +107,16 @@ jobs:
           - name: linux-x86_64
             os: ubuntu-24.04
             triple: linux-x86_64
-            size_max: "1048576"
             suite: full
             metal: false
           - name: linux-aarch64
             os: ubuntu-24.04-arm
             triple: linux-aarch64
-            size_max: "1052672"
             suite: unit
             metal: false
           - name: darwin-arm64
             os: macos-15
             triple: darwin-arm64
-            size_max: "1887436"
             suite: unit
             metal: true
     steps:
@@ -167,7 +164,7 @@ jobs:
           fi
           make test-libtny-fault
           make test-libtny-fuzz-smoke test-parser-fuzz-smoke test-parser-ownership test-search-ownership test-parser-backend-ownership test-runtime-ownership test-runner-ownership
-          make size-check SIZE_MAX="${{ matrix.size_max }}"
+          make size-check
           make pack TRIPLE="${{ matrix.triple }}"
           ./dist/tny-${{ matrix.triple }} --version
           ./dist/tny-${{ matrix.triple }} ask --help >/dev/null
@@ -238,7 +235,7 @@ jobs:
             sh -c 'apk add --no-cache build-base g++ python3 \
               && make -j"$(getconf _NPROCESSORS_ONLN)" release STATIC=1 \
               && make test-unit test-parser-fuzz-smoke test-runner-ownership SANITIZE=0 STATIC=1 \
-              && make size-check SIZE_MAX=1572864 STATIC=1 \
+              && make size-check STATIC=1 \
               && make pack TRIPLE='"${{ matrix.triple }}"' STATIC=1 \
               && ./dist/tny-'"${{ matrix.triple }}"' --version \
               && ./dist/tny-'"${{ matrix.triple }}"' ask --help >/dev/null'
@@ -282,7 +279,7 @@ jobs:
             *) echo "expected an MSYS2 POSIX environment" >&2; exit 1 ;;
           esac
           make -j"$(nproc)" release
-          make size-check SIZE_MAX=2097152
+          make size-check
           make pack TRIPLE=windows-x86_64
           ./dist/tny-windows-x86_64.exe --version
           ./dist/tny-windows-x86_64.exe --help >/dev/null

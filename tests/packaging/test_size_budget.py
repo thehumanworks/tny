@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep measured per-platform artifact budgets enforced, not merely documented."""
+"""Enforce the user's strict decimal-six-MB guardrail from one build policy."""
 
 from __future__ import annotations
 
@@ -11,27 +11,26 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-ARM64_LIMIT = 1_052_672
+LIMIT = 6_000_000
+MAXIMUM = LIMIT - 1
 
 
 class SizeBudgetTests(unittest.TestCase):
-    def make(
-        self, *arguments: str, input_text: str | None = None
-    ) -> subprocess.CompletedProcess[str]:
-        environment = dict(os.environ)
-        for name in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "SIZE_MAX"):
-            environment.pop(name, None)
+    def make(self, *args: str, input_text: str | None = None):
+        env = dict(os.environ)
+        for key in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "SIZE_MAX", "WASM_SIZE_MAX"):
+            env.pop(key, None)
         return subprocess.run(
-            ["make", "--no-print-directory", "-s", *arguments],
+            ["make", "--no-print-directory", "-s", *args],
             cwd=ROOT,
-            env=environment,
+            env=env,
             text=True,
             capture_output=True,
             input=input_text,
             timeout=30,
         )
 
-    def budget(self, system: str, architecture: str, *overrides: str) -> int:
+    def budget(self, system: str, architecture: str, *overrides: str):
         result = self.make(
             f"UNAME_S={system}",
             f"UNAME_M={architecture}",
@@ -40,73 +39,66 @@ class SizeBudgetTests(unittest.TestCase):
             "Makefile",
             "-f",
             "-",
-            "tny-budget-probe",
-            input_text="tny-budget-probe:\n\t@echo $(SIZE_MAX)\n",
+            "budget-probe",
+            input_text="budget-probe:\n\t@echo $(SIZE_MAX) $(WASM_SIZE_MAX)\n",
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stderr, "")
-        return int(result.stdout.strip())
+        return tuple(map(int, result.stdout.split()))
 
-    def test_only_linux_arm64_receives_the_measured_allowance(self) -> None:
-        cases = (
-            ("Linux", "aarch64", ARM64_LIMIT),
-            ("Linux", "arm64", ARM64_LIMIT),
-            ("Linux", "x86_64", 1_048_576),
-            ("Linux", "riscv64", 1_048_576),
-            ("Darwin", "arm64", 1_887_436),
-            ("Darwin", "x86_64", 1_887_436),
-            ("MSYS_NT-10.0", "x86_64", 2_097_152),
-        )
-        for system, architecture, expected in cases:
-            with self.subTest(system=system, architecture=architecture):
-                self.assertEqual(self.budget(system, architecture), expected)
+    def test_one_ceiling_for_all_platforms_and_link_modes(self):
+        for system, arch in (
+            ("Linux", "aarch64"),
+            ("Linux", "arm64"),
+            ("Linux", "x86_64"),
+            ("Linux", "riscv64"),
+            ("Darwin", "arm64"),
+            ("MSYS_NT-10.0", "x86_64"),
+        ):
+            for static in (0, 1):
+                with self.subTest(system=system, architecture=arch, static=static):
+                    self.assertEqual(
+                        self.budget(system, arch, f"STATIC={static}"),
+                        (MAXIMUM, MAXIMUM),
+                    )
 
-    def test_explicit_caller_override_is_not_overwritten(self) -> None:
-        self.assertEqual(self.budget("Linux", "aarch64", "SIZE_MAX=12345"), 12_345)
+    def test_explicit_stricter_downstream_override_survives(self):
         self.assertEqual(
-            self.budget("Linux", "aarch64", "STATIC=1", "SIZE_MAX=1572864"),
-            1_572_864,
+            self.budget("Linux", "aarch64", "SIZE_MAX=12345"), (12345, 12345)
+        )
+        self.assertEqual(
+            self.budget("Linux", "aarch64", "WASM_SIZE_MAX=9876"), (MAXIMUM, 9876)
         )
 
-    def test_ci_and_release_mirror_both_linux_architectures(self) -> None:
+    def test_workflows_do_not_fork_the_product_size_policy(self):
         for name in ("ci.yml", "release.yml"):
             text = (ROOT / ".github/workflows" / name).read_text()
-            for architecture, expected in (
-                ("aarch64", ARM64_LIMIT),
-                ("x86_64", 1_048_576),
-            ):
-                with self.subTest(workflow=name, architecture=architecture):
-                    block = text.split(f"- name: linux-{architecture}\n", 1)[1]
-                    block = block.split("- name:", 1)[0]
-                    match = re.search(r'size_max: "(\d+)"', block)
-                    self.assertIsNotNone(match)
-                    assert match is not None
-                    self.assertEqual(int(match.group(1)), expected)
+            with self.subTest(workflow=name):
+                self.assertIn("make size-check", text)
+                self.assertNotRegex(text, r"\b(?:WASM_)?SIZE_MAX\s*=")
+                self.assertNotRegex(text, r"\bsize_max:")
+        self.assertIn("$(SIZE_MAX)", (ROOT / "nix/package.nix").read_text())
 
-    def test_real_size_check_accepts_boundary_and_rejects_one_byte_over(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="tny-size-boundary-") as root:
-            artifact = Path(root) / "artifact"
-            for size in (ARM64_LIMIT, ARM64_LIMIT + 1):
-                with self.subTest(bytes=size):
-                    with artifact.open("wb") as file:
-                        file.truncate(size)
-                    result = self.make(
-                        "-o",
-                        "release",
-                        "size-check",
-                        f"BIN={artifact}",
-                        "UNAME_S=Linux",
-                        "UNAME_M=aarch64",
-                    )
-                    self.assertIn(f"limit {ARM64_LIMIT}", result.stdout)
-                    if size == ARM64_LIMIT:
-                        self.assertEqual(result.returncode, 0, result.stderr)
-                        self.assertEqual(result.stderr, "")
-                    else:
-                        self.assertNotEqual(result.returncode, 0)
-                        self.assertIn(
-                            f"over the {ARM64_LIMIT}-byte budget", result.stderr
-                        )
+    def test_native_boundary_rejects_exactly_six_megabytes(self):
+        with tempfile.TemporaryDirectory(prefix="tny-size-native-") as root:
+            path = Path(root) / "artifact"
+            for size in (MAXIMUM, LIMIT):
+                with path.open("wb") as file:
+                    file.truncate(size)
+                result = self.make("-o", "release", "size-check", f"BIN={path}")
+                self.assertIn(f"limit {MAXIMUM}", result.stdout)
+                self.assertEqual(result.returncode == 0, size < LIMIT, result.stderr)
+                if size < LIMIT:
+                    self.assertEqual(result.stderr, "")
+                else:
+                    self.assertIn("over the", result.stderr)
+
+    def test_wasm_budget_is_declared_from_same_source(self):
+        makefile = (ROOT / "Makefile").read_text()
+        self.assertRegex(
+            makefile, re.compile(r"^WASM_SIZE_MAX\s*\?=\s*\$\(SIZE_MAX\)$", re.M)
+        )
+        self.assertIn('"$$bytes" -gt "$(WASM_SIZE_MAX)"', makefile)
 
 
 if __name__ == "__main__":

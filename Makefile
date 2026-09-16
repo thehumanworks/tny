@@ -314,23 +314,10 @@ ifeq ($(STATIC),0)
   endif
 endif
 
-# Size budgets (docs/size-and-speed.md). Override SIZE_MAX in CI per target.
-# Linux dynamic: 1 MiB, plus a measured 4 KiB allowance on aarch64/arm64
-# (ADR 0120). Static musl overrides to 1.5 MiB in CI. Other budgets remain
-# 1.8 MiB Darwin and 2.0 MiB Windows (MSYS-linked).
-ifeq ($(UNAME_S),Darwin)
-  SIZE_MAX ?= 1887436
-else ifeq ($(WINDOWS),1)
-  SIZE_MAX ?= 2097152
-else ifeq ($(UNAME_S),Linux)
-  ifneq ($(filter aarch64 arm64,$(UNAME_M)),)
-    SIZE_MAX ?= 1052672
-  else
-    SIZE_MAX ?= 1048576
-  endif
-else
-  SIZE_MAX ?= 1048576
-endif
+# One product ceiling (ADR 0121): strictly below decimal 6 MB on every
+# supported artifact. SIZE_MAX is inclusive, so 6,000,000 itself is rejected.
+# Keep accounting; do not sacrifice readability, ownership or speed for bytes.
+SIZE_MAX ?= 5999999
 
 .PHONY: all release debug test test-unit test-event-schema test-conformance-contract check-cursor-sdk-contract test-cursor-sdk-contract test-extensions-python test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
@@ -1234,7 +1221,7 @@ wasm-web: $(WASM_WEB)
 
 # wasm size budget: artifact (js glue + wasm) stays under the Linux native
 # budget so the browser build cannot quietly outgrow the product invariant.
-WASM_SIZE_MAX ?= 1572864
+WASM_SIZE_MAX ?= $(SIZE_MAX)
 wasm-size-check: wasm
 	@bytes=$$(cat $(WASM_NODE) $(WASM_NODE:.js=.wasm) | wc -c | tr -d ' '); \
 	echo "$$bytes wasm artifact (limit $(WASM_SIZE_MAX))"; \

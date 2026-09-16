@@ -236,12 +236,14 @@ int cursor_stream_start(cursor_stream *s, const char *service, const char *metho
         snprintf(err, errlen, "%s",
                  encoded == TNY_PARSE_INVALID ? "bridge request frame too large" : "out of memory");
         buf_free(&framed);
+        if (auth.data) secure_zero(auth.data, auth.cap);
         buf_free(&auth);
         cursor_stream_stop(s);
         return -1;
     }
     int rc = http_request(s->conn, "POST", path, hdrs, framed.data, framed.len);
     buf_free(&framed);
+    if (auth.data) secure_zero(auth.data, auth.cap);
     buf_free(&auth);
     if (rpc_oom()) return -2;
     if (rc != 0) {

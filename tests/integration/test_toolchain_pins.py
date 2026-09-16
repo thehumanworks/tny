@@ -82,7 +82,7 @@ def main() -> int:
         "ANALYZER_CC=gcc-14 ANALYZER_CXX=g++-14",
         "CC=gcc-14 CXX=g++-14",
         "CC=clang CXX=clang++",
-        "install: gcc gcc-c++ make",
+        "install: gcc make",
         "build-base g++",
         "make test-cpp-build",
         "test-parser-fuzz-smoke",

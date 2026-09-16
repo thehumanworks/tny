@@ -76,17 +76,14 @@ jobs:
             os: ubuntu-24.04
             triple: linux-x86_64
             node_package: linux-x64
-            size_max: "1048576"
           - name: linux-aarch64
             os: ubuntu-24.04-arm
             triple: linux-aarch64
             node_package: linux-arm64
-            size_max: "1052672"
           - name: darwin-arm64
             os: macos-15
             triple: darwin-arm64
             node_package: darwin-arm64
-            size_max: "1887436"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -114,7 +111,7 @@ jobs:
           # `git describe` (docs/adr/0014)
           export TNY_VERSION="${GITHUB_REF_NAME#v}"
           make -j"$jobs" release
-          make size-check SIZE_MAX="${{ matrix.size_max }}"
+          make size-check
           make pack TRIPLE="${{ matrix.triple }}"
           ./dist/tny-${{ matrix.triple }} --version
           ./dist/tny-${{ matrix.triple }} --help >/dev/null
@@ -347,7 +344,7 @@ jobs:
             -e TNY_VERSION="${GITHUB_REF_NAME#v}" alpine:3.21 \
             sh -c 'apk add --no-cache build-base g++ \
               && make -j"$(getconf _NPROCESSORS_ONLN)" release STATIC=1 \
-              && make size-check SIZE_MAX=1572864 STATIC=1 \
+              && make size-check STATIC=1 \
               && make pack TRIPLE='"${{ matrix.triple }}"' STATIC=1 \
               && ./dist/tny-'"${{ matrix.triple }}"' --version \
               && mkdir -p dist/stage/lib/tny/tny_ext dist/stage/share/tny \
@@ -393,7 +390,7 @@ jobs:
           set -eu
           export TNY_VERSION="${GITHUB_REF_NAME#v}"
           make -j"$(nproc)" release
-          make size-check SIZE_MAX=2097152
+          make size-check
           make pack TRIPLE=windows-x86_64
           ./dist/tny-windows-x86_64.exe --version
           # The MSYS binary needs msys-2.0.dll next to it; zip keeps them

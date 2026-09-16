@@ -98,3 +98,12 @@ Do not write exploits, exploit PoCs, malware, or attack procedures. Permission a
 
 ## Learned Workspace Facts
 
+
+
+## Current C++ migration priority (2026-09-16)
+
+Prioritize maintainable, extensible, reliable ownership code and measured
+performance. The tny artifact must stay strictly below decimal 6 MB
+(6,000,000 bytes); older tighter size targets above are superseded by ADR0121.
+Do not optimize bytes at the expense of clear code, exceptions/OOM handling,
+resource cleanup, or speed. Preserve the private C++20/public C ABI boundary.

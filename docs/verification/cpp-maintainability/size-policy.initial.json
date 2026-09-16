@@ -1,0 +1,13 @@
+{
+  "frozen_utc": "2026-09-16T20:05:12.342819+00:00",
+  "authority": "2026-09-16 user: binary size no longer a constraint below 6mb",
+  "unit": "decimal MB",
+  "exclusive_limit_bytes": 6000000,
+  "inclusive_max_bytes": 5999999,
+  "artifacts": [
+    "native tny executable",
+    "static tny executable",
+    "wasm plus glue"
+  ],
+  "performance_and_memory_gates": "unchanged"
+}

@@ -211,6 +211,21 @@ def assert_secret_buffers_are_wiped() -> None:
         )
         assert pattern.search(source), f"request buffer is not wiped in {relative}"
 
+    source = (ROOT / "src/backends/cursor/rpc.c").read_text()
+    start = source.index("int cursor_stream_start(")
+    end = source.index("\nint cursor_stream_pump_raw", start)
+    stream = source[start:end]
+    frees = list(re.finditer(r"buf_free\(&auth\);", stream))
+    wipes = list(
+        re.finditer(
+            r"if \(auth\.data\) secure_zero\(auth\.data, auth\.cap\);\s*buf_free\(&auth\);",
+            stream,
+        )
+    )
+    assert len(frees) == 2 and len(wipes) == len(frees), (
+        "Cursor streaming auth must be wiped on framing failure and after request construction"
+    )
+
 
 def assert_tls_close_is_guarded() -> None:
     source = (ROOT / "src/net/stream.c").read_text()

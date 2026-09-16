@@ -24,6 +24,7 @@ import re
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -384,7 +385,7 @@ TARGETS = [
             "custom_tool_invalidate",
             "custom_tools_invalidate_all",
         ],
-        r"tny_wake_signal|call->completed|call->generation !=|call->epoch !=",
+        r"tny_wake_signal|call\.completed|call\.generation !=|call\.epoch !=",
         "tests/integration/test_libtny_custom_tools.py",
         "libtny-custom-tools",
     ),
@@ -1034,7 +1035,7 @@ def line_of(text, pos):
 
 
 def gen_mutants(path, names, line_re):
-    text = open(path).read()
+    text = Path(path).read_text()
     spans = function_ranges(text, names)
     lines = text.split("\n")
     out = []
@@ -1122,12 +1123,26 @@ def main():
         mutants += ms
     print("generated %d mutants" % len(mutants))
 
+    if not mutants:
+        print("error: mutation selection generated no mutants", file=sys.stderr)
+        return 2
+    baseline = ["./build/tny-test"]
+    if args.test:
+        baseline += ["-t", args.test]
+    for command in (["make", "debug"], baseline):
+        rc, output = run(command, 300)
+        if rc != 0:
+            print(
+                "error: unmodified mutation baseline failed\n" + output, file=sys.stderr
+            )
+            return 2
+
     killed_unit = killed_int = invalid = 0
     survivors = []
     t0 = time.time()
     for i, mu in enumerate(mutants):
-        orig = open(mu["file"]).read()
-        open(mu["file"], "w").write(mu["text"])
+        orig = Path(mu["file"]).read_text()
+        Path(mu["file"]).write_text(mu["text"])
         # ancient GNU make (3.81, macOS) has 1-second mtime granularity: a
         # mutant written <1s after the previous restore would NOT rebuild
         # and the tests would run against the original code. Force it.
@@ -1168,12 +1183,15 @@ def main():
                 survivors.append(mu)
                 print("%3d/%d  SURVIVED  %s" % (i + 1, len(mutants), tag))
         finally:
-            open(mu["file"], "w").write(orig)
+            Path(mu["file"]).write_text(orig)
             now = time.time()  # same granularity trap on the restore
             os.utime(mu["file"], (now + 2, now + 2))
-    # restore builds to pristine state
-    run(["make", "debug"], 300)
-    run(["make", "release"], 300)
+    # Restoration is part of the gate, not an unchecked best-effort action.
+    for command in (["make", "debug"], ["make", "release"]):
+        rc, output = run(command, 300)
+        if rc != 0:
+            print("error: restored mutation build failed\n" + output, file=sys.stderr)
+            return 2
 
     total = len(mutants) - invalid
     print("\n== mutation results (%.0fs) ==" % (time.time() - t0))
@@ -1188,6 +1206,9 @@ def main():
         )
     if total:
         print("kill ratio    : %.1f%%" % (100.0 * (killed_unit + killed_int) / total))
+    if not total:
+        print("error: no valid mutants were exercised", file=sys.stderr)
+        return 2
     return 1 if survivors else 0
 
 
