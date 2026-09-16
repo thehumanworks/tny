@@ -373,7 +373,7 @@ int cursor_sdk_stream_pump(cursor_sdk_client *client, connect_frame_cb cb, void 
         return -1;
     }
     if (rc != 0) {
-        if (client->stream.dec.acc.len != 0) {
+        if (connect_decoder_pending(&client->stream.dec)) {
             snprintf(err, errlen, "cursor: bridge stream ended with a truncated Connect envelope");
             parse_or_synthesize_error(sdk_error, NULL, 0, status, err);
             cursor_sdk_stream_stop(client);

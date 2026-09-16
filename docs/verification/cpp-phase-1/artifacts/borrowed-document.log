@@ -1,0 +1,137 @@
+=================================================================
+==38567==ERROR: AddressSanitizer: heap-use-after-free on address 0x60c0000001f5 at pc 0x0001062faefc bp 0x00016b670960 sp 0x00016b6700f8
+READ of size 1 at 0x60c0000001f5 thread T0
+==38567==WARNING: external symbolizer didn't start up correctly!
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x1062faef8"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x10476ba80"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x10476a63c"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x104869098"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x10486756c"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x10477a420"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x10477650c"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x1047750d0"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x19c48be84"
+    #0 0x0001062faef8 in strcmp+0x44c (/Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.asan_osx_dynamic.dylib:arm64e+0x16ef8)
+    #1 0x00010476ba80 in (anonymous namespace)::by_id(oa_callset const*, char const*)+0x504 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x100003a80)
+    #2 0x00010476a63c in oa_calls_feed+0x854 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x10000263c)
+    #3 0x000104869098 in (anonymous namespace)::chat_event((anonymous namespace)::sink const&, yyjson_val*)+0xee4 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x100101098)
+    #4 0x00010486756c in oa_decode_event+0x6a0 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x1000ff56c)
+    #5 0x00010477a420 in (anonymous namespace)::lifetime_and_identity()::$_0::operator()(char const*) const+0x100 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x100012420)
+    #6 0x00010477650c in (anonymous namespace)::lifetime_and_identity()+0x244 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x10000e50c)
+    #7 0x0001047750d0 in main+0x198 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x10000d0d0)
+    #8 0x00019c48be84 in start+0x1a1c (/usr/lib/dyld:arm64e+0x31e84)
+
+0x60c0000001f5 is located 53 bytes inside of 114-byte region [0x60c0000001c0,0x60c000000232)
+freed by thread T0 here:
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x106325308"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x104fb6f8c"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x10486d260"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x10486ce70"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x10486ccd8"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x10486a60c"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x1048675dc"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x10477a420"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x1047764f8"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x1047750d0"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x19c48be84"
+    #0 0x000106325308 in free+0x7c (/Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.asan_osx_dynamic.dylib:arm64e+0x41308)
+    #1 0x000104fb6f8c in json_free+0x18 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x10084ef8c)
+    #2 0x00010486d260 in tny::doc_delete::operator()(yyjson_doc*) const+0x3dc (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x100105260)
+    #3 0x00010486ce70 in std::__1::unique_ptr<yyjson_doc, tny::doc_delete>::reset[abi:nqe220106](yyjson_doc*)+0x184 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x100104e70)
+    #4 0x00010486ccd8 in std::__1::unique_ptr<yyjson_doc, tny::doc_delete>::~unique_ptr[abi:nqe220106]()+0x54 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x100104cd8)
+    #5 0x00010486a60c in std::__1::unique_ptr<yyjson_doc, tny::doc_delete>::~unique_ptr[abi:nqe220106]()+0x50 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x10010260c)
+    #6 0x0001048675dc in oa_decode_event+0x710 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x1000ff5dc)
+    #7 0x00010477a420 in (anonymous namespace)::lifetime_and_identity()::$_0::operator()(char const*) const+0x100 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x100012420)
+    #8 0x0001047764f8 in (anonymous namespace)::lifetime_and_identity()+0x230 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x10000e4f8)
+    #9 0x0001047750d0 in main+0x198 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x10000d0d0)
+    #10 0x00019c48be84 in start+0x1a1c (/usr/lib/dyld:arm64e+0x31e84)
+
+previously allocated by thread T0 here:
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x106325214"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x10477bdac"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x104fb6f30"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x1051912a8"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x104867d54"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x104867404"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x10477a420"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x1047764f8"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x1047750d0"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x19c48be84"
+    #0 0x000106325214 in malloc+0x78 (/Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.asan_osx_dynamic.dylib:arm64e+0x41214)
+    #1 0x00010477bdac in tny_alloc_malloc+0x3c (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x100013dac)
+    #2 0x000104fb6f30 in json_malloc+0x18 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x10084ef30)
+    #3 0x0001051912a8 in yyjson_read_opts+0x2bc8 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x100a292a8)
+    #4 0x000104867d54 in tny::parse(std::__1::basic_string_view<char, std::__1::char_traits<char>>)+0x1cc (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x1000ffd54)
+    #5 0x000104867404 in oa_decode_event+0x538 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x1000ff404)
+    #6 0x00010477a420 in (anonymous namespace)::lifetime_and_identity()::$_0::operator()(char const*) const+0x100 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x100012420)
+    #7 0x0001047764f8 in (anonymous namespace)::lifetime_and_identity()+0x230 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x10000e4f8)
+    #8 0x0001047750d0 in main+0x198 (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x10000d0d0)
+    #9 0x00019c48be84 in start+0x1a1c (/usr/lib/dyld:arm64e+0x31e84)
+
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x1062faef8"
+==38567==WARNING: Can't read from symbolizer at fd 3
+==38567==WARNING: atos failed to symbolize address "0x10476ba80"
+SUMMARY: AddressSanitizer: heap-use-after-free (/Users/tomas/projects/tny-cpp-parsers/build/parser-mutations/borrowed-document:arm64+0x100003a80) in (anonymous namespace)::by_id(oa_callset const*, char const*)+0x504
+Shadow bytes around the buggy address:
+  0x60bfffffff00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x60bfffffff80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x60c000000000: fa fa fa fa fa fa fa fa fd fd fd fd fd fd fd fd
+  0x60c000000080: fd fd fd fd fd fd fd fd fa fa fa fa fa fa fa fa
+  0x60c000000100: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+=>0x60c000000180: fa fa fa fa fa fa fa fa fd fd fd fd fd fd[fd]fd
+  0x60c000000200: fd fd fd fd fd fd fd fa fa fa fa fa fa fa fa fa
+  0x60c000000280: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 fa
+  0x60c000000300: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x60c000000380: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x60c000000400: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==38567==ABORTING

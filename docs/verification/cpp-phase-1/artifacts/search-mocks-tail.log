@@ -1,0 +1,14 @@
+test_missing_content_type_and_whole_json_match_native_backend (__main__.SearchServiceTests.test_missing_content_type_and_whole_json_match_native_backend) ... ok
+test_model_setting_is_independent (__main__.SearchServiceTests.test_model_setting_is_independent) ... ok
+test_other_provider_roundtrip_keeps_model_and_cited_tool_result (__main__.SearchServiceTests.test_other_provider_roundtrip_keeps_model_and_cited_tool_result) ... ok
+test_runner_cancellation_during_search_and_refresh_in_both_profiles (__main__.SearchServiceTests.test_runner_cancellation_during_search_and_refresh_in_both_profiles) ... ok
+test_search_is_saved_before_background_restart_in_both_tool_profiles (__main__.SearchServiceTests.test_search_is_saved_before_background_restart_in_both_tool_profiles) ... ok
+test_split_sse_and_duplicate_terminal_event (__main__.SearchServiceTests.test_split_sse_and_duplicate_terminal_event) ... ok
+test_standalone_ssh_command_override_and_local_codex_service (__main__.SearchServiceTests.test_standalone_ssh_command_override_and_local_codex_service) ... ok
+test_terminal_prompt_advertises_provider_independent_login (__main__.SearchServiceTests.test_terminal_prompt_advertises_provider_independent_login) ... ok
+test_timeout_headers_and_body (__main__.SearchServiceTests.test_timeout_headers_and_body) ... ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 26.650s
+
+OK

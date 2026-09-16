@@ -21,7 +21,7 @@ let
     ../python
     ../scripts/check_abi_baseline.py
     ../shell # installed workflows and the Zsh quick-ask widget
-    ../src
+    ../src # includes private .cpp/.hpp parser owners
     ../third_party
   ];
 
@@ -53,6 +53,7 @@ let
     # All of tests/, which includes the frozen tool-profile A/B fixtures
     # under tests/bench/fixtures/tools/ that
     # tests/integration/test_bench_tools.py copies and scores (issue #103).
+    # tests/fuzz/parser corpus and portable parser driver are included here.
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
     # runner_restart_fault.c uses the existing stdenv C compiler for a private
     # read/write interposer; no network, new package or external test data.

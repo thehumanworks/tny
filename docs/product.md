@@ -11,7 +11,7 @@ Required backends (all first-class):
 3. **Other agents** via [ACP](https://agentclientprotocol.com/) (JSON-RPC over stdio).
 4. **OpenAI-compatible** HTTP providers (native tool loop owned by tny).
 
-fx is Zig 0.16, Apache-2.0, experimental: **6.44 MiB** macOS arm64 and **11.12 MiB** static Linux in v0.0.3 ([fx.sh](https://fx.sh), [README](https://github.com/vercel-labs/fx) still says 7.8 MiB). Inference is Vercel AI Gateway (AI SDK LM spec v4), not public OpenAI-compat. tny is **C11** so the CLI can undercut those binaries and talk to BYOK providers plus host agents.
+fx is Zig 0.16, Apache-2.0, experimental: **6.44 MiB** macOS arm64 and **11.12 MiB** static Linux in v0.0.3 ([fx.sh](https://fx.sh), [README](https://github.com/vercel-labs/fx) still says 7.8 MiB). Inference is Vercel AI Gateway (AI SDK LM spec v4), not public OpenAI-compat. tny uses **C11 with private C++20 parsers** ([ADR 0114](adr/0114-private-cpp-parser-ownership.md)) to talk to BYOK providers and host agents; size and startup remain measured gates.
 
 ## What "keep the functionality" means
 

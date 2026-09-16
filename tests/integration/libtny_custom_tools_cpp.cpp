@@ -4,14 +4,14 @@
 #include <cstring>
 #include <iostream>
 
-struct State { int invoked = 0; };
+struct State {
+    int invoked = 0;
+};
 
-static tny_bytes view(const char *text) {
-    return {text, static_cast<uint64_t>(std::strlen(text))};
-}
+static tny_bytes view(const char *text) { return {text, static_cast<uint64_t>(std::strlen(text))}; }
 
-static int32_t TNY_CALL invoke(void *opaque, tny_tool_call *, uint64_t,
-                               tny_bytes, tny_tool_result_v1 *result) noexcept {
+static int32_t TNY_CALL invoke(void *opaque, tny_tool_call *, uint64_t, tny_bytes,
+                               tny_tool_result_v1 *result) noexcept {
     auto *state = static_cast<State *>(opaque);
     try {
         state->invoked++;
@@ -19,9 +19,7 @@ static int32_t TNY_CALL invoke(void *opaque, tny_tool_call *, uint64_t,
             return TNY_STATUS_INTERNAL;
         result->data = view("cpp-result");
         return TNY_TOOL_INVOKE_SYNC;
-    } catch (...) {
-        return TNY_STATUS_INTERNAL;
-    }
+    } catch (...) { return TNY_STATUS_INTERNAL; }
 }
 
 int main(int argc, char **argv) {
@@ -40,12 +38,11 @@ int main(int argc, char **argv) {
     spec.user_data = &state;
     spec.name = view("host_echo");
     spec.description = view("C++ custom tool fixture");
-    spec.input_schema_json = view(
-        "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}");
+    spec.input_schema_json =
+        view("{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}");
     spec.invoke = invoke;
     tny_tool_registration *registration = nullptr;
-    if (tny_runtime_register_tool(runtime, &spec, &registration, nullptr) != 0)
-        return 4;
+    if (tny_runtime_register_tool(runtime, &spec, &registration, nullptr) != 0) return 4;
     tny_session *session = nullptr;
     if (tny_session_create(runtime, &session, nullptr) != 0 ||
         tny_session_send(session, view("invoke C++ tool"), nullptr) != 0)
@@ -63,8 +60,8 @@ int main(int argc, char **argv) {
         tny_event_free(event);
     }
     tny_session_free(session);
-    if (tny_tool_registration_unregister(registration, nullptr) != 0 ||
-        state.invoked != 1 || terminals != 1)
+    if (tny_tool_registration_unregister(registration, nullptr) != 0 || state.invoked != 1 ||
+        terminals != 1)
         return 8;
     tny_runtime_free(runtime);
     std::cout << "libtny-custom-tools: C++ callback passed\n";

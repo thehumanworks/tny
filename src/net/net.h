@@ -76,21 +76,23 @@ void http_close(http_conn *c);
 /* The path prefix from base_url (e.g. "/v1"), for building request paths. */
 const char *http_prefix(http_conn *c);
 
-/* ---- SSE ---- */
+/* ---- SSE ----
+ * Initialized facades are noncopyable by contract; free before reinitializing. */
 typedef void (*sse_event_cb)(const char *data, size_t len, void *ud);
 
 typedef struct {
-    buf_t acc;  /* unparsed input */
-    buf_t data; /* accumulated data: lines for the current event */
+    void *owner; /* private C++ owner, initialized lazily */
+    int status;  /* sticky until reset: 0 or -2 (OOM) */
 } sse_parser;
 
 void sse_parser_init(sse_parser *p);
 void sse_parser_free(sse_parser *p);
-/* Feed raw body bytes; cb fires once per complete event (data joined by \n). */
-void sse_feed(sse_parser *p, const char *bytes, size_t n, sse_event_cb cb, void *ud);
+/* Returns 0 or -2 (OOM). Callback views live only during the call.
+ * Feed raw body bytes; cb fires once per complete event (data joined by \n). */
+int sse_feed(sse_parser *p, const char *bytes, size_t n, sse_event_cb cb, void *ud);
 /* End of body: dispatch a final event whose terminating blank line never
  * arrived (a last `data:` line closed by EOF). */
-void sse_flush(sse_parser *p, sse_event_cb cb, void *ud);
+int sse_flush(sse_parser *p, sse_event_cb cb, void *ud);
 
 /* ---- WebSocket client (RFC 6455 text frames via wslay) ---- */
 typedef struct ws_conn ws_conn;
@@ -111,16 +113,20 @@ void ws_close(ws_conn *w);
  * frame: flags:1 | length:4 big-endian | payload */
 #define CONNECT_FLAG_END 0x02
 
-void connect_frame_encode(buf_t *out, uint8_t flags, const char *payload, size_t len);
+/* Returns -1 if length cannot fit the wire field, -2 on OOM, otherwise 0. */
+int connect_frame_encode(buf_t *out, uint8_t flags, const char *payload, size_t len);
 
 typedef struct {
-    buf_t acc;
+    void *owner;
+    int status; /* 0, -1 (oversize), -2 (OOM) */
 } connect_decoder;
 typedef void (*connect_frame_cb)(uint8_t flags, const char *payload, size_t len, void *ud);
 
 void connect_decoder_init(connect_decoder *d);
 void connect_decoder_free(connect_decoder *d);
-/* Feed bytes; cb per complete frame. Returns 0, or -1 on oversized frame. */
+bool connect_decoder_pending(const connect_decoder *d);
+/* Borrowed callback payload lives only during the call.
+ * Returns 0, -1 on oversized frame, -2 on OOM; errors persist until reset. */
 int connect_decoder_feed(connect_decoder *d, const char *bytes, size_t n, connect_frame_cb cb,
                          void *ud);
 

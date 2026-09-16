@@ -1,0 +1,12 @@
+== leak: provider_extras_suite
+   LEAK: provider_extras_suite (build/leakcheck/provider_extras_suite.log)
+== leak: tny --version
+   LEAK: tny --version (build/leakcheck/tny_--version.log)
+== leak: tny --help
+   LEAK: tny --help (build/leakcheck/tny_--help.log)
+== leak: tny ask --help
+   LEAK: tny ask --help (build/leakcheck/tny_ask_--help.log)
+== leak: tny doctor --json
+   LEAK: tny doctor --json (build/leakcheck/tny_doctor_--json.log)
+leaks: FAILED
+make: *** [leaks] Error 1

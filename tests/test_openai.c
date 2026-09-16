@@ -1,4 +1,4 @@
-/* test_openai.c — streamed tool_call assembly (src/backends/openai/toolcalls.c).
+/* test_openai.c — streamed tool_call assembly (src/backends/openai/toolcalls.cpp).
  *
  * The native loop must survive parallel tool calls in every streaming shape
  * seen in the wild. The regression that motivates this suite: a gateway

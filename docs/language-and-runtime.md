@@ -1,26 +1,29 @@
 # Language and runtime
 
-## Decision: C11
+## Decision: C11 with private C++20 parsers
 
-Pick **C11** (GNU C11 on GCC/Clang is fine). Do not use C++ as the implementation language.
+[ADR 0114](adr/0114-private-cpp-parser-ownership.md) authorizes C++20 only for
+SSE/Connect accumulation, Chat/Responses event decoding and tool-call owners.
+Untouched code, vendored dependencies and tnytty remain C11. Public libtny
+headers, layouts and exports remain C. Private facades expose opaque owners
+and synchronous borrowed views, never standard-library types.
 
-fx is already a **6.4 MiB (macOS) / 11.1 MiB (static Linux) Zig** native binary with zero package deps. Beating that with Go, Rust, or C++ (libstdc++ / exceptions / RTTI / iostreams) is unlikely. C++/musl hello-world is already ~75× C/musl. C keeps the binary a thin layer over libc + a few vendored files.
-
-C++ is allowed only as an *optional* generated stub if a future tool cannot emit C. Prefer [nanopb](https://github.com/nanopb/nanopb) and hand-rolled Connect so that never happens.
-
-Zig was considered and rejected: the user constrained the choice to C or C++, and C is the smaller, faster runtime of those two.
+C++ allocation uses the existing tny allocator, with local exception
+containment. No global operator new override, Boost, iostreams or new JSON
+library is introduced. Runtime size and startup are measured rather than
+inferred from the implementation language.
 
 ## Compiler and link
 
 | Item | Choice |
 | --- | --- |
-| Standard | C11, `-Wall -Wextra -Werror`, no VLAs in new code |
+| Standard | C11 / private C++20, `-Wall -Wextra -Werror`, no VLAs in new code |
 | Debug | ASan/UBSan on the unit-test binary |
 | Release | `-Os -ffunction-sections -fdata-sections`, strip, `--gc-sections` / `-dead_strip` |
 | libc | macOS: libSystem (cannot static-link). Linux publish: **musl static** |
 | TLS | macOS: Security.framework. Linux: **system OpenSSL** (`libssl.so.3` / `.so.1.1`), `dlopen`'d at first TLS use ([adr/0007](adr/0007-linux-tls-system-openssl.md)). Never link or vendor OpenSSL; musl static has no https |
 | Threads | One event loop. TUI prewarm uses one bounded connection thread; Cursor may lend its loopback callback server to one bounded pump thread during a blocking store RPC. Custom tools remain owner-thread-only |
-| Exceptions / RTTI | N/A (C) |
+| Exceptions / RTTI | C++ allocation exceptions caught at private C boundaries; RTTI disabled |
 
 ## Library bill of materials
 
@@ -41,6 +44,14 @@ Vendor by source file, not by package manager graphs.
 Do **not** take: libcurl, OpenSSL, libuv, Boost, nlohmann/json, protobuf C++, grpc, libwebsockets, cJSON, ICU, gtest. Cross-compile C with `zig cc` if needed; do not write Zig. ("Take" means vendor or link; `dlopen`ing the platform's TLS library — Security.framework, system libssl — is the intended alternative, [adr/0007](adr/0007-linux-tls-system-openssl.md).)
 
 ## Build
+
+`CC` compiles `.c` as C11; `CXX` compiles `.cpp` as C++20 and links mixed
+artifacts. `CXXFLAGS` adds caller flags; lane optimization, sanitizers and
+visibility apply to both languages. C++ uses explicit allocator calls, not
+the C-only force-included allocation macros. `EMCXX=em++` handles wasm C++
+objects and links with exception catching enabled. ABI0 is built unchanged
+from its frozen C source archive. See [CI](ci.md) for parser safety targets.
+
 
 POSIX `Makefile` first. Targets: `tny`, `tny-test`, `lib-shared`,
 `install-lib`, `size-check`, `pack`. ABI 0's shared-library platform and

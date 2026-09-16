@@ -333,7 +333,7 @@ char *tool_web_search_codex(tools_env *env, const char *query, bool *handled) {
         }
         if (format == BODY_JSON) buf_append(&json_body, chunk + offset, (size_t)got - offset);
         else sse_feed(&parser, chunk + offset, (size_t)got - offset, search_event, &response);
-        if (parser.acc.oom || parser.data.oom || json_body.oom) response.error = "out of memory";
+        if (parser.status != 0 || json_body.oom) response.error = "out of memory";
     }
     if (body_complete && !response.error && format == BODY_JSON)
         search_event(json_body.data, json_body.len, &response);

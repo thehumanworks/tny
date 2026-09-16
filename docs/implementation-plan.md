@@ -78,7 +78,7 @@ single `tny_poll` seam ([ADR 0033](adr/0033-libtny-multi-runtime-cancel.md)).
 
 ## Hard rules during implementation
 
-- No C++ sources.
+- C++20 is limited to private parser ownership (ADR 0114); untouched code stays C11.
 - No new dependency without updating [language-and-runtime.md](language-and-runtime.md) and the size budget.
 - No secrets in the repo. Tests use fixtures, not live keys, unless the user opted in.
 - Do not implement exploit/PoC code for any system.

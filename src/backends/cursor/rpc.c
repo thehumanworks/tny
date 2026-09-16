@@ -200,9 +200,20 @@ int cursor_stream_start(cursor_stream *s, const char *service, const char *metho
 
     buf_t framed;
     buf_init(&framed);
-    connect_frame_encode(&framed, 0, body, strlen(body));
+    int encoded = connect_frame_encode(&framed, 0, body, strlen(body));
+    if (encoded != 0 || auth.oom) {
+        snprintf(err, errlen, "%s",
+                 encoded == -1 ? "bridge request exceeds wire length field"
+                               : "out of memory framing bridge request");
+        buf_free(&framed);
+        if (auth.data) secure_zero(auth.data, auth.len);
+        buf_free(&auth);
+        cursor_stream_stop(s);
+        return -1;
+    }
     int rc = http_request(s->conn, "POST", path, hdrs, framed.data, framed.len);
     buf_free(&framed);
+    if (auth.data) secure_zero(auth.data, auth.len);
     buf_free(&auth);
     if (rc != 0) {
         snprintf(err, errlen, "%s failed: cannot write to the bridge", method);
@@ -255,8 +266,11 @@ int cursor_stream_pump_raw(cursor_stream *s, connect_frame_cb cb, void *ud, int 
             snprintf(err, errlen, "bridge stream aborted mid-response");
             return -1;
         }
-        if (connect_decoder_feed(&s->dec, tmp, (size_t)n, cb, ud) != 0) {
-            snprintf(err, errlen, "bridge sent an oversized stream frame");
+        int decoded = connect_decoder_feed(&s->dec, tmp, (size_t)n, cb, ud);
+        if (decoded != 0) {
+            snprintf(err, errlen, "%s",
+                     decoded == -2 ? "out of memory decoding bridge stream"
+                                   : "bridge sent an oversized stream frame");
             return -1;
         }
     }
