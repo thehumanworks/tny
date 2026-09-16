@@ -323,6 +323,77 @@ Finalized ADRs are unchanged, and all correction changes remain uncommitted.
 | `make quality` | 0 | [review2-quality](artifacts/logs/review2-quality.log) |
 | `python3 build/review-regression-baseline.py` | 0 | [review2-regression-baseline](artifacts/logs/review2-regression-baseline.log) |
 
+## Review 3 dispositions
+
+Coordinator-supplied independent code review: **APPROVE with one minor**, against
+rebased HEAD `3e6882829c13ab4f301cca77b890b836435da7a1`, three commits above
+phase-2 candidate `58e92bf`. The reviewer identity was not supplied. This bounded
+follow-up reuses P3-I3/P3-I6 and the existing contract; reviews and full-series
+completion remain coordinator-owned. The assignment began with a clean worktree.
+No agents, commits or pushes are part of this follow-up.
+
+| Finding | Disposition | Proof |
+| --- | --- | --- |
+| Minor: checkpoint `resumable` clear/restore allocates and ignores failures (P3-I3/P3-I6) | Fixed. Both directions update the existing boolean node with checked returns; missing, malformed and consumed flags are rejected before persistence. | The ownership fixture checks zero allocations and unchanged node identity before save, in-place restoration with the allocation fault still armed on save rejection, actual allocation failure during persistence, and persisted reload/retry without replay. It exercises both zero and one spare pool nodes (old key/value allocation failure boundaries). |
+
+The new fixture passes on the corrected source and fails against the exact
+rebased pre-fix `HEAD:src/core/runner.cpp` at the cleared-boolean assertion before
+persistence ([regression log](artifacts/logs/review3-regression.log),
+[reproduction script](artifacts/review3-regression.py)). A separate source-copy
+mutation that leaves the flag false after a failed save is killed by the
+restored-boolean assertion ([restore mutation log](artifacts/logs/review3-restore-mutation.log),
+[reproduction script](artifacts/review3-restore-mutation.py)). Both expected-failure
+experiments compile successfully, do not modify product sources, and run after
+fixture-owned children have been reaped. All seven standard critical mutants
+also compile and fail their intended behavioral assertions; the unmodified
+ownership baseline passes again after the mutation run.
+
+Development record: the first fixture run exited 2 because it incorrectly
+expected an allocation fault to have fired after an injected save rejection.
+The corrected oracle requires zero allocations through clear/restore, then
+explicitly grows the exhausted pool to prove the fault remained armed. The
+[original failed run](artifacts/logs/review3-ownership-dev.log) is retained.
+
+**Review-3 correction gate: PASS.** Debug/unit (566 tests, 19,927 assertions),
+ownership, libtny allocation faults, all seven critical mutations and quality
+passed with exit 0. No compiler/linter warnings or sanitizer findings occurred.
+The unit log retains expected invalid-settings and MCP-import negative-test
+warning diagnostics; it is not a literally warning-free log. Darwin quality
+explicitly skips the Linux-only GCC analyzer. Full-issue completion remains **INCOMPLETE** for the
+unchanged coordinator-owned gates below. ADR0107/0117 continue to govern this
+correction; no finalized ADR changed and no new architectural decision was made.
+
+The historical source manifest had exactly 25 mismatches against clean rebased
+HEAD, confirmed by hashing `git show HEAD:<path>` for each recorded input. The
+three files edited here bring that historical mismatch count to 28. Review-3
+records and refreshed manifests supersede prior records only for the commands
+rerun here. Earlier baseline, platform, sanitizer-fault, release/size and other
+logs remain historical; no fresh result is inferred from a refreshed hash.
+
+[Review-3 run records](artifacts/review3-run-records.json) bind all eight fresh
+runs to rebased HEAD plus the same 635-input [source manifest](artifacts/final-source-sha256.json),
+identity `8986ef5089313328e9d669861e7009ba3547df4702ade025a061ac870c7e3725`.
+Every recorded input was rehashed after the runs: **zero mismatches**.
+The [dirty-tree manifest](artifacts/dirty-tree-sha256.json) records all changed
+files except itself, and the [binary manifest](artifacts/binary-sha256.json)
+contains only the four binaries rebuilt/exercised in this follow-up. The old
+sanitized fault library and release binary are excluded from current binary
+proof. [Mutation results](artifacts/mutation-results.json) and their assertion
+logs are refreshed. Original baseline and historical run records are preserved. The archived
+reproduction scripts received import whitespace normalization; `ruff check .`
+was rerun after archival and passed ([artifact lint](artifacts/logs/review3-artifact-lint.log)).
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `make -j8 debug` | 0 | [review3-debug](artifacts/logs/review3-debug.log) |
+| `build/tny-test` | 0 | [review3-unit](artifacts/logs/review3-unit.log): 566 tests, 19,927 assertions |
+| `make test-runner-ownership` | 0 | [review3-ownership](artifacts/logs/review3-ownership.log) |
+| `make test-libtny-fault` | 0 | [review3-fault](artifacts/logs/review3-fault.log) |
+| `python3 tests/mutation/runner_critical.py` | 0 | [review3-mutations](artifacts/logs/review3-mutations.log): 7/7 killed |
+| `make quality` | 0 | [review3-quality](artifacts/logs/review3-quality.log) |
+| `python3 build/review3-regression.py` | 0 | [review3-regression](artifacts/logs/review3-regression.log): expected pre-fix assertion |
+| `python3 build/review3-restore-mutation.py` | 0 | [review3-restore-mutation](artifacts/logs/review3-restore-mutation.log): expected restore assertion |
+
 ## Unmet gates and coordinator handoff
 
 - `make test`, `make leaks`, `make test-abi`, `make test-sdks`, full job race,

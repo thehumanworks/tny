@@ -4,4 +4,4 @@ acquisition faults: pipe1/pipe2/save/listener/fork closed all resources
 client allocation failure and allocation-free teardown passed
 item spawn/pump/reap/drain cycles=40 before=4 after=4
 host faults: open/write/fsync/rename/dup1/dup2/spawn preserve bytes and borrowed fds
-Assertion failed: (!cleanup_reclaimable(root)), function unknown_cleanup, file runner_ownership.cpp, line 328.
+Assertion failed: (!cleanup_reclaimable(root)), function unknown_cleanup, file runner_ownership.cpp, line 398.

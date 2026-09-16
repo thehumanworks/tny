@@ -1478,12 +1478,12 @@ static yyjson_doc *rn_disk_packet(tny_session_state *session) {
 
 static bool rn_consume_checkpoint(rn_state *r) {
     yyjson_mut_val *resume = yyjson_mut_obj_get(rn_continuation(r->session), "_resume");
-    if (!resume) return false;
-    yyjson_mut_obj_put(resume, yyjson_mut_str(r->session->doc, "resumable"),
-                       yyjson_mut_bool(r->session->doc, false));
+    yyjson_mut_val *resumable = yyjson_mut_obj_get(resume, "resumable");
+    if (!yyjson_mut_is_bool(resumable) || !yyjson_mut_get_bool(resumable) ||
+        !yyjson_mut_set_bool(resumable, false))
+        return false;
     if (session_save(r->session) == 0) return true;
-    yyjson_mut_obj_put(resume, yyjson_mut_str(r->session->doc, "resumable"),
-                       yyjson_mut_bool(r->session->doc, true));
+    if (!yyjson_mut_set_bool(resumable, true)) return false;
     rn_broadcast_status(r, "Could not activate saved continuation; no pending tools were run");
     return false;
 }

@@ -4,14 +4,14 @@
     "exit": -6,
     "killed": true,
     "oracle": "bye && WIFEXITED",
-    "source_sha256": "f69fa2479de0c8db2d0b82246d256ace1b433a380ec731754deaed4d63998855"
+    "source_sha256": "84e43b608be4e2f4acc9d91d566fad2f0f9ef9a7314e202bac51eb599fcf8032"
   },
   {
     "mutation": "close-transferred-descriptor",
     "exit": -6,
     "killed": true,
     "oracle": "send_result == 0",
-    "source_sha256": "f69fa2479de0c8db2d0b82246d256ace1b433a380ec731754deaed4d63998855"
+    "source_sha256": "84e43b608be4e2f4acc9d91d566fad2f0f9ef9a7314e202bac51eb599fcf8032"
   },
   {
     "mutation": "signal-metadata-pid",
@@ -46,6 +46,6 @@
     "exit": -6,
     "killed": true,
     "oracle": "rn_disk_packet(session) == nullptr",
-    "source_sha256": "f69fa2479de0c8db2d0b82246d256ace1b433a380ec731754deaed4d63998855"
+    "source_sha256": "84e43b608be4e2f4acc9d91d566fad2f0f9ef9a7314e202bac51eb599fcf8032"
   }
 ]

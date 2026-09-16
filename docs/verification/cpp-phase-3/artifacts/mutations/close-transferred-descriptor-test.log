@@ -4,4 +4,5 @@ acquisition faults: pipe1/pipe2/save/listener/fork closed all resources
 client allocation failure and allocation-free teardown passed
 item spawn/pump/reap/drain cycles=40 before=4 after=4
 host faults: open/write/fsync/rename/dup1/dup2/spawn preserve bytes and borrowed fds
-Assertion failed: (send_result == 0), function runner_shutdown, file runner_ownership.cpp, line 352.
+job cleanup: allocation-fault re-latch, mixed-item loss and final-write failure retain claims; guard failure launches nothing; proven cleanup releases
+Assertion failed: (send_result == 0), function runner_shutdown, file runner_ownership.cpp, line 594.

@@ -60,8 +60,8 @@ MUTANTS = [
     (
         "replay-consumed-batch",
         "runner",
-        "                       yyjson_mut_bool(r->session->doc, false));",
-        "                       yyjson_mut_bool(r->session->doc, true));",
+        "        !yyjson_mut_set_bool(resumable, false))",
+        "        !yyjson_mut_set_bool(resumable, true))",
         "rn_disk_packet(session) == nullptr",
     ),
 ]

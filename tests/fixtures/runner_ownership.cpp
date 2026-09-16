@@ -46,7 +46,18 @@ static int checked_listener(const char *path) {
     return unix_listen(path);
 }
 static char writer_path[1024];
+static yyjson_mut_val *checkpoint_bool;
+static int checkpoint_save_calls;
 static int save_checked(tny_session_state *session) {
+    ++checkpoint_save_calls;
+    if (checkpoint_bool) {
+        auto *continuation =
+            yyjson_mut_obj_get(yyjson_mut_doc_get_root(session->doc), "continuation");
+        auto *resume = yyjson_mut_obj_get(continuation, "_resume");
+        assert(yyjson_mut_obj_get(resume, "resumable") == checkpoint_bool);
+        assert(yyjson_mut_is_bool(checkpoint_bool) && !yyjson_mut_get_bool(checkpoint_bool));
+        assert(tny_alloc_test_scope_count() == 0 && !tny_alloc_test_scope_injected());
+    }
     if (probe_writer) {
         assert(session->lock_fd >= 0);
         assert(tny_jobs_host_owner_state(writer_path) == TNY_JOBS_OWNER_HELD);
@@ -688,6 +699,76 @@ static void consumed_checkpoint_stays_consumed(const char *directory) {
     tny_ctx_free(ctx);
 }
 
+static void checkpoint_allocation_faults(const char *directory) {
+    for (int spare = 0; spare <= 1; ++spare) {
+        for (int save_fault = 0; save_fault <= 1; ++save_fault) {
+            auto *ctx = tny_ctx_new_explicit(directory, directory);
+            assert(ctx);
+            auto *session = session_new(ctx);
+            assert(session && session_lock_acquire(session) == 0);
+            auto *doc = session->doc;
+            auto *continuation = yyjson_mut_obj(doc);
+            auto *resume = yyjson_mut_obj(doc);
+            assert(yyjson_mut_obj_add_bool(doc, resume, "resumable", true));
+            assert(yyjson_mut_obj_add_val(doc, continuation, "_resume", resume));
+            assert(yyjson_mut_obj_add_val(doc, yyjson_mut_doc_get_root(doc), "continuation",
+                                          continuation));
+            assert(session_save(session) == 0);
+            checkpoint_bool = yyjson_mut_obj_get(resume, "resumable");
+            /* Force either the old key or value replacement to grow the pool.
+             * Clearing must reach the real save with the fault still armed;
+             * a rejected save must restore the same existing boolean. */
+            doc->val_pool.cur = doc->val_pool.end - spare;
+            auto *pool_cursor = doc->val_pool.cur;
+            setenv("TNY_TEST_ALLOC_SCOPE", "checkpoint-consume", 1);
+            setenv("TNY_TEST_ALLOC_FAIL_AT", "1", 1);
+            tny_alloc_scope_begin("checkpoint-consume");
+            fail_save = save_fault != 0;
+            rn_state runner{};
+            runner.session = session;
+            assert(!rn_consume_checkpoint(&runner));
+            assert(yyjson_mut_obj_get(resume, "resumable") == checkpoint_bool);
+            assert(yyjson_mut_is_bool(checkpoint_bool) && yyjson_mut_get_bool(checkpoint_bool));
+            if (fail_save) {
+                assert(doc->val_pool.cur == pool_cursor);
+                assert(tny_alloc_test_scope_count() == 0);
+                /* Both updates left the fault armed; prove the next pool
+                 * growth fails after any remaining spare node is consumed. */
+                if (spare) assert(yyjson_mut_bool(doc, false));
+                assert(!yyjson_mut_bool(doc, false));
+            }
+            assert(tny_alloc_test_scope_injected());
+            fail_save = false;
+            checkpoint_bool = nullptr;
+            unsetenv("TNY_TEST_ALLOC_SCOPE");
+            unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+            tny_alloc_scope_begin("fixture");
+            assert(session_reload_locked(session, nullptr, 0) == 0);
+            auto *packet = rn_disk_packet(session);
+            assert(packet);
+            yyjson_doc_free(packet);
+            assert(rn_consume_checkpoint(&runner));
+            assert(session_reload_locked(session, nullptr, 0) == 0);
+            assert(rn_disk_packet(session) == nullptr);
+            /* Consumed, malformed and missing flags cannot activate or save. */
+            resume = yyjson_mut_obj_get(rn_continuation(session), "_resume");
+            auto *flag = yyjson_mut_obj_get(resume, "resumable");
+            int saves = checkpoint_save_calls;
+            assert(!rn_consume_checkpoint(&runner));
+            assert(yyjson_mut_set_int(flag, 1));
+            assert(!rn_consume_checkpoint(&runner));
+            assert(yyjson_mut_is_int(flag));
+            assert(yyjson_mut_obj_remove_key(resume, "resumable"));
+            assert(!rn_consume_checkpoint(&runner));
+            assert(checkpoint_save_calls == saves);
+            session_close(session);
+            tny_ctx_free(ctx);
+        }
+    }
+    puts("checkpoint allocation faults: in-place clear/restore, reload/retry and invalid flags "
+         "passed");
+}
+
 int main(int argc, char **argv) {
     if (argc > 2 && std::strcmp(argv[1], "--cwd") == 0) {
         if (tny_process_scope_admit() != 0) return 2;
@@ -721,5 +802,6 @@ int main(int argc, char **argv) {
     runner_shutdown(argv[1]);
     metadata_pid_is_not_authority(argv[1]);
     consumed_checkpoint_stays_consumed(argv[1]);
+    checkpoint_allocation_faults(argv[1]);
     puts("phase3 ownership oracles passed");
 }
