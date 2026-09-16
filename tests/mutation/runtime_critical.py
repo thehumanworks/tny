@@ -132,6 +132,109 @@ def provider_settlement_mutation(directory):
     return result
 
 
+def provider_failure_mutations(directory):
+    """Challenge the two reviewed pre-settlement boundaries and TERM escalation."""
+    subprocess.run(
+        ["make", "lib-shared-fault", "build/lib-fault/provider-faults"],
+        cwd=ROOT,
+        check=True,
+    )
+    variables = subprocess.check_output(
+        ["make", "-s", "-f", "Makefile", "-f", "-", "failure-mutant-vars"],
+        cwd=ROOT,
+        text=True,
+        input="failure-mutant-vars:\n\t@printf '%s\\n' '$(CC)' '$(CXX)' '$(FAULT_PIC_CFLAGS)' '$(FAULT_PIC_OBJS)' '$(LIB_FAULT_LDFLAGS)' '$(filter-out $(CXX_RUNTIME),$(REL_LDFLAGS))' '$(PROVIDER_FAULT_TEST_SRC:%.c=$(OBJ_FAULT_PIC)/%.o)' '$(LIB_FAULT_REAL)'\n",
+    ).splitlines()
+    cc, cxx, flags, objects, library_link, host_link, test_objects, library = map(
+        shlex.split, variables
+    )
+    cases = [
+        (
+            "parser-ordinary-finalization",
+            "src/backends/openai/openai.c",
+            "    oa_cancel(b);\n    tny_alloc_settlement_end();",
+            "    emit_turn_end(o, TNY_STOP_ERROR);\n    tny_alloc_settlement_end();",
+            None,
+            "allocation during reserved OOM settlement",
+        ),
+        (
+            "decoder-observe-recovery",
+            "src/backends/cursor/cursor.c",
+            "if (rc == -2 || tny_alloc_scope_failed()) {",
+            "if (false) {",
+            "decoder_oom_mid_stream",
+            "0 != tny_alloc_test_settlement_allocations()",
+        ),
+        (
+            "acp-block-before-kill",
+            "src/backends/acp/acp_client.c",
+            "if (kill(-pgid, SIGKILL) != 0 && o->pid > 0) kill(o->pid, SIGKILL);",
+            "/* mutant: omit escalation before blocking wait */",
+            "emergency_cancel_reaps",
+            "monotonic_ms() - start < 2000",
+        ),
+    ]
+    results = []
+    for name, source, old, new, test, reason in cases:
+        path = ROOT / source
+        original = path.read_text()
+        assert original.count(old) == 1, name
+        fingerprint = hashlib.sha256(path.read_bytes()).hexdigest()
+        mutant = directory / (name + ".c")
+        mutant.write_text(original.replace(old, new))
+        obj = mutant.with_suffix(".o")
+        compiled = run(
+            [*cc, *flags, "-c", str(mutant), "-o", str(obj)],
+            directory / (name + "-compile.log"),
+        )
+        assert compiled.returncode == 0, compiled.stdout + compiled.stderr
+        replaced = "build/fault-pic/" + source.removesuffix(".c") + ".o"
+        assert replaced in objects
+        binary = directory / (name if test else Path(library[0]).name)
+        linked = run(
+            [
+                *cxx,
+                "-o",
+                str(binary),
+                str(obj),
+                *[p for p in objects if p != replaced],
+                *(test_objects if test else []),
+                *(host_link if test else library_link),
+            ],
+            directory / (name + "-link.log"),
+        )
+        assert linked.returncode == 0, linked.stdout + linked.stderr
+        command = (
+            [str(binary), "-t", test]
+            if test
+            else [
+                sys.executable,
+                "tests/integration/test_libtny_faults.py",
+                "--reserved-only",
+                str(binary),
+            ]
+        )
+        if test:
+            baseline = run(
+                ["build/lib-fault/provider-faults", "-t", test],
+                directory / (name + "-baseline.log"),
+            )
+            assert baseline.returncode == 0, baseline.stdout + baseline.stderr
+        checked = run(command, directory / (name + "-test.log"))
+        result = {
+            "mutation": name,
+            "exit": checked.returncode,
+            "reason": reason,
+            "killed": checked.returncode != 0
+            and reason in checked.stdout + checked.stderr,
+            "source_sha256": fingerprint,
+        }
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == fingerprint
+        results.append(result)
+        print(json.dumps(result), flush=True)
+    return results
+
+
 def main():
     directory = ROOT / "build/runtime-mutations"
     directory.mkdir(parents=True, exist_ok=True)
@@ -207,6 +310,7 @@ def main():
         assert hashlib.sha256(path.read_bytes()).hexdigest() == fingerprint
         print(json.dumps(results[-1]), flush=True)
     results.append(provider_settlement_mutation(directory))
+    results.extend(provider_failure_mutations(directory))
     (directory / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     subprocess.run(["make", "test-runtime-ownership"], cwd=ROOT, check=True)
     assert all(item["killed"] for item in results), results

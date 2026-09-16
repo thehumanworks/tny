@@ -50,6 +50,10 @@ extern "C" int sse_feed(sse_parser *p, const char *bytes, size_t n, sse_event_cb
             rest.remove_prefix(count);
             if (end != std::string_view::npos) {
                 state.finish_line(cb, ud);
+                if (tny_alloc_scope_failed()) {
+                    sse_parser_free(p);
+                    return p->status = -2;
+                }
                 rest.remove_prefix(1);
             }
         }

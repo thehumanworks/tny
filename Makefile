@@ -1117,3 +1117,17 @@ test-runtime-ownership: $(RUNTIME_TEST)
 	$(RUNTIME_TEST) -s runtime_suite
 .PHONY: test-runtime-ownership
 -include $(BUILD)/runtime-test/src/core/runtime.d $(BUILD)/runtime-test/tests/test_runtime.d
+
+# Provider OOM regressions use the complete allocator-instrumented object graph.
+PROVIDER_FAULT_TEST_SRC := tests/test_acp.c tests/test_cursor.c tests/integration/libtny_provider_fault_host.c
+PROVIDER_FAULT_TEST := $(BUILD)/lib-fault/provider-faults
+PROVIDER_FAULT_SAN_TEST := $(BUILD)/lib-fault-san/provider-faults
+$(PROVIDER_FAULT_TEST): $(PROVIDER_FAULT_TEST_SRC:%.c=$(OBJ_FAULT_PIC)/%.o) $(FAULT_PIC_OBJS)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(REL_LDFLAGS))
+$(PROVIDER_FAULT_SAN_TEST): $(PROVIDER_FAULT_TEST_SRC:%.c=$(OBJ_FAULT_SAN_PIC)/%.o) $(FAULT_SAN_PIC_OBJS)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(REL_LDFLAGS)) -fsanitize=address,undefined
+test-libtny-fault: $(PROVIDER_FAULT_TEST)
+test-libtny-fault-sanitize: $(PROVIDER_FAULT_SAN_TEST)
+-include $(PROVIDER_FAULT_TEST_SRC:%.c=$(OBJ_FAULT_PIC)/%.d) $(PROVIDER_FAULT_TEST_SRC:%.c=$(OBJ_FAULT_SAN_PIC)/%.d)

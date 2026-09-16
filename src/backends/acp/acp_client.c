@@ -6,6 +6,7 @@
 #include "util/util.h"
 #include "util/alloc.h"
 
+#include <errno.h>
 #include <poll.h>
 #include "util/tny_poll.h"
 #include <signal.h>
@@ -124,21 +125,25 @@ static void ac_disconnect(tny_backend *b) {
         if (o->in_fd >= 0) close(o->in_fd);
         o->in_fd = -1;
         int status = 0;
-        for (int i = 0; i < 50; i++) {
+        if (kill(-pgid, SIGTERM) != 0) kill(o->pid, SIGTERM);
+        int64_t deadline = monotonic_ms() + 500;
+        while (o->pid > 0) {
             pid_t r = waitpid(o->pid, &status, WNOHANG);
-            if (r == o->pid || r < 0) {
+            if (r == o->pid || (r < 0 && errno == ECHILD)) {
                 o->pid = 0;
                 break;
             }
-            struct pollfd p = {o->out_fd, POLLIN, 0};
-            tny_poll(&p, o->out_fd >= 0 ? 1 : 0, 10);
+            int64_t remaining = deadline - monotonic_ms();
+            if (remaining <= 0) break;
+            /* Closed/readable pipes must not turn the grace period into a spin. */
+            tny_poll(NULL, 0, remaining < 10 ? (int)remaining : 10);
         }
+        if (kill(-pgid, SIGKILL) != 0 && o->pid > 0) kill(o->pid, SIGKILL);
         if (o->pid > 0) {
-            if (kill(-pgid, SIGTERM) != 0) kill(o->pid, SIGTERM);
-            waitpid(o->pid, &status, 0);
+            /* Never block before escalation, including agents ignoring TERM. */
+            while (waitpid(o->pid, &status, 0) < 0 && errno == EINTR) {}
             o->pid = 0;
         }
-        kill(-pgid, SIGKILL); /* sweep wrapper-forked descendants */
     }
     if (o->in_fd >= 0) {
         close(o->in_fd);

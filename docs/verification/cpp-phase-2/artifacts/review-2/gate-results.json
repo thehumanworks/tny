@@ -1,0 +1,201 @@
+[
+  {
+    "label": "final-build",
+    "command": [
+      "make",
+      "-j8",
+      "debug",
+      "release",
+      "lib-shared-active",
+      "lib-shared-fault",
+      "lib-shared-fault-sanitize",
+      "build/runtime-test/tny-test",
+      "build/lib-fault/provider-faults",
+      "build/lib-fault-san/provider-faults"
+    ],
+    "exit": 0,
+    "seconds": 4.816072940826416,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-libtny",
+    "command": [
+      "python3",
+      "tests/integration/test_libtny.py"
+    ],
+    "exit": 0,
+    "seconds": 2.408766984939575,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-debug",
+    "command": [
+      "sh",
+      "-c",
+      "make -j8 debug && build/tny-test"
+    ],
+    "exit": 0,
+    "seconds": 39.17898607254028,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-runtime",
+    "command": [
+      "make",
+      "test-runtime-ownership"
+    ],
+    "exit": 0,
+    "seconds": 5.072865962982178,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-parser",
+    "command": [
+      "make",
+      "test-parser-smoke"
+    ],
+    "exit": 0,
+    "seconds": 1.66373610496521,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-openai",
+    "command": [
+      "python3",
+      "tests/integration/test_openai.py"
+    ],
+    "exit": 0,
+    "seconds": 50.989967823028564,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-cursor",
+    "command": [
+      "sh",
+      "tests/integration/test_cursor.sh",
+      "/Users/tomas/projects/tny-cpp-p1fix/build/tny"
+    ],
+    "exit": 0,
+    "seconds": 1.5777349472045898,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-cursor-management",
+    "command": [
+      "python3",
+      "tests/integration/test_cursor_management.py"
+    ],
+    "exit": 0,
+    "seconds": 4.26003885269165,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-mutation",
+    "command": [
+      "python3",
+      "tests/mutation/runtime_critical.py"
+    ],
+    "exit": 0,
+    "seconds": 29.06408190727234,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-cursor-contract",
+    "command": [
+      "python3",
+      "tests/integration/test_cursor_sdk_contract.py"
+    ],
+    "exit": 0,
+    "seconds": 1.8306078910827637,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-acp",
+    "command": [
+      "sh",
+      "tests/integration/test_acp.sh"
+    ],
+    "exit": 0,
+    "seconds": 1.3092730045318604,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-acp-ws",
+    "command": [
+      "sh",
+      "tests/integration/test_acp_ws.sh",
+      "/Users/tomas/projects/tny-cpp-p1fix/build/tny"
+    ],
+    "exit": 0,
+    "seconds": 0.7977249622344971,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-acp-server",
+    "command": [
+      "python3",
+      "tests/integration/test_acp_server.py"
+    ],
+    "exit": 0,
+    "seconds": 0.11057519912719727,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-fault-direct",
+    "command": [
+      "python3",
+      "tests/integration/test_libtny_faults.py",
+      "build/lib-fault/libtny.1.dylib"
+    ],
+    "exit": 0,
+    "seconds": 94.28586769104004,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-fault",
+    "command": [
+      "make",
+      "test-libtny-fault"
+    ],
+    "exit": 0,
+    "seconds": 100.9008891582489,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-sanitize",
+    "command": [
+      "make",
+      "test-libtny-fault-sanitize"
+    ],
+    "exit": 0,
+    "seconds": 124.852854013443,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  },
+  {
+    "label": "final-quality",
+    "command": [
+      "make",
+      "quality"
+    ],
+    "exit": 0,
+    "seconds": 216.20563125610352,
+    "source_manifest_sha256": "9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696",
+    "revision": "f7b2b704b018cd5ab01bcbfc20d7e727546d6613"
+  }
+]

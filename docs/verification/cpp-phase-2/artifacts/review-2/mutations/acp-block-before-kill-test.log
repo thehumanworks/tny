@@ -1,0 +1,11 @@
+
+* Suite acp_suite:
+F
+FAIL emergency_cancel_reaps_sigterm_ignoring_child_and_retries: monotonic_ms() - start < 2000 (tests/test_acp.c:242)
+
+1 test - 0 passed, 1 failed, 0 skipped (1933 ticks, 0.002 sec)
+
+* Suite cursor_suite:
+
+Total: 1 test (2001 ticks, 0.002 sec), 9 assertions
+Pass: 0, fail: 1, skip: 0.

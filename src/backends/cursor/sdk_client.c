@@ -2,6 +2,7 @@
 #include "backends/cursor/sdk_client.h"
 
 #include "json/json.h"
+#include "util/alloc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -355,6 +356,11 @@ int cursor_sdk_stream_pump(cursor_sdk_client *client, connect_frame_cb cb, void 
     char *error_body = NULL;
     int rc = cursor_stream_pump_raw(&client->stream, on_sdk_frame, &ctx, &status, &error_body, err,
                                     errlen);
+    if (rc == -2 || tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        free(error_body);
+        return -2;
+    }
     if (error_body) {
         parse_or_synthesize_error(sdk_error, error_body, strlen(error_body), status, err);
         free(error_body);

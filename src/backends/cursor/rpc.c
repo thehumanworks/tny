@@ -6,6 +6,7 @@
  * the Send stream is fully non-blocking and lives in the caller's poll loop. */
 #include "backends/cursor/cursor.h"
 #include "util/tny_poll.h"
+#include "util/alloc.h"
 
 #include <poll.h>
 #include <stdio.h>
@@ -267,6 +268,10 @@ int cursor_stream_pump_raw(cursor_stream *s, connect_frame_cb cb, void *ud, int 
             return -1;
         }
         int decoded = connect_decoder_feed(&s->dec, tmp, (size_t)n, cb, ud);
+        if (decoded == -2 || tny_alloc_scope_failed()) {
+            tny_alloc_provider_failed();
+            return -2;
+        }
         if (decoded != 0) {
             snprintf(err, errlen, "%s",
                      decoded == -2 ? "out of memory decoding bridge stream"

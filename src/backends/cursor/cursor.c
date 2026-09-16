@@ -1145,6 +1145,20 @@ static int cu_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     cursor_sdk_error_init(&sdk_error);
     int rc = cursor_sdk_stream_pump(&o->sdk, cu_on_frame, o, &sdk_error, err, sizeof err);
     cursor_sdk_error_free(&sdk_error);
+    if (rc == -2 || tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        tny_alloc_settlement_begin();
+        cu_cancel(b);
+        tny_backend_event error = {.kind = TNY_EV_ERROR,
+                                   .error_code = TNY_EVENT_ERROR_OOM,
+                                   .text = "out of memory decoding bridge stream",
+                                   .text_len = sizeof "out of memory decoding bridge stream" - 1};
+        if (o->cb) o->cb(&error, o->ud);
+        tny_backend_event end = {.kind = TNY_EV_TURN_END, .stop = TNY_STOP_ERROR};
+        if (o->cb) o->cb(&end, o->ud);
+        tny_alloc_settlement_end();
+        return -1;
+    }
     cu_note_observe_progress(o);
 
     if (o->saw_terminal_result) {

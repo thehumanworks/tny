@@ -13,6 +13,10 @@
 void tny_alloc_scope_begin(const char *name);
 bool tny_alloc_scope_failed(void);
 void tny_alloc_scope_clear(void);
+/* Mark provider OOM at the first quiescent parser/transport boundary. Test
+ * accounting covers all subsequent attempts through the current public call,
+ * including the interval before the runtime enters reserved settlement. */
+void tny_alloc_provider_failed(void);
 
 /* Quiescent emergency cancellation: release owned resources, but do not
  * construct protocol requests, transcript entries or callback payloads. */

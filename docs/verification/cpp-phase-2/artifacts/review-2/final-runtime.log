@@ -1,0 +1,8 @@
+build/runtime-test/tny-test -s runtime_suite
+
+* Suite runtime_suite:
+......................................
+38 tests - 38 passed, 0 failed, 0 skipped (120373 ticks, 0.120 sec)
+
+Total: 38 tests (120685 ticks, 0.121 sec), 5008 assertions
+Pass: 38, fail: 0, skip: 0.

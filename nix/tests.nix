@@ -1,3 +1,4 @@
+# Provider OOM hosts reuse the existing tests fileset, Python and C/C++ toolchain.
 # `make test` as a derivation: the greatest unit suite under ASan/UBSan, the
 # event-schema and conformance-contract checks, and the fixture-driven
 # integration suite for every backend. No live keys, no network (AGENTS.md).

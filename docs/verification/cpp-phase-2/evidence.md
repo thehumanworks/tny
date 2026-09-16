@@ -469,3 +469,91 @@ and pre-existing ADRs are unchanged; `git diff --check` passes. The final review
 checked callback quiescence, pending-tool invalidation, allocation-free parser
 release, provider state reset, deferred transcript repair and reserve replenishment.
 It is a scoped self-review; coordinator independent reviews are not fabricated.
+
+## Review 2 dispositions (2026-09-16)
+
+Pre-edit baseline: clean `f7b2b70`, single writer in `tny-cpp-p1fix`. Assigned
+P2-I2/P2-I3 acceptance: no allocation/persistence/recovery from detected provider
+OOM through reserved settlement; bounded ACP child termination; exact OOM pair
+and successful later turn. Regressions cover accumulated usage in a later
+Responses step, Cursor decoder OOM, and a child ignoring SIGTERM. The supplied
+independent review defines this repair assignment; no new agents, native goal,
+commits, pushes or live providers are authorized. Existing contract/ADR remain
+the specification. Final gate records and dispositions follow below.
+
+| Supplied finding | Invariants | Disposition and regression |
+| --- | --- | --- |
+| OpenAI/Codex parser OOM runs ordinary usage finalization/persistence | P2-I2, P2-I3 | `parser_failed` enters resource-only emergency cancellation after borrowed callbacks unwind; no ordinary `emit_turn_end`, usage construction or `session_save`. Secret turn state is still wiped. The persistent Responses fixture completes a tool step with usage (123 input / 7 output tokens), faults SSE growth in the second response, asserts byte-identical persisted JSON, exactly one OOM ERROR/TURN_END and zero settlement/delivery attempts. It repeats the failed turn and then succeeds on the same handle. |
+| Cursor decoder OOM enters SDK error construction / ObserveRun recovery | P2-I2, P2-I3 | Preserve OOM status through the raw transport and SDK layer before synthesized error JSON or recovery; close resources at the quiescent dispatch boundary. A real loopback stream is parked inside a partial Connect envelope, then faults C++ payload growth with a retained run identity. The runtime emits exactly the reserved pair, the fully instrumented counter stays zero, and the listener sees no ObserveRun request. |
+| ACP emergency teardown blocks before escalation | P2-I2, P2-I3 | Send SIGTERM, poll `waitpid(WNOHANG)` against a 500 ms monotonic deadline, escalate to SIGKILL, then reap with EINTR retry. The real spawned ACP fixture installs SIG_IGN before emitting its ready text. Settlement finishes in less than 2 seconds, `waitpid` confirms ECHILD, the exact reserved pair drains, and the same runtime reconnects/loads and completes a successful later turn. A 5-second fixture alarm bounds the deliberately broken mutation. |
+
+The test-only settlement allocation total now counts attempts while either the
+emergency scope or the provider-failure marker is active. The marker starts at
+the detected parser/transport failure and lasts through the public call, so the
+interval before `after_backend` and the reserved pair is measured too. The
+triggering failed allocation is outside that interval. SSE/Connect stop after
+a failed callback and release their owners directly; they do not consume later
+frames or manufacture another C++ exception to unwind. Ordinary recovery still
+has fixture coverage. Platform-library/embedding-host allocations remain outside
+the tny allocator contract described in ADR 0118.
+
+The new provider host links the complete fault-instrumented library object set,
+including C providers and C++ parsers, and runs the actual unit regressions. It
+is included in both the normal and ASan/UBSan fault gates. Ordinary unit builds
+also exercise the same Cursor status route; only the fully instrumented host
+claims injected C++ decoder-growth proof. Nix already includes all tests and
+the required C/C++/Python tools; its inventory notes now name this dependency.
+
+Critical regressions are falsifiable: restoring OpenAI ordinary finalization
+fails the zero-allocation assertion; removing Cursor's dispatch short-circuit
+fails the pre-settlement allocation counter; removing ACP escalation fails the
+2-second deadline assertion. These supplement the existing seven ownership and
+provider-settlement mutants. Private mutant copies leave product sources intact.
+
+Development history (not final gates): the first native host link needed its
+output directory created; Python import sorting was corrected. The first
+Cursor shell invocation omitted its required binary argument. Darwin's bare
+`mktemp -d` ignored TMPDIR in the ACP WebSocket fixture and hit the sandbox;
+a build-local wrapper supplies an explicit template below `build/tmp`, without
+changing the fixture or permissions. A log-runner output-directory error was
+fixed and affected gate records rerun. Final parser inspection replaced a
+synthetic post-callback `bad_alloc` throw with direct status return; dependent
+checks were refreshed. Earlier successful checks are retained as history only.
+
+No fresh independent reviewer was created: the user supplied Review 2 and
+explicitly required a single writer without sub-agents. Existing ADRs and frozen
+public headers are unchanged; the production library retains its 64 exports.
+`ps` inspection and macOS `leaks` remain sandbox-denied as specified by the user;
+neither was attempted. No live provider, commit, push or PR was used. This is
+scoped host repair evidence, not whole-phase, live-provider or cross-platform
+completion.
+
+### Review 2 final host gates
+
+All final runs below use the same [729-file source manifest](artifacts/review-2/source-sha256.json), SHA256 `9d101041f4030e95ae7d58c50bd8f5b090ea2a6b8ed790bd5e8f1bb8b32cc696`, on uncommitted HEAD `f7b2b704b018cd5ab01bcbfc20d7e727546d6613`. [Machine-readable records](artifacts/review-2/gate-results.json) retain commands, elapsed time, status and source hashes; [environment](artifacts/review-2/environment.json) records tool versions.
+
+| Command / log | Exit | Result |
+| --- | ---: | --- |
+| [`make -j8 debug release lib-shared-active lib-shared-fault lib-shared-fault-sanitize build/runtime-test/tny-test build/lib-fault/provider-faults build/lib-fault-san/provider-faults`](artifacts/review-2/final-build.log) | 0 | Native debug/release, active/fault/sanitized libraries and injected provider hosts |
+| [`make -j8 debug && build/tny-test`](artifacts/review-2/final-debug.log) | 0 | 564/564 tests; 19,741 assertions |
+| [`make test-runtime-ownership`](artifacts/review-2/final-runtime.log) | 0 | 38/38 tests; 5,008 assertions |
+| [`make test-parser-smoke`](artifacts/review-2/final-parser.log) | 0 | Split/lifetime/OOM corpus and immediate backend parser release |
+| [`python3 tests/mutation/runtime_critical.py`](artifacts/review-2/final-mutation.log) | 0 | 10/10 behavioral kills; original sources unchanged |
+| [`make test-libtny-fault`](artifacts/review-2/final-fault.log) | 0 | 21 exhaustive scenarios, four Responses settlement cases, real Cursor/ACP hosts |
+| [`python3 tests/integration/test_libtny_faults.py build/lib-fault/libtny.1.dylib`](artifacts/review-2/final-fault-direct.log) | 0 | Direct sweep of the same fault library and provider regressions |
+| [`make test-libtny-fault-sanitize`](artifacts/review-2/final-sanitize.log) | 0 | ASan/UBSan fault sweeps, provider hosts, C/async and C++ completion hosts |
+| [`python3 tests/integration/test_libtny.py`](artifacts/review-2/final-libtny.log) | 0 | C/ctypes, clean-prefix, affinity, cancellation and permission clients |
+| [`python3 tests/integration/test_openai.py`](artifacts/review-2/final-openai.log) | 0 | OpenAI mock integration assertions |
+| [`sh tests/integration/test_cursor.sh /Users/tomas/projects/tny-cpp-p1fix/build/tny`](artifacts/review-2/final-cursor.log) | 0 | Cursor bridge mock, send/resume/effort/fast |
+| [`python3 tests/integration/test_cursor_management.py`](artifacts/review-2/final-cursor-management.log) | 0 | Management aliases/RPC/streams/artifacts and process cleanup |
+| [`python3 tests/integration/test_cursor_sdk_contract.py`](artifacts/review-2/final-cursor-contract.log) | 0 | 12 pinned SDK contract tests |
+| [`sh tests/integration/test_acp.sh`](artifacts/review-2/final-acp.log) | 0 | ACP stdio model/permission/resume/framing/death fixtures |
+| [`sh tests/integration/test_acp_ws.sh /Users/tomas/projects/tny-cpp-p1fix/build/tny`](artifacts/review-2/final-acp-ws.log) | 0 | ACP WebSocket model/resume/refusal/death fixtures |
+| [`python3 tests/integration/test_acp_server.py`](artifacts/review-2/final-acp-server.log) | 0 | ACP server initialize/prompt/cancel/replay/error fixtures |
+| [`make quality`](artifacts/review-2/final-quality.log) | 0 | Format, C/C++ clang-tidy, strict warnings, Ruff, shell, actionlint and JS |
+
+No compiler, clang-tidy, strict-warning or sanitizer diagnostics occurred in these final gates. The full unit log retains 14 expected pre-existing negative-fixture warnings (invalid tool profiles and malformed/unsupported/duplicate MCP imports); they are not compiler warnings and were not suppressed. The WebSocket shell fixture also prints normal termination notices for its mock wrappers. Darwin quality explicitly skips GCC `-fanalyzer`; ASan leak detection is disabled on this host. No macOS leaks, ps inspection, Linux, Windows, wasm or Nix execution proof is claimed.
+
+**Review 2 findings 1 and 2: PASS for this assigned macOS host repair.** P2-I2/P2-I3 now cover the reviewed provider-parser gap and the owned ACP child lifecycle. Ten behavioral mutations are recorded in [mutation-results.json](artifacts/review-2/mutation-results.json), including the three regression-restoring failures. Broader phase-2 review/performance/platform obligations remain coordinator-owned.
+
+Final reconciliation: all 729 source hashes match; all 64 production exports match `abi/libtny.exports.macos`; public headers and existing ADRs are unchanged; `git diff --check` passes. The [changed-file inventory](artifacts/review-2/files-changed.txt) lists the uncommitted deliverable. No commit, push, PR or live provider call occurred.

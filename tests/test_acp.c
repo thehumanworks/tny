@@ -4,6 +4,8 @@
 #include "greatest.h"
 #include "backends/acp/acp_client.h"
 #include "util/alloc.h"
+#include "core/runtime.h"
+#include <sys/wait.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -200,7 +202,85 @@ TEST emergency_cancel_releases_pending_protocol_state(void) {
     PASS();
 }
 
+TEST emergency_cancel_reaps_sigterm_ignoring_child_and_retries(void) {
+    char root[] = "/tmp/tny-acp-oom-XXXXXX";
+    ASSERT(mkdtemp(root));
+    tny_ctx *ctx = tny_ctx_new_explicit(root, root);
+    ASSERT(ctx);
+    ctx->backend = TNY_BK_ACP;
+    ctx->no_save = true;
+    free(ctx->model);
+    ctx->model = NULL;
+    char agent[4096];
+    ASSERT(realpath("tests/integration/fake_acp_agent.py", agent));
+    char *argv[] = {"python3", agent, "--oom-settlement", NULL};
+    ctx->agent_argv = argv;
+    tny_session_state *session = session_new(ctx);
+    perm_engine *perm = perm_new(ctx);
+    tny_engine *engine = tny_engine_new(ctx, session, perm, NULL, NULL);
+    tny_backend *backend = tny_backend_acp_new(ctx);
+    ASSERT(engine && backend);
+    ac_impl *o = backend->impl;
+    char err[256];
+    ASSERT_EQ(0, tny_engine_prepare(engine, backend, TNY_ENGINE_PREPARE_FRESH, err, sizeof err));
+    ASSERT_EQ(0, tny_engine_start(engine, "park", NULL, err, sizeof err));
+    tny_owned_event *event = NULL;
+    bool ready = false;
+    for (int i = 0; i < 100 && !ready; i++) {
+        tny_engine_next rc = tny_engine_next_event(engine, 50, &event, err, sizeof err);
+        if (rc == TNY_ENGINE_NEXT_EVENT) {
+            ready = event->ev.kind == TNY_EV_TEXT_DELTA;
+            tny_owned_event_free(event);
+        }
+    }
+    ASSERT(ready);
+    pid_t child = o->pid;
+    ASSERT(child > 0);
+    tny_alloc_scope_begin("acp-emergency");
+    int64_t start = monotonic_ms();
+    tny_engine_fail_oom(engine);
+    ASSERT(monotonic_ms() - start < 2000);
+#ifdef TNY_ALLOC_TESTING
+    ASSERT_EQ(0, tny_alloc_test_settlement_allocations());
+#endif
+    ASSERT_EQ(0, o->pid);
+    ASSERT_EQ(-1, waitpid(child, NULL, WNOHANG));
+    ASSERT_EQ(ECHILD, errno);
+    ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, tny_engine_next_event(engine, 0, &event, err, sizeof err));
+    ASSERT_EQ(TNY_EV_ERROR, event->ev.kind);
+    ASSERT_EQ(TNY_EVENT_ERROR_OOM, event->ev.error_code);
+    tny_owned_event_free(event);
+    ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, tny_engine_next_event(engine, 0, &event, err, sizeof err));
+    ASSERT_EQ(TNY_EV_TURN_END, event->ev.kind);
+    ASSERT_EQ(TNY_STOP_ERROR, event->ev.stop);
+    tny_owned_event_free(event);
+    ASSERT_EQ(TNY_ENGINE_NEXT_DRAINED, tny_engine_next_event(engine, 0, &event, err, sizeof err));
+    tny_alloc_scope_begin("disabled");
+    ASSERT_EQ(0, tny_engine_start(engine, "retry", NULL, err, sizeof err));
+    int terminals = 0;
+    for (int i = 0; i < 100; i++) {
+        tny_engine_next rc = tny_engine_next_event(engine, 50, &event, err, sizeof err);
+        if (rc == TNY_ENGINE_NEXT_DRAINED) break;
+        if (rc == TNY_ENGINE_NEXT_TIMEOUT) continue;
+        ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, rc);
+        ASSERT(event->ev.kind != TNY_EV_ERROR);
+        if (event->ev.kind == TNY_EV_TURN_END) {
+            ASSERT_EQ(TNY_STOP_DONE, event->ev.stop);
+            terminals++;
+        }
+        tny_owned_event_free(event);
+    }
+    ASSERT_EQ(1, terminals);
+    tny_engine_free(engine);
+    perm_free(perm);
+    session_close(session);
+    ctx->agent_argv = NULL;
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 SUITE(acp_suite) {
+    RUN_TEST(emergency_cancel_reaps_sigterm_ignoring_child_and_retries);
     RUN_TEST(emergency_cancel_releases_pending_protocol_state);
     RUN_TEST(agent_is_ws_detects_only_ws_urls);
     RUN_TEST(fmt_builders_produce_exact_json);

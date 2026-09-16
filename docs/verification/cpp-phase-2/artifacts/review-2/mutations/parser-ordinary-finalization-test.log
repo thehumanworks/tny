@@ -1,0 +1,26 @@
+Traceback (most recent call last):
+  File "/Users/tomas/projects/tny-cpp-p1fix/tests/integration/test_libtny_faults.py", line 1103, in <module>
+    main()
+    ~~~~^^
+  File "/Users/tomas/projects/tny-cpp-p1fix/tests/integration/test_libtny_faults.py", line 1012, in main
+    reserved_settlement_fixture(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        os.path.abspath(__file__), os.path.abspath(sys.argv[2]), scenario
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/tomas/projects/tny-cpp-p1fix/tests/integration/test_libtny_faults.py", line 900, in reserved_settlement_fixture
+    run_child(
+    ~~~~~~~~~^
+        script,
+        ^^^^^^^
+    ...<6 lines>...
+        dict(os.environ),
+        ^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/tomas/projects/tny-cpp-p1fix/tests/integration/test_libtny_faults.py", line 941, in run_child
+    raise AssertionError(
+    ...<2 lines>...
+    )
+AssertionError: child ['--reserved-settlement', '/Users/tomas/projects/tny-cpp-p1fix/build/runtime-mutations/libtny.1.dylib', 'http://127.0.0.1:53349/v1', 'later']: rc=1 stdout=b'' stderr=b'Traceback (most recent call last):\n  File "/Users/tomas/projects/tny-cpp-p1fix/tests/integration/test_libtny_faults.py", line 1103, in <module>\n    main()\n    ~~~~^^\n  File "/Users/tomas/projects/tny-cpp-p1fix/tests/integration/test_libtny_faults.py", line 1008, in main\n    child_reserved_settlement(sys.argv[2], sys.argv[3], sys.argv[4])\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/Users/tomas/projects/tny-cpp-p1fix/tests/integration/test_libtny_faults.py", line 726, in child_reserved_settlement\n    status, event = next_event(lib, session, error)\n                    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\n  File "/Users/tomas/projects/tny-cpp-p1fix/tests/integration/test_libtny_faults.py", line 152, in next_event\n    assert lib.tny_alloc_test_settlement_allocations() == 0, (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: allocation during reserved OOM settlement\n'

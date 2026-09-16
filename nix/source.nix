@@ -1,3 +1,4 @@
+# Provider OOM hosts reuse the existing tests fileset, Python and C/C++ toolchain.
 # Source filters shared by every tny derivation.
 #
 # Nix hashes the whole source tree, so an unfiltered `src = ../.` would rebuild

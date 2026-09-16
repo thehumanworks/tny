@@ -1402,18 +1402,18 @@ static void on_sse_event(const char *data, size_t len, void *ud) {
         o->parser_oom = true;
 }
 
-static int parser_failed(oa_impl *o) {
+static void oa_cancel(tny_backend *b);
+
+static int parser_failed(tny_backend *b) {
+    oa_impl *o = b->impl;
     static const char message[] = "out of memory decoding provider stream";
-    /* Dispatch/flush has returned: no callback can still borrow these bytes.
-     * Release capacity before terminal delivery or any later request allocates. */
-    sse_parser_free(&o->sse);
-    o->sse.status = -2;
-    oa_calls_reset(&o->calls);
-    o->calls.status = -2;
-    buf_free(&o->rawbody);
-    conn_drop(o);
+    /* Parser callbacks have unwound. Skip usage accounting, persistence and
+     * ordinary finalization even when earlier steps accumulated usage. */
+    tny_alloc_provider_failed();
+    tny_alloc_settlement_begin();
     emit_error(o, TNY_EVENT_ERROR_OOM, message, sizeof message - 1);
-    emit_turn_end(o, TNY_STOP_ERROR);
+    oa_cancel(b);
+    tny_alloc_settlement_end();
     return -1;
 }
 
@@ -2456,11 +2456,11 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 if (o->rawbody.len + (size_t)bn <= cap) buf_append(&o->rawbody, tmp, (size_t)bn);
                 else o->rawbody_overflow = true;
             }
+            if (o->sse.status || o->parser_oom || tny_alloc_scope_failed()) return parser_failed(b);
             if (o->cancelled) {
                 oa_cancel(b);
                 return 0;
             }
-            if (o->sse.status || o->parser_oom) return parser_failed(o);
             if (o->error_status) continue;
             /* a terminal error event settles the step now: whatever the
              * provider sends after it is not worth waiting for */
@@ -2500,11 +2500,11 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
                 o->stream_done = true;
             }
             o->parser_active = false;
+            if (o->sse.status || o->parser_oom || tny_alloc_scope_failed()) return parser_failed(b);
             if (o->cancelled) {
                 oa_cancel(b);
                 return 0;
             }
-            if (o->sse.status || o->parser_oom) return parser_failed(o);
             if (o->stream_failed) return fail_stream(o);
         }
         if (!oa_stream_complete(o->stream_done, o->wire_chat, o->finish_reason)) {

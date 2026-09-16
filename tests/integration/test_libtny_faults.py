@@ -18,7 +18,9 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -697,7 +699,7 @@ def child_reserved_settlement(libpath, base_url, scenario):
                     kinds.append(kind)
                     lib.tny_event_free(event)
                     assert kind not in (ERROR_KIND, TERMINAL_KIND)
-                    if (scenario == "text" and kind == 0) or (
+                    if (scenario in ("text", "later") and kind == 0) or (
                         scenario == "permission" and kind == PERMISSION_KIND
                     ):
                         break
@@ -710,20 +712,46 @@ def child_reserved_settlement(libpath, base_url, scenario):
                     ("provider never reached parked state", scenario, kinds)
                 )
 
-            # Allocation 1 copies the public input; 2 grows the runtime's
-            # effective prompt. Failure settles the already-active real backend.
-            os.environ["TNY_TEST_ALLOC_SCOPE"] = "session_steer"
-            os.environ["TNY_TEST_ALLOC_FAIL_AT"] = "2"
-            raw, steer = as_bytes("cancel through injected OOM")
-            keep.append(raw)
-            assert lib.tny_session_steer(session, steer, ctypes.byref(error)) == 0
-            assert lib.tny_alloc_test_scope_injected()
-            assert lib.tny_alloc_test_settlement_count() == 1
+            snapshot = {
+                path: path.read_bytes() for path in Path(root, "state").rglob("*.json")
+            }
+            if scenario == "later":
+                # The second response is parked after text, with first-step
+                # usage already accumulated and persisted. Grow its SSE buffer.
+                os.environ["TNY_TEST_ALLOC_SCOPE"] = "next_event"
+                os.environ["TNY_TEST_ALLOC_FAIL_AT"] = "1"
+                with urllib.request.urlopen(base_url + "/release", timeout=5) as reply:
+                    assert reply.status == 200
+                for _ in range(128):
+                    status, event = next_event(lib, session, error)
+                    if status == EVENT:
+                        kind = lib.tny_event_get_kind(event)
+                        kinds.append(kind)
+                        assert kind == ERROR_KIND
+                        assert lib.tny_event_error_code(event) == OOM
+                        lib.tny_event_free(event)
+                        break
+                    assert status == TIMEOUT
+                else:
+                    raise AssertionError("later response never failed")
+                assert lib.tny_alloc_test_scope_injected()
+                assert lib.tny_alloc_test_settlement_count() >= 1
+                assert snapshot
+                assert all(path.read_bytes() == data for path, data in snapshot.items())
+            else:
+                # Allocation 1 copies input; 2 grows the effective prompt.
+                os.environ["TNY_TEST_ALLOC_SCOPE"] = "session_steer"
+                os.environ["TNY_TEST_ALLOC_FAIL_AT"] = "2"
+                raw, steer = as_bytes("cancel through injected OOM")
+                keep.append(raw)
+                assert lib.tny_session_steer(session, steer, ctypes.byref(error)) == 0
+                assert lib.tny_alloc_test_scope_injected()
+                assert lib.tny_alloc_test_settlement_count() == 1
             assert lib.tny_alloc_test_settlement_allocations() == 0, (
                 "allocation during reserved OOM settlement"
             )
             os.environ["TNY_TEST_ALLOC_SCOPE"] = "disabled"
-            errors, terminals = [], []
+            errors, terminals = ([OOM] if scenario == "later" else []), []
             for _ in range(128):
                 status, event = next_event(lib, session, error)
                 # Every remaining event is already owned; public delivery and
@@ -769,6 +797,11 @@ def reserved_settlement_fixture(script, libpath, scenario):
         def log_message(self, *_args):
             pass
 
+        def do_GET(self):
+            self.server.release.set()
+            self.send_response(200)
+            self.end_headers()
+
         def do_POST(self):
             request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             items = request["input"]
@@ -786,15 +819,20 @@ def reserved_settlement_fixture(script, libpath, scenario):
                     )
             assert not pending_ids
             self.server.requests += 1
-            retry = self.server.requests == 3
+            retry = self.server.requests == (5 if scenario == "later" else 3)
+            later_body = scenario == "later" and self.server.requests % 2 == 0
             events = [{"type": "response.output_text.delta", "delta": "partial answer"}]
-            if not retry and scenario != "text":
+            if scenario == "later" and not retry and not later_body:
+                events = []
+            if not retry and scenario != "text" and not later_body:
                 name = "write_file" if scenario == "permission" else "host_pending"
                 arguments = (
                     '{"path":"permission.txt","content":"allowed"}'
                     if scenario == "permission"
                     else "{}"
                 )
+                if scenario == "later":
+                    name, arguments = "list_files", "{}"
                 item = {
                     "type": "function_call",
                     "id": "fc_oom",
@@ -814,20 +852,40 @@ def reserved_settlement_fixture(script, libpath, scenario):
                         "item": item,
                     },
                 ]
-            if retry or scenario != "text":
+            if not later_body and (retry or scenario != "text"):
                 events.append(
-                    {"type": "response.completed", "response": {"status": "completed"}}
+                    {
+                        "type": "response.completed",
+                        "response": {
+                            "status": "completed",
+                            "usage": {"input_tokens": 123, "output_tokens": 7},
+                        },
+                    }
                 )
             body = "".join(
                 "data: " + json.dumps(event) + "\n\n" for event in events
             ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
-            if retry or scenario != "text":
+            if not later_body and (retry or scenario != "text"):
                 self.send_header("Content-Length", str(len(body)))
             self.end_headers()
+            if later_body:
+                self.server.release.clear()
             self.wfile.write(body)
             self.wfile.flush()
+            if later_body:
+                assert self.server.release.wait(10)
+                tail = (
+                    b'data: {"type":"response.output_text.delta","delta":"'
+                    + b"x" * 32768
+                    + b'"}\n\n'
+                )
+                try:
+                    self.wfile.write(tail)
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
             if not retry and scenario == "text":
                 # Keep a genuine streaming response open until OOM closes it.
                 self.connection.settimeout(10)
@@ -835,6 +893,7 @@ def reserved_settlement_fixture(script, libpath, scenario):
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.requests = 0
+    server.release = threading.Event()
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
     try:
@@ -848,7 +907,7 @@ def reserved_settlement_fixture(script, libpath, scenario):
             ],
             dict(os.environ),
         )
-        assert server.requests == 3
+        assert server.requests == (5 if scenario == "later" else 3)
     finally:
         server.shutdown()
         server.server_close()
@@ -949,7 +1008,7 @@ def main():
         child_reserved_settlement(sys.argv[2], sys.argv[3], sys.argv[4])
         return
     if len(sys.argv) >= 2 and sys.argv[1] == "--reserved-only":
-        for scenario in ("text", "permission", "custom"):
+        for scenario in ("text", "permission", "custom", "later"):
             reserved_settlement_fixture(
                 os.path.abspath(__file__), os.path.abspath(sys.argv[2]), scenario
             )
@@ -968,7 +1027,10 @@ def main():
     libpath = os.path.abspath(sys.argv[1])
     script = os.path.abspath(__file__)
     results = {}
-    for scenario in ("text", "permission", "custom"):
+    native_host = Path(libpath).with_name("provider-faults")
+    for test in ("decoder_oom_mid_stream", "emergency_cancel_reaps"):
+        subprocess.run([str(native_host), "-t", test], check=True, timeout=15)
+    for scenario in ("text", "permission", "custom", "later"):
         reserved_settlement_fixture(script, libpath, scenario)
 
     results["tools_fs_walk"] = sweep(
