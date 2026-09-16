@@ -1,26 +1,27 @@
 # Language and runtime
 
-## Decision: C11
+## Decision: C11 with private C++20 ownership modules
 
-Pick **C11** (GNU C11 on GCC/Clang is fine). Do not use C++ as the implementation language.
-
-fx is already a **6.4 MiB (macOS) / 11.1 MiB (static Linux) Zig** native binary with zero package deps. Beating that with Go, Rust, or C++ (libstdc++ / exceptions / RTTI / iostreams) is unlikely. C++/musl hello-world is already ~75× C/musl. C keeps the binary a thin layer over libc + a few vendored files.
-
-C++ is allowed only as an *optional* generated stub if a future tool cannot emit C. Prefer [nanopb](https://github.com/nanopb/nanopb) and hand-rolled Connect so that never happens.
-
-Zig was considered and rejected: the user constrained the choice to C or C++, and C is the smaller, faster runtime of those two.
+[ADR 0112](adr/0112-private-cpp20-ownership-boundaries.md) authorizes a
+limited migration for parser buffers/documents, runtime events/async
+tools, and runner/job resources. It supersedes the old blanket C++ ban,
+not the C ABI, platform support or reliability/performance gates. Keep
+untouched application/transport/OS code, third-party libraries and
+`tnytty` in C11. No public C++ ABI, Boost, UI framework or global allocator
+replacement is introduced. Runtime size and dependencies are measured,
+not inferred from the language.
 
 ## Compiler and link
 
 | Item | Choice |
 | --- | --- |
-| Standard | C11, `-Wall -Wextra -Werror`, no VLAs in new code |
+| Standard | C11 and scoped private C++20, `-Wall -Wextra -Werror`, no VLAs in new code |
 | Debug | ASan/UBSan on the unit-test binary |
 | Release | `-Os -ffunction-sections -fdata-sections`, strip, `--gc-sections` / `-dead_strip` |
 | libc | macOS: libSystem (cannot static-link). Linux publish: **musl static** |
 | TLS | macOS: Security.framework. Linux: **system OpenSSL** (`libssl.so.3` / `.so.1.1`), `dlopen`'d at first TLS use ([adr/0007](adr/0007-linux-tls-system-openssl.md)). Never link or vendor OpenSSL; musl static has no https |
 | Threads | One event loop. TUI prewarm uses one bounded connection thread; Cursor may lend its loopback callback server to one bounded pump thread during a blocking store RPC. Custom tools remain owner-thread-only |
-| Exceptions / RTTI | N/A (C) |
+| Exceptions / RTTI | C++ allocation failures are caught at private C boundaries; RTTI is not needed |
 
 ## Library bill of materials
 

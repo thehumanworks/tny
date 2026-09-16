@@ -95,3 +95,5 @@ files in this directory are the complete record.
 | [0109](0109-provider-independent-codex-search.md) | Provider-independent search uses the Codex login regardless of conversation provider/model; DuckDuckGo only without that login; partially supersedes ADR0106 routing |
 | [0110](0110-one-suite-per-platform.md) | Each suite runs once per platform: native `linux-x86_64` and the hermetic `nix` job carry the full suite, other lanes build and package, `release.yml` does not re-test, and `main` runs are never cancelled |
 | [0111](0111-aarch64-size-cliff.md) | Linux native releases omit the frame pointer, `YYJSON_DISABLE_NON_STANDARD` drops dead JSON paths, the Nix package drops `zerocallusedregs`; the aarch64 64 KiB RELRO cliff is documented |
+
+- [0112 — Private C++20 ownership boundaries](0112-private-cpp20-ownership-boundaries.md)

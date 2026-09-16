@@ -67,7 +67,7 @@ times that; `packages.tny-unwrapped` skips it entirely.
 
 ## How we stay under fx
 
-1. C11, no C++ stdlib, no Zig runtime extras.
+1. C11 with scoped private C++20 owners (ADR 0112); measure C++ runtime dependencies and artifact deltas. No Zig runtime extras.
 2. ANSI TUI, not a widget kit.
 3. yyjson + picohttpparser + wslay, vendored as .c files you can see in `nm`.
    (nanopb deferred: v1 speaks Connect with the JSON codec, no protobuf runtime.)

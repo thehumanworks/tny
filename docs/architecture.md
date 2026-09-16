@@ -187,3 +187,11 @@ DuckDuckGo only without that login (explicit command/URL overrides still win).
 Builtin Codex retains its inline hosted-search optimization. Search results are
 ordinary parent tool results for checkpoint/reattach purposes. See
 [ADR 0109](adr/0109-provider-independent-codex-search.md).
+
+## Private ownership implementation
+
+[ADR 0112](adr/0112-private-cpp20-ownership-boundaries.md) permits private
+C++20 modules for stream decoding, retained events/async tools, and
+runner/job resources. The C-facing adapters retain scheduling, public
+ABI and OS operations in their existing owners. Synchronous views are
+borrowed; retained records own their data. Exceptions never escape to C.
