@@ -1,0 +1,39 @@
+{
+  "revision": "c6d938a (task changes identified by startup-tooling-source.sha256)",
+  "sanitized_make_test": {
+    "command": "env -u TNY_TOOLS -u CURSOR_API_KEY TMPDIR=\"$PWD/build/tmp\" make test",
+    "exit_code": 2,
+    "failed_groups": [
+      "test_acp_ws",
+      "test_provider_setup",
+      "test_ask_events",
+      "test_image_workflow",
+      "test_job_artifacts",
+      "test_jobs",
+      "test_jobs_cleanup_hold",
+      "test_libtny_custom_tools",
+      "test_subagent",
+      "test_subagent_diagnostics",
+      "test_tui"
+    ]
+  },
+  "quality": {
+    "command": "env -u TNY_TOOLS -u CURSOR_API_KEY TMPDIR=\"$PWD/build/tmp\" make quality",
+    "exit_code": 0
+  },
+  "focused_tests": {
+    "command": "make test-bench-startup",
+    "exit_code": 0,
+    "tests": 7
+  },
+  "bench_startup": {
+    "command": "make bench-startup BASELINE_TNY=\"$PWD/build/startup-baseline/tny\" STARTUP_LABEL=tooling-lane",
+    "exit_code": 0
+  },
+  "size_report_exit": 0,
+  "size_check_exit": 0,
+  "baseline_self_comparison_exit": 0,
+  "json_comparison_exit": 0,
+  "git_add_exit": 128,
+  "overall": "INCOMPLETE"
+}

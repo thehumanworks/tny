@@ -1060,3 +1060,19 @@ $(PARSER_BACKEND_SMOKE): $(OBJ_DBG)/tests/fuzz/parser_backend_oom.o $(PARSER_FAU
 	$(CXX) $(call cppflags,$(DBG_CFLAGS)) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))
 test-parser-smoke: $(PARSER_BACKEND_SMOKE)
 -include $(OBJ_DBG)/tests/fuzz/parser_backend_oom.d
+
+# === C++ series startup and size reporting (ADR 0115) ===
+STARTUP_JSON ?= $(BUILD)/startup.json
+STARTUP_LABEL ?= candidate
+.PHONY: bench-startup size-report test-bench-startup
+bench-startup: release
+	@test -n "$(BASELINE_TNY)" || { echo "error: set BASELINE_TNY" >&2; exit 2; }
+	python3 tests/bench/bench_startup.py --baseline "$(BASELINE_TNY)" \
+		--candidate "$(BIN)" --json "$(STARTUP_JSON)" --label "$(STARTUP_LABEL)"
+
+size-report: release
+	python3 tests/bench/bench_startup.py --candidate "$(BIN)" --size-only
+
+test: test-bench-startup
+test-bench-startup:
+	python3 tests/bench/test_bench_startup.py
