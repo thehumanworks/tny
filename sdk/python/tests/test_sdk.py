@@ -387,7 +387,12 @@ class SDKTests(unittest.TestCase):
             with tny.Runtime(self.config(mock.url), library=self.library) as runtime:
                 with runtime.create_session() as session:
                     events = list(session.run("list files in ."))
+                    first_snapshot = [repr(event) for event in events]
+                    first_count = len(events)
                     events.extend(session.run("again \N{SNOWMAN}"))
+                    self.assertEqual(
+                        [repr(event) for event in events[:first_count]], first_snapshot
+                    )
                     del session
                 text = b"".join(
                     event.text
@@ -402,6 +407,17 @@ class SDKTests(unittest.TestCase):
                 self.assertTrue(all(isinstance(e.provider, bytes) for e in events))
                 sequences = [e.sequence for e in events]
                 self.assertEqual(sequences, sorted(set(sequences)))
+            self.assertEqual(
+                [repr(event) for event in events[:first_count]], first_snapshot
+            )
+            self.assertIn(
+                b"MOCK-OK",
+                b"".join(
+                    event.text
+                    for event in events
+                    if isinstance(event, tny.TextDeltaEvent)
+                ),
+            )
         finally:
             mock.close()
 

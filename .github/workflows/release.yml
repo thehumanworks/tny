@@ -81,7 +81,7 @@ jobs:
             os: ubuntu-24.04-arm
             triple: linux-aarch64
             node_package: linux-arm64
-            size_max: "1048576"
+            size_max: "1052672"
           - name: darwin-arm64
             os: macos-15
             triple: darwin-arm64

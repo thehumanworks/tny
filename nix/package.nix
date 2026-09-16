@@ -125,7 +125,7 @@ stdenv.mkDerivation (finalAttrs: {
     longDescription = ''
       tny drives Cursor (SDK Bridge), Codex (ChatGPT subscription), any ACP agent, and
       OpenAI-compatible endpoints through one normalized event loop, from a
-      stripped binary well under 1 MiB.
+      stripped executable checked against its platform-specific size budget.
 
       Host agents stay external processes: install `cursor-sdk-bridge` or
       an ACP agent separately and put them on PATH; the `codex` CLI is only

@@ -12,6 +12,7 @@
  * answered by an actual advisory lock or an actual child handle, never by a
  * stored pid. Nothing here starts a provider connection: items run the real
  * tny CLI as owned children. */
+extern "C" {
 #include "core/jobs.h"
 #include "core/image_manifest.h"
 #include "core/image_preview.h"
@@ -37,8 +38,11 @@
 #include <dirent.h>
 #include <sys/wait.h>
 #endif
+}
+#include "util/resources.hpp"
+#include "util/ownership.hpp"
 
-extern char **environ;
+extern "C" char **environ;
 
 #define JOBS_STATE_LOCK_TRIES   80
 #define JOBS_STATE_LOCK_WAIT_MS 25
@@ -117,7 +121,7 @@ static void hex_of(const uint8_t *in, size_t n, char *out) {
 static char *sha256_hex_of(const void *data, size_t len) {
     uint8_t digest[32];
     if (!sha256((const uint8_t *)data, len, digest)) return NULL;
-    char *hex = calloc(1, 65);
+    char *hex = static_cast<char *>(tny_alloc_calloc(1, 65));
     if (!hex) return NULL;
     hex_of(digest, sizeof digest, hex);
     return hex;
@@ -153,6 +157,8 @@ static char *jobs_item_log(const char *dir, int index, int attempt) {
 static void safe_err(char *err, size_t errlen, const char *fmt, ...)
     __attribute__((format(printf, 3, 4)));
 
+// Retain checked printf formatting without allocating error storage.
+// NOLINTNEXTLINE(cert-dcl50-cpp)
 static void safe_err(char *err, size_t errlen, const char *fmt, ...) {
     if (!err || !errlen) return;
     va_list ap;
@@ -180,7 +186,16 @@ static void jm_set_null(yyjson_mut_doc *doc, yyjson_mut_val *obj, const char *ke
 }
 
 static void jm_set_bool(yyjson_mut_doc *doc, yyjson_mut_val *obj, const char *key, bool value) {
-    yyjson_mut_obj_put(obj, yyjson_mut_strcpy(doc, key), yyjson_mut_bool(doc, value));
+    yyjson_mut_val *existing = yyjson_mut_obj_get(obj, key);
+    if (yyjson_mut_is_bool(existing)) {
+        /* Re-latching a durable cleanup hold must never allocate or erase it. */
+        yyjson_mut_set_bool(existing, value);
+        return;
+    }
+    yyjson_mut_val *name = yyjson_mut_strcpy(doc, key);
+    yyjson_mut_val *replacement = yyjson_mut_bool(doc, value);
+    /* yyjson interprets a NULL value as removal, not insertion failure. */
+    if (name && replacement) yyjson_mut_obj_put(obj, name, replacement);
 }
 
 static const char *jm_str(yyjson_mut_val *obj, const char *key) {
@@ -294,29 +309,33 @@ static int jobs_record_store(const char *dir, yyjson_mut_doc *doc) {
 
 /* ---- state transactions ---- */
 
-typedef struct {
-    char *dir;
-    int lock_fd;
-    yyjson_mut_doc *doc;
-} jobs_txn;
+struct jobs_txn {
+    char *dir = nullptr;
+    tny::lock_descriptor lock_fd;
+    yyjson_mut_doc *doc = nullptr;
+    void reset() noexcept {
+        yyjson_mut_doc_free(doc);
+        doc = nullptr;
+        free(dir);
+        dir = nullptr;
+        lock_fd.reset();
+    }
+    ~jobs_txn() noexcept { reset(); }
+};
 
 static void jobs_txn_end(jobs_txn *t) {
-    if (!t) return;
-    if (t->doc) yyjson_mut_doc_free(t->doc);
-    if (t->lock_fd >= 0) tny_jobs_host_lock_close(t->lock_fd);
-    free(t->dir);
-    memset(t, 0, sizeof *t);
-    t->lock_fd = -1;
+    if (t) t->reset();
 }
 
 /* Bounded, never blocking: the state lock is only ever held for a few
  * in-memory edits plus one atomic write. */
 static int jobs_txn_begin(const char *dir, const char *id, jobs_txn *t, char *err, size_t errlen) {
-    memset(t, 0, sizeof *t);
-    t->lock_fd = -1;
+    t->reset();
     char *lock = jobs_file(dir, "state.lock");
     if (!lock) return ENOMEM;
-    int fd = tny_jobs_host_lock_open(lock);
+    tny::lock_descriptor state_lock;
+    state_lock.adopt(tny_jobs_host_lock_open(lock));
+    int fd = state_lock.borrow();
     free(lock);
     if (fd < 0) {
         safe_err(err, errlen, "cannot open the job state lock");
@@ -329,11 +348,10 @@ static int jobs_txn_begin(const char *dir, const char *id, jobs_txn *t, char *er
         tny_jobs_host_sleep_ms(JOBS_STATE_LOCK_WAIT_MS);
     }
     if (rc != TNY_JOBS_LOCK_ACQUIRED) {
-        tny_jobs_host_lock_close(fd);
         safe_err(err, errlen, "another process is updating this job");
         return EBUSY;
     }
-    t->lock_fd = fd;
+    t->lock_fd.adopt(state_lock.release());
     t->dir = xstrdup(dir);
     t->doc = jobs_record_load(dir, id, err, errlen);
     if (!t->dir || !t->doc) {
@@ -465,9 +483,10 @@ static bool reservation_owner_active(tny_ctx *ctx, const char *job_id) {
     bool active = true;
     if (owner_state == TNY_JOBS_OWNER_FREE) {
         char *lock = jobs_file(dir, "state.lock");
-        int fd = lock ? tny_jobs_host_lock_open(lock) : -1;
+        tny::lock_descriptor fd;
+        fd.adopt(lock ? tny_jobs_host_lock_open(lock) : -1);
         free(lock);
-        if (fd >= 0 && tny_jobs_host_lock_try(fd) == TNY_JOBS_LOCK_ACQUIRED) {
+        if (fd.borrow() >= 0 && tny_jobs_host_lock_try(fd.borrow()) == TNY_JOBS_LOCK_ACQUIRED) {
             /* Recheck ownership under the state lock and inspect raw bytes;
              * do not project or rewrite an uncertain record while claiming. */
             if (tny_jobs_host_owner_state(owner) == TNY_JOBS_OWNER_FREE) {
@@ -475,9 +494,9 @@ static bool reservation_owner_active(tny_ctx *ctx, const char *job_id) {
                 active = !doc || !cleanup_reclaimable(yyjson_mut_doc_get_root(doc));
                 yyjson_mut_doc_free(doc);
             }
-            tny_jobs_host_lock_release(fd);
+            /* close-only owner releases this description */
         }
-        if (fd >= 0) tny_jobs_host_lock_close(fd);
+        if (fd.borrow() >= 0) fd.reset();
     }
     free(owner);
     free(dir);
@@ -494,16 +513,17 @@ static int reservation_claim_one(tny_ctx *ctx, const char *canonical, const char
                                  int attempt, char *err, size_t errlen) {
     char *path = reservation_path(ctx, canonical);
     if (!path) return ENOMEM;
-    int fd = tny_jobs_host_lock_open(path);
+    tny::lock_descriptor fd;
+    fd.adopt(tny_jobs_host_lock_open(path));
     free(path);
-    if (fd < 0) return EIO;
+    if (fd.borrow() < 0) return EIO;
     int rc = 0;
-    if (tny_jobs_host_lock_try(fd) != TNY_JOBS_LOCK_ACQUIRED) {
-        tny_jobs_host_lock_close(fd);
+    if (tny_jobs_host_lock_try(fd.borrow()) != TNY_JOBS_LOCK_ACQUIRED) {
+        fd.reset();
         safe_err(err, errlen, "another submitter is claiming this output right now");
         return EBUSY;
     }
-    yyjson_mut_doc *doc = reservation_read(fd);
+    yyjson_mut_doc *doc = reservation_read(fd.borrow());
     yyjson_mut_val *claims =
         doc ? yyjson_mut_obj_get(yyjson_mut_doc_get_root(doc), "claims") : NULL;
     if (!claims) rc = ENOMEM;
@@ -545,12 +565,12 @@ static int reservation_claim_one(tny_ctx *ctx, const char *canonical, const char
         jm_set_int(fresh, mine, "item", item);
         jm_set_int(fresh, mine, "attempt", attempt);
         yyjson_mut_arr_append(kept, mine);
-        rc = reservation_write(fd, fresh);
+        rc = reservation_write(fd.borrow(), fresh);
     }
     yyjson_mut_doc_free(fresh);
     yyjson_mut_doc_free(doc);
-    tny_jobs_host_lock_release(fd);
-    tny_jobs_host_lock_close(fd);
+    /* close-only owner releases this description */
+    fd.reset();
     return rc;
 }
 
@@ -560,14 +580,15 @@ static void reservation_release_one(tny_ctx *ctx, const char *canonical, const c
                                     int item, int attempt) {
     char *path = reservation_path(ctx, canonical);
     if (!path) return;
-    int fd = tny_jobs_host_lock_open(path);
+    tny::lock_descriptor fd;
+    fd.adopt(tny_jobs_host_lock_open(path));
     free(path);
-    if (fd < 0) return;
-    if (tny_jobs_host_lock_try(fd) != TNY_JOBS_LOCK_ACQUIRED) {
-        tny_jobs_host_lock_close(fd);
+    if (fd.borrow() < 0) return;
+    if (tny_jobs_host_lock_try(fd.borrow()) != TNY_JOBS_LOCK_ACQUIRED) {
+        fd.reset();
         return; /* a live claimer owns the record; never force it */
     }
-    yyjson_mut_doc *doc = reservation_read(fd);
+    yyjson_mut_doc *doc = reservation_read(fd.borrow());
     yyjson_mut_val *claims =
         doc ? yyjson_mut_obj_get(yyjson_mut_doc_get_root(doc), "claims") : NULL;
     yyjson_mut_doc *fresh = claims ? yyjson_mut_doc_new(jallocator()) : NULL;
@@ -588,12 +609,12 @@ static void reservation_release_one(tny_ctx *ctx, const char *canonical, const c
             if (!mine && yyjson_mut_arr_size(kept) < JOBS_MAX_RESERVATIONS)
                 yyjson_mut_arr_append(kept, yyjson_mut_val_mut_copy(fresh, claim));
         }
-        reservation_write(fd, fresh);
+        reservation_write(fd.borrow(), fresh);
     }
     yyjson_mut_doc_free(fresh);
     yyjson_mut_doc_free(doc);
-    tny_jobs_host_lock_release(fd);
-    tny_jobs_host_lock_close(fd);
+    /* close-only owner releases this description */
+    fd.reset();
 }
 
 /* Claim every output of one attempt in sorted canonical order (no lock
@@ -1157,7 +1178,7 @@ tny_jobs_op tny_jobs_parse_argv(int argc, char **argv, const char *stdin_text, s
             return TNY_JOBS_OP_NONE;
         }
     }
-    jobs_flags flags = {0};
+    jobs_flags flags = {};
     if (jobs_parse_flags(argc - i, argv + i, &flags, error) != 0) return TNY_JOBS_OP_NONE;
     if (json_out) *json_out = flags.json;
     if (flags.no_manifest && op != TNY_JOBS_OP_SUBMIT) {
@@ -1690,7 +1711,6 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
 
 typedef struct {
     pid_t pid;
-    int owner_fd;
     bool live; /* the child exists: this process may no longer write metadata */
 } jobs_launch;
 
@@ -1701,30 +1721,30 @@ static int jobs_launch_worker(const char *self, const char *dir, const char *job
                               bool (*cancelled)(void *), void *cancel_ud) {
     (void)dir;
     memset(launch, 0, sizeof *launch);
-    launch->owner_fd = owner_fd;
 #ifdef __EMSCRIPTEN__
     (void)self;
     (void)job_id;
+    (void)owner_fd;
     (void)payload;
     (void)cancelled;
     (void)cancel_ud;
     safe_err(err, errlen, "this build cannot start a job supervisor");
     return ENOTSUP;
 #else
-    int payload_pipe[2] = {-1, -1}, ack_pipe[2] = {-1, -1};
-    if (pipe(payload_pipe) != 0) {
+    tny::pipe_pair payload_pipe, ack_pipe;
+    if (payload_pipe.open() != 0) {
         safe_err(err, errlen, "cannot create the payload pipe");
         return EIO;
     }
-    if (pipe(ack_pipe) != 0) {
-        close(payload_pipe[0]);
-        close(payload_pipe[1]);
+    if (ack_pipe.open() != 0) {
+        payload_pipe.ends[0].reset();
+        payload_pipe.ends[1].reset();
         safe_err(err, errlen, "cannot create the acknowledgment pipe");
         return EIO;
     }
     for (int i = 0; i < 2; i++) {
-        fcntl(payload_pipe[i], F_SETFD, FD_CLOEXEC);
-        fcntl(ack_pipe[i], F_SETFD, FD_CLOEXEC);
+        fcntl(payload_pipe.ends[i].borrow(), F_SETFD, FD_CLOEXEC);
+        fcntl(ack_pipe.ends[i].borrow(), F_SETFD, FD_CLOEXEC);
     }
     char *argv[8];
     int n = 0;
@@ -1733,21 +1753,23 @@ static int jobs_launch_worker(const char *self, const char *dir, const char *job
     argv[n++] = (char *)"_worker";
     argv[n++] = (char *)job_id;
     argv[n] = NULL;
-    const tny_fd_mapping maps[] = {{payload_pipe[0], 0}, {ack_pipe[1], 1}, {owner_fd, 3}};
+    const tny_fd_mapping maps[] = {
+        {payload_pipe.ends[0].borrow(), 0}, {ack_pipe.ends[1].borrow(), 1}, {owner_fd, 3}};
     pid_t pid = -1;
     int rc = tny_process_spawn_mapped(argv, environ, maps, 3, &pid);
-    close(payload_pipe[0]);
-    close(ack_pipe[1]);
+    payload_pipe.ends[0].reset();
+    ack_pipe.ends[1].reset();
     if (rc) {
-        close(payload_pipe[1]);
-        close(ack_pipe[0]);
+        payload_pipe.ends[1].reset();
+        ack_pipe.ends[0].reset();
         safe_err(err, errlen, "cannot start the job supervisor");
         return rc;
     }
     launch->pid = pid;
     launch->live = true; /* from here the supervisor owns this job's metadata */
-    rc = tny_jobs_host_handshake(payload_pipe[1], ack_pipe[0], payload, strlen(payload), job_id,
-                                 TNY_JOBS_ACK_TIMEOUT_MS, cancelled, cancel_ud);
+    rc = tny_jobs_host_handshake(payload_pipe.ends[1].release(), ack_pipe.ends[0].release(),
+                                 payload, strlen(payload), job_id, TNY_JOBS_ACK_TIMEOUT_MS,
+                                 cancelled, cancel_ud);
     if (rc) safe_err(err, errlen, "the private supervisor handshake did not complete");
     return rc;
 #endif
@@ -1797,7 +1819,7 @@ static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
 
     char *self = tny_process_self_path();
     uint8_t raw[16];
-    char job_id[TNY_JOBS_ID_LEN + 1] = {0};
+    char job_id[TNY_JOBS_ID_LEN + 1] = {};
     if (!self || !random_bytes(raw, sizeof raw)) {
         free(self);
         jobs_request_free(&request);
@@ -1821,9 +1843,11 @@ static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
      * a concurrent submitter can never mistake this unacknowledged job for an
      * abandoned one. */
     char *owner_path = jobs_file(dir, "owner.lock");
-    int owner_fd = owner_path ? tny_jobs_host_lock_open(owner_path) : -1;
-    if (owner_fd < 0 || tny_jobs_host_lock_try(owner_fd) != TNY_JOBS_LOCK_ACQUIRED) {
-        if (owner_fd >= 0) tny_jobs_host_lock_close(owner_fd);
+    tny::lock_descriptor owner_fd;
+    owner_fd.adopt(owner_path ? tny_jobs_host_lock_open(owner_path) : -1);
+    if (owner_fd.borrow() < 0 ||
+        tny_jobs_host_lock_try(owner_fd.borrow()) != TNY_JOBS_LOCK_ACQUIRED) {
+        if (owner_fd.borrow() >= 0) owner_fd.reset();
         free(owner_path);
         free(dir);
         free(self);
@@ -1836,7 +1860,7 @@ static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
     rc = record ? jobs_record_store(dir, record) : ENOMEM;
     if (rc) {
         yyjson_mut_doc_free(record);
-        tny_jobs_host_lock_close(owner_fd);
+        owner_fd.reset();
         free(owner_path);
         free(dir);
         free(self);
@@ -1859,7 +1883,7 @@ static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
     if (rc) {
         submit_finish_failed(dir, 1, TNY_JOBS_CODE_OUTPUT_BUSY, err);
         yyjson_mut_doc_free(record);
-        tny_jobs_host_lock_close(owner_fd);
+        owner_fd.reset();
         free(owner_path);
         free(dir);
         free(self);
@@ -1873,10 +1897,10 @@ static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
         safe_err(err, errlen,
                  "cannot build private request; check jobs.ask_env declarations and memory "
                  "availability");
-    jobs_launch launch = {0};
+    jobs_launch launch = {};
     if (!rc)
-        rc = payload ? jobs_launch_worker(self, dir, job_id, owner_fd, payload, &launch, err,
-                                          errlen, cancelled, cancel_ud)
+        rc = payload ? jobs_launch_worker(self, dir, job_id, owner_fd.borrow(), payload, &launch,
+                                          err, errlen, cancelled, cancel_ud)
                      : ENOMEM;
     if (payload) secure_free(payload);
     /* Keep ownership through local failure finalization. If launch succeeded,
@@ -1898,7 +1922,7 @@ static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
                  job_id, job_id);
         exit_code = 2;
     }
-    tny_jobs_host_lock_close(owner_fd);
+    owner_fd.reset();
     yyjson_mut_doc_free(record);
 
     if (rc && launch.live) {
@@ -2297,67 +2321,71 @@ static int jobs_rm(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t
     char *id = xstrdup(jm_str(yyjson_mut_doc_get_root(doc), "id"));
     yyjson_mut_doc_free(doc);
     char *owner_path = jobs_file(dir, "owner.lock");
-    int owner = owner_path ? tny_jobs_host_lock_open(owner_path) : -1;
-    jobs_txn t = {0};
-    if (!id || owner < 0 || tny_jobs_host_lock_try(owner) != TNY_JOBS_LOCK_ACQUIRED) {
-        safe_err(err, errlen, "the job is owned; removal was refused");
-        rc = 1;
-        goto done;
-    }
-    rc = jobs_txn_begin(dir, id, &t, err, errlen);
-    if (rc) goto done;
-    if (!state_is_terminal(jm_str(yyjson_mut_doc_get_root(t.doc), "state"))) {
-        safe_err(err, errlen, "only a finished job can be removed; cancel it first");
-        jobs_txn_end(&t);
-        rc = 1;
-        goto done;
-    }
-    if (!cleanup_reclaimable(yyjson_mut_doc_get_root(t.doc))) {
-        safe_err(err, errlen,
-                 "cleanup is unverified; this job and its output claims must be retained");
-        jobs_txn_end(&t);
-        rc = 1;
-        goto done;
-    }
-    /* Move the entire namespace out of lookup while BOTH locks are held.
-     * A retry waiting on an old description cannot load job.json afterward;
-     * no live worker ever owns the files we unlink. */
-    buf_t tomb;
-    buf_init(&tomb);
-    buf_appendf(&tomb, "%s.removed", dir);
-    if (buf_oom(&tomb) || rename(dir, tomb.data) != 0) {
-        jobs_txn_end(&t);
-        buf_free(&tomb);
-        safe_err(err, errlen, "cannot tombstone the finished job");
-        rc = 2;
-        goto done;
-    }
-    reservations_release_job(ctx, t.doc, id);
-    jobs_txn_end(&t);
-#ifndef __EMSCRIPTEN__
-    DIR *d = opendir(tomb.data);
-    if (!d) rc = 2;
-    else {
-        struct dirent *entry;
-        while ((entry = readdir(d))) {
-            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
-            char *victim = path_join(tomb.data, entry->d_name);
-            if (!victim || unlink(victim) != 0) rc = 2;
-            free(victim);
+    tny::lock_descriptor owner;
+    owner.adopt(owner_path ? tny_jobs_host_lock_open(owner_path) : -1);
+    {
+        jobs_txn t = {};
+        if (!id || owner.borrow() < 0 ||
+            tny_jobs_host_lock_try(owner.borrow()) != TNY_JOBS_LOCK_ACQUIRED) {
+            safe_err(err, errlen, "the job is owned; removal was refused");
+            rc = 1;
+            goto done;
         }
-        if (closedir(d) != 0) rc = 2;
-    }
-    if (rmdir(tomb.data) != 0) rc = 2;
+        rc = jobs_txn_begin(dir, id, &t, err, errlen);
+        if (rc) goto done;
+        if (!state_is_terminal(jm_str(yyjson_mut_doc_get_root(t.doc), "state"))) {
+            safe_err(err, errlen, "only a finished job can be removed; cancel it first");
+            jobs_txn_end(&t);
+            rc = 1;
+            goto done;
+        }
+        if (!cleanup_reclaimable(yyjson_mut_doc_get_root(t.doc))) {
+            safe_err(err, errlen,
+                     "cleanup is unverified; this job and its output claims must be retained");
+            jobs_txn_end(&t);
+            rc = 1;
+            goto done;
+        }
+        /* Move the entire namespace out of lookup while BOTH locks are held.
+         * A retry waiting on an old description cannot load job.json afterward;
+         * no live worker ever owns the files we unlink. */
+        buf_t tomb;
+        buf_init(&tomb);
+        buf_appendf(&tomb, "%s.removed", dir);
+        if (buf_oom(&tomb) || rename(dir, tomb.data) != 0) {
+            jobs_txn_end(&t);
+            buf_free(&tomb);
+            safe_err(err, errlen, "cannot tombstone the finished job");
+            rc = 2;
+            goto done;
+        }
+        reservations_release_job(ctx, t.doc, id);
+        jobs_txn_end(&t);
+#ifndef __EMSCRIPTEN__
+        DIR *d = opendir(tomb.data);
+        if (!d) rc = 2;
+        else {
+            struct dirent *entry;
+            while ((entry = readdir(d))) {
+                if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+                char *victim = path_join(tomb.data, entry->d_name);
+                if (!victim || unlink(victim) != 0) rc = 2;
+                free(victim);
+            }
+            if (closedir(d) != 0) rc = 2;
+        }
+        if (rmdir(tomb.data) != 0) rc = 2;
 #endif
-    buf_free(&tomb);
-    if (rc) safe_err(err, errlen, "job tombstoned; private directory cleanup is incomplete");
-    else {
-        buf_appends(out, "{\"kind\":\"job\",\"schema_version\":1,\"id\":");
-        jescape(out, id);
-        buf_appends(out, ",\"state\":\"removed\",\"ok\":true}\n");
+        buf_free(&tomb);
+        if (rc) safe_err(err, errlen, "job tombstoned; private directory cleanup is incomplete");
+        else {
+            buf_appends(out, "{\"kind\":\"job\",\"schema_version\":1,\"id\":");
+            jescape(out, id);
+            buf_appends(out, ",\"state\":\"removed\",\"ok\":true}\n");
+        }
     }
 done:
-    tny_jobs_host_lock_close(owner);
+    owner.reset();
     free(owner_path);
     free(id);
     free(dir);
@@ -2419,279 +2447,286 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
     }
     char *dir = NULL;
     yyjson_mut_doc *doc = NULL;
-    int owner_fd = -1;
+    tny::lock_descriptor owner_fd;
+    owner_fd.adopt(-1);
     int rc = jobs_open_for_read(ctx, args, &dir, &doc, err, errlen);
     if (rc) return rc;
     yyjson_mut_val *root = yyjson_mut_doc_get_root(doc);
-    bool image = strcmp(jm_str(root, "job_kind") ? jm_str(root, "job_kind") : "ask", "image") == 0;
+    bool image;
     char *job_id = xstrdup(jm_str(root, "id"));
-    if (!state_is_terminal(jm_str(root, "state"))) {
-        safe_err(err, errlen, "this job has not finished yet");
-        goto invalid;
-    }
-    /* Ownership comes BEFORE any state mutation, exactly as submit does
-     * (A14): the owner lock is what makes "this job is finished and unowned"
-     * true for the whole preparation, so a second retry can neither reset a
-     * live attempt nor write history for one. A contender that loses here has
-     * changed nothing at all. */
-    char *owner_path = jobs_file(dir, "owner.lock");
-    owner_fd = owner_path ? tny_jobs_host_lock_open(owner_path) : -1;
-    if (owner_fd < 0 || tny_jobs_host_lock_try(owner_fd) != TNY_JOBS_LOCK_ACQUIRED) {
-        free(owner_path);
-        safe_err(err, errlen,
-                 "another owner holds this job; nothing was changed — check `tny jobs status %s`",
-                 job_id ? job_id : "");
-        goto invalid;
-    }
-    /* Re-read under ownership: the projection above was taken unlocked. */
-    yyjson_mut_doc_free(doc);
-    doc = jobs_record_load(dir, job_id, err, errlen);
-    if (!doc) {
-        free(owner_path);
-        goto invalid;
-    }
-    root = yyjson_mut_doc_get_root(doc);
-    image = strcmp(jm_str(root, "job_kind") ? jm_str(root, "job_kind") : "ask", "image") == 0;
-    if (!state_is_terminal(jm_str(root, "state"))) {
-        free(owner_path);
-        safe_err(err, errlen, "this job has not finished yet");
-        goto invalid;
-    }
-    /* What the selection, the verification and the new attempt number are all
-     * derived from; the transaction below refuses to commit against anything
-     * else. */
-    int64_t base_revision = jm_int(root, "revision", 0);
-    int base_attempt = (int)jm_int(root, "attempt", 1);
-
-    bool failed_only = jget_bool(args, "failed", false);
-    int selected[TNY_JOBS_MAX_ITEMS];
-    int n_selected = 0;
-    int count = jm_item_count(doc);
-    for (int i = 0; i < count; i++) {
-        yyjson_mut_val *item = jm_item(doc, i);
-        const char *state = jm_str(item, "state");
-        bool retryable =
-            state && (strcmp(state, "failed") == 0 || strcmp(state, "cancelled") == 0 ||
-                      strcmp(state, "interrupted") == 0);
-        bool had_selection = false;
-        bool wanted = selected_index(args, i, &had_selection);
-        if (!had_selection && !failed_only) wanted = retryable; /* default: every failed item */
-        if (!wanted) continue;
-        if (!retryable) {
-            /* A successful item is never selected, accidentally or not. */
-            if (had_selection) {
-                safe_err(err, errlen, "item %d already succeeded and is never re-executed", i);
-                free(owner_path);
-                goto invalid;
-            }
-            continue;
+    {
+        if (!state_is_terminal(jm_str(root, "state"))) {
+            safe_err(err, errlen, "this job has not finished yet");
+            goto invalid;
         }
-        selected[n_selected++] = i;
-    }
-    if (!n_selected) {
-        free(owner_path);
-        safe_err(err, errlen, "no failed, cancelled or interrupted item to retry");
-        goto invalid;
-    }
-    /* Verify every carried success before spending anything. */
-    for (int i = 0; i < count; i++) {
-        bool chosen = false;
-        for (int k = 0; k < n_selected; k++)
-            if (selected[k] == i) chosen = true;
-        if (chosen) continue;
-        yyjson_mut_val *item = jm_item(doc, i);
-        const char *state = jm_str(item, "state");
-        if (!state || strcmp(state, "succeeded") != 0) continue;
-        if (verify_carried_success(ctx, item, image, err, errlen) != 0) {
+        /* Ownership comes BEFORE any state mutation, exactly as submit does
+         * (A14): the owner lock is what makes "this job is finished and unowned"
+         * true for the whole preparation, so a second retry can neither reset a
+         * live attempt nor write history for one. A contender that loses here has
+         * changed nothing at all. */
+        char *owner_path = jobs_file(dir, "owner.lock");
+        owner_fd.adopt(owner_path ? tny_jobs_host_lock_open(owner_path) : -1);
+        if (owner_fd.borrow() < 0 ||
+            tny_jobs_host_lock_try(owner_fd.borrow()) != TNY_JOBS_LOCK_ACQUIRED) {
             free(owner_path);
-            tny_jobs_host_lock_close(owner_fd);
-            buf_appends(out, "{\"kind\":\"job\",\"schema_version\":1,\"id\":");
-            jescape(out, job_id ? job_id : "");
-            buf_appends(out, ",\"ok\":false,\"code\":\"" TNY_JOBS_CODE_STALE "\",\"error\":");
-            jescape(out, err);
-            buf_appends(out, "}\n");
+            safe_err(
+                err, errlen,
+                "another owner holds this job; nothing was changed — check `tny jobs status %s`",
+                job_id ? job_id : "");
+            goto invalid;
+        }
+        /* Re-read under ownership: the projection above was taken unlocked. */
+        yyjson_mut_doc_free(doc);
+        doc = jobs_record_load(dir, job_id, err, errlen);
+        if (!doc) {
+            free(owner_path);
+            goto invalid;
+        }
+        root = yyjson_mut_doc_get_root(doc);
+        image = strcmp(jm_str(root, "job_kind") ? jm_str(root, "job_kind") : "ask", "image") == 0;
+        if (!state_is_terminal(jm_str(root, "state"))) {
+            free(owner_path);
+            safe_err(err, errlen, "this job has not finished yet");
+            goto invalid;
+        }
+        /* What the selection, the verification and the new attempt number are all
+         * derived from; the transaction below refuses to commit against anything
+         * else. */
+        int64_t base_revision = jm_int(root, "revision", 0);
+        int base_attempt = (int)jm_int(root, "attempt", 1);
+
+        bool failed_only = jget_bool(args, "failed", false);
+        int selected[TNY_JOBS_MAX_ITEMS];
+        int n_selected = 0;
+        int count = jm_item_count(doc);
+        for (int i = 0; i < count; i++) {
+            yyjson_mut_val *item = jm_item(doc, i);
+            const char *state = jm_str(item, "state");
+            bool retryable =
+                state && (strcmp(state, "failed") == 0 || strcmp(state, "cancelled") == 0 ||
+                          strcmp(state, "interrupted") == 0);
+            bool had_selection = false;
+            bool wanted = selected_index(args, i, &had_selection);
+            if (!had_selection && !failed_only) wanted = retryable; /* default: every failed item */
+            if (!wanted) continue;
+            if (!retryable) {
+                /* A successful item is never selected, accidentally or not. */
+                if (had_selection) {
+                    safe_err(err, errlen, "item %d already succeeded and is never re-executed", i);
+                    free(owner_path);
+                    goto invalid;
+                }
+                continue;
+            }
+            selected[n_selected++] = i;
+        }
+        if (!n_selected) {
+            free(owner_path);
+            safe_err(err, errlen, "no failed, cancelled or interrupted item to retry");
+            goto invalid;
+        }
+        /* Verify every carried success before spending anything. */
+        for (int i = 0; i < count; i++) {
+            bool chosen = false;
+            for (int k = 0; k < n_selected; k++)
+                if (selected[k] == i) chosen = true;
+            if (chosen) continue;
+            yyjson_mut_val *item = jm_item(doc, i);
+            const char *state = jm_str(item, "state");
+            if (!state || strcmp(state, "succeeded") != 0) continue;
+            if (verify_carried_success(ctx, item, image, err, errlen) != 0) {
+                free(owner_path);
+                owner_fd.reset();
+                buf_appends(out, "{\"kind\":\"job\",\"schema_version\":1,\"id\":");
+                jescape(out, job_id ? job_id : "");
+                buf_appends(out, ",\"ok\":false,\"code\":\"" TNY_JOBS_CODE_STALE "\",\"error\":");
+                jescape(out, err);
+                buf_appends(out, "}\n");
+                yyjson_mut_doc_free(doc);
+                free(job_id);
+                free(dir);
+                return 2;
+            }
+        }
+
+        char *request_json = retry_request_json(doc, selected, n_selected, err, errlen);
+        yyjson_doc *parsed = request_json ? jparse(request_json, strlen(request_json)) : NULL;
+        free(request_json);
+        jobs_request request;
+        if (!parsed || jobs_request_parse_retry(ctx, yyjson_doc_get_root(parsed), &request,
+                                                selected, n_selected, err, errlen) != 0) {
+            yyjson_doc_free(parsed);
+            free(owner_path);
+            goto invalid;
+        }
+
+        int attempt = base_attempt + 1;
+        /* One transaction resets the new attempt's controls: cancellation, timing,
+         * errors and exit codes of the selected items only. Old attempt controls
+         * are tagged with the old attempt and can never apply here. */
+        jobs_txn t;
+        rc = jobs_txn_begin(dir, job_id, &t, err, errlen);
+        if (rc) {
+            jobs_request_free(&request);
+            yyjson_doc_free(parsed);
+            free(owner_path);
+            goto invalid;
+        }
+        yyjson_mut_val *live = yyjson_mut_doc_get_root(t.doc);
+        /* Nothing is written unless the record under this lock is still exactly
+         * the one the selection, the verification and `attempt` were derived
+         * from. Otherwise the transaction is abandoned, not committed. */
+        if (jm_int(live, "revision", 0) != base_revision ||
+            jm_int(live, "attempt", 1) != base_attempt ||
+            !state_is_terminal(jm_str(live, "state"))) {
+            jobs_txn_end(&t);
+            jobs_request_free(&request);
+            yyjson_doc_free(parsed);
+            free(owner_path);
+            safe_err(err, errlen,
+                     "this job changed while the retry was being prepared; nothing was changed");
+            goto invalid;
+        }
+        if (!cleanup_reclaimable(live)) {
+            jobs_txn_end(&t);
+            jobs_request_free(&request);
+            yyjson_doc_free(parsed);
+            free(owner_path);
+            safe_err(err, errlen,
+                     "cleanup is unverified; retry cannot reuse this job's output claims");
+            goto invalid;
+        }
+        /* Snapshot the finished attempt before the projection moves on. */
+        char snapshot_name[32];
+        snprintf(snapshot_name, sizeof snapshot_name, "attempt-%d.json", base_attempt);
+        char *snapshot_path = jobs_file(dir, snapshot_name);
+        char *snapshot = jwrite_pretty(t.doc);
+        int snapshot_rc = snapshot_path && snapshot
+                              ? tny_jobs_host_snapshot(snapshot_path, snapshot, strlen(snapshot))
+                              : ENOMEM;
+        free(snapshot_path);
+        free(snapshot);
+        if (snapshot_rc) {
+            jobs_txn_end(&t);
+            jobs_request_free(&request);
+            yyjson_doc_free(parsed);
+            free(owner_path);
+            safe_err(err, errlen, "cannot preserve immutable attempt history; nothing was changed");
+            goto invalid;
+        }
+        jm_set_int(t.doc, live, "attempt", attempt);
+        jm_set_str(t.doc, live, "state", "queued");
+        jm_set_bool(t.doc, live, "cancel_requested", false);
+        jm_set_str(t.doc, live, "cleanup", "pending");
+        jm_set_bool(t.doc, live, "cleanup_hold", false);
+        jm_set_null(t.doc, live, "exit_code");
+        jm_set_null(t.doc, live, "error_code");
+        jm_set_null(t.doc, live, "error");
+        for (int i = 0; i < count; i++) {
+            yyjson_mut_val *item = jm_item(t.doc, i);
+            bool chosen = false;
+            for (int k = 0; k < n_selected; k++)
+                if (selected[k] == i) chosen = true;
+            if (!chosen) {
+                if (jm_str(item, "state") && strcmp(jm_str(item, "state"), "succeeded") == 0)
+                    jm_set_int(t.doc, item, "carried_from_attempt", jm_int(item, "attempt", 1));
+                continue;
+            }
+            jm_set_str(t.doc, item, "state", "queued");
+            jm_set_bool(t.doc, item, "cancel_requested", false);
+            jm_set_int(t.doc, item, "attempt", attempt);
+            char *log = jobs_item_log(dir, i, attempt);
+            jm_set_str(t.doc, item, "log_path", log);
+            free(log);
+            jm_set_int(t.doc, item, "carried_from_attempt", 0);
+            jm_set_null(t.doc, item, "started");
+            jm_set_null(t.doc, item, "finished");
+            jm_set_null(t.doc, item, "exit_code");
+            jm_set_null(t.doc, item, "error_code");
+            jm_set_null(t.doc, item, "error");
+        }
+        rc = jobs_txn_commit(&t);
+        free(owner_path);
+        if (rc) {
+            /* Still before acceptance: the record on disk is the old one. */
+            jobs_request_free(&request);
+            yyjson_doc_free(parsed);
+            owner_fd.reset();
+            safe_err(err, errlen, "the retry could not be recorded; nothing was changed");
             yyjson_mut_doc_free(doc);
             free(job_id);
             free(dir);
             return 2;
         }
-    }
 
-    char *request_json = retry_request_json(doc, selected, n_selected, err, errlen);
-    yyjson_doc *parsed = request_json ? jparse(request_json, strlen(request_json)) : NULL;
-    free(request_json);
-    jobs_request request;
-    if (!parsed || jobs_request_parse_retry(ctx, yyjson_doc_get_root(parsed), &request, selected,
-                                            n_selected, err, errlen) != 0) {
-        yyjson_doc_free(parsed);
-        free(owner_path);
-        goto invalid;
-    }
-
-    int attempt = base_attempt + 1;
-    /* One transaction resets the new attempt's controls: cancellation, timing,
-     * errors and exit codes of the selected items only. Old attempt controls
-     * are tagged with the old attempt and can never apply here. */
-    jobs_txn t;
-    rc = jobs_txn_begin(dir, job_id, &t, err, errlen);
-    if (rc) {
-        jobs_request_free(&request);
-        yyjson_doc_free(parsed);
-        free(owner_path);
-        goto invalid;
-    }
-    yyjson_mut_val *live = yyjson_mut_doc_get_root(t.doc);
-    /* Nothing is written unless the record under this lock is still exactly
-     * the one the selection, the verification and `attempt` were derived
-     * from. Otherwise the transaction is abandoned, not committed. */
-    if (jm_int(live, "revision", 0) != base_revision ||
-        jm_int(live, "attempt", 1) != base_attempt || !state_is_terminal(jm_str(live, "state"))) {
-        jobs_txn_end(&t);
-        jobs_request_free(&request);
-        yyjson_doc_free(parsed);
-        free(owner_path);
-        safe_err(err, errlen,
-                 "this job changed while the retry was being prepared; nothing was changed");
-        goto invalid;
-    }
-    if (!cleanup_reclaimable(live)) {
-        jobs_txn_end(&t);
-        jobs_request_free(&request);
-        yyjson_doc_free(parsed);
-        free(owner_path);
-        safe_err(err, errlen, "cleanup is unverified; retry cannot reuse this job's output claims");
-        goto invalid;
-    }
-    /* Snapshot the finished attempt before the projection moves on. */
-    char snapshot_name[32];
-    snprintf(snapshot_name, sizeof snapshot_name, "attempt-%d.json", base_attempt);
-    char *snapshot_path = jobs_file(dir, snapshot_name);
-    char *snapshot = jwrite_pretty(t.doc);
-    int snapshot_rc = snapshot_path && snapshot
-                          ? tny_jobs_host_snapshot(snapshot_path, snapshot, strlen(snapshot))
-                          : ENOMEM;
-    free(snapshot_path);
-    free(snapshot);
-    if (snapshot_rc) {
-        jobs_txn_end(&t);
-        jobs_request_free(&request);
-        yyjson_doc_free(parsed);
-        free(owner_path);
-        safe_err(err, errlen, "cannot preserve immutable attempt history; nothing was changed");
-        goto invalid;
-    }
-    jm_set_int(t.doc, live, "attempt", attempt);
-    jm_set_str(t.doc, live, "state", "queued");
-    jm_set_bool(t.doc, live, "cancel_requested", false);
-    jm_set_str(t.doc, live, "cleanup", "pending");
-    jm_set_bool(t.doc, live, "cleanup_hold", false);
-    jm_set_null(t.doc, live, "exit_code");
-    jm_set_null(t.doc, live, "error_code");
-    jm_set_null(t.doc, live, "error");
-    for (int i = 0; i < count; i++) {
-        yyjson_mut_val *item = jm_item(t.doc, i);
-        bool chosen = false;
-        for (int k = 0; k < n_selected; k++)
-            if (selected[k] == i) chosen = true;
-        if (!chosen) {
-            if (jm_str(item, "state") && strcmp(jm_str(item, "state"), "succeeded") == 0)
-                jm_set_int(t.doc, item, "carried_from_attempt", jm_int(item, "attempt", 1));
-            continue;
+        /* Accepted: this attempt is now the record's truth, and this process
+         * already holds the ownership that will pass to the supervisor. Every
+         * failure from here on writes an honest terminal outcome. */
+        char *self = tny_process_self_path();
+        reservation_claim claims[TNY_JOBS_MAX_ITEMS];
+        int indexes[TNY_JOBS_MAX_ITEMS];
+        int n_claims = 0;
+        for (int k = 0; k < n_selected; k++) {
+            int i = selected[k];
+            if (!request.outputs[i]) continue;
+            claims[n_claims].path = request.outputs[i];
+            indexes[n_claims] = i;
+            n_claims++;
         }
-        jm_set_str(t.doc, item, "state", "queued");
-        jm_set_bool(t.doc, item, "cancel_requested", false);
-        jm_set_int(t.doc, item, "attempt", attempt);
-        char *log = jobs_item_log(dir, i, attempt);
-        jm_set_str(t.doc, item, "log_path", log);
-        free(log);
-        jm_set_int(t.doc, item, "carried_from_attempt", 0);
-        jm_set_null(t.doc, item, "started");
-        jm_set_null(t.doc, item, "finished");
-        jm_set_null(t.doc, item, "exit_code");
-        jm_set_null(t.doc, item, "error_code");
-        jm_set_null(t.doc, item, "error");
-    }
-    rc = jobs_txn_commit(&t);
-    free(owner_path);
-    if (rc) {
-        /* Still before acceptance: the record on disk is the old one. */
+        if (!self) safe_err(err, errlen, "cannot identify this executable");
+        rc = !self      ? EIO
+             : n_claims ? reservations_claim_all(ctx, job_id, attempt, claims, indexes, n_claims,
+                                                 err, errlen)
+                        : 0;
+        if (!rc) rc = outputs_revalidate(&request, indexes, n_claims, err, errlen);
+        bool claim_refused = rc != 0 && self;
+        char *payload =
+            rc ? NULL : payload_build(ctx, &request, job_id, attempt, self, selected, n_selected);
+        if (!rc && !payload)
+            safe_err(err, errlen,
+                     "cannot build private request; check jobs.ask_env declarations and memory "
+                     "availability");
+        jobs_launch launch = {};
+        if (!rc)
+            rc = payload ? jobs_launch_worker(self, dir, job_id, owner_fd.borrow(), payload,
+                                              &launch, err, errlen, cancelled, cancel_ud)
+                         : ENOMEM;
+        if (payload) secure_free(payload);
+        int exit_code = 0;
+        if (rc && !launch.live) {
+            /* The attempt was accepted but nothing runs it: say so terminally
+             * rather than leave an ownerless "queued" promise (A14). */
+            for (int i = 0; i < n_claims; i++)
+                reservation_release_one(ctx, claims[i].path, job_id, indexes[i], attempt);
+            submit_finish_failed(dir, attempt,
+                                 claim_refused ? TNY_JOBS_CODE_OUTPUT_BUSY : TNY_JOBS_CODE_IO, err);
+            exit_code = 2;
+        } else if (rc) {
+            safe_err(
+                err, errlen,
+                "the supervisor did not acknowledge attempt %d of job %s; check `tny jobs status "
+                "%s`",
+                attempt, job_id, job_id);
+            exit_code = 2;
+        }
+        owner_fd.reset();
+        free(self);
         jobs_request_free(&request);
         yyjson_doc_free(parsed);
-        tny_jobs_host_lock_close(owner_fd);
-        safe_err(err, errlen, "the retry could not be recorded; nothing was changed");
         yyjson_mut_doc_free(doc);
+        yyjson_mut_doc *current = jobs_record_load(dir, job_id, NULL, 0);
+        if (current) {
+            job_json(current, dir, out);
+            yyjson_mut_doc_free(current);
+        }
         free(job_id);
         free(dir);
-        return 2;
+        return exit_code;
     }
-
-    /* Accepted: this attempt is now the record's truth, and this process
-     * already holds the ownership that will pass to the supervisor. Every
-     * failure from here on writes an honest terminal outcome. */
-    char *self = tny_process_self_path();
-    reservation_claim claims[TNY_JOBS_MAX_ITEMS];
-    int indexes[TNY_JOBS_MAX_ITEMS];
-    int n_claims = 0;
-    for (int k = 0; k < n_selected; k++) {
-        int i = selected[k];
-        if (!request.outputs[i]) continue;
-        claims[n_claims].path = request.outputs[i];
-        indexes[n_claims] = i;
-        n_claims++;
-    }
-    if (!self) safe_err(err, errlen, "cannot identify this executable");
-    rc = !self ? EIO
-         : n_claims
-             ? reservations_claim_all(ctx, job_id, attempt, claims, indexes, n_claims, err, errlen)
-             : 0;
-    if (!rc) rc = outputs_revalidate(&request, indexes, n_claims, err, errlen);
-    bool claim_refused = rc != 0 && self;
-    char *payload =
-        rc ? NULL : payload_build(ctx, &request, job_id, attempt, self, selected, n_selected);
-    if (!rc && !payload)
-        safe_err(err, errlen,
-                 "cannot build private request; check jobs.ask_env declarations and memory "
-                 "availability");
-    jobs_launch launch = {0};
-    if (!rc)
-        rc = payload ? jobs_launch_worker(self, dir, job_id, owner_fd, payload, &launch, err,
-                                          errlen, cancelled, cancel_ud)
-                     : ENOMEM;
-    if (payload) secure_free(payload);
-    int exit_code = 0;
-    if (rc && !launch.live) {
-        /* The attempt was accepted but nothing runs it: say so terminally
-         * rather than leave an ownerless "queued" promise (A14). */
-        for (int i = 0; i < n_claims; i++)
-            reservation_release_one(ctx, claims[i].path, job_id, indexes[i], attempt);
-        submit_finish_failed(dir, attempt,
-                             claim_refused ? TNY_JOBS_CODE_OUTPUT_BUSY : TNY_JOBS_CODE_IO, err);
-        exit_code = 2;
-    } else if (rc) {
-        safe_err(err, errlen,
-                 "the supervisor did not acknowledge attempt %d of job %s; check `tny jobs status "
-                 "%s`",
-                 attempt, job_id, job_id);
-        exit_code = 2;
-    }
-    tny_jobs_host_lock_close(owner_fd);
-    free(self);
-    jobs_request_free(&request);
-    yyjson_doc_free(parsed);
-    yyjson_mut_doc_free(doc);
-    yyjson_mut_doc *current = jobs_record_load(dir, job_id, NULL, 0);
-    if (current) {
-        job_json(current, dir, out);
-        yyjson_mut_doc_free(current);
-    }
-    free(job_id);
-    free(dir);
-    return exit_code;
-
 invalid:
     /* Every path here refused before acceptance, so releasing ownership
      * leaves the job exactly as it was found. */
-    if (owner_fd >= 0) tny_jobs_host_lock_close(owner_fd);
+    if (owner_fd.borrow() >= 0) owner_fd.reset();
     yyjson_mut_doc_free(doc);
     free(job_id);
     free(dir);
@@ -2734,8 +2769,8 @@ int tny_jobs_run_cancel(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *o
 typedef struct {
     int index;
     bool active, reaped, eof, limit_hit, launched;
-    pid_t pid;
-    int in_fd, out_fd, log_fd;
+    pid_t pid; /* sole POSIX child authority; -1 when the native scope owns it */
+    tny::descriptor in_fd, out_fd, log_fd;
     size_t written, log_bytes;
     int status;
     bool cancel_signalled, killed, cleanup_unknown, reap_error;
@@ -2744,27 +2779,27 @@ typedef struct {
     char *log_path;
     char *output_path; /* image items only */
     bool image;
-    tny_process_scope *scope;
+    tny::process_scope scope;
     bool launch_pending, launch_failed, admission_ready, released;
     bool admission_failed, cleanup_done, residual_stopped;
 } job_slot;
 
 static void slot_close(job_slot *s) {
-    if (s->in_fd >= 0) close(s->in_fd);
-    if (s->out_fd >= 0) close(s->out_fd);
-    if (s->log_fd >= 0) close(s->log_fd);
-    s->in_fd = s->out_fd = s->log_fd = -1;
+    if (s->in_fd.borrow() >= 0) s->in_fd.reset();
+    if (s->out_fd.borrow() >= 0) s->out_fd.reset();
+    if (s->log_fd.borrow() >= 0) s->log_fd.reset();
 }
 
-static void slot_free(job_slot *s) {
+static bool slot_free(job_slot *s) {
     slot_close(s);
-    if (s->scope && tny_process_scope_destroy(s->scope) == 0) s->scope = NULL;
+    bool retired = !s->scope.borrow() || (!s->cleanup_unknown && s->scope.retire() == 0);
     if (s->prompt) secure_free(s->prompt);
     free(s->log_path);
     free(s->output_path);
-    memset(s, 0, sizeof *s);
-    s->in_fd = s->out_fd = s->log_fd = -1;
+    s->prompt = s->log_path = s->output_path = NULL;
+
     s->pid = -1;
+    return retired;
 }
 
 /* A child gets an operational environment, not a copy of the submitter's
@@ -2827,7 +2862,7 @@ static char **worker_child_env(yyjson_val *payload, bool image, char ***owned_ou
     /* Exactly one side of the split supplies these, never both. */
     const char *token = image ? jget_str(image_creds, "token") : jget_str(chat, "token");
     const char *account = image ? jget_str(image_creds, "account") : jget_str(chat, "account");
-    char **owned = calloc(44, sizeof *owned);
+    char **owned = static_cast<char **>(tny_alloc_calloc(44, sizeof *owned));
     if (!owned) return NULL;
     int n = 0;
     buf_t entry;
@@ -2899,7 +2934,7 @@ static char **worker_child_env(yyjson_val *payload, bool image, char ***owned_ou
         }
     size_t inherited = 0;
     while (environ && environ[inherited]) inherited++;
-    char **envp = calloc(inherited + (size_t)n + 1, sizeof *envp);
+    char **envp = static_cast<char **>(tny_alloc_calloc(inherited + (size_t)n + 1, sizeof *envp));
     if (!envp) {
         for (int i = 0; i < n; i++) secure_free(owned[i]);
         free(owned);
@@ -3044,52 +3079,57 @@ static int worker_spawn_item(yyjson_val *payload, yyjson_val *item, bool image, 
             return -1;
         }
     }
-    int in_pipe[2] = {-1, -1}, out_pipe[2] = {-1, -1};
-    if (pipe(in_pipe) != 0 || pipe(out_pipe) != 0) {
+    tny::pipe_pair in_pipe, out_pipe;
+    if (in_pipe.open() != 0 || out_pipe.open() != 0) {
         for (int i = 0; i < 2; i++) {
-            if (in_pipe[i] >= 0) close(in_pipe[i]);
-            if (out_pipe[i] >= 0) close(out_pipe[i]);
+            if (in_pipe.ends[i].borrow() >= 0) in_pipe.ends[i].reset();
+            if (out_pipe.ends[i].borrow() >= 0) out_pipe.ends[i].reset();
         }
         safe_err(err, errlen, "cannot create the item pipes");
         return -1;
     }
     for (int i = 0; i < 2; i++) {
-        fcntl(in_pipe[i], F_SETFD, FD_CLOEXEC);
-        fcntl(out_pipe[i], F_SETFD, FD_CLOEXEC);
+        fcntl(in_pipe.ends[i].borrow(), F_SETFD, FD_CLOEXEC);
+        fcntl(out_pipe.ends[i].borrow(), F_SETFD, FD_CLOEXEC);
     }
-    slot->log_fd = open(slot->log_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    slot->log_fd.adopt(
+        open(slot->log_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600));
     char *argv[32];
     char **owned = NULL;
     int n_owned = 0;
     char **envp = worker_child_env(payload, image, &owned, &n_owned);
-    int rc = slot->log_fd < 0 || !envp || worker_build_argv(payload, item, image, argv, 32) != 0
-                 ? EINVAL
-                 : 0;
+    int rc =
+        slot->log_fd.borrow() < 0 || !envp || worker_build_argv(payload, item, image, argv, 32) != 0
+            ? EINVAL
+            : 0;
     pid_t pid = -1;
     if (!rc) {
         if (tny_process_scope_native_jobs()) {
-            rc = tny_process_scope_spawn(argv, envp, in_pipe[0], out_pipe[1], &slot->scope);
-            if (!rc) pid = tny_process_scope_pid(slot->scope);
+            tny_process_scope *scope = nullptr;
+            rc = tny_process_scope_spawn(argv, envp, in_pipe.ends[0].borrow(),
+                                         out_pipe.ends[1].borrow(), &scope);
+            if (!rc) slot->scope.adopt(scope);
+            if (!rc) pid = tny_process_scope_pid(slot->scope.borrow());
         } else {
-            const tny_fd_mapping maps[] = {{in_pipe[0], 0}, {out_pipe[1], 1}};
+            const tny_fd_mapping maps[] = {{in_pipe.ends[0].borrow(), 0},
+                                           {out_pipe.ends[1].borrow(), 1}};
             rc = tny_process_spawn_mapped(argv, envp, maps, 2, &pid);
         }
     }
     worker_env_free(envp, owned, n_owned);
-    close(in_pipe[0]);
-    close(out_pipe[1]);
+    in_pipe.ends[0].reset();
+    out_pipe.ends[1].reset();
     if (rc) {
-        close(in_pipe[1]);
-        close(out_pipe[0]);
-        if (slot->log_fd >= 0) close(slot->log_fd);
-        slot->log_fd = -1;
+        in_pipe.ends[1].reset();
+        out_pipe.ends[0].reset();
+        if (slot->log_fd.borrow() >= 0) slot->log_fd.reset();
         safe_err(err, errlen, "cannot start the item process");
         return -1;
     }
-    slot->pid = pid;
-    slot->released = slot->scope == NULL;
-    slot->in_fd = in_pipe[1];
-    slot->out_fd = out_pipe[0];
+    slot->pid = slot->scope.borrow() ? -1 : pid;
+    slot->released = slot->scope.borrow() == NULL;
+    slot->in_fd.adopt(in_pipe.ends[1].release());
+    slot->out_fd.adopt(out_pipe.ends[0].release());
     slot->active = true;
     slot->launched = true;
     slot->written = 0;
@@ -3106,16 +3146,16 @@ static void worker_pump(job_slot *slots, int n_slots) {
     int n = 0;
     for (int i = 0; i < n_slots && n + 2 <= (int)(sizeof fds / sizeof fds[0]); i++) {
         if (!slots[i].active) continue;
-        if (slots[i].in_fd >= 0 && slots[i].released) {
-            fds[n].fd = slots[i].in_fd;
+        if (slots[i].in_fd.borrow() >= 0 && slots[i].released) {
+            fds[n].fd = slots[i].in_fd.borrow();
             fds[n].events = POLLOUT;
             fds[n].revents = 0;
             owner[n] = i;
             writer[n] = true;
             n++;
         }
-        if (slots[i].out_fd >= 0 && !slots[i].eof) {
-            fds[n].fd = slots[i].out_fd;
+        if (slots[i].out_fd.borrow() >= 0 && !slots[i].eof) {
+            fds[n].fd = slots[i].out_fd.borrow();
             fds[n].events = POLLIN;
             fds[n].revents = 0;
             owner[n] = i;
@@ -3131,18 +3171,16 @@ static void worker_pump(job_slot *slots, int n_slots) {
         if (writer[k]) {
             size_t len = s->prompt ? strlen(s->prompt) : 0;
             if (s->written < len) {
-                ssize_t written = write(s->in_fd, s->prompt + s->written, len - s->written);
+                ssize_t written =
+                    write(s->in_fd.borrow(), s->prompt + s->written, len - s->written);
                 if (written > 0) s->written += (size_t)written;
                 else if (written < 0 && errno != EINTR && errno != EAGAIN) s->written = len;
             }
-            if (s->written >= len) {
-                close(s->in_fd); /* EOF: the child's prompt is complete */
-                s->in_fd = -1;
-            }
+            if (s->written >= len) { s->in_fd.reset(); /* EOF: the child's prompt is complete */ }
             continue;
         }
         char chunk[8192];
-        ssize_t got = read(s->out_fd, chunk, sizeof chunk);
+        ssize_t got = read(s->out_fd.borrow(), chunk, sizeof chunk);
         if (got == 0 || (got < 0 && errno != EINTR && errno != EAGAIN)) {
             s->eof = true;
             continue;
@@ -3156,7 +3194,7 @@ static void worker_pump(job_slot *slots, int n_slots) {
             continue;
         }
         for (ssize_t off = 0; off < got;) {
-            ssize_t put = write(s->log_fd, chunk + off, (size_t)(got - off));
+            ssize_t put = write(s->log_fd.borrow(), chunk + off, (size_t)(got - off));
             if (put < 0 && errno == EINTR) continue;
             if (put <= 0) break;
             off += put;
@@ -3168,14 +3206,14 @@ static void worker_pump(job_slot *slots, int n_slots) {
 /* Admission, consuming waits and complete native scope cleanup run outside
  * state transactions. The lock only linearizes the nonblocking GO decision. */
 static void worker_scope_progress(job_slot *s) {
-    if (!s->active || !s->scope || s->cleanup_done) return;
+    if (!s->active || !s->scope.borrow() || s->cleanup_done) return;
     if (!s->released && !s->killed && !s->admission_failed) {
-        int ack = tny_process_scope_ack(s->scope);
+        int ack = tny_process_scope_ack(s->scope.borrow());
         if (ack == 1) s->admission_ready = true;
         else if (ack < 0) s->admission_failed = true;
     }
     int status = 0;
-    int reaped = tny_process_scope_reap(s->scope, &status);
+    int reaped = tny_process_scope_reap(s->scope.borrow(), &status);
     if (reaped == 1 && !s->reaped) {
         s->reaped = true;
         s->status = status;
@@ -3187,17 +3225,16 @@ static void worker_scope_progress(job_slot *s) {
     }
     if (s->admission_failed) s->killed = true;
     if (!s->killed && !s->reaped && !s->reap_error) return;
-    if (s->in_fd >= 0) {
-        close(s->in_fd); /* permanently forbid GO or more prompt bytes */
-        s->in_fd = -1;
+    if (s->in_fd.borrow() >= 0) {
+        s->in_fd.reset(); /* permanently forbid GO or more prompt bytes */
     }
     bool forced = false;
-    int cleanup = tny_process_scope_cleanup(s->scope, s->killed, &forced);
+    int cleanup = tny_process_scope_cleanup(s->scope.borrow(), s->killed, &forced);
     if (forced && !s->killed) s->residual_stopped = true;
     if (cleanup != 0) {
         s->cleanup_done = true;
         if (cleanup < 0) s->cleanup_unknown = true;
-        reaped = tny_process_scope_reap(s->scope, &status);
+        reaped = tny_process_scope_reap(s->scope.borrow(), &status);
         if (reaped == 1) {
             s->reaped = true;
             s->status = status;
@@ -3217,7 +3254,7 @@ static bool analyze_ask_log(const char *path, char **session_id, char **log_sha)
     bool terminal = false;
     char *line = data;
     while (line && (size_t)(line - data) < len) {
-        char *end = memchr(line, '\n', len - (size_t)(line - data));
+        char *end = static_cast<char *>(memchr(line, '\n', len - (size_t)(line - data)));
         size_t line_len = end ? (size_t)(end - line) : len - (size_t)(line - data);
         yyjson_doc *doc = line_len ? jparse(line, line_len) : NULL;
         yyjson_val *event = doc ? yyjson_doc_get_root(doc) : NULL;
@@ -3403,12 +3440,11 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
     if (concurrency < 1) concurrency = 1;
     if (concurrency > TNY_JOBS_MAX_CONCURRENCY) concurrency = TNY_JOBS_MAX_CONCURRENCY;
     size_t n_payload = items && yyjson_is_arr(items) ? yyjson_arr_size(items) : 0;
-    job_slot slots[TNY_JOBS_MAX_ITEMS];
-    yyjson_val *entries[TNY_JOBS_MAX_ITEMS] = {0};
+    job_slot slots[TNY_JOBS_MAX_ITEMS]{};
+    yyjson_val *entries[TNY_JOBS_MAX_ITEMS] = {};
     for (int i = 0; i < TNY_JOBS_MAX_ITEMS; i++) {
-        memset(&slots[i], 0, sizeof slots[i]);
         slots[i].index = i;
-        slots[i].in_fd = slots[i].out_fd = slots[i].log_fd = -1;
+
         slots[i].pid = -1;
     }
     size_t idx, max;
@@ -3425,7 +3461,7 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
     }
     (void)n_payload;
 
-    bool finished = false;
+    bool finished = false, cleanup_protected = false;
     int rc = 0;
     while (!finished) {
         for (int i = 0; i < TNY_JOBS_MAX_ITEMS; i++) worker_scope_progress(&slots[i]);
@@ -3441,6 +3477,21 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
             jobs_txn_end(&t);
             rc = EBUSY;
             break;
+        }
+        if (!cleanup_protected) {
+            /* Write ahead of acquiring children: cleanup, reaping and even
+             * their final save can fail. Owner loss must not make an unfinished
+             * cleanup reclaimable. Only a committed, proven terminal result
+             * clears this hold; a failed guard write launches no work. */
+            jm_set_bool(doc, root, "cleanup_hold", true);
+            if (!jm_bool(root, "cleanup_hold", false)) {
+                rc = ENOMEM;
+                break;
+            }
+            rc = jobs_txn_commit(&t);
+            if (rc) break;
+            cleanup_protected = true;
+            continue;
         }
         bool dirty = false;
         bool job_cancel = jm_bool(root, "cancel_requested", false);
@@ -3467,12 +3518,18 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
                 dirty = true;
                 continue;
             }
-            if (slots[i].scope && !slots[i].cleanup_done) continue;
+            if (slots[i].scope.borrow() && !slots[i].cleanup_done) continue;
             if (!slots[i].reaped && !slots[i].reap_error) continue;
             if (!slots[i].eof && monotonic_ms() < slots[i].drain_deadline) continue;
             yyjson_mut_val *item = jm_item(doc, i);
             bool cancelled = job_cancel || jm_bool(item, "cancel_requested", false);
             if (!slots[i].eof || slots[i].reap_error) slots[i].cleanup_unknown = true;
+            /* Retirement is fallible and precedes terminal persistence. A
+             * refused scope stays owned; unknown proof must hold reservations. */
+            if (slots[i].scope.borrow() &&
+                (slots[i].cleanup_unknown || slots[i].scope.retire() != 0))
+                slots[i].cleanup_unknown = true;
+            if (slots[i].cleanup_unknown) jm_set_bool(doc, root, "cleanup_hold", true);
             worker_record_result(ctx, doc, &slots[i], cancelled && slots[i].cancel_signalled);
             slot_close(&slots[i]);
             slots[i].active = false;
@@ -3499,10 +3556,10 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
                 dirty = true;
                 continue;
             }
-            if (slots[i].active && slots[i].scope && slots[i].admission_ready &&
+            if (slots[i].active && slots[i].scope.borrow() && slots[i].admission_ready &&
                 !slots[i].released && !slots[i].killed && !slots[i].admission_failed &&
                 !slots[i].reaped && !slots[i].reap_error && !cancel) {
-                int go = tny_process_scope_go(slots[i].scope, slots[i].in_fd);
+                int go = tny_process_scope_go(slots[i].scope.borrow(), slots[i].in_fd.borrow());
                 if (go == 1) {
                     slots[i].released = true;
                     char *now = now_iso8601();
@@ -3586,7 +3643,7 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
         for (int i = 0; i < count; i++) {
             yyjson_mut_val *item = jm_item(doc, i);
             signal_now[i] = slots[i].active &&
-                            (slots[i].scope ? !slots[i].cleanup_done : !slots[i].reaped) &&
+                            (slots[i].scope.borrow() ? !slots[i].cleanup_done : !slots[i].reaped) &&
                             (job_cancel || jm_bool(item, "cancel_requested", false));
         }
         if (dirty) rc = jobs_txn_commit(&t);
@@ -3607,7 +3664,7 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
             if (!signal_now[i]) continue;
             job_slot *s = &slots[i];
             if (!s->cancel_signalled) {
-                if (s->scope) {
+                if (s->scope.borrow()) {
                     s->cancel_signalled = true;
                     s->killed = true;
                     worker_scope_progress(s);
@@ -3629,7 +3686,7 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
         for (int i = 0; i < count; i++) {
             job_slot *s = &slots[i];
             if (s->active && !s->reaped && s->limit_hit && !s->killed) {
-                if (s->scope) {
+                if (s->scope.borrow()) {
                     s->killed = true;
                     worker_scope_progress(s);
                     continue;
@@ -3644,7 +3701,7 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
         worker_pump(slots, TNY_JOBS_MAX_ITEMS);
         for (int i = 0; i < count; i++) {
             job_slot *s = &slots[i];
-            if (s->scope) {
+            if (s->scope.borrow()) {
                 worker_scope_progress(s);
                 continue;
             }
@@ -3668,7 +3725,7 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
         }
     }
     for (int i = 0; i < TNY_JOBS_MAX_ITEMS; i++) {
-        if (slots[i].scope) {
+        if (slots[i].scope.borrow()) {
             if (!slots[i].cleanup_done) {
                 slots[i].killed = true;
                 int64_t deadline = monotonic_ms() + 3500;
@@ -3677,21 +3734,21 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
                     if (!slots[i].cleanup_done) tny_jobs_host_sleep_ms(10);
                 } while (!slots[i].cleanup_done && monotonic_ms() < deadline);
             }
-            slot_free(&slots[i]);
+            if (!slot_free(&slots[i])) rc = EBUSY;
             continue;
         }
         if (slots[i].active && !slots[i].reaped && slots[i].pid > 1)
             (void)tny_process_stop_owned_tree(slots[i].pid, &slots[i].status, &slots[i].reaped);
         if (!slots[i].reaped && slots[i].pid > 1) tny_jobs_host_reap(slots[i].pid, NULL);
-        slot_free(&slots[i]);
+        if (!slot_free(&slots[i])) rc = EBUSY;
     }
     /* Reservations are released at terminal completion, never while the state
      * lock is held, and only for records still naming this job/item/attempt. */
     yyjson_mut_doc *final = jobs_record_load(dir, id, NULL, 0);
     if (final) {
         yyjson_mut_val *final_root = yyjson_mut_doc_get_root(final);
-        if (strcmp(jm_str(final_root, "cleanup") ? jm_str(final_root, "cleanup") : "",
-                   "complete") == 0)
+        if (!rc && strcmp(jm_str(final_root, "cleanup") ? jm_str(final_root, "cleanup") : "",
+                          "complete") == 0)
             reservations_release_job(ctx, final, id);
         yyjson_mut_doc_free(final);
     }
@@ -3727,6 +3784,11 @@ static char *worker_read_payload(int fd, char *err, size_t errlen) {
 }
 
 int tny_jobs_worker_main(tny_ctx *ctx, const char *id, int payload_fd, int ack_fd, int owner_fd) {
+    tny::descriptor payload_owner, ack_owner;
+    tny::lock_descriptor worker_owner;
+    payload_owner.adopt(payload_fd);
+    ack_owner.adopt(ack_fd);
+    worker_owner.adopt(owner_fd);
     if (!ctx || !tny_jobs_valid_id(id) || !tny_jobs_execution_supported()) return 1;
     char *dir = jobs_dir(ctx, id);
     char *owner_path = dir ? jobs_file(dir, "owner.lock") : NULL;
@@ -3755,7 +3817,7 @@ int tny_jobs_worker_main(tny_ctx *ctx, const char *id, int payload_fd, int ack_f
     yyjson_mut_doc_free(accepted);
     char err[192] = "";
     char *payload_json = worker_read_payload(payload_fd, err, sizeof err);
-    close(payload_fd);
+    payload_owner.reset();
     yyjson_doc *doc = payload_json ? jparse(payload_json, strlen(payload_json)) : NULL;
     yyjson_val *payload = doc ? yyjson_doc_get_root(doc) : NULL;
     const char *job = jget_str(payload, "job");
@@ -3804,7 +3866,7 @@ int tny_jobs_worker_main(tny_ctx *ctx, const char *id, int payload_fd, int ack_f
     int len = snprintf(ack, sizeof ack, "ok %s\n", id);
     ssize_t ignored = ack_fd >= 0 && len > 0 ? write(ack_fd, ack, (size_t)len) : 0;
     (void)ignored;
-    if (ack_fd >= 0) close(ack_fd);
+    if (ack_fd >= 0) ack_owner.reset();
     int null_fd = open("/dev/null", O_RDWR | O_CLOEXEC);
     if (null_fd >= 0) {
         dup2(null_fd, STDIN_FILENO);
@@ -3820,7 +3882,7 @@ int tny_jobs_worker_main(tny_ctx *ctx, const char *id, int payload_fd, int ack_f
     free(owner_path);
     /* The owner lock is released here, with the process: every reader now sees
      * a terminal record rather than a free lock over an active one. */
-    tny_jobs_host_lock_close(owner_fd);
+    worker_owner.reset();
     return rc ? 2 : 0;
 }
 
@@ -3928,7 +3990,8 @@ tny_job_artifact *tny_jobs_select_artifact(const tny_ctx *ctx, const char *id, i
         for (const char *p = operation; *p; p++)
             if (!((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f'))) ok = false;
     }
-    tny_job_artifact *a = ok ? calloc(1, sizeof *a) : NULL;
+    tny_job_artifact *a =
+        ok ? static_cast<tny_job_artifact *>(tny_alloc_calloc(1, sizeof *a)) : NULL;
     if (a) {
         a->path = artifact_owned_path(ctx, output);
         ok = a->path != NULL;

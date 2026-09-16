@@ -28,7 +28,7 @@ struct calls {
     calls &operator=(calls &&) = default;
     call *by_id(const char *id) {
         for (int i = 0; i < n; ++i)
-            if (items[i].has_id && items[i].id == id) return &items[i];
+            if (items[i].has_id && !std::strcmp(items[i].id.c_str(), id)) return &items[i];
         return nullptr;
     }
     call *by_index(int index) {
@@ -78,16 +78,19 @@ calls &get(oa_callset *cs) {
     if (!cs->owner) cs->owner = tny::make_owned<calls>().release();
     return *static_cast<calls *>(cs->owner);
 }
+void view(oa_callset *cs, calls &s, const call *c) noexcept {
+    cs->n = s.n;
+    if (!c) return;
+    /* Fixed slots never move; only this call's strings can invalidate a view. */
+    auto slot = static_cast<size_t>(c - s.items.data());
+    cs->calls[slot] = {c->has_id ? c->id.c_str() : nullptr,
+                       c->has_name ? c->name.c_str() : nullptr,
+                       {c->has_args ? c->args.c_str() : nullptr, c->args.size()},
+                       c->index};
+}
 void views(oa_callset *cs) noexcept {
     auto &s = *static_cast<calls *>(cs->owner);
-    cs->n = s.n;
-    for (int i = 0; i < s.n; ++i) {
-        const auto &c = s.items[i];
-        cs->calls[i] = {c.has_id ? c.id.c_str() : nullptr,
-                        c.has_name ? c.name.c_str() : nullptr,
-                        {c.has_args ? c.args.c_str() : nullptr, c.args.size()},
-                        c.index};
-    }
+    for (int i = 0; i < s.n; ++i) view(cs, s, &s.items[i]);
 }
 int failed(oa_callset *cs) noexcept {
     /* No half-assembled batch is exposed after failure. The sticky status
@@ -122,8 +125,8 @@ int oa_calls_feed(oa_callset *cs, yyjson_val *tool_calls) {
             auto *c = state->select(id, has_index, static_cast<int>(index), false);
             yyjson_val *fn = jget(tc, "function");
             state->update(c, id, jget_str(fn, "name"), jget_str(fn, "arguments"), false);
+            view(cs, *state, c);
         }
-        if (cs->owner) views(cs);
         return TNY_PARSE_OK;
     } catch (const std::bad_alloc &) { return failed(cs); } catch (const std::length_error &) {
         return failed(cs);
@@ -137,7 +140,7 @@ int oa_calls_item(oa_callset *cs, int64_t index, const char *id, const char *nam
         auto &s = get(cs);
         auto *c = s.select(id, true, static_cast<int>(index), append_only);
         s.update(c, id, name, args, replace_args);
-        if (cs->owner) views(cs);
+        view(cs, s, c);
         return TNY_PARSE_OK;
     } catch (const std::bad_alloc &) { return failed(cs); } catch (const std::length_error &) {
         return failed(cs);

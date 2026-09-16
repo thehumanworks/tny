@@ -109,6 +109,10 @@ int tny_process_scope_cleanup(tny_process_scope *scope, bool force, bool *forced
 /* Release after the caller's complete cleanup proof. Refuses an unreaped
  * direct child or a nonempty/unknown MSYS Job. Returns an errno value. */
 int tny_process_scope_destroy(tny_process_scope *scope);
+/* Consume an unretired scope into supervisor-lifetime storage. No allocation,
+ * wait, signal, or handle close. The caller must already report unknown cleanup
+ * and retain persisted reservations. Only process teardown releases authority. */
+void tny_process_scope_retain_until_exit(tny_process_scope *scope);
 
 /* Cooperative parent-loss watch for a detached job's child (docs/adr/0093).
  * tny_process_expect_parent() records the supervisor pid this process was

@@ -76,7 +76,7 @@ bool ac_on_path(const char *bin);
 int ac_spawn_agent(ac_impl *o, char *errbuf, size_t errlen);
 /* Exit status once the agent's stdout closed, or -1 if it is still running. */
 int ac_reap_agent(ac_impl *o);
-/* Read everything pending: 0 ok, -1 EOF/error, -2 message over the 8 MiB cap. */
+/* Read pending messages: 0 ok, -1 EOF/error, -2 over 8 MiB, -3 allocation failure. */
 int ac_pump_reads(ac_impl *o);
 /* Blocking request/response. Setup only — never during a turn. */
 yyjson_doc *ac_rpc(ac_impl *o, const char *method, const char *params, char *errbuf, size_t errlen);

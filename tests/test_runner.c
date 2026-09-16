@@ -14,6 +14,8 @@
 #include "util/tny_poll.h"
 #include "util/util.h"
 
+#include <dirent.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -973,7 +975,61 @@ TEST runner_control_primitive_returns_preview_status_and_keeps_manual_replies(vo
     PASS();
 }
 
+/* Enumerate actual descriptors without ps or a fixed numeric fd ceiling. */
+static int runner_descriptor_count(void) {
+    DIR *dir = opendir("/dev/fd");
+    if (!dir) dir = opendir("/proc/self/fd");
+    if (!dir) return -1;
+    int count = 0;
+    struct dirent *entry;
+    while ((entry = readdir(dir)))
+        if (entry->d_name[0] != '.') count++;
+    closedir(dir);
+    return count;
+}
+
+TEST runner_repeated_lifecycle_preserves_descriptors_and_borrowed_writer(void) {
+    int before = runner_descriptor_count();
+    ASSERT(before >= 0);
+    for (int i = 0; i < 12; i++) {
+        live_runner x;
+        ASSERT_EQ(0, live_runner_prepare(&x));
+        ASSERT_EQ(0, session_lock_acquire(x.session));
+        int borrowed = x.session->lock_fd;
+        tny_runner_opts opts = {.serve = true};
+        char err[256];
+        x.pid = tny_runner_spawn(x.ctx, x.session, &opts, err, sizeof err);
+        ASSERT(x.pid > 0);
+        ASSERT_EQ(borrowed, x.session->lock_fd);
+        ASSERT(fcntl(borrowed, F_GETFD) >= 0);
+        session_lock_release(x.session); /* close parent, do not unlock child */
+        ASSERT(session_is_running(x.ctx, x.session->id));
+        x.sock = tny_runner_sock_path(x.session->dir);
+        tny_runner_client *client =
+            tny_runner_client_connect(x.sock, 4000, TNY_RUNNER_OWNER, false);
+        ASSERT(client);
+        tny_runner_msg *hello = wait_runner_msg(client, TNY_RMSG_HELLO);
+        ASSERT(hello);
+        tny_runner_msg_free(hello);
+        ASSERT_EQ(0, tny_runner_client_end(client, "done"));
+        tny_runner_msg *bye = wait_runner_msg(client, TNY_RMSG_BYE);
+        ASSERT(bye);
+        tny_runner_msg_free(bye);
+        ASSERT(!session_is_running(x.ctx, x.session->id));
+        ASSERT(access(x.sock, F_OK) != 0);
+        tny_runner_client_close(client);
+        ASSERT_EQ(x.pid, waitpid(x.pid, NULL, 0));
+        x.pid = -1;
+        live_runner_end(&x);
+        ASSERT_EQ(before, runner_descriptor_count());
+    }
+    printf("phase3 runner descriptors: before=%d after=%d cycles=12\n", before,
+           runner_descriptor_count());
+    PASS();
+}
+
 SUITE(runner_suite) {
+    RUN_TEST(runner_repeated_lifecycle_preserves_descriptors_and_borrowed_writer);
     RUN_TEST(runner_reads_end_before_owner_eof);
     RUN_TEST(runner_refuses_competing_spawn_without_touching_listener);
     RUN_TEST(runner_serve_turn_error_keeps_writer);

@@ -1,4 +1,4 @@
-# ADR 0112: Private C++20 ownership boundaries
+# ADR 0114: Private C++20 ownership boundaries
 
 Date: 2026-09-16
 Status: accepted for implementation of issues #137, #138 and #139

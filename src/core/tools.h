@@ -15,11 +15,12 @@ struct mcp_client;    /* mcp/mcp.h */
 struct tny_intercept; /* core/intercept.h */
 struct tny_image_plan;
 struct tny_tool_registration;
-struct tny_tool_call;
+struct custom_tool_pending;
 
 /* Why an entry was admitted to the pending-image queue. It decides the
  * truthful transcript wording and, for a preview, the stricter
  * configured-true policy gate (docs/adr/0096). */
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_IMAGE_QUEUE_MANUAL = 0, /* read_image, `tny image attach`, interception */
     TNY_IMAGE_QUEUE_PREVIEW     /* explicitly requested generated-image preview */
@@ -38,6 +39,7 @@ typedef struct {
 
 /* Distinguishes a preview-bearing batch from the ordinary manual failure the
  * existing callers already warn about and continue past (A15 D3). */
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_IMAGE_FLUSH_OK = 0,
     TNY_IMAGE_FLUSH_FAILED,       /* manual-only batch: existing behavior */
@@ -101,7 +103,7 @@ typedef struct {
     char *error;   /* validation error when prepare returns -1 */
     perm_verdict verdict;
     struct tny_tool_registration *custom;
-    struct tny_tool_call *custom_call;
+    struct custom_tool_pending *custom_call;
     /* Set when a `terminal` command was recognised as a first-party tny verb
      * and runs in-process instead (docs/adr/0063). */
     struct tny_intercept *intercept;

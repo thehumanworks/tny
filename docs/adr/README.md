@@ -96,5 +96,12 @@ files in this directory are the complete record.
 | [0110](0110-one-suite-per-platform.md) | Each suite runs once per platform: native `linux-x86_64` and the hermetic `nix` job carry the full suite, other lanes build and package, `release.yml` does not re-test, and `main` runs are never cancelled |
 | [0111](0111-aarch64-size-cliff.md) | Linux native releases omit the frame pointer, `YYJSON_DISABLE_NON_STANDARD` drops dead JSON paths, the Nix package drops `zerocallusedregs`; the aarch64 64 KiB RELRO cliff is documented |
 
-- [0112 — Private C++20 ownership boundaries](0112-private-cpp20-ownership-boundaries.md)
-- [0113 — Owned stream decoding and failure boundaries](0113-owned-stream-decoding-and-failure-boundaries.md)
+- [0114 — Private C++20 ownership boundaries](0114-private-cpp20-ownership-boundaries.md)
+- [0115 — Owned stream decoding and failure boundaries](0115-owned-stream-decoding-and-failure-boundaries.md)
+- [0116 — Private runtime event and async tool ownership](0116-runtime-event-and-async-ownership.md)
+- [0117 — Allocation-free provider OOM settlement](0117-allocation-free-provider-oom-settlement.md)
+- [0118 — Runner and durable job resource ownership](0118-runner-and-job-resource-ownership.md)
+
+- [0119 — Build-lane parity and exhaustive ownership-fault proof](0119-build-lane-parity-and-exhaustive-fault-proof.md)
+
+- [0120 — Measured Linux aarch64 C++ artifact budget](0120-measured-linux-aarch64-cpp-artifact-budget.md)

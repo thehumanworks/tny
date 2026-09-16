@@ -10,6 +10,8 @@
 #include "backends/openai/openai.h"
 #include "backends/openai/stream_decode.h"
 #include "core/config.h"
+#include "core/runtime.h"
+#include "util/alloc.h"
 #include "core/image.h"
 #include "core/image_manifest.h"
 #include "core/perm.h"
@@ -18,6 +20,7 @@
 #include "net/http_server.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
+#include "util/alloc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -327,7 +330,8 @@ typedef struct {
     char root[600], workspace[640], state[640], png[700], outside[700];
     char hash_a[65], hash_b[65];
     int requests;
-    int turn_requests; /* reset per turn: only its first POST asks for a tool */
+    int turn_requests;                  /* reset per turn: only its first POST asks for a tool */
+    const char *first_body, *done_body; /* optional per-test response overrides */
     buf_t bodies[6];
     int hook_calls;
     pv_hook hook;
@@ -344,6 +348,17 @@ typedef struct {
     int turn_ends;
     tny_stop_reason stop;
     bool ended;
+    int decode_wire; /* 1: JSON, 2: SSE, 3: final SSE event without delimiter */
+    bool cancel_decode;
+    bool cancel_usage;
+    int decoded_texts;
+    int decoded_thinking;
+    int terminal_during_decode;
+    buf_t callback_text;
+#ifdef TNY_ALLOC_TESTING
+    size_t owner_baseline, owner_inside, owner_terminal;
+    bool callback_owners_retained;
+#endif
 } pv_fixture;
 
 static void pv_hash(const uint8_t *data, size_t len, char out[65]) {
@@ -385,8 +400,25 @@ static int pv_post(const http_server_request *request, http_server_response *res
         "{\"id\":\"call_later\",\"type\":\"function\",\"function\":{\"name\":\"terminal\","
         "\"arguments\":\"{\\\"command\\\":\\\"printf harmless\\\"}\"}}]}}]}";
     if (first_of_turn && f->selected) body = f->terminal_case >= 3 ? selected_two : selected;
+    if (first_of_turn && f->first_body) body = f->first_body;
+    if (!first_of_turn && f->done_body) body = f->done_body;
+    static const char decode_json[] =
+        "{\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2},"
+        "\"choices\":[{\"delta\":{\"content\":\"cancel-now\","
+        "\"reasoning_content\":\"retained reasoning beyond short string storage\"},"
+        "\"finish_reason\":\"stop\"}]}";
+    static const char decode_sse[] =
+        "data: {\"choices\":[{\"delta\":{\"content\":\"cancel-now\","
+        "\"reasoning_content\":\"retained reasoning beyond short string storage\"}}]}\n\n"
+        "data: [DONE]\n\n";
+    static const char decode_flush[] =
+        "data: {\"choices\":[{\"delta\":{\"content\":\"cancel-now\"},"
+        "\"finish_reason\":\"stop\"}]}";
+    if (f->decode_wire)
+        body =
+            f->decode_wire == 1 ? decode_json : (f->decode_wire == 2 ? decode_sse : decode_flush);
     response->status = 200;
-    response->content_type = "application/json";
+    response->content_type = f->decode_wire > 1 ? "text/event-stream" : "application/json";
     response->body = body;
     response->body_len = strlen(body);
     return HTTP_SERVER_POST_HANDLED;
@@ -394,12 +426,36 @@ static int pv_post(const http_server_request *request, http_server_response *res
 
 static void pv_event(const tny_backend_event *ev, void *ud) {
     pv_fixture *f = ud;
+    if (ev->kind == TNY_EV_THINKING) f->decoded_thinking++;
+    if (ev->kind == TNY_EV_USAGE && f->cancel_usage) {
+        f->cancel_usage = false;
+        f->backend->cancel(f->backend);
+    }
+    if (ev->kind == TNY_EV_TEXT_DELTA && f->decode_wire) {
+        f->decoded_texts++;
+        if (f->cancel_decode) {
+            int ends = f->turn_ends;
+#ifdef TNY_ALLOC_TESTING
+            f->owner_inside = tny_alloc_test_owned_live();
+#endif
+            f->backend->cancel(f->backend);
+#ifdef TNY_ALLOC_TESTING
+            f->callback_owners_retained = tny_alloc_test_owned_live() == f->owner_inside;
+#endif
+            f->terminal_during_decode += f->turn_ends - ends;
+        }
+        /* Borrowed event bytes must remain usable until this callback returns. */
+        buf_append(&f->callback_text, ev->text, ev->text_len);
+    }
     if (ev->kind == TNY_EV_ERROR) {
         f->errors++;
         buf_append(&f->error_text, ev->text, ev->text_len);
         buf_appends(&f->error_text, "\n");
     }
     if (ev->kind == TNY_EV_TURN_END) {
+#ifdef TNY_ALLOC_TESTING
+        f->owner_terminal = tny_alloc_test_owned_live();
+#endif
         f->turn_ends++;
         f->stop = ev->stop;
         f->ended = true;
@@ -530,6 +586,7 @@ static void pv_close(pv_fixture *f) {
     tny_ctx_free(f->ctx);
     http_server_destroy(&f->server);
     buf_free(&f->error_text);
+    buf_free(&f->callback_text);
     for (size_t i = 0; i < sizeof f->bodies / sizeof f->bodies[0]; i++) buf_free(&f->bodies[i]);
 }
 
@@ -1042,13 +1099,194 @@ TEST responses_reasoning_owns_unknown_fields(void) {
 }
 
 /* The C suite calls the separately C++-compiled ownership checks. */
+TEST cancellation_inside_decode_preserves_callback_and_reuse(void) {
+    for (int wire = 1; wire <= 3; ++wire) {
+        pv_fixture f;
+        pv_open(&f);
+        f.decode_wire = wire;
+        f.cancel_decode = true;
+#ifdef TNY_ALLOC_TESTING
+        f.owner_baseline = tny_alloc_test_owned_live();
+#endif
+        ASSERT_EQ(0, pv_turn(&f, "cancel while decoding"));
+        ASSERT_EQ(1, f.turn_ends);
+        ASSERT_EQ(0, f.terminal_during_decode);
+        ASSERT_EQ(TNY_STOP_INTERRUPTED, f.stop);
+        ASSERT_EQ(0, f.errors);
+        ASSERT_EQ(1, f.decoded_texts);
+        ASSERT_EQ(0, f.decoded_thinking);
+        ASSERT_STR_EQ("cancel-now", f.callback_text.data);
+#ifdef TNY_ALLOC_TESTING
+        ASSERT(f.owner_inside > f.owner_baseline);
+        ASSERT(f.callback_owners_retained);
+        ASSERT_EQ(f.owner_baseline, f.owner_terminal);
+        ASSERT_EQ(f.owner_baseline, tny_alloc_test_owned_live());
+#endif
+        f.cancel_decode = false;
+        f.cancel_usage = true;
+        buf_clear(&f.callback_text);
+        ASSERT_EQ(0, pv_turn(&f, "successful later turn"));
+        ASSERT_EQ(2, f.turn_ends);
+        ASSERT_EQ(TNY_STOP_DONE, f.stop);
+        ASSERT_EQ(0, f.errors);
+        ASSERT_STR_EQ("cancel-now", f.callback_text.data);
+        pv_close(&f);
+    }
+    PASS();
+}
+
 extern int tny_ownership_selftest(void);
 TEST cpp_ownership_boundary(void) {
     ASSERT_EQ(0, tny_ownership_selftest());
     PASS();
 }
 
+#ifdef TNY_ALLOC_TESTING
+typedef struct {
+    pv_fixture *fixture;
+    bool body, parser;
+    size_t fault_index;
+    char *snapshot;
+    char *path;
+    bool armed;
+} request_fault_fixture;
+
+static void request_fault_control(const tny_openai_control_request *request,
+                                  tny_openai_control_response *response, void *ud) {
+    (void)response;
+    request_fault_fixture *f = ud;
+    if (f->armed) return;
+    if (f->body) {
+        if (request->kind != TNY_OPENAI_CONTROL_TOOL_BATCH) return;
+        /* Measure the ordinary batch save on the same session, then fail the
+         * first request-body allocation immediately following that save. */
+        tny_alloc_scope_begin("disabled");
+        if (session_save(f->fixture->session) != 0) return;
+        f->fault_index = tny_alloc_test_scope_count() + 1;
+        tny_alloc_scope_begin("disabled");
+        char err[256];
+        http_conn *probe = http_open(f->fixture->ctx->base_url, err, sizeof err);
+        if (!probe) return;
+        f->fault_index += tny_alloc_test_scope_count();
+        http_close(probe);
+    } else {
+        tny_openai_control_kind edge =
+            f->parser ? TNY_OPENAI_CONTROL_PROVIDER_RESPONSE : TNY_OPENAI_CONTROL_PROVIDER_REQUEST;
+        if (request->kind != edge || request->step != 1) return;
+        f->fault_index = 1;
+    }
+    f->snapshot = file_slurp(f->path, NULL);
+    f->armed = true;
+    /* The complete second request has reached the transport-construction
+     * boundary. Fail its first owned HTTP request allocation, after the first
+     * response's usage and tool/steer transcript have been persisted. */
+    setenv("TNY_TEST_ALLOC_SCOPE", "openai-request", 1);
+    char index[32];
+    snprintf(index, sizeof index, "%zu", f->fault_index);
+    setenv("TNY_TEST_ALLOC_FAIL_AT", index, 1);
+    tny_alloc_scope_begin("openai-request");
+}
+
+TEST request_construction_oom_after_usage_skips_finalization(void) {
+    /* This regression needs the complete allocator-instrumented object graph
+     * (transport, session and provider), which the provider-fault host links.
+     * A partially instrumented unit binary cannot inject the request fault. */
+    tny_alloc_scope_begin("instrumentation-probe");
+    free(xstrdup("instrumentation probe"));
+    if (!tny_alloc_test_scope_count())
+        SKIPm("transport objects are not allocator-instrumented in this binary");
+    for (int mode = 0; mode < 4; mode++) {
+        bool steer = mode == 1;
+        tny_alloc_scope_begin("disabled");
+        pv_fixture f;
+        pv_open(&f);
+        free(f.ctx->wire_api);
+        f.ctx->wire_api = xstrdup("responses");
+        f.first_body =
+            steer
+                ? "{\"status\":\"completed\",\"usage\":{\"input_tokens\":123,\"output_tokens\":7},"
+                  "\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\","
+                  "\"text\":\"first answer\"}]}]}"
+                : "{\"status\":\"completed\",\"usage\":{\"input_tokens\":123,\"output_tokens\":7},"
+                  "\"output\":[{\"type\":\"function_call\",\"call_id\":\"request-oom\","
+                  "\"name\":\"list_files\",\"arguments\":\"{}\"}]}";
+        tny_engine *engine = tny_engine_new(f.ctx, f.session, f.perm, NULL, NULL);
+        ASSERT(engine);
+        char err[512];
+        ASSERT_EQ(
+            0, tny_engine_prepare(engine, f.backend, TNY_ENGINE_PREPARE_RESUMED, err, sizeof err));
+        request_fault_fixture fault = {.fixture = &f, .body = mode == 2, .parser = mode == 3};
+        fault.path = path_join(f.session->dir, "session.json");
+        tny_backend_openai_bind(f.backend, f.session, f.perm, NULL, NULL, NULL, NULL, NULL, NULL,
+                                NULL, NULL, request_fault_control, &fault);
+        ASSERT_EQ(0, tny_engine_start(engine, "first", NULL, err, sizeof err));
+        if (steer) ASSERT_EQ(0, tny_engine_steer(engine, "continue", err, sizeof err));
+        for (int i = 0; i < 1000 && !fault.armed; i++) {
+            struct pollfd fds[HTTP_SERVER_POLLFD_CAPACITY + TNY_BACKEND_POLLFD_MAX];
+            int sn = http_server_pollfds(f.server, fds, HTTP_SERVER_POLLFD_CAPACITY);
+            int bn = tny_engine_pollfds(engine, fds + sn, TNY_BACKEND_POLLFD_MAX);
+            ASSERT(tny_poll(fds, (nfds_t)(sn + bn), 10) >= 0);
+            ASSERT_EQ(0, http_server_dispatch(f.server, fds, sn));
+            (void)tny_engine_dispatch(engine, fds + sn, bn);
+        }
+        ASSERT(fault.armed && fault.snapshot);
+        ASSERT(tny_alloc_test_scope_injected());
+        ASSERT_EQ(fault.fault_index, tny_alloc_test_scope_count());
+        ASSERT_EQ(0, tny_alloc_test_settlement_allocations());
+        ASSERT_EQ(fault.parser ? 2 : 1, f.requests); /* construction failure never submits */
+        unsetenv("TNY_TEST_ALLOC_SCOPE");
+        unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+        int errors = 0, terminals = 0;
+        tny_owned_event *event = NULL;
+        for (;;) {
+            tny_engine_next rc = tny_engine_next_event(engine, 0, &event, err, sizeof err);
+            if (rc == TNY_ENGINE_NEXT_DRAINED) break;
+            ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, rc);
+            if (event->ev.kind == TNY_EV_ERROR) {
+                ASSERT_EQ(TNY_EVENT_ERROR_OOM, event->ev.error_code);
+                errors++;
+            }
+            if (event->ev.kind == TNY_EV_TURN_END) {
+                ASSERT_EQ(1, errors);
+                ASSERT_EQ(TNY_STOP_ERROR, event->ev.stop);
+                terminals++;
+            }
+            tny_owned_event_free(event);
+        }
+        ASSERT_EQ(1, errors);
+        ASSERT_EQ(1, terminals);
+        ASSERT_EQ(fault.fault_index,
+                  tny_alloc_test_scope_count()); /* delivery also allocated nothing */
+        tny_alloc_scope_begin("disabled");
+        char *after = file_slurp(fault.path, NULL);
+        ASSERT(after);
+        ASSERT_STR_EQ(fault.snapshot, after);
+        yyjson_doc *saved = jparse(after, strlen(after));
+        ASSERT(saved);
+        yyjson_val *usage = jget(yyjson_doc_get_root(saved), "usage");
+        ASSERT_EQ(123, jget_int(usage, "in", -1));
+        yyjson_doc_free(saved);
+        free(after);
+        free(fault.snapshot);
+        free(fault.path);
+        tny_engine_free(engine); /* owns f.backend */
+        perm_free(f.perm);
+        session_close(f.session);
+        tny_ctx_free(f.ctx);
+        http_server_destroy(&f.server);
+        buf_free(&f.error_text);
+        buf_free(&f.callback_text);
+        for (size_t i = 0; i < sizeof f.bodies / sizeof f.bodies[0]; i++) buf_free(&f.bodies[i]);
+    }
+    PASS();
+}
+#endif
+
 SUITE(openai_suite) {
+#ifdef TNY_ALLOC_TESTING
+    RUN_TEST(request_construction_oom_after_usage_skips_finalization);
+#endif
+    RUN_TEST(cancellation_inside_decode_preserves_callback_and_reuse);
     RUN_TEST(cpp_ownership_boundary);
     RUN_TEST(provider_decoding_every_split);
     RUN_TEST(responses_reasoning_owns_unknown_fields);

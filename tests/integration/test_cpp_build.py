@@ -17,6 +17,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 CPP_DIRS = ("util", "json", "net", "backends/openai", "core", "lib")
@@ -115,7 +116,17 @@ int main() { return 0; }
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
 
+    @staticmethod
+    def child_environment():
+        environment = dict(os.environ)
+        # Python closes the parent's jobserver fds. These independent fixture
+        # builds use explicit arguments, not stale parent make orchestration.
+        for name in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL"):
+            environment.pop(name, None)
+        return environment
+
     def run_command(self, argv, **kwargs):
+        kwargs.setdefault("env", self.child_environment())
         run = subprocess.run(
             argv, cwd=self.root, text=True, capture_output=True, **kwargs
         )
@@ -126,6 +137,7 @@ int main() { return 0; }
         run = subprocess.run(
             ["make", "--no-print-directory", *self.make_args, *args],
             cwd=self.root,
+            env=self.child_environment(),
             text=True,
             capture_output=True,
         )
@@ -134,6 +146,20 @@ int main() { return 0; }
         else:
             self.assertNotEqual(run.returncode, 0, run.stdout + run.stderr)
         return (run.stdout + run.stderr).replace("\\\n", " ").replace("\t", " ")
+
+    def test_isolated_child_drops_unavailable_parent_jobserver(self):
+        inherited = {
+            "MAKEFLAGS": "-j --jobserver-fds=987,988",
+            "MFLAGS": "-j --jobserver-fds=987,988",
+            "MAKELEVEL": "2",
+        }
+        with patch.dict(os.environ, inherited):
+            run = self.run_command(
+                ["make", "--no-print-directory", "-s", "-f", "-", "probe"],
+                input="probe:\n\t@echo child\n",
+            )
+        self.assertEqual(run.stdout, "child\n")
+        self.assertEqual(run.stderr, "")
 
     def test_native_compile_link_and_exception_catching(self):
         self.make("-j2", "release", "debug", "test-parser-fuzz-smoke", "SANITIZE=0")
@@ -195,6 +221,32 @@ int main() { return 0; }
             )
             self.assertTrue((self.root / f"build/lib/libtny.{suffix}").exists())
             self.run_command([str(self.root / "build/consumer")])
+
+    def test_gitless_quality_discovery_keeps_first_party_sources(self):
+        self.write("scripts/discovery.sh", "#!/bin/sh\necho discovery\n")
+        self.write("build/ignored.cpp", "invalid generated source\n")
+        self.write("third_party/ignored.hpp", "vendor source\n")
+        run = self.run_command(
+            [
+                "make",
+                "-s",
+                "-f",
+                "Makefile",
+                "-f",
+                "-",
+                *self.make_args,
+                "GIT=tny-fixture-unavailable-git",
+                "file-inventory",
+            ],
+            input="file-inventory:\n\t@printf '%s\\n' '$(FMT_SRC)' '$(SH_SRC)'\n",
+        )
+        self.assertEqual(run.stderr, "")
+        paths = run.stdout.split()
+        self.assertIn("src/util/probe.hpp", paths)
+        self.assertIn("src/util/probe.cpp", paths)
+        self.assertIn("scripts/discovery.sh", paths)
+        self.assertNotIn("build/ignored.cpp", paths)
+        self.assertNotIn("third_party/ignored.hpp", paths)
 
     def test_wasm_exception_catching(self):
         emcc = shlex.split(os.environ.get("EMCC", "emcc"))[0]

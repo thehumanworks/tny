@@ -2,7 +2,7 @@
 
 ## Decision: C11 with private C++20 ownership modules
 
-[ADR 0112](adr/0112-private-cpp20-ownership-boundaries.md) authorizes a
+[ADR 0114](adr/0114-private-cpp20-ownership-boundaries.md) authorizes a
 limited migration for parser buffers/documents, runtime events/async
 tools, and runner/job resources. It supersedes the old blanket C++ ban,
 not the C ABI, platform support or reliability/performance gates. Keep
@@ -10,6 +10,16 @@ untouched application/transport/OS code, third-party libraries and
 `tnytty` in C11. No public C++ ABI, Boost, UI framework or global allocator
 replacement is introduced. Runtime size and dependencies are measured,
 not inferred from the language.
+[ADR 0115](adr/0115-owned-stream-decoding-and-failure-boundaries.md) covers
+the parser owners, [ADR 0116](adr/0116-runtime-event-and-async-ownership.md)
+the owned runtime events and custom-tool registration/async-call lifetimes,
+and [ADR 0117](adr/0117-allocation-free-provider-oom-settlement.md) the
+allocation-free provider settlement those owners rely on.
+[ADR 0118](adr/0118-runner-and-job-resource-ownership.md) authorizes runner
+and durable-job resource aggregates; platform process operations stay in C.
+Private facades
+expose opaque owners and synchronous borrowed views, never standard-library
+types.
 
 ## Compiler and link
 

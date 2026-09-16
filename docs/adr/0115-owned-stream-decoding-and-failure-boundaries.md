@@ -1,8 +1,8 @@
-# ADR 0113: Owned stream decoding and failure boundaries
+# ADR 0115: Owned stream decoding and failure boundaries
 
 Date: 2026-09-16
 Status: accepted
-Related: issue #137; ADR 0112
+Related: issue #137; ADR 0114
 
 ## Decision
 

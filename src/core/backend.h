@@ -9,12 +9,14 @@
 
 struct tny_ctx; /* core/config.h */
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum { TNY_BK_OPENAI = 0, TNY_BK_CURSOR, TNY_BK_ACP, TNY_BK_COUNT } tny_backend_id;
 
 const char *tny_backend_name(tny_backend_id id);
 int tny_backend_from_name(const char *name); /* -1 if unknown */
 
 /* Provider capabilities, known without spawning a host. */
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 enum {
     /* Paid fast/priority tier: OpenAI-compat service_tier (the codex
      * profile included), cursor ModelSelection param {"id":"fast"}. ACP has
@@ -23,6 +25,7 @@ enum {
 };
 unsigned tny_backend_caps(tny_backend_id id);
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_PERM_DECISION_ALLOW,
     TNY_PERM_DECISION_ALLOW_ALWAYS,

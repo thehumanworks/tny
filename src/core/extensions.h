@@ -13,6 +13,7 @@
 
 typedef struct tny_extensions tny_extensions;
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_EXTENSIONS_EMPTY = 0, /* no ~/.tny/extensions entries */
     TNY_EXTENSIONS_DORMANT,   /* entries found; host not spawned yet */
@@ -20,6 +21,7 @@ typedef enum {
     TNY_EXTENSIONS_UNAVAILABLE /* optional host/python unavailable */
 } tny_extensions_state;
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_EXTENSION_ACTION_CONTEXT = 1,
     TNY_EXTENSION_ACTION_CONTINUE,
@@ -33,11 +35,13 @@ typedef enum {
     TNY_EXTENSION_ACTION_TOOL_RESULT_REPLACE
 } tny_extension_action_kind;
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_EXTENSION_MESSAGE_USER = 0,
     TNY_EXTENSION_MESSAGE_CUSTOM
 } tny_extension_message_kind;
 
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_EXTENSION_PERMISSION_ABSTAIN = 0,
     TNY_EXTENSION_PERMISSION_ALLOW_ONCE,

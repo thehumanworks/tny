@@ -94,15 +94,15 @@ class ToolkitLateCancellation(unittest.TestCase):
             makefile = """
 .PHONY: late-variables
 late-variables:
-	@printf '%s\\n' '$(CC)' '$(PIC_CFLAGS)' '$(REL_LDFLAGS)' '$(LIB_PIC_OBJS)'
+	@printf '%s\\n' '$(CC)' '$(CXX)' '$(PIC_CFLAGS)' '$(REL_LDFLAGS)' '$(LIB_PIC_OBJS)'
 """
             variables = command(
                 "compile-variables",
                 ["make", "-s", "-f", "Makefile", "-f", "-", "late-variables"],
                 stdin=makefile,
             ).stdout.splitlines()
-            self.assertEqual(len(variables), 4)
-            compiler, flags, linker, objects = map(shlex.split, variables)
+            self.assertEqual(len(variables), 5)
+            compiler, link_driver, flags, linker, objects = map(shlex.split, variables)
             target = "src/core/image_service.c"
             original_object = "build/pic/src/core/image_service.o"
             self.assertIn(original_object, objects)
@@ -135,7 +135,7 @@ late-variables:
             def link(label):
                 command(
                     label,
-                    compiler
+                    link_driver
                     + ["-o", str(executable)]
                     + objects
                     + ["build/renamed-image.o", "build/late-cancel.o"]

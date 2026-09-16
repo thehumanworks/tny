@@ -7,6 +7,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+/* Keep the C enum layout at the mixed-language boundary. */
+// NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_EV_TEXT_DELTA,     /* assistant text fragment */
     TNY_EV_THINKING,       /* reasoning fragment (render dim) */
@@ -26,6 +28,8 @@ typedef enum {
     TNY_EV_TOOL_PROGRESS   /* partial host tool input/output update */
 } tny_event_kind;
 
+/* Keep the C enum layout at the mixed-language boundary. */
+// NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_STOP_DONE,        /* model finished */
     TNY_STOP_INTERRUPTED, /* user cancel */
@@ -34,6 +38,8 @@ typedef enum {
     TNY_STOP_ERROR
 } tny_stop_reason;
 
+/* Keep the C enum layout at the mixed-language boundary. */
+// NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_EVENT_ERROR_NONE = 0,
     TNY_EVENT_ERROR_IO,
@@ -45,6 +51,8 @@ typedef enum {
 } tny_event_error_kind;
 
 /* Options a host offers for a permission request. Map onto y / a / n. */
+/* Keep the C enum layout at the mixed-language boundary. */
+// NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_PERM_ALLOW_ONCE = 1 << 0,
     TNY_PERM_ALLOW_ALWAYS = 1 << 1, /* session grant */
@@ -80,7 +88,9 @@ typedef struct {
     tny_event_error_kind error_code;
 } tny_backend_event;
 
-/* Backends emit events through this callback. Must not block on I/O. */
+/* Backends emit immutable borrowed views through this synchronous callback.
+ * All pointers expire at callback return; runtime queues copy retained bytes.
+ * Must not block on I/O or re-enter the backend. */
 typedef void (*tny_backend_event_cb)(const tny_backend_event *ev, void *ud);
 
 #endif

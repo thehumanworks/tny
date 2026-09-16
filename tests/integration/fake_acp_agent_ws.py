@@ -63,7 +63,7 @@ def handshake(conn):
     return rest
 
 
-def send_text(conn, text):
+def text_frame(text):
     payload = text.encode()
     n = len(payload)
     if n < 126:
@@ -72,7 +72,7 @@ def send_text(conn, text):
         head = struct.pack("!BBH", 0x81, 126, n)
     else:
         head = struct.pack("!BBQ", 0x81, 127, n)
-    conn.sendall(head + payload)
+    return head + payload
 
 
 def recv_exact(conn, buf, n):
@@ -99,13 +99,22 @@ def serve(conn):
     )
 
     def pump_out():
+        pending_frame = b""
         for line in proc.stdout:
             line = line.decode().rstrip("\r\n")
             if not line:
                 continue
             try:
+                frame = text_frame(line)
+                if os.environ.get("FAKE_ACP_COALESCE"):
+                    message = json.loads(line)
+                    update = message.get("params", {}).get("update", {})
+                    if update.get("sessionUpdate") == "agent_thought_chunk":
+                        pending_frame = frame
+                        continue
                 with wlock:
-                    send_text(conn, line)
+                    conn.sendall(pending_frame + frame)
+                pending_frame = b""
                 print(
                     "ws-agent: frame out %dB" % len(line), file=sys.stderr, flush=True
                 )

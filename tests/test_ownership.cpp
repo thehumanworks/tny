@@ -36,6 +36,10 @@ int collect(const oa_decoded_event *event, void *ud) {
     if (event->kind == OA_DECODE_DONE) ++c.done;
     return TNY_PARSE_OK;
 }
+int reject_event(const oa_decoded_event *, void *ud) {
+    ++*static_cast<int *>(ud);
+    return TNY_PARSE_OOM;
+}
 void count_sse(const char *, size_t, void *ud) { ++*static_cast<int *>(ud); }
 void count_frame(uint8_t, const char *, size_t, void *ud) { ++*static_cast<int *>(ud); }
 constexpr char chat[] =
@@ -83,6 +87,21 @@ extern "C" int tny_ownership_selftest(void) {
     OWN_CHECK(oa_calls_feed(&calls, yyjson_doc_get_root(more_doc.get())) == TNY_PARSE_OK);
     OWN_CHECK(calls.n == 2 && !std::strcmp(calls.calls[1].id, "fresh"));
     OWN_CHECK(!std::strcmp(calls.calls[0].id, "long_call_identity_exceeding_small_string_storage"));
+    oa_decoder_reset(&decoder);
+    oa_calls_reset(&calls);
+    int rejected = 0;
+    OWN_CHECK(oa_decoder_feed(&decoder, &calls, true, false, chat, sizeof chat - 1, reject_event,
+                              &rejected) == TNY_PARSE_OOM);
+    OWN_CHECK(rejected == 1);
+    OWN_CHECK(oa_decoder_feed(&decoder, &calls, true, false, "[DONE]", 6, reject_event,
+                              &rejected) == TNY_PARSE_OOM);
+    OWN_CHECK(rejected == 1);
+    oa_decoder_reset(&decoder);
+    oa_calls_reset(&calls);
+    got = {};
+    OWN_CHECK(oa_decoder_feed(&decoder, &calls, true, false, chat, sizeof chat - 1, collect,
+                              &got) == TNY_PARSE_OK);
+    OWN_CHECK(got.events > 1 && !std::strcmp(got.text, "hello"));
     oa_decoder_reset(&decoder);
     oa_calls_reset(&calls);
 #ifdef TNY_ALLOC_TESTING

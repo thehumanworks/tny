@@ -112,7 +112,7 @@ TARGETS = [
         "tests/integration/test_edit.py",
     ),
     (
-        "src/core/runner.c",
+        "src/core/runner.cpp",
         [
             "tny_runner_role_allows",
             "rn_start_question",
@@ -376,7 +376,7 @@ TARGETS = [
         "extension-control",
     ),
     (
-        "src/lib/custom_tools.c",
+        "src/lib/custom_tools.cpp",
         [
             "result_copy",
             "custom_tool_complete",

@@ -7,6 +7,7 @@
 #include "util/tny_poll.h"
 #include "util/tny_wake.h"
 #include "util/util.h"
+#include "util/alloc.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -27,7 +28,7 @@
 
 typedef struct pending_tool {
     uint64_t request_id;
-    tny_tool_call *call;
+    custom_tool_pending *call;
     struct pending_tool *next;
 } pending_tool;
 
@@ -47,6 +48,7 @@ struct cursor_callbacks {
     atomic_bool blocking_mode;
     bool pump_wake_ready;
     bool pump_running;
+    bool pump_failed; /* Written by pump, read only after pthread_join. */
     cursor_callbacks_thread_create_fn thread_create;
 };
 
@@ -88,6 +90,10 @@ static bool exact_path(const char *path, size_t len, const char *expected) {
 
 static void set_reply(cursor_callbacks *cb, http_server_response *response, int status,
                       const char *json) {
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return;
+    }
     buf_clear(&cb->reply);
     buf_appends(&cb->reply, json);
     response->status = status;
@@ -98,6 +104,11 @@ static void set_reply(cursor_callbacks *cb, http_server_response *response, int 
 
 static bool append_tool_result(buf_t *out, const char *result, bool is_error) {
     yyjson_doc *doc = result ? jparse(result, strlen(result)) : NULL;
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        yyjson_doc_free(doc);
+        return false;
+    }
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
     buf_appends(out, "{\"result\":");
     if (is_error) {
@@ -142,11 +153,17 @@ static int tool_request(cursor_callbacks *cb, yyjson_val *root, http_server_resp
         set_reply(cb, response, 500, "{\"error\":\"out of memory\"}");
         return HTTP_SERVER_POST_HANDLED;
     }
-    tny_tool_call *call = NULL;
+    custom_tool_pending *call = NULL;
     char *result = NULL;
     bool is_error = false;
     int32_t status = custom_tool_invoke(tool, arguments, &call, &result, &is_error);
     free(arguments);
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        if (call) custom_tool_invalidate(call);
+        free(result);
+        return HTTP_SERVER_POST_HANDLED;
+    }
     if (status == TNY_TOOL_INVOKE_ASYNC) {
         pending_tool *pending = calloc(1, sizeof *pending);
         if (!pending) {
@@ -242,8 +259,9 @@ static char *envelope_json(const char *key, yyjson_val *value) {
 
 static int save_record(const char *dir, const char *key, yyjson_val *value, bool create_only) {
     char *path = hash_path(dir, key);
+    if (!path) return -1;
     char *data = envelope_json(key, value);
-    if (!path || !data) {
+    if (!data) {
         free(path);
         free(data);
         return -1;
@@ -253,7 +271,7 @@ static int save_record(const char *dir, const char *key, yyjson_val *value, bool
         const char *existing_key = existing ? jget_str(yyjson_doc_get_root(existing), "key") : NULL;
         bool collision = !existing_key || strcmp(existing_key, key) != 0;
         yyjson_doc_free(existing);
-        if (collision || create_only) {
+        if (tny_alloc_scope_failed() || collision || create_only) {
             free(path);
             free(data);
             return collision ? -2 : 1;
@@ -346,6 +364,7 @@ static void listed_free(listed_record *items, size_t count) {
 }
 
 static void output_value(cursor_callbacks *cb, http_server_response *response, yyjson_val *value) {
+    if (tny_alloc_scope_failed()) return;
     char *json = value ? jwrite_val(value) : NULL;
     if (value && !json) {
         set_reply(cb, response, 500, "{\"error\":\"out of memory\"}");
@@ -390,6 +409,12 @@ static int list_records(cursor_callbacks *cb, const char *substore, const char *
         char *path = path_join(dir, entry->d_name);
         yyjson_doc *doc = path ? jparse_file(path) : NULL;
         free(path);
+        if (tny_alloc_scope_failed()) {
+            yyjson_doc_free(doc);
+            closedir(scan);
+            listed_free(items, count);
+            return HTTP_SERVER_POST_HANDLED;
+        }
         yyjson_val *envelope = doc ? yyjson_doc_get_root(doc) : NULL;
         yyjson_val *record = jget(envelope, "value");
         if (!record || !yyjson_is_obj(record) || !matches_filter(substore, record, filter) ||
@@ -400,7 +425,7 @@ static int list_records(cursor_callbacks *cb, const char *substore, const char *
         }
         const char *position = event_store ? jget_str(record, "offset") : jget_str(envelope, "key");
         char *json = jwrite_val(record);
-        char *key = position ? xstrdup(position) : NULL;
+        char *key = json && position ? xstrdup(position) : NULL;
         if (!json || !key) {
             free(json);
             free(key);
@@ -449,15 +474,20 @@ static int list_records(cursor_callbacks *cb, const char *substore, const char *
     bool more = available > emit_count;
     buf_clear(&cb->reply);
     buf_appends(&cb->reply, "{\"output\":{\"items\":[");
-    for (size_t i = 0; i < emit_count; i++) {
+    for (size_t i = 0; i < emit_count && !tny_alloc_scope_failed(); i++) {
         listed_record *item = &items[start + i];
         if (i) buf_appends(&cb->reply, ",");
+        if (tny_alloc_scope_failed()) break;
         if (strcmp(substore, "checkpoints") == 0) {
             yyjson_doc *doc = jparse(item->json, strlen(item->json));
             yyjson_val *record = doc ? yyjson_doc_get_root(doc) : NULL;
-            jescape(&cb->reply, jget_str(record, "blobId"));
+            if (!tny_alloc_scope_failed()) jescape(&cb->reply, jget_str(record, "blobId"));
             yyjson_doc_free(doc);
         } else buf_appends(&cb->reply, item->json);
+    }
+    if (tny_alloc_scope_failed()) {
+        listed_free(items, count);
+        return HTTP_SERVER_POST_HANDLED;
     }
     buf_appends(&cb->reply, "]");
     if (more && emit_count) {
@@ -486,6 +516,12 @@ static int delete_records(cursor_callbacks *cb, const char *substore, const char
         char *path = path_join(dir, entry->d_name);
         yyjson_doc *doc = path ? jparse_file(path) : NULL;
         yyjson_val *record = doc ? jget(yyjson_doc_get_root(doc), "value") : NULL;
+        if (tny_alloc_scope_failed()) {
+            free(path);
+            yyjson_doc_free(doc);
+            closedir(scan);
+            return HTTP_SERVER_POST_HANDLED;
+        }
         if (path && record && yyjson_is_obj(record) && matches_filter(substore, record, filter))
             (void)unlink(path);
         free(path);
@@ -514,6 +550,11 @@ static int append_event(cursor_callbacks *cb, const char *dir, yyjson_val *input
         yyjson_doc *doc = path ? jparse_file(path) : NULL;
         free(path);
         yyjson_val *record = doc ? jget(yyjson_doc_get_root(doc), "value") : NULL;
+        if (tny_alloc_scope_failed()) {
+            yyjson_doc_free(doc);
+            closedir(scan);
+            return HTTP_SERVER_POST_HANDLED;
+        }
         if (record && yyjson_is_obj(record) && jget_str(record, "runId") &&
             strcmp(jget_str(record, "runId"), run_id) == 0) {
             uint64_t seq = (uint64_t)jget_int(record, "seq", 0);
@@ -538,7 +579,16 @@ static int append_event(cursor_callbacks *cb, const char *dir, yyjson_val *input
                 (unsigned long long)seq);
     jescape(&json, event_type);
     yyjson_val *payload = jget(input, "payload");
+    if (tny_alloc_scope_failed()) {
+        buf_free(&json);
+        return HTTP_SERVER_POST_HANDLED;
+    }
     char *payload_json = payload ? jwrite_val(payload) : NULL;
+    if (tny_alloc_scope_failed()) {
+        free(payload_json);
+        buf_free(&json);
+        return HTTP_SERVER_POST_HANDLED;
+    }
     buf_appends(&json, ",\"payload\":");
     buf_appends(&json, payload_json ? payload_json : "null");
     free(payload_json);
@@ -548,12 +598,16 @@ static int append_event(cursor_callbacks *cb, const char *dir, yyjson_val *input
     buf_appends(&json, ",\"idempotencyKey\":");
     idempotency ? jescape(&json, idempotency) : buf_appends(&json, "null");
     buf_appendf(&json, ",\"createdAt\":%lld}", (long long)now_ms());
+    if (tny_alloc_scope_failed()) {
+        buf_free(&json);
+        return HTTP_SERVER_POST_HANDLED;
+    }
     yyjson_doc *event_doc = jparse(json.data, json.len);
     yyjson_val *event = event_doc ? yyjson_doc_get_root(event_doc) : NULL;
     char key[512];
     snprintf(key, sizeof key, "%s\n%020llu", run_id, (unsigned long long)seq);
     int saved = event ? save_record(dir, key, event, true) : -1;
-    if (saved == 0) output_value(cb, response, event);
+    if (saved == 0 && !tny_alloc_scope_failed()) output_value(cb, response, event);
     else set_reply(cb, response, 500, "{\"error\":\"could not append run event\"}");
     yyjson_doc_free(event_doc);
     buf_free(&json);
@@ -603,6 +657,12 @@ static int store_request(cursor_callbacks *cb, yyjson_val *root, http_server_res
     if (strcmp(method, "get") == 0) {
         yyjson_doc *doc = load_record(dir, key);
         yyjson_val *value = doc ? jget(yyjson_doc_get_root(doc), "value") : NULL;
+        if (tny_alloc_scope_failed()) {
+            yyjson_doc_free(doc);
+            free(key);
+            free(dir);
+            return HTTP_SERVER_POST_HANDLED;
+        }
         if (strcmp(substore, "checkpoints") == 0) {
             buf_clear(&cb->reply);
             if (value) {
@@ -621,6 +681,11 @@ static int store_request(cursor_callbacks *cb, yyjson_val *root, http_server_res
         char *existing_path = hash_path(dir, key);
         bool exists = existing_path && file_exists(existing_path);
         free(existing_path);
+        if (tny_alloc_scope_failed()) {
+            free(key);
+            free(dir);
+            return HTTP_SERVER_POST_HANDLED;
+        }
         if (strcmp(method, "update") == 0 && !exists) {
             set_reply(cb, response, 404, "{\"error\":\"record not found\"}");
         } else if (strcmp(substore, "checkpoints") == 0 &&
@@ -733,6 +798,10 @@ cursor_callbacks *cursor_callbacks_start(const cursor_callbacks_options *options
     }
     cb->token = xstrdup(token);
     secure_zero(token, sizeof token);
+    if (!cb->token) {
+        cursor_callbacks_destroy(&cb);
+        return NULL;
+    }
     if (options->enable_store) {
         cb->store_root = path_join(options->state_dir, "cursor-sdk-store");
         if (!cb->store_root || mkdir_p(cb->store_root) != 0) {
@@ -740,10 +809,6 @@ cursor_callbacks *cursor_callbacks_start(const cursor_callbacks_options *options
             cursor_callbacks_destroy(&cb);
             return NULL;
         }
-    }
-    if (!cb->token) {
-        cursor_callbacks_destroy(&cb);
-        return NULL;
     }
     cb->server = http_server_start(cb->token, callback_post, cb, err, errlen);
     if (!cb->server) {
@@ -795,27 +860,35 @@ static void pending_dispatch(cursor_callbacks *cb) {
         }
         char *result = NULL;
         bool is_error = false;
+        /* take consumes the provider lease on every nonzero result. Unlink
+         * it before serialization or HTTP completion can fail. */
+        if (tny_alloc_scope_failed()) return;
         int state = custom_tool_take(pending->call, &result, &is_error);
         if (state == 0) {
             link = &pending->next;
             continue;
         }
-        if (state > 0) {
+        uint64_t request_id = pending->request_id;
+        *link = pending->next;
+        free(pending);
+        if (state > 0 && !tny_alloc_scope_failed()) {
             buf_clear(&cb->reply);
             if (append_tool_result(&cb->reply, result, is_error)) {
                 http_server_response response = {200, "application/json", cb->reply.data,
-                                                 cb->reply.len, pending->request_id};
-                (void)http_server_complete(cb->server, pending->request_id, &response);
-            } else {
+                                                 cb->reply.len, request_id};
+                (void)http_server_complete(cb->server, request_id, &response);
+            } else if (!tny_alloc_scope_failed()) {
                 static const char oom[] = "{\"error\":\"out of memory\"}";
                 http_server_response response = {500, "application/json", oom, sizeof oom - 1,
-                                                 pending->request_id};
-                (void)http_server_complete(cb->server, pending->request_id, &response);
+                                                 request_id};
+                (void)http_server_complete(cb->server, request_id, &response);
             }
         }
         free(result);
-        *link = pending->next;
-        free(pending);
+        if (tny_alloc_scope_failed()) {
+            tny_alloc_provider_failed();
+            return;
+        }
     }
 }
 
@@ -833,7 +906,15 @@ int cursor_callbacks_dispatch(cursor_callbacks *cb, const struct pollfd *fds, in
     for (int i = 0; i < n; i++)
         if (fds[i].fd == wake && (fds[i].revents & POLLIN)) custom_tools_wake_drain(cb->tools);
     int rc = http_server_dispatch(cb->server, fds, n);
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
     pending_dispatch(cb);
+    if (tny_alloc_scope_failed()) {
+        tny_alloc_provider_failed();
+        return -1;
+    }
     return rc;
 }
 
@@ -846,6 +927,7 @@ static short pump_revents(const struct pollfd *fds, int count, int fd) {
 
 static void *blocking_pump(void *opaque) {
     cursor_callbacks *cb = opaque;
+    tny_alloc_scope_begin("cursor-callback-pump");
     while (!atomic_load_explicit(&cb->pump_stop, memory_order_acquire)) {
         struct pollfd fds[HTTP_SERVER_POLLFD_CAPACITY + 1];
         int count = http_server_pollfds(cb->server, fds, HTTP_SERVER_POLLFD_CAPACITY);
@@ -857,7 +939,12 @@ static void *blocking_pump(void *opaque) {
         if (rc < 0) break;
         if (pump_revents(fds, count, wake) & POLLIN) tny_wake_drain(&cb->pump_wake);
         if (atomic_load_explicit(&cb->pump_stop, memory_order_acquire)) break;
-        if (http_server_dispatch(cb->server, fds, count) != 0) break;
+        int dispatched = http_server_dispatch(cb->server, fds, count);
+        if (tny_alloc_scope_failed()) {
+            cb->pump_failed = true;
+            break;
+        }
+        if (dispatched != 0) break;
     }
     return NULL;
 }
@@ -867,6 +954,7 @@ int cursor_callbacks_blocking_begin(cursor_callbacks *cb, char *err, size_t errl
         fail(err, errlen, "callback server is not ready for a blocking bridge RPC");
         return -1;
     }
+    cb->pump_failed = false;
     atomic_store_explicit(&cb->pump_stop, false, memory_order_release);
     atomic_store_explicit(&cb->blocking_mode, true, memory_order_release);
     if (cb->thread_create(&cb->pump_thread, NULL, blocking_pump, cb) != 0) {
@@ -884,6 +972,7 @@ void cursor_callbacks_blocking_end(cursor_callbacks *cb) {
     tny_wake_signal(&cb->pump_wake);
     (void)pthread_join(cb->pump_thread, NULL);
     cb->pump_running = false;
+    if (cb->pump_failed) tny_alloc_provider_failed();
     atomic_store_explicit(&cb->blocking_mode, false, memory_order_release);
 }
 

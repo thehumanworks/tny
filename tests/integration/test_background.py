@@ -18,6 +18,7 @@ decision-10 check: the browser build has no fork(2), so `-B` must be a
 clean exit-1 error before any backend work.
 """
 
+import fcntl
 import json
 import os
 import signal
@@ -64,8 +65,8 @@ def start_mock(**extra):
 
 def poll(pred, timeout_s, what):
     """Bounded condition wait — never a bare sleep (flake policy)."""
-    deadline = time.time() + timeout_s
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
         v = pred()
         if v:
             return v
@@ -195,6 +196,11 @@ def main():
             )
             child = int(open(os.path.join(sdir, "pid")).read())
             poll(lambda: pid_gone(child), 10, "happy-path child exit")
+            with open(os.path.join(sdir, "lock"), "r+b") as writer:
+                fcntl.flock(writer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                assert not os.path.exists(os.path.join(sdir, "sock"))
+                saved_bytes = open(os.path.join(sdir, "session.json"), "rb").read()
+                assert json.loads(saved_bytes)["status"] == "done"
             # plain `tny session <id>` must be readable: transcript text and
             # the stored result, not just counts (04b observability)
             rv0 = subprocess.run(

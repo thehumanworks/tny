@@ -231,6 +231,7 @@ def run_case(
             wait_for(stopped, reader, deadline, "session interruption")
             wait_for(stream.closed.is_set, reader, 3, "provider connection close")
             elapsed = time.monotonic() - started
+            assert elapsed < deadline + 3, (action, elapsed, deadline)
             doc = json.loads((sdir / "session.json").read_text())
             if frozen:
                 assert doc["exit_code"] == 137, doc.get("exit_code")

@@ -128,7 +128,14 @@ static void search_capture(search_response *r, yyjson_val *item) {
 static void search_event(const char *data, size_t len, void *ud) {
     search_response *r = ud;
     if (r->error || r->complete || (len == 6 && !memcmp(data, "[DONE]", 6))) return;
-    yyjson_doc *d = jparse(data, len);
+    yyjson_read_err parse_error = {0};
+    yyjson_doc *d = yyjson_read_opts((char *)(uintptr_t)data, len, 0, jallocator(), &parse_error);
+    if (!d) {
+        r->error = parse_error.code == YYJSON_READ_ERROR_MEMORY_ALLOCATION
+                       ? "out of memory"
+                       : "malformed Codex search event";
+        return;
+    }
     yyjson_val *root = d ? yyjson_doc_get_root(d) : NULL;
     const char *type = jget_str(root, "type");
     bool whole_response = !type && yyjson_is_arr(jget(root, "output"));
@@ -155,7 +162,9 @@ static void search_event(const char *data, size_t len, void *ud) {
             }
             yyjson_doc *completed =
                 r->items_doc ? yyjson_mut_doc_imut_copy(r->items_doc, jallocator()) : NULL;
-            if (!completed && !r->error) r->error = "Codex search returned no completed items";
+            if (!completed && !r->error)
+                r->error =
+                    r->items_doc ? "out of memory" : "Codex search returned no completed items";
             yyjson_val *items = completed ? yyjson_doc_get_root(completed) : NULL;
             yyjson_arr_foreach(items, i, n, item) {
                 if (r->error) break;
@@ -176,6 +185,7 @@ static void search_event(const char *data, size_t len, void *ud) {
     }
     yyjson_doc_free(d);
     if (r->text.oom || r->sources.oom) r->error = "out of memory";
+    if (r->error) r->complete = false;
 }
 
 /* NULL + handled=false means no ChatGPT login, and only that authorizes the

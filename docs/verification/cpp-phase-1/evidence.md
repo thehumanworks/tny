@@ -39,7 +39,7 @@ Every invariant pending. No scope reduction authorized.
   unchanged baseline executable then passed the complete OpenAI integration
   suite with that fixture (50.2 seconds, exit 0). A six-socket regression test
   independently exercises abort and unterminated framing.
-- ADR 0113 documents actual ownership/borrowed-view/failure decisions. Wire
+- ADR 0115 documents actual ownership/borrowed-view/failure decisions. Wire
   corpus bytes are Git binary inputs, not source whitespace exemptions.
 - Integrated full safety, ABI/SDK, quality, platform and performance gates
   remain pending at this checkpoint. No independent review yet invoked.

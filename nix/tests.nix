@@ -164,7 +164,7 @@ stdenv.mkDerivation {
       }
     done
     ${testRunner}make -j''${NIX_BUILD_CORES} $makeFlags test
-    ${testRunner}make $makeFlags test-shell-workflows test-parser-fuzz-smoke
+    ${testRunner}make $makeFlags test-shell-workflows test-parser-fuzz-smoke test-parser-ownership test-search-ownership test-parser-backend-ownership test-runtime-ownership test-runtime-mutation test-runner-ownership test-runner-mutation
     runHook postBuild
   '';
 

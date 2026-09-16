@@ -25,12 +25,13 @@ These apply to the **tny executable only**. `cursor-sdk-bridge` is a Bun-package
 | --- | --- | --- |
 | macOS arm64, stripped, libSystem + Security.framework | **< 1.8 MiB** | < 1.2 MiB |
 | Linux musl static, stripped | **< 1.5 MiB** | < 1.0 MiB |
-| Linux glibc dynamic | **< 1.0 MiB** ([ADR 0053](adr/0053-forked-turn-isolation.md): isolation without tmux keeps this budget hard) | < 0.8 MiB |
+| Linux glibc dynamic, x86_64 and other architectures | **≤ 1,048,576 bytes** | < 0.8 MiB |
+| Linux glibc dynamic, aarch64/arm64 | **≤ 1,052,672 bytes** ([ADR 0120](adr/0120-measured-linux-aarch64-cpp-artifact-budget.md): measured 4 KiB allowance) | ≤ 1 MiB |
 | Windows x86_64 (MSYS-linked exe) | **< 2.0 MiB** | — |
 | wasm artifact, js glue + `.wasm`, Asyncify included ([ADR 0017](adr/0017-wasm-browser-parity.md)) | **< 1.5 MiB** | < 1.0 MiB |
 | Idle RSS after prompt | **< 4 MiB** | < 2 MiB |
 
-Those still beat fx by ~3–4× on macOS and ~7× on static Linux. The `ci`
+The fx figures above are historical, not a current comparison. The `ci`
 workflow runs `make size-check` on every target (and `make wasm-size-check`
 for the wasm artifact) and fails the PR if the budget is exceeded
 ([ci.md](ci.md)). Current wasm artifact: ~0.66 MiB total with broad
@@ -52,8 +53,10 @@ the two `LOAD` segments are aligned to 64 KiB and the RELRO end must sit
 on a 64 KiB boundary, so the file grows by a whole 64 KiB the moment the
 read-only (`R E`) segment passes ≈ 975 KiB (`64 KiB − relro_size` past a
 boundary; `readelf -lW build/tny` shows the segment). Read a sudden +64 KiB
-as that cliff, and pay for it with code-size work; the Linux native lanes
-already omit the frame pointer and drop dead yyjson paths for margin.
+as that cliff, not as 64 KiB of new instructions. The measured private-C++
+migration uses the frozen, architecture-specific allowance in ADR 0120;
+all other caps and the automated checks remain unchanged. The Linux native
+lanes already omit the frame pointer and drop dead yyjson paths for margin.
 
 Packaged builds pay the budget too. The Nix package
 ([ADR 0035](adr/0035-nix-flake-packaging.md)) runs `make size-check` in its
@@ -67,7 +70,7 @@ times that; `packages.tny-unwrapped` skips it entirely.
 
 ## How we stay under fx
 
-1. C11 with scoped private C++20 owners (ADR 0112); measure C++ runtime dependencies and artifact deltas. No Zig runtime extras.
+1. C11 with scoped private C++20 owners (ADR 0114); measure C++ runtime dependencies and artifact deltas. No Zig runtime extras.
 2. ANSI TUI, not a widget kit.
 3. yyjson + picohttpparser + wslay, vendored as .c files you can see in `nm`.
    (nanopb deferred: v1 speaks Connect with the JSON codec, no protobuf runtime.)
@@ -111,7 +114,7 @@ and startup did not regress measurably.
 
 ## C++ ownership series: reproducible startup gate
 
-The private ownership migration (ADR 0112, issues #137–#139) keeps the size
+The private ownership migration (ADR 0114, issues #137–#139) keeps the size
 ceilings above unless a separately measured policy amendment justifies a
 revision. Report `otool -L` / `ldd` dependencies alongside stripped bytes;
 a dynamically loaded C++ runtime is not part of the executable's byte count.

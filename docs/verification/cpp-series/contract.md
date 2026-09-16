@@ -49,3 +49,15 @@ spawn further agents. The requested checkout is now on
 local/remote main are preserved. No remote-main merge, issue closure or
 release is authorized by this amendment. Deliver reviewable commits/PRs
 with exact current evidence; unresolved gates remain explicitly unmet.
+
+## Resumed delivery — 2026-09-16 15:17 UTC
+
+Current authorization: finish the existing `feat/cpp-ownership-137-139`
+checkout, preserve inherited implementation, verify locally, obtain one fresh
+independent `claude --model fable --effort medium -p` review, disposition all
+findings, then commit/push this feature branch and create a PR. Neither local
+nor remote main is a delivery target. Implementation order remains 137, 138,
+139; the combined PR supplies hosted platform execution. Existing contract
+initial snapshots remain immutable. Current evidence must supersede historical
+claims only after the named checks run on the integrated source. Inherited
+changes were snapshotted before edits; unrelated live work is excluded.

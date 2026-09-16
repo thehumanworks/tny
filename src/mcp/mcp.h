@@ -29,6 +29,7 @@ char *mcp_search_tools(tools_env *env, const char *query);
 char *mcp_call_tool(tools_env *env, const char *server, const char *tool, const char *args_json);
 
 /* How one tools/call ended, so `tny mcp call` can pick an exit code. */
+// C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     MCP_CALL_OK = 0,       /* the server answered without an error */
     MCP_CALL_CONFIG_ERROR, /* no profile, unknown server, server would not start */

@@ -419,6 +419,7 @@ def run_ctypes(
     thread.join(timeout=2)
     assert not thread.is_alive()
     assert cross_thread == [0, -2]
+    retained_events = []
     output = bytearray()
     saw_permission = False
     stop_reason = None
@@ -506,7 +507,29 @@ def run_ctypes(
                 stop_reason = lib.tny_event_stop_reason(event)
             elif kind == 8:
                 error_codes.append(lib.tny_event_error_code(event))
-            lib.tny_event_free(event)
+            snapshot = EventView()
+            assert (
+                lib.tny_event_view_init(ctypes.byref(snapshot), ctypes.sizeof(snapshot))
+                == 0
+            )
+            assert (
+                lib.tny_event_read(
+                    event, ctypes.byref(snapshot), ctypes.sizeof(snapshot)
+                )
+                == 0
+            )
+            payloads = []
+            for field, field_type in EventView._fields_:
+                if field_type is TnyBytes:
+                    value = getattr(snapshot, field)
+                    pointer = ctypes.c_void_p.from_buffer(value).value
+                    payloads.append(
+                        (
+                            field,
+                            ctypes.string_at(pointer, value.len) if pointer else None,
+                        )
+                    )
+            retained_events.append((event, snapshot, bytes(snapshot), payloads))
         observed = capabilities().endpoint_reachability
         if error_codes and error_codes[-1] == -7 and not output:
             assert observed == 2
@@ -538,6 +561,22 @@ def run_ctypes(
         assert cancelled == 1
     lib.tny_session_free(session)
     lib.tny_runtime_free(runtime)
+    # All published pointers survive later turns, cancellation and parent teardown.
+    for event, snapshot, original, payloads in retained_events:
+        assert bytes(snapshot) == original
+        reread = EventView()
+        assert lib.tny_event_view_init(ctypes.byref(reread), ctypes.sizeof(reread)) == 0
+        assert (
+            lib.tny_event_read(event, ctypes.byref(reread), ctypes.sizeof(reread)) == 0
+        )
+        assert bytes(reread) == original
+        for field, expected in payloads:
+            value = getattr(snapshot, field)
+            pointer = ctypes.c_void_p.from_buffer(value).value
+            assert (
+                ctypes.string_at(pointer, value.len) if pointer else None
+            ) == expected
+        lib.tny_event_free(event)
     return bytes(output), saw_permission, stop_reason, error_codes
 
 

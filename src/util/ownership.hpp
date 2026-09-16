@@ -25,9 +25,17 @@ template <class T> struct allocator {
         if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) throw std::bad_alloc();
         auto *p = static_cast<T *>(tny_alloc_malloc(n * sizeof(T)));
         if (!p) throw std::bad_alloc();
+#ifdef TNY_ALLOC_TESTING
+        tny_alloc_test_owned_acquire();
+#endif
         return p;
     }
-    void deallocate(T *p, std::size_t) noexcept { std::free(p); }
+    void deallocate(T *p, std::size_t) noexcept {
+        std::free(p);
+#ifdef TNY_ALLOC_TESTING
+        if (p) tny_alloc_test_owned_release();
+#endif
+    }
     template <class U> bool operator==(const allocator<U> &) const noexcept { return true; }
 };
 struct free_deleter {
@@ -39,6 +47,9 @@ template <class T> struct object_deleter {
         if (p) {
             p->~T();
             std::free(p);
+#ifdef TNY_ALLOC_TESTING
+            tny_alloc_test_owned_release();
+#endif
         }
     }
 };
@@ -48,6 +59,9 @@ template <class T, class... Args> owned<T> make_owned(Args &&...args) {
     std::unique_ptr<void, free_deleter> storage(tny_alloc_malloc(sizeof(T)));
     if (!storage) throw std::bad_alloc();
     ::new (storage.get()) T(std::forward<Args>(args)...);
+#ifdef TNY_ALLOC_TESTING
+    tny_alloc_test_owned_acquire();
+#endif
     return owned<T>(static_cast<T *>(storage.release()));
 }
 using c_string = std::unique_ptr<char, free_deleter>;

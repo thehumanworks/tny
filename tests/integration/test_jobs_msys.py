@@ -35,6 +35,18 @@ def proc_matches(*needles):
     return matches
 
 
+class OwnershipSourceChecks(unittest.TestCase):
+    def test_retained_scope_and_c_host_seams_are_in_the_build(self):
+        source = (jobs.ROOT / "src/core/jobs.cpp").read_text()
+        owners = (jobs.ROOT / "src/util/resources.hpp").read_text()
+        seam = (jobs.ROOT / "src/util/process_scope.c").read_text()
+        self.assertIn("tny::process_scope scope;", source)
+        self.assertIn("slots[i].scope.retire()", source)
+        self.assertIn("tny_process_scope_retain_until_exit(value_)", owners)
+        self.assertIn("scope->retained_next = retained_scopes", seam)
+        self.assertIn("tny_process_scope_go(slots[i].scope.borrow()", source)
+
+
 @unittest.skipUnless(MSYS, "requires the native MSYS2 process runtime")
 class NativeMsysJobs(jobs.JobsFixture):
     hold = 6.0

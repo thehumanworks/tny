@@ -95,6 +95,11 @@ endif
 REL_CFLAGS = $(STD) $(WARN) $(INC) $(DEFS) -Os -ffunction-sections -fdata-sections
 # Native executable objects only (ADR0092); never inherited by PIC/debug/wasm.
 REL_LTO = -flto
+# GCC's automatic LTO scheduling avoids its serial-LTRANS warning without
+# disabling diagnostics; Clang retains its supported native LTO spelling.
+ifeq (,$(findstring clang,$(shell $(CC) --version 2>/dev/null)))
+  REL_LTO = -flto=auto
+endif
 # Let -Os/LTO choose JSON helper inlining for native releases (ADR0100).
 # Kept out of REL_CFLAGS, which also feeds PIC/library and analysis builds.
 REL_INLINE = -Dyyjson_inline=inline
@@ -161,7 +166,7 @@ SRC_PUBLIC_API := $(wildcard src/lib/*.c)
 C_SRC_ALL := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c \
         src/net/*.c src/mcp/*.c src/tui/*.c \
         src/backends/openai/*.c src/backends/acp/*.c \
-        src/backends/cursor/*.c) src/lib/host_services.c src/lib/custom_tools.c
+        src/backends/cursor/*.c) src/lib/host_services.c
 SRC_ALL := $(C_SRC_ALL) $(CPP_SRC)
 
 # Per-platform source lists (docs/adr/0017). Native transports (sockets, TLS,
@@ -309,13 +314,19 @@ ifeq ($(STATIC),0)
 endif
 
 # Size budgets (docs/size-and-speed.md). Override SIZE_MAX in CI per target.
-# 1.0 MiB Linux dynamic (docs/adr/0053 — no tmux, app stays light; musl
-# static overrides to 1.5 MiB in CI), 1.8 MiB Darwin, 2.0 MiB Windows
-# (MSYS-linked).
+# Linux dynamic: 1 MiB, plus a measured 4 KiB allowance on aarch64/arm64
+# (ADR 0120). Static musl overrides to 1.5 MiB in CI. Other budgets remain
+# 1.8 MiB Darwin and 2.0 MiB Windows (MSYS-linked).
 ifeq ($(UNAME_S),Darwin)
   SIZE_MAX ?= 1887436
 else ifeq ($(WINDOWS),1)
   SIZE_MAX ?= 2097152
+else ifeq ($(UNAME_S),Linux)
+  ifneq ($(filter aarch64 arm64,$(UNAME_M)),)
+    SIZE_MAX ?= 1052672
+  else
+    SIZE_MAX ?= 1048576
+  endif
 else
   SIZE_MAX ?= 1048576
 endif
@@ -648,7 +659,7 @@ test-libtny-fuzz:
 	@exit 2
 endif
 
-# Parser stream fuzzing (ADR0112). Portable smoke consumes every checked-in
+# Parser stream fuzzing (ADR0114). Portable smoke consumes every checked-in
 # seed. The Linux x86_64 campaign shares the fully instrumented production
 # object set with ABI fuzzing; FUZZ_RUNS/FUZZ_SECONDS bound each campaign.
 PARSER_FUZZ_SRC := tests/fuzz/fuzz_parsers.cpp
@@ -691,11 +702,155 @@ test-parser-fuzz:
 	@exit 2
 endif
 
+# Owner fault injection is always enabled. Match sanitizer instrumentation
+# to the chosen platform lane: musl/MSYS SANITIZE=0 must not link ASan objects.
+OWNER_OBJ_ROOT := $(if $(filter 1,$(SANITIZE)),$(OBJ_FAULT_SAN_PIC),$(OBJ_FAULT_PIC))
+OWNER_CFLAGS := $(if $(filter 1,$(SANITIZE)),$(FAULT_SAN_PIC_CFLAGS),$(FAULT_PIC_CFLAGS))
+OWNER_CXXFLAGS := $(call cxx_flags,$(OWNER_CFLAGS))
+OWNER_LIB_OBJS := $(if $(filter 1,$(SANITIZE)),$(FAULT_SAN_PIC_OBJS),$(FAULT_PIC_OBJS))
+# Exhaustive parser allocation failures and semantic mutation oracles use the
+# same allocator-instrumented owner objects as the backend ownership suite.
+PARSER_OWNER_SRC := src/util/alloc.c src/util/util.c src/json/json.c \
+                    third_party/yyjson/yyjson.c src/net/sse.cpp \
+                    src/net/connectrpc.cpp src/backends/openai/toolcalls.cpp \
+                    src/backends/openai/stream_decode.cpp
+PARSER_OWNER_OBJS := $(call objects,$(OWNER_OBJ_ROOT),$(PARSER_OWNER_SRC))
+PARSER_OWNER_TEST_OBJ := $(BUILD)/parser-ownership/test_ownership.cpp.o
+PARSER_OWNER_BIN := $(BUILD)/parser-ownership/ownership-test
+
+$(PARSER_OWNER_TEST_OBJ): tests/test_ownership.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(OWNER_CXXFLAGS) -DTNY_OWNERSHIP_STANDALONE=1 -MMD -MP -c -o $@ $<
+
+$(PARSER_OWNER_BIN): $(PARSER_OWNER_TEST_OBJ) $(PARSER_OWNER_OBJS)
+	$(CXX) $(OWNER_CXXFLAGS) -o $@ $^ $(DBG_LDFLAGS)
+
+test-parser-ownership: $(PARSER_OWNER_BIN)
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(PARSER_OWNER_BIN)
+
+test-parser-mutation: test-parser-ownership
+	python3 tests/mutation/parser_ownership.py --cxx '$(CXX)' \
+		--flags '$(OWNER_CXXFLAGS)' --ldflags '$(DBG_LDFLAGS)' \
+		--object-root '$(OWNER_OBJ_ROOT)' --test-object '$(PARSER_OWNER_TEST_OBJ)' \
+		--baseline '$(PARSER_OWNER_BIN)' --work-dir '$(BUILD)/parser-mutations' \
+		$(PARSER_OWNER_OBJS)
+
+.PHONY: test-parser-ownership test-parser-mutation
+-include $(PARSER_OWNER_TEST_OBJ:.o=.d)
+
+SEARCH_OWNER_OBJ := $(BUILD)/parser-ownership/search_ownership.o
+SEARCH_OWNER_BIN := $(BUILD)/parser-ownership/search-test
+$(SEARCH_OWNER_OBJ): tests/fuzz/search_ownership.c src/core/search_codex.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(OWNER_CFLAGS) -include src/util/alloc_override.h -MMD -MP -c -o $@ $<
+$(SEARCH_OWNER_BIN): $(SEARCH_OWNER_OBJ) $(OWNER_LIB_OBJS)
+	$(CXX) -o $@ $^ $(DBG_LDFLAGS)
+test-search-ownership: $(SEARCH_OWNER_BIN)
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(SEARCH_OWNER_BIN)
+.PHONY: test-search-ownership
+-include $(SEARCH_OWNER_OBJ:.o=.d)
+
+# Every C++ object uses the same test-only owner-counter definitions. The
+# remaining C unit objects retain their normal ASan/UBSan instrumentation.
+OWNER_INSTRUMENTED_SRC := $(sort src/util/alloc.c $(filter %.cpp,$(TEST_DEPS)) \
+    src/core/runtime.c tests/test_runtime.c tests/test_openai.c $(filter %.cpp,$(TEST_SRC)))
+OWNER_BACKEND_OBJS := $(filter-out $(call objects,$(OBJ_DBG),$(OWNER_INSTRUMENTED_SRC)),\
+    $(TEST_OBJS) $(call objects,$(OBJ_DBG),$(TEST_SRC))) \
+    $(call objects,$(OWNER_OBJ_ROOT),$(OWNER_INSTRUMENTED_SRC))
+OWNER_BACKEND_BIN := $(BUILD)/parser-ownership/backend-test
+$(OWNER_BACKEND_BIN): $(OWNER_BACKEND_OBJS)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(DBG_LDFLAGS)
+test-parser-backend-ownership: $(OWNER_BACKEND_BIN)
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(OWNER_BACKEND_BIN) -s openai_suite
+.PHONY: test-parser-backend-ownership test-runtime-ownership
+RUNTIME_TEST_OBJS := $(OWNER_BACKEND_OBJS)
+RUNTIME_TEST := $(OWNER_BACKEND_BIN)
+test-runtime-ownership: $(RUNTIME_TEST)
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(RUNTIME_TEST) -s runtime_suite
+
 .PHONY: test-parser-fuzz-smoke test-parser-fuzz test-cpp-build
 test-cpp-build:
 	python3 tests/integration/test_cpp_build.py
 
-test-libtny-fault-sanitize: lib-shared-fault-sanitize $(SAN_HOST)
+SAN_CUSTOM_HOST := $(BUILD)/fault-san/libtny-custom-tools-sanitizer
+$(SAN_CUSTOM_HOST): tests/integration/libtny_custom_tools.c $(LIB_FAULT_SAN_REAL)
+	@mkdir -p $(@D)
+	$(CC) -std=c11 -Wall -Wextra -Werror -Iinclude -O1 -g -fno-omit-frame-pointer \
+		-fsanitize=address,undefined -o $@ $< $(LIB_FAULT_SAN_REAL) -pthread \
+		-Wl,-rpath,$(CURDIR)/$(dir $(LIB_FAULT_SAN_REAL))
+
+SAN_CUSTOM_CPP_HOST := $(BUILD)/fault-san/libtny-custom-tools-cpp-sanitizer
+$(SAN_CUSTOM_CPP_HOST): tests/integration/libtny_custom_tools_cpp.cpp $(LIB_FAULT_SAN_REAL)
+	@mkdir -p $(@D)
+	$(CXX) -std=c++17 -Wall -Wextra -Werror -Iinclude -O1 -g -fno-omit-frame-pointer \
+		-fsanitize=address,undefined -o $@ $< $(LIB_FAULT_SAN_REAL) -pthread \
+		-Wl,-rpath,$(CURDIR)/$(dir $(LIB_FAULT_SAN_REAL))
+
+# Provider OOM regressions use the complete allocator-instrumented object graph
+# (ADR 0117): real ACP/Cursor/OpenAI backends with injected C and C++ owners.
+PROVIDER_FAULT_TEST_SRC := tests/test_cursor_callbacks.c tests/test_acp.c tests/test_cursor.c \
+                           tests/test_openai.c tests/test_ownership.cpp \
+                           tests/integration/libtny_provider_fault_host.c
+PROVIDER_FAULT_TEST := $(BUILD)/lib-fault/provider-faults
+PROVIDER_FAULT_SAN_TEST := $(BUILD)/lib-fault-san/provider-faults
+PROVIDER_FAULT_TEST_OBJS := $(call objects,$(OBJ_FAULT_PIC),$(PROVIDER_FAULT_TEST_SRC))
+PROVIDER_FAULT_SAN_TEST_OBJS := $(call objects,$(OBJ_FAULT_SAN_PIC),$(PROVIDER_FAULT_TEST_SRC))
+$(PROVIDER_FAULT_TEST): $(PROVIDER_FAULT_TEST_OBJS) $(FAULT_PIC_OBJS)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(REL_LDFLAGS)
+$(PROVIDER_FAULT_SAN_TEST): $(PROVIDER_FAULT_SAN_TEST_OBJS) $(FAULT_SAN_PIC_OBJS)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(REL_LDFLAGS) -fsanitize=address,undefined
+test-libtny-fault: $(PROVIDER_FAULT_TEST)
+test-libtny-fault-sanitize: $(PROVIDER_FAULT_SAN_TEST)
+-include $(PROVIDER_FAULT_TEST_OBJS:.o=.d) $(PROVIDER_FAULT_SAN_TEST_OBJS:.o=.d)
+
+# Behavioral runtime/provider mutants (ADR 0116/0117): private copies only.
+test-runtime-mutation:
+	python3 tests/mutation/runtime_critical.py
+.PHONY: test-runtime-mutation
+
+# Runner/job ownership faults (ADR 0118) bind the real runner.cpp/jobs.cpp
+# sources into one fixture with real fd/pipe/flock boundaries, an
+# allocator-instrumented alloc.c, and syscall-faulting copies of the unchanged
+# C host seams. Everything else is the ordinary debug object graph.
+RUNNER_OWNERSHIP := $(BUILD)/runner-ownership/runner-ownership
+RUNNER_HOST_ALLOC := $(BUILD)/runner-host/alloc.o
+RUNNER_OWNERSHIP_OBJS = $(filter-out $(OBJ_DBG)/src/core/runner.cpp.o $(OBJ_DBG)/src/core/jobs.cpp.o \
+    $(OBJ_DBG)/src/util/alloc.o $(OBJ_DBG)/src/util/jobs_host.o $(OBJ_DBG)/src/util/process.o,\
+    $(sort $(TEST_OBJS))) $(BUILD)/runner-host/jobs_host.o $(BUILD)/runner-host/process.o \
+    $(OBJ_DBG)/tests/fixtures/resource_host_faults.o $(RUNNER_HOST_ALLOC)
+$(RUNNER_HOST_ALLOC): src/util/alloc.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(DBG_CFLAGS) -DTNY_ALLOC_TESTING=1 -MMD -MP -c -o $@ $<
+$(BUILD)/runner-host/jobs_host.o: src/util/jobs_host.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(DBG_CFLAGS) -Dopen=tny_resource_open -Dwrite=tny_resource_write -Dfsync=tny_resource_fsync -Drename=tny_resource_rename -MMD -MP -c -o $@ $<
+$(BUILD)/runner-host/process.o: src/util/process.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(DBG_CFLAGS) -Dfcntl=tny_resource_fcntl -Dposix_spawn=tny_resource_spawn -MMD -MP -c -o $@ $<
+$(BUILD)/runner-ownership/runner_ownership.cpp.o: tests/fixtures/runner_ownership.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(DBG_CXXFLAGS) -DTNY_ALLOC_TESTING=1 -MMD -MP -c -o $@ $<
+$(RUNNER_OWNERSHIP): $(BUILD)/runner-ownership/runner_ownership.cpp.o $(RUNNER_OWNERSHIP_OBJS)
+	@mkdir -p $(@D)
+	$(CXX) $(DBG_CXXFLAGS) -o $@ $^ $(DBG_LDFLAGS)
+test-runner-ownership: $(RUNNER_OWNERSHIP)
+	@directory=$$(mktemp -d "$${TMPDIR:-/tmp}/tny-ownership.XXXXXX"); \
+	  $(RUNNER_OWNERSHIP) "$$directory"; result=$$?; rm -rf "$$directory"; exit $$result
+test-runner-mutation:
+	python3 tests/mutation/runner_critical.py
+.PHONY: test-runner-ownership test-runner-mutation
+-include $(BUILD)/runner-ownership/runner_ownership.cpp.d $(BUILD)/runner-host/jobs_host.d \
+    $(BUILD)/runner-host/process.d $(RUNNER_HOST_ALLOC:.o=.d) \
+    $(OBJ_DBG)/tests/fixtures/resource_host_faults.d
+
+test-libtny-fault-sanitize: lib-shared-fault-sanitize $(SAN_HOST) $(SAN_CUSTOM_HOST) $(SAN_CUSTOM_CPP_HOST)
 ifeq ($(UNAME_S),Darwin)
 	@runtime="$$($(CC) --print-resource-dir)/lib/darwin/libclang_rt.asan_osx_dynamic.dylib"; \
 	python="$(SANITIZER_PYTHON)"; \
@@ -707,17 +862,29 @@ ifeq ($(UNAME_S),Darwin)
 	DYLD_INSERT_LIBRARIES="$$runtime" \
 	"$$python" tests/integration/test_libtny_faults.py $(LIB_FAULT_SAN_REAL)
 else
+	# Python dlopens the C++ library after ASan initializes. Load its exception
+	# runtime up front too, so ASan can resolve __cxa_throw (sanitizers #934).
 	@runtime="$$($(CC) -print-file-name=libasan.so)"; \
+	cxx_runtime="$$($(CXX) -print-file-name=libstdc++.so)"; \
 	test -f "$$runtime" || { echo "error: ASan runtime not found" >&2; exit 1; }; \
+	test -f "$$cxx_runtime" || { echo "error: C++ runtime not found" >&2; exit 1; }; \
 	ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
 	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
-	TNY_TEST_ASAN_RUNTIME="$$runtime" \
-	LD_PRELOAD="$$runtime" \
+	TNY_TEST_ASAN_RUNTIME="$$runtime" TNY_TEST_CXX_RUNTIME="$$cxx_runtime" \
+	LD_PRELOAD="$$runtime:$$cxx_runtime" \
 	python3 tests/integration/test_libtny_faults.py $(LIB_FAULT_SAN_REAL)
 endif
 	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
 	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 		python3 tests/integration/libtny_sanitizer_launcher.py $(SAN_HOST)
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+	TNY_CUSTOM_TOOL_HOST=$(SAN_CUSTOM_HOST) \
+		python3 tests/integration/test_libtny_custom_tools.py
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+	TNY_CUSTOM_TOOL_HOST=$(SAN_CUSTOM_CPP_HOST) TNY_CUSTOM_TOOL_COMPLETION_OOM=1 \
+		python3 tests/integration/test_libtny_custom_tools.py
 
 ifeq ($(UNAME_S),Linux)
 test-libtny-tsan: $(TSAN_HOST) $(TSAN_CUSTOM_HOST)
@@ -825,10 +992,16 @@ ANALYZER_CXX ?= $(call cxx_driver,$(ANALYZER_CC))
 # the quality gate automatically instead of depending on maintained globs.
 # Tracked *and* untracked-but-not-ignored sources: a file in flight is
 # exactly the one whose formatting has not been checked yet.
-FMT_SRC := $(shell { git ls-files -- '*.c' '*.h' '*.cpp' '*.hpp'; \
-	git ls-files --others --exclude-standard -- '*.c' '*.h' '*.cpp' '*.hpp'; } | sort -u | \
-	grep -Ev '^(third_party/|tests/abi/fixtures/|tests/bench/fixtures/)')
-SH_SRC  := $(shell git ls-files -- '*.sh')
+SOURCE_FILES := $(shell if $(GIT) rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+	$(GIT) ls-files --cached --others --exclude-standard; \
+	else find . -type d \( -name .git -o -name build -o -name 'build-*' \
+	-o -name .cache -o -name .worktrees -o -name .claude -o -name node_modules \
+	-o -name .venv -o -name venv -o -name gen -o -name dist -o -name out \) -prune \
+	-o -type f -print | sed 's|^./||'; fi)
+# Ignore staged deletions; source archives remain lintable without Git.
+FMT_SRC := $(sort $(wildcard $(filter %.c %.h %.cpp %.hpp,\
+	$(filter-out third_party/% tests/abi/fixtures/% tests/bench/fixtures/%,$(SOURCE_FILES)))))
+SH_SRC  := $(sort $(wildcard $(filter %.sh,$(SOURCE_FILES))))
 SHFMT_FLAGS := -i 4 -ci -sr
 JS_SRC  := docs/assets/site.js docs/assets/term-core.js docs/assets/term-wasm.js \
            $(wildcard site/assets/*.js src/wasm/*.js tests/site/*.js \
@@ -1095,3 +1268,9 @@ tnytty-clean:
 -include $(WASM_OBJS:.o=.d) $(FUZZ_SMOKE_OBJ:.o=.d) $(FUZZ_HARNESS_OBJ:.o=.d)
 
 -include $(PARSER_SMOKE_OBJ:.o=.d) $(PARSER_FUZZ_OBJ:.o=.d)
+
+.PHONY: test-size-policy
+test-size-policy:
+	python3 tests/packaging/test_size_budget.py
+
+test test-unit: test-size-policy

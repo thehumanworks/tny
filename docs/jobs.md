@@ -52,7 +52,7 @@ rejected before any side effect.
   "kind": "ask",
   "concurrency": 4,
   "items": [
-    {"prompt": "review src/core/jobs.c"},
+    {"prompt": "review src/core/jobs.cpp"},
     {"prompt": "review src/util/process.c", "model": "gpt-5"}
   ]
 }
@@ -190,14 +190,19 @@ owner always denies the reclaim without waiting. Claims are released at
 terminal completion with proven cleanup, so later iteration on the same path
 stays possible — a changed file is caught by the recorded hashes instead.
 
-A supervisor that finishes with uncertain cleanup atomically records
-`cleanup_hold:true`. Its claims remain unavailable after the supervisor exits;
-same-job retry and removal also refuse before changing the record
+A supervisor persists `cleanup_hold:true` before acquiring item children, so a
+failed cleanup or final write cannot leave reclaimable claims after owner loss.
+Unknown cleanup is latched in each item's result transaction, even while other
+items run. Only a committed terminal result with proven complete cleanup clears
+the hold. A failed protective write starts no item. While held, claims remain
+unavailable after the supervisor exits; same-job retry and removal also refuse
+before changing the record
 ([ADR 0101](adr/0101-uncertain-job-cleanup-reservations.md)). Malformed latch or
 cleanup data fails closed. An absent or false latch permits unknown cleanup
 reclaim only for the exact canonical owner-loss interruption, after checking
 that the actual owner is free under a nonblocking state lock. This preserves
-abandoned-owner recovery without releasing a supervisor-observed uncertainty.
+abandoned-owner recovery before the protective hold, without releasing a
+supervisor-observed uncertainty or an unfinished protected lifecycle.
 
 ## Retry
 

@@ -330,3 +330,32 @@ bookkeeping that are never copied into the scratch a model sees: `task.md`
 (the reference solution, which both proves the check is satisfiable and drives
 the `--mock` trajectory). Checks are deterministic and offline; the C fixtures
 need only `cc`.
+
+### Runtime ownership and provider OOM (ADR 0116, ADR 0117)
+
+`make test-runtime-ownership` links the real runtime unit suite with the C++
+allocator fault lane. It checks retained payloads, reserve settlement without
+allocation, transactional recovery and independent async leases.
+`make test-libtny-fault` also builds `build/lib-fault/provider-faults`, the
+real ACP/Cursor/OpenAI backends linked against the fully instrumented object
+graph; `tests/integration/test_libtny_faults.py` runs its named regressions and
+the whole-turn provider allocation sweeps. `make test-runtime-mutation`
+(`tests/mutation/runtime_critical.py`) compiles private mutant copies of the
+runtime, owner and provider sources and requires behavioral kills; production
+sources remain untouched. `make test-libtny-fault-sanitize` also runs the C and
+C++ custom-tool worker fixtures, including completion-time OOM, through the
+instrumented library. Native CI and Nix include the runtime target; Linux
+`make test-libtny-tsan` remains the concurrency detector gate.
+
+### Runner and job ownership (ADR 0118)
+
+`make test-runner-ownership` compiles `tests/fixtures/runner_ownership.cpp`,
+which binds the real `runner.cpp`/`jobs.cpp` sources with real descriptor,
+pipe and advisory-lock boundaries, an allocator-instrumented `alloc.c` and
+syscall-faulting copies of the unchanged C host seams. It checks descriptor
+transfer and reuse, writer ownership at final save and socket removal, partial
+job transactions, failed launches, cleanup holds, checkpoint consumption and
+cancellation authority. `make test-runner-mutation`
+(`tests/mutation/runner_critical.py`) compiles private mutants of those
+sources and requires behavioral kills. Both run in the native CI suite, the
+musl/Windows unit lanes (ownership fixture) and Nix.

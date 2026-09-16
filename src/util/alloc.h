@@ -17,6 +17,16 @@ extern "C" {
 void tny_alloc_scope_begin(const char *name);
 bool tny_alloc_scope_failed(void);
 void tny_alloc_scope_clear(void);
+/* Mark provider OOM at the first quiescent parser/transport boundary. Test
+ * accounting covers all subsequent attempts through the current public call,
+ * including the interval before the runtime enters reserved settlement. */
+void tny_alloc_provider_failed(void);
+
+/* Quiescent emergency cancellation: release owned resources, but do not
+ * construct protocol requests, transcript entries or callback payloads. */
+void tny_alloc_settlement_begin(void);
+void tny_alloc_settlement_end(void);
+bool tny_alloc_settling(void);
 
 void *tny_alloc_malloc(size_t size);
 void *tny_alloc_calloc(size_t count, size_t size);
@@ -28,6 +38,12 @@ char *tny_alloc_strdup(const char *value);
  * intentionally absent from production objects and the public ABI. */
 size_t tny_alloc_test_scope_count(void);
 bool tny_alloc_test_scope_injected(void);
+size_t tny_alloc_test_settlement_count(void);
+size_t tny_alloc_test_settlement_allocations(void);
+/* Process-wide C++ owner/container allocations; excludes ordinary C buffers. */
+void tny_alloc_test_owned_acquire(void);
+void tny_alloc_test_owned_release(void);
+size_t tny_alloc_test_owned_live(void);
 #endif
 
 #ifdef __cplusplus

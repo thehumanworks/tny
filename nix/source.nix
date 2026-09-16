@@ -56,7 +56,15 @@ let
     # All of tests/, which includes the frozen tool-profile A/B fixtures
     # under tests/bench/fixtures/tools/ that
     # tests/integration/test_bench_tools.py copies and scores (issue #103).
-    # Includes fuzz/fuzz_parsers.cpp and fuzz/parser-corpus for parser smoke.
+    # Includes fuzz/fuzz_parsers.cpp, fuzz/parser-corpus, test_ownership.cpp,
+    # fuzz/search_ownership.c and mutation/parser_ownership.py for instrumented
+    # ownership checks using the existing native sanitizer toolchain.
+    # Runtime ownership also uses test_runtime.c and mutation/runtime_critical.py.
+    # Provider OOM hosts (integration/libtny_provider_fault_host.c, test_cursor_callbacks.c)
+    # and the C++ custom-tool completion-OOM sanitizer host reuse this fileset and toolchain.
+    # test_fault_sweep_inventory.py prevents shrinking discovered fault indices.
+    # Runner/job ownership (fixtures/runner_ownership.cpp, fixtures/resource_host_faults.c,
+    # mutation/runner_critical.py) uses the same C/C++ compiler and Python.
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
     # runner_restart_fault.c uses the existing stdenv C compiler for a private
     # read/write interposer; no network, new package or external test data.
