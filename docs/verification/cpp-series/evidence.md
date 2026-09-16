@@ -220,3 +220,34 @@ Quality emitted no warnings; macOS reports the expected Linux GCC analyzer
 skip. Local logs are retained under `build/startup-review-*.log`. Both assigned
 findings are resolved; this is tooling-fix proof, not final candidate performance
 or whole-series completion proof. Changes remain uncommitted as requested.
+
+## Final series reconciliation (integrated 99445e4 vs pre-series baseline 1d8ad71, 2026-09-16)
+
+State: all local gates PASS on the combined delivered source; hosted-platform
+lanes remain unmet on this host (see each phase's evidence).
+
+Every phase gate above was rerun on the combined source (phase 1 + 2 + 3):
+`make test`, `quality`, `leaks`, `test-abi`, `test-sdks`, `test-libtny-fault`,
+`test-libtny-fault-sanitize`, `test-libtny-fuzz-smoke`, `test-parser-smoke`,
+`test-cpp-gates`, `test-runtime-ownership`, `test-runner-ownership`,
+`test-libtny-mutation`, `size-check`, `size-report`, all exit 0.
+
+Cumulative startup against the pre-series baseline (paired, alternating,
+100+ samples per binary): added median help +0.019 ms, version +0.043 ms, PTY
+first prompt +0.043 ms; absolute medians under 5 ms / 10 ms. Stripped native
+size 1,086,288 -> 1,104,640 bytes (+18,352, `libc++.1.dylib` now linked;
+`size-check` budgets pass). Local-mock TTFT medians: tui 556.4 -> 556.1 ms,
+ask-stdin 1142.0 -> 1150.9 ms (+0.8%). Per-phase deltas are recorded in
+`cpp-phase-1/artifacts/integrated-e51b232`, `cpp-phase-2/artifacts/integrated-4af1c02`
+and `cpp-phase-3/artifacts/integrated-99445e4`; none hides a cumulative
+regression. wasm+glue accounting was not measured (no emsdk on this host).
+
+Delegation record (S-I2): implementation and review by gpt-6-astra via
+`codex exec` in separate worktrees, effort high for implementation and
+reviews, low for the benchmark tooling; no nested agents. Codex in-process
+subagents were not used because the API rejects a differing child effort
+(`configuration_update ... not supported with multi-agent execution`). Late in
+phase 2 the Codex usage limit was reached; the coordinator completed the last
+repair directly and reviewed it. Local-main merges (S-I3): e78ca2b (phase 1),
+4595490 (phase 2), and the phase-3 merge that follows this record. Task-owned
+worktrees were removed after each merge; branches `migration/*` retained.

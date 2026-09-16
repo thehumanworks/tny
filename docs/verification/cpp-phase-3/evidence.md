@@ -438,3 +438,30 @@ allocation-free descriptor/client cleanup and resource counts; performance and
 platform resource proof remain unmet. C0 timing is recorded, C1 reviews remain
 coordinator-owned, and C2–C6 are incomplete wherever their full external proof or
 integration step is outstanding. No invariant or missing gate is silently dropped.
+
+## Coordinator integrated gates (HEAD 99445e4 on main 4595490, 2026-09-16)
+
+Run outside the agent sandbox with `TNY_TOOLS` and every provider
+`*_BASE_URL`/`*_API_KEY`/`*_API_KEY_CMD`/`*_WIRE_API` variable unset, on macOS
+arm64 (Apple clang 21.0.0). Raw records: [artifacts/integrated-99445e4/](artifacts/integrated-99445e4/).
+
+| Command | Exit |
+| --- | ---: |
+| `make -j8 release` / `test` / `quality` / `leaks` | 0 / 0 / 0 / 0 |
+| `make -j8 test-abi` / `test-sdks` | 0 / 0 |
+| `make -j8 test-libtny-fault` / `test-libtny-fault-sanitize` / `test-libtny-fuzz-smoke` | 0 / 0 / 0 |
+| `make -j8 test-parser-smoke` / `test-cpp-gates` / `test-runtime-ownership` / `test-runner-ownership` / `test-libtny-mutation` | 0 / 0 / 0 / 0 / 0 |
+| `make -j8 size-check` / `size-report` | 0 / 0 |
+| `make bench-startup BASELINE_TNY=<1d8ad71 release>` | 0 (all ADR 0115 thresholds pass) |
+| `bench_ttft.py --bench tui` / `ask-stdin` (20 iters, baseline and candidate) | 0 |
+
+`make test` includes the background, background-agents, interrupt, jobs,
+jobs-cleanup-hold and job-artifacts integration suites with real `ps`
+access. Independent reviews: three read-only gpt-6-astra sessions (design,
+two verification rounds); the third returned APPROVE with one minor, fixed in
+99445e4's predecessor and re-gated here. A further verification review could
+not run (Codex usage limit reached, resets 2026-09-19).
+
+Unmet on this host (hosted CI evidence required): Linux glibc/musl, Windows
+MSYS runtime (`test_jobs_msys.py` source-level only), Emscripten node/browser,
+Nix, Linux TSan and libFuzzer lanes; Windows handle counts.
