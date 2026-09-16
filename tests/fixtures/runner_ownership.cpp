@@ -477,6 +477,36 @@ static void durable_cleanup_faults(const char *directory) {
             if (mode == 1) {
                 assert(std::strcmp(jm_str(jm_item(record, 0), "state"), "interrupted") == 0);
                 assert(std::strcmp(jm_str(jm_item(record, 1), "state"), "running") == 0);
+                assert(std::strcmp(jm_str(root, "cleanup"), "pending") == 0);
+                /* Leave room for the key node, but force the replacement bool
+                 * to grow the pool and hit a one-shot allocation failure. The
+                 * old setter deleted the hold, then later writes succeeded. */
+                assert(yyjson_mut_strcpy(record, "cleanup_hold"));
+                record->val_pool.cur = record->val_pool.end - 1;
+                auto *hold = yyjson_mut_obj_get(root, "cleanup_hold");
+                setenv("TNY_TEST_ALLOC_SCOPE", "hold-relatch", 1);
+                setenv("TNY_TEST_ALLOC_FAIL_AT", "1", 1);
+                tny_alloc_scope_begin("hold-relatch");
+                jm_set_bool(record, root, "cleanup_hold", true);
+                size_t allocations = tny_alloc_test_scope_count();
+                /* An allocation-free update leaves the fault armed: consume
+                 * the last node and prove the very next growth really fails. */
+                if (!tny_alloc_test_scope_injected()) {
+                    assert(yyjson_mut_bool(record, false));
+                    assert(!yyjson_mut_bool(record, false));
+                }
+                assert(tny_alloc_test_scope_injected());
+                unsetenv("TNY_TEST_ALLOC_SCOPE");
+                unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+                tny_alloc_scope_begin("fixture");
+                assert(jobs_record_store(dir, record) == 0);
+                assert(jm_bool(root, "cleanup_hold", false));
+                assert(allocations == 0 && yyjson_mut_obj_get(root, "cleanup_hold") == hold);
+                yyjson_mut_doc_free(record);
+                record = jobs_record_load(dir, id, error, sizeof error);
+                assert(record);
+                root = yyjson_mut_doc_get_root(record);
+                assert(jm_bool(root, "cleanup_hold", false));
             }
             assert(reservation_claim_one(ctx, output_path, "abcdef0123456789abcdef0123456789", 0, 1,
                                          error, sizeof error) != 0);
@@ -527,7 +557,8 @@ static void durable_cleanup_faults(const char *directory) {
         std::free(dir);
     }
     tny_ctx_free(ctx);
-    puts("job cleanup: mixed-item supervisor loss and final-write failure retain claims; "
+    puts("job cleanup: allocation-fault re-latch, mixed-item loss and final-write failure retain "
+         "claims; "
          "guard failure launches nothing; proven cleanup releases");
 }
 

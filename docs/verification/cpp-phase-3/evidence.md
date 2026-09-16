@@ -253,6 +253,76 @@ proof. There is no new target or dependency requiring a Nix inventory change.
 | `python3 tests/integration/test_interrupt.py` | 0 | [review-interrupt](artifacts/logs/review-interrupt.log) |
 | `python3 build/review-regression-baseline.py` | 0 | [review-regression-baseline](artifacts/logs/review-regression-baseline.log) |
 
+## Review 2 dispositions
+
+Baseline: clean `2727f6c`, inspected before edits on 2026-09-16. This is a
+bounded coordinator-assigned correction under the existing contract, P3-I4 and
+P3-I6; independent review and full-series completion remain coordinator-owned.
+The supplied independent reviewer confirmed the write-ahead hold and sentinel
+fix and found one remaining major: allocating a replacement boolean can erase
+the existing hold when value allocation fails after key allocation succeeds.
+
+Planned acceptance: update existing booleans without allocation, ensure a failed
+insertion cannot remove a key, and reproduce the key/value allocation boundary
+with the real yyjson allocator. Persist/reload the resulting running/pending
+record after observed supervisor loss and prove contender/retry/removal refusal
+and unchanged protected bytes. Run every requested local gate, preserve the
+prior records, and refresh source, binary, mutation and dirty-tree manifests.
+No new schema, platform seam, target, dependency or ADR decision is required.
+
+**Review 2 correction gate: PASS.** The major finding is fixed in `jm_set_bool`:
+existing booleans are changed in place, without allocation; new/retyped values
+are passed to `yyjson_mut_obj_put` only when both key and value exist. This
+also protects final hold updates. Normal terminalization still clears the hold
+when cleanup is proven. Job state names and exit semantics are unchanged.
+
+The allocation regression extends the real mixed-item supervisor-loss fixture.
+After observing/reaping the supervisor and its fixture children, it reloads the
+running/pending record with its existing hold, leaves one yyjson value-pool slot
+for a key, and arms a one-shot failure on pool growth. It invokes the actual
+re-latch setter, verifies zero allocations and the same boolean node, then
+consumes the spare node and observes the still-armed allocation failure. After
+allocations resume, a successful store/reload retains the hold. Contender,
+retry and removal remain refused, and retry/removal preserve record/claim bytes.
+This is a targeted allocator/setter regression combined with real persisted
+ownership behavior, not a claim of exhaustive supervisor allocation coverage.
+
+The same fixture compiled with the exact `2727f6c` jobs implementation fails at
+the post-store missing-hold assertion (fixture line 503), after every child was
+reaped. The baseline experiment exits 0 only because it verifies that expected
+failure. The corrected fixture passes under ASan/UBSan. All 564 unit tests pass;
+all seven existing critical mutants are killed at their intended behavioral
+oracles and the restored baseline passes. No additional agents were spawned;
+this disposition responds to the coordinator-supplied independent review.
+
+[Review 2 run records](artifacts/review2-run-records.json) bind every command to
+`2727f6cf19b95e58b3fb6dbd787bb58b41e503c4` plus the same 634-input
+[canonical source manifest](artifacts/final-source-sha256.json), identity
+`fcd62b9e21a3654d386e05a1786ca81108be8ebe8b5420b1a794138b400f7f12`. These current records supersede the historical local
+correction hashes above. [Mutation results](artifacts/mutation-results.json),
+[binary hashes](artifacts/binary-sha256.json) and the
+[dirty-tree manifest](artifacts/dirty-tree-sha256.json) are refreshed. Binary
+hashes cover the four binaries rebuilt/exercised by these gates; the historical
+release executable is excluded because this correction did not rerun release.
+
+All requested gates exit 0 with no compiler/linter warnings or sanitizer
+findings. The full unit log retains intentional invalid-settings/MCP-import
+negative-test diagnostics. Darwin quality explicitly skips the Linux-only GCC
+analyzer. Previously recorded coordinator-owned platform, leak, integration and
+performance gates remain unchanged; full-issue completion is still INCOMPLETE.
+Finalized ADRs are unchanged, and all correction changes remain uncommitted.
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `make -j8 debug` | 0 | [review2-debug](artifacts/logs/review2-debug.log) |
+| `build/tny-test` | 0 | [review2-unit](artifacts/logs/review2-unit.log) |
+| `make test-runner-ownership` | 0 | [review2-ownership](artifacts/logs/review2-ownership.log) |
+| `make test-libtny-fault` | 0 | [review2-fault](artifacts/logs/review2-fault.log) |
+| `make test-libtny-fault-sanitize` | 0 | [review2-fault-sanitize](artifacts/logs/review2-fault-sanitize.log) |
+| `python3 tests/mutation/runner_critical.py` | 0 | [review2-mutations](artifacts/logs/review2-mutations.log) |
+| `make quality` | 0 | [review2-quality](artifacts/logs/review2-quality.log) |
+| `python3 build/review-regression-baseline.py` | 0 | [review2-regression-baseline](artifacts/logs/review2-regression-baseline.log) |
+
 ## Unmet gates and coordinator handoff
 
 - `make test`, `make leaks`, `make test-abi`, `make test-sdks`, full job race,

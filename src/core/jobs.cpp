@@ -186,7 +186,16 @@ static void jm_set_null(yyjson_mut_doc *doc, yyjson_mut_val *obj, const char *ke
 }
 
 static void jm_set_bool(yyjson_mut_doc *doc, yyjson_mut_val *obj, const char *key, bool value) {
-    yyjson_mut_obj_put(obj, yyjson_mut_strcpy(doc, key), yyjson_mut_bool(doc, value));
+    yyjson_mut_val *existing = yyjson_mut_obj_get(obj, key);
+    if (yyjson_mut_is_bool(existing)) {
+        /* Re-latching a durable cleanup hold must never allocate or erase it. */
+        yyjson_mut_set_bool(existing, value);
+        return;
+    }
+    yyjson_mut_val *name = yyjson_mut_strcpy(doc, key);
+    yyjson_mut_val *replacement = yyjson_mut_bool(doc, value);
+    /* yyjson interprets a NULL value as removal, not insertion failure. */
+    if (name && replacement) yyjson_mut_obj_put(obj, name, replacement);
 }
 
 static const char *jm_str(yyjson_mut_val *obj, const char *key) {

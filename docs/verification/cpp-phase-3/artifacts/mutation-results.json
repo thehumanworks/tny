@@ -18,28 +18,28 @@
     "exit": -6,
     "killed": true,
     "oracle": "WIFEXITED(status)",
-    "source_sha256": "6c66c5646eddbaac95089fba71dcc2c1b6f6aa6523f0bcc14d0cf3cbcc6981b6"
+    "source_sha256": "a1490d3c1cc962a687833300403b49faca66859fc6091649cace1d8956fe25b9"
   },
   {
     "mutation": "unknown-is-complete",
     "exit": -6,
     "killed": true,
     "oracle": "!cleanup_reclaimable(root)",
-    "source_sha256": "6c66c5646eddbaac95089fba71dcc2c1b6f6aa6523f0bcc14d0cf3cbcc6981b6"
+    "source_sha256": "a1490d3c1cc962a687833300403b49faca66859fc6091649cace1d8956fe25b9"
   },
   {
     "mutation": "omit-cleanup-write-ahead",
     "exit": -6,
     "killed": true,
     "oracle": "jm_bool(root, \"cleanup_hold\", false)",
-    "source_sha256": "6c66c5646eddbaac95089fba71dcc2c1b6f6aa6523f0bcc14d0cf3cbcc6981b6"
+    "source_sha256": "a1490d3c1cc962a687833300403b49faca66859fc6091649cace1d8956fe25b9"
   },
   {
     "mutation": "drop-partial-cleanup-hold",
     "exit": -6,
     "killed": true,
     "oracle": "jm_bool(root, \"cleanup_hold\", false)",
-    "source_sha256": "6c66c5646eddbaac95089fba71dcc2c1b6f6aa6523f0bcc14d0cf3cbcc6981b6"
+    "source_sha256": "a1490d3c1cc962a687833300403b49faca66859fc6091649cace1d8956fe25b9"
   },
   {
     "mutation": "replay-consumed-batch",

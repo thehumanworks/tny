@@ -1,30 +1,23 @@
 {
-  "revision": "4e8a3526f772152ed059e81cdb2e8a707bc80fe7",
+  "revision": "2727f6cf19b95e58b3fb6dbd787bb58b41e503c4",
   "excludes": [
     "docs/verification/cpp-phase-3/artifacts/dirty-tree-sha256.json"
   ],
   "files": {
-    "docs/jobs.md": "9f33d76a15280e438ac6cdcf4ff12e02a736e4a02143f547c9f742952a51aa4a",
-    "docs/verification/cpp-phase-3/artifacts/binary-sha256.json": "16f281d6aee8b6e6ef119d0bca298a8787770365ca2bef5e605fe3fe8fadadf2",
-    "docs/verification/cpp-phase-3/artifacts/final-source-sha256.json": "d8cff60ac300d6957bfd30b3665678ba268cad1d5f6b40f56226d0775faf0933",
-    "docs/verification/cpp-phase-3/artifacts/logs/review-background-agents.log": "8c1fe9b14a5bea51c9fdecb56ad79e3e0ddf982612581bd12d7e225322a72164",
-    "docs/verification/cpp-phase-3/artifacts/logs/review-background.log": "a5e54441b3772b1df7ccbd6466a3f80c9770b52faf9b4f476b35f0d924b231ea",
-    "docs/verification/cpp-phase-3/artifacts/logs/review-debug.log": "2a7ca1f7605b677cf45838c49cace37741532317b20bb914a86a7e699629e2ab",
-    "docs/verification/cpp-phase-3/artifacts/logs/review-fault-sanitize.log": "0a5baf1f4c7e1a49c7f1c50c184feb09f1291f2ad7b73ea6d9902577e277690e",
-    "docs/verification/cpp-phase-3/artifacts/logs/review-fault.log": "03f32198c6060cf02018d128d87d48cd5bde161877e3f58335f3b60cedc5687d",
-    "docs/verification/cpp-phase-3/artifacts/logs/review-interrupt.log": "b307e0a20ac4305ab086829f68aff20eef3fb684fde30e0da0ed7bd3e97174b8",
-    "docs/verification/cpp-phase-3/artifacts/logs/review-mutations.log": "d8189cfdea1a7bc8fb81702c58def3e06bc9f893ee2a080e87786f05a457048f",
-    "docs/verification/cpp-phase-3/artifacts/logs/review-ownership.log": "c008402986eaa646280644062272ef6501e316f47b1375a8f117434e235ead4e",
-    "docs/verification/cpp-phase-3/artifacts/logs/review-quality.log": "8b9839adcb287d3f4889366026aa7918a31e22fb44da7d9165ac33df2eaac2bd",
-    "docs/verification/cpp-phase-3/artifacts/logs/review-regression-baseline.log": "f162037c45d9ae866c07a836634da964dc6c6c83d867eb50bd06dffbba19835f",
-    "docs/verification/cpp-phase-3/artifacts/logs/review-release.log": "0d7e76552938aad7d8b1145af726f76665b39a6967cd5fab763fba6e6ad83ef5",
-    "docs/verification/cpp-phase-3/artifacts/logs/review-runtime.log": "0404608182241281968718bb0995d30805a45211d2249c31ae66f68099efd5d2",
-    "docs/verification/cpp-phase-3/artifacts/logs/review-unit.log": "780498742838ebc51be9ccf2742de6db5c9571229cf99e274ab8cfed8fea131c",
-    "docs/verification/cpp-phase-3/artifacts/mutation-results.json": "d59d8f8df77d968636a1386ce2db11d885de2264129e7004931b7e1b1d0fa841",
-    "docs/verification/cpp-phase-3/artifacts/review-run-records.json": "3285660609ff953f2dd3850dcf43b404ec3e6a95ca01ee14546f64f35af14222",
-    "docs/verification/cpp-phase-3/evidence.md": "bd81de90a7aa0ffa63060d6f53b0eb38079bf0cb29f85e91a4f6eb0067cbeec1",
-    "src/core/jobs.cpp": "6c66c5646eddbaac95089fba71dcc2c1b6f6aa6523f0bcc14d0cf3cbcc6981b6",
-    "tests/fixtures/runner_ownership.cpp": "1739468268a42a40ff629794eb26bd24ef2261f31362176f403a2a3b5546f572",
-    "tests/mutation/runner_critical.py": "c3fe3f39b452127cd2d6b72a7b2fcd44f404d7d987b1a194a0ac8f8bfc18af27"
+    "docs/verification/cpp-phase-3/artifacts/binary-sha256.json": "78c72ffc3a9a3d6d5b71ae9c7c45b35c7695fb9b9382e5e8fd34134a5fef1b57",
+    "docs/verification/cpp-phase-3/artifacts/final-source-sha256.json": "7586abfda2d9344e239bc77f4a948483f1d5602a149332c46b30eb95e3a89545",
+    "docs/verification/cpp-phase-3/artifacts/logs/review2-debug.log": "2a7ca1f7605b677cf45838c49cace37741532317b20bb914a86a7e699629e2ab",
+    "docs/verification/cpp-phase-3/artifacts/logs/review2-fault-sanitize.log": "fa9f19c68f71d4d05f88daef0509f8895a8332ad029206e870bf85b6ec4a5de8",
+    "docs/verification/cpp-phase-3/artifacts/logs/review2-fault.log": "42f7cab7c4b541114dadb0ce002e0d7a9aa1b6e3e448c2abbb13bcbb5a89d798",
+    "docs/verification/cpp-phase-3/artifacts/logs/review2-mutations.log": "097c30d694da1147bfc814bc64a81da86a4c436ad17266ffdce521de273dd32e",
+    "docs/verification/cpp-phase-3/artifacts/logs/review2-ownership.log": "47a274fcf95d109215b903d134cc22fa838e4dcb5627d4b05de5896605bd799c",
+    "docs/verification/cpp-phase-3/artifacts/logs/review2-quality.log": "8b9839adcb287d3f4889366026aa7918a31e22fb44da7d9165ac33df2eaac2bd",
+    "docs/verification/cpp-phase-3/artifacts/logs/review2-regression-baseline.log": "56eece982c11139e71c6430b18f08174fe9b80e4fcb76fca53b6cdd32ff164ec",
+    "docs/verification/cpp-phase-3/artifacts/logs/review2-unit.log": "e2a6b97ae2f68c5b2bb82cb66f570323531093019662fc321830628435e51250",
+    "docs/verification/cpp-phase-3/artifacts/mutation-results.json": "3becde1a77c5d0be45dc197e876f169d52e5bd65993287c2d25b2e5b2ae9eac9",
+    "docs/verification/cpp-phase-3/artifacts/review2-run-records.json": "2d6143f52ce0ea11d3098c5aa7c9487de5f1b40babfb3e4c850d887883e83da0",
+    "docs/verification/cpp-phase-3/evidence.md": "9592046357d936dc43ee1810da8af1d7a184dff10845517d29ae651dce628cc2",
+    "src/core/jobs.cpp": "a1490d3c1cc962a687833300403b49faca66859fc6091649cace1d8956fe25b9",
+    "tests/fixtures/runner_ownership.cpp": "97ecc0ddbdd247b7792dceece56f090e35f4ef52b476e316e542b3cae44ca80f"
   }
 }
