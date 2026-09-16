@@ -823,3 +823,36 @@ directly with three bounded edits and reran the gates outside the sandbox:
   defect only if discovery still reports it. The previous assertion failed on
   ACP index 93/94, which only appears in some discovery runs (child and socket
   scheduling), while every reached index had settled cleanly.
+
+## Coordinator integrated gates (HEAD 4af1c02, 2026-09-16)
+
+Run outside the agent sandbox with `TNY_TOOLS` and every provider
+`*_BASE_URL`/`*_API_KEY`/`*_API_KEY_CMD`/`*_WIRE_API` variable unset, on macOS
+arm64 (Apple clang 21.0.0). Raw records: [artifacts/integrated-4af1c02/](artifacts/integrated-4af1c02/).
+
+| Command | Exit |
+| --- | ---: |
+| `make -j8 release` / `test` / `quality` / `leaks` | 0 / 0 / 0 / 0 |
+| `make -j8 test-abi` / `test-sdks` | 0 / 0 |
+| `make -j8 test-libtny-fault` / `test-libtny-fault-sanitize` / `test-libtny-fuzz-smoke` | 0 / 0 / 0 |
+| `make -j8 test-parser-smoke` / `test-cpp-gates` / `test-runtime-ownership` / `test-libtny-mutation` | 0 / 0 / 0 / 0 |
+| `make -j8 size-check` / `size-report` | 0 / 0 |
+| `make bench-startup BASELINE_TNY=<1d8ad71 release>` | 0 (all ADR 0115 thresholds pass) |
+| `bench_ttft.py --bench tui` / `ask-stdin` (20 iters, baseline and candidate) | 0 |
+
+Startup added medians: help +0.016 ms, version +0.017 ms, PTY first prompt
++0.033 ms. Stripped size 1,086,288 -> 1,104,624 bytes (libc++ linked).
+Local-mock TTFT medians: tui 559.0 -> 553.4 ms, ask-stdin 1149.3 -> 1161.5 ms
+(+1.1%). Active-turn allocation-index sweeps: openai 282, openai-chat 183,
+cursor 159, acp 92, acp-ws 90 indices, each settling with one reserved
+ERROR/TURN_END and a later successful turn.
+
+Independent reviews: four read-only gpt-6-astra sessions (design, and three
+verification rounds); findings and dispositions recorded above. The fourth
+review's seven findings were repaired by the implementation session and
+completed by the coordinator (see the Review 4 section). A fifth
+verification review could not be run: the Codex usage limit was reached
+(resets 2026-09-19); the coordinator reviewed the final repair diff directly.
+
+Unmet on this host (hosted CI evidence required): Linux glibc/musl, Windows
+MSYS, Emscripten node/browser, Nix, Linux TSan and libFuzzer lanes.
