@@ -20,6 +20,7 @@ import sys
 import tempfile
 import termios
 import time
+from decimal import Decimal
 from pathlib import Path
 
 PROMPT = b"\x1b[1m\x1b[32m> \x1b[0m"
@@ -42,14 +43,17 @@ def gates(baseline, candidate):
         before = baseline[mode]["latency_ms"]["median"]
         after = candidate[mode]["latency_ms"]["median"]
         ceiling, floor = (10, 0.5) if mode == "prompt" else (5, 0.25)
-        allowance = max(floor, before * 0.1)
+        before_decimal = Decimal(str(before))
+        after_decimal = Decimal(str(after))
+        delta = after_decimal - before_decimal
+        allowance = max(Decimal(str(floor)), before_decimal * Decimal("0.1"))
         result[mode] = {
             "baseline_ms": before,
             "candidate_ms": after,
-            "delta_ms": after - before,
-            "allowance_ms": allowance,
+            "delta_ms": float(delta),
+            "allowance_ms": float(allowance),
             "ceiling_ms": ceiling,
-            "pass": after < ceiling and after - before <= allowance,
+            "pass": after_decimal < ceiling and delta <= allowance,
         }
     return result
 
@@ -180,7 +184,7 @@ def size_report(binary, wasm_dir=None):
     }
 
 
-def markdown(report):
+def markdown(report, *, informational=False):
     lines = [
         f"# Startup: {report['label']}",
         "",
@@ -190,10 +194,17 @@ def markdown(report):
         "| Metric | Baseline median ms | Candidate median ms | Delta ms | Result |",
         "| --- | ---: | ---: | ---: | --- |",
     ]
+    if informational:
+        lines.insert(
+            2, "Cross-report comparison: informational, not a contract verdict.\n"
+        )
     for mode, gate in report["gates"].items():
+        verdict = (
+            "informational" if informational else ("PASS" if gate["pass"] else "FAIL")
+        )
         lines.append(
             f"| {mode} | {gate['baseline_ms']:.4f} | {gate['candidate_ms']:.4f} | "
-            f"{gate['delta_ms']:+.4f} | {'PASS' if gate['pass'] else 'FAIL'} |"
+            f"{gate['delta_ms']:+.4f} | {verdict} |"
         )
     for role in ("baseline", "candidate"):
         item = report[role]
@@ -296,7 +307,13 @@ def main():
     )
     parser.add_argument("--wasm-dir", type=Path)
     parser.add_argument("--size-only", action="store_true")
-    parser.add_argument("--compare", nargs=2, type=Path, metavar=("BEFORE", "AFTER"))
+    parser.add_argument(
+        "--compare",
+        nargs=2,
+        type=Path,
+        metavar=("BEFORE", "AFTER"),
+        help="informational cross-report deltas, not a contract verdict",
+    )
     args = parser.parse_args()
     try:
         if args.compare:
@@ -307,13 +324,14 @@ def main():
                 raise ValueError("comparison requires the same host platform")
             report = dict(after, baseline=before["candidate"], label=args.label)
             report["gates"] = gates(report["baseline"], report["candidate"])
-            print(markdown(report), end="")
+            print(markdown(report, informational=True), end="")
             print(
                 "Stripped size delta:",
                 report["candidate"]["size"]["stripped_bytes"]
                 - report["baseline"]["size"]["stripped_bytes"],
                 "bytes",
             )
+            return 0
         elif args.size_only:
             if not args.candidate:
                 parser.error("--size-only requires --candidate")

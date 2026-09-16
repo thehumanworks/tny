@@ -13,11 +13,15 @@ python3 tests/bench/bench_startup.py --compare before.json after.json
 make test-bench-startup
 ```
 
-The comparison uses the candidate observations in each input report. Use the
+The `--compare` comparison is informational, not a contract verdict: it uses
+the candidate observations in each input report without paired interleaving.
+It prints deltas and exits 0 regardless of thresholds; invalid reports still
+exit 2. A contract verdict requires a fresh paired benchmark. Use the
 same host/compiler/flags and inspect metadata before interpreting deltas.
 JSON retains raw latency and peak RSS samples in observation order, batch
 ordering, p50/p95, artifact hashes, dependencies and thresholds. A sibling
-`.md` summary is written automatically. Exit 0 means all startup gates pass,
+`.md` summary is written automatically for a fresh paired benchmark. In that
+mode, exit 0 means all startup gates pass,
 1 a threshold failure, and 2 a measurement/argument error. `--size-only`
 reports accounting, while `make size-check` still enforces native budgets.
 
