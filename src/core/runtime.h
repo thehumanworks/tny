@@ -5,6 +5,7 @@
 #define TNY_RUNTIME_H
 
 #include "core/backend.h"
+#include "core/owned_event.h"
 #include "core/config.h"
 #include "core/image_preview.h"
 #include "core/perm.h"
@@ -14,19 +15,6 @@
 #include <stddef.h>
 
 typedef struct tny_engine tny_engine;
-
-typedef struct tny_owned_event {
-    tny_backend_event ev;
-    uint64_t sequence;
-    int64_t timestamp_ms;
-    char *provider;
-    char *session_id;
-    char *turn_id;
-    size_t owned_bytes;
-    bool hooks_done;
-    bool suppressed;
-    struct tny_owned_event *next;
-} tny_owned_event;
 
 typedef enum {
     TNY_ENGINE_PREPARE_FRESH = 0,

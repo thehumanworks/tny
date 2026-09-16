@@ -149,14 +149,14 @@ VERSION_H = $(GEN)/tny_version.h
 INC     += -I$(GEN)
 
 SRC_CPP := $(wildcard src/*.cpp src/cpp/*.cpp src/util/*.cpp src/json/*.cpp \
-           src/core/*.cpp src/cli/*.cpp src/net/*.cpp src/mcp/*.cpp src/tui/*.cpp \
+           src/core/*.cpp src/lib/custom_tools.cpp src/cli/*.cpp src/net/*.cpp src/mcp/*.cpp src/tui/*.cpp \
            src/backends/openai/*.cpp src/backends/acp/*.cpp src/backends/cursor/*.cpp)
 
 SRC_PUBLIC_API := $(wildcard src/lib/*.c)
 SRC_ALL := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c \
         src/net/*.c src/mcp/*.c src/tui/*.c \
         src/backends/openai/*.c src/backends/acp/*.c \
-        src/backends/cursor/*.c) src/lib/host_services.c src/lib/custom_tools.c $(SRC_CPP)
+        src/backends/cursor/*.c) src/lib/host_services.c $(SRC_CPP)
 
 # Per-platform source lists (docs/adr/0017). Native transports (sockets, TLS,
 # hand-rolled HTTP/1.1 + wslay WebSocket) and the poll(2) wrapper are excluded
@@ -585,9 +585,9 @@ test-libtny-fault: lib-shared-fault
 	python3 tests/integration/test_libtny_faults.py $(LIB_FAULT_REAL)
 
 test-libtny-mutation:
-	python3 tests/mutation/mutate.py --focus libtny-safety
-	python3 tests/mutation/mutate.py --focus libtny-fault-mutation
-	python3 tests/mutation/mutate.py --focus libtny-custom-tools
+	python3 tests/mutation/mutate.py --focus libtny-safety --test runtime_
+	python3 tests/mutation/mutate.py --focus libtny-fault-mutation --test runtime_
+	python3 tests/mutation/mutate.py --focus libtny-custom-tools --test runtime_async
 
 $(OBJ_DBG)/tests/fuzz/fuzz_libtny.o: DBG_CFLAGS += -DTNY_FUZZ_STANDALONE=1
 
@@ -626,7 +626,14 @@ test-libtny-fuzz:
 	@exit 2
 endif
 
-test-libtny-fault-sanitize: lib-shared-fault-sanitize $(SAN_HOST)
+SAN_CUSTOM_HOST = $(BUILD)/fault-san/libtny-custom-tools-sanitizer
+$(SAN_CUSTOM_HOST): tests/integration/libtny_custom_tools.c $(LIB_FAULT_SAN_REAL)
+	@mkdir -p $(@D)
+	$(CC) -std=c11 -Wall -Wextra -Werror -Iinclude -O1 -g -fno-omit-frame-pointer \
+		-fsanitize=address,undefined -o $@ $< $(LIB_FAULT_SAN_REAL) -pthread \
+		-Wl,-rpath,$(CURDIR)/$(dir $(LIB_FAULT_SAN_REAL))
+
+test-libtny-fault-sanitize: lib-shared-fault-sanitize $(SAN_HOST) $(SAN_CUSTOM_HOST)
 ifeq ($(UNAME_S),Darwin)
 	@runtime="$$($(CC) --print-resource-dir)/lib/darwin/libclang_rt.asan_osx_dynamic.dylib"; \
 	python="$(SANITIZER_PYTHON)"; \
@@ -649,6 +656,10 @@ endif
 	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
 	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 		python3 tests/integration/libtny_sanitizer_launcher.py $(SAN_HOST)
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+	TNY_CUSTOM_TOOL_HOST=$(SAN_CUSTOM_HOST) \
+		python3 tests/integration/test_libtny_custom_tools.py
 
 ifeq ($(UNAME_S),Linux)
 test-libtny-tsan: $(TSAN_HOST) $(TSAN_CUSTOM_HOST)
@@ -1076,3 +1087,22 @@ size-report: release
 test: test-bench-startup
 test-bench-startup:
 	python3 tests/bench/test_bench_startup.py
+
+# Phase-2 runtime uses the same C scheduler and unit suite with injectable owners.
+RUNTIME_TEST = $(BUILD)/runtime-test/tny-test
+RUNTIME_TEST_OBJS = $(filter-out $(OBJ_DBG)/src/core/runtime.o,$(PARSER_TEST_OBJS)) \
+    $(BUILD)/runtime-test/src/core/runtime.o $(PARSER_FAULT_ALLOC) \
+    $(filter-out $(OBJ_DBG)/tests/test_runtime.o,$(TEST_SRC:%.c=$(OBJ_DBG)/%.o)) \
+    $(BUILD)/runtime-test/tests/test_runtime.o
+$(BUILD)/runtime-test/src/core/runtime.o: src/core/runtime.c
+	@mkdir -p $(@D)
+	$(CC) $(DBG_CFLAGS) -DTNY_ALLOC_TESTING=1 -include src/util/alloc_override.h -MMD -MP -c -o $@ $<
+$(BUILD)/runtime-test/tests/test_runtime.o: tests/test_runtime.c
+	@mkdir -p $(@D)
+	$(CC) $(DBG_CFLAGS) -DTNY_ALLOC_TESTING=1 -MMD -MP -c -o $@ $<
+$(RUNTIME_TEST): $(RUNTIME_TEST_OBJS)
+	$(CXX) $(call cppflags,$(DBG_CFLAGS)) -o $@ $^ $(filter-out $(CXX_RUNTIME),$(DBG_LDFLAGS))
+test-runtime-ownership: $(RUNTIME_TEST)
+	$(RUNTIME_TEST) -s runtime_suite
+.PHONY: test-runtime-ownership
+-include $(BUILD)/runtime-test/src/core/runtime.d $(BUILD)/runtime-test/tests/test_runtime.d

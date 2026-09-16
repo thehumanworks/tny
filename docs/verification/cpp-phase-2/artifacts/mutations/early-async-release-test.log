@@ -1,0 +1,164 @@
+
+* Suite runtime_suite:
+=================================================================
+==32265==ERROR: AddressSanitizer: heap-use-after-free on address 0x6080000004b8 at pc 0x000104f4287c bp 0x00016aeb9f60 sp 0x00016aeb9f58
+READ of size 8 at 0x6080000004b8 thread T0
+==32265==WARNING: external symbolizer didn't start up correctly!
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f42878"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f510f0"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x1063c2fa0"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x1063bf938"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x105c3ba44"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x105c3eef0"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x19c48be84"
+    #0 0x000104f42878 in std::__1::shared_ptr<(anonymous namespace)::registry_state>::operator*[abi:nqe220106]() const+0x84 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100002878)
+    #1 0x000104f510f0 in custom_tool_complete+0x260 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x1000110f0)
+    #2 0x0001063c2fa0 in runtime_async_leases_survive_all_invalidation_orders+0x2c20 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x101482fa0)
+    #3 0x0001063bf938 in runtime_suite+0x38 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10147f938)
+    #4 0x000105c3ba44 in greatest_run_suite+0x28 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100cfba44)
+    #5 0x000105c3eef0 in main+0xe0 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100cfeef0)
+    #6 0x00019c48be84 in start+0x1a1c (/usr/lib/dyld:arm64e+0x31e84)
+
+0x6080000004b8 is located 24 bytes inside of 88-byte region [0x6080000004a0,0x6080000004f8)
+freed by thread T0 here:
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x107465308"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f6c138"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f6c0d4"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f6b4c8"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f67fa8"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f6c538"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f4f450"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f69fe4"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f69f80"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f69efc"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f69e68"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f69cd0"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f50e7c"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f52658"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x1063c22d8"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x1063bf938"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x105c3ba44"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x105c3eef0"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x19c48be84"
+    #0 0x000107465308 in free+0x7c (/Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.asan_osx_dynamic.dylib:arm64e+0x41308)
+    #1 0x000104f6c138 in tny::allocator<std::__1::__shared_ptr_emplace<(anonymous namespace)::call_state, tny::allocator<(anonymous namespace)::call_state>>>::deallocate(std::__1::__shared_ptr_emplace<(anonymous namespace)::call_state, tny::allocator<(anonymous namespace)::call_state>>*, unsigned long)+0x40 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10002c138)
+    #2 0x000104f6c0d4 in std::__1::allocator_traits<tny::allocator<std::__1::__shared_ptr_emplace<(anonymous namespace)::call_state, tny::allocator<(anonymous namespace)::call_state>>>>::deallocate[abi:nqe220106](tny::allocator<std::__1::__shared_ptr_emplace<(anonymous namespace)::call_state, tny::allocator<(anonymous namespace)::call_state>>>&, std::__1::__shared_ptr_emplace<(anonymous namespace)::call_state, tny::allocator<(anonymous namespace)::call_state>>*, unsigned long)+0x24 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10002c0d4)
+    #3 0x000104f6b4c8 in std::__1::__shared_ptr_emplace<(anonymous namespace)::call_state, tny::allocator<(anonymous namespace)::call_state>>::__on_zero_shared_weak()+0x220 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10002b4c8)
+    #4 0x000104f67fa8 in std::__1::__shared_weak_count::__release_shared[abi:nqe220106]()+0x80 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100027fa8)
+    #5 0x000104f6c538 in std::__1::shared_ptr<(anonymous namespace)::call_state>::~shared_ptr[abi:nqe220106]()+0x118 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10002c538)
+    #6 0x000104f4f450 in std::__1::shared_ptr<(anonymous namespace)::call_state>::~shared_ptr[abi:nqe220106]()+0x50 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10000f450)
+    #7 0x000104f69fe4 in custom_tool_pending::~custom_tool_pending()+0x50 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100029fe4)
+    #8 0x000104f69f80 in custom_tool_pending::~custom_tool_pending()+0x50 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100029f80)
+    #9 0x000104f69efc in tny::destroy<custom_tool_pending>::operator()(custom_tool_pending*) const+0x80 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100029efc)
+    #10 0x000104f69e68 in std::__1::unique_ptr<custom_tool_pending, tny::destroy<custom_tool_pending>>::reset[abi:nqe220106](custom_tool_pending*)+0x184 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100029e68)
+    #11 0x000104f69cd0 in std::__1::unique_ptr<custom_tool_pending, tny::destroy<custom_tool_pending>>::~unique_ptr[abi:nqe220106]()+0x54 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100029cd0)
+    #12 0x000104f50e7c in std::__1::unique_ptr<custom_tool_pending, tny::destroy<custom_tool_pending>>::~unique_ptr[abi:nqe220106]()+0x50 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100010e7c)
+    #13 0x000104f52658 in custom_tool_take+0x6d0 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100012658)
+    #14 0x0001063c22d8 in runtime_async_leases_survive_all_invalidation_orders+0x1f58 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x1014822d8)
+    #15 0x0001063bf938 in runtime_suite+0x38 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10147f938)
+    #16 0x000105c3ba44 in greatest_run_suite+0x28 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100cfba44)
+    #17 0x000105c3eef0 in main+0xe0 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100cfeef0)
+    #18 0x00019c48be84 in start+0x1a1c (/usr/lib/dyld:arm64e+0x31e84)
+
+previously allocated by thread T0 here:
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x107465214"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f6fc6c"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f6abc8"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f6aa78"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f6a934"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f6a180"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f4e560"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f4ccd8"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x1063c0b50"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x1063bf938"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x105c3ba44"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x105c3eef0"
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x19c48be84"
+    #0 0x000107465214 in malloc+0x78 (/Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.asan_osx_dynamic.dylib:arm64e+0x41214)
+    #1 0x000104f6fc6c in tny_alloc_malloc+0x3c (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10002fc6c)
+    #2 0x000104f6abc8 in tny::allocator<std::__1::__shared_ptr_emplace<(anonymous namespace)::call_state, tny::allocator<(anonymous namespace)::call_state>>>::allocate(unsigned long)+0xf4 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10002abc8)
+    #3 0x000104f6aa78 in std::__1::allocator_traits<tny::allocator<std::__1::__shared_ptr_emplace<(anonymous namespace)::call_state, tny::allocator<(anonymous namespace)::call_state>>>>::allocate[abi:nqe220106](tny::allocator<std::__1::__shared_ptr_emplace<(anonymous namespace)::call_state, tny::allocator<(anonymous namespace)::call_state>>>&, unsigned long)+0x1c (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10002aa78)
+    #4 0x000104f6a934 in std::__1::__allocation_guard<tny::allocator<std::__1::__shared_ptr_emplace<(anonymous namespace)::call_state, tny::allocator<(anonymous namespace)::call_state>>>>::__allocation_guard[abi:nqe220106]<tny::allocator<(anonymous namespace)::call_state>>(tny::allocator<(anonymous namespace)::call_state>, unsigned long)+0x208 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10002a934)
+    #5 0x000104f6a180 in std::__1::__allocation_guard<tny::allocator<std::__1::__shared_ptr_emplace<(anonymous namespace)::call_state, tny::allocator<(anonymous namespace)::call_state>>>>::__allocation_guard[abi:nqe220106]<tny::allocator<(anonymous namespace)::call_state>>(tny::allocator<(anonymous namespace)::call_state>, unsigned long)+0x58 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10002a180)
+    #6 0x000104f4e560 in std::__1::shared_ptr<(anonymous namespace)::call_state> std::__1::allocate_shared[abi:nqe220106]<(anonymous namespace)::call_state, tny::allocator<(anonymous namespace)::call_state>, 0>(tny::allocator<(anonymous namespace)::call_state> const&)+0x150 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10000e560)
+    #7 0x000104f4ccd8 in custom_tool_invoke+0x4e8 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10000ccd8)
+    #8 0x0001063c0b50 in runtime_async_leases_survive_all_invalidation_orders+0x7d0 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x101480b50)
+    #9 0x0001063bf938 in runtime_suite+0x38 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x10147f938)
+    #10 0x000105c3ba44 in greatest_run_suite+0x28 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100cfba44)
+    #11 0x000105c3eef0 in main+0xe0 (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100cfeef0)
+    #12 0x00019c48be84 in start+0x1a1c (/usr/lib/dyld:arm64e+0x31e84)
+
+==32265==WARNING: Can't read from symbolizer at fd 5
+==32265==WARNING: atos failed to symbolize address "0x104f42878"
+SUMMARY: AddressSanitizer: heap-use-after-free (/Users/tomas/projects/tny-cpp-series/build/runtime-mutations/early-async-release:arm64+0x100002878) in std::__1::shared_ptr<(anonymous namespace)::registry_state>::operator*[abi:nqe220106]() const+0x84
+Shadow bytes around the buggy address:
+  0x608000000200: fa fa fa fa 00 00 00 00 00 00 00 00 00 00 00 00
+  0x608000000280: fa fa fa fa fd fd fd fd fd fd fd fd fd fd fd fa
+  0x608000000300: fa fa fa fa fd fd fd fd fd fd fd fd fd fd fd fa
+  0x608000000380: fa fa fa fa fd fd fd fd fd fd fd fd fd fd fd fa
+  0x608000000400: fa fa fa fa fd fd fd fd fd fd fd fd fd fd fd fa
+=>0x608000000480: fa fa fa fa fd fd fd[fd]fd fd fd fd fd fd fd fa
+  0x608000000500: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x608000000580: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x608000000600: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x608000000680: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x608000000700: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==32265==ABORTING

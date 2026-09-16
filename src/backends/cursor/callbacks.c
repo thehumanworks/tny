@@ -27,7 +27,7 @@
 
 typedef struct pending_tool {
     uint64_t request_id;
-    tny_tool_call *call;
+    custom_tool_pending *call;
     struct pending_tool *next;
 } pending_tool;
 
@@ -142,7 +142,7 @@ static int tool_request(cursor_callbacks *cb, yyjson_val *root, http_server_resp
         set_reply(cb, response, 500, "{\"error\":\"out of memory\"}");
         return HTTP_SERVER_POST_HANDLED;
     }
-    tny_tool_call *call = NULL;
+    custom_tool_pending *call = NULL;
     char *result = NULL;
     bool is_error = false;
     int32_t status = custom_tool_invoke(tool, arguments, &call, &result, &is_error);

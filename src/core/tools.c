@@ -812,11 +812,17 @@ char *tools_call_execute(tools_env *env, tools_call *call) {
 bool tools_call_pending(const tools_call *call) { return call && call->custom_call; }
 
 int tools_call_take_async(tools_call *call, char **result, bool *is_error) {
-    return call && call->custom_call ? custom_tool_take(call->custom_call, result, is_error) : -1;
+    if (!call || !call->custom_call) return -1;
+    int state = custom_tool_take(call->custom_call, result, is_error);
+    if (state != 0) call->custom_call = NULL;
+    return state;
 }
 
 void tools_call_invalidate_async(tools_call *call) {
-    if (call && call->custom_call) custom_tool_invalidate(call->custom_call);
+    if (call && call->custom_call) {
+        custom_tool_invalidate(call->custom_call);
+        call->custom_call = NULL;
+    }
 }
 
 void tools_call_free(tools_call *call) {

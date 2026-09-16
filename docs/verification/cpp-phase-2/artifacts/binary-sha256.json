@@ -1,0 +1,31 @@
+{
+  "build/tny": {
+    "size": 1088064,
+    "sha256": "957f33e998a58296a59b569e10cc6a7665639c7cd7888844f2e97a35c85bac0e"
+  },
+  "build/tny-test": {
+    "size": 31147992,
+    "sha256": "85ce8b510649d533e285f6a5e80335e76332feb09ef84401e303bdc88b78d616"
+  },
+  "build/runtime-test/tny-test": {
+    "size": 31189288,
+    "sha256": "e8c778ad53b5bbf6c68e0b247e715a413592dde683f810f434c071b08b86d94a"
+  },
+  "build/lib/libtny.1.dylib": {
+    "size": 932192,
+    "sha256": "40796c32262a1d22a74ce03e32d35735125aafa5a088fc29fab0cb0042d7300d"
+  },
+  "build/lib-fault/libtny.1.dylib": {
+    "size": 1006000,
+    "sha256": "e5539e1aa2381b2109d59bfe246303d0c41cf84975970727f09d4685ab35b27b"
+  },
+  "build/lib-fault-san/libtny.1.dylib": {
+    "size": 7322816,
+    "sha256": "04b6afbcf1646f680aa4569e2d62be768e0e76da36c6f47092260020544138a3"
+  },
+  "sdk/typescript/build/Release/tny.node": {
+    "size": 92152,
+    "sha256": "456173ed6e726ed7d66772664582f6860082c17b457f396f8f9e7d3f6ead515a"
+  },
+  "dependencies": "build/tny:\n\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 2200.27.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1359.0.0)\n"
+}

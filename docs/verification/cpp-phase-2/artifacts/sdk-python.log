@@ -1,0 +1,38 @@
+test_abandoned_sync_and_async_turns_cancel_and_drain (test_sdk.SDKTests.test_abandoned_sync_and_async_turns_cancel_and_drain) ... ok
+test_abi1_allows_multiple_python_runtimes (test_sdk.SDKTests.test_abi1_allows_multiple_python_runtimes) ... ok
+test_abi_1_0_falls_back_without_task_and_rejects_task_explicitly (test_sdk.SDKTests.test_abi_1_0_falls_back_without_task_and_rejects_task_explicitly) ... ok
+test_api_key_staging_is_wiped_when_later_input_encoding_fails (test_sdk.SDKTests.test_api_key_staging_is_wiped_when_later_input_encoding_fails) ... ok
+test_async_full_turn (test_sdk.SDKTests.test_async_full_turn) ... ok
+test_async_runtime_gc_closes_on_owner_executor (test_sdk.SDKTests.test_async_runtime_gc_closes_on_owner_executor) ... ok
+test_async_runtime_open_and_close_are_single_flight (test_sdk.SDKTests.test_async_runtime_open_and_close_are_single_flight) ... ok
+test_auth_error_event_and_secret_safe_conformance_report (test_sdk.SDKTests.test_auth_error_event_and_secret_safe_conformance_report)
+Conformance: auth_error and report schema/forbidden-field safety. ... ok
+test_cancelled_async_open_reclaims_owner_runtime (test_sdk.SDKTests.test_cancelled_async_open_reclaims_owner_runtime) ... ok
+test_canonical_event_schema_matches_sdk_registry (test_sdk.SDKTests.test_canonical_event_schema_matches_sdk_registry) ... ok
+test_cursor_provider_is_accepted_and_reported_without_connecting (test_sdk.SDKTests.test_cursor_provider_is_accepted_and_reported_without_connecting) ... ok
+test_explicit_abi0_library_is_rejected (test_sdk.SDKTests.test_explicit_abi0_library_is_rejected) ... skipped 'explicit ABI0 compatibility artifact is not staged'
+test_input_sizing_utf8_and_parent_lifecycle_misuse (test_sdk.SDKTests.test_input_sizing_utf8_and_parent_lifecycle_misuse)
+Conformance: ownership_and_misuse input and parent assertions. ... ok
+test_metadata_capabilities_and_secret_safe_repr (test_sdk.SDKTests.test_metadata_capabilities_and_secret_safe_repr) ... ok
+test_native_workflow_denies_unhandled_permissions (test_sdk.SDKTests.test_native_workflow_denies_unhandled_permissions) ... ok
+test_native_workflow_honors_per_task_preset_config (test_sdk.SDKTests.test_native_workflow_honors_per_task_preset_config) ... ok
+test_native_workflow_runs_parallel_sessions_and_context (test_sdk.SDKTests.test_native_workflow_runs_parallel_sessions_and_context) ... ok
+test_permission_allow_and_stale_reject (test_sdk.SDKTests.test_permission_allow_and_stale_reject)
+Conformance: permission_allow_and_stale_reject. ... ok
+test_permission_and_stale_response (test_sdk.SDKTests.test_permission_and_stale_response)
+Conformance: permission_deny and stale permission rejection. ... ok
+test_repeated_create_close_and_owner_thread (test_sdk.SDKTests.test_repeated_create_close_and_owner_thread)
+Conformance: ownership_and_misuse. ... ok
+test_sync_full_turn_events_are_python_owned_bytes (test_sdk.SDKTests.test_sync_full_turn_events_are_python_owned_bytes)
+Conformance: success_two_turns and slow_consumer_backpressure basics. ... ok
+test_task_preset_is_explicit_and_secret_safe (test_sdk.SDKTests.test_task_preset_is_explicit_and_secret_safe) ... ok
+test_task_validation_matches_native_grammar_and_byte_limit (test_sdk.SDKTests.test_task_validation_matches_native_grammar_and_byte_limit) ... ok
+test_thread_safe_cancellation_request (test_sdk.SDKTests.test_thread_safe_cancellation_request)
+Conformance: cancel_and_drain. ... ok
+test_unknown_future_event_representation (test_sdk.SDKTests.test_unknown_future_event_representation)
+Conformance: unknown_future_event. ... ok
+
+----------------------------------------------------------------------
+Ran 25 tests in 1.897s
+
+OK (skipped=1)

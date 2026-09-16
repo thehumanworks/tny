@@ -368,3 +368,14 @@ mutants under `build/parser-mutations`, asserts their intended behavioral
 failures, verifies production source hashes are unchanged, then reruns the
 unmodified smoke. It requires `make test-parser-smoke` and the native compiler;
 no mutation is written to production sources.
+
+### Runtime ownership (ADR 0116)
+
+`make test-runtime-ownership` links the real runtime unit suite with the C++
+allocator fault lane. It checks retained payloads, reserve settlement without
+allocation, transactional recovery and independent async leases.
+`python3 tests/mutation/runtime_critical.py` compiles six private mutant copies
+and requires behavioral kills; production sources remain untouched.
+`make test-libtny-fault-sanitize` also runs the native custom-tool worker fixture
+through the instrumented library. Native CI and Nix include the runtime target;
+Linux `make test-libtny-tsan` remains the concurrency detector gate.

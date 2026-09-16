@@ -1,0 +1,4 @@
+CLANG_FORMAT='clang-format' CLANG_TIDY='clang-tidy' python3 tests/build/test_cpp_gates.py
+format negative: known C++ formatting violation rejected
+analyzer negative: enabled C++ null-dereference diagnostic rejected
+positive discovery: release/debug/PIC/fault/sanitize/TSan/fuzz/wasm and quality

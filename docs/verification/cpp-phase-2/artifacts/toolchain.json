@@ -1,0 +1,10 @@
+{
+  "uname -sm": "Darwin arm64",
+  "cc --version": "Apple clang version 21.0.0 (clang-2100.3.27.1)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+  "c++ --version": "Apple clang version 21.0.0 (clang-2100.3.27.1)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+  "make --version": "GNU Make 3.81\nCopyright (C) 2006  Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.\nThere is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A\nPARTICULAR PURPOSE.\n\nThis program built for i386-apple-darwin11.3.0",
+  "clang-format --version": "clang-format version 23.1.0",
+  "clang-tidy --version": "LLVM (http://llvm.org/):\n  LLVM version 22.1.8\n  Optimized build.",
+  "python3 --version": "Python 3.14.7",
+  "node --version": "v26.8.2"
+}

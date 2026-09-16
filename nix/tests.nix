@@ -163,7 +163,8 @@ stdenv.mkDerivation {
     done
     ${testRunner}make -j''${NIX_BUILD_CORES} $makeFlags test
     # Includes the loopback backend OOM retention check before teardown.
-    ${testRunner}make $makeFlags test-parser-smoke
+    ${testRunner}make $makeFlags test-parser-smoke test-runtime-ownership
+    ${testRunner}python3 tests/mutation/runtime_critical.py
     ${testRunner}make $makeFlags test-shell-workflows
     runHook postBuild
   '';

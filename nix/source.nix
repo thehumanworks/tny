@@ -21,7 +21,7 @@ let
     ../python
     ../scripts/check_abi_baseline.py
     ../shell # installed workflows and the Zsh quick-ask widget
-    ../src # includes private .cpp/.hpp parser owners
+    ../src # includes private .cpp/.hpp parser, owned-event and async registry owners
     ../third_party
   ];
 
@@ -55,6 +55,7 @@ let
     # tests/integration/test_bench_tools.py copies and scores (issue #103).
     # tests/fuzz/parser corpus, portable parser driver and parser_backend_oom.c
     # loopback retention regression are included here; no extra assets/tools.
+    # Phase-2 runtime ownership/fault and mutation drivers use the existing compiler/Python.
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
     # runner_restart_fault.c uses the existing stdenv C compiler for a private
     # read/write interposer; no network, new package or external test data.

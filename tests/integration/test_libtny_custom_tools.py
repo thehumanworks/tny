@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and execute the strict native custom-tool callback fixture."""
+"""Run copied results and sync/async/cancel/unregister/teardown worker lifetimes."""
 
 from __future__ import annotations
 

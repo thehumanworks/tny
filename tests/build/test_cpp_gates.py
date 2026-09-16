@@ -30,6 +30,7 @@ def main():
             "TEST_OBJS",
             "PARSER_TEST_CPP_OBJS",
             "PARSER_TEST_OBJS",
+            "RUNTIME_TEST_OBJS",
             "LIB_PIC_OBJS",
             "FAULT_PIC_OBJS",
             "FAULT_SAN_PIC_OBJS",
@@ -47,6 +48,8 @@ def main():
         for line in result.stdout.splitlines():
             name, paths = line.split("=", 1)
             assert relative in paths, f"{name} did not discover {relative}"
+            for source in ("src/core/owned_event.cpp", "src/lib/custom_tools.cpp"):
+                assert source in paths, f"{name} did not discover {source}"
         fmt = run(
             [
                 "make",

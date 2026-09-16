@@ -353,6 +353,7 @@ static void exercise_runtime(const uint8_t *data, size_t size) {
 }
 
 typedef struct {
+    tny_tool_call *host_call;
     uint8_t mode;
     uint8_t result_bytes[64];
     uint64_t result_size;
@@ -367,7 +368,10 @@ static int32_t fuzz_invoke(void *opaque, tny_tool_call *call, uint64_t generatio
     callback_state *state = opaque;
     invariant(call != NULL && generation != 0);
     invariant(arguments.ptr != NULL || arguments.len == 0);
-    if (state->mode == 1) return TNY_TOOL_INVOKE_ASYNC;
+    if (state->mode == 1) {
+        state->host_call = call;
+        return TNY_TOOL_INVOKE_ASYNC;
+    }
     if (state->mode == 2) return 12345; /* invalid positive callback status */
     memset(result, 0, sizeof *result);
     result->abi_version = state->result_abi;
@@ -466,13 +470,13 @@ static void exercise_custom_tools(const uint8_t *data, size_t size) {
     for (size_t index = 0; index < arguments_size; index++)
         arguments[index] = (char)byte_at(data, size, index);
     arguments[arguments_size] = 0;
-    tny_tool_call *call = NULL;
+    custom_tool_pending *call = NULL;
     char *result = NULL;
     bool is_error = false;
     int32_t invoked = custom_tool_invoke(registration, arguments, &call, &result, &is_error);
     if (invoked == TNY_TOOL_INVOKE_ASYNC) {
         invariant(call != NULL && result == NULL);
-        uint64_t generation = tny_tool_call_generation(call);
+        uint64_t generation = tny_tool_call_generation(state.host_call);
         tny_tool_result_v1 completion;
         memset(&completion, 0, sizeof completion);
         completion.abi_version = state.result_abi;
@@ -484,24 +488,26 @@ static void exercise_custom_tools(const uint8_t *data, size_t size) {
         completion.is_error = state.result_is_error;
         completion.reserved_scalar = UINT32_MAX;
         completion.reserved[0] = UINT64_MAX;
-        invariant(custom_tool_complete(call, generation + 1, &completion) == TNY_STATUS_BAD_STATE);
+        invariant(custom_tool_complete(state.host_call, generation + 1, &completion) ==
+                  TNY_STATUS_BAD_STATE);
         observed_classes |= CLASS_GENERATION_REJECT;
-        int32_t completed = custom_tool_complete(call, generation, &completion);
+        int32_t completed = custom_tool_complete(state.host_call, generation, &completion);
         note_result_status(completed);
         if (completed != TNY_STATUS_OK) {
             memset(&completion, 0, sizeof completion);
             completion.abi_version = TNY_TOOL_RESULT_ABI_VERSION;
             completion.struct_size = sizeof completion;
             completion.data = bytes_of("ok");
-            completed = custom_tool_complete(call, generation, &completion);
+            completed = custom_tool_complete(state.host_call, generation, &completion);
             invariant(completed == TNY_STATUS_OK);
             observed_classes |= CLASS_RESULT_OK;
         }
-        invariant(custom_tool_complete(call, generation, &completion) == TNY_STATUS_BAD_STATE);
+        invariant(custom_tool_complete(state.host_call, generation, &completion) ==
+                  TNY_STATUS_BAD_STATE);
         observed_classes |= CLASS_GENERATION_REJECT;
         invariant(custom_tool_take(call, &result, &is_error) == 1);
         free(result);
-        tny_tool_call_release(call);
+        tny_tool_call_release(state.host_call);
     } else {
         invariant(call == NULL);
         note_result_status(invoked);

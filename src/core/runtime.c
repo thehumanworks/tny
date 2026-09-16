@@ -94,111 +94,30 @@ static char *dup_bytes(const char *s, size_t n) {
 
 static char *dup_cstr(const char *s) { return s ? dup_bytes(s, strlen(s)) : NULL; }
 
-static void free_fields(tny_owned_event *o) {
-    free(o->provider);
-    free(o->session_id);
-    free(o->turn_id);
-    free((char *)o->ev.text);
-    free((char *)o->ev.message_id);
-    free((char *)o->ev.tool_name);
-    free((char *)o->ev.tool_id);
-    free((char *)o->ev.tool_detail);
-    free((char *)o->ev.perm_id);
-    free((char *)o->ev.perm_summary);
-    free((char *)o->ev.message_type);
-}
-
-void tny_owned_event_free(tny_owned_event *o) {
-    if (!o) return;
-    free_fields(o);
-    free(o);
-}
-
-static bool copy_field(const char *src, size_t n, const char **dst, size_t *owned) {
-    if (!src) {
-        *dst = NULL;
-        return true;
-    }
-    char *copy = dup_bytes(src, n);
-    if (!copy) return false;
-    *dst = copy;
-    *owned += n + 1;
-    return true;
-}
-
 static tny_owned_event *event_copy(tny_engine *e, const tny_backend_event *ev) {
-    tny_owned_event *o = calloc(1, sizeof *o);
-    if (!o) return NULL;
-    o->ev = *ev;
-    /* Never leave borrowed callback pointers in an object that may take a
-     * partial-allocation cleanup path.  A failed earlier field copy must not
-     * free provider/tool memory which the event does not own. */
-    o->ev.text = NULL;
-    o->ev.message_id = NULL;
-    o->ev.tool_name = NULL;
-    o->ev.tool_id = NULL;
-    o->ev.tool_detail = NULL;
-    o->ev.perm_id = NULL;
-    o->ev.perm_summary = NULL;
-    o->ev.message_type = NULL;
-    o->sequence = ++e->session->extension_event_sequence;
-    o->timestamp_ms = engine_monotonic_ms(e);
-    o->provider = dup_cstr(tny_provider_name(e->ctx));
-    o->session_id = dup_cstr(e->session->id);
+    uint64_t sequence = ++e->session->extension_event_sequence;
+    int64_t timestamp_ms = engine_monotonic_ms(e);
     char turn_id[160];
     snprintf(turn_id, sizeof turn_id, "%s:%llu:%d", e->session->id,
              (unsigned long long)e->session->extension_agent_sequence, e->extension_continuations);
-    o->turn_id = dup_cstr(turn_id);
-    if (!o->provider || !o->session_id || !o->turn_id) {
-        tny_owned_event_free(o);
-        return NULL;
-    }
-    o->owned_bytes += strlen(o->provider) + strlen(o->session_id) + strlen(o->turn_id) + 3;
-    if (!copy_field(ev->text, ev->text ? ev->text_len : 0, &o->ev.text, &o->owned_bytes) ||
-        !copy_field(ev->message_id, ev->message_id ? strlen(ev->message_id) : 0, &o->ev.message_id,
-                    &o->owned_bytes) ||
-        !copy_field(ev->tool_name, ev->tool_name ? strlen(ev->tool_name) : 0, &o->ev.tool_name,
-                    &o->owned_bytes) ||
-        !copy_field(ev->tool_id, ev->tool_id ? strlen(ev->tool_id) : 0, &o->ev.tool_id,
-                    &o->owned_bytes) ||
-        !copy_field(ev->tool_detail, ev->tool_detail ? strlen(ev->tool_detail) : 0,
-                    &o->ev.tool_detail, &o->owned_bytes) ||
-        !copy_field(ev->perm_id, ev->perm_id ? strlen(ev->perm_id) : 0, &o->ev.perm_id,
-                    &o->owned_bytes) ||
-        !copy_field(ev->perm_summary, ev->perm_summary ? strlen(ev->perm_summary) : 0,
-                    &o->ev.perm_summary, &o->owned_bytes) ||
-        !copy_field(ev->message_type, ev->message_type ? strlen(ev->message_type) : 0,
-                    &o->ev.message_type, &o->owned_bytes)) {
-        tny_owned_event_free(o);
-        return NULL;
+    tny_owned_event *o =
+        tny_owned_event_copy(ev, tny_provider_name(e->ctx), e->session->id, turn_id, 0);
+    if (o) {
+        o->sequence = sequence;
+        o->timestamp_ms = timestamp_ms;
     }
     return o;
 }
 
 static tny_owned_event *reserve_event(tny_engine *e, tny_event_kind kind) {
-    tny_owned_event *o = calloc(1, sizeof *o);
-    if (!o) return NULL;
-    o->ev.kind = kind;
-    o->provider = dup_cstr(tny_provider_name(e->ctx));
-    o->session_id = dup_cstr(e->session->id);
-    /* A session id, 64-bit sequence and continuation counter fit comfortably.
-     * The fixed allocation is made before the session is published so OOM
-     * settlement itself does not allocate. */
-    o->turn_id = calloc(1, 192);
+    tny_backend_event ev = {0};
+    ev.kind = kind;
     if (kind == TNY_EV_ERROR) {
-        o->ev.text = dup_cstr("out of memory");
-        o->ev.text_len = strlen("out of memory");
-        o->ev.error_code = TNY_EVENT_ERROR_OOM;
-    } else {
-        o->ev.stop = TNY_STOP_ERROR;
-    }
-    if (!o->provider || !o->session_id || !o->turn_id || (kind == TNY_EV_ERROR && !o->ev.text)) {
-        tny_owned_event_free(o);
-        return NULL;
-    }
-    o->owned_bytes = strlen(o->provider) + strlen(o->session_id) + 192 + 2;
-    if (o->ev.text) o->owned_bytes += o->ev.text_len + 1;
-    return o;
+        ev.text = "out of memory";
+        ev.text_len = strlen(ev.text);
+        ev.error_code = TNY_EVENT_ERROR_OOM;
+    } else ev.stop = TNY_STOP_ERROR;
+    return tny_owned_event_copy(&ev, tny_provider_name(e->ctx), e->session->id, "", 192);
 }
 
 /* Replenish a consumed OOM pair only while no turn is active. Public events
@@ -233,8 +152,8 @@ static bool ensure_oom_reserves(tny_engine *e) {
 static void prepare_reserved_event(tny_engine *e, tny_owned_event *o) {
     o->sequence = ++e->session->extension_event_sequence;
     o->timestamp_ms = engine_monotonic_ms(e);
-    snprintf(o->turn_id, 192, "%s:%llu:%d", e->session->id,
-             (unsigned long long)e->session->extension_agent_sequence, e->extension_continuations);
+    tny_owned_event_set_turn(o, e->session->id, e->session->extension_agent_sequence,
+                             e->extension_continuations);
     o->next = NULL;
     o->hooks_done = true;
     o->suppressed = false;
@@ -1785,6 +1704,9 @@ void tny_engine_fail_oom(tny_engine *e) {
     e->oom_pending = false;
     e->overflow_pending = false;
     e->forcing_error = true;
+    /* Publish settlement before cancel: backend cancellation callbacks must
+     * not construct another event while the reserved pair is being used. */
+    e->terminal = true;
     if (e->bk && e->active && e->bk->cancel) e->bk->cancel(e->bk);
     if (e->pending_terminal) {
         tny_owned_event_free(e->pending_terminal);

@@ -199,3 +199,12 @@ TLS, WebSocket, HTTP chunk decoding, ACP, MCP and tnytty remain C11.
 Allocation failures return explicit OOM status before control returns to C;
 C++ destructors neither allocate nor throw. These parsers are shared by native
 and wasm builds; the transport capability differences remain unchanged.
+
+## Private runtime ownership (ADR 0116)
+
+Runtime queue records own immutable payload bytes in C++ behind the private C
+facade; C retains event ordering, budgets and scheduling. Popped events outlive
+their engine/session. Async custom tools use separate provider and host handles
+sharing only call/registry lifetime. Registry state invalidation, generation,
+epoch and completion checks remain explicit under one scoped mutex. See
+[ADR 0116](adr/0116-runtime-event-and-async-ownership.md).

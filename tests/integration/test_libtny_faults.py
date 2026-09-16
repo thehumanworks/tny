@@ -257,6 +257,73 @@ def child_case(libpath, scenario, base_url, report_path):
             if (injected and rc != -1) or (not injected and rc != 2):
                 die(53)
 
+        elif scenario in ("tool_register", "tool_error"):
+            from test_libtny_custom_tools import INVOKE, TnyBytes, ToolSpec
+
+            workspace = os.path.join(root, "workspace")
+            os.makedirs(workspace)
+            opts, keep = runtime_options(lib, base_url, workspace, None, persistence=0)
+            runtime = ctypes.c_void_p()
+            error = ctypes.c_void_p()
+            assert (
+                lib.tny_runtime_create(
+                    ctypes.byref(opts),
+                    ctypes.sizeof(opts),
+                    ctypes.byref(runtime),
+                    ctypes.byref(error),
+                )
+                == 0
+            )
+            lib.tny_runtime_register_tool.argtypes = [
+                ctypes.c_void_p,
+                ctypes.POINTER(ToolSpec),
+                ctypes.POINTER(ctypes.c_void_p),
+                ctypes.POINTER(ctypes.c_void_p),
+            ]
+            lib.tny_runtime_register_tool.restype = ctypes.c_int32
+            spec = ToolSpec()
+            spec.abi_version = 1
+            spec.struct_size = ctypes.sizeof(spec)
+            spec.name = TnyBytes(
+                b"list_files" if scenario == "tool_error" else b"fault_tool", 10
+            )
+            description = b"copied metadata beyond small string capacity"
+            schema = b'{"type":"object","properties":{"value":{"type":"string"}}}'
+            spec.description = TnyBytes(description, len(description))
+            spec.input_schema_json = TnyBytes(schema, len(schema))
+            callback = INVOKE(lambda *_args: 0)
+            spec.invoke = callback
+            registration = ctypes.c_void_p()
+            rc = lib.tny_runtime_register_tool(
+                runtime,
+                ctypes.byref(spec),
+                ctypes.byref(registration),
+                ctypes.byref(error),
+            )
+            injected = observe(lib, stats)
+            expected = -1 if scenario == "tool_error" else 0
+            if (injected and (rc != OOM or registration.value)) or (
+                not injected
+                and (rc != expected or bool(registration.value) != (expected == 0))
+            ):
+                die(57)
+            free_error(lib, error)
+            if injected:
+                os.environ["TNY_TEST_ALLOC_SCOPE"] = "disabled"
+                spec.name = TnyBytes(b"fault_tool", 10)
+                if (
+                    lib.tny_runtime_register_tool(
+                        runtime,
+                        ctypes.byref(spec),
+                        ctypes.byref(registration),
+                        ctypes.byref(error),
+                    )
+                    != 0
+                ):
+                    die(58)
+            lib.tny_runtime_free(runtime)
+            del keep, callback
+
         elif scenario == "runtime_create":
             workspace = os.path.join(root, "workspace")
             state = os.path.join(root, "state")
@@ -653,6 +720,8 @@ def main():
     try:
         for scenario, scope in (
             ("runtime_create", "runtime_create"),
+            ("tool_register", "tool_register"),
+            ("tool_error", "tool_register"),
             ("session_create", "session_create"),
             ("session_open", "session_open"),
             ("session_send", "session_send"),

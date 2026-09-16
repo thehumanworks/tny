@@ -336,3 +336,9 @@ process tool; that tool cannot spawn and the library writes no host stdio.
 Linux keeps LeakSanitizer enabled. Darwin's ASan runtime reports leak detection
 unsupported, so macOS runs the same native host with ASan/UBSan while Linux is
 the leak-sensitive gate.
+
+Private implementation ownership is described by
+[ADR 0116](adr/0116-runtime-event-and-async-ownership.md). Event views continue
+to survive session/runtime teardown until `tny_event_free`. The provider's
+pending-tool handle is independent of the host's async-release handle; no
+new public concurrency or release obligation is introduced.

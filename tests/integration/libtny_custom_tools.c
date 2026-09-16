@@ -2,6 +2,7 @@
 #include "tny/tny.h"
 
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,7 +14,18 @@ _Static_assert(sizeof(tny_tool_result_v1) == 64, "tool result v1 changed");
 _Static_assert(sizeof(tny_tool_spec_v1) == 160, "tool spec v1 changed");
 _Static_assert(sizeof(tny_capabilities_v1) == 344, "capabilities v1 changed");
 
-typedef enum { MODE_SYNC, MODE_ASYNC, MODE_ASYNC_VALIDATE, MODE_CANCEL, MODE_CLOSE } invoke_mode;
+typedef enum {
+    MODE_SYNC,
+    MODE_ASYNC,
+    MODE_ASYNC_VALIDATE,
+    MODE_CANCEL,
+    MODE_CLOSE,
+    MODE_UNREGISTER,
+    MODE_CANCEL_LATE,
+    MODE_EARLY,
+    MODE_UNREGISTER_RACE,
+    MODE_CLOSE_RACE
+} invoke_mode;
 
 typedef struct {
     tny_runtime *runtime;
@@ -38,7 +50,9 @@ static tny_bytes view(const char *text) { return (tny_bytes){text, (uint64_t)str
 
 static void *complete_later(void *opaque) {
     callback_state *state = opaque;
-    if (state->mode == MODE_CANCEL || state->mode == MODE_CLOSE) {
+    if (state->mode == MODE_CANCEL || state->mode == MODE_CLOSE || state->mode == MODE_UNREGISTER ||
+        state->mode == MODE_CANCEL_LATE || state->mode == MODE_UNREGISTER_RACE ||
+        state->mode == MODE_CLOSE_RACE) {
         pthread_mutex_lock(&state->gate_mutex);
         while (!state->release_completion)
             pthread_cond_wait(&state->gate_condition, &state->gate_mutex);
@@ -93,6 +107,17 @@ static int32_t invoke(void *opaque, tny_tool_call *call, uint64_t generation, tn
             return TNY_STATUS_INTERNAL;
         result->data = view("sync-result");
         return TNY_TOOL_INVOKE_SYNC;
+    }
+    if (state->mode == MODE_EARLY) {
+        tny_tool_result_v1 completion;
+        if (tny_tool_result_v1_init(&completion, sizeof completion) != TNY_STATUS_OK)
+            return TNY_STATUS_INTERNAL;
+        char copied[] = "async-result";
+        completion.data = view(copied);
+        state->first_completion = tny_tool_call_complete(call, generation, &completion, NULL);
+        memset(copied, 'x', sizeof copied - 1);
+        tny_tool_call_release(call);
+        return TNY_TOOL_INVOKE_ASYNC;
     }
     if (pthread_create(&state->thread, NULL, complete_later, state) != 0)
         return TNY_STATUS_INTERNAL;
@@ -243,7 +268,8 @@ static int run_mode(const char *workspace, const char *url, invoke_mode mode) {
     int tool_ends = 0;
     struct timespec started = {0};
     if (mode == MODE_ASYNC || mode == MODE_ASYNC_VALIDATE) clock_gettime(CLOCK_MONOTONIC, &started);
-    if (mode == MODE_CANCEL || mode == MODE_CLOSE) {
+    if (mode == MODE_CANCEL || mode == MODE_CLOSE || mode == MODE_UNREGISTER ||
+        mode == MODE_CANCEL_LATE || mode == MODE_UNREGISTER_RACE || mode == MODE_CLOSE_RACE) {
         for (;;) {
             tny_event *event = NULL;
             int32_t status = tny_session_next_event(session, 5000, &event, NULL);
@@ -252,14 +278,36 @@ static int run_mode(const char *workspace, const char *url, invoke_mode mode) {
             tny_event_free(event);
             if (kind == TNY_EVENT_TOOL_START) break;
         }
-        if (mode == MODE_CLOSE) {
-            tny_runtime_free(runtime);
+        if (mode == MODE_CLOSE || mode == MODE_UNREGISTER || mode == MODE_CANCEL_LATE ||
+            mode == MODE_UNREGISTER_RACE || mode == MODE_CLOSE_RACE) {
+            bool race = mode == MODE_UNREGISTER_RACE || mode == MODE_CLOSE_RACE;
+            if (race) {
+                pthread_mutex_lock(&state.gate_mutex);
+                state.release_completion = 1;
+                pthread_cond_broadcast(&state.gate_condition);
+                pthread_mutex_unlock(&state.gate_mutex);
+            }
+            if (mode == MODE_CLOSE || mode == MODE_CLOSE_RACE) tny_runtime_free(runtime);
+            else if (mode == MODE_UNREGISTER || mode == MODE_UNREGISTER_RACE) {
+                tny_session_free(session);
+                if (tny_tool_registration_unregister(registration, NULL) != TNY_STATUS_OK)
+                    return 48;
+            } else {
+                if (tny_session_cancel(session, NULL) != TNY_STATUS_OK ||
+                    tny_session_cancel(session, NULL) != TNY_STATUS_OK ||
+                    drain_turn(session, 0, TNY_STOP_REASON_INTERRUPTED, &tool_ends))
+                    return 49;
+                tny_session_free(session);
+            }
             pthread_mutex_lock(&state.gate_mutex);
             state.release_completion = 1;
             pthread_cond_broadcast(&state.gate_condition);
             pthread_mutex_unlock(&state.gate_mutex);
             pthread_join(state.thread, NULL);
-            if (state.first_completion != TNY_STATUS_BAD_STATE) return 45;
+            if (state.first_completion != TNY_STATUS_BAD_STATE &&
+                !(race && state.first_completion == TNY_STATUS_OK))
+                return 45;
+            if (mode != MODE_CLOSE && mode != MODE_CLOSE_RACE) tny_runtime_free(runtime);
             pthread_cond_destroy(&state.gate_condition);
             pthread_mutex_destroy(&state.gate_mutex);
             return 0;
@@ -289,7 +337,8 @@ static int run_mode(const char *workspace, const char *url, invoke_mode mode) {
          state.second_completion != TNY_STATUS_BAD_STATE ||
          state.stale_completion != TNY_STATUS_BAD_STATE))
         return 41;
-    if (mode == MODE_ASYNC && state.first_completion != TNY_STATUS_OK) return 47;
+    if ((mode == MODE_ASYNC || mode == MODE_EARLY) && state.first_completion != TNY_STATUS_OK)
+        return 47;
     if (mode == MODE_CANCEL && state.first_completion != TNY_STATUS_OK &&
         state.first_completion != TNY_STATUS_BAD_STATE)
         return 42;
@@ -331,6 +380,14 @@ int main(int argc, char **argv) {
     if (!status) status = run_mode(argv[1], argv[2], MODE_ASYNC_VALIDATE);
     if (!status) status = run_mode(argv[1], argv[2], MODE_CANCEL);
     if (!status) status = run_mode(argv[1], argv[2], MODE_CLOSE);
+    for (int i = 0; !status && i < 10; ++i) {
+        status = run_mode(argv[1], argv[2], MODE_UNREGISTER);
+        if (!status) status = run_mode(argv[1], argv[2], MODE_CANCEL_LATE);
+        if (!status) status = run_mode(argv[1], argv[2], MODE_EARLY);
+        if (!status) status = run_mode(argv[1], argv[2], MODE_CANCEL);
+        if (!status) status = run_mode(argv[1], argv[2], MODE_UNREGISTER_RACE);
+        if (!status) status = run_mode(argv[1], argv[2], MODE_CLOSE_RACE);
+    }
     if (!status) status = denied_mode(argv[1], argv[2]);
     if (status) {
         fprintf(stderr, "libtny-custom-tools failed at %d\n", status);
