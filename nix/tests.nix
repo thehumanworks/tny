@@ -154,6 +154,9 @@ stdenv.mkDerivation {
   # them, and a loaded builder can expire the 1s TERM grace before a
   # cooperative child's EXIT trap records the active-count drop.
   buildPhase = ''
+    # Python fixtures drop MAKEFLAGS. Preserve dyld's numeric override through
+    # their environment too, without exporting an empty override on Linux.
+    ${lib.optionalString stdenv.hostPlatform.isDarwin "export LIBTNY_MACH_CURRENT_VERSION=1.0.0"}
     runHook preBuild
     for fixture in codex.toml claude-user.json claude-project.json \
       grok.toml grok-project.toml cursor-user.json cursor-project.json \

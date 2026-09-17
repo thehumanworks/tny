@@ -256,11 +256,12 @@ int main() { return 0; }
                 )
                 self.assertNotIn("-fno-lto", kept)
 
-    def test_windows_responses_lto_exemption_is_narrow(self):
+    def test_windows_request_and_runner_lto_exemption_is_narrow(self):
         self.write(
             "src/backends/openai/responses.cpp",
             "int response_fixture() { return 0; }\n",
         )
+        self.write("src/core/runner.cpp", "int runner_fixture() { return 0; }\n")
         for windows in (0, 1):
             output = self.make(
                 "-n", "-B", "release", f"WINDOWS={windows}", "CC=echo", "CXX=echo"
@@ -276,12 +277,16 @@ int main() { return 0; }
                     if command[command.index("-o") + 1].endswith(suffix)
                 )
 
-            response = options("src/backends/openai/responses.cpp.o")
-            self.assertIn("-Os", response)
-            self.assertIn("-Werror", response)
-            self.assertIn("-fexceptions", response)
-            self.assertEqual("-fno-lto" in response, bool(windows))
-            self.assertEqual("-flto=auto" in response, not windows)
+            for suffix in (
+                "src/backends/openai/responses.cpp.o",
+                "src/core/runner.cpp.o",
+            ):
+                response = options(suffix)
+                self.assertIn("-Os", response)
+                self.assertIn("-Werror", response)
+                self.assertIn("-fexceptions", response)
+                self.assertEqual("-fno-lto" in response, bool(windows))
+                self.assertEqual("-flto=auto" in response, not windows)
             for suffix in (
                 "src/util/probe.o",
                 "src/util/probe.cpp.o",
@@ -298,6 +303,24 @@ int main() { return 0; }
                 "CXX=echo",
             )
             self.assertNotIn("-fno-lto", output)
+
+    def test_darwin_numeric_version_survives_nested_make_environment(self):
+        self.make_args = [
+            arg
+            for arg in self.make_args
+            if not arg.startswith("LIBTNY_MACH_CURRENT_VERSION=")
+        ]
+        with patch.dict(os.environ, {"LIBTNY_MACH_CURRENT_VERSION": "1.2.3"}):
+            output = self.make(
+                "-n",
+                "-B",
+                "lib-shared-active",
+                "UNAME_S=Darwin",
+                "TNY_VERSION=abc1234",
+                "CC=echo",
+                "CXX=echo",
+            )
+        self.assertIn("-Wl,-current_version,1.2.3", output)
 
     def test_gitless_quality_discovery_keeps_first_party_sources(self):
         self.write("scripts/discovery.sh", "#!/bin/sh\necho discovery\n")

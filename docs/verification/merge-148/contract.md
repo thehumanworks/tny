@@ -22,3 +22,10 @@ Native goal: not created; tool instructions permit creation only on explicit use
 or system/developer request. That restriction overrides skill goal-linked mode.
 Evidence: evidence.md. Stop only after all four invariants have current proof, or
 report a concrete external blocker without claiming merge success.
+
+## Review amendment
+
+Independent plan review: integration_plan_review. Add to I2: `make test-abi`,
+`make test-native-leaks` and `make leaks`; release artifact <6,000,000 bytes.
+Hosted wasm/SDK/Nix/Windows checks are required on the delivered source.
+No public ABI or historical ADR changes.

@@ -2058,9 +2058,28 @@ TEST request_construction_oom_after_usage_skips_finalization(void) {
                     tny_alloc_scope_begin("disabled");
                     char *after = file_slurp(fault.path, NULL);
                     ASSERT(after);
-                    if (!discovery) ASSERT_STR_EQ(fault.snapshot, after);
+                    if (!discovery && !fault.body) ASSERT_STR_EQ(fault.snapshot, after);
                     yyjson_doc *saved = jparse(after, strlen(after));
                     ASSERT(saved);
+                    if (!discovery && fault.body) {
+                        /* The ordinary batch save precedes the injected request
+                         * failure and may cross a wall-clock second. Only its
+                         * updated timestamp may differ from the pre-save snapshot;
+                         * settlement must still allocate nothing or change data. */
+                        yyjson_doc *before = jparse(fault.snapshot, strlen(fault.snapshot));
+                        ASSERT(before);
+                        yyjson_val *root = yyjson_doc_get_root(saved);
+                        yyjson_val *prior = yyjson_doc_get_root(before);
+                        ASSERT_EQ(yyjson_obj_size(prior), yyjson_obj_size(root));
+                        ASSERT(yyjson_is_str(jget(root, "updated")));
+                        size_t i, count;
+                        yyjson_val *key, *value;
+                        yyjson_obj_foreach(prior, i, count, key, value) {
+                            if (!yyjson_equals_str(key, "updated"))
+                                ASSERT(yyjson_equals(value, jget(root, yyjson_get_str(key))));
+                        }
+                        yyjson_doc_free(before);
+                    }
                     yyjson_val *usage = jget(yyjson_doc_get_root(saved), "usage");
                     ASSERT_EQ(123, jget_int(usage, "in", -1));
                     yyjson_doc_free(saved);
