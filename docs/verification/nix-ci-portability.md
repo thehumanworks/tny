@@ -53,7 +53,8 @@ importing the native-request migration or its Windows LTO changes.
 `tests/integration/test_cpp_build.py`: 14 tests, 13 passed, one existing
 Emscripten-runtime skip delegated to the hosted wasm lane. The Darwin regression
 checks normal, fault-injected, and sanitizer libraries. Compiler discovery covers
-seven command forms. Restoring only the ambiguous linker argument binding in a
+seven command forms, including checks from an environment with inherited C++
+driver overrides (cleared only for the default-discovery fixture). Restoring only the ambiguous linker argument binding in a
 disposable Makefile produces exactly two parser errors for the single sanitizer
 flag; restoring the original compiler mapping produces three pairing failures.
 

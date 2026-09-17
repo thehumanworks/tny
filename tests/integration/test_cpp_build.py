@@ -258,6 +258,11 @@ int main() { return 0; }
                 self.assertNotIn("-fno-lto", kept)
 
     def test_default_cxx_driver_pairs_unversioned_and_versioned_compilers(self):
+        # Nix/toolchain shells may export explicit drivers. This test exercises
+        # default discovery, not those intentional environment overrides.
+        environment = self.child_environment()
+        for name in ("CXX", "ANALYZER_CXX"):
+            environment.pop(name, None)
         for cc, cxx in (
             ("cc", "c++"),
             ("gcc", "g++"),
@@ -286,6 +291,7 @@ int main() { return 0; }
                         "compiler-pair",
                     ],
                     input="compiler-pair:\n\t@printf '%s\\n' '$(CXX)' '$(ANALYZER_CXX)'\n",
+                    env=environment,
                 )
                 self.assertEqual(run.stdout.splitlines(), [cxx, cxx])
 
