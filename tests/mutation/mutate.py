@@ -806,7 +806,12 @@ TARGETS = [
         None,
         "tests/integration/test_acp.sh",
     ),
-    ("src/backends/openai/responses.c", None, None, "tests/integration/test_openai.py"),
+    (
+        "src/backends/openai/responses.cpp",
+        None,
+        None,
+        "tests/integration/test_openai.py",
+    ),
     (
         "src/backends/openai/openai.c",
         ["build_request_rsp", "on_sse_event_rsp", "rsp_call_by_index", "on_sse_event"],
@@ -979,12 +984,12 @@ EQUIVALENT = [
     # loop-bound style flips guarded by the NULL-role/NULL-item skip on the
     # far side (arr_get past the end returns NULL), or arithmetically
     # identical at the boundary value (boundary>0 vs >=0 both start at 0).
-    "responses.c:for (size_t i = boundary > 0 ? (size_t)boundary : 0; i < total; i++) {",
+    "responses.cpp:for (size_t i = boundary > 0 ? (size_t)boundary : 0; i < total; i++) {",
     # yyjson's foreach macros no-op on a non-container, so dropping the
     # is_arr/is_obj half of the guard cannot change the output (the
     # malformed-session unit test pins the contract either way).
-    "responses.c:if (tcs && yyjson_mut_is_arr(tcs)) add_function_calls(d, arr, tcs);",
-    "responses.c:if (js && yyjson_is_obj(js)) {",
+    "responses.cpp:if (tcs && yyjson_mut_is_arr(tcs)) add_function_calls(d, arr, tcs);",
+    "responses.cpp:if (js && yyjson_is_obj(js)) {",
     # yyjson's array foreach is type/NULL safe. Flipping these container guards
     # can enter the loop body for a non-array, but it still performs zero
     # iterations and produces the same missing-option/confirmation result.

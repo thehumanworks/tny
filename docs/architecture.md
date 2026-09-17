@@ -222,3 +222,15 @@ provider's cancel. Providers release transports, processes and parser storage
 without constructing RPCs, tool results or transcript JSON; the runtime then
 delivers its preallocated OOM ERROR/TURN_END pair. Ordinary cancellation is
 unchanged. See [ADR 0117](adr/0117-allocation-free-provider-oom-settlement.md).
+
+## Native request and turn ownership (ADR 0127)
+
+The native C provider loop borrows private C++ aggregates for request builder
+scratch/JSON/serialized storage, HTTP connections, retained turn buffers and
+permission/custom records. Provider views are released after their last builder
+use; body/header/path borrows survive stale connection replay. Pending admission
+copies borrowed metadata before moving the parsed call, so allocation failure
+preserves the source. Async invalidation, cancellation deferral, continuation,
+consumed tool indices and persistence remain explicit C transitions. Destructors
+only release resources. See [ADR 0127](adr/0127-native-provider-request-owners.md)
+and the [ownership inventory](verification/issue-144/ownership.md).

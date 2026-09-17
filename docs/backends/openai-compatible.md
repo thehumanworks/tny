@@ -46,7 +46,7 @@ chat` for one run.
 
 Sessions persist **chat-shaped messages** on either wire (the portable
 format; old sessions resume unchanged). The responses wire translates at
-request time (`src/backends/openai/responses.c`).
+request time (`src/backends/openai/responses.cpp`).
 
 Responses request (minimum):
 
@@ -428,3 +428,13 @@ error diagnostics do not echo raw provider bodies.
   stream failures before any output are retried per ADR 0069, honoring a
   numeric `Retry-After`; the turn is a run error (exit 2) once the budget is
   spent.
+
+Request builders, HTTP connections, retained turn buffers and pending tool
+records use private owners behind the existing C provider loop ([ADR 0127](../adr/0127-native-provider-request-owners.md)). A stale
+keep-alive resend retains its body and headers, and temporary auth storage is
+wiped on every exit. Pending admission copies metadata before moving a parsed
+call; failed transfers cannot replay late completions. Continuation text and
+completed tool logs retain their existing consumption rules. A control stop on
+the second stale-socket attempt ends as interrupted before sending. Wire formats,
+backoff timing and tool permission policy are unchanged.
+Native and wasm share this implementation; it adds no new provider capability.

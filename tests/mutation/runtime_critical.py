@@ -181,7 +181,7 @@ def provider_failure_mutations(directory):
             "    session_save(o->env.session);\n    emit_turn_end(o, TNY_STOP_ERROR);\n"
             "    tny_alloc_settlement_end();",
             "request_construction_oom",
-            "fault.fault_index != tny_alloc_test_scope_count()",
+            "0 != tny_alloc_test_settlement_allocations()",
         ),
         (
             "decoder-observe-recovery",
@@ -205,7 +205,7 @@ def provider_failure_mutations(directory):
             "request_oom:\n",
             "request_oom:\n    session_save(o->env.session);\n",
             "request_construction_oom",
-            "fault.fault_index != tny_alloc_test_scope_count()",
+            "0 != tny_alloc_test_settlement_allocations()",
         ),
         (
             "sdk-error-oom-fallback",

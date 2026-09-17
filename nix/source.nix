@@ -176,3 +176,6 @@ in
     fileset = testFiles;
   };
 }
+
+# The existing ../tests fileset includes native_ownership.py and the optional
+# tests/bench/bench_requests.{c,py,mk} overlay; no new source root is needed.
