@@ -18,7 +18,7 @@
 #define WALK_MAX_FILES 20000
 #define GREP_MAX_FILE  (2u * 1024u * 1024u)
 #define GREP_MAX_HITS  500
-/* Files scanned per fan-out round (ADR 0127): bounds both the overshoot past
+/* Files scanned per fan-out round (ADR 0132): bounds both the overshoot past
  * the hit cap and the number of thread create/join rounds over a full walk. */
 #define GREP_BATCH 256
 

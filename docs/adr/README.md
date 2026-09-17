@@ -118,4 +118,14 @@ files in this directory are the complete record.
 
 - [0126 — Checkpoint context ownership](0126-checkpoint-context-ownership.md)
 
-- [0127 — Bounded fan-out for independent per-file work](0127-bounded-fan-out-for-independent-file-work.md)
+- [0127 — Native request and retained-turn ownership](0127-native-provider-request-owners.md)
+
+- [0128 — Native Windows GCC Responses LTO exemption](0128-windows-responses-lto-workaround.md)
+
+- [0129 — Integrated Windows runner LTO exemption](0129-integrated-windows-runner-lto.md)
+
+- [0130 — Windows stream decoder LTO exemption](0130-windows-decoder-lto.md)
+
+- [0131 — Consistent native C++ release graph on Windows GCC](0131-windows-gcc-private-cpp-lto-boundary.md)
+
+- [0132 — Bounded fan-out for independent per-file work](0132-bounded-fan-out-for-independent-file-work.md)

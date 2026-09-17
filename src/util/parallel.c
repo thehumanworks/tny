@@ -1,4 +1,4 @@
-/* parallel.c -- bounded fork/join over independent work items (ADR 0127). */
+/* parallel.c -- bounded fork/join over independent work items (ADR 0132). */
 #include "util/parallel.h"
 #include "util/alloc.h"
 

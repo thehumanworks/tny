@@ -1,4 +1,4 @@
-# ADR 0127: Bounded fan-out for independent per-file work
+# ADR 0132: Bounded fan-out for independent per-file work
 
 Date: 2026-09-17. Status: accepted.
 

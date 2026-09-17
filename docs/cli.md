@@ -870,7 +870,7 @@ In-process turns remain only on wasm, with `--ephemeral`, or with the
 `TNY_ISOLATE=0` debug escape hatch.
 `TNY_THREADS=1` keeps the bounded per-file fan-out of `grep_files`,
 `semantic_search` and image source loading on the calling thread
-([ADR 0127](adr/0127-bounded-fan-out-for-independent-file-work.md)); the
+([ADR 0132](adr/0132-bounded-fan-out-for-independent-file-work.md)); the
 output is identical either way, only the wall-clock time differs.
 
 Every socket client first handshakes as `owner`, `observer`, or `tool`. The

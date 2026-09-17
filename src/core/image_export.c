@@ -376,7 +376,7 @@ static void source_item(size_t i, void *ud) {
 }
 
 /* Sources are independent slots, so their reads and hashes overlap (ADR
- * 0127); the first failing slot in request order is the one reported. */
+ * 0132); the first failing slot in request order is the one reported. */
 static int sources_load(const tny_image_export_request *r, export_source *sources, size_t count,
                         char *err, size_t errlen) {
     source_result results[TNY_IMAGE_EXPORT_SOURCES_MAX];

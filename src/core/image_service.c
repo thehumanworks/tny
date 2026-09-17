@@ -412,7 +412,7 @@ static void reference_item(size_t i, void *ud) {
 }
 
 /* References are independent slots, so their reads and hashes overlap (ADR
- * 0127); the first failing slot in plan order is the one reported. */
+ * 0132); the first failing slot in plan order is the one reported. */
 static int load_references(const tny_image_request *r, tny_image_plan *plan,
                            tny_image_input *inputs, char *err, size_t len) {
     reference_result results[TNY_IMAGE_REFERENCES_MAX];

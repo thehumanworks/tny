@@ -1,4 +1,4 @@
-/* parallel.h -- bounded fork/join over independent work items (ADR 0127).
+/* parallel.h -- bounded fork/join over independent work items (ADR 0132).
  *
  * A pool exists only for the duration of one call: workers are created,
  * every index in [0, count) is claimed exactly once, and all workers are
