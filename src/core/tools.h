@@ -11,6 +11,10 @@
 #include "core/backend.h"
 #include "core/image_preview.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct mcp_client;    /* mcp/mcp.h */
 struct tny_intercept; /* core/intercept.h */
 struct tny_image_plan;
@@ -137,7 +141,10 @@ bool tools_call_pending(const tools_call *call);
 int tools_call_take_async(tools_call *call, char **result, bool *is_error);
 void tools_call_invalidate_async(tools_call *call);
 void tools_call_free(tools_call *call);
-/* Private resource-only destructor seam: invalidate/consume async authority first. */
+/* Private resource-only destructor seam. Async authority must already be moved,
+ * consumed or explicitly invalidated. A live custom_call aborts in ALL builds
+ * (including NDEBUG), before releasing any resource; no destructor invalidates
+ * a generation. tools_call_free remains the ordinary invalidate-and-release API. */
 void tools_call_release_storage(tools_call *call);
 
 /* Undo the last mutating file tool (session-scoped). Returns malloc'd
@@ -221,4 +228,7 @@ int tools_queue_image_preview(tools_env *env, const char *path, const char *expe
                               uint64_t expected_bytes, const char **code_out, char *err,
                               size_t errlen);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

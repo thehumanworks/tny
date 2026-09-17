@@ -10,6 +10,7 @@
 #include "backends/openai/openai.h"
 #include "backends/openai/stream_decode.h"
 #include "backends/openai/turn_owner.h"
+#include "backends/openai/request_owner.h"
 #include "core/config.h"
 #include "core/runtime.h"
 #include "lib/custom_tools.h"
@@ -1155,13 +1156,15 @@ typedef struct {
     size_t fault_index, offset, prefix, construction_count;
     char *snapshot;
     char *path;
-    bool armed;
+    bool armed, retained_view;
 } request_fault_fixture;
 
 static void request_fault_control(const tny_openai_control_request *request,
                                   tny_openai_control_response *response, void *ud) {
     (void)response;
     request_fault_fixture *f = ud;
+    if (request->kind == TNY_OPENAI_CONTROL_PROVIDER_REQUEST)
+        f->retained_view |= !oa_request_test_builder_released_view();
     if (f->armed) {
         if (f->body && !f->offset && request->kind == TNY_OPENAI_CONTROL_PROVIDER_REQUEST) {
             f->construction_count = tny_alloc_test_scope_count() - f->prefix;
@@ -1338,7 +1341,8 @@ static void *native_replay_server(void *ud) {
     return NULL;
 }
 typedef struct {
-    bool active, stop;
+    bool active, stop, reentrant;
+    tny_backend *backend;
     int attempts, sequence[3];
 } native_replay_control_state;
 static void native_replay_control(const tny_openai_control_request *request,
@@ -1347,14 +1351,17 @@ static void native_replay_control(const tny_openai_control_request *request,
     if (!s->active || request->kind != TNY_OPENAI_CONTROL_PROVIDER_REQUEST) return;
     if (s->attempts < 3) s->sequence[s->attempts] = request->attempt;
     s->attempts++;
-    if (s->stop && s->attempts == 2) response->stop = true;
+    if (s->stop && s->attempts == 2) {
+        if (s->reentrant) s->backend->cancel(s->backend);
+        else response->stop = true;
+    }
 }
 #endif
 TEST native_request_real_stale_replay_and_control_stop(void) {
 #ifdef _WIN32
     SKIPm("TCP RST peer fixture uses POSIX thread/socket APIs");
 #else
-    for (int stop = 0; stop < 2; ++stop) {
+    for (int stop = 0; stop < 3; ++stop) {
         native_replay_peer peer = {.stop = stop != 0};
         peer.listener = socket(AF_INET, SOCK_STREAM, 0);
         ASSERT(peer.listener >= 0);
@@ -1377,7 +1384,8 @@ TEST native_request_real_stale_replay_and_control_stop(void) {
         p.ctx->base_url = xstrdup(url);
         free(p.ctx->wire_api);
         p.ctx->wire_api = xstrdup("responses");
-        native_replay_control_state control = {.stop = stop != 0};
+        native_replay_control_state control = {
+            .stop = stop != 0, .reentrant = stop == 2, .backend = p.backend};
         tny_backend_openai_bind(p.backend, p.session, p.perm, NULL, NULL, NULL, NULL, NULL, NULL,
                                 NULL, NULL, native_replay_control, &control);
         ASSERT_EQ(0, pv_turn(&p, "first keep-alive turn"));
@@ -1391,6 +1399,7 @@ TEST native_request_real_stale_replay_and_control_stop(void) {
         ASSERT_EQ(1, control.sequence[0]);
         ASSERT_EQ(2, control.sequence[1]);
         ASSERT_EQ(stop ? TNY_STOP_INTERRUPTED : TNY_STOP_DONE, p.stop);
+        ASSERT_EQ(2, p.turn_ends); /* one terminal per turn, even when cancel reenters */
         ASSERT_EQ(0, p.errors);
         pv_close(&p); /* closes an unsubmitted reopened socket after control stop */
         ASSERT_EQ(0, pthread_join(thread, NULL));
@@ -1495,6 +1504,169 @@ TEST native_cancel_headers_raw_error_and_retry_waits(void) {
     }
     PASS();
 #endif
+}
+
+static void native_first_control_cancel(const tny_openai_control_request *request,
+                                        tny_openai_control_response *response, void *ud) {
+    (void)response;
+    pv_fixture *p = ud;
+    if (request->kind != TNY_OPENAI_CONTROL_PROVIDER_REQUEST) return;
+    p->hook_calls++;
+    if (p->terminal_case) {
+        p->backend->disconnect(p->backend);
+        return;
+    }
+    p->backend->cancel(p->backend);
+    p->backend->cancel(p->backend);
+}
+TEST native_request_reentrant_first_control_cancel(void) {
+#ifdef _WIN32
+    SKIPm("POSIX socket fixture");
+#else
+    int listener = socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT(listener >= 0);
+    struct sockaddr_in addr = {.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
+    ASSERT_EQ(0, bind(listener, (struct sockaddr *)&addr, sizeof addr));
+    ASSERT_EQ(0, listen(listener, 2));
+    socklen_t size = sizeof addr;
+    ASSERT_EQ(0, getsockname(listener, (struct sockaddr *)&addr, &size));
+    pv_fixture p;
+    pv_open(&p);
+    p.ctx->library_mode = true;
+    char url[128];
+    snprintf(url, sizeof url, "http://127.0.0.1:%u/v1", ntohs(addr.sin_port));
+    free(p.ctx->base_url);
+    p.ctx->base_url = xstrdup(url);
+    tny_backend_openai_bind(p.backend, p.session, p.perm, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                            NULL, native_first_control_cancel, &p);
+    for (int i = 1; i <= 2; ++i) {
+        ASSERT_EQ(0, pv_turn(&p, "cancel before sending"));
+        ASSERT_EQ(i, p.turn_ends);
+        ASSERT_EQ(i, p.hook_calls);
+        ASSERT_EQ(TNY_STOP_INTERRUPTED, p.stop);
+        ASSERT_EQ(0, p.errors);
+        int fd = accept(listener, NULL, NULL);
+        ASSERT(fd >= 0);
+        buf_t received = {0};
+        ASSERT_EQ(0, native_read_request(fd, &received));
+        ASSERT_EQ(0, received.len);
+        buf_free(&received);
+        close(fd);
+    }
+    p.terminal_case = 1;
+    char err[256];
+    ASSERT_EQ(-2, p.backend->send(p.backend, "invalidated connection", NULL, pv_event, &p, err,
+                                  sizeof err));
+    ASSERT(!tny_alloc_scope_failed());
+    ASSERT_EQ(3, p.turn_ends);
+    ASSERT_EQ(1, p.errors);
+    ASSERT_EQ(TNY_STOP_ERROR, p.stop);
+    int empty = accept(listener, NULL, NULL);
+    ASSERT(empty >= 0);
+    buf_t received = {0};
+    ASSERT_EQ(0, native_read_request(empty, &received));
+    buf_free(&received);
+    close(empty);
+    pv_close(&p);
+    close(listener);
+    PASS();
+#endif
+}
+
+TEST native_continuation_retains_text(void) {
+    pv_fixture p;
+    pv_open(&p);
+    p.ctx->library_mode = true;
+    p.first_body = "data: {\"choices\":[{\"delta\":{\"content\":\"partial \"}}]}\n\n";
+    p.done_body = "{\"choices\":[{\"message\":{\"content\":\"tail\"},\"finish_reason\":\"stop\"}]}";
+    ASSERT_EQ(0, pv_turn(&p, "continue from a partial response"));
+    ASSERT_EQ(2, p.requests);
+    ASSERT_EQ(1, p.turn_ends);
+    ASSERT_EQ(TNY_STOP_DONE, p.stop);
+    ASSERT(strstr(p.bodies[1].data, "partial "));
+    yyjson_mut_val *last = yyjson_mut_arr_get_last(session_messages(p.session));
+    ASSERT_STR_EQ("partial tail", yyjson_mut_get_str(yyjson_mut_obj_get(last, "content")));
+    pv_close(&p);
+    PASS();
+}
+
+typedef struct {
+    pv_fixture *p;
+    int first, second;
+} native_checkpoint_fixture;
+static void native_checkpoint_control(const tny_openai_control_request *request,
+                                      tny_openai_control_response *response, void *ud) {
+    (void)response;
+    native_checkpoint_fixture *f = ud;
+    if (request->kind != TNY_OPENAI_CONTROL_POST_TOOL) return;
+    if (!strcmp(request->tool_id, "consumed-first")) {
+        f->first++;
+        tny_backend_openai_background(f->p->backend);
+    } else if (!strcmp(request->tool_id, "remaining-second")) f->second++;
+}
+static void native_backend_tick(pv_fixture *p) {
+    struct pollfd fds[HTTP_SERVER_POLLFD_CAPACITY + TNY_BACKEND_POLLFD_MAX];
+    int sn = http_server_pollfds(p->server, fds, HTTP_SERVER_POLLFD_CAPACITY);
+    int bn = p->backend->pollfds(p->backend, fds + sn, TNY_BACKEND_POLLFD_MAX);
+    (void)tny_poll(fds, (nfds_t)(sn + bn), 1);
+    (void)http_server_dispatch(p->server, fds, sn);
+    (void)p->backend->dispatch(p->backend, fds + sn, bn);
+}
+TEST native_checkpoint_retains_steer_and_consumed_index(void) {
+    pv_fixture p;
+    pv_open(&p);
+    p.ctx->library_mode = true;
+    p.first_body = "{\"choices\":[{\"message\":{\"content\":\"batch "
+                   "text\",\"tool_calls\":[{\"id\":\"consumed-first\",\"type\":\"function\","
+                   "\"function\":{\"name\":\"list_files\",\"arguments\":\"{}\"}},{\"id\":"
+                   "\"remaining-second\",\"type\":\"function\",\"function\":{\"name\":\"list_"
+                   "files\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}";
+    native_checkpoint_fixture f = {.p = &p};
+    tny_backend_openai_bind(p.backend, p.session, p.perm, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                            NULL, native_checkpoint_control, &f);
+    char err[256];
+    ASSERT_EQ(0, p.backend->send(p.backend, "checkpoint", NULL, pv_event, &p, err, sizeof err));
+    for (int i = 0; i < 2000 && !tny_backend_openai_parked(p.backend) && !p.ended; ++i)
+        native_backend_tick(&p);
+    ASSERT(tny_backend_openai_parked(p.backend));
+    ASSERT_EQ(1, f.first);
+    ASSERT_EQ(0, f.second);
+    ASSERT_EQ(0, p.turn_ends);
+    ASSERT_EQ(0, p.backend->steer(p.backend, "parked checkpoint steer", err, sizeof err));
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(jallocator());
+    yyjson_mut_val *checkpoint = tny_backend_openai_checkpoint(p.backend, doc);
+    ASSERT(checkpoint);
+    yyjson_mut_doc_set_root(doc, checkpoint);
+    ASSERT_EQ(1, yyjson_mut_get_int(yyjson_mut_obj_get(checkpoint, "tool_index")));
+    char *serialized = jwrite(doc);
+    yyjson_mut_doc_free(doc);
+    ASSERT(serialized);
+    yyjson_doc *saved = jparse(serialized, strlen(serialized));
+    free(serialized);
+    ASSERT(saved);
+    p.backend->destroy(p.backend);
+    p.backend = tny_backend_openai_new(p.ctx);
+    ASSERT(p.backend);
+    tny_backend_openai_bind(p.backend, p.session, p.perm, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                            NULL, native_checkpoint_control, &f);
+    ASSERT_EQ(0, tny_backend_openai_restore(p.backend, yyjson_doc_get_root(saved), pv_event, &p));
+    yyjson_doc_free(saved);
+    ASSERT_EQ(0, tny_backend_openai_continue(p.backend));
+    for (int i = 0; i < 2000 && !p.ended; ++i) native_backend_tick(&p);
+    ASSERT_EQ(1, p.turn_ends); /* restore reopens terminal authority */
+    ASSERT_EQ(TNY_STOP_DONE, p.stop);
+    ASSERT_EQ(1, f.first);
+    ASSERT_EQ(1, f.second);
+    ASSERT_EQ(2, p.requests);
+    ASSERT(strstr(p.bodies[1].data, "parked checkpoint steer"));
+    ASSERT(strstr(p.bodies[1].data, "batch text"));
+    const char *log_text = tny_backend_openai_toolcalls_json(p.backend);
+    yyjson_doc *log = jparse(log_text, strlen(log_text));
+    ASSERT(log);
+    ASSERT_EQ(2, yyjson_arr_size(yyjson_doc_get_root(log)));
+    yyjson_doc_free(log);
+    pv_close(&p);
+    PASS();
 }
 
 TEST native_pending_lifecycle_and_allocation_sweeps(void) {
@@ -1606,6 +1778,7 @@ TEST native_pending_lifecycle_and_allocation_sweeps(void) {
                     tny_tool_call_release(f.host);
                     f.host = NULL;
                 }
+                if (!injected && (mode == 1 || mode == 2 || mode == 3)) ASSERT_EQ(1, f.tools);
                 if (!injected && mode != 1 && mode != 2 && mode != 3 && mode != 7) {
                     ASSERT_EQ(1, f.tools);
                     ASSERT_EQ(2, p.requests);
@@ -1766,123 +1939,165 @@ TEST request_construction_oom_after_usage_skips_finalization(void) {
     free(xstrdup("instrumentation probe"));
     if (!tny_alloc_test_scope_count())
         SKIPm("transport objects are not allocator-instrumented in this binary");
-    for (int wire = 0; wire < 2; ++wire)
-        for (int mode = 0; mode < 4; mode++) {
-            size_t construction_count = 0;
-            for (size_t offset = 0; offset <= construction_count; ++offset) {
-                bool steer = mode == 1;
-                tny_alloc_scope_begin("disabled");
-                pv_fixture f;
-                pv_open(&f);
-                f.ctx->library_mode =
-                    true; /* actual runtime embedding path: no CLI skill discovery */
-                free(f.ctx->wire_api);
-                f.ctx->wire_api = xstrdup(wire ? "chat" : "responses");
-                const char *schema =
-                    "{\"type\":\"object\",\"properties\":{\"answer\":{\"type\":\"string\"}}}";
-                free(f.ctx->output_schema);
-                f.ctx->output_schema = tny_openai_response_format(schema, strlen(schema));
-                ASSERT(f.ctx->output_schema);
-                f.first_body =
-                    steer ? "{\"status\":\"completed\",\"usage\":{\"input_tokens\":123,\"output_"
-                            "tokens\":7},"
-                            "\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_"
-                            "text\","
-                            "\"text\":\"first answer\"}]}]}"
-                          : "{\"status\":\"completed\",\"usage\":{\"input_tokens\":123,\"output_"
-                            "tokens\":7},"
-                            "\"output\":[{\"type\":\"function_call\",\"call_id\":\"request-oom\","
-                            "\"name\":\"list_files\",\"arguments\":\"{}\"}]}";
-                if (wire)
+    char isolated[] = "/tmp/tny-cli-request-XXXXXX";
+    ASSERT(mkdtemp(isolated));
+    char *saved_home = getenv("HOME") ? xstrdup(getenv("HOME")) : NULL;
+    char *saved_tmp = getenv("TMPDIR") ? xstrdup(getenv("TMPDIR")) : NULL;
+    char canonical_home[4096];
+    ASSERT(realpath(isolated, canonical_home));
+    setenv("HOME", canonical_home, 1);
+    setenv("TMPDIR", canonical_home, 1);
+    for (int cli = 0; cli < 2; ++cli)
+        for (int wire = 0; wire < 2; ++wire)
+            for (int mode = 0; mode < 4; mode++) {
+                size_t construction_count = 0;
+                for (size_t offset = 0; offset <= construction_count; ++offset) {
+                    bool steer = mode == 1;
+                    tny_alloc_scope_begin("disabled");
+                    pv_fixture f;
+                    pv_open(&f);
+                    f.ctx->library_mode = !cli;
+                    if (cli) {
+                        char directory[1024], path[1100];
+                        snprintf(directory, sizeof directory, "%s/skills/fixture", f.workspace);
+                        ASSERT_EQ(0, mkdir_p(directory));
+                        snprintf(path, sizeof path, "%s/SKILL.md", directory);
+                        const char *skill = "---\nname: fixture\ndescription: dummy request "
+                                            "catalog\n---\nNo external actions.\n";
+                        ASSERT_EQ(0, file_write_atomic(path, skill, strlen(skill)));
+                    }
+                    free(f.ctx->wire_api);
+                    f.ctx->wire_api = xstrdup(wire ? "chat" : "responses");
+                    const char *schema =
+                        "{\"type\":\"object\",\"properties\":{\"answer\":{\"type\":\"string\"}}}";
+                    free(f.ctx->output_schema);
+                    f.ctx->output_schema = tny_openai_response_format(schema, strlen(schema));
+                    ASSERT(f.ctx->output_schema);
                     f.first_body =
-                        steer ? "{\"choices\":[{\"message\":{\"content\":\"first "
-                                "answer\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_"
-                                "tokens\":123,\"completion_tokens\":7}}"
-                              : "{\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"request-"
-                                "oom\",\"type\":\"function\",\"function\":{\"name\":\"list_files\","
-                                "\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}],"
-                                "\"usage\":{\"prompt_tokens\":123,\"completion_tokens\":7}}";
-                tny_engine *engine = tny_engine_new(f.ctx, f.session, f.perm, NULL, NULL);
-                ASSERT(engine);
-                char err[512];
-                ASSERT_EQ(0, tny_engine_prepare(engine, f.backend, TNY_ENGINE_PREPARE_RESUMED, err,
-                                                sizeof err));
-                request_fault_fixture fault = {
-                    .fixture = &f, .body = mode == 2, .parser = mode == 3, .offset = offset};
-                fault.path = path_join(f.session->dir, "session.json");
-                tny_backend_openai_bind(f.backend, f.session, f.perm, NULL, NULL, NULL, NULL, NULL,
-                                        NULL, NULL, NULL, request_fault_control, &fault);
-                ASSERT_EQ(0, tny_engine_start(engine, "first", NULL, err, sizeof err));
-                if (steer) ASSERT_EQ(0, tny_engine_steer(engine, "continue", err, sizeof err));
-                for (int i = 0; i < 1000 && !fault.armed; i++) {
-                    struct pollfd fds[HTTP_SERVER_POLLFD_CAPACITY + TNY_BACKEND_POLLFD_MAX];
-                    int sn = http_server_pollfds(f.server, fds, HTTP_SERVER_POLLFD_CAPACITY);
-                    int bn = tny_engine_pollfds(engine, fds + sn, TNY_BACKEND_POLLFD_MAX);
-                    ASSERT(tny_poll(fds, (nfds_t)(sn + bn), 10) >= 0);
-                    ASSERT_EQ(0, http_server_dispatch(f.server, fds, sn));
-                    (void)tny_engine_dispatch(engine, fds + sn, bn);
-                }
-                ASSERT(fault.armed && fault.snapshot);
-                bool discovery = mode == 2 && offset == 0;
-                if (discovery) {
-                    construction_count = fault.construction_count;
-                    ASSERT(construction_count > 5);
-                } else {
-                    ASSERT(tny_alloc_test_scope_injected());
-                    ASSERT(tny_alloc_test_scope_count() >= fault.fault_index);
-                }
-                ASSERT_EQ(0, tny_alloc_test_settlement_allocations());
-                ASSERT_EQ(fault.parser ? 2 : 1,
-                          f.requests); /* construction failure never submits */
-                unsetenv("TNY_TEST_ALLOC_SCOPE");
-                unsetenv("TNY_TEST_ALLOC_FAIL_AT");
-                size_t settled_count = tny_alloc_test_scope_count();
-                int errors = 0, terminals = 0;
-                tny_owned_event *event = NULL;
-                for (;;) {
-                    tny_engine_next rc = tny_engine_next_event(engine, 0, &event, err, sizeof err);
-                    if (rc == TNY_ENGINE_NEXT_DRAINED) break;
-                    ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, rc);
-                    if (event->ev.kind == TNY_EV_ERROR) {
-                        ASSERT_EQ(TNY_EVENT_ERROR_OOM, event->ev.error_code);
-                        errors++;
+                        steer
+                            ? "{\"status\":\"completed\",\"usage\":{\"input_tokens\":123,\"output_"
+                              "tokens\":7},"
+                              "\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_"
+                              "text\","
+                              "\"text\":\"first answer\"}]}]}"
+                            : "{\"status\":\"completed\",\"usage\":{\"input_tokens\":123,\"output_"
+                              "tokens\":7},"
+                              "\"output\":[{\"type\":\"function_call\",\"call_id\":\"request-oom\","
+                              "\"name\":\"list_files\",\"arguments\":\"{}\"}]}";
+                    if (wire)
+                        f.first_body =
+                            steer ? "{\"choices\":[{\"message\":{\"content\":\"first "
+                                    "answer\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_"
+                                    "tokens\":123,\"completion_tokens\":7}}"
+                                  : "{\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"request-"
+                                    "oom\",\"type\":\"function\",\"function\":{\"name\":\"list_"
+                                    "files\","
+                                    "\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}],"
+                                    "\"usage\":{\"prompt_tokens\":123,\"completion_tokens\":7}}";
+                    tny_engine *engine = tny_engine_new(f.ctx, f.session, f.perm, NULL, NULL);
+                    ASSERT(engine);
+                    char err[512];
+                    ASSERT_EQ(0, tny_engine_prepare(engine, f.backend, TNY_ENGINE_PREPARE_RESUMED,
+                                                    err, sizeof err));
+                    request_fault_fixture fault = {
+                        .fixture = &f, .body = mode == 2, .parser = mode == 3, .offset = offset};
+                    fault.path = path_join(f.session->dir, "session.json");
+                    tny_backend_openai_bind(f.backend, f.session, f.perm, NULL, NULL, NULL, NULL,
+                                            NULL, NULL, NULL, NULL, request_fault_control, &fault);
+                    ASSERT_EQ(0, tny_engine_start(engine, "first", NULL, err, sizeof err));
+                    if (steer) ASSERT_EQ(0, tny_engine_steer(engine, "continue", err, sizeof err));
+                    for (int i = 0; i < 1000 && !fault.armed; i++) {
+                        struct pollfd fds[HTTP_SERVER_POLLFD_CAPACITY + TNY_BACKEND_POLLFD_MAX];
+                        int sn = http_server_pollfds(f.server, fds, HTTP_SERVER_POLLFD_CAPACITY);
+                        int bn = tny_engine_pollfds(engine, fds + sn, TNY_BACKEND_POLLFD_MAX);
+                        ASSERT(tny_poll(fds, (nfds_t)(sn + bn), 10) >= 0);
+                        ASSERT_EQ(0, http_server_dispatch(f.server, fds, sn));
+                        (void)tny_engine_dispatch(engine, fds + sn, bn);
                     }
-                    if (event->ev.kind == TNY_EV_TURN_END) {
-                        ASSERT_EQ(discovery ? 0 : 1, errors);
-                        ASSERT_EQ(discovery ? TNY_STOP_INTERRUPTED : TNY_STOP_ERROR,
-                                  event->ev.stop);
-                        terminals++;
+                    ASSERT(fault.armed && fault.snapshot);
+                    ASSERT(!fault.retained_view);
+                    bool discovery = mode == 2 && offset == 0;
+                    if (discovery) {
+                        construction_count = fault.construction_count;
+                        ASSERT(construction_count > 5);
+                    } else {
+                        ASSERT(tny_alloc_test_scope_injected());
+                        ASSERT(tny_alloc_test_scope_count() >= fault.fault_index);
                     }
-                    tny_owned_event_free(event);
+                    ASSERT_EQ(0, tny_alloc_test_settlement_allocations());
+                    ASSERT_EQ(fault.parser ? 2 : 1,
+                              f.requests); /* construction failure never submits */
+                    unsetenv("TNY_TEST_ALLOC_SCOPE");
+                    unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+                    size_t settled_count = tny_alloc_test_scope_count();
+                    int errors = 0, terminals = 0;
+                    tny_owned_event *event = NULL;
+                    for (;;) {
+                        tny_engine_next rc =
+                            tny_engine_next_event(engine, 0, &event, err, sizeof err);
+                        if (rc == TNY_ENGINE_NEXT_DRAINED) break;
+                        ASSERT_EQ(TNY_ENGINE_NEXT_EVENT, rc);
+                        if (event->ev.kind == TNY_EV_ERROR) {
+                            ASSERT_EQ(TNY_EVENT_ERROR_OOM, event->ev.error_code);
+                            errors++;
+                        }
+                        if (event->ev.kind == TNY_EV_TURN_END) {
+                            ASSERT_EQ(discovery ? 0 : 1, errors);
+                            ASSERT_EQ(discovery ? TNY_STOP_INTERRUPTED : TNY_STOP_ERROR,
+                                      event->ev.stop);
+                            terminals++;
+                        }
+                        tny_owned_event_free(event);
+                    }
+                    ASSERT_EQ(discovery ? 0 : 1, errors);
+                    ASSERT_EQ(1, terminals);
+                    if (!discovery)
+                        ASSERT_EQ(
+                            settled_count,
+                            tny_alloc_test_scope_count()); /* delivery also allocated nothing */
+                    tny_alloc_scope_begin("disabled");
+                    char *after = file_slurp(fault.path, NULL);
+                    ASSERT(after);
+                    if (!discovery) ASSERT_STR_EQ(fault.snapshot, after);
+                    yyjson_doc *saved = jparse(after, strlen(after));
+                    ASSERT(saved);
+                    yyjson_val *usage = jget(yyjson_doc_get_root(saved), "usage");
+                    ASSERT_EQ(123, jget_int(usage, "in", -1));
+                    yyjson_doc_free(saved);
+                    free(after);
+                    free(fault.snapshot);
+                    free(fault.path);
+                    /* The same backend must admit a fresh request after every failure. */
+                    tny_backend_openai_bind(f.backend, f.session, f.perm, NULL, NULL, NULL, NULL,
+                                            NULL, NULL, NULL, NULL, NULL, NULL);
+                    f.first_body = f.done_body =
+                        wire ? "{\"choices\":[{\"message\":{\"content\":\"recovered\"},\"finish_"
+                               "reason\":\"stop\"}]}"
+                             : "{\"status\":\"completed\",\"output\":[]}";
+                    native_pending_fixture recovered = {0};
+                    ASSERT_EQ(0, tny_engine_start(engine, "recover", NULL, err, sizeof err));
+                    for (int i = 0; i < 2000 && !recovered.ends; ++i)
+                        ASSERT_EQ(0, native_pending_drive(&f, engine, &recovered));
+                    ASSERT_EQ(1, recovered.ends);
+                    ASSERT_EQ(0, recovered.errors);
+                    ASSERT_EQ(TNY_STOP_DONE, recovered.stop);
+                    tny_engine_free(engine); /* owns f.backend */
+                    perm_free(f.perm);
+                    session_close(f.session);
+                    tny_ctx_free(f.ctx);
+                    http_server_destroy(&f.server);
+                    buf_free(&f.error_text);
+                    buf_free(&f.callback_text);
+                    for (size_t i = 0; i < sizeof f.bodies / sizeof f.bodies[0]; i++)
+                        buf_free(&f.bodies[i]);
                 }
-                ASSERT_EQ(discovery ? 0 : 1, errors);
-                ASSERT_EQ(1, terminals);
-                if (!discovery)
-                    ASSERT_EQ(settled_count,
-                              tny_alloc_test_scope_count()); /* delivery also allocated nothing */
-                tny_alloc_scope_begin("disabled");
-                char *after = file_slurp(fault.path, NULL);
-                ASSERT(after);
-                if (!discovery) ASSERT_STR_EQ(fault.snapshot, after);
-                yyjson_doc *saved = jparse(after, strlen(after));
-                ASSERT(saved);
-                yyjson_val *usage = jget(yyjson_doc_get_root(saved), "usage");
-                ASSERT_EQ(123, jget_int(usage, "in", -1));
-                yyjson_doc_free(saved);
-                free(after);
-                free(fault.snapshot);
-                free(fault.path);
-                tny_engine_free(engine); /* owns f.backend */
-                perm_free(f.perm);
-                session_close(f.session);
-                tny_ctx_free(f.ctx);
-                http_server_destroy(&f.server);
-                buf_free(&f.error_text);
-                buf_free(&f.callback_text);
-                for (size_t i = 0; i < sizeof f.bodies / sizeof f.bodies[0]; i++)
-                    buf_free(&f.bodies[i]);
             }
-        }
+    if (saved_home) setenv("HOME", saved_home, 1);
+    else unsetenv("HOME");
+    if (saved_tmp) setenv("TMPDIR", saved_tmp, 1);
+    else unsetenv("TMPDIR");
+    free(saved_home);
+    free(saved_tmp);
     PASS();
 }
 #endif
@@ -1895,6 +2110,9 @@ SUITE(openai_suite) {
     RUN_TEST(native_request_constructor_allocation_sweep);
     RUN_TEST(native_request_real_stale_replay_and_control_stop);
     RUN_TEST(native_cancel_headers_raw_error_and_retry_waits);
+    RUN_TEST(native_request_reentrant_first_control_cancel);
+    RUN_TEST(native_continuation_retains_text);
+    RUN_TEST(native_checkpoint_retains_steer_and_consumed_index);
 #endif
     RUN_TEST(cancellation_inside_decode_preserves_callback_and_reuse);
     RUN_TEST(cpp_ownership_boundary);

@@ -87,6 +87,7 @@ typedef struct {
     bool thinking_seen; /* any reasoning reached the frontend this step */
     int step;
     bool cancelled;
+    bool turn_open; /* guards terminal delivery, including reentrant request-control cancel */
     bool (*tool_cancel_probe)(void *);
     void *tool_cancel_ud;
     int retries;         /* retries spent on this step's model call */
@@ -226,7 +227,8 @@ static bool provider_oom(void) {
 static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
     /* Under provider OOM the runtime settles with its reserved pair through
      * emergency cancel; ordinary finalization must not allocate here. */
-    if (provider_oom()) return;
+    if (provider_oom() || !o->turn_open) return;
+    o->turn_open = false;
     /* Settlement callbacks may cancel again; the turn is already ending. */
     o->state = ST_IDLE;
     preview_not_delivered(o, "the turn ended before the next request was sent");
@@ -978,6 +980,10 @@ static tny_openai_control_response provider_control(oa_impl *o, tny_openai_contr
 
 static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) {
     char err[256] = {0};
+    if (o->cancelled) {
+        emit_turn_end(o, TNY_STOP_INTERRUPTED);
+        return 0;
+    }
     if (tny_alloc_scope_failed()) {
         tny_alloc_provider_failed();
         return -2;
@@ -1098,7 +1104,11 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     }
     if (rc != 0) {
         snprintf(errbuf, errlen, "provider request failed");
-        return -1;
+        if (rc == -2) {
+            emit_error(o, TNY_EVENT_ERROR_INTERNAL, errbuf, strlen(errbuf));
+            emit_turn_end(o, TNY_STOP_ERROR);
+        }
+        return rc; /* only the allocation latch identifies OOM */
     }
     /* A successful write is submission, not proof of perception. From here
      * retries/history must retain these exact bytes. */
@@ -1951,6 +1961,7 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images, tny_
     o->background_armed = o->background_boundary = false;
     o->step = 0;
     o->cancelled = false;
+    o->turn_open = true;
     o->usage_in = o->usage_out = 0;
     memset(&o->usage, 0, sizeof o->usage);
     o->usage_seen = o->usage_recorded = false;
@@ -2008,7 +2019,7 @@ static int oa_steer(tny_backend *b, const char *text, char *errbuf, size_t errle
 
 static void oa_cancel(tny_backend *b) {
     oa_impl *o = b->impl;
-    if (o->state == ST_IDLE && !tny_alloc_settling()) return;
+    if (!o->turn_open && !tny_alloc_settling()) return;
     o->cancelled = true;
     if (o->parser_active) return;
     if (tny_alloc_settling()) {
@@ -2043,6 +2054,7 @@ static void oa_cancel(tny_backend *b) {
         o->background_armed = o->background_boundary = false;
         secure_zero(o->turn_state, sizeof o->turn_state);
         o->state = ST_IDLE;
+        o->turn_open = false;
         /* The runtime already owns the terminal/error pair. Its event callback
          * suppresses this stack view without copying it. */
         tny_backend_event ev = {.kind = TNY_EV_TURN_END, .stop = TNY_STOP_ERROR};
@@ -2722,6 +2734,8 @@ int tny_backend_openai_restore(tny_backend *b, yyjson_val *r, tny_backend_event_
     }
     o->tool_batch_active = true;
     o->state = ST_CHECKPOINT;
+    o->cancelled = false;
+    o->turn_open = !tny_alloc_scope_failed();
     return tny_alloc_scope_failed() ? -1 : 0;
 }
 

@@ -64,3 +64,36 @@ Other review requests/observations:
 The supervisor's confirmed isolated full first-slice provider run and untouched
 baseline provider/background runs passed. Earlier partial-environment failures
 are superseded and are not evidence of a candidate provider defect.
+
+## Final initial-candidate review and hosted CI corrections
+
+[Claude Fable high final review](reviews/final-fable-initial.md), read-only,
+completed on `2d710b60294c8bd5fa0657182b81984d4e13b1a4`, initial source manifest
+`b18b0d5e...`, exit 0. The entire task-cache final-review.log was read before
+implementing these corrections. This is a conditional review of the initial
+candidate, not approval of the subsequently changed source. Both first reviews
+remain explicitly dispositioned above, including the preserved
+[supplemental report](reviews/first-slice-fable-supplement.md).
+
+| Final finding | Implemented disposition / actual oracle |
+| --- | --- |
+| O1 guard absent in NDEBUG; two kills only hit assert | `tools_call_release_storage` now aborts on a live custom lease in all builds; pending reset calls it before freeing metadata. No destructor invalidates. Runner compiles/links an NDEBUG guard baseline and observes SIGABRT. It separately compiles a guard-removed **private test copy**, requires that normal baseline to pass, and then reruns cancel-authority/pending-lifetime mutants against it. Cancel-authority fails the actual late-completion BAD_STATE assertion; pending-lifetime fails actual pending result consumption. Guard catches and semantic failures have separate report fields/logs. No production bypass flag exists. |
+| O2 reentrant request-control cancel can emit two terminals | Turn-open latch set by send/successful restore, consumed before terminal callbacks and cleared by OOM settlement. Direct `backend->cancel` is tested twice at first control and at the stale reopened second edge; exactly one terminal per turn, zero request bytes. `terminal-once` mutant fails the duplicate-terminal oracle. |
+| O3 shipped CLI skills OOM skipped | Fixed bounded home/cwd, path join, frontmatter temporary strings, partial catalog and copied directory failures in skills.c. The complete construction sweep runs both CLI and embedding modes on both wires with dummy skills, canonical throwaway HOME/cwd, reserved pair/no settlement allocation/no failed POST/unchanged persisted session and same-engine recovery. The earlier CLI deferral above is resolved. |
+| O4 inaccurate common assertion count | Historical evidence corrected to observed 18,763 sanitizer versus 18,785 nonsanitizer assertions. New per-gate counts are reported individually. Old manifests do not prove new code. Committed ADR0127 and initial contract remain unchanged. |
+| Cancelled retry still constructs a request | `start_post_mode` exits before counters, allocations or control when already cancelled. It uses the idempotent terminal path. |
+| -2 nonretryable status converted to retryable I/O | Propagate -2 and terminate an unlatch-ed precondition failure as internal error without declaring OOM. Direct control-disconnect fixture asserts -2, one terminal and no allocation-failure latch; cancellation cases assert successful interrupted completion. |
+| Weak provider-view release oracle | Test-only sample records view state **before** prepare's defensive reset; actual provider control checks it. `builder-view-release` removes both builder releases and fails the real construction test; the defensive-reset mutant remains separately tested. |
+| Retention/steer/index mutants missing | Added real partial SSE continuation/persisted-text oracle; checkpoint park/serialize/new-backend restore/continue asserts retained steer, first tool consumed once, second tool once and two retained log entries. Added continuation-retention, steer-transfer, checkpoint-index and cancel-consumed-index mutants; cancel fixture now asserts exactly one tool-end. |
+| Include hygiene | tools.h now owns its C-linkage block, after includes. turn_owner.h includes it before its own extern-C block. |
+| Runner inherits user environment | Runner uses an explicit allowlist plus fresh HOME/TMPDIR/XDG paths. Maintained unit test injects dummy provider/tool/fault/Make environment and proves exclusion. |
+| Broader callback reentrancy unproven | Explicit limitations recorded in ownership.md; no claim for direct complete_tool/note_repairs/STEER_REJECTED reentry. |
+| GCC subobject-linkage hosted failures | Request member types moved to a uniquely named private-detail namespace. No warning suppression. Local GCC14 compiles/runs the actual fixture with -Werror; Linux/MSYS hosted reruns remain supervisor work. |
+| Windows GCC15.3 LTO ICE in Responses | Reused the existing native Windows/GCC-only exemption list for responses.cpp, preserving -Os and every other nonexempt object's/link's LTO. New ADR0128 records CI/upstream evidence and scope. Actual Makefile dry-run test verifies the narrow flag behavior. Local flag evidence is not a Windows build pass. |
+
+The original nine-kill claim overstated the two assert-only results. The current
+maintained runner records **15 semantic mutant failures**, with additional
+production-guard catches for the two lease violations. Compilation, linking,
+normal and guard-removed control baselines must pass; compile errors/timeouts
+cannot count as kills. Full leak/remote/frozen-suite/performance/PR acceptance
+remains with the supervisor.

@@ -197,10 +197,12 @@ REL_OBJS := $(call objects,$(OBJ_REL),$(SRC)) $(call objects,$(OBJ_REL),$(TP))
 # jobs.cpp's supervisor launcher, which calls the private descriptor owners.
 # That module alone becomes a native object on that lane (ADR 0122); every
 # other object and the link keep -flto=auto, -Os, -fexceptions and -Werror.
+# responses.cpp independently hits the same GCC assertion in GIMPLE tailr
+# (ADR 0128). Its exemption uses the same native-Windows/GCC-only boundary.
 # Empty on every other host and driver. LTO_EXEMPT_CPP= re-tests a fixed GCC.
 LTO_EXEMPT_CPP ?=
 ifeq ($(WINDOWS):$(REL_LTO),1:-flto=auto)
-  LTO_EXEMPT_CPP += src/core/jobs.cpp
+  LTO_EXEMPT_CPP += src/core/jobs.cpp src/backends/openai/responses.cpp
 endif
 ifneq ($(strip $(LTO_EXEMPT_CPP)),)
 $(call objects,$(OBJ_REL),$(LTO_EXEMPT_CPP)): Makefile

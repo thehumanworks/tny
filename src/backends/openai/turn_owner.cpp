@@ -1,15 +1,13 @@
 #include "backends/openai/turn_owner.h"
 #include "util/ownership.hpp"
-#include <cassert>
 
 extern "C" void oa_pending_reset(oa_pending *pending) {
-    assert(!pending->call.custom_call);
+    tools_call_release_storage(&pending->call);
     std::free(pending->id);
     std::free(pending->original_args);
     std::free(pending->effective_args);
     std::free(pending->control_extension);
     std::free(pending->control_reason);
-    tools_call_release_storage(&pending->call);
     *pending = {};
 }
 namespace {

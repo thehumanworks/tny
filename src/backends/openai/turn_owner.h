@@ -2,10 +2,10 @@
  * Mutate buffers through buf_*; use admission/reset for pending resources. */
 #ifndef TNY_OPENAI_TURN_OWNER_H
 #define TNY_OPENAI_TURN_OWNER_H
+#include "core/tools.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
-#include "core/tools.h"
 typedef struct {
     char *id;
     tools_call call;

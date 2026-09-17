@@ -7,7 +7,7 @@ extern "C" {
 #include <cstring>
 #include <limits>
 
-namespace {
+namespace tny_native_request_detail {
 struct connection_deleter {
     void operator()(http_conn *p) const noexcept { http_close(p); }
 };
@@ -41,13 +41,13 @@ struct secret_header {
         *out = '\0';
     }
 };
-} // namespace
+} // namespace tny_native_request_detail
 
 struct oa_connection_owner {
-    std::unique_ptr<http_conn, connection_deleter> connection;
+    std::unique_ptr<http_conn, tny_native_request_detail::connection_deleter> connection;
 };
 
-namespace {
+namespace tny_native_request_detail {
 struct build_buffer {
     buf_t value{};
     build_buffer() = default;
@@ -55,13 +55,13 @@ struct build_buffer {
     build_buffer &operator=(const build_buffer &) = delete;
     ~build_buffer() noexcept { buf_free(&value); }
 };
-} // namespace
+} // namespace tny_native_request_detail
 struct oa_request_owner {
-    std::array<build_buffer, OA_BUILD_BUFFER_COUNT> scratch;
+    std::array<tny_native_request_detail::build_buffer, OA_BUILD_BUFFER_COUNT> scratch;
     std::array<tny::c_string, OA_BUILD_STRING_COUNT> strings;
     tny::mutable_document view;
     tny::c_string body;
-    secret_header auth;
+    tny_native_request_detail::secret_header auth;
     tny::string path;
     std::array<tny::c_string, 4> addons;
     /* At most 11 standard/profile + 4 add-ons + 3 affinity + terminator. */
@@ -118,11 +118,18 @@ extern "C" yyjson_mut_doc *oa_request_take_view(oa_request_owner *request, yyjso
     request->view.reset(view);
     return request->view.get();
 }
+#ifdef TNY_ALLOC_TESTING
+static thread_local bool builder_released_view;
+extern "C" bool oa_request_test_builder_released_view(void) { return builder_released_view; }
+#endif
 extern "C" int oa_request_prepare(oa_request_owner *request, char *body,
                                   const oa_request_options *options) {
     tny::c_string incoming(body);
     if (request->attempted) return -2;
     request->attempted = true;
+#ifdef TNY_ALLOC_TESTING
+    builder_released_view = !request->view;
+#endif
     request->view.reset();
     request->body = std::move(incoming);
     try {

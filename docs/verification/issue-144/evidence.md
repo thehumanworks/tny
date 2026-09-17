@@ -1,6 +1,7 @@
 # Issue #144 implementation evidence
 
-Overall acceptance: **INCOMPLETE — supervisor handoff**. Implementation and
+Overall acceptance: **INCOMPLETE — supervisor handoff**. See the post-review
+addendum below for corrections and current focused proof. Implementation and
 focused checks are complete; the immutable V01–V10 scope has not been reduced.
 The supervisor owns frozen full gates, final review, performance, wasm and PR.
 
@@ -13,7 +14,7 @@ Initial contract SHA-256:
 bytes match commit `08b07a0`. All 132 historical ADR files match the base.
 Public headers/ABI files are unchanged. #142 remains untouched.
 
-## Current focused proof
+## Initial candidate focused proof (superseded by post-review source)
 
 All commands use `python3 /Users/tomas/.cache/tny-issue-144/run-gate.py NAME
 "$PWD" COMMAND`, from `/Users/tomas/projects/tny`. The helper allowlists the
@@ -33,8 +34,9 @@ untracked source. Documentation is outside the helper's source manifest.
 | `native-changed-quality2` | exit 0 | `make TNY_VERSION=1.0.0 BUILD=build-issue144-quality SANITIZE=0 tidy warn-strict TIDY_SRC="src/backends/openai/openai.c src/backends/openai/request_owner.cpp src/backends/openai/turn_owner.cpp src/backends/openai/responses.cpp src/core/tools.c" && actionlint .github/workflows/ci.yml && ruff check tests/mutation/native_ownership.py tests/mutation/mutate.py tests/bench/bench_requests.py && clang-format --dry-run --Werror src/backends/openai/openai.c src/backends/openai/openai.h src/backends/openai/request_owner.cpp src/backends/openai/request_owner.h src/backends/openai/turn_owner.cpp src/backends/openai/turn_owner.h src/backends/openai/responses.cpp src/core/tools.c src/core/tools.h tests/test_openai.c tests/fixtures/native_request_ownership.cpp tests/bench/bench_requests.c` |
 | `native-integrity` | exit 0 | `Python byte comparisons of branch/HEAD, initial contract, historical ADRs, public headers/ABI and benchmark trio; `git diff --check` (full command in JSON)` |
 
-- Both sanitizer and nonsanitizer runtime runs: **33 tests, 18,763 assertions,
-  zero failures/skips**. The owner fixture discovers **17 allocation indices**
+- Historical sanitizer run: **33 tests, 18,763 assertions**; historical
+  nonsanitizer run: **33 tests, 18,785 assertions**, both zero failures/skips.
+  These are observed per-gate totals, not one common count. The owner fixture discovers **17 allocation indices**
   across request aggregate, scratch, JSON, body/auth/headers/path and transport.
 - Runtime construction discovers the complete post-save/post-open construction
   range through provider request control on both wires, including structured
@@ -121,3 +123,68 @@ All exact development commands, exit statuses, hash manifests and logs are
 listed in `/Users/tomas/.cache/tny-issue-144/implementation-summary.md` and their
 adjacent per-run JSON files. The summary is an implementation handoff, not a
 whole-issue delivery claim.
+
+## Post-review corrected source — current focused evidence
+
+The implementation resumed from committed/pushed supervisor candidate
+`2d710b60294c8bd5fa0657182b81984d4e13b1a4`, same branch and draft PR148.
+No commit/push/branch/worktree/reviewer operation was performed by this worker.
+Full final gates and PR delivery remain supervisor-owned.
+
+All six final focused records below have exit 0, unchanged source during the
+run, and identical source/test/configuration manifest SHA-256:
+`2ce15c4c2632bc8d406f5400084e68acb317c7b9c779b5a858caf45024e3de8d`.
+Individual hashes and exact commands are in task-cache NAME.json; stdout and
+compiler commands are in NAME.log. These supersede the b18b0d5e-bound results
+for changed code. Documentation is outside the helper's source manifest.
+
+| Gate | Observed result |
+| --- | --- |
+| postreview-sanitizer | 36 tests, **29,569 assertions**, no failures/skips; request fixture sweeps 17 indices; ASan/UBSan |
+| postreview-nosan | 36 tests, **29,689 assertions**, no failures/skips; request fixture sweeps 17 indices |
+| postreview-quality | changed production clang-tidy/strict C+C++ warnings, changed C/C++ format, Python Ruff checks pass |
+| postreview-build-and-environment | two maintained tests pass: actual Makefile Windows exemption flag scope; mutant environment allowlist/throwaway paths |
+| postreview-gcc-final | GCC14 -Werror builds and runs the real request-owner fixture, 17 indices; no subobject-linkage suppression |
+| postreview-integrity | same branch/HEAD, immutable initial contract and committed ADR0127, unchanged public ABI, and all five preceding source manifests match current files |
+
+Both final native-mutation targets additionally pass normal control baselines,
+a compiled/linked **NDEBUG guard** probe (SIGABRT), and a compiled/linked private
+guard-removed baseline (normal suite passes). All **15 mutants** compile/link and
+fail actual semantic oracles. For cancel-authority and pending-lifetime,
+production-guard catches are reported separately, followed by guard-removed
+private-copy failures: late completion wrongly accepted and pending result lost.
+No production guard bypass flag exists. Final reports:
+
+- `postreview-sanitizer`: `build/issue-144-postreview-san/native-mutations/run-euhjevd9/report.json`
+- `postreview-nosan`: `build/issue-144-postreview-nosan/native-mutations/run-g45w2lm9/report.json`
+
+The construction test now runs actual CLI and embedding configurations on both
+wires, with canonical throwaway HOME/cwd and dummy skills. It discovers all
+construction indices and checks one reserved OOM pair, no settlement allocation,
+no failed POST, unchanged previously persisted usage/session and same-engine
+recovery. Bounded skills guards resolve the previously deferred CLI crash.
+
+New/strengthened oracles include direct first/reopened-edge cancellation (one
+terminal, zero submitted bytes); -2 nonretryable precondition failure without
+an OOM latch; view released before prepare's defensive reset, observed through
+real provider control; actual partial SSE continuation text persistence; and
+checkpoint serialize/new-backend restore/continue preserving steer, text/logs
+and the consumed tool index. The cancellation oracle also requires exactly one
+tool-end. Broader untested direct callback reentry remains explicitly outside
+these guarantees (ownership.md).
+
+The local GCC fixture addresses the observed member-linkage defect. ADR0128
+adds only responses.cpp to the existing Windows/GCC native-release LTO exemption
+list. The Makefile test is flag proof, not a Windows build. The supervisor must
+rerun hosted Windows/musl/valgrind and final full source-bound suites. This worker
+ran no full make test/quality/fault/ABI/wasm/performance gate, per instruction.
+No new leak, remote, size or benchmark claim is made. Initial-candidate wasm,
+unit, TSan/source-snapshot and other supervisor results are not final-fix proof.
+
+Development failures remain recorded: initial retention fixture sent a complete
+JSON body instead of an interrupted SSE event; initial checkpoint-log assertion
+expected IDs where the log stores tool names; initial build-rule test forced a
+command-line REL_LTO that overrode target-specific values. Corrected maintained
+oracles pass. The first formatting attempt reported Python E701 issues; final
+format/lint passes. No compile error or timeout was counted as a mutant kill.
+The final review and both first-review dispositions are explicit in reviews.md.

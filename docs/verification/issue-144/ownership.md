@@ -34,3 +34,30 @@ and full injected C/C++ objects, not a partly instrumented unit graph. The
 request-owner fixture's aggregate counter does not count plain C buffers/JSON;
 ASan/UBSan and the separate host leak gate complement that counter. A passing
 counter alone is not a whole-process memory-leak proof.
+
+## Post-review corrections and reentrancy boundary
+
+Resource-only teardown now rejects a live custom lease with an always-on abort
+in `tools_call_release_storage`, before any storage release, including NDEBUG
+builds. It does not invalidate a generation. `oa_pending_reset` invokes that
+seam first; C transitions remain responsible for consuming/moving/invalidating.
+
+A turn-open latch now makes terminal emission idempotent for direct cancellation
+at provider-request control, including the first request and the stale reopened
+second edge. It is restored with a successful checkpoint restore and cleared on
+ordinary terminal or emergency settlement. Already-cancelled retry entry skips
+request construction/control. A -2 precondition send failure is terminal and
+nonretryable without setting the OOM latch; ordinary cancellation returns success
+with one interrupted terminal.
+
+The allocation sweep now covers **both embedding and actual CLI configuration**,
+with canonical throwaway HOME/cwd and dummy skill metadata. Bounded null/partial
+allocation guards protect the reached skill discovery/parser paths. Failed setup
+preserves the recorded session, submits no failed POST and admits a recovery turn.
+
+These guarantees do not establish whole-program callback reentrancy. Direct
+backend cancellation from `complete_tool`, a `note_repairs` event or the
+STEER_REJECTED callback remains untested here and can revoke borrowed pending,
+connection or steer storage. Public runtime cancellation deferral and the tested
+`parser_active` decode boundary retain their established guarantees; no wider
+concurrency or reentrancy contract is claimed.

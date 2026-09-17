@@ -59,7 +59,13 @@ http_conn *oa_connection_get(const oa_connection_owner *owner);
 void oa_connection_drop(oa_connection_owner *owner);
 void oa_connection_free(oa_connection_owner **owner);
 /* Synchronous HTTP write; no callbacks or policy decisions. */
+/* 0 sent, -1 retryable transport error, -2 nonretryable precondition/OOM.
+ * Only the allocator latch identifies OOM; cancellation is never OOM. */
 int oa_request_send(oa_request_owner *request, oa_connection_owner *connection);
+#ifdef TNY_ALLOC_TESTING
+/* State sampled before prepare's defensive reset; inspect at provider control. */
+bool oa_request_test_builder_released_view(void);
+#endif
 
 #ifdef __cplusplus
 }
