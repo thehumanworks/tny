@@ -63,6 +63,8 @@ let
     # Includes fuzz/fuzz_parsers.cpp, fuzz/parser-corpus, test_ownership.cpp,
     # fuzz/search_ownership.c and mutation/parser_ownership.py for instrumented
     # ownership checks using the existing native sanitizer toolchain.
+    # Checkpoint ownership uses fixtures/checkpoint_ownership.c and
+    # mutation/checkpoint_ownership.py with the same full injected object graph.
     # Runtime ownership also uses test_runtime.c and mutation/runtime_critical.py.
     # tests/build/test_cpp_analyzer.py checks real factories and negative GCC controls.
     # Provider OOM hosts (integration/libtny_provider_fault_host.c, test_cursor_callbacks.c)
