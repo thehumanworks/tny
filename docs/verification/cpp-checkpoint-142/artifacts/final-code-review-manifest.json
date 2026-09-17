@@ -1,0 +1,19 @@
+{
+  "src/core/checkpoint.cpp": "987a692158717cba975f6bc83d2b0c889c2796383657b03688c14c63e7203ba1",
+  "src/core/checkpoint.h": "2645974a0611d0943ab829ef5dafdc91dadb331443058af133ebff2b1c4a9fac",
+  "tests/fixtures/checkpoint_ownership.c": "1e1614e271801be9900790c80678b93f917cb922bb9d0f97df517084b2a97edd",
+  "src/core/backend.h": "81775f908c0d5f3dc81fb08e5be88491b3213f5dad787379efec186335810e13",
+  "src/core/config.h": "4cfd7d2e201893274110f0e549c8379380803f595fcc110052ac874bed3f1f51",
+  "src/util/ownership.hpp": "14e86639b7dbd77c3ed0673c57d9eac79538f584afe2412f09de58b5e309e9f2",
+  "src/json/ownership.hpp": "bfda1bebefc763cdb294ad0fdbb350f968187fc4007ad31b2679599dff58b3dd",
+  "src/json/json.c": "e0073778180b50a7ad67f72e37d0043bbb9ef90a47a8c7ddf77d65236869de22",
+  "src/util/alloc.h": "95bd5a9a025493fb5d6cf249caf1942818926ac55570948ef7898a778f951807",
+  "src/util/alloc_override.h": "6f1f0fa7bbd3b84ed667fc5d530d9b9f8d938ebbafd68d8768d242205dce2f3d",
+  "tests/mutation/checkpoint_ownership.py": "37582b0c5bed7751a058938aafed6a93525fc941bb23cd4deca5ebbe65eb02b5",
+  "src/core/config.c": "5062e1bf629372a3bb48db645101679bde166e1278affdcad76bcc87f3a673eb",
+  "src/core/profiles.c": "0bce0f865f492b7b9fe38f0d28fae783442faffccc7440a1051c8301375780b1",
+  "src/core/extensions.c": "09102fffc0a9f7ff54e7e07278a338126c46dca268271bf22e04516d0c8b84da",
+  "src/core/runner.cpp": "b054c2bd94c42fab3a78308fb2bf7c2a13db418cd5d16abc1ad6ea5c7fd6a354",
+  "src/util/util.c": "03f225d3362397f6e0d5b1b3e0e15e82e9a9605a89f46c26e48b3207a34f821b",
+  "src/core/instructions.c": "79ffc0b393bd13cbba15a77c325f2c2d7a593aa8315804935a1115e36e208c5f"
+}

@@ -9,6 +9,7 @@
 #include "core/extension_caps.h"
 #include "json/json.h"
 #include "util/tny_poll.h"
+#include "util/alloc.h"
 #include "util/util.h"
 
 #include <dirent.h>
@@ -105,6 +106,7 @@ static int cmp_entry(const void *a, const void *b) {
 
 static char *path_parent(const char *path) {
     char *copy = xstrdup(path);
+    if (!copy) return NULL;
     char *slash = strrchr(copy, '/');
     if (!slash) {
         free(copy);
@@ -121,17 +123,18 @@ static char *entry_name(const char *dir_name, bool index_file) {
     return xstrndup(dir_name, n >= 3 ? n - 3 : n);
 }
 
-static void add_entry(tny_extensions *x, const char *name, const char *path, bool index_file) {
-    if (x->n_entries >= EXT_MAX_ENTRIES) return;
+static bool add_entry(tny_extensions *x, const char *name, const char *path, bool index_file) {
+    if (x->n_entries >= EXT_MAX_ENTRIES) return true;
     char *absolute = path_abs(path);
-    if (!absolute || !regular_file(absolute)) {
+    if (!absolute) return false;
+    if (!regular_file(absolute)) {
         free(absolute);
-        return;
+        return true;
     }
     ext_entry *next = realloc(x->entries, sizeof *next * (x->n_entries + 1));
     if (!next) {
         free(absolute);
-        return;
+        return false;
     }
     x->entries = next;
     ext_entry *entry = &x->entries[x->n_entries++];
@@ -142,13 +145,14 @@ static void add_entry(tny_extensions *x, const char *name, const char *path, boo
     } else {
         entry->path = absolute;
     }
+    return entry->name && entry->path;
 }
 
-static void pending_failure_add(tny_extensions *x, const char *extension, const char *code,
+static bool pending_failure_add(tny_extensions *x, const char *extension, const char *code,
                                 const char *message) {
     tny_extension_failure *next =
         realloc(x->pending_failures, sizeof *next * (x->n_pending_failures + 1));
-    if (!next) return;
+    if (!next) return false;
     x->pending_failures = next;
     tny_extension_failure *failure = &x->pending_failures[x->n_pending_failures++];
     memset(failure, 0, sizeof *failure);
@@ -157,54 +161,69 @@ static void pending_failure_add(tny_extensions *x, const char *extension, const 
     failure->event = xstrdup("");
     failure->code = dup_cap(code ? code : "load_error", 64);
     failure->message = dup_cap(message ? message : "extension failed to load", 512);
+    return failure->extension && failure->handler_id && failure->event && failure->code &&
+           failure->message;
 }
 
-static void drop_name_collisions(tny_extensions *x) {
+static bool drop_name_collisions(tny_extensions *x) {
     size_t write = 0;
     for (size_t i = 0; i < x->n_entries;) {
         size_t end = i + 1;
         while (end < x->n_entries && strcmp(x->entries[i].name, x->entries[end].name) == 0) end++;
         if (end - i > 1) {
-            pending_failure_add(x, x->entries[i].name, "name_collision",
-                                "both file and directory forms exist; neither was loaded");
+            if (!pending_failure_add(x, x->entries[i].name, "name_collision",
+                                     "both file and directory forms exist; neither was loaded"))
+                return false;
             for (size_t j = i; j < end; j++) {
                 free(x->entries[j].name);
                 free(x->entries[j].path);
+                x->entries[j] = (ext_entry){0};
             }
         } else {
-            if (write != i) x->entries[write] = x->entries[i];
+            if (write != i) {
+                x->entries[write] = x->entries[i];
+                x->entries[i] = (ext_entry){0};
+            }
             write++;
         }
         i = end;
     }
     x->n_entries = write;
+    return true;
 }
 
-static void discover(tny_extensions *x) {
+static bool discover(tny_extensions *x) {
     char *root = path_join(x->tny_dir, "extensions");
+    if (!root) return false;
     DIR *dir = opendir(root);
     if (!dir) {
         free(root);
-        return;
+        return true;
     }
+    bool ok = true;
     struct dirent *de;
-    while ((de = readdir(dir))) {
+    while (ok && (de = readdir(dir))) {
         if (de->d_name[0] == '.') continue;
         char *path = path_join(root, de->d_name);
+        if (!path) {
+            ok = false;
+            break;
+        }
         size_t n = strlen(de->d_name);
         if (n > 3 && strcmp(de->d_name + n - 3, ".py") == 0) {
-            add_entry(x, de->d_name, path, false);
+            ok = add_entry(x, de->d_name, path, false);
         } else if (dir_exists(path)) {
             char *index = path_join(path, "index.py");
-            add_entry(x, de->d_name, index, true);
+            ok = index && add_entry(x, de->d_name, index, true);
             free(index);
         }
         free(path);
     }
     closedir(dir);
     free(root);
+    if (!ok) return false;
     if (x->n_entries > 1) qsort(x->entries, x->n_entries, sizeof *x->entries, cmp_entry);
-    drop_name_collisions(x);
+    return drop_name_collisions(x) && !tny_alloc_scope_failed();
 }
 
 static void subscriptions_clear(tny_extensions *x) {
@@ -895,17 +914,20 @@ static void calls_free(ext_call *calls, size_t count) {
 
 tny_extensions *tny_extensions_new(const char *tny_dir, const char *cwd, int handler_timeout_ms) {
     if (!tny_dir || !*tny_dir || !cwd || !*cwd) return NULL;
-    tny_extensions *x = calloc(1, sizeof *x);
+    tny_extensions *x = tny_alloc_calloc(1, sizeof *x);
     if (!x) return NULL;
-    x->tny_dir = xstrdup(tny_dir);
-    x->cwd = xstrdup(cwd);
+    x->tny_dir = tny_alloc_strdup(tny_dir);
+    x->cwd = tny_alloc_strdup(cwd);
     x->selected_provider = TNY_BK_OPENAI;
     x->timeout_ms = handler_timeout_ms > 0 ? handler_timeout_ms : EXT_DEFAULT_TIMEOUT_MS;
     if (x->timeout_ms > EXT_MAX_TIMEOUT_MS) x->timeout_ms = EXT_MAX_TIMEOUT_MS;
     x->in_fd = x->out_fd = x->err_fd = -1;
     x->next_id = 1;
     buf_init(&x->input);
-    discover(x);
+    if (!x->tny_dir || !x->cwd || !discover(x)) {
+        tny_extensions_free(x);
+        return NULL;
+    }
     if (x->n_entries || x->n_pending_failures)
         set_status(x, TNY_EXTENSIONS_DORMANT, "python extensions discovered");
     else set_status(x, TNY_EXTENSIONS_EMPTY, "no python extensions discovered");

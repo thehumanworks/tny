@@ -1304,7 +1304,11 @@ static yyjson_mut_doc *rn_checkpoint(rn_state *r) {
     }
     yyjson_mut_obj_add_int(d, root, "version", 1);
     yyjson_mut_obj_add_val(d, root, "engine", engine);
-    yyjson_mut_obj_add_val(d, root, "context", tny_checkpoint_context(d, r->ctx));
+    yyjson_mut_val *context = tny_checkpoint_context(d, r->ctx);
+    if (!context || !yyjson_mut_obj_add_val(d, root, "context", context)) {
+        yyjson_mut_doc_free(d);
+        return NULL;
+    }
     yyjson_mut_obj_add_strcpy(d, root, "session_id", r->session->id);
     yyjson_mut_obj_add_strcpy(d, root, "thinking", r->thinking.data ? r->thinking.data : "");
     yyjson_mut_obj_add_strcpy(d, root, "output", r->output.data ? r->output.data : "");
