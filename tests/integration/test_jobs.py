@@ -461,6 +461,11 @@ class JobsFixture(unittest.TestCase):
 
     def status(self, job_id, check_state=None):
         run = self.run_tny("jobs", "status", job_id, "--json", check=False)
+        self.assertTrue(
+            run.stdout.strip(),
+            f"jobs status returned no JSON: exit={run.returncode}; "
+            f"stderr={run.stderr.decode(errors='replace')[-2000:]!r}",
+        )
         record = json.loads(run.stdout.decode())
         if check_state:
             self.assertEqual(record["state"], check_state, record)
