@@ -164,7 +164,7 @@ stdenv.mkDerivation {
       }
     done
     ${testRunner}make -j''${NIX_BUILD_CORES} $makeFlags test
-    ${testRunner}make $makeFlags test-shell-workflows test-parser-fuzz-smoke test-parser-ownership test-search-ownership test-parser-backend-ownership test-runtime-ownership test-runtime-mutation test-runner-ownership test-runner-mutation
+    ${testRunner}make $makeFlags test-shell-workflows test-parser-fuzz-smoke test-parser-ownership test-native-request-ownership test-native-lifecycle test-native-mutation test-search-ownership test-parser-backend-ownership test-runtime-ownership test-runtime-mutation test-runner-ownership test-runner-mutation
     runHook postBuild
   '';
 
@@ -201,3 +201,9 @@ stdenv.mkDerivation {
     runHook postInstall
   '';
 }
+
+# Optional tests/bench/bench_requests.{c,py,mk} uses existing native tools.
+# Run its Git-dependent paired benchmark outside the filtered Nix source.
+
+# test-native-leaks is the external-host leak runner (leaks on Darwin,
+# valgrind on Linux); test-native-lifecycle enables ASan/UBSan/LSan here.

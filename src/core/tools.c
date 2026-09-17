@@ -828,6 +828,11 @@ void tools_call_invalidate_async(tools_call *call) {
 void tools_call_free(tools_call *call) {
     if (!call) return;
     tools_call_invalidate_async(call);
+    tools_call_release_storage(call);
+}
+
+void tools_call_release_storage(tools_call *call) {
+    if (!call) return;
     free(call->name);
     free(call->permission_tool);
     free(call->detail);

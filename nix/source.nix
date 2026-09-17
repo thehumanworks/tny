@@ -63,6 +63,7 @@ let
     # Includes fuzz/fuzz_parsers.cpp, fuzz/parser-corpus, test_ownership.cpp,
     # fuzz/search_ownership.c and mutation/parser_ownership.py for instrumented
     # ownership checks using the existing native sanitizer toolchain.
+    # Native request owners use fixtures/native_request_ownership.cpp (included below).
     # Runtime ownership also uses test_runtime.c and mutation/runtime_critical.py.
     # tests/build/test_cpp_analyzer.py checks real factories and negative GCC controls.
     # Provider OOM hosts (integration/libtny_provider_fault_host.c, test_cursor_callbacks.c)
@@ -174,3 +175,6 @@ in
     fileset = testFiles;
   };
 }
+
+# The existing ../tests fileset includes native_ownership.py and the optional
+# tests/bench/bench_requests.{c,py,mk} overlay; no new source root is needed.

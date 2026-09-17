@@ -137,6 +137,8 @@ bool tools_call_pending(const tools_call *call);
 int tools_call_take_async(tools_call *call, char **result, bool *is_error);
 void tools_call_invalidate_async(tools_call *call);
 void tools_call_free(tools_call *call);
+/* Private resource-only destructor seam: invalidate/consume async authority first. */
+void tools_call_release_storage(tools_call *call);
 
 /* Undo the last mutating file tool (session-scoped). Returns malloc'd
  * status line. */

@@ -85,3 +85,17 @@ the issue directly. Reconcile every invariant with actual proof before completio
 Discovery complete. Implementation, tests, reviews, benchmarks and delivery pending.
 Logs are task-scoped under `$HOME/.cache/tny-issue-144/`; only sanitized evidence is
 committed. Fixtures use throwaway contexts and dummy credentials, never live keys.
+
+## Implementation handoff amendment — 2026-09-17
+
+The initial contract and V01–V10 remain unchanged. The supervisor explicitly
+owns final independent review, frozen full gates, wasm, same-host performance,
+commit/push/PR and publication. This worker must stop after implementation,
+focused ownership/lifecycle/fault/mutation checks and review dispositions; it
+must not switch branches, commit, publish, touch other worktrees or delegate.
+The separately delivered benchmark trio is integrated without measuring the
+actively edited candidate. Full gates remain mandatory for issue delivery.
+
+The existing contract is reused without creating a competing native goal: this
+is an assigned implementation handoff under supervisor ownership. Evidence for
+current focused checks is distinct from pending supervisor acceptance.
