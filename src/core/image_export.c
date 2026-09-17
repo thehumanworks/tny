@@ -14,6 +14,7 @@
 #include "core/image.h"
 #include "json/json.h"
 #include "util/image_io.h"
+#include "util/parallel.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -321,41 +322,75 @@ static int sources_resolve(const tny_image_export_request *r, export_source *sou
     return 0;
 }
 
-/* Read each source exactly once and hash those very bytes. A record's pinned
+/* Read one source exactly once and hash those very bytes. A record's pinned
  * hash is checked against what was read, never against a separate preflight. */
+static int source_load(const tny_image_export_request *r, export_source *s, char *err,
+                       size_t errlen) {
+    if (stopped(r)) return 130;
+    if (tny_image_io_read_input(s->path, TNY_IMAGE_INPUT_MAX, &s->data, &s->id, err, errlen))
+        return 1;
+    s->mime = image_mime((const uint8_t *)s->data.data, s->data.len);
+    if (!s->mime || strcmp(s->mime, "image/gif") == 0) {
+        snprintf(err, errlen, "image sources must be PNG, JPEG or WebP");
+        return 1;
+    }
+    if (!tny_image_io_sha256_hex(s->data.data, s->data.len, s->sha256)) {
+        snprintf(err, errlen, "cannot hash an image source");
+        return 1;
+    }
+    if (*s->expected && strcmp(s->expected, s->sha256) != 0) {
+        snprintf(err, errlen,
+                 "recorded source no longer matches its hash; supply the image explicitly if "
+                 "this replacement is intended");
+        return 1;
+    }
+    /* Every input bound is explicit before the converter starts. */
+    if (tny_image_dimensions((const uint8_t *)s->data.data, s->data.len, &s->width, &s->height) !=
+        TNY_IMAGE_DIM_OK) {
+        snprintf(err, errlen, "cannot read the dimensions of an image source");
+        return 1;
+    }
+    if ((uint64_t)s->width * s->height > TNY_IMAGE_EXPORT_PIXELS_MAX) {
+        snprintf(err, errlen, "an image source exceeds the %u pixel limit",
+                 TNY_IMAGE_EXPORT_PIXELS_MAX);
+        return 1;
+    }
+    return 0;
+}
+
+typedef struct {
+    int rc;
+    char err[256];
+} source_result;
+
+typedef struct {
+    const tny_image_export_request *r;
+    export_source *sources;
+    source_result *results;
+} sources_job;
+
+static void source_item(size_t i, void *ud) {
+    sources_job *j = ud;
+    source_result *out = &j->results[i];
+    out->rc = source_load(j->r, &j->sources[i], out->err, sizeof out->err);
+}
+
+/* Sources are independent slots, so their reads and hashes overlap (ADR
+ * 0132); the first failing slot in request order is the one reported. */
 static int sources_load(const tny_image_export_request *r, export_source *sources, size_t count,
                         char *err, size_t errlen) {
+    source_result results[TNY_IMAGE_EXPORT_SOURCES_MAX];
+    if (count > TNY_IMAGE_EXPORT_SOURCES_MAX) {
+        snprintf(err, errlen, "too many image sources");
+        return 1;
+    }
+    memset(results, 0, count * sizeof results[0]);
+    sources_job job = {r, sources, results};
+    tny_parallel_for(count, source_item, &job);
     for (size_t i = 0; i < count; i++) {
-        export_source *s = &sources[i];
-        if (stopped(r)) return 130;
-        if (tny_image_io_read_input(s->path, TNY_IMAGE_INPUT_MAX, &s->data, &s->id, err, errlen))
-            return 1;
-        s->mime = image_mime((const uint8_t *)s->data.data, s->data.len);
-        if (!s->mime || strcmp(s->mime, "image/gif") == 0) {
-            snprintf(err, errlen, "image sources must be PNG, JPEG or WebP");
-            return 1;
-        }
-        if (!tny_image_io_sha256_hex(s->data.data, s->data.len, s->sha256)) {
-            snprintf(err, errlen, "cannot hash an image source");
-            return 1;
-        }
-        if (*s->expected && strcmp(s->expected, s->sha256) != 0) {
-            snprintf(err, errlen,
-                     "recorded source no longer matches its hash; supply the image explicitly if "
-                     "this replacement is intended");
-            return 1;
-        }
-        /* Every input bound is explicit before the converter starts. */
-        if (tny_image_dimensions((const uint8_t *)s->data.data, s->data.len, &s->width,
-                                 &s->height) != TNY_IMAGE_DIM_OK) {
-            snprintf(err, errlen, "cannot read the dimensions of an image source");
-            return 1;
-        }
-        if ((uint64_t)s->width * s->height > TNY_IMAGE_EXPORT_PIXELS_MAX) {
-            snprintf(err, errlen, "an image source exceeds the %u pixel limit",
-                     TNY_IMAGE_EXPORT_PIXELS_MAX);
-            return 1;
-        }
+        if (!results[i].rc) continue;
+        snprintf(err, errlen, "%s", results[i].err);
+        return results[i].rc;
     }
     return 0;
 }
