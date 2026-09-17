@@ -256,7 +256,7 @@ int main() { return 0; }
                 )
                 self.assertNotIn("-fno-lto", kept)
 
-    def test_windows_request_and_runner_lto_exemption_is_narrow(self):
+    def test_windows_cpp_release_lto_exemption_is_narrow(self):
         self.write(
             "src/backends/openai/responses.cpp",
             "int response_fixture() { return 0; }\n",
@@ -285,6 +285,7 @@ int main() { return 0; }
                 "src/backends/openai/responses.cpp.o",
                 "src/core/runner.cpp.o",
                 "src/backends/openai/stream_decode.cpp.o",
+                "src/util/probe.cpp.o",
             ):
                 response = options(suffix)
                 self.assertIn("-Os", response)
@@ -294,7 +295,6 @@ int main() { return 0; }
                 self.assertEqual("-flto=auto" in response, not windows)
             for suffix in (
                 "src/util/probe.o",
-                "src/util/probe.cpp.o",
                 "tny.exe" if windows else "tny",
             ):
                 self.assertIn("-flto=auto", options(suffix))

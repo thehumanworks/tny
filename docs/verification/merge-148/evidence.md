@@ -60,3 +60,10 @@ Gate: INCOMPLETE.
 - Hosted 35228495551 Windows job 105226101765 exposes the same GCC ICE in
   stream_decode.cpp:55 after Responses/runner exemptions. Extend the same narrow
   workaround to that observed module (ADR0130); Windows remains a required gate.
+
+- Windows eda78cf run 35229000001/job 105228193383 no longer reports the
+  observed ICEs, but checkpoint recovery references a missing LTO-private
+  unique_ptr destructor clone. Independent reviewer recommends a consistent
+  private C++ native-object boundary on Windows/GCC, retaining C/final-link LTO.
+  ADR0131 supersedes the per-file workaround; maintained tests enumerate all
+  C++ objects and preserve override/Clang/non-Windows cases.

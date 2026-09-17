@@ -213,15 +213,13 @@ class WindowsLtoFlags(unittest.TestCase):
             self.assertEqual(len(commands), 1, target)
             self.assertIn("-Dyyjson_inline=inline", commands[0].split())
 
-    def test_msys_gcc_compiles_only_the_jobs_module_natively(self):
-        # ADR 0122: GCC on PE asserts in binds_to_current_def_p during the
-        # LTRANS alias pass of jobs.cpp's launcher clone. That object alone is
-        # native on the MSYS GCC lane; MSYS Clang, other hosts and the explicit
-        # LTO_EXEMPT_CPP= override keep every object in LTO.
-        jobs = "build/rel/src/core/jobs.cpp.o"
+    def test_msys_gcc_compiles_private_cpp_modules_natively(self):
+        # ADR 0131: shared inline ownership templates must not cross a mixed
+        # native/LTO C++ graph on PE GCC. C objects and the link retain LTO;
+        # Clang, other hosts and the explicit override retain C++ LTO too.
         siblings = (
-            "build/rel/src/core/runner.cpp.o",
             "build/rel/src/util/jobs_host.o",
+            "build/rel/src/main.o",
         )
         kept = ("-Wall", "-Wextra", "-Werror", "-Os", "-std=c++20", "-fexceptions")
         with tempfile.TemporaryDirectory(prefix="tny-lto-exempt-") as tmp:
@@ -244,7 +242,7 @@ class WindowsLtoFlags(unittest.TestCase):
                 ("MSYS_NT-10.0", "clang", (), "-flto", "-flto", "build/tny.exe"),
                 ("Linux", "gcc", (), "-flto=auto", "-flto=auto", "build/tny"),
             )
-            for platform, vendor, extra, jobs_lto, lto, binary in cases:
+            for platform, vendor, extra, cpp_lto, lto, binary in cases:
                 with self.subTest(platform=platform, vendor=vendor, extra=extra):
                     cc = shlex.join([sys.executable, str(compiler), vendor])
                     commands = subprocess.run(
@@ -271,15 +269,25 @@ class WindowsLtoFlags(unittest.TestCase):
                         self.assertEqual(len(matches), 1, target)
                         return shlex.split(matches[0])
 
-                    jobs_options = options(jobs)
-                    lto_options = [
-                        option
-                        for option in jobs_options
-                        if option.startswith("-flto") or option == "-fno-lto"
-                    ]
-                    self.assertEqual(lto_options, [jobs_lto])
-                    for option in kept:
-                        self.assertIn(option, jobs_options)
+                    cpp_targets = []
+                    for line in commands:
+                        if " -o " not in line:
+                            continue
+                        command = shlex.split(line)
+                        target = command[command.index("-o") + 1]
+                        if target.endswith(".cpp.o"):
+                            cpp_targets.append(target)
+                    self.assertTrue(cpp_targets)
+                    for target in cpp_targets:
+                        cpp_options = options(target)
+                        lto_options = [
+                            option
+                            for option in cpp_options
+                            if option.startswith("-flto") or option == "-fno-lto"
+                        ]
+                        self.assertEqual(lto_options, [cpp_lto], target)
+                        for option in kept:
+                            self.assertIn(option, cpp_options)
                     for target in (*siblings, binary):
                         sibling_options = options(target)
                         self.assertIn(lto, sibling_options)

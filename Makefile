@@ -190,22 +190,15 @@ TP_WASM := third_party/yyjson/yyjson.c
 
 REL_OBJS := $(call objects,$(OBJ_REL),$(SRC)) $(call objects,$(OBJ_REL),$(TP))
 
-# GCC on MSYS2/Cygwin targets PE without MAKE_DECL_ONE_ONLY, so its
-# binds_local_p refuses local binding for public inline one-only definitions
-# (config/mingw/winnt.cc, PR target/66655). GCC 15.3 then asserts in
-# binds_to_current_def_p during the LTRANS alias pass of the IPA-CP clone of
-# jobs.cpp's supervisor launcher, which calls the private descriptor owners.
-# That module alone becomes a native object on that lane (ADR 0122); every
-# other object and the link keep -flto=auto, -Os, -fexceptions and -Werror.
-# responses.cpp independently hits the same GCC assertion in GIMPLE tailr
-# (ADR 0128). runner.cpp also requires that boundary after checkpoint integration
-# (ADR 0129); stream_decode.cpp requires it as well (ADR 0130).
-# No other platform or object graph is exempted.
-# Empty on every other host and driver. LTO_EXEMPT_CPP= re-tests a fixed GCC.
+# GCC 15's PE LTO fails on shared inline C++ ownership templates, both as
+# binds_to_current_def_p ICEs and unresolved LTO-private destructor clones.
+# Keep the private C++ release graph consistently native on Windows/GCC;
+# C/vendor objects and the final link retain LTO (ADR 0131). All diagnostics,
+# optimization and exception flags remain enabled. Other graphs are unchanged.
+# LTO_EXEMPT_CPP= re-tests a fixed compiler; use -B to regenerate old objects.
 LTO_EXEMPT_CPP ?=
 ifeq ($(WINDOWS):$(REL_LTO),1:-flto=auto)
-  LTO_EXEMPT_CPP += src/core/jobs.cpp src/core/runner.cpp src/backends/openai/responses.cpp \
-                    src/backends/openai/stream_decode.cpp
+  LTO_EXEMPT_CPP += $(filter %.cpp,$(SRC))
 endif
 ifneq ($(strip $(LTO_EXEMPT_CPP)),)
 $(call objects,$(OBJ_REL),$(LTO_EXEMPT_CPP)): Makefile
