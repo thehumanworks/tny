@@ -11,6 +11,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MUTANTS = [
     (
+        "lost-prefailed-callback-oom",
+        "src/core/runtime.c",
+        "    if (tny_alloc_scope_failed()) {\n        e->oom_pending = true;\n        return;\n    }",
+        "    if (tny_alloc_scope_failed()) {\n        return;\n    }",
+        "runtime_failed_scope_callback_oom_survives_scope_reset",
+        "FAIL",
+    ),
+    (
+        "lost-copy-failure-callback-oom",
+        "src/core/runtime.c",
+        "        if (tny_alloc_scope_failed()) e->oom_pending = true;\n"
+        "        else e->overflow_pending = true;",
+        "        if (tny_alloc_scope_failed()) e->oom_pending = false;\n"
+        "        else e->overflow_pending = true;",
+        "runtime_callback_oom_survives_allocator_scope_reset",
+        "FAIL",
+    ),
+    (
         "borrowed-payload",
         "src/core/owned_event.cpp",
         "owned->owned_bytes = total;",

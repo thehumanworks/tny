@@ -1,0 +1,15 @@
+{
+  "command": [
+    "make",
+    "-j6",
+    "test-runner-ownership",
+    "BUILD=build-finalization-owners"
+  ],
+  "cwd": "/Users/tomas/projects/tny",
+  "started_utc": "2026-09-17T00:04:12.169598+00:00",
+  "source_sha256": "113abb8f0a75c9baf7a0ef7163e5ade337ab27a856b4816d917ae729dbd96287",
+  "head": "fdd5aa7a02b6605969ea56fdee9412f9fe685da3",
+  "exit_code": 0,
+  "duration_seconds": 11.215,
+  "finished_utc": "2026-09-17T00:04:23.391384+00:00"
+}

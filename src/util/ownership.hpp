@@ -54,7 +54,10 @@ template <class T> struct object_deleter {
     }
 };
 template <class T> using owned = std::unique_ptr<T, object_deleter<T>>;
-template <class T, class... Args> owned<T> make_owned(Args &&...args) {
+/* Expose construction and ownership transfer together to GCC's analyzer.
+ * A non-inlined unique_ptr return is mis-modeled as uninitialized by GCC 14/15. */
+template <class T, class... Args>
+[[gnu::always_inline]] inline owned<T> make_owned(Args &&...args) {
     static_assert(alignof(T) <= alignof(std::max_align_t));
     std::unique_ptr<void, free_deleter> storage(tny_alloc_malloc(sizeof(T)));
     if (!storage) throw std::bad_alloc();

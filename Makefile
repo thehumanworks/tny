@@ -1049,9 +1049,14 @@ format-check: format-c-check
 	$(RUFF) format --check .
 	$(SHFMT) -d $(SHFMT_FLAGS) $(SH_SRC)
 
-tidy: $(VERSION_H)
-	$(if $(TIDY_C_SRC),$(CLANG_TIDY) --quiet $(TIDY_C_SRC) -- $(TIDY_CFLAGS),:)
+# Share Clang's path-sensitive C++ checks between tidy and analyze. GCC's
+# separate C++ lane adds the factory regression and independent defect controls.
+.PHONY: analyze-cpp
+analyze-cpp: $(VERSION_H)
 	$(if $(TIDY_CPP_SRC),python3 scripts/tidy_cpp.py --cxx '$(CXX)' --tidy '$(CLANG_TIDY)' $(TIDY_CPP_SRC) -- $(TIDY_CXXFLAGS),:)
+
+tidy: $(VERSION_H) analyze-cpp
+	$(if $(TIDY_C_SRC),$(CLANG_TIDY) --quiet $(TIDY_C_SRC) -- $(TIDY_CFLAGS),:)
 
 warn-strict: $(VERSION_H)
 	$(if $(TIDY_C_SRC),$(CC) $(REL_CFLAGS) $(WARN_STRICT) -fsyntax-only $(TIDY_C_SRC),:)
@@ -1061,17 +1066,28 @@ warn-strict: $(VERSION_H)
 # Complementary to clang-tidy; Linux CI runs it, gcc is required.
 # double-free is off: it misreads the oom-flag-guarded free in buf_detach
 # (src/util/util.c) and flags every caller of path_join.
-analyze: $(VERSION_H)
+analyze: $(VERSION_H) analyze-cpp analyze-cpp-gcc
 	@for f in $(TIDY_C_SRC); do \
 		$(ANALYZER_CC) $(STD) $(WARN) $(INC) $(DEFS) -fanalyzer -O1 \
 			-Wno-analyzer-double-free \
 			-c -o /dev/null $$f || exit 1; \
 	done
+	@echo "analyze: $(words $(SRC) $(SRC_PUBLIC_API)) files clean"
+
+
+
+.PHONY: analyze-cpp-gcc
+analyze-cpp-gcc: $(VERSION_H) test-cpp-analyzer
 	@for f in $(TIDY_CPP_SRC); do \
 		$(ANALYZER_CXX) $(call cxx_flags,$(STD) $(WARN) $(INC) $(DEFS)) \
 			-fanalyzer -O1 -c -o /dev/null $$f || exit 1; \
 	done
-	@echo "analyze: $(words $(SRC) $(SRC_PUBLIC_API)) files clean"
+	@echo "analyze-cpp-gcc: $(words $(TIDY_CPP_SRC)) files clean"
+
+.PHONY: test-cpp-analyzer
+test-cpp-analyzer:
+	python3 tests/build/test_cpp_analyzer.py --cxx '$(ANALYZER_CXX)' \
+		--flags '$(call cxx_flags,$(STD) $(WARN) $(INC) $(DEFS))'
 
 lint-py:
 	$(RUFF) check .
@@ -1130,8 +1146,8 @@ LEAKS         ?= leaks
 # its correlation tests fork a runner and a terminal child.
 LEAK_SUITE_SKIP := cursor_suite cursor_sdk_suite mcp_suite runner_suite \
 	session_bg_suite ssh_suite
-LEAK_SUITES := $(filter-out $(LEAK_SUITE_SKIP),\
-	$(shell sed -n 's/.*RUN_SUITE(\([A-Za-z0-9_]*\)).*/\1/p' tests/test_main.c))
+LEAK_SUITES = $(filter-out $(LEAK_SUITE_SKIP),\
+	$(if $(wildcard tests/test_main.c),$(shell sed -n 's/.*RUN_SUITE(\([A-Za-z0-9_]*\)).*/\1/p' tests/test_main.c)))
 
 LEAK_ENV = TEST_BIN=$(LEAK_TEST_BIN) CLI_BIN=$(LEAK_CLI_BIN) \
 	VALGRIND='$(VALGRIND)' VALGRIND_FLAGS='$(VALGRIND_FLAGS)' \

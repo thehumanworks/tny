@@ -1143,7 +1143,9 @@ def main():
     baseline = ["./build/tny-test"]
     if args.test:
         baseline += ["-t", args.test]
-    for command in (["make", "debug"], baseline):
+    # Some unit fixtures execute the sibling CLI. A clean checkout needs both
+    # binaries before any mutant is considered; missing CLI is infrastructure.
+    for command in (["make", "debug", "release"], baseline):
         rc, output = run(command, 300)
         if rc != 0:
             print(

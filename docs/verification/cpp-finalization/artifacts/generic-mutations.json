@@ -1,0 +1,13 @@
+{
+  "command": [
+    "make",
+    "test-libtny-mutation"
+  ],
+  "cwd": "/Users/tomas/.cache/tny-cpp-finish-20260917/mutations",
+  "started_utc": "2026-09-17T00:05:12.072374+00:00",
+  "source_sha256": "113abb8f0a75c9baf7a0ef7163e5ade337ab27a856b4816d917ae729dbd96287",
+  "head": "fdd5aa7a02b6605969ea56fdee9412f9fe685da3",
+  "exit_code": 0,
+  "duration_seconds": 665.557,
+  "finished_utc": "2026-09-17T00:16:17.640693+00:00"
+}
