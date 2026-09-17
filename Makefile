@@ -751,7 +751,7 @@ test-parser-ownership: $(PARSER_OWNER_BIN)
 
 test-parser-mutation: test-parser-ownership
 	python3 tests/mutation/parser_ownership.py --cxx '$(CXX)' \
-		--flags '$(OWNER_CXXFLAGS)' --ldflags '$(DBG_LDFLAGS)' \
+		--flags '$(OWNER_CXXFLAGS)' --ldflags='$(DBG_LDFLAGS)' \
 		--object-root '$(OWNER_OBJ_ROOT)' --test-object '$(PARSER_OWNER_TEST_OBJ)' \
 		--baseline '$(PARSER_OWNER_BIN)' --work-dir '$(BUILD)/parser-mutations' \
 		$(PARSER_OWNER_OBJS)
@@ -783,7 +783,7 @@ test-checkpoint-ownership: $(CHECKPOINT_OWNER_BIN)
 	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(CHECKPOINT_OWNER_BIN)
 test-checkpoint-mutation: test-checkpoint-ownership
 	python3 tests/mutation/checkpoint_ownership.py --cxx '$(CXX)' \
-		--flags '$(OWNER_CXXFLAGS)' --ldflags '$(DBG_LDFLAGS)' \
+		--flags '$(OWNER_CXXFLAGS)' --ldflags='$(DBG_LDFLAGS)' \
 		--object-root '$(OWNER_OBJ_ROOT)' --test-object '$(CHECKPOINT_OWNER_OBJ)' \
 		--baseline '$(CHECKPOINT_OWNER_BIN)' --work-dir '$(BUILD)/checkpoint-mutations' \
 		$(OWNER_LIB_OBJS)
@@ -854,7 +854,7 @@ test-native-lifecycle: $(NATIVE_RUNTIME_TEST)
 test-native-mutation: test-native-request-ownership test-native-lifecycle
 	python3 tests/mutation/native_ownership.py --cc '$(CC)' --cxx '$(CXX)' \
 		--cflags '$(OWNER_CFLAGS) -include src/util/alloc_override.h' --cxxflags '$(OWNER_CXXFLAGS)' \
-		--ldflags '$(DBG_LDFLAGS)' --object-root '$(OWNER_OBJ_ROOT)' \
+		--ldflags='$(DBG_LDFLAGS)' --object-root '$(OWNER_OBJ_ROOT)' \
 		--request-bin '$(NATIVE_REQUEST_TEST)' --runtime-bin '$(NATIVE_RUNTIME_TEST)' \
 		--request-objects '$(call objects,$(OWNER_OBJ_ROOT),$(NATIVE_REQUEST_SRC))' \
 		--work-dir '$(BUILD)/native-mutations' $(NATIVE_RUNTIME_OBJS)

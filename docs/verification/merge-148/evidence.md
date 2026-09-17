@@ -114,3 +114,45 @@ Hosted Linux full suite (job 105230261840) and both Linux Nix suites
 (105230150082, 105230149987) finish with only this fixture failure. Their
 previous GCC array-bounds failure is resolved. Publish the one-line fixture
 correction with this evidence, then require the fresh complete hosted rollup.
+
+## Frozen local acceptance and Nix argv correction
+
+The frozen local `mise exec -- env -u TNY_TOOLS make -j4 test` at 026ba9b
+completed with exit 0, including 567 unit tests and every integration suite.
+The only subsequent change in 8a25773 is the reviewed cross-platform fixture
+argument plus evidence. After fast-forwarding the root checkout to 8a25773,
+`make test-cpp-build`, release build and `test_tui.py` all pass, including the
+version assertion. No live provider credentials were used.
+
+At 8a25773 the full hosted Linux suite, both Linux Nix lanes, complete SDK
+matrix, quality, Valgrind, fuzz/mutation, wasm and Darwin native lanes pass.
+The first Windows attempt passed build/unit/ownership but the durable-job
+fixture got empty status JSON; identical product/test source passed on 026ba9b.
+A Windows-only retry is running in CI run 35232590160 attempt 2.
+
+Darwin Nix run 35232590232/job 105240536139 passed the full integration and
+ownership checks but its final checkpoint mutant invocation failed parsing
+`--ldflags '-fsanitize=address,undefined'`. Unlike a multi-flag value or one
+with leading whitespace, argparse treats that single dash-prefixed value as
+a new option. Locally reproduced with exit 2 using
+`make test-checkpoint-mutation DBG_LDFLAGS=-fsanitize=address,undefined`.
+Use the unambiguous `--ldflags=...` form in all three shared mutation recipes.
+Compiler/linker flag values and every mutation oracle remain unchanged.
+Rerun parser, native and checkpoint mutation gates with that exact single-token
+linker value, then require the final hosted check rollup.
+
+The three affected mutation gates now pass with the exact single-token
+DBG_LDFLAGS override. All parser/native/checkpoint mutants compile and fail
+their behavioral oracles; all 11 checkpoint mutants are killed. Raw log:
+~/.cache/tny-merge-148/evidence/mutation-argv-fixed.log. Independent reviewer
+confirmed the flag strings, object graphs, baselines and oracles are unchanged.
+
+Windows-only retry at 8a25773 passed; CI run 35232590160 attempt 2 is SUCCESS.
+All hosted checks at that code revision pass except the reproduced Darwin Nix
+argument-parsing defect corrected here. No product-source change is needed.
+
+Final full `make -j4 quality` after the three argv fixes exits 0. Darwin's
+explicit GCC-analyzer skip remains covered by the hosted Linux quality job.
+All product, ABI and ownership source files are unchanged by this final fix.
+The next published head must receive a green complete CI/SDK/Nix rollup before
+merge; PR148 records that final rollup and the merge/main readback.
