@@ -321,6 +321,7 @@ int main() { return 0; }
                 "-B",
                 "lib-shared-active",
                 "UNAME_S=Darwin",
+                "UNAME_M=arm64",
                 "TNY_VERSION=abc1234",
                 "CC=echo",
                 "CXX=echo",

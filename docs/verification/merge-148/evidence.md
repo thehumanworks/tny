@@ -67,3 +67,50 @@ Gate: INCOMPLETE.
   private C++ native-object boundary on Windows/GCC, retaining C/final-link LTO.
   ADR0131 supersedes the per-file workaround; maintained tests enumerate all
   C++ objects and preserve override/Clang/non-Windows cases.
+
+## Final integration validation
+
+Code candidate: 026ba9b638144ac9cf39c0fa99cb860e7f224fbd.
+Independent review of the final Windows C++ boundary: no blocking findings.
+
+| Check | Observed result |
+| --- | --- |
+| Native ownership mutations | 15/15 compiled behavioral mutants killed; source-bound report run-m40ueitf |
+| Runtime mutations | 15/15 killed in isolated checkout at 026ba9b; final runtime suite 40 tests, 5,074 assertions |
+| ABI | make test-abi exit 0; frozen ABI0 and both ABI1 baseline comparisons pass |
+| macOS leaks | General make leaks and both native leak fixtures exit 0, zero leaks |
+| Local quality | Full make quality plus subsequent affected format/lint/build checks pass; GCC analyzer belongs to hosted Linux |
+| Windows | 35229616755/job 105230261464 PASS: release 1,156,096 bytes (limit 5,999,999), 560 unit tests pass, 7 platform skips; ownership and durable-job checks pass |
+| Hosted Linux | Same code passes Valgrind, both musl builds, TSan and fuzz/mutation lanes |
+| Wasm | Same code passes wasm-node |
+
+Raw local reports are retained under ~/.cache/tny-merge-148/evidence/.
+Hosted evidence: https://github.com/thehumanworks/tny/actions/runs/35229616755
+Nix: https://github.com/thehumanworks/tny/actions/runs/35229616640
+SDK: https://github.com/thehumanworks/tny/actions/runs/35229616424
+
+Full local make test completed every suite but its version assertion saw the
+branch advance during the run (binary 6b12285 versus Git 026ba9b). That run exits
+2 and is not a pass. Repeating with the main checkout frozen at 026ba9b.
+
+Hosted quality found the new Darwin numeric-version dry-run fixture needs to
+set UNAME_M=arm64 as well as UNAME_S=Darwin when run on Linux x86_64. The
+production platform support check correctly rejected the incomplete simulated
+platform. Correct only the fixture; no product behavior or gate is relaxed.
+This correction and documentation are published from the idle isolated checkout
+so the ongoing root test's Git version remains frozen.
+
+Final check rollup and merge readback are linked from
+https://github.com/thehumanworks/tny/pull/148 .
+I1/I3 preservation checks pass; I2 full-suite and hosted reconciliation and
+I4 merge/main synchronization remain pending in this pre-merge record.
+
+Final cross-platform fixture review: no blocking findings; UNAME_M=arm64
+completes the simulated supported Darwin platform without changing product
+behavior or weakening the version assertion. `make test-cpp-build` passes all
+14 tests locally (one Linux-only fixture skipped); format/lint pass.
+
+Hosted Linux full suite (job 105230261840) and both Linux Nix suites
+(105230150082, 105230149987) finish with only this fixture failure. Their
+previous GCC array-bounds failure is resolved. Publish the one-line fixture
+correction with this evidence, then require the fresh complete hosted rollup.
