@@ -90,7 +90,7 @@ jobs:
           valgrind --version
 
       - name: make valgrind
-        run: make valgrind
+        run: make valgrind && make test-native-leaks SANITIZE=0
 
   build:
     name: ${{ matrix.name }}

@@ -4,6 +4,7 @@
  * request retry/tool continuation and runtime finalization. The mock process
  * owns its allocations; only library/provider allocations enter the counter. */
 #include "core/config.h"
+#include "core/tools.h"
 #include "core/perm.h"
 #include "core/runtime.h"
 #include "core/session.h"
@@ -143,6 +144,13 @@ SUITE_EXTERN(acp_suite);
 SUITE_EXTERN(cursor_suite);
 GREATEST_MAIN_DEFS();
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "--native-storage-guard") == 0) {
+        tools_call call = {0};
+        /* The guard must reject authority before dereferencing or releasing it. */
+        call.custom_call = (struct custom_tool_pending *)&call;
+        tools_call_release_storage(&call);
+        return 0; /* reachable only in a private guard-removed mutant */
+    }
     if (argc == 7 && strcmp(argv[1], "--turn-sweep") == 0)
         return turn_sweep_case(argv[2], argv[3], argv[4], argv[5], argv[6]);
     GREATEST_MAIN_BEGIN();

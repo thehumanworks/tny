@@ -1,4 +1,4 @@
-/* responses.c — Responses API wire translation (docs/adr/0016).
+/* responses.cpp — Responses API wire translation (docs/adr/0016).
  *
  * Sessions persist Chat Completions-shaped messages (the lingua franca of
  * OpenAI-compatible providers, and what saved sessions already contain).
@@ -8,6 +8,7 @@
 #include "backends/openai/openai.h"
 #include "util/util.h"
 #include "util/alloc.h"
+#include "json/ownership.hpp"
 
 #include <stdlib.h>
 #include <string.h>
@@ -89,7 +90,8 @@ static void add_function_calls(yyjson_mut_doc *d, yyjson_mut_val *arr, yyjson_mu
 }
 
 static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *summary) {
-    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
+    tny::mutable_document mutable_owner(yyjson_mut_doc_new(jallocator()));
+    yyjson_mut_doc *d = mutable_owner.get();
     if (!d) return NULL;
     yyjson_mut_val *arr = yyjson_mut_arr(d);
     yyjson_mut_doc_set_root(d, arr);
@@ -152,7 +154,6 @@ static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *sum
         }
     }
     char *out = tny_alloc_scope_failed() ? NULL : jwrite(d);
-    yyjson_mut_doc_free(d);
     return out;
 }
 
@@ -167,18 +168,14 @@ char *tny_openai_responses_input_with_summary(yyjson_mut_val *msgs, const char *
 
 char *tny_openai_responses_tools(const char *chat_tools_json) {
     if (!chat_tools_json) return NULL;
-    yyjson_doc *doc = jparse(chat_tools_json, strlen(chat_tools_json));
+    tny::document document_owner(jparse(chat_tools_json, strlen(chat_tools_json)));
+    yyjson_doc *doc = document_owner.get();
     if (!doc) return NULL;
     yyjson_val *root = yyjson_doc_get_root(doc);
-    if (!yyjson_is_arr(root)) {
-        yyjson_doc_free(doc);
-        return NULL;
-    }
-    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
-    if (!d) {
-        yyjson_doc_free(doc);
-        return NULL;
-    }
+    if (!yyjson_is_arr(root)) { return NULL; }
+    tny::mutable_document mutable_owner(yyjson_mut_doc_new(jallocator()));
+    yyjson_mut_doc *d = mutable_owner.get();
+    if (!d) { return NULL; }
     yyjson_mut_val *arr = yyjson_mut_arr(d);
     yyjson_mut_doc_set_root(d, arr);
     size_t idx, max;
@@ -201,26 +198,20 @@ char *tny_openai_responses_tools(const char *chat_tools_json) {
         yyjson_mut_arr_add_val(arr, item);
     }
     char *out = tny_alloc_scope_failed() ? NULL : jwrite(d);
-    yyjson_mut_doc_free(d);
-    yyjson_doc_free(doc);
     return out;
 }
 
 char *tny_openai_responses_text_format(const char *response_format_json) {
     if (!response_format_json) return NULL;
-    yyjson_doc *doc = jparse(response_format_json, strlen(response_format_json));
+    tny::document document_owner(jparse(response_format_json, strlen(response_format_json)));
+    yyjson_doc *doc = document_owner.get();
     if (!doc) return NULL;
     yyjson_val *root = yyjson_doc_get_root(doc);
     const char *type = jget_str(root, "type");
-    if (!type || strcmp(type, "json_schema") != 0) {
-        yyjson_doc_free(doc);
-        return NULL;
-    }
-    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
-    if (!d) {
-        yyjson_doc_free(doc);
-        return NULL;
-    }
+    if (!type || strcmp(type, "json_schema") != 0) { return NULL; }
+    tny::mutable_document mutable_owner(yyjson_mut_doc_new(jallocator()));
+    yyjson_mut_doc *d = mutable_owner.get();
+    if (!d) { return NULL; }
     yyjson_mut_val *fmt = yyjson_mut_obj(d);
     yyjson_mut_doc_set_root(d, fmt);
     add_str(d, fmt, "type", "json_schema");
@@ -236,7 +227,39 @@ char *tny_openai_responses_text_format(const char *response_format_json) {
         }
     }
     char *out = tny_alloc_scope_failed() ? NULL : jwrite(d);
-    yyjson_mut_doc_free(d);
-    yyjson_doc_free(doc);
+    return out;
+}
+
+char *tny_openai_response_format(const char *schema_json, size_t len) {
+    tny::document document_owner(jparse(schema_json, len));
+    yyjson_doc *doc = document_owner.get();
+    if (!doc) return NULL;
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    if (!yyjson_is_obj(root)) { return NULL; }
+    tny::mutable_document mutable_owner(yyjson_mut_doc_new(jallocator()));
+    yyjson_mut_doc *m = mutable_owner.get();
+    if (!m) { return NULL; }
+    yyjson_mut_val *copy = yyjson_val_mut_copy(m, root);
+    const char *type = jget_str(root, "type");
+    yyjson_mut_val *rf;
+    if (type && strcmp(type, "json_schema") == 0) {
+        rf = copy; /* already a full response_format */
+    } else {
+        rf = yyjson_mut_obj(m);
+        yyjson_mut_obj_add_str(m, rf, "type", "json_schema");
+        yyjson_mut_val *js;
+        if (jget(root, "schema")) {
+            js = copy; /* already a json_schema object ({name, schema, …}) */
+            if (!jget(root, "name")) yyjson_mut_obj_add_str(m, js, "name", "output");
+        } else {
+            js = yyjson_mut_obj(m);
+            yyjson_mut_obj_add_str(m, js, "name", "output");
+            yyjson_mut_obj_add_bool(m, js, "strict", true);
+            yyjson_mut_obj_add_val(m, js, "schema", copy);
+        }
+        yyjson_mut_obj_add_val(m, rf, "json_schema", js);
+    }
+    yyjson_mut_doc_set_root(m, rf);
+    char *out = jwrite(m);
     return out;
 }

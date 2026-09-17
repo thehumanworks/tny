@@ -1,6 +1,7 @@
 #include "core/skills.h"
 #include "core/tools.h"
 #include "util/util.h"
+#include "util/alloc.h"
 
 #include <ctype.h>
 #include <stdint.h>
@@ -37,10 +38,14 @@ static bool parse_frontmatter(const char *path, char **name, char **desc) {
         size_t ll = nl ? (size_t)(nl - p) : strlen(p);
         if (strncmp(p, "name:", 5) == 0) {
             char *v = xstrndup(p + 5, ll - 5);
+            if (!v) goto partial_failure;
+            free(*name);
             *name = xstrdup(str_trim(v));
             free(v);
         } else if (strncmp(p, "description:", 12) == 0) {
             char *v = xstrndup(p + 12, ll - 12);
+            if (!v) goto partial_failure;
+            free(*desc);
             *desc = xstrdup(str_trim(v));
             free(v);
         }
@@ -53,17 +58,33 @@ static bool parse_frontmatter(const char *path, char **name, char **desc) {
         return false;
     }
     if (!*desc) *desc = xstrdup("");
+    if (!*desc) {
+        free(*name);
+        *name = NULL;
+        return false;
+    }
     return true;
+partial_failure:
+    free(data);
+    free(*name);
+    free(*desc);
+    *name = *desc = NULL;
+    return false;
 }
 
 static void scan_root(const char *root, skill_meta **arr, int *n) {
+    if (!root || tny_alloc_scope_failed()) return;
     DIR *d = opendir(root);
     if (!d) return;
     struct dirent *e;
-    while ((e = readdir(d))) {
+    while (!tny_alloc_scope_failed() && (e = readdir(d))) {
         if (e->d_name[0] == '.') continue;
         char *sd = path_join(root, e->d_name);
-        char *sf = path_join(sd, "SKILL.md");
+        char *sf = sd ? path_join(sd, "SKILL.md") : NULL;
+        if (!sf) {
+            free(sd);
+            break;
+        }
         if (file_exists(sf)) {
             char *name = NULL, *desc = NULL;
             if (parse_frontmatter(sf, &name, &desc)) {
@@ -78,15 +99,18 @@ static void scan_root(const char *root, skill_meta **arr, int *n) {
                     free(name);
                     free(desc);
                 } else {
-                    skill_meta *grown = realloc(*arr, sizeof(skill_meta) * (size_t)(*n + 1));
+                    char *dir = xstrdup(sd);
+                    skill_meta *grown =
+                        dir ? realloc(*arr, sizeof(skill_meta) * (size_t)(*n + 1)) : NULL;
                     if (!grown) {
+                        free(dir);
                         free(name);
                         free(desc);
                     } else {
                         *arr = grown;
                         (*arr)[*n].name = name;
                         (*arr)[*n].description = desc;
-                        (*arr)[*n].dir = xstrdup(sd);
+                        (*arr)[*n].dir = dir;
                         (*n)++;
                     }
                 }
@@ -102,11 +126,17 @@ skill_meta *skills_discover(tny_ctx *ctx, int *count) {
     skill_meta *arr = NULL;
     int n = 0;
     char *home = path_home();
+    char *cur = home ? xstrdup(ctx->cwd) : NULL;
+    if (!home || !cur) {
+        free(home);
+        free(cur);
+        *count = 0;
+        return NULL;
+    }
     size_t home_len = strlen(home);
 
     /* workspace upward, stop before $HOME (narrowest first so it wins) */
-    char *cur = xstrdup(ctx->cwd);
-    for (;;) {
+    while (!tny_alloc_scope_failed()) {
         bool at_home = strcmp(cur, home) == 0;
         bool above_home = strncmp(home, cur, strlen(cur)) == 0 && strlen(cur) < home_len;
         if (at_home || above_home) break;
@@ -122,16 +152,21 @@ skill_meta *skills_discover(tny_ctx *ctx, int *count) {
     free(cur);
 
     /* user level: ~/.tny/skills and hidden names under $HOME */
-    char *managed = path_join(ctx->tny_dir, "skills");
+    char *managed = tny_alloc_scope_failed() ? NULL : path_join(ctx->tny_dir, "skills");
     scan_root(managed, &arr, &n);
     free(managed);
-    for (int i = 0; SKILL_ROOTS[i]; i++) {
+    for (int i = 0; !tny_alloc_scope_failed() && SKILL_ROOTS[i]; i++) {
         if (SKILL_ROOTS[i][0] != '.') continue;
         char *root = path_join(home, SKILL_ROOTS[i]);
         scan_root(root, &arr, &n);
         free(root);
     }
     free(home);
+    if (tny_alloc_scope_failed()) {
+        skills_free(arr, n);
+        *count = 0;
+        return NULL;
+    }
     *count = n;
     return arr;
 }

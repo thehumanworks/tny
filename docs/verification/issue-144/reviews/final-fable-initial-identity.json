@@ -1,0 +1,12 @@
+{
+  "name": "final-review",
+  "cwd": "/Users/tomas/projects/tny",
+  "command": "claude --model fable --effort high --strict-mcp-config --mcp-config \"{\\\"mcpServers\\\":{}}\" --permission-mode dontAsk --tools Read,Glob,Grep --allowedTools Read,Glob,Grep --add-dir /Users/tomas/.cache/tny-issue-144 --output-format text -p \"$(cat /Users/tomas/.cache/tny-issue-144/final-review.prompt)\"",
+  "started_utc": "2026-09-17T09:30:38.193960+00:00",
+  "duration_seconds": 312.02101137499994,
+  "exit_code": 0,
+  "head": "2d710b60294c8bd5fa0657182b81984d4e13b1a4",
+  "source_unchanged_during_gate": true,
+  "source_sha256": "b18b0d5ef108bdd4fd9081cac00611b84fb45884770424f43181d8cca45f578a",
+  "log_sha256": "ba269042c317ed480e1d8abd70d69cc3454c528db5317f387957f6a79943ff36"
+}
