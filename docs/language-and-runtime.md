@@ -17,6 +17,8 @@ and [ADR 0117](adr/0117-allocation-free-provider-oom-settlement.md) the
 allocation-free provider settlement those owners rely on.
 [ADR 0118](adr/0118-runner-and-job-resource-ownership.md) authorizes runner
 and durable-job resource aggregates; platform process operations stay in C.
+[ADR 0126](adr/0126-checkpoint-context-ownership.md) adds checked checkpoint
+serialization and context recovery, with scoped temporary secret cleanup.
 Private facades
 expose opaque owners and synchronous borrowed views, never standard-library
 types.

@@ -30,13 +30,13 @@ The product source is live under `src/` with unit, integration, mutation, and la
 ## Before you write code
 
 1. Read `docs/product.md`, `docs/architecture.md`, `docs/implementation-plan.md`.
-2. Follow the phase order. Do not start a TUI framework. C++20 is limited to the ownership/decoding areas authorized by ADR 0114.
+2. Follow the phase order. Do not start a TUI framework. C++20 is limited to the ownership/decoding areas authorized by ADR 0114 and the checkpoint extension in ADR 0126.
 3. Re-check primary URLs in `docs/sources.md` if a protocol field is unclear. Pin the bridge `sdk.v1` schema and Codex JSON Schema to a **release**, not `main`.
 4. Do not commit secrets, ready-line tokens, or live API keys.
 
 ## Invariants
 
-- Language: C11 for existing application, OS seams, transports and vendored code; private C++20 ownership modules only as scoped by ADR 0114. Retain the public C ABI.
+- Language: C11 for existing application, OS seams, transports and vendored code; private C++20 ownership modules only as scoped by ADR 0114 and ADR 0126. Retain the public C ABI.
 - Size: shipped `tny` artifacts stay **< 6,000,000 bytes** (decimal 6 MB, ADR 0121). Favor maintainability, reliability and measured speed over byte minimization. Report C++ runtime dependencies separately; optional agent binaries remain external.
 - Startup: the CLI spawns no backend before a turn; `--help` / `--version` stay microseconds-to-milliseconds. The interactive TUI **pre-warms** the selected provider's host after first paint (`docs/adr/0002`); one-shot `tny ask` may overlap its `connect()` with reading the prompt from stdin and may attach to a registered live codex host (`docs/adr/0004`).
 - Isolation: on native builds every turn — interactive and one-shot — executes in a detached, forked **session runner** that survives caller crashes and finalizes into the session; the caller renders its NDJSON stream from `<session>/sock` (`docs/adr/0053`). No tmux. wasm, `--ephemeral`, and `TNY_ISOLATE=0` are the only in-process turns.

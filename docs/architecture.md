@@ -199,7 +199,9 @@ ordinary parent tool results for checkpoint/reattach purposes. See
 
 [ADR 0114](adr/0114-private-cpp20-ownership-boundaries.md) permits private
 C++20 modules for stream decoding, retained events/async tools, and
-runner/job resources. The C-facing adapters retain scheduling, public
+runner/job resources. [ADR 0126](adr/0126-checkpoint-context-ownership.md) extends
+this boundary to checkpoint encoding and independently owned context recovery.
+The C-facing adapters retain scheduling, public
 ABI and OS operations in their existing owners. Synchronous views are
 borrowed; retained records own their data. Exceptions never escape to C.
 
