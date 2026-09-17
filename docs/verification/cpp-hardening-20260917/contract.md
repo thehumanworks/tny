@@ -54,3 +54,26 @@ mutation anchors. Initial contract text remains unchanged. No root branch,
 source or unrelated process is modified after detecting concurrent ownership.
 H1/H4/H5 apply directly; H2/H3 are dependency integration requirements, not a
 claim that this slice alone fixes the simultaneous finalization work.
+
+## Published integration reconciliation
+
+The primary finalization task published cb0f74c in PR141. Its source, build,
+tests and dependency inputs are now merged into this task-owned verification
+branch without changing the user's primary checkout. They match PR141 exactly;
+only this supplementary evidence directory differs.
+
+H2's initially proposed analyzer-routing mechanism is superseded by the measured
+combined implementation in ADR0124: retain the existing Clang and GCC checks,
+make the three small ownership factories visible to GCC's analyzer by inlining,
+and require positive RAII plus deliberately failing lifetime controls. This
+changes the planned mechanism, not the requirement for actual C++ static
+analysis, strict diagnostics or negative-control proof. The published Nix/input
+fixes satisfy H3 and are covered by PR141's hosted checks.
+
+The independent transaction review approved the ownership representation. Its
+findings were actioned with a real leak-detector negative control, directory
+allocation fault coverage, and explicit unwinding wording. The combined review
+additionally requires fail-fast ENOMEM before JSON work on directory-copy OOM.
+The final source-bound tests and measurements must use this integrated state;
+pre-integration successes remain recorded as historical or component evidence,
+not mislabeled as a full final-source pass.

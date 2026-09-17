@@ -1,0 +1,3 @@
+version: baseline=3.184ms candidate=3.167ms delta=-0.017ms PASS
+help: baseline=3.171ms candidate=3.197ms delta=+0.027ms PASS
+first-prompt: baseline=2.986ms candidate=3.053ms delta=+0.066ms PASS

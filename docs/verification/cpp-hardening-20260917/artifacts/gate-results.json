@@ -1,12 +1,124 @@
 {
-  "collected_utc": "2026-09-17T00:25:35.259401+00:00",
-  "base": "fdd5aa7a02b6605969ea56fdee9412f9fe685da3",
+  "collected_utc": "2026-09-17T00:38:47.607915+00:00",
+  "base": "f312c66015db3c8114f22afd63b9b9d17216d533",
   "current_slice": {
     "src/core/jobs.cpp": "055b8051a57d52c5675018dc6c3fe56825bba3f5c20e0bb6c79befdcfdadf856",
     "tests/fixtures/runner_ownership.cpp": "ccb1e1176fd4b3a5bc1b8ac33958b524430be6e30e41e40cb4ed02520cead5f1",
     "tests/mutation/runner_critical.py": "8600e19adb8673a8039ffe418f2ab225da1767b9d4bb7848b5b6134b72f4150c"
   },
   "records": [
+    {
+      "command": [
+        "make",
+        "test-abi"
+      ],
+      "cwd": "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+      "started_utc": "2026-09-17T00:36:58.117707+00:00",
+      "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+      "head": "f312c66015db3c8114f22afd63b9b9d17216d533",
+      "exit_code": 0,
+      "duration_seconds": 34.173,
+      "finished_utc": "2026-09-17T00:37:32.297992+00:00",
+      "gate": "published-abi",
+      "current_slice_match": {
+        "src/core/jobs.cpp": true,
+        "tests/fixtures/runner_ownership.cpp": true,
+        "tests/mutation/runner_critical.py": true
+      },
+      "log_sha256": "e7f814733f05fecd3237147d1d5ebe76ecfd1a09ed35517510941f72832c5939"
+    },
+    {
+      "command": [
+        "make",
+        "-j8",
+        "release",
+        "size-check",
+        "BUILD=build-published"
+      ],
+      "cwd": "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+      "started_utc": "2026-09-17T00:28:31.665289+00:00",
+      "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+      "head": "f312c66015db3c8114f22afd63b9b9d17216d533",
+      "exit_code": 0,
+      "duration_seconds": 5.479,
+      "finished_utc": "2026-09-17T00:28:37.151043+00:00",
+      "gate": "published-artifact-build",
+      "current_slice_match": {
+        "src/core/jobs.cpp": true,
+        "tests/fixtures/runner_ownership.cpp": true,
+        "tests/mutation/runner_critical.py": true
+      },
+      "log_sha256": "2379b1dd92fcd179fa44b152b093c09df41f59182967f11b89dddfd92fd45102"
+    },
+    {
+      "command": [
+        "make",
+        "-j8",
+        "quality"
+      ],
+      "cwd": "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+      "started_utc": "2026-09-17T00:28:37.232099+00:00",
+      "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+      "head": "f312c66015db3c8114f22afd63b9b9d17216d533",
+      "exit_code": 0,
+      "duration_seconds": 180.094,
+      "finished_utc": "2026-09-17T00:31:37.333697+00:00",
+      "gate": "published-quality",
+      "current_slice_match": {
+        "src/core/jobs.cpp": true,
+        "tests/fixtures/runner_ownership.cpp": true,
+        "tests/mutation/runner_critical.py": true
+      },
+      "log_sha256": "a9526cc917eb6b47179a39d5a021f85979090867a7c1e0def279776032518e91"
+    },
+    {
+      "command": [
+        "env",
+        "MACOSX_DEPLOYMENT_TARGET=13.0",
+        "TNY_LIB_DIR=/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree/build-sdk/lib",
+        "make",
+        "-j8",
+        "test-sdks",
+        "BUILD=build-sdk"
+      ],
+      "cwd": "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+      "started_utc": "2026-09-17T00:37:32.379874+00:00",
+      "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+      "head": "f312c66015db3c8114f22afd63b9b9d17216d533",
+      "exit_code": 0,
+      "duration_seconds": 36.735,
+      "finished_utc": "2026-09-17T00:38:09.122261+00:00",
+      "gate": "published-sdks",
+      "current_slice_match": {
+        "src/core/jobs.cpp": true,
+        "tests/fixtures/runner_ownership.cpp": true,
+        "tests/mutation/runner_critical.py": true
+      },
+      "log_sha256": "7ac7dfe6fd7cebb09fbe993073e1862457b2771ef0c1b101c886112ba550418e"
+    },
+    {
+      "command": [
+        "make",
+        "-j8",
+        "test-unit",
+        "test-runner-ownership",
+        "test-runtime-ownership"
+      ],
+      "cwd": "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+      "started_utc": "2026-09-17T00:31:37.420060+00:00",
+      "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+      "head": "f312c66015db3c8114f22afd63b9b9d17216d533",
+      "exit_code": 0,
+      "duration_seconds": 44.795,
+      "finished_utc": "2026-09-17T00:32:22.222458+00:00",
+      "gate": "published-unit-owners",
+      "current_slice_match": {
+        "src/core/jobs.cpp": true,
+        "tests/fixtures/runner_ownership.cpp": true,
+        "tests/mutation/runner_critical.py": true
+      },
+      "log_sha256": "47b8f0a4bf48f28c66fc87a0a12121ad2d78f2fb93452c294046430c084bb7a4"
+    },
     {
       "command": [
         "make",
@@ -86,6 +198,34 @@
         "tests/mutation/runner_critical.py": false
       },
       "log_sha256": "2e6f36dab44f5728f47ee6d03d67534a855e3b3aea6ea4fe11e7b38ca85897a4"
+    },
+    {
+      "command": [
+        "python3",
+        "tests/bench/bench_events.py",
+        "--baseline",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/baseline-tree",
+        "--candidate",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+        "--work-dir",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/performance/events",
+        "--iterations",
+        "2000"
+      ],
+      "cwd": "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+      "started_utc": "2026-09-17T00:32:37.398722+00:00",
+      "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+      "head": "f312c66015db3c8114f22afd63b9b9d17216d533",
+      "exit_code": 0,
+      "duration_seconds": 23.894,
+      "finished_utc": "2026-09-17T00:33:01.299995+00:00",
+      "gate": "transaction-event-performance",
+      "current_slice_match": {
+        "src/core/jobs.cpp": true,
+        "tests/fixtures/runner_ownership.cpp": true,
+        "tests/mutation/runner_critical.py": true
+      },
+      "log_sha256": "eca18fad7e24974b3295c1b2848abdb473d41335d782bb4887850863e4943572"
     },
     {
       "command": [
@@ -388,6 +528,34 @@
     },
     {
       "command": [
+        "python3",
+        "tests/bench/bench_parsers.py",
+        "--baseline",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/baseline-tree",
+        "--candidate",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+        "--work-dir",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/performance/parsers",
+        "--iterations",
+        "2000"
+      ],
+      "cwd": "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+      "started_utc": "2026-09-17T00:32:25.400944+00:00",
+      "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+      "head": "f312c66015db3c8114f22afd63b9b9d17216d533",
+      "exit_code": 0,
+      "duration_seconds": 11.905,
+      "finished_utc": "2026-09-17T00:32:37.312692+00:00",
+      "gate": "transaction-parser-performance",
+      "current_slice_match": {
+        "src/core/jobs.cpp": true,
+        "tests/fixtures/runner_ownership.cpp": true,
+        "tests/mutation/runner_critical.py": true
+      },
+      "log_sha256": "65e991addde626a25e9e04492580b9fbf256418516202c1814c688e50051d35b"
+    },
+    {
+      "command": [
         "make",
         "-j8",
         "quality"
@@ -416,13 +584,16 @@
       "started_utc": "2026-09-17T00:24:36.678868+00:00",
       "source_sha256": "a01f2062cf758b42fc8213bc14c788b77468a99e5ad3a1e470932267de4b8252",
       "head": "fdd5aa7a02b6605969ea56fdee9412f9fe685da3",
+      "exit_code": 0,
+      "duration_seconds": 290.373,
+      "finished_utc": "2026-09-17T00:29:27.060529+00:00",
       "gate": "transaction-reviewed-jobs",
       "current_slice_match": {
         "src/core/jobs.cpp": true,
         "tests/fixtures/runner_ownership.cpp": true,
         "tests/mutation/runner_critical.py": true
       },
-      "log_sha256": "f4e8f0dcbe65877f5b96a002f94389d042a967540a9f9606f2e17f49cf4e3e90"
+      "log_sha256": "1150da8f48451f9cc4dc6da317bee8ac578c4aa1d55f2e2f39ff47d60f645e08"
     },
     {
       "command": [
@@ -577,6 +748,158 @@
         "tests/mutation/runner_critical.py": true
       },
       "log_sha256": "cb8ce5f125f84f10be1fb514e60a92fd3ad5ea5c79dfdc2e8e20506f504c6b56"
+    },
+    {
+      "command": [
+        "python3",
+        "tests/bench/bench_startup.py",
+        "--baseline",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/baseline-tree/build/tny",
+        "--candidate",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree/build-published/tny",
+        "--output",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/performance/startup.json",
+        "--samples",
+        "102",
+        "--pty-samples",
+        "24",
+        "--batches",
+        "3"
+      ],
+      "cwd": "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+      "started_utc": "2026-09-17T00:32:23.187456+00:00",
+      "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+      "head": "f312c66015db3c8114f22afd63b9b9d17216d533",
+      "exit_code": 0,
+      "duration_seconds": 2.121,
+      "finished_utc": "2026-09-17T00:32:25.315895+00:00",
+      "gate": "transaction-startup",
+      "current_slice_match": {
+        "src/core/jobs.cpp": true,
+        "tests/fixtures/runner_ownership.cpp": true,
+        "tests/mutation/runner_critical.py": true
+      },
+      "log_sha256": "d97cc73f13ab2aad3e441e7a3f8ae54e52655046014bbf23a5fa27301c34c1bf"
+    },
+    {
+      "command": [
+        "python3",
+        "tests/bench/bench_ttft.py",
+        "--tny",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree/build-published/tny",
+        "--repo",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+        "--bench",
+        "ask-stdin",
+        "--iters",
+        "20",
+        "--label",
+        "candidate"
+      ],
+      "cwd": "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+      "started_utc": "2026-09-17T00:36:23.627807+00:00",
+      "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+      "head": "f312c66015db3c8114f22afd63b9b9d17216d533",
+      "exit_code": 0,
+      "duration_seconds": 18.617,
+      "finished_utc": "2026-09-17T00:36:42.251424+00:00",
+      "gate": "transaction-ttft-ask-stdin-candidate",
+      "current_slice_match": {
+        "src/core/jobs.cpp": true,
+        "tests/fixtures/runner_ownership.cpp": true,
+        "tests/mutation/runner_critical.py": true
+      },
+      "log_sha256": "668e087f84c7caa97ff107e0711a2d5e904f0542ace462a6cd075f9ebcef9721"
+    },
+    {
+      "command": [
+        "python3",
+        "tests/bench/bench_ttft.py",
+        "--tny",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/baseline-tree/build/tny",
+        "--repo",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/baseline-tree",
+        "--bench",
+        "ask-stdin",
+        "--iters",
+        "20",
+        "--label",
+        "parent"
+      ],
+      "cwd": "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+      "started_utc": "2026-09-17T00:36:04.136832+00:00",
+      "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+      "head": "f312c66015db3c8114f22afd63b9b9d17216d533",
+      "exit_code": 0,
+      "duration_seconds": 19.362,
+      "finished_utc": "2026-09-17T00:36:23.505803+00:00",
+      "gate": "transaction-ttft-ask-stdin-parent",
+      "current_slice_match": {
+        "src/core/jobs.cpp": true,
+        "tests/fixtures/runner_ownership.cpp": true,
+        "tests/mutation/runner_critical.py": true
+      },
+      "log_sha256": "84a56440681e1fc18b3d1729a152c435e9352e9934e9a5f5f9c73f7299e5b4a8"
+    },
+    {
+      "command": [
+        "python3",
+        "tests/bench/bench_ttft.py",
+        "--tny",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree/build-published/tny",
+        "--repo",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+        "--bench",
+        "tui",
+        "--iters",
+        "20",
+        "--label",
+        "candidate"
+      ],
+      "cwd": "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+      "started_utc": "2026-09-17T00:34:33.009949+00:00",
+      "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+      "head": "f312c66015db3c8114f22afd63b9b9d17216d533",
+      "exit_code": 0,
+      "duration_seconds": 91.004,
+      "finished_utc": "2026-09-17T00:36:04.020989+00:00",
+      "gate": "transaction-ttft-tui-candidate",
+      "current_slice_match": {
+        "src/core/jobs.cpp": true,
+        "tests/fixtures/runner_ownership.cpp": true,
+        "tests/mutation/runner_critical.py": true
+      },
+      "log_sha256": "1757bbbbfc66d56ba4afe673cf67c3b23617d06467589e935d1712790809e0f5"
+    },
+    {
+      "command": [
+        "python3",
+        "tests/bench/bench_ttft.py",
+        "--tny",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/baseline-tree/build/tny",
+        "--repo",
+        "/Users/tomas/.cache/tny-cpp-continue-20260917/baseline-tree",
+        "--bench",
+        "tui",
+        "--iters",
+        "20",
+        "--label",
+        "parent"
+      ],
+      "cwd": "/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree",
+      "started_utc": "2026-09-17T00:33:01.389671+00:00",
+      "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+      "head": "f312c66015db3c8114f22afd63b9b9d17216d533",
+      "exit_code": 0,
+      "duration_seconds": 91.501,
+      "finished_utc": "2026-09-17T00:34:32.899944+00:00",
+      "gate": "transaction-ttft-tui-parent",
+      "current_slice_match": {
+        "src/core/jobs.cpp": true,
+        "tests/fixtures/runner_ownership.cpp": true,
+        "tests/mutation/runner_critical.py": true
+      },
+      "log_sha256": "51f8f5b81ccd2c7355faaaaa9ec78280bb1cc8aa9195bea0b6392c63bb480723"
     }
   ]
 }

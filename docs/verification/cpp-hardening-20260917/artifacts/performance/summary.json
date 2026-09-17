@@ -1,0 +1,57 @@
+{
+  "baseline": "fdd5aa7a02b6605969ea56fdee9412f9fe685da3",
+  "published_candidate": "cb0f74cafa34723af4c650f260100c70370cd951",
+  "latency_runs_per_binary": 20,
+  "latency_fixture": "Repository local mock; not external-provider inference latency. ask-stdin measures request completion after delayed stdin, not first display.",
+  "reports": {
+    "startup": {
+      "passed": true,
+      "sha256": "eb904c530f75a14bd3ffb94735581cf61494054f95e5b5807f6e58078b36beed"
+    },
+    "parsers": {
+      "passed": true,
+      "sha256": "b3441bbef237f261557e4f75fc7b685640043d04ab4f38ea39e056c1c23e4b0f"
+    },
+    "events": {
+      "passed": true,
+      "sha256": "3921cff2474dcdbd49aaa3d2faec9a4166f8f5308bacd54e760fc8abae7eb449"
+    }
+  },
+  "latency": {
+    "tui": {
+      "parent": {
+        "median_ms": 435.7,
+        "raw_report": "parent     tui        median=  435.7ms  min=  418.1ms  runs=[418, 428, 428, 430, 431, 432, 433, 434, 434, 436, 436, 437, 438, 440, 441, 441, 441, 441, 442, 447]",
+        "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+        "exit_code": 0
+      },
+      "candidate": {
+        "median_ms": 432.8,
+        "raw_report": "candidate  tui        median=  432.8ms  min=  416.5ms  runs=[416, 417, 417, 418, 421, 423, 427, 428, 428, 430, 433, 434, 436, 437, 438, 438, 441, 442, 443, 444]",
+        "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+        "exit_code": 0
+      },
+      "ratio": 0.9933440440670186,
+      "investigate_over_ratio": 1.1,
+      "passed": true
+    },
+    "ask-stdin": {
+      "parent": {
+        "median_ms": 885.9,
+        "raw_report": "parent     ask-stdin  median=  885.9ms  min=  842.0ms  runs=[842, 842, 852, 852, 853, 855, 861, 875, 885, 885, 886, 889, 889, 891, 891, 891, 895, 897, 902, 904]",
+        "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+        "exit_code": 0
+      },
+      "candidate": {
+        "median_ms": 866.7,
+        "raw_report": "candidate  ask-stdin  median=  866.7ms  min=  844.4ms  runs=[844, 853, 856, 860, 864, 865, 866, 866, 866, 866, 867, 868, 868, 869, 870, 872, 873, 873, 873, 873]",
+        "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+        "exit_code": 0
+      },
+      "ratio": 0.9783271249576703,
+      "investigate_over_ratio": 1.1,
+      "passed": true
+    }
+  },
+  "passed": true
+}
