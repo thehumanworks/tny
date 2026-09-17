@@ -776,6 +776,24 @@ test-search-ownership: $(SEARCH_OWNER_BIN)
 .PHONY: test-search-ownership
 -include $(SEARCH_OWNER_OBJ:.o=.d)
 
+# Checkpoint C facade, complete fault-injected object graph (ADR0126).
+CHECKPOINT_OWNER_OBJ := $(OWNER_OBJ_ROOT)/tests/fixtures/checkpoint_ownership.o
+CHECKPOINT_OWNER_BIN := $(BUILD)/checkpoint-ownership/checkpoint-test
+$(CHECKPOINT_OWNER_BIN): $(CHECKPOINT_OWNER_OBJ) $(OWNER_LIB_OBJS)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(DBG_LDFLAGS)
+test-checkpoint-ownership: $(CHECKPOINT_OWNER_BIN)
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(CHECKPOINT_OWNER_BIN)
+test-checkpoint-mutation: test-checkpoint-ownership
+	python3 tests/mutation/checkpoint_ownership.py --cxx '$(CXX)' \
+		--flags '$(OWNER_CXXFLAGS)' --ldflags '$(DBG_LDFLAGS)' \
+		--object-root '$(OWNER_OBJ_ROOT)' --test-object '$(CHECKPOINT_OWNER_OBJ)' \
+		--baseline '$(CHECKPOINT_OWNER_BIN)' --work-dir '$(BUILD)/checkpoint-mutations' \
+		$(OWNER_LIB_OBJS)
+.PHONY: test-checkpoint-ownership test-checkpoint-mutation
+-include $(CHECKPOINT_OWNER_OBJ:.o=.d)
+
 # Every C++ object uses the same test-only owner-counter definitions. The
 # remaining C unit objects retain their normal ASan/UBSan instrumentation.
 OWNER_INSTRUMENTED_SRC := $(sort src/util/alloc.c $(filter %.cpp,$(TEST_DEPS)) \

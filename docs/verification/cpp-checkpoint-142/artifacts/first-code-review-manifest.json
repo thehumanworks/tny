@@ -1,0 +1,9 @@
+{
+  "src/core/checkpoint.cpp": "c523fa2ff6a50f7f5358076b348ff74b182f7ecac50f63820ebd6331fa7a69a0",
+  "src/core/checkpoint.h": "2645974a0611d0943ab829ef5dafdc91dadb331443058af133ebff2b1c4a9fac",
+  "tests/fixtures/checkpoint_ownership.c": "3ea352a1b5e3ce1ca17e595793ded58a9b1df335212a4fa036a9bd5053ebb029",
+  "src/util/ownership.hpp": "14e86639b7dbd77c3ed0673c57d9eac79538f584afe2412f09de58b5e309e9f2",
+  "src/json/ownership.hpp": "bfda1bebefc763cdb294ad0fdbb350f968187fc4007ad31b2679599dff58b3dd",
+  "src/util/alloc.h": "95bd5a9a025493fb5d6cf249caf1942818926ac55570948ef7898a778f951807",
+  "src/core/extensions.c": "09102fffc0a9f7ff54e7e07278a338126c46dca268271bf22e04516d0c8b84da"
+}

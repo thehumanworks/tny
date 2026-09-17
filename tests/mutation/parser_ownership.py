@@ -68,7 +68,11 @@ def execute(command: list[str], log: Path, timeout: float, env: dict[str, str]) 
     return run.returncode
 
 
-def main() -> int:
+def main(
+    mutants=MUTANTS,
+    oracle_marker="ownership self-test failed at line",
+    label="parser",
+) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cxx", required=True)
     parser.add_argument("--flags", required=True)
@@ -93,7 +97,7 @@ def main() -> int:
         args.test_object,
         args.baseline,
         *args.objects,
-        *(Path(row[1]) for row in MUTANTS),
+        *(Path(row[1]) for row in mutants),
     ]
     try:
         fingerprints = {str(path.resolve()): sha(path) for path in original_paths}
@@ -106,7 +110,7 @@ def main() -> int:
             raise RuntimeError(f"instrumented baseline failed with status {baseline}")
         compiler = shlex.split(args.cxx)
         flags = shlex.split(args.flags)
-        for name, source, old, new in MUTANTS:
+        for name, source, old, new in mutants:
             text = Path(source).read_text(encoding="utf-8")
             if text.count(old) != 1:
                 raise RuntimeError(
@@ -151,7 +155,7 @@ def main() -> int:
             oracle = any(
                 marker in diagnostic
                 for marker in (
-                    "ownership self-test failed at line",
+                    oracle_marker,
                     "ERROR: AddressSanitizer:",
                     "runtime error:",
                 )
@@ -170,11 +174,11 @@ def main() -> int:
         report["passed"] = True
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         report["error"] = str(exc)
-        print(f"parser mutation gate failed: {exc}", file=sys.stderr)
+        print(f"{label} mutation gate failed: {exc}", file=sys.stderr)
     (output / "report.json").write_text(
         json.dumps(report, indent=2) + "\n", encoding="utf-8"
     )
-    print(f"parser mutation evidence: {output / 'report.json'}")
+    print(f"{label} mutation evidence: {output / 'report.json'}")
     return 0 if report["passed"] else 1
 
 
