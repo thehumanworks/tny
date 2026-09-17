@@ -107,3 +107,12 @@ assert the intended failure rather than hide unexpected warnings or crashes.
 Measure startup, first prompt, parser/event throughput and memory against the
 same-host baseline before claiming a performance result. A C++ type, a passing
 compiler, or a review alone does not prove a lifetime protocol correct.
+
+## Keep the analyzer honest
+
+The small `make_owned`, `parse` and `make_document` factories are explicitly
+inlined so GCC analyzes construction and unique ownership as one path (ADR
+0124). Keep their code short and preserve the construction-failure guard.
+`make test-cpp-analyzer ANALYZER_CXX=g++-14` checks the real factories and
+requires that independent lifetime defects still fail. Do not replace RAII
+or disable warnings merely to satisfy a compiler's analysis limitation.

@@ -1,0 +1,15 @@
+{
+  "command": [
+    "make",
+    "-j8",
+    "quality",
+    "test-cpp-build"
+  ],
+  "cwd": "/Users/tomas/projects/tny",
+  "started_utc": "2026-09-17T00:12:48.449430+00:00",
+  "source_sha256": "aaf601456bf6d9b81c98ef3636932a54e48d6a31591bfb679b955ed38d80fce5",
+  "head": "fdd5aa7a02b6605969ea56fdee9412f9fe685da3",
+  "exit_code": 0,
+  "duration_seconds": 201.178,
+  "finished_utc": "2026-09-17T00:16:09.635444+00:00"
+}

@@ -96,6 +96,7 @@ def main() -> int:
         "../.github/workflows/nix.yml",
         "../flake.nix",
         "../nix/source.nix",
+        "../nix/package.nix",
     ):
         assert required in source, required
 

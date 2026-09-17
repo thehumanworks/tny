@@ -89,6 +89,7 @@ static int unlink_checked(const char *path) {
 static int job_fault_mode, job_fault_hits, job_notify_fd = -1;
 static pid_t job_children[2] = {-1, -1};
 static char job_release_path[1024];
+static const char *transaction_lock_probe = nullptr;
 static int checked_job_reap(pid_t pid, int *status) {
     if (!job_fault_mode) return tny_jobs_host_reap(pid, status);
     if (job_children[0] < 0) job_children[0] = pid;
@@ -102,6 +103,14 @@ static int checked_job_reap(pid_t pid, int *status) {
     return result;
 }
 static int checked_job_write(const char *path, const void *data, size_t size) {
+    if (transaction_lock_probe && std::strstr(path, "job.json")) {
+        // Open the observer directly: the write fault must not also disable
+        // the independent lock probe inside the instrumented C host seam.
+        int probe = open(transaction_lock_probe, O_RDWR | O_CLOEXEC);
+        assert(probe >= 0);
+        assert(tny_jobs_host_lock_try(probe) == TNY_JOBS_LOCK_BUSY);
+        close(probe);
+    }
     if (!job_fault_mode || !std::strstr(path, "job.json"))
         return tny_jobs_host_write_private(path, data, size);
     auto *doc = jparse(static_cast<const char *>(data), size);
@@ -209,6 +218,119 @@ static void job_acquisition_failures(const char *directory) {
     assert(descriptor_count() == before);
     std::printf("job failed acquisition cycles=100 before=%d after=%d\n", before,
                 descriptor_count());
+}
+
+static_assert(!std::is_copy_constructible_v<jobs_txn>);
+static_assert(!std::is_move_constructible_v<jobs_txn>);
+static_assert(std::is_nothrow_destructible_v<jobs_txn>);
+static_assert(std::is_same_v<decltype(jobs_txn::dir), tny::c_string>);
+static_assert(std::is_same_v<decltype(jobs_txn::doc), tny::mutable_document>);
+
+static void transaction_owners(const char *directory) {
+    constexpr char id[] = "0123456789abcdef0123456789abcdef";
+    constexpr char original[] =
+        R"({"version":1,"kind":"job","id":"0123456789abcdef0123456789abcdef","state":"queued","items":[],"revision":0})";
+    tny::c_string dir(path_join(directory, "transaction-owners"));
+    assert(dir && tny_jobs_host_mkdir_private(dir.get()) == 0);
+    tny::c_string record_path(jobs_file(dir.get(), "job.json"));
+    tny::c_string lock_path(jobs_file(dir.get(), "state.lock"));
+    assert(record_path && lock_path);
+    assert(tny_jobs_host_write_private(record_path.get(), original, sizeof original - 1) == 0);
+    int before = descriptor_count();
+    char error[256];
+    auto unchanged = [&] {
+        size_t size = 0;
+        tny::c_string bytes(file_slurp(record_path.get(), &size));
+        assert(bytes && size == sizeof original - 1);
+        assert(std::memcmp(bytes.get(), original, size) == 0);
+        assert(tny_jobs_host_owner_state(lock_path.get()) == TNY_JOBS_OWNER_FREE);
+        assert(descriptor_count() == before);
+    };
+    struct abandoned {};
+    for (int cycle = 0; cycle < 32; ++cycle) {
+        try {
+            jobs_txn transaction;
+            assert(jobs_txn_begin(dir.get(), id, &transaction, error, sizeof error) == 0);
+            assert(transaction.dir && transaction.doc);
+            assert(tny_jobs_host_owner_state(lock_path.get()) == TNY_JOBS_OWNER_HELD);
+            jm_set_str(transaction.doc.get(), yyjson_mut_doc_get_root(transaction.doc.get()),
+                       "state", "running");
+            // No implicit persistence on ordinary destruction or C++ unwinding.
+            if (cycle % 2) throw abandoned{};
+        } catch (const abandoned &) {}
+        unchanged();
+    }
+    {
+        jobs_txn transaction;
+        assert(jobs_txn_begin(dir.get(), id, &transaction, error, sizeof error) == 0);
+        tny_alloc_scope_begin("transaction-close");
+        transaction.reset();
+        transaction.reset();
+        assert(!transaction.dir && !transaction.doc && transaction.lock_fd.borrow() == -1);
+        assert(tny_alloc_test_scope_count() == 0);
+        unchanged();
+        assert(jobs_txn_begin(dir.get(), id, &transaction, error, sizeof error) == 0);
+        transaction.reset();
+    }
+    unchanged();
+    // Every directory-copy/JSON allocation during admission releases its lock.
+    size_t allocation_count = 0;
+    for (size_t index = 0; index <= allocation_count; ++index) {
+        jobs_txn transaction;
+        char number[32];
+        std::snprintf(number, sizeof number, "%zu", index);
+        setenv("TNY_TEST_ALLOC_SCOPE", "transaction-json", 1);
+        setenv("TNY_TEST_ALLOC_FAIL_AT", number, 1);
+        tny_alloc_scope_begin("transaction-json");
+        int rc = jobs_txn_begin(dir.get(), id, &transaction, error, sizeof error);
+        if (index == 0) {
+            assert(rc == 0);
+            allocation_count = tny_alloc_test_scope_count();
+            assert(allocation_count > 0);
+        } else {
+            assert(tny_alloc_test_scope_injected() && rc != 0);
+            if (index == 1) {
+                assert(rc == ENOMEM && std::strcmp(error, "out of memory") == 0);
+                assert(tny_alloc_test_scope_count() == 1); // No record load after directory OOM.
+            }
+            assert(!transaction.dir && !transaction.doc && transaction.lock_fd.borrow() == -1);
+        }
+        unsetenv("TNY_TEST_ALLOC_SCOPE");
+        unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+        tny_alloc_scope_begin("fixture");
+        transaction.reset();
+        unchanged();
+    }
+    // Real write/open/fsync/rename failures must not publish in-memory edits.
+    for (int fault = 1; fault <= 4; ++fault) {
+        jobs_txn transaction;
+        assert(jobs_txn_begin(dir.get(), id, &transaction, error, sizeof error) == 0);
+        transaction_lock_probe = lock_path.get();
+        tny_resource_fault_set(fault, 0);
+        int rc = jobs_txn_commit(&transaction);
+        tny_resource_fault_set(0, 0);
+        transaction_lock_probe = nullptr;
+        assert(rc != 0);
+        assert(!transaction.dir && !transaction.doc && transaction.lock_fd.borrow() == -1);
+        unchanged();
+    }
+    {
+        jobs_txn transaction;
+        assert(jobs_txn_begin(dir.get(), id, &transaction, error, sizeof error) == 0);
+        transaction_lock_probe = lock_path.get();
+        assert(jobs_txn_commit(&transaction) == 0);
+        transaction_lock_probe = nullptr;
+        assert(!transaction.dir && !transaction.doc && transaction.lock_fd.borrow() == -1);
+        tny::mutable_document saved(jobs_record_load(dir.get(), id, error, sizeof error));
+        assert(saved && jm_int(yyjson_mut_doc_get_root(saved.get()), "revision", -1) == 1);
+    }
+    assert(tny_jobs_host_owner_state(lock_path.get()) == TNY_JOBS_OWNER_FREE);
+    assert(descriptor_count() == before);
+    assert(unlink(record_path.get()) == 0 && unlink(lock_path.get()) == 0);
+    assert(rmdir(dir.get()) == 0);
+    std::printf("transaction owners: 32 abandon/unwind cycles, %zu admission allocation faults, "
+                "4 persistence faults, reset/reuse and explicit commit passed\n",
+                allocation_count);
 }
 
 static void acquisition_faults(const char *directory) {
@@ -794,6 +916,7 @@ int main(int argc, char **argv) {
     assert(argc == 2);
     descriptor_transfers();
     job_acquisition_failures(argv[1]);
+    transaction_owners(argv[1]);
     acquisition_faults(argv[1]);
     client_allocation_fault(argv[1]);
     item_lifecycle_loops(argv[1]);

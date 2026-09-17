@@ -52,6 +52,7 @@ let
     ../examples # tests/extensions/test_examples.py loads every shipped example
     ../flake.nix
     ../nix/source.nix
+    ../nix/package.nix # size-policy tests inspect the installed-payload guard
     ../scripts # includes tidy_cpp.py, which probes stdenv's C++ header paths
     ../sdk/conformance
     ../sdk/schema
@@ -63,6 +64,7 @@ let
     # fuzz/search_ownership.c and mutation/parser_ownership.py for instrumented
     # ownership checks using the existing native sanitizer toolchain.
     # Runtime ownership also uses test_runtime.c and mutation/runtime_critical.py.
+    # tests/build/test_cpp_analyzer.py checks real factories and negative GCC controls.
     # Provider OOM hosts (integration/libtny_provider_fault_host.c, test_cursor_callbacks.c)
     # and the C++ custom-tool completion-OOM sanitizer host reuse this fileset and toolchain.
     # test_fault_sweep_inventory.py prevents shrinking discovered fault indices.

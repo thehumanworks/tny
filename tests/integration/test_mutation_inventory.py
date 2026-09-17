@@ -66,11 +66,14 @@ class MutationInventory(unittest.TestCase):
                     [(str(source), None, None, "fixture.py", "fixture")],
                 ),
                 patch.object(MUTATION, "gen_mutants", return_value=[mutant]),
-                patch.object(MUTATION, "run", side_effect=results),
+                patch.object(MUTATION, "run", side_effect=results) as run,
                 contextlib.redirect_stdout(io.StringIO()),
                 contextlib.redirect_stderr(io.StringIO()),
             ):
                 result = MUTATION.main()
+                self.assertEqual(
+                    run.call_args_list[0].args[0], ["make", "debug", "release"]
+                )
             self.assertEqual(source.read_text(), original)
             return result
 
