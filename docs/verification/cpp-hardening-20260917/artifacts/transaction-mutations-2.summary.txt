@@ -1,0 +1,9 @@
+transaction owners: 32 abandon/unwind cycles, 5 JSON allocation faults, 4 persistence faults, reset/reuse and explicit commit passed
+{"mutation": "writer-before-save", "exit": -6, "killed": true, "oracle": "bye && WIFEXITED", "source_sha256": "2ab5c2331082dad7d13d3d5ec44248454d87f30f78e93c9682ef8dadc97b609e"}
+{"mutation": "close-transferred-descriptor", "exit": -6, "killed": true, "oracle": "send_result == 0", "source_sha256": "2ab5c2331082dad7d13d3d5ec44248454d87f30f78e93c9682ef8dadc97b609e"}
+{"mutation": "signal-metadata-pid", "exit": -6, "killed": true, "oracle": "WIFEXITED(status)", "source_sha256": "fb549a0069481f4544026638856fcf9d73868dbb76e4b852755989315b288d43"}
+{"mutation": "unknown-is-complete", "exit": -6, "killed": true, "oracle": "!cleanup_reclaimable(root)", "source_sha256": "fb549a0069481f4544026638856fcf9d73868dbb76e4b852755989315b288d43"}
+{"mutation": "omit-cleanup-write-ahead", "exit": -6, "killed": true, "oracle": "jm_bool(root, \"cleanup_hold\", false)", "source_sha256": "fb549a0069481f4544026638856fcf9d73868dbb76e4b852755989315b288d43"}
+{"mutation": "drop-partial-cleanup-hold", "exit": -6, "killed": true, "oracle": "jm_bool(root, \"cleanup_hold\", false)", "source_sha256": "fb549a0069481f4544026638856fcf9d73868dbb76e4b852755989315b288d43"}
+{"mutation": "replay-consumed-batch", "exit": -6, "killed": true, "oracle": "rn_disk_packet(session) == nullptr", "source_sha256": "2ab5c2331082dad7d13d3d5ec44248454d87f30f78e93c9682ef8dadc97b609e"}
+transaction owners: 32 abandon/unwind cycles, 5 JSON allocation faults, 4 persistence faults, reset/reuse and explicit commit passed

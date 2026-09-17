@@ -1,0 +1,5 @@
+{
+  "src/core/jobs.cpp": "055b8051a57d52c5675018dc6c3fe56825bba3f5c20e0bb6c79befdcfdadf856",
+  "tests/fixtures/runner_ownership.cpp": "ccb1e1176fd4b3a5bc1b8ac33958b524430be6e30e41e40cb4ed02520cead5f1",
+  "tests/mutation/runner_critical.py": "8600e19adb8673a8039ffe418f2ab225da1767b9d4bb7848b5b6134b72f4150c"
+}

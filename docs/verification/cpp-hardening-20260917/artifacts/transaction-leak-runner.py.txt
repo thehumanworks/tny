@@ -1,0 +1,42 @@
+"""Run the maintained non-forking transaction fixture under macOS leaks.
+
+Only the fixture's main entrypoint is adapted: the original C++ main receives
+its implicit return zero explicitly when renamed. Product source remains
+unchanged; a separate source copy supplies the deliberate leak negative control.
+"""
+from pathlib import Path
+import hashlib,json,shlex,subprocess,tempfile
+root=Path('/Users/tomas/.cache/tny-cpp-continue-20260917/transaction-tree')
+out=Path('/Users/tomas/.cache/tny-cpp-continue-20260917/direct-leaks-final');out.mkdir(exist_ok=True)
+make=['make','--no-print-directory','BUILD=build-transaction-leaks','SANITIZE=0']
+def run(command, **kwargs):
+ print('$',shlex.join(command),flush=True)
+ return subprocess.run(command,cwd=root,check=True,**kwargs)
+run([*make,'-j8','build-transaction-leaks/runner-ownership/runner-ownership'])
+variables=subprocess.check_output([*make,'-s','-f','Makefile','-f','-','transaction-leak-vars'],cwd=root,text=True,
+ input="transaction-leak-vars:\n\t@printf '%s\\n' '$(CXX)' '$(DBG_CXXFLAGS)' '$(RUNNER_OWNERSHIP_OBJS)' '$(DBG_LDFLAGS)'\n")
+cxx,flags,objects,linker=[shlex.split(line) for line in variables.splitlines()]
+fixture_path=root/'tests/fixtures/runner_ownership.cpp';fixture=fixture_path.read_text()
+assert fixture.rstrip().endswith('}')
+fixture=fixture.rstrip()[:-1]+'    return 0;\n}\n'
+source=root/'src/core/jobs.cpp';original=source.read_text();anchor='    if (!mut) safe_err(err, errlen, "out of memory");\n    return mut;'
+assert original.count(anchor)==1
+mutant=out/'jobs-leak-mutant.cpp';mutant.write_text(original.replace(anchor,'    (void)doc.release();\n'+anchor))
+records=[]
+for name,source_path in [('baseline',source),('leaked-document',mutant)]:
+ wrapper=out/(name+'.cpp');obj=out/(name+'.o');binary=out/name
+ wrapper.write_text('#define main tny_runner_fixture_main\n'
+ '#define TNY_RUNNER_SOURCE "'+str(root/'src/core/runner.cpp')+'"\n'
+ '#define TNY_JOBS_SOURCE "'+str(source_path)+'"\n'+fixture+
+ '\n#undef main\nint main(int argc, char **argv) { assert(argc == 2); transaction_owners(argv[1]); }\n')
+ run([*cxx,*flags,'-DTNY_ALLOC_TESTING=1','-c',str(wrapper),'-o',str(obj)])
+ run([*cxx,*flags,'-o',str(binary),str(obj),*objects,*linker])
+ with tempfile.TemporaryDirectory(prefix='tny-transaction-leaks-') as state:
+  checked=subprocess.run(['/usr/bin/leaks','--atExit','--',str(binary),state],cwd=root,text=True,capture_output=True,timeout=120)
+ report=checked.stdout+checked.stderr;(out/(name+'.log')).write_text(report);print(report,flush=True)
+ if name=='baseline':assert checked.returncode==0 and '0 leaks for 0 total leaked bytes' in report,report
+ else:assert checked.returncode!=0 and 'total leaked bytes' in report and '0 leaks for 0 total leaked bytes' not in report,report
+ records.append({'variant':name,'exit_code':checked.returncode,'oracle_passed':True,'binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest()})
+record={'fixture_sha256':hashlib.sha256(fixture_path.read_bytes()).hexdigest(),'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'entry':'transaction_owners','compiler':cxx,'flags':flags,'objects':objects,'linker':linker,'results':records}
+(out/'provenance.json').write_text(json.dumps(record,indent=2)+'\n')
+print('Real loader-doc leak mutation detected; unmodified transaction implementation has zero leaks.')

@@ -1,0 +1,4 @@
+transaction owners: 32 abandon/unwind cycles, 6 admission allocation faults, 4 persistence faults, reset/reuse and explicit commit passed
+Physical footprint:         4272K
+Physical footprint (peak):  4272K
+Process 21168: 88 leaks for 25408 total leaked bytes.

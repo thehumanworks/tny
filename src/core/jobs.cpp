@@ -40,7 +40,7 @@ extern "C" {
 #endif
 }
 #include "util/resources.hpp"
-#include "util/ownership.hpp"
+#include "json/ownership.hpp"
 
 extern "C" char **environ;
 
@@ -247,25 +247,22 @@ static bool record_state_is_known(yyjson_val *state) {
 }
 
 static yyjson_mut_doc *jobs_record_load(const char *dir, const char *id, char *err, size_t errlen) {
-    char *path = jobs_file(dir, "job.json");
+    tny::c_string path(jobs_file(dir, "job.json"));
     if (!path) return NULL;
     size_t len = 0;
-    char *data = file_slurp(path, &len);
-    free(path);
+    tny::c_string data(file_slurp(path.get(), &len));
     if (!data) {
         safe_err(err, errlen, "no job record");
         return NULL;
     }
     if (len > TNY_JOBS_PAYLOAD_MAX) {
-        free(data);
         safe_err(err, errlen, "the job record is too large");
         return NULL;
     }
-    yyjson_doc *doc = jparse(data, len);
-    free(data);
-    yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+    tny::document doc(jparse(data.get(), len));
+    data.reset(); /* The parsed document owns its bytes from this point. */
+    yyjson_val *root = doc ? yyjson_doc_get_root(doc.get()) : NULL;
     if (!root || !yyjson_is_obj(root)) {
-        yyjson_doc_free(doc);
         safe_err(err, errlen, "the job record is not a JSON object");
         return NULL;
     }
@@ -287,40 +284,39 @@ static yyjson_mut_doc *jobs_record_load(const char *dir, const char *id, char *e
         }
     }
     if (!ok) {
-        yyjson_doc_free(doc);
         safe_err(err, errlen, "the job record is not a supported version 1 record");
         return NULL;
     }
-    yyjson_mut_doc *mut = yyjson_doc_mut_copy(doc, jallocator());
-    yyjson_doc_free(doc);
+    yyjson_mut_doc *mut = yyjson_doc_mut_copy(doc.get(), jallocator());
     if (!mut) safe_err(err, errlen, "out of memory");
     return mut;
 }
 
 static int jobs_record_store(const char *dir, yyjson_mut_doc *doc) {
-    char *json = jwrite_pretty(doc);
+    tny::c_string json(jwrite_pretty(doc));
     if (!json) return ENOMEM;
-    char *path = jobs_file(dir, "job.json");
-    int rc = path ? tny_jobs_host_write_private(path, json, strlen(json)) : ENOMEM;
-    free(path);
-    free(json);
-    return rc;
+    tny::c_string path(jobs_file(dir, "job.json"));
+    return path ? tny_jobs_host_write_private(path.get(), json.get(), strlen(json.get())) : ENOMEM;
 }
 
 /* ---- state transactions ---- */
 
 struct jobs_txn {
-    char *dir = nullptr;
+    // Reverse member destruction releases the document and path before the lock.
     tny::lock_descriptor lock_fd;
-    yyjson_mut_doc *doc = nullptr;
+    tny::c_string dir;
+    tny::mutable_document doc;
+    jobs_txn() noexcept = default;
+    ~jobs_txn() noexcept = default;
+    jobs_txn(const jobs_txn &) = delete;
+    jobs_txn &operator=(const jobs_txn &) = delete;
+    jobs_txn(jobs_txn &&) = delete;
+    jobs_txn &operator=(jobs_txn &&) = delete;
     void reset() noexcept {
-        yyjson_mut_doc_free(doc);
-        doc = nullptr;
-        free(dir);
-        dir = nullptr;
+        doc.reset();
+        dir.reset();
         lock_fd.reset();
     }
-    ~jobs_txn() noexcept { reset(); }
 };
 
 static void jobs_txn_end(jobs_txn *t) {
@@ -352,9 +348,14 @@ static int jobs_txn_begin(const char *dir, const char *id, jobs_txn *t, char *er
         return EBUSY;
     }
     t->lock_fd.adopt(state_lock.release());
-    t->dir = xstrdup(dir);
-    t->doc = jobs_record_load(dir, id, err, errlen);
-    if (!t->dir || !t->doc) {
+    t->dir.reset(tny_alloc_strdup(dir));
+    if (!t->dir) {
+        safe_err(err, errlen, "out of memory");
+        jobs_txn_end(t);
+        return ENOMEM;
+    }
+    t->doc.reset(jobs_record_load(dir, id, err, errlen));
+    if (!t->doc) {
         jobs_txn_end(t);
         return EINVAL;
     }
@@ -362,12 +363,12 @@ static int jobs_txn_begin(const char *dir, const char *id, jobs_txn *t, char *er
 }
 
 static int jobs_txn_commit(jobs_txn *t) {
-    yyjson_mut_val *root = yyjson_mut_doc_get_root(t->doc);
-    jm_set_int(t->doc, root, "revision", jm_int(root, "revision", 0) + 1);
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(t->doc.get());
+    jm_set_int(t->doc.get(), root, "revision", jm_int(root, "revision", 0) + 1);
     char *now = now_iso8601();
-    jm_set_str(t->doc, root, "updated", now ? now : "");
+    jm_set_str(t->doc.get(), root, "updated", now ? now : "");
     free(now);
-    int rc = jobs_record_store(t->dir, t->doc);
+    int rc = jobs_record_store(t->dir.get(), t->doc.get());
     jobs_txn_end(t);
     return rc;
 }
@@ -1343,7 +1344,7 @@ static int jobs_project(const char *dir, const char *id) {
     tny_jobs_owner_state again =
         owner_path ? tny_jobs_host_owner_state(owner_path) : TNY_JOBS_OWNER_UNKNOWN;
     free(owner_path);
-    yyjson_mut_val *root = yyjson_mut_doc_get_root(t.doc);
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(t.doc.get());
     if (again != TNY_JOBS_OWNER_FREE || state_is_terminal(jm_str(root, "state"))) {
         jobs_txn_end(&t);
         return 0;
@@ -1359,20 +1360,21 @@ static int jobs_project(const char *dir, const char *id) {
         jobs_txn_end(&t);
         return EINVAL;
     }
-    jm_set_str(t.doc, root, "state", "interrupted");
-    jm_set_str(t.doc, root, "cleanup", "unknown");
-    jm_set_int(t.doc, root, "exit_code", 2);
-    jm_set_str(t.doc, root, "error_code", TNY_JOBS_CODE_INTERRUPTED);
-    jm_set_str(t.doc, root, "error",
+    jm_set_str(t.doc.get(), root, "state", "interrupted");
+    jm_set_str(t.doc.get(), root, "cleanup", "unknown");
+    jm_set_int(t.doc.get(), root, "exit_code", 2);
+    jm_set_str(t.doc.get(), root, "error_code", TNY_JOBS_CODE_INTERRUPTED);
+    jm_set_str(t.doc.get(), root, "error",
                "the job supervisor is gone; any owned child processes were not observed exiting");
-    int count = jm_item_count(t.doc);
+    int count = jm_item_count(t.doc.get());
     for (int i = 0; i < count; i++) {
-        yyjson_mut_val *item = jm_item(t.doc, i);
+        yyjson_mut_val *item = jm_item(t.doc.get(), i);
         const char *item_state = jm_str(item, "state");
         if (item_state && !state_is_terminal(item_state)) {
-            jm_set_str(t.doc, item, "state", "interrupted");
-            jm_set_str(t.doc, item, "error_code", TNY_JOBS_CODE_INTERRUPTED);
-            jm_set_str(t.doc, item, "error", "the supervisor exited before this item finished");
+            jm_set_str(t.doc.get(), item, "state", "interrupted");
+            jm_set_str(t.doc.get(), item, "error_code", TNY_JOBS_CODE_INTERRUPTED);
+            jm_set_str(t.doc.get(), item, "error",
+                       "the supervisor exited before this item finished");
         }
     }
     return jobs_txn_commit(&t);
@@ -1781,7 +1783,7 @@ static int submit_finish_failed(const char *dir, int attempt, const char *code,
                                 const char *message) {
     jobs_txn t;
     if (jobs_txn_begin(dir, NULL, &t, NULL, 0) != 0) return EIO;
-    yyjson_mut_val *root = yyjson_mut_doc_get_root(t.doc);
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(t.doc.get());
     /* Caller retains the accepted owner description until this transaction and
      * its reservation cleanup finish. Never finalize another attempt. */
     if (jm_int(root, "attempt", -1) != attempt ||
@@ -1789,19 +1791,19 @@ static int submit_finish_failed(const char *dir, int attempt, const char *code,
         jobs_txn_end(&t);
         return EBUSY;
     }
-    jm_set_str(t.doc, root, "state", "failed");
-    jm_set_str(t.doc, root, "cleanup", "complete");
-    jm_set_bool(t.doc, root, "cleanup_hold", false);
-    jm_set_int(t.doc, root, "exit_code", 2);
-    jm_set_str(t.doc, root, "error_code", code);
-    jm_set_str(t.doc, root, "error", message);
-    int count = jm_item_count(t.doc);
+    jm_set_str(t.doc.get(), root, "state", "failed");
+    jm_set_str(t.doc.get(), root, "cleanup", "complete");
+    jm_set_bool(t.doc.get(), root, "cleanup_hold", false);
+    jm_set_int(t.doc.get(), root, "exit_code", 2);
+    jm_set_str(t.doc.get(), root, "error_code", code);
+    jm_set_str(t.doc.get(), root, "error", message);
+    int count = jm_item_count(t.doc.get());
     for (int i = 0; i < count; i++) {
-        yyjson_mut_val *item = jm_item(t.doc, i);
+        yyjson_mut_val *item = jm_item(t.doc.get(), i);
         if (!state_is_terminal(jm_str(item, "state"))) {
-            jm_set_str(t.doc, item, "state", "failed");
-            jm_set_str(t.doc, item, "error_code", code);
-            jm_set_str(t.doc, item, "error", message);
+            jm_set_str(t.doc.get(), item, "state", "failed");
+            jm_set_str(t.doc.get(), item, "error_code", code);
+            jm_set_str(t.doc.get(), item, "error", message);
         }
     }
     return jobs_txn_commit(&t);
@@ -2188,7 +2190,7 @@ static int jobs_cancel(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
         free(dir);
         return 2;
     }
-    yyjson_mut_val *root = yyjson_mut_doc_get_root(t.doc);
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(t.doc.get());
     if (state_is_terminal(jm_str(root, "state"))) {
         jobs_txn_end(&t);
         yyjson_mut_doc *current = jobs_record_load(dir, job_id, err, errlen);
@@ -2201,14 +2203,14 @@ static int jobs_cancel(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
         return 0; /* already finished: nothing to cancel, and nothing is lied about */
     }
     bool had_selection = false;
-    int count = jm_item_count(t.doc);
+    int count = jm_item_count(t.doc.get());
     for (int i = 0; i < count; i++) {
         if (!selected_index(args, i, &had_selection)) continue;
-        yyjson_mut_val *item = jm_item(t.doc, i);
+        yyjson_mut_val *item = jm_item(t.doc.get(), i);
         if (state_is_terminal(jm_str(item, "state"))) continue;
-        jm_set_bool(t.doc, item, "cancel_requested", true);
+        jm_set_bool(t.doc.get(), item, "cancel_requested", true);
     }
-    if (!had_selection) jm_set_bool(t.doc, root, "cancel_requested", true);
+    if (!had_selection) jm_set_bool(t.doc.get(), root, "cancel_requested", true);
     rc = jobs_txn_commit(&t);
     if (rc) {
         safe_err(err, errlen, "the cancellation request could not be recorded");
@@ -2333,13 +2335,13 @@ static int jobs_rm(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t
         }
         rc = jobs_txn_begin(dir, id, &t, err, errlen);
         if (rc) goto done;
-        if (!state_is_terminal(jm_str(yyjson_mut_doc_get_root(t.doc), "state"))) {
+        if (!state_is_terminal(jm_str(yyjson_mut_doc_get_root(t.doc.get()), "state"))) {
             safe_err(err, errlen, "only a finished job can be removed; cancel it first");
             jobs_txn_end(&t);
             rc = 1;
             goto done;
         }
-        if (!cleanup_reclaimable(yyjson_mut_doc_get_root(t.doc))) {
+        if (!cleanup_reclaimable(yyjson_mut_doc_get_root(t.doc.get()))) {
             safe_err(err, errlen,
                      "cleanup is unverified; this job and its output claims must be retained");
             jobs_txn_end(&t);
@@ -2359,7 +2361,7 @@ static int jobs_rm(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t
             rc = 2;
             goto done;
         }
-        reservations_release_job(ctx, t.doc, id);
+        reservations_release_job(ctx, t.doc.get(), id);
         jobs_txn_end(&t);
 #ifndef __EMSCRIPTEN__
         DIR *d = opendir(tomb.data);
@@ -2572,7 +2574,7 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
             free(owner_path);
             goto invalid;
         }
-        yyjson_mut_val *live = yyjson_mut_doc_get_root(t.doc);
+        yyjson_mut_val *live = yyjson_mut_doc_get_root(t.doc.get());
         /* Nothing is written unless the record under this lock is still exactly
          * the one the selection, the verification and `attempt` were derived
          * from. Otherwise the transaction is abandoned, not committed. */
@@ -2600,7 +2602,7 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
         char snapshot_name[32];
         snprintf(snapshot_name, sizeof snapshot_name, "attempt-%d.json", base_attempt);
         char *snapshot_path = jobs_file(dir, snapshot_name);
-        char *snapshot = jwrite_pretty(t.doc);
+        char *snapshot = jwrite_pretty(t.doc.get());
         int snapshot_rc = snapshot_path && snapshot
                               ? tny_jobs_host_snapshot(snapshot_path, snapshot, strlen(snapshot))
                               : ENOMEM;
@@ -2614,36 +2616,37 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
             safe_err(err, errlen, "cannot preserve immutable attempt history; nothing was changed");
             goto invalid;
         }
-        jm_set_int(t.doc, live, "attempt", attempt);
-        jm_set_str(t.doc, live, "state", "queued");
-        jm_set_bool(t.doc, live, "cancel_requested", false);
-        jm_set_str(t.doc, live, "cleanup", "pending");
-        jm_set_bool(t.doc, live, "cleanup_hold", false);
-        jm_set_null(t.doc, live, "exit_code");
-        jm_set_null(t.doc, live, "error_code");
-        jm_set_null(t.doc, live, "error");
+        jm_set_int(t.doc.get(), live, "attempt", attempt);
+        jm_set_str(t.doc.get(), live, "state", "queued");
+        jm_set_bool(t.doc.get(), live, "cancel_requested", false);
+        jm_set_str(t.doc.get(), live, "cleanup", "pending");
+        jm_set_bool(t.doc.get(), live, "cleanup_hold", false);
+        jm_set_null(t.doc.get(), live, "exit_code");
+        jm_set_null(t.doc.get(), live, "error_code");
+        jm_set_null(t.doc.get(), live, "error");
         for (int i = 0; i < count; i++) {
-            yyjson_mut_val *item = jm_item(t.doc, i);
+            yyjson_mut_val *item = jm_item(t.doc.get(), i);
             bool chosen = false;
             for (int k = 0; k < n_selected; k++)
                 if (selected[k] == i) chosen = true;
             if (!chosen) {
                 if (jm_str(item, "state") && strcmp(jm_str(item, "state"), "succeeded") == 0)
-                    jm_set_int(t.doc, item, "carried_from_attempt", jm_int(item, "attempt", 1));
+                    jm_set_int(t.doc.get(), item, "carried_from_attempt",
+                               jm_int(item, "attempt", 1));
                 continue;
             }
-            jm_set_str(t.doc, item, "state", "queued");
-            jm_set_bool(t.doc, item, "cancel_requested", false);
-            jm_set_int(t.doc, item, "attempt", attempt);
+            jm_set_str(t.doc.get(), item, "state", "queued");
+            jm_set_bool(t.doc.get(), item, "cancel_requested", false);
+            jm_set_int(t.doc.get(), item, "attempt", attempt);
             char *log = jobs_item_log(dir, i, attempt);
-            jm_set_str(t.doc, item, "log_path", log);
+            jm_set_str(t.doc.get(), item, "log_path", log);
             free(log);
-            jm_set_int(t.doc, item, "carried_from_attempt", 0);
-            jm_set_null(t.doc, item, "started");
-            jm_set_null(t.doc, item, "finished");
-            jm_set_null(t.doc, item, "exit_code");
-            jm_set_null(t.doc, item, "error_code");
-            jm_set_null(t.doc, item, "error");
+            jm_set_int(t.doc.get(), item, "carried_from_attempt", 0);
+            jm_set_null(t.doc.get(), item, "started");
+            jm_set_null(t.doc.get(), item, "finished");
+            jm_set_null(t.doc.get(), item, "exit_code");
+            jm_set_null(t.doc.get(), item, "error_code");
+            jm_set_null(t.doc.get(), item, "error");
         }
         rc = jobs_txn_commit(&t);
         free(owner_path);
@@ -3471,7 +3474,7 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
             tny_jobs_host_sleep_ms(JOBS_POLL_MS);
             continue;
         }
-        yyjson_mut_doc *doc = t.doc;
+        yyjson_mut_doc *doc = t.doc.get();
         yyjson_mut_val *root = yyjson_mut_doc_get_root(doc);
         if (jm_int(root, "attempt", -1) != jget_int(payload, "attempt", -2)) {
             jobs_txn_end(&t);

@@ -1,0 +1,4 @@
+transaction owners: 32 abandon/unwind cycles, 6 directory/JSON allocation faults, 4 persistence faults, reset/reuse and explicit commit passed
+Process 27191: 0 leaks for 0 total leaked bytes.
+transaction owners: 32 abandon/unwind cycles, 6 directory/JSON allocation faults, 4 persistence faults, reset/reuse and explicit commit passed
+Process 27232: 90 leaks for 25984 total leaked bytes.

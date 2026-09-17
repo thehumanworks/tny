@@ -1,0 +1,4 @@
+Ran 6 tests in 3.796s
+OK
+Total: 567 tests (3491219 ticks, 3.491 sec), 32022 assertions
+Pass: 567, fail: 0, skip: 0.

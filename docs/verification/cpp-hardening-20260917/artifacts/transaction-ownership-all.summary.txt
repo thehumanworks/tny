@@ -1,0 +1,4 @@
+Total: 28 tests (160823 ticks, 0.161 sec), 11346 assertions
+Pass: 27, fail: 0, skip: 1.
+Total: 39 tests (102289 ticks, 0.102 sec), 5037 assertions
+Pass: 39, fail: 0, skip: 0.

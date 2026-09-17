@@ -1,0 +1,20 @@
+Total: 1 test (3458 ticks, 0.003 sec), 29 assertions
+Pass: 1, fail: 0, skip: 0.
+Total: 1 test (13271 ticks, 0.013 sec), 29 assertions
+Pass: 1, fail: 0, skip: 0.
+Total: 1 test (21620 ticks, 0.022 sec), 118 assertions
+Pass: 1, fail: 0, skip: 0.
+Total: 1 test (9281 ticks, 0.009 sec), 678 assertions
+Pass: 1, fail: 0, skip: 0.
+Total: 1 test (14312 ticks, 0.014 sec), 1894 assertions
+Pass: 1, fail: 0, skip: 0.
+Total: 1 test (1107 ticks, 0.001 sec), 59 assertions
+Pass: 1, fail: 0, skip: 0.
+Total: 1 test (512491 ticks, 0.512 sec), 994 assertions
+Pass: 1, fail: 0, skip: 0.
+Total: 1 test (9441 ticks, 0.009 sec), 188 assertions
+Pass: 1, fail: 0, skip: 0.
+Total: 1 test (180 ticks, 0.000 sec), 12 assertions
+Pass: 1, fail: 0, skip: 0.
+Total: 1 test (7387 ticks, 0.007 sec), 217 assertions
+Pass: 1, fail: 0, skip: 0.

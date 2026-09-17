@@ -1,0 +1,1 @@
+transaction owners: 32 abandon/unwind cycles, 5 JSON allocation faults, 4 persistence faults, reset/reuse and explicit commit passed

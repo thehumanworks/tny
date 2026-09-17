@@ -1,0 +1,20 @@
+{
+  "baseline": {
+    "report_sha256": "127e74f3e770b2ffbffe7c1a1ef353e305cfee1c7b8fe69d80805c2bc475179b",
+    "observations": [
+      "transaction owners: 32 abandon/unwind cycles, 6 directory/JSON allocation faults, 4 persistence faults, reset/reuse and explicit commit passed",
+      "Physical footprint:         4128K",
+      "Physical footprint (peak):  4128K",
+      "Process 27191: 0 leaks for 0 total leaked bytes."
+    ]
+  },
+  "leaked-document": {
+    "report_sha256": "cbf5543b6ea333bdcce3bc0b62cf314183b3e75eee8266ad909c3bf1977a7484",
+    "observations": [
+      "transaction owners: 32 abandon/unwind cycles, 6 directory/JSON allocation faults, 4 persistence faults, reset/reuse and explicit commit passed",
+      "Physical footprint:         4160K",
+      "Physical footprint (peak):  4160K",
+      "Process 27232: 90 leaks for 25984 total leaked bytes."
+    ]
+  }
+}

@@ -1,0 +1,2 @@
+transaction owners: 32 abandon/unwind cycles, 5 JSON allocation faults, 4 persistence faults, reset/reuse and explicit commit passed
+Process 22790: 0 leaks for 0 total leaked bytes.
