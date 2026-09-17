@@ -8,7 +8,9 @@ The negative fixtures use the shipped formatter and enabled analyzer settings.
 
 from __future__ import annotations
 
+import argparse
 import os
+import runpy
 import shlex
 import shutil
 import subprocess
@@ -254,6 +256,115 @@ int main() { return 0; }
                     [option for option in kept if option.startswith("-flto")]
                 )
                 self.assertNotIn("-fno-lto", kept)
+
+    def test_default_cxx_driver_pairs_unversioned_and_versioned_compilers(self):
+        for cc, cxx in (
+            ("cc", "c++"),
+            ("gcc", "g++"),
+            ("gcc-15", "g++-15"),
+            ("clang", "clang++"),
+            ("clang-20", "clang++-20"),
+            (
+                "/opt/toolchain/bin/aarch64-linux-gnu-gcc",
+                "/opt/toolchain/bin/aarch64-linux-gnu-g++",
+            ),
+            ("ccache gcc", "ccache g++"),
+        ):
+            with self.subTest(cc=cc):
+                run = self.run_command(
+                    [
+                        "make",
+                        "--no-print-directory",
+                        "-s",
+                        "-f",
+                        "Makefile",
+                        "-f",
+                        "-",
+                        *self.make_args,
+                        f"CC={cc}",
+                        f"ANALYZER_CC={cc}",
+                        "compiler-pair",
+                    ],
+                    input="compiler-pair:\n\t@printf '%s\\n' '$(CXX)' '$(ANALYZER_CXX)'\n",
+                )
+                self.assertEqual(run.stdout.splitlines(), [cxx, cxx])
+
+    def test_darwin_numeric_version_survives_nested_make_environment(self):
+        self.make_args = [
+            arg
+            for arg in self.make_args
+            if not arg.startswith("LIBTNY_MACH_CURRENT_VERSION=")
+        ]
+        for target in (
+            "lib-shared-active",
+            "lib-shared-fault",
+            "lib-shared-fault-sanitize",
+        ):
+            for overrides, expected in (
+                ((), "1.2.3"),
+                (("LIBTNY_MACH_CURRENT_VERSION=2.3.4",), "2.3.4"),
+            ):
+                with self.subTest(target=target, overrides=overrides):
+                    with patch.dict(
+                        os.environ, {"LIBTNY_MACH_CURRENT_VERSION": "1.2.3"}
+                    ):
+                        output = self.make(
+                            "-n",
+                            "-B",
+                            target,
+                            "UNAME_S=Darwin",
+                            "UNAME_M=arm64",
+                            "TNY_VERSION=abc1234",
+                            "CC=echo",
+                            "CXX=echo",
+                            *overrides,
+                        )
+                    self.assertIn(f"-Wl,-current_version,{expected}", output)
+
+    def test_mutation_recipes_preserve_dash_prefixed_flag_values(self):
+        self.write("tests/test_ownership.cpp", "int main() { return 0; }\n")
+        self.write(
+            "tests/fixtures/checkpoint_ownership.c", "int main(void) { return 0; }\n"
+        )
+        # Both recipes enter this shared runner. Exercise its real argparse
+        # parser, stopping immediately after parsing instead of building mutants.
+        runner = runpy.run_path(str(ROOT / "tests/mutation/parser_ownership.py"))
+        parse_args = argparse.ArgumentParser.parse_args
+
+        class ArgumentsCaptured(Exception):
+            pass
+
+        for owner in ("parser", "checkpoint"):
+            for linker_flags in ("", "-fsanitize=address,undefined", "-pthread -ldl"):
+                with self.subTest(owner=owner, linker_flags=linker_flags):
+                    output = self.make(
+                        "-n",
+                        "-B",
+                        f"test-{owner}-mutation",
+                        "PARSER_OWNER_OBJS=build/pic/src/util/probe.cpp.o",
+                        "OWNER_CXXFLAGS=-O1",
+                        f"DBG_LDFLAGS={linker_flags}",
+                        "CC=echo",
+                        "CXX=echo",
+                    )
+                    command = next(
+                        shlex.split(line)
+                        for line in output.splitlines()
+                        if line.startswith(
+                            f"python3 tests/mutation/{owner}_ownership.py "
+                        )
+                    )
+                    captured = []
+
+                    def capture(parser):
+                        captured.append(parse_args(parser, command[2:]))
+                        raise ArgumentsCaptured
+
+                    with patch.object(argparse.ArgumentParser, "parse_args", capture):
+                        with self.assertRaises(ArgumentsCaptured):
+                            runner["main"]()
+                    self.assertEqual(captured[0].flags, "-O1")
+                    self.assertEqual(captured[0].ldflags, linker_flags)
 
     def test_gitless_quality_discovery_keeps_first_party_sources(self):
         self.write("scripts/discovery.sh", "#!/bin/sh\necho discovery\n")

@@ -592,17 +592,21 @@ TEST runtime_all_payloads_survive_queue_transfer_and_teardown(void) {
     ASSERT_EQ(0, tny_engine_start(x.engine, "retain", NULL, err, sizeof err));
     tny_owned_event *retained[200];
     const char *views[200];
-    char *input = malloc(512);
+    char payload[512] = {0};
+    memcpy(payload, "a\0b", 4);
+    strcpy(payload + 8, "message");
+    strcpy(payload + 32, "tool");
+    strcpy(payload + 64, "id");
+    strcpy(payload + 96, "detail");
+    strcpy(payload + 128, "permission");
+    strcpy(payload + 160, "summary");
+    /* Offset 192 stays an explicitly present empty string. Copy the complete
+     * known-size payload; GCC's instrumented-build object-size analysis can
+     * misdiagnose individual field writes through the allocator wrapper. */
+    char *input = malloc(sizeof payload);
     ASSERT(input);
     for (int i = 0; i < 200; ++i) {
-        memcpy(input, "a\0b", 4);
-        strcpy(input + 8, "message");
-        strcpy(input + 32, "tool");
-        strcpy(input + 64, "id");
-        strcpy(input + 96, "detail");
-        strcpy(input + 128, "permission");
-        strcpy(input + 160, "summary");
-        input[192] = 0; /* present empty differs from NULL */
+        memcpy(input, payload, sizeof payload);
         tny_backend_event ev = {0};
         ev.kind = TNY_EV_STATUS;
         ev.text = input;
