@@ -1,7 +1,10 @@
 /* test_util.c — glob, codecs, buffers, strings, paths. */
 #include "greatest.h"
+#include "util/alloc.h"
+#include "util/parallel.h"
 #include "util/util.h"
 
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -160,7 +163,84 @@ TEST b64url_and_form_encoding(void) {
     PASS();
 }
 
+struct parallel_probe {
+    int *seen;
+    pthread_t *who;
+    size_t fail_at;
+};
+
+static void parallel_probe_item(size_t i, void *ud) {
+    struct parallel_probe *p = ud;
+    p->seen[i]++;
+    p->who[i] = pthread_self();
+    /* enough work that the other workers get to claim indices too */
+    volatile unsigned spin = 0;
+    for (unsigned k = 0; k < 2000; k++) spin += k;
+    if (i == p->fail_at) tny_alloc_scope_note_failure();
+}
+
+TEST parallel_for_claims_every_index_once(void) {
+    enum { N = 1000 };
+    int seen[N] = {0};
+    pthread_t who[N];
+    struct parallel_probe p = {seen, who, (size_t)-1};
+    unsetenv("TNY_THREADS");
+    tny_alloc_scope_begin("parallel-test");
+    size_t threads = tny_parallel_for(N, parallel_probe_item, &p);
+    ASSERT(threads >= 1);
+    ASSERT(threads <= tny_parallel_workers());
+    ASSERT(threads <= TNY_PARALLEL_MAX_WORKERS);
+    for (size_t i = 0; i < N; i++) ASSERT_EQ_FMT(1, seen[i], "%d");
+    size_t distinct = 0;
+    for (size_t i = 0; i < N; i++) {
+        bool dup = false;
+        for (size_t j = 0; j < i && !dup; j++) dup = pthread_equal(who[i], who[j]) != 0;
+        if (!dup) distinct++;
+    }
+    ASSERT(distinct <= threads);
+    ASSERT_FALSE(tny_alloc_scope_failed());
+    PASS();
+}
+
+TEST parallel_for_serial_cases(void) {
+    int seen[4] = {0};
+    pthread_t who[4];
+    struct parallel_probe p = {seen, who, (size_t)-1};
+    ASSERT_EQ(1u, tny_parallel_for(0, parallel_probe_item, &p));
+    ASSERT_EQ(1u, tny_parallel_for(1, parallel_probe_item, &p));
+    ASSERT_EQ(1, seen[0]);
+    setenv("TNY_THREADS", "1", 1);
+    ASSERT_EQ(1u, tny_parallel_workers());
+    ASSERT_EQ(1u, tny_parallel_for(4, parallel_probe_item, &p));
+    for (size_t i = 0; i < 4; i++) ASSERT(pthread_equal(who[i], pthread_self()));
+    setenv("TNY_THREADS", "junk", 1);
+    ASSERT(tny_parallel_workers() >= 1);
+    setenv("TNY_THREADS", "99", 1);
+    ASSERT(tny_parallel_workers() <= TNY_PARALLEL_MAX_WORKERS);
+    unsetenv("TNY_THREADS");
+    PASS();
+}
+
+TEST parallel_for_folds_worker_allocation_failure(void) {
+    enum { N = 64 };
+    int seen[N] = {0};
+    pthread_t who[N];
+    struct parallel_probe p = {seen, who, N - 1};
+    unsetenv("TNY_THREADS");
+    tny_alloc_scope_begin("parallel-test");
+    ASSERT_FALSE(tny_alloc_scope_failed());
+    tny_parallel_for(N, parallel_probe_item, &p);
+    /* whichever thread ran the failing item, the caller's oracle sees it */
+    ASSERT(tny_alloc_scope_failed());
+    tny_alloc_scope_clear();
+    ASSERT_FALSE(tny_alloc_scope_failed());
+    PASS();
+}
+
 SUITE(util_suite) {
+    RUN_TEST(parallel_for_claims_every_index_once);
+    RUN_TEST(parallel_for_serial_cases);
+    RUN_TEST(parallel_for_folds_worker_allocation_failure);
     RUN_TEST(sha256_known_vectors);
     RUN_TEST(b64url_and_form_encoding);
     RUN_TEST(glob_basics);

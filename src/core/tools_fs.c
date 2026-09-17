@@ -3,6 +3,7 @@
 #include "core/edit.h"
 #include "core/image.h"
 #include "util/alloc.h"
+#include "util/parallel.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -10,11 +11,16 @@
 #include <string.h>
 #include <ctype.h>
 #include <dirent.h>
+#include <stdatomic.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 #define WALK_MAX_FILES 20000
 #define GREP_MAX_FILE  (2u * 1024u * 1024u)
+#define GREP_MAX_HITS  500
+/* Files scanned per fan-out round (ADR 0127): bounds both the overshoot past
+ * the hit cap and the number of thread create/join rounds over a full walk. */
+#define GREP_BATCH 256
 
 static bool skip_dir(const char *name) {
     return name[0] == '.' || strcmp(name, "node_modules") == 0 || strcmp(name, "build") == 0 ||
@@ -66,6 +72,50 @@ static bool walk(const char *root, const char *rel, int *budget, walk_cb cb, voi
     closedir(d);
     free(dir);
     return ok;
+}
+
+/* Snapshot of a walk: its regular files in visiting order. Per-file work that
+ * only reads the file can then fan out (util/parallel.h) and fold back in the
+ * order a serial walk would have produced. */
+typedef struct {
+    char *abs;
+    char *rel;
+} walk_entry;
+
+typedef struct {
+    walk_entry *items;
+    size_t n, cap;
+} walk_list;
+
+static void walk_list_free(walk_list *l) {
+    for (size_t i = 0; i < l->n; i++) {
+        free(l->items[i].abs);
+        free(l->items[i].rel);
+    }
+    free(l->items);
+    l->items = NULL;
+    l->n = l->cap = 0;
+}
+
+static bool collect_cb(const char *abs, const char *rel, void *ud) {
+    walk_list *l = ud;
+    if (l->n == l->cap) {
+        size_t cap = l->cap ? l->cap * 2 : 256;
+        walk_entry *next = realloc(l->items, cap * sizeof *next);
+        if (!next) return false;
+        l->items = next;
+        l->cap = cap;
+    }
+    walk_entry *e = &l->items[l->n];
+    e->abs = xstrdup(abs);
+    e->rel = xstrdup(rel);
+    if (!e->abs || !e->rel) {
+        free(e->abs);
+        free(e->rel);
+        return false;
+    }
+    l->n++;
+    return true;
 }
 
 #ifdef TNY_ALLOC_TESTING
@@ -264,11 +314,21 @@ static char *t_glob_files(tools_env *env, yyjson_val *args) {
     return res;
 }
 
-struct grep_ud {
+/* One file's matches, scanned into its own slot. */
+struct grep_hits {
+    buf_t out;
+    int hits;
+};
+
+struct grep_job {
+    const walk_entry *files;
     const char *pat;
     bool ci;
-    buf_t *out;
-    int hits;
+    struct grep_hits *slots;
+    /* Hits from every finished scan. Indices are claimed in increasing order,
+     * so once this reaches the cap every unclaimed file sits behind enough
+     * earlier lines to fill the result, and skipping it changes nothing. */
+    atomic_int found;
 };
 
 static bool line_contains(const char *line, size_t len, const char *pat, bool ci) {
@@ -289,26 +349,27 @@ static bool line_contains(const char *line, size_t len, const char *pat, bool ci
     return false;
 }
 
-static bool grep_cb(const char *abs, const char *rel, void *ud) {
-    struct grep_ud *g = ud;
-    if (g->hits >= 500) return true;
+/* Allocator exhaustion is not reported here: the caller reads the scope
+ * oracle and the slot's sticky oom flag once every scan has joined. */
+static void grep_scan(const char *abs, const char *rel, const char *pat, bool ci,
+                      struct grep_hits *g) {
     size_t len = 0;
     char *data = file_slurp(abs, &len);
-    if (!data) return !tny_alloc_scope_failed();
+    if (!data) return;
     if (len > GREP_MAX_FILE || memchr(data, 0, len < 4096 ? len : 4096)) {
         free(data);
-        return true; /* binary or huge */
+        return; /* binary or huge */
     }
     size_t start = 0;
     int lineno = 1;
-    for (size_t i = 0; i <= len && g->hits < 500; i++) {
+    for (size_t i = 0; i <= len && g->hits < GREP_MAX_HITS; i++) {
         if (i == len || data[i] == '\n') {
             size_t ll = i - start;
-            if (line_contains(data + start, ll, g->pat, g->ci)) {
+            if (line_contains(data + start, ll, pat, ci)) {
                 if (ll > 300) ll = 300;
-                buf_appendf(g->out, "%s:%d:", rel, lineno);
-                buf_append(g->out, data + start, ll);
-                buf_appends(g->out, "\n");
+                buf_appendf(&g->out, "%s:%d:", rel, lineno);
+                buf_append(&g->out, data + start, ll);
+                buf_appends(&g->out, "\n");
                 g->hits++;
             }
             start = i + 1;
@@ -316,7 +377,64 @@ static bool grep_cb(const char *abs, const char *rel, void *ud) {
         }
     }
     free(data);
-    return !buf_oom(g->out);
+}
+
+static void grep_item(size_t i, void *ud) {
+    struct grep_job *j = ud;
+    if (atomic_load_explicit(&j->found, memory_order_relaxed) >= GREP_MAX_HITS) return;
+    grep_scan(j->files[i].abs, j->files[i].rel, j->pat, j->ci, &j->slots[i]);
+    atomic_fetch_add_explicit(&j->found, j->slots[i].hits, memory_order_relaxed);
+}
+
+/* Append a slot's lines in scan order, stopping at the global hit cap. */
+static void grep_fold(buf_t *out, const struct grep_hits *g, int *total) {
+    int take = GREP_MAX_HITS - *total;
+    if (take > g->hits) take = g->hits;
+    if (take <= 0) return;
+    size_t end = g->out.len;
+    if (take < g->hits) {
+        end = 0;
+        for (int seen = 0; seen < take; seen++) {
+            const char *nl = memchr(g->out.data + end, '\n', g->out.len - end);
+            end = (size_t)(nl - g->out.data) + 1;
+        }
+    }
+    buf_append(out, g->out.data, end);
+    *total += take;
+}
+
+/* Walk first, then scan the files in bounded rounds. Output order and the
+ * GREP_MAX_HITS cap match a serial scan exactly; only the reads overlap. */
+static bool grep_tree(const char *root, const char *pat, bool ci, buf_t *out) {
+    walk_list files = {0};
+    int budget = WALK_MAX_FILES;
+    if (!walk(root, "", &budget, collect_cb, &files)) {
+        walk_list_free(&files);
+        return false;
+    }
+    int total = 0;
+    bool ok = true;
+    for (size_t done = 0; ok && done < files.n && total < GREP_MAX_HITS; done += GREP_BATCH) {
+        size_t n = files.n - done < GREP_BATCH ? files.n - done : GREP_BATCH;
+        struct grep_hits *slots = calloc(n, sizeof *slots);
+        if (!slots) {
+            ok = false;
+            break;
+        }
+        for (size_t i = 0; i < n; i++) buf_init(&slots[i].out);
+        struct grep_job job = {.files = files.items + done, .pat = pat, .ci = ci, .slots = slots};
+        atomic_init(&job.found, 0);
+        tny_parallel_for(n, grep_item, &job);
+        for (size_t i = 0; i < n; i++) {
+            if (slots[i].out.oom) ok = false;
+            else if (ok) grep_fold(out, &slots[i], &total);
+            buf_free(&slots[i].out);
+        }
+        free(slots);
+        if (tny_alloc_scope_failed()) ok = false;
+    }
+    walk_list_free(&files);
+    return ok;
 }
 
 static char *t_grep_files(tools_env *env, yyjson_val *args) {
@@ -326,19 +444,22 @@ static char *t_grep_files(tools_env *env, yyjson_val *args) {
     char *err = NULL;
     char *abs = tool_resolve_path(env, p && *p ? p : ".", &err);
     if (!abs) return err;
+    bool ci = jget_bool(args, "case_insensitive", false);
     buf_t out;
     buf_init(&out);
-    struct grep_ud g = {pat, jget_bool(args, "case_insensitive", false), &out, 0};
-    int budget = WALK_MAX_FILES;
+    bool ok;
     struct stat st;
-    if (stat(abs, &st) == 0 && S_ISREG(st.st_mode)) grep_cb(abs, p, &g);
-    else if (!walk(abs, "", &budget, grep_cb, &g)) {
-        free(abs);
-        buf_free(&out);
-        return NULL;
-    }
+    if (stat(abs, &st) == 0 && S_ISREG(st.st_mode)) {
+        struct grep_hits one = {.hits = 0};
+        buf_init(&one.out);
+        grep_scan(abs, p, pat, ci, &one);
+        ok = !one.out.oom;
+        int total = 0;
+        if (ok) grep_fold(&out, &one, &total);
+        buf_free(&one.out);
+    } else ok = grep_tree(abs, pat, ci, &out);
     free(abs);
-    if (buf_oom(&out) || tny_alloc_scope_failed()) {
+    if (!ok || buf_oom(&out) || tny_alloc_scope_failed()) {
         buf_free(&out);
         return NULL;
     }
@@ -529,44 +650,60 @@ static char *t_two_path_op(tools_env *env, yyjson_val *args, bool copy) {
 }
 
 /* semantic_search: lexical scoring — count query-term hits per file. */
-struct sem_ud {
+struct sem_terms {
     char terms[8][64];
     int nterms;
-    struct {
-        char *rel;
-        int score;
-    } best[10];
 };
 
-static bool sem_cb(const char *abs, const char *rel, void *ud) {
-    struct sem_ud *s = ud;
+struct sem_best {
+    char *rel;
+    int score;
+};
+
+struct sem_job {
+    const walk_entry *files;
+    const struct sem_terms *q;
+    int *scores;
+};
+
+/* Score one file. Unreadable, binary and huge files score 0, as does a file
+ * whose read hit allocator exhaustion (the scope oracle reports that). */
+static int sem_score(const char *abs, const char *rel, const struct sem_terms *q) {
     size_t len = 0;
     char *data = file_slurp(abs, &len);
-    if (!data) return !tny_alloc_scope_failed();
+    if (!data) return 0;
     if (len > GREP_MAX_FILE || memchr(data, 0, len < 4096 ? len : 4096)) {
         free(data);
-        return true;
+        return 0;
     }
     for (size_t i = 0; i < len; i++) data[i] = (char)tolower((unsigned char)data[i]);
     int score = 0;
-    for (int t = 0; t < s->nterms; t++) {
+    for (int t = 0; t < q->nterms; t++) {
         int hits = 0;
-        for (char *p = data; (p = strstr(p, s->terms[t])); p++) hits++;
+        for (char *p = data; (p = strstr(p, q->terms[t])); p++) hits++;
         if (hits) score += 1 + (hits > 10 ? 10 : hits);
     }
     /* filename hits are worth extra */
-    for (int t = 0; t < s->nterms; t++)
-        if (strstr(rel, s->terms[t])) score += 5;
+    for (int t = 0; t < q->nterms; t++)
+        if (strstr(rel, q->terms[t])) score += 5;
     free(data);
-    if (score == 0) return true;
+    return score;
+}
+
+static void sem_item(size_t i, void *ud) {
+    struct sem_job *j = ud;
+    j->scores[i] = sem_score(j->files[i].abs, j->files[i].rel, j->q);
+}
+
+/* Insert into the top ten; an equal score keeps the earlier file. */
+static bool sem_rank(struct sem_best best[10], const char *rel, int score) {
     for (int i = 0; i < 10; i++) {
-        if (score > s->best[i].score) {
-            free(s->best[9].rel);
-            memmove(&s->best[i + 1], &s->best[i], sizeof s->best[0] * (size_t)(9 - i));
-            s->best[i].rel = xstrdup(rel);
-            s->best[i].score = score;
-            if (!s->best[i].rel) return false;
-            break;
+        if (score > best[i].score) {
+            free(best[9].rel);
+            memmove(&best[i + 1], &best[i], sizeof best[0] * (size_t)(9 - i));
+            best[i].rel = xstrdup(rel);
+            best[i].score = score;
+            return best[i].rel != NULL;
         }
     }
     return true;
@@ -575,7 +712,7 @@ static bool sem_cb(const char *abs, const char *rel, void *ud) {
 static char *t_semantic_search(tools_env *env, yyjson_val *args) {
     const char *q = jget_str(args, "query");
     if (!q) return tool_err("missing query");
-    struct sem_ud s;
+    struct sem_terms s;
     memset(&s, 0, sizeof s);
     const char *p = q;
     while (*p && s.nterms < 8) {
@@ -591,18 +728,34 @@ static char *t_semantic_search(tools_env *env, yyjson_val *args) {
         }
     }
     if (!s.nterms) return tool_err("query has no searchable terms");
+    walk_list files = {0};
     int budget = WALK_MAX_FILES;
-    bool walked = walk(env->ctx->cwd, "", &budget, sem_cb, &s);
-    if (!walked || tny_alloc_scope_failed()) {
-        for (int i = 0; i < 10; i++) free(s.best[i].rel);
+    bool ok = walk(env->ctx->cwd, "", &budget, collect_cb, &files);
+    int *scores = NULL;
+    if (ok && files.n) {
+        scores = calloc(files.n, sizeof *scores);
+        if (scores) {
+            struct sem_job job = {files.items, &s, scores};
+            tny_parallel_for(files.n, sem_item, &job);
+        } else ok = false;
+    }
+    /* Rank in walk order so ties resolve exactly as a serial scan would. */
+    struct sem_best best[10];
+    memset(best, 0, sizeof best);
+    for (size_t i = 0; ok && i < files.n; i++)
+        if (scores[i] > 0 && !sem_rank(best, files.items[i].rel, scores[i])) ok = false;
+    free(scores);
+    walk_list_free(&files);
+    if (!ok || tny_alloc_scope_failed()) {
+        for (int i = 0; i < 10; i++) free(best[i].rel);
         return NULL;
     }
     buf_t out;
     buf_init(&out);
     for (int i = 0; i < 10; i++)
-        if (s.best[i].rel) {
-            buf_appendf(&out, "%s (score %d)\n", s.best[i].rel, s.best[i].score);
-            free(s.best[i].rel);
+        if (best[i].rel) {
+            buf_appendf(&out, "%s (score %d)\n", best[i].rel, best[i].score);
+            free(best[i].rel);
         }
     if (!out.len) buf_appends(&out, "(no relevant files found)");
     return buf_detach(&out);

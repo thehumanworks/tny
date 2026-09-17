@@ -74,6 +74,10 @@ bool tny_alloc_scope_failed(void) { return alloc_state.failed; }
 
 void tny_alloc_scope_clear(void) { alloc_state.failed = false; }
 
+void tny_alloc_scope_note_failure(void) { alloc_state.failed = true; }
+
+bool tny_alloc_fault_injection_active(void) { return alloc_state.fail_at != 0; }
+
 #ifdef TNY_ALLOC_TESTING
 #if defined(__GNUC__) || defined(__clang__)
 #define TNY_ALLOC_TEST_VISIBLE __attribute__((visibility("default")))

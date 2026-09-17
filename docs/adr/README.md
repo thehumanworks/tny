@@ -115,3 +115,7 @@ files in this directory are the complete record.
 - [0124 — Analyzable ownership and complete build inputs](0124-analyzable-ownership-and-complete-build-inputs.md)
 
 - [0125 — Durable job transaction value owners](0125-durable-job-transaction-value-owners.md)
+
+- [0126 — Checkpoint context ownership](0126-checkpoint-context-ownership.md)
+
+- [0127 — Bounded fan-out for independent per-file work](0127-bounded-fan-out-for-independent-file-work.md)

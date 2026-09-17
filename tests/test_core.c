@@ -5555,7 +5555,153 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     PASS();
 }
 
+/* A tree wide enough that grep's hit cap lands mid-walk and both tools fan
+ * out across several rounds (util/parallel.h). Output must not depend on
+ * how many threads took part. */
+static void fanout_tree(char *root, size_t rootlen) {
+    snprintf(root, rootlen, "%s/fanout", g_ws);
+    mkdir(root, 0700);
+    for (int d = 0; d < 30; d++) {
+        char dir[600];
+        snprintf(dir, sizeof dir, "%s/d%02d", root, d);
+        mkdir(dir, 0700);
+        for (int f = 0; f < 30; f++) {
+            char path[700], body[512];
+            snprintf(path, sizeof path, "%s/f%02d.txt", dir, f);
+            /* three hits per file at lines 2, 4 and 6, so the 500-line cap
+             * lands inside a file and the fold must take a partial slot */
+            int n = snprintf(body, sizeof body,
+                             "noise\nneedle %d-%d\nnoise\nneedle %d-%d\nnoise\nneedle %d-%d\n", d,
+                             f, d, f, d, f);
+            /* semantic terms: one file wins outright (score 33) and ten
+             * runners-up score d + 4, so the ranking is fully determined */
+            if (d == 7 && f == 3)
+                for (int k = 0; k < 10; k++)
+                    n += snprintf(body + n, sizeof body - (size_t)n, "alpha beta gamma\n");
+            else if (f == 9 && d < 10) {
+                for (int k = 0; k <= d; k++)
+                    n += snprintf(body + n, sizeof body - (size_t)n, "alpha ");
+                n += snprintf(body + n, sizeof body - (size_t)n, "beta\n");
+            }
+            file_write_atomic(path, body, (size_t)n);
+        }
+    }
+}
+
+static char *fanout_run(tools_env *env, const char *tool, const char *args, const char *threads) {
+    if (threads) setenv("TNY_THREADS", threads, 1);
+    else unsetenv("TNY_THREADS");
+    char *res = tools_execute(env, tool, args);
+    unsetenv("TNY_THREADS");
+    return res;
+}
+
+TEST grep_files_fanout_matches_serial_scan(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    ctx->max_tool_result_bytes = 1u << 20;
+    tny_session_state *s = session_new(ctx);
+    perm_engine *p = perm_new(ctx);
+    tools_env env;
+    memset(&env, 0, sizeof env);
+    env.ctx = ctx;
+    env.session = s;
+    env.perm = p;
+    char root[560];
+    fanout_tree(root, sizeof root);
+
+    char args[700];
+    snprintf(args, sizeof args, "{\"pattern\":\"needle\",\"path\":\"%s\"}", root);
+    char *serial = fanout_run(&env, "grep_files", args, "1");
+    char *threaded = fanout_run(&env, "grep_files", args, NULL);
+    ASSERT(serial && threaded);
+    ASSERT_STR_EQ(serial, threaded);
+    int lines = 0;
+    for (const char *c = serial; *c; c++) lines += *c == '\n';
+    ASSERT_EQ_FMT(500, lines, "%d");       /* 2700 hits, capped in walk order */
+    ASSERT(strstr(serial, "d") == serial); /* rel path, not absolute */
+    /* 166 whole files and the first two lines of the 167th, whatever order
+     * readdir produced them in */
+    int at2 = 0, at4 = 0, at6 = 0;
+    for (const char *c = serial; (c = strstr(c, ".txt:")); c += 5) {
+        at2 += c[5] == '2';
+        at4 += c[5] == '4';
+        at6 += c[5] == '6';
+    }
+    ASSERT_EQ_FMT(167, at2, "%d");
+    ASSERT_EQ_FMT(167, at4, "%d");
+    ASSERT_EQ_FMT(166, at6, "%d");
+    free(serial);
+    free(threaded);
+
+    /* one file, one hit: the cap never truncates a short result */
+    snprintf(args, sizeof args, "{\"pattern\":\"needle 7-3\",\"path\":\"%s\"}", root);
+    serial = fanout_run(&env, "grep_files", args, "1");
+    threaded = fanout_run(&env, "grep_files", args, NULL);
+    ASSERT(serial && threaded);
+    ASSERT_STR_EQ(serial, threaded);
+    ASSERT_STR_EQ("d07/f03.txt:2:needle 7-3\nd07/f03.txt:4:needle 7-3\nd07/f03.txt:6:needle 7-3\n",
+                  threaded);
+    free(serial);
+    free(threaded);
+
+    snprintf(args, sizeof args, "{\"pattern\":\"absent-token\",\"path\":\"%s\"}", root);
+    threaded = fanout_run(&env, "grep_files", args, NULL);
+    ASSERT(threaded);
+    ASSERT_STR_EQ("(no matches)", threaded);
+    free(threaded);
+
+    perm_free(p);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST semantic_search_fanout_matches_serial_scan(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    tny_session_state *s = session_new(ctx);
+    perm_engine *p = perm_new(ctx);
+    tools_env env;
+    memset(&env, 0, sizeof env);
+    env.ctx = ctx;
+    env.session = s;
+    env.perm = p;
+    char root[560];
+    fanout_tree(root, sizeof root);
+
+    const char *args = "{\"query\":\"alpha beta gamma\"}";
+    char *serial = fanout_run(&env, "semantic_search", args, "1");
+    char *threaded = fanout_run(&env, "semantic_search", args, NULL);
+    ASSERT(serial && threaded);
+    ASSERT_STR_EQ(serial, threaded);
+    ASSERT_STR_EQ("fanout/d07/f03.txt (score 33)\n"
+                  "fanout/d09/f09.txt (score 13)\n"
+                  "fanout/d08/f09.txt (score 12)\n"
+                  "fanout/d07/f09.txt (score 11)\n"
+                  "fanout/d06/f09.txt (score 10)\n"
+                  "fanout/d05/f09.txt (score 9)\n"
+                  "fanout/d04/f09.txt (score 8)\n"
+                  "fanout/d03/f09.txt (score 7)\n"
+                  "fanout/d02/f09.txt (score 6)\n"
+                  "fanout/d01/f09.txt (score 5)\n",
+                  threaded);
+    free(serial);
+    free(threaded);
+
+    perm_free(p);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 SUITE(core_suite) {
+    RUN_TEST(grep_files_fanout_matches_serial_scan);
+    RUN_TEST(semantic_search_fanout_matches_serial_scan);
     RUN_TEST(context_checkpoint_preserves_resolved_selection);
     RUN_TEST(job_wait_cancellation_leaves_live_job_untouched);
     RUN_TEST(job_spawn_maps_colliding_descriptors_without_clobbering);

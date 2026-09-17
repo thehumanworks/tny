@@ -4,6 +4,7 @@
 #include "core/image_manifest.h"
 #include "json/json.h"
 #include "util/image_io.h"
+#include "util/parallel.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -370,26 +371,62 @@ done:
     return rc;
 }
 
-/* Read each reference exactly once and hash those very bytes, so a pinned
+/* Read one reference exactly once and hash those very bytes, so a pinned
  * hash cannot be checked against a preflight read and then replaced by a file
  * that changed before the upload. */
+static int load_reference(const tny_image_request *r, tny_image_reference *ref,
+                          tny_image_input *input, char *err, size_t len) {
+    int rc = load_input(r, ref->path, input, err, len);
+    if (rc) return rc;
+    if (!tny_image_io_sha256_hex(input->data.data, input->data.len, ref->sha256)) {
+        snprintf(err, len, "cannot hash reference image");
+        return 1;
+    }
+    if ((*ref->expected && strcmp(ref->expected, ref->sha256) != 0) ||
+        (*ref->job.id && ref->job.bytes != input->data.len)) {
+        snprintf(err, len,
+                 "recorded reference no longer matches its hash; supply the reference "
+                 "explicitly if this replacement is intended");
+        return 1;
+    }
+    return 0;
+}
+
+typedef struct {
+    int rc;
+    char err[256];
+} reference_result;
+
+typedef struct {
+    const tny_image_request *r;
+    tny_image_plan *plan;
+    tny_image_input *inputs;
+    reference_result *results;
+} references_job;
+
+static void reference_item(size_t i, void *ud) {
+    references_job *j = ud;
+    reference_result *out = &j->results[i];
+    out->rc =
+        load_reference(j->r, &j->plan->references[i], &j->inputs[i], out->err, sizeof out->err);
+}
+
+/* References are independent slots, so their reads and hashes overlap (ADR
+ * 0127); the first failing slot in plan order is the one reported. */
 static int load_references(const tny_image_request *r, tny_image_plan *plan,
                            tny_image_input *inputs, char *err, size_t len) {
+    reference_result results[TNY_IMAGE_REFERENCES_MAX];
+    if (plan->reference_count > TNY_IMAGE_REFERENCES_MAX) {
+        snprintf(err, len, "too many reference images");
+        return 1;
+    }
+    memset(results, 0, plan->reference_count * sizeof results[0]);
+    references_job job = {r, plan, inputs, results};
+    tny_parallel_for(plan->reference_count, reference_item, &job);
     for (size_t i = 0; i < plan->reference_count; i++) {
-        tny_image_reference *ref = &plan->references[i];
-        int rc = load_input(r, ref->path, &inputs[i], err, len);
-        if (rc) return rc;
-        if (!tny_image_io_sha256_hex(inputs[i].data.data, inputs[i].data.len, ref->sha256)) {
-            snprintf(err, len, "cannot hash reference image");
-            return 1;
-        }
-        if ((*ref->expected && strcmp(ref->expected, ref->sha256) != 0) ||
-            (*ref->job.id && ref->job.bytes != inputs[i].data.len)) {
-            snprintf(err, len,
-                     "recorded reference no longer matches its hash; supply the reference "
-                     "explicitly if this replacement is intended");
-            return 1;
-        }
+        if (!results[i].rc) continue;
+        snprintf(err, len, "%s", results[i].err);
+        return results[i].rc;
     }
     return 0;
 }
