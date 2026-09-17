@@ -154,7 +154,7 @@ stdenv.mkDerivation {
   # them, and a loaded builder can expire the 1s TERM grace before a
   # cooperative child's EXIT trap records the active-count drop.
   buildPhase = ''
-    # The fixture runner drops MAKEFLAGS. Preserve dyld's numeric override through
+    # Python fixtures drop MAKEFLAGS. Preserve dyld's numeric override through
     # their environment too, without exporting an empty override on Linux.
     ${lib.optionalString stdenv.hostPlatform.isDarwin "export LIBTNY_MACH_CURRENT_VERSION=1.0.0"}
     runHook preBuild
@@ -204,3 +204,9 @@ stdenv.mkDerivation {
     runHook postInstall
   '';
 }
+
+# Optional tests/bench/bench_requests.{c,py,mk} uses existing native tools.
+# Run its Git-dependent paired benchmark outside the filtered Nix source.
+
+# test-native-leaks is the external-host leak runner (leaks on Darwin,
+# valgrind on Linux); test-native-lifecycle enables ASan/UBSan/LSan here.

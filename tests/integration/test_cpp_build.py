@@ -295,6 +295,59 @@ int main() { return 0; }
                 )
                 self.assertEqual(run.stdout.splitlines(), [cxx, cxx])
 
+    def test_windows_cpp_release_lto_exemption_is_narrow(self):
+        self.write(
+            "src/backends/openai/responses.cpp",
+            "int response_fixture() { return 0; }\n",
+        )
+        self.write("src/core/runner.cpp", "int runner_fixture() { return 0; }\n")
+        self.write(
+            "src/backends/openai/stream_decode.cpp",
+            "int decoder_fixture() { return 0; }\n",
+        )
+        for windows in (0, 1):
+            output = self.make(
+                "-n", "-B", "release", f"WINDOWS={windows}", "CC=echo", "CXX=echo"
+            )
+            commands = [
+                shlex.split(line) for line in output.splitlines() if " -o " in line
+            ]
+
+            def options(suffix):
+                return next(
+                    command
+                    for command in commands
+                    if command[command.index("-o") + 1].endswith(suffix)
+                )
+
+            for suffix in (
+                "src/backends/openai/responses.cpp.o",
+                "src/core/runner.cpp.o",
+                "src/backends/openai/stream_decode.cpp.o",
+                "src/util/probe.cpp.o",
+            ):
+                response = options(suffix)
+                self.assertIn("-Os", response)
+                self.assertIn("-Werror", response)
+                self.assertIn("-fexceptions", response)
+                self.assertEqual("-fno-lto" in response, bool(windows))
+                self.assertEqual("-flto=auto" in response, not windows)
+            for suffix in (
+                "src/util/probe.o",
+                "tny.exe" if windows else "tny",
+            ):
+                self.assertIn("-flto=auto", options(suffix))
+                self.assertNotIn("-fno-lto", options(suffix))
+        for lane in ("dbg", "fault-pic", "fault-san-pic"):
+            output = self.make(
+                "-n",
+                f"build/{lane}/src/backends/openai/responses.cpp.o",
+                "WINDOWS=1",
+                "CC=echo",
+                "CXX=echo",
+            )
+            self.assertNotIn("-fno-lto", output)
+
     def test_darwin_numeric_version_survives_nested_make_environment(self):
         self.make_args = [
             arg
@@ -559,6 +612,33 @@ int main() { return 0; }
         self.assertIn("error:", output)
         self.write(source, "int probe() { return 1; }\n")
         self.make("tidy", f"TIDY_SRC={source}")
+
+
+class NativeMutationEnvironment(unittest.TestCase):
+    def test_runner_uses_allowlist_and_throwaway_home(self):
+        namespace = runpy.run_path(str(ROOT / "tests/mutation/native_ownership.py"))
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(
+                os.environ,
+                {
+                    "TNY_TOOLS": "none",
+                    "TNY_PROVIDER_EXTRAS": "0",
+                    "OPENAI_API_KEY": "dummy",
+                    "TNY_TEST_ALLOC_SCOPE": "inherited",
+                    "MAKEFLAGS": "inherited",
+                },
+            ):
+                environment = namespace["child_environment"](Path(directory))
+            for key in (
+                "TNY_TOOLS",
+                "TNY_PROVIDER_EXTRAS",
+                "OPENAI_API_KEY",
+                "TNY_TEST_ALLOC_SCOPE",
+                "MAKEFLAGS",
+            ):
+                self.assertNotIn(key, environment)
+            self.assertEqual(environment["HOME"], str(Path(directory) / "home"))
+            self.assertTrue(Path(environment["TMPDIR"]).is_dir())
 
 
 if __name__ == "__main__":

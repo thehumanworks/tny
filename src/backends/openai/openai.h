@@ -159,7 +159,7 @@ int oa_reasoning_details_merge(yyjson_mut_doc *rdoc, yyjson_mut_val *arr, yyjson
  * ctx->output_schema stores regardless of the wire in use. */
 char *tny_openai_response_format(const char *schema_json, size_t len);
 
-/* Responses API wire translation (responses.c, docs/adr/0016). Sessions
+/* Responses API wire translation (responses.cpp, docs/adr/0016). Sessions
  * store Chat Completions-shaped messages; these translate at request time.
  * All return malloc'd compact JSON, or NULL on bad input. */
 

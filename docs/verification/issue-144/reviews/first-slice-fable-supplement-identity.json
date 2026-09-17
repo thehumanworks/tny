@@ -1,0 +1,12 @@
+{
+  "name": "first-review",
+  "cwd": "/Users/tomas/projects/tny",
+  "command": "claude --model fable --effort medium --permission-mode dontAsk --tools Read,Glob,Grep --allowedTools Read,Glob,Grep --add-dir /Users/tomas/.cache/tny-issue-144 --output-format text -p \"$(cat /Users/tomas/.cache/tny-issue-144/first-review.prompt)\"",
+  "started_utc": "2026-09-17T08:50:58.352884+00:00",
+  "duration_seconds": 232.60653608300345,
+  "exit_code": 0,
+  "head": "08b07a01f41586c3509555bfb12a61a72ab8f5e5",
+  "source_unchanged_during_gate": true,
+  "source_sha256": "6d9084ac87c322607c2d12faae83f7b2ffc46e0d74de284c3d368887a7ade909",
+  "log_sha256": "bc532b93b13c2d160784aaee31a148571b903f10633c827acb51916bcd32a853"
+}

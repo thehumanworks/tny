@@ -190,17 +190,15 @@ TP_WASM := third_party/yyjson/yyjson.c
 
 REL_OBJS := $(call objects,$(OBJ_REL),$(SRC)) $(call objects,$(OBJ_REL),$(TP))
 
-# GCC on MSYS2/Cygwin targets PE without MAKE_DECL_ONE_ONLY, so its
-# binds_local_p refuses local binding for public inline one-only definitions
-# (config/mingw/winnt.cc, PR target/66655). GCC 15.3 then asserts in
-# binds_to_current_def_p during the LTRANS alias pass of the IPA-CP clone of
-# jobs.cpp's supervisor launcher, which calls the private descriptor owners.
-# That module alone becomes a native object on that lane (ADR 0122); every
-# other object and the link keep -flto=auto, -Os, -fexceptions and -Werror.
-# Empty on every other host and driver. LTO_EXEMPT_CPP= re-tests a fixed GCC.
+# GCC 15's PE LTO fails on shared inline C++ ownership templates, both as
+# binds_to_current_def_p ICEs and unresolved LTO-private destructor clones.
+# Keep the private C++ release graph consistently native on Windows/GCC;
+# C/vendor objects and the final link retain LTO (ADR 0131). All diagnostics,
+# optimization and exception flags remain enabled. Other graphs are unchanged.
+# LTO_EXEMPT_CPP= re-tests a fixed compiler; use -B to regenerate old objects.
 LTO_EXEMPT_CPP ?=
 ifeq ($(WINDOWS):$(REL_LTO),1:-flto=auto)
-  LTO_EXEMPT_CPP += src/core/jobs.cpp
+  LTO_EXEMPT_CPP += $(filter %.cpp,$(SRC))
 endif
 ifneq ($(strip $(LTO_EXEMPT_CPP)),)
 $(call objects,$(OBJ_REL),$(LTO_EXEMPT_CPP)): Makefile
@@ -713,6 +711,23 @@ OWNER_OBJ_ROOT := $(if $(filter 1,$(SANITIZE)),$(OBJ_FAULT_SAN_PIC),$(OBJ_FAULT_
 OWNER_CFLAGS := $(if $(filter 1,$(SANITIZE)),$(FAULT_SAN_PIC_CFLAGS),$(FAULT_PIC_CFLAGS))
 OWNER_CXXFLAGS := $(call cxx_flags,$(OWNER_CFLAGS))
 OWNER_LIB_OBJS := $(if $(filter 1,$(SANITIZE)),$(FAULT_SAN_PIC_OBJS),$(FAULT_PIC_OBJS))
+# Native request owners: deterministic transport faults plus real yyjson,
+# provider headers and allocator. The fixture includes the production owner TU.
+NATIVE_REQUEST_TEST_OBJ := $(BUILD)/native-request/native_request_ownership.cpp.o
+NATIVE_REQUEST_TEST := $(BUILD)/native-request/ownership-test
+NATIVE_REQUEST_SRC := src/util/alloc.c src/util/util.c src/json/json.c \
+                      third_party/yyjson/yyjson.c src/core/provider_extras.c src/net/url.c
+$(NATIVE_REQUEST_TEST_OBJ): tests/fixtures/native_request_ownership.cpp src/backends/openai/request_owner.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(OWNER_CXXFLAGS) -MMD -MP -c -o $@ $<
+$(NATIVE_REQUEST_TEST): $(NATIVE_REQUEST_TEST_OBJ) $(call objects,$(OWNER_OBJ_ROOT),$(NATIVE_REQUEST_SRC))
+	$(CXX) $(OWNER_CXXFLAGS) -o $@ $^ $(DBG_LDFLAGS)
+test-native-request-ownership: $(NATIVE_REQUEST_TEST)
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(NATIVE_REQUEST_TEST)
+.PHONY: test-native-request-ownership
+-include $(NATIVE_REQUEST_TEST_OBJ:.o=.d)
+
 # Exhaustive parser allocation failures and semantic mutation oracles use the
 # same allocator-instrumented owner objects as the backend ownership suite.
 PARSER_OWNER_SRC := src/util/alloc.c src/util/util.c src/json/json.c \
@@ -829,6 +844,31 @@ $(PROVIDER_FAULT_TEST): $(PROVIDER_FAULT_TEST_OBJS) $(FAULT_PIC_OBJS)
 $(PROVIDER_FAULT_SAN_TEST): $(PROVIDER_FAULT_SAN_TEST_OBJS) $(FAULT_SAN_PIC_OBJS)
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(REL_LDFLAGS) -fsanitize=address,undefined
+# Native request/pending ownership uses the complete real runtime fault graph.
+NATIVE_RUNTIME_TEST := $(if $(filter 1,$(SANITIZE)),$(PROVIDER_FAULT_SAN_TEST),$(PROVIDER_FAULT_TEST))
+NATIVE_RUNTIME_OBJS := $(call objects,$(OWNER_OBJ_ROOT),$(PROVIDER_FAULT_TEST_SRC)) $(OWNER_LIB_OBJS)
+test-native-lifecycle: $(NATIVE_RUNTIME_TEST)
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(NATIVE_RUNTIME_TEST) -s openai_suite
+
+test-native-mutation: test-native-request-ownership test-native-lifecycle
+	python3 tests/mutation/native_ownership.py --cc '$(CC)' --cxx '$(CXX)' \
+		--cflags '$(OWNER_CFLAGS) -include src/util/alloc_override.h' --cxxflags '$(OWNER_CXXFLAGS)' \
+		--ldflags='$(DBG_LDFLAGS)' --object-root '$(OWNER_OBJ_ROOT)' \
+		--request-bin '$(NATIVE_REQUEST_TEST)' --runtime-bin '$(NATIVE_RUNTIME_TEST)' \
+		--request-objects '$(call objects,$(OWNER_OBJ_ROOT),$(NATIVE_REQUEST_SRC))' \
+		--work-dir '$(BUILD)/native-mutations' $(NATIVE_RUNTIME_OBJS)
+ifeq ($(UNAME_S),Darwin)
+test-native-leaks: $(NATIVE_REQUEST_TEST) $(NATIVE_RUNTIME_TEST)
+	leaks --atExit -- $(NATIVE_REQUEST_TEST)
+	leaks --atExit -- $(NATIVE_RUNTIME_TEST) -s openai_suite
+else
+test-native-leaks: $(NATIVE_REQUEST_TEST) $(NATIVE_RUNTIME_TEST)
+	valgrind --error-exitcode=1 --leak-check=full --errors-for-leak-kinds=definite,indirect $(NATIVE_REQUEST_TEST)
+	valgrind --error-exitcode=1 --leak-check=full --errors-for-leak-kinds=definite,indirect $(NATIVE_RUNTIME_TEST) -s openai_suite
+endif
+.PHONY: test-native-lifecycle test-native-mutation test-native-leaks
+
 test-libtny-fault: $(PROVIDER_FAULT_TEST)
 test-libtny-fault-sanitize: $(PROVIDER_FAULT_SAN_TEST)
 -include $(PROVIDER_FAULT_TEST_OBJS:.o=.d) $(PROVIDER_FAULT_SAN_TEST_OBJS:.o=.d)
