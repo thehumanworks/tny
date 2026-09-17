@@ -37,7 +37,7 @@ The product source is live under `src/` with unit, integration, mutation, and la
 ## Invariants
 
 - Language: C11 for existing application, OS seams, transports and vendored code; private C++20 ownership modules only as scoped by ADR 0114. Retain the public C ABI.
-- Size: stripped `tny` **< 1.0 MiB** on Linux (dynamic; per-target budgets in `docs/size-and-speed.md`, loosest gate 2.0 MiB Windows). Host binaries (`cursor-sdk-bridge`, `codex`, ACP agents) stay external.
+- Size: shipped `tny` artifacts stay **< 6,000,000 bytes** (decimal 6 MB, ADR 0121). Favor maintainability, reliability and measured speed over byte minimization. Report C++ runtime dependencies separately; optional agent binaries remain external.
 - Startup: the CLI spawns no backend before a turn; `--help` / `--version` stay microseconds-to-milliseconds. The interactive TUI **pre-warms** the selected provider's host after first paint (`docs/adr/0002`); one-shot `tny ask` may overlap its `connect()` with reading the prompt from stdin and may attach to a registered live codex host (`docs/adr/0004`).
 - Isolation: on native builds every turn — interactive and one-shot — executes in a detached, forked **session runner** that survives caller crashes and finalizes into the session; the caller renders its NDJSON stream from `<session>/sock` (`docs/adr/0053`). No tmux. wasm, `--ephemeral`, and `TNY_ISOLATE=0` are the only in-process turns.
 - One event loop. Normalize every backend to the shared event set in `docs/architecture.md`. (The pre-warm thread runs only `connect()` + `create_or_resume()` and hands the backend back before any events flow; ctx mutations must `tui_prewarm_drop` first.)

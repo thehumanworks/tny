@@ -457,22 +457,28 @@ TEST runtime_async_allocation_sweep(void) {
 #endif
 
 #ifdef TNY_ALLOC_TESTING
-TEST runtime_callback_oom_survives_allocator_scope_reset(void) {
+TEST callback_oom_survives_allocator_scope_reset(bool scope_already_failed) {
     fixture x = fixture_new(3);
     char err[128];
     for (int index = 1; index <= 2; ++index) {
         ASSERT_EQ(0, tny_engine_start(x.engine, "callback oom", NULL, err, sizeof err));
         size_t live = tny_alloc_test_owned_live();
         char value[16];
-        snprintf(value, sizeof value, "%d", index);
+        snprintf(value, sizeof value, "%d", scope_already_failed ? 1 : index);
         setenv("TNY_TEST_ALLOC_SCOPE", "callback-event-copy", 1);
         setenv("TNY_TEST_ALLOC_FAIL_AT", value, 1);
         tny_alloc_scope_begin("callback-event-copy");
+        if (scope_already_failed) {
+            void *failed = tny_alloc_malloc(1);
+            ASSERT(!failed);
+        }
+        size_t before_callback = tny_alloc_test_scope_count();
         tny_backend_event event = {0};
         event.kind = TNY_EV_TEXT_DELTA;
         event.text = "retained callback bytes";
         event.text_len = strlen(event.text);
         x.fake->cb(&event, x.fake->ud);
+        if (scope_already_failed) ASSERT_EQ(before_callback, tny_alloc_test_scope_count());
         bool injected = tny_alloc_test_scope_injected();
         bool failed = tny_alloc_scope_failed();
         unsetenv("TNY_TEST_ALLOC_SCOPE");
@@ -498,6 +504,7 @@ TEST runtime_callback_oom_survives_allocator_scope_reset(void) {
         ASSERT_EQ(TNY_ENGINE_NEXT_DRAINED,
                   tny_engine_next_event(x.engine, 0, &owned, err, sizeof err));
         ASSERT_EQ(index, x.fake->cancels);
+        ASSERT_EQ(0, tny_alloc_test_settlement_allocations());
     }
     x.fake->mode = 0;
     ASSERT_EQ(0, tny_engine_start(x.engine, "after callback oom", NULL, err, sizeof err));
@@ -506,6 +513,14 @@ TEST runtime_callback_oom_survives_allocator_scope_reset(void) {
     ASSERT_EQ(TNY_STOP_DONE, stop);
     fixture_free(&x);
     PASS();
+}
+
+TEST runtime_callback_oom_survives_allocator_scope_reset(void) {
+    return callback_oom_survives_allocator_scope_reset(false);
+}
+
+TEST runtime_failed_scope_callback_oom_survives_scope_reset(void) {
+    return callback_oom_survives_allocator_scope_reset(true);
 }
 
 TEST runtime_reserved_settlement_never_allocates(void) {
@@ -1728,6 +1743,7 @@ SUITE(runtime_suite) {
     RUN_TEST(runtime_async_leases_survive_all_invalidation_orders);
 #ifdef TNY_ALLOC_TESTING
     RUN_TEST(runtime_callback_oom_survives_allocator_scope_reset);
+    RUN_TEST(runtime_failed_scope_callback_oom_survives_scope_reset);
     RUN_TEST(runtime_reserved_settlement_never_allocates);
     RUN_TEST(runtime_async_allocation_sweep);
     RUN_TEST(runtime_async_pending_call_free_releases_owner);

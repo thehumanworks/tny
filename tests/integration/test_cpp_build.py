@@ -281,6 +281,14 @@ int main() { return 0; }
         self.assertNotIn("build/ignored.cpp", paths)
         self.assertNotIn("third_party/ignored.hpp", paths)
 
+    def test_release_archive_does_not_read_missing_unit_test_inventory(self):
+        (self.root / "tests/test_main.c").unlink()
+        run = self.run_command(
+            ["make", "--no-print-directory", *self.make_args, "release", "SANITIZE=0"]
+        )
+        self.assertEqual(run.stderr, "")
+        self.run_command([str(self.root / "build/tny")])
+
     def test_wasm_exception_catching(self):
         emcc = shlex.split(os.environ.get("EMCC", "emcc"))[0]
         if not shutil.which(emcc):

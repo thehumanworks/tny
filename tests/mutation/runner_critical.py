@@ -11,6 +11,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MUTANTS = [
     (
+        "transaction-retains-document",
+        "jobs",
+        "        doc.reset();\n        dir.reset();\n        lock_fd.reset();",
+        "        dir.reset();\n        lock_fd.reset();",
+        "!transaction.dir && !transaction.doc",
+    ),
+    (
+        "transaction-retains-lock",
+        "jobs",
+        "        doc.reset();\n        dir.reset();\n        lock_fd.reset();",
+        "        doc.reset();\n        dir.reset();",
+        "!transaction.dir && !transaction.doc",
+    ),
+    (
         "writer-before-save",
         "runner",
         "    session_save(r.session);",
@@ -27,9 +41,9 @@ MUTANTS = [
     (
         "signal-metadata-pid",
         "jobs",
-        '    if (!had_selection) jm_set_bool(t.doc, root, "cancel_requested", true);',
+        '    if (!had_selection) jm_set_bool(t.doc.get(), root, "cancel_requested", true);',
         '    tny_jobs_host_signal_owned((pid_t)jm_int(root, "pid", -1), SIGTERM);\n'
-        '    if (!had_selection) jm_set_bool(t.doc, root, "cancel_requested", true);',
+        '    if (!had_selection) jm_set_bool(t.doc.get(), root, "cancel_requested", true);',
         "WIFEXITED(status)",
     ),
     (

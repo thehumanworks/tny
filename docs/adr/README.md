@@ -111,3 +111,7 @@ files in this directory are the complete record.
 - [0123 — Reconcile the two C++ migration histories](0123-reconcile-the-two-cpp-migration-histories.md)
 
 - [0122 — Scoped MSYS GCC LTO workaround](0122-msys-gcc-lto-exempt-jobs-module.md)
+
+- [0124 — Analyzable ownership and complete build inputs](0124-analyzable-ownership-and-complete-build-inputs.md)
+
+- [0125 — Durable job transaction value owners](0125-durable-job-transaction-value-owners.md)
