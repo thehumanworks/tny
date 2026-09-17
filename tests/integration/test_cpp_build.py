@@ -262,6 +262,10 @@ int main() { return 0; }
             "int response_fixture() { return 0; }\n",
         )
         self.write("src/core/runner.cpp", "int runner_fixture() { return 0; }\n")
+        self.write(
+            "src/backends/openai/stream_decode.cpp",
+            "int decoder_fixture() { return 0; }\n",
+        )
         for windows in (0, 1):
             output = self.make(
                 "-n", "-B", "release", f"WINDOWS={windows}", "CC=echo", "CXX=echo"
@@ -280,6 +284,7 @@ int main() { return 0; }
             for suffix in (
                 "src/backends/openai/responses.cpp.o",
                 "src/core/runner.cpp.o",
+                "src/backends/openai/stream_decode.cpp.o",
             ):
                 response = options(suffix)
                 self.assertIn("-Os", response)

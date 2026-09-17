@@ -52,3 +52,11 @@ Gate: INCOMPLETE.
   checks. Non-body cases keep byte equality. Independent integration_code_review
   rechecked this boundary and found no blocking issue; timestamp presence was
   strengthened following the review.
+
+- Published 2ac54a7 matches remote PR head. Full local quality and followup
+  formatting/lint checks pass. Native ownership 15/15 semantic mutants pass at
+  `build/merge148-native/native-mutations/run-m40ueitf/report.json`. Both native
+  leak fixtures and clean-environment general `make leaks` exit 0 with zero leaks.
+- Hosted 35228495551 Windows job 105226101765 exposes the same GCC ICE in
+  stream_decode.cpp:55 after Responses/runner exemptions. Extend the same narrow
+  workaround to that observed module (ADR0130); Windows remains a required gate.
