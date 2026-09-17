@@ -111,6 +111,12 @@ override that ADR already documents for git-less builds — `tny --version`
 prints the short revision, the same thing `git describe --tags --always` prints
 for a tree with no reachable tag.
 
+Darwin's numeric Mach-O library version is separate from that displayed Git
+revision. The test derivation supplies `LIBTNY_MACH_CURRENT_VERSION=1.0.0`
+as both a make argument and an environment variable: independent Python
+fixtures discard `MAKEFLAGS`, but their nested makes must retain the numeric
+override. An explicit make argument still takes precedence over the environment.
+
 To stamp a release version instead:
 
 ```nix

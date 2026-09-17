@@ -9,7 +9,7 @@ ifneq ($(filter default undefined,$(origin CXX)),)
   CXX = $(call cxx_driver,$(CC))
 endif
 CXX     ?= c++
-cxx_name = $(subst gcc,g++,$(subst clang,clang++,$(patsubst %cc,%c++,$(1))))
+cxx_name = $(patsubst %cc,%c++,$(subst gcc,g++,$(subst clang,clang++,$(1))))
 cxx_driver = $(foreach arg,$(1),$(subst $(notdir $(arg)),$(call cxx_name,$(notdir $(arg))),$(arg)))
 CXXSTD   = -std=c++20
 # Owners use the explicit tny allocator; C allocation macros poison STL headers.
@@ -751,7 +751,7 @@ test-parser-ownership: $(PARSER_OWNER_BIN)
 
 test-parser-mutation: test-parser-ownership
 	python3 tests/mutation/parser_ownership.py --cxx '$(CXX)' \
-		--flags '$(OWNER_CXXFLAGS)' --ldflags='$(DBG_LDFLAGS)' \
+		--flags='$(OWNER_CXXFLAGS)' --ldflags='$(DBG_LDFLAGS)' \
 		--object-root '$(OWNER_OBJ_ROOT)' --test-object '$(PARSER_OWNER_TEST_OBJ)' \
 		--baseline '$(PARSER_OWNER_BIN)' --work-dir '$(BUILD)/parser-mutations' \
 		$(PARSER_OWNER_OBJS)
@@ -783,7 +783,7 @@ test-checkpoint-ownership: $(CHECKPOINT_OWNER_BIN)
 	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(CHECKPOINT_OWNER_BIN)
 test-checkpoint-mutation: test-checkpoint-ownership
 	python3 tests/mutation/checkpoint_ownership.py --cxx '$(CXX)' \
-		--flags '$(OWNER_CXXFLAGS)' --ldflags='$(DBG_LDFLAGS)' \
+		--flags='$(OWNER_CXXFLAGS)' --ldflags='$(DBG_LDFLAGS)' \
 		--object-root '$(OWNER_OBJ_ROOT)' --test-object '$(CHECKPOINT_OWNER_OBJ)' \
 		--baseline '$(CHECKPOINT_OWNER_BIN)' --work-dir '$(BUILD)/checkpoint-mutations' \
 		$(OWNER_LIB_OBJS)
