@@ -73,6 +73,8 @@ let
     # Runner/job ownership (fixtures/runner_ownership.cpp, fixtures/resource_host_faults.c,
     # mutation/runner_critical.py) uses the same C/C++ compiler and Python.
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
+    # test_terminal_background.py imports test_terminal_cancel.py and runs the
+    # native binary against stdlib loopback fixtures; both are included above.
     # runner_restart_fault.c uses the existing stdenv C compiler for a private
     # read/write interposer; no network, new package or external test data.
     # test_search_service.py adds stdlib-only HTTP/PTY service fixtures for

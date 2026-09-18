@@ -7,6 +7,7 @@ files in this directory are the complete record.
 
 | ADR | Decision |
 | --- | --- |
+| [0136](0136-terminal-background-completion.md) | Owned background terminal completion, bounded observation and no PID polling |
 | [0001](0001-run-all-agents-in-yolo-mode.md) | All agents run in yolo mode by default |
 | [0002](0002-tui-provider-prewarm.md) | The TUI pre-warms the provider's host at startup |
 | [0003](0003-transient-menu-overlay.md) | In-TUI menus are transient overlays, never transcript |

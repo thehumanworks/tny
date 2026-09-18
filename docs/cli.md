@@ -634,7 +634,10 @@ writer asks there too instead of guessing.
 An interrupt also reaches a `terminal` tool that is still running: the
 command and the processes it started are stopped, the tool result reports
 `exit code: 130` with a cancellation line, and the turn ends `interrupted`
-(exit `130`). A `background: true` terminal command is deliberately detached
+(exit `130`). Background terminal results now provide an opaque `task_id` and
+structured [inspect/wait calls](features/mcp-and-skills.md#background-terminal-completion),
+not a PID to poll. Wait deadlines and observation cancellation do not cancel
+the task. A `background: true` terminal command is deliberately detached
 and keeps running, as it does for any other turn outcome.
 
 **Inside tny**: a foreground `tny ask` typed into the `terminal` tool is
