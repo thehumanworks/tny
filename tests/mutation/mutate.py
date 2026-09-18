@@ -36,6 +36,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
+        "src/util/terminal_task.c",
+        ["monitor", "tny_terminal_inspect"],
+        r"task->exit_code == 0|waited != child|owner != TNY_JOBS_OWNER_HELD",
+        "tests/integration/test_terminal_background.py",
+        "terminal-completion",
+    ),
+    (
         "src/cli/cmd_misc.c",
         ["status_codex_usage"],
         r"yyjson_get_sint\(duration\) != 604800|usage.available = true",

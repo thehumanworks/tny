@@ -10,6 +10,7 @@
 #include "core/image.h"
 #include "util/util.h"
 #include "util/image_io.h"
+#include "util/tny_poll.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -665,50 +666,108 @@ static char *r_read_image(tools_env *env, yyjson_val *args) {
     return buf_detach(&b);
 }
 
-static char *r_terminal(tools_env *env, yyjson_val *args) {
+/* POSIX-only remote hosts cannot prove a live owner without an extra runtime.
+ * The remote shell still reaps exactly its child and atomically publishes its
+ * wait status. Until publication we honestly report unknown, not PID liveness.
+ * Unlike native waitpid, shell wait cannot disambiguate exit 143 from SIGTERM. */
+static char *r_terminal_task(tools_env *env, yyjson_val *args) {
     const char *cmd = jget_str(args, "command");
-    if (!cmd || !*cmd) return tool_err("missing command");
-    int64_t timeout_s = jget_int(args, "timeout_s", 120);
-    if (timeout_s <= 0 || timeout_s > 600) timeout_s = 120;
-    buf_t s, out, res;
-    buf_init(&s);
-    buf_init(&out);
-    buf_init(&res);
-    if (jget_bool(args, "background", false)) {
-        /* log lives on the remote host; read_file reaches it there */
-        char *id = gen_id();
-        buf_appends(&s, "mkdir -p \"$HOME/.tny-bg\" && l=\"$HOME/.tny-bg/");
-        buf_appends(&s, id);
-        buf_appends(&s, ".log\" && nohup sh -c ");
-        ssh_shell_quote(&s, cmd);
-        buf_appends(&s, " >\"$l\" 2>&1 </dev/null & echo $! && echo \"$l\"");
-        free(id);
-        bool tr, to;
-        int rc = run(env, s.data, NULL, 0, 30, &out, &tr, &to);
-        buf_free(&s);
-        chomp(&out);
-        if (rc != 0) {
-            buf_appendf(&res, "error: could not start background command: %s",
-                        out.data ? out.data : "");
-        } else {
-            char *nl = out.data ? strchr(out.data, '\n') : NULL;
-            if (nl) *nl++ = 0;
-            buf_appendf(&res,
-                        "started in background on %s: pid %s\ncwd: %s\nlog: %s\n"
-                        "Check progress with read_file on the log.",
-                        env->ctx->ssh_host, out.data ? out.data : "?", env->ctx->ssh_cwd,
-                        nl ? nl : "?");
+    const char *id = jget_str(args, "task_id");
+    if (jget(args, "task_id") && !id) return tool_err("task_id must be a string");
+    int64_t wait_s = jget_int(args, "wait_s", 0);
+    if ((jget(args, "wait_s") && !yyjson_is_int(jget(args, "wait_s"))) || wait_s < 0 ||
+        wait_s > 600)
+        return tool_err("wait_s must be between 0 and 600");
+    if (id && (cmd || jget_bool(args, "background", false)))
+        return tool_err("task_id cannot be combined with command or background");
+    if (!id && (!cmd || !*cmd)) return tool_err("missing command or task_id");
+    if (!id && jget(args, "wait_s")) return tool_err("wait_s requires task_id");
+    char *generated = id ? NULL : gen_id();
+    if (!id) id = generated;
+    if (!tny_terminal_valid_id(id)) {
+        free(generated);
+        return tool_err("invalid terminal task_id");
+    }
+    tny_terminal_task task = {.state = TNY_TERMINAL_UNKNOWN, .exit_code = -1};
+    memcpy(task.id, id, sizeof task.id);
+    const char *observation = "remote_shell_status";
+    int64_t deadline = monotonic_ms() + wait_s * 1000;
+    bool launch = generated != NULL;
+    for (;;) {
+        if (env->control_pump) env->control_pump(env->control_pump_ud, 0);
+        if (env->cancelled && env->cancelled(env->cancelled_ud)) {
+            observation = "cancelled";
+            break;
+        }
+        buf_t script, out;
+        buf_init(&script);
+        buf_init(&out);
+        buf_appendf(&script, "d=\"$HOME/.tny-bg/%s\"; ", id);
+        if (launch) {
+            buf_appendf(&script,
+                        "umask 077; mkdir -p \"$HOME/.tny-bg\" && mkdir \"$d\" || exit 1; "
+                        "TNY_NESTED=1 TNY_NESTED_MODE=%s nohup sh -c ",
+                        tny_perm_mode_name(env->ctx->perm_mode));
+            ssh_shell_quote(
+                &script,
+                "d=$1; sh -c \"$2\" >\"$d/output.log\" 2>&1 </dev/null & child=$!; "
+                "if wait \"$child\"; then rc=0; else rc=$?; fi; "
+                "printf '%s\\n' \"$rc\" >\"$d/status.tmp\" && mv \"$d/status.tmp\" \"$d/status\"");
+            buf_appends(&script, " sh \"$d\" ");
+            ssh_shell_quote(&script, cmd);
+            buf_appends(&script, " >/dev/null 2>&1 </dev/null & ");
+        }
+        buf_appends(&script,
+                    "printf '%s\\n' \"$d\"; "
+                    "if test -f \"$d/status\"; then cat \"$d/status\"; else printf '?\\n'; fi");
+        bool truncated, timed_out;
+        int code = run(env, script.data, NULL, 0, launch ? 30 : 1, &out, &truncated, &timed_out);
+        buf_free(&script);
+        if (code != 0 || truncated || timed_out) {
+            task.error = code;
+            observation = launch ? "launch_unconfirmed" : "unreachable";
+            buf_free(&out);
+            break;
+        }
+        char *nl = out.data ? strchr(out.data, '\n') : NULL;
+        if (nl && out.data[0] == '/') {
+            *nl++ = 0;
+            free(task.dir);
+            task.dir = xstrdup(out.data);
+            char *end = NULL;
+            long status = strtol(nl, &end, 10);
+            if (end != nl && (*end == 0 || (*end == '\n' && end[1] == 0)) && status >= 0 &&
+                status <= 255) {
+                task.exit_code = (int)status;
+                task.state = status == 0 ? TNY_TERMINAL_COMPLETED : TNY_TERMINAL_FAILED;
+            }
         }
         buf_free(&out);
-        char *started = buf_detach(&res);
-        if (!tny_tool_profile_is_shell(env->ctx) || !started) return started;
-        buf_t result;
-        buf_init(&result);
-        buf_appendf(&result, "exit: 0\nbytes: %zu\ncwd: %s\n%s", strlen(started),
-                    env->ctx->ssh_cwd ? env->ctx->ssh_cwd : "", started);
-        free(started);
-        return buf_detach(&result);
+        launch = false;
+        if (task.exit_code >= 0 || !wait_s) break;
+        if (monotonic_ms() >= deadline) {
+            observation = "timed_out";
+            break;
+        }
+        (void)tny_poll(NULL, 0, 50);
     }
+    char *result = tool_terminal_task_result(&task, observation, "shell_wait");
+    tny_terminal_task_free(&task);
+    free(generated);
+    return result;
+}
+
+static char *r_terminal(tools_env *env, yyjson_val *args) {
+    if (jget(args, "task_id") || jget_bool(args, "background", false))
+        return r_terminal_task(env, args);
+    if (jget(args, "wait_s")) return tool_err("wait_s requires task_id");
+    const char *cmd = jget_str(args, "command");
+    if (!cmd || !*cmd) return tool_err("missing command or task_id");
+    int64_t timeout_s = jget_int(args, "timeout_s", 120);
+    if (timeout_s <= 0 || timeout_s > 600) timeout_s = 120;
+    buf_t out, res;
+    buf_init(&out);
+    buf_init(&res);
     bool truncated, timed_out;
     int code = ssh_run(env->ctx, cmd, NULL, 0, (int)timeout_s,
                        tny_tool_profile_is_shell(env->ctx) ? R_PROFILE_OUTPUT_MAX : R_MAX_OUT, &out,

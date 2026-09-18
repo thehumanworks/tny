@@ -24,6 +24,8 @@
 
 let
   src = (import ./source.nix { inherit lib; }).tests;
+  # Terminal background completion uses only the existing Python/POSIX tools.
+  # Its short-lived detached waiters also use this test runner's adoption.
   # Linux fixture descendants can outlive their direct parent. Adopt and reap
   # them inside the builder even when the host/container init does not reap.
   testRunner = lib.optionalString stdenv.hostPlatform.isLinux "${tini}/bin/tini -s -- ";

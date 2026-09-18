@@ -143,7 +143,12 @@ def check_tool_profile_wire(base_env, ws, wire):
         ]
         if profile in ("terminal", "terminal+edit") and not IS_WASM:
             names = "terminal,read_image"
-            instructions += ["Shell tool profile", "tny skill show NAME"]
+            instructions += [
+                "Shell tool profile",
+                "tny skill show NAME",
+                "collect with terminal task_id and wait_s",
+                "Never poll a PID",
+            ]
             rejected.append("load with the `skill` tool")
             if profile == "terminal+edit":
                 names += ",edit_file"
