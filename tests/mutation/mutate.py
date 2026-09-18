@@ -36,6 +36,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
+        "src/tui/tui_draw.c",
+        ["tui_clear_screen"],
+        None,
+        "tests/integration/test_background_agents.py",
+        "agents-dashboard",
+    ),
+    (
         "src/cli/cmd_misc.c",
         ["status_codex_usage"],
         r"yyjson_get_sint\(duration\) != 604800|usage.available = true",

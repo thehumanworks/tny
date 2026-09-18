@@ -135,6 +135,15 @@ unconsumed-checkpoint recovery and hosted search boundaries. A hosted search wai
 for its provider response to finish, then checkpoints before the first local tool.
 `/agents` and Ctrl-X detach immediately from a background view without restarting it.
 
+Each interactive dashboard entry clears the visible screen and terminal scrollback
+and paints the list from the top-left corner, separate from the chat or shell
+output ([ADR 0136](adr/0136-full-screen-agents-dashboard.md)). Terminals without
+scrollback-erasure support still clear the visible screen. A Left-arrow handoff
+clears only when the runner acknowledges it, not while the handoff is armed.
+Periodic refreshes do not clear again. Saved transcripts and composer drafts are
+preserved; reattachment replays the saved chat. Non-TTY and `--json` listings keep
+their existing plain/structured output without screen controls.
+
 ## Slash commands (v1)
 
 Mirror fx names where they still make sense. Backend-specific commands degrade to "not available on this backend" instead of crashing.

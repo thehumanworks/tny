@@ -132,3 +132,4 @@ files in this directory are the complete record.
 - [0133 — Owned sub-agent launch snapshots](0133-owned-subagent-launch-snapshots.md)
 - [0134 — Preserve edit permissions and require integration tests](0134-preserve-edit-permissions-and-require-integration-tests.md)
 - [0135 — Clean disposable build variants](0135-clean-build-variants.md)
+- [0136 — Full-screen agents dashboard](0136-full-screen-agents-dashboard.md)

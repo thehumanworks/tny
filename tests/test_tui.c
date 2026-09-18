@@ -152,6 +152,50 @@ TEST overlay_linef_falls_back_without_a_tty(void) {
     PASS();
 }
 
+/* ---- full-screen view transitions ---- */
+
+TEST clear_screen_discards_only_display_text(void) {
+    tui t;
+    mk_tui(&t, 24);
+    t.attr = false; /* --color=never still needs terminal layout controls */
+    buf_appends(&t.out, "queued chat\n");
+    buf_appends(&t.partial, "unfinished reply");
+    buf_appends(&t.input, "keep my draft");
+    t.cur = t.input.len;
+    t.block_rows = 7;
+    t.cur_row = 6;
+    t.dirty = false;
+
+    tui_clear_screen(&t);
+
+    ASSERT_STR_EQ("\x1b[H\x1b[2J\x1b[3J", t.out.data);
+    ASSERT_EQ(0, (int)t.partial.len);
+    ASSERT_EQ(0, t.block_rows);
+    ASSERT_EQ(0, t.cur_row);
+    ASSERT(t.dirty);
+    ASSERT_STR_EQ("keep my draft", t.input.data);
+    ASSERT_EQ(t.input.len, t.cur);
+    free_tui(&t);
+    PASS();
+}
+
+TEST clear_screen_preserves_non_tty_output(void) {
+    tui t;
+    mk_tui(&t, 24);
+    t.tty = false;
+    buf_appends(&t.out, "queued chat\n");
+    buf_appends(&t.partial, "unfinished reply");
+    t.dirty = false;
+
+    tui_clear_screen(&t);
+
+    ASSERT_STR_EQ("queued chat\n", t.out.data);
+    ASSERT_STR_EQ("unfinished reply", t.partial.data);
+    ASSERT_FALSE(t.dirty);
+    free_tui(&t);
+    PASS();
+}
+
 /* ---- transcript writes ---- */
 
 TEST write_strips_nul_bytes(void) {
@@ -1262,6 +1306,8 @@ SUITE(tui_suite) {
     RUN_TEST(overlay_budget_accounts_for_the_block);
     RUN_TEST(overlay_linef_and_clear);
     RUN_TEST(overlay_linef_falls_back_without_a_tty);
+    RUN_TEST(clear_screen_discards_only_display_text);
+    RUN_TEST(clear_screen_preserves_non_tty_output);
     RUN_TEST(write_strips_nul_bytes);
     RUN_TEST(write_dim_reopens_after_newline);
     RUN_TEST(write_dim_blank_lines_carry_no_sgr);
