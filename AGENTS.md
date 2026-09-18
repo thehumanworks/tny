@@ -73,6 +73,24 @@ docs/          # this contract; update when behavior changes
 - Protocol mocks send whole frames per read — real transports split anywhere. Streaming parsers need split-boundary tests (see `chunked_survives_every_split_boundary` in `tests/test_net.c`).
 - `nix flake check` runs the same suite hermetically (`docs/nix.md`, ADR 0035). If you add a make target, a test fixture directory, or a tool the suite shells out to, update `nix/source.nix` and `nix/tests.nix` in the same change — the sandbox has only what those files name.
 
+### Waiting for background checks
+
+- Use a tool/job API that reports terminal state and exit status. For a child of
+  the current shell, use `wait "$pid"`. Never use `kill -0` as a completion test:
+  it also succeeds for an exited, unreaped zombie and can match a reused PID.
+- If a background tool exposes only a PID/log, wrap the command to publish its
+  exit code to a unique, private status file after it finishes (write temp then
+  rename). Capture nonzero exits with `if command; then ...; else rc=$?; fi`,
+  not an `&&` chain that omits the status on failure. Missing status means
+  incomplete or interrupted observation, never success.
+- Bound observation by a deadline. After a wait times out, inspect status, log
+  progress and process state before choosing another wait; do not repeat the
+  same PID-only loop. `ps` state `Z` means exited, not still working, but does
+  not establish the command's exit code. Do not signal a PID just to clear it.
+- Keep check results and their input revision so a lost waiter does not trigger
+  blind reruns. Reuse evidence only when relevant inputs/toolchain are unchanged
+  and project/CI requirements permit it; this does not waive required gates.
+
 ## wasm build (docs/adr/0017)
 
 - `make wasm` / `make wasm-web` build the same `SRC_SHARED` sources as the native release plus `src/net/net_wasm.c`. Platform code lives only at the three seams (net.h transport, `tny_poll`, host OS); never `#ifdef` a fourth place without an ADR.
