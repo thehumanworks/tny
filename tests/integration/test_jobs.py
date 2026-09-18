@@ -171,7 +171,15 @@ class Handler(BaseHTTPRequestHandler):
         self.note_headers("codex-chat", prompt)
         self.enter("codex:" + prompt)
         try:
-            if self.headers.get("Authorization") != f"Bearer {TOKEN}":
+            if "FAIL" in prompt and self.server.state["fail_ask"]:
+                self.reply(
+                    500, "application/json", b'{"error":{"message":"fixture refuses"}}'
+                )
+                return
+            tokens = self.server.state.get("chat_tokens", [TOKEN])
+            if self.headers.get("Authorization") not in [
+                f"Bearer {token}" for token in tokens
+            ]:
                 self.reply(401, "application/json", b'{"error":{"message":"no token"}}')
                 return
             if self.headers.get("chatgpt-account-id") != ACCOUNT:
@@ -234,7 +242,9 @@ class Handler(BaseHTTPRequestHandler):
                 500, "application/json", b'{"error":{"message":"fixture refuses"}}'
             )
             return
-        if "ENVDUMP" in prompt and not after_tool and state["envdump"]:
+        if not after_tool and (
+            ("ENVDUMP" in prompt and state["envdump"]) or "MEMBER_CONTROL" in prompt
+        ):
             # A real tool call: the item child runs it, so the file it writes
             # is that child's own environment, captured from the inside.
             call = {
@@ -246,6 +256,13 @@ class Handler(BaseHTTPRequestHandler):
                     "arguments": json.dumps({"command": state["envdump"]}),
                 },
             }
+            if "MEMBER_CONTROL" in prompt:
+                call["function"] = {
+                    "name": "job_control",
+                    "arguments": json.dumps(
+                        {"action": "cancel", "id": state["member_target"]}
+                    ),
+                }
             frames = [
                 {"choices": [{"index": 0, "delta": {"tool_calls": [call]}}]},
                 {
@@ -375,7 +392,8 @@ class JobsFixture(unittest.TestCase):
         if WASM:
             self.skipTest("native job execution is not available in this build")
         self.tmp = tempfile.TemporaryDirectory(prefix="tny-jobs-")
-        self.home = Path(self.tmp.name)
+        # Confined mailbox readers require a canonical root; /var is a macOS symlink.
+        self.home = Path(self.tmp.name).resolve()
         self.workspace = self.home / "ws"
         self.workspace.mkdir()
         (self.home / "codex").mkdir()
@@ -425,7 +443,12 @@ class JobsFixture(unittest.TestCase):
         for job in self.job_dirs():
             record = self.record_at(job)
             if record and record.get("state") not in TERMINAL:
-                self.run_tny("jobs", "cancel", job.name, check=False)
+                fence = (
+                    ["--expected-attempt", str(record["attempt"])]
+                    if record.get("dag")
+                    else []
+                )
+                self.run_tny("jobs", "cancel", job.name, *fence, check=False)
         for process in self.started:
             try:
                 os.killpg(process.pid, signal.SIGKILL)
@@ -1015,7 +1038,16 @@ class JobsDAG(JobsFixture):
         self.assertEqual(before["items"][1]["state"], "running")
         self.assertEqual(before["items"][2]["state"], "queued")
         self.assertFalse(any("DAG_C" in r for r in self.ask_requests()))
-        self.run_tny("jobs", "cancel", job_id, "--items", "1", "--json")
+        self.run_tny(
+            "jobs",
+            "cancel",
+            job_id,
+            "--items",
+            "1",
+            "--expected-attempt",
+            str(before["attempt"]),
+            "--json",
+        )
         first = self.await_terminal(job_id)
         self.assertEqual(first["items"][1]["state"], "cancelled")
         self.assertEqual(first["items"][2]["error_code"], "dependency_blocked")
@@ -1271,7 +1303,9 @@ class JobsEnrollment(JobsDAG):
             second["id"],
             lambda r: r["items"][0].get("admission_reason") == "queued_capacity",
         )
-        self.run_tny("jobs", "cancel", second["id"], "--json")
+        self.run_tny(
+            "jobs", "cancel", second["id"], "--expected-attempt", "1", "--json"
+        )
         record = self.await_terminal(second["id"])
         self.assertEqual(record["items"][0]["admission_reason"], "canceled")
         os.kill(self.worker_pid(first["id"]), signal.SIGKILL)
@@ -1580,7 +1614,9 @@ class JobsEnrollment(JobsDAG):
             self.status(job_id)["items"][0]["workspace_preparation"], "intent"
         )
         started = time.monotonic()
-        self.run_tny("jobs", "cancel", job_id, "--json", timeout=3)
+        self.run_tny(
+            "jobs", "cancel", job_id, "--expected-attempt", "1", "--json", timeout=3
+        )
         self.assertLess(time.monotonic() - started, 3)
         release.touch()
         record = self.await_terminal(job_id)
@@ -1634,6 +1670,392 @@ class JobsEnrollment(JobsDAG):
             self.assertEqual(run.returncode, 1)
         self.assertEqual(self.job_dirs(), [])
         self.assertEqual(self.ask_requests(), [])
+
+
+class JobsReview(JobsDAG):
+    def test_stale_cancel_is_fenced_inside_transaction_after_retry(self):
+        """Pause cancel at its actual state-lock acquisition, not a timed race."""
+        import select
+
+        self.state["dag_release"].set()
+        run, payload = self.dag_submit(
+            [
+                {"prompt": "DAG_A"},
+                {"prompt": "FAIL DAG_BARRIER", "depends_on": [0]},
+                {"prompt": "DAG_C", "depends_on": [1]},
+            ]
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        job_id = payload["id"]
+        first = self.await_terminal(job_id)
+        self.assertEqual(first["state"], "failed")
+        source, library = self.home / "cancel-fence.c", self.home / "cancel-fence.so"
+        source.write_text(r"""
+#include <sys/file.h>
+#include <sys/stat.h>
+#include <dlfcn.h>
+#include <stdlib.h>
+#include <unistd.h>
+static int paused;
+static int fenced_flock(int fd, int op) {
+#ifdef __APPLE__
+    int (*real_flock)(int,int) = flock;
+#else
+    int (*real_flock)(int,int) = (int (*)(int,int))dlsym(RTLD_NEXT,"flock");
+#endif
+    struct stat a,b;
+    const char *path = getenv("FENCE_LOCK");
+    if (!paused && (op & LOCK_EX) && path && !fstat(fd,&a) && !stat(path,&b) && a.st_ino==b.st_ino && a.st_dev==b.st_dev) {
+        paused=1;
+        char byte='R';
+        if (write(atoi(getenv("FENCE_READY")),&byte,1)!=1 || read(atoi(getenv("FENCE_GO")),&byte,1)!=1) _exit(91);
+    }
+    return real_flock(fd,op);
+}
+#ifdef __APPLE__
+__attribute__((used,section("__DATA,__interpose"))) static struct { const void *replacement; const void *original; } hook = {(const void *)fenced_flock,(const void *)flock};
+#else
+int flock(int fd,int op) { return fenced_flock(fd,op); }
+#endif
+""")
+        subprocess.run(
+            [
+                "cc",
+                "-fPIC",
+                "-dynamiclib" if sys.platform == "darwin" else "-shared",
+                str(source),
+                "-o",
+                str(library),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        ready_r, ready_w = os.pipe()
+        go_r, go_w = os.pipe()
+        loader = "DYLD_INSERT_LIBRARIES" if sys.platform == "darwin" else "LD_PRELOAD"
+        env = dict(
+            self.env,
+            **{
+                loader: str(library),
+                "FENCE_LOCK": str(Path(first["metadata_path"]).parent / "state.lock"),
+                "FENCE_READY": str(ready_w),
+                "FENCE_GO": str(go_r),
+            },
+        )
+        cancel = subprocess.Popen(
+            [
+                TNY,
+                "--provider",
+                "openai",
+                "jobs",
+                "cancel",
+                job_id,
+                "--expected-attempt",
+                "1",
+                "--json",
+            ],
+            cwd=self.workspace,
+            env=env,
+            pass_fds=(ready_w, go_r),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        self.started.append(cancel)
+        os.close(ready_w)
+        os.close(go_r)
+        try:
+            self.assertTrue(
+                select.select([ready_r], [], [], 20)[0],
+                "cancel did not reach state transaction",
+            )
+            ready_byte = os.read(ready_r, 1)
+            if ready_byte != b"R":
+                stdout, stderr = cancel.communicate(timeout=5)
+                self.fail(
+                    f"cancel barrier exited {cancel.returncode}: {stderr.decode()} {stdout.decode()}"
+                )
+            self.state["dag_release"].clear()
+            self.state["dag_entered"].clear()
+            self.state["fail_ask"] = False
+            self.run_tny("jobs", "retry", job_id, "--json")
+            self.assertTrue(self.state["dag_entered"].wait(30))
+            os.write(go_w, b"G")
+            stdout, stderr = cancel.communicate(timeout=15)
+            self.assertEqual(cancel.returncode, 1, stdout)
+            self.assertIn(b"stale_attempt", stderr)
+            current = self.status(job_id)
+            self.assertEqual(current["attempt"], 2)
+            self.assertFalse(current["cancel_requested"])
+            self.assertTrue(all(not i["cancel_requested"] for i in current["items"]))
+            missing = self.run_tny("jobs", "cancel", job_id, "--json", check=False)
+            self.assertEqual(missing.returncode, 1)
+            self.assertIn(b"expected_attempt", missing.stderr)
+            self.state["dag_release"].set()
+            self.assertEqual(self.await_terminal(job_id)["state"], "succeeded")
+        finally:
+            os.close(ready_r)
+            os.close(go_w)
+
+    def test_execution_scope_refuses_endpoint_key_policy_and_extra_dirs(self):
+        job_id, first = self.failed_dag()
+        before = len(self.ask_requests())
+        settings = self.home / ".tny" / "settings.json"
+        saved = settings.read_bytes() if settings.exists() else None
+        extra = self.home / "extra"
+        extra.mkdir()
+        cases = [
+            (
+                dict(
+                    self.env,
+                    OPENAI_BASE_URL=self.env["OPENAI_BASE_URL"]
+                    + "/different?credential=not-real",
+                ),
+                (),
+            ),
+            (dict(self.env, OPENAI_API_KEY="different-fixture-key"), ()),
+            (self.env, ("--add-dir", str(extra))),
+        ]
+        for env, flags in cases:
+            run = self.run_tny(
+                *flags, "jobs", "retry", job_id, "--json", env=env, check=False
+            )
+            self.assertEqual(run.returncode, 1, run.stdout)
+            self.assertIn(b"execution_scope_changed", run.stderr)
+            self.assertEqual(len(self.ask_requests()), before)
+        config = json.loads(saved) if saved else {}
+        config["permission"] = {"rules": [{"tool": "terminal", "allow": False}]}
+        settings.write_text(json.dumps(config))
+        run = self.run_tny("jobs", "retry", job_id, "--json", check=False)
+        self.assertEqual(run.returncode, 1)
+        self.assertIn(b"execution_scope_changed", run.stderr)
+        if saved is None:
+            settings.unlink()
+        else:
+            settings.write_bytes(saved)
+        self.assertEqual(len(self.ask_requests()), before)
+        raw = Path(first["metadata_path"]).read_text()
+        self.assertEqual(len(json.loads(raw)["execution_scope_sha256"]), 64)
+        self.assertNotIn(API_KEY, raw)
+        self.assertNotIn(self.env["OPENAI_BASE_URL"], raw)
+
+    def test_chatgpt_account_fenced_but_same_account_token_refresh_allowed(self):
+        request = dict(
+            kind="ask", dag=True, items=[{"prompt": "keeper"}, {"prompt": "FAIL codex"}]
+        )
+        run = self.run_tny(
+            "--model",
+            "mock-model",
+            "jobs",
+            "submit",
+            "batch",
+            "--json",
+            stdin=json.dumps(request).encode(),
+            provider="codex",
+        )
+        job_id = json.loads(run.stdout)["id"]
+        first = self.await_terminal(job_id)
+        self.assertEqual(first["items"][0]["state"], "succeeded", first)
+        before = len(self.ask_requests())
+        run = self.run_tny(
+            "--model",
+            "mock-model",
+            "jobs",
+            "retry",
+            job_id,
+            "--json",
+            env=dict(self.env, CHATGPT_ACCOUNT_ID="other-account"),
+            provider="codex",
+            check=False,
+        )
+        self.assertEqual(run.returncode, 1)
+        self.assertIn(b"execution_scope_changed", run.stderr)
+        self.assertEqual(len(self.ask_requests()), before)
+        self.state["fail_ask"] = False
+        self.state["chat_tokens"] = ["refreshed-fixture-token"]
+        run = self.run_tny(
+            "--model",
+            "mock-model",
+            "jobs",
+            "retry",
+            job_id,
+            "--json",
+            env=dict(self.env, CHATGPT_ACCESS_TOKEN="refreshed-fixture-token"),
+            provider="codex",
+        )
+        final = self.await_terminal(job_id)
+        self.assertEqual(final["state"], "succeeded", final)
+        self.assertEqual(sum("keeper" in r for r in self.ask_requests()), 1)
+        raw = Path(final["metadata_path"]).read_text()
+        self.assertNotIn("refreshed-fixture-token", raw)
+        self.assertNotIn(TOKEN, raw)
+
+    def test_actual_member_cannot_control_unrelated_run_via_cli_or_tool(self):
+        import shlex
+
+        run, target = self.submit("ask", stdin=b"DAG_BARRIER unrelated sentinel")
+        self.assertEqual(run.returncode, 0)
+        self.assertTrue(self.state["dag_entered"].wait(30))
+        target_id = target["id"]
+        dump = self.home / "member-controls.json"
+        script = (
+            "import subprocess,json; results=[]; "
+            + "\nfor action in ['cancel','retry','rm']:\n r=subprocess.run("
+            + repr([TNY, "--provider", "openai", "jobs"])
+            + "+[action,"
+            + repr(target_id)
+            + ",'--json'],capture_output=True); results.append([r.returncode,r.stderr.decode()])\n"
+            + "json.dump(results,open("
+            + repr(str(dump))
+            + ",'w'))"
+        )
+        self.state["envdump"] = "python3 -c " + shlex.quote(script)
+        self.state["member_target"] = target_id
+        run, member = self.dag_submit(
+            [
+                {
+                    "prompt": "ENVDUMP member CLI controls",
+                    "workspace": {"policy": "shared_writable"},
+                },
+                {
+                    "prompt": "MEMBER_CONTROL typed cancel",
+                    "workspace": {"policy": "shared_writable"},
+                },
+            ]
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        result = self.await_terminal(member["id"])
+        self.assertEqual(result["state"], "succeeded", result)
+        for code, error in json.loads(dump.read_text()):
+            self.assertEqual(code, 1)
+            self.assertIn("member_control_unsupported", error)
+        self.assertIn("member_control_unsupported", json.dumps(self.state["bodies"]))
+        sentinel = self.status(target_id)
+        self.assertEqual(sentinel["state"], "running")
+        self.assertFalse(sentinel["cancel_requested"])
+        # An ordinary local operator retains legacy batch authority.
+        self.run_tny("jobs", "cancel", target_id, "--json")
+        self.assertEqual(self.await_terminal(target_id)["state"], "cancelled")
+
+
+class JobsSoftBudget(JobsDAG):
+    def test_observed_exhaustion_cancels_pending_admission_and_retry_stays_stopped(
+        self,
+    ):
+        run, payload = self.dag_submit(
+            [{"prompt": "first observed"}, {"prompt": "must not request"}],
+            concurrency=1,
+            budget={"soft_tokens": 4},
+            admission=dict(
+                label="budget",
+                provider_scope="public",
+                cap=1,
+                queue_cap=8,
+                claim_limit=10,
+            ),
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        record = self.await_terminal(payload["id"])
+        self.assertEqual(record["budget"], {"soft_tokens": 4, "unknown_usage": "stop"})
+        self.assertEqual(record["budget_observed_tokens"], 4)
+        self.assertEqual(record["budget_state"], "tokens_exhausted")
+        self.assertEqual(record["items"][1]["state"], "cancelled")
+        self.assertEqual(record["items"][1]["admission_reason"], "canceled")
+        self.assertEqual(len(self.ask_requests()), 1)
+        ledger = json.loads(
+            (
+                self.home / ".tny" / "admission" / "budget" / "public" / "state.json"
+            ).read_text()
+        )
+        self.assertEqual(ledger["claims"], 1)
+        before = Path(record["metadata_path"]).read_bytes()
+        for _ in range(2):
+            retry = self.run_tny("jobs", "retry", payload["id"], "--json", check=False)
+            self.assertEqual(retry.returncode, 1)
+            self.assertIn(b"budget_stop", retry.stderr)
+        self.assertEqual(before, Path(record["metadata_path"]).read_bytes())
+        self.assertEqual(len(self.ask_requests()), 1)
+
+    def test_unknown_usage_default_stops_and_explicit_continue_is_inspectable(self):
+        for policy in ("stop", "continue"):
+            before = len(self.ask_requests())
+            budget = {"soft_tokens": 100}
+            if policy == "continue":
+                budget["unknown_usage"] = policy
+            run, payload = self.dag_submit(
+                [{"prompt": "NO_USAGE first"}, {"prompt": "second"}],
+                concurrency=1,
+                budget=budget,
+            )
+            self.assertEqual(run.returncode, 0, run.stderr)
+            record = self.await_terminal(payload["id"])
+            self.assertTrue(record["budget_usage_unknown"])
+            if policy == "stop":
+                self.assertEqual(record["budget_state"], "usage_unknown")
+                self.assertEqual(record["items"][1]["state"], "cancelled")
+                self.assertEqual(len(self.ask_requests()) - before, 1)
+            else:
+                self.assertEqual(record["state"], "succeeded")
+                self.assertEqual(record["budget_state"], "usage_unknown_continue")
+                self.assertEqual(record["budget_observed_tokens"], 4)
+                self.assertEqual(len(self.ask_requests()) - before, 2)
+
+    def test_already_admitted_work_can_overshoot_soft_budget(self):
+        run, payload = self.dag_submit(
+            [
+                {"prompt": "DAG_BARRIER first"},
+                {"prompt": "DAG_BARRIER second"},
+                {"prompt": "third not admitted"},
+            ],
+            concurrency=2,
+            budget={"soft_tokens": 4},
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.await_state(payload["id"], lambda r: len(self.ask_requests()) == 2)
+        self.assertEqual(len(self.ask_requests()), 2)
+        self.state["dag_release"].set()
+        record = self.await_terminal(payload["id"])
+        self.assertEqual(record["budget_observed_tokens"], 8)
+        self.assertEqual(record["budget_state"], "tokens_exhausted")
+        self.assertEqual(record["items"][2]["state"], "cancelled")
+        self.assertEqual(len(self.ask_requests()), 2)
+
+    def test_retry_budget_accounting_does_not_count_carried_a_twice(self):
+        run, payload = self.dag_submit(
+            [
+                {"prompt": "DAG_A"},
+                {"prompt": "FAIL DAG_B", "depends_on": [0]},
+                {"prompt": "DAG_C", "depends_on": [1]},
+            ],
+            concurrency=1,
+            budget={"soft_tokens": 8, "unknown_usage": "continue"},
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        job_id = payload["id"]
+        first = self.await_terminal(job_id)
+        self.assertEqual(first["budget_observed_tokens"], 4)
+        self.state["fail_ask"] = False
+        self.run_tny("jobs", "retry", job_id, "--json")
+        final = self.await_terminal(job_id)
+        self.assertEqual(final["budget_observed_tokens"], 8)
+        self.assertEqual(final["items"][0]["attempt"], 1)
+        self.assertEqual(final["items"][1]["state"], "succeeded")
+        self.assertEqual(final["items"][2]["state"], "cancelled")
+        self.assertEqual(sum("DAG_A" in r for r in self.ask_requests()), 1)
+        self.assertFalse(any("DAG_C" in r for r in self.ask_requests()))
+        self.assertTrue(final["budget_usage_unknown"])
+
+    def test_invalid_token_policy_is_refused_before_side_effects(self):
+        for budget in (
+            {"soft_tokens": 0},
+            {"soft_tokens": 3.5},
+            {"soft_tokens": 10, "unknown_usage": "zero"},
+            {"soft_tokens": 10, "api_key": API_KEY},
+        ):
+            run, _ = self.dag_submit([{"prompt": "never"}], budget=budget)
+            self.assertEqual(run.returncode, 1)
+            self.assertEqual(self.job_dirs(), [])
+            self.assertEqual(self.ask_requests(), [])
 
 
 class JobsConcurrency(JobsFixture):

@@ -34,7 +34,7 @@ JSON
 tny jobs status JOB_ID --json
 tny jobs wait JOB_ID --timeout 30 --json
 tny jobs logs JOB_ID --item 1 --json
-tny jobs cancel JOB_ID --items 1 --json
+tny jobs cancel JOB_ID --items 1 --expected-attempt 1 --json
 tny jobs retry JOB_ID --failed --json
 ```
 
@@ -67,6 +67,32 @@ A failed/cancelled/interrupted dependency makes the descendant `failed` with
 reuses successful items and their original attempts after integrity checks;
 concurrent retries cannot create two execution owners. Retry never silently
 replays successful work or uncertain effects. Unknown cleanup refuses retry.
+
+### Attempt-fenced cancellation and execution scope
+
+DAG cancellation requires `expected_attempt` in typed JSON, or
+`--expected-attempt N` in the CLI. Use the attempt returned for the intended
+operation. The comparison and cancellation flags are in the **same state-lock
+transaction**, including when the job is already terminal. Missing or stale
+attempts return `stale_attempt` without changing flags. Do not automatically
+refresh and replay a stale cancellation: inspect the new attempt first. Ordinary
+batch cancellation retains its existing grammar and semantics without this fence.
+The team-control adapter must pass its expected attempt through to jobs.
+
+A DAG also persists `execution_scope_sha256` before launch. This one-way
+fingerprint covers the resolved provider endpoint, credential/account identity,
+auth routing and extra headers, relevant policy/repository configuration,
+configured tool-environment values and extra workspace directories. Raw keys,
+tokens and secret-bearing URLs are not stored. Retry compares the current scope
+before carrying results or starting work. Changed or missing scope evidence
+requires a new explicit run, even if provider/model names remain unchanged.
+
+For a known ChatGPT account, account identity plus credential source fences the
+scope, so normal same-account token refresh can survive. Where no stable account
+identity is available, credential bytes are conservatively fenced: key rotation
+requires a new explicit run. The fingerprint is an integrity check, **not an
+authorization token** or a snapshot of arbitrary external files. It does not make
+public admission aliases automatically identify all routes to an account.
 
 Every DAG task and run reports **`verification:unverified`**, even on exit zero.
 Hashes prove integrity, not acceptance. No worker prose triggers verification
@@ -137,12 +163,13 @@ inspection; dirty editing work requires explicit integration/new work instead.
 This conservative rule prevents hidden replay in a dirty tree. The helper still
 does not sandbox arbitrary paths or snapshot arbitrary external inputs.
 
-**Read-only delivery boundary:** this scheduler provisions the trusted ceiling
-marker. Native permission enforcement, checkpoint retention and propagation are
-lead-owned runtime integration. Do not claim an enforced read-only sandbox from
-the marker alone. The actual denial test runs with
-`TNY_TEST_TEAM_READ_ONLY_ENFORCED=1` after that integration; otherwise it is an
-explicitly reported skip. Host modes cannot use these workspace policies.
+**Read-only delivery boundary:** the scheduler provisions the trusted ceiling
+marker; the integrated native runtime enforces it at its permission boundary.
+The real edit-tool denial test runs with `TNY_TEST_TEAM_READ_ONLY_ENFORCED=1`.
+Checkpoint retention and propagation remain runtime responsibilities. This is
+not an OS sandbox for arbitrary same-user processes. Host modes cannot use these
+workspace policies. Mailbox confinement requires canonical trusted state paths;
+a symlinked HOME/state-directory prefix is refused, not silently adopted.
 
 ## Shared admission enrollment
 
@@ -183,8 +210,9 @@ or unknown owner can therefore block followers indefinitely. See
 
 Enrolled children receive `TNY_ADMISSION_ENROLLED=1`. Inherited enrolled jobs
 cannot submit or retry nested jobs, before job/admission files or enqueue.
-Native synchronous-subagent refusal remains lead-owned integration. This scope
-covers opt-in top-level job launches, **not arbitrary same-user shell processes**,
+Together with native synchronous-subagent refusal, enrolled execution has a
+**hard depth-one launch policy**, not recursive sharing of an arbitrary scope.
+This scope covers opt-in top-level job launches, **not arbitrary same-user shell processes**,
 all SDK calls or every provider request made inside an admitted turn.
 
 Positive `ctx.max_steps` travels as owned private payload text and a child
@@ -199,7 +227,44 @@ attempt evidence, including prior immutable attempts; carried successes are not
 counted again. `unknown_items` counts item-attempts without usable evidence,
 including unfinished/not-started items. Observed counters do not prove that a
 provider reported every billed request. Missing usage and cost are not estimated.
-No actual token/cost budget policy is implemented by this enrollment.
+These observations can drive the separate soft run policy below. They do not
+provide a hard token, money or billing guarantee.
+
+### Opt-in soft run token policy
+
+A native DAG request may include:
+
+```json
+{"budget":{"soft_tokens":1000,"unknown_usage":"stop"}}
+```
+
+`soft_tokens` is a positive integer. `unknown_usage` is `stop` (the default) or
+an explicit `continue`. Unknown fields are refused. The policy is immutable for
+retry; changing it requires a new explicit run. It is separate from admission's
+**hard launch-request `claim_limit`**, which is not a model HTTP-call cap.
+
+After collecting terminal item usage, the existing supervisor checks the soft
+policy at a safe scheduling boundary. When observed input plus output tokens
+reach the limit, it cancels pending work and waiting admissions without starting
+those children. With the default unknown policy, an attempted terminal item
+without usable usage also stops pending work. Future unstarted tasks do not count
+as zero-cost evidence, and do not prevent the first launch. `continue` explicitly
+allows progress with incomplete usage; the uncertainty remains visible.
+
+Already-admitted active work is not interrupted by this soft policy and **may
+overshoot the limit**, including work that finishes while another result is being
+collected. Multiple model requests within one child may also exceed it before
+that child's cumulative usage settles. This is not pre-reserved token capacity.
+
+Status exposes `budget_state`, `budget_observed_tokens` and
+`budget_usage_unknown`. Counters persist across retries and include previous
+attempts without counting carried successes again. An exhausted or default-stop
+unknown policy refuses retry before spending; explicit `continue` retains the
+unknown marker. Unknown amounts are never invented or charged as known zero.
+No hard model-call allowance, reserved-step pool, money cap or absolute run
+admission deadline is implemented here. Positive child `max_steps` remains a
+separate turn ceiling; HTTP retries and host-owned loops are not model-call
+billing guarantees.
 
 ## Private member capability provisioning
 
@@ -218,6 +283,16 @@ children get no team membership. Ambient parent team/admission fields are not
 forwarded as membership; inherited read-only ceilings remain restrictive.
 Request-supplied private identity, bearer and verifier fields are refused.
 Root `peer_messages` must be boolean when supplied and defaults to false.
+
+Before a sensitive legacy jobs operation, inherited `TNY_TEAM_RUN` is checked
+against that run's private verifier and current item/job attempt under its state
+lock. Invalid membership is refused. Valid members are also explicitly refused
+legacy submit/cancel/retry/remove controls (`member_control_unsupported`), rather
+than receiving operator authority over a supplied job ID. This conservative slice
+does not expose a member-safe own-task mutation through legacy jobs; use the lead
+or a dedicated authorized task adapter. CLI operators outside nested member
+contexts retain existing authority. Parent-session lineage comes only from the
+trusted `tny_jobs_run_context` adapter argument, never a request sender/session.
 
 These fields match the lead's `team_runtime` verifier contract without adding a
 link dependency on that runtime here. Mailbox delivery, trusted parent adapter

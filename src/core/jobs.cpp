@@ -670,6 +670,7 @@ typedef struct {
     bool dag;
     bool peer_messages;
     yyjson_val *admission;
+    yyjson_val *budget;
     int max_steps;
     int concurrency;
     int n_items;
@@ -839,6 +840,17 @@ static bool admission_config_valid(yyjson_val *v) {
            jget_int(v, "claim_limit", 0) > 0;
 }
 
+static bool jobs_budget_valid(yyjson_val *v) {
+    if (!yyjson_is_obj(v) || !yyjson_is_int(jget(v, "soft_tokens")) ||
+        jget_int(v, "soft_tokens", 0) <= 0)
+        return false;
+    yyjson_val *unknown = jget(v, "unknown_usage");
+    const char *policy = yyjson_get_str(unknown);
+    return yyjson_obj_size(v) == (unknown ? 2 : 1) &&
+           (!unknown ||
+            (policy && (strcmp(policy, "stop") == 0 || strcmp(policy, "continue") == 0)));
+}
+
 static bool admission_public_config(tny_ctx *ctx, yyjson_val *v) {
     if (!admission_config_valid(v)) return false;
     const char *aliases[] = {jget_str(v, "label"), jget_str(v, "provider_scope")};
@@ -955,6 +967,12 @@ static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, c
     if (!dag_validate(args, err, errlen)) return -1;
     r->dag = jget_bool(args, "dag", false);
     r->admission = jget(args, "admission");
+    r->budget = jget(args, "budget");
+    if (r->budget && (!r->dag || !jobs_budget_valid(r->budget))) {
+        safe_err(err, errlen,
+                 "budget requires a DAG, positive soft_tokens and unknown_usage stop|continue");
+        return -1;
+    }
     r->max_steps = ctx->max_steps > 0 ? ctx->max_steps : 0;
     r->peer_messages = jget_bool(args, "peer_messages", false);
     if (getenv("TNY_ADMISSION_ENROLLED") || ctx->ssh_host || ctx->library_mode) {
@@ -1051,6 +1069,11 @@ static int jobs_request_parse_retry(tny_ctx *ctx, yyjson_val *args, jobs_request
     r->dag = jget_bool(args, "dag", false);
     r->peer_messages = jget_bool(args, "peer_messages", false);
     r->admission = jget(args, "admission");
+    r->budget = jget(args, "budget");
+    if (r->budget && (!r->dag || !jobs_budget_valid(r->budget))) {
+        safe_err(err, errlen, "stored budget policy is invalid");
+        return -1;
+    }
     int64_t steps = jget_int(args, "max_steps", 0);
     if (steps < 0 || steps > INT_MAX ||
         (jget(args, "max_steps") && !yyjson_is_int(jget(args, "max_steps")))) {
@@ -1170,6 +1193,9 @@ char *tny_jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, char **err
         }
         if (jget(args, "item")) buf_appendf(&d, " item=%lld", (long long)jget_int(args, "item", 0));
         if (jget_bool(args, "failed", false)) buf_appends(&d, " failed");
+        if (jget(args, "expected_attempt"))
+            buf_appendf(&d, " expected_attempt=%lld",
+                        (long long)jget_int(args, "expected_attempt", 0));
     }
     return buf_detach(&d);
 }
@@ -1180,7 +1206,7 @@ typedef struct {
     const char *prompt, *model, *effort, *task, *quality, *size, *output_file, *request;
     const char *images[TNY_IMAGE_REFS_PER_ITEM];
     int n_images;
-    const char *items, *timeout, *concurrency, *max_bytes, *item;
+    const char *items, *timeout, *concurrency, *max_bytes, *item, *expected_attempt;
     bool edit, strict_size, overwrite, no_store_request, no_manifest, failed, json;
 } jobs_flags;
 
@@ -1208,6 +1234,7 @@ static int jobs_parse_flags(int argc, char **argv, jobs_flags *f, const char **e
         else if (strcmp(a, "--timeout") == 0) slot = &f->timeout;
         else if (strcmp(a, "--concurrency") == 0) slot = &f->concurrency;
         else if (strcmp(a, "--max-bytes") == 0) slot = &f->max_bytes;
+        else if (strcmp(a, "--expected-attempt") == 0) slot = &f->expected_attempt;
         else if (strcmp(a, "--image") == 0) {
             if (f->n_images >= TNY_IMAGE_REFS_PER_ITEM || i + 1 >= argc) {
                 *error = "at most 5 --image references are accepted";
@@ -1447,6 +1474,15 @@ tny_jobs_op tny_jobs_parse_argv(int argc, char **argv, const char *stdin_text, s
     }
     if (flags.failed) buf_appends(&request, ",\"failed\":true");
     bool ok = true;
+    if (flags.expected_attempt) {
+        if (op != TNY_JOBS_OP_CANCEL) {
+            buf_free(&request);
+            *error = "--expected-attempt applies to cancel";
+            return TNY_JOBS_OP_NONE;
+        }
+        buf_appendf(&request, ",\"expected_attempt\":%ld",
+                    jobs_bounded_long(flags.expected_attempt, 1, INT_MAX, &ok));
+    }
     if (flags.item)
         buf_appendf(&request, ",\"item\":%ld",
                     jobs_bounded_long(flags.item, 0, TNY_JOBS_MAX_ITEMS - 1, &ok));
@@ -1638,6 +1674,55 @@ static void job_usage_totals(yyjson_mut_doc *doc, int64_t *input, int64_t *outpu
     }
 }
 
+/* Only attempted terminal work can make usage unknown for the soft policy.
+ * Unstarted tasks are not zero-cost evidence, nor a reason to block the first
+ * launch. Active attempts settle later and can overshoot this observed bound. */
+static void job_budget_usage(yyjson_mut_doc *doc, int64_t *tokens, bool *unknown) {
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(doc);
+    *tokens = jm_int(root, "budget_prior_tokens", 0);
+    *unknown = jm_bool(root, "budget_prior_unknown", false);
+    if (*tokens < 0) {
+        *tokens = 0;
+        *unknown = true;
+    }
+    for (int i = 0; i < jm_item_count(doc); i++) {
+        yyjson_mut_val *item = jm_item(doc, i);
+        if (jm_int(item, "attempt", 1) != jm_int(root, "attempt", 1) ||
+            !jm_bool(item, "launch_claimed", false) || !state_is_terminal(jm_str(item, "state")))
+            continue;
+        int64_t input = jm_int(item, "usage_input_tokens", -1),
+                output = jm_int(item, "usage_output_tokens", -1);
+        if (!jm_bool(item, "usage_known", false) || input < 0 || output < 0) {
+            *unknown = true;
+            continue;
+        }
+        if (input > INT64_MAX - *tokens) *tokens = INT64_MAX;
+        else *tokens += input;
+        if (output > INT64_MAX - *tokens) *tokens = INT64_MAX;
+        else *tokens += output;
+    }
+}
+
+static const char *job_budget_reason(yyjson_mut_doc *doc) {
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(doc);
+    yyjson_mut_val *budget = yyjson_mut_obj_get(root, "budget");
+    if (!budget) return NULL;
+    int64_t limit = jm_int(budget, "soft_tokens", 0), tokens;
+    bool unknown;
+    job_budget_usage(doc, &tokens, &unknown);
+    if (limit <= 0) return "invalid_budget";
+    if (tokens >= limit) return "tokens_exhausted";
+    const char *policy = jm_str(budget, "unknown_usage");
+    if (unknown)
+        return policy && strcmp(policy, "continue") == 0 ? "usage_unknown_continue"
+                                                         : "usage_unknown";
+    return "open";
+}
+
+static bool job_budget_stops(const char *reason) {
+    return reason && strcmp(reason, "open") != 0 && strcmp(reason, "usage_unknown_continue") != 0;
+}
+
 static void job_items_json(yyjson_mut_doc *doc, buf_t *out) {
     buf_appends(out, ",\"items\":[");
     int count = jm_item_count(doc);
@@ -1717,11 +1802,21 @@ static void job_json(yyjson_mut_doc *doc, const char *dir, buf_t *out) {
             free(json);
         }
     }
-    static const char *const extra[] = {"admission", "max_steps", "peer_messages"};
+    static const char *const extra[] = {"admission", "max_steps", "peer_messages",
+                                        "execution_scope_sha256", "budget"};
     for (size_t k = 0; k < sizeof extra / sizeof extra[0]; k++) {
         char *json = jwrite_mut_val(yyjson_mut_obj_get(root, extra[k]));
         buf_appendf(out, ",\"%s\":%s", extra[k], json ? json : "null");
         free(json);
+    }
+    if (yyjson_mut_obj_get(root, "budget")) {
+        int64_t tokens;
+        bool missing;
+        job_budget_usage(doc, &tokens, &missing);
+        buf_appendf(
+            out, ",\"budget_observed_tokens\":%lld,\"budget_usage_unknown\":%s,\"budget_state\":",
+            (long long)tokens, missing ? "true" : "false");
+        jescape(out, job_budget_reason(doc));
     }
     int64_t input, output, unknown;
     job_usage_totals(doc, &input, &output, &unknown);
@@ -1946,6 +2041,87 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
 
 /* --------------------------------------------------------- record creation */
 
+static void execution_scope_part(buf_t *b, const char *text) {
+    if (!text) {
+        buf_appends(b, "-1:");
+        return;
+    }
+    size_t len = strlen(text);
+    buf_appendf(b, "%zu:", len);
+    buf_append(b, text, len);
+}
+
+/* Integrity fence only, not an authorization token. Resolved credentials and
+ * secret-bearing URLs exist in transient memory, never in the record. Known
+ * ChatGPT accounts fence by account + source rather than the refreshable bearer;
+ * other providers conservatively fence credential bytes. No refresh/network. */
+static char *jobs_execution_scope(tny_ctx *ctx) {
+    buf_t b;
+    buf_init(&b);
+    bool codex = strcmp(tny_provider_name(ctx), "codex") == 0;
+    tny_codex_creds credentials{};
+    if (codex && tny_codex_credentials(ctx, &credentials) != 0) return NULL;
+    const char *identity = codex && credentials.account_id && *credentials.account_id
+                               ? credentials.account_id
+                               : ctx->api_key;
+    const char *strings[] = {"jobs-execution-scope-v1",
+                             tny_provider_name(ctx),
+                             ctx->base_url,
+                             ctx->wire_api,
+                             ctx->auth_header_name,
+                             ctx->auth_header_prefix,
+                             ctx->max_tokens_field,
+                             ctx->output_schema,
+                             ctx->sandbox_mode,
+                             identity,
+                             codex ? tny_codex_cred_source_name(credentials.source)
+                                   : "resolved-credential",
+                             codex ? getenv("TNY_CODEX_BASE_URL") : NULL};
+    for (size_t i = 0; i < sizeof strings / sizeof strings[0]; i++)
+        execution_scope_part(&b, strings[i]);
+    if (codex && (!credentials.account_id || !*credentials.account_id)) {
+        execution_scope_part(&b, credentials.access_token);
+        execution_scope_part(&b, credentials.api_key);
+    }
+    int n_headers = 0;
+    while (ctx->extra_headers && ctx->extra_headers[n_headers]) n_headers++;
+    buf_appendf(&b, "headers:%d;", n_headers);
+    for (int i = 0; i < n_headers; i++) execution_scope_part(&b, ctx->extra_headers[i]);
+    buf_appendf(&b, "dirs:%d;", ctx->n_extra_dirs);
+    for (int i = 0; i < ctx->n_extra_dirs; i++) execution_scope_part(&b, ctx->extra_dirs[i]);
+    buf_appendf(&b, "policy:%d:%d:%d:%d:%d:%d:%d:%u:%zu;", ctx->perm_mode, ctx->tool_profile,
+                ctx->workspace_read_only, ctx->context_enabled, ctx->extensions_enabled,
+                ctx->max_extension_iterations, ctx->mcp_disabled, ctx->mcp_import_mask,
+                ctx->max_tool_result_bytes);
+    yyjson_val *settings = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
+    yyjson_val *workspace = jget(jget(settings, "workspaces"), ctx->cwd);
+    yyjson_val *policy[] = {jget(settings, "permission"),
+                            jget(workspace, "permission"),
+                            jget(settings, "jobs"),
+                            jget(settings, "mcp"),
+                            jget(settings, "extensions"),
+                            jget(jget(settings, tny_provider_name(ctx)), "api_key_env"),
+                            ctx->repo_cfg ? yyjson_doc_get_root(ctx->repo_cfg) : NULL};
+    for (size_t i = 0; i < sizeof policy / sizeof policy[0]; i++) {
+        char *json = policy[i] ? jwrite_val(policy[i]) : NULL;
+        if (policy[i] && !json) b.oom = true;
+        execution_scope_part(&b, json);
+        secure_free(json);
+    }
+    yyjson_val *declared = jget(jget(settings, "jobs"), "ask_env");
+    size_t i, max;
+    yyjson_val *name;
+    yyjson_arr_foreach(declared, i, max, name) {
+        const char *key = yyjson_get_str(name);
+        execution_scope_part(&b, key ? getenv(key) : NULL);
+    }
+    char *hash = buf_oom(&b) ? NULL : sha256_hex_of(b.data, b.len);
+    secure_zero(b.data, b.len);
+    buf_free(&b);
+    tny_codex_creds_free(&credentials);
+    return hash;
+}
+
 /* Git runs only outside state.lock. Unknown/dirty workspaces can execute but
  * cannot carry outputs into another attempt. Managed workspace integration
  * belongs before launch claim, outside the transaction (ADR 0136). */
@@ -2025,7 +2201,28 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
     if (request->admission)
         yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "admission"),
                            yyjson_val_mut_copy(doc, request->admission));
+    if (request->budget) {
+        yyjson_mut_val *budget = yyjson_val_mut_copy(doc, request->budget);
+        const char *unknown = jget_str(request->budget, "unknown_usage");
+        jm_set_str(doc, budget, "unknown_usage", unknown ? unknown : "stop");
+        yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "budget"), budget);
+        tny::c_string json(jwrite_mut_val(budget));
+        tny::c_string hash(json ? sha256_hex_of(json.get(), strlen(json.get())) : NULL);
+        if (!hash) {
+            free(now);
+            yyjson_mut_doc_free(doc);
+            return NULL;
+        }
+        jm_set_str(doc, root, "budget_definition_sha256", hash.get());
+    }
     if (request->dag) {
+        tny::c_string scope(jobs_execution_scope(ctx));
+        if (!scope) {
+            free(now);
+            yyjson_mut_doc_free(doc);
+            return NULL;
+        }
+        jm_set_str(doc, root, "execution_scope_sha256", scope.get());
         jm_set_bool(doc, root, "peer_messages", request->peer_messages);
         jm_set_bool(doc, root, "dag", true);
         jm_set_str(doc, root, "run_id", job_id);
@@ -2662,6 +2859,19 @@ static int jobs_cancel(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
         return 2;
     }
     yyjson_mut_val *root = yyjson_mut_doc_get_root(t.doc.get());
+    if (jm_bool(root, "dag", false)) {
+        yyjson_val *expected = jget(args, "expected_attempt");
+        if (!yyjson_is_int(expected) || jget_int(args, "expected_attempt", 0) <= 0 ||
+            jget_int(args, "expected_attempt", 0) != jm_int(root, "attempt", 0)) {
+            safe_err(err, errlen,
+                     "stale_attempt: DAG cancel requires expected_attempt matching the current "
+                     "attempt; no flags changed");
+            jobs_txn_end(&t);
+            free(job_id);
+            free(dir);
+            return 1;
+        }
+    }
     if (state_is_terminal(jm_str(root, "state"))) {
         jobs_txn_end(&t);
         yyjson_mut_doc *current = jobs_record_load(dir, job_id, err, errlen);
@@ -2879,6 +3089,16 @@ static char *retry_request_json(yyjson_mut_doc *doc, const int *selected, int n,
                 jm_bool(root, "dag", false) ? "true" : "false",
                 jm_bool(root, "peer_messages", false) ? "true" : "false",
                 (long long)jm_int(root, "max_steps", 0));
+    yyjson_mut_val *budget = yyjson_mut_obj_get(root, "budget");
+    if (budget) {
+        char *json = jwrite_mut_val(budget);
+        if (!json) {
+            buf_free(&b);
+            return NULL;
+        }
+        buf_appendf(&b, ",\"budget\":%s", json);
+        free(json);
+    }
     yyjson_mut_val *enrollment = yyjson_mut_obj_get(root, "admission");
     if (enrollment) {
         char *json = jwrite_mut_val(enrollment);
@@ -2998,6 +3218,15 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
             goto invalid;
         }
         if (jm_bool(root, "dag", false)) {
+            tny::c_string scope(jobs_execution_scope(ctx));
+            const char *expected_scope = jm_str(root, "execution_scope_sha256");
+            if (!scope || !expected_scope || strcmp(scope.get(), expected_scope) != 0) {
+                free(owner_path);
+                safe_err(err, errlen,
+                         "execution_scope_changed: endpoint, account, credential or policy "
+                         "changed/unverified; submit a new explicit run");
+                goto invalid;
+            }
             char *revision = dag_workspace_revision(ctx->cwd);
             const char *want = jm_str(root, "workspace_revision");
             bool same = revision && want && strcmp(revision, want) == 0 &&
@@ -3033,6 +3262,21 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
                 safe_err(err, errlen,
                          "DAG inputs, dependencies, clean workspace revision or execution ceilings "
                          "changed/unverified; submit a new job");
+                goto invalid;
+            }
+        }
+        yyjson_mut_val *budget = yyjson_mut_obj_get(root, "budget");
+        if (budget) {
+            tny::c_string json(jwrite_mut_val(budget));
+            tny::c_string hash(json ? sha256_hex_of(json.get(), strlen(json.get())) : NULL);
+            const char *expected = jm_str(root, "budget_definition_sha256");
+            const char *reason = job_budget_reason(doc);
+            if (!hash || !expected || strcmp(hash.get(), expected) != 0 ||
+                job_budget_stops(reason)) {
+                free(owner_path);
+                safe_err(err, errlen,
+                         "budget_stop: policy changed, exhausted or usage unknown; inspect and "
+                         "submit a new explicit run");
                 goto invalid;
             }
         }
@@ -3176,6 +3420,13 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
             safe_err(err, errlen, "cannot preserve immutable attempt history; nothing was changed");
             goto invalid;
         }
+        if (yyjson_mut_obj_get(live, "budget")) {
+            int64_t tokens;
+            bool unknown;
+            job_budget_usage(t.doc.get(), &tokens, &unknown);
+            jm_set_int(t.doc.get(), live, "budget_prior_tokens", tokens);
+            jm_set_bool(t.doc.get(), live, "budget_prior_unknown", unknown);
+        }
         int64_t usage_input, usage_output, usage_unknown;
         job_usage_totals(t.doc.get(), &usage_input, &usage_output, &usage_unknown);
         jm_set_int(t.doc.get(), live, "prior_usage_input_tokens", usage_input);
@@ -3205,6 +3456,7 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
             if (jm_bool(live, "dag", false)) jm_set_null(t.doc.get(), item, "dependency_sha256");
             jm_set_bool(t.doc.get(), item, "cancel_requested", false);
             jm_set_int(t.doc.get(), item, "attempt", attempt);
+            jm_set_bool(t.doc.get(), item, "launch_claimed", false);
             jm_set_bool(t.doc.get(), item, "usage_known", false);
             jm_set_null(t.doc.get(), item, "usage_input_tokens");
             jm_set_null(t.doc.get(), item, "usage_output_tokens");
@@ -3317,11 +3569,53 @@ int tny_jobs_run_cancel(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *o
     return tny_jobs_run_context(ctx, op, args, out, err, errlen, cancelled, cancel_ud, NULL);
 }
 
+/* A member bearer is authority only within its original live item attempt.
+ * Legacy jobs controls have no member-safe task API: validate, then refuse
+ * sensitive operations rather than turn possession of another job ID into
+ * operator authority. This precedes target lookup or any target mutation. */
+static bool jobs_member_valid(tny_ctx *ctx) {
+    const char *id = getenv("TNY_TEAM_RUN"), *token = getenv("TNY_TEAM_CAPABILITY");
+    bool task_ok = false, attempt_ok = false;
+    long task = jobs_bounded_long(getenv("TNY_TEAM_TASK"), 0, TNY_JOBS_MAX_ITEMS - 1, &task_ok);
+    long attempt = jobs_bounded_long(getenv("TNY_TEAM_ATTEMPT"), 1, INT_MAX, &attempt_ok);
+    if (!task_ok || !attempt_ok || !tny_jobs_valid_id(id) || !token || strlen(token) != 64)
+        return false;
+    bool ok = true;
+    for (size_t i = 0; i < 64; i++)
+        if (!((token[i] >= '0' && token[i] <= '9') || (token[i] >= 'a' && token[i] <= 'f')))
+            return false;
+    tny::c_string dir(jobs_dir(ctx, id));
+    jobs_txn t;
+    if (!dir || jobs_txn_begin(dir.get(), id, &t, NULL, 0) != 0) return false;
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(t.doc.get());
+    yyjson_mut_val *item = jm_item(t.doc.get(), (int)task);
+    const char *expected = jm_str(item, "mailbox_capability_sha256");
+    tny::c_string hash(sha256_hex_of(token, 64));
+    ok = jm_bool(root, "dag", false) && jm_int(root, "attempt", 0) == attempt &&
+         jm_int(item, "attempt", 0) == attempt && jm_str(item, "state") &&
+         strcmp(jm_str(item, "state"), "running") == 0 && expected && strlen(expected) == 64 &&
+         hash;
+    unsigned difference = 0;
+    if (ok)
+        for (size_t i = 0; i < 64; i++)
+            difference |= (unsigned char)expected[i] ^ (unsigned char)hash.get()[i];
+    return ok && difference == 0;
+}
+
 int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, char *err,
                          size_t errlen, bool (*cancelled)(void *), void *cancel_ud,
                          const char *parent_session) {
     if (err && errlen) err[0] = 0;
     if (!ctx || !out) return 1;
+    if (getenv("TNY_TEAM_RUN") && tny_jobs_op_is_sensitive(op)) {
+        safe_err(
+            err, errlen, "%s",
+            jobs_member_valid(ctx)
+                ? "member_control_unsupported: team members cannot use legacy jobs mutations; use "
+                  "the team task adapter"
+                : "invalid_member: inherited team capability or current task attempt is invalid");
+        return 1;
+    }
     if ((op == TNY_JOBS_OP_SUBMIT || op == TNY_JOBS_OP_RETRY) &&
         (getenv("TNY_ADMISSION_ENROLLED") || ctx->ssh_host || ctx->library_mode ||
          !tny_jobs_execution_supported())) {
@@ -4326,11 +4620,19 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
             dirty = true;
         }
 
+        const char *budget_reason = job_budget_reason(doc);
+        bool budget_stop = job_budget_stops(budget_reason);
+        if (budget_reason && (!jm_str(root, "budget_state") ||
+                              strcmp(jm_str(root, "budget_state"), budget_reason) != 0)) {
+            jm_set_str(doc, root, "budget_state", budget_reason);
+            dirty = true;
+        }
         /* 2. cancellation and launch decisions, linearized under this lock */
         for (int i = 0; i < count; i++) {
             yyjson_mut_val *item = jm_item(doc, i);
             const char *state = jm_str(item, "state");
-            bool cancel = job_cancel || jm_bool(item, "cancel_requested", false);
+            bool policy_cancel = budget_stop && !slots[i].active;
+            bool cancel = job_cancel || jm_bool(item, "cancel_requested", false) || policy_cancel;
             if (!state || state_is_terminal(state)) continue;
             if (!entries[i]) continue; /* carried item of an earlier attempt */
             if (cancel && !slots[i].active) {
@@ -4343,7 +4645,13 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
                 secure_free(slots[i].capability);
                 slots[i].capability = NULL;
                 jm_set_str(doc, item, "state", "cancelled");
-                jm_set_str(doc, item, "error", "cancelled before it started");
+                jm_set_str(doc, item, "error",
+                           policy_cancel ? "soft token policy stopped pending work"
+                                         : "cancelled before it started");
+                if (policy_cancel) {
+                    jm_set_str(doc, item, "error_code", budget_reason);
+                    jm_set_bool(doc, item, "cancel_requested", true);
+                }
                 jm_set_int(doc, item, "exit_code", 0);
                 char *now = now_iso8601();
                 jm_set_str(doc, item, "finished", now ? now : "");
@@ -4487,6 +4795,7 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
                 slots[i].active = true;
                 slots[i].launched = true;
                 slots[i].launch_pending = true;
+                jm_set_bool(doc, item, "launch_claimed", true);
                 jm_set_str(doc, item, "state", "running");
                 active++;
                 dirty = true;

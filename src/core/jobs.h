@@ -98,7 +98,12 @@ char *tny_jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, char **err
  * process exit code: 0 ok, 1 invalid/unsupported/not found, 2 the job failed
  * or the request could not be completed, 124 for a wait timeout, 130 for an
  * interrupted wait. `err` gets a
- * short safe message; no provider body, credential or child stderr. */
+ * short safe message; no provider body, credential or child stderr.
+ * DAG cancel requires args.expected_attempt, compared under the same state
+ * transaction as the flag write. Ordinary batches retain unfenced cancellation.
+ * Inherited team members must authenticate their current item attempt and are
+ * refused unsupported legacy mutations; a supplied target ID grants no authority.
+ * DAG retry fences the secret-safe execution scope and any soft token policy. */
 int tny_jobs_run(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, char *err,
                  size_t errlen);
 /* Tool cancellation interrupts submission and status waits without cancelling
