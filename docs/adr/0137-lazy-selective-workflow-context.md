@@ -203,3 +203,30 @@ Native request evidence uses a producer and consumer with distinct configured
 workspaces and records the consumer's HTTP request, not only an SDK renderer.
 SDK native tests reuse existing ABI artifacts; rebuilding headers, integrated
 root gates, Nix packaging, SSH and wasm verification remain with the lead.
+
+### Follow-up: generator lifetime and exception groups
+
+Independent follow-up at `9cf38cfd3e33a9685f59a86a30c98c9c461a39fb` found two
+remaining Python ownership gaps. Callback exits could defer generator cleanup
+until after the session closed, losing late usage. Group children could retain
+prompt-bearing tracebacks even after the group's own traceback was detached.
+
+The workflow now explicitly finalizes `session.run()` inside the open session
+context. `AsyncSession.run()` also finalizes its nested `events()` generator.
+Shielded cleanup finishes before session close even on repeated cancellation;
+cancellation continues to raise. The existing bounded drain policy is unchanged.
+Tests retain the real AsyncRuntime owner executor, AsyncSession and generators,
+replacing only the synchronous transport. Event and permission callback errors,
+invalid permission decisions, cancellation and repeated cancellation assert
+`usage7 → cancel → usage9 → close`, followed by partial accounting of 9.
+
+Error detachment now traverses both cause/context links and, on Python 3.11+,
+stdlib exception-group children. An iterative identity-visited walk handles
+shared children and cyclic chains without recursion. It preserves the original
+group objects, topology, exception types and messages. It does not inspect or
+traverse arbitrary application attributes. The version guard preserves Python
+3.10 support. Tests retain results for 32 failing consumers with nested raised
+ExceptionGroups and returned mixed BaseExceptionGroups, checking child frames,
+chains and weak-reference liveness. The ordinary failure allocation benchmark
+continues to retain 308,435 traced bytes, zero live runner locals, and zero
+composed bytes in traceback frames on the same Python 3.14.7 fixture.

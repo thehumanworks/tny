@@ -571,8 +571,18 @@ cleanup; custom runners must not report after their execution has settled.
 A returned execution's explicit usage is the final custom-runner snapshot.
 This is last-snapshot reporting, not reconstruction of provider billing.
 
+Python workflow runners explicitly close their `session.run()` stream before
+leaving the session context. The session also closes its nested event generator.
+Event/permission callback failure or cancellation therefore drains available
+usage while the session is open. Repeated cancellation waits for that cleanup;
+it does not close the session ahead of the drain or turn cancellation into success.
+The existing session drain timeout still applies.
+
 Python failed results preserve the exception's type and message, but remove
-tracebacks and exception chains so runner frames cannot retain composed inputs.
+tracebacks and both cause/context chains so runner frames cannot retain composed
+inputs. On Python 3.11+, this includes every nested `BaseExceptionGroup` child,
+while preserving group topology and child types/messages. Python 3.10 remains
+supported without stdlib exception groups.
 Do not put secrets or full prompts in exception messages or custom attributes;
 those diagnostics remain application-owned. Cancellation keeps its exception
 semantics but removes the workflow runner's retained traceback frames.
