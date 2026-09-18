@@ -14,6 +14,9 @@
  * tny CLI as owned children. */
 extern "C" {
 #include "core/jobs.h"
+#include "core/admission.h"
+#include "core/backend.h"
+#include "util/task_workspace.h"
 #include "core/image_manifest.h"
 #include "core/image_preview.h"
 #include "core/perm.h"
@@ -169,6 +172,8 @@ static void safe_err(char *err, size_t errlen, const char *fmt, ...) {
 }
 
 static const char *artifact_string(yyjson_val *, const char *, size_t);
+static int jobs_admission(tny_ctx *, yyjson_val *, const char *, int, int, tny_admission_op, bool,
+                          tny_admission_result *);
 
 /* ---- mutable-document accessors (job.json is read-modify-written) ---- */
 
@@ -663,6 +668,9 @@ static void reservations_release_job(tny_ctx *ctx, yyjson_mut_doc *doc, const ch
 typedef struct {
     bool image;
     bool dag;
+    bool peer_messages;
+    yyjson_val *admission;
+    int max_steps;
     int concurrency;
     int n_items;
     /* per item, borrowed from the caller's parsed arguments */
@@ -786,6 +794,67 @@ static yyjson_mut_val *refs_copy(yyjson_mut_doc *doc, yyjson_val *images) {
 
 /* Validate the whole graph before output claims or children exist. Kahn's
  * bounded scan accepts forward edges but rejects cycles and duplicate edges. */
+static bool jobs_private_field(const char *name) {
+    return name && (str_starts(name, "TNY_TEAM_") || str_starts(name, "TNY_ADMISSION_"));
+}
+
+static bool jobs_supplied_private_identity(yyjson_val *obj) {
+    static const char *const names[] = {"capability",
+                                        "bearer",
+                                        "verifier",
+                                        "mailbox_capability",
+                                        "mailbox_capability_sha256",
+                                        "parent_session",
+                                        "parent_session_id",
+                                        "run_id",
+                                        "task_id",
+                                        "attempt"};
+    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)
+        if (jget(obj, names[i])) return true;
+    size_t i, max;
+    yyjson_val *key, *value;
+    yyjson_obj_foreach(obj, i, max, key, value) {
+        (void)value;
+        if (jobs_private_field(yyjson_get_str(key))) return true;
+    }
+    return false;
+}
+
+static bool admission_alias(yyjson_val *v) {
+    if (!bounded_string(v, 63)) return false;
+    const unsigned char *s = (const unsigned char *)yyjson_get_str(v);
+    for (; *s; s++)
+        if (!((*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z') || (*s >= '0' && *s <= '9') ||
+              *s == '_' || *s == '-'))
+            return false;
+    return true;
+}
+
+static bool admission_config_valid(yyjson_val *v) {
+    return yyjson_is_obj(v) && yyjson_obj_size(v) == 5 && admission_alias(jget(v, "label")) &&
+           admission_alias(jget(v, "provider_scope")) && yyjson_is_int(jget(v, "cap")) &&
+           jget_int(v, "cap", 0) >= 1 && jget_int(v, "cap", 0) <= 16 &&
+           yyjson_is_int(jget(v, "queue_cap")) && jget_int(v, "queue_cap", 0) >= 1 &&
+           jget_int(v, "queue_cap", 0) <= 128 && yyjson_is_int(jget(v, "claim_limit")) &&
+           jget_int(v, "claim_limit", 0) > 0;
+}
+
+static bool admission_public_config(tny_ctx *ctx, yyjson_val *v) {
+    if (!admission_config_valid(v)) return false;
+    const char *aliases[] = {jget_str(v, "label"), jget_str(v, "provider_scope")};
+    const char *secrets[] = {ctx->api_key, ctx->chatgpt_token, getenv("CHATGPT_ACCESS_TOKEN"),
+                             getenv("CURSOR_API_KEY")};
+    for (size_t i = 0; i < sizeof aliases / sizeof aliases[0]; i++)
+        for (size_t j = 0; j < sizeof secrets / sizeof secrets[0]; j++)
+            if (secrets[j] && *secrets[j] && strcmp(aliases[i], secrets[j]) == 0) return false;
+    return true;
+}
+
+static const char *workspace_policy(yyjson_val *item) {
+    const char *policy = jget_str(jget(item, "workspace"), "policy");
+    return policy ? policy : "shared_read_only";
+}
+
 static bool dag_validate(yyjson_val *args, char *err, size_t errlen) {
     yyjson_val *dag = jget(args, "dag");
     if (dag && !yyjson_is_bool(dag)) {
@@ -800,6 +869,17 @@ static bool dag_validate(yyjson_val *args, char *err, size_t errlen) {
     bool done[TNY_JOBS_MAX_ITEMS] = {};
     for (size_t i = 0; i < count; i++) {
         yyjson_val *item = yyjson_arr_get(items, i);
+        yyjson_val *ws = jget(item, "workspace");
+        const char *policy = workspace_policy(item);
+        yyjson_val *base = jget(ws, "base");
+        if ((ws && (!enabled || !yyjson_is_obj(ws) || !jget_str(ws, "policy"))) ||
+            (strcmp(policy, "isolated") != 0 && strcmp(policy, "shared_read_only") != 0 &&
+             strcmp(policy, "shared_writable") != 0) ||
+            (base && (strcmp(policy, "isolated") != 0 || !bounded_string(base, 256))) ||
+            jobs_supplied_private_identity(item)) {
+            safe_err(err, errlen, "invalid workspace policy or supplied private team identity");
+            return false;
+        }
         yyjson_val *deps = jget(item, "depends_on");
         yyjson_val *label = jget(item, "label");
         const char *role = jget_str(item, "role");
@@ -844,7 +924,7 @@ static bool dag_validate(yyjson_val *args, char *err, size_t errlen) {
             safe_err(err, errlen, "DAG dependencies contain a cycle");
             return false;
         }
-    if (jget(args, "parent_session_id") || jget(args, "run_id")) {
+    if (jobs_supplied_private_identity(args)) {
         safe_err(err, errlen, "lineage is captured from trusted caller context, not request IDs");
         return false;
     }
@@ -874,6 +954,23 @@ static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, c
     }
     if (!dag_validate(args, err, errlen)) return -1;
     r->dag = jget_bool(args, "dag", false);
+    r->admission = jget(args, "admission");
+    r->max_steps = ctx->max_steps > 0 ? ctx->max_steps : 0;
+    r->peer_messages = jget_bool(args, "peer_messages", false);
+    if (getenv("TNY_ADMISSION_ENROLLED") || ctx->ssh_host || ctx->library_mode) {
+        safe_err(err, errlen, "jobs cannot enroll nested admitted work, SSH or embedded execution");
+        return -1;
+    }
+    if ((r->admission && (!admission_public_config(ctx, r->admission) || r->image)) ||
+        (jget(args, "peer_messages") &&
+         (!r->dag || !yyjson_is_bool(jget(args, "peer_messages")))) ||
+        ((r->dag || r->admission) && ctx->backend != TNY_BK_OPENAI) ||
+        (getenv("TNY_TEAM_READ_ONLY") && (r->image || ctx->backend != TNY_BK_OPENAI))) {
+        safe_err(err, errlen,
+                 "DAG workspace policies and admission require a native provider and valid "
+                 "explicit configuration");
+        return -1;
+    }
     if (r->dag && r->image) {
         safe_err(err, errlen, "DAG execution currently supports ask items only");
         return -1;
@@ -892,7 +989,14 @@ static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, c
             jobs_request_free(r);
             return -1;
         }
-        if (r->dag) {
+        if (r->dag || r->admission) {
+            if (getenv("TNY_TEAM_READ_ONLY") &&
+                strcmp(workspace_policy(item), "shared_read_only") != 0) {
+                safe_err(err, errlen,
+                         "an inherited read-only worker cannot request writable workspaces");
+                jobs_request_free(r);
+                return -1;
+            }
             const char *provider = jget_str(item, "provider");
             if (provider && strcmp(provider, tny_provider_name(ctx)) != 0) {
                 safe_err(err, errlen,
@@ -901,7 +1005,7 @@ static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, c
                 jobs_request_free(r);
                 return -1;
             }
-            if (!jget_bool(item, "persist_request", true)) {
+            if (r->dag && !jget_bool(item, "persist_request", true)) {
                 safe_err(err, errlen,
                          "DAG execution requires persisted definitions; use a batch for privacy "
                          "opt-out");
@@ -944,6 +1048,24 @@ static int jobs_request_parse_retry(tny_ctx *ctx, yyjson_val *args, jobs_request
         return -1;
     }
     r->image = strcmp(kind, "image") == 0;
+    r->dag = jget_bool(args, "dag", false);
+    r->peer_messages = jget_bool(args, "peer_messages", false);
+    r->admission = jget(args, "admission");
+    int64_t steps = jget_int(args, "max_steps", 0);
+    if (steps < 0 || steps > INT_MAX ||
+        (jget(args, "max_steps") && !yyjson_is_int(jget(args, "max_steps")))) {
+        safe_err(err, errlen, "stored max_steps ceiling is invalid");
+        return -1;
+    }
+    r->max_steps = (int)steps;
+    if (ctx->max_steps > 0 && (!r->max_steps || ctx->max_steps < r->max_steps))
+        r->max_steps = ctx->max_steps;
+    if (getenv("TNY_ADMISSION_ENROLLED") || ctx->ssh_host || ctx->library_mode ||
+        ((r->dag || r->admission) && ctx->backend != TNY_BK_OPENAI) ||
+        (r->admission && !admission_public_config(ctx, r->admission))) {
+        safe_err(err, errlen, "retry enrollment is unsupported or its configuration is invalid");
+        return -1;
+    }
     int64_t concurrency = jget_int(args, "concurrency", TNY_JOBS_DEFAULT_CONCURRENCY);
     r->concurrency = concurrency >= 1 && concurrency <= TNY_JOBS_MAX_CONCURRENCY
                          ? (int)concurrency
@@ -1415,7 +1537,7 @@ void tny_jobs_render_human(tny_jobs_op op, const char *json, buf_t *out) {
 /* A queued or running record whose owner lock is free has lost its
  * supervisor. That is interrupted with unknown cleanup — never succeeded,
  * never cancelled, and never "still running" (A11, ADR 0093). */
-static int jobs_project(const char *dir, const char *id) {
+static int jobs_project(tny_ctx *ctx, const char *dir, const char *id) {
     char *owner = jobs_file(dir, "owner.lock");
     if (!owner) return ENOMEM;
     tny_jobs_owner_state owner_state = tny_jobs_host_owner_state(owner);
@@ -1469,10 +1591,52 @@ static int jobs_project(const char *dir, const char *id) {
                        "the supervisor exited before this item finished");
         }
     }
-    return jobs_txn_commit(&t);
+    int attempt = (int)jm_int(root, "attempt", 1);
+    char *config_json = jwrite_mut_val(yyjson_mut_obj_get(root, "admission"));
+    int rc = jobs_txn_commit(&t);
+    yyjson_doc *config = config_json ? jparse(config_json, strlen(config_json)) : NULL;
+    free(config_json);
+    yyjson_val *admission = config ? yyjson_doc_get_root(config) : NULL;
+    if (!rc && yyjson_is_obj(admission)) {
+        /* Owner loss: CANCEL drops waiting tickets but holds every grant.
+         * No PID inference and no release without cleanup proof. This runs
+         * strictly after the job transaction released its state lock. */
+        for (int i = 0; i < count; i++) {
+            tny_admission_result result{};
+            (void)jobs_admission(ctx, admission, id, i, attempt, TNY_ADMISSION_CANCEL, false,
+                                 &result);
+        }
+    }
+    yyjson_doc_free(config);
+    return rc;
 }
 
 /* ------------------------------------------------------------ result JSON */
+
+static void job_usage_totals(yyjson_mut_doc *doc, int64_t *input, int64_t *output,
+                             int64_t *unknown) {
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(doc);
+    *input = jm_int(root, "prior_usage_input_tokens", 0);
+    *output = jm_int(root, "prior_usage_output_tokens", 0);
+    *unknown = jm_int(root, "prior_usage_unknown_items", 0);
+    if (*input < 0 || *output < 0 || *unknown < 0) {
+        *input = *output = 0;
+        *unknown = 1;
+    }
+    for (int i = 0; i < jm_item_count(doc); i++) {
+        yyjson_mut_val *item = jm_item(doc, i);
+        if (jm_int(item, "attempt", 1) != jm_int(root, "attempt", 1)) continue;
+        int64_t in = jm_int(item, "usage_input_tokens", -1),
+                out = jm_int(item, "usage_output_tokens", -1);
+        if (!jm_bool(item, "usage_known", false) || in < 0 || out < 0 || in > INT64_MAX - *input ||
+            out > INT64_MAX - *output) {
+            if (*unknown < INT64_MAX) (*unknown)++;
+            continue;
+        }
+        *input += in;
+        *output += out;
+    }
+}
 
 static void job_items_json(yyjson_mut_doc *doc, buf_t *out) {
     buf_appends(out, ",\"items\":[");
@@ -1493,6 +1657,19 @@ static void job_items_json(yyjson_mut_doc *doc, buf_t *out) {
                 buf_appendf(out, ",\"%s\":%s", keys[k], json ? json : "null");
                 free(json);
             }
+        }
+        static const char *const extra[] = {
+            "workspace_policy",   "workspace_preparation", "workspace_cwd",
+            "workspace_branch",   "workspace_base",        "workspace_origin",
+            "workspace_revision", "workspace_patch",       "workspace_status",
+            "workspace_dirty",    "workspace_inspection",  "preparation_error",
+            "admission_reason",   "admission_ticket",      "admission_claims",
+            "admission_active",   "admission_exhausted",   "usage_known",
+            "usage_input_tokens", "usage_output_tokens"};
+        for (size_t k = 0; k < sizeof extra / sizeof extra[0]; k++) {
+            char *json = jwrite_mut_val(yyjson_mut_obj_get(item, extra[k]));
+            buf_appendf(out, ",\"%s\":%s", extra[k], json ? json : "null");
+            free(json);
         }
         buf_appends(out, ",\"log_path\":");
         jescape(out, jm_str(item, "log_path"));
@@ -1540,6 +1717,18 @@ static void job_json(yyjson_mut_doc *doc, const char *dir, buf_t *out) {
             free(json);
         }
     }
+    static const char *const extra[] = {"admission", "max_steps", "peer_messages"};
+    for (size_t k = 0; k < sizeof extra / sizeof extra[0]; k++) {
+        char *json = jwrite_mut_val(yyjson_mut_obj_get(root, extra[k]));
+        buf_appendf(out, ",\"%s\":%s", extra[k], json ? json : "null");
+        free(json);
+    }
+    int64_t input, output, unknown;
+    job_usage_totals(doc, &input, &output, &unknown);
+    buf_appendf(out,
+                ",\"usage\":{\"known_input_tokens\":%lld,\"known_output_tokens\":%lld,\"unknown_"
+                "items\":%lld}",
+                (long long)input, (long long)output, (long long)unknown);
     buf_appends(out, ",\"job_kind\":");
     jescape(out, jm_str(root, "job_kind"));
     buf_appends(out, ",\"state\":");
@@ -1669,6 +1858,15 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
     jm_set_str(doc, root, "kind", request->image ? "image" : "ask");
     jm_set_int(doc, root, "concurrency", request->concurrency);
     jm_set_str(doc, root, "self", self);
+    jm_set_bool(doc, root, "dag", request->dag);
+    jm_set_bool(doc, root, "read_only", getenv("TNY_TEAM_READ_ONLY") != NULL);
+    jm_set_int(doc, root, "max_steps", request->max_steps);
+    char steps[24];
+    snprintf(steps, sizeof steps, "%d", request->max_steps);
+    jm_set_str(doc, root, "max_steps_arg", request->max_steps > 0 ? steps : NULL);
+    if (request->admission)
+        yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "admission"),
+                           yyjson_val_mut_copy(doc, request->admission));
     jm_set_str(doc, root, "cwd", ctx->cwd);
     /* The resolved provider travels with the item child: re-resolving it from
      * settings would let a remembered last_provider re-route paid work. */
@@ -1723,6 +1921,11 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
         yyjson_mut_val *item = yyjson_mut_obj(doc);
         jm_set_int(doc, item, "index", i);
         jm_set_str(doc, item, "prompt", jget_str(request->items[i], "prompt"));
+        if (request->dag) {
+            jm_set_str(doc, item, "workspace_policy", workspace_policy(request->items[i]));
+            jm_set_str(doc, item, "workspace_base",
+                       jget_str(jget(request->items[i], "workspace"), "base"));
+        }
         static const char *const passthrough[] = {"model",   "effort", "task",
                                                   "quality", "size",   "operation"};
         for (size_t p = 0; p < sizeof passthrough / sizeof passthrough[0]; p++)
@@ -1818,7 +2021,12 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
     jm_set_str(doc, root, "id", job_id);
     jm_set_str(doc, root, "job_kind", request->image ? "image" : "ask");
     jm_set_str(doc, root, "workspace", ctx->cwd);
+    jm_set_int(doc, root, "max_steps", request->max_steps);
+    if (request->admission)
+        yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "admission"),
+                           yyjson_val_mut_copy(doc, request->admission));
     if (request->dag) {
+        jm_set_bool(doc, root, "peer_messages", request->peer_messages);
         jm_set_bool(doc, root, "dag", true);
         jm_set_str(doc, root, "run_id", job_id);
         jm_set_str(doc, root, "parent_session_id", parent_session);
@@ -1852,6 +2060,9 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
         jm_set_int(doc, item, "index", i);
         if (request->dag) {
             jm_set_int(doc, item, "task_id", i);
+            jm_set_str(doc, item, "workspace_policy", workspace_policy(request->items[i]));
+            jm_set_str(doc, item, "workspace_preparation", "not_started");
+            jm_set_null(doc, item, "mailbox_capability_sha256");
             jm_set_str(doc, item, "verification", "unverified");
             jm_set_str(doc, item, "label", jget_str(request->items[i], "label"));
             const char *role = jget_str(request->items[i], "role");
@@ -1866,6 +2077,9 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
         jm_set_int(doc, item, "attempt", 1);
         jm_set_int(doc, item, "carried_from_attempt", 0);
         jm_set_bool(doc, item, "persist_request", persist);
+        jm_set_bool(doc, item, "usage_known", false);
+        jm_set_null(doc, item, "usage_input_tokens");
+        jm_set_null(doc, item, "usage_output_tokens");
         char *log = jobs_item_log(dir, i, 1);
         jm_set_str(doc, item, "log_path", log);
         free(log);
@@ -1889,6 +2103,13 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
         if (persist) {
             yyjson_mut_val *stored = yyjson_mut_obj(doc);
             jm_set_str(doc, stored, "prompt", jget_str(request->items[i], "prompt"));
+            if (request->dag) {
+                yyjson_mut_val *ws = yyjson_mut_obj(doc);
+                jm_set_str(doc, ws, "policy", workspace_policy(request->items[i]));
+                const char *base = jget_str(jget(request->items[i], "workspace"), "base");
+                if (base) jm_set_str(doc, ws, "base", base);
+                yyjson_mut_obj_put(stored, yyjson_mut_strcpy(doc, "workspace"), ws);
+            }
             if (request->outputs[i]) jm_set_str(doc, stored, "output_file", request->outputs[i]);
             static const char *const keys[] = {"model",   "effort", "task",
                                                "quality", "size",   "operation"};
@@ -2016,6 +2237,25 @@ static int submit_finish_failed(const char *dir, int attempt, const char *code,
     return jobs_txn_commit(&t);
 }
 
+static int jobs_admission(tny_ctx *ctx, yyjson_val *config, const char *id, int index, int attempt,
+                          tny_admission_op op, bool proof, tny_admission_result *result) {
+    tny::c_string root(path_join(ctx->tny_dir, "admission"));
+    if (!root) return ENOMEM;
+    if (op == TNY_ADMISSION_INIT) {
+        int rc = tny_jobs_host_mkdir_private(root.get());
+        if (rc) return rc;
+    }
+    tny_admission_scope scope = {root.get(),
+                                 jget_str(config, "label"),
+                                 jget_str(config, "provider_scope"),
+                                 (uint32_t)jget_int(config, "cap", 0),
+                                 (uint32_t)jget_int(config, "queue_cap", 0),
+                                 (uint64_t)jget_int(config, "claim_limit", 0)};
+    tny_admission_attempt identity = {id, (uint32_t)index, (uint32_t)attempt};
+    return tny_admission_apply(&scope, &identity, op, getenv("TNY_ADMISSION_ENROLLED") != NULL,
+                               proof, result);
+}
+
 static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t errlen,
                        bool (*cancelled)(void *), void *cancel_ud, const char *parent_session) {
     if (!tny_jobs_execution_supported()) {
@@ -2078,6 +2318,22 @@ static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
         return 2;
     }
 
+    if (request.admission) {
+        tny_admission_result admission_result{};
+        rc = jobs_admission(ctx, request.admission, job_id, 0, 1, TNY_ADMISSION_INIT, false,
+                            &admission_result);
+        if (rc || admission_result.reason != TNY_ADMISSION_READY) {
+            safe_err(err, errlen, "cannot initialize immutable admission scope");
+            submit_finish_failed(dir, 1, TNY_JOBS_CODE_IO, err);
+            yyjson_mut_doc_free(record);
+            owner_fd.reset();
+            free(owner_path);
+            free(dir);
+            free(self);
+            jobs_request_free(&request);
+            return 1;
+        }
+    }
     reservation_claim claims[TNY_JOBS_MAX_ITEMS];
     int indexes[TNY_JOBS_MAX_ITEMS];
     int n_claims = 0;
@@ -2167,8 +2423,15 @@ static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
  * assistant message: the one thing a later attempt can re-verify. A session
  * that is gone, still running or has been continued since fails the check, so
  * a carried success can never be a guess. malloc'd hex, NULL when unusable. */
-static char *tny_jobs_session_answer_sha(tny_ctx *ctx, const char *session_id) {
-    if (!ctx || !session_id || session_is_running(ctx, session_id)) return NULL;
+static char *tny_jobs_session_answer_sha(tny_ctx *ctx, const char *session_id, const char *cwd) {
+    tny_ctx view = *ctx;
+    if (cwd) {
+        view.cwd = (char *)cwd;
+        snprintf(view.ws_hash, sizeof view.ws_hash, "%016llx",
+                 (unsigned long long)fnv1a(cwd, strlen(cwd)));
+        ctx = &view;
+    }
+    if (!session_id || session_is_running(ctx, session_id)) return NULL;
     tny_session_state *session = session_open(ctx, session_id);
     if (!session) return NULL;
     const char *status = session_status(session); /* absent on foreground turns */
@@ -2275,7 +2538,8 @@ static int verify_carried_success(tny_ctx *ctx, yyjson_mut_val *item, bool image
     char *have_log = sha256_hex_file(log_path, NULL);
     bool ok = have_log && strcmp(have_log, want_log) == 0;
     free(have_log);
-    char *have_result = ok ? tny_jobs_session_answer_sha(ctx, session_id) : NULL;
+    char *have_result =
+        ok ? tny_jobs_session_answer_sha(ctx, session_id, jm_str(item, "workspace_cwd")) : NULL;
     ok = have_result && strcmp(have_result, want_result) == 0;
     free(have_result);
     if (!ok) {
@@ -2303,7 +2567,7 @@ static int jobs_open_for_read(tny_ctx *ctx, yyjson_val *args, char **dir_out,
         safe_err(err, errlen, "no job with that id in this workspace");
         return 1;
     }
-    jobs_project(dir, id);
+    jobs_project(ctx, dir, id);
     yyjson_mut_doc *doc = jobs_record_load(dir, id, err, errlen);
     if (!doc) {
         free(dir);
@@ -2490,7 +2754,7 @@ static int jobs_list(tny_ctx *ctx, buf_t *out, char *err, size_t errlen) {
             if (!tny_jobs_valid_id(entry->d_name)) continue;
             char *dir = path_join(root, entry->d_name);
             if (!dir) continue;
-            jobs_project(dir, entry->d_name);
+            jobs_project(ctx, dir, entry->d_name);
             yyjson_mut_doc *doc = jobs_record_load(dir, entry->d_name, NULL, 0);
             if (doc) {
                 yyjson_mut_val *record = yyjson_mut_doc_get_root(doc);
@@ -2611,6 +2875,20 @@ static char *retry_request_json(yyjson_mut_doc *doc, const int *selected, int n,
     buf_init(&b);
     buf_appends(&b, "{\"kind\":");
     jescape(&b, jm_str(root, "job_kind"));
+    buf_appendf(&b, ",\"dag\":%s,\"peer_messages\":%s,\"max_steps\":%lld",
+                jm_bool(root, "dag", false) ? "true" : "false",
+                jm_bool(root, "peer_messages", false) ? "true" : "false",
+                (long long)jm_int(root, "max_steps", 0));
+    yyjson_mut_val *enrollment = yyjson_mut_obj_get(root, "admission");
+    if (enrollment) {
+        char *json = jwrite_mut_val(enrollment);
+        if (!json) {
+            buf_free(&b);
+            return NULL;
+        }
+        buf_appendf(&b, ",\"admission\":%s", json);
+        free(json);
+    }
     buf_appendf(&b, ",\"concurrency\":%lld,\"items\":[",
                 (long long)jm_int(root, "concurrency", TNY_JOBS_DEFAULT_CONCURRENCY));
     int count = jm_item_count(doc);
@@ -2645,6 +2923,27 @@ static char *retry_request_json(yyjson_mut_doc *doc, const int *selected, int n,
     }
     buf_appends(&b, "]}");
     return buf_detach(&b);
+}
+
+/* Outside state.lock: verify retained isolated output before carrying it. Dirty
+ * editing results require explicit integration/new work, not hidden reuse. */
+static bool jobs_carried_workspace(tny_ctx *ctx, const char *id, yyjson_mut_val *item) {
+    const char *policy = jm_str(item, "workspace_policy");
+    if (!policy || strcmp(policy, "isolated") != 0) return true;
+    if (jm_bool(item, "workspace_dirty", true)) return false;
+    task_workspace_id identity = {id, (int)jm_int(item, "index", -1),
+                                  (int)jm_int(item, "attempt", 0)};
+    task_workspace *workspace = NULL;
+    task_workspace_result result{};
+    char err[160] = "";
+    bool ok = task_workspace_open(ctx->cwd, identity, &workspace, err, sizeof err) == 0 &&
+              task_workspace_inspect(workspace, &result, err, sizeof err) == 0;
+    const char *revision = jm_str(item, "workspace_revision");
+    ok = ok && !result.dirty && revision && result.revision &&
+         strcmp(revision, result.revision) == 0;
+    task_workspace_result_free(&result);
+    task_workspace_close(workspace);
+    return ok;
 }
 
 static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t errlen,
@@ -2766,6 +3065,16 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
                 }
                 continue;
             }
+            const char *policy = jm_str(item, "workspace_policy");
+            const char *prepared = jm_str(item, "workspace_preparation");
+            if (policy && strcmp(policy, "isolated") == 0 && prepared &&
+                strcmp(prepared, "not_started") != 0) {
+                free(owner_path);
+                safe_err(err, errlen,
+                         "isolated editing attempt retained; inspect/integrate explicitly and "
+                         "submit new work, never retry in its dirty tree");
+                goto invalid;
+            }
             selected[n_selected++] = i;
         }
         if (!n_selected) {
@@ -2782,7 +3091,12 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
             yyjson_mut_val *item = jm_item(doc, i);
             const char *state = jm_str(item, "state");
             if (!state || strcmp(state, "succeeded") != 0) continue;
-            if (verify_carried_success(ctx, item, image, err, errlen) != 0) {
+            bool workspace_valid = jobs_carried_workspace(ctx, job_id, item);
+            if (!workspace_valid)
+                safe_err(err, errlen,
+                         "carried isolated workspace is dirty, missing or changed; inspect and "
+                         "submit new work");
+            if (!workspace_valid || verify_carried_success(ctx, item, image, err, errlen) != 0) {
                 free(owner_path);
                 owner_fd.reset();
                 buf_appends(out, "{\"kind\":\"job\",\"schema_version\":1,\"id\":");
@@ -2862,7 +3176,13 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
             safe_err(err, errlen, "cannot preserve immutable attempt history; nothing was changed");
             goto invalid;
         }
+        int64_t usage_input, usage_output, usage_unknown;
+        job_usage_totals(t.doc.get(), &usage_input, &usage_output, &usage_unknown);
+        jm_set_int(t.doc.get(), live, "prior_usage_input_tokens", usage_input);
+        jm_set_int(t.doc.get(), live, "prior_usage_output_tokens", usage_output);
+        jm_set_int(t.doc.get(), live, "prior_usage_unknown_items", usage_unknown);
         jm_set_int(t.doc.get(), live, "attempt", attempt);
+        jm_set_int(t.doc.get(), live, "max_steps", request.max_steps);
         jm_set_str(t.doc.get(), live, "state", "queued");
         jm_set_bool(t.doc.get(), live, "cancel_requested", false);
         jm_set_str(t.doc.get(), live, "cleanup", "pending");
@@ -2885,6 +3205,10 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
             if (jm_bool(live, "dag", false)) jm_set_null(t.doc.get(), item, "dependency_sha256");
             jm_set_bool(t.doc.get(), item, "cancel_requested", false);
             jm_set_int(t.doc.get(), item, "attempt", attempt);
+            jm_set_bool(t.doc.get(), item, "usage_known", false);
+            jm_set_null(t.doc.get(), item, "usage_input_tokens");
+            jm_set_null(t.doc.get(), item, "usage_output_tokens");
+            jm_set_null(t.doc.get(), item, "mailbox_capability_sha256");
             char *log = jobs_item_log(dir, i, attempt);
             jm_set_str(t.doc.get(), item, "log_path", log);
             free(log);
@@ -2998,6 +3322,14 @@ int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *
                          const char *parent_session) {
     if (err && errlen) err[0] = 0;
     if (!ctx || !out) return 1;
+    if ((op == TNY_JOBS_OP_SUBMIT || op == TNY_JOBS_OP_RETRY) &&
+        (getenv("TNY_ADMISSION_ENROLLED") || ctx->ssh_host || ctx->library_mode ||
+         !tny_jobs_execution_supported())) {
+        safe_err(err, errlen,
+                 "job execution requires native top-level ownership; nested enrollment, SSH and "
+                 "embedding are refused");
+        return 1;
+    }
     char *root = jobs_root(ctx);
     /* Submit validates its complete request before creating its private tree. */
     int rc = op == TNY_JOBS_OP_SUBMIT ? 0 : root ? tny_jobs_host_mkdir_private(root) : ENOMEM;
@@ -3040,7 +3372,133 @@ typedef struct {
     tny::process_scope scope;
     bool launch_pending, launch_failed, admission_ready, released;
     bool admission_failed, cleanup_done, residual_stopped;
+    bool planning, prepared, plan_failed, plan_io_done, plan_dirty, claim_ready;
+    bool settle_pending, workspace_inspect_pending, workspace_inspected;
+    bool permit_granted, enrolled;
+    tny_admission_result permit;
+    char *cwd;
+    char *capability; /* bearer: private memory, wiped immediately after spawn */
+    task_workspace *workspace;
+    task_workspace_result workspace_result;
+    char plan_error[192];
 } job_slot;
+
+/* Only called outside job state.lock, while the existing supervisor owns the
+ * job. Workspace locks are retained until retirement, never adopted or removed. */
+static void worker_plan_progress(tny_ctx *ctx, yyjson_val *payload, yyjson_val *entry,
+                                 job_slot *s) {
+    const char *id = jget_str(payload, "job");
+    int attempt = (int)jget_int(payload, "attempt", 1);
+    yyjson_val *config = jget(payload, "admission");
+    if (s->workspace_inspect_pending) {
+        s->workspace_inspect_pending = false;
+        if (s->workspace && !s->cleanup_unknown) {
+            task_workspace_result_free(&s->workspace_result);
+            s->workspace_inspected =
+                task_workspace_inspect(s->workspace, &s->workspace_result, s->plan_error,
+                                       sizeof s->plan_error) == 0;
+        }
+        s->plan_dirty = true;
+    }
+    if (s->settle_pending) {
+        if (config) {
+            tny_admission_op op = !s->launched         ? TNY_ADMISSION_CANCEL
+                                  : s->cleanup_unknown ? TNY_ADMISSION_HOLD
+                                                       : TNY_ADMISSION_RELEASE;
+            tny_admission_result result{};
+            int rc = jobs_admission(ctx, config, id, s->index, attempt, op, !s->cleanup_unknown,
+                                    &result);
+            if (!rc && result.reason == TNY_ADMISSION_BUSY) return;
+            if (!rc && !s->launched && result.reason == TNY_ADMISSION_CLEANUP_HOLD &&
+                !s->cleanup_unknown) {
+                rc = jobs_admission(ctx, config, id, s->index, attempt, TNY_ADMISSION_RELEASE, true,
+                                    &result);
+                if (!rc && result.reason == TNY_ADMISSION_BUSY) return;
+            }
+            if (rc) s->cleanup_unknown = true; /* uncertain write: leave capacity held */
+            else s->permit = result;
+        }
+        s->settle_pending = false;
+        s->plan_dirty = true;
+    }
+    if (!s->planning || s->prepared || s->plan_failed) return;
+    if (!s->plan_io_done) {
+        s->plan_io_done = true;
+        const char *policy = jget_str(entry, "workspace_policy");
+        if (policy && strcmp(policy, "isolated") == 0) {
+            task_workspace_id identity = {id, s->index, attempt};
+            if (task_workspace_prepare(jget_str(payload, "cwd"), identity,
+                                       jget_str(entry, "workspace_base"), &s->workspace,
+                                       s->plan_error, sizeof s->plan_error) != 0 ||
+                task_workspace_inspect(s->workspace, &s->workspace_result, s->plan_error,
+                                       sizeof s->plan_error) != 0) {
+                s->plan_failed = true;
+            } else s->cwd = xstrdup(task_workspace_path(s->workspace));
+        } else s->cwd = xstrdup(jget_str(payload, "cwd"));
+        if (!s->cwd) s->plan_failed = true;
+        s->plan_dirty = true;
+        if (!config && !s->plan_failed) s->prepared = true;
+        return; /* revalidate cancellation/attempt after Git, before enrollment */
+    }
+    if (s->plan_failed || !s->claim_ready) return;
+    if (!config) {
+        s->prepared = true;
+        return;
+    }
+    int rc =
+        jobs_admission(ctx, config, id, s->index, attempt, TNY_ADMISSION_CLAIM, false, &s->permit);
+    s->plan_dirty = true;
+    if (rc) {
+        s->cleanup_unknown = true;
+        s->plan_failed = true;
+        safe_err(s->plan_error, sizeof s->plan_error,
+                 "admission transaction failed; capacity may remain held");
+    } else if (s->permit.reason == TNY_ADMISSION_GRANTED) {
+        s->permit_granted = true;
+        s->prepared = true;
+    } else if (s->permit.reason == TNY_ADMISSION_OWNED ||
+               s->permit.reason == TNY_ADMISSION_CLEANUP_HOLD ||
+               s->permit.reason == TNY_ADMISSION_EXHAUSTED ||
+               s->permit.reason == TNY_ADMISSION_HISTORY_FULL ||
+               s->permit.reason == TNY_ADMISSION_CANCELED ||
+               s->permit.reason == TNY_ADMISSION_RELEASED) {
+        s->plan_failed = true;
+        /* A replayed grant is not ours to spend or release. */
+        if (s->permit.reason == TNY_ADMISSION_OWNED ||
+            s->permit.reason == TNY_ADMISSION_CLEANUP_HOLD)
+            s->cleanup_unknown = true;
+        safe_err(s->plan_error, sizeof s->plan_error, "admission refused: %s",
+                 tny_admission_reason_name(s->permit.reason));
+    }
+}
+
+static void worker_plan_record(yyjson_mut_doc *doc, yyjson_mut_val *item, job_slot *s) {
+    if (s->cwd) jm_set_str(doc, item, "workspace_cwd", s->cwd);
+    if (s->workspace) {
+        jm_set_str(doc, item, "workspace_preparation", "prepared");
+        task_workspace_result *r = &s->workspace_result;
+        if (r->branch) jm_set_str(doc, item, "workspace_branch", r->branch);
+        if (r->base) jm_set_str(doc, item, "workspace_base", r->base);
+        if (r->origin) jm_set_str(doc, item, "workspace_origin", r->origin);
+        if (r->revision) jm_set_str(doc, item, "workspace_revision", r->revision);
+        if (s->workspace_inspected) {
+            jm_set_str(doc, item, "workspace_patch", r->patch);
+            jm_set_str(doc, item, "workspace_status", r->status);
+            jm_set_bool(doc, item, "workspace_dirty", r->dirty);
+            jm_set_str(doc, item, "workspace_inspection", "recorded");
+        } else jm_set_str(doc, item, "workspace_inspection", "unverified");
+    } else if (s->prepared) jm_set_str(doc, item, "workspace_preparation", "shared");
+    if (s->enrolled) {
+        if (s->permit.reason == TNY_ADMISSION_EXHAUSTED)
+            jm_set_bool(doc, item, "admission_exhausted", true);
+        jm_set_str(doc, item, "admission_reason", tny_admission_reason_name(s->permit.reason));
+        jm_set_int(doc, item, "admission_ticket", (int64_t)s->permit.ticket);
+        jm_set_int(doc, item, "admission_claims", (int64_t)s->permit.claims);
+        jm_set_int(doc, item, "admission_active", s->permit.active);
+    }
+    if (s->plan_error[0]) jm_set_str(doc, item, "preparation_error", s->plan_error);
+    s->plan_dirty = false;
+}
 
 static void slot_close(job_slot *s) {
     if (s->in_fd.borrow() >= 0) s->in_fd.reset();
@@ -3052,6 +3510,12 @@ static bool slot_free(job_slot *s) {
     slot_close(s);
     bool retired = !s->scope.borrow() || (!s->cleanup_unknown && s->scope.retire() == 0);
     if (s->prompt) secure_free(s->prompt);
+    secure_free(s->capability);
+    s->capability = NULL;
+    free(s->cwd);
+    task_workspace_result_free(&s->workspace_result);
+    task_workspace_close(s->workspace); /* close never removes editing work */
+    s->workspace = NULL;
     free(s->log_path);
     free(s->output_path);
     s->prompt = s->log_path = s->output_path = NULL;
@@ -3111,7 +3575,8 @@ bool tny_jobs_env_entry_is_foreign(const char *entry, bool image, bool chat_code
 /* The child's environment: private credential carriers and the parent-watch
  * value only. Nothing secret reaches argv, the job directory or a log, and no
  * inherited carrier of the other kind survives (A14). */
-static char **worker_child_env(yyjson_val *payload, bool image, char ***owned_out, int *n_owned) {
+static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *slot, bool image,
+                               char ***owned_out, int *n_owned) {
     yyjson_val *chat = jget(payload, "chat");
     yyjson_val *image_creds = jget(payload, "image");
     bool chat_codex = jget_bool(chat, "codex", false);
@@ -3120,7 +3585,7 @@ static char **worker_child_env(yyjson_val *payload, bool image, char ***owned_ou
     /* Exactly one side of the split supplies these, never both. */
     const char *token = image ? jget_str(image_creds, "token") : jget_str(chat, "token");
     const char *account = image ? jget_str(image_creds, "account") : jget_str(chat, "account");
-    char **owned = static_cast<char **>(tny_alloc_calloc(44, sizeof *owned));
+    char **owned = static_cast<char **>(tny_alloc_calloc(52, sizeof *owned));
     if (!owned) return NULL;
     int n = 0;
     buf_t entry;
@@ -3172,12 +3637,31 @@ static char **worker_child_env(yyjson_val *payload, bool image, char ***owned_ou
         buf_appendf(&entry, "CURSOR_API_KEY=%s", cursor_key);
         owned[n++] = buf_detach(&entry);
     }
+    if (jget(payload, "admission")) owned[n++] = xstrdup("TNY_ADMISSION_ENROLLED=1");
+    const char *policy = jget_str(item, "workspace_policy");
+    if (jget_bool(payload, "read_only", false) ||
+        (policy && strcmp(policy, "shared_read_only") == 0))
+        owned[n++] = xstrdup("TNY_TEAM_READ_ONLY=1");
+    if (slot->capability) {
+        static const char *const fields[] = {"TNY_TEAM_RUN", "TNY_TEAM_TASK", "TNY_TEAM_ATTEMPT",
+                                             "TNY_TEAM_CAPABILITY"};
+        char task[24], attempt[24];
+        snprintf(task, sizeof task, "%d", slot->index);
+        snprintf(attempt, sizeof attempt, "%lld", (long long)jget_int(payload, "attempt", 1));
+        const char *values[] = {jget_str(payload, "job"), task, attempt, slot->capability};
+        for (size_t k = 0; k < 4; k++) {
+            buf_init(&entry);
+            buf_appendf(&entry, "%s=%s", fields[k], values[k]);
+            owned[n++] = buf_detach(&entry);
+        }
+    }
     yyjson_val *declared = image ? NULL : jget(payload, "ask_env");
     if (yyjson_is_obj(declared) && yyjson_obj_size(declared) <= 32) {
         size_t i, max;
         yyjson_val *key, *value;
         yyjson_obj_foreach(declared, i, max, key, value) {
-            if (!yyjson_is_str(value) || tny_process_scope_env_reserved(yyjson_get_str(key)))
+            if (!yyjson_is_str(value) || jobs_private_field(yyjson_get_str(key)) ||
+                tny_process_scope_env_reserved(yyjson_get_str(key)))
                 continue;
             buf_init(&entry);
             buf_appendf(&entry, "%s=%s", yyjson_get_str(key), yyjson_get_str(value));
@@ -3240,11 +3724,11 @@ static void worker_env_free(char **envp, char **owned, int n_owned) {
 
 /* argv carries selectors only: the canonical ask/image CLI this build already
  * ships, never a credential and never the prompt. */
-static int worker_build_argv(yyjson_val *payload, yyjson_val *item, bool image, char **argv,
-                             int cap) {
+static int worker_build_argv(yyjson_val *payload, yyjson_val *item, const char *prepared_cwd,
+                             bool image, char **argv, int cap) {
     int n = 0;
     const char *self = jget_str(payload, "self");
-    const char *cwd = jget_str(payload, "cwd");
+    const char *cwd = prepared_cwd ? prepared_cwd : jget_str(payload, "cwd");
     yyjson_val *chat = jget(payload, "chat");
     if (!self || !cwd || cap < 24) return -1;
     argv[n++] = (char *)self;
@@ -3309,6 +3793,10 @@ static int worker_build_argv(yyjson_val *payload, yyjson_val *item, bool image, 
         argv[n++] = (char *)"--effort";
         argv[n++] = (char *)effort;
     }
+    if (jget_str(payload, "max_steps_arg")) {
+        argv[n++] = (char *)"--max-steps";
+        argv[n++] = (char *)jget_str(payload, "max_steps_arg");
+    }
     /* The child can never raise the permission ceiling it was given. */
     argv[n++] = (char *)"--permission-mode";
     argv[n++] = (char *)(jget_str(payload, "perm_mode") ? jget_str(payload, "perm_mode") : "ask");
@@ -3355,11 +3843,11 @@ static int worker_spawn_item(yyjson_val *payload, yyjson_val *item, bool image, 
     char *argv[32];
     char **owned = NULL;
     int n_owned = 0;
-    char **envp = worker_child_env(payload, image, &owned, &n_owned);
-    int rc =
-        slot->log_fd.borrow() < 0 || !envp || worker_build_argv(payload, item, image, argv, 32) != 0
-            ? EINVAL
-            : 0;
+    char **envp = worker_child_env(payload, item, slot, image, &owned, &n_owned);
+    int rc = slot->log_fd.borrow() < 0 || !envp ||
+                     worker_build_argv(payload, item, slot->cwd, image, argv, 32) != 0
+                 ? EINVAL
+                 : 0;
     pid_t pid = -1;
     if (!rc) {
         if (tny_process_scope_native_jobs()) {
@@ -3375,6 +3863,8 @@ static int worker_spawn_item(yyjson_val *payload, yyjson_val *item, bool image, 
         }
     }
     worker_env_free(envp, owned, n_owned);
+    secure_free(slot->capability);
+    slot->capability = NULL;
     in_pipe.ends[0].reset();
     out_pipe.ends[1].reset();
     if (rc) {
@@ -3595,6 +4085,33 @@ static bool analyze_image_log(const char *path, const char *expected_output, cha
     return ok;
 }
 
+/* Native canonical usage is cumulative within this one fresh child turn. Keep
+ * the last observed total, never sum repeated cumulative events. */
+static void worker_record_usage(yyjson_mut_doc *doc, yyjson_mut_val *item, job_slot *slot) {
+    buf_t b;
+    buf_init(&b);
+    if (tny_image_io_read_bounded(slot->log_path, TNY_JOBS_LOG_MAX, &b) == 0) {
+        const char *line = b.data;
+        while (line && *line) {
+            const char *end = strchr(line, '\n');
+            yyjson_doc *parsed = jparse(line, end ? (size_t)(end - line) : strlen(line));
+            yyjson_val *event = parsed ? yyjson_doc_get_root(parsed) : NULL;
+            const char *type = jget_str(event, "type");
+            int64_t input = jget_int(event, "input_tokens", -1),
+                    output = jget_int(event, "output_tokens", -1);
+            if (type && strcmp(type, "usage") == 0 && input >= 0 && output >= 0) {
+                jm_set_bool(doc, item, "usage_known", true);
+                jm_set_int(doc, item, "usage_input_tokens", input);
+                jm_set_int(doc, item, "usage_output_tokens", output);
+            }
+            yyjson_doc_free(parsed);
+            if (!end) break;
+            line = end + 1;
+        }
+    }
+    buf_free(&b);
+}
+
 static void worker_record_result(tny_ctx *ctx, yyjson_mut_doc *doc, job_slot *slot,
                                  bool cancelled) {
     yyjson_mut_val *item = jm_item(doc, slot->index);
@@ -3604,6 +4121,7 @@ static void worker_record_result(tny_ctx *ctx, yyjson_mut_doc *doc, job_slot *sl
     free(now);
     int exit_code = WIFEXITED(slot->status) ? WEXITSTATUS(slot->status) : -1;
     jm_set_int(doc, item, "exit_code", exit_code);
+    if (!slot->image) worker_record_usage(doc, item, slot);
     if (slot->reap_error) {
         jm_set_str(doc, item, "state", "interrupted");
         jm_set_null(doc, item, "exit_code");
@@ -3657,7 +4175,7 @@ static void worker_record_result(tny_ctx *ctx, yyjson_mut_doc *doc, job_slot *sl
         /* Success also requires the durable session this item claims: the
          * recorded hash is of its stored answer, which is exactly what a later
          * retry re-verifies before carrying it forward. */
-        if (ok) answer_sha = tny_jobs_session_answer_sha(ctx, session);
+        if (ok) answer_sha = tny_jobs_session_answer_sha(ctx, session, slot->cwd);
         ok = ok && answer_sha != NULL;
         if (ok) {
             jm_set_str(doc, item, "session_id", session);
@@ -3716,13 +4234,17 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
         const char *output = jget_str(entry, "output_file");
         slots[index].output_path = output ? xstrdup(output) : NULL;
         slots[index].image = image;
+        slots[index].enrolled = jget(payload, "admission") != NULL;
     }
     (void)n_payload;
 
     bool finished = false, cleanup_protected = false;
     int rc = 0;
     while (!finished) {
-        for (int i = 0; i < TNY_JOBS_MAX_ITEMS; i++) worker_scope_progress(&slots[i]);
+        for (int i = 0; i < TNY_JOBS_MAX_ITEMS; i++) {
+            worker_scope_progress(&slots[i]);
+            if (entries[i]) worker_plan_progress(ctx, payload, entries[i], &slots[i]);
+        }
         jobs_txn t;
         char err[192] = "";
         if (jobs_txn_begin(dir, id, &t, err, sizeof err) != 0) {
@@ -3759,8 +4281,13 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
             dirty = true;
         }
         int active = 0;
-        for (int i = 0; i < count; i++)
-            if (slots[i].active) active++;
+        for (int i = 0; i < count; i++) {
+            if (slots[i].active || slots[i].planning) active++;
+            if (slots[i].plan_dirty) {
+                worker_plan_record(doc, jm_item(doc, i), &slots[i]);
+                dirty = true;
+            }
+        }
 
         /* 1. results of children that already exited */
         for (int i = 0; i < count; i++) {
@@ -3772,6 +4299,8 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
                 jm_set_str(doc, item, "error", "cannot start the item process");
                 slot_close(&slots[i]);
                 slots[i].active = false;
+                slots[i].settle_pending = slots[i].enrolled;
+                slots[i].workspace_inspect_pending = slots[i].workspace != NULL;
                 active--;
                 dirty = true;
                 continue;
@@ -3791,6 +4320,8 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
             worker_record_result(ctx, doc, &slots[i], cancelled && slots[i].cancel_signalled);
             slot_close(&slots[i]);
             slots[i].active = false;
+            slots[i].settle_pending = slots[i].enrolled;
+            slots[i].workspace_inspect_pending = slots[i].workspace != NULL;
             active--;
             dirty = true;
         }
@@ -3805,6 +4336,12 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
             if (cancel && !slots[i].active) {
                 /* The cancellation won the race with the launch claim: this
                  * item never reaches a provider. */
+                if (slots[i].planning) active--;
+                slots[i].planning = false;
+                slots[i].settle_pending = slots[i].enrolled;
+                slots[i].workspace_inspect_pending = slots[i].workspace != NULL;
+                secure_free(slots[i].capability);
+                slots[i].capability = NULL;
                 jm_set_str(doc, item, "state", "cancelled");
                 jm_set_str(doc, item, "error", "cancelled before it started");
                 jm_set_int(doc, item, "exit_code", 0);
@@ -3834,7 +4371,22 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
                 dirty = true;
             }
             if (slots[i].active || slots[i].launched) continue;
-            if (active >= concurrency) continue;
+            if (slots[i].plan_failed) {
+                jm_set_str(doc, item, "state", "failed");
+                jm_set_str(doc, item, "error_code", "preparation_failed");
+                jm_set_str(doc, item, "error", slots[i].plan_error);
+                if (slots[i].planning) active--;
+                slots[i].planning = false;
+                slots[i].settle_pending = slots[i].enrolled;
+                slots[i].workspace_inspect_pending = slots[i].workspace != NULL;
+                dirty = true;
+                continue;
+            }
+            if (slots[i].planning && !slots[i].prepared) {
+                slots[i].claim_ready = slots[i].plan_io_done;
+                continue;
+            }
+            if (active >= concurrency && !slots[i].planning) continue;
             if (jm_bool(root, "dag", false)) {
                 char *definition = dag_definition_hash(item);
                 const char *expected = jm_str(item, "definition_sha256");
@@ -3842,6 +4394,10 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
                 free(definition);
                 if (!valid) {
                     jm_set_str(doc, item, "state", "failed");
+                    if (slots[i].planning) active--;
+                    slots[i].planning = false;
+                    slots[i].settle_pending = slots[i].enrolled;
+                    slots[i].workspace_inspect_pending = slots[i].workspace != NULL;
                     jm_set_str(doc, item, "error_code", "definition_changed");
                     jm_set_str(doc, item, "error",
                                "task definition integrity is unverified; submit a new job");
@@ -3864,6 +4420,10 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
                 }
                 if (blocked) {
                     jm_set_str(doc, item, "state", "failed");
+                    if (slots[i].planning) active--;
+                    slots[i].planning = false;
+                    slots[i].settle_pending = slots[i].enrolled;
+                    slots[i].workspace_inspect_pending = slots[i].workspace != NULL;
                     jm_set_str(doc, item, "error_code", "dependency_blocked");
                     jm_set_str(doc, item, "error",
                                "a dependency failed or its result integrity is unverified; "
@@ -3881,10 +4441,49 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
                 jm_set_str(doc, item, "dependency_sha256", hash);
                 free(hash);
             }
-            if (tny_process_scope_native_jobs() || jm_bool(root, "dag", false)) {
+            bool managed = jm_bool(root, "dag", false) || jget(payload, "admission");
+            if (managed && !slots[i].prepared) {
+                if (jm_bool(root, "dag", false)) {
+                    uint8_t raw[32];
+                    slots[i].capability = static_cast<char *>(tny_alloc_calloc(65, 1));
+                    if (!slots[i].capability || !random_bytes(raw, sizeof raw)) {
+                        secure_zero(raw, sizeof raw);
+                        rc = ENOMEM;
+                        break;
+                    }
+                    hex_of(raw, sizeof raw, slots[i].capability);
+                    secure_zero(raw, sizeof raw);
+                    char *verifier = sha256_hex_of(slots[i].capability, 64);
+                    if (!verifier) {
+                        rc = ENOMEM;
+                        break;
+                    }
+                    jm_set_str(doc, item, "mailbox_capability_sha256", verifier);
+                    bool stored = jm_str(item, "mailbox_capability_sha256") &&
+                                  strcmp(jm_str(item, "mailbox_capability_sha256"), verifier) == 0;
+                    free(verifier);
+                    if (!stored) {
+                        rc = ENOMEM;
+                        break;
+                    }
+                }
+                jm_set_str(doc, item, "workspace_preparation", "intent");
+                jm_set_str(doc, item, "admission_reason", slots[i].enrolled ? "preparing" : NULL);
+                slots[i].planning = true;
+                active++;
+                dirty = true;
+                continue; /* commit intent before any Git/admission transaction */
+            }
+            if (slots[i].enrolled && !slots[i].permit_granted) {
+                rc = EPERM;
+                break;
+            }
+            if (tny_process_scope_native_jobs() || managed) {
                 /* Persist the claim and count its slot before spawning outside
                  * this lock. Native scope bootstrap additionally waits for GO;
                  * POSIX DAG execution starts only after this committed claim. */
+                if (slots[i].planning) active--;
+                slots[i].planning = false;
                 slots[i].active = true;
                 slots[i].launched = true;
                 slots[i].launch_pending = true;
@@ -3914,7 +4513,9 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
         /* 3. are we done? */
         bool all_terminal = true;
         for (int i = 0; i < count; i++)
-            if (!state_is_terminal(jm_str(jm_item(doc, i), "state"))) all_terminal = false;
+            if (!state_is_terminal(jm_str(jm_item(doc, i), "state")) || slots[i].settle_pending ||
+                slots[i].workspace_inspect_pending)
+                all_terminal = false;
         if (all_terminal) {
             bool failed = false, cancelled = false, interrupted = false;
             for (int i = 0; i < count; i++) {
@@ -4035,6 +4636,15 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
                 s->status = 2 << 8;
                 s->eof = true;
             }
+        }
+    }
+    if (rc && jget(payload, "admission")) {
+        for (int i = 0; i < TNY_JOBS_MAX_ITEMS; i++) {
+            if (!entries[i]) continue;
+            tny_admission_result result{};
+            (void)jobs_admission(ctx, jget(payload, "admission"), id, i,
+                                 (int)jget_int(payload, "attempt", 1), TNY_ADMISSION_CANCEL, false,
+                                 &result);
         }
     }
     for (int i = 0; i < TNY_JOBS_MAX_ITEMS; i++) {

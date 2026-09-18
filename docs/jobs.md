@@ -44,8 +44,8 @@ confer privileges or automatically collect worker answers. For a
 review/implement/verify template, use three items labelled with those names,
 with dependencies `[]`, `[0]`, `[1]`. Execution gates do not inject earlier
 answers into prompts. Inspect canonical result/session/log references explicitly.
-An editing task that changes the checkout invalidates this slice's clean
-workspace retry fence; managed editing workspaces are a separate integration.
+Shared editing invalidates the clean-checkout retry fence. Managed isolated
+editing workspaces are now enrolled by this same supervisor; see below.
 
 `dag:true` currently supports ask items only. Dependencies are zero-based item
 indices, including forward edges. Cycles, duplicate edges, self-edges, invalid
@@ -77,18 +77,153 @@ Retry requires unchanged definitions, dependency bindings, canonical successful
 session answers/logs, the same clean Git HEAD/workspace path, and the recorded
 provider/model/effort/permission/tool ceilings. Dirty or unknown/non-Git
 revision is inspectable as null and cannot be retried. This does not snapshot
-ignored files, arbitrary external inputs or concurrent edits. Different
-credentials/accounts are not yet fenced by shared admission. Credentials stay
-private in the launch pipe; they are not persisted in DAG metadata. Per-item
+ignored files, arbitrary external inputs or concurrent edits. Shared admission
+now bounds explicitly enrolled public scopes, not automatically discovered
+accounts. Credentials stay private in the launch pipe; they are not persisted
+in DAG metadata. Per-item
 model/effort selection works; a supplied provider must match the resolved job
 provider. Use separate jobs for different providers in this slice.
 
-Native CLI execution works through existing children; host providers keep their
-own loops. SSH does not become a remote durable controller: run the command on
+Native CLI execution works through existing children. DAG workspace policies
+and enrolled admission require a native-loop provider (including Codex). Host
+providers keep ordinary batch behavior but are refused for these enrolled
+modes before worktree/admission files or child launches. SSH does not become a
+remote durable controller: run the command on
 the remote native host explicitly. Embedded SDK workflows do not implicitly
 acquire native durability or custom-tool portability. wasm keeps the existing
 clean refusal for job execution. See ADR 0136 for workspace and admission call
 points and the remaining #153/#155 delivery gaps.
+
+## Managed workspace enrollment
+
+The scheduler now calls the [task workspace helper](task-workspaces.md), using
+the existing job ID, item index and attempt. DAG items accept:
+
+```json
+{"prompt":"Implement the change and record checks; do not integrate it.",
+ "workspace":{"policy":"isolated","base":"HEAD"}}
+```
+
+| Policy | Scheduler behavior |
+| --- | --- |
+| `shared_read_only` | DAG default. Launch checkout; child receives `TNY_TEAM_READ_ONLY=1`. |
+| `shared_writable` | Explicit editing in the launch checkout. No file isolation. |
+| `isolated` | Prepare a distinct owned worktree for this item attempt; child uses its returned cwd. |
+
+`base` is optional and only valid with `isolated`. Without it, the helper requires
+an initially clean launch checkout. An explicit commit acknowledges exclusion of
+launch edits. Ordinary batches without DAG/workspace options retain their old
+workspace behavior. Unsupported host, SSH and embedded enrollment is refused;
+wasm keeps its native-execution refusal before side effects.
+
+The scheduler commits `workspace_preparation:intent` before any Git operation.
+Preparation and inspection run **outside the job state lock**. The supervisor
+then revalidates attempt and cancellation, records returned cwd/branch/base/origin
+provenance, and commits the launch claim. Git preparation cannot block job status
+or cancellation under that lock. A canceled preparation may leave a retained
+owned worktree, but never starts its worker. It is not adopted as foreign work.
+
+After owned execution cleanup, bounded helper inspection records the revision,
+tracked binary-capable patch, status names and dirty flag. Oversized/unavailable
+inspection stays `unverified`, not truncated success. Canonical session answer
+verification uses the **worker cwd**, not the launch checkout's session directory.
+The supervisor retains its workspace handle until retirement; closing the handle
+never merges or removes the tree. Unknown cleanup retains work for explicit
+operator inspection. There is no automatic integration, cleanup or acceptance.
+
+Retry refuses selected isolated tasks once preparation was attempted. Carrying
+an isolated success requires a clean, unchanged, owned workspace with recorded
+inspection; dirty editing work requires explicit integration/new work instead.
+This conservative rule prevents hidden replay in a dirty tree. The helper still
+does not sandbox arbitrary paths or snapshot arbitrary external inputs.
+
+**Read-only delivery boundary:** this scheduler provisions the trusted ceiling
+marker. Native permission enforcement, checkpoint retention and propagation are
+lead-owned runtime integration. Do not claim an enforced read-only sandbox from
+the marker alone. The actual denial test runs with
+`TNY_TEST_TEAM_READ_ONLY_ENFORCED=1` after that integration; otherwise it is an
+explicitly reported skip. Host modes cannot use these workspace policies.
+
+## Shared admission enrollment
+
+A native ask job (DAG or ordinary batch) can explicitly enroll:
+
+```json
+{"kind":"ask","concurrency":2,
+ "admission":{"label":"review_team","provider_scope":"public_account_alias",
+              "cap":2,"queue_cap":16,"claim_limit":100},
+ "items":[{"prompt":"Review reliability."},{"prompt":"Review security."}]}
+```
+
+The immutable scope is under `<tny_dir>/admission`, keyed by the explicit public
+`label` and `provider_scope` aliases. Each is 1–63 ASCII letters, digits, `_` or
+`-`. Only the five documented admission fields are accepted; known credential
+values are rejected as aliases. **Never put an API key or credential in either
+alias.** Grammar cannot identify every possible secret. The alias is chosen
+by the user; it does not automatically identify every route to an account, and
+two aliases for one account do not share a ceiling. `cap` is 1–16; `queue_cap` is
+1–128; `claim_limit` is a positive lifetime count of fresh **launch claims**.
+It is not a model HTTP-request, token, money or subscription budget.
+
+Submission initializes/verifies the immutable scope once. Retry preserves its
+configuration and never resets the ledger. The existing supervisor retains sole
+job ownership. It calls admission outside `state.lock`, preserves the local
+concurrency ceiling, and launches only from a fresh committed `granted` result.
+A repeated `owned` result is not another launch authorization. A grant consumes
+one claim even if cancellation wins before spawn; it is never refunded.
+
+Status exposes effective configuration, admission ticket/reason/counts and
+exhaustion. Waiting items queue without contacting the provider. Cancellation
+cancels tickets. Owner loss converts outstanding grants to cleanup holds rather
+than freeing them by stored-PID inference. Capacity is released only under the
+existing jobs proof of never-launched or completed owned cleanup. Busy
+transactions retry outside job locks; uncertain errors retain capacity. A paused
+or unknown owner can therefore block followers indefinitely. See
+[the admission contract](admission.md) for FIFO, history and filesystem bounds.
+
+Enrolled children receive `TNY_ADMISSION_ENROLLED=1`. Inherited enrolled jobs
+cannot submit or retry nested jobs, before job/admission files or enqueue.
+Native synchronous-subagent refusal remains lead-owned integration. This scope
+covers opt-in top-level job launches, **not arbitrary same-user shell processes**,
+all SDK calls or every provider request made inside an admitted turn.
+
+Positive `ctx.max_steps` travels as owned private payload text and a child
+`--max-steps` argument. Retry preserves the original ceiling and may narrow it
+with a stricter current cap; it cannot widen it. This is a native turn-step
+ceiling, not admission's claim counter or a token budget.
+
+Each item records observed canonical cumulative input/output tokens, or explicit
+unknown values. The last cumulative usage event is retained, not repeatedly
+summed. Job `usage.known_input_tokens` / `known_output_tokens` sum available
+attempt evidence, including prior immutable attempts; carried successes are not
+counted again. `unknown_items` counts item-attempts without usable evidence,
+including unfinished/not-started items. Observed counters do not prove that a
+provider reported every billed request. Missing usage and cost are not estimated.
+No actual token/cost budget policy is implemented by this enrollment.
+
+## Private member capability provisioning
+
+Every DAG item preparation creates a fresh random 32-byte value encoded as a
+64-hex bearer. Before admission, the supervisor persists only its SHA-256 hex
+verifier as `item.mailbox_capability_sha256` under `state.lock`. The child gets:
+
+- `TNY_TEAM_RUN`: existing job ID;
+- `TNY_TEAM_TASK`: stable item index;
+- `TNY_TEAM_ATTEMPT`: current item/job launch attempt;
+- `TNY_TEAM_CAPABILITY`: the private bearer.
+
+The bearer is not written to job metadata, status, logs or argv. Its temporary
+owned environment and supervisor buffer are wiped after spawn. Ordinary batch
+children get no team membership. Ambient parent team/admission fields are not
+forwarded as membership; inherited read-only ceilings remain restrictive.
+Request-supplied private identity, bearer and verifier fields are refused.
+Root `peer_messages` must be boolean when supplied and defaults to false.
+
+These fields match the lead's `team_runtime` verifier contract without adding a
+link dependency on that runtime here. Mailbox delivery, trusted parent adapter
+wiring and synchronous-subagent membership stripping remain runtime integration,
+not a second controller implemented in jobs. The runtime must validate inherited
+identity and verifier under the job state lock before granting member operations.
 
 ## Surfaces
 

@@ -222,7 +222,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def chat(self, prompt, after_tool=False):
         state = self.server.state
-        if "DAG_BARRIER" in prompt:
+        if "DAG_BARRIER" in prompt and ("ENVDUMP" not in prompt or after_tool):
             state["dag_entered"].set()
             if not state["dag_release"].wait(timeout=60):
                 self.reply(500, "application/json", b"{}")
@@ -274,6 +274,8 @@ class Handler(BaseHTTPRequestHandler):
                 "usage": {"prompt_tokens": 3, "completion_tokens": 1},
             }
         )
+        if "NO_USAGE" in prompt:
+            frames[-1].pop("usage", None)
         data = (
             "".join(f"data: {json.dumps(f)}\n\n" for f in frames) + "data: [DONE]\n\n"
         ).encode()
@@ -1173,6 +1175,465 @@ class JobsDAG(JobsFixture):
             "dependency_blocked",
         )
         self.assertFalse((snapshot.parent / "attempt-2.json").exists())
+
+
+class JobsEnrollment(JobsDAG):
+    """Scheduler enrollment, not helper-only admission/worktree tests."""
+
+    def enrollment(self, cap=2, claims=100):
+        return dict(
+            label="fixture",
+            provider_scope="public_account",
+            cap=cap,
+            queue_cap=16,
+            claim_limit=claims,
+        )
+
+    def admission_state(self):
+        path = (
+            self.home
+            / ".tny"
+            / "admission"
+            / "fixture"
+            / "public_account"
+            / "state.json"
+        )
+        return json.loads(path.read_text())
+
+    def test_independent_batches_share_two_real_launch_slots(self):
+        jobs = []
+        for batch in range(2):
+            run, payload = self.dag_submit(
+                [{"prompt": f"DAG_BARRIER batch{batch} task{i}"} for i in range(2)],
+                admission=self.enrollment(),
+                dag=False,
+            )
+            self.assertEqual(run.returncode, 0, run.stderr)
+            jobs.append(payload["id"])
+        self.assertTrue(self.state["dag_entered"].wait(30))
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            records = [self.status(job) for job in jobs]
+            if len(self.ask_requests()) == 2 and any(
+                item.get("admission_reason") in ("queued_capacity", "queued_fifo")
+                for record in records
+                for item in record["items"]
+            ):
+                break
+            time.sleep(0.1)
+        self.assertEqual(len(self.ask_requests()), 2, records)
+        self.assertEqual(self.state["peak"], 2)
+        self.assertTrue(
+            any(
+                item.get("admission_reason") in ("queued_capacity", "queued_fifo")
+                for record in records
+                for item in record["items"]
+            )
+        )
+        self.state["dag_release"].set()
+        for job in jobs:
+            record = self.await_terminal(job)
+            self.assertEqual(record["state"], "succeeded", record)
+            self.assertEqual(record["admission"], self.enrollment())
+            self.assertTrue(
+                all(i["admission_reason"] == "released" for i in record["items"])
+            )
+        self.assertEqual(len(self.ask_requests()), 4)
+        self.assertLessEqual(self.state["peak"], 2)
+
+    def test_exhaustion_does_not_count_claims_as_token_budget(self):
+        run, payload = self.dag_submit(
+            [{"prompt": "one"}, {"prompt": "two"}],
+            admission=self.enrollment(cap=1, claims=1),
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        record = self.await_terminal(payload["id"])
+        self.assertEqual(record["state"], "failed", record)
+        self.assertEqual(len(self.ask_requests()), 1)
+        self.assertEqual(record["admission"]["claim_limit"], 1)
+        failed = next(i for i in record["items"] if i["state"] == "failed")
+        self.assertIn("exhausted", failed["error"])
+        self.assertFalse(failed["usage_known"])
+        self.assertIsNone(failed["usage_input_tokens"])
+        self.assertGreater(record["usage"]["unknown_items"], 0)
+
+    def test_cancel_waiting_ticket_and_owner_loss_hold_granted_capacity(self):
+        run, first = self.dag_submit(
+            [{"prompt": "DAG_BARRIER owned"}], admission=self.enrollment(cap=1)
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue(self.state["dag_entered"].wait(30))
+        run, second = self.dag_submit(
+            [{"prompt": "never starts"}], admission=self.enrollment(cap=1)
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.await_state(
+            second["id"],
+            lambda r: r["items"][0].get("admission_reason") == "queued_capacity",
+        )
+        self.run_tny("jobs", "cancel", second["id"], "--json")
+        record = self.await_terminal(second["id"])
+        self.assertEqual(record["items"][0]["admission_reason"], "canceled")
+        os.kill(self.worker_pid(first["id"]), signal.SIGKILL)
+        record = self.await_terminal(first["id"])
+        self.assertEqual(record["cleanup"], "unknown")
+        ledger = self.admission_state()
+        self.assertEqual(
+            next(e for e in ledger["entries"] if e["run"] == first["id"])["state"], 2
+        )
+        self.assertEqual(len(self.ask_requests()), 1)
+        retry = self.run_tny("jobs", "retry", first["id"], "--json", check=False)
+        self.assertEqual(retry.returncode, 1)
+
+    def test_isolated_workers_edit_same_relative_file_and_keep_provenance(self):
+        self.state["envdump"] = (
+            "printf '%s' \"$TNY_TEAM_TASK\" > same.txt; git add same.txt"
+        )
+        run, payload = self.dag_submit(
+            [
+                {"prompt": "ENVDUMP edit first", "workspace": {"policy": "isolated"}},
+                {"prompt": "ENVDUMP edit second", "workspace": {"policy": "isolated"}},
+            ]
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        record = self.await_terminal(payload["id"])
+        self.assertEqual(record["state"], "succeeded", record)
+        self.assertFalse((self.workspace / "same.txt").exists())
+        paths = [Path(i["workspace_cwd"]) for i in record["items"]]
+        self.assertNotEqual(paths[0], paths[1])
+        for index, item in enumerate(record["items"]):
+            self.assertEqual((paths[index] / "same.txt").read_text(), str(index))
+            self.assertEqual(item["workspace_inspection"], "recorded")
+            self.assertTrue(item["workspace_dirty"])
+            self.assertIn("same.txt", item["workspace_patch"])
+            self.assertTrue(item["workspace_branch"])
+            self.assertTrue(item["workspace_base"])
+            self.assertTrue(item["session_id"])
+            self.assertEqual(item["verification"], "unverified")
+        self.assertNotEqual(
+            record["items"][0]["session_id"], record["items"][1]["session_id"]
+        )
+
+    def test_capability_private_environment_and_max_steps(self):
+        dump = self.home / "member.json"
+        script = (
+            "import os,json; json.dump({k:os.getenv(k) for k in "
+            "['TNY_TEAM_RUN','TNY_TEAM_TASK','TNY_TEAM_ATTEMPT','TNY_TEAM_CAPABILITY',"
+            "'TNY_TEAM_READ_ONLY','TNY_ADMISSION_ENROLLED']},open("
+            + repr(str(dump))
+            + ",'w'))"
+        )
+        import shlex
+
+        self.state["envdump"] = "python3 -c " + shlex.quote(script)
+        request = dict(
+            kind="ask",
+            dag=True,
+            peer_messages=True,
+            admission=self.enrollment(),
+            items=[
+                {
+                    "prompt": "ENVDUMP DAG_BARRIER private member",
+                    "workspace": {"policy": "shared_writable"},
+                }
+            ],
+        )
+        run = self.run_tny(
+            "--max-steps",
+            "4",
+            "jobs",
+            "submit",
+            "batch",
+            "--json",
+            stdin=json.dumps(request).encode(),
+        )
+        payload = json.loads(run.stdout)
+        self.assertTrue(self.state["dag_entered"].wait(30))
+        member = json.loads(dump.read_text())
+        self.assertEqual(member["TNY_TEAM_RUN"], payload["id"])
+        self.assertEqual(member["TNY_TEAM_TASK"], "0")
+        self.assertEqual(member["TNY_TEAM_ATTEMPT"], "1")
+        self.assertIsNone(member["TNY_TEAM_READ_ONLY"])
+        self.assertEqual(member["TNY_ADMISSION_ENROLLED"], "1")
+        bearer = member["TNY_TEAM_CAPABILITY"]
+        self.assertEqual(len(bearer), 64)
+        import hashlib
+
+        record = self.status(payload["id"])
+        raw = Path(record["metadata_path"]).read_text()
+        verifier = json.loads(raw)["items"][0]["mailbox_capability_sha256"]
+        self.assertEqual(hashlib.sha256(bearer.encode()).hexdigest(), verifier)
+        self.assertNotIn(bearer, raw)
+        self.assertNotIn(bearer, json.dumps(record))
+        argv = "\n".join(pids_argv(self.home.name))
+        self.assertNotIn(bearer, argv)
+        self.assertIn("--max-steps 4", argv)
+        self.assertTrue(record["peer_messages"])
+        self.assertEqual(record["max_steps"], 4)
+        self.state["dag_release"].set()
+        final = self.await_terminal(payload["id"])
+        self.assertEqual(final["state"], "succeeded", final)
+        self.assertNotIn(bearer, Path(final["items"][0]["log_path"]).read_text())
+
+    def test_default_read_only_marker_is_assigned_to_owned_child(self):
+        run, payload = self.dag_submit([{"prompt": "DAG_BARRIER read-only marker"}])
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue(self.state["dag_entered"].wait(30))
+        child = self.item_child_pid(payload["id"])
+        observed = subprocess.run(
+            ["ps", "eww", "-p", str(child), "-o", "command="],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        # Do not print the observed environment: it includes a private fixture bearer.
+        self.assertTrue("TNY_TEAM_READ_ONLY=1" in observed, "read-only marker absent")
+        self.state["dag_release"].set()
+        self.assertEqual(self.await_terminal(payload["id"])["state"], "succeeded")
+
+    def test_nested_enrolled_submission_refused_before_job_or_provider(self):
+        env = dict(self.env, TNY_ADMISSION_ENROLLED="1")
+        run = self.run_tny(
+            "jobs",
+            "submit",
+            "ask",
+            "--prompt",
+            "must not start",
+            "--json",
+            env=env,
+            check=False,
+        )
+        self.assertEqual(run.returncode, 1)
+        self.assertEqual(self.job_dirs(), [])
+        self.assertEqual(self.ask_requests(), [])
+        self.assertFalse((self.home / ".tny" / "admission").exists())
+
+    def test_actual_enrolled_child_cannot_submit_nested_jobs(self):
+        import shlex
+
+        dump = self.home / "nested.json"
+        script = (
+            "import subprocess,json; r=subprocess.run("
+            + repr(
+                [
+                    TNY,
+                    "--provider",
+                    "openai",
+                    "jobs",
+                    "submit",
+                    "ask",
+                    "--prompt",
+                    "nested never",
+                    "--json",
+                ]
+            )
+            + ",capture_output=True); json.dump({'exit':r.returncode},open("
+            + repr(str(dump))
+            + ",'w'))"
+        )
+        self.state["envdump"] = "python3 -c " + shlex.quote(script)
+        run, payload = self.dag_submit(
+            [
+                {
+                    "prompt": "ENVDUMP nested check",
+                    "workspace": {"policy": "shared_writable"},
+                }
+            ],
+            admission=self.enrollment(),
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        record = self.await_terminal(payload["id"])
+        self.assertEqual(record["state"], "succeeded", record)
+        self.assertEqual(json.loads(dump.read_text())["exit"], 1)
+        self.assertEqual(len(self.job_dirs()), 1)
+        self.assertFalse(any("nested never" in r for r in self.ask_requests()))
+
+    def test_unknown_usage_and_retry_totals_exclude_carried_successes(self):
+        run, payload = self.dag_submit([{"prompt": "NO_USAGE unknown"}])
+        self.assertEqual(run.returncode, 0, run.stderr)
+        record = self.await_terminal(payload["id"])
+        self.assertEqual(record["state"], "succeeded", record)
+        self.assertFalse(record["items"][0]["usage_known"])
+        self.assertEqual(record["usage"]["unknown_items"], 1)
+        job_id, first = self.failed_dag()
+        initial = first["items"][0]["usage_input_tokens"]
+        self.assertEqual(initial, 3)
+        self.state["fail_ask"] = False
+        self.run_tny("jobs", "retry", job_id, "--json")
+        final = self.await_terminal(job_id)
+        self.assertEqual(final["usage"]["known_input_tokens"], 9)
+        self.assertEqual(final["usage"]["known_output_tokens"], 3)
+        self.assertEqual(final["items"][0]["attempt"], 1)
+        self.assertEqual(sum("DAG_A" in r for r in self.ask_requests()), 1)
+
+    def test_failed_isolated_edit_is_not_retried_in_retained_tree(self):
+        self.state["envdump"] = "printf edited > same.txt; git add same.txt"
+        run, payload = self.dag_submit(
+            [
+                {"prompt": "ENVDUMP edit", "workspace": {"policy": "isolated"}},
+                {"prompt": "FAIL after edit", "depends_on": [0]},
+            ]
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        record = self.await_terminal(payload["id"])
+        self.assertEqual(record["items"][0]["state"], "succeeded", record)
+        before = len(self.ask_requests())
+        retry = self.run_tny("jobs", "retry", payload["id"], "--json", check=False)
+        self.assertEqual(retry.returncode, 2)
+        self.assertEqual(len(self.ask_requests()), before)
+        self.assertEqual(
+            (Path(record["items"][0]["workspace_cwd"]) / "same.txt").read_text(),
+            "edited",
+        )
+
+    @unittest.skipUnless(
+        os.environ.get("TNY_TEST_TEAM_READ_ONLY_ENFORCED"),
+        "requires lead-owned native read-only permission integration",
+    )
+    def test_read_only_worker_denies_actual_edit_tool(self):
+        self.state["envdump"] = "printf forbidden > forbidden.txt"
+        run, payload = self.dag_submit([{"prompt": "ENVDUMP attempt edit"}])
+        self.assertEqual(run.returncode, 0, run.stderr)
+        record = self.await_terminal(payload["id"])
+        self.assertFalse((self.workspace / "forbidden.txt").exists(), record)
+        log = Path(record["items"][0]["log_path"]).read_text()
+        self.assertIn('"tool_ok":false', log)
+
+    def test_retry_preserves_positive_step_ceiling_and_rotates_capability(self):
+        self.state["dag_release"].set()
+        request = dict(
+            kind="ask",
+            dag=True,
+            admission=self.enrollment(),
+            items=[{"prompt": "FAIL DAG_BARRIER retry cap"}],
+        )
+        run = self.run_tny(
+            "--max-steps",
+            "4",
+            "jobs",
+            "submit",
+            "batch",
+            "--json",
+            stdin=json.dumps(request).encode(),
+        )
+        job_id = json.loads(run.stdout)["id"]
+        first = self.await_terminal(job_id)
+        self.assertEqual(first["state"], "failed", first)
+        old_hash = json.loads(Path(first["metadata_path"]).read_text())["items"][0][
+            "mailbox_capability_sha256"
+        ]
+        self.state["fail_ask"] = False
+        self.state["dag_release"].clear()
+        self.state["dag_entered"].clear()
+        self.run_tny("--max-steps", "20", "jobs", "retry", job_id, "--json")
+        self.assertTrue(self.state["dag_entered"].wait(30))
+        record = self.status(job_id)
+        self.assertEqual(record["max_steps"], 4)
+        self.assertIn("--max-steps 4", "\n".join(pids_argv(self.home.name)))
+        current = json.loads(Path(record["metadata_path"]).read_text())
+        self.assertNotEqual(current["items"][0]["mailbox_capability_sha256"], old_hash)
+        self.state["dag_release"].set()
+        final = self.await_terminal(job_id)
+        self.assertEqual(final["state"], "succeeded", final)
+        self.assertEqual(final["items"][0]["admission_claims"], 2)
+
+    def test_workspace_preparation_does_not_hold_job_state_lock(self):
+        import shutil
+
+        wrapper_dir = self.home / "bin"
+        wrapper_dir.mkdir()
+        marker, release = self.home / "git-entered", self.home / "git-release"
+        git = shutil.which("git")
+        wrapper = wrapper_dir / "git"
+        wrapper.write_text(
+            f"#!{sys.executable}\nimport os,sys,time\n"
+            f"from pathlib import Path\n"
+            f"if 'worktree' in sys.argv and 'add' in sys.argv:\n"
+            f" Path({str(marker)!r}).touch()\n"
+            f" deadline=time.monotonic()+25\n"
+            f" while not Path({str(release)!r}).exists() and time.monotonic()<deadline: time.sleep(.05)\n"
+            f"os.execv({git!r},[{git!r},*sys.argv[1:]])\n"
+        )
+        wrapper.chmod(0o700)
+        self.addCleanup(lambda: release.touch() if release.parent.exists() else None)
+        env = dict(self.env, PATH=str(wrapper_dir) + os.pathsep + self.env["PATH"])
+        request = dict(
+            kind="ask",
+            dag=True,
+            admission=self.enrollment(),
+            items=[{"prompt": "never launched", "workspace": {"policy": "isolated"}}],
+        )
+        run = self.run_tny(
+            "jobs",
+            "submit",
+            "batch",
+            "--json",
+            env=env,
+            stdin=json.dumps(request).encode(),
+        )
+        job_id = json.loads(run.stdout)["id"]
+        deadline = time.monotonic() + 15
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(marker.exists())
+        self.assertEqual(
+            self.status(job_id)["items"][0]["workspace_preparation"], "intent"
+        )
+        started = time.monotonic()
+        self.run_tny("jobs", "cancel", job_id, "--json", timeout=3)
+        self.assertLess(time.monotonic() - started, 3)
+        release.touch()
+        record = self.await_terminal(job_id)
+        self.assertEqual(record["state"], "cancelled", record)
+        self.assertEqual(self.ask_requests(), [])
+        self.assertEqual(self.admission_state()["claims"], 0)
+        self.assertTrue(Path(record["items"][0]["workspace_cwd"]).exists())
+
+    def test_invalid_or_secret_admission_configuration_has_no_side_effects(self):
+        for changes in (
+            {"cap": 17},
+            {"queue_cap": 129},
+            {"claim_limit": 0},
+            {"provider_scope": API_KEY},
+            {"api_key": API_KEY},
+            {"provider_scope": "../foreign"},
+            {"root": str(self.home / "foreign")},
+        ):
+            with self.subTest(fields=list(changes)):
+                config = self.enrollment()
+                config.update(changes)
+                run, _ = self.dag_submit(
+                    [{"prompt": "must not launch"}], admission=config
+                )
+                self.assertEqual(run.returncode, 1)
+                self.assertEqual(self.job_dirs(), [])
+                self.assertFalse((self.home / ".tny" / "admission").exists())
+                self.assertEqual(self.ask_requests(), [])
+
+    def test_unsupported_host_and_private_request_fields_refused(self):
+        request = dict(kind="ask", dag=True, items=[{"prompt": "never"}])
+        run = self.run_tny(
+            "jobs",
+            "submit",
+            "batch",
+            "--json",
+            stdin=json.dumps(request).encode(),
+            provider="cursor",
+            check=False,
+        )
+        self.assertEqual(run.returncode, 1)
+        self.assertEqual(self.job_dirs(), [])
+        for fields in (
+            {"capability": "f" * 64},
+            {"mailbox_capability_sha256": "f" * 64},
+        ):
+            request.update(fields)
+            run, _ = self.submit(
+                "batch", stdin=json.dumps(request).encode(), check=False
+            )
+            self.assertEqual(run.returncode, 1)
+        self.assertEqual(self.job_dirs(), [])
+        self.assertEqual(self.ask_requests(), [])
 
 
 class JobsConcurrency(JobsFixture):

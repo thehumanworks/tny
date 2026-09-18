@@ -110,7 +110,13 @@ int tny_jobs_run_cancel(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *o
  * caller's session, never a value extracted from tool/request JSON. It records
  * lineage, not authority to inspect/control another session. Ordinary CLI and
  * embedded callers use run_cancel and record no parent. DAG mode is opt-in
- * submit JSON: dag:true and per-item depends_on:[stable item indices]. */
+ * submit JSON: dag:true and per-item depends_on:[stable item indices].
+ * DAG workspace policies prepare through task_workspace outside state.lock;
+ * only the existing jobs supervisor owns execution. Opt-in root admission
+ * enrolls that same item attempt, never a second execution authority. Child
+ * membership bearers travel only in owned environment storage; job records
+ * contain the SHA256 verifier. max_steps remains an inherited launch ceiling.
+ * See docs/jobs.md for public aliases, cleanup holds and platform limitations. */
 int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, char *err,
                          size_t errlen, bool (*cancelled)(void *), void *cancel_ud,
                          const char *parent_session);
