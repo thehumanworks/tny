@@ -47,7 +47,8 @@ For the independent #158 subset, retain the last available native usage event
 per task and sum it once per task, never per consuming edge. Absent events and
 absent costs remain unknown. Blocked tasks are excluded. This is reporting, not
 shared admission, durable retry deduplication, cost enforcement or a hard budget.
-Exceptions that escape native execution/cleanup can still leave usage unknown.
+Execution and cleanup exceptions retain available usage (see the review
+addendum below); unreported usage stays unknown.
 
 ## Evidence and reproduction
 
@@ -147,3 +148,58 @@ entries. A baseline comparison in a sandbox needs the pre-exported baseline
 module as an input, not an assumed Git object database or network access. The
 delivery lead owns these build/Nix changes and full integrated native/leak/
 platform gates. No such registration is claimed in this branch.
+
+## Review addendum: accounting and retained input (2026-09-19)
+
+Review of base `31051923fdd44fb75afba6726ce662a0497a79a7` reproduced lost
+usage on native failure, Python acceptance of omitted nonfinite JSON, and
+runner traceback retention of 32 composed inputs. The SDK hardening follows
+these rules:
+
+- Keep an owned per-task cumulative accounting snapshot outside execution
+  results. Execution and close failures cannot discard it. Async session
+  drains retain their last usage, including events not yielded to the caller.
+  Expose aggregate `partial_usage` / `partialUsage` after cancellation without
+  changing cancellation into successful resolution. Count each admitted task
+  once; missing reports stay unknown. Reset only when a new run starts.
+- Detach Python traceback frames and chains from returned failure diagnostics.
+  Preserve exception type/message; release composed input on all runner exits.
+  Exception messages and application-defined attributes are not sanitized.
+- Validate whole-source finite JSON before fields selection. Reject nonfinite
+  numeric tokens even in omitted or duplicate-overwritten fields. Last duplicate
+  key wins. Limit the resulting object to 128 container levels. Python integer
+  precision and JS IEEE-754 precision differ beyond the exact shared integer
+  range ±(2^53-1); identifiers outside that range must be strings.
+- Keep inline base64 slices as the portable bounded model-access mechanism.
+  Metadata alone is not model-dereferenceable. No automatic isolated-workspace
+  or SSH fetch and no retrieval tool is installed. The native HTTP fixture
+  records the actual consumer request from a distinct workspace and verifies
+  the slice and original artifact hash in that request.
+
+Regression tests cover late cleanup snapshots, stream/close failures,
+cancellation rejection, 32 failing consumers with weak-reference liveness and
+retained allocation bounds, whole-source JSON policy, mixed selection fan-in,
+and exact complete-input bounds with framing/provenance/base64. Shell tests use
+real multibyte input at the exact bound and one byte below it. These remain
+SDK reporting and ephemeral context guarantees, not shared admission, durable
+billing, dynamic retrieval, or remote transport conformance claims.
+
+Measured failure-retention regression on macOS arm64, Python 3.14.7:
+
+| Metric | Base `31051923` | Hardened SDK |
+| --- | ---: | ---: |
+| Retained traced Python bytes | 8,734,876 | 308,435 |
+| Peak traced Python bytes | 8,746,426 | 583,431 |
+| Live runner-local weak references | 32 | 0 |
+| Distinct composed bytes retained by traceback frames | 8,394,816 | 0 |
+
+Reproduce with `sdk/python/tests/bench_workflow_failure.py`, setting
+`PYTHONPATH` to each revision's `sdk/python/src`. The fixture retains the result
+while measuring 32 sequential failing consumers of one 256 KiB original. These
+are allocation/liveness measurements, not process RSS or provider latency.
+The base passes its original Python/JS workflow suites but fails the added
+hardening regressions. The candidate passes both original and added tests.
+Native request evidence uses a producer and consumer with distinct configured
+workspaces and records the consumer's HTTP request, not only an SDK renderer.
+SDK native tests reuse existing ABI artifacts; rebuilding headers, integrated
+root gates, Nix packaging, SSH and wasm verification remain with the lead.

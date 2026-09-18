@@ -123,3 +123,14 @@ async def workflow_types(config: tny.RuntimeConfig) -> None:
     chunk: bytes = artifact.read(0, 0, maximum_bytes=64)
     usage: tny.UsageEvent | None = task.usage
     _ = output, status, chunk, usage, result.usage
+
+
+def workflow_accounting_types(workflow: tny.Workflow, usage: tny.UsageEvent) -> None:
+    total: int | float | None = workflow.partial_usage["input_tokens"]
+    workflow.report_usage("task", usage)
+    _ = total
+
+
+async def session_accounting_types(session: tny.AsyncSession) -> None:
+    snapshot: tny.UsageEvent | None = session.last_usage
+    _ = snapshot

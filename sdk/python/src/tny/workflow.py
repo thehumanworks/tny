@@ -7,6 +7,7 @@ import base64
 import hashlib
 import inspect
 import json
+import math
 import os
 import re
 from collections import deque
@@ -376,9 +377,31 @@ def _selected_context(
         if len(result.output) > maximum_bytes:
             raise WorkflowContextError("JSON source exceeds selection read bound")
         try:
-            source = json.loads(result.output)
+            source = json.loads(
+                result.output,
+                parse_float=_finite_float,
+                parse_constant=_finite_float,
+                parse_int=_finite_int,
+            )
             if not isinstance(source, dict):
                 raise ValueError
+            pending: list[tuple[object, int]] = [(source, 1)]
+            while pending:
+                item, depth = pending.pop()
+                if depth > 128:
+                    raise ValueError("JSON nesting exceeds 128")
+                if isinstance(item, dict):
+                    pending.extend(
+                        (value, depth + 1)
+                        for value in item.values()
+                        if isinstance(value, (dict, list))
+                    )
+                elif isinstance(item, list):
+                    pending.extend(
+                        (value, depth + 1)
+                        for value in item
+                        if isinstance(value, (dict, list))
+                    )
             selected = {key: source[key] for key in edge.fields}
             value = {"fields": selected, "provenance": result.artifact.provenance()}
         except (ValueError, KeyError, UnicodeError, RecursionError):
@@ -449,6 +472,32 @@ def _render_prompt(
     return b"".join(parts)
 
 
+def _detach_error(error: BaseException | None) -> BaseException | None:
+    """Keep diagnostics, not coroutine frames or chained prompt owners."""
+    seen: set[int] = set()
+    current = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        following = current.__cause__ or current.__context__
+        current.__traceback__ = None
+        current.__cause__ = None
+        current.__context__ = None
+        current = following
+    return error
+
+
+def _finite_int(value: str) -> int:
+    _finite_float(value)
+    return int(value)
+
+
+def _finite_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("nonfinite JSON number")
+    return number
+
+
 class _NativeWorkflowRunner:
     def __init__(
         self,
@@ -462,6 +511,7 @@ class _NativeWorkflowRunner:
         self._library_path = library_path
         self._on_event = on_event
         self._on_permission = on_permission
+        self.report_usage: Callable[[str, UsageEvent], None] = lambda name, usage: None
 
     async def __call__(
         self, task: WorkflowTask, prompt: bytes
@@ -477,32 +527,40 @@ class _NativeWorkflowRunner:
         stop_reason: int | None = None
         stream_error: ErrorEvent | None = None
         usage: UsageEvent | None = None
-        async with AsyncRuntime(config, library_path=self._library_path) as runtime:
-            async with await runtime.create_session() as session:
-                session_id = await session.id()
-                async for event in session.run(prompt):
-                    if isinstance(event, TextDeltaEvent):
-                        output.append(event.text)
-                    elif isinstance(event, ErrorEvent) and stream_error is None:
-                        stream_error = event
-                    elif isinstance(event, TurnEndEvent):
-                        stop_reason = int(event.stop_reason)
-                    elif isinstance(event, UsageEvent):
-                        usage = event
+        session = None
+        try:
+            async with AsyncRuntime(config, library_path=self._library_path) as runtime:
+                async with await runtime.create_session() as session:
+                    session_id = await session.id()
+                    async for event in session.run(prompt):
+                        if isinstance(event, TextDeltaEvent):
+                            output.append(event.text)
+                        elif isinstance(event, ErrorEvent) and stream_error is None:
+                            stream_error = event
+                        elif isinstance(event, TurnEndEvent):
+                            stop_reason = int(event.stop_reason)
+                        elif isinstance(event, UsageEvent):
+                            usage = event
+                            self.report_usage(task.name, event)
 
-                    if self._on_event is not None:
-                        await _resolve(self._on_event(task, event))
-                    if isinstance(event, PermissionRequestEvent):
-                        decision = PermissionDecision.DENY
-                        if self._on_permission is not None:
-                            resolved = await _resolve(self._on_permission(task, event))
-                            if not isinstance(resolved, PermissionDecision):
-                                raise WorkflowRunError(
-                                    f"permission handler returned an invalid decision for {task.name!r}"
+                        if self._on_event is not None:
+                            await _resolve(self._on_event(task, event))
+                        if isinstance(event, PermissionRequestEvent):
+                            decision = PermissionDecision.DENY
+                            if self._on_permission is not None:
+                                resolved = await _resolve(
+                                    self._on_permission(task, event)
                                 )
-                            decision = resolved
-                        await session.respond_permission(event, decision)
-
+                                if not isinstance(resolved, PermissionDecision):
+                                    raise WorkflowRunError(
+                                        f"permission handler returned an invalid decision for {task.name!r}"
+                                    )
+                                decision = resolved
+                            await session.respond_permission(event, decision)
+        finally:
+            last_usage = getattr(session, "last_usage", None)
+            if isinstance(last_usage, UsageEvent):
+                self.report_usage(task.name, last_usage)
         error: BaseException | None = None
         if stream_error is not None:
             error = EventStreamError(stream_error)
@@ -581,8 +639,27 @@ class Workflow:
                 on_permission=on_permission,
             )
         )
+        self._observed: dict[str, UsageEvent | None] = {}
+        if isinstance(self._runner, _NativeWorkflowRunner):
+            self._runner.report_usage = self.report_usage
         self._tasks: dict[str, WorkflowTask] = {}
         self._running = False
+
+    def report_usage(self, name: str, usage: UsageEvent) -> None:
+        """Replace an admitted task's cumulative snapshot, including during cleanup."""
+        if not self._running or name not in self._observed:
+            raise WorkflowRunError("usage requires an admitted task in the active run")
+        if not isinstance(usage, UsageEvent):
+            raise TypeError("usage must be a UsageEvent")
+        self._observed[name] = usage
+
+    @property
+    def partial_usage(self) -> Mapping[str, int | float | None]:
+        """Owned accounting snapshot for admitted tasks in the latest run."""
+        return WorkflowResult(
+            WorkflowTaskResult(name=name, status=WorkflowTaskStatus.FAILED, usage=usage)
+            for name, usage in self._observed.items()
+        ).usage
 
     @property
     def tasks(self) -> tuple[WorkflowTask, ...]:
@@ -688,6 +765,7 @@ class Workflow:
             raise WorkflowRunError("workflow is already running")
         order = self._topological_order()
         self._running = True
+        self._observed = {}
         semaphore = asyncio.Semaphore(self._max_concurrency)
         executions: dict[str, asyncio.Task[WorkflowTaskResult]] = {}
 
@@ -708,6 +786,7 @@ class Workflow:
                 )
             try:
                 async with semaphore:
+                    self._observed[task.name] = None
                     prompt = _render_prompt(
                         task,
                         dependencies,
@@ -715,8 +794,10 @@ class Workflow:
                         self._max_input_bytes,
                         self._max_selection_bytes,
                     )
-                    execution = await self._runner(task, prompt)
-                    del prompt
+                    try:
+                        execution = await self._runner(task, prompt)
+                    finally:
+                        del prompt
                 if not isinstance(execution, WorkflowTaskExecution):
                     raise TypeError("workflow runner must return WorkflowTaskExecution")
                 if not isinstance(execution.output, bytes) or not isinstance(
@@ -725,6 +806,10 @@ class Workflow:
                     raise TypeError(
                         "workflow runner output and session_id must be bytes"
                     )
+                if execution.usage is not None and (
+                    not self._native_runner or self._observed.get(task.name) is None
+                ):
+                    self.report_usage(task.name, execution.usage)
                 successful_stop = execution.stop_reason in (
                     None,
                     int(StopReason.DONE),
@@ -745,16 +830,18 @@ class Workflow:
                     output=execution.output,
                     session_id=execution.session_id,
                     stop_reason=execution.stop_reason,
-                    error=error,
-                    usage=execution.usage,
+                    error=_detach_error(error),
+                    usage=self._observed.get(task.name),
                 )
-            except asyncio.CancelledError:
-                raise
+            except asyncio.CancelledError as error:
+                _detach_error(error)
+                raise error from None
             except Exception as error:  # task failures do not cancel siblings
                 return WorkflowTaskResult(
                     name=task.name,
                     status=WorkflowTaskStatus.FAILED,
-                    error=error,
+                    error=_detach_error(error),
+                    usage=self._observed.get(task.name),
                 )
 
         try:
