@@ -82,6 +82,41 @@ then names the fix (`TNY_DEBUG=1` shows the refresh error).
 `TNY_CODEX_OAUTH_ISSUER` point the grant at a test endpoint. Flag and env
 tokens carry no refresh token and are used as given.
 
+## Subscription usage (`/status`, `tny status`)
+
+For the builtin Codex **ChatGPT subscription** profile, status also fetches:
+
+```http
+GET https://chatgpt.com/backend-api/wham/usage
+Authorization: Bearer <access_token>
+chatgpt-account-id: <account_id>
+```
+
+This is the ChatGPT usage endpoint from the Codex CLI's release-pinned
+backend client and generated OpenAPI models (see [sources.md](../sources.md)).
+It is not `/codex/usage` or the public OpenAI billing API. The request uses
+the active profile's credentials and origin; trusted `TNY_CODEX_BASE_URL`
+gateways replace the trailing `/codex` with `/wham/usage`.
+
+Status finds the 604800-second window in `rate_limit.primary_window` or
+`secondary_window`. It displays `100 - used_percent` as **weekly limit:
+N% left**, plus the remaining days/hours and `reset_at` in local time,
+including weekday, date, hour, and timezone. Short windows are not mislabeled
+as weekly. API-key Codex logins and other providers do not make this request
+or display subscription usage.
+
+`tny status --json` adds `codex_usage` with `weekly_remaining_percent` and
+`reset_at` (Unix seconds). Unavailable, missing, or invalid weekly data produces
+`codex_usage: null` and a text “weekly limit: unavailable” message; other
+health fields remain available. Error bodies and tokens never print. Reads
+are bounded (5 seconds for response headers, 5 seconds for the body, 64 KiB
+body maximum), in addition to the shared transport's connection timeout.
+The value is fetched each time status runs, not cached from a prior turn.
+
+Wasm uses the same transport seam and endpoint. Remote CLI transport works;
+browser use requires backend CORS or a trusted gateway. A blocked request
+shows unavailable rather than a fabricated allowance.
+
 ## Request
 
 The default Responses wire of the openai backend, unchanged, plus two

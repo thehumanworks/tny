@@ -36,6 +36,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
+        "src/cli/cmd_misc.c",
+        ["status_codex_usage"],
+        r"yyjson_get_sint\(duration\) != 604800|usage.available = true",
+        "tests/integration/test_codex_chatgpt.py",
+        "codex-usage",
+    ),
+    (
         "src/core/tools.c",
         ["schema_tool_disabled"],
         r"strcmp\(name, \"write_file\"\)|strcmp\(name, \"read_file\"\)",

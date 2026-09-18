@@ -337,7 +337,111 @@ def authorize_url_from(output: bytes) -> dict:
     }
 
 
+def test_subscription_status():
+    """Use the documented usage shape; never mistake the short window for weekly."""
+    reset = int(time.time()) + 90600
+    window = dict(used_percent=20, limit_window_seconds=604800, reset_at=reset)
+    state = {"body": {"rate_limit": {"secondary_window": window}}, "status": 200}
+    requests = []
+
+    class UsageHandler(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_GET(self):
+            requests.append((self.path, dict(self.headers)))
+            body = state.get("raw", json.dumps(state["body"]).encode())
+            self.send_response(state["status"])
+            self.send_header("Content-Length", str(len(body) + state.get("missing", 0)))
+            self.end_headers()
+            # Deliberately split JSON across writes, including inside field names.
+            for i in range(0, len(body), 7):
+                self.wfile.write(body[i : i + 7])
+                self.wfile.flush()
+
+    server = HTTPServer(("127.0.0.1", 0), UsageHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with tempfile.TemporaryDirectory() as home:
+            env = base_env(home, server.server_port)
+            env["TNY_CODEX_BASE_URL"] = (
+                f"http://127.0.0.1:{server.server_port}/backend-api/codex/"
+            )
+            env.update(CHATGPT_ACCESS_TOKEN="status-token", CHATGPT_ACCOUNT_ID=ACCOUNT)
+
+            def status(json_output=True, provider="codex"):
+                args = [TNY, "--provider", provider, "--cwd", home, "status"]
+                if json_output:
+                    args.append("--json")
+                result = subprocess.run(args, env=env, capture_output=True, timeout=20)
+                assert result.returncode == 0, result.stderr
+                return (
+                    json.loads(result.stdout) if json_output else result.stdout.decode()
+                )
+
+            assert status()["codex_usage"] == dict(
+                weekly_remaining_percent=80, reset_at=reset
+            )
+            path, headers = requests[-1]
+            assert path == "/backend-api/wham/usage", path
+            assert headers["Authorization"] == "Bearer status-token"
+            assert headers["chatgpt-account-id"] == ACCOUNT
+            text = status(False)
+            assert "weekly limit: 80% left (resets in 1 day 1 hour;" in text, text
+            assert time.strftime("%a %Y-%m-%d %H:%M %Z", time.localtime(reset)) in text
+            for used, left in [(0, 100), (100, 0)]:
+                state["body"] = {
+                    "rate_limit": {"primary_window": dict(window, used_percent=used)}
+                }
+                assert status()["codex_usage"]["weekly_remaining_percent"] == left
+            for body in [
+                {},
+                {"rate_limit": None},
+                {"rate_limit": {"secondary_window": dict(window, used_percent="20")}},
+                {"rate_limit": {"secondary_window": dict(window, used_percent=101)}},
+                {"rate_limit": {"secondary_window": dict(window, reset_at=-1)}},
+                {
+                    "rate_limit": {
+                        "primary_window": dict(window, limit_window_seconds=18000)
+                    }
+                },
+            ]:
+                state["body"] = body
+                assert status()["codex_usage"] is None, body
+            # Invalid JSON and a truncated transport must not expose partial data.
+            state["raw"] = b'{"rate_limit":'
+            assert status()["codex_usage"] is None
+            state.pop("raw")
+            state.update(body={"rate_limit": {"secondary_window": window}}, missing=10)
+            assert status()["codex_usage"] is None
+            state.pop("missing")
+            for code in [401, 403, 429, 500]:
+                state.update(status=code, body={"secret": "must-not-print"})
+                text = status(False)
+                assert (
+                    "weekly limit: unavailable" in text and "must-not-print" not in text
+                )
+                assert "provider:   codex" in text
+            # An API-key Codex login must neither fetch nor display subscription usage.
+            env.pop("CHATGPT_ACCESS_TOKEN")
+            env.pop("CHATGPT_ACCOUNT_ID")
+            write_json(cli_auth_path(home), {"OPENAI_API_KEY": "sk-test"})
+            count = len(requests)
+            assert "codex_usage" not in status()
+            assert "weekly limit" not in status(False)
+            env["OPENAI_API_KEY"] = "sk-openai"
+            assert "codex_usage" not in status(provider="openai")
+            assert len(requests) == count
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+    print("ok  subscription status: weekly windows, headers, errors, API-key exclusion")
+
+
 def main():
+    test_subscription_status()
     with tempfile.TemporaryDirectory(prefix="tny-codex-") as tmp:
         home = os.path.join(tmp, "home")
         ws = os.path.join(tmp, "ws")
