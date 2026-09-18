@@ -143,6 +143,10 @@ Sessions: `/help` `/clear` `/new` `/reset` `/resume` `/continue` `/rename` `/com
 
 Runtime: `/models` `/model` `/effort` `/max-steps` `/permissions` `/sandbox` `/provider` (`/backend`) `/fast` `/status` `/usage`
 
+`/status` includes the [Codex subscription weekly allowance](backends/codex.md#subscription-usage-status-tny-status)
+and reset date/time when the active Codex profile uses a ChatGPT login.
+API-key logins are excluded. `/usage` remains local token-usage accounting.
+
 `/provider setup [NAME]` runs the guided provider wizard through the
 composer (name → base url → key or `$ENV_NAME` → model; `/cancel` aborts;
 [ADR 0018](adr/0018-provider-setup-stored-keys.md)) — in the browser wasm

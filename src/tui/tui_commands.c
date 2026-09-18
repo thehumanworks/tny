@@ -40,7 +40,7 @@ static const struct {
     {"effort", "/effort [" TNY_EFFORT_LEVELS "|default]"},
     {"task", "/task [NAME|clear] — select a session task preset"},
     {"max-steps", "/max-steps [set N|clear] — cap the agent loop per turn"},
-    {"status", "provider, auth, workspace"},
+    {"status", "provider, auth, workspace, subscription usage"},
     {"usage", "token usage for this workspace"},
     {"sessions", "list sessions for this workspace"},
     {"agents", "background agents dashboard; select and reattach"},

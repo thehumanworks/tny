@@ -98,6 +98,10 @@ truth in `"sandbox"` plus a human-readable `"sandbox_note"`. `auto` therefore
 never claims `os` unless Seatbelt or bubblewrap is launchable, and the default
 `yolo` process reports `none` even when `.tny.json` requests `auto` or `os`.
 `tny status` uses the same effective-mode resolution.
+For Codex ChatGPT subscription logins, `tny status` and `/status` also show the
+weekly allowance left and its reset time. API-key logins are excluded.
+See [subscription usage](backends/codex.md#subscription-usage-status-tny-status)
+for the endpoint, JSON fields, and unavailable-data behavior.
 
 `TNY_TOOLS=all|terminal+edit|terminal` overrides the `tools` user setting for
 the native OpenAI-compatible loop. `all` is the unchanged default; the shell

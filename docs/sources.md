@@ -98,6 +98,8 @@ release claims.
 - https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md
 - https://github.com/openai/codex/blob/main/codex-rs/app-server-client/src/remote.rs
 - Stable release: https://github.com/openai/codex/releases/tag/rust-v0.149.1
+- Subscription usage route (`GET /backend-api/wham/usage`): https://github.com/openai/codex/blob/rust-v0.149.1/codex-rs/backend-client/src/client/rate_limit_resets.rs
+- Usage window OpenAPI fields (`used_percent`, `limit_window_seconds`, `reset_at`): https://github.com/openai/codex/blob/rust-v0.149.1/codex-rs/codex-backend-openapi-models/src/models/rate_limit_window_snapshot.rs
 - Stable tag object: `980a6d12110b110d29ec13bdcbe14011100b3566`
 - Stable commit: `ff29a44391deccde0aba0f8390337d7f3c319ea4`
 - https://github.com/openai/codex/blob/ff29a44391deccde0aba0f8390337d7f3c319ea4/codex-rs/app-server/README.md

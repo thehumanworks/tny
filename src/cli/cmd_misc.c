@@ -15,6 +15,7 @@
 #include <string.h>
 #include <poll.h>
 #include <unistd.h>
+#include <time.h>
 
 static bool wants_json(const cli_globals *g, int argc, char **argv) {
     if (g->json) return true;
@@ -150,6 +151,81 @@ int cmd_task(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     return 0;
 }
 
+/* The subscription endpoint is a sibling of /codex, not a Responses API
+ * resource. Keep requests on the resolved origin (including trusted gateways). */
+typedef struct {
+    bool available;
+    int remaining;
+    int64_t reset;
+} codex_weekly_usage;
+
+static codex_weekly_usage status_codex_usage(const tny_ctx *ctx) {
+    codex_weekly_usage usage = {0};
+    char err[256];
+    http_conn *c = http_open(ctx->base_url, err, sizeof err);
+    if (!c) return usage;
+    buf_t auth, path, body;
+    buf_init(&auth);
+    buf_init(&path);
+    buf_init(&body);
+    buf_appendf(&auth, "Authorization: Bearer %s", ctx->api_key ? ctx->api_key : "");
+    const char *headers[12] = {auth.data};
+    int hn = 1;
+    for (char **h = ctx->extra_headers; h && *h && hn < 11; h++) headers[hn++] = *h;
+    headers[hn] = NULL;
+    const char *prefix = http_prefix(c);
+    size_t len = strlen(prefix);
+    while (len && prefix[len - 1] == '/') len--;
+    if (len >= 6 && memcmp(prefix + len - 6, "/codex", 6) == 0) len -= 6;
+    buf_append(&path, prefix, len);
+    buf_appends(&path, "/wham/usage");
+    bool complete = false;
+    if (!buf_oom(&auth) && !buf_oom(&path) &&
+        http_request(c, "GET", path.data, headers, NULL, 0) == 0 &&
+        http_read_response(c, 5000) == 200) {
+        int64_t deadline = now_ms() + 5000;
+        while (now_ms() < deadline) {
+            char chunk[4096];
+            ssize_t n = http_body_read(c, chunk, sizeof chunk);
+            if (n == 0) {
+                complete = true;
+                break;
+            }
+            if (n == -2) {
+                struct pollfd pf = {http_fd(c), POLLIN, 0};
+                if (tny_poll(&pf, 1, 100) < 0) break;
+                continue;
+            }
+            if (n < 0 || body.len + (size_t)n > 65536) break;
+            buf_append(&body, chunk, (size_t)n);
+            if (buf_oom(&body)) break;
+        }
+    }
+    http_close(c);
+    yyjson_doc *doc = complete ? jparse(body.data, body.len) : NULL;
+    yyjson_val *limits = jget(doc ? yyjson_doc_get_root(doc) : NULL, "rate_limit");
+    const char *windows[] = {"primary_window", "secondary_window"};
+    for (size_t i = 0; i < 2; i++) {
+        yyjson_val *w = jget(limits, windows[i]);
+        yyjson_val *used = jget(w, "used_percent"), *reset = jget(w, "reset_at");
+        yyjson_val *duration = jget(w, "limit_window_seconds");
+        if (!yyjson_is_int(duration) || yyjson_get_sint(duration) != 604800 ||
+            !yyjson_is_int(used) || !yyjson_is_int(reset))
+            continue;
+        int64_t percent = yyjson_get_sint(used), epoch = yyjson_get_sint(reset);
+        if (percent < 0 || percent > 100 || epoch <= 0 || epoch > 253402300799LL) continue;
+        usage.available = true;
+        usage.remaining = 100 - (int)percent;
+        usage.reset = epoch;
+        break;
+    }
+    if (doc) yyjson_doc_free(doc);
+    buf_free(&auth);
+    buf_free(&path);
+    buf_free(&body);
+    return usage;
+}
+
 int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = wants_json(g, argc, argv);
     int n = 0;
@@ -158,6 +234,8 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     const char *bk = tny_provider_name(ctx);
     const char *model = ctx->model ? ctx->model : "default";
     bool auth = ctx->api_key != NULL || str_starts(ctx->base_url, "http://");
+    bool subscription = tny_codex_chatgpt_mode(ctx);
+    codex_weekly_usage usage = subscription ? status_codex_usage(ctx) : (codex_weekly_usage){0};
     if (json) {
         buf_t b;
         buf_init(&b);
@@ -186,6 +264,13 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             jescape(&b, ctx->task_digest);
             buf_appends(&b, "}");
         } else buf_appends(&b, "null");
+        if (subscription) {
+            buf_appends(&b, ",\"codex_usage\":");
+            if (usage.available)
+                buf_appendf(&b, "{\"weekly_remaining_percent\":%d,\"reset_at\":%lld}",
+                            usage.remaining, (long long)usage.reset);
+            else buf_appends(&b, "null");
+        }
         buf_appendf(&b,
                     ",\"sessions\":%d,\"agent_step_limit\":%d,"
                     "\"extensions_enabled\":%s,"
@@ -200,6 +285,22 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         printf("model:      %s\n", model);
         if (ctx->reasoning_effort) printf("effort:     %s\n", ctx->reasoning_effort);
         printf("auth:       %s\n", auth ? "ok" : "missing (set OPENAI_API_KEY or run tny setup)");
+        if (subscription) {
+            if (usage.available) {
+                time_t reset = (time_t)usage.reset;
+                struct tm local;
+                char when[96] = "unknown local time";
+                if (localtime_r(&reset, &local))
+                    strftime(when, sizeof when, "%a %Y-%m-%d %H:%M %Z", &local);
+                int64_t seconds = usage.reset - (int64_t)time(NULL);
+                if (seconds < 0) seconds = 0;
+                long long days = (long long)(seconds / 86400);
+                long long hours = (long long)(seconds % 86400 / 3600);
+                printf("weekly limit: %d%% left (resets in %lld day%s %lld hour%s; %s)\n",
+                       usage.remaining, days, days == 1 ? "" : "s", hours, hours == 1 ? "" : "s",
+                       when);
+            } else printf("weekly limit: unavailable (could not retrieve weekly allowance)\n");
+        }
         printf("permission: %s\n", tny_perm_mode_name(ctx->perm_mode));
         printf("tools:      %s\n", tny_tool_profile_name(ctx->tool_profile));
         tny_sandbox_kind sandbox = tny_sandbox_effective(ctx);
