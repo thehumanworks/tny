@@ -1351,8 +1351,17 @@ wasm-size-check: wasm
 
 .PHONY: wasm wasm-web wasm-size-check
 
+# Default cleanup includes disposable root-level build variants. A custom
+# BUILD keeps cleanup scoped, so independent build lanes can coexist.
 clean:
-	rm -rf $(BUILD) dist
+	rm -rf -- "$(BUILD)" dist
+ifeq ($(BUILD),build)
+	@for dir in ./build-*; do \
+		if [ -d "$$dir" ] && [ ! -L "$$dir" ]; then \
+			rm -rf -- "$$dir" || exit $$?; \
+		fi; \
+	done
+endif
 
 # ---- monorepo siblings (docs/adr/0045) ----------------------------------
 # Each sibling app owns its own Makefile; these targets only delegate.

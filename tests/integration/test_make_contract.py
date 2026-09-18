@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The real make-test recipe must not silently skip its integration runner."""
+"""Exercise make's integration-runner and cleanup contracts in temporary trees."""
 
 import os
 import subprocess
@@ -58,6 +58,84 @@ class MakeTestContract(unittest.TestCase):
             result = run()
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((root / "integration-ran").read_text(), "ran")
+
+
+class MakeCleanContract(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="tny-make-clean-")
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        (self.root / "Makefile").write_text((ROOT / "Makefile").read_text())
+        self.env = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in {"MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEFILES"}
+        }
+
+    def artifact(self, directory):
+        path = self.root / directory / "artifact"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("keep or remove as a unit\n")
+        return path
+
+    def clean(self, *args):
+        result = subprocess.run(
+            [
+                "make",
+                "--no-print-directory",
+                "TNY_VERSION=1.0.0",
+                "LIBTNY_MACH_CURRENT_VERSION=1.0.0",
+                "clean",
+                *args,
+            ],
+            cwd=self.root,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_default_removes_build_directories_only(self):
+        removed = ["build", "dist", "build-acp", "build-sdk-final", "build-with space"]
+        for directory in removed:
+            self.artifact(directory)
+        kept = [
+            self.artifact("src"),
+            self.artifact("tnytty/build"),
+            self.artifact("nested/build-other"),
+            self.artifact("external"),
+        ]
+        note = self.root / "build-notes.txt"
+        note.write_text("not a build directory\n")
+        link = self.root / "build-external"
+        link.symlink_to(self.root / "external", target_is_directory=True)
+        self.clean()
+        for directory in removed:
+            self.assertFalse((self.root / directory).exists(), directory)
+        for path in [*kept, note, link]:
+            self.assertTrue(path.exists(), str(path))
+        self.clean()  # Missing outputs and an unmatched directory glob are safe.
+
+    def test_empty_tree_is_safe(self):
+        self.clean()
+        self.clean()
+        self.assertTrue((self.root / "Makefile").exists())
+
+    def test_custom_build_keeps_other_builds(self):
+        for selected in ("build-focus", "out", "./build"):
+            with self.subTest(build=selected):
+                self.artifact(selected)
+                self.artifact("dist")
+                other = self.artifact("build-other")
+                default = self.artifact("build")
+                self.clean(f"BUILD={selected}")
+                self.assertFalse((self.root / selected).exists())
+                self.assertFalse((self.root / "dist").exists())
+                self.assertTrue(other.exists())
+                if selected != "./build":
+                    self.assertTrue(default.exists())
 
 
 if __name__ == "__main__":

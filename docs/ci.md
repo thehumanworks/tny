@@ -4,6 +4,21 @@ GitHub Actions builds the stripped `tny` binary on every pull request and on
 `main`. Artifacts are named `tny-<os>-<arch>` and uploaded from the `ci`
 workflow (`.github/workflows/ci.yml`).
 
+## Local build cleanup
+
+`make clean` removes `build/`, `dist/`, and root-level `build-*` directories
+(for example, `build-acp/` and `build-sdk-final/`). These ignored directories
+hold disposable binaries, intermediate files, test snapshots, and test reports.
+Save any reports you need before cleaning, and wait for builds and tests in
+these directories to finish. Cleanup does not detect active users.
+
+With a custom `BUILD` value, such as `make clean BUILD=build-focus`, cleanup
+removes only that directory and `dist/`. The extra-directory sweep applies
+only when `BUILD` is exactly `build` (the default). It skips regular files and
+symlinks matching `build-*`, and never searches nested or sibling-app trees.
+Use `make tnytty-clean` separately for the terminal app.
+See [ADR 0135](adr/0135-clean-build-variants.md).
+
 ## Matrix
 
 | Artifact | Runner | Notes |
