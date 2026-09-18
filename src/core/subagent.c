@@ -106,11 +106,14 @@ char *tny_subagent_prepare_error(const tools_env *env, yyjson_val *args) {
         yyjson_obj_foreach(args, idx, max, key, value) {
             (void)value;
             const char *name = yyjson_get_str(key);
-            if (!name || (strcmp(name, "action") != 0 && strcmp(name, "id") != 0 &&
-                          strcmp(name, "prompt") != 0))
-                return tool_err("SUBAGENT_INVALID_ARGUMENT: only action, id and prompt are "
-                                "accepted. Example: %s",
-                                SA_EXAMPLES[action]);
+            if (!name || strlen(name) != yyjson_get_len(key) ||
+                (strcmp(name, "action") != 0 && strcmp(name, "id") != 0 &&
+                 strcmp(name, "prompt") != 0 && strcmp(name, "provider") != 0 &&
+                 strcmp(name, "model") != 0 && strcmp(name, "effort") != 0))
+                return tool_err(
+                    "SUBAGENT_INVALID_ARGUMENT: only action, id, prompt, provider, model and "
+                    "effort are accepted. Example: %s",
+                    SA_EXAMPLES[action]);
         }
     }
     yyjson_val *id = jget(args, "id");
@@ -125,6 +128,21 @@ char *tny_subagent_prepare_error(const tools_env *env, yyjson_val *args) {
                         SA_NAMES[action], SA_EXAMPLES[action]);
     yyjson_val *prompt = jget(args, "prompt");
     bool wants_prompt = action == SA_CREATE || action == SA_MESSAGE;
+    static const char *const selectors[] = {"provider", "model", "effort"};
+    for (size_t i = 0; i < sizeof selectors / sizeof selectors[0]; i++) {
+        yyjson_val *selector = jget(args, selectors[i]);
+        if (!selector) continue;
+        if (!wants_prompt)
+            return tool_err("SUBAGENT_INVALID_ARGUMENT: %s takes no provider, model or effort. "
+                            "Example: %s",
+                            SA_NAMES[action], SA_EXAMPLES[action]);
+        const char *text = yyjson_is_str(selector) ? yyjson_get_str(selector) : NULL;
+        size_t len = text ? yyjson_get_len(selector) : 0;
+        if (!text || !len || strlen(text) != len || !utf8_valid_bytes(text, len))
+            return tool_err("SUBAGENT_INVALID_ARGUMENT: %s must be a nonempty UTF-8 string "
+                            "without embedded NUL bytes; omit it to use the default",
+                            selectors[i]);
+    }
     if (!wants_prompt && prompt)
         return tool_err("SUBAGENT_INVALID_ARGUMENT: %s takes no prompt. Example: %s",
                         SA_NAMES[action], SA_EXAMPLES[action]);
@@ -409,7 +427,7 @@ static char *sa_describe(tools_env *env, sa_action action, tny_session_state *s)
     if (has_exit) buf_appendf(&r, "exit_code: %lld\n", (long long)exit_code);
     else buf_appends(&r, "exit_code: null\n");
     buf_appendf(&r, "running: %s\n", running ? "true" : "false");
-    buf_appendf(&r, "resumable: %s", !running && !session_host_pointer(s) ? "true" : "false");
+    buf_appendf(&r, "resumable: %s", !running ? "true" : "false");
     yyjson_mut_val *stored = yyjson_mut_obj_get(yyjson_mut_doc_get_root(s->doc), "result");
     const char *out = yyjson_mut_get_str(yyjson_mut_obj_get(stored, "output"));
     if (action == SA_INSPECT && strcmp(state, "done") == 0 && out) {
@@ -446,24 +464,22 @@ char *tny_subagent_execute(tools_env *env, yyjson_val *args) {
             session_close(child);
             return described;
         }
-        bool host_owned = session_host_pointer(child) != NULL;
         session_close(child);
-        if (host_owned)
-            return tool_err("SUBAGENT_UNSUPPORTED_CONTEXT: that session belongs to a host "
-                            "provider; message continues only native subagent sessions");
         if (session_is_running(ctx, id))
             return tool_err("SUBAGENT_SESSION_BUSY: that child is running a turn; check "
                             "{\"action\":\"lifecycle\",\"id\":\"%s\"} and retry after it "
                             "finishes",
                             id);
     }
-    if (!(ctx->api_key && *ctx->api_key) &&
+    const char *provider = jget_str(args, "provider");
+    bool parent_provider = !provider || strcmp(provider, tny_provider_name(ctx)) == 0;
+    if (parent_provider && !(ctx->api_key && *ctx->api_key) &&
         !str_starts(ctx->base_url ? ctx->base_url : "", "http://"))
         return tool_err("SUBAGENT_AUTH_UNAVAILABLE: the parent provider has no resolved "
                         "credential to hand a child; configure its key (for example "
                         "--api-key-env NAME, tny login or tny provider setup) and retry");
     tny_subagent_plan plan = {0};
-    if (tny_subagent_plan_build(env, id, &plan) != 0) {
+    if (tny_subagent_plan_build_selected(env, id, args, &plan) != 0) {
         sa_proc failed = {.spawn_error = errno == ENOTSUP ? ENOTSUP : ENOENT};
         return sa_outcome(env, action, id, &failed);
     }

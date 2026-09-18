@@ -39,8 +39,11 @@ class CppBuild(unittest.TestCase):
         self.write(
             "third_party/yyjson/version", "this vendor metadata is not a C++ header\n"
         )
+        # Vendor includes follow system headers; an installed yyjson.h must not
+        # accidentally replace this fixture's sentinel header.
         self.write(
-            "third_party/yyjson/yyjson.h", "#define TNY_FIXTURE_VENDOR_VALUE 0\n"
+            "third_party/yyjson/tny_fixture_vendor.h",
+            "#define TNY_FIXTURE_VENDOR_VALUE 0\n",
         )
         self.write("tests/unit.cpp", "int cpp_unit() { return 1; }\n")
         self.write(
@@ -63,7 +66,7 @@ class CppBuild(unittest.TestCase):
 #include <span>
 #include <cstdlib>
 #include <version>
-#include "yyjson.h"
+#include "tny_fixture_vendor.h"
 extern "C" int c_value(void);
 extern "C" __attribute__((visibility("default"))) int tny_probe(void) {
     try {

@@ -278,6 +278,17 @@ class Provider:
             "auth": h.headers.get("Authorization"),
             "account": h.headers.get("chatgpt-account-id"),
             "model": body.get("model"),
+            "effort": body.get("reasoning_effort")
+            if wire == "chat"
+            else (body.get("reasoning") or {}).get("effort"),
+            "subagent_schema": next(
+                (
+                    t.get("function", t)
+                    for t in body.get("tools") or []
+                    if t.get("function", t).get("name") == "subagent"
+                ),
+                None,
+            ),
             "tools": [
                 t.get("function", t).get("name") for t in body.get("tools") or []
             ],
@@ -308,7 +319,7 @@ class Provider:
                     # instructions saying "omit id" cannot override that schema.
                     if schema.get("strict") is not False:
                         args = dict(args)
-                        for field in ("id", "prompt"):
+                        for field in ("id", "prompt", "provider", "model", "effort"):
                             args.setdefault(field, "")
                 cid = f"call_{scenario}_{len(outputs)}"
                 h._send(200, ctype, frames(call=(cid, tool, json.dumps(args))))
@@ -708,6 +719,239 @@ def scenario_profile(provider, home, workspace):
             f.write(saved)
 
 
+def scenario_selectors(provider, home, workspace, wire):
+    """Real child requests prove selector precedence and credential isolation."""
+    settings = os.path.join(home, ".tny", "settings.json")
+    with open(settings, encoding="utf-8") as f:
+        saved = f.read()
+    with open(settings, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "last_provider": "codex",
+                "gw": {
+                    "base_url": provider.url("/selected/v1"),
+                    "api_key_env": "GW_PROFILE_KEY",
+                    "wire_api": "responses",
+                    "model": "profile-model",
+                },
+                "effort": {"openai": "medium", "gw": "low"},
+            },
+            f,
+        )
+    try:
+        env = base_env(
+            home, provider, GW_PROFILE_KEY=PROFILE_KEY, SUBAGENT_FLAG_KEY=FLAG_KEY
+        )
+        flags = (
+            "--provider",
+            "openai",
+            "--wire-api",
+            wire,
+            "--model",
+            "parent-model",
+            "--effort",
+            "high",
+            "--api-key-env",
+            "SUBAGENT_FLAG_KEY",
+        )
+        s = f"selectors-{wire}"
+        cases = [
+            ({}, "parent-model", "high", wire, FLAG_KEY),
+            ({"provider": "openai"}, "parent-model", "high", wire, FLAG_KEY),
+            ({"model": "child-model"}, "child-model", "high", wire, FLAG_KEY),
+            ({"effort": "low"}, "parent-model", "low", wire, FLAG_KEY),
+            ({"effort": "default"}, "parent-model", None, wire, FLAG_KEY),
+            ({"provider": "gw"}, "profile-model", "low", "responses", PROFILE_KEY),
+            (
+                {"provider": "gw", "model": "selected-model", "effort": "default"},
+                "selected-model",
+                None,
+                "responses",
+                PROFILE_KEY,
+            ),
+        ]
+        provider.plan(
+            s,
+            *[
+                (
+                    "subagent",
+                    {
+                        "action": "create",
+                        "prompt": f"child-task:{s}-{i} x",
+                        **pick,
+                    },
+                )
+                for i, (pick, *_rest) in enumerate(cases)
+            ],
+        )
+        payload = run_parent(env, workspace, s, flags=flags)
+        check(statuses(payload) == [("subagent", "success")] * len(cases), payload)
+        schema = provider.parent_requests(s)[0]["subagent_schema"]["parameters"]
+        check(schema["required"] == ["action"], schema)
+        for field in ("provider", "model", "effort"):
+            check(schema["properties"][field]["type"] == "string", schema)
+        for i, (pick, model, effort, child_wire, key) in enumerate(cases):
+            tag = f"{s}-{i}"
+            req = provider.child_requests(tag)[0]
+            check(
+                (req["model"], req["effort"], req["wire"], req["auth"])
+                == (model, effort, child_wire, f"Bearer {key}"),
+                req,
+            )
+            if pick.get("provider") == "gw":
+                check(req["path"] == "/selected/v1/responses", req)
+                assert_child_argv(
+                    provider,
+                    tag,
+                    absent=(
+                        "--api-key-env",
+                        "--base-url-env",
+                        "--wire-api",
+                        FLAG_KEY,
+                        PROFILE_KEY,
+                    ),
+                )
+            doc = session_doc(home, provider.created_id(s, i))
+            check(
+                doc["backend"] == pick.get("provider", "openai")
+                and doc["model"] == model,
+                doc,
+            )
+
+        # message selectors are per turn: explicit overrides win, and omissions
+        # return to parent inheritance, not the child's last selection.
+        sid = provider.created_id(s, 5)
+        follow = f"follow-{wire}"
+        provider.plan(
+            follow,
+            (
+                "subagent",
+                {
+                    "action": "message",
+                    "id": sid,
+                    "prompt": f"child-task:{follow}-selected x",
+                    "provider": "gw",
+                    "model": "resumed-model",
+                    "effort": "high",
+                },
+            ),
+            (
+                "subagent",
+                {
+                    "action": "message",
+                    "id": sid,
+                    "prompt": f"child-task:{follow}-parent x",
+                },
+            ),
+        )
+        payload = run_parent(env, workspace, follow, flags=flags)
+        check(statuses(payload) == [("subagent", "success")] * 2, payload)
+        selected = provider.child_requests(f"{follow}-selected")[0]
+        inherited = provider.child_requests(f"{follow}-parent")[0]
+        check(
+            (selected["model"], selected["effort"], selected["auth"])
+            == ("resumed-model", "high", f"Bearer {PROFILE_KEY}"),
+            selected,
+        )
+        check(
+            (inherited["model"], inherited["effort"], inherited["auth"])
+            == ("parent-model", "high", f"Bearer {FLAG_KEY}"),
+            inherited,
+        )
+        check(session_doc(home, sid)["turns"] == 3, session_doc(home, sid))
+
+        # A parent whose explicit default overrode the environment must carry
+        # that effective default even when the tool omits effort.
+        default = f"default-effort-{wire}"
+        provider.plan(
+            default,
+            ("subagent", {"action": "create", "prompt": f"child-task:{default} x"}),
+        )
+        payload = run_parent(
+            dict(env, TNY_REASONING_EFFORT="high"),
+            workspace,
+            default,
+            flags=(*flags, "--effort", "default"),
+        )
+        check(statuses(payload) == [("subagent", "success")], payload)
+        check(
+            provider.child_requests(default)[0]["effort"] is None,
+            provider.child_requests(default),
+        )
+    finally:
+        with open(settings, "w", encoding="utf-8") as f:
+            f.write(saved)
+
+
+def scenario_host_selection(provider, home, workspace):
+    """A configured ACP child selects its own model and resumes its host id."""
+    settings = os.path.join(home, ".tny", "settings.json")
+    with open(settings, encoding="utf-8") as f:
+        saved = f.read()
+    agent = os.path.join(os.path.dirname(__file__), "fake_acp_agent.py")
+    state_path = os.path.join(home, "acp-state.json")
+    with open(settings, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "acp": {
+                    "fixture": {
+                        "command": sys.executable,
+                        "args": [os.path.abspath(agent)],
+                        "model": "default-model",
+                    }
+                }
+            },
+            f,
+        )
+    try:
+        env = base_env(home, provider, FAKE_ACP_STATE=state_path)
+        s = "selected-host"
+        provider.plan(
+            s,
+            (
+                "subagent",
+                {
+                    "action": "create",
+                    "prompt": "host first",
+                    "provider": "acp@fixture",
+                    "model": "selected-model",
+                },
+            ),
+            ("subagent", lambda: {"action": "lifecycle", "id": provider.created_id(s)}),
+            (
+                "subagent",
+                lambda: {
+                    "action": "message",
+                    "id": provider.created_id(s),
+                    "prompt": "host second",
+                    "provider": "acp@fixture",
+                    "model": "ws-model",
+                },
+            ),
+        )
+        payload = run_parent(env, workspace, s)
+        check(statuses(payload) == [("subagent", "success")] * 3, payload)
+        check("resumable: true" in provider.results[s][1], provider.results[s])
+        with open(state_path, encoding="utf-8") as f:
+            state = json.load(f)
+        check(
+            state["loaded"]
+            and state["last_prompt"] == "host second"
+            and state["model_at_prompt"] == "ws-model",
+            state,
+        )
+        doc = session_doc(home, provider.created_id(s))
+        check(
+            doc["backend"] == "acp@fixture"
+            and doc["model"] == "ws-model"
+            and doc["host_pointer"] == state["load_requested"],
+            doc,
+        )
+    finally:
+        with open(settings, "w", encoding="utf-8") as f:
+            f.write(saved)
+
+
 def scenario_chatgpt_flag(provider, home, workspace):
     """codex profile with the file-less --chatgpt-token/--chatgpt-account-id
     source: the child sends the same bearer and account on the Responses wire."""
@@ -920,6 +1164,9 @@ def run():
             scenario_rejected_ids(provider, home, workspace, sid)
             scenario_flag_credentials(provider, home, workspace)
             scenario_profile(provider, home, workspace)
+            scenario_selectors(provider, home, workspace, "chat")
+            scenario_selectors(provider, home, workspace, "responses")
+            scenario_host_selection(provider, home, workspace)
             scenario_optional_arguments(provider, home, workspace, "chat")
             scenario_optional_arguments(provider, home, workspace, "responses")
             scenario_chatgpt_flag(provider, home, workspace)

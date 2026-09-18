@@ -58,11 +58,24 @@ struct tny_subagent_plan_owner {
     tny::vector<char *> envp;
     secret_block storage;
 
-    tny_subagent_plan_owner(const tny_ctx &ctx, const char *resume_id, const char *exe) {
-        const bool key = ctx.api_key && *ctx.api_key;
-        const bool url = ctx.base_url && *ctx.base_url;
-        const bool token = ctx.chatgpt_token && *ctx.chatgpt_token;
-        const bool account = ctx.chatgpt_account_id && *ctx.chatgpt_account_id;
+    tny_subagent_plan_owner(const tny_ctx &ctx, const char *resume_id, yyjson_val *selection,
+                            const char *exe) {
+        const char *provider = jget_str(selection, "provider");
+        const bool parent = !provider || std::strcmp(provider, tny_provider_name(&ctx)) == 0;
+        const char *model = jget_str(selection, "model");
+        const char *effort = jget_str(selection, "effort");
+        if (!provider) provider = tny_provider_name(&ctx);
+        if (!model && parent) model = ctx.model;
+        if (!effort && parent)
+            effort =
+                ctx.reasoning_effort && *ctx.reasoning_effort ? ctx.reasoning_effort : "default";
+        // A different selector is resolved by the child CLI, including named
+        // profiles and hosts. Never apply the parent's resolved connection or
+        // subscription credentials to it. Ambient user auth remains available.
+        const bool key = parent && ctx.api_key && *ctx.api_key;
+        const bool url = parent && ctx.base_url && *ctx.base_url;
+        const bool token = parent && ctx.chatgpt_token && *ctx.chatgpt_token;
+        const bool account = parent && ctx.chatgpt_account_id && *ctx.chatgpt_account_id;
         std::array<const char *, 32> args{};
         size_t argc = 0;
         const auto arg = [&](const char *text) {
@@ -73,7 +86,7 @@ struct tny_subagent_plan_owner {
         arg("--cwd");
         arg(ctx.cwd);
         arg("--provider");
-        arg(tny_provider_name(&ctx));
+        arg(provider);
         if (key) {
             arg("--api-key-env");
             arg(TNY_SUBAGENT_KEY_ENV);
@@ -82,17 +95,17 @@ struct tny_subagent_plan_owner {
             arg("--base-url-env");
             arg(TNY_SUBAGENT_URL_ENV);
         }
-        if (ctx.wire_api) {
+        if (parent && ctx.wire_api) {
             arg("--wire-api");
             arg(tny_wire_is_chat(ctx.wire_api) ? "chat" : "responses");
         }
-        if (ctx.model) {
+        if (model) {
             arg("--model");
-            arg(ctx.model);
+            arg(model);
         }
-        if (ctx.reasoning_effort && *ctx.reasoning_effort) {
+        if (effort && *effort) {
             arg("--effort");
-            arg(ctx.reasoning_effort);
+            arg(effort);
         }
         char steps[16];
         if (ctx.max_steps > 0) {
@@ -173,10 +186,14 @@ static_assert(std::is_nothrow_destructible_v<tny_subagent_plan_owner>);
 
 extern "C" int tny_subagent_plan_build(const tools_env *env, const char *resume_id,
                                        tny_subagent_plan *plan) {
+    return tny_subagent_plan_build_selected(env, resume_id, nullptr, plan);
+}
+extern "C" int tny_subagent_plan_build_selected(const tools_env *env, const char *resume_id,
+                                                yyjson_val *args, tny_subagent_plan *plan) {
     try {
         tny::c_string exe(tny_process_self_path());
         if (!exe) return -1; // preserve ENOTSUP on wasm
-        auto next = tny::make_owned<tny_subagent_plan_owner>(*env->ctx, resume_id, exe.get());
+        auto next = tny::make_owned<tny_subagent_plan_owner>(*env->ctx, resume_id, args, exe.get());
         // Publish only a complete snapshot; a failed rebuild keeps the old one.
         tny_subagent_plan_free(plan);
         plan->argv = next->argv.data();

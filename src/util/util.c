@@ -56,7 +56,10 @@ void buf_append(buf_t *b, const void *data, size_t n) {
         return;
     }
     buf_reserve(b, n);
-    if (b->oom) return;
+    if (b->oom || !b->data) {
+        b->oom = true;
+        return;
+    }
     memcpy(b->data + b->len, data, n);
     b->len += n;
     b->data[b->len] = 0;

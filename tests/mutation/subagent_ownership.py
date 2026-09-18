@@ -63,14 +63,32 @@ MUTANTS = (
     (
         "wrong-provider",
         SOURCE,
-        "arg(tny_provider_name(&ctx));",
+        "arg(provider);",
         'arg("openai");',
     ),
     (
         "missing-key",
         SOURCE,
-        "const bool key = ctx.api_key && *ctx.api_key;",
+        "const bool key = parent && ctx.api_key && *ctx.api_key;",
         "const bool key = false;",
+    ),
+    (
+        "cross-provider-inherits-parent",
+        SOURCE,
+        "!provider || std::strcmp(provider, tny_provider_name(&ctx)) == 0",
+        "true",
+    ),
+    (
+        "ignored-model-override",
+        SOURCE,
+        'const char *model = jget_str(selection, "model");',
+        "const char *model = nullptr;",
+    ),
+    (
+        "ignored-effort-override",
+        SOURCE,
+        'const char *effort = jget_str(selection, "effort");',
+        "const char *effort = nullptr;",
     ),
     (
         "ambient-account-paired-with-selected-token",

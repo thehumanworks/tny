@@ -363,7 +363,7 @@ it. In the TUI a builtin slash command always wins over a same-named skill.
 
 ## Subagents
 
-Durable child **native** sessions ([ADR 0087](../adr/0087-explicit-subagent-contract-and-private-launch.md)). Each child is an ordinary workspace session run by a separate `tny ask` process; the parent receives only the child's final answer, never its transcript. Host backends own their own loops: tny never spawns native subagents for them and shows host task events only where the adapter supplies them (e.g. Cursor `cursor/task`).
+Durable child sessions ([ADR 0087](../adr/0087-explicit-subagent-contract-and-private-launch.md)). Each child is an ordinary workspace session run by a separate `tny ask` process; the parent receives only the child's final answer, never its transcript. The tool is owned by the native parent loop. A child may select any configured CLI provider, including a host provider; that host still owns its own loop. Host parents expose only the task events supplied by their adapter (e.g. Cursor `cursor/task`). See [ADR 0139](../adr/0139-subagent-provider-model-and-effort.md).
 
 Launch configuration is an owned snapshot, not a set of retained context or
 environment pointers ([ADR 0133](../adr/0133-owned-subagent-launch-snapshots.md)).
@@ -376,12 +376,47 @@ is not a shared run budget. Zero still means no explicit inherited step cap.
 
 | Action | Arguments | Result |
 | --- | --- | --- |
-| `create` | `prompt` (nonempty UTF-8); **omit `id`** | Runs one child turn and returns `subagent ID finished.` with the new durable id and the answer |
-| `message` | `id` returned by `create`, `prompt` | Appends one turn to that same child session |
+| `create` | `prompt` (nonempty UTF-8), optional `provider`, `model`, `effort`; **omit `id`** | Runs one child turn and returns `subagent ID finished.` with the new durable id and the answer |
+| `message` | `id` returned by `create`, `prompt`, optional `provider`, `model`, `effort` | Appends one turn to that same child session |
 | `inspect` | `id` | Stored identity and metadata: title, turns, provider, model, created/updated, status, exit code, liveness, and the stored answer when the last turn finished `done` |
 | `lifecycle` | `id` | `status`, `exit_code`, `running`, `resumable` read from the session and its writer lock |
 
 tny allocates the 16-lowercase-hex id; there is no alias namespace. Any `id` on `create` — a name, or even an existing hex id — is rejected before a child starts rather than silently resuming or overwriting. Other strings, including `last`, are not child ids. Relationship/configure actions and on-disk message queues do not exist; each `message` is one synchronous child turn.
+
+**Provider, model and reasoning effort.** `create` and `message` accept independent
+optional `provider`, `model` and `effort` strings. Omit `provider` to inherit the
+parent's effective provider. An exact same-provider selection retains the
+parent's resolved URL, wire format, credentials, model and effort. Explicit
+`model` and `effort` override those values; `effort: "default"` clears inherited
+or configured effort, and an inherited parent default stays default.
+
+A different `provider` resolves through the normal child CLI, including named
+native profiles, builtin subscription profiles, Cursor and `acp@NAME` profiles.
+It uses its own configuration and credentials, without the parent's resolved
+URL, wire, key, subscription token/account, model or effort. Ambient user
+environment and settings remain available, so their normal CLI precedence still
+applies. The provider must already be configured; the tool does not accept keys,
+endpoints or executable commands. Model and effort values use the existing CLI
+and provider validation, including provider-specific effort tokens.
+
+Selectors apply to one turn. On `message`, repeat a different provider and any
+model/effort overrides you want to keep; omissions inherit from the current
+parent, not from the child's previous turn. Host session pointers resume through
+the ordinary CLI when the selected provider matches the stored owner. A provider
+switch has the normal CLI transcript/resume semantics.
+
+```json
+{"action":"create","prompt":"Review the parser","provider":"review-profile","model":"review-model","effort":"high"}
+```
+
+Then continue using the returned child id:
+
+```json
+{"action":"message","id":"0123456789abcdef","prompt":"Check the edge cases","provider":"review-profile","effort":"default"}
+```
+
+All supplied selectors must be nonempty UTF-8 strings without embedded NULs;
+null and empty strings are invalid. `inspect` and `lifecycle` accept none.
 
 On the Responses wire (including Codex), function definitions explicitly retain
 non-strict optional arguments ([ADR 0136](../adr/0136-preserve-optional-tool-arguments-on-responses.md)).
@@ -392,20 +427,20 @@ of validation: empty or null `id` is still an argument, not omission.
 
 `lifecycle` reports what is recorded, not a description: a live writer lock is `running` (and not resumable); a stored `running` without a live writer is `stale`; stored `done`, `error` and `interrupted` keep their exit code; a session that never recorded a status (for example one written by an in-process `TNY_ISOLATE=0` turn) is `unknown` with `exit_code: null`, never an invented success.
 
-**Launch and inheritance.** The child is this same executable started through the host process seam (`tny_process_spawn`, no shell) in its own process group. Its argv carries only selectors: `--cwd`, `--provider` (the parent's effective profile name, so a remembered host `last_provider` cannot re-route it), `--wire-api`, `--model`, `--effort`, `--permission-mode`, `--ephemeral`, `ask --json --stdin`, and `--resume-id` for `message`. The prompt arrives on stdin. The parent's resolved API key and base URL — including a flag-selected `--api-key-env` key and a secret-bearing gateway URL — go into the child's private environment as `TNY_SUBAGENT_API_KEY` / `TNY_SUBAGENT_BASE_URL`, which the child reads through `--api-key-env` / `--base-url-env`; a `--chatgpt-token` (and `--chatgpt-account-id`) source becomes that child's `CHATGPT_ACCESS_TOKEN` (and `CHATGPT_ACCOUNT_ID`). The parent's own environment is never modified. Like any ambient provider key, these carriers are visible to the child's own tool subprocesses. Ceilings: the child gets `TNY_NESTED=1` with the parent's mode and `TNY_TOOLS` with the parent's profile, and an inherited `TNY_PERMISSION_MODE` is dropped, so a child can never run wider than its creator. Child stdout is bounded (8 MiB) and child stderr is discarded. Cancelling the parent turn sends the child its interrupt, which stops the child's own session runner; after 3 s the child's process tree is killed.
+**Launch and inheritance.** The child is this same executable started through the host process seam (`tny_process_spawn`, no shell) in its own process group. Its argv carries only selectors: `--cwd`, `--provider` (the selected profile name, so a remembered `last_provider` cannot re-route it), `--wire-api`, `--model`, `--effort`, `--permission-mode`, `--ephemeral`, `ask --json --stdin`, and `--resume-id` for `message`. The prompt arrives on stdin. For parent-provider inheritance, the parent's resolved API key and base URL — including a flag-selected `--api-key-env` key and a secret-bearing gateway URL — go into the child's private environment as `TNY_SUBAGENT_API_KEY` / `TNY_SUBAGENT_BASE_URL`, which the child reads through `--api-key-env` / `--base-url-env`; a `--chatgpt-token` (and `--chatgpt-account-id`) source becomes that child's `CHATGPT_ACCESS_TOKEN` (and `CHATGPT_ACCOUNT_ID`). The parent's own environment is never modified. Like any ambient provider key, these carriers are visible to the child's own tool subprocesses. Ceilings: the child gets `TNY_NESTED=1` with the parent's mode and `TNY_TOOLS` with the parent's profile, and an inherited `TNY_PERMISSION_MODE` is dropped, so a child can never run wider than its creator. Child stdout is bounded (8 MiB) and child stderr is discarded. Cancelling the parent turn sends the child its interrupt, which stops the child's own session runner; after the child's five-second cancellation deadline plus a one-second margin, its owned process tree is killed.
 
 **Stable diagnostics.** Every failure is one tool-result line `error: SUBAGENT_<CODE>: <guidance>`. The code is the contract; the guidance names a valid invocation or fallback and never echoes a supplied value, child stderr, partial output, a provider error body, a key or a base URL.
 
 | Code | When |
 | --- | --- |
-| `INVALID_ARGUMENT` | Not an object; missing/empty/non-string `action`; unknown field; `id` on `create`; missing or malformed `id` for `message`/`inspect`/`lifecycle`; missing, empty or non-UTF-8 `prompt`; a `prompt` on `inspect`/`lifecycle` |
+| `INVALID_ARGUMENT` | Not an object; missing/empty/non-string `action`; unknown field; `id` on `create`; missing or malformed `id` for `message`/`inspect`/`lifecycle`; missing, empty or non-UTF-8 `prompt`; a `prompt` or selector on `inspect`/`lifecycle`; invalid selector type, empty string, NUL or UTF-8 |
 | `UNSUPPORTED_ACTION` | Any other action, including `relationship` and `configure` |
-| `UNSUPPORTED_CONTEXT` | Embedded (libtny), prompt optimisation, `terminal` / `terminal+edit` tool profiles, `--ssh`, host providers, a build that cannot start processes (wasm), `message`/`inspect`/`lifecycle` under an ephemeral parent, or `message` to a host-owned session |
+| `UNSUPPORTED_CONTEXT` | Embedded (libtny), prompt optimisation, `terminal` / `terminal+edit` tool profiles, `--ssh`, host parents, a build that cannot start processes (wasm), `message`/`inspect`/`lifecycle` under an ephemeral parent |
 | `SESSION_NOT_FOUND` | No stored session with that id in this workspace |
 | `SESSION_BUSY` | The child holds its writer lock (a running turn), or the id is the parent's own session |
-| `AUTH_UNAVAILABLE` | The parent has no resolved credential for a non-`http://` provider |
+| `AUTH_UNAVAILABLE` | The selected provider is inherited from the parent, which has no resolved credential for a non-`http://` provider |
 | `LAUNCH_FAILED` | The child process could not be started |
-| `CHILD_FAILED` | The child exited nonzero, died on a signal, or its turn reported a failure; names the child id when one was stored |
+| `CHILD_FAILED` | The child exited nonzero (including an unknown or unconfigured selected provider), died on a signal, or its turn reported a failure; names the child id when one was stored |
 | `INVALID_RESPONSE` | The child exited 0 without a complete, well-formed turn result for the expected session (missing, malformed, truncated or unstored) |
 | `CANCELLED` | The parent turn was cancelled while the child ran |
 

@@ -136,6 +136,7 @@ files in this directory are the complete record.
 - [0136 — Preserve optional tool arguments on Responses](0136-preserve-optional-tool-arguments-on-responses.md)
 - [0137 — Linux/macOS CI and optional developer Nix](0137-linux-macos-ci-and-optional-nix.md)
 - [0138 — Full-screen agents dashboard](0138-full-screen-agents-dashboard.md)
+- [0139 — Subagent provider, model and reasoning effort](0139-subagent-provider-model-and-effort.md)
 - [0143 — Durable DAG execution over existing jobs](0143-durable-dag-over-jobs.md)
 - [0144 — Lazy, selective workflow context](0144-lazy-selective-workflow-context.md)
 - [0145 — Managed task workspaces with explicit integration](0145-managed-task-workspaces.md)
