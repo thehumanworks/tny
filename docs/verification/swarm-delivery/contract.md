@@ -113,3 +113,11 @@ Owned job descendants now refuse that launch mode before sandbox/log/fork side
 effects, using the inherited job-parent restriction rather than member identity.
 Ordinary non-job background terminal completion remains unchanged. This does not
 promise containment of arbitrary shell daemonization.
+
+## SDK delivery stack amendment 5
+
+SDK-only branch a3bb3f9 is published as PR #165 against main. The native feature
+branch locally incorporates that branch so its review can use the SDK branch as
+an explicit base without duplicate SDK feature diff. This local branch integration
+does not merge either hosted PR. It also preserves upstream's newer full-screen
+agents dashboard. Final native gates are reconciled against that effective base.
