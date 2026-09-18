@@ -258,6 +258,7 @@ export class Session {
   #closed = false;
   #closing;
   #active = false;
+  #lastUsage;
   #finalizerToken = {};
 
   constructor(runtime, runtimeId, sessionHandle, sessionId) {
@@ -285,6 +286,7 @@ export class Session {
     if (options.images?.length) throw new UnsupportedFeatureError("images");
     if (options.outputSchema) throw new UnsupportedFeatureError("outputSchema");
     this.#active = true;
+    this.#lastUsage = undefined;
     let drained = false;
     let abortRequested = false;
     let abortPromise;
@@ -317,6 +319,7 @@ export class Session {
           drained = true;
           break;
         }
+        if (item.value.type === "usage") this.#lastUsage = copyWorkflowUsage(item.value);
         yield item.value;
       }
     } finally {
@@ -333,12 +336,15 @@ export class Session {
           for (;;) {
             const item = await invoke(native.nextEvent(this.#runtimeId, this.#sessionHandle));
             if (item.done) break;
+            if (item.value.type === "usage") this.#lastUsage = copyWorkflowUsage(item.value);
           }
         } catch {}
       }
       this.#active = false;
     }
   }
+
+  get lastUsage() { return this.#lastUsage; }
 
   async ask(prompt, options = {}) {
     let text = "";
@@ -891,11 +897,25 @@ function selectedWorkflowContext(edge, result, maximumBytes) {
       throw new WorkflowContextError("JSON source exceeds selection read bound");
     }
     try {
+      // Inspect all numeric tokens, even values replaced by duplicate keys.
+      for (const token of result.output.matchAll(/"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/gs)) {
+        if (!token[0].startsWith('"') && !Number.isFinite(Number(token[0]))) {
+          throw new Error("nonfinite JSON number");
+        }
+      }
       const source = JSON.parse(result.output, (_key, value) => {
         if (typeof value === "number" && !Number.isFinite(value)) throw new Error();
         return value;
       });
       if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error();
+      const pending = [[source, 1]];
+      while (pending.length) {
+        const [item, depth] = pending.pop();
+        if (depth > 128) throw new Error("JSON nesting exceeds 128");
+        for (const value of Object.values(item)) {
+          if (value !== null && typeof value === "object") pending.push([value, depth + 1]);
+        }
+      }
       const fields = Object.create(null);
       for (const key of edge.fields) {
         if (!Object.hasOwn(source, key)) throw new Error();
@@ -1016,7 +1036,7 @@ class NativeWorkflowRunner {
     this.#onPermission = onPermission;
   }
 
-  async run(task, prompt, { signal }) {
+  async run(task, prompt, { signal, reportUsage }) {
     const options = task._runtimeOptions() ?? this.#runtime;
     if (!options) {
       throw new WorkflowDefinitionError(
@@ -1032,6 +1052,7 @@ class NativeWorkflowRunner {
       const answer = await session.ask(prompt, {
         signal,
         onEvent: async (event, current) => {
+          if (event.type === "usage") reportUsage(event);
           if (event.type === "error" && streamError === undefined) streamError = event;
           if (this.#onEvent) await this.#onEvent(task, event);
           if (event.type === "permission_request") {
@@ -1042,6 +1063,7 @@ class NativeWorkflowRunner {
           }
         },
       });
+      if (answer.usage !== undefined) reportUsage(answer.usage);
       let error;
       if (streamError !== undefined) {
         error = new WorkflowRunError(
@@ -1061,7 +1083,10 @@ class NativeWorkflowRunner {
       });
     } finally {
       try {
-        if (session) await session.close();
+        if (session) {
+          try { await session.close(); }
+          finally { if (session.lastUsage !== undefined) reportUsage(session.lastUsage); }
+        }
       } finally {
         if (runtime) await runtime.close();
       }
@@ -1077,6 +1102,7 @@ export class Workflow {
   #maxSelectionBytes;
   #runner;
   #nativeRunner;
+  #observed = new Map();
   #tasks = new Map();
   #running = false;
 
@@ -1120,6 +1146,11 @@ export class Workflow {
       ? new NativeWorkflowRunner(options.runtime, options.onEvent, options.onPermission)
       : undefined;
     this.#runner = options.runner ?? nativeRunner.run.bind(nativeRunner);
+  }
+
+  get partialUsage() {
+    return new WorkflowResult([...this.#observed].map(([name, usage]) =>
+      new WorkflowTaskResult({ name, status: WorkflowTaskStatus.failed, usage }))).usage;
   }
 
   get tasks() {
@@ -1196,6 +1227,7 @@ export class Workflow {
     if (this.#running) throw new WorkflowRunError("workflow is already running");
     const order = this.#topologicalOrder();
     this.#running = true;
+    this.#observed = new Map();
     const controller = new AbortController();
     const onAbort = () => controller.abort(externalSignal.reason);
     try {
@@ -1229,13 +1261,22 @@ export class Workflow {
         const rawExecution = await semaphore.run(
           controller.signal,
           () => {
+            this.#observed.set(task.name, undefined);
             const prompt = renderWorkflowPrompt(task, dependencies, this.#maxDependencyBytes,
               this.#maxInputBytes, this.#maxSelectionBytes);
-            return this.#runner(task, prompt, { signal: controller.signal });
+            const observed = this.#observed;
+            return this.#runner(task, prompt, {
+              signal: controller.signal,
+              reportUsage: (usage) => observed.set(task.name, copyWorkflowUsage(usage)),
+            });
           },
         );
-        throwIfWorkflowAborted(controller.signal);
         const execution = normalizeWorkflowExecution(rawExecution);
+        if (execution.usage !== undefined &&
+            (!this.#nativeRunner || this.#observed.get(task.name) === undefined)) {
+          this.#observed.set(task.name, execution.usage);
+        }
+        throwIfWorkflowAborted(controller.signal);
         const successfulStop = execution.stopReason === undefined ||
           execution.stopReason === "done";
         const error = execution.error ?? (successfulStop
@@ -1253,7 +1294,7 @@ export class Workflow {
           sessionId: execution.sessionId,
           stopReason: execution.stopReason,
           error,
-          usage: execution.usage,
+          usage: this.#observed.get(task.name),
         });
       } catch (error) {
         if (controller.signal.aborted) throwIfWorkflowAborted(controller.signal);
@@ -1261,6 +1302,7 @@ export class Workflow {
           name: task.name,
           status: WorkflowTaskStatus.failed,
           error: workflowError(error),
+          usage: this.#observed.get(task.name),
         });
       }
     };

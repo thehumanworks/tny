@@ -134,6 +134,8 @@ export class Runtime implements AsyncDisposable {
   [Symbol.asyncDispose](): Promise<void>;
 }
 export class Session implements AsyncDisposable {
+  /** Last observed usage for this turn, including cancellation drain events. */
+  readonly lastUsage: UsageEvent | undefined;
   readonly id: string;
   readonly closed: boolean;
   run(prompt: string, options?: RunOptions): AsyncGenerator<TnyEvent, void, void>;
@@ -298,6 +300,8 @@ export class WorkflowResult implements Iterable<readonly [string, WorkflowTaskRe
 }
 
 export interface WorkflowRunnerContext {
+  /** Replace this task's cumulative usage snapshot, also during cancellation cleanup. */
+  readonly reportUsage: (usage: UsageEvent) => void;
   readonly signal: AbortSignal;
 }
 
@@ -334,6 +338,8 @@ export interface WorkflowRunOptions {
 }
 
 export class Workflow {
+  /** Owned snapshot for admitted tasks in the latest run, including after rejection. */
+  readonly partialUsage: WorkflowUsageSummary;
   readonly tasks: readonly WorkflowTask[];
   constructor(options?: WorkflowOptions);
   task(name: string, prompt: string, options?: WorkflowTaskOptions): this;

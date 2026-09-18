@@ -14,7 +14,13 @@ from typing import TYPE_CHECKING, TypeVar
 
 from ._binding import Library
 from .errors import BadStateError
-from .events import AnyEvent, ErrorEvent, EventStreamError, PermissionRequestEvent
+from .events import (
+    AnyEvent,
+    ErrorEvent,
+    EventStreamError,
+    PermissionRequestEvent,
+    UsageEvent,
+)
 from .runtime import (
     CancellationToken,
     PermissionDecision,
@@ -216,6 +222,12 @@ class AsyncSession:
         self._runtime = runtime
         self._sync = sync
         self._token = CancellationToken()
+        self._last_usage: UsageEvent | None = None
+
+    @property
+    def last_usage(self) -> UsageEvent | None:
+        """Last observed usage in this turn, including cancellation drain events."""
+        return self._last_usage
 
     @property
     def closed(self) -> bool:
@@ -226,6 +238,7 @@ class AsyncSession:
 
     async def send(self, prompt: str | bytes) -> None:
         self._token = CancellationToken()
+        self._last_usage = None
         await self._runtime._call(self._sync.send, prompt)
 
     async def steer(self, text: str | bytes) -> None:
@@ -251,9 +264,10 @@ class AsyncSession:
 
                 def one_event() -> tuple[bool, AnyEvent | None]:
                     try:
-                        return True, self._sync.next_event(
-                            0.05, cancellation=self._token
-                        )
+                        event = self._sync.next_event(0.05, cancellation=self._token)
+                        if isinstance(event, UsageEvent):
+                            self._last_usage = event
+                        return True, event
                     except StopIteration:
                         return False, None
 
@@ -298,7 +312,9 @@ class AsyncSession:
 
             def one_event() -> bool:
                 try:
-                    self._sync.next_event(0.1, cancellation=self._token)
+                    event = self._sync.next_event(0.1, cancellation=self._token)
+                    if isinstance(event, UsageEvent):
+                        self._last_usage = event
                     return True
                 except StopIteration:
                     return False
