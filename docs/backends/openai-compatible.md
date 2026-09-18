@@ -48,6 +48,14 @@ Sessions persist **chat-shaped messages** on either wire (the portable
 format; old sessions resume unchanged). The responses wire translates at
 request time (`src/backends/openai/responses.cpp`).
 
+Function tools explicitly use `strict: false` unless their source definition
+sets a boolean strict value ([ADR 0136](../adr/0136-preserve-optional-tool-arguments-on-responses.md)).
+An absent or null strict setting therefore retains Chat Completions' non-strict
+semantics instead of letting Responses promote optional properties to required
+ones. Parameter schemas are unchanged; local tool validation and permission
+gates still apply. Explicit `strict: true` is preserved. This is separate from
+structured final-answer schemas and applies to Codex and wasm Responses too.
+
 Responses request (minimum):
 
 ```json
@@ -59,7 +67,7 @@ Responses request (minimum):
     { "type": "function_call", "call_id": "call_1", "name": "read_file", "arguments": "{…}" },
     { "type": "function_call_output", "call_id": "call_1", "output": "…" }
   ],
-  "tools": [ { "type": "function", "name": "read_file", "parameters": { } } ],
+  "tools": [ { "type": "function", "name": "read_file", "strict": false, "parameters": { } } ],
   "tool_choice": "auto",
   "stream": true,
   "store": false

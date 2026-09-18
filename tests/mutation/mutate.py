@@ -815,6 +815,13 @@ TARGETS = [
     ),
     (
         "src/backends/openai/responses.cpp",
+        ["tny_openai_responses_tools"],
+        r"if \(!strict|yyjson_mut_bool\(d, false\)",
+        "tests/integration/test_subagent.py",
+        "responses-optional-tools",
+    ),
+    (
+        "src/backends/openai/responses.cpp",
         None,
         None,
         "tests/integration/test_openai.py",
