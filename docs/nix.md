@@ -71,7 +71,7 @@ The overlay is the form to use with `environment.systemPackages` on NixOS or
 | `apps.<system>.tny` (`default`) | `nix run` entry point |
 | `overlays.default` | `tny` and `libtny` for any nixpkgs instance |
 | `devShells.<system>.default` | toolchain for `make`, `make test`, `make bench` |
-| `checks.<system>` | the package builds, the whole `make test` suite, and Bash/Zsh workflow tests |
+| `checks.<system>` | package builds, the whole `make test` suite, native Python/TypeScript SDK conformance, and Bash/Zsh workflow tests |
 | `formatter.<system>` | `nix fmt` for the Nix files |
 
 ## Without flakes

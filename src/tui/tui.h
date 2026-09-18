@@ -84,7 +84,7 @@ typedef struct tui {
     pid_t rc_pid;
     bool agents_dashboard, background_view, background_armed;
     session_meta *agents;
-    int n_agents, agent_selected;
+    int n_agents, agent_selected, agent_run_count;
     int64_t agents_refresh;
     bool rc_restart_pending; /* ctx changed mid-turn: restart after it ends */
 

@@ -34,6 +34,7 @@ Keep fx names so prompts and muscle memory transfer:
 | Images | `read_image` (png/jpeg/gif/webp via magic bytes; `vision` is an alias). A configured-false `image_input` policy hides and refuses this tool and image attachment; image generation remains independent. Tool result is a short text; the pixels are **captured when the tool runs** and go out as a follow-up user `image_url` message ([ADR 0008](../adr/0008-native-loop-images.md), [ADR 0096](../adr/0096-captured-image-queue-and-preview-lifecycle.md)), so rewriting the file later in the same batch cannot change what is sent. `tny ask --image PATH` attaches the same shape on the first user message (max 16 flags; a 17th is exit 1) |
 | Skills | `skill`, `install_skill` |
 | Subagents | `subagent` (`create`, `message`, `inspect`, `lifecycle`; see [Subagents](#subagents)) |
+| Team messages | `team_mailbox` (`send`, `inbox`, `read`, `ack`): bounded durable collaboration context. Native local only; private member capabilities or the recorded submitting session establish membership, never supplied sender/session IDs. See [mailboxes](../team-mailbox.md) |
 | Jobs | `job_submit`, `job_control` (`cancel`/`retry`/`rm`), `job_status` (`status`/`wait`/`logs`/`list`): durable ask/image work that outlives the turn ([jobs.md](../jobs.md), [ADR 0093](../adr/0093-durable-native-jobs-and-verified-retry.md)). Native only; hidden in embedded runtimes, under `--ssh`, and — for the execution tools — wherever no child process can be owned |
 | MCP | `mcp_search_tools`, `mcp_select_tool`, `mcp_features` only; namespaced `server/tool` names ride a system-prompt catalog, never the tools array ([ADR 0049](../adr/0049-mcp-background-warmup.md)) |
 | Speech | `speak` (text, optional voice): automatic ephemeral playback using the Codex login, independent of the chat provider; advertised only with credentials and a player. [Speech contract](../speech.md) |
@@ -98,6 +99,7 @@ warmed MCP client, and the `--ssh` route:
 | `tny ask-user [--json] QUESTION` | the frontend ask hook, with no socket round trip | `ask_user_question` |
 | `tny jobs submit ask\|image\|batch …` | the durable job service, with the prompt from `--prompt` or a piped producer | `job_submit` + job/items/outputs/request digest |
 | `tny jobs status\|wait\|logs\|list …` | the same service, read-only | `job_status` + job id |
+| `tny mailbox send\|inbox\|read\|ack …` | durable team messaging, with the active trusted caller identity | `team_send`, `team_inbox`, or `team_ack` + run/task/id and payload hash; never a payload or member secret |
 | `tny jobs cancel\|retry\|rm …` | the same service | `job_cancel` / `job_retry` / `job_rm` + job id |
 | `tny jobs …` that does not parse | refused with the reason: never handed to the shell, so the classifier cannot bypass the job identities | — |
 | `tny ask …` (no `-B`) | refused: a foreground nested agent inside a turn | — |
@@ -339,6 +341,9 @@ environment pointers ([ADR 0133](../adr/0133-owned-subagent-launch-snapshots.md)
 Construction must succeed completely before the snapshot is used. Credentials
 remain in the private child environment, never argv, and all copied environment
 storage is wiped on release. This does not change scheduling or remote support.
+A positive effective parent step limit is forwarded as `--max-steps` on both
+create and follow-up launches. The child gets its own per-turn ceiling; this
+is not a shared run budget. Zero still means no explicit inherited step cap.
 
 | Action | Arguments | Result |
 | --- | --- | --- |

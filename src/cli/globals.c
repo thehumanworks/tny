@@ -24,7 +24,7 @@ bool cli_is_command(const char *name) {
         "acp",    "sessions", "session",     "provider",  "providers", "backends", "models",
         "tasks",  "task",     "permissions", "workspace", "status",    "doctor",   "usage",
         "cursor", "mcp",      "login",       "logout",    "setup",     "agents",   "web",
-        "jobs",   "help",     NULL};
+        "jobs",   "mailbox",  "help",        NULL};
     for (size_t i = 0; names[i]; i++)
         if (strcmp(name, names[i]) == 0) return true;
     return false;

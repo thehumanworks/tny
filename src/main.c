@@ -121,6 +121,8 @@ int main(int argc, char **argv) {
         rc = cmd_ask(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "jobs") == 0) {
         rc = cmd_jobs(ctx, &g, cargc, cargv);
+    } else if (strcmp(cmd, "mailbox") == 0) {
+        rc = cmd_mailbox(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "resume") == 0) {
         rc = cmd_resume(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "acp") == 0) {

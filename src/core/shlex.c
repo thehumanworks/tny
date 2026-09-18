@@ -37,9 +37,9 @@ static bool dangerous_option(const char *tok) {
     for (const char *q = tok; *q && *q != '=' && n + 1 < sizeof name; q++) name[n++] = *q;
     name[n] = '\0';
     if (strstr(name, "exec")) return true;
-    static const char *bad[] = {"-delete", "-ok",      "-okdir", "-fprintf",   "-fls",
-                                "-fprint", "-fprint0", "--pre",  "--pre-glob", "--hostname-bin",
-                                NULL};
+    static const char *bad[] = {"-delete",  "-ok",      "-okdir", "-fprintf",   "-fls",
+                                "-fprint",  "-fprint0", "--pre",  "--pre-glob", "--hostname-bin",
+                                "--output", NULL};
     for (int i = 0; bad[i]; i++)
         if (strcmp(name, bad[i]) == 0) return true;
     return false;

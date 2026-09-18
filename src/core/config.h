@@ -156,6 +156,7 @@ typedef struct tny_ctx {
     bool agent_from_profile; /* agent_argv belongs to settings acp.NAME */
 
     /* repo limits (.tny.json — never authority, only limits) */
+    bool workspace_read_only;     /* inherited team policy, before rules/yolo */
     int max_steps;                /* 0 = unlimited (default); a cap comes
                                    * from --max-steps, /max-steps, or the
                                    * repo's .tny.json "steps" */

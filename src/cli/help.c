@@ -21,7 +21,8 @@ void help_root(void) {
           "  edit FILE              Exact-match replacement from stdin\n"
           "  ask-user QUESTION      Ask the owning session frontend (socket-bound)\n"
           "  image                  Generate, edit, export, or attach images\n"
-          "  jobs COMMAND           Durable ask/image jobs and bounded batches\n"
+          "  jobs COMMAND           Durable ask/image jobs and bounded DAG batches\n"
+          "  mailbox COMMAND        Durable addressed team messages; send/inbox/read/ack\n"
           "  resume [last|<id>]     Resume a session interactively\n"
           "  acp                    Start an ACP server over stdio (native loop)\n"
           "  agents                 Background agents dashboard; --json lists state\n"
@@ -529,10 +530,26 @@ bool help_for(const char *command) {
             "sheet.png \\\n"
             "                                 --size 512x256 --columns 2 --labels numbers\n";
     else if (strcmp(command, "jobs") == 0) text = jobs_help;
+    else if (strcmp(command, "mailbox") == 0)
+        text = "Usage: tny mailbox send|inbox|read|ack --run ID [options]\n\n"
+               "send requires --to lead|TASK --id MESSAGE_ID --text TEXT (at most 16 KiB).\n"
+               "read and ack require --id MESSAGE_ID. --json is accepted; output is JSON.\n"
+               "Send persists before returning, without interrupting an active tool. Native\n"
+               "members receive untrusted context at their next model-call boundary. Explicit\n"
+               "inbox/read marks delivery; ack is separate and messages replay until acked.\n"
+               "CLI operators address the submitting parent lead; nested members use private\n"
+               "run/task capabilities, never caller-supplied sender IDs. Native local only.\n"
+               "\nExamples:\n  tny mailbox send --run RUN --to 0 --id clarification-1 --text "
+               "'Check the parser'\n"
+               "  tny mailbox inbox --run RUN\n  tny mailbox ack --run RUN --id reply-1\n";
     else if (strcmp(command, "agents") == 0)
-        text = "Usage: tny agents [--json]\n\nOpen the background-session dashboard without "
-               "starting a provider. Up/Down select, Enter reattaches. q exits without stopping "
-               "work. Non-TTY prints a list.\n\nExamples:\n  tny agents\n  tny agents --json\n";
+        text = "Usage: tny agents [--run ID] [--json]\n\nOpen the background-session dashboard "
+               "without starting a provider. Up/Down select, Enter reattaches. q exits without "
+               "stopping work. Non-TTY prints a list.\n"
+               "--run ID shows the durable DAG task tree instead (status only). JSON includes "
+               "the authoritative job record in run; it never infers membership from sessions.\n"
+               "\nExamples:\n  tny agents\n  tny agents --json\n"
+               "  tny agents --run RUN_ID --json\n";
     else if (strcmp(command, "web") == 0)
         text = "Usage: tny web search|fetch TEXT [--json]\n\nSearch uses explicit overrides, else "
                "the Codex login for any provider/model; without that login, DuckDuckGo. "

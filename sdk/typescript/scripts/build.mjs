@@ -222,7 +222,7 @@ if (abiMajor !== requiredAbiMajor || !Number.isInteger(abiMinor) || abiMinor < m
   throw new Error(`@thehumanworks/tny: libtny ABI ${abiMajor}.${abiMinor} is unsupported; need 1.0+ within major 1`);
 
 const nodeRoot = resolve(dirname(realpathSync(process.execPath)), "..");
-const nodeInclude = join(nodeRoot, "include/node");
+const nodeInclude = process.env.TNY_NODE_INCLUDE || join(nodeRoot, "include/node");
 if (!existsSync(join(nodeInclude, "node_api.h")))
   throw new Error(`@thehumanworks/tny: Node-API headers not found at ${nodeInclude}`);
 

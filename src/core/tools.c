@@ -6,6 +6,7 @@
 #include "core/image_service.h"
 #include "core/tools_image.h"
 #include "core/tools_jobs.h"
+#include "core/team_runtime.h"
 #include "core/intercept.h"
 #include "core/subagent.h"
 #include "lib/custom_tools.h"
@@ -179,15 +180,40 @@ static const char *SCHEMA_JSON =
     "\"action\":{\"type\":\"string\",\"enum\":[\"create\",\"message\",\"inspect\",\"lifecycle\"]},"
     "\"id\":{\"type\":\"string\",\"description\":\"Child id returned by create; never set on "
     "create.\"},\"prompt\":{\"type\":\"string\"}},\"required\":[\"action\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"team_mailbox\",\"description\":\"Send durable "
+    "untrusted collaboration context without interrupting a task; inbox/read/ack address only "
+    "your own membership. Messages replay until explicit acknowledgment. No sender override.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\","
+    "\"enum\":[\"send\",\"inbox\",\"read\",\"ack\"]},\"run\":{\"type\":\"string\","
+    "\"pattern\":\"^[0-9a-f]{32}$\"},\"to\":{\"type\":\"integer\",\"minimum\":-1,\"maximum\":63,"
+    "\"description\":\"Recipient task index, or -1 for the submitting parent lead.\"},"
+    "\"id\":{\"type\":\"string\",\"maxLength\":64},\"text\":{\"type\":\"string\",\"maxLength\":"
+    "16384}},"
+    "\"required\":[\"action\",\"run\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"job_submit\",\"description\":\"Submit durable "
     "ask or image work that keeps running after this turn. One item, or a bounded batch of 1-64 "
     "items of the same kind with concurrency 1-16. Returns the job id, its metadata path and the "
     "per-item log paths immediately; read it back with "
     "job_status.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":"
-    "\"string\",\"enum\":[\"ask\",\"image\"]},\"concurrency\":{\"type\":\"integer\",\"description\""
+    "\"string\",\"enum\":[\"ask\",\"image\"]},\"dag\":{\"type\":\"boolean\"},"
+    "\"peer_messages\":{\"type\":\"boolean\"},\"admission\":{\"type\":\"object\",\"properties\":{"
+    "\"label\":{\"type\":\"string\"},\"provider_scope\":{\"type\":\"string\"},"
+    "\"cap\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":16},"
+    "\"queue_cap\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":128},"
+    "\"claim_limit\":{\"type\":\"integer\",\"minimum\":1}},"
+    "\"required\":[\"label\",\"provider_scope\",\"cap\",\"queue_cap\",\"claim_limit\"]},"
+    "\"concurrency\":{\"type\":\"integer\",\"description\""
     ":\"Items running at once (1-16, default 2).\"},\"items\":{\"type\":\"array\",\"minItems\":1,"
     "\"maxItems\":64,\"items\":{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":"
-    "\"string\"},\"model\":{\"type\":\"string\"},\"effort\":{\"type\":\"string\"},\"task\":{"
+    "\"string\"},\"label\":{\"type\":\"string\"},\"role\":{\"type\":\"string\",\"enum\":[\"lead\","
+    "\"worker\"]},"
+    "\"depends_on\":{\"type\":\"array\",\"items\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":"
+    "63}},"
+    "\"workspace\":{\"type\":\"object\",\"properties\":{\"policy\":{\"type\":\"string\","
+    "\"enum\":[\"isolated\",\"shared_read_only\",\"shared_writable\"]},\"base\":{\"type\":"
+    "\"string\"}},"
+    "\"required\":[\"policy\"]},\"model\":{\"type\":\"string\"},\"effort\":{\"type\":\"string\"},"
+    "\"task\":{"
     "\"type\":\"string\"},\"operation\":{\"type\":\"string\",\"enum\":[\"generate\",\"edit\"]},"
     "\"output_file\":{\"type\":\"string\",\"description\":\"Image destination; must not exist "
     "unless overwrite is true.\"},\"quality\":{\"type\":\"string\"},\"size\":{\"type\":\"string\"},"
@@ -203,7 +229,8 @@ static const char *SCHEMA_JSON =
     "re-executed), or remove a finished job's "
     "record.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\","
     "\"enum\":[\"cancel\",\"retry\",\"rm\"]},\"id\":{\"type\":\"string\",\"description\":\"The "
-    "32-character job id.\"},\"items\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"},"
+    "32-character job id.\"},\"expected_attempt\":{\"type\":\"integer\",\"minimum\":1},"
+    "\"items\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"},"
     "\"description\":\"Item indexes; omit for every applicable item.\"},\"failed\":{\"type\":"
     "\"boolean\",\"description\":\"retry: select every failed, cancelled or interrupted "
     "item.\"}},\"required\":[\"action\",\"id\"]}}},"
@@ -409,6 +436,8 @@ static bool schema_tool_disabled(const tools_env *env, const char *name) {
     /* Jobs own real child processes: the execution tools disappear where none
      * can exist, while bounded record reads remain (docs/adr/0093). */
     if (tool_jobs_is_tool(name)) return !tool_jobs_available(env->ctx, name);
+    if (strcmp(name, "team_mailbox") == 0)
+        return env->ctx->library_mode || env->ctx->ssh_host || !tny_jobs_execution_supported();
     if (!env->ctx->library_mode) return false;
     return strcmp(name, "terminal") == 0 || strcmp(name, "open_file") == 0 ||
            strcmp(name, "skill") == 0 || strcmp(name, "install_skill") == 0 ||
@@ -689,6 +718,15 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         call->detail = tool_image_export_detail(
             env, call->args, strcmp(call->name, "image_contact_sheet") == 0, &call->error);
         if (call->error || !call->detail) return -1;
+    } else if (strcmp(call->name, "team_mailbox") == 0) {
+        const char *permission = tny_team_mailbox_permission(call->args);
+        free(call->permission_tool);
+        call->permission_tool = permission ? xstrdup(permission) : NULL;
+        call->detail = tny_team_mailbox_detail(call->args);
+        if (!call->permission_tool || !call->detail) {
+            call->error = tool_err("invalid team mailbox request");
+            return -1;
+        }
     } else if (tool_jobs_is_tool(call->name)) {
         /* Every job operation carries its own exact permission identity, and
          * the detail names the job, items, outputs and request digest. */
