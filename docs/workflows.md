@@ -441,7 +441,7 @@ payloads, and all framing: Python `max_input_bytes`, TypeScript `maxInputBytes`,
 and shell `TNY_WORKFLOW_MAX_INPUT_BYTES`. It applies to roots and ordering-only
 consumers too. Both bounds must pass before provider execution. The new default
 can reject previously accepted very large task prompts; this intentional
-compatibility change is recorded in [ADR 0137](adr/0137-lazy-selective-workflow-context.md).
+compatibility change is recorded in [ADR 0144](adr/0144-lazy-selective-workflow-context.md).
 Set a larger explicit limit when required. Limits are positive integer byte
 counts, not token estimates. These APIs have no reliable provider tokenizer and
 do not expose invented token estimates or a model context-window guarantee.

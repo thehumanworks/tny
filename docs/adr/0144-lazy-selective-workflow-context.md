@@ -1,4 +1,4 @@
-# ADR 0137: Lazy, selective workflow context
+# ADR 0144: Lazy, selective workflow context
 
 - Status: Accepted
 - Date: 2026-09-18
@@ -230,3 +230,45 @@ ExceptionGroups and returned mixed BaseExceptionGroups, checking child frames,
 chains and weak-reference liveness. The ordinary failure allocation benchmark
 continues to retain 308,435 traced bytes, zero live runner locals, and zero
 composed bytes in traceback frames on the same Python 3.14.7 fixture.
+
+## Independent SDK PR integration
+
+The unpublished context decision is numbered 0144 because upstream used 0137
+for Linux/macOS CI and optional developer Nix. The feature branch locally merges
+`fff9791b3fde04cdeedac489656d55a48a9e5fa6` without changing that CI policy.
+Only the SDK test closure is added: the two SDK source directories, Python cffi,
+Node development headers, and `make test-sdks`. `TNY_NODE_INCLUDE` selects the
+separate Nix header prefix; the existing non-Nix default remains unchanged.
+
+The final branch gates build libtny and the Node addon in this worktree, rather
+than reusing the lead's artifacts as the earlier review did. Pinned
+`make quality`, `make test-sdks` and `make test-shell-workflows` pass. SDK results
+are 103 Python tests (one unstaged bundled-wheel skip), 57 JS tests, and both
+protocol conformance adapters. Explicit workflow reruns pass 31 Python and 22
+JS tests; strict mypy (including the Python 3.10 target) and TypeScript checks
+also pass. The Node-header fixture exercises an alternate prefix and a missing
+header error. Nix remains developer-only; no hermetic Nix build was run because
+Nix is not installed on this host. Darwin's quality gate explicitly skips GCC
+`-fanalyzer`; the existing Linux CI owns that check.
+
+Fresh context benchmark medians below use the final SDK implementation and
+`fff9791b3fde04cdeedac489656d55a48a9e5fa6` as baseline. They are a separate rerun,
+not replacements for the earlier measurements. The commands in “Evidence and
+reproduction” apply with this baseline SHA, five fresh processes per variant,
+Python 3.14.7 and Node 26.8.2 on Darwin arm64. Both JS variants load this
+worktree's freshly built native addon; neither makes a provider call.
+
+| Metric | Python baseline | Python final | JS baseline | JS final |
+| --- | ---: | ---: | ---: | ---: |
+| Rendered consumers at barrier | 32 | 1 | 32 | 1 |
+| Composed bytes at barrier | 8,395,008 | 262,344 | 8,395,008 | 262,344 |
+| Total composed bytes | 8,395,008 | 8,395,008 | 8,395,008 | 8,395,008 |
+| Peak traced/sampled heap bytes | 8,739,350 | 607,768 | 11,402,136 | 7,750,784 |
+| Peak RSS bytes | 43,843,584 | 35,078,144 | 73,007,104 | 68,648,960 |
+| Barrier latency ms | 1.759 | 1.297 | 1.601 | 1.545 |
+| Complete fixture ms | 2.693 | 2.833 | 3.109 | 3.629 |
+
+The complete fixture still composes every consumer and can take longer. This
+is bounded admission-time context ownership, not a general latency improvement.
+The final ordinary-failure benchmark also retains the earlier result: zero live
+runner locals and zero composed bytes in traceback frames.
