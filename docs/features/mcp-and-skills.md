@@ -138,6 +138,31 @@ wasm: not applicable. `terminal` cannot start a child process in the browser
 and returns its existing clean tool error, so no command reaches the
 recogniser.
 
+### Background terminal completion
+
+`terminal` with `background: true` returns JSON with an opaque `task_id`, a
+`log` path and a `collect` call. Use `terminal` with `{"task_id":"…"}` to
+inspect, or `{"task_id":"…","wait_s":30}` to wait (0–600 seconds). Do not
+combine a task ID with a command. All three tool profiles use the same JSON;
+a launch result is not an `exit: 0` claim about the command.
+
+Only `completed` with `exit_code: 0` proves success. Nonzero exits are `failed`;
+native signal termination is `signalled` with `signal` set and `exit_code`
+null. `launch_failed` records a failed native exec/setup. Missing or abandoned
+results are `unknown`, never success. An observation `timed_out` or `cancelled`
+stops the wait, not the task. Logs alone do not prove completion. No operation
+infers identity or cancellation authority from a PID.
+
+Native waiters reap their own commands and retain results under
+`~/.tny/terminal/`; accepted work survives caller/runner loss and is collectable
+from later turns/sessions. Loss of the waiter leaves an unknown outcome.
+SSH stores logs/status on the remote host under `~/.tny-bg/`; before a final
+record, its POSIX-only observer reports `unknown`, not proven running. Its
+`status_source: shell_wait` reports shell wait codes (signal-vs-explicit-exit
+is ambiguous); native results use `waitpid`. wasm returns unsupported.
+See [ADR 0136](../adr/0136-terminal-background-completion.md) for ownership,
+retention and loss semantics. Foreground timeout/cancellation is unchanged.
+
 ### Web search providers
 
 The builtin Codex ChatGPT Responses profile uses hosted `web_search` with live
@@ -348,6 +373,13 @@ storage is wiped on release. This does not change scheduling or remote support.
 | `lifecycle` | `id` | `status`, `exit_code`, `running`, `resumable` read from the session and its writer lock |
 
 tny allocates the 16-lowercase-hex id; there is no alias namespace. Any `id` on `create` — a name, or even an existing hex id — is rejected before a child starts rather than silently resuming or overwriting. Other strings, including `last`, are not child ids. Relationship/configure actions and on-disk message queues do not exist; each `message` is one synchronous child turn.
+
+On the Responses wire (including Codex), function definitions explicitly retain
+non-strict optional arguments ([ADR 0136](../adr/0136-preserve-optional-tool-arguments-on-responses.md)).
+Without this setting, provider strict normalization can force `id` on every
+`create` and `prompt` on every `inspect`/`lifecycle`, contradicting the tool's
+contract even after a steer. The fix is in request translation, not a relaxation
+of validation: empty or null `id` is still an argument, not omission.
 
 `lifecycle` reports what is recorded, not a description: a live writer lock is `running` (and not resumable); a stored `running` without a live writer is `stale`; stored `done`, `error` and `interrupted` keep their exit code; a session that never recorded a status (for example one written by an in-process `TNY_ISOLATE=0` turn) is `unknown` with `exit_code: null`, never an invented success.
 

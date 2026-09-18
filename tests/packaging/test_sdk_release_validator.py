@@ -65,7 +65,7 @@ class ReleaseValidatorTests(unittest.TestCase):
             "\n  publish-npm:\n", 1
         )[0]
         self.assertIn("--require-active", validation_job)
-        self.assertIn("needs: [build, musl, windows, validate-registries]", workflow)
+        self.assertIn("needs: [build, musl, validate-registries]", workflow)
         publish_job = workflow.split("  publish:\n", 1)[1].split(
             "\n  validate-registries:\n", 1
         )[0]

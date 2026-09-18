@@ -3,6 +3,7 @@
 #include "core/tools.h"
 #include "core/sandbox.h"
 #include "util/process.h"
+#include "util/terminal_task.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
 
@@ -89,56 +90,94 @@ static void shell_control_env(tools_env *env) {
     setenv("TNY_NESTED_MODE", tny_perm_mode_name(env->ctx->perm_mode), 1);
 }
 
-static char *run_background(tools_env *env, const char *cmd) {
-    tny_sandbox_command sandbox = {0};
-    char sandbox_err[192] = {0};
-    if (tny_sandbox_command_build(env->ctx, TNY_SHELL_PATH, cmd, &sandbox, sandbox_err,
-                                  sizeof sandbox_err) != 0)
-        return tool_err("%s", sandbox_err);
-    char *logdir = env->session ? path_join(env->session->dir, "bg") : xstrdup("/tmp/tny-bg");
-    mkdir_p(logdir);
-    char *id = gen_id();
-    buf_t logpath;
-    buf_init(&logpath);
-    buf_appendf(&logpath, "%s/%s.log", logdir, id);
+static void background_setup(void *ud) { shell_control_env(ud); }
 
-    pid_t pid = fork();
-    if (pid < 0) {
-        tny_sandbox_command_free(&sandbox);
-        free(logdir);
-        free(id);
-        buf_free(&logpath);
-        return tool_err("fork failed");
-    }
-    if (pid == 0) {
-        setsid();
-        shell_control_env(env);
-        int fd = open(logpath.data, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-        if (fd >= 0) {
-            dup2(fd, 1);
-            dup2(fd, 2);
-            close(fd);
-        }
-        int devnull = open("/dev/null", O_RDONLY);
-        if (devnull >= 0) {
-            dup2(devnull, 0);
-            close(devnull);
-        }
-        if (chdir(env->ctx->cwd) != 0) _exit(127);
-        execv(sandbox.argv[0], sandbox.argv);
-        _exit(127);
-    }
-    tny_sandbox_command_free(&sandbox);
+char *tool_terminal_task_result(const tny_terminal_task *task, const char *observation,
+                                const char *status_source) {
     buf_t out;
     buf_init(&out);
-    buf_appendf(&out,
-                "started in background: pid %d\ncwd: %s\nlog: %s\n"
-                "Check progress with read_file on the log.",
-                (int)pid, env->ctx->cwd, logpath.data);
-    free(logdir);
-    free(id);
-    buf_free(&logpath);
+    buf_appends(&out, "{\"task_id\":");
+    jescape(&out, task->id);
+    buf_appends(&out, ",\"state\":");
+    jescape(&out, tny_terminal_state_name(task->state));
+    buf_appends(&out, ",\"exit_code\":");
+    if (task->exit_code >= 0) buf_appendf(&out, "%d", task->exit_code);
+    else buf_appends(&out, "null");
+    buf_appends(&out, ",\"signal\":");
+    if (task->signal) buf_appendf(&out, "%d", task->signal);
+    else buf_appends(&out, "null");
+    buf_appendf(&out, ",\"error_code\":%d,\"log\":", task->error);
+    char *log = task->dir ? path_join(task->dir, "output.log") : NULL;
+    jescape(&out, log ? log : "");
+    free(log);
+    buf_appends(&out, ",\"observation\":");
+    jescape(&out, observation);
+    buf_appends(&out, ",\"status_source\":");
+    jescape(&out, status_source);
+    buf_appends(&out, ",\"collect\":{\"tool\":\"terminal\",\"arguments\":{\"task_id\":");
+    jescape(&out, task->id);
+    buf_appends(&out, ",\"wait_s\":30}}}");
     return buf_detach(&out);
+}
+
+static char *background_call(tools_env *env, const char *cmd, const char *id, yyjson_val *args) {
+    if (!tny_terminal_supported())
+        return tool_err("background terminal tasks are unsupported on this platform");
+    int64_t wait_s = jget_int(args, "wait_s", 0);
+    if ((jget(args, "wait_s") && !yyjson_is_int(jget(args, "wait_s"))) || wait_s < 0 ||
+        wait_s > 600)
+        return tool_err("wait_s must be between 0 and 600");
+    if (id && (cmd || jget_bool(args, "background", false)))
+        return tool_err("task_id cannot be combined with command or background");
+    if (!id && jget(args, "wait_s")) return tool_err("wait_s requires task_id");
+    char *root = path_join(env->ctx->tny_dir, "terminal");
+    if (!root) return tool_err("out of memory");
+    tny_terminal_task task = {0};
+    int rc;
+    const char *observation = "snapshot";
+    if (!id) {
+        tny_sandbox_command sandbox = {0};
+        char err[192] = {0};
+        if (tny_sandbox_command_build(env->ctx, TNY_SHELL_PATH, cmd, &sandbox, err, sizeof err) !=
+            0) {
+            free(root);
+            return tool_err("%s", err);
+        }
+        rc = tny_terminal_start(root, env->ctx->cwd, sandbox.argv, background_setup, env, &task);
+        tny_sandbox_command_free(&sandbox);
+        if (!task.dir) {
+            free(root);
+            return tool_err("background launch failed: %s", strerror(rc));
+        }
+        observation = rc ? "launch_unconfirmed" : "launched";
+        char task_id[sizeof task.id];
+        memcpy(task_id, task.id, sizeof task_id);
+        tny_terminal_task_free(&task);
+        rc = tny_terminal_inspect(root, task_id, &task);
+    } else {
+        int64_t deadline = monotonic_ms() + wait_s * 1000;
+        for (;;) {
+            rc = tny_terminal_inspect(root, id, &task);
+            if (rc || tny_terminal_finished(&task) || !wait_s) break;
+            if (env->control_pump) env->control_pump(env->control_pump_ud, 0);
+            if (shell_cancelled(env)) {
+                observation = "cancelled";
+                break;
+            }
+            int64_t left = deadline - monotonic_ms();
+            if (left <= 0) {
+                observation = "timed_out";
+                break;
+            }
+            tny_terminal_task_free(&task);
+            (void)tny_poll(NULL, 0, left < 50 ? (int)left : 50);
+        }
+    }
+    char *result = rc ? tool_err("cannot inspect terminal task: %s", strerror(rc))
+                      : tool_terminal_task_result(&task, observation, "waitpid");
+    tny_terminal_task_free(&task);
+    free(root);
+    return result;
 }
 
 char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled) {
@@ -148,19 +187,14 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     }
     *handled = true;
     const char *cmd = jget_str(args, "command");
-    if (!cmd || !*cmd) return tool_err("missing command");
+    const char *id = jget_str(args, "task_id");
+    if (jget(args, "task_id") && !id) return tool_err("task_id must be a string");
+    if (id) return background_call(env, cmd, id, args);
+    if (!cmd || !*cmd) return tool_err("missing command or task_id");
+    if (jget_bool(args, "background", false)) return background_call(env, cmd, NULL, args);
+    if (jget(args, "wait_s")) return tool_err("wait_s requires task_id");
     int64_t timeout_s = jget_int(args, "timeout_s", 120);
     if (timeout_s <= 0 || timeout_s > 600) timeout_s = 120;
-    if (jget_bool(args, "background", false)) {
-        char *started = run_background(env, cmd);
-        if (!tny_tool_profile_is_shell(env->ctx) || !started) return started;
-        buf_t result;
-        buf_init(&result);
-        buf_appendf(&result, "exit: 0\nbytes: %zu\ncwd: %s\n%s", strlen(started), env->ctx->cwd,
-                    started);
-        free(started);
-        return buf_detach(&result);
-    }
 
     tny_sandbox_command sandbox = {0};
     char sandbox_err[192] = {0};

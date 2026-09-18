@@ -1,7 +1,8 @@
 # Agents dashboard verification
 
 Date: 2026-09-18. Baseline: `89bcd5918da0e225e1806813a206d007daafac0a`.
-Platform: macOS arm64. Decision: [ADR 0136](../adr/0136-full-screen-agents-dashboard.md).
+Platform: macOS arm64. Decision: [ADR 0138](../adr/0138-full-screen-agents-dashboard.md)
+(renumbered from the original 0136 draft after `main` allocated that number).
 This record captures the delivered checks; it is not a pre-implementation plan.
 
 ## Requirements and checks
@@ -12,7 +13,7 @@ This record captures the delivered checks; it is not a pre-implementation plan.
 | R2 | Clear pending/partial display text, but retain the saved session and draft. | `clear_screen_discards_only_display_text`; real-runner checkpoint, replay and follow-up assertions. |
 | R3 | Arming/refusing handoff and dashboard refresh do not clear the screen. | No-erase assertions before handoff and after refusal; bounded wait for a new repaint with unchanged erase count. |
 | R4 | Plain/JSON listings remain escape-free; dashboard startup needs no credentials/provider work. | Empty-workspace CLI checks, both normal and `--color=never` PTYs, plus `clear_screen_preserves_non_tty_output`. |
-| R5 | Keep the approved C11/private C++20 boundary, document the decision, and meet project gates. | ADR 0136, quality/leak checks, size measurement and focused review below. |
+| R5 | Keep the approved C11/private C++20 boundary, document the decision, and meet project gates. | ADR 0138, quality/leak checks, size measurement and focused review below. |
 
 ## Results
 
@@ -32,7 +33,7 @@ Commands run from the repository root with `mise exec --` and the pinned tools.
 | `node tests/site/test_term.js` | Passed. |
 | `uv run --no-project --with jsonschema python tests/integration/test_settings_schema.py` | Passed: all four checks, including optional schema validation. |
 | `uv run --no-project --with playwright python tests/integration/test_site_mobile.py` | Passed on an unchanged retry; see the optional-browser observation below. |
-| ADR link and registration check | Passed: unique 0136 identifier, one index entry, valid verification-record link. Existing numbered ADRs are unchanged. |
+| ADR link and registration check | Passed on the original branch as unique 0136. After merging `main`, the decision is ADR 0138 with one index entry and a valid verification-record link. |
 | `git diff --check` | Passed. |
 
 Tool versions: clang-format 23.1.0, clang-tidy 22.1.8, Ruff 0.16.6,

@@ -1,0 +1,76 @@
+{
+  "binary_sha256": "277849b37c4b3be547be1cd410e394e3d821e2d7f3e59ab06a4aa2867e8b2b75",
+  "provider": "codex",
+  "model": "gpt-5.6-sol",
+  "parent_session_id": "e875f416c7e3ece4",
+  "calls": [
+    {
+      "action": "create",
+      "prompt": "Reply with exactly ALPHA_OK. Do not call any tool or create agents."
+    },
+    {
+      "action": "create",
+      "prompt": "Reply with exactly BETA_OK. Do not call any tool or create agents."
+    },
+    {
+      "action": "message",
+      "id": "41f9b88e69874658",
+      "prompt": "Reply with exactly ALPHA_FOLLOWUP_OK. Do not call tools."
+    },
+    {
+      "action": "message",
+      "id": "e92aa60e20d61c06",
+      "prompt": "Reply with exactly BETA_FOLLOWUP_OK. Do not call tools."
+    },
+    {
+      "action": "inspect",
+      "id": "41f9b88e69874658"
+    },
+    {
+      "action": "inspect",
+      "id": "e92aa60e20d61c06"
+    },
+    {
+      "action": "lifecycle",
+      "id": "41f9b88e69874658"
+    },
+    {
+      "action": "lifecycle",
+      "id": "e92aa60e20d61c06"
+    }
+  ],
+  "results": [
+    "subagent 41f9b88e69874658 finished.\nid: 41f9b88e69874658 (use action=message id=41f9b88e69874658 to continue)\nresult:\nALPHA_OK",
+    "subagent e92aa60e20d61c06 finished.\nid: e92aa60e20d61c06 (use action=message id=e92aa60e20d61c06 to continue)\nresult:\nBETA_OK",
+    "subagent 41f9b88e69874658 finished.\nid: 41f9b88e69874658 (use action=message id=41f9b88e69874658 to continue)\nresult:\nALPHA_FOLLOWUP_OK",
+    "subagent e92aa60e20d61c06 finished.\nid: e92aa60e20d61c06 (use action=message id=e92aa60e20d61c06 to continue)\nresult:\nBETA_FOLLOWUP_OK",
+    "subagent 41f9b88e69874658\ntitle: Reply with exactly ALPHA_OK. Do not call any tool or create agents.\nturns: 2\nprovider: codex\nmodel: gpt-5.6-sol\ncreated: 2026-09-18T18:37:37Z\nupdated: 2026-09-18T18:37:51Z\nstatus: done\nexit_code: 0\nrunning: false\nresumable: true\nresult:\nALPHA_FOLLOWUP_OK",
+    "subagent e92aa60e20d61c06\ntitle: Reply with exactly BETA_OK. Do not call any tool or create agents.\nturns: 2\nprovider: codex\nmodel: gpt-5.6-sol\ncreated: 2026-09-18T18:37:42Z\nupdated: 2026-09-18T18:37:55Z\nstatus: done\nexit_code: 0\nrunning: false\nresumable: true\nresult:\nBETA_FOLLOWUP_OK",
+    "subagent 41f9b88e69874658\nstatus: done\nexit_code: 0\nrunning: false\nresumable: true",
+    "subagent e92aa60e20d61c06\nstatus: done\nexit_code: 0\nrunning: false\nresumable: true"
+  ],
+  "children": [
+    {
+      "session_id": "41f9b88e69874658",
+      "turns": 2,
+      "status": "done",
+      "exit_code": 0,
+      "answers": [
+        "ALPHA_OK",
+        "ALPHA_FOLLOWUP_OK"
+      ]
+    },
+    {
+      "session_id": "e92aa60e20d61c06",
+      "turns": 2,
+      "status": "done",
+      "exit_code": 0,
+      "answers": [
+        "BETA_OK",
+        "BETA_FOLLOWUP_OK"
+      ]
+    }
+  ],
+  "output": "MULTI_AGENT_OK\n\n- ALPHA: `41f9b88e69874658`\n- BETA: `e92aa60e20d61c06`",
+  "exit_code": 0
+}

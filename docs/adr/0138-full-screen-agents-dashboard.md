@@ -1,6 +1,9 @@
-# ADR 0136: Full-screen agents dashboard
+# ADR 0138: Full-screen agents dashboard
 
 Date: 2026-09-18. Status: accepted.
+
+Originally drafted as ADR 0136 on `worktree/agents-dashboard`. Renumbered to
+0138 when that branch merged with `main`, which had already allocated 0136.
 
 ## Context
 

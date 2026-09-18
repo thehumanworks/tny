@@ -1102,6 +1102,11 @@ class Handler(BaseHTTPRequestHandler):
                 ),
                 f"responses tools must be flat functions or pinned ChatGPT hosted search: {t}",
             )
+            if t.get("type") == "function":
+                need(
+                    isinstance(t.get("strict"), bool),
+                    f"Responses function tools must declare strict explicitly: {t}",
+                )
         if EXPECT_TOOL_NAMES is not None:
             actual = {t.get("name", t["type"]) for t in req.get("tools", [])}
             expected = set(EXPECT_TOOL_NAMES.split(",")) if EXPECT_TOOL_NAMES else set()

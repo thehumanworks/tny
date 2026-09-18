@@ -137,7 +137,7 @@ for its provider response to finish, then checkpoints before the first local too
 
 Each interactive dashboard entry clears the visible screen and terminal scrollback
 and paints the list from the top-left corner, separate from the chat or shell
-output ([ADR 0136](adr/0136-full-screen-agents-dashboard.md)). Terminals without
+output ([ADR 0138](adr/0138-full-screen-agents-dashboard.md)). Terminals without
 scrollback-erasure support still clear the visible screen. A Left-arrow handoff
 clears only when the runner acknowledges it, not while the handoff is armed.
 Periodic refreshes do not clear again. Saved transcripts and composer drafts are

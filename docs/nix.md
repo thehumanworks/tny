@@ -7,16 +7,16 @@ toolchain. Design rationale: [ADR 0035](adr/0035-nix-flake-packaging.md).
 Systems: `x86_64-linux`, `aarch64-linux`, `aarch64-darwin`. Intel Mac is not a
 tny target ([ADR 0006](adr/0006-ci-build-targets.md)).
 
-The `.github/workflows/nix.yml` matrix native-checks all three systems on
-`ubuntu-24.04`, `ubuntu-24.04-arm`, and `macos-15`, respectively. The three
-entries share one `check` job and the same `nix flake check`, binary smoke,
-revision, and `nix-instantiate` steps, so wrapping, RUNPATH, closure, and
-sandbox behavior are gated on both Linux architectures as well as Apple
-Silicon. Do not add `x86_64-darwin`. `tests/integration/test_nix_ci_matrix.py`
-keeps that matrix, the flake `systems` list, and these docs in lockstep. The
-`checks.tests` fileset therefore includes `flake.nix` and
-`.github/workflows/nix.yml` (`nix/source.nix`): a filtered source without them
-fails this lockstep test inside `nix flake check`.
+Nix is an **optional developer** workflow, not part of GitHub Actions or
+release gating ([ADR 0137](adr/0137-linux-macos-ci-and-optional-nix.md)). Run
+`nix flake check` locally when you want hermetic build, test, wrapping and
+closure checks. The flake, packages, dev shell, `default.nix`, `shell.nix` and
+local checks remain available on all three systems. Do not add `x86_64-darwin`.
+
+`tests/integration/test_nix_ci_matrix.py` keeps that developer-only contract,
+the flake systems list and the Linux/macOS CI policy in lockstep. The test
+fileset includes `flake.nix` and the workflows directory (`nix/source.nix`),
+so the same policy checks run inside an optional local `nix flake check`.
 
 ## Run it
 

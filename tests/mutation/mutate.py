@@ -43,6 +43,13 @@ TARGETS = [
         "agents-dashboard",
     ),
     (
+        "src/util/terminal_task.c",
+        ["monitor", "tny_terminal_inspect"],
+        r"task->exit_code == 0|waited != child|owner != TNY_JOBS_OWNER_HELD",
+        "tests/integration/test_terminal_background.py",
+        "terminal-completion",
+    ),
+    (
         "src/cli/cmd_misc.c",
         ["status_codex_usage"],
         r"yyjson_get_sint\(duration\) != 604800|usage.available = true",
@@ -819,6 +826,13 @@ TARGETS = [
         ["ac_config_has_value", "ac_find_model_config", "ac_set_requested_model"],
         None,
         "tests/integration/test_acp.sh",
+    ),
+    (
+        "src/backends/openai/responses.cpp",
+        ["tny_openai_responses_tools"],
+        r"if \(!strict|yyjson_mut_bool\(d, false\)",
+        "tests/integration/test_subagent.py",
+        "responses-optional-tools",
     ),
     (
         "src/backends/openai/responses.cpp",
