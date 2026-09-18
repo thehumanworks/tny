@@ -534,6 +534,25 @@ _tny_workflow_append_dependency_context() {
     printf '%s\n' '</tny_workflow_dependencies>' >> "$composed"
 }
 
+_tny_workflow_compose_context() {
+    local task composed maximum bytes
+    task=$1
+    composed=$2
+    maximum=${TNY_WORKFLOW_MAX_INPUT_BYTES:-2097152}
+    bytes=$(wc -c < "$TNY_WORKFLOW_DIR/tasks/$task/prompt" | tr -d ' ')
+    if [ "$bytes" -gt "$maximum" ]; then
+        _tny_workflow_error "complete workflow input exceeds $maximum bytes"
+        return 1
+    fi
+    cp "$TNY_WORKFLOW_DIR/tasks/$task/prompt" "$composed" || return
+    _tny_workflow_append_dependency_context "$task" "$composed" || return
+    bytes=$(wc -c < "$composed" | tr -d ' ')
+    if [ "$bytes" -gt "$maximum" ]; then
+        _tny_workflow_error "complete workflow input exceeds $maximum bytes"
+        return 1
+    fi
+}
+
 _tny_workflow_execute_task() {
     local task task_dir run_dir composed output_tmp error_tmp child rc value executable task_path
     task=$1
@@ -545,17 +564,14 @@ _tny_workflow_execute_task() {
     executable=${TNY_WORKFLOW_TNY:-tny}
     task_path=
 
-    cp "$task_dir/prompt" "$composed" || return
-    if [ -s "$task_dir/dependencies" ]; then
-        if ! _tny_workflow_append_dependency_context "$task" "$composed" 2> "$error_tmp"; then
-            : > "$output_tmp"
-            mv -f "$output_tmp" "$run_dir/stdout"
-            mv -f "$error_tmp" "$run_dir/stderr"
-            printf '%s\n' 1 > "$run_dir/exit_code"
-            _tny_workflow_write_atomic "$run_dir/status" failed
-            : > "$run_dir/done"
-            return 1
-        fi
+    if ! _tny_workflow_compose_context "$task" "$composed" 2> "$error_tmp"; then
+        : > "$output_tmp"
+        mv -f "$output_tmp" "$run_dir/stdout"
+        mv -f "$error_tmp" "$run_dir/stderr"
+        printf '%s\n' 1 > "$run_dir/exit_code"
+        _tny_workflow_write_atomic "$run_dir/status" failed
+        : > "$run_dir/done"
+        return 1
     fi
 
     set -- "$executable"
@@ -830,6 +846,10 @@ _tny_workflow_run_impl() {
     maximum=${TNY_WORKFLOW_MAX_DEPENDENCY_BYTES:-$TNY_WORKFLOW_DEFAULT_MAX_DEPENDENCY_BYTES}
     if ! _tny_workflow_validate_integer "$maximum"; then
         _tny_workflow_error "TNY_WORKFLOW_MAX_DEPENDENCY_BYTES must be a positive integer"
+        return 2
+    fi
+    if ! _tny_workflow_validate_integer "${TNY_WORKFLOW_MAX_INPUT_BYTES:-2097152}"; then
+        _tny_workflow_error "TNY_WORKFLOW_MAX_INPUT_BYTES must be a positive integer"
         return 2
     fi
 

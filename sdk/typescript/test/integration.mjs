@@ -232,6 +232,11 @@ await withMock({ MOCK_SLOW_MS: "50" }, async (baseUrl) => {
   assert.equal(result.require("workflow-merge").stopReason, "done");
   assert.ok(seen.has("workflow-first:text_delta"));
   assert.ok(seen.has("workflow-merge:turn_end"));
+  assert.equal(result.usage.knownTasks, 3);
+  assert.equal(result.usage.unknownTasks, 0);
+  assert.equal(result.usage.inputTokens,
+    result.results.reduce((sum, item) => sum + item.usage.inputTokens, 0n));
+  assert.equal(result.require("workflow-merge").usage.type, "usage");
 });
 
 await withMock({ MOCK_SENSITIVE: "1" }, async (baseUrl) => {

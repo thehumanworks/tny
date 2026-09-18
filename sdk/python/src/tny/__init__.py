@@ -75,6 +75,7 @@ from .toolkit import TranscriptionResult as TranscriptionResult
 from .workflow import EventHandler as EventHandler
 from .workflow import PermissionHandler as PermissionHandler
 from .workflow import Workflow as Workflow
+from .workflow import WorkflowArtifact as WorkflowArtifact
 from .workflow import WorkflowContextError as WorkflowContextError
 from .workflow import WorkflowDefinitionError as WorkflowDefinitionError
 from .workflow import WorkflowDependency as WorkflowDependency
@@ -142,6 +143,7 @@ __all__ = (
     "TranscriptionResult",
     "UnsupportedError",
     "Workflow",
+    "WorkflowArtifact",
     "WorkflowContextError",
     "WorkflowDependency",
     "WorkflowDefinitionError",
