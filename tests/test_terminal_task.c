@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/file.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -239,6 +240,20 @@ TEST terminal_missing_and_corrupt_records_never_report_success(void) {
         ASSERT(yyjson_is_null(jget(yyjson_doc_get_root(done), "exit_code")));
         yyjson_doc_free(done);
     }
+    /* A concurrent observer's shared probe must not revive a stale running
+     * record. Only the launcher's/waiter's exclusive lock proves ownership. */
+    const char *running = "{\"state\":1,\"exit_code\":-1,\"signal\":0,\"error\":0}";
+    ASSERT_EQ(0, file_write_atomic(path, running, strlen(running)));
+    char *lock = path_join(dir, "owner.lock");
+    int observer = open(lock, O_RDWR | O_CREAT, 0600);
+    ASSERT(observer >= 0);
+    ASSERT_EQ(0, flock(observer, LOCK_SH | LOCK_NB));
+    yyjson_doc *done = collect("0123456789abcdef", 0);
+    ASSERT(done);
+    ASSERT_STR_EQ("unknown", jget_str(yyjson_doc_get_root(done), "state"));
+    yyjson_doc_free(done);
+    close(observer);
+    free(lock);
     free(path);
     free(dir);
     free(tasks);

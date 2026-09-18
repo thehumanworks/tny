@@ -31,8 +31,10 @@ Only the command is sandboxed. There is no `waitpid(-1)` or global signal
 policy change in the caller. The OS adopter reaps the detached waiter, as for
 other detached processes (Linux containers must use a reaping init).
 
-The command does not inherit the owner lock. A live lock proves that a waiter
-owns a nonterminal record, without consulting a stored PID. A lost waiter,
+The command does not inherit the owner lock. An exclusive live lock proves
+that a waiter owns a nonterminal record, without consulting a stored PID.
+Inspectors probe with shared locks, so concurrent readers cannot impersonate
+an exclusive owner and revive an abandoned record. A lost waiter,
 missing/corrupt record or unrecoverable publication becomes `unknown`, never
 success. The command may continue after waiter loss; there is no invented
 exit status. A failed launch acknowledgment is `launch_unconfirmed`, because

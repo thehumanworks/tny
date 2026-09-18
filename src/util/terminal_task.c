@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #ifndef __EMSCRIPTEN__
+#include <sys/file.h>
 #include <sys/wait.h>
 #endif
 
@@ -73,6 +74,27 @@ static int publish(const tny_terminal_task *task) {
 }
 #endif
 
+/* Inspectors must not impersonate a live writer to one another. Job admission
+ * uses an exclusive probe for conservative reclamation; observation instead
+ * takes a shared lock, so only the exclusive launch/waiter lock means held. */
+static tny_jobs_owner_state task_owner_state(const char *path) {
+#ifdef __EMSCRIPTEN__
+    (void)path;
+    return TNY_JOBS_OWNER_UNKNOWN;
+#else
+    int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    if (fd < 0) return errno == ENOENT ? TNY_JOBS_OWNER_FREE : TNY_JOBS_OWNER_UNKNOWN;
+    struct stat st;
+    tny_jobs_owner_state state = TNY_JOBS_OWNER_UNKNOWN;
+    if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode)) {
+        if (flock(fd, LOCK_SH | LOCK_NB) == 0) state = TNY_JOBS_OWNER_FREE;
+        else if (errno == EWOULDBLOCK) state = TNY_JOBS_OWNER_HELD;
+    }
+    close(fd);
+    return state;
+#endif
+}
+
 int tny_terminal_inspect(const char *root, const char *id, tny_terminal_task *task) {
     int rc = task_init(root, id, task);
     if (rc) return rc;
@@ -85,7 +107,7 @@ int tny_terminal_inspect(const char *root, const char *id, tny_terminal_task *ta
     }
     /* Probe before reading: if the lock was released, its final publication
      * precedes this read. Never overwrite the owner's record during inspection. */
-    tny_jobs_owner_state owner = tny_jobs_host_owner_state(lock);
+    tny_jobs_owner_state owner = task_owner_state(lock);
     char data[1024];
     ssize_t len = -1;
     int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
