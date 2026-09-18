@@ -86,6 +86,7 @@ def main() -> int:
         '"${CC:-cc}" --version',
         '"${CXX:-c++}" --version',
         "build-base g++",
+        "apk add --no-cache build-base g++ python3 git",
         "make test-cpp-build",
         "test-parser-fuzz-smoke",
         "make test-libtny-fuzz test-parser-fuzz",

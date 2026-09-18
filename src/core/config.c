@@ -597,6 +597,8 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     ctx->perm_mode = TNY_MODE_YOLO;
     ctx->tool_profile = TNY_TOOLS_ALL;
     ctx->max_steps = 0; /* unlimited; .tny.json "steps" or --max-steps cap it */
+    const char *read_only = getenv("TNY_TEAM_READ_ONLY");
+    ctx->workspace_read_only = read_only && strcmp(read_only, "1") == 0;
     ctx->extensions_enabled = true;
     ctx->max_extension_iterations = 0; /* unlimited by default */
     ctx->extension_timeout_ms = 5000;

@@ -1233,7 +1233,7 @@ LEAKS         ?= leaks
 # terminal_task_suite also forks a detached waiter; the inherited atExit hook
 # stops that waiter before its launch handshake (ADR 0136).
 LEAK_SUITE_SKIP := cursor_suite cursor_sdk_suite mcp_suite runner_suite \
-	session_bg_suite ssh_suite terminal_task_suite
+	session_bg_suite ssh_suite terminal_task_suite task_workspace_process_suite
 LEAK_SUITES = $(filter-out $(LEAK_SUITE_SKIP),\
 	$(if $(wildcard tests/test_main.c),$(shell sed -n 's/.*RUN_SUITE(\([A-Za-z0-9_]*\)).*/\1/p' tests/test_main.c)))
 

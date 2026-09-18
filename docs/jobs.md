@@ -16,6 +16,290 @@ signalling, or retained MSYS2 Windows Job Objects
 any file or provider side effect, while reading existing records still works.
 Image generation itself is unaffected there.
 
+## Opt-in durable DAG (native ask jobs)
+
+[ADR 0143](adr/0143-durable-dag-over-jobs.md) extends the existing supervisor,
+not a second controller. Submit a lead and two read-only workers through the
+existing batch JSON entry point:
+
+```sh
+cat <<'JSON' | tny jobs submit batch --json
+{"kind":"ask","dag":true,"concurrency":2,"items":[
+  {"prompt":"Read only: identify the review scope. Do not edit files.","label":"lead","role":"lead"},
+  {"prompt":"Read only: review reliability. Do not edit files.","label":"reliability","role":"worker","depends_on":[0]},
+  {"prompt":"Read only: review security. Do not edit files.","label":"security","role":"worker","depends_on":[0]}
+]}
+JSON
+# Use the returned id. These operations remain bounded / explicit:
+tny jobs status JOB_ID --json
+tny jobs wait JOB_ID --timeout 30 --json
+tny jobs logs JOB_ID --item 1 --json
+tny jobs cancel JOB_ID --items 1 --expected-attempt 1 --json
+tny jobs retry JOB_ID --failed --json
+```
+
+Read-only instructions are not a sandbox. Use the existing permission controls
+and tool profile for enforcement. The lead role is descriptive; it does not
+confer privileges or automatically collect worker answers. For a
+review/implement/verify template, use three items labelled with those names,
+with dependencies `[]`, `[0]`, `[1]`. Execution gates do not inject earlier
+answers into prompts. Inspect canonical result/session/log references explicitly.
+Shared editing invalidates the clean-checkout retry fence. Managed isolated
+editing workspaces are now enrolled by this same supervisor; see below.
+
+`dag:true` currently supports ask items only. Dependencies are zero-based item
+indices, including forward edges. Cycles, duplicate edges, self-edges, invalid
+indices, and DAG metadata without opt-in are refused before execution. Labels
+are bounded strings; roles are `lead` or `worker` (the default). DAG definitions
+must be persisted; use ordinary batches for `persist_request:false`.
+
+The returned `run_id` equals the existing job `id`. Each item exposes `task_id`,
+`attempt`, dependencies, label/role, definition and dependency SHA-256, plus
+its existing canonical result references. CLI `parent_session_id` is null.
+Trusted runtime adapters can supply their active session with
+`tny_jobs_run_context`; supplied parent/run IDs in JSON are refused and never
+create membership or authority. Tool schema and runtime lineage wiring remain
+lead-owned integration work.
+
+A descendant waits for all dependencies to succeed with intact artifacts.
+A failed/cancelled/interrupted dependency makes the descendant `failed` with
+`error_code:dependency_blocked`, without a provider request. Explicit retry
+reuses successful items and their original attempts after integrity checks;
+concurrent retries cannot create two execution owners. Retry never silently
+replays successful work or uncertain effects. Unknown cleanup refuses retry.
+
+### Attempt-fenced cancellation and execution scope
+
+DAG cancellation requires `expected_attempt` in typed JSON, or
+`--expected-attempt N` in the CLI. Use the attempt returned for the intended
+operation. The comparison and cancellation flags are in the **same state-lock
+transaction**, including when the job is already terminal. Missing or stale
+attempts return `stale_attempt` without changing flags. Do not automatically
+refresh and replay a stale cancellation: inspect the new attempt first. Ordinary
+batch cancellation retains its existing grammar and semantics without this fence.
+The team-control adapter must pass its expected attempt through to jobs.
+
+A DAG also persists `execution_scope_sha256` before launch. This one-way
+fingerprint covers the resolved provider endpoint, credential/account identity,
+auth routing and extra headers, relevant policy/repository configuration,
+configured tool-environment values and extra workspace directories. Raw keys,
+tokens and secret-bearing URLs are not stored. Retry compares the current scope
+before carrying results or starting work. Changed or missing scope evidence
+requires a new explicit run, even if provider/model names remain unchanged.
+
+For a known ChatGPT account, account identity plus credential source fences the
+scope, so normal same-account token refresh can survive. Where no stable account
+identity is available, credential bytes are conservatively fenced: key rotation
+requires a new explicit run. The fingerprint is an integrity check, **not an
+authorization token** or a snapshot of arbitrary external files. It does not make
+public admission aliases automatically identify all routes to an account.
+
+Every DAG task and run reports **`verification:unverified`**, even on exit zero.
+Hashes prove integrity, not acceptance. No worker prose triggers verification
+commands, acceptance or integration. This slice has no notification/wait-any
+service or run-filtered dashboard.
+
+Retry requires unchanged definitions, dependency bindings, canonical successful
+session answers/logs, the same clean Git HEAD/workspace path, and the recorded
+provider/model/effort/permission/tool ceilings. Dirty or unknown/non-Git
+revision is inspectable as null and cannot be retried. This does not snapshot
+ignored files, arbitrary external inputs or concurrent edits. Shared admission
+now bounds explicitly enrolled public scopes, not automatically discovered
+accounts. Credentials stay private in the launch pipe; they are not persisted
+in DAG metadata. Per-item
+model/effort selection works; a supplied provider must match the resolved job
+provider. Use separate jobs for different providers in this slice.
+
+Native CLI execution works through existing children. DAG workspace policies
+and enrolled admission require a native-loop provider (including Codex). Host
+providers keep ordinary batch behavior but are refused for these enrolled
+modes before worktree/admission files or child launches. SSH does not become a
+remote durable controller: run the command on
+the remote native host explicitly. Embedded SDK workflows do not implicitly
+acquire native durability or custom-tool portability. wasm keeps the existing
+clean refusal for job execution. See ADR 0143 for workspace and admission call
+points and the remaining #153/#155 delivery gaps.
+
+## Managed workspace enrollment
+
+The scheduler now calls the [task workspace helper](task-workspaces.md), using
+the existing job ID, item index and attempt. DAG items accept:
+
+```json
+{"prompt":"Implement the change and record checks; do not integrate it.",
+ "workspace":{"policy":"isolated","base":"HEAD"}}
+```
+
+| Policy | Scheduler behavior |
+| --- | --- |
+| `shared_read_only` | DAG default. Launch checkout; child receives `TNY_TEAM_READ_ONLY=1`. |
+| `shared_writable` | Explicit editing in the launch checkout. No file isolation. |
+| `isolated` | Prepare a distinct owned worktree for this item attempt; child uses its returned cwd. |
+
+`base` is optional and only valid with `isolated`. Without it, the helper requires
+an initially clean launch checkout. An explicit commit acknowledges exclusion of
+launch edits. Ordinary batches without DAG/workspace options retain their old
+workspace behavior. Unsupported host, SSH and embedded enrollment is refused;
+wasm keeps its native-execution refusal before side effects.
+
+The scheduler commits `workspace_preparation:intent` before any Git operation.
+Preparation and inspection run **outside the job state lock**. The supervisor
+then revalidates attempt and cancellation, records returned cwd/branch/base/origin
+provenance, and commits the launch claim. Git preparation cannot block job status
+or cancellation under that lock. A canceled preparation may leave a retained
+owned worktree, but never starts its worker. It is not adopted as foreign work.
+
+After owned execution cleanup, bounded helper inspection records the revision,
+tracked binary-capable patch, status names and dirty flag. Oversized/unavailable
+inspection stays `unverified`, not truncated success. Canonical session answer
+verification uses the **worker cwd**, not the launch checkout's session directory.
+The supervisor retains its workspace handle until retirement; closing the handle
+never merges or removes the tree. Unknown cleanup retains work for explicit
+operator inspection. There is no automatic integration, cleanup or acceptance.
+
+Retry refuses selected isolated tasks once preparation was attempted. Carrying
+an isolated success requires a clean, unchanged, owned workspace with recorded
+inspection; dirty editing work requires explicit integration/new work instead.
+This conservative rule prevents hidden replay in a dirty tree. The helper still
+does not sandbox arbitrary paths or snapshot arbitrary external inputs.
+
+**Read-only delivery boundary:** the scheduler provisions the trusted ceiling
+marker; the integrated native runtime enforces it at its permission boundary.
+The real edit-tool denial test runs with `TNY_TEST_TEAM_READ_ONLY_ENFORCED=1`.
+Checkpoint retention and propagation remain runtime responsibilities. This is
+not an OS sandbox for arbitrary same-user processes. Host modes cannot use these
+workspace policies. Mailbox confinement requires canonical trusted state paths;
+a symlinked HOME/state-directory prefix is refused, not silently adopted.
+
+## Shared admission enrollment
+
+A native ask job (DAG or ordinary batch) can explicitly enroll:
+
+```json
+{"kind":"ask","concurrency":2,
+ "admission":{"label":"review_team","provider_scope":"public_account_alias",
+              "cap":2,"queue_cap":16,"claim_limit":100},
+ "items":[{"prompt":"Review reliability."},{"prompt":"Review security."}]}
+```
+
+The immutable scope is under `<tny_dir>/admission`, keyed by the explicit public
+`label` and `provider_scope` aliases. Each is 1–63 ASCII letters, digits, `_` or
+`-`. Only the five documented admission fields are accepted; known credential
+values are rejected as aliases. **Never put an API key or credential in either
+alias.** Grammar cannot identify every possible secret. The alias is chosen
+by the user; it does not automatically identify every route to an account, and
+two aliases for one account do not share a ceiling. `cap` is 1–16; `queue_cap` is
+1–128; `claim_limit` is a positive lifetime count of fresh **launch claims**.
+It is not a model HTTP-request, token, money or subscription budget.
+
+Submission initializes/verifies the immutable scope once. Retry preserves its
+configuration and never resets the ledger. The existing supervisor retains sole
+job ownership. It calls admission outside `state.lock`, preserves the local
+concurrency ceiling, and launches only from a fresh committed `granted` result.
+A repeated `owned` result is not another launch authorization. A grant consumes
+one claim even if cancellation wins before spawn; it is never refunded.
+
+Status exposes effective configuration, admission ticket/reason/counts and
+exhaustion. Waiting items queue without contacting the provider. Cancellation
+cancels tickets. Owner loss converts outstanding grants to cleanup holds rather
+than freeing them by stored-PID inference. Capacity is released only under the
+existing jobs proof of never-launched or completed owned cleanup. Busy
+transactions retry outside job locks; uncertain errors retain capacity. A paused
+or unknown owner can therefore block followers indefinitely. See
+[the admission contract](admission.md) for FIFO, history and filesystem bounds.
+
+Enrolled children receive `TNY_ADMISSION_ENROLLED=1`. Inherited enrolled jobs
+cannot submit or retry nested jobs, before job/admission files or enqueue.
+Together with native synchronous-subagent refusal, enrolled execution has a
+**hard depth-one launch policy**, not recursive sharing of an arbitrary scope.
+This scope covers opt-in top-level job launches, **not arbitrary same-user shell processes**,
+all SDK calls or every provider request made inside an admitted turn.
+
+Positive `ctx.max_steps` travels as owned private payload text and a child
+`--max-steps` argument. Retry preserves the original ceiling and may narrow it
+with a stricter current cap; it cannot widen it. This is a native turn-step
+ceiling, not admission's claim counter or a token budget.
+
+Each item records observed canonical cumulative input/output tokens, or explicit
+unknown values. The last cumulative usage event is retained, not repeatedly
+summed. Job `usage.known_input_tokens` / `known_output_tokens` sum available
+attempt evidence, including prior immutable attempts; carried successes are not
+counted again. `unknown_items` counts item-attempts without usable evidence,
+including unfinished/not-started items. Observed counters do not prove that a
+provider reported every billed request. Missing usage and cost are not estimated.
+These observations can drive the separate soft run policy below. They do not
+provide a hard token, money or billing guarantee.
+
+### Opt-in soft run token policy
+
+A native DAG request may include:
+
+```json
+{"budget":{"soft_tokens":1000,"unknown_usage":"stop"}}
+```
+
+`soft_tokens` is a positive integer. `unknown_usage` is `stop` (the default) or
+an explicit `continue`. Unknown fields are refused. The policy is immutable for
+retry; changing it requires a new explicit run. It is separate from admission's
+**hard launch-request `claim_limit`**, which is not a model HTTP-call cap.
+
+After collecting terminal item usage, the existing supervisor checks the soft
+policy at a safe scheduling boundary. When observed input plus output tokens
+reach the limit, it cancels pending work and waiting admissions without starting
+those children. With the default unknown policy, an attempted terminal item
+without usable usage also stops pending work. Future unstarted tasks do not count
+as zero-cost evidence, and do not prevent the first launch. `continue` explicitly
+allows progress with incomplete usage; the uncertainty remains visible.
+
+Already-admitted active work is not interrupted by this soft policy and **may
+overshoot the limit**, including work that finishes while another result is being
+collected. Multiple model requests within one child may also exceed it before
+that child's cumulative usage settles. This is not pre-reserved token capacity.
+
+Status exposes `budget_state`, `budget_observed_tokens` and
+`budget_usage_unknown`. Counters persist across retries and include previous
+attempts without counting carried successes again. An exhausted or default-stop
+unknown policy refuses retry before spending; explicit `continue` retains the
+unknown marker. Unknown amounts are never invented or charged as known zero.
+No hard model-call allowance, reserved-step pool, money cap or absolute run
+admission deadline is implemented here. Positive child `max_steps` remains a
+separate turn ceiling; HTTP retries and host-owned loops are not model-call
+billing guarantees.
+
+## Private member capability provisioning
+
+Every DAG item preparation creates a fresh random 32-byte value encoded as a
+64-hex bearer. Before admission, the supervisor persists only its SHA-256 hex
+verifier as `item.mailbox_capability_sha256` under `state.lock`. The child gets:
+
+- `TNY_TEAM_RUN`: existing job ID;
+- `TNY_TEAM_TASK`: stable item index;
+- `TNY_TEAM_ATTEMPT`: current item/job launch attempt;
+- `TNY_TEAM_CAPABILITY`: the private bearer.
+
+The bearer is not written to job metadata, status, logs or argv. Its temporary
+owned environment and supervisor buffer are wiped after spawn. Ordinary batch
+children get no team membership. Ambient parent team/admission fields are not
+forwarded as membership; inherited read-only ceilings remain restrictive.
+Request-supplied private identity, bearer and verifier fields are refused.
+Root `peer_messages` must be boolean when supplied and defaults to false.
+
+Before a sensitive legacy jobs operation, inherited `TNY_TEAM_RUN` is checked
+against that run's private verifier and current item/job attempt under its state
+lock. Invalid membership is refused. Valid members are also explicitly refused
+legacy submit/cancel/retry/remove controls (`member_control_unsupported`), rather
+than receiving operator authority over a supplied job ID. This conservative slice
+does not expose a member-safe own-task mutation through legacy jobs; use the lead
+or a dedicated authorized task adapter. CLI operators outside nested member
+contexts retain existing authority. Parent-session lineage comes only from the
+trusted `tny_jobs_run_context` adapter argument, never a request sender/session.
+
+These fields match the lead's `team_runtime` verifier contract without adding a
+link dependency on that runtime here. Mailbox delivery, trusted parent adapter
+wiring and synchronous-subagent membership stripping remain runtime integration,
+not a second controller implemented in jobs. The runtime must validate inherited
+identity and verifier under the job state lock before granting member operations.
+
 ## Surfaces
 
 | Surface | Entry point |

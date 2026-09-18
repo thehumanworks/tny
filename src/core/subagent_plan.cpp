@@ -6,6 +6,7 @@ extern "C" {
 #include "util/ownership.hpp"
 #include <array>
 #include <cerrno>
+#include <cstdio>
 #include <cstring>
 
 extern char **environ;
@@ -18,7 +19,10 @@ bool env_named(const char *entry, const char *name) noexcept {
 bool inherited(const char *entry, bool token, bool account) noexcept {
     return !(env_named(entry, TNY_SUBAGENT_KEY_ENV) || env_named(entry, TNY_SUBAGENT_URL_ENV) ||
              env_named(entry, "TNY_NESTED") || env_named(entry, "TNY_NESTED_MODE") ||
-             env_named(entry, "TNY_TOOLS") || env_named(entry, "TNY_PERMISSION_MODE") ||
+             env_named(entry, "TNY_TEAM_RUN") || env_named(entry, "TNY_TEAM_TASK") ||
+             env_named(entry, "TNY_TEAM_ATTEMPT") || env_named(entry, "TNY_TEAM_CAPABILITY") ||
+             env_named(entry, "TNY_TEAM_READ_ONLY") || env_named(entry, "TNY_TOOLS") ||
+             env_named(entry, "TNY_PERMISSION_MODE") ||
              (token && env_named(entry, "CHATGPT_ACCESS_TOKEN")) ||
              ((token || account) && env_named(entry, "CHATGPT_ACCOUNT_ID")));
 }
@@ -90,6 +94,12 @@ struct tny_subagent_plan_owner {
             arg("--effort");
             arg(ctx.reasoning_effort);
         }
+        char steps[16];
+        if (ctx.max_steps > 0) {
+            std::snprintf(steps, sizeof steps, "%d", ctx.max_steps);
+            arg("--max-steps");
+            arg(steps);
+        }
         arg("--permission-mode");
         arg(tny_perm_mode_name(ctx.perm_mode));
         if (ctx.no_save) arg("--ephemeral");
@@ -109,6 +119,7 @@ struct tny_subagent_plan_owner {
             {"TNY_NESTED", "1"},
             {"TNY_NESTED_MODE", tny_perm_mode_name(ctx.perm_mode)},
             {"TNY_TOOLS", tny_tool_profile_name(ctx.tool_profile)},
+            {"TNY_TEAM_READ_ONLY", ctx.workspace_read_only ? "1" : nullptr},
         };
         size_t total = 0, envc = 0;
         for (size_t i = 0; i < argc; ++i) {

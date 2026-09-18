@@ -89,6 +89,7 @@ constexpr bool_field bools[] = {
     {"effort_explicit", &tny_ctx::effort_explicit},
     {"effort_from_settings", &tny_ctx::effort_from_settings},
     {"context_enabled", &tny_ctx::context_enabled},
+    {"workspace_read_only", &tny_ctx::workspace_read_only},
     {"instructions_snapshot_ready", &tny_ctx::instructions_snapshot_ready},
     {"mcp_disabled", &tny_ctx::mcp_disabled},
     {"mcp_import_warned", &tny_ctx::mcp_import_warned},
@@ -404,6 +405,7 @@ context recover(const tny_ctx *resolved, yyjson_val *saved) {
           jget_int(saved, "tool_profile", 99) <= TNY_TOOLS_TERMINAL);
     check(jget_int(saved, "perm_mode", 99) <= resolved->perm_mode &&
           jget_int(saved, "tool_profile", -1) >= resolved->tool_profile); // CP6 authority oracle
+    check(!resolved->workspace_read_only || jget_bool(saved, "workspace_read_only", false));
     auto d = tny::make_document();
     auto *merged = encode(d.get(), resolved, false);
     yyjson_mut_doc_set_root(d.get(), merged);

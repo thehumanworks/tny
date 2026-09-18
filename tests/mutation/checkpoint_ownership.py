@@ -12,6 +12,12 @@ from parser_ownership import main
 SOURCE = "src/core/checkpoint.cpp"
 MUTANTS = (
     (
+        "read-only-recovery-widened",
+        SOURCE,
+        'check(!resolved->workspace_read_only || jget_bool(saved, "workspace_read_only", false));',
+        "// intentionally ignore the inherited read-only ceiling",
+    ),
+    (
         "unchecked-copy",
         SOURCE,
         "check(!src || next != nullptr); // CP6 checked-copy oracle",

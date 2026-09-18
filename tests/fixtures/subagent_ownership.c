@@ -2,6 +2,7 @@
 #include "core/subagent.h"
 #include "util/alloc.h"
 #include "util/util.h"
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -101,6 +102,12 @@ int main(void) {
         "TNY_NESTED=0",
         "TNY_NESTED_MODE=yolo",
         "TNY_TOOLS=all",
+        "TNY_TEAM_RUN=0123456789abcdef0123456789abcdef",
+        "TNY_TEAM_TASK=0",
+        "TNY_TEAM_ATTEMPT=1",
+        "TNY_TEAM_CAPABILITY=SECRET-parent-member",
+        "TNY_TEAM_READ_ONLY=0",
+        "TNY_JOB_PARENT_PID=123",
         "TNY_PERMISSION_MODE=yolo",
         "TNY_TEST_ALLOC_SCOPE=subagent-owner",
         fault,
@@ -149,11 +156,36 @@ int main(void) {
                 equal(value(p.envp, "TNY_NESTED_MODE"), tny_perm_mode_name(ctx.perm_mode));
                 equal(value(p.envp, "TNY_TOOLS"), tny_tool_profile_name(ctx.tool_profile));
                 REQUIRE(!value(p.envp, "TNY_PERMISSION_MODE"));
+                equal(value(p.envp, "TNY_JOB_PARENT_PID"), "123");
+                REQUIRE(!value(p.envp, "TNY_TEAM_CAPABILITY"));
+                REQUIRE(!value(p.envp, "TNY_TEAM_RUN"));
+                REQUIRE(!value(p.envp, "TNY_TEAM_TASK"));
+                REQUIRE(!value(p.envp, "TNY_TEAM_ATTEMPT"));
+                REQUIRE(!value(p.envp, "TNY_TEAM_READ_ONLY"));
                 equal(value(environment, "TNY_NESTED"), "0");
                 release(&p);
                 REQUIRE(tny_alloc_test_owned_live() == live);
             }
         }
+    }
+
+    // The effective parent step cap is owned, including the largest valid cap.
+    const int ceilings[] = {1, 7, INT_MAX};
+    for (size_t i = 0; i < sizeof ceilings / sizeof *ceilings; ++i) {
+        tny_subagent_plan limited = {0};
+        ctx.max_steps = ceilings[i];
+        ctx.workspace_read_only = true;
+        fault_at(0);
+        REQUIRE(tny_subagent_plan_build(&env, resume, &limited) == 0);
+        char expected[16];
+        snprintf(expected, sizeof expected, "%d", ctx.max_steps);
+        ctx.max_steps = 0;
+        ctx.workspace_read_only = false;
+        equal(value(limited.envp, "TNY_TEAM_READ_ONLY"), "1");
+        equal(limited.argv[15], "--max-steps");
+        equal(limited.argv[16], expected);
+        release(&limited);
+        REQUIRE(tny_alloc_test_owned_live() == live);
     }
 
     tny_subagent_plan p = {0};

@@ -871,7 +871,48 @@ TEST intercepted_jobs_carry_each_operations_identity(void) {
     PASS();
 }
 
+TEST intercepted_mailbox_keeps_identity_and_hides_payload(void) {
+    ensure_env();
+    write_settings("{\"permission\":{\"team_inbox\":\"allow\",\"bash\":\"allow\"}}");
+    fixture f;
+    fixture_open(&f, TNY_MODE_ASK);
+    tools_call call;
+    const char *run = "0123456789abcdef0123456789abcdef";
+    char request[512];
+    snprintf(request, sizeof request, "{\"command\":\"tny mailbox inbox --run %s --json\"}", run);
+    ASSERT_EQ(0, tools_call_prepare(&f.env, "terminal", request, &call));
+    ASSERT_STR_EQ("team_inbox", call.permission_tool);
+    ASSERT_EQ(PERM_ALLOW, call.verdict);
+    tools_call_free(&call);
+    snprintf(
+        request, sizeof request,
+        "{\"command\":\"tny mailbox send --run %s --to 1 --id note-1 --text private-payload\"}",
+        run);
+    ASSERT_EQ(0, tools_call_prepare(&f.env, "terminal", request, &call));
+    ASSERT_STR_EQ("team_send", call.permission_tool);
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+    ASSERT(call.detail && strstr(call.detail, "payload_sha256="));
+    ASSERT_EQ(NULL, strstr(call.detail, "private-payload"));
+    tools_call_free(&call);
+    ASSERT_EQ(TNY_INTERCEPT_REFUSED, classify(&f, "tny mailbox send --run invalid"));
+    ASSERT_EQ(
+        TNY_INTERCEPT_REFUSED,
+        classify(&f, "tny --provider openai mailbox inbox --run 0123456789abcdef0123456789abcdef"));
+    snprintf(request, sizeof request, "{\"action\":\"ack\",\"run\":\"%s\",\"id\":\"note-1\"}", run);
+    ASSERT_EQ(0, tools_call_prepare(&f.env, "team_mailbox", request, &call));
+    ASSERT_STR_EQ("team_ack", call.permission_tool);
+    ASSERT_EQ(PERM_PROMPT, call.verdict);
+    tools_call_free(&call);
+    f.ctx->library_mode = true;
+    ASSERT_EQ(-1, tools_call_prepare(&f.env, "team_mailbox", request, &call));
+    tools_call_free(&call);
+    fixture_close(&f);
+    write_settings("{}");
+    PASS();
+}
+
 SUITE(intercept_suite) {
+    RUN_TEST(intercepted_mailbox_keeps_identity_and_hides_payload);
     RUN_TEST(intercepted_jobs_carry_each_operations_identity);
     RUN_TEST(shellwords_splits_quoting_like_sh);
     RUN_TEST(shellwords_stops_at_every_shell_operator);

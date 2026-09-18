@@ -21,10 +21,20 @@ bool tny_jobs_host_execution_supported(void);
  * existing directory is accepted only when it is a real directory. */
 int tny_jobs_host_mkdir_private(const char *path);
 
-/* Atomic private write: a unique 0600 sibling temp, file fsync then rename over
- * `path`. 0 ok, else an errno value. Never follows a symlink at `path`. */
+/* Sync the containing directory (including close error checking). 0 ok, else
+ * errno. The immediate parent must not be a symlink. Does not create ancestors
+ * or sync their directory entries. Useful to resolve a prior post-rename error
+ * before acknowledging an idempotent retry of already file-synced data. */
+int tny_jobs_host_sync_parent(const char *path);
+/* Atomic private write: unique 0600 sibling temp, file fsync, close, rename over
+ * `path`, then parent-directory fsync and close BEFORE success. 0 ok, else errno.
+ * Any error may be post-publication: destination can contain new bytes despite
+ * failure; treat as uncertain, reconcile/retry, never infer rollback. Never
+ * follows a symlink at `path`. This is a syscall contract, not a claim that all
+ * storage hardware survives power loss; newly created ancestors need own sync. */
 int tny_jobs_host_write_private(const char *path, const void *data, size_t len);
-/* Atomic, synced write-once publication. EEXIST refuses existing history. */
+/* Atomic write-once: file fsync, link, temp unlink, parent fsync. Same uncertainty
+ * contract as write_private. EEXIST refuses existing history without acceptance. */
 int tny_jobs_host_write_once(const char *path, const void *data, size_t len);
 /* Under caller's owner/state locks: publish once or verify exact existing
  * terminal snapshot bytes. Never follows links or replaces inconsistent data. */

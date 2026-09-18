@@ -14,7 +14,8 @@
 static void jobs_usage(const char *message) {
     if (message) fprintf(stderr, "tny: jobs: %s\n", message);
     fputs("Usage: tny jobs <submit|status|wait|cancel|retry|logs|list|rm> …\n"
-          "Run `tny jobs --help` for the full grammar.\n",
+          "Run `tny jobs --help` for the full grammar.\n"
+          "DAG: jobs submit batch --request FILE --json (dag:true, depends_on indices).\n",
           stderr);
 }
 

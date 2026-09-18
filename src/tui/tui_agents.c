@@ -1,5 +1,6 @@
 /* Shared interactive/noninteractive background-session dashboard. */
 #include "tui/tui.h"
+#include "core/jobs.h"
 #include "mcp/mcp.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,7 +16,93 @@ static bool agent_working(const session_meta *m) {
     return m->running && m->status && strcmp(m->status, "running") == 0;
 }
 
+/* Job membership is authoritative. Never build a run by matching arbitrary
+ * session ids, titles or process ancestry from the workspace session list. */
+static yyjson_doc *agents_run_status(tny_ctx *ctx, const char *id, char *err, size_t errlen) {
+    if (!tny_jobs_valid_id(id)) {
+        snprintf(err, errlen, "--run requires a 32-character lowercase hex job id");
+        return NULL;
+    }
+    char request[64];
+    snprintf(request, sizeof request, "{\"id\":\"%s\"}", id);
+    yyjson_doc *args = jparse(request, strlen(request));
+    buf_t out;
+    buf_init(&out);
+    int rc =
+        args ? tny_jobs_run(ctx, TNY_JOBS_OP_STATUS, yyjson_doc_get_root(args), &out, err, errlen)
+             : 1;
+    yyjson_doc_free(args);
+    yyjson_doc *doc = rc == 0 && out.data ? jparse(out.data, out.len) : NULL;
+    buf_free(&out);
+    if (doc && !jget_bool(yyjson_doc_get_root(doc), "dag", false)) {
+        snprintf(err, errlen, "--run requires an opt-in DAG job, not an ordinary batch");
+        yyjson_doc_free(doc);
+        doc = NULL;
+    }
+    if (!doc && !err[0]) snprintf(err, errlen, "could not read the run record");
+    return doc;
+}
+
+static const char *agent_field(yyjson_val *obj, const char *key, const char *fallback) {
+    const char *value = jget_str(obj, key);
+    return value ? value : fallback;
+}
+
+/* Labels are untrusted display data, not terminal escape sequences. JSON
+ * retains their exact value; human rows replace ASCII control characters. */
+static void agent_label(yyjson_val *item, char out[257]) {
+    snprintf(out, 257, "%s", agent_field(item, "label", "(unlabeled)"));
+    for (char *p = out; *p; p++)
+        if ((unsigned char)*p < 32 || (unsigned char)*p == 127) *p = ' ';
+}
+
+static void agents_run_refresh(tui *t) {
+    char err[320] = "";
+    yyjson_doc *doc = agents_run_status(t->ctx, t->g->agents_run, err, sizeof err);
+    tui_overlay_clear(t);
+    tui_overlay_linef(t, "Run %s — task status; Up/Down scroll; q exits", t->g->agents_run);
+    t->agent_run_count = 0;
+    if (!doc) tui_overlay_linef(t, "%s", err);
+    else {
+        yyjson_val *run = yyjson_doc_get_root(doc);
+        yyjson_val *items = jget(run, "items");
+        t->agent_run_count = (int)yyjson_arr_size(items);
+        if (t->agent_selected >= t->agent_run_count) t->agent_selected = 0;
+        tui_overlay_linef(t, "Execution: %s; verification: %s; attempt: %lld",
+                          agent_field(run, "state", "unknown"),
+                          agent_field(run, "verification", "unverified"),
+                          (long long)jget_int(run, "attempt", 0));
+        yyjson_val *usage = jget(run, "usage"), *admission = jget(run, "admission");
+        tui_overlay_linef(t, "Known tokens: %lld in / %lld out; unknown tasks: %lld",
+                          (long long)jget_int(usage, "known_input_tokens", 0),
+                          (long long)jget_int(usage, "known_output_tokens", 0),
+                          (long long)jget_int(usage, "unknown_items", 0));
+        tui_overlay_linef(t, "Admission: %s; cap: %lld; token policy: %s",
+                          admission && yyjson_is_obj(admission) ? "enrolled" : "not enrolled",
+                          (long long)jget_int(admission, "cap", 0),
+                          agent_field(run, "budget_state", "none"));
+        int start = t->agent_selected / 8 * 8;
+        for (int i = start; i < t->agent_run_count && i < start + 8; i++) {
+            yyjson_val *item = yyjson_arr_get(items, (size_t)i);
+            char label[257];
+            agent_label(item, label);
+            tui_overlay_linef(
+                t, "%s +- %d %-6s %-11s %.45s [%s] %s", i == t->agent_selected ? ">" : " ", i,
+                agent_field(item, "role", "worker"), agent_field(item, "state", "unknown"), label,
+                agent_field(item, "verification", "unverified"),
+                agent_field(item, "admission_reason", ""));
+        }
+    }
+    yyjson_doc_free(doc);
+    t->agents_refresh = monotonic_ms() + 500;
+    t->dirty = true;
+}
+
 void tui_agents_refresh(tui *t) {
+    if (t->g->agents_run) {
+        agents_run_refresh(t);
+        return;
+    }
     char *selected = t->agent_selected >= 0 && t->agent_selected < t->n_agents
                          ? xstrdup(t->agents[t->agent_selected].id)
                          : NULL;
@@ -163,10 +250,12 @@ void tui_agents_select(tui *t) {
 
 int cmd_agents(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = g->json;
+    const char *run_id = NULL;
     for (int i = 0; i < argc; i++) {
         if (strcmp(argv[i], "--json") == 0) json = true;
+        else if (strcmp(argv[i], "--run") == 0 && i + 1 < argc && !run_id) run_id = argv[++i];
         else {
-            fputs("tny: agents accepts --json\n", stderr);
+            fputs("tny: agents accepts --json and --run ID\n", stderr);
             return 1;
         }
     }
@@ -174,10 +263,48 @@ int cmd_agents(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         fputs("tny: agents is unavailable in ephemeral mode\n", stderr);
         return 1;
     }
+    yyjson_doc *run = NULL;
+    if (run_id) {
+        char err[320] = "";
+        run = agents_run_status(ctx, run_id, err, sizeof err);
+        if (!run) {
+            fprintf(stderr, "tny: agents: %s\n", err);
+            return 1;
+        }
+    }
     if (!json && isatty(STDIN_FILENO) && isatty(STDOUT_FILENO)) {
+        yyjson_doc_free(run);
         cli_globals interactive = *g;
         interactive.agents_dashboard = true;
+        interactive.agents_run = run_id;
         return cmd_tui(ctx, &interactive);
+    }
+    if (run) {
+        yyjson_val *root = yyjson_doc_get_root(run);
+        if (json) {
+            char *body = jwrite_val(root);
+            if (!body) {
+                yyjson_doc_free(run);
+                return 1;
+            }
+            printf("{\"kind\":\"agents\",\"run\":%s}\n", body);
+            free(body);
+        } else {
+            printf("Run %s: %s (verification: %s)\n", run_id, agent_field(root, "state", "unknown"),
+                   agent_field(root, "verification", "unverified"));
+            yyjson_val *items = jget(root, "items");
+            size_t index, count;
+            yyjson_val *item;
+            yyjson_arr_foreach(items, index, count, item) {
+                char label[257];
+                agent_label(item, label);
+                printf("  +- %zu %-6s %-11s %s [%s]\n", index, agent_field(item, "role", "worker"),
+                       agent_field(item, "state", "unknown"), label,
+                       agent_field(item, "verification", "unverified"));
+            }
+        }
+        yyjson_doc_free(run);
+        return 0;
     }
     int n = 0;
     session_meta *m = session_agents(ctx, &n);

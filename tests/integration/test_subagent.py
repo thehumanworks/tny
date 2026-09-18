@@ -337,6 +337,14 @@ class Provider:
         if tag.startswith("hold"):
             self.arrived[tag].set()
             self.holds[tag].wait(90)
+        if tag.startswith("stepcap") and len(outputs) < 5:
+            call = (
+                f"child_step_{len(outputs)}",
+                "terminal",
+                json.dumps({"command": "printf child-step"}),
+            )
+            h._send(200, ctype, frames(call=call))
+            return
         if tag.startswith("touch") and not outputs:
             call = (
                 "child_touch",
@@ -782,6 +790,58 @@ def scenario_permission_ceiling(provider, home, workspace):
             f.write(saved)
 
 
+def scenario_step_ceiling(provider, home, workspace):
+    """An explicit parent cap limits the actual child provider requests."""
+    scenario = "step-ceiling"
+    provider.plan(
+        scenario,
+        ("subagent", {"action": "create", "prompt": "child-task:stepcap x"}),
+    )
+    payload = run_parent(
+        base_env(home, provider),
+        workspace,
+        scenario,
+        flags=(*DEFAULT_FLAGS, "--max-steps", "3"),
+    )
+    check(statuses(payload) == [("subagent", "error")], payload)
+    requests = provider.child_requests("stepcap")
+    check(len(requests) == 3, f"child exceeded or ignored inherited cap: {requests}")
+    assert_child_argv(provider, "stepcap", present=("--max-steps 3",))
+    check("SUBAGENT_CHILD_FAILED" in provider.results[scenario][0], payload)
+
+    resumed = "step-ceiling-resume"
+    provider.plan(
+        resumed,
+        ("subagent", {"action": "create", "prompt": "child-task:beforecap x"}),
+        (
+            "subagent",
+            lambda: {
+                "action": "message",
+                "id": provider.created_id(resumed),
+                "prompt": "child-task:stepcap-resume x",
+            },
+        ),
+    )
+    payload = run_parent(
+        base_env(home, provider),
+        workspace,
+        resumed,
+        flags=(*DEFAULT_FLAGS, "--max-steps", "3"),
+    )
+    check(
+        statuses(payload) == [("subagent", "success"), ("subagent", "error")],
+        payload,
+    )
+    check(len(provider.child_requests("beforecap")) == 1, "creation replayed")
+    check(len(provider.child_requests("stepcap-resume")) == 3, "resume cap ignored")
+    assert_child_argv(
+        provider,
+        "stepcap-resume",
+        present=("--max-steps 3", f"--resume-id {provider.created_id(resumed)}"),
+    )
+    check("SUBAGENT_CHILD_FAILED" in provider.results[resumed][1], payload)
+
+
 def scenario_in_process(provider, home, workspace):
     """TNY_ISOLATE=0: in-process parent and child; the child never records a
     status, so lifecycle reports unknown/null rather than success."""
@@ -864,6 +924,7 @@ def run():
             scenario_optional_arguments(provider, home, workspace, "responses")
             scenario_chatgpt_flag(provider, home, workspace)
             scenario_permission_ceiling(provider, home, workspace)
+            scenario_step_ceiling(provider, home, workspace)
             scenario_in_process(provider, home, workspace)
             scenario_ephemeral(provider, home)
     finally:

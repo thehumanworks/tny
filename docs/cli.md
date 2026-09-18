@@ -935,6 +935,15 @@ not retained in this list. Unlike `tny cursor agents`, this lists local tny sess
 Outside Git (or when Git is unavailable), listing remains workspace-local;
 wasm remains workspace-local because local Git is unavailable.
 
+`tny agents --run RUN_ID` instead shows the task tree of an opt-in durable DAG
+job. The run ID is the job ID, not an arbitrary session ID. Each row shows its
+stable task index, lead/worker role, label, execution state and separate
+verification state. This view is status-only: Up/Down scrolls and q leaves the
+run active; Enter does not launch or resume a task. With `--json`, the result is
+`{"kind":"agents","run":{...}}`, where `run` is the authoritative jobs status
+record. Ordinary batches and invalid IDs are refused. The existing unfiltered
+session dashboard and JSON shape are unchanged. See [durable jobs](jobs.md).
+
 Quit from a background view or dashboard detaches and leaves work running.
 Ctrl-C explicitly cancels; `tny session stop ID --kill` remains available.
 Handoff-origin ask/auto permissions wait up to five minutes for owner

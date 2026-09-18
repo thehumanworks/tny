@@ -98,7 +98,12 @@ char *tny_jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, char **err
  * process exit code: 0 ok, 1 invalid/unsupported/not found, 2 the job failed
  * or the request could not be completed, 124 for a wait timeout, 130 for an
  * interrupted wait. `err` gets a
- * short safe message; no provider body, credential or child stderr. */
+ * short safe message; no provider body, credential or child stderr.
+ * DAG cancel requires args.expected_attempt, compared under the same state
+ * transaction as the flag write. Ordinary batches retain unfenced cancellation.
+ * Inherited team members must authenticate their current item attempt and are
+ * refused unsupported legacy mutations; a supplied target ID grants no authority.
+ * DAG retry fences the secret-safe execution scope and any soft token policy. */
 int tny_jobs_run(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, char *err,
                  size_t errlen);
 /* Tool cancellation interrupts submission and status waits without cancelling
@@ -106,10 +111,29 @@ int tny_jobs_run(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, cha
 int tny_jobs_run_cancel(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, char *err,
                         size_t errlen, bool (*cancelled)(void *), void *cancel_ud);
 
+/* Trusted runtime adapter only: parent_session is the currently executing
+ * caller's session, never a value extracted from tool/request JSON. It records
+ * lineage, not authority to inspect/control another session. Ordinary CLI and
+ * embedded callers use run_cancel and record no parent. DAG mode is opt-in
+ * submit JSON: dag:true and per-item depends_on:[stable item indices].
+ * DAG workspace policies prepare through task_workspace outside state.lock;
+ * only the existing jobs supervisor owns execution. Opt-in root admission
+ * enrolls that same item attempt, never a second execution authority. Child
+ * membership bearers travel only in owned environment storage; job records
+ * contain the SHA256 verifier. max_steps remains an inherited launch ceiling.
+ * See docs/jobs.md for public aliases, cleanup holds and platform limitations. */
+int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, char *err,
+                         size_t errlen, bool (*cancelled)(void *), void *cancel_ud,
+                         const char *parent_session);
+
 /* The hidden supervisor entry point: `tny jobs _worker <id>` with the bounded
  * payload on stdin, the acknowledgment pipe on stdout and the live owner lock
  * on descriptor 3. Returns the process exit code. */
 int tny_jobs_worker_main(tny_ctx *ctx, const char *id, int payload_fd, int ack_fd, int owner_fd);
+/* Dedicated team adapter: validates the private inherited member capability,
+ * exact own item and attempt. Never permits sibling/foreign-run mutation. The
+ * actual cancel write retains the ordinary transaction's attempt fence. */
+int tny_jobs_cancel_member(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t errlen);
 
 /* False in runtimes that cannot own a child process (wasm). Execution
  * operations refuse before any file or provider side effect; reading existing

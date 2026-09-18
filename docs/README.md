@@ -28,6 +28,10 @@ Do not start product code until you have read this index and the files it names.
 | [optimisation.md](optimisation.md) | Project-aware prompt rewriting, independent model, draft review |
 | [cli.md](cli.md) | Command tree, flags, agent-friendly output |
 | [workflows.md](workflows.md) | Dependency DAGs and parallel agents from shell, Python, and TypeScript |
+| [team-control.md](team-control.md) | Job-backed async teams, captured parent identity, bounded collection and truthful verification state |
+| [team-mailbox.md](team-mailbox.md) | Durable addressed collaboration, safe-boundary delivery, acknowledgment and retirement |
+| [task-workspaces.md](task-workspaces.md) | Isolated editing, provenance, explicit integration and conflict-safe cleanup |
+| [admission.md](admission.md) | Shared launch permits, cleanup holds, scope limits and honest usage policies |
 | [settings.md](settings.md) | settings.json defaults, schema, named providers and ACP agents |
 | [tui.md](tui.md) | Interactive shell, slash commands, keys |
 | [worktrees.md](worktrees.md) | Isolated Git checkouts, named reuse, merge/remove/keep on exit |

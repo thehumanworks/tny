@@ -6,6 +6,9 @@ GREATEST_MAIN_DEFS();
 
 SUITE_EXTERN(util_suite);
 SUITE_EXTERN(worktree_suite);
+SUITE_EXTERN(task_workspace_suite);
+SUITE_EXTERN(task_workspace_process_suite);
+SUITE_EXTERN(team_runtime_suite);
 SUITE_EXTERN(net_suite);
 SUITE_EXTERN(http_server_suite);
 SUITE_EXTERN(core_suite);
@@ -48,6 +51,9 @@ int main(int argc, char **argv) {
     RUN_SUITE(dictation_suite);
     RUN_SUITE(util_suite);
     RUN_SUITE(worktree_suite);
+    RUN_SUITE(task_workspace_suite);
+    RUN_SUITE(task_workspace_process_suite);
+    RUN_SUITE(team_runtime_suite);
     RUN_SUITE(net_suite);
     RUN_SUITE(http_server_suite);
     RUN_SUITE(core_suite);

@@ -467,7 +467,38 @@ TEST perm_workspace_deny_beats_global_allow(void) {
     PASS();
 }
 
+TEST team_read_only_precedes_modes_rules_and_grants(void) {
+    tny_ctx *ctx = ctx_in_mode("{\"permission\":{\"*\":\"allow\"}}", TNY_MODE_YOLO);
+    ASSERT(ctx);
+    ctx->workspace_read_only = true;
+    perm_engine *p = perm_new(ctx);
+    ASSERT(p);
+    perm_grant(p, "terminal", "touch readonly-canary");
+    for (int mode = TNY_MODE_ASK; mode <= TNY_MODE_YOLO; mode++) {
+        ctx->perm_mode = (tny_perm_mode)mode;
+        ASSERT_EQ(PERM_DENY, perm_check(p, "write_file", "/tmp/file"));
+        ASSERT_EQ(PERM_DENY, perm_check(p, "edit_file", "/tmp/file"));
+        ASSERT_EQ(PERM_DENY, perm_check(p, "terminal", "touch readonly-canary"));
+        ASSERT_EQ(PERM_DENY, perm_check(p, "terminal", "cat README.md > readonly-canary"));
+        ASSERT_EQ(PERM_DENY, perm_check(p, "terminal", "git diff --output=readonly-canary"));
+        ASSERT_EQ(PERM_DENY, perm_check(p, "job_submit", "new task"));
+        ASSERT_EQ(PERM_ALLOW, perm_check(p, "read_file", "README.md"));
+        ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "cat README.md"));
+        ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "git status --short"));
+        ASSERT_EQ(PERM_ALLOW, perm_check(p, "team_send", "same-run recipient"));
+    }
+    perm_free(p);
+    tny_ctx_free(ctx);
+    setenv("TNY_TEAM_READ_ONLY", "1", 1);
+    ctx = tny_ctx_load(g_ws);
+    unsetenv("TNY_TEAM_READ_ONLY");
+    ASSERT(ctx && ctx->workspace_read_only);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 SUITE(perm_suite) {
+    RUN_TEST(team_read_only_precedes_modes_rules_and_grants);
     RUN_TEST(shlex_reads_a_simple_command);
     RUN_TEST(shlex_flags_every_metacharacter);
     RUN_TEST(shlex_flags_env_prefix);
