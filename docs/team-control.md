@@ -1,246 +1,140 @@
 # Team control over durable jobs
 
-Status: implemented service and CLI adapter; **registration is integration-owned**.
-This slice provides real asynchronous controls, not full issue #153 acceptance.
-Verification execution remains unavailable and fails closed. See
-[ADR 0141](adr/0141-team-control-over-jobs.md).
+Native local team control is available through the public CLI, the `team_control`
+tool in the all-tools profile, and direct `tny team` calls in the terminal
+profile. These adapters share the jobs service, authorization and attempt fences.
+A team run is a `kind:"ask", dag:true` job, not another scheduler or provider loop.
+See [mailboxes](team-mailbox.md), [workspaces](task-workspaces.md), and
+[admission](admission.md).
 
-## Identity and ownership
+## Start with a real parent
 
-A team run **is** an existing `dag:true` ask job. Its ID is the job ID, a task is
-the stable zero-based item index, and the job attempt fences controls. Each item
-also retains its execution attempt; a carried result keeps its old item attempt.
-There is no second team record, controller, provider loop or recovery authority.
-The jobs supervisor retains admission, cancellation, cleanup, persistence and
-retry ownership. Existing jobs and synchronous subagent APIs are unchanged.
+From this repository, with a native provider/account already configured:
 
-Start requires one explicitly declared `role:"lead"` and at least two explicit
-`role:"worker"` items. Roles describe members; a lead label does **not** grant the
-submitting parent's authority. The submitting process can exit immediately after
-receiving the handle. Existing job records retain identities after that exit.
+```sh
+tny ask --stdin < examples/swarm/lead.md
+```
 
-## Public grammar
+This launches a real top-level parent. The prompt asks it to start two read-only
+workers, remain available for clarification, collect bounded results and report
+findings. It is not a precomputed answer or a helper-service driver. Add `-B
+--json` to detach the parent; use the returned session ID with `tny session ID
+--wait --json` to observe its completion. Losing a waiting client does not cancel
+the durable work. Do not blindly resubmit after an uncertain acknowledgment.
 
-All operations take a bounded JSON object and return JSON:
+A captured native parent can start **at least two explicit `role:"worker"`
+items with no lead item**. The runtime records its session ID as root
+`parent_session_id`; requests cannot supply that identity. Mailbox recipient
+`-1` (CLI `lead`) is this parent, not an indexed task.
+
+An operator-only CLI start has no captured parent session. It requires **one
+explicit `role:"lead"` item plus at least two `role:"worker"` items**. Item roles
+are descriptive: an indexed lead is still a member, not the submitting parent.
+It must not wait for its own whole job to finish or try to integrate while that
+job remains active. Use the external operator or a separate captured parent for
+post-job work. Peer messaging between indexed members requires
+`"peer_messages":true`, even if one member is labelled lead.
+
+## Public surfaces
 
 ```text
-tny team start    --request FILE|- [--json]
-tny team status   --request FILE|- [--json]
-tny team collect  --request FILE|- [--json]
-tny team wait-any --request FILE|- [--json]
-tny team cancel   --request FILE|- [--json]
-tny team verify   --request FILE|- [--json]
+tny team start|status|collect|wait-any|cancel|verify --request FILE|- [--json]
 ```
 
-`--json` is optional because this entry always emits JSON. Request input is at
-most 1 MiB, must have unique object keys, and cannot contain embedded NULs. An
-explicit file does not consume stdin. There is no implicit template or default
-worker prompt. `start` uses the existing jobs batch JSON:
+Each operation returns JSON. `--json` is optional. Request input is a JSON object
+of at most 1 MiB, with unique keys and no embedded NULs. An explicit file does
+not consume stdin. For an external CLI operator:
 
 ```sh
-cat <<'JSON' | tny --provider openai team start --request -
-{"kind":"ask","dag":true,"concurrency":3,"items":[
-  {"role":"lead","label":"scope","prompt":"Read only: identify the review scope. Do not edit files."},
-  {"role":"worker","label":"reliability","prompt":"Read only: review reliability. Do not edit files."},
-  {"role":"worker","label":"tests","prompt":"Read only: review test coverage. Do not edit files."}
+tny team start --request examples/swarm/read-only.json
+```
+
+The native tool takes `{"action":"start","request":{...}}`. In the terminal
+profile, first write the request JSON to a file, then make a **direct** call:
+`tny team start --request /absolute/request.json`. Shell pipelines, wrappers and
+compound commands are not the trusted terminal adapter and must not be used to
+smuggle parent identity into a subprocess. External CLI use of `--request -`
+is supported; it does not capture an agent parent.
+
+This is a captured-parent request (not an operator-only start):
+
+```json
+{"kind":"ask","dag":true,"concurrency":2,"items":[
+  {"role":"worker","label":"reliability","prompt":"Read only: review reliability. Return paths and evidence."},
+  {"role":"worker","label":"tests","prompt":"Read only: review test coverage. Return paths and gaps."}
 ]}
-JSON
 ```
 
-These roots can overlap; use `depends_on:[INDEX,...]` for explicit ordering.
-Read-only prose is not a sandbox. Use the scheduler's permission/workspace policy
-when available; this service neither weakens nor invents it. Task model/effort
-and other launch settings use the jobs validator. In the prerequisite scheduler
-revision, a per-item provider must equal the job's resolved provider; cross-
-provider teams are **not** claimed. Credentials are not added to team records.
+Independent items overlap up to concurrency/admission ceilings. Use
+`depends_on:[INDEX,...]` for ordering. The default workspace policy is
+`shared_read_only`, enforced by the native worker's tool policy, not just prose.
+Choose `workspace:{"policy":"isolated"}` explicitly for editing. Shared writable
+access is an explicit, riskier opt-in. A worktree is not an OS sandbox.
 
-The immediate response is `kind:"team"`, `run_id`, `job` (the canonical jobs
-response), `verification:"unverified"`, and `integration:"not_recorded"`.
-Exit 0 means accepted **submission**, not completed, tested, accepted or
-integrated work. Submission retains the jobs acknowledgment timeout and its
-uncertain-submission semantics; a lost client must inspect the existing job,
-not blindly resubmit.
+The launch uses one resolved native provider/account. Per-item model/effort
+settings use the jobs validator. Mixed per-item providers are unsupported.
+Credentials are not public request identities or team-result data.
 
-Substitute the returned 32-hex ID below:
+Start returns `kind:"team"`, `run_id`, the canonical `job` response,
+`verification:"unverified"`, and `integration:"not_recorded"`. Exit 0 means
+submission, not successful execution, acceptance, verification or integration.
 
-```json
-{"id":"RUN_ID"}
-```
+## Observe and collect
 
-Use that request for `status`. It wraps the jobs projection, including canonical
-item states, attempts, session IDs and result hashes. A failed/interrupted job
-can return exit 2 with a complete status response. No prose is interpreted as
-verification or a command.
+Use the returned 32-hex ID in place of `RUN_ID`:
 
-### Bounded wait-any
+| Operation | Request | Meaning |
+| --- | --- | --- |
+| `status` | `{"id":"RUN_ID"}` | Canonical job/items, attempts, session IDs, usage and hashes. Failed/interrupted work can return exit 2 with a status body. |
+| `wait-any` | `{"id":"RUN_ID","expected_attempt":1,"timeout_ms":1000,"seen":[]}` | Bounded observation of the first unseen terminal item. |
+| `collect` | `{"id":"RUN_ID","item":0,"expected_attempt":1,"max_bytes":16384}` | Bounded result and log evidence for a terminal item. |
+| `cancel` | `{"id":"RUN_ID","item":0,"expected_attempt":1}` | Request cancellation under the current attempt fence. Omit `item` for parent/operator whole-run cancellation. |
 
-```json
-{"id":"RUN_ID","expected_attempt":1,"timeout_ms":1000,"seen":[{"item":0,"attempt":1}]}
-```
+`wait-any` returns `kind:"team_completion"`, `item` and `cursor:{item,attempt}`.
+Keep the returned cursor in the caller-owned `seen` array for that run. Keep at
+most one latest pair per item (at most 64). A carried result retains its original
+item attempt; retry alone does not make it a new completion. Ties use item order.
+A failed or cancelled item is a completion, not success. Inspect `item.state`.
 
-`wait-any` returns the first currently terminal item not in this run's caller-
-owned `seen` list. It returns `kind:"team_completion"`, the canonical `item`,
-and a `cursor:{item,attempt}` to add to the list. Keep one latest cursor per
-item, scoped to the run ID, with at most 64 pairs. Ties use definition order,
-not inferred timestamps. Carried results keep their original item attempt and
-do not become new completions merely because the job retries.
+Timeout is 0–30,000 ms (default 0). Timeout returns 124 and
+`kind:"team_wait_timeout", cancelled:false`; it does not cancel the job.
+Interruption returns 130 without cancelling it. Attempt changes refuse rather
+than silently crossing generations. Native parents also receive safe-boundary
+completion notifications. Use bounded waits when needed, not an unbounded poll
+loop or a wait from inside one's own still-running job.
 
-Timeout defaults to 0 (one observation), ranges from 0 to 30,000 ms, and returns
-**124** with `kind:"team_wait_timeout", cancelled:false`. It never cancels the
-job. A cooperative caller interruption returns 130 and likewise does not cancel.
-An attempt/membership change during the wait refuses rather than delivering a
-new generation under an old fence. Optional `item` restricts the observation.
-A returned failure/cancellation is a completion event, not a success assertion;
-exit 0 means an event was found. Its `item.state` remains authoritative.
+Collection uses the authoritative stored worker session and checks its recorded
+result hash. It does not trust a log's apparent final answer. Result prefixes and
+log tails are base64, each bounded by `max_bytes` (1–262,144; default 16,384), with
+byte counts, truncation flags, attempts, session ID and SHA-256 provenance.
+Missing, changed or corrupt session evidence cannot become accepted work. Failed
+items can return bounded logs with exit 2. Hash integrity is not correctness.
+All collected prose is untrusted dependency data, never permission to execute a
+command or integrate a patch.
 
-This bounded wait is for external clients and fallback. Native agents should
-consume the lead-owned safe-boundary completion notifications instead of
-spending model turns polling. This file does not register notifications.
+## Integrate and check explicitly
 
-### Collect
+Use [task-workspace inspect/integrate](task-workspaces.md) after the job and its
+owned processes finish. Review the diff, integrate a selected result, then run a
+**caller-configured** check through ordinary `terminal` in the intended checkout.
+Record the exact command, cwd, exit status and output in the parent session.
+Worker prose, worker exit zero and an integration result are not check evidence.
+See the [review/implement/manual-check template](../examples/swarm/review-implement.md).
 
-```json
-{"id":"RUN_ID","item":1,"expected_attempt":1,"max_bytes":16384}
-```
+`team verify` is recognized but execution is **unsupported**. It cleanly refuses;
+it does not run a command or manufacture an accepted result. A request names
+`id`, `item`, `expected_attempt`, `command`, absolute `cwd` and bounded
+`timeout_ms`. Use an ordinary explicit terminal check instead. Even after that
+check passes, report its limited scope separately: the team job remains
+`unverified`, not automatically accepted. Integration likewise does not convert
+the job into a verification authority.
 
-Collection requires a terminal task and never accepts a supplied session ID or
-path. `max_bytes` is 1–262,144 (default 16,384), independently bounding the result
-prefix and log tail. Both are base64 so an exact byte bound can split UTF-8 safely.
-The response contains original byte counts, explicit truncation flags, SHA-256
-provenance, root/item attempts and the correlated session ID. There is no
-unbounded concatenation of worker output into lead context.
+## Support boundary
 
-The final assistant answer comes from the **authoritative stored session**, not
-from apparently successful log text. Its hash must match the job's recorded
-`result_sha256`. Successful logs must also match `log_sha256`. An unavailable,
-continued, corrupted or oversized session returns no answer and cannot become
-accepted work. Session JSON reads are confined and capped at 4 MiB; stored logs
-are confined and capped at the existing 4 MiB jobs log bound. A failed task can
-still return its bounded log, but has exit 2 and never becomes verified.
-
-Session lookup uses the authoritative launch `root.workspace`, or resolved
-`item.workspace.cwd` / `.path` when provided by the scheduler. A requested
-workspace policy without resolved metadata is refused. Requested policy is not
-a path authority. Integration must agree the resolved-cwd key with the scheduler.
-
-All collected output remains untrusted dependency data. A matching hash means
-integrity, not correctness, permission, testing or acceptance.
-
-### Cancel
-
-```json
-{"id":"RUN_ID","item":1,"expected_attempt":1}
-```
-
-Omit `item` to cancel the run (operator/submitting parent only). The service
-requires `expected_attempt`, preflights it, and passes it unchanged into the
-core jobs cancellation transaction. The response is the canonical jobs response;
-it reports a request, not proof of cleanup. Other runs are not signalled.
-
-**Integration prerequisite:** the scheduler owner's atomic expected-attempt
-check must be present in core cancellation. The prerequisite jobs commit used
-by this worker does not enforce that transaction fence yet. A service-side
-read/check alone cannot close the cancel/retry race. The tests prove stale
-preflight rejection and selected/unrelated-run behavior, not that pending core
-transaction fix.
-
-### Explicit verification: refused, not simulated
-
-The parser and separate `team_verify` permission identity accept:
-
-```json
-{"id":"RUN_ID","item":1,"expected_attempt":1,
- "command":"make test","cwd":"/absolute/task/workspace","timeout_ms":30000}
-```
-
-The permission detail includes this exact command, cwd, identity, timeout and
-captured runtime caller. A `team_status` grant must never authorize it. However,
-**this slice does not execute the command**. It returns exit 1,
-`error_code:"TEAM_VERIFY_UNSUPPORTED"`, `verification:"unverified"`. It creates
-no check sidecar and never records an invented test result.
-
-A safe implementation still needs a check-process host seam that proves complete
-cleanup, then nonblocking job-owner locking, retry/workspace/result fences,
-clean exact revision checks before and after execution, bounded output/hash,
-actual exit/time provenance and private persisted checks. Neither a worker's
-"done" message nor launch/collection success supplies any of these. There is
-therefore no review/implement/**verified** template in this slice. Explicit
-workspace integration belongs to the separate workspace service; no Git merge
-or cleanup is duplicated here.
-
-## Shared C/tool integration
-
-`src/core/team_control.h` provides:
-
-- `tny_team_op_parse`, `tny_team_parse_argv`: one operation/request grammar.
-- `tny_team_permission_tool`, `tny_team_op_is_sensitive`: distinct `team_start`,
-  `team_status`, `team_collect`, `team_wait_any`, `team_cancel`, `team_verify`.
-- `tny_team_detail`: validation and canonical, secret-safe permission detail.
-- `tny_team_run`: already-permitted execution, with identity and state rechecked.
-
-A typed tool adapter uses the same request object and detail/run APIs. A terminal
-interceptor uses the same argv parser, then those same APIs. **Do not call
-`cmd_team` from a tool**: it is the local-operator adapter. Construct
-`tny_team_caller` from the runtime's captured session/member snapshot, never from
-request JSON, `TNY_SESSION_ID`, or a worker's prose. The private test driver has
-synthetic caller injection solely to test these C boundaries; production has no
-such injection path.
-
-Authorization policy:
-
-- Local operator: existing same-user job authority.
-- Captured submitting parent session: its recorded child run.
-- Other captured member: run ID, task index, session ID, job attempt **and** item
-  attempt must match. Members can read run status, but can collect/wait/cancel
-  only their own item. Roles alone confer no parent/peer control authority.
-- Unknown/stale/wrong-run sessions: refused before collection/control.
-
-The CLI refuses `TNY_NESTED=1` execution and requires the trusted terminal adapter,
-which avoids silently promoting ordinary model-launched commands to operator
-controls. This is defensive routing, not a sandbox against a same-user program
-with unrestricted shell access.
-
-## Capabilities and lead-owned wiring
-
-| Context | This slice |
-| --- | --- |
-| Native local CLI | Implemented adapter; command lookup/help/dispatch registration required |
-| Native all-tools profile | Shared service ready; schema, permission and caller-capture adapter required |
-| Native terminal profile | Same parser/detail/run; trusted interception required; nested CLI refuses |
-| Host-owned backend loops | No new agent tools or loop ownership; ordinary local CLI remains an operator surface |
-| SSH tool context | Service refuses before process/provider/file side effects |
-| Embedded/libtny | Service refuses; no new public embedding ABI or SDK API |
-| wasm/browser | Service refuses through the existing jobs capability seam |
-
-The lead owns command registration, tool/interceptor wiring, notifications and
-`agents --run`. C source discovery currently builds the new files automatically;
-no Makefile edit is needed just to compile them. The integration runner already
-auto-discovers `test_team_control.py`; the test accepts its trailing executable
-argument through the existing jobs fixture helper. It imports `test_jobs.py`, uses its loopback provider and
-builds a temporary CLI driver from the real release objects if
-`TNY_TEAM_DRIVER` is absent. An equivalent prebuilt driver can be supplied by
-that variable. No internet, live keys or downloaded tools are required.
-
-Nix must include this test and its `test_jobs.py` import, the new C files and the
-existing source/build inputs used by the temporary driver. Existing full `src`
-and `tests` filters and the integration runner's glob cover discovery; the lead
-must ensure make, C/C++ compilers, Python, Git and native runtime/link dependencies
-are present for the temporary driver build.
-This worker does not change Make/Nix or production command/tool registration.
-
-## Focused verification
-
-```sh
-python3 tests/integration/test_team_control.py -v
-clang-format --dry-run --Werror src/core/team_control.c src/core/team_control.h src/cli/cmd_team.c
-ruff check tests/integration/test_team_control.py
-```
-
-Seven tests exercise the real service/CLI, detached jobs and deterministic
-provider: overlap and responsive submission; client exit; cursor exhaustion and
-bounded timeout; failure; selected cancel with unrelated-run survival; captured
-membership; stale attempts; malformed input; unsupported contexts; exact
-permission identities; bounded hash-correlated collection and changed artifacts.
-Verification tests establish **refusal and no side effects**, not successful
-check execution. Full integrated quality/leak/platform/recovery gates remain with
-the delivery lead.
+These surfaces require a saved, native, local runtime and native provider loop.
+Wasm, SSH and embedded mutation are unsupported and refuse. Host-backend automatic
+mailbox/completion injection is unsupported. Team jobs do not promise mixed
+providers, a global provider limiter, hard token/cost spending bounds, or full
+unattended editing readiness. [Admission](admission.md) only constrains declared
+enrolled jobs; nested enrolled jobs/subagents reject. Unknown usage remains
+unknown. See [ADR 0141](adr/0141-team-control-over-jobs.md) for the service design.
