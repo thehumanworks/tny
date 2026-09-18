@@ -146,6 +146,29 @@ TEST task_workspace_two_workers_and_conflict(void) {
     task_workspace_close(a);
     task_workspace_close(b);
     finish(p);
+    /* Real process loss stays in the process suite, not the macOS leak suite. */
+    p = fixture();
+    ASSERT(p);
+    pid_t child = fork();
+    ASSERT(child >= 0);
+    if (child == 0) {
+        task_workspace *w = NULL;
+        if (task_workspace_prepare(p, identity(0), NULL, &w, err, sizeof err)) _exit(2);
+        if (write_file(task_workspace_path(w), "same.txt", "crash residue\n")) _exit(3);
+        _exit(0); /* no close: OS releases lock, metadata and edits survive */
+    }
+    int status;
+    ASSERT_EQ(child, waitpid(child, &status, 0));
+    ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    task_workspace *lost = NULL;
+    ASSERT_EQ(0, task_workspace_open(p, identity(0), &lost, err, sizeof err));
+    ASSERT_EQ(-1, task_workspace_cleanup(lost, err, sizeof err));
+    task_workspace_result residue;
+    ASSERT_EQ(0, task_workspace_inspect(lost, &residue, err, sizeof err));
+    ASSERT(strstr(residue.patch, "+crash residue"));
+    task_workspace_result_free(&residue);
+    task_workspace_close(lost);
+    finish(p);
     PASS();
 }
 
@@ -205,17 +228,10 @@ TEST task_workspace_collisions_and_foreign_tree(void) {
 TEST task_workspace_crash_and_cleanup_recovery(void) {
     char *p = fixture();
     ASSERT(p);
-    pid_t child = fork();
-    ASSERT(child >= 0);
-    if (child == 0) {
-        task_workspace *w = NULL;
-        if (task_workspace_prepare(p, identity(0), NULL, &w, err, sizeof err)) _exit(2);
-        if (write_file(task_workspace_path(w), "same.txt", "crash residue\n")) _exit(3);
-        _exit(0); /* no close: OS releases lock, metadata and edits survive */
-    }
-    int status;
-    ASSERT_EQ(child, waitpid(child, &status, 0));
-    ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    task_workspace *prepared = NULL;
+    ASSERT_EQ(0, task_workspace_prepare(p, identity(0), NULL, &prepared, err, sizeof err));
+    ASSERT_EQ(0, write_file(task_workspace_path(prepared), "same.txt", "crash residue\n"));
+    task_workspace_close(prepared);
     task_workspace *w = NULL;
     ASSERT_EQ(0, task_workspace_open(p, identity(0), &w, err, sizeof err));
     ASSERT_EQ(-1, task_workspace_cleanup(w, err, sizeof err));
@@ -289,18 +305,21 @@ TEST task_workspace_path_and_metadata_collisions(void) {
 
 SUITE(task_workspace_suite) {
     RUN_TEST(task_workspace_identity_and_platform_refusal);
-    RUN_TEST(task_workspace_two_workers_and_conflict);
+
     RUN_TEST(task_workspace_dirty_launch_and_cancel);
     RUN_TEST(task_workspace_collisions_and_foreign_tree);
     RUN_TEST(task_workspace_crash_and_cleanup_recovery);
     RUN_TEST(task_workspace_ignored_and_large_patch_preserved);
     RUN_TEST(task_workspace_path_and_metadata_collisions);
 }
+/* macOS leaks --atExit deadlocks forked children. Linux runs this suite too. */
+SUITE(task_workspace_process_suite) { RUN_TEST(task_workspace_two_workers_and_conflict); }
 #ifdef TASK_WORKSPACE_TEST_MAIN
 GREATEST_MAIN_DEFS();
 int main(int argc, char **argv) {
     GREATEST_MAIN_BEGIN();
     RUN_SUITE(task_workspace_suite);
+    RUN_SUITE(task_workspace_process_suite);
     GREATEST_MAIN_END();
 }
 #endif
