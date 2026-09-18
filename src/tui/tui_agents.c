@@ -58,6 +58,7 @@ void tui_agents_open(tui *t) {
         t->session = NULL;
     }
     tui_pick_close(t);
+    tui_clear_screen(t);
     t->agents_dashboard = true;
     tui_agents_refresh(t);
 }

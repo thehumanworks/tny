@@ -135,3 +135,4 @@ files in this directory are the complete record.
 - [0135 — Clean disposable build variants](0135-clean-build-variants.md)
 - [0136 — Preserve optional tool arguments on Responses](0136-preserve-optional-tool-arguments-on-responses.md)
 - [0137 — Linux/macOS CI and optional developer Nix](0137-linux-macos-ci-and-optional-nix.md)
+- [0138 — Full-screen agents dashboard](0138-full-screen-agents-dashboard.md)

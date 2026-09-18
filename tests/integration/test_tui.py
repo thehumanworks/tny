@@ -152,12 +152,15 @@ def free_port():
 class Term:
     """A child process attached to a pseudo-terminal."""
 
-    def __init__(self, argv, env, cwd):
+    def __init__(self, argv, env, cwd, prelude=b""):
         self.master, self.slave = pty.openpty()
         fcntl.ioctl(
             self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0)
         )
         self.before = termios.tcgetattr(self.slave)
+        # Seed real screen contents before the child can paint its first view.
+        if prelude:
+            os.write(self.slave, prelude)
         self.proc = subprocess.Popen(
             argv,
             stdin=self.slave,
