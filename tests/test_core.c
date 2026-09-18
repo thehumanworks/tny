@@ -3730,6 +3730,8 @@ TEST responses_tools_flatten(void) {
         ASSERT(jget_str(t, "description"));
         ASSERT(yyjson_is_obj(jget(t, "parameters")));
         ASSERT_EQ(NULL, jget(t, "function"));
+        /* Responses otherwise promotes optional arguments to required. */
+        ASSERT(yyjson_is_false(jget(t, "strict")));
         /* same tool, same position as the chat schema */
         yyjson_val *cfn = jget(yyjson_arr_get(ca, idx), "function");
         ASSERT_STR_EQ(jget_str(cfn, "name"), jget_str(t, "name"));
@@ -3743,6 +3745,42 @@ TEST responses_tools_flatten(void) {
     ASSERT_EQ(NULL, tny_openai_responses_tools("{\"not\":\"an array\"}"));
     ASSERT_EQ(NULL, tny_openai_responses_tools("not json"));
     ASSERT_EQ(NULL, tny_openai_responses_tools(NULL));
+    PASS();
+}
+
+TEST responses_tools_preserve_optional_and_explicit_strict(void) {
+    const char *chat =
+        "[{\"type\":\"function\",\"function\":{\"name\":\"subagent\","
+        "\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"},"
+        "\"id\":{\"type\":\"string\"},\"prompt\":{\"type\":\"string\"}},\"required\":[\"action\"]}}"
+        "},"
+        "{\"type\":\"function\",\"function\":{\"name\":\"explicit_true\",\"strict\":true,"
+        "\"parameters\":{\"type\":\"object\",\"properties\":{},\"required\":[],"
+        "\"additionalProperties\":false}}},"
+        "{\"type\":\"function\",\"function\":{\"name\":\"explicit_false\",\"strict\":false}},"
+        "{\"type\":\"function\",\"function\":{\"name\":\"null_default\",\"strict\":null}}]";
+    char *flat = tny_openai_responses_tools(chat);
+    ASSERT(flat);
+    yyjson_doc *cd = jparse(chat, strlen(chat));
+    yyjson_doc *fd = jparse(flat, strlen(flat));
+    ASSERT(cd);
+    ASSERT(fd);
+    yyjson_val *ca = yyjson_doc_get_root(cd), *fa = yyjson_doc_get_root(fd);
+    ASSERT_EQ(4u, yyjson_arr_size(fa));
+    for (size_t i = 0; i < 4; i++) {
+        yyjson_val *strict = jget(yyjson_arr_get(fa, i), "strict");
+        ASSERT(yyjson_is_bool(strict));
+        ASSERT_EQ(i == 1, yyjson_get_bool(strict));
+    }
+    /* No nullable rewrite, required-list expansion, or closed-object injection. */
+    for (size_t i = 0; i < 2; i++) {
+        yyjson_val *before = jget(jget(yyjson_arr_get(ca, i), "function"), "parameters");
+        yyjson_val *after = jget(yyjson_arr_get(fa, i), "parameters");
+        ASSERT(yyjson_equals(before, after));
+    }
+    yyjson_doc_free(cd);
+    yyjson_doc_free(fd);
+    free(flat);
     PASS();
 }
 
@@ -4117,6 +4155,14 @@ TEST subagent_prepare_rejects_with_exact_codes(void) {
          "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
          "inspect or lifecycle"},
         {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":\"0123456789abcdef\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
+         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
+         "inspect or lifecycle"},
+        {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":\"\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
+         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
+         "inspect or lifecycle"},
+        {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":null}",
          "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
          "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
          "inspect or lifecycle"},
@@ -5802,6 +5848,7 @@ SUITE(core_suite) {
     RUN_TEST(responses_input_translates_image_parts);
     RUN_TEST(responses_input_skips_malformed);
     RUN_TEST(responses_tools_flatten);
+    RUN_TEST(responses_tools_preserve_optional_and_explicit_strict);
     RUN_TEST(embedded_tool_schema_has_no_process_spawning_tools);
     RUN_TEST(image_export_tools_are_local_and_gated);
     RUN_TEST(optimisation_tools_are_read_only_even_in_yolo);

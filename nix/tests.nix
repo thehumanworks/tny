@@ -24,6 +24,8 @@
 
 let
   src = (import ./source.nix { inherit lib; }).tests;
+  # Terminal background completion uses only the existing Python/POSIX tools.
+  # Its short-lived detached waiters also use this test runner's adoption.
   # Linux fixture descendants can outlive their direct parent. Adopt and reap
   # them inside the builder even when the host/container init does not reap.
   testRunner = lib.optionalString stdenv.hostPlatform.isLinux "${tini}/bin/tini -s -- ";
@@ -36,7 +38,7 @@ stdenv.mkDerivation {
   # (-dynamiclib on Darwin, -shared on Linux; -ldl for snapshot crash faults).
   # The host C runtime supplies dl; no extra runtime package is used.
   # test_jobs_cleanup_hold.py needs only existing Python/fcntl dependencies.
-  # test_jobs_msys.py skips on Nix hosts; its native Windows CI fixtures use
+  # test_jobs_msys.py skips on Nix hosts; its optional local MSYS fixtures use
   # the existing gcc/make/python toolchain and the Makefile object inventory.
   strictDeps = true;
   nativeBuildInputs = [

@@ -352,6 +352,7 @@ def run_case(
                 os.chmod(binary, 0)
             term.send("\x1b[D\x1b[D")
             term.expect("Background armed")
+            assert "\x1b[2J" not in term.buf, "arming handoff cleared the chat early"
             if images:
                 (ws / "image.png").write_bytes(b"later bytes must not be reopened")
             if no_tools:
@@ -460,6 +461,7 @@ def run_case(
                 )
                 return
             term.expect("Background agents", timeout=20)
+            assert_clean_dashboard(term, BANNER, "REASONING-KEEP", "FINISHED-ONCE")
             saved = json.loads(session.read_text())
             assert saved["background"] is True, saved
             if not no_tools:
@@ -503,6 +505,7 @@ def run_case(
                 for detach in ("/agents\r", "\x18"):
                     attached.send(detach)
                     attached.expect_next("Background agents")
+                    assert_clean_dashboard(attached, "Attached", "SAME-TURN-RUNNING")
                     assert int((session.parent / "pid").read_text()) == pid
                     attached.send("\r")
                     attached.expect_next("Attached")
@@ -719,6 +722,7 @@ def unsupported_in_process():
                     "background handoff requires a saved native session runner"
                 )
                 assert "Background agents" not in term.buf
+                assert "\x1b[2J" not in term.buf, "refused handoff cleared the chat"
             provider.finish.set()
             term.expect("FINISHED-ONCE")
             term.send("\x04")
@@ -732,22 +736,71 @@ def unsupported_in_process():
     print("PASS in-process Left/CtrlX/agents reject safely and preserve active turn")
 
 
+def assert_clean_dashboard(term, *old_text):
+    term.expect_on_screen("Background agents")
+    screen = term.screen()
+    assert screen.splitlines()[0].startswith("Background agents"), screen
+    for text in old_text:
+        assert text not in screen, screen
+    assert "\x1b[2J" in term.buf and "\x1b[3J" in term.buf, term.buf
+    clears = term.buf.count("\x1b[2J")
+    paints = term.buf.count("Background agents")
+    # Observe a repaint, not a fixed sleep: idle polling can delay the 500 ms
+    # refresh. It must neither clear again nor restore old chat text.
+    until(lambda: term.buf.count("Background agents") > paints, term, seconds=5)
+    assert term.buf.count("\x1b[2J") == clears, term.buf
+    screen = term.screen()
+    assert screen.splitlines()[0].startswith("Background agents"), screen
+    for text in old_text:
+        assert text not in screen, screen
+
+
 def empty_dashboard():
     with tempfile.TemporaryDirectory(prefix="tny-agents-empty-") as home:
-        env = base_env(
-            home, {"OPENAI_BASE_URL": "http://127.0.0.1:1", "OPENAI_API_KEY": "fixture"}
-        )
-        term = Term([TNY, "agents"], env, home)
-        try:
-            term.expect("No background sessions")
-            assert not (Path(home) / ".tny/sessions").exists(), (
-                "dashboard prewarmed a runner"
+        env = base_env(home, {"OPENAI_BASE_URL": "http://127.0.0.1:1"})
+        for command in (None, "\x18", "/agents\r"):
+            for color in ("auto", "never"):
+                args = [
+                    TNY,
+                    "--no-extensions",
+                    "--provider",
+                    "openai",
+                    f"--color={color}",
+                ]
+                if command is None:
+                    args.append("agents")
+                # Seed the physical terminal, not just our captured transcript.
+                term = Term(args, env, home, prelude=b"OLD-SHELL-TEXT\n")
+                try:
+                    if command:
+                        term.expect_on_screen(BANNER)
+                        term.send(command)
+                    term.expect("No background sessions")
+                    assert_clean_dashboard(term, "OLD-SHELL-TEXT", BANNER)
+                    assert not (Path(home) / ".tny/sessions").exists(), (
+                        "dashboard prewarmed a runner"
+                    )
+                    term.send("q")
+                    assert term.wait() == 0
+                    assert term.restored(), "dashboard left the terminal raw"
+                finally:
+                    term.close()
+        for args in (["agents"], ["agents", "--json"]):
+            result = subprocess.run(
+                [TNY, *args],
+                env=env,
+                cwd=home,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
-            term.send("q")
-            assert term.wait() == 0
-        finally:
-            term.close()
-    print("PASS empty dashboard without provider work")
+            assert result.returncode == 0, result.stderr
+            assert "\x1b" not in result.stdout, result.stdout
+            if "--json" in args:
+                assert json.loads(result.stdout) == {"kind": "agents", "agents": []}
+            else:
+                assert result.stdout == "No background sessions in this workspace.\n"
+    print("PASS clean full-screen dashboard, no provider work, plain/JSON unchanged")
 
 
 def unattended_permission():

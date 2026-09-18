@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep the documented Nix systems and native CI matrix in lockstep."""
+"""CI targets Linux/macOS; Nix remains an optional developer workflow (ADR 0137)."""
 
 from __future__ import annotations
 
@@ -7,110 +7,65 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = ROOT / ".github" / "workflows" / "nix.yml"
-CI_DOC = ROOT / "docs" / "ci.md"
-NIX_DOC = ROOT / "docs" / "nix.md"
-FLAKE = ROOT / "flake.nix"
-SOURCE = ROOT / "nix" / "source.nix"
-
-EXPECTED_MATRIX = [
-    ("nix-linux-x86_64", "ubuntu-24.04"),
-    ("nix-linux-aarch64", "ubuntu-24.04-arm"),
-    ("nix-darwin-arm64", "macos-15"),
-]
 EXPECTED_SYSTEMS = ["x86_64-linux", "aarch64-linux", "aarch64-darwin"]
 
 
-def _require_file(path: Path) -> str:
-    if not path.is_file():
-        raise SystemExit(
-            f"{path.relative_to(ROOT)} is missing from the test source; "
-            "add it to nix/source.nix testFiles"
-        )
-    return path.read_text(encoding="utf-8")
+def read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
 
 
 def main() -> int:
-    workflow = _require_file(WORKFLOW)
-    ci_doc = _require_file(CI_DOC)
-    nix_doc = _require_file(NIX_DOC)
-    flake = _require_file(FLAKE)
-    source = _require_file(SOURCE)
+    workflows = ROOT / ".github/workflows"
+    assert not (workflows / "nix.yml").exists(), "Nix must not be a CI workflow"
+    for path in workflows.glob("*.yml"):
+        text = path.read_text(encoding="utf-8")
+        assert "windows-" not in text, path
+        assert "msys2/setup-msys2" not in text, path
+        assert not re.search(r"nix (?:build|flake check)|install-nix-action", text), (
+            path
+        )
+        for runner in re.findall(r"(?m)^\s+runs-on:\s*(.+)$", text):
+            assert runner.startswith(("ubuntu-", "macos-", "${{ matrix.os }}")), (
+                path,
+                runner,
+            )
 
-    matrix = re.search(r"(?ms)^      matrix:\n(?P<body>.*?)(?=^    steps:)", workflow)
-    assert matrix, "nix workflow check matrix not found"
-    entries = re.findall(
-        r"(?m)^          - name: ([^\n]+)\n            os: ([^\n]+)$",
-        matrix.group("body"),
+    ci = read(".github/workflows/ci.yml")
+    release = read(".github/workflows/release.yml")
+    auto = read(".github/workflows/auto-release.yml")
+    for text in (ci, release):
+        for runner in ("ubuntu-24.04", "ubuntu-24.04-arm", "macos-15"):
+            assert runner in text, runner
+        assert "needs.windows" not in text
+        assert "  windows:" not in text
+        assert "continue-on-error:" not in text
+    assert "needs: [quality, build, musl, wasm, tsan, fuzz]" in ci
+    assert "needs: [build, musl, validate-registries]" in release
+    assert "workflows: [ci, sdk]" in auto
+    assert ".github/workflows/nix.yml" not in auto
+    assert "nix" not in re.search(r"for path in (.*?); do", auto).group(1)
+    assert "nix flake check" not in auto
+    # Removing Nix must not drop the only actual ImageMagick 7 conversion run.
+    assert "magick -version" in ci
+    assert 'TNY="$PWD/build/tny" python3 tests/integration/test_image_exports.py' in ci
+
+    flake = read("flake.nix")
+    block = re.search(r"(?ms)systems\s*=\s*\[(.*?)\];", flake)
+    assert block
+    assert sorted(re.findall(r'"([^"]+)"', block.group(1))) == sorted(EXPECTED_SYSTEMS)
+    for path in ("default.nix", "shell.nix", "nix/devshell.nix", "nix/tests.nix"):
+        assert (ROOT / path).is_file(), path
+    assert "checks = forAllSystems" in flake
+    assert "packages = forAllSystems" in flake
+    assert "../.github/workflows" in read("nix/source.nix")
+    for path in ("docs/ci.md", "docs/nix.md"):
+        text = read(path)
+        assert "optional developer" in text, path
+        assert "nix flake check" in text, path
+        assert ".github/workflows/nix.yml" not in text, path
+    print(
+        "test_nix_ci_matrix: Linux/macOS CI, ci+sdk release gates, optional local Nix"
     )
-    assert entries == EXPECTED_MATRIX, entries
-
-    assert workflow.count("\njobs:") == 1
-    assert workflow.count("\n  check:") == 1
-    assert "continue-on-error:" not in workflow
-    assert re.findall(r"(?m)^\s+if:\s*(.+)$", workflow) == ["runner.os == 'macOS'"]
-    assert 'if [ "$(uname -m)" != "arm64" ]; then' in workflow
-    assert "x86_64-darwin" not in workflow
-
-    for command in (
-        "nix flake check --print-build-logs",
-        "nix build .#tny --print-build-logs",
-        "./result/bin/tny --version",
-        "./result/bin/tny --help",
-        "./result/bin/tny doctor --json",
-        'test "$got" = "$want"',
-        "nix-instantiate default.nix -A tny",
-        "nix-instantiate default.nix -A libtny",
-        "nix-instantiate shell.nix",
-    ):
-        assert command in workflow, command
-
-    systems_block = re.search(r"(?ms)systems\s*=\s*\[(?P<body>.*?)\];", flake)
-    assert systems_block, "flake systems list not found"
-    systems = re.findall(r'"([^"]+)"', systems_block.group("body"))
-    assert sorted(systems) == sorted(EXPECTED_SYSTEMS), systems
-
-    for runner, system in (
-        ("ubuntu-24.04", "x86_64-linux"),
-        ("ubuntu-24.04-arm", "aarch64-linux"),
-        ("macos-15", "aarch64-darwin"),
-    ):
-        assert runner in ci_doc, runner
-        assert system in ci_doc, system
-        assert runner in nix_doc, runner
-        assert system in nix_doc, system
-
-    for text in (".github/workflows/nix.yml", "nix flake check"):
-        assert text in ci_doc, text
-    for text in (
-        "packages.tny",
-        "packages.libtny",
-        "checks.tests",
-        "publishes no artifact",
-    ):
-        assert text in ci_doc, text
-    assert ".github/workflows/nix.yml" in nix_doc
-    assert "native-checks all three systems" in nix_doc
-    assert "fileset therefore includes" in nix_doc
-    for required in (
-        "../.github/workflows/nix.yml",
-        "../flake.nix",
-        "../nix/source.nix",
-        "../nix/package.nix",
-    ):
-        assert required in source, required
-
-    banned_phrases = (
-        "on `ubuntu-24.04` and `macos-15`",
-        "ubuntu-24.04 and macos-15 only",
-        "only x86_64 Linux + Darwin",
-        "only x86_64 Linux and Darwin",
-    )
-    for phrase in banned_phrases:
-        assert phrase not in ci_doc, phrase
-        assert phrase not in nix_doc, phrase
-
-    print("test_nix_ci_matrix: all assertions passed")
     return 0
 
 

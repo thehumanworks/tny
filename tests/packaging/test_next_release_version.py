@@ -239,14 +239,14 @@ class AutoReleaseWorkflowContractTests(unittest.TestCase):
     workflow = (ROOT / ".github/workflows/auto-release.yml").read_text(encoding="utf-8")
 
     def test_triggers_on_every_main_gate(self) -> None:
-        self.assertIn("workflows: [ci, nix, sdk]", self.workflow)
+        self.assertIn("workflows: [ci, sdk]", self.workflow)
         self.assertIn("types: [completed]", self.workflow)
         self.assertIn("branches: [main]", self.workflow)
+        self.assertNotIn(".github/workflows/nix.yml", self.workflow)
 
     def test_requires_all_gates_green_before_tagging(self) -> None:
         for path in (
             ".github/workflows/ci.yml",
-            ".github/workflows/nix.yml",
             ".github/workflows/sdk.yml",
         ):
             self.assertIn(path, self.workflow)

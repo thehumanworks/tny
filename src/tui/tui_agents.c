@@ -1,5 +1,6 @@
 /* Shared interactive/noninteractive background-session dashboard. */
 #include "tui/tui.h"
+#include "mcp/mcp.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,6 +58,7 @@ void tui_agents_open(tui *t) {
         t->session = NULL;
     }
     tui_pick_close(t);
+    tui_clear_screen(t);
     t->agents_dashboard = true;
     tui_agents_refresh(t);
 }
@@ -79,6 +81,35 @@ void tui_background_arm(tui *t) {
 void tui_agents_select(tui *t) {
     if (t->agent_selected < 0 || t->agent_selected >= t->n_agents) return;
     session_meta *m = &t->agents[t->agent_selected];
+    if (m->workspace && strcmp(m->workspace, t->ctx->cwd) != 0) {
+        /* Attachment and subsequent turns must use the selected checkout's
+         * storage, settings and permissions, not the dashboard's origin. */
+        tui_prewarm_drop(t);
+        cli_globals next = *t->g;
+        next.cwd = m->workspace;
+        next.ssh = next.ssh_cwd = NULL;
+        tui_raw_begin(t);
+        tny_ctx *ctx = cli_make_ctx(&next);
+        tui_raw_end(t);
+        if (!ctx) {
+            tui_err(t, "cannot load the background session's workspace");
+            return;
+        }
+        if (t->engine) tny_engine_end_session(t->engine, "agents");
+        tui_drop_backend(t);
+        if (t->session) {
+            session_close(t->session);
+            t->session = NULL;
+        }
+        mcp_shutdown_all();
+        perm_free(t->perm);
+        if (t->owns_ctx) tny_ctx_free(t->ctx);
+        t->ctx = ctx;
+        t->owns_ctx = true;
+        t->perm = perm_new(ctx);
+        t->worktree = NULL; /* discovery does not acquire a managed-worktree lock */
+        tui_files_free(t);
+    }
     tny_session_state *session = session_open(t->ctx, m->id);
     if (!session) {
         tui_err(t, "background session disappeared or is unreadable");

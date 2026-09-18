@@ -176,6 +176,7 @@ static void parallel_probe_item(size_t i, void *ud) {
     /* enough work that the other workers get to claim indices too */
     volatile unsigned spin = 0;
     for (unsigned k = 0; k < 2000; k++) spin += k;
+    (void)spin;
     if (i == p->fail_at) tny_alloc_scope_note_failure();
 }
 

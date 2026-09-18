@@ -1,8 +1,8 @@
 # Tag and publish a release automatically after every merge to main
 # (docs/adr/0085, docs/ci.md "Releases").
 #
-# Runs when one of the main-branch gates (ci, nix, sdk) completes on a
-# push to main. It releases only once all three are green on the same
+# Runs when one of the main-branch gates (ci, sdk) completes on a
+# push to main. It releases only once both are green on the same
 # commit: whichever gate finishes last does the work, the earlier ones
 # see something still in progress and stop. The version is not stored
 # anywhere (docs/adr/0014): scripts/next_release_version.py bumps the
@@ -22,7 +22,7 @@ name: auto-release
 
 on:
   workflow_run:
-    workflows: [ci, nix, sdk]
+    workflows: [ci, sdk]
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -93,7 +93,7 @@ jobs:
             --jq '.workflow_runs[] | [.path, .status, (.conclusion // "-"), .id] | @tsv')"
           printf '%s\n' "$runs"
           ready=true
-          for path in .github/workflows/ci.yml .github/workflows/nix.yml .github/workflows/sdk.yml; do
+          for path in .github/workflows/ci.yml .github/workflows/sdk.yml; do
             # newest run per workflow comes first; a re-run replaces a failure
             line="$(printf '%s\n' "$runs" | awk -F'\t' -v p="$path" '$1 == p { print; exit }')"
             if [ -z "$line" ]; then

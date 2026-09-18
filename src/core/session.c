@@ -2,6 +2,7 @@
 #include "core/tasks.h"
 #include "util/util.h"
 #include "util/process.h"
+#include "util/git.h"
 #include "util/alloc.h"
 
 #include <stdio.h>
@@ -1293,7 +1294,12 @@ static void scan_ws_dir(const char *wsdir, const char *wsname, session_meta **ar
         buf_free(&p);
         if (!doc) continue;
         yyjson_val *r = yyjson_doc_get_root(doc);
-        if (backgrounds && !jget_bool(r, "background", false)) {
+        buf_t ld;
+        buf_init(&ld);
+        buf_appendf(&ld, "%s/%s", wsdir, e->d_name);
+        bool running = lock_dir_held(ld.data); /* one flock probe per entry */
+        buf_free(&ld);
+        if (backgrounds && !jget_bool(r, "background", false) && !running) {
             yyjson_doc_free(doc);
             continue;
         }
@@ -1321,11 +1327,7 @@ static void scan_ws_dir(const char *wsdir, const char *wsname, session_meta **ar
         }
         m->background = jget_bool(r, "background", false);
         m->turns = (int)jget_int(r, "turns", 0);
-        buf_t ld;
-        buf_init(&ld);
-        buf_appendf(&ld, "%s/%s", wsdir, e->d_name);
-        m->running = lock_dir_held(ld.data); /* one flock probe per entry */
-        buf_free(&ld);
+        m->running = running;
         yyjson_doc_free(doc);
         (void)wsname;
     }
@@ -1403,6 +1405,32 @@ session_meta *session_agents(tny_ctx *ctx, int *count) {
     char *ws = sessions_root(ctx);
     scan_ws_dir(ws, ctx->ws_hash, &arr, &n, true);
     free(ws);
+    /* Session storage remains checkout-local. Ask Git for related checkouts
+     * once, rather than walking every saved session or spawning Git per row.
+     * NUL records preserve spaces, newlines and Git-quoted path characters. */
+    buf_t worktrees = {0};
+    const char *args[] = {"worktree", "list", "--porcelain", "-z", NULL};
+    if (!ctx->ssh_host && git_run(ctx->cwd, args, &worktrees) == 0) {
+        for (size_t pos = 0; pos < worktrees.len;) {
+            const char *record = worktrees.data + pos;
+            const char *end = memchr(record, 0, worktrees.len - pos);
+            if (!end) break; /* never consume a truncated record */
+            pos += (size_t)(end - record) + 1;
+            if (!str_starts(record, "worktree ")) continue;
+            char *path = path_abs(record + strlen("worktree "));
+            if (!path) continue;
+            char hash[17];
+            snprintf(hash, sizeof hash, "%016llx", (unsigned long long)fnv1a(path, strlen(path)));
+            free(path);
+            if (strcmp(hash, ctx->ws_hash) == 0) continue;
+            char *root = path_join(ctx->tny_dir, "sessions");
+            ws = root ? path_join(root, hash) : NULL;
+            scan_ws_dir(ws, hash, &arr, &n, true);
+            free(ws);
+            free(root);
+        }
+    }
+    buf_free(&worktrees);
     if (n) qsort(arr, (size_t)n, sizeof *arr, cmp_meta_updated);
     *count = n;
     return arr;

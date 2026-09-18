@@ -10,6 +10,7 @@
 #include "core/events.h"
 #include "core/backend.h"
 #include "core/image_preview.h"
+#include "util/terminal_task.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -185,6 +186,8 @@ tny_edit_status tool_ssh_edit_exact(tools_env *env, const char *path, const char
                                     char **err_out);
 
 /* Shared helpers for tool impls */
+char *tool_terminal_task_result(const tny_terminal_task *task, const char *observation,
+                                const char *status_source);
 char *tool_err(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 /* Resolve a workspace-relative or absolute path; NULL + err message if the
  * path escapes allowed roots without approval. */

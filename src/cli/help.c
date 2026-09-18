@@ -532,7 +532,9 @@ bool help_for(const char *command) {
     else if (strcmp(command, "agents") == 0)
         text = "Usage: tny agents [--json]\n\nOpen the background-session dashboard without "
                "starting a provider. Up/Down select, Enter reattaches. q exits without stopping "
-               "work. Non-TTY prints a list.\n\nExamples:\n  tny agents\n  tny agents --json\n";
+               "work. Lists live sessions and saved background sessions across this repository's "
+               "worktrees. An attached owner cannot be taken over. Non-TTY prints a list.\n\n"
+               "Examples:\n  tny agents\n  tny agents --json\n";
     else if (strcmp(command, "web") == 0)
         text = "Usage: tny web search|fetch TEXT [--json]\n\nSearch uses explicit overrides, else "
                "the Codex login for any provider/model; without that login, DuckDuckGo. "
