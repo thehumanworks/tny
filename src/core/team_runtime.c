@@ -2,6 +2,7 @@
 #include "core/jobs.h"
 #include "core/team_mailbox.h"
 #include "util/jobs_host.h"
+#include "util/image_io.h"
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,6 +88,138 @@ static bool team_authorize(void *userdata, const tny_mailbox_identity *caller, c
     return allowed;
 }
 
+static bool team_shape(yyjson_val *root, const char *id) {
+    const char *kind = jget_str(root, "kind"), *actual = jget_str(root, "id");
+    yyjson_val *items = jget(root, "items");
+    if (!yyjson_is_obj(root) || !kind || strcmp(kind, "job") != 0 ||
+        yyjson_get_len(jget(root, "kind")) != 3 || !actual || strcmp(actual, id) != 0 ||
+        yyjson_get_len(jget(root, "id")) != strlen(id) || !jget_bool(root, "dag", false) ||
+        !yyjson_is_arr(items) || !yyjson_arr_size(items) ||
+        yyjson_arr_size(items) > TNY_JOBS_MAX_ITEMS || !yyjson_is_int(jget(root, "attempt")) ||
+        jget_int(root, "attempt", 0) < 1 || jget_int(root, "attempt", 0) > INT_MAX)
+        return false;
+    for (size_t i = 0; i < yyjson_arr_size(items); i++) {
+        yyjson_val *item = yyjson_arr_get(items, i);
+        if (!yyjson_is_obj(item) || !yyjson_is_int(jget(item, "attempt")) ||
+            jget_int(item, "attempt", 0) < 1 ||
+            jget_int(item, "attempt", 0) > jget_int(root, "attempt", 0))
+            return false;
+    }
+    return true;
+}
+
+static _Thread_local tny_ctx *startup_ctx;
+static _Thread_local const char *startup_category;
+
+void tny_team_startup_begin(tny_ctx *ctx) {
+    startup_ctx = ctx;
+    startup_category = NULL;
+}
+
+static void startup_note(tny_ctx *ctx, const char *category) {
+    if (ctx == startup_ctx && !startup_category) startup_category = category;
+}
+
+void tny_team_startup_end(tny_ctx *ctx, bool failed) {
+    /* The engine may accept the turn and queue its own terminal error for a
+     * synchronous backend-send failure. Keep that existing event contract. */
+    if (ctx == startup_ctx && (failed || startup_category))
+        tny_team_startup_diagnostic(ctx, startup_category ? startup_category : "PROVIDER_START");
+    startup_ctx = NULL;
+    startup_category = NULL;
+}
+
+static const char *diagnostic_category(const char *s) {
+    static const char *const codes[] = {"MAILBOX_BUSY", "MAILBOX_IO", "CONTEXT_PERSISTENCE",
+                                        "PROVIDER_START"};
+    for (size_t i = 0; s && i < sizeof codes / sizeof codes[0]; i++)
+        if (strcmp(s, codes[i]) == 0) return codes[i];
+    return NULL;
+}
+
+static char *diagnostic_dir(tny_ctx *ctx, const char *run) {
+    if (!ctx || ctx->library_mode || ctx->ssh_host || !tny_jobs_execution_supported() ||
+        !tny_jobs_valid_id(run))
+        return NULL;
+    char *base = path_abs(ctx->tny_dir);
+    char *jobs = base ? path_join(base, "jobs") : NULL;
+    char *dir = jobs ? path_join(jobs, run) : NULL;
+    free(base);
+    free(jobs);
+    return dir;
+}
+
+static yyjson_doc *diagnostic_record(const char *dir, const char *leaf, size_t max) {
+    char *path = path_join(dir, leaf);
+    buf_t bytes;
+    buf_init(&bytes);
+    yyjson_doc *doc = path && tny_image_io_read_confined(dir, path, max, &bytes) == 0
+                          ? jparse(bytes.data, bytes.len)
+                          : NULL;
+    free(path);
+    buf_free(&bytes);
+    return doc;
+}
+
+static void diagnostic_leaf(char leaf[80], int task, int attempt) {
+    snprintf(leaf, 80, "startup-%d-%d.json", task, attempt);
+}
+
+void tny_team_startup_diagnostic(tny_ctx *ctx, const char *category) {
+    uint32_t task, attempt;
+    const char *run = getenv("TNY_TEAM_RUN");
+    if (!diagnostic_category(category) ||
+        !number(getenv("TNY_TEAM_TASK"), TNY_JOBS_MAX_ITEMS - 1, &task) ||
+        !number(getenv("TNY_TEAM_ATTEMPT"), INT_MAX, &attempt) || !attempt)
+        return;
+    char *dir = diagnostic_dir(ctx, run);
+    if (!dir) return;
+    yyjson_doc *doc = diagnostic_record(dir, "job.json", 4u * 1024u * 1024u);
+    yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+    if (team_shape(root, run) &&
+        tny_team_capability_matches(root, (int)task, (int)attempt, getenv("TNY_TEAM_CAPABILITY"))) {
+        char leaf[80], bytes[256];
+        diagnostic_leaf(leaf, (int)task, (int)attempt);
+        char *path = path_join(dir, leaf);
+        int len = snprintf(bytes, sizeof bytes,
+                           "{\"run\":\"%s\",\"task\":%u,\"attempt\":%u,\"category\":\"%s\"}\n", run,
+                           task, attempt, category);
+        if (path && len > 0 && (size_t)len < sizeof bytes)
+            (void)tny_jobs_host_write_once(path, bytes, (size_t)len);
+        free(path);
+    }
+    yyjson_doc_free(doc);
+    free(dir);
+}
+
+const char *tny_team_startup_diagnostic_read(tny_ctx *ctx, const char *run, int task, int attempt) {
+    if (task < 0 || task >= TNY_JOBS_MAX_ITEMS || attempt < 1) return NULL;
+    char *dir = diagnostic_dir(ctx, run);
+    if (!dir) return NULL;
+    yyjson_doc *record = diagnostic_record(dir, "job.json", 4u * 1024u * 1024u);
+    yyjson_val *root = record ? yyjson_doc_get_root(record) : NULL;
+    char leaf[80];
+    diagnostic_leaf(leaf, task, attempt);
+    yyjson_doc *doc = diagnostic_record(dir, leaf, 256);
+    yyjson_val *value = doc ? yyjson_doc_get_root(doc) : NULL;
+    const char *id = jget_str(value, "run");
+    const char *category = NULL;
+    if (team_shape(root, run) && jget_int(root, "attempt", 0) == attempt &&
+        jget_int(yyjson_arr_get(jget(root, "items"), (size_t)task), "attempt", 0) == attempt &&
+        yyjson_is_obj(value) && yyjson_obj_size(value) == 4 && id && strcmp(id, run) == 0 &&
+        yyjson_get_len(jget(value, "run")) == strlen(run) && yyjson_is_int(jget(value, "task")) &&
+        yyjson_is_int(jget(value, "attempt")) && jget_int(value, "task", -1) == task &&
+        jget_int(value, "attempt", 0) == attempt) {
+        category = diagnostic_category(jget_str(value, "category"));
+        if (category && yyjson_get_len(jget(value, "category")) != strlen(category))
+            category = NULL;
+    }
+    yyjson_doc_free(doc);
+    yyjson_doc_free(record);
+    free(dir);
+    return category;
+}
+
 static yyjson_doc *team_status(tny_ctx *ctx, const char *id, char *err, size_t cap) {
     if (!tny_jobs_valid_id(id)) {
         snprintf(err, cap, "a valid run id is required");
@@ -101,9 +234,10 @@ static yyjson_doc *team_status(tny_ctx *ctx, const char *id, char *err, size_t c
         args ? tny_jobs_run(ctx, TNY_JOBS_OP_STATUS, yyjson_doc_get_root(args), &result, err, cap)
              : 1;
     yyjson_doc_free(args);
-    yyjson_doc *doc = rc == 0 && result.data ? jparse(result.data, result.len) : NULL;
+    /* Terminal failure is exit 2 with a valid status, not an unreadable run. */
+    yyjson_doc *doc = (rc == 0 || rc == 2) && result.data ? jparse(result.data, result.len) : NULL;
     buf_free(&result);
-    if (doc && !jget_bool(yyjson_doc_get_root(doc), "dag", false)) {
+    if (doc && !team_shape(yyjson_doc_get_root(doc), id)) {
         yyjson_doc_free(doc);
         doc = NULL;
         snprintf(err, cap, "mailboxes require an opt-in DAG run");
@@ -565,6 +699,10 @@ static int deliver_run(tools_env *env, const char *id, bool member, char *err, s
         }
     }
 done:
+    if (result)
+        startup_note(env->ctx, rc == TNY_MAILBOX_BUSY ? "MAILBOX_BUSY"
+                               : rc != TNY_MAILBOX_OK ? "MAILBOX_IO"
+                                                      : "CONTEXT_PERSISTENCE");
     if (result && !err[0])
         snprintf(err, cap, "could not persist team delivery; no provider request was sent");
     free(messages);

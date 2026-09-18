@@ -17,6 +17,7 @@
 #include "util/tny_poll.h"
 #include "util/process.h"
 #include "core/jobs.h"
+#include "core/team_runtime.h"
 #include <limits.h>
 #include "util/util.h"
 
@@ -959,6 +960,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
      * stdin path above) */
     if (!bk) bk = tny_backend_create((tny_backend_id)ctx->backend, ctx);
     if (!bk) {
+        tny_team_startup_diagnostic(ctx, "PROVIDER_START");
         /* the constructor already explained itself on stderr in human mode */
         if (events) ask_diag(events, "provider", "cannot create the provider client", NULL);
         buf_free(&prompt);
@@ -977,6 +979,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         crc = bk->connect(bk, err, sizeof err);
     }
     if (crc != 0) {
+        tny_team_startup_diagnostic(ctx, "PROVIDER_START");
         ask_diag(events, "provider", err, NULL);
         bk->destroy(bk);
         session_close(session);
@@ -1001,6 +1004,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         return 1;
     }
     if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_CONNECTED, err, sizeof err) != 0) {
+        tny_team_startup_diagnostic(ctx, "PROVIDER_START");
         ask_diag(events, "provider", err, NULL);
         tny_engine_free(engine);
         perm_free(perm);
@@ -1031,9 +1035,11 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     signal(SIGINT, on_sigint);
     signal(SIGPIPE, SIG_IGN);
 
+    tny_team_startup_begin(ctx);
     if (tny_engine_start(engine, prompt.data, n_images ? images : NULL, err, sizeof err) != 0) {
         /* No turn was accepted, so no event exists to emit: the machine
          * diagnostic is the only honest output (docs/adr/0090). */
+        tny_team_startup_end(ctx, true);
         ask_diag(events, "start_failed", err, NULL);
         tny_engine_free(engine);
         perm_free(perm);
@@ -1044,6 +1050,8 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_free(&st.extension_messages);
         return 2;
     }
+
+    tny_team_startup_end(ctx, false);
 
     tny_event_writer writer = {0};
     tny_event_write_rc stream = TNY_EVENT_WRITE_OK;

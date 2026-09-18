@@ -18,6 +18,19 @@ int tny_team_mailbox_run(tools_env *env, yyjson_val *args, bool local_operator, 
  * Mutating callers must hold the job owner/state fence through the operation. */
 int tny_team_record_authority(const tools_env *env, yyjson_val *record, bool local_operator);
 bool tny_team_capability_matches(yyjson_val *record, int task, int attempt, const char *token);
+/* Private, advisory diagnostics only. No raw error strings, events or job state.
+ * First category wins per task/attempt. Writes authenticate the inherited member
+ * capability against a confined current record, without taking state.lock.
+ * Read only after child cleanup, using the supervisor's current identity.
+ * NULL means absent, invalid or unreadable; never infer success from absence. */
+void tny_team_startup_diagnostic(tny_ctx *ctx, const char *category);
+/* Same-thread scope around engine_start only. Delivery captures a local code
+ * in memory; end publishes only a failed initial boundary or refused start.
+ * Existing engine terminal errors are untouched; later boundaries cannot
+ * produce a startup sidecar. */
+void tny_team_startup_begin(tny_ctx *ctx);
+void tny_team_startup_end(tny_ctx *ctx, bool failed);
+const char *tny_team_startup_diagnostic_read(tny_ctx *ctx, const char *run, int task, int attempt);
 /* Persist subscribed job IDs in the caller session; metadata is not membership. */
 int tny_team_register_run(tools_env *env, const char *run_id);
 /* Called only at a quiescent native model-call boundary. No provider reentry. */
