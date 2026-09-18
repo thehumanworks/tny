@@ -259,3 +259,12 @@ the toolchain contract checks the dependency, and fixture failures now print an
 actionable init/config diagnostic. No test is skipped. Local policy/actionlint
 checks and all seven workspace tests pass; the hosted musl rerun is required.
 PR #165's independent SDK/Linux checks were green or still running at observation.
+
+The next hosted ownership lanes reached an older internal runner fixture that
+still called pre-DAG `record_new`/`jobs_project` signatures. It now passes the
+captured-parent placeholder and explicit context, and identifies itself as a
+native child-owning fixture rather than an embedded runtime. Assertions are
+unchanged. `make test-runner-ownership` and `make test-runner-mutation` both pass
+locally (including allocation, descriptor, cleanup-hold and checkpoint oracles).
+The same correction addresses musl, native ownership and the fuzz lane's
+ownership prerequisite; hosted reruns remain authoritative.
