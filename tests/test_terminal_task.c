@@ -166,7 +166,7 @@ TEST terminal_caller_loss_preserves_completion(void) {
         close(STDIN_FILENO); /* descriptor handover must not alias stdio */
         yyjson_doc *launched = call("{\"command\":\"sleep 1; exit 17\",\"background\":true}");
         const char *id = launched ? jget_str(yyjson_doc_get_root(launched), "task_id") : NULL;
-        if (id) (void)write(channel[1], id, 16);
+        if (id && write(channel[1], id, 16) != 16) _exit(2);
         _exit(id ? 0 : 1);
     }
     close(channel[1]);

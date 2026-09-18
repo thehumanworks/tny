@@ -171,8 +171,10 @@ static void monitor(tny_terminal_task *task, int owner, int ack, int log, const 
         close(ack);
         close(exec_pipe[0]);
         reset_signals();
-        if (dup2(log, STDOUT_FILENO) < 0 || dup2(log, STDERR_FILENO) < 0)
-            command_failure(exec_pipe[1]);
+        int stdout_fd = dup2(log, STDOUT_FILENO);
+        if (stdout_fd < 0) command_failure(exec_pipe[1]);
+        int stderr_fd = dup2(log, STDERR_FILENO);
+        if (stderr_fd < 0) command_failure(exec_pipe[1]);
         if (log > STDERR_FILENO) close(log);
         if (chdir(cwd) != 0) command_failure(exec_pipe[1]);
         if (setup) setup(ud);
@@ -190,7 +192,7 @@ static void monitor(tny_terminal_task *task, int owner, int ack, int log, const 
     int published = publish(task);
     char accepted = published == 0 ? '1' : '0';
     /* A lost caller does not cancel accepted work. SIGPIPE is ignored here. */
-    (void)write(ack, &accepted, 1);
+    do { n = write(ack, &accepted, 1); } while (n < 0 && errno == EINTR);
     close(ack);
     int status = 0;
     pid_t waited;
