@@ -248,6 +248,9 @@ void tui_size_report(tui *t, int rows, int cols);
 void tui_resize(tui *t); /* SIGWINCH: winsize + probe + repaint */
 void tui_render(tui *t);
 void tui_render_force(tui *t);
+/* Next tty paint starts at home on a cleared screen/scrollback, without
+ * pending transcript text. Non-tty output and saved sessions are unchanged. */
+void tui_clear_screen(tui *t);
 void tui_raw_begin(tui *t); /* drop the block so plain printf output scrolls */
 void tui_raw_end(tui *t);
 void tui_write(tui *t, const char *s, size_t n);

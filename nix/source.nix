@@ -55,9 +55,9 @@ let
     ../nix/package.nix # size-policy tests inspect the installed-payload guard
     ../scripts # includes tidy_cpp.py, which probes stdenv's C++ header paths
     ../sdk/conformance
-    ../sdk/schema
     ../sdk/python # native SDK/workflow tests and bounded-context regression
     ../sdk/typescript # addon, declarations, workflow tests and offline benchmark
+    ../sdk/schema
     ../site
     # All of tests/, which includes the frozen tool-profile A/B fixtures
     # under tests/bench/fixtures/tools/ that

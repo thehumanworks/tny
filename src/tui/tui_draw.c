@@ -396,6 +396,18 @@ static void composer_rows(tui *t, buf_t *b, int *rows, int maxw, int *cur_row, i
     }
 }
 
+void tui_clear_screen(tui *t) {
+    if (!t->tty) return;
+    /* Discard only pending display text, never the saved session. Queue the
+     * clear with the next paint so stale output cannot precede the new view.
+     * The old block's cursor coordinates are no longer valid after home. */
+    buf_clear(&t->out);
+    buf_clear(&t->partial);
+    buf_appends(&t->out, "\x1b[H\x1b[2J\x1b[3J");
+    t->block_rows = t->cur_row = 0;
+    t->dirty = true;
+}
+
 void tui_render_force(tui *t) {
     t->dirty = true;
     tui_render(t);
