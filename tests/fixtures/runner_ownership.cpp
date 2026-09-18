@@ -167,7 +167,33 @@ static int descriptor_count() {
 }
 
 static void descriptor_transfers() {
+    static_assert(!std::is_copy_constructible_v<tny::pipe_pair>);
+    static_assert(std::is_nothrow_move_constructible_v<tny::pipe_pair>);
+    static_assert(std::is_nothrow_move_assignable_v<tny::pipe_pair>);
     int before = descriptor_count();
+    for (int i = 0; i < 32; ++i) {
+        int read_fd = -1, write_fd = -1;
+        try {
+            tny::pipe_pair first;
+            assert(first.open() == 0);
+            read_fd = first.ends[0].borrow();
+            write_fd = first.ends[1].borrow();
+            tny::pipe_pair second(std::move(first));
+            assert(first.ends[0].borrow() == -1 && first.ends[1].borrow() == -1);
+            tny::pipe_pair third;
+            third = std::move(second);
+            assert(second.ends[0].borrow() == -1 && second.ends[1].borrow() == -1);
+            assert(write(third.ends[1].borrow(), "x", 1) == 1);
+            char byte = 0;
+            assert(read(third.ends[0].borrow(), &byte, 1) == 1 && byte == 'x');
+            throw std::bad_alloc();
+        } catch (const std::bad_alloc &) {
+            assert(read_fd >= 0 && write_fd >= 0);
+            assert(fcntl(read_fd, F_GETFD) == -1 && errno == EBADF);
+            assert(fcntl(write_fd, F_GETFD) == -1 && errno == EBADF);
+        }
+    }
+    assert(descriptor_count() == before);
     for (int i = 0; i < 200; ++i) {
         tny::pipe_pair pipe;
         assert(pipe.open() == 0);

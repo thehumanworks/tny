@@ -42,6 +42,17 @@ using descriptor = basic_descriptor<descriptor_tag>;
 using lock_descriptor = basic_descriptor<lock_tag>;
 struct pipe_pair {
     descriptor ends[2];
+    pipe_pair() noexcept = default;
+    pipe_pair(const pipe_pair &) = delete;
+    pipe_pair &operator=(const pipe_pair &) = delete;
+    pipe_pair(pipe_pair &&) noexcept = default;
+    pipe_pair &operator=(pipe_pair &&) noexcept = default;
+    ~pipe_pair() noexcept {
+        // Name both owned ends explicitly, including on exception unwind.
+        // The member destructors then observe empty, idempotent owners.
+        ends[0].reset();
+        ends[1].reset();
+    }
     int open() noexcept {
         int raw[2];
         if (pipe(raw) != 0) return -1;

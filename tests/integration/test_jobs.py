@@ -529,6 +529,34 @@ class JobsFixture(unittest.TestCase):
         except json.JSONDecodeError:
             return None
 
+    def startup_diagnostics(self, record):
+        """Bounded local engine diagnostics, not provider bodies or credentials."""
+        found = []
+        for item in record.get("items", []):
+            path = Path(item["log_path"])
+            if not path.exists() or not path.resolve().is_relative_to(
+                self.home.resolve()
+            ):
+                continue
+            for line in path.read_text(errors="replace")[
+                : 4 * 1024 * 1024
+            ].splitlines():
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if event.get("type") == "error":
+                    text = event.get("text", "")
+                    safe = (
+                        text[:200]
+                        if text.startswith(
+                            ("MAILBOX_", "could not persist team", "the job supervisor")
+                        )
+                        else "provider/runner error"
+                    )
+                    found.append((item["index"], event.get("error_code"), safe))
+        return found
+
     def ask_requests(self):
         return [r for r in self.state["requests"] if not r.startswith("image:")]
 
@@ -1003,7 +1031,9 @@ class JobsDAG(JobsFixture):
         )
         self.assertEqual(run.returncode, 0, run.stderr)
         record = self.await_terminal(payload["id"])
-        self.assertEqual(record["state"], "succeeded", record)
+        self.assertEqual(
+            record["state"], "succeeded", (record, self.startup_diagnostics(record))
+        )
         self.assertEqual(record["run_id"], payload["id"])
         self.assertIsNone(record["parent_session_id"])
         self.assertEqual(record["verification"], "unverified")
@@ -1495,6 +1525,9 @@ class JobsEnrollment(JobsDAG):
         self.state["fail_ask"] = False
         self.run_tny("jobs", "retry", job_id, "--json")
         final = self.await_terminal(job_id)
+        self.assertEqual(
+            final["state"], "succeeded", (final, self.startup_diagnostics(final))
+        )
         self.assertEqual(final["usage"]["known_input_tokens"], 9)
         self.assertEqual(final["usage"]["known_output_tokens"], 3)
         self.assertEqual(final["items"][0]["attempt"], 1)

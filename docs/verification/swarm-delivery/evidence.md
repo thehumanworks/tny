@@ -268,3 +268,45 @@ unchanged. `make test-runner-ownership` and `make test-runner-mutation` both pas
 locally (including allocation, descriptor, cleanup-hold and checkpoint oracles).
 The same correction addresses musl, native ownership and the fuzz lane's
 ownership prerequisite; hosted reruns remain authoritative.
+
+## Worker profiles and GCC ownership diagnostics
+
+Integrated worker bede0ee as 657bc2c: native per-item provider/model/effort snapshots,
+17 endpoint/credential/ceiling/retry cases, and 142 full job tests (139 passed,
+3 platform skips) on that worker candidate. Discovery/schema and supported limits
+are reconciled by the lead. Explicit unsafe routing/path/sandbox/admission combinations
+fail before launch; no broader support is implied.
+
+Hosted GCC14 `-fanalyzer` flagged the implicit pipe-array destruction path in the
+enlarged jobs translation unit. The same report was reproduced locally with the
+installed GCC14, despite passing runtime descriptor tests. Unrolling caller loops
+and changing descriptor reset order did not resolve it; both experiments were
+reverted. `pipe_pair` now names both end resets explicitly on destruction and
+retains noncopyable/noexcept-movable ownership. No diagnostic is suppressed.
+GCC14 jobs/runner analysis and the analyzer's own defect controls pass. New
+move/assignment/exception-unwind checks and the runner ownership oracle pass.
+
+## Final local profile/ownership candidate
+
+After provider integration, schema discovery and explicit pipe-end destruction:
+`make -j4 test`, `make -j4 quality`, and `make -j4 leaks` each exit 0. Strict-warning
+checks first caught two shadowed local names in the worker snapshot code; renamed
+locals retain the same behavior. Installed GCC14 analysis of jobs/runner plus its
+negative analyzer controls exits 0. Runner ownership checks now also cover whole-
+pipe move construction, move assignment and exception unwinding.
+
+Hosted Linux had two intermittent pre-provider/usage failures in an earlier
+candidate. Twenty local repeats of both affected cases (40 tests) pass. A stronger
+success assertion and bounded safe startup diagnostics are added; no timing was
+changed to hide the failure. Review identified that initial synchronous engine
+errors can go to discarded stderr, and that valid failed-job status must remain
+readable. A bounded diagnostic/failure-state follow-up is in progress; the native
+PR stays draft rather than calling those hosted failures resolved.
+
+A fresh private Emscripten6.0.8 snapshot containing the provider/ownership changes
+passes wasm and wasm-web builds, actual swarm/jobs refusals and OpenAI fixtures,
+and real browser smoke. Node pair: 1,608,699 bytes; web pair: 1,597,068 bytes.
+Source hashes and exact command/exit files remain in the private QA evidence
+bundle. No native-only assertions are counted as wasm passes.
+
+PR #165 now has all hosted checks green. No merge, release or deployment was made.

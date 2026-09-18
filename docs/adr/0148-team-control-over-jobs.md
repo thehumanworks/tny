@@ -139,3 +139,16 @@ were corrected before the final passing checks. Full `make test`, `make quality`
 `make leaks`, Nix, release-size and platform gates were not claimed in this
 focused slice. No successful real check-command execution/provenance test exists:
 that capability is explicitly unavailable, not passed or skipped as successful.
+
+## Integrated delivery addendum
+
+CLI dispatch, tool schemas and terminal adapters now share this service. A
+captured top-level native parent may launch two worker-only items and remains the
+administrative lead; operator-only CLI starts require an explicit lead item.
+Live member reads authenticate via the private verifier, never the redacted public
+projection. Dedicated self-cancel validates the own task/attempt while legacy
+member mutations stay refused. The underlying cancel transaction fences retries.
+Public parent fixtures run bounded wait/collect, explicit workspace operations and
+an actual caller-configured terminal check, whose command/cwd/result are saved in
+the parent session. `team verify` still fails closed as described above; no accepted
+status or fabricated check evidence is added.

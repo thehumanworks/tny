@@ -76,3 +76,16 @@ provider fixtures, usage aggregation, product-wide gates and packaging. Native
 explicit child max_steps forwarding is already lead-owned. Detailed API,
 recovery protocol, scheduler sequence, limitations and required acceptance
 fixture are in [admission.md](../admission.md). No competing jobs fork is added.
+
+## Integrated delivery addendum
+
+Existing jobs now enroll before owned launches and settle only after their cleanup
+proof. Independent real fixture batches share cap two. JSON/dashboard report
+limits, pending reasons and available usage; attempt accounting avoids counting
+carried artifacts twice. A separate soft-token policy stops pending admissions on
+observed exhaustion or unknown usage by default, without claiming a spending cap.
+Inherited step limits are tested on actual native create/resume requests. Enrolled
+nested asks/jobs/subagents reject; first-party detached terminals reject for owned
+jobs. Unenrolled programs and arbitrary shell daemonization remain outside the
+shared-service guarantee. Absolute admission deadlines and a reserved model-call
+pool are not implemented by these launch permits.

@@ -34,7 +34,9 @@ Configuration is immutable once initialized. Conflicting configuration refuses;
 there is no automatic reset or refund. Distinct aliases do not magically share a
 limit, even if they resolve to the same real account. Local job concurrency is an
 additional ceiling, not raised by admission. Independent scopes are independent.
-A batch uses one resolved provider/account; mixed per-item providers are unsupported.
+An enrolled batch uses one compatible provider/account scope; mixed per-item
+provider/account scopes are refused rather than silently unenrolled. Unenrolled
+DAGs can use the supported explicit native selectors described in [jobs](jobs.md).
 
 Nested enrolled jobs, subagents and background asks reject. A worker cannot use
 another first-party enrolled launch to bypass accounting. Owned job descendants

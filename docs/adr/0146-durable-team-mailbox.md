@@ -104,3 +104,13 @@ not the native provider loop. Public CLI/tool parity, safe-boundary busy deliver
 clarification round trip, real persisted-transcript crash dedup and platform
 capability checks remain lead-owned acceptance criteria. See the contract page
 for exact ABI and wiring. This ADR and helper tests do not complete issue #156.
+
+## Integrated delivery addendum
+
+Production adapters now authenticate private per-attempt capabilities or the
+captured parent against current job records. Native delivery saves context and
+receipt before marking delivery and advancing its cursor. Short state-lock
+contention gets bounded control-only pumping; a persistent failure cannot silently
+POST without queued context. Both public tool profiles exercise a busy real tool,
+clarification/reply, intended-recipient isolation, client loss and no replay.
+The focused helper evidence above remains distinct from these public fixtures.

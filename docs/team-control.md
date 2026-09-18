@@ -71,8 +71,13 @@ Independent items overlap up to concurrency/admission ceilings. Use
 Choose `workspace:{"policy":"isolated"}` explicitly for editing. Shared writable
 access is an explicit, riskier opt-in. A worktree is not an OS sandbox.
 
-The launch uses one resolved native provider/account. Per-item model/effort
-settings use the jobs validator. Mixed per-item providers are unsupported.
+An implicit item uses the parent's resolved provider/account. A DAG item may
+select a supported native `provider` independently; per-item model/effort remain
+available. Explicit selection requires a shared workspace, standard Bearer
+routing and a safely reproducible snapshot. Named profiles must be settings-backed;
+explicit Codex selection is environment-backed. Mixed-provider shared admission
+and explicit-provider isolated/path/sandbox overrides are refused, not weakened.
+See [jobs](jobs.md) for the exact limits.
 Credentials are not public request identities or team-result data.
 
 Start returns `kind:"team"`, `run_id`, the canonical `job` response,
@@ -133,8 +138,8 @@ the job into a verification authority.
 
 These surfaces require a saved, native, local runtime and native provider loop.
 Wasm, SSH and embedded mutation are unsupported and refuse. Host-backend automatic
-mailbox/completion injection is unsupported. Team jobs do not promise mixed
-providers, a global provider limiter, hard token/cost spending bounds, or full
+mailbox/completion injection is unsupported. Team jobs do not promise arbitrary
+mixed-provider configurations, a global provider limiter, hard token/cost spending bounds, or full
 unattended editing readiness. [Admission](admission.md) only constrains declared
 enrolled jobs; nested enrolled jobs/subagents reject. Unknown usage remains
 unknown. See [ADR 0148](adr/0148-team-control-over-jobs.md) for the service design.

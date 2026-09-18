@@ -2141,14 +2141,14 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
         jm_set_int(doc, item, "index", i);
         jm_set_str(doc, item, "prompt", jget_str(request->items[i], "prompt"));
         if (request->dag) {
-            tny::document selected(
+            tny::document launch_doc(
                 request->launch[i] ? jparse(request->launch[i], strlen(request->launch[i])) : NULL);
-            if (!selected) {
+            if (!launch_doc) {
                 yyjson_mut_doc_free(doc);
                 return NULL;
             }
             yyjson_mut_val *chat_copy =
-                yyjson_val_mut_copy(doc, yyjson_doc_get_root(selected.get()));
+                yyjson_val_mut_copy(doc, yyjson_doc_get_root(launch_doc.get()));
             if (!chat_copy ||
                 !yyjson_mut_obj_put(item, yyjson_mut_strcpy(doc, "chat"), chat_copy)) {
                 yyjson_mut_doc_free(doc);
@@ -3648,11 +3648,12 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
                 const char *expected = jm_str(jm_item(doc, i), "execution_scope_sha256");
                 if (!expected && !jget_str(request.items[i], "provider"))
                     continue; /* legacy homogeneous DAG */
-                tny::document selected(request.launch[i]
-                                           ? jparse(request.launch[i], strlen(request.launch[i]))
-                                           : NULL);
+                tny::document launch_doc(request.launch[i]
+                                             ? jparse(request.launch[i], strlen(request.launch[i]))
+                                             : NULL);
                 const char *actual =
-                    selected ? jget_str(yyjson_doc_get_root(selected.get()), "scope_sha256") : NULL;
+                    launch_doc ? jget_str(yyjson_doc_get_root(launch_doc.get()), "scope_sha256")
+                               : NULL;
                 if (!expected || !actual || strcmp(expected, actual) != 0) {
                     jobs_request_free(&request);
                     yyjson_doc_free(parsed);

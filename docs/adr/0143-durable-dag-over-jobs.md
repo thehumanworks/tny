@@ -122,3 +122,22 @@ cross-platform/integrated evidence. Clean recovery after uncertain owner loss
 is deliberately unavailable until cleanup can be proven without stored-PID
 inference. The cancellation recovery test is not evidence of exactly-once
 recovery from arbitrary controller crashes.
+
+## Integrated delivery addendum
+
+The native delivery now wires the shared CLI/typed/terminal controls, captured
+parent lineage, run-filtered dashboard, safe notifications, workspaces and
+admission described above. The original handoff list is historical, not a claim
+that those public paths are still absent. Tests exercise real parent orchestration
+and both tool profiles; verification stays explicit and unverified by default.
+
+DAG `item.provider` now snapshots supported native profiles independently of the
+parent's retained overrides. Public status and permission detail expose selectors;
+only private payload/environment carries credentials. Every item scope, including
+carried successes, is rechecked on retry. Two fixture endpoints prove routing,
+credential isolation, unchanged implicit parent selection, ceilings, and no spend
+on changed secondary credentials/accounts. Shared workspace, default sandbox,
+standard Bearer routing and safely reproducible profiles are required. Mixed
+provider/account admission, isolated explicit-provider configurations and store-
+refresh-dependent selection are refused rather than weakening ownership or
+permission ceilings. The exact support matrix is in docs/jobs.md.

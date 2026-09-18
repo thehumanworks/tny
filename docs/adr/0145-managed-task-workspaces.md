@@ -70,3 +70,13 @@ This costs disk space and requires manual review of uncertain reservations and
 large patches. Git/file locks do not stop arbitrary same-user writers; callers
 must stop workers and concurrent human edits before final operations. Private
 metadata does not protect against malicious same-user filesystem mutation.
+
+## Integrated delivery addendum
+
+The scheduler and public `task-workspace` CLI/typed/terminal adapters are wired.
+Real provider workers edit identical relative paths in separate trees while the
+launch checkout stays unchanged. Explicit integration records a preserved real
+conflict; captured-parent tests collect, inspect/integrate and run a caller-
+configured ordinary terminal check. The first-party detached-terminal API is
+refused in owned job descendants, so it cannot silently outlive workspace
+inspection or permit release. This is not containment of arbitrary shell daemons.
