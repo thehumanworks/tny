@@ -106,9 +106,9 @@ revision is inspectable as null and cannot be retried. This does not snapshot
 ignored files, arbitrary external inputs or concurrent edits. Shared admission
 now bounds explicitly enrolled public scopes, not automatically discovered
 accounts. Credentials stay private in the launch pipe; they are not persisted
-in DAG metadata. Per-item
-model/effort selection works; a supplied provider must match the resolved job
-provider. Use separate jobs for different providers in this slice.
+in DAG metadata. Per-item model/effort selection works. Opt-in DAG provider
+selection is now available within the bounded native-profile contract below;
+ordinary batches retain their existing behavior.
 
 Native CLI execution works through existing children. DAG workspace policies
 and enrolled admission require a native-loop provider (including Codex). Host
@@ -119,6 +119,85 @@ the remote native host explicitly. Embedded SDK workflows do not implicitly
 acquire native durability or custom-tool portability. wasm keeps the existing
 clean refusal for job execution. See ADR 0143 for workspace and admission call
 points and the remaining #153/#155 delivery gaps.
+
+## Explicit native worker providers
+
+A DAG item may name its own native profile, independently of the parent's
+current provider overrides:
+
+```json
+{"kind":"ask","dag":true,"concurrency":2,"items":[
+  {"prompt":"Review reliability; do not edit files.","provider":"profile_a"},
+  {"prompt":"Review security; do not edit files.","provider":"profile_b",
+   "model":"worker-model","effort":"medium"}
+]}
+```
+
+Configure those profiles through the existing provider configuration, with each
+profile's own `base_url`, `api_key_env` (or stored key), model and wire API. The
+usual resolver's settings/environment precedence applies. A supplied item model
+or effort overrides that profile's resolved default. Without `item.provider`,
+the item continues to inherit the parent's resolved selection and overrides.
+For ordinary batches, select the whole batch with global `--provider`; this does
+not add per-item dispatch to their existing contract.
+
+Before creating a job record or worktree, jobs validates **all** selectors and
+builds owned private per-item launch snapshots. Explicit selection resolves into
+a fresh context: it never modifies the parent context/environment or lends the
+parent's retained `--api-key-env`, endpoint, model, effort or wire override to the
+new profile. It uses the existing ask child, session runner and provider loop.
+There is no additional executor.
+
+Status/provenance and permission detail disclose each DAG item's effective
+`provider`, `model` and `effort`. Definitions include the explicit provider, and
+each item has a secret-safe `execution_scope_sha256`. Retry resolves and checks
+**every** item, including carried successes, before spending. A changed secondary
+endpoint, key/account, model, effort or routing scope refuses reuse. The original
+root execution-scope fence remains in force too. Legacy homogeneous DAG records
+without per-item scopes retain their existing root fence.
+
+Only the selected item's private credential mapping reaches its child. Selectors
+are on argv; credentials and secret-bearing URLs use the existing private
+payload/environment carriers. Root and sibling credentials are excluded from
+operational and declared environment aliases, including credentials belonging to
+carried siblings during retry. Snapshots must be complete; allocation failure
+must not fall back to the parent's mapping. These protections do not turn the
+same-user filesystem or environment into an OS sandbox.
+
+### Supported scope and explicit refusals
+
+- Parent execution remains a native DAG. Worker selectors are 1–63 ASCII letters,
+  digits, `_` or `-`: `openai`, configured native OpenAI-compatible profiles, or
+  builtin `codex` with `CHATGPT_ACCESS_TOKEN` supplied in the environment.
+- Custom names require a settings-backed profile definition. Environment values
+  may override its endpoint/key/model as usual, but environment-only names are
+  refused because private child environment filtering removes their discovery
+  variables. `openai` and builtin `codex` do not need such a definition.
+- Explicit profiles require their own nonempty credential and a resolved model
+  (or item model), standard `Authorization: Bearer` routing, and no custom header,
+  token-field, output-schema or non-default service-tier overrides. The current
+  child CLI cannot freeze those additional routing choices safely.
+- Explicit builtin Codex selection is subscription/environment-backed only.
+  `CHATGPT_ACCOUNT_ID` may accompany the token; known-account token refresh keeps
+  the existing account-fingerprint policy. Store-only selection is refused because
+  the general Codex resolver may refresh/write the login store before admission.
+  Shadowing builtin `codex` with a custom profile is also refused in this slice.
+- Explicit selection currently requires a **shared workspace**, default `auto`
+  sandbox and no extra directories. Isolated workspaces, custom sandbox and extra
+  path configurations are refused rather than silently weakening their ceilings.
+  Existing workflows without explicit item provider retain their workspace path.
+- Permission mode, tool profile, read-only policy and positive step ceilings stay
+  parent-owned. Selecting another provider never grants additional tools or paths.
+- Shared admission refuses different selectors or different resolved provider/
+  account scopes from the parent's scope. Homogeneous explicit selection with the
+  same scope works. Use separate declared jobs for mixed-provider admission.
+- Unknown and host profiles are refused before execution state/provider work.
+  Other builtin native login profiles that need unsupported routing/refresh are
+  not silently approximated. Existing SSH/embedded/wasm refusals remain.
+
+Soft-token totals remain observed best-effort token counts across workers, not
+currency estimates. Tool-schema discovery and broader provider/workspace policy
+support remain lead-owned integration; this does not claim all of #153.
 
 ## Managed workspace enrollment
 

@@ -45,6 +45,7 @@ extern "C" {
 }
 #include "util/resources.hpp"
 #include "json/ownership.hpp"
+#include <memory>
 
 extern "C" char **environ;
 
@@ -677,10 +678,15 @@ typedef struct {
     /* per item, borrowed from the caller's parsed arguments */
     yyjson_val *items[TNY_JOBS_MAX_ITEMS];
     char *outputs[TNY_JOBS_MAX_ITEMS]; /* canonical image outputs, else NULL */
+    char
+        *launch[TNY_JOBS_MAX_ITEMS]; /* owned private per-item provider snapshot; never persisted */
 } jobs_request;
 
 static void jobs_request_free(jobs_request *r) {
-    for (int i = 0; i < r->n_items; i++) free(r->outputs[i]);
+    for (int i = 0; i < TNY_JOBS_MAX_ITEMS; i++) {
+        free(r->outputs[i]);
+        secure_free(r->launch[i]);
+    }
     memset(r, 0, sizeof *r);
 }
 
@@ -943,6 +949,81 @@ static bool dag_validate(yyjson_val *args, char *err, size_t errlen) {
     return true;
 }
 
+static char *jobs_item_launch_snapshot(tny_ctx *, yyjson_val *, char *, size_t);
+static char *jobs_execution_scope(tny_ctx *);
+
+/* Resolve no credentials until ALL selectors and portable ceilings pass. The
+ * general resolver may refresh builtin login stores, so this slice admits only
+ * native custom/openai profiles and environment-backed builtin Codex. */
+static bool jobs_item_provider_supported(tny_ctx *ctx, yyjson_val *item, bool admission, char *err,
+                                         size_t errlen) {
+    yyjson_val *value = jget(item, "provider");
+    if (!value || yyjson_is_null(value)) return true;
+    const char *name = yyjson_get_str(value);
+    bool custom = name && tny_backend_from_name(name) < 0 && tny_custom_provider_exists(ctx, name);
+    bool codex = name && strcmp(name, "codex") == 0;
+    if (!admission_alias(value) || (!custom && strcmp(name, "openai") != 0 && !codex) ||
+        (codex &&
+         (custom || !getenv("CHATGPT_ACCESS_TOKEN") || !*getenv("CHATGPT_ACCESS_TOKEN")))) {
+        safe_err(err, errlen,
+                 "unsupported item.provider: use a native named/openai profile or "
+                 "environment-backed Codex subscription");
+        return false;
+    }
+    yyjson_val *settings = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
+    if (custom && !jget_str(jget(settings, name), "base_url")) {
+        safe_err(err, errlen,
+                 "explicit item.provider needs a settings-backed profile; environment-only names "
+                 "cannot survive private child environment filtering");
+        return false;
+    }
+    if (admission && strcmp(name, tny_provider_name(ctx)) != 0) {
+        safe_err(
+            err, errlen,
+            "shared admission cannot enroll mixed provider selectors; use separate scoped jobs");
+        return false;
+    }
+    if (ctx->n_extra_dirs || !ctx->sandbox_mode || strcmp(ctx->sandbox_mode, "auto") != 0 ||
+        strcmp(workspace_policy(item), "isolated") == 0) {
+        safe_err(err, errlen,
+                 "explicit item.provider currently requires a shared workspace, default auto "
+                 "sandbox and no extra directories; ceilings cannot be widened");
+        return false;
+    }
+    return true;
+}
+
+static int jobs_prepare_launches(tny_ctx *ctx, jobs_request *r, char *err, size_t errlen) {
+    if (!r->dag) return 0;
+    for (int i = 0; i < r->n_items; i++)
+        if (!jobs_item_provider_supported(ctx, r->items[i], r->admission != NULL, err, errlen)) {
+            jobs_request_free(r);
+            return -1;
+        }
+    tny::c_string parent_scope(r->admission ? jobs_execution_scope(ctx) : NULL);
+    for (int i = 0; i < r->n_items; i++) {
+        r->launch[i] = jobs_item_launch_snapshot(ctx, r->items[i], err, errlen);
+        if (!r->launch[i]) {
+            jobs_request_free(r);
+            return -1;
+        }
+        if (r->admission) {
+            tny::document selected(jparse(r->launch[i], strlen(r->launch[i])));
+            const char *scope =
+                selected ? jget_str(yyjson_doc_get_root(selected.get()), "provider_scope_sha256")
+                         : NULL;
+            if (!parent_scope || !scope || strcmp(parent_scope.get(), scope) != 0) {
+                safe_err(err, errlen,
+                         "shared admission cannot mix resolved provider/account scopes; use "
+                         "separate scoped jobs");
+                jobs_request_free(r);
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
 static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, char *err,
                               size_t errlen) {
     memset(r, 0, sizeof *r);
@@ -1016,7 +1097,7 @@ static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, c
                 return -1;
             }
             const char *provider = jget_str(item, "provider");
-            if (provider && strcmp(provider, tny_provider_name(ctx)) != 0) {
+            if (!r->dag && provider && strcmp(provider, tny_provider_name(ctx)) != 0) {
                 safe_err(err, errlen,
                          "DAG worker provider must match the resolved job provider; submit a "
                          "separate job for another provider");
@@ -1051,12 +1132,12 @@ static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, c
         }
         r->n_items++;
     }
-    return 0;
+    return jobs_prepare_launches(ctx, r, err, errlen);
 }
 
-/* A retry replays the stored requests of exactly the selected items. Items
- * that are carried forward are placeholders: they are never validated against
- * a provider, never re-executed and keep their recorded artifacts. */
+/* Retry replays selected requests. Legacy batch carried items are placeholders;
+ * DAG carried items retain their requests so every provider scope can be checked
+ * before any spending. They are still never executed again. */
 static int jobs_request_parse_retry(tny_ctx *ctx, yyjson_val *args, jobs_request *r,
                                     const int *selected, int n_selected, char *err, size_t errlen) {
     memset(r, 0, sizeof *r);
@@ -1105,10 +1186,10 @@ static int jobs_request_parse_retry(tny_ctx *ctx, yyjson_val *args, jobs_request
         bool chosen = false;
         for (int k = 0; k < n_selected; k++)
             if (selected[k] == index) chosen = true;
-        r->items[index] = chosen ? item : NULL;
+        r->items[index] = chosen || r->dag ? item : NULL;
         r->outputs[index] = NULL;
         r->n_items = index + 1;
-        if (!chosen) continue;
+        if (!chosen && !r->dag) continue;
         if (r->image) {
             if (validate_image_item(ctx, item, &r->outputs[index], err, errlen) != 0) {
                 jobs_request_free(r);
@@ -1119,7 +1200,7 @@ static int jobs_request_parse_retry(tny_ctx *ctx, yyjson_val *args, jobs_request
             return -1;
         }
     }
-    return 0;
+    return jobs_prepare_launches(ctx, r, err, errlen);
 }
 
 /* ------------------------------------------------- permission detail string */
@@ -1146,6 +1227,14 @@ char *tny_jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, char **err
                     request.n_items, request.concurrency);
         buf_appendf(&d, " provider=%s", tny_provider_name(ctx));
         for (int i = 0; i < request.n_items; i++) {
+            if (request.launch[i]) {
+                tny::document selected(jparse(request.launch[i], strlen(request.launch[i])));
+                yyjson_val *launch = selected ? yyjson_doc_get_root(selected.get()) : NULL;
+                buf_appendf(&d, " item=%d provider=%s model=%s effort=%s", i,
+                            jget_str(launch, "provider"),
+                            jget_str(launch, "model") ? jget_str(launch, "model") : "default",
+                            jget_str(launch, "effort"));
+            }
             if (request.outputs[i]) buf_appendf(&d, " output=%s", request.outputs[i]);
             if (jget_bool(request.items[i], "overwrite", false)) buf_appends(&d, " overwrite");
             if (request.image && !jget_bool(request.items[i], "persist_manifest", true))
@@ -1734,9 +1823,16 @@ static void job_items_json(yyjson_mut_doc *doc, buf_t *out) {
         if (jm_bool(yyjson_mut_doc_get_root(doc), "dag", false)) {
             buf_appendf(out, ",\"task_id\":%d,\"attempt\":%lld", i,
                         (long long)jm_int(item, "attempt", 1));
-            static const char *const keys[] = {
-                "label",     "role", "verification", "definition_sha256", "dependency_sha256",
-                "depends_on"};
+            static const char *const keys[] = {"label",
+                                               "role",
+                                               "verification",
+                                               "definition_sha256",
+                                               "dependency_sha256",
+                                               "depends_on",
+                                               "provider",
+                                               "model",
+                                               "effort",
+                                               "execution_scope_sha256"};
             for (size_t k = 0; k < sizeof keys / sizeof keys[0]; k++) {
                 char *json = jwrite_mut_val(yyjson_mut_obj_get(item, keys[k]));
                 buf_appendf(out, ",\"%s\":%s", keys[k], json ? json : "null");
@@ -2003,6 +2099,34 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
                ctx->chatgpt_account_id ? ctx->chatgpt_account_id : getenv("CHATGPT_ACCOUNT_ID"));
     jm_set_str(doc, image, "codex_url", getenv("TNY_CODEX_BASE_URL"));
     yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "image"), image);
+    yyjson_mut_val *blocked_values = yyjson_mut_arr(doc);
+    if (!blocked_values ||
+        !yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "credential_fingerprints"),
+                            blocked_values)) {
+        yyjson_mut_doc_free(doc);
+        return NULL;
+    }
+    /* Carried siblings remain foreign to the relaunched child's environment. */
+    for (int i = 0; i < request->n_items; i++) {
+        if (!request->launch[i]) continue;
+        tny::document snapshot(jparse(request->launch[i], strlen(request->launch[i])));
+        yyjson_val *mapping = snapshot ? yyjson_doc_get_root(snapshot.get()) : NULL;
+        static const char *const keys[] = {"api_key", "token", "account", "base_url", "codex_url"};
+        if (!mapping) {
+            yyjson_mut_doc_free(doc);
+            return NULL;
+        }
+        for (size_t k = 0; k < sizeof keys / sizeof keys[0]; k++) {
+            const char *value = jget_str(mapping, keys[k]);
+            if (!value || !*value) continue;
+            tny::c_string hash(sha256_hex_of(value, strlen(value)));
+            if (!hash ||
+                !yyjson_mut_arr_append(blocked_values, yyjson_mut_strcpy(doc, hash.get()))) {
+                yyjson_mut_doc_free(doc);
+                return NULL;
+            }
+        }
+    }
     yyjson_mut_val *items = yyjson_mut_arr(doc);
     yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "items"), items);
     for (int i = 0; i < request->n_items; i++) {
@@ -2017,6 +2141,19 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
         jm_set_int(doc, item, "index", i);
         jm_set_str(doc, item, "prompt", jget_str(request->items[i], "prompt"));
         if (request->dag) {
+            tny::document selected(
+                request->launch[i] ? jparse(request->launch[i], strlen(request->launch[i])) : NULL);
+            if (!selected) {
+                yyjson_mut_doc_free(doc);
+                return NULL;
+            }
+            yyjson_mut_val *chat_copy =
+                yyjson_val_mut_copy(doc, yyjson_doc_get_root(selected.get()));
+            if (!chat_copy ||
+                !yyjson_mut_obj_put(item, yyjson_mut_strcpy(doc, "chat"), chat_copy)) {
+                yyjson_mut_doc_free(doc);
+                return NULL; /* never fall back to the parent's mapping after allocation failure */
+            }
             jm_set_str(doc, item, "workspace_policy", workspace_policy(request->items[i]));
             jm_set_str(doc, item, "workspace_base",
                        jget_str(jget(request->items[i], "workspace"), "base"));
@@ -2032,7 +2169,10 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
         if (request->outputs[i]) jm_set_str(doc, item, "output_file", request->outputs[i]);
         yyjson_mut_obj_put(item, yyjson_mut_strcpy(doc, "images"),
                            refs_copy(doc, jget(request->items[i], "images")));
-        yyjson_mut_arr_append(items, item);
+        if (!yyjson_mut_arr_append(items, item)) {
+            yyjson_mut_doc_free(doc);
+            return NULL;
+        }
     }
     char *json = jwrite(doc);
     yyjson_mut_doc_free(doc);
@@ -2120,6 +2260,129 @@ static char *jobs_execution_scope(tny_ctx *ctx) {
     buf_free(&b);
     tny_codex_creds_free(&credentials);
     return hash;
+}
+
+static yyjson_doc *jobs_copy_config(yyjson_doc *source) {
+    if (!source) return NULL;
+    char *text = jwrite_val(yyjson_doc_get_root(source));
+    yyjson_doc *copy = text ? jparse(text, strlen(text)) : NULL;
+    secure_free(text);
+    return copy;
+}
+
+static bool jobs_snapshot_matches(yyjson_mut_val *root, const char *key, const char *expected) {
+    const char *actual = jm_str(root, key);
+    return expected ? actual && strcmp(actual, expected) == 0
+                    : yyjson_mut_is_null(yyjson_mut_obj_get(root, key));
+}
+
+static char *jobs_item_launch_snapshot(tny_ctx *parent, yyjson_val *item, char *err,
+                                       size_t errlen) {
+    std::unique_ptr<tny_ctx, decltype(&tny_ctx_free)> fresh(nullptr, tny_ctx_free);
+    tny_ctx *ctx = parent;
+    const char *selector = jget_str(item, "provider");
+    if (selector) {
+        fresh.reset(tny_ctx_new_explicit(parent->cwd, parent->tny_dir));
+        if (!fresh) return NULL;
+        ctx = fresh.get();
+        ctx->settings = jobs_copy_config(parent->settings);
+        ctx->repo_cfg = jobs_copy_config(parent->repo_cfg);
+        if ((parent->settings && !ctx->settings) || (parent->repo_cfg && !ctx->repo_cfg))
+            return NULL;
+        /* Copy authority only, never the parent's selected provider overrides.
+         * This explicit context has no extension process or provider host. */
+        ctx->perm_mode = parent->perm_mode;
+        ctx->tool_profile = parent->tool_profile;
+        ctx->max_steps = parent->max_steps;
+        ctx->workspace_read_only = parent->workspace_read_only;
+        ctx->context_enabled = parent->context_enabled;
+        ctx->extensions_enabled = parent->extensions_enabled;
+        ctx->max_extension_iterations = parent->max_extension_iterations;
+        ctx->mcp_disabled = parent->mcp_disabled;
+        ctx->mcp_import_mask = parent->mcp_import_mask;
+        ctx->max_tool_result_bytes = parent->max_tool_result_bytes;
+        /* Match the ordinary resolver's environment-effort precedence, not
+         * the parent's retained command-line effort. */
+        const char *env_effort = getenv("TNY_REASONING_EFFORT");
+        if (env_effort && *env_effort) ctx->reasoning_effort = xstrdup(env_effort);
+        if (tny_resolve_backend(ctx, selector) != TNY_BK_OPENAI ||
+            strcmp(tny_provider_name(ctx), selector) != 0) {
+            safe_err(err, errlen, "item.provider did not resolve to a supported native profile");
+            return NULL;
+        }
+        bool codex = strcmp(selector, "codex") == 0;
+        if (!ctx->api_key || !*ctx->api_key || !ctx->base_url || !*ctx->base_url ||
+            !ctx->auth_header_name || strcmp(ctx->auth_header_name, "Authorization") != 0 ||
+            !ctx->auth_header_prefix || strcmp(ctx->auth_header_prefix, "Bearer ") != 0 ||
+            ctx->max_tokens_field || ctx->output_schema ||
+            (ctx->service_tier && strcmp(ctx->service_tier, "default") != 0) ||
+            (!codex && ctx->extra_headers && ctx->extra_headers[0])) {
+            safe_err(err, errlen,
+                     "explicit item.provider needs its own credential and standard Bearer routing; "
+                     "custom routing/tier overrides cannot be frozen by this child CLI");
+            return NULL;
+        }
+    }
+    const char *model = jget_str(item, "model");
+    if (!model) model = ctx->model;
+    const char *effort = jget_str(item, "effort");
+    if (!effort) effort = ctx->reasoning_effort;
+    if (selector && (!model || !*model)) {
+        safe_err(err, errlen, "explicit item.provider needs a resolved model or item.model");
+        return NULL;
+    }
+    tny::mutable_document doc(yyjson_mut_doc_new(jallocator()));
+    yyjson_mut_val *root = doc ? yyjson_mut_obj(doc.get()) : NULL;
+    if (!root) return NULL;
+    yyjson_mut_doc_set_root(doc.get(), root);
+    jm_set_str(doc.get(), root, "provider", tny_provider_name(ctx));
+    jm_set_str(doc.get(), root, "model", model);
+    jm_set_str(doc.get(), root, "effort", effort ? effort : "default");
+    jm_set_str(doc.get(), root, "api_key", ctx->api_key);
+    jm_set_str(doc.get(), root, "base_url", ctx->base_url);
+    jm_set_str(doc.get(), root, "wire_api", tny_wire_is_chat(ctx->wire_api) ? "chat" : "responses");
+    bool codex = strcmp(tny_provider_name(ctx), "codex") == 0;
+    jm_set_bool(doc.get(), root, "codex", codex);
+    if (codex) {
+        tny_codex_creds credentials{};
+        int rc = tny_codex_credentials(ctx, &credentials);
+        if (rc) {
+            tny_codex_creds_free(&credentials);
+            return NULL;
+        }
+        jm_set_str(doc.get(), root, "token", credentials.access_token);
+        jm_set_str(doc.get(), root, "account", credentials.account_id);
+        jm_set_str(doc.get(), root, "codex_url", ctx->base_url);
+        bool complete = jobs_snapshot_matches(root, "token", credentials.access_token) &&
+                        jobs_snapshot_matches(root, "account", credentials.account_id) &&
+                        jobs_snapshot_matches(root, "codex_url", ctx->base_url);
+        tny_codex_creds_free(&credentials);
+        if (!complete) return NULL;
+    }
+    tny::c_string scope(jobs_execution_scope(ctx));
+    if (!scope) return NULL;
+    buf_t input;
+    buf_init(&input);
+    execution_scope_part(&input, scope.get());
+    execution_scope_part(&input, model);
+    execution_scope_part(&input, effort);
+    char *digest = buf_oom(&input) ? NULL : sha256_hex_of(input.data, input.len);
+    buf_free(&input);
+    if (!digest) return NULL;
+    jm_set_str(doc.get(), root, "provider_scope_sha256", scope.get());
+    jm_set_str(doc.get(), root, "scope_sha256", digest);
+    bool complete = jobs_snapshot_matches(root, "provider", tny_provider_name(ctx)) &&
+                    jobs_snapshot_matches(root, "model", model) &&
+                    jobs_snapshot_matches(root, "effort", effort ? effort : "default") &&
+                    jobs_snapshot_matches(root, "api_key", ctx->api_key) &&
+                    jobs_snapshot_matches(root, "base_url", ctx->base_url) &&
+                    jobs_snapshot_matches(root, "wire_api",
+                                          tny_wire_is_chat(ctx->wire_api) ? "chat" : "responses") &&
+                    jobs_snapshot_matches(root, "provider_scope_sha256", scope.get()) &&
+                    jobs_snapshot_matches(root, "scope_sha256", digest) &&
+                    yyjson_mut_is_bool(yyjson_mut_obj_get(root, "codex"));
+    free(digest);
+    return complete ? jwrite(doc.get()) : NULL;
 }
 
 /* Git runs only outside state.lock. Unknown/dirty workspaces can execute but
@@ -2257,6 +2520,18 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
         jm_set_int(doc, item, "index", i);
         if (request->dag) {
             jm_set_int(doc, item, "task_id", i);
+            tny::document snapshot(
+                request->launch[i] ? jparse(request->launch[i], strlen(request->launch[i])) : NULL);
+            yyjson_val *launch = snapshot ? yyjson_doc_get_root(snapshot.get()) : NULL;
+            if (!launch) {
+                free(now);
+                yyjson_mut_doc_free(doc);
+                return NULL;
+            }
+            jm_set_str(doc, item, "provider", jget_str(launch, "provider"));
+            jm_set_str(doc, item, "model", jget_str(launch, "model"));
+            jm_set_str(doc, item, "effort", jget_str(launch, "effort"));
+            jm_set_str(doc, item, "execution_scope_sha256", jget_str(launch, "scope_sha256"));
             jm_set_str(doc, item, "workspace_policy", workspace_policy(request->items[i]));
             jm_set_str(doc, item, "workspace_preparation", "not_started");
             jm_set_null(doc, item, "mailbox_capability_sha256");
@@ -2300,6 +2575,8 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
         if (persist) {
             yyjson_mut_val *stored = yyjson_mut_obj(doc);
             jm_set_str(doc, stored, "prompt", jget_str(request->items[i], "prompt"));
+            if (request->dag && jget_str(request->items[i], "provider"))
+                jm_set_str(doc, stored, "provider", jget_str(request->items[i], "provider"));
             if (request->dag) {
                 yyjson_mut_val *ws = yyjson_mut_obj(doc);
                 jm_set_str(doc, ws, "policy", workspace_policy(request->items[i]));
@@ -3118,8 +3395,8 @@ static char *retry_request_json(yyjson_mut_doc *doc, const int *selected, int n,
         for (int k = 0; k < n; k++)
             if (selected[k] == i) chosen = true;
         if (i) buf_appends(&b, ",");
-        if (!chosen) {
-            /* Placeholder for a carried item: never re-executed, so its
+        if (!chosen && !jm_bool(root, "dag", false)) {
+            /* Placeholder for a carried batch item: never re-executed, so its
              * request body is irrelevant, but the index must line up. */
             buf_appends(&b, "{\"carried\":true}");
             continue;
@@ -3366,6 +3643,27 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
             goto invalid;
         }
 
+        if (jm_bool(root, "dag", false)) {
+            for (int i = 0; i < count; i++) {
+                const char *expected = jm_str(jm_item(doc, i), "execution_scope_sha256");
+                if (!expected && !jget_str(request.items[i], "provider"))
+                    continue; /* legacy homogeneous DAG */
+                tny::document selected(request.launch[i]
+                                           ? jparse(request.launch[i], strlen(request.launch[i]))
+                                           : NULL);
+                const char *actual =
+                    selected ? jget_str(yyjson_doc_get_root(selected.get()), "scope_sha256") : NULL;
+                if (!expected || !actual || strcmp(expected, actual) != 0) {
+                    jobs_request_free(&request);
+                    yyjson_doc_free(parsed);
+                    free(owner_path);
+                    safe_err(err, errlen,
+                             "item_execution_scope_changed: worker "
+                             "provider/account/endpoint/model/effort changed; no work started");
+                    goto invalid;
+                }
+            }
+        }
         int attempt = base_attempt + 1;
         /* One transaction resets the new attempt's controls: cancellation, timing,
          * errors and exit codes of the selected items only. Old attempt controls
@@ -3887,9 +4185,38 @@ bool tny_jobs_env_entry_is_foreign(const char *entry, bool image, bool chat_code
 /* The child's environment: private credential carriers and the parent-watch
  * value only. Nothing secret reaches argv, the job directory or a log, and no
  * inherited carrier of the other kind survives (A14). */
+static bool jobs_private_payload_value(yyjson_val *payload, const char *value) {
+    if (!value || !*value) return false;
+    static const char *const fields[] = {"api_key", "cursor_key", "token",
+                                         "account", "base_url",   "codex_url"};
+    yyjson_val *items = jget(payload, "items");
+    size_t count = yyjson_arr_size(items);
+    for (size_t i = 0; i < count + 2; i++) {
+        yyjson_val *mapping = i == 0   ? jget(payload, "chat")
+                              : i == 1 ? jget(payload, "image")
+                                       : jget(yyjson_arr_get(items, i - 2), "chat");
+        for (size_t k = 0; k < sizeof fields / sizeof fields[0]; k++) {
+            const char *secret = jget_str(mapping, fields[k]);
+            if (secret && *secret && strcmp(secret, value) == 0) return true;
+        }
+    }
+    yyjson_val *fingerprints = jget(payload, "credential_fingerprints");
+    if (yyjson_arr_size(fingerprints)) {
+        tny::c_string hash(sha256_hex_of(value, strlen(value)));
+        if (!hash) return true; /* allocation failure cannot expose a private value */
+        size_t i, max;
+        yyjson_val *fingerprint;
+        yyjson_arr_foreach(fingerprints, i, max, fingerprint) {
+            const char *expected = yyjson_get_str(fingerprint);
+            if (expected && strcmp(expected, hash.get()) == 0) return true;
+        }
+    }
+    return false;
+}
+
 static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *slot, bool image,
                                char ***owned_out, int *n_owned) {
-    yyjson_val *chat = jget(payload, "chat");
+    yyjson_val *chat = jget(item, "chat") ? jget(item, "chat") : jget(payload, "chat");
     yyjson_val *image_creds = jget(payload, "image");
     bool chat_codex = jget_bool(chat, "codex", false);
     const char *api_key = image ? NULL : jget_str(chat, "api_key");
@@ -3973,6 +4300,8 @@ static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *
         yyjson_val *key, *value;
         yyjson_obj_foreach(declared, i, max, key, value) {
             if (!yyjson_is_str(value) || jobs_private_field(yyjson_get_str(key)) ||
+                (jget(item, "chat") &&
+                 jobs_private_payload_value(payload, yyjson_get_str(value))) ||
                 tny_process_scope_env_reserved(yyjson_get_str(key)))
                 continue;
             buf_init(&entry);
@@ -4011,6 +4340,8 @@ static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *
                                  jget_str(image_creds, "codex_url")};
         for (size_t k = 0; value && k < sizeof secrets / sizeof secrets[0]; k++)
             if (secrets[k] && *secrets[k] && strcmp(value + 1, secrets[k]) == 0) skip = true;
+        if (value && jget(item, "chat") && jobs_private_payload_value(payload, value + 1))
+            skip = true;
         /* A carrier this item legitimately uses is still replaced by the
          * resolved value, never shadowed by the caller's ambient one. */
         if (token && env_name_is(environ[i], "CHATGPT_ACCESS_TOKEN")) skip = true;
@@ -4041,7 +4372,7 @@ static int worker_build_argv(yyjson_val *payload, yyjson_val *item, const char *
     int n = 0;
     const char *self = jget_str(payload, "self");
     const char *cwd = prepared_cwd ? prepared_cwd : jget_str(payload, "cwd");
-    yyjson_val *chat = jget(payload, "chat");
+    yyjson_val *chat = jget(item, "chat") ? jget(item, "chat") : jget(payload, "chat");
     if (!self || !cwd || cap < 24) return -1;
     argv[n++] = (char *)self;
     argv[n++] = (char *)"--cwd";
@@ -4077,7 +4408,8 @@ static int worker_build_argv(yyjson_val *payload, yyjson_val *item, const char *
         argv[n] = NULL;
         return jget_str(item, "output_file") ? 0 : -1;
     }
-    const char *provider = jget_str(payload, "provider");
+    const char *provider =
+        jget_str(chat, "provider") ? jget_str(chat, "provider") : jget_str(payload, "provider");
     if (provider) {
         argv[n++] = (char *)"--provider";
         argv[n++] = (char *)provider;

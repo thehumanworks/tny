@@ -121,6 +121,10 @@ int tny_jobs_run_cancel(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *o
  * enrolls that same item attempt, never a second execution authority. Child
  * membership bearers travel only in owned environment storage; job records
  * contain the SHA256 verifier. max_steps remains an inherited launch ceiling.
+ * DAG item.provider resolves a bounded native profile into an owned private
+ * snapshot before execution state. Status exposes public per-item selectors;
+ * retry checks all per-item scopes, including carried successes. Explicit
+ * selection never inherits the parent's retained provider credential overrides.
  * See docs/jobs.md for public aliases, cleanup holds and platform limitations. */
 int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, char *err,
                          size_t errlen, bool (*cancelled)(void *), void *cancel_ud,

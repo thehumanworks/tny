@@ -980,7 +980,7 @@ class JobsDAG(JobsFixture):
             ([{"prompt": "x", "depends_on": [1.0]}, {"prompt": "y"}], {}),
             ([{"prompt": "x", "depends_on": [True]}, {"prompt": "y"}], {}),
             ([{"prompt": "x", "role": "admin"}], {}),
-            ([{"prompt": "x", "provider": "codex"}], {}),
+            ([{"prompt": "x", "provider": "cursor"}], {}),
             ([{"prompt": "x", "persist_request": False}], {}),
             ([{"prompt": "x", "depends_on": []}], {"dag": False}),
             ([{"prompt": "x"}], {"dag": "true"}),
@@ -2052,6 +2052,521 @@ class JobsSoftBudget(JobsDAG):
             self.assertEqual(run.returncode, 1)
             self.assertEqual(self.job_dirs(), [])
             self.assertEqual(self.ask_requests(), [])
+
+
+class JobsProviderSelection(JobsDAG):
+    def setUp(self):
+        super().setUp()
+        self.secondary = QuietServer(("127.0.0.1", 0), Handler)
+        self.secondary.state = dict(
+            self.state,
+            requests=[],
+            bodies=[],
+            headers=[],
+            active=0,
+            peak=0,
+            dag_entered=threading.Event(),
+            dag_release=threading.Event(),
+        )
+        self.secondary.lock = threading.Lock()
+        threading.Thread(target=self.secondary.serve_forever, daemon=True).start()
+        self.settings_file = self.home / ".tny" / "settings.json"
+        self.settings_file.parent.mkdir(exist_ok=True)
+        self.config = {
+            "alpha": {
+                "base_url": self.env["OPENAI_BASE_URL"],
+                "api_key_env": "ALPHA_KEY",
+                "model": "alpha-model",
+                "wire_api": "chat",
+            },
+            "beta": {
+                "base_url": f"http://127.0.0.1:{self.secondary.server_port}/v1",
+                "api_key_env": "BETA_KEY",
+                "model": "beta-model",
+                "wire_api": "chat",
+            },
+            "effort": {"alpha": "low", "beta": "high"},
+        }
+        self.settings_file.write_text(json.dumps(self.config))
+        self.env.update(ALPHA_KEY="fixture-alpha-key", BETA_KEY="fixture-beta-key")
+
+    def tearDown(self):
+        self.secondary.state["dag_release"].set()
+        super().tearDown()
+        self.secondary.shutdown()
+        self.secondary.server_close()
+
+    def all_requests(self):
+        return len(self.ask_requests()) + len(self.secondary.state["requests"])
+
+    def test_per_item_endpoints_credentials_defaults_and_parent_unchanged(self):
+        request = dict(
+            kind="ask",
+            dag=True,
+            concurrency=3,
+            items=[
+                {"prompt": "alpha worker", "provider": "alpha"},
+                {
+                    "prompt": "beta worker",
+                    "provider": "beta",
+                    "model": "beta-override",
+                    "effort": "medium",
+                },
+                {"prompt": "parent worker"},
+            ],
+        )
+        env = dict(self.env, ROOT_OVERRIDE="fixture-parent-override")
+        before = dict(env)
+        run = self.run_tny(
+            "--api-key-env",
+            "ROOT_OVERRIDE",
+            "--model",
+            "parent-model",
+            "--effort",
+            "high",
+            "jobs",
+            "submit",
+            "batch",
+            "--json",
+            env=env,
+            stdin=json.dumps(request).encode(),
+        )
+        record = self.await_terminal(json.loads(run.stdout)["id"])
+        self.assertEqual(record["state"], "succeeded", record)
+        self.assertEqual(env, before)
+        self.assertEqual(
+            (record["provider"], record["model"], record["effort"]),
+            ("openai", "parent-model", "high"),
+        )
+        self.assertEqual(
+            [(i["provider"], i["model"], i["effort"]) for i in record["items"]],
+            [
+                ("alpha", "alpha-model", "low"),
+                ("beta", "beta-override", "medium"),
+                ("openai", "parent-model", "high"),
+            ],
+        )
+        primary = {
+            prompt: next(
+                h["authorization"]
+                for h in self.state["headers"]
+                if h["prompt"].startswith(prompt)
+            )
+            for prompt in ("alpha worker", "parent worker")
+        }
+        self.assertEqual(primary["alpha worker"], "Bearer fixture-alpha-key")
+        self.assertEqual(primary["parent worker"], "Bearer fixture-parent-override")
+        self.assertEqual(
+            self.secondary.state["headers"][0]["authorization"],
+            "Bearer fixture-beta-key",
+        )
+        self.assertEqual(self.secondary.state["bodies"][0]["model"], "beta-override")
+        self.assertEqual(
+            self.secondary.state["bodies"][0]["reasoning_effort"], "medium"
+        )
+        body = next(b for b in self.state["bodies"] if b["model"] == "alpha-model")
+        self.assertEqual(body["reasoning_effort"], "low")
+        raw = Path(record["metadata_path"]).read_text()
+        self.assertEqual(json.loads(raw)["items"][1]["request"]["provider"], "beta")
+        for item in record["items"]:
+            self.assertEqual(len(item["execution_scope_sha256"]), 64)
+        for secret in (
+            API_KEY,
+            env["ROOT_OVERRIDE"],
+            self.env["ALPHA_KEY"],
+            self.env["BETA_KEY"],
+        ):
+            self.assertNotIn(secret, raw)
+            self.assertNotIn(secret, json.dumps(record))
+            for item in record["items"]:
+                self.assertNotIn(secret, Path(item["log_path"]).read_text())
+
+    def write_settings(self, permission):
+        config = dict(self.config, permission=permission)
+        self.settings_file.write_text(json.dumps(config))
+
+    def test_permission_detail_discloses_public_effective_selectors_only(self):
+        run = JobsPermissions.ask_with_tool(
+            self,
+            "job_submit",
+            {
+                "kind": "ask",
+                "dag": True,
+                "items": [
+                    {"prompt": "alpha", "provider": "alpha"},
+                    {
+                        "prompt": "beta",
+                        "provider": "beta",
+                        "model": "override",
+                        "effort": "medium",
+                    },
+                ],
+            },
+            {"job_status": "allow"},
+        )
+        detail = run.stderr.decode()
+        self.assertIn("item=0 provider=alpha model=alpha-model effort=low", detail)
+        self.assertIn("item=1 provider=beta model=override effort=medium", detail)
+        for secret in (API_KEY, self.env["ALPHA_KEY"], self.env["BETA_KEY"]):
+            self.assertNotIn(secret, detail)
+        self.assertEqual(self.job_dirs(), [])
+        self.assertEqual(self.secondary.state["requests"], [])
+
+    def test_explicit_profiles_do_not_retain_parent_wire_or_endpoint_overrides(self):
+        request = dict(
+            kind="ask",
+            dag=True,
+            items=[
+                {"prompt": "alpha independent", "provider": "alpha"},
+                {"prompt": "beta independent", "provider": "beta"},
+            ],
+        )
+        run = self.run_tny(
+            "--wire-api",
+            "responses",
+            "--base-url",
+            "http://127.0.0.1:1/unused",
+            "--model",
+            "parent-only",
+            "--effort",
+            "high",
+            "jobs",
+            "submit",
+            "batch",
+            "--json",
+            stdin=json.dumps(request).encode(),
+        )
+        record = self.await_terminal(json.loads(run.stdout)["id"])
+        self.assertEqual(record["state"], "succeeded", record)
+        self.assertEqual(record["model"], "parent-only")
+        self.assertEqual(self.state["bodies"][0]["model"], "alpha-model")
+        self.assertEqual(self.state["bodies"][0]["reasoning_effort"], "low")
+        self.assertTrue(
+            all(
+                h["path"].endswith("/chat/completions")
+                for h in self.state["headers"] + self.secondary.state["headers"]
+            )
+        )
+
+    def test_homogeneous_explicit_admission_and_account_override_refusal(self):
+        request = dict(
+            kind="ask",
+            dag=True,
+            admission=dict(
+                label="same", provider_scope="public", cap=2, queue_cap=8, claim_limit=8
+            ),
+            items=[
+                {"prompt": "first", "provider": "openai"},
+                {"prompt": "second", "provider": "openai"},
+            ],
+        )
+        env = dict(self.env, ROOT_OVERRIDE="fixture-different-parent-account")
+        refused = self.run_tny(
+            "--api-key-env",
+            "ROOT_OVERRIDE",
+            "jobs",
+            "submit",
+            "batch",
+            "--json",
+            env=env,
+            stdin=json.dumps(request).encode(),
+            check=False,
+        )
+        self.assertEqual(refused.returncode, 1)
+        self.assertEqual(self.job_dirs(), [])
+        self.assertEqual(self.all_requests(), 0)
+        run, payload = self.submit("batch", stdin=json.dumps(request).encode())
+        record = self.await_terminal(payload["id"])
+        self.assertEqual(record["state"], "succeeded", record)
+        self.assertEqual(self.all_requests(), 2)
+
+    def test_selected_child_environment_never_contains_root_or_sibling_keys(self):
+        import shlex
+
+        script = (
+            "import os,json; names=['TNY_JOB_API_KEY','OPENAI_API_KEY','ALPHA_KEY','BETA_KEY',"
+            "'CHATGPT_ACCESS_TOKEN','ROOT_ALIAS','LANG','TNY_TOOLS']; "
+            "json.dump({k:os.getenv(k) for k in names},open("
+            + repr(str(self.home / "env-"))
+            + "+os.environ['TNY_TEAM_TASK']+'.json','w'))"
+        )
+        command = "python3 -c " + shlex.quote(script)
+        self.state["envdump"] = command
+        self.secondary.state["envdump"] = command
+        self.config["jobs"] = {"ask_env": ["ROOT_ALIAS"]}
+        self.settings_file.write_text(json.dumps(self.config))
+        env = dict(
+            self.env,
+            ROOT_ALIAS=API_KEY,
+            LANG=self.env["BETA_KEY"],
+            TNY_TOOLS="terminal",
+        )
+        request = dict(
+            kind="ask",
+            dag=True,
+            items=[
+                {
+                    "prompt": "ENVDUMP DAG_BARRIER first",
+                    "provider": "alpha",
+                    "workspace": {"policy": "shared_writable"},
+                },
+                {
+                    "prompt": "ENVDUMP DAG_BARRIER second",
+                    "provider": "beta",
+                    "workspace": {"policy": "shared_writable"},
+                },
+            ],
+        )
+        run = self.run_tny(
+            "jobs",
+            "submit",
+            "batch",
+            "--json",
+            env=env,
+            stdin=json.dumps(request).encode(),
+        )
+        job_id = json.loads(run.stdout)["id"]
+        self.assertTrue(self.state["dag_entered"].wait(30))
+        self.assertTrue(self.secondary.state["dag_entered"].wait(30))
+        for index, key in enumerate((self.env["ALPHA_KEY"], self.env["BETA_KEY"])):
+            values = json.loads((self.home / f"env-{index}.json").read_text())
+            self.assertEqual(values.pop("TNY_JOB_API_KEY"), key)
+            self.assertEqual(values.pop("TNY_TOOLS"), "terminal")
+            self.assertTrue(
+                all(value is None for value in values.values()),
+                "foreign credential carrier reached child",
+            )
+        argv = "\n".join(pids_argv(self.home.name))
+        for secret in (API_KEY, self.env["ALPHA_KEY"], self.env["BETA_KEY"]):
+            self.assertNotIn(secret, argv)
+        self.state["dag_release"].set()
+        self.secondary.state["dag_release"].set()
+        self.assertEqual(self.await_terminal(job_id)["state"], "succeeded")
+
+    def test_unknown_host_mixed_admission_and_nonportable_ceilings_refuse_without_spend(
+        self,
+    ):
+        cases = [
+            (
+                [
+                    {"prompt": "valid", "provider": "alpha"},
+                    {"prompt": "invalid", "provider": "unknown_profile"},
+                ],
+                {},
+            ),
+            ([{"prompt": "host", "provider": "cursor"}], {}),
+            ([{"prompt": "host", "provider": "acp"}], {}),
+            (
+                [
+                    {
+                        "prompt": "isolated",
+                        "provider": "alpha",
+                        "workspace": {"policy": "isolated"},
+                    }
+                ],
+                {},
+            ),
+            (
+                [{"prompt": "mixed", "provider": "beta"}],
+                {
+                    "admission": dict(
+                        label="mixed",
+                        provider_scope="public",
+                        cap=2,
+                        queue_cap=8,
+                        claim_limit=8,
+                    )
+                },
+            ),
+        ]
+        for items, extra in cases:
+            run, _ = self.dag_submit(items, **extra)
+            self.assertEqual(run.returncode, 1)
+            self.assertEqual(self.job_dirs(), [])
+            self.assertEqual(self.all_requests(), 0)
+            self.assertFalse((self.home / ".tny" / "admission").exists())
+            self.assertFalse((self.workspace / ".git" / "worktrees").exists())
+        env_only = dict(
+            self.env,
+            ENV_ONLY_BASE_URL=self.env["OPENAI_BASE_URL"],
+            ENV_ONLY_API_KEY="fixture-env-only-key",
+            ENV_ONLY_DEFAULT_MODEL="env-only-model",
+        )
+        request = dict(
+            kind="ask", dag=True, items=[{"prompt": "env-only", "provider": "env_only"}]
+        )
+        refused = self.run_tny(
+            "jobs",
+            "submit",
+            "batch",
+            "--json",
+            env=env_only,
+            stdin=json.dumps(request).encode(),
+            check=False,
+        )
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn(b"settings-backed", refused.stderr)
+        self.assertEqual(self.job_dirs(), [])
+        self.assertEqual(self.all_requests(), 0)
+        self.config["beta"]["auth_header_name"] = "X-Custom-Key"
+        self.settings_file.write_text(json.dumps(self.config))
+        run, _ = self.dag_submit([{"prompt": "custom routing", "provider": "beta"}])
+        self.assertEqual(run.returncode, 1)
+        self.assertEqual(self.job_dirs(), [])
+        self.assertEqual(self.all_requests(), 0)
+        (self.workspace / ".tny.json").write_text(json.dumps({"sandbox": "os"}))
+        run, _ = self.dag_submit(
+            [{"prompt": "must not widen sandbox", "provider": "alpha"}]
+        )
+        self.assertEqual(run.returncode, 1)
+        self.assertEqual(self.job_dirs(), [])
+
+    def test_retry_does_not_lend_a_carried_siblings_credential_alias(self):
+        import shlex
+
+        dump = self.home / "retry-env.json"
+        self.state["envdump"] = "python3 -c " + shlex.quote(
+            "import os,json; json.dump({'LANG':os.getenv('LANG'),'own':os.getenv('TNY_JOB_API_KEY')},open("
+            + repr(str(dump))
+            + ",'w'))"
+        )
+        env = dict(self.env, LANG=self.env["BETA_KEY"])
+        request = dict(
+            kind="ask",
+            dag=True,
+            items=[
+                {"prompt": "keeper", "provider": "beta"},
+                {
+                    "prompt": "FAIL ENVDUMP retry",
+                    "provider": "alpha",
+                    "workspace": {"policy": "shared_writable"},
+                },
+            ],
+        )
+        run = self.run_tny(
+            "jobs",
+            "submit",
+            "batch",
+            "--json",
+            env=env,
+            stdin=json.dumps(request).encode(),
+        )
+        job_id = json.loads(run.stdout)["id"]
+        first = self.await_terminal(job_id)
+        self.assertEqual([i["state"] for i in first["items"]], ["succeeded", "failed"])
+        self.state["fail_ask"] = False
+        self.run_tny("jobs", "retry", job_id, "--json", env=env)
+        final = self.await_terminal(job_id)
+        self.assertEqual(final["state"], "succeeded", final)
+        captured = json.loads(dump.read_text())
+        self.assertIsNone(captured["LANG"])
+        self.assertEqual(captured["own"], self.env["ALPHA_KEY"])
+        self.assertEqual(len(self.secondary.state["requests"]), 1)
+
+    def test_permission_tool_and_step_ceilings_are_parent_owned(self):
+        request = dict(
+            kind="ask",
+            dag=True,
+            items=[{"prompt": "DAG_BARRIER ceiling", "provider": "beta"}],
+        )
+        run = self.run_tny(
+            "--permission-mode",
+            "auto",
+            "--max-steps",
+            "3",
+            "jobs",
+            "submit",
+            "batch",
+            "--json",
+            env=dict(self.env, TNY_TOOLS="terminal"),
+            stdin=json.dumps(request).encode(),
+        )
+        job_id = json.loads(run.stdout)["id"]
+        self.assertTrue(self.secondary.state["dag_entered"].wait(30))
+        record = self.status(job_id)
+        self.assertEqual(
+            (record["permission_ceiling"], record["tool_ceiling"], record["max_steps"]),
+            ("auto", "terminal", 3),
+        )
+        argv = "\n".join(pids_argv(self.home.name, "--events=jsonl"))
+        self.assertIn("--permission-mode auto", argv)
+        self.assertIn("--max-steps 3", argv)
+        self.assertIn("--provider beta", argv)
+        self.secondary.state["dag_release"].set()
+        self.assertEqual(self.await_terminal(job_id)["state"], "succeeded")
+
+    def test_changed_carried_secondary_scope_blocks_retry_before_any_request(self):
+        run, payload = self.dag_submit(
+            [
+                {"prompt": "keeper", "provider": "beta"},
+                {"prompt": "FAIL retry", "provider": "alpha"},
+            ]
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        job_id = payload["id"]
+        first = self.await_terminal(job_id)
+        self.assertEqual([i["state"] for i in first["items"]], ["succeeded", "failed"])
+        before = self.all_requests()
+        original = self.settings_file.read_bytes()
+        for field, value in (
+            ("base_url", self.env["OPENAI_BASE_URL"] + "/changed"),
+            ("api_key_env", "OTHER_BETA_KEY"),
+        ):
+            config = json.loads(original)
+            config["beta"][field] = value
+            self.settings_file.write_text(json.dumps(config))
+            run = self.run_tny(
+                "jobs",
+                "retry",
+                job_id,
+                "--json",
+                env=dict(self.env, OTHER_BETA_KEY="changed-secondary-key"),
+                check=False,
+            )
+            self.assertEqual(run.returncode, 1)
+            self.assertIn(b"item_execution_scope_changed", run.stderr)
+            self.assertEqual(self.all_requests(), before)
+        self.settings_file.write_bytes(original)
+        self.state["fail_ask"] = False
+        self.run_tny("jobs", "retry", job_id, "--json")
+        final = self.await_terminal(job_id)
+        self.assertEqual(final["state"], "succeeded", final)
+        self.assertEqual(len(self.secondary.state["requests"]), 1)
+        self.assertEqual(final["items"][0]["carried_from_attempt"], 1)
+
+    def test_explicit_codex_is_independent_and_changed_account_is_fenced(self):
+        run, payload = self.dag_submit(
+            [
+                {
+                    "prompt": "codex keeper",
+                    "provider": "codex",
+                    "model": "codex-worker",
+                },
+                {"prompt": "FAIL alpha", "provider": "alpha"},
+            ]
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        job_id = payload["id"]
+        record = self.await_terminal(job_id)
+        self.assertEqual(record["items"][0]["state"], "succeeded", record)
+        codex = next(h for h in self.state["headers"] if h["kind"] == "codex-chat")
+        self.assertEqual(
+            (codex["authorization"], codex["account"]), (f"Bearer {TOKEN}", ACCOUNT)
+        )
+        self.assertEqual(record["items"][0]["provider"], "codex")
+        self.assertEqual(record["items"][0]["model"], "codex-worker")
+        before = self.all_requests()
+        run = self.run_tny(
+            "jobs",
+            "retry",
+            job_id,
+            "--json",
+            env=dict(self.env, CHATGPT_ACCOUNT_ID="other-account"),
+            check=False,
+        )
+        self.assertEqual(run.returncode, 1)
+        self.assertIn(b"item_execution_scope_changed", run.stderr)
+        self.assertEqual(self.all_requests(), before)
 
 
 class JobsConcurrency(JobsFixture):
