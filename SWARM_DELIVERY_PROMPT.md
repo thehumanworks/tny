@@ -204,6 +204,17 @@ only launched. Use the same cwd to launch and collect. A wait timeout does not
 cancel the worker. Inspect/retry waiting, or explicitly stop only the session you
 own. Do not leave untracked background workers running at handoff.
 
+For background builds/tests, use a terminal-state/exit-status API or publish an
+explicit exit-code file from the command wrapper. Use a unique private path and
+atomic publication, including on nonzero exit; missing status is not success.
+Use `wait` only for children of the current shell. Never poll completion with
+`kill -0`: exited zombies and reused PIDs can still pass it. Bound waits by a
+deadline. After any timeout, inspect status, log progress and process state
+before deciding to wait again; do not repeat an unchanged PID-only loop. A `Z`
+process has exited, but its exit code still needs an authoritative result.
+Retain check evidence so losing a waiter does not cause blind reruns; required
+gates remain mandatory.
+
 While workers run, finish nonoverlapping code, review, fixtures or integration
 work. Read their diffs and evidence before accepting results. A worker report
 alone is not a test result; run integration checks on the assembled candidate.
